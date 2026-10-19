@@ -58,6 +58,8 @@ final class EngineMessageTerms
     'map.small' => ['default' => 'Enlarge the window to read the map.', 'placeholders' => [], 'description' => 'The map viewport is too small to read.'],
     'map.unavailable' => ['default' => 'Map unavailable.', 'placeholders' => [], 'description' => 'The active map has no installed overview.'],
     'map.legend' => ['default' => 'Legend', 'placeholders' => [], 'description' => 'Heading for the active map landmark list.'],
+    'map.objective' => ['default' => 'Objective', 'placeholders' => [], 'description' => 'Map legend entry for a current quest objective.'],
+    'map.objective_route' => ['default' => 'Way to objective', 'placeholders' => [], 'description' => 'Map legend entry for the exit leading toward an objective on another map.'],
     'map.unknown' => ['default' => 'Unknown location', 'placeholders' => [], 'description' => 'An unnamed known connection under the map cursor.'],
     'map.here' => ['default' => 'You are here', 'placeholders' => [], 'description' => 'The focused map location contains the player.'],
     'map.focus' => ['default' => 'Focus location', 'placeholders' => [], 'description' => 'Move the map cursor between visible locations.'],

@@ -4,6 +4,16 @@
 
 ### Added
 
+- Objective waymarks: quest objectives author `waymarks` (a map and one
+  stable event, NPC, world object or landmark, with their own conditions for
+  phases and free-order work). Off-screen waymarks hug the field view edge
+  with an arrow in both renderers; on-screen ones draw the game's waymark
+  symbol. The local map and the world map mark objectives with legend
+  entries, and the next usable exit is marked for objectives on other maps
+  through `Field\MapRouteGraph` (transfers and reusable scripted transports).
+  The style is `waymarks` in `Data/Presentation/field.php`; map markers use
+  the menu theme's new `objective` colour and `map.objective` icon roles.
+
 - Held walking in the graphical field, following RPG Maker MZ: while a
   direction is held the player keeps walking one committed cell at a time at
   180 field pixels per second (8/60 s sideways, 16/60 s vertically), the most
@@ -18,6 +28,9 @@
 
 ### Changed
 
+- Removed: story cues (`cue.kind` `story`) no longer draw their own edge
+  arrows. Off-screen guidance now comes from quest objective waymarks, which
+  use the same cue binding edge images. Cue kind remains authored data.
 - The Game's GPUI session now requires `key_transitions`; install the updated
   renderer with this Engine.
 - Field walking frames advance by distance travelled instead of one stride per

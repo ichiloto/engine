@@ -137,6 +137,10 @@ two placements are not part of it, so standing there triggers nothing and an
 unavailable event's `whenBlocked` gate only stops steps onto its own cells.
 A cue shows on each separate placement. Cinematics that name a marker as a
 subject use its first cell in reading order, the top-left of a rectangle.
+Quest waymarks name markers the same way and mark each placement; see
+[Waymarks](quests.md#waymarks-where-an-objective-sends-the-player) for how
+objectives are marked on the field, the local map and the world map, and how
+the next exit toward another map is chosen.
 
 ## Active-map landmarks and discovery
 

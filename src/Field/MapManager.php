@@ -50,6 +50,7 @@ class MapManager implements CanRenderAt
   public private(set) ?MapOverview $overview = null;
   public private(set) ?MapAtlasDefinition $atlasDefinition = null;
   private ?array $lastKnowledgePosition = null;
+  private ?MapRouteGraph $routeGraph = null;
   private ?PresentationWorld $presentationWorld = null;
   private ?bool $presentationWorldPolicy = null;
   /** @var array<string, WorldObject> Installed subjects, never saved or used for collision. */
@@ -987,6 +988,15 @@ class MapManager implements CanRenderAt
       ? FieldPresentationCatalog::load($this->getAssetRoot(), EffectPresentation::TERMINAL) : null;
     $worldObjects = WorldObjectDefinition::readMap($map, $source['layers'], $graphics, $tileOwners, $catalog);
     return [...$source, 'graphics' => $graphics, 'occupancy' => $occupancy, 'worldObjects' => $worldObjects];
+  }
+
+  /**
+   * Every authored route between maps, read once from map sources. Map
+   * sources do not change during a session.
+   */
+  public function getRouteGraph(): MapRouteGraph
+  {
+    return $this->routeGraph ??= MapRouteGraph::scan($this->getAssetRoot());
   }
 
   /** The project's asset root, where tilesets and their sheets live. */

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Quests;
 
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Localization\Vocabulary;
@@ -287,6 +288,55 @@ class QuestManager
     }
 
     return $this->log->getProgress($quest->id)[$objectiveIndex] ?? 0;
+  }
+
+  /**
+   * Lists the waymarks the player should follow now, across every active
+   * quest, in journal order. Derived from the quest log and world state on
+   * each call, so it is correct straight after a load or a long break.
+   *
+   * @return list<ActiveQuestWaymark>
+   */
+  public function getActiveWaymarks(): array
+  {
+    return self::selectActiveWaymarks($this->activeQuests(), $this->log, $this->gameScene->gameState,
+      $this->gameScene->party);
+  }
+
+  /**
+   * Selects the waymarks of incomplete objectives whose own conditions hold.
+   *
+   * @param array<int, Quest> $quests The active quests, in journal order.
+   * @return list<ActiveQuestWaymark>
+   */
+  public static function selectActiveWaymarks(array $quests, QuestLog $log, GameState $gameState, ?Party $party = null): array
+  {
+    $selected = [];
+
+    foreach ($quests as $quest) {
+      if (! $log->isActive($quest->id)) {
+        continue;
+      }
+
+      $progress = $log->getProgress($quest->id);
+
+      foreach ($quest->objectives as $objectiveIndex => $objective) {
+        if (($progress[$objectiveIndex] ?? 0) >= $objective->quantity || $objective->waymarks === []) {
+          continue;
+        }
+
+        $label = $objective->displayDescription($gameState, $party);
+
+        foreach ($objective->waymarks as $waymarkIndex => $waymark) {
+          if ($waymark->holds($gameState, $party)) {
+            $selected[] = new ActiveQuestWaymark($quest->id, $objectiveIndex, $waymarkIndex, $waymark, $label,
+              $quest->isOptional);
+          }
+        }
+      }
+    }
+
+    return $selected;
   }
 
   /** Resolves one objective's current spoiler-safe journal text. */

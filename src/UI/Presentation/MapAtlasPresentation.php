@@ -17,12 +17,15 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasComposite, CanvasCompos
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\{RendererGridConfig, RendererSessionConfig};
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Field\Waymarks\FieldWaymarkRole;
 use Throwable;
 
 /** Shared atlas composition. Games replace theme data and artwork, never its renderer. */
 final class MapAtlasPresentation
 {
     public const string PLAYER_ICON_ROLE = 'map.player';
+    public const string OBJECTIVE_ICON_ROLE = 'map.objective';
+    public const string OBJECTIVE_ROUTE_ICON_ROLE = 'map.objective.route';
     public const array CAPABILITIES = [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_COMPOSITING,
         RendererSessionConfig::MAP_OVERVIEW, RendererSessionConfig::MAP_OVERVIEW_VIEWPORT, RendererSessionConfig::CANVAS_COMPOSITE_INDICATORS,
         RendererSessionConfig::CANVAS_CLIP_OPACITY, RendererSessionConfig::SPRITE_SOURCE_RECT];
@@ -33,7 +36,7 @@ final class MapAtlasPresentation
     /** Every optional icon role consumed here, shared with theme authoring. */
     public static function listIconRoles(MapCategoryCatalog $categories): array
     {
-        return [self::PLAYER_ICON_ROLE,
+        return [self::PLAYER_ICON_ROLE, self::OBJECTIVE_ICON_ROLE, self::OBJECTIVE_ROUTE_ICON_ROLE,
             ...array_map(static fn(MapLandmarkKind $kind): string=>$kind->getIconRole(),MapLandmarkKind::cases()),
             ...array_map(MapCategoryCatalog::getIconRole(...),$categories->getIds())];
     }
@@ -161,6 +164,19 @@ final class MapAtlasPresentation
                 ? ($snapshot->global ? 'building' : ($kind->isRoute() ? 'route' : $kind->value))
                 : $landmark['definition']->categoryBase,'color'=>$theme->colors[$color]];
         }
+        // Objectives draw above places so a waymark on an exit stays visible.
+        foreach ($snapshot->waymarks as $index=>$waymark) {
+            $cell=$waymark->anchor->cell;
+            if (!$projection->containsCell((int)$cell->x,(int)$cell->y)) { continue; }
+            $point=$projection->projectCell((int)$cell->x,(int)$cell->y);
+            $marker=new CanvasRectangle($point->x-$a->markerSize/2,$point->y-$a->markerSize/2,$a->markerSize,$a->markerSize);
+            $route=$waymark->role===FieldWaymarkRole::ROUTE;
+            if ($view->icon('atlas-waymark-'.$index,$route ? self::OBJECTIVE_ROUTE_ICON_ROLE : self::OBJECTIVE_ICON_ROLE,$marker,46)) { continue; }
+            $indicators[]=self::createMarkerHalo('atlas-waymark-halo-'.$index,$marker,$theme,45,$width,$height);
+            $indicators[]=new CanvasIndicator('atlas-waymark-'.$index,'atlas-map',CanvasIndicatorKind::OUTLINE,
+                $marker,2,$theme->colors['objective'],46);
+            $pictograms[]=['point'=>$point,'category'=>$route ? 'route' : 'objective','color'=>$theme->colors['objective']];
+        }
         $playerX = (int)floor($snapshot->playerX);
         $playerY = (int)floor($snapshot->playerY);
         $text = [];
@@ -229,6 +245,15 @@ final class MapAtlasPresentation
         if ($rows>=7) {
             $types=$snapshot->global ? ['places'=>['name'=>MessageCatalog::getTerm('map.locations'),'category'=>'building']]
                 : ['route'=>['name'=>MessageCatalog::getTerm('map.passage'),'category'=>'route']];
+            $roles=array_unique(array_map(static fn($waymark)=>$waymark->role,$snapshot->waymarks),SORT_REGULAR);
+            $objectives=[];
+            if (in_array(FieldWaymarkRole::TARGET,$roles,true)) {
+                $objectives['@objective']=['name'=>MessageCatalog::getTerm('map.objective'),'category'=>'objective','color'=>'objective'];
+            }
+            if (in_array(FieldWaymarkRole::ROUTE,$roles,true)) {
+                $objectives['@objective-route']=['name'=>MessageCatalog::getTerm('map.objective_route'),'category'=>'route','color'=>'objective'];
+            }
+            $types=$objectives+$types;
             foreach ($snapshot->landmarks as $landmark) {
                 $definition=$landmark['definition'];
                 if ($definition->categoryBase===null || !($landmark['known'] ?? ($landmark['name']!==null))) { continue; }
@@ -237,7 +262,7 @@ final class MapAtlasPresentation
             foreach (array_slice($types,0,max(0,$rows-5)) as $type) {
                 $legendMarkers[]=['point'=>new \Ichiloto\Engine\Core\Vector2($bounds->x+10,
                     $bounds->y+(count($lines)+0.5)*$m->cellHeight),'category'=>$type['category'],
-                    'color'=>$view->theme->colors['accent']];
+                    'color'=>$view->theme->colors[$type['color'] ?? 'accent']];
                 $lines[]=['text'=>'   '.TerminalText::truncateToWidth($type['name'],max(1,$columns-3)),'color'=>'text'];
             }
             $lines[]=['text'=>'','color'=>'text'];

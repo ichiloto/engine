@@ -6,9 +6,10 @@ namespace Ichiloto\Engine\Animations\Field;
 
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
-use Ichiloto\Engine\Events\Triggers\EventCueKind;
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Field\MapGraphics;
+use Ichiloto\Engine\Field\Waymarks\FieldWaymark;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\FieldViewport;
@@ -31,6 +32,9 @@ final class FieldEffectManager
   private array $sessions = [];
   /** @var array<string, EventTrigger> */
   private array $cues = [];
+  /** @var array<string, FieldWaymark> Waymark sessions keyed by session id. */
+  private array $waymarks = [];
+  private ?bool $waymarksUsable = null;
   /** @var array<string, true> */
   private array $notes = [];
   private string $mapId = '';
@@ -52,6 +56,7 @@ final class FieldEffectManager
   {
     $this->supported = $images;
     $this->turnsSupported = $quarterTurns;
+    $this->waymarksUsable = null;
     if (!$images && $this->sessions !== []) {
       $this->note('capability', 'This renderer cannot draw field effects; the original glyphs and tiles remain.');
     }
@@ -180,6 +185,77 @@ final class FieldEffectManager
     }
   }
 
+  /** The game's objective waymark style, shared with the terminal presenter. */
+  public FieldWaymarkStyle $waymarkStyle { get => $this->catalog->waymarks; }
+
+  /**
+   * Whether graphical art draws every waymark: the cue binding of the
+   * waymark colour has an image effect and all eight edge images this
+   * renderer can draw. Otherwise the terminal glyphs remain the waymarks.
+   */
+  public function canPresentWaymarks(): bool
+  {
+    if (!$this->supported || $this->presentation !== EffectPresentation::GRAPHICAL) { return false; }
+    if ($this->waymarksUsable !== null) { return $this->waymarksUsable; }
+    $color = $this->catalog->waymarks->color;
+    $binding = $this->catalog->cues[$color] ?? null;
+    if ($binding === null) {
+      $this->note('waymark-binding', "No graphical cue binding for waymark color {$color}; waymark glyphs remain.");
+      return $this->waymarksUsable = false;
+    }
+    foreach (FieldPresentationCatalog::DIRECTIONS as $direction) {
+      $image = $binding['edges'][$direction] ?? null;
+      if ($image === null) {
+        $this->note('waymark-edges', "The {$color} cue binding has no {$direction} edge image; waymark glyphs remain.");
+        return $this->waymarksUsable = false;
+      }
+      if (($image['quarterTurns'] ?? 0) > 0 && !$this->turnsSupported) {
+        $this->note('turns', 'This renderer cannot rotate field edge images; waymark glyphs remain.');
+        return $this->waymarksUsable = false;
+      }
+    }
+    try {
+      $timeline = $this->library->load($binding['effect'], presentation: $this->presentation);
+      $this->waymarksUsable = array_any($timeline->playbackSegments, static fn(array $segment): bool => $segment['layer'] === 'image');
+      if (!$this->waymarksUsable) { $this->note('waymark-effect', 'The waymark cue effect has no graphical image; waymark glyphs remain.'); }
+    } catch (Throwable $error) {
+      $this->waymarksUsable = false;
+      $this->note('waymark-effect', 'The waymark cue effect is unusable; waymark glyphs remain: ' . $error->getMessage());
+    }
+    return $this->waymarksUsable;
+  }
+
+  /**
+   * Shows exactly these waymarks. An unchanged waymark keeps its playback;
+   * moving subjects are followed by object identity.
+   *
+   * @param list<FieldWaymark> $waymarks
+   */
+  public function showWaymarks(array $waymarks): void
+  {
+    $wanted = [];
+    if ($this->canPresentWaymarks()) {
+      $effect = $this->catalog->cues[$this->catalog->waymarks->color]['effect'];
+      foreach ($waymarks as $waymark) {
+        $id = 'waymark-' . $waymark->id;
+        $wanted[$id] = true;
+        $current = $this->waymarks[$id] ?? null;
+        $anchor = $waymark->anchor;
+        $unchanged = $current !== null && isset($this->sessions[$id]) && $current->anchor->objectId === $anchor->objectId
+          && ($anchor->objectId !== null || $current->anchor->cell == $anchor->cell);
+        if (!$unchanged) {
+          $this->startEffect($id, $effect, $anchor->objectId !== null
+            ? FieldEffectAnchor::fromArray(['object' => $anchor->objectId])
+            : FieldEffectAnchor::createAtPosition($anchor->cell));
+        }
+        if (isset($this->sessions[$id])) { $this->waymarks[$id] = $waymark; }
+      }
+    }
+    foreach (array_keys($this->waymarks) as $id) {
+      if (!isset($wanted[$id])) { $this->removeEffect($id); }
+    }
+  }
+
   public function startEffect(string $id, string $effect, FieldEffectAnchor $anchor): void
   {
     try {
@@ -198,12 +274,12 @@ final class FieldEffectManager
   public function removeEffect(string $id): void
   {
     if (isset($this->sessions[$id])) { $this->sessions[$id]->playback->pause(); }
-    unset($this->sessions[$id], $this->cues[$id]);
+    unset($this->sessions[$id], $this->cues[$id], $this->waymarks[$id]);
   }
   public function clear(): void
   {
     foreach (array_keys($this->sessions) as $id) { $this->removeEffect($id); }
-    $this->cues = []; $this->mapId = '';
+    $this->cues = []; $this->waymarks = []; $this->mapId = '';
   }
   public int $count { get => count($this->sessions); }
 
@@ -212,7 +288,7 @@ final class FieldEffectManager
   {
     if ($objects !== null) { $this->reconcileObjects($objects); }
     foreach ($this->sessions as $id => $session) {
-      if (!$showGuidance && ($id === self::ACTION_PROMPT_ID || isset($this->cues[$id]))) { continue; }
+      if (!$showGuidance && $this->isGuidance($id)) { continue; }
       if (isset($this->cues[$id]) && !$this->cues[$id]->shouldRenderCue()) { continue; }
       FieldEffectSession::playCues($session->update($seconds, $reducedMotion)->crossedCues);
       if ($session->playback->isCompleted) { unset($this->sessions[$id]); }
@@ -224,8 +300,8 @@ final class FieldEffectManager
   {
     $indexed = $this->reconcileObjects($objects);
     foreach ($this->sessions as $id => $session) {
-      // Prompt and cue glyphs already have their authoritative terminal presenters.
-      if ($id === self::ACTION_PROMPT_ID || isset($this->cues[$id])) { continue; }
+      // Prompt, cue and waymark glyphs already have their authoritative terminal presenters.
+      if ($this->isGuidance($id)) { continue; }
       $position = $session->anchor->objectId === null ? $session->anchor->cell
         : ($indexed[$session->anchor->objectId] ?? null)?->getGraphicalSpriteWorldPosition();
       if ($position === null) { continue; }
@@ -235,13 +311,19 @@ final class FieldEffectManager
     }
   }
 
-  /** @param iterable<GraphicalSpriteProviderInterface> $objects @param array{x: int, y: int} $origin @return list<FieldEffectSprite> */
-  public function getSprites(iterable $objects, ?FieldViewport $viewport, array $origin, bool $reducedMotion, bool $showGuidance = true): array
+  /**
+   * @param iterable<GraphicalSpriteProviderInterface> $objects
+   * @param array{x: int, y: int} $origin
+   * @param Vector2|null $player The player's world position, which edge images never cover.
+   * @return list<FieldEffectSprite>
+   */
+  public function getSprites(iterable $objects, ?FieldViewport $viewport, array $origin, bool $reducedMotion,
+    bool $showGuidance = true, ?Vector2 $player = null): array
   {
     $indexed = $this->reconcileObjects($objects);
     $sprites = [];
     foreach ($this->sessions as $id => $session) {
-      if (!$showGuidance && ($id === self::ACTION_PROMPT_ID || isset($this->cues[$id]))) { continue; }
+      if (!$showGuidance && $this->isGuidance($id)) { continue; }
       $object = $session->anchor->objectId === null ? null : ($indexed[$session->anchor->objectId] ?? null);
       if ($session->anchor->objectId !== null && $object === null) { $this->removeEffect($id); continue; }
       if (!$this->supported) { continue; }
@@ -249,24 +331,41 @@ final class FieldEffectManager
       if ($cue !== null && !$cue->shouldRenderCue()) { continue; }
       $position = $object?->getGraphicalSpriteWorldPosition() ?? $session->anchor->cell;
       if ($position === null) { continue; }
-      if ($cue?->cue?->kind === EventCueKind::STORY && $viewport !== null
-        && ($edge = FieldCueEdgePlacement::locate($position, $origin, $viewport)) !== null) {
-        $image = $this->catalog->cues[$cue->cue->color]['edges'][$edge['direction']] ?? null;
-        if ($image === null) {
-          $this->note('edge:' . $cue->cue->color, 'A story cue has no directional edge image; its cue art remains at its cell.');
-        } elseif (($image['quarterTurns'] ?? 0) > 0 && !$this->turnsSupported) {
-          $this->note('turns', 'This renderer cannot rotate field edge images; cue art remains at its cell.');
-        } else {
+      $waymark = $this->waymarks[$id] ?? null;
+      // Waymark art draws all or nothing; otherwise the terminal glyphs are the waymarks.
+      if ($waymark !== null && !$this->canPresentWaymarks()) { continue; }
+      if ($waymark !== null) {
+        // A character occupies its cell, so its waymark floats above it.
+        if ($object !== null) { $position = new Vector2($position->x, $position->y - 1); }
+        if ($viewport !== null && ($edge = FieldCueEdgePlacement::locate($position, $origin, $viewport, $this->catalog->waymarks->inset, $player)) !== null) {
+          $image = $this->catalog->cues[$this->catalog->waymarks->color]['edges'][$edge['direction']];
           $size = (int)round(FieldViewport::TILE_SIZE * $viewport->zoom);
           $sprites[] = new FieldEdgeSprite($session->id . ':edge', new GraphicalSpriteDefinition($image['asset'], $size, $size,
             PresentationSpriteAnchor::BOTTOM_CENTER, PresentationLayerPolicy::FIELD_EFFECT_FRONT,
             quarterTurns: $image['quarterTurns'] ?? 0), $edge['position']);
           continue;
         }
+        if ($this->isCuePresented($waymark->anchor->eventMarker)) { continue; }
       }
       array_push($sprites, ...$session->getSprites($position, $reducedMotion, $object?->getGraphicalSpriteMotion()));
     }
     return $sprites;
+  }
+
+  /** Guidance hides while a cinematic owns the field: the action prompt, cues and waymarks. */
+  private function isGuidance(string $id): bool
+  {
+    return $id === self::ACTION_PROMPT_ID || isset($this->cues[$id]) || isset($this->waymarks[$id]);
+  }
+
+  /** Whether an event's own cue art marks it now, so its waymark need not. */
+  private function isCuePresented(?string $marker): bool
+  {
+    if ($marker === null) { return false; }
+    foreach ($this->cues as $id => $event) {
+      if ($event->marker === $marker && isset($this->sessions[$id]) && $event->shouldRenderCue()) { return true; }
+    }
+    return false;
   }
 
   private function note(string $id, string $message): void

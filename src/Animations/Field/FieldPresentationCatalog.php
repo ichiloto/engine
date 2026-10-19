@@ -21,14 +21,19 @@ final readonly class FieldPresentationCatalog
   public const array DIRECTIONS = ['east', 'southeast', 'south', 'southwest', 'west', 'northwest', 'north', 'northeast'];
   /** @var array<string, WorldObjectResource> */
   public array $resources;
+  /** The game's objective waymark style; the Engine default when not authored. */
+  public FieldWaymarkStyle $waymarks;
 
   /**
    * @param array<string, array<string, mixed>> $cues
    * @param string|null $actionPrompt The effect drawn over the player while it can act, or null for its glyph.
    * @param array<string, WorldObjectResource> $resources Immutable reusable presentation definitions.
+   * @param FieldWaymarkStyle|null $waymarks The objective waymark style.
    */
-  public function __construct(public array $cues = [], public ?string $actionPrompt = null, array $resources = [])
+  public function __construct(public array $cues = [], public ?string $actionPrompt = null, array $resources = [],
+    ?FieldWaymarkStyle $waymarks = null)
   {
+    $this->waymarks = $waymarks ?? new FieldWaymarkStyle();
     $copy = [];
     foreach ($resources as $id => $resource) {
       if (!$resource instanceof WorldObjectResource || $resource->id !== $id) {
@@ -47,8 +52,9 @@ final readonly class FieldPresentationCatalog
 
   public static function fromArray(mixed $data, string $assetRoot, EffectPresentation $presentation = EffectPresentation::GRAPHICAL): self
   {
-    if (!is_array($data) || array_diff(array_keys($data), ['cues', 'actionPrompt', 'resources']) !== [] || !is_array($data['cues'] ?? [])) {
-      throw new InvalidArgumentException('Field presentation accepts cues, actionPrompt and named resources.');
+    if (!is_array($data) || array_diff(array_keys($data), ['cues', 'actionPrompt', 'resources', 'waymarks']) !== []
+      || !is_array($data['cues'] ?? [])) {
+      throw new InvalidArgumentException('Field presentation accepts cues, actionPrompt, named resources and waymarks.');
     }
     $prompt = $data['actionPrompt'] ?? null;
     if ($prompt !== null && (!is_array($prompt) || array_keys($prompt) !== ['effect'] || !is_string($prompt['effect']))) {
@@ -83,7 +89,7 @@ final readonly class FieldPresentationCatalog
       WorldObjectResource::assertId($id);
       $resources[$id] = WorldObjectResource::fromArray($id, $resource);
     }
-    return new self($cues, $prompt['effect'] ?? null, $resources);
+    return new self($cues, $prompt['effect'] ?? null, $resources, FieldWaymarkStyle::fromArray($data['waymarks'] ?? null));
   }
 
   public function getResource(string $id): WorldObjectResource

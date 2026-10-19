@@ -52,6 +52,13 @@ use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\Field\SkitManager;
 use Ichiloto\Engine\Progress\AchievementManager;
 use Ichiloto\Engine\Progress\Bestiary;
+use Ichiloto\Engine\Core\WorldConditionEvaluator;
+use Ichiloto\Engine\Field\MapRoute;
+use Ichiloto\Engine\Field\Waymarks\FieldWaymark;
+use Ichiloto\Engine\Field\Waymarks\FieldWaymarkResolver;
+use Ichiloto\Engine\Field\Waymarks\FieldWaymarkTerminalPresenter;
+use Ichiloto\Engine\Field\Waymarks\LiveFieldWaymarkLocator;
+use Ichiloto\Engine\Quests\ActiveQuestWaymark;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgress;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService;
@@ -114,6 +121,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     protected(set) ?FieldEffectManager $fieldEffects = null;
     /** @var list<string> Sprite identities fixed to the screen, not camera follow. */
     private array $fieldEdgeSpriteIds = [];
+    private ?FieldWaymarkTerminalPresenter $waymarkPresenter = null;
 
     /** Attach an isolated host's presentation selection without acquiring runtime input, UI or a renderer process. */
     public function setPresentationContext(?ScenePresentationContext $context): void
@@ -275,7 +283,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             $this->gameState === null ? [] : ($this->mapManager->mapKnowledge?->getVisibleLandmarks($this->gameState,$this->party) ?? []),
             $this->player->position->x,$this->player->position->y,$this->player->heading,
             $this->mapManager->atlasDefinition?->global ?? false,
-            terminalView:$this->mapManager->atlasDefinition?->terminalView ?? 'floorplan');
+            terminalView:$this->mapManager->atlasDefinition?->terminalView ?? 'floorplan',
+            waymarks:$this->getFieldWaymarks());
     }
 
     /** Isolated previews must explicitly bind their own session, never borrow the live Game transport. */
@@ -397,7 +406,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
                 if (!($this->cinematicStage?->suppresses($object) ?? false)) { yield $object; }
             }
             foreach ([...($this->fieldEffects?->getSprites($this->getFieldObjectSpriteProviders(), $this->fieldViewport,
-                $this->camera->getWorldOrigin(), Accessibility::prefersReducedMotion(), $this->canPresentFieldGuidance()) ?? []),
+                $this->camera->getWorldOrigin(), Accessibility::prefersReducedMotion(), $this->canPresentFieldGuidance(),
+                $this->player?->getGraphicalSpriteWorldPosition()) ?? []),
                 ...($this->cinematicPresentation?->getEffectSprites($this->fieldViewport) ?? [])] as $effect) {
                 if ($effect instanceof ScreenSpaceSpriteProviderInterface) {
                     $this->fieldEdgeSpriteIds[] = $effect->getGraphicalSpriteId();
@@ -426,6 +436,66 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         return !$this->isStopping && $this->cinematicController?->active() === null;
     }
 
+    /**
+     * The objective waymarks on the active map, derived now from the quest
+     * log and world state: targets here and exits toward targets elsewhere.
+     *
+     * @return list<FieldWaymark>
+     */
+    public function getFieldWaymarks(): array
+    {
+        if ($this->questManager === null || $this->mapManager === null || $this->player === null || $this->currentMapId === '') {
+            return [];
+        }
+        $active = $this->questManager->getActiveWaymarks();
+        if ($active === []) { return []; }
+        $elsewhere = array_any($active, fn(ActiveQuestWaymark $entry): bool => $entry->waymark->map !== $this->currentMapId);
+        return FieldWaymarkResolver::resolve($active, $this->currentMapId, new LiveFieldWaymarkLocator($this),
+            $elsewhere ? $this->mapManager->getRouteGraph() : null, $this->canUseRoute(...));
+    }
+
+    /** A route counts while its event is available and any secret landmark claiming it has been revealed. */
+    private function canUseRoute(MapRoute $route): bool
+    {
+        return WorldConditionEvaluator::allHold($route->conditions, $this->gameState, $this->party)
+            && (!$route->secret || $route->landmarkId === null
+                || $this->gameState->hasRevealedLandmark($route->source, $route->landmarkId));
+    }
+
+    /**
+     * Draws waymark glyphs while the field shows guidance. Graphical waymark
+     * art replaces the glyphs where the game binds it.
+     *
+     * @param bool $force Redraw even when unchanged, as a recomposed frame requires.
+     */
+    public function renderFieldWaymarks(bool $force = false): void
+    {
+        $this->waymarkPresenter ??= new FieldWaymarkTerminalPresenter();
+        $this->waymarkPresenter->draw($this->camera, $this->findWaymarkPlacements(), $force);
+    }
+
+    /** Redraws waymark glyphs only when dialogue outcomes or moving subjects changed them. */
+    private function refreshFieldWaymarks(): void
+    {
+        $this->waymarkPresenter ??= new FieldWaymarkTerminalPresenter();
+        $placements = $this->findWaymarkPlacements();
+        if (!$this->waymarkPresenter->isShowing($placements)) {
+            Console::updateFrame(fn() => $this->waymarkPresenter->draw($this->camera, $placements));
+        }
+    }
+
+    /** @return list<array{x: int, y: int, text: string}> Empty while glyph waymarks are hidden. */
+    private function findWaymarkPlacements(): array
+    {
+        $graphicalArt = $this->isGraphicalFieldPresented() && ($this->fieldEffects?->canPresentWaymarks() ?? false);
+        if ($this->player === null || $this->fieldEffects === null || !$this->canPresentFieldGuidance() || $graphicalArt
+            || !($this->state instanceof FieldState)) {
+            return [];
+        }
+        return FieldWaymarkTerminalPresenter::place($this->getFieldWaymarks(), $this->fieldEffects->waymarkStyle,
+            $this->camera->getScreenSpacePosition(...), $this->camera->screen->getWidth(), $this->camera->screen->getHeight(),
+            $this->camera->getScreenSpacePosition($this->player->position), $this->player->getCuedEventMarkers());
+    }
 
     private function hasGraphicalFieldPresentation(): bool
     {
@@ -1045,6 +1115,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             return;
         }
         $this->mapManager?->refreshMapKnowledge();
+        if ($this->state instanceof FieldState) {
+            // Dialogue outcomes and moving subjects change waymarks without a step.
+            $this->refreshFieldWaymarks();
+        }
         $this->refreshFieldMusic();
     }
 
@@ -1062,6 +1136,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         // The action prompt lasts while the player can act, so it opens once per approach.
         $this->fieldEffects?->showActionPrompt(($this->player?->isActionPromptOverSprite ?? false)
             ? $this->player->getGraphicalSpriteId() : null);
+        $this->fieldEffects?->showWaymarks($this->hasGraphicalFieldPresentation() ? $this->getFieldWaymarks() : []);
         $this->fieldEffects?->update($seconds, Accessibility::prefersReducedMotion(),
             $this->getFieldObjectSpriteProviders(), $this->canPresentFieldGuidance());
     }
