@@ -34,6 +34,7 @@ final class MapCompletenessValidator
         ?FieldPresentationCatalog $fieldCatalog = null, bool $requiresGraphics = false): array
     {
         $issues = self::validateEvents($mapId, $data, $eventLayer);
+        $issues = [...$issues, ...self::validateDoorways($mapId, $data, $eventLayer, $layers, $assetRoot, $fieldCatalog)];
         foreach (is_array($data['events'] ?? null) ? $data['events'] : [] as $key => $event) {
             if (!is_array($event)) { continue; }
             $class = $event['class'] ?? null;
@@ -70,7 +71,27 @@ final class MapCompletenessValidator
                     $event['area']['cells'] ?? [], ['events', $marker ?? '']);
             }
         }
-        return $issues;
+        return [...$issues, ...MapEventSpeakerRule::inspect($mapId, $data, $result->events)];
+    }
+
+    /**
+     * Painted doorways on their entrances and entrances in front of their objects ({@see MapDoorwayRule}).
+     * Unresolvable events, placements and resources are reported by their own rules.
+     * @return list<MapValidationIssue>
+     */
+    public static function validateDoorways(string $mapId, array $data, array $eventLayer, MapLayerSet $layers, string $assetRoot,
+        ?FieldPresentationCatalog $fieldCatalog = null): array
+    {
+        $objects = is_array($data['worldObjects'] ?? null) ? $data['worldObjects'] : [];
+        if ($objects === []) { return []; }
+        try {
+            $fieldCatalog ??= array_any($objects, static fn($entry): bool => is_array($entry) && array_key_exists('resource', $entry))
+                ? FieldPresentationCatalog::load($assetRoot) : null;
+        } catch (InvalidArgumentException|RuntimeException) {
+            $fieldCatalog = null;
+        }
+        return MapDoorwayRule::inspect($mapId, $data, MapEventResolver::inspect($data, $eventLayer, $mapId)->events,
+            $layers->getComposedGrid(), $fieldCatalog);
     }
 
     /** @return list<MapValidationIssue> */

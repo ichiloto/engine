@@ -4,6 +4,18 @@
 
 ### Added
 
+- Event speakers: a map event names the NPCs who speak it (`speakers`), and
+  map validation (`event.speaker`) reports a speaker who is not on the map,
+  is never present while the event can run, wanders freely or stands more
+  than one cell from the event's area.
+- World-object resource doorways: a resource declares the cells where its art
+  paints an opening (`doorway`), and map validation (`object.doorway`)
+  reports a placement whose doorway has no entrance under it, or an entrance
+  behind an object's ground row inside its covered cells, where the art hides
+  the player.
+- `Core\WorldConditionExclusion`, the proof that two condition lists never
+  hold together, moved from the Editor so the Engine's rules share it.
+
 - Held walking in the graphical field, following RPG Maker MZ: while a
   direction is held the player keeps walking one committed cell at a time at
   180 field pixels per second (8/60 s sideways, 16/60 s vertically), the most

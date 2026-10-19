@@ -138,6 +138,36 @@ unavailable event's `whenBlocked` gate only stops steps onto its own cells.
 A cue shows on each separate placement. Cinematics that name a marker as a
 subject use its first cell in reading order, the top-left of a rectangle.
 
+### Event speakers
+
+An event names the people who speak its lines with `speakers`, a list of 1..8
+distinct stable NPC ids on the same map:
+
+```php
+'B' => [
+  'class' => ScriptEventTrigger::class,
+  'subject' => ['kind' => 'world_object', 'id' => 'registration-desk-1'],
+  'engagement' => 'facing',
+  'speakers' => ['registrar-kemi'],
+  'data' => ['mode' => 'action', 'reusable' => false, 'scriptId' => 'registration'],
+],
+```
+
+Speakers are authored identity; nothing infers them from a line's name, and
+they change no runtime behaviour. `MapEventSpeakerRule` (rule `event.speaker`,
+part of `MapCompletenessValidator::validateEvents`) requires the player to see
+who talks: every page of a speaker that may show while the event can run must
+stand on or within one cell of the event's area, in any direction, with a
+wandering page's whole wander area there, and at least one page must be able
+to show. A page may show unless its conditions and the event's effective
+conditions (subject conditions included) provably exclude each other
+(`Core\WorldConditionExclusion`, the same proof the Editor uses for NPC
+phases sharing a tile). A speaker who is not an NPC on the map, is never
+present, wanders freely or stands away is reported with the cells where they
+stand. A scene that walks people into place is authored as pages conditioned on
+that phase, standing where the scene needs them, so the rule reads the map
+without running scripts.
+
 ## Active-map landmarks and discovery
 
 Andrew selected a GPUI corner atlas with compact and larger sizes, and an opened

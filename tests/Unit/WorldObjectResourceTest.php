@@ -58,11 +58,23 @@ it('refuses malformed resource contracts using the existing role pivot path and 
         'noninteger offset' => $source['occupancyStamp'][0]['x'] = .5,
         'offset range' => $source['occupancyStamp'][0]['x'] = PHP_INT_MAX,
         'stamp budget' => $source['occupancyStamp'] = array_fill(0, 257, $source['occupancyStamp'][0]),
+        'empty doorway' => $source['doorway'] = [],
+        'doorway field' => $source['doorway'] = [['x' => 0, 'y' => 0, 'type' => CollisionType::NONE]],
+        'fractional doorway' => $source['doorway'] = [['x' => .5, 'y' => 0]],
+        'repeated doorway' => $source['doorway'] = [['x' => 0, 'y' => 0], ['x' => 0, 'y' => 0]],
+        'doorway budget' => $source['doorway'] = array_map(static fn(int $x): array => ['x' => $x, 'y' => 0], range(0, 16)),
     };
     expect(fn() => FieldPresentationCatalog::fromArray(['resources' => [$id => $source]], '/missing-synthetic-root'))
         ->toThrow(InvalidArgumentException::class);
 })->with(['id', 'name', 'unknown field', 'path', 'absolute path', 'pivot', 'nonfinite pivot', 'ui layer', 'null role',
-    'source dimensions', 'null stamp', 'untyped collision', 'pass through', 'duplicate cell', 'noninteger offset', 'offset range', 'stamp budget']);
+    'source dimensions', 'null stamp', 'untyped collision', 'pass through', 'duplicate cell', 'noninteger offset', 'offset range', 'stamp budget',
+    'empty doorway', 'doorway field', 'fractional doorway', 'repeated doorway', 'doorway budget']);
+
+it('reads a doorway as relative cells and keeps it absent unless declared', function () {
+    $plain = WorldObjectResource::fromArray('whole', createWorldObjectResourceSource());
+    $cave = WorldObjectResource::fromArray('cave', createWorldObjectResourceSource(['doorway' => [['x' => 0, 'y' => 0], ['x' => 1, 'y' => -1]]]));
+    expect($plain->doorway)->toBe([])->and($cave->doorway)->toBe([['x' => 0, 'y' => 0], ['x' => 1, 'y' => -1]]);
+});
 
 it('detaches recipe references and resolves signed offsets without clipping or mutating physical data', function () {
     $x = -1;
