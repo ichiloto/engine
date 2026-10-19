@@ -8,6 +8,8 @@ use InvalidArgumentException;
 final class CanvasValidation
 {
   public const int MAX_EXTENT = 16384;
+  /** Instances share immutable prepared layouts and rasters; this is not a preparation allowance. */
+  public const int MAX_LABELS = 1024;
 
   public static function id(string $id): void
   {
@@ -17,7 +19,7 @@ final class CanvasValidation
     }
   }
 
-  /** @template T of CanvasImage|CanvasIndicator|CanvasTextLayer|CanvasComposite
+  /** @template T of CanvasImage|CanvasIndicator|CanvasTextLayer|CanvasComposite|CanvasLabel
    * @param list<T> $items
    * @param class-string<T> $type
    * @return list<T>

@@ -69,16 +69,18 @@ it('accounts for nine-slice regions and rejects source bounds before rendering',
 
 it('loads whole PNGs without authored source dimensions and reconciles borders after replacement', function () {
   $bounds = new CanvasRectangle(0, 0, 200, 100);
-  foreach ([[32, 48], [8, 6], [100, 80]] as [$width, $height]) {
+  foreach ([[32, 48], [8, 6], [100, 80]] as $revision => [$width, $height]) {
     ($this->png)('panel.png', $width, $height);
-    $texture = CanvasNineSlice::fromPng($this->root, 'panel.png', 12, 12, 12, 12);
+    // Header-only replacements have equal byte length; mark each revision explicitly without a timing-dependent sleep.
+    touch($this->root . '/panel.png', 1700000000 + $revision);
+    $texture = CanvasNineSlice::getFromPng($this->root, 'panel.png', 12, 12, 12, 12);
     $images = $texture->images('panel', $bounds, 0);
     CanvasImagePreflight::inspect($images, $this->root);
     expect($texture->source->toArray())->toBe(['x' => 0, 'y' => 0, 'width' => $width, 'height' => $height])
       ->and(array_sum(array_map(fn($image) => $image->destination->width * $image->destination->height, $images)))
       ->toEqualWithDelta($bounds->width * $bounds->height, 0.000001);
   }
-  expect(fn() => CanvasNineSlice::fromPng($this->root, 'panel.png', left: -1))
+  expect(fn() => CanvasNineSlice::getFromPng($this->root, 'panel.png', left: -1))
     ->toThrow(InvalidArgumentException::class);
-  expect(fn() => CanvasNineSlice::fromPng($this->root, 'missing.png'))->toThrow(RuntimeException::class);
+  expect(fn() => CanvasNineSlice::getFromPng($this->root, 'missing.png'))->toThrow(RuntimeException::class);
 });

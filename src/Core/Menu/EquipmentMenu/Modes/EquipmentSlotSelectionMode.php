@@ -6,6 +6,7 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes\EquipmentMenuMode;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\UI\Presentation\CharacterMenuRows;
 
 /**
  * Represents the mode for equipping a character.
@@ -27,6 +28,7 @@ class EquipmentSlotSelectionMode extends EquipmentMenuMode
   public function enter(): void
   {
     $this->state->equipmentAssignmentPanel->setActiveSlotByIndex(0);
+    $this->refreshSlotInfo();
   }
 
   /**
@@ -54,7 +56,20 @@ class EquipmentSlotSelectionMode extends EquipmentMenuMode
       } else {
         $this->state->equipmentAssignmentPanel->selectPreviousSlot();
       }
+      $this->refreshSlotInfo();
     }
+  }
+
+  private function refreshSlotInfo(): void
+  {
+    $character = $this->state->character;
+    if ($this->state->equipmentAssignmentPanel->isSummonSlotSelected()) {
+      $this->state->equipmentInfoPanel->setText($this->state->getSummonSlot()?->getInfoText() ?? '');
+      return;
+    }
+    $slot = $this->state->equipmentAssignmentPanel->activeSlot;
+    $this->state->equipmentInfoPanel->setText($character === null || $slot === null ? ''
+      : CharacterMenuRows::getSlotDescription($character, $slot));
   }
 
   /**
@@ -67,10 +82,15 @@ class EquipmentSlotSelectionMode extends EquipmentMenuMode
     if (Input::isButtonDown("cancel")) {
       play_sound(SystemSound::CANCEL);
       $this->state->setMode(new EquipmentMenuCommandSelectionMode($this->state));
+      return;
     }
 
     if (Input::isButtonDown("confirm")) {
       play_sound(SystemSound::CONFIRM);
+      if ($this->state->equipmentAssignmentPanel->isSummonSlotSelected()) {
+        $this->state->openSummonSlot();
+        return;
+      }
       $mode = new EquipmentSelectionMode($this->state);
       $mode->character = $this->state->character;
       $mode->equipmentSlot = $this->state->equipmentAssignmentPanel->activeSlot;

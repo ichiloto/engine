@@ -416,9 +416,10 @@ class Window implements WindowInterface
    */
   private function getTopBorder(): string
   {
-    $titleLength = TerminalText::displayWidth($this->title);
+    $title = TerminalText::truncateToWidth($this->title, max(0, $this->width - 3));
+    $titleLength = TerminalText::displayWidth($title);
     $borderLength = $this->width - $titleLength  - 3;
-    $output = $this->borderPack->getTopLeftCorner() . $this->borderPack->getHorizontalBorder() . $this->title;
+    $output = $this->borderPack->getTopLeftCorner() . $this->borderPack->getHorizontalBorder() . $title;
     $output .= str_repeat($this->borderPack->getHorizontalBorder(), max($borderLength, 0));
     $output .= $this->borderPack->getTopRightCorner();
 
@@ -485,8 +486,9 @@ class Window implements WindowInterface
    */
   private function getBottomBorder(): string
   {
-    $helpLength = TerminalText::displayWidth($this->help);
-    $output = $this->borderPack->getBottomLeftCorner() . $this->borderPack->getHorizontalBorder() . $this->help;
+    $help = TerminalText::truncateToWidth($this->help, max(0, $this->width - 3));
+    $helpLength = TerminalText::displayWidth($help);
+    $output = $this->borderPack->getBottomLeftCorner() . $this->borderPack->getHorizontalBorder() . $help;
     $output .= str_repeat($this->borderPack->getHorizontalBorder(), max($this->width - $helpLength - 3, 0));
     $output .= $this->borderPack->getBottomRightCorner();
 

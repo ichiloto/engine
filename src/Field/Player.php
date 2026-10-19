@@ -5,11 +5,13 @@ namespace Ichiloto\Engine\Field;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 
 use Assegai\Collections\ItemList;
+use Closure;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameObject;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Actions\FieldActionContext;
+use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Interfaces\ActionInterface;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\Enumerations\MovementEventType;
@@ -21,11 +23,15 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Rendering\Camera;
-use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
+use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
-use Ichiloto\Engine\Rendering\Sprites\SpriteWalkAnimation;
+use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
@@ -41,7 +47,15 @@ use RuntimeException;
  */
 class Player extends GameObject implements GraphicalSpriteProviderInterface
 {
-  private ?SpriteWalkAnimation $walkAnimation = null;
+  private ?CharacterWalkAnimation $walkAnimation = null;
+  /**
+   * @var Closure(): void|null What a committed step does on arrival (its
+   *     triggers, encounter step, save point notice and movement observers),
+   *     held until the step's slide has shown.
+   */
+  private ?Closure $pendingArrival = null;
+  private ?CharacterSheetAssetGuard $graphicalAssetGuard = null;
+  private bool $emptyPartyDiagnosed = false;
   /**
    * @var string[] $upSprite The sprite of the player when facing up.
    */
@@ -79,13 +93,31 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public bool $canAct {
     get {
-      return $this->availableAction !== null;
+      return $this->availableAction !== null || $this->talkTarget !== null;
     }
+  }
+  /**
+   * @var Npc|null The talkable NPC the player reaches from where it stands
+   * and faces, refreshed as either moves.
+   */
+  protected(set) ?Npc $talkTarget = null;
+  /**
+   * Whether the player's action prompt belongs over its field sprite: it can
+   * act and is drawn as a sprite, not staged out of view by a cinematic.
+   */
+  public bool $isActionPromptOverSprite {
+    get => $this->canAct && $this->getGameScene()->canPresentFieldGuidance()
+      && $this->getGraphicalSpriteDefinition() !== null;
   }
   /**
    * @var ActionInterface|null $availableAction The available action.
    */
-  public ?ActionInterface $availableAction = null;
+  public ?ActionInterface $availableAction = null {
+    set {
+      $this->availableAction = $value;
+      if ($value === null && $this->talkTarget === null) { $this->clearActionPrompt(); }
+    }
+  }
   /**
    * @var array<int, true> Blocked triggers already announced, keyed by object
    * id, so a locked door explains itself once per approach rather than on
@@ -111,7 +143,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    * @param string[] $sprite The active sprite of the player.
    * @param MovementHeading $heading The heading of the player.
    * @param array<string, string[]> $directionalSprites The configured directional sprite set.
-   * @param DirectionalGraphicalSpriteSet|null $graphicalSprites Optional graphical art, independent of terminal sprites.
+   * @param CharacterSheet|null $graphicalSprites Optional RPG Maker character sheet, independent of terminal sprites.
+   * @param string|null $assetRoot Project asset root for checking the sheet.
+   * @param Party|null $party Live field party; when supplied, its leader owns graphical appearance.
    */
   public function __construct(
     SceneInterface $scene,
@@ -121,7 +155,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     array $sprite,
     MovementHeading $heading = MovementHeading::NONE,
     array $directionalSprites = [],
-    private readonly ?DirectionalGraphicalSpriteSet $graphicalSprites = null,
+    private readonly ?CharacterSheet $graphicalSprites = null,
+    ?string $assetRoot = null,
+    private readonly ?Party $party = null,
   )
   {
     parent::__construct(
@@ -132,11 +168,13 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
       $sprite
     );
 
-    if ($graphicalSprites !== null) {
-      $this->walkAnimation = new SpriteWalkAnimation();
+    // Step timing belongs to the player even when a staged visual supplies its artwork.
+    $this->walkAnimation = new CharacterWalkAnimation();
+    if ($graphicalSprites !== null || $party !== null) {
+      $this->graphicalAssetGuard = new CharacterSheetAssetGuard($assetRoot ?? getcwd() . '/assets', 'Player');
     }
     $this->configureDirectionalSprites($directionalSprites);
-    $this->setFacingSprite($sprite, $heading === MovementHeading::NONE ? null : $heading);
+    $this->setFacingSprite($sprite, $heading === MovementHeading::NONE ? null : $heading, engageEvents: false);
     $this->canShowLocationHUDWindow = config(ProjectConfig::class, 'ui.hud.location', false);
     $this->events = new ItemList(EventTrigger::class);
   }
@@ -147,19 +185,58 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     return 'player';
   }
 
+  /** Authored graphical role remains available while a staged visual owns presentation. */
+  public function getGraphicalCharacterSheet(): ?CharacterSheet
+  {
+    if ($this->party === null) {
+      return $this->graphicalSprites;
+    }
+    $leader = $this->party->leader;
+    if ($leader === null) {
+      if (!$this->emptyPartyDiagnosed) {
+        Debug::warn('Player field artwork unavailable; party has no selected leader. Keeping terminal sprite.');
+        $this->emptyPartyDiagnosed = true;
+      }
+      return null;
+    }
+    $this->emptyPartyDiagnosed = false;
+    return $leader->getGraphicalCharacterSheet();
+  }
+
   #[Override]
   public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
   {
     if ($this->isPresentationSuppressed()) {
       return null;
     }
-    $definition = $this->graphicalSprites?->getForHeading($this->heading);
-    return $definition === null ? null : ($this->walkAnimation?->present($definition) ?? $definition);
+    $sheet = $this->getGraphicalCharacterSheet();
+    $frame = $sheet === null ? null : $this->graphicalAssetGuard?->getFrameSize($sheet);
+    return $frame === null ? null : $sheet->getFrame($this->heading,
+      $this->walkAnimation?->getPattern() ?? CharacterWalkAnimation::PATTERNS[0], $frame);
   }
 
   public function advanceGraphicalAnimation(float $seconds): void
   {
     $this->walkAnimation?->advance($seconds);
+  }
+
+  /**
+   * Runs the latest step's arrival once its slide has shown: at once for a
+   * step without a slide (the terminal, reduced motion, an instant route
+   * step), otherwise on the field frame the slide ends.
+   */
+  public function completeArrival(): void
+  {
+    if (!($this->walkAnimation?->isSliding ?? false) || !$this->getGameScene()->isGraphicalFieldPresented()) {
+      $this->runPendingArrival();
+    }
+  }
+
+  private function runPendingArrival(): void
+  {
+    $arrival = $this->pendingArrival;
+    $this->pendingArrival = null;
+    $arrival?->__invoke();
   }
 
   public function stopGraphicalAnimation(): void
@@ -173,6 +250,16 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   private function isPresentationSuppressed(): bool
   {
     return ($this->scene ?? null) instanceof GameScene && ($this->scene->cinematicStage?->suppresses($this) ?? false);
+  }
+
+  /** Immediately place the player without a walking step or its arrival outcomes. */
+  public function relocateTo(Vector2 $position): void
+  {
+    $this->pendingArrival = null;
+    $this->position->x = $position->x;
+    $this->position->y = $position->y;
+    $this->stopGraphicalAnimation();
+    $this->renderLocationHUDWindow();
   }
 
   /** Restore owned temporary staging without movement triggers or outcome writes. */
@@ -189,6 +276,12 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   public function getGraphicalSpriteWorldPosition(): Vector2
   {
     return clone $this->position;
+  }
+
+  #[Override]
+  public function getGraphicalSpriteMotion(): ?PresentationSpriteMotion
+  {
+    return $this->isPresentationSuppressed() ? null : $this->walkAnimation?->getMotion($this->position);
   }
 
   /**
@@ -238,14 +331,32 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     // Clone: $this->position is mutated by the move below, so holding a
     // reference would make the movement event report an origin equal to its
     // destination.
+    // A step taken before the previous one was seen to arrive completes that
+    // arrival first, so no step's triggers are skipped or reordered.
+    $scene = $this->getGameScene();
+    $field = $scene->fieldState;
+    $movementGeneration = $field?->movementGeneration;
+    $eventSession = $scene->eventInterpreter?->activeSession();
+    $resetThrough = InputManager::getLatestResetPressOrder();
+    $this->runPendingArrival();
+    // Arrival callbacks can hand control elsewhere and even return immediately.
+    // Reject only this stale attempt, not a later route owned by that event.
+    if ($field !== $scene->fieldState || $movementGeneration !== $field?->movementGeneration
+      || $eventSession !== $scene->eventInterpreter?->activeSession()
+      || ($eventSession === null && $resetThrough !== InputManager::getLatestResetPressOrder()) || $scene->isStopping
+      || (isset($scene->sceneManager) && $scene->sceneManager->hasSceneTransition())) {
+      return false;
+    }
     $origin = clone $this->position;
     $destination = Vector2::sum($origin, $direction);
     $collisionType = null;
     $previousSprite = $this->sprite;
+    $previousHeading = $this->heading;
     $this->updatePlayerSprite($direction);
 
     if (! $this->getGameScene()->mapManager->canMoveTo(intval($destination->x), intval($destination->y), $collisionType) ) {
       $this->stopGraphicalAnimation();
+      if ($previousHeading !== $this->heading) { $this->reconcileFacingEvents(); }
       $this->render();
       return false;
     }
@@ -257,22 +368,23 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     // player position, advancing encounters, or notifying movement observers.
     if ($this->isMovementBlockedByUnavailableEvent($event)) {
       $this->stopGraphicalAnimation();
+      if ($previousHeading !== $this->heading) { $this->reconcileFacingEvents(); }
       $this->render();
       return false;
     }
 
     $this->handleCollision($collisionType);
     $fieldWasRecomposed = $this->updatePlayerPosition($direction, $camera, $previousSprite);
-    if ($this->walkAnimation !== null
-      && ($origin->x !== $this->position->x || $origin->y !== $this->position->y)) {
-      $this->walkAnimation->step($this->graphicalSprites->getForHeading($this->heading));
-    }
     if ($origin->x !== $this->position->x || $origin->y !== $this->position->y) {
-      $this->getGameScene()->cinematicStage?->subjectMoved($this);
+      $step = new CharacterStep($origin, $this->position, $this->getGameScene()->getStepSeconds($direction));
+      if ($this->walkAnimation !== null
+        && ($this->getGraphicalCharacterSheet() !== null || $this->isPresentationSuppressed())) {
+        $this->walkAnimation->step($step);
+      } else {
+        $this->walkAnimation?->stop();
+      }
+      $this->getGameScene()->cinematicStage?->subjectMoved($this, $step);
     }
-    $this->handleTriggers($event);
-    $this->getGameScene()->encounterManager?->registerStep($collisionType);
-
     // An ordinary step can erase an NPC that occupied the player's previous
     // footprint, so refresh NPCs after the player moves. A scrolling step has
     // already rebuilt every field layer in canonical order and must not draw
@@ -281,10 +393,18 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
       $this->getGameScene()->npcManager?->render();
     }
 
-    if ($this->getGameScene()->mapManager->isAtSavePoint) {
-      alert("Access the Menu to save your progress.", 'Save Point');
-    }
-    $this->notify($this->getGameScene(), $event);
+    // The step is committed; what reaching the cell does waits until the
+    // player is seen to arrive, so a dialogue, notice, battle or transfer
+    // never cuts the slide short. Without a slide it happens at once.
+    $this->pendingArrival = function () use ($event, $collisionType): void {
+      $this->handleTriggers($event);
+      $this->getGameScene()->encounterManager?->registerStep($collisionType);
+      if ($this->getGameScene()->mapManager->isAtSavePoint) {
+        alert("Access the Menu to save your progress.", 'Save Point');
+      }
+      $this->notify($this->getGameScene(), $event);
+    };
+    $this->completeArrival();
 
     return true;
   }
@@ -300,8 +420,10 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   {
     $this->stopGraphicalAnimation();
     $previousSprite = $this->sprite;
+    $previousHeading = $this->heading;
     $this->updatePlayerSprite($direction);
     $this->erasePlayer($camera, $previousSprite);
+    if ($previousHeading !== $this->heading) { $this->reconcileFacingEvents(); }
     $this->render();
     $this->renderLocationHUDWindow();
   }
@@ -413,47 +535,54 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
       $this->getGameScene(),
       $this->getGameScene()->mapManager
     );
-    /** @var EventTrigger $event */
-    foreach ($this->events as $event) {
-      if ($event->isComplete) {
-        // A one-shot action trigger can complete while the player is still
-        // standing inside it. It remains in activeEvents until the next
-        // movement, so its exit hook must still run to clear transient field
-        // state such as availableAction. Skipping completed triggers before
-        // this cleanup leaves a stale action prompt that can block NPC and
-        // object interaction on every later map.
-        if ($this->eventManager->activeEvents->contains($event)) {
-          $event->exit($eventTriggerContext);
-          $this->eventManager->activeEvents->remove($event);
-        }
+    $this->synchronizeEventEngagement($eventTriggerContext);
+  }
 
-        continue;
-      }
-
-      if (! $event->isAvailable()) {
-        // Conditions no longer hold — treat an active trigger as exited.
-        if ($this->eventManager->activeEvents->contains($event)) {
-          $event->exit($eventTriggerContext);
-          $this->eventManager->activeEvents->remove($event);
-        }
-
-        continue;
-      }
-
-      if ( $event->area->contains($movementEvent->destination) ) {
-        if (! $this->eventManager->activeEvents->contains($event)) {
-          $this->eventManager->activeEvents->add($event);
-          $event->enter($eventTriggerContext);
-        } else {
-          $event->stay($eventTriggerContext);
-        }
-      } else {
-        if ($this->eventManager->activeEvents->contains($event)) {
-          $event->exit($eventTriggerContext);
-          $this->eventManager->activeEvents->remove($event);
-        }
+  /** Retire old prompts before entering replacements, independently of authored event order. */
+  private function synchronizeEventEngagement(EventTriggerContext $context, bool $facingOnly = false,
+    bool $includeAutomatic = true): void
+  {
+    $events = array_filter($this->events->toArray(), static fn(EventTrigger $event): bool =>
+      (!$facingOnly || $event->dependsOnFacing)
+      && ($includeAutomatic || !($event instanceof AutomaticEventTriggerInterface) || !$event->runsAutomatically()));
+    foreach ($events as $event) {
+      if ($this->eventManager->activeEvents->contains($event) && !$event->canEngage($context->coordinates, $this->heading)) {
+        $event->exit($context);
+        $this->eventManager->activeEvents->remove($event);
       }
     }
+    foreach ($events as $event) {
+      if (!$event->canEngage($context->coordinates, $this->heading)) { continue; }
+      if (!$this->eventManager->activeEvents->contains($event)) {
+        $this->enterEventWhenReady($event, $context);
+      } elseif (!$facingOnly) {
+        $event->stay($context);
+      }
+    }
+  }
+
+  /** Preserve entry for a waiting trigger; an existing owner retains normal exit/reentry rules. */
+  private function enterEventWhenReady(EventTrigger $event, EventTriggerContext $context): bool
+  {
+    if ($event instanceof AutomaticEventTriggerInterface && $event->runsAutomatically()
+      && !$event->sessionIsActive && $this->getGameScene()->hasUnstableEventSession()) {
+      $this->getGameScene()->requestAutomaticTriggerEvaluation();
+      return false;
+    }
+    $this->eventManager->activeEvents->add($event);
+    $event->enter($context);
+    return true;
+  }
+
+  /** A real turn engages only opted-in events; it is not a walking step or a transfer notification. */
+  private function reconcileFacingEvents(bool $includeAutomatic = true): void
+  {
+    // Spawn/sprite initialization precedes installing the map's trigger definitions.
+    if (!isset($this->events) || $this->events->toArray() === []) { return; }
+    $position = clone $this->position;
+    $context = new EventTriggerContext(new MovementEvent(MovementEventType::PLAYER_MOVE, $position, clone $position),
+      $this->position, $this, $this->getGameScene(), $this->getGameScene()->mapManager);
+    $this->synchronizeEventEngagement($context, facingOnly: true, includeAutomatic: $includeAutomatic);
   }
 
   /**
@@ -461,12 +590,15 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    *
    * Initial field entry does not produce a movement event, but an automatic
    * map script must still run when a new game or loaded save spawns inside its area.
-   * Action and transfer triggers remain movement-driven.
+   * Unrestricted action and transfer triggers remain movement-driven. Facing-gated
+   * nonautomatic events, including faced objects, also acquire their prompt on a restored/spawned field.
    *
    * @return void
    */
   public function evaluateAutomaticTriggersAtCurrentPosition(): void
   {
+    // Restored/spawned action prompts opt in through facing or object reach; legacy events keep their existing lifecycle.
+    $this->reconcileFacingEvents(includeAutomatic: false);
     $position = clone $this->position;
     $movementEvent = new MovementEvent(MovementEventType::PLAYER_MOVE, $position, clone $position);
     $context = new EventTriggerContext(
@@ -482,15 +614,13 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
         ! $event instanceof AutomaticEventTriggerInterface
         || ! $event->runsAutomatically()
         || $event->isComplete
-        || ! $event->isAvailable()
-        || ! $event->area->contains($this->position)
+        || ! $event->canEngage($this->position, $this->heading)
         || $this->eventManager->activeEvents->contains($event)
       ) {
         continue;
       }
 
-      $this->eventManager->activeEvents->add($event);
-      $event->enter($context);
+      if (!$this->enterEventWhenReady($event, $context)) { return; }
 
       if ($event->isComplete) {
         $this->eventManager->activeEvents->remove($event);
@@ -621,10 +751,12 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    *
    * @param string[] $sprite The sprite rows to display.
    * @param MovementHeading|null $heading The heading to force, if already known.
+   * @param bool $engageEvents False while installing a spawn, before its new map commits.
    * @return void
    */
-  public function setFacingSprite(array $sprite, ?MovementHeading $heading = null): void
+  public function setFacingSprite(array $sprite, ?MovementHeading $heading = null, bool $engageEvents = true): void
   {
+    $previousHeading = $this->heading;
     $this->stopGraphicalAnimation();
     // Spawn data may name a heading rather than spell out the art, so a map
     // never has to repeat the project's sprites.
@@ -650,6 +782,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
 
     $this->sprite = $sprite;
     $this->heading = $resolvedHeading;
+    if ($engageEvents && $previousHeading !== $this->heading) { $this->reconcileFacingEvents(); }
   }
 
   /**
@@ -739,24 +872,29 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     // destination map. Retire the active membership and prompt together with
     // the map-owned definitions.
     foreach ($this->events as $event) {
+      Console::removeLayer('event-cue:' . ($event->mapId ?? '') . ':' . ($event->marker ?? ''));
       if ($this->eventManager->activeEvents->contains($event)) {
         $this->eventManager->activeEvents->remove($event);
       }
     }
 
     $this->events->clear();
+    $this->talkTarget = null;
     $this->availableAction = null;
     $this->announcedBlockedEvents = [];
   }
 
-  /** Returns the top-left position of a stable current-map event marker. */
+  /**
+   * Returns where a stable current-map event marker is: its first cell in
+   * reading order, the top-left of a rectangular marker.
+   */
   public function findEventMarkerPosition(string $marker): ?Vector2
   {
     $marker = trim($marker);
 
     foreach ($this->events as $event) {
       if ($event->marker === $marker) {
-        return new Vector2($event->area->getX(), $event->area->getY());
+        return $event->area->firstCell;
       }
     }
 
@@ -773,14 +911,22 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   {
     /** @var EventTrigger $event */
     foreach ($this->events as $event) {
-      if (! $event->shouldRenderCue()) {
+      $cueLayer = 'event-cue:' . ($event->mapId ?? '') . ':' . ($event->marker ?? '');
+      if (!$this->getGameScene()->canPresentFieldGuidance() || ! $event->shouldRenderCue()) {
+        Console::removeLayer($cueLayer);
         continue;
       }
 
-      $this->scene->camera->renderOnScreen(
-        [$event->cue->styledSymbol()],
-        $event->cue->positionFor($event->area),
-      );
+      if ($this->getGameScene()->isGraphicalFieldPresented() && $this->getGameScene()->fieldEffects?->canPresentCue($event)) {
+        Console::removeLayer($cueLayer);
+        continue;
+      }
+
+      Console::withLayer($cueLayer, function () use ($event): void {
+        foreach ($event->cue->findPositions($event->area) as $position) {
+          $this->scene->camera->renderOnScreen([$event->cue->styledSymbol()], $position);
+        }
+      }, PresentationLayerPolicy::WORLD);
     }
   }
 
@@ -806,7 +952,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     foreach ($this->events as $event) {
       if (
         $this->eventManager->activeEvents->contains($event)
-        && ($event->isComplete || ! $event->isAvailable())
+        && !$event->canEngage($this->position, $this->heading)
       ) {
         $event->exit($context);
         $this->eventManager->activeEvents->remove($event);
@@ -820,24 +966,20 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   public function render(): void
   {
     if ($this->isPresentationSuppressed()) {
+      $this->clearActionPrompt();
       return;
     }
     Console::withLayer($this->getGraphicalSpriteId(), function (): void {
       $this->scene->camera->renderAtScreenPosition($this->sprite, $this->screenPosition);
     });
 
-    if ($this->canAct) {
-      PresentationLayerPolicy::fieldPrompt(fn() => $this->scene->camera->draw(
-        $this->actionSprite,
-        $this->screenPosition->x + $this->getActionSpriteHorizontalOffset(),
-        clamp($this->screenPosition->y - 1, 1, get_screen_height())
-      ));
-    }
+    $this->renderActionPrompt($this->screenPosition);
   }
 
   public function renderPlayer(?Vector2 $offset = null): void
   {
     if ($this->isPresentationSuppressed()) {
+      $this->clearActionPrompt();
       return;
     }
     $worldPosition = new Vector2(
@@ -846,14 +988,41 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     );
     $screenPosition = $this->getRenderScreenPosition($worldPosition);
 
-    for ($row = $this->shape->getY(); $row < $this->shape->getY() + $this->shape->getHeight(); $row++) {
-      $output = TerminalText::sliceSymbols($this->sprite[$row], $this->shape->getX(), $this->shape->getWidth());
-      $this->scene->camera->renderAtScreenPosition($output, new Vector2($screenPosition->x, $screenPosition->y + $row));
-    }
+    Console::withLayer($this->getGraphicalSpriteId(), function () use ($screenPosition): void {
+      for ($row = $this->shape->getY(); $row < $this->shape->getY() + $this->shape->getHeight(); $row++) {
+        $output = TerminalText::sliceSymbols($this->sprite[$row], $this->shape->getX(), $this->shape->getWidth());
+        $this->scene->camera->renderAtScreenPosition($output, new Vector2($screenPosition->x, $screenPosition->y + $row));
+      }
+    });
 
-    if ($this->canAct) {
-      PresentationLayerPolicy::fieldPrompt(fn() => $this->scene->camera->draw($this->actionSprite, $screenPosition->x + $this->getActionSpriteHorizontalOffset(), clamp($screenPosition->y - 1, 1, get_screen_height())));
+    $this->renderActionPrompt($screenPosition);
+  }
+
+  private function clearActionPrompt(): void
+  {
+    Console::removeLayer(PresentationLayerPolicy::FIELD_PROMPT_ID);
+  }
+
+  private function renderActionPrompt(Vector2 $screenPosition): void
+  {
+    $this->clearActionPrompt();
+    if (!$this->canAct || !$this->getGameScene()->canPresentFieldGuidance()) { return; }
+    $graphical = $this->scene instanceof GameScene && $this->scene->isGraphicalFieldPresented()
+      && $this->getGraphicalSpriteDefinition() !== null;
+    if ($graphical) {
+      // The game's bound effect draws the prompt over the sprite; the glyph
+      // stays the terminal's, and the fallback where the effect cannot draw.
+      if ($this->scene->fieldEffects?->canPresentActionPrompt()) { return; }
+      // A field character occupies exactly its cell; the prompt sits in the cell above.
+      $column = (int)$screenPosition->x;
+      $row = (int)$screenPosition->y - 1;
+      if ($column < 0 || $row < 0 || $column >= $this->scene->camera->screen->getWidth()
+        || $row >= $this->scene->camera->screen->getHeight()) { return; }
+    } else {
+      $column = (int)$screenPosition->x + $this->getActionSpriteHorizontalOffset();
+      $row = (int)clamp($screenPosition->y - 1, 1, get_screen_height());
     }
+    PresentationLayerPolicy::fieldPrompt(fn() => $this->scene->camera->draw($this->actionSprite, $column, $row));
   }
 
   /**
@@ -861,6 +1030,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function erase(): void
   {
+    $this->clearActionPrompt();
     if ($this->isPresentationSuppressed()) {
       return;
     }
@@ -880,6 +1050,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function erasePlayer(Camera $camera, ?array $sprite = null): void
   {
+    $this->clearActionPrompt();
     if ($this->isPresentationSuppressed()) {
       return;
     }
@@ -1012,35 +1183,76 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   }
 
   /**
-   * Talks to the NPC on the tile the player faces, when one is there.
+   * Talks to the NPC on the tile the player faces, when one is there. The
+   * NPC first turns to face the player unless it is direction-fixed, and
+   * turns back when the conversation ends.
    *
    * @return bool True when a conversation happened.
    */
   protected function talkToFacingNpc(): bool
   {
-    [$dx, $dy] = match ($this->heading) {
-      MovementHeading::NORTH => [0, -1],
-      MovementHeading::SOUTH => [0, 1],
-      MovementHeading::EAST => [1, 0],
-      MovementHeading::WEST => [-1, 0],
-      default => [0, 0],
-    };
+    $npcManager = $this->getGameScene()->npcManager;
+    $npc = $this->findFacingNpc();
 
-    if ($dx === 0 && $dy === 0) {
+    if ($npcManager === null || $npc === null) {
       return false;
     }
 
-    $npc = $this->getGameScene()->npcManager?->npcAt(
-      intval($this->position->x) + $dx,
-      intval($this->position->y) + $dy
-    );
-
-    if ($npc === null) {
-      return false;
-    }
-
+    $npcManager->turnNpcToward($npc, $this->position);
     $npc->talk($this->getGameScene());
 
     return true;
+  }
+
+  /**
+   * Finds the NPC the player reaches from where it stands and faces: the
+   * faced cell, or directly behind one faced counter cell (InteractionReach).
+   *
+   * @return Npc|null The NPC, talkable or not, or null when none is reached.
+   */
+  public function findFacingNpc(): ?Npc
+  {
+    $direction = $this->heading->getDirection();
+    $scene = $this->getGameScene();
+    $npcManager = $scene->npcManager;
+
+    if ($npcManager === null) {
+      return null;
+    }
+
+    $cell = InteractionReach::findTalkCell(
+      intval($this->position->x),
+      intval($this->position->y),
+      intval($direction->x),
+      intval($direction->y),
+      static fn(int $x, int $y): bool => $scene->mapManager?->isCounterAt($x, $y) ?? false,
+      static fn(int $x, int $y): bool => $npcManager->npcAt($x, $y) !== null,
+    );
+
+    return $cell === null ? null : $npcManager->npcAt(...$cell);
+  }
+
+  /**
+   * Updates which talkable NPC the player can speak to, so the action prompt
+   * shows for it as for an event, and redraws the prompt when that changes.
+   */
+  public function refreshTalkTarget(): void
+  {
+    $npc = $this->findFacingNpc();
+    $target = $npc !== null && $npc->isTalkable ? $npc : null;
+
+    if ($target === $this->talkTarget) {
+      return;
+    }
+
+    $this->talkTarget = $target;
+
+    if ($target === null && $this->availableAction === null) {
+      $this->clearActionPrompt();
+
+      return;
+    }
+
+    $this->render();
   }
 }

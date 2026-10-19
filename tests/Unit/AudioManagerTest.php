@@ -11,6 +11,7 @@ use Ichiloto\Engine\Audio\Backends\MpvBackend;
 use Ichiloto\Engine\Audio\Backends\PaplayBackend;
 use Ichiloto\Engine\Audio\Interfaces\AudioBackendInterface;
 use Ichiloto\Engine\Core\Game;
+use Tests\Support\PassiveGame;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
@@ -190,7 +191,7 @@ class TestableAudioManager extends AudioManager
  */
 function makeAudioTestGame(): Game
 {
-  return (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+  return new PassiveGame();
 }
 
 /**
@@ -201,7 +202,7 @@ function makeAudioTestGame(): Game
  */
 function makeAudioAssetsRoot(array $relativePaths): string
 {
-  $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-audio-test-', true);
+  $root = createTestDirectory('ichiloto-audio-test-');
 
   foreach ($relativePaths as $relativePath) {
     $absolutePath = $root . DIRECTORY_SEPARATOR . $relativePath;

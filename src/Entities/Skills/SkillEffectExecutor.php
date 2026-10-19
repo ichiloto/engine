@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Entities\Skills;
 use Ichiloto\Engine\Battle\Resolution\CombatActionResult;
 use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
+use Ichiloto\Engine\Battle\Resolution\CombatResourceChange;
 use Ichiloto\Engine\Battle\Resolution\CombatTargetResult;
 use Ichiloto\Engine\Battle\Resolution\NativeCombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\ResolutionKind;
@@ -41,6 +42,7 @@ final class SkillEffectExecutor
     $orderedTargetIds = [];
     $hitsByTarget = [];
     $secondaryByTarget = [];
+    $resourcesByTarget = [];
     $rollLedger = new SkillRollLedger();
 
     foreach ($targets as $target) {
@@ -68,7 +70,16 @@ final class SkillEffectExecutor
           : 1;
 
         for ($repeat = 0; $repeat < $applications; $repeat++) {
+          $recipients = $actor === $target ? [$target] : [$target, $actor];
+          $previousVitals = array_map(static fn(CharacterInterface $battler): array =>
+            [$battler->stats->currentHp, $battler->stats->currentMp], $recipients);
           $effect->apply($context);
+          foreach ($recipients as $index => $recipient) {
+            $change = CombatResourceChange::measure($recipient, ...$previousVitals[$index]);
+            if ($recipient !== $target && !$change->hasChanges) { continue; }
+            $id = CombatResolver::identity($recipient);
+            $resourcesByTarget[$id] = ($resourcesByTarget[$id] ?? new CombatResourceChange())->accumulate($change);
+          }
         }
       }
 
@@ -94,11 +105,19 @@ final class SkillEffectExecutor
       ];
     }
 
+    foreach ($resourcesByTarget as $targetId => $change) {
+      if (isset($hitsByTarget[$targetId])) { continue; }
+      $orderedTargetIds[] = $targetId;
+      $hitsByTarget[$targetId] = [];
+      $secondaryByTarget[$targetId] = [];
+    }
+
     $targetResults = array_map(
       static fn(string $targetId): CombatTargetResult => new CombatTargetResult(
         $targetId,
         $hitsByTarget[$targetId],
         $secondaryByTarget[$targetId],
+        $resourcesByTarget[$targetId] ?? new CombatResourceChange(),
       ),
       $orderedTargetIds,
     );

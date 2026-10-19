@@ -48,14 +48,19 @@ it('restores the exact idle map through notification motion and dismissal withou
       public function resume(): void { $this->resumes++; }
     };
     $map = new class(new SceneStateContext($scene)) extends MapState {
-      protected function currentMapId(): string { return 'garden'; }
-      protected function hasVisited(string $id): bool { return true; }
+      protected function getSnapshot(bool $graphical): ?\Ichiloto\Engine\UI\Presentation\MapAtlasSnapshot {
+        return new \Ichiloto\Engine\UI\Presentation\MapAtlasSnapshot('Garden', 'synthetic-map',
+          new \Ichiloto\Engine\Field\MapOverview([['#', '#', '#'], ['#', ' ', '#'], ['#', '#', '#']],
+            [[1, 1, 1], [1, 0, 1], [1, 1, 1]]), [], [], 1, 1,
+          \Ichiloto\Engine\Core\Enumerations\MovementHeading::NORTH, canSwitch: false);
+      }
       public function draw(): void {
-        $this->calculateMargins(); $this->initializeUI(); $this->refreshUI();
+        $this->refreshUI();
       }
     };
     $map->draw();
     $before = Console::getBuffer();
+    expect(implode('', $before))->toContain('@');
     Time::setElapsedTime(0);
     $notice = new Notification($game, NotificationChannel::INFO, 'Toast', 'Over the map',
       enterDirection: NotificationSlideDirection::NONE, exitDirection: $exit, animationDuration: 0.2);

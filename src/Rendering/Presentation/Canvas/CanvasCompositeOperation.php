@@ -10,16 +10,20 @@ use InvalidArgumentException;
 final readonly class CanvasCompositeOperation
 {
   public array $data;
+  /** @var list<CanvasWorldSubject> Validated map-owned image groups, independent of wire encoding. */
+  public array $worldSubjects;
 
   public function __construct(array $data)
   {
     $type = $data['type'] ?? '';
+    $worldSubjects = [];
     $required = match ($type) {
       'image' => ['asset', 'destination'], 'fill' => ['destination', 'brush'], 'stroke' => ['points', 'width', 'brush'],
+      'world' => ['worldId', 'destination', 'subjects'],
       default => throw new InvalidArgumentException('Unsupported composite operation.'),
     };
     CanvasCompositeValues::validateKeys($data, ['type', ...$required],
-      ['opacity', 'blend', 'masks', ...($type === 'image' ? ['source', 'displacement'] : [])]);
+      ['opacity', 'blend', 'masks', ...($type === 'image' ? ['source', 'displacement'] : ($type === 'world' ? ['source'] : []))]);
     $blend = $data['blend'] ?? 'source_over';
     if (!in_array($blend, ['source_over', 'screen'], true)) { throw new InvalidArgumentException('Unsupported composite blend.'); }
     $result = ['type' => $type, 'opacity' => CanvasCompositeValues::getNumber($data['opacity'] ?? 1, 0, 1),
@@ -30,7 +34,30 @@ final readonly class CanvasCompositeOperation
       $result['width'] = CanvasCompositeValues::getNumber($data['width'], 0, 256);
       if ($result['width'] <= 0) { throw new InvalidArgumentException('Composite strokes require positive width.'); }
     }
-    if ($type !== 'image') {
+    if ($type === 'world') {
+      if (!is_string($data['worldId'])) { throw new InvalidArgumentException('A world overview requires a retained world id.'); }
+      CanvasValidation::id($data['worldId']);
+      if (max($result['destination']['width'], $result['destination']['height']) > 1024) {
+        throw new InvalidArgumentException('World overview rasters are bounded to 1024 by 1024 pixels.');
+      }
+      $subjects = CanvasCompositeValues::getList($data['subjects'], 0, 128);
+      $ids = $parsed = [];
+      $images = 0;
+      foreach ($subjects as $subject) {
+        $subject = $subject instanceof CanvasWorldSubject ? $subject
+          : (is_array($subject) ? CanvasWorldSubject::fromArray($subject)
+            : throw new InvalidArgumentException('World overview subjects require typed image groups.'));
+        if (isset($ids[$subject->id])) { throw new InvalidArgumentException('World overview subject ids must be unique.'); }
+        $ids[$subject->id] = true;
+        $images += count($subject->images);
+        $parsed[] = $subject->toArray();
+        $worldSubjects[] = $subject;
+      }
+      if ($images > 1024) { throw new InvalidArgumentException('World overview subjects exceed 1024 image pieces.'); }
+      $result['worldId'] = $data['worldId'];
+      $result['subjects'] = $parsed;
+      if (array_key_exists('source',$data)) { $result['source']=CanvasCompositeValues::getRectangle($data['source']); }
+    } elseif ($type !== 'image') {
       if (!is_array($data['brush'])) { throw new InvalidArgumentException('Composite brush must be a descriptor.'); }
       $result['brush'] = new CanvasCompositeBrush($data['brush'])->data;
     } else {
@@ -52,6 +79,7 @@ final readonly class CanvasCompositeOperation
       }
     }
     $this->data = $result;
+    $this->worldSubjects = $worldSubjects;
   }
 
   public function assertWithin(int $width, int $height): void
@@ -65,6 +93,9 @@ final readonly class CanvasCompositeOperation
   public function getAssets(): array
   {
     $assets = isset($this->data['asset']) ? [$this->data['asset']] : [];
+    foreach ($this->data['subjects'] ?? [] as $subject) {
+      foreach ($subject['images'] as $image) { $assets[] = $image['asset']; }
+    }
     foreach ([...$this->data['masks'], ...($this->data['displacement']['masks'] ?? [])] as $mask) {
       if (isset($mask['asset'])) { $assets[] = $mask['asset']; }
     }

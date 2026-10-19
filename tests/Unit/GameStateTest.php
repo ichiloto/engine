@@ -48,6 +48,51 @@ it('stores and reads variables with defaults and addition', function () {
   expect($state->getVariable('title'))->toBe('Champion');
 });
 
+it('notifies observers after both true and false switch writes without changing blank-name behavior', function () {
+  $state = new GameState();
+  $writes = [];
+  $state->onChange = function (string $kind, string $name) use ($state, &$writes): void {
+    $writes[] = [$kind, $name, $state->getSwitch($name)];
+  };
+
+  $state->setSwitch(' visible ', true);
+  $state->setSwitch('visible', false);
+  $state->setSwitch(' ', false);
+
+  expect($writes)->toBe([['switch', 'visible', true], ['switch', 'visible', false]])
+    ->and($state->getSwitch('visible'))->toBeFalse();
+  $restored = GameState::fromArray($state->toArray());
+  expect($restored->getSwitch('visible'))->toBeFalse()->and($restored->onChange)->toBeNull()
+    ->and($restored->toArray())->toBe($state->toArray());
+});
+
+it('reconciles false switches without treating them as achieved quest flags', function () {
+  $scene = makeBareScene(\Ichiloto\Engine\Scenes\Game\GameScene::class);
+  $state = new GameState();
+  new ReflectionProperty($scene, 'gameState')->setValue($scene, $state);
+  $quests = new class extends \Ichiloto\Engine\Quests\QuestManager {
+    public array $flags = [];
+    public function __construct() {}
+    public function recordFlag(string $flagName): void { $this->flags[] = $flagName; }
+  };
+  new ReflectionProperty($scene, 'questManager')->setValue($scene, $quests);
+  $dirty = new ReflectionProperty($scene, 'fieldPresentationIsDirty');
+  $handler = new ReflectionMethod($scene, 'handleWorldStateChange');
+  $state->onChange = fn(string $kind, string $name) => $handler->invoke($scene, $kind, $name);
+
+  $state->setSwitch('visible', false);
+  expect($dirty->getValue($scene))->toBeTrue()->and($quests->flags)->toBe([]);
+  $dirty->setValue($scene, false);
+  $state->setSwitch('visible', true);
+  expect($dirty->getValue($scene))->toBeTrue()->and($quests->flags)->toBe(['visible']);
+  $dirty->setValue($scene, false);
+  $state->setSwitch('visible', false);
+  expect($dirty->getValue($scene))->toBeTrue()->and($quests->flags)->toBe(['visible']);
+  $state->recordStoryEvent('reached_goal');
+  $state->setVariable('phase', 2);
+  expect($quests->flags)->toBe(['visible', 'reached_goal']);
+});
+
 it('records story events idempotently', function () {
   $state = new GameState();
 

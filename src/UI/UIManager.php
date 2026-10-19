@@ -9,7 +9,7 @@ use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Core\Interfaces\CanStart;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
-use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\UI\Interfaces\UIElementInterface;
 use Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface;
 use Ichiloto\Engine\UI\Interfaces\LayeredUIElementInterface;
@@ -23,10 +23,6 @@ class UIManager implements CanRender, CanUpdate, CanResume, CanStart
    * @var UIManager The instance of the UI manager.
    */
   protected static UIManager $instance;
-  /**
-   * @var LocationHUDWindow The location HUD window.
-   */
-  public LocationHUDWindow $locationHUDWindow;
   /**
    * @var ItemList<UIElementInterface> The UI elements.
    */
@@ -60,6 +56,24 @@ class UIManager implements CanRender, CanUpdate, CanResume, CanStart
     }
 
     return self::$instance;
+  }
+
+  /** Hide one owner's element without erasing another element's overlapping cells. */
+  public function deactivateElement(UIElementInterface $uiElement): void
+  {
+    $uiElement->deactivate();
+    $id = spl_object_id($uiElement);
+    unset($this->suppressedUiElements[$id], $this->renderedUiElements[$id]);
+    Console::removeLayer('ui:' . $id);
+  }
+
+  /** Release a registered element and all of its manager-owned presentation bookkeeping. */
+  public function removeElement(UIElementInterface $uiElement): void
+  {
+    $this->uiElements->remove($uiElement);
+    $id = spl_object_id($uiElement);
+    unset($this->presentations[$id], $this->pendingPresentationDismissals[$id]);
+    $this->deactivateElement($uiElement);
   }
 
   /**
@@ -156,6 +170,15 @@ class UIManager implements CanRender, CanUpdate, CanResume, CanStart
     }
 
     $this->pendingPresentationDismissals = [];
+  }
+
+  /** Read-only access also covers event-owned modals which do not use ModalManager's stack. */
+  public function getActivePresentations(): array
+  {
+    $active = array_filter(array_reverse($this->presentations, true), static fn($item) =>
+      !$item instanceof \Ichiloto\Engine\UI\Interfaces\ModalInterface || $item->isShowing());
+    uasort($active, static fn($a, $b) => $b->getPresentationPriority()->value <=> $a->getPresentationPriority()->value);
+    return array_values($active);
   }
 
   /** Returns whether a lower layer currently yields to any intersecting one. */

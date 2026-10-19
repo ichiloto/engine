@@ -1,6 +1,6 @@
 <?php
 
-use Ichiloto\Engine\Core\Game;
+use Tests\Support\PassiveGame;
 use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
@@ -59,7 +59,7 @@ final class DismissOnFirstInputModalProbe extends Modal
   }
 }
 
-final class LowerLayerPaintingGameProbe extends Game
+final class LowerLayerPaintingGameProbe extends PassiveGame
 {
   public function tickWhileBlocked(): void
   {
@@ -142,6 +142,8 @@ final class PositionedTextBoxModalProbe extends TextBoxModal
   {
     return array_map(static fn(string $page): int => count(explode("\n", $page)), $this->messagePages);
   }
+
+  public function advancePage(): void { $this->submit(); }
 }
 
 beforeEach(function () {
@@ -172,7 +174,7 @@ afterEach(function () {
 });
 
 it('erases the centered alert footprint rather than an obsolete origin', function () {
-  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+  $game = new PassiveGame();
   $modal = new PositionedAlertModalProbe($game, 'Equipment optimized!', 'Equipment');
 
   ob_start();
@@ -208,7 +210,7 @@ it('renders every row of a wrapped alert over an existing field frame', function
   $console->getProperty('height')->setValue(null, 39);
   $console->getProperty('buffer')->setValue(null, array_fill(0, 39, array_fill(0, 230, '.')));
 
-  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+  $game = new PassiveGame();
   $modal = new PositionedAlertModalProbe(
     $game,
     'Inspect the ROUTE CHECK enclosure west of the Field Post before checking in.',
@@ -237,7 +239,7 @@ it('renders every row of a wrapped alert over an existing field frame', function
 });
 
 it('composes a blocking modal after lower live layers update', function () {
-  $game = (new ReflectionClass(LowerLayerPaintingGameProbe::class))->newInstanceWithoutConstructor();
+  $game = new LowerLayerPaintingGameProbe();
   $presented = [];
   Timers::setFrameTick($game->tickWhileBlocked(...), function () use (&$presented): void {
     $presented[] = Console::getBuffer();
@@ -264,7 +266,7 @@ it('composes a blocking modal after lower live layers update', function () {
 });
 
 it('does not redraw a modal after input dismisses it in the same frame', function () {
-  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+  $game = new PassiveGame();
   $modal = new DismissOnFirstInputModalProbe(
     $game,
     'Equipment optimized!',
@@ -282,7 +284,7 @@ it('does not redraw a modal after input dismisses it in the same frame', functio
 });
 
 it('uses the same buffered footprint for select modal rendering and erasure', function () {
-  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+  $game = new PassiveGame();
   $modal = new PositionedSelectModalProbe(
     $game,
     'Choose one.',
@@ -315,7 +317,7 @@ it('uses the same buffered footprint for select modal rendering and erasure', fu
 });
 
 it('retains authored dialogue placement while sharing buffered erasure', function () {
-  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+  $game = new PassiveGame();
   $modal = new PositionedTextBoxModalProbe(
     $game,
     'Dialogue stays in its authored screen region.',
@@ -347,7 +349,7 @@ it('retains authored dialogue placement while sharing buffered erasure', functio
 });
 
 it('left aligns prose and speech inside their independently positioned boxes', function (string $speaker, ?WindowPosition $position, WindowPosition $expected) {
-  $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $game = new PassiveGame();
   $message = 'A practice blade and worn guard rest against the wall.';
   $modal = new PositionedTextBoxModalProbe($game, $message, $speaker, position: $position);
   ob_start();
@@ -377,8 +379,8 @@ it('left aligns prose and speech inside their independently positioned boxes', f
   ['Kaelion', WindowPosition::TOP, WindowPosition::TOP],
 ]);
 
-it('measures wrapped dialogue before bottom anchoring it inside the screen', function () {
-  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+it('removes dialogue height growth and moves the fourth line to the next page', function () {
+  $game = new PassiveGame();
   $modal = new PositionedTextBoxModalProbe(
     $game,
     'E-Class authority covers supervised low-tier response, civilian protection, evidence handling, regulated weapons, and incident reports.',
@@ -394,16 +396,24 @@ it('measures wrapped dialogue before bottom anchoring it inside the screen', fun
   ob_end_clean();
   $rendered = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
 
-  expect($height)->toBe(6)
+  expect($height)->toBe(5)
     ->and($rectPosition)->toEqual(WindowPosition::BOTTOM->getCoordinates($width, $height))
     ->and($windowPosition)->toEqual($rectPosition)
     ->and(intval($rectPosition->y + $height))->toBe(get_screen_height())
-    ->and(implode("\n", array_slice($rendered, intval($rectPosition->y), $height)))->toContain('reports.')
+    ->and(implode("\n", array_slice($rendered, intval($rectPosition->y), $height)))->not->toContain('reports.')
     ->and($rendered[get_screen_height() - 1])->toContain('╚');
+  $modal->advancePage();
+  ob_start();
+  $modal->renderCompletePage();
+  ob_end_clean();
+  $rendered = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
+  expect(implode("\n", array_slice($rendered, intval($rectPosition->y), $height)))->toContain('reports.')
+    ->and($modal->size())->toBe([$width, $height])
+    ->and($modal->positions()[0])->toEqual($rectPosition);
 });
 
 it('paginates dialogue that cannot fit its bounded text box', function () {
-  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+  $game = new PassiveGame();
   $modal = new PositionedTextBoxModalProbe(
     $game,
     implode(' ', array_fill(0, 20, 'A complete sentence must remain available to the player.')),
@@ -414,7 +424,7 @@ it('paginates dialogue that cannot fit its bounded text box', function () {
   expect(count($modal->pageLineCounts()))->toBeGreaterThan(1);
 
   foreach ($modal->pageLineCounts() as $lineCount) {
-    expect($lineCount)->toBeLessThanOrEqual(4);
+    expect($lineCount)->toBeLessThanOrEqual(3);
   }
 });
 

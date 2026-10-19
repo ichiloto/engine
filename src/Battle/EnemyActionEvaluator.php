@@ -4,12 +4,12 @@ namespace Ichiloto\Engine\Battle;
 
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
+use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
+use Ichiloto\Engine\Battle\Resolution\NativeCombatRandomSource;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Enemies\ActionCondition;
 use Ichiloto\Engine\Entities\Enemies\ActionPattern;
 use Ichiloto\Engine\Entities\Enumerations\ActionConditionType;
-use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
-use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Skills\Skill;
 
@@ -32,8 +32,8 @@ class EnemyActionEvaluator
    * points at its own troop. A basic attack is used when no pattern is usable.
    *
    * @param CharacterInterface $enemy The acting enemy.
-   * @param CharacterInterface[] $partyTargets The living player battlers.
-   * @param CharacterInterface[] $troopTargets The living enemy battlers.
+   * @param CharacterInterface[] $partyTargets The player battlers, including KO targets.
+   * @param CharacterInterface[] $troopTargets The enemy battlers, including KO targets.
    * @param int $roundNumber The current battle round.
    * @param int $maxPartyLevel The highest level in the player party.
    * @param callable|null $switchLookup Resolves a world switch name to its current value.
@@ -46,23 +46,30 @@ class EnemyActionEvaluator
     int $roundNumber,
     int $maxPartyLevel,
     ?callable $switchLookup = null,
+    ?CombatRandomSource $random = null,
   ): array
   {
+    $random ??= new NativeCombatRandomSource();
     $patterns = $enemy instanceof Enemy ? $enemy->actionPatterns : [];
 
     if (! empty($patterns)) {
       $usable = self::filterUsablePatterns($patterns, $enemy, $roundNumber, $maxPartyLevel, $switchLookup);
-      $pattern = self::pickPattern($usable);
+      $usable = array_values(array_filter($usable, static fn(ActionPattern $pattern): bool =>
+        $pattern->skill instanceof Skill && BattleTargetPolicy::getEligibleTargets(
+          $pattern->skill->scope, $enemy, $troopTargets, $partyTargets) !== []));
+      $pattern = self::pickPattern($usable, $random);
 
       if ($pattern !== null && $pattern->skill instanceof Skill) {
         return [
           new SkillBattleAction($pattern->skill),
-          self::resolveTargets($enemy, $pattern->skill, $partyTargets, $troopTargets),
+          self::resolveTargets($enemy, $pattern->skill, $partyTargets, $troopTargets, $random),
         ];
       }
     }
 
-    return [new AttackAction('Attack'), [$partyTargets[array_rand($partyTargets)]]];
+    $action = new AttackAction('Attack');
+    $eligible = BattleTargetPolicy::getEligibleTargets($action->targetScope, $enemy, $troopTargets, $partyTargets);
+    return [$action, $eligible === [] ? [] : [$eligible[$random->nextInt(0, count($eligible) - 1)]]];
   }
 
   /**
@@ -103,7 +110,7 @@ class EnemyActionEvaluator
    * @param ActionPattern[] $patterns The usable patterns.
    * @return ActionPattern|null The chosen pattern.
    */
-  public static function pickPattern(array $patterns): ?ActionPattern
+  public static function pickPattern(array $patterns, ?CombatRandomSource $random = null): ?ActionPattern
   {
     if (empty($patterns)) {
       return null;
@@ -122,7 +129,7 @@ class EnemyActionEvaluator
       $totalWeight += $pattern->rating - $floor;
     }
 
-    $roll = rand(1, max(1, $totalWeight));
+    $roll = ($random ?? new NativeCombatRandomSource())->nextInt(1, max(1, $totalWeight));
 
     foreach ($pool as $pattern) {
       $roll -= $pattern->rating - $floor;
@@ -204,29 +211,21 @@ class EnemyActionEvaluator
    *
    * @param CharacterInterface $enemy The acting enemy.
    * @param Skill $skill The selected skill.
-   * @param CharacterInterface[] $partyTargets The living player battlers.
-   * @param CharacterInterface[] $troopTargets The living enemy battlers.
+   * @param CharacterInterface[] $partyTargets The player battlers, including KO targets.
+   * @param CharacterInterface[] $troopTargets The enemy battlers, including KO targets.
    * @return CharacterInterface[] The selected targets.
    */
   protected static function resolveTargets(
     CharacterInterface $enemy,
     Skill $skill,
     array $partyTargets,
-    array $troopTargets
+    array $troopTargets,
+    CombatRandomSource $random,
   ): array
   {
-    $pool = match ($skill->scope->side) {
-      ItemScopeSide::USER => [$enemy],
-      ItemScopeSide::ALLY => $troopTargets,
-      default => $partyTargets,
-    };
-
-    if (empty($pool)) {
-      return [$enemy];
-    }
-
-    return $skill->scope->number === ItemScopeNumber::ALL
-      ? $pool
-      : [$pool[array_rand($pool)]];
+    $action = new SkillBattleAction($skill);
+    $pool = BattleTargetPolicy::getEligibleTargets($action->targetScope, $enemy, $troopTargets, $partyTargets);
+    $preferred = $pool === [] ? [] : [$pool[$random->nextInt(0, count($pool) - 1)]];
+    return BattleTargetPolicy::resolveTargets($action->targetScope, $enemy, $troopTargets, $partyTargets, $preferred, $random);
   }
 }

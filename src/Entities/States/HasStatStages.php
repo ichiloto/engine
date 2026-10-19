@@ -55,6 +55,16 @@ trait HasStatStages
     return $this->statStages[$stat] ?? 0;
   }
 
+  public function hasNegativeStatStage(): bool
+  {
+    return array_any($this->statStages, static fn(int $stage): bool => $stage < 0);
+  }
+
+  public function hasPositiveStatStage(): bool
+  {
+    return array_any($this->statStages, static fn(int $stage): bool => $stage > 0);
+  }
+
   /**
    * Restores one exact stage, primarily for atomic battle-rule rollback.
    */

@@ -46,7 +46,10 @@ it('exports one authoritative runtime and authoring vocabulary', function () {
     ->and($schema['cameraOperations'])->toContain('detach', 'pan', 'track', 'route', 'shake', 'restore')
     ->and($schema['cinematicDefinitionFields'])->toContain('id', 'name', 'cast', 'skip', 'finalizer')
     ->and($schema['cinematicEventTrigger']['class'])->toBe('Ichiloto\\Engine\\Events\\Triggers\\CinematicEventTrigger')
-    ->and($schema['cinematicEventTrigger']['rootFields'])->toBe(['class', 'conditions', 'sets', 'whenBlocked', 'cue', 'data'])
+    ->and($schema['cinematicEventTrigger']['rootFields'])->toBe(['class', 'conditions', 'sets', 'whenBlocked', 'cue', 'facing', 'engagement', 'subject', 'data'])
+    ->and($schema['relativePosition']['fields'])->toBe(['at', 'offset'])
+    ->and($schema['relativePosition']['subjectKinds'])->toContain('player', 'npc', 'world_object', 'staged_actor', 'party_actor', 'marker')
+    ->and($schema['relativePosition']['consumers'])->toBe(['move_route.waypoints', 'stage_actor'])
     ->and($schema['cinematicEventTrigger']['dataFields'])->toBe(['cinematicId', 'mode', 'reusable'])
     ->and($schema['cinematicEventTrigger']['modes'])->toBe(['action', 'auto'])
     ->and($schema['cinematicEventTrigger']['completion'])->toBe([
@@ -61,10 +64,31 @@ it('exports one authoritative runtime and authoring vocabulary', function () {
     ->and($schema['unsafeAuthoredSkipCommandTypes'])->toContain('start_battle', 'give_item', 'knowledge')
     ->and($schema['authoredSkipCommonEventPolicy'])->toBe('reject')
     ->and($schema['summonDefinitionFields'])->toContain('id', 'playback', 'effectTiming', 'availability')
-    ->and($schema['summonTimelineFields'])->toBe(['formatVersion', 'fps', 'lengthFrames', 'tracks', 'cues', 'editor'])
+    ->and($schema['summonTimelineFields'])->toBe(['formatVersion', 'fps', 'lengthFrames', 'restFrame', 'presentations', 'stage', 'tracks', 'cues', 'editor'])
     ->and($schema['summonPlaybackConfigFields'])->toBe(['defaultSpeed', 'allowSkip', 'loopPreview'])
     ->and($schema['summonPlaybackFields'])->toContain('currentFrame', 'isPaused', 'isCompleted', 'isLooping');
 });
+
+it('accepts a field timeline reference without changing legacy field-animation authoring', function () {
+  $target = ['kind' => 'position', 'x' => 2, 'y' => 3];
+  $commands = [
+    ['type' => 'field_animation', 'effect' => 'field-aura', 'target' => $target],
+    ['type' => 'field_animation', 'animation' => 'Legacy Aura', 'secondsPerFrame' => .12, 'target' => $target],
+  ];
+  $definition = CinematicDefinition::fromArrays(['id' => 'field-timelines', 'name' => 'Field Timelines'], $commands);
+  expect($definition->commands)->toBe($commands);
+});
+
+it('rejects competing field timeline identity or cadence while hydrating cinematics', function (array $reference) {
+  expect(fn() => CinematicDefinition::fromArrays(['id' => 'invalid-field', 'name' => 'Invalid Field'], [[
+    'type' => 'field_animation', ...$reference, 'target' => ['kind' => 'position', 'x' => 2, 'y' => 3],
+  ]]))->toThrow(InvalidArgumentException::class, 'stable timeline identity');
+})->with([
+  'null' => [['effect' => null]],
+  'unsafe' => [['effect' => '../aura']],
+  'legacy reference' => [['effect' => 'aura', 'animation' => 1]],
+  'legacy tempo' => [['effect' => 'aura', 'secondsPerFrame' => .12]],
+]);
 
 it('rejects authored skipping when any reachable command is irreversible', function (array $commands, string $needle) {
   expect(fn() => CinematicDefinition::fromArrays([

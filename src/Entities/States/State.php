@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities\States;
 
 use InvalidArgumentException;
+use Ichiloto\Engine\Battle\CounterAttackRule;
 
 /**
  * An authored battler state (poison, sleep, guard-up, …).
@@ -24,6 +25,7 @@ class State
    * @param string|null $tickFormula HP delta applied each turn (negative harms); same formula language as skill effects, with `$target` bound to the afflicted battler.
    * @param bool $preventsAction True when the afflicted battler cannot act.
    * @param bool $persistsAfterBattle True when the state survives the end of battle (classic poison).
+   * @param StateDisposition $disposition Whether the state harms, enhances or is neutral to its recipient.
    */
   public function __construct(
     protected(set) string $id,
@@ -34,6 +36,8 @@ class State
     protected(set) ?string $tickFormula = null,
     protected(set) bool $preventsAction = false,
     protected(set) bool $persistsAfterBattle = false,
+    protected(set) StateDisposition $disposition = StateDisposition::HARMFUL,
+    protected(set) ?CounterAttackRule $counterAttack = null,
   )
   {
   }
@@ -53,6 +57,13 @@ class State
     }
 
     $duration = $data['durationTurns'] ?? null;
+    $disposition = $data['disposition'] ?? StateDisposition::HARMFUL;
+    if (!$disposition instanceof StateDisposition) {
+      $disposition = is_string($disposition) ? StateDisposition::tryFrom($disposition) : null;
+      if ($disposition === null) {
+        throw new InvalidArgumentException('State disposition must be harmful, beneficial or neutral.');
+      }
+    }
 
     return new self(
       $id,
@@ -63,6 +74,8 @@ class State
       isset($data['tickFormula']) ? strval($data['tickFormula']) : null,
       (bool) ($data['preventsAction'] ?? false),
       (bool) ($data['persistsAfterBattle'] ?? false),
+      $disposition,
+      CounterAttackRule::fromArray($data['counterAttack'] ?? null),
     );
   }
 }

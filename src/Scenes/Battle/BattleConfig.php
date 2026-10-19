@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Scenes\Battle;
 
 use Ichiloto\Engine\Battle\EscapePolicy;
+use Ichiloto\Engine\Battle\ReservePolicy;
+use Ichiloto\Engine\Battle\BattlePartyRoster;
 use Ichiloto\Engine\Battle\BattleClassification;
 use Ichiloto\Engine\Battle\Entry\BattleEntryContext;
 use Ichiloto\Engine\Core\GameState;
@@ -23,6 +25,10 @@ class BattleConfig implements SceneConfigurationInterface
   /** @var string[] */
   protected(set) array $appliedEntryRuleIds = [];
   private bool $hasEvaluatedEntryRules = false;
+  private ?BattlePartyRoster $roster = null;
+  public BattlePartyRoster $partyRoster {
+    get => $this->roster ??= new BattlePartyRoster($this->party, $this->getReservePolicy());
+  }
   /**
    * Creates a new instance of the battle configuration.
    *
@@ -38,9 +44,15 @@ class BattleConfig implements SceneConfigurationInterface
     protected(set) array $settings = [],
     ?BattleClassification $classification = null,
     ?string $entryExecutionId = null,
+    ?BattlePartyRoster $partyRoster = null,
   )
   {
     $this->classification = $classification ?? $troop->classification;
+    $policy = $this->getReservePolicy();
+    if ($partyRoster !== null && ($partyRoster->party !== $party || $partyRoster->policy !== $policy)) {
+      throw new \InvalidArgumentException('The battle roster must belong to this party and reserve policy.');
+    }
+    $this->roster = $partyRoster;
     $entryExecutionId = is_string($entryExecutionId) ? trim($entryExecutionId) : '';
     $this->entryExecutionId = $entryExecutionId !== '' ? $entryExecutionId : bin2hex(random_bytes(16));
   }
@@ -53,6 +65,7 @@ class BattleConfig implements SceneConfigurationInterface
       $this->party,
       $worldState,
       $this->entryExecutionId,
+      $this->partyRoster,
     );
   }
 
@@ -108,6 +121,11 @@ class BattleConfig implements SceneConfigurationInterface
   public function getEscapePolicy(): EscapePolicy
   {
     return EscapePolicy::resolve($this->settings['escapePolicy'] ?? null);
+  }
+
+  public function getReservePolicy(): ReservePolicy
+  {
+    return ReservePolicy::resolve($this->settings['reservePolicy'] ?? null);
   }
 
   /**
@@ -170,6 +188,8 @@ class BattleConfig implements SceneConfigurationInterface
         'battleEntryContext',
         'appliedEntryRuleIds',
         'hasEvaluatedEntryRules',
+        'roster',
+        'partyRoster',
       ], true)) {
         continue;
       }
@@ -190,5 +210,7 @@ class BattleConfig implements SceneConfigurationInterface
     $this->battleEntryContext = null;
     $this->appliedEntryRuleIds = [];
     $this->hasEvaluatedEntryRules = false;
+    $this->getReservePolicy();
+    $this->roster = null;
   }
 }

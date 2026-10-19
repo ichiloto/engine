@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Presentation;
 
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasCompositeValues as V;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use InvalidArgumentException;
@@ -50,7 +51,7 @@ final class TitleMotionValues
     $x = max(0, min(array_column($points, 0)) - $padding);
     $y = max(0, min(array_column($points, 1)) - $padding);
     return ['x' => $x, 'y' => $y,
-      'width' => min(1350, max(array_column($points, 0)) + $padding) - $x,
-      'height' => min(720, max(array_column($points, 1)) + $padding) - $y];
+      'width' => min(PresentationCanvas::DEFAULT_WIDTH, max(array_column($points, 0)) + $padding) - $x,
+      'height' => min(PresentationCanvas::DEFAULT_HEIGHT, max(array_column($points, 1)) + $padding) - $y];
   }
 }

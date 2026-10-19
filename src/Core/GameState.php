@@ -44,6 +44,23 @@ class GameState
    * @var array<string, true> The maps the party has set foot on, keyed by map id.
    */
   protected array $visitedMaps = [];
+  /** @var array<string, array<string, true>> Learned landmark ids, scoped to their owning map. */
+  protected array $knownLandmarks = [];
+
+  /** Explicit play revelation and physical approach share the same persistent knowledge. */
+  public function revealLandmark(string $mapId, string $landmarkId): void
+  {
+    $mapId = trim($mapId);
+    $landmarkId = trim($landmarkId);
+    if ($mapId === '' || $landmarkId === '' || $this->hasRevealedLandmark($mapId, $landmarkId)) { return; }
+    $this->knownLandmarks[$mapId][$landmarkId] = true;
+    $this->onChange?->__invoke('landmark', $mapId . ':' . $landmarkId);
+  }
+
+  public function hasRevealedLandmark(string $mapId, string $landmarkId): bool
+  {
+    return isset($this->knownLandmarks[trim($mapId)][trim($landmarkId)]);
+  }
 
   /**
    * Sets a named switch.
@@ -62,9 +79,7 @@ class GameState
 
     $this->switches[$name] = $value;
 
-    if ($value) {
-      $this->onChange?->__invoke('switch', $name);
-    }
+    $this->onChange?->__invoke('switch', $name);
   }
 
   /**
@@ -220,7 +235,7 @@ class GameState
   }
 
   /**
-   * @return array{switches: array<string, bool>, variables: array<string, int|float|string>, storyEvents: string[], completedEvents: array<string, true>, visitedMaps: array<string, true>}
+   * @return array{switches: array<string, bool>, variables: array<string, int|float|string>, storyEvents: string[], completedEvents: array<string, true>, visitedMaps: array<string, true>, knownLandmarks: array<string, array<string, true>>}
    */
   public function toArray(): array
   {
@@ -230,6 +245,7 @@ class GameState
       'storyEvents' => $this->storyEvents,
       'completedEvents' => $this->completedEvents,
       'visitedMaps' => $this->visitedMaps,
+      'knownLandmarks' => $this->knownLandmarks,
     ];
   }
 
@@ -249,6 +265,7 @@ class GameState
     $this->storyEvents = $restored->storyEvents;
     $this->completedEvents = $restored->completedEvents;
     $this->visitedMaps = $restored->visitedMaps;
+    $this->knownLandmarks = $restored->knownLandmarks;
   }
 
   /**
@@ -287,6 +304,15 @@ class GameState
     foreach (array_keys((array) ($data['visitedMaps'] ?? [])) as $mapId) {
       if (is_string($mapId)) {
         $state->markMapVisited($mapId);
+      }
+    }
+
+    // Additive migration: old saves have no learned landmarks. Malformed values
+    // cannot reveal a secret, and deleted/renamed source ids never acquire names.
+    foreach (is_array($data['knownLandmarks'] ?? null) ? $data['knownLandmarks'] : [] as $mapId => $entries) {
+      if (!is_string($mapId) || !is_array($entries)) { continue; }
+      foreach ($entries as $landmarkId => $known) {
+        if (is_string($landmarkId) && $known === true) { $state->revealLandmark($mapId, $landmarkId); }
       }
     }
 

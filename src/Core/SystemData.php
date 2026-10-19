@@ -6,6 +6,7 @@ use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
 use Ichiloto\Engine\Battle\EncounterAdvantage;
 use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleConfig;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
+use Ichiloto\Engine\Progression\ProgressionSettings;
 
 readonly class SystemData
 {
@@ -17,6 +18,7 @@ readonly class SystemData
     public object $startingPositions,
     public object $battle,
     public array $elements = [],
+    public ProgressionSettings $progression = new ProgressionSettings(),
   )
   {
   }
@@ -31,6 +33,7 @@ readonly class SystemData
       json_decode(json_encode($data['startingPositions'])) ?? throw new RequiredFieldException('startingPositions'),
       self::normalizeBattleSettings($data['battle'] ?? []),
       is_array($data['elements'] ?? null) ? $data['elements'] : [],
+      ProgressionSettings::fromSystemData($data),
     );
   }
 

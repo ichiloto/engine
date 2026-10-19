@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
@@ -19,8 +21,13 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\Shop\Shop;
+use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\ShopMenuPresentation;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\CommandPanel;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
@@ -39,8 +46,17 @@ use Symfony\Component\Console\Output\ConsoleOutput;
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class ShopState extends GameSceneState
+class ShopState extends GameSceneState implements CanvasProviderInterface
 {
+  use MenuCanvasState;
+
+  private array $infoSelection = [];
+
+  protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
+  {
+    return ShopMenuPresentation::compose($this, $theme, $time);
+  }
+
   /**
    * The width of the shop menu.
    */
@@ -186,7 +202,20 @@ class ShopState extends GameSceneState
    */
   public function execute(?SceneStateContext $context = null): void
   {
+    $this->syncInfoSelection();
+    if ($this->handleMenuInfoInput($this->infoPanel?->text ?? '',
+      columns: max(1, ($this->infoPanel?->getContentWidth() ?? 1) - 2))) {
+      return;
+    }
     $this->mode->update();
+    $this->syncInfoSelection();
+  }
+
+  private function syncInfoSelection(): void
+  {
+    $selection = [$this->mode, $this->shopMenu?->activeIndex, $this->mainPanel?->activeItem];
+    if ($selection !== $this->infoSelection) { $this->menuInfoText->reset(); }
+    $this->infoSelection = $selection;
   }
 
   /**
@@ -194,6 +223,8 @@ class ShopState extends GameSceneState
    */
   public function enter(): void
   {
+    $this->resetMenuPresentation();
+    $this->infoSelection = [];
     Console::clear();
     Console::beginFrame();
 
@@ -264,7 +295,7 @@ class ShopState extends GameSceneState
         {
           parent::__construct(
             $menu,
-            'Buy',
+            Vocabulary::getTerm('shop.buy', 'Buy'),
             'Buy items from the shop.',
           );
         }
@@ -290,7 +321,7 @@ class ShopState extends GameSceneState
         {
           parent::__construct(
             $menu,
-            'Sell',
+            Vocabulary::getTerm('shop.sell', 'Sell'),
             'Sell items to the shop.',
           );
         }
@@ -313,7 +344,7 @@ class ShopState extends GameSceneState
           MenuInterface $menu,
         )
         {
-          parent::__construct($menu, 'Cancel', 'Exit the shop.');
+          parent::__construct($menu, Vocabulary::getTerm('shop.cancel', 'Cancel'), 'Exit the shop.');
         }
 
         public function execute(?ExecutionContextInterface $context = null): int
@@ -389,5 +420,6 @@ class ShopState extends GameSceneState
     $this->mode?->exit();
     $this->mode = $mode;
     $this->mode->enter();
+    $this->syncInfoSelection();
   }
 }

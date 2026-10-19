@@ -18,6 +18,8 @@ use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Battle\Entry\BattleEntryRuleCatalog;
 use Ichiloto\Engine\Core\Enumerations\ChronoUnit;
 use Ichiloto\Engine\Core\Interfaces\CanRun;
+use Ichiloto\Engine\Core\ProjectState\ProjectStateParticipantInterface;
+use Ichiloto\Engine\Core\ProjectState\ProjectStateRegistry;
 use Ichiloto\Engine\Events\Enumerations\EventType;
 use Ichiloto\Engine\Events\Enumerations\GameEventType;
 use Ichiloto\Engine\Events\EventManager;
@@ -30,10 +32,18 @@ use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
 use Ichiloto\Engine\Entities\Elements\ElementRegistry;
 use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationPolicyRegistry;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
+use Ichiloto\Engine\Field\FieldActionRegistry;
+use Ichiloto\Engine\Scenes\Game\SavedGameResumeRegistry;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\IO\SaveManager;
+use Ichiloto\Engine\IO\LaunchDataRoot;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Scenes\Arena\ProjectBattleTest;
+use Ichiloto\Engine\Rendering\Launch\ApplicationIcon;
 use Ichiloto\Engine\Rendering\Launch\RendererLaunchIntent;
 use Ichiloto\Engine\Rendering\Launch\RendererRegistry;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
@@ -51,8 +61,10 @@ use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Windows\DebugWindow;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Progression\ProgressionSettings;
 use Ichiloto\Engine\Util\Config\InputConfig;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
@@ -67,6 +79,26 @@ use Throwable;
  */
 class Game implements CanRun, SubjectInterface
 {
+    private ?ProjectStateRegistry $projectStateRegistry = null;
+    private ?SavedGameResumeRegistry $savedGameResumeRegistry = null;
+
+    public function getSavedGameResumeRegistry(): SavedGameResumeRegistry
+    {
+        return $this->savedGameResumeRegistry ??= new SavedGameResumeRegistry();
+    }
+
+    /** Project bootstrap registers schema policies on this Game, never in global content stores. */
+    public function registerProjectStateParticipant(ProjectStateParticipantInterface $participant): self
+    {
+        $this->getProjectStateRegistry()->registerParticipant($participant);
+        return $this;
+    }
+
+    public function getProjectStateRegistry(): ProjectStateRegistry
+    {
+        return $this->projectStateRegistry ??= new ProjectStateRegistry();
+    }
+
     /**
      * @var AudioManager The audio manager.
      */
@@ -152,6 +184,13 @@ class Game implements CanRun, SubjectInterface
      */
     private bool $crashed = false;
 
+    private ?GameLaunchContext $pendingLaunchContext = null;
+    private ?CinematicDefinition $pendingLaunchCinematic = null;
+    private ?ProjectBattleTest $pendingLaunchBattleTest = null;
+    private ?string $launchDataRoot = null;
+    private bool $launchPrepared = false;
+    private ?GameStartupMode $resolvedStartupMode = null;
+
     /**
      * Game constructor.
      *
@@ -167,9 +206,13 @@ class Game implements CanRun, SubjectInterface
         protected int    $height = DEFAULT_SCREEN_HEIGHT,
         protected(set) array  $options = [],
         ?RendererRegistry $rendererRegistry = null,
+        private readonly ?GameStartupMode $startupMode = null,
+        ?GameLaunchContext $launchContext = null,
     )
     {
         $this->rendererRegistry = $rendererRegistry;
+        // Resolve transport/storage before any service can read player data.
+        $this->prepareLaunchContext($launchContext);
         try {
             // Output ownership is selected at start, after optional runtime attachment.
             Console::setTerminalOutputEnabled(false);
@@ -388,6 +431,7 @@ class Game implements CanRun, SubjectInterface
      */
     private function cleanupTerminal(): void
     {
+        $this->clearPendingLaunch();
         // Quitting, the end of run(), and the shutdown handler all lead here,
         // because any of them may be the last thing that happens. The work is
         // only worth doing once.
@@ -456,7 +500,7 @@ class Game implements CanRun, SubjectInterface
      */
     private function getErrorLogPath(): string
     {
-        return Path::join(Path::getCurrentWorkingDirectory(), 'logs', 'error.log');
+        return Path::join($this->getLogDirectory(), 'error.log');
     }
 
     /**
@@ -496,13 +540,20 @@ class Game implements CanRun, SubjectInterface
     private function initializeConfigStore(): void
     {
         EquipmentOptimizationPolicyRegistry::configureFromProject();
+        ScriptCommandRegistry::configureFromProject();
+        FieldActionRegistry::configureFromProject();
+        $this->getSavedGameResumeRegistry()->configureFromProject();
         ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
         ConfigStore::put(AppConfig::class, new AppConfig());
+        ProjectFormat::assertSupported(config(AppConfig::class, ProjectFormat::KEY));
+        ConfigStore::put(PlayerSettings::class, new PlayerSettings(dataRoot: $this->launchDataRoot));
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
         ConfigStore::put(FieldMusicCatalog::class, FieldMusicCatalog::fromProject());
 
         ConfigStore::put(InputConfig::class, new InputConfig());
+        ConfigStore::remove(ProgressionSettings::class);
         $systemPayload = asset('Data/system.php', true);
+        ConfigStore::put(ProgressionSettings::class, ProgressionSettings::fromSystemData($systemPayload));
         ElementRegistry::configure(is_array($systemPayload['elements'] ?? null) ? $systemPayload['elements'] : []);
         ConfigStore::put(ActorStore::class, new ActorStore());
         $actorStore = ConfigStore::get(ActorStore::class);
@@ -525,7 +576,7 @@ class Game implements CanRun, SubjectInterface
      */
     private function initializeDebugger(): void
     {
-        $logDirectory = Path::join(Path::getCurrentWorkingDirectory(), 'logs');
+        $logDirectory = $this->getLogDirectory();
 
         if (!file_exists($logDirectory)) {
             if (false === mkdir($logDirectory, 0777, true)) {
@@ -735,12 +786,13 @@ class Game implements CanRun, SubjectInterface
     public function run(): void
     {
         try {
-            $sleepTime = (int)(1000000 / ($this->options['fps'] ?? DEFAULT_FPS));
+            $framePacing = new FramePacing($this->options['fps'] ?? DEFAULT_FPS);
             $this->start();
             $nextFrameTime = microtime(true) + 1;
             $lastFrameCountSnapShot = $this->frameCount;
 
             while ($this->isRunning) {
+                $frameStartedNanoseconds = hrtime(true);
                 LatencyTrace::beginIteration();
                 $this->rendererRuntime?->pump();
                 if ($this->terminalCleanedUp) {
@@ -762,12 +814,15 @@ class Game implements CanRun, SubjectInterface
                 $this->render();
                 LatencyTrace::endIteration();
 
-                usleep($sleepTime);
-
                 if (microtime(true) >= $nextFrameTime) {
                     $this->frameRate = $this->frameCount - $lastFrameCountSnapShot;
                     $lastFrameCountSnapShot = $this->frameCount;
                     $nextFrameTime = microtime(true) + 1;
+                }
+
+                $sleepTime = $framePacing->getRemainingSleepMicroseconds($frameStartedNanoseconds, hrtime(true));
+                if ($sleepTime > 0) {
+                    usleep($sleepTime);
                 }
             }
         } catch (RendererWindowClosed) {
@@ -788,6 +843,9 @@ class Game implements CanRun, SubjectInterface
      */
     protected function start(): void
     {
+        $this->prepareLaunchContext();
+        $startupMode = $this->resolvedStartupMode;
+        $this->preflightLaunchContext();
         $this->registerTerminalRestoreHandlers();
         $this->startInputSession();
         Console::enterAlternateScreen();
@@ -805,14 +863,13 @@ class Game implements CanRun, SubjectInterface
             Timers::setFrameTick($this->updateBlockedFrame(...), $this->presentBlockedFrame(...));
         }
 
-        $this->showSplashScreens();
+        if ($startupMode !== GameStartupMode::NEW_GAME) {
+            $this->showSplashScreens();
+        }
         $this->buildItemStore();
         $this->handleGameEvents();
 
-        // A project normally opens on its title screen. Tooling can start
-        // somewhere else, which is how `ichiloto battle` drops a developer
-        // straight into the arena.
-        $this->sceneManager->loadScene($this->options['starting_scene'] ?? 0);
+        $this->startInitialScene($startupMode);
         $this->addObserver(Time::class);
 
         // Lets anything that has to wait hand the loop back instead of
@@ -823,6 +880,103 @@ class Game implements CanRun, SubjectInterface
         $this->isRunning = true;
 
         $this->notify($this, new GameEvent(GameEventType::START));
+    }
+
+    /** Refuse conflicting launch intentions before acquiring native input/output. */
+    protected function validateStartupMode(?GameStartupMode $mode): void
+    {
+        if ($mode !== null && array_key_exists('starting_scene', $this->options)) {
+            throw new \InvalidArgumentException('An explicit start mode cannot be combined with starting_scene.');
+        }
+    }
+
+    protected function startInitialScene(?GameStartupMode $mode): void
+    {
+        $context = $this->pendingLaunchContext;
+        $cinematic = $this->pendingLaunchCinematic;
+        $this->pendingLaunchContext = null;
+        $this->pendingLaunchCinematic = null;
+        if ($context?->battleTest !== null) {
+            $this->pendingLaunchBattleTest = $context->battleTest;
+            try {
+                $this->sceneManager->loadScene(ArenaScene::class);
+            } finally {
+                $this->pendingLaunchBattleTest = null;
+            }
+            return;
+        }
+        if ($context?->start !== null || $cinematic !== null) {
+            $this->sceneManager->startNewGame(start: $context?->start, cinematic: $cinematic);
+            return;
+        }
+        match ($mode) {
+            GameStartupMode::NEW_GAME => $this->sceneManager->startNewGame(),
+            GameStartupMode::TITLE => $this->sceneManager->loadScene(TitleScene::class),
+            null => $this->sceneManager->loadScene($this->options['starting_scene'] ?? 0),
+        };
+    }
+
+    /** One process launch, separate from authored options and persistent gameplay. */
+    protected function prepareLaunchContext(?GameLaunchContext $context = null): void
+    {
+        if ($this->launchPrepared) { return; }
+        $transport = GameLaunchContext::consumeEnvironment();
+        if ($context !== null && $transport !== null) {
+            throw new \InvalidArgumentException('Supply launchContext or its environment transport, not both.');
+        }
+        $context ??= $transport;
+        $otherMode = $this->startupMode ?? GameStartupMode::readEnvironment();
+        $context?->validateOptions($this->options, $otherMode);
+        $mode = $context?->mode ?? $otherMode;
+        $this->validateStartupMode($mode);
+        $root = $context?->dataRoot;
+        if ($root !== null) { $root = LaunchDataRoot::validate($root, Path::getCurrentWorkingDirectory()); }
+        $this->launchDataRoot = $root;
+        $this->pendingLaunchContext = $context;
+        $this->resolvedStartupMode = $mode;
+        $this->launchPrepared = true;
+    }
+
+    /** Storage remains isolated after the one-shot startup instructions are consumed. */
+    public function getDataRoot(): string
+    {
+        return $this->launchDataRoot ?? Path::join(Path::getCurrentWorkingDirectory(), SaveManager::DATA_DIRECTORY);
+    }
+
+    public function hasIsolatedDataRoot(): bool
+    {
+        return $this->launchDataRoot !== null;
+    }
+
+    public function consumeLaunchBattleTest(): ?ProjectBattleTest
+    {
+        $test = $this->pendingLaunchBattleTest;
+        $this->pendingLaunchBattleTest = null;
+        return $test;
+    }
+
+    protected function preflightLaunchContext(): void
+    {
+        try {
+            if ($this->pendingLaunchContext !== null) {
+                $this->pendingLaunchCinematic = GameLaunchPreflight::validate($this, $this->pendingLaunchContext);
+            }
+        } catch (Throwable $error) {
+            $this->clearPendingLaunch();
+            throw $error;
+        }
+    }
+
+    private function clearPendingLaunch(): void
+    {
+        $this->pendingLaunchContext = null;
+        $this->pendingLaunchCinematic = null;
+        $this->pendingLaunchBattleTest = null;
+    }
+
+    private function getLogDirectory(): string
+    {
+        return Path::join($this->launchDataRoot ?? Path::getCurrentWorkingDirectory(), 'logs');
     }
 
     /**
@@ -858,7 +1012,12 @@ class Game implements CanRun, SubjectInterface
         }
         TerminalCapabilities::reset();
         TerminalCapabilities::detect();
-        $this->rendererRuntime?->start($this->name, $this->width, $this->height);
+        if (isset($this->notificationManager)) {
+            $this->rendererRuntime?->setNotificationManager($this->notificationManager);
+        }
+        $this->rendererRuntime?->start($this->name, $this->width, $this->height, $this->rendererRuntime === null ? null
+            : ApplicationIcon::getAssetPath(ConfigStore::has(AppConfig::class) ? config(AppConfig::class, ApplicationIcon::KEY) : null,
+                $this->rendererRuntime->getAssetRoot()));
         if (InputManager::requiresTerminalInput()) {
             Console::saveTerminalSettings();
             $this->terminalInputConfigured = true;
@@ -1076,6 +1235,8 @@ SPLASH_SCREEN;
             return;
         }
 
+        $this->modalManager->processPendingAlerts();
+        if ($this->terminalCleanedUp) { return; }
         $this->notificationManager->update();
         if ($this->terminalCleanedUp) {
             return;
@@ -1151,9 +1312,12 @@ SPLASH_SCREEN;
         if ($this->terminalCleanedUp || Console::isComposing()) { return; }
         // The modal owns its logical layout; only its physical margins may move.
         $this->syncScreenSize(resizeLogicalViewport: false);
+        if ($this->sceneManager->currentScene instanceof \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface) {
+            $this->sceneManager->currentScene->renderPresentationOverlay();
+        }
         if ($this->rendererRuntime !== null) {
             // Scene presentation ownership also applies during dialogue/timer waits.
-            $this->rendererRuntime->present($this->sceneManager->currentScene);
+            $this->rendererRuntime->present($this->sceneManager->currentScene, $this->notificationManager);
             LatencyTrace::flush();
         }
     }
@@ -1242,6 +1406,9 @@ SPLASH_SCREEN;
         // update without exposing a lower-precedence HUD between them.
         $this->sceneManager->currentScene?->getUI()->commitPresentationChanges();
         $this->sceneManager->render();
+        if ($this->sceneManager->currentScene instanceof \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface) {
+            $this->sceneManager->currentScene->renderPresentationOverlay();
+        }
         $this->notificationManager->render();
 
         if (
@@ -1252,7 +1419,7 @@ SPLASH_SCREEN;
         }
 
         $this->notify($this, new GameEvent(GameEventType::RENDER));
-        $this->rendererRuntime?->present($this->sceneManager->currentScene);
+        $this->rendererRuntime?->present($this->sceneManager->currentScene, $this->notificationManager);
         LatencyTrace::end('game.render.end', $started);
     }
 

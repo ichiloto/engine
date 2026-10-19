@@ -38,6 +38,108 @@ old `GameConfig::$events` strings into `GameConfig::$gameState['storyEvents']`.
 This is the only legacy-events migration path; `GameScene::configure()` no
 longer repeats it.
 
+## Save discovery and checkpoint ordering
+
+`SaveManager::getManualSlotCount()` is the single runtime capacity authority.
+It resolves `config.php` project configuration `saves.manual_slots`, a positive
+integer defaulting to **30** when omitted. Save and Title Load ask that same
+manager without menu-owned counts. Projects can customize capacity, for example
+`'saves' => ['manual_slots' => 40]`; this is not a player option or campaign-save
+field. Invalid configured values are refused, not silently replaced. Existing
+explicit `getSaveSlots($count)` / `getLoadSlots($count)` inspection ranges remain
+available for callers; the runtime menus do not use those overrides.
+
+Changing capacity does not rename, reset, migrate or delete numbered files.
+Legacy `file-01.iedata` through `file-05.iedata` retain their identities, and
+slot 30 uses `file-30.iedata`. Lowering capacity hides higher numbered slots
+from these menus, without preventing explicit `loadSlot()` / path loading;
+raising it exposes them again. Latest-file discovery still considers existing
+files independently of menu capacity. No Game setting is needed for 30 slots.
+Editor controls for authoring this project setting are not implemented here;
+source-preserving settings authoring remains in the Editor owner's lane.
+
+`SaveManager::getSaveSlots()` remains the numbered-only writable Save catalog.
+Developer `config.php` options `save.autosave` (default false) and
+`save.quicksave` (default true, preserving the existing Quick Save capability)
+are validated booleans; either, both or neither may be enabled. They are project
+capabilities, never player preferences or campaign fields. Disabled mechanisms
+reject direct SaveManager writes, are excluded from Load and latest-loadable
+Continue discovery, and Quick Save disappears from Controls and control hints.
+Title Load stays enabled when enabled files exist, including invalid records
+so their diagnostic remains reachable. Direct GameOver Continue requires an
+enabled loadable checkpoint. Shared `getEnabledSaveFiles()` and
+`hasEnabledSaveFiles()` provide that distinction.
+Raw `getSaveFiles(true)` remains an inspection/order surface, including disabled
+and legacy records; explicit path loading remains available for tools.
+
+`getLoadSlots()` shows one logical **Autosave first** whenever enabled (empty
+until a file exists), followed by numbered files, then an existing enabled
+Quick Save. The Autosave resolves the newest loadable `auto.iedata` or legacy
+`auto-NN.iedata` by persisted order, skipping corrupt/incompatible newer files.
+If every candidate is invalid, the newest failure is visible and disabled.
+Inspection never restores campaign/settings/playtime or writes a migration.
+All legacy files remain byte-for-byte intact until explicitly managed by their
+owner; new autosaves replace only `auto.iedata` atomically. No destructive
+migration or copying of stale payloads occurs.
+
+**Removed:** three-file rotating autosave writes and automatic map-transfer
+checkpoint decisions. Engine provides `GameScene::autoSave()` as a developer
+checkpoint request: requests during an unstable event defer until successful
+completion and are discarded on failure. Moving maps alone never requests a
+save. `SaveManager::autoSave()` enforces capability and stability directly.
+**Removed:** hardcoded F5 field dispatch. `quick_save` is a semantic action in
+`input.php`, included in player rebinding and live hints. For older projects,
+Engine supplies F5 only if unclaimed; an explicit binding (even empty) wins.
+The shared field dispatch and writer both honor the Quick Save capability.
+
+`SaveSlot::getLabel()` shares File, Autosave and Quick Save vocabulary labels.
+`SaveSlotPage` owns five records per ordinary page across both presentations,
+including a populated five-record tail when the catalog contains at least five
+records. `SaveSlotMenuLayout` uses compact three-row records at Terminal 80x24,
+standard four-row records on taller surfaces, and fewer whole records when
+height requires it. Supported Terminal minimum is 40x8; smaller capabilities
+are refused explicitly rather than overflowing. Both scenes handle semantic
+previous/next-page actions, normal row navigation, wraparound and resize.
+Graphical cards divide their finite list into five records; unusually large
+metrics reduce capacity explicitly, and a viewport unable to fit one complete
+record is refused. **Removed:** variable-height wrapped graphical card rows.
+Compact rows truncate display text; the full selected location, leader, duration
+or compatibility error stays accessible in the existing paged Info panel via
+`info`. Neither selector adds writable automatic/quick Save rows.
+
+New SaveManager writes add optional positive integer `saveOrder` to the existing
+schema-1 envelope root, beside `schemaVersion`, `contentVersion`, `projectId`
+and `payload`. No container or content migration is required; existing readers
+ignore that optional scalar, and the serialized SaveSlot/SavedGame contracts do
+not change. `savedAt` remains the actual wall-clock timestamp used for metadata,
+not an ordering counter.
+
+This removes **filemtime-only ordering** from latest-file discovery. Each
+successful write records the greater of current epoch microseconds and the greatest persisted order plus one, across all numbered,
+quick and automatic files. Reconstructing the manager after restart therefore
+retains monotonic ordering even within one filesystem second or after a clock
+rollback. Ordering inspection disables PHP class instantiation and reads only
+the scalar envelope field; it does not hydrate campaign objects or run project
+compatibility callbacks. Files without a usable order, including legacy and
+corrupt files, retain modification-time ordering in microsecond units. Exact
+ties use ascending full path as a deterministic tie-break, not proof of which
+legacy checkpoint was truly written last. Future legacy modification times can
+advance the logical order; this does not change `savedAt`. Integer exhaustion
+refuses a write before replacing any good file.
+
+Atomic replacement and the active-event guard remain: failed snapshot,
+encoding or storage writes leave the prior save/order intact. Ordering assumes
+one runtime writer per player-data root; it provides neither a cross-process
+save transaction nor power-loss fsync guarantees.
+
+Synthetic `SaveLoadCatalogTest` covers same-timestamp repeated checkpoints,
+restart ordering, ring gaps/rotation, legacy ties/future timestamps, latest
+loadable fallback, class-free order inspection, read-only state/settings/time,
+path confinement, failed replacements, viewport paging and semantic control
+hints, and Title dispatch through the shared saved-load path. It also covers
+30-slot defaults and last-slot writing, configurable capacity changes, unchanged
+legacy files, Save navigation/wraparound, and all records in both graphical themes.
+
 ## Pre-WP1 payload inventory
 
 The legacy root was:
@@ -62,6 +164,7 @@ The nested representation was and remains mixed:
 | Achievements | plain array keyed by achievement ID | achievement ID | achievement rename |
 | Bestiary | plain seen/defeated arrays keyed by enemy name | enemy display name | enemy rename |
 | Play time and sprites | scalar/array fields on `GameConfig` | no catalog lookup | none |
+| Optional project state | bounded plain `projectState` array on `GameConfig` | registered namespace, schema version and project-defined stable references | project policy owns migration/validation |
 
 The concrete object graph is serialized directly. That preserves existing
 saves and avoids a replacement format, but PHP invokes nested
@@ -100,11 +203,70 @@ quick, and autosave files, and for readers used by Continue and tooling:
     `GameConfig`. This optional phase is for deterministic repairs that need
     hydrated, current-content actors; identity migration remains in the
     ordinary pre-resolution phase.
-11. The pipeline validates the required `SaveSlot` and `GameConfig` objects
-    and returns a `SavedGame`.
+11. The pipeline bounds and detaches optional project state. When supplied a
+    `ProjectStateRegistry`, it also prepares every registered project policy
+    after content resolution, without changing the live campaign.
+12. The pipeline validates the required `SaveSlot` and `GameConfig` objects
+    and returns a `SavedGame`. `GameScene::configure()` restores project state
+    before campaign consumers run; GameLoader uses the same validated reader.
 
 Loading never writes the source path. A migrated legacy game is written in
 the current envelope only when the player explicitly saves.
+
+## Saved Campaign Activation
+
+Reading a save is not gameplay activation. `SaveManager::loadSaveFile()`,
+`loadSlot()`, `canLoadSaveFile()` and slot lists remain read-only, and
+`GameLoader::loadSavedGame()` still returns a validated `GameConfig`.
+Actual gameplay callers must pass that config to
+`SceneManager::loadSavedGame(GameConfig): GameScene`. Title Continue and the
+Continue command use this entry. An external caller already holding the current,
+registered, started field can call `GameScene::configureSavedGame(GameConfig)`.
+Plain `configure()` and `configureForLaunch()` deliberately do not signal a save
+load; new-game launch remains separate.
+
+Projects may declare `assets/Data/saved-game-resume.php`, returning a class string
+implementing `Ichiloto\Engine\Scenes\Game\SavedGameResumeHandlerInterface`:
+
+```php
+return \Project\Progress\ResumeActivity::class;
+```
+
+The declaration is optional and is owned by that `Game` instance through
+`getSavedGameResumeRegistry()`, not a process-global handler. The Engine rejects
+unreadable or malformed declarations, missing/wrong-contract/abstract classes and
+constructors requiring arguments at bootstrap. Reconfiguring the registry clears
+the previous declaration first; changing it during a pending load is an explicit
+failure, not permission to run a stale handler.
+
+`resumeSavedGame(SavedGameResumeContext $context): void` is called once after
+project state, campaign, map, player and field state have been restored and the
+project-state restoration transaction has completed. `$context->scene` is the
+exact live field owner. Its existing project-state registry and scene manager
+remain the only authorities: the project decides whether saved progress requires
+an activity, supplies the recorded identities/rules and may call
+`beginSceneExcursion($context->scene, $target, $configuration)`. No continuation,
+handler or excursion ownership is serialized by this hook.
+
+The Engine waits for the current registered, started field, its active player and
+field state, no active story session, no transition and no active stacked or
+UI-presented modal. Entry triggers, field input and movement are withheld until this
+one-shot handoff. If the handler opens an excursion, entry triggers remain
+deferred until the field owns gameplay again. A lifecycle that is not yet stable
+is retried only while this load is pending; it is not project polling on every
+game update. Stop, navigation (including non-modal suspension) and
+reconfiguration/new-game launch cancel pending ownership. Foreign, unregistered
+or stopped direct callers are refused;
+loading over an already-active story session is refused without overwriting it.
+
+A handler returns normally when no activity is required or it has successfully
+handed off. It must throw if a required activity cannot be restored. Failures
+propagate visibly and latch the loaded field against input/events until it is
+stopped or explicitly reconfigured; they are not silently treated as successful
+field resumes. Hydration failures retain the existing project-state rollback;
+handler work happens after that transaction and is not implicitly rolled back.
+The active-story save guard remains unchanged. With no declaration, saved-game
+activation retains the existing immediate field behavior.
 
 Future schema/content versions and wrong-project saves fail with their
 declared/current versions, project IDs, and save path. Missing sequential
@@ -137,8 +299,93 @@ return [
 Migration classes implement `ContentMigrationInterface` and transform the
 existing decoded `payload` array. Migrations must be adjacent, deterministic,
 and must not execute a callable stored in a save. To advance from version 1
-to 2, add exactly one `1 -> 2` class, retain all older steps, then raise
+to 2, add exactly one `1 -> 2` step, retain all older steps, then raise
 `contentVersion`.
+
+### Declared map shifts
+
+A step may declare position edits, `mapShifts`, `mapRemovals` and/or `relocations`,
+instead of `class` (a class or declared edits, never both).
+It records blank rows or columns inserted into a map, so no generated PHP
+class is needed:
+
+```php
+[
+  'from' => 1,
+  'to' => 2,
+  'mapShifts' => [
+    ['map' => 'town', 'axis' => 'y', 'at' => 4, 'by' => 2],
+    ['map' => 'town', 'axis' => 'x', 'at' => 7, 'by' => 3],
+  ],
+]
+```
+
+`map` is a non-empty map ID, `axis` is `'x'` or `'y'`, `at` is the 0-based
+insertion line (an integer of at least 0) and `by` is the inserted count (an
+integer of at least 1). The list must be non-empty; malformed entries make the
+manifest invalid. The engine applies the shifts in order to the saved player
+position: when the save's map is `map` and its coordinate on `axis` is at or
+beyond `at`, that coordinate grows by `by`. Map aliases apply to both the save
+and the entry, so a renamed map still matches. The Editor's row and column
+insert command appends such a step and raises `contentVersion`.
+
+### Declared map removals
+
+Rows or columns removed from a map are declared as `mapRemovals`:
+
+```php
+[
+  'from' => 2,
+  'to' => 3,
+  'mapRemovals' => [
+    ['map' => 'town', 'axis' => 'x', 'at' => 4, 'count' => 2, 'to' => [1, 3]],
+  ],
+]
+```
+
+`map` and `axis` follow the shift contract. `at` is the first removed line
+(a non-negative integer), `count` is a positive integer, and `to` is a two-component
+`[x, y]` coordinate of non-negative integers in the map **after** removal.
+The list must be non-empty. Positions before the range keep their coordinates;
+positions on the removed lines move to `to`; later positions move back by
+`count` on that axis. Map aliases apply to both saved and declared map IDs.
+Each removal uses the coordinates resulting from previous edits in its step.
+
+The author must confirm an open, unoccupied, reachable landing. Its numerical
+coordinates may coincide with a removed line's old coordinates: they refer to
+the new map, not the deleted cells. Runtime migration uses that frozen landing,
+never a search of mutable map content. Keep older steps unchanged and increment
+`contentVersion`; an already-migrated save must not run the removal again.
+
+### Declared relocations
+
+When authored content (an NPC, furniture, a wall) comes to occupy cells a
+player could have saved on, a step declares `relocations` instead of a
+project class:
+
+```php
+[
+  'from' => 16,
+  'to' => 17,
+  'relocations' => [
+    ['map' => 'town', 'cells' => [[34, 5]], 'to' => [35, 6]],
+    ['map' => 'town', 'cells' => [[55, 8], [56, 8]], 'to' => [55, 6]],
+  ],
+]
+```
+
+`map` is a non-empty map ID, `cells` a non-empty list of distinct `[x, y]`
+cells and `to` the `[x, y]` landing, all non-negative integers; the landing
+may not be one of the cells. A saved player position exactly on a listed cell
+moves to the landing; every other position, including a fractional one, keeps
+its coordinates. Map aliases apply as for shifts. The cells and landing are
+frozen in the manifest: choose a landing that is open floor, free of events and
+NPCs and reachable, because loading a save never consults the mutable map.
+
+A step may combine `mapShifts`, `mapRemovals` and `relocations`; shifts apply
+first, then removals, then relocations, each list in authored order regardless
+of PHP key order. A move belongs to the step that introduced it: never add edits
+to an earlier step, since saves already past that version will not run it again.
 
 `ContentReferenceCategory` is the shared runtime/editor vocabulary: maps,
 one-shot events, quests, actors, items, equipment, abilities, spells,
@@ -146,6 +393,39 @@ summons, states, story events, enemies, and achievements. Alias entries use a
 list of `from`/`to` pairs so contradictory duplicate sources remain visible
 to validation. Chains resolve deterministically; self-aliases and cycles are
 invalid. No rename is inferred.
+
+Actor definitions must declare a non-empty string `data.id`. Display-name and
+filename lookup aliases have been removed: only IDs resolve definitions, so two
+actors may share a display name and a name may match another actor's ID without
+changing either identity. Existing case-insensitive ID lookup is retained.
+For a legacy file with an **absent** ID, the runtime file loader temporarily uses
+its current name as an in-memory provisional ID and logs the source filename and
+migration instructions. It never writes project files. An empty or malformed
+authored ID remains an error, not a fallback.
+Released projects also used actor file stems in `startingParty`. Only that
+startup path can resolve a missing-ID actor by file stem, with a warning. A
+registered ID takes precedence; explicit modern actors gain no filename or
+display-name aliases, and ambiguous legacy references are refused.
+
+Before renaming legacy content, use the Editor's **Freeze current name as ID**
+repair or confirm the CLI validation migration (`validate --migrate-actor-ids`).
+Both use the same source-preserving service. A project plan freezes missing IDs
+and updates filename/display-name references to stable IDs, including projects
+whose IDs were frozen earlier without updating their references. It lists every
+changed file before confirmation. Starting parties, skits, actor presentation
+bindings and battle-entry-rule actor predicates/effects share this inventory.
+NPC/staged scene identities, enemy references, ordinary dialogue names and
+name-based summon wielder restrictions are separate contracts and stay untouched.
+Unsupported dynamic source, ambiguous references and colliding keys/IDs are
+refused before writing. Confirmed project repair writes the listed files as one
+transaction; undo/redo checks source snapshots and uses the same transaction.
+The TUI's actor-only freeze retains deferred save when no reference files need
+repair. Validation reports unresolved actor references, including startingParty.
+The frozen ID preserves existing name-based saves; changing the identity
+instead requires an explicit content migration. The Editor assigns IDs to new
+actors and keeps established IDs read-only. Renames change only `data.name`.
+Skits, dialogue presentation, battle artwork, results portraits and current saves
+use the explicit id; a display-name change requires no artwork rebinding.
 
 A tombstone means removal was deliberate. If a loaded save still contains
 that identity, loading fails and asks for a project content migration. A game
@@ -155,6 +435,102 @@ generic engine does not choose.
 For one-shot IDs, an explicit `one_shot_events` alias can change the full
 identity. A `maps` alias also rewrites only the map portion of
 `mapId:marker`, leaving the marker unchanged.
+
+## Project-owned campaign state
+
+`Core\ProjectState` extends the existing `GameConfig` snapshot and save envelope;
+there is no second file, manager, global state singleton or game-specific schema.
+An absent `projectState` field in an older save becomes `[]`. Explicit null or
+malformed data is refused rather than treated as an older save. No container
+schema increment is needed for this optional field.
+
+```php
+'projectState' => [
+    'studio/progress' => ['version' => 2, 'data' => ['resourceId' => 'stable-id']],
+],
+```
+
+A project bootstrap registers `ProjectStateParticipantInterface` policies on its
+Game before the first restoration or mutation:
+
+```php
+$game->registerProjectStateParticipant(new ProgressSavePolicy($catalog));
+$states = $game->getProjectStateRegistry();
+$progress = $states->getState('studio/progress');
+$states->replaceStates(['studio/progress' => $nextProgress]);
+```
+
+The participant exposes stable read-only `namespace` and `version` properties,
+`migrateState(array $data, int $fromVersion): array`, and
+`validateState(array $data): void`. Game owns their schema, sequential migration
+policy, stable content references and reference validation. Namespace/version
+must remain unchanged after registration. Duplicate namespaces, late
+registration and future saved versions are refused. A different implementation
+class in a later build may implement the same namespace; class names, display
+names and artwork bytes are not saved identity.
+
+Both callbacks must be pure: they may inspect current project definitions but
+must not mutate runtime stores, read the previous campaign, perform IO, grant
+starter progress or execute data stored in a save. Registry re-entry from these
+callbacks is refused. The Engine cannot undo arbitrary project side effects,
+so projects must not put them in these callbacks. `validateState([])` must accept
+no recorded progress. Migration is not called when a section is absent. A
+separately authored starter grant and exactly-once receipt are Game behavior,
+not a default in this contract.
+
+The registry is the single owner of detached plain-data project state. Projects
+may build domain models from these values, but must commit their durable state
+through `replaceStates()` rather than retain a second mutable save store.
+`replaceStates()` validates the whole candidate before committing any namespace;
+it supports multiple registered namespaces in one update. It does not transact
+external inventory/currency or other mutable services. Game's ownership service
+must validate and construct those complete operations before committing them.
+
+`prepareSnapshot()` migrates and validates all participants without changing live
+state. `restoreSnapshot()` swaps the complete prepared state once. During field
+configuration, `runWithSnapshot()` restores before campaign consumers run and
+rolls project state back if field configuration throws, including any project
+updates made during that failed configuration. It is not a transaction over the
+existing Engine map, party, UI or external services. Nested campaign restoration
+is refused. Every successful configure replaces all namespaces, so loading a
+different campaign or configuring a new game cannot retain old project progress.
+`captureSnapshot()` feeds the real `GameScene::createSnapshot()` used by numbered,
+quick and autosaves; captures do not retain PHP references to mutable input.
+
+Unregistered sections are structurally validated and retained unchanged in the
+same snapshot. `$states->diagnostics` names each unavailable provider and version;
+such sections cannot be read as active progress or changed through the registry.
+A future build must register the provider before loading if it wants to use that
+state. Malformed unknown data fails loading instead of being silently deleted.
+
+Generic admission limits apply to the entire extension: at most 64 namespaces,
+100,000 data values, 32 nested levels below each payload root, and 1 MiB PHP
+serialized size. Namespaces are lowercase ASCII vendor/name paths, at most 128
+bytes; each section contains exactly a positive integer `version` and array
+`data`. Data supports arrays with string/integer keys, strings, integers, finite
+floats, booleans and null. Objects (including enums), resources, closures,
+non-finite numbers and cycles are refused. These are safety limits, not suggested
+project schema or artwork metadata. The enclosing legacy object serialization
+retains the trusted-save/class-layout constraints described above.
+
+`SaveCompatibilityPipeline` accepts the Game registry as its optional named
+`projectStateRegistry` constructor argument. SaveManager supplies
+`$game->getProjectStateRegistry()` so project policies cover writers, direct
+readers and slot/Continue discovery. Envelope creation prepares a detached
+configuration without mutating the caller or live campaign. Scene configuration
+restores the prepared data before campaign consumers run. Tooling without
+providers intentionally preserves structurally
+valid namespaces rather than pretending it can validate project references.
+
+The active-event save guard is unchanged. This extension does not serialize event
+continuations, permit arbitrary mid-event saving, define checkpoints or invent
+active-match resume. Game must explicitly agree supported save boundaries with
+the scene/event lifecycle before persisting such a phase.
+
+`ProjectStateTest` uses only synthetic policies/data to exercise absent old saves,
+replaceable providers, isolation, all data bounds, detached references, migration
+and validation failure, configuration rollback, unknown-provider round trips,
+shared snapshot surfaces and the unchanged active-event guard.
 
 ## Persistent character states
 
@@ -181,8 +557,8 @@ battle states are never added to the saved character array.
 | Persistent states | `HasStates`, `StateRegistry` | Phase 3 | Battle persistence exists; save persistence missing | ID/remaining-turn serialization for persistent definitions only | Transient states leak | Character, party, full-save, alias/tombstone tests |
 | Achievements | `AchievementManager`, `GameConfig::$achievements` | Phase 6 | ID/timestamp array persists | Apply achievement aliases/tombstones | Unlock records lost | Last Legend exact-array assertion |
 | Bestiary | `Bestiary`, `GameConfig::$bestiary` | Phase 6 | Enemy-name counters persist | Apply enemy aliases/tombstones | Records reset | Seen/defeated count assertions |
-| Quicksave | `SaveManager::quickSave()` | Phase 6 | Separate file, shared writer | Shared envelope/pipeline | F5 saves unreadable | Quick write/load and legacy quick tests |
-| Autosave | `SaveManager::autoSave()` | Phase 6 | Three rotating files, shared writer | Shared envelope/pipeline | Ring or transfer regression | Four writes/three files and all-file loads |
+| Quicksave | `SaveManager::quickSave()` | Phase 6 | Separate file, shared writer | Shared envelope/pipeline | Semantic binding or capability regression | Quick write/load and legacy quick tests |
+| Autosave | `SaveManager::autoSave()` | Phase 6 | Single logical slot, atomic writer | Shared envelope/pipeline | Disabled capability or corrupt legacy selection | Repeated writes/one file, preserved legacy and option combinations |
 | Title Continue | `TitleScene`, `ContinueGameCommand`, `getSaveSlots()` | Phase 6 | Discovers numbered slots/latest loadable files | Compatibility-aware shared loader and readable slot failures | Continue disabled/crash | Slot discovery/latest-loadable integration assertions |
 | Project identity | `ichiloto.json`, workspace loader | Project metadata | Display name only in Last Legend | Stable canonical `id` in envelope | Cross-game load | Wrong-project rejection |
 | Save metadata | `SaveSlot` | Phase 6 | Location/leader/playtime/path object | Preserve unchanged inside payload | Slot UI regression | Slot-summary and surface tests |

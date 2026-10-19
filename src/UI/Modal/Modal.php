@@ -195,11 +195,11 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface, Mo
       }
     }
 
-    if (Input::isButtonDown("confirm")) {
+    if (Input::isButtonPressed("confirm")) {
       $this->submit();
     }
 
-    elseif (Input::isButtonDown("cancel")) {
+    elseif (Input::isButtonPressed("cancel")) {
       $this->cancel();
     }
   }
@@ -223,6 +223,8 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface, Mo
   public function hide(): void
   {
     if ($this->isShowing) {
+      // The dismissing action belongs to this modal, including during caller restoration.
+      InputManager::consumeCurrentInput();
       if (! $this->game->hasStopped()) {
         $this->erase();
       }

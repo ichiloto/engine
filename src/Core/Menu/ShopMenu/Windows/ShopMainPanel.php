@@ -5,11 +5,13 @@ namespace Ichiloto\Engine\Core\Menu\ShopMenu\Windows;
 use Ichiloto\Engine\Core\Menu\ShopMenu\ShopMenu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
+use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\SelectionStyle;
+use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
  * The main panel of the shop menu.
@@ -107,15 +109,15 @@ class ShopMainPanel extends Window
   public function updateContent(): void
   {
     $content = [];
-    $symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'F');
-    $contentWidth = max(0, $this->width - 4);
+    $symbol = Vocabulary::getTerm('currency.symbol', 'G');
+    $contentWidth = $this->getContentWidth();
 
     foreach ($this->items as $index => $item) {
       $prefix = $index === $this->activeItemIndex ? '>' : ' ';
       $price = $item->price * $this->priceRate;
-      $itemName = TerminalText::padRight($item->name, 36);
-      $priceText = TerminalText::padLeft("{$price} {$symbol}", 10);
-      $line = TerminalText::padRight(" {$prefix} {$itemName} {$priceText}", $contentWidth);
+      $line = TerminalMenuRow::compose(EquipmentIcon::getItemLabel($item), "{$price} {$symbol}",
+        min(50, $contentWidth), prefix: " {$prefix} ", valueWidth: 10);
+      $line = TerminalText::padRight($line, $contentWidth);
 
       if ($index === $this->activeItemIndex) {
         $line = SelectionStyle::apply($line);

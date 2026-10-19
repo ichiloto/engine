@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Progression;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Util\Config\ConfigStore;
 use InvalidArgumentException;
 
 /**
@@ -22,6 +23,13 @@ final class ExperienceAwarder
       throw new InvalidArgumentException('Experience awards cannot be negative.');
     }
 
+    $settings = ConfigStore::has(ProgressionSettings::class)
+      ? ConfigStore::get(ProgressionSettings::class)
+      : new ProgressionSettings();
+    if (! $settings instanceof ProgressionSettings) {
+      throw new InvalidArgumentException('Progression settings must use the validated project contract.');
+    }
+
     $before = ProgressionSnapshot::capture($character);
     $oldLevel = $before->level;
     $character->addExperience($experience);
@@ -30,7 +38,7 @@ final class ExperienceAwarder
     // Level recovery is part of progression, not generic stat recalculation.
     // Keeping it here makes battle, quest, and scripted EXP agree while
     // equipment changes and save hydration continue to preserve damage.
-    if ($newLevel > $oldLevel) {
+    if ($newLevel > $oldLevel && $settings->restoreVitalsOnLevelUp) {
       $character->restoreVitals();
     }
 

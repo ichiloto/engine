@@ -18,6 +18,7 @@ use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
+use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\SceneManager;
@@ -110,6 +111,9 @@ it('registers exactly the stable identities and constructs GPUI through its inje
   expect($resolver->calls)->toBe(['gpui'])
     ->and($config->process->command)->toBe([PHP_BINARY])
     ->and([$config->cellWidth, $config->cellHeight, $config->protocol])->toBe([10, 20, RendererProtocolVersion::V2])
+    ->and(new RendererGridConfig(135, 36, RendererRuntimeConfig::GPUI_CELL_WIDTH,
+      RendererRuntimeConfig::GPUI_CELL_HEIGHT)->toArray())->toBe(
+        new RendererGridConfig(135, 36, $config->cellWidth, $config->cellHeight)->toArray())
     ->and(new ReflectionProperty(RendererRuntime::class, 'transport')->getValue($runtime))->toBeInstanceOf(ProcessRendererTransport::class);
 });
 

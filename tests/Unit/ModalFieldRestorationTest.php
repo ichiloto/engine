@@ -145,7 +145,7 @@ final class FieldCompositionSceneProbe extends GameScene
   {
     $hud->activate();
     $uiManager = (new ReflectionClass(UIManager::class))->newInstanceWithoutConstructor();
-    $uiManager->locationHUDWindow = $hud;
+    $this->locationHUDWindow = $hud;
     $elements = new ItemList(UIElementInterface::class);
     $elements->add($hud);
     $uiElements = (new ReflectionClass(UIManager::class))->getProperty('uiElements');

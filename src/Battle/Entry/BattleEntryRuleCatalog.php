@@ -8,6 +8,7 @@ use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\WorldStateWriter;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Stats\StatKey;
+use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 use InvalidArgumentException;
@@ -21,6 +22,8 @@ final class BattleEntryRuleCatalog implements ConfigInterface
   private array $rulesById = [];
   /** @var BattleEntryRule[] */
   private array $orderedRules = [];
+  /** @var list<string> Recoverable content errors for disabled rules. */
+  private array $diagnostics = [];
 
   /** @param array<string, mixed>|array<int, mixed> $data */
   public function __construct(
@@ -40,7 +43,14 @@ final class BattleEntryRuleCatalog implements ConfigInterface
         throw new InvalidArgumentException(sprintf('%s rule at position %d must be an array.', $source, $index));
       }
 
-      $rule = $this->hydrateRule($entry, $index, $actorStore);
+      try {
+        $rule = $this->hydrateRule($entry, $index, $actorStore);
+      } catch (InvalidBattleEntryActorReference $failure) {
+        $diagnostic = $failure->getMessage() . ' This battle-entry rule is disabled; correct its actor reference.';
+        $this->diagnostics[] = $diagnostic;
+        Debug::warn($diagnostic);
+        continue;
+      }
 
       if (isset($this->rulesById[$rule->id])) {
         throw new InvalidArgumentException(sprintf(
@@ -94,6 +104,12 @@ final class BattleEntryRuleCatalog implements ConfigInterface
   public static function empty(): self
   {
     return new self();
+  }
+
+  /** @return list<string> */
+  public function getDiagnostics(): array
+  {
+    return $this->diagnostics;
   }
 
   /** @return BattleEntryRule[] */
@@ -155,7 +171,7 @@ final class BattleEntryRuleCatalog implements ConfigInterface
         throw new InvalidArgumentException(sprintf('%s must be an array.', $actorSource));
       }
 
-      $actorId = $this->actorId($actorEntry['actor'] ?? null, $actorSource, $actorStore);
+      $actorId = $this->getActorId($actorEntry['actor'] ?? null, $actorSource, $actorStore);
       $actors[] = new BattleEntryActorPredicate(
         $actorId,
         BattleEntryActorPresence::require($actorEntry['presence'] ?? null, $actorSource),
@@ -181,7 +197,7 @@ final class BattleEntryRuleCatalog implements ConfigInterface
         ));
       }
 
-      $actorId = $this->actorId($effectEntry['actor'] ?? null, $effectSource, $actorStore);
+      $actorId = $this->getActorId($effectEntry['actor'] ?? null, $effectSource, $actorStore);
       try {
         $stat = StatKey::require(strval($effectEntry['stat'] ?? ''));
       } catch (InvalidArgumentException $exception) {
@@ -227,17 +243,17 @@ final class BattleEntryRuleCatalog implements ConfigInterface
     );
   }
 
-  private function actorId(mixed $value, string $source, ?ActorStore $actorStore): string
+  private function getActorId(mixed $value, string $source, ?ActorStore $actorStore): string
   {
     if (! is_string($value) || trim($value) === '') {
-      throw new InvalidArgumentException(sprintf('%s field "actor" must be a non-empty stable actor identity.', $source));
+      throw new InvalidBattleEntryActorReference(sprintf('%s field "actor" must be a non-empty stable actor identity.', $source));
     }
 
     $actorId = trim($value);
     if ($actorStore instanceof ActorStore) {
       $canonicalId = $actorStore->canonicalId($actorId);
       if ($canonicalId === null) {
-        throw new InvalidArgumentException(sprintf(
+        throw new InvalidBattleEntryActorReference(sprintf(
           '%s field "actor" references unknown actor "%s".',
           $source,
           $actorId,

@@ -6,7 +6,7 @@ use Exception;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
  * QuitGameCommand is a command that quits the game.
@@ -20,7 +20,7 @@ class QuitGameCommand extends MenuItem
    */
   public function __construct(MenuInterface $menu)
   {
-    parent::__construct($menu, config(ProjectConfig::class, 'vocab.game.shutdown') ?? 'Exit', 'Close the game application.', '');
+    parent::__construct($menu, Vocabulary::getTerm('game.shutdown', 'Exit'), 'Close the game application.', '');
   }
 
   /**

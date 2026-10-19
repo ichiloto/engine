@@ -280,6 +280,7 @@ it('highlights the active shop item entry', function () {
   $panel = (new ReflectionClass(ShopMainPanelHighlightProxy::class))->newInstanceWithoutConstructor();
   setMenuHighlightProperty($panel, 'width', 55);
   setMenuHighlightProperty($panel, 'height', 10);
+  setMenuHighlightProperty($panel, 'padding', new \Ichiloto\Engine\UI\Windows\WindowPadding(rightPadding: 1, leftPadding: 1));
 
   $panel->setItems([
     new Item('Potion', 'Restores HP.', '!', 50),

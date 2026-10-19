@@ -6,7 +6,7 @@ use Ichiloto\Engine\Core\Menu\ShopMenu\ShopMenu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
  * Represents the shop account balance panel.
@@ -29,7 +29,7 @@ class ShopAccountBalancePanel extends Window
   )
   {
     parent::__construct(
-      config(ProjectConfig::class, 'vocab.currency.name', 'Gold'),
+      Vocabulary::getTerm('currency.name', 'Gold'),
       '',
       $area->position,
       $area->size->width,
@@ -46,7 +46,7 @@ class ShopAccountBalancePanel extends Window
   public function setBalance(int $newBalance): void
   {
     $span = $this->width - 4;
-    $symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'G');
+    $symbol = Vocabulary::getTerm('currency.symbol', 'G');
     $content = [
       sprintf("%{$span}s", number_format($newBalance) . " {$symbol}")
     ];

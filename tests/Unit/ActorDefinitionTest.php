@@ -1,6 +1,9 @@
 <?php
 
 use Ichiloto\Engine\Entities\Actors\ActorDefinition;
+use Ichiloto\Engine\Animations\ActionAnimationResolver;
+use Ichiloto\Engine\Entities\Enumerations\WeaponType;
+use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
 use Ichiloto\Engine\Util\Stores\ActorStore;
@@ -11,6 +14,143 @@ function foundationActorDefinition(): ActorDefinition
 
   return $store->require('actor.hero', 'loading the project-backed actor test fixture');
 }
+
+it('hydrates every authored attack style without changing stats or equipment', function (WeaponType $type) {
+  $data = foundationActorDefinition()->data();
+  $baseline = ActorDefinition::fromArray($data)->createCharacter();
+  foreach ([$type, $type->value, strtolower($type->value)] as $value) {
+    $actor = ActorDefinition::fromArray([...$data, 'attackStyle' => $value])->createCharacter();
+    expect($actor->attackStyle)->toBe($type)
+      ->and($actor->stats->jsonSerialize())->toBe($baseline->stats->jsonSerialize())
+      ->and(array_all($actor->equipment, static fn($slot): bool => $slot->equipment === null))->toBeTrue()
+      ->and($actor->toArray())->not->toHaveKey('attackStyle')
+      ->and($actor->__serialize())->not->toHaveKey('attackStyle');
+  }
+})->with(WeaponType::cases());
+
+it('rebuilds base attack style from current actor definitions while preserving saved upgrades and resources', function () {
+  $data = foundationActorDefinition()->data();
+  $original = ActorDefinition::fromArray([...$data, 'attackStyle' => 'Sword'])->createCharacter();
+  $saved = $original->toArray();
+  $saved['stats']['currentHp'] = 23;
+  $saved['attackStyle'] = 'invalid historical value';
+  $current = ActorDefinition::fromArray([...$data, 'attackStyle' => 'Dagger']);
+  $restored = $current->createCharacter($saved);
+  expect($restored->attackStyle)->toBe(WeaponType::DAGGER)
+    ->and(ActionAnimationResolver::getAttackRole($restored))->toBe('attack-dagger')
+    ->and($restored->stats->currentHp)->toBe(23)
+    ->and($restored->stats->totalAttack)->toBe($original->stats->totalAttack);
+  expect($restored->assignEquipment('Weapon', new Weapon('Upgrade', '', '', 0, equipmentType: WeaponType::STAFF)))->toBeTrue();
+  $restored = $current->createCharacter($restored->toArray());
+  expect(ActionAnimationResolver::getAttackRole($restored))->toBe('attack-staff')
+    ->and($restored->stats->currentHp)->toBe(23);
+  $restored->assignEquipment('Weapon', null);
+  expect(ActionAnimationResolver::getAttackRole($restored))->toBe('attack-dagger');
+});
+
+it('defaults absent base style to unarmed and rejects invalid authored styles with source context', function () {
+  $data = foundationActorDefinition()->data();
+  foreach ([null, 'Sword-like', '', 1, [], false] as $value) {
+    if ($value === null) {
+      expect(ActorDefinition::fromArray([...$data, 'attackStyle' => null])->createCharacter()->attackStyle)->toBeNull();
+      continue;
+    }
+    expect(fn() => ActorDefinition::fromArray([...$data, 'attackStyle' => $value], 'Actors/Example.php'))
+      ->toThrow(InvalidArgumentException::class, 'Actors/Example.php attackStyle');
+  }
+  expect(ActionAnimationResolver::getAttackRole(ActorDefinition::fromArray($data)->createCharacter()))->toBe('attack-unarmed');
+});
+
+it('requires explicit actor identities and refuses to mutate an established identity', function () {
+  foreach ([['name' => 'Hero'], ['id' => '', 'name' => 'Hero'], ['id' => 42, 'name' => 'Hero']] as $data) {
+    expect(fn() => ActorDefinition::fromArray($data, 'Actors/Hero.php'))
+      ->toThrow(InvalidArgumentException::class, 'Actors/Hero.php must declare an explicit non-empty actor id');
+  }
+  $definition = ActorDefinition::fromArray(['id' => 'actor.hero', 'name' => 'Hero']);
+  expect(fn() => $definition->id = 'renamed')->toThrow(Error::class);
+  expect($definition->id)->toBe('actor.hero');
+});
+
+it('uses ids alone despite duplicate display names and names matching another id', function () {
+  $data = foundationActorDefinition()->data();
+  $store = new ActorStore(definitions: [
+    ActorDefinition::fromArray([...$data, 'id' => 'first', 'name' => 'second']),
+    ActorDefinition::fromArray([...$data, 'id' => 'second', 'name' => 'Shared']),
+    ActorDefinition::fromArray([...$data, 'id' => 'third', 'name' => 'Shared']),
+  ]);
+  expect($store->require('second', 'new party')->id)->toBe('second')
+    ->and($store->has('Shared'))->toBeFalse()
+    ->and($store->canonicalId('first'))->toBe('first');
+  expect(fn() => $store->set('file-alias', new ActorDefinition('fourth', $data)))
+    ->toThrow(InvalidArgumentException::class, 'aliases are not supported');
+  $saved = $store->require('first', 'saving')->createCharacter()->toArray();
+  $restored = $store->require($saved['actorId'], 'loading')->createCharacter($saved);
+  expect($restored->actorId)->toBe('first')->and($restored->name)->toBe('second');
+});
+
+it('loads a legacy file provisionally without writing and drops name and file aliases after migration', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-legacy-actor-' . bin2hex(random_bytes(6));
+  mkdir($root);
+  $path = $root . '/unrelated-filename.php';
+  $data = foundationActorDefinition()->data();
+  unset($data['id']);
+  $data['name'] = 'Legacy Hero';
+  $source = '<?php return ' . var_export(['data' => $data], true) . ';';
+  file_put_contents($path, $source);
+  \Ichiloto\Engine\Util\Debug::configure(['log_directory' => $root]);
+  try {
+    $store = new ActorStore($root);
+    expect(file_get_contents($path))->toBe($source)
+      ->and($store->has('unrelated-filename'))->toBeFalse();
+    expect($store->requireStartingPartyActor('unrelated-filename')->id)->toBe('Legacy Hero')
+      ->and(file_get_contents($root . '/warning.log'))->toContain('Legacy starting-party reference', 'IDs and references');
+    expect(fn() => $store->require('unrelated-filename', 'ordinary actor lookup'))
+      ->toThrow(UnresolvedSaveReferenceException::class);
+    $store->set('unrelated-filename', ActorDefinition::fromArray([...$data, 'id' => 'unrelated-filename', 'name' => 'Modern']));
+    expect($store->requireStartingPartyActor('unrelated-filename')->id)->toBe('unrelated-filename');
+    $saved = $store->require('Legacy Hero', 'loading legacy project')->createCharacter()->toArray();
+    $saved['stats']['currentHp'] = 23;
+    expect(file_get_contents($root . '/warning.log'))->toContain($path, 'provisional id', 'before renaming', 'No project file was changed');
+    $data['id'] = 'Legacy Hero';
+    $data['name'] = 'Renamed Hero';
+    file_put_contents($path, '<?php return ' . var_export(['data' => $data], true) . ';');
+    $store = new ActorStore($root);
+    expect($store->has('Renamed Hero'))->toBeFalse()->and($store->has('unrelated-filename'))->toBeFalse();
+    expect(fn() => $store->requireStartingPartyActor('unrelated-filename'))->toThrow(UnresolvedSaveReferenceException::class);
+    $restored = $store->require($saved['actorId'], 'loading migrated project')->createCharacter($saved);
+    expect($restored->actorId)->toBe('Legacy Hero')->and($restored->name)->toBe('Renamed Hero')
+      ->and($restored->stats->currentHp)->toBe(23);
+    foreach (['', null, 42] as $invalidId) {
+      $data['id'] = $invalidId;
+      file_put_contents($path, '<?php return ' . var_export(['data' => $data], true) . ';');
+      expect(fn() => new ActorStore($root))->toThrow(InvalidArgumentException::class, 'explicit non-empty actor id');
+    }
+  } finally {
+    foreach (glob($root . '/*') ?: [] as $file) { unlink($file); }
+    rmdir($root);
+    \Ichiloto\Engine\Util\Debug::configure();
+  }
+});
+
+it('reconstructs a renamed actor from the same authored id and saved mutable state', function () {
+  $data = foundationActorDefinition()->data();
+  $saved = foundationActorDefinition()->createCharacter()->toArray();
+  $saved['stats']['currentHp'] = 37;
+  $data['name'] = 'Hero Renamed';
+  $store = new ActorStore(definitions: [ActorDefinition::fromArray($data)]);
+  $restored = $store->require($saved['actorId'], 'restoring renamed actor')->createCharacter($saved);
+  expect($restored->actorId)->toBe('actor.hero')->and($restored->name)->toBe('Hero Renamed')
+    ->and($restored->stats->currentHp)->toBe(37)->and($restored->toArray()['actorId'])->toBe('actor.hero');
+  $beat = ['actor' => 'actor.hero', 'emotion' => 'Concerned'];
+  $speaker = \Ichiloto\Engine\Field\SkitSpeaker::getFromBeat($beat, $store);
+  $catalogue = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationCatalog([
+    'actor.hero' => ['emotions' => ['Concerned' => 'hero-concerned.png']],
+  ]);
+  $presentation = \Ichiloto\Engine\Field\SkitBeatPresentation::getFromBeat(
+    dirname(__DIR__) . '/Fixtures', 'rename', $beat, $catalogue, $speaker->actorId);
+  expect($speaker->name)->toBe('Hero Renamed')->and($speaker->errors)->toBeEmpty()
+    ->and($presentation->emotion)->toBe('Concerned');
+});
 
 it('reconstructs fixed actor naturals from project data and defaults old saves to the project variant', function () {
   $definition = foundationActorDefinition();

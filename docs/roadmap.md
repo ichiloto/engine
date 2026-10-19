@@ -381,6 +381,38 @@ Turn the polished stage into a real fight. Roughly in order:
 > `trainingHours` decision (kept — spells still gate on it), and the equipment
 > stat-delta preview, which was already implemented in `CharacterDetailPanel`.
 
+#### Project-owned level-up recovery (2026-10-13)
+
+`assets/Data/system.php` may declare this optional section:
+
+```php
+'progression' => [
+  'restoreVitalsOnLevelUp' => true,
+],
+```
+
+The section must be an associative PHP array (an empty array is valid); its
+only supported key is `restoreVitalsOnLevelUp`, whose value must be a literal
+boolean. Omitted section or key means `true`, preserving existing games. Null,
+strings, numbers, lists, objects and unknown section keys are rejected rather
+than coerced. Unrelated system fields remain unchanged.
+
+`SystemData::$progression` is a validated, immutable `ProgressionSettings`.
+Game bootstrap registers the same contract in `ConfigStore` for the existing
+`ExperienceAwarder::award()` / `awardParty()` path. `true` restores current HP
+and MP to their equipment-aware maxima only when an award raises the level;
+`false` disables that automatic refill and preserves current resources (with
+the existing maximum clamping). EXP, level growth, automatic role-skill grants,
+AP and states are unchanged. Battle and quest awards share this path; scripted
+and migration EXP callers must use it too, not raw `Character::addExperience()`.
+This adds no new script command or migration behavior.
+
+This is developer-owned project data, not a player option, launch override or
+save field. Equipment recalculation, save hydration, legacy invalid-vital save
+recovery and battle-test setup keep their existing semantics. Editor/GUI
+authoring must preserve other system data and round-trip literal booleans;
+their integration remains with the Editor owner.
+
 #### Original plan
 - **Classes** — `ClassStore` over `classes.php`; actors reference a class by
   name; `Character::fromArray` resolves it into a real `CharacterRole` with
@@ -405,9 +437,10 @@ Turn the polished stage into a real fight. Roughly in order:
 > saves. **Records screen**: a new main-menu entry with Achievements and
 > Bestiary tabs — undiscovered enemies mask to `??????`, secret achievements
 > hide until earned, and the entry only appears when a project authors
-> either. **Quicksave/autosave**: `SaveManager::quickSave()` (F5 in the
-> field) and `autoSave()` (a 3-file rotating ring, written on map transfer
-> when `save.autosave` is on) both land in the existing quick-save
+> either. **Quicksave/autosave**: `SaveManager::quickSave()` (semantic
+> `quick_save`, configurable binding; enabled by `save.quicksave`) and
+> `autoSave()` (one atomic slot, developer-triggered when `save.autosave`
+> is enabled; automatic map-transfer saves removed) both land in the existing quick-save
 > directory and never consume a player-visible slot. **Accessibility**
 > (`UI\Accessibility`): `reducedMotion`, `disableBlink`, `highContrast`,
 > and `textSpeedScale` under `accessibility.*`, all defaulting to current
@@ -427,6 +460,19 @@ Turn the polished stage into a real fight. Roughly in order:
 > the first literals extracted onto it. **Credits**: `ShowCreditsCommand`
 > reads `assets/Data/credits.php` as titled sections and appears on the
 > title menu only when a project authors them.
+> **Discoverable message terms (2026-10-16)**: `EngineMessageTerms::listTerms()`
+> exposes every Engine-owned message path with its default, accepted placeholder
+> meanings and authoring help. Paths are relative to `messages.`. Runtime consumers
+> use `MessageCatalog::resolveTerm()` / `getTerm()` (`get_engine_message()` helper),
+> so the editor and runtime share defaults. Project overrides and locale-first
+> lookup remain; existing `exp_total` / `inventory.possession` vocabulary defaults
+> remain supported. Field and battle exit confirmations share `confirm.quit`'s
+> default, removing the separate battle-only default wording. Custom project
+> messages continue through `get_message()` / `LocalizedText`.
+> Battle announcement terms accept `%1`/`$1` (actor), `%2`/`$2` (action); blank
+> means silence. Skills author their own `invocation.message`, including blank.
+> Editor Terms integration belongs to the Editor owner; catalog availability
+> alone does not complete the editor UI.
 > **Two real dialogue bugs surfaced and fixed while verifying credits**:
 > (1) the typing loop built its content *before* advancing the cursor and
 > stopped as soon as the cursor reached the end, so **the final character of
@@ -672,6 +718,25 @@ Turn the polished stage into a real fight. Roughly in order:
 > because a designer wants the shape of a fight before tactics. 8 new tests
 > (suite: 347 passed).
 >
+> **Battle-test command loadouts (2026-10-02):** the shared
+> `BattleTestMember`/`BattleTestSetup` now configures command categories,
+> additional learned abilities and spells, and explicit summon assignments.
+> The arena has constrained Commands, Skills, Magic and Summons pickers beside
+> the existing actor/level/equipment fields; Console uses the same setup.
+> Explicit sandbox summons bypass story availability at both menu and
+> resolution, not wielder eligibility, exclusive ownership, costs or targets.
+> Every fight builds fresh characters; runtime access is excluded from saves
+> and discarded on restoration. Campaign actors, progression and saves remain
+> unchanged. Invalid resources, field-only actions and ambiguous linked summon
+> actions are refused rather than silently omitted.
+>
+> The existing `--runs` simulator is still attack-only. Custom command/skill/
+> summon loadouts must not produce misleading simulation reports: Console
+> refuses them with `--runs`; play the configured fight instead. A future
+> simulator action policy must use shared action selection, targeting and
+> transaction semantics, including enemy patterns and deterministic replay,
+> rather than a special summon executor. This capability is not implemented.
+>
 > It earned itself on the first run: every early enemy in the demo shared one
 > placeholder stat block (a level 14 bat with 203 HP and 30 defence) against
 > three level 1 characters whose best attack is 12, so **the party lost 100%
@@ -774,7 +839,7 @@ continues after victory; normal game-over behavior remains the default, with
 defeat continuation requiring an explicit policy.
 
 Active sessions remain in memory rather than entering the WP1 save envelope.
-Manual/numbered saves and quicksaves are blocked centrally, and transfer
+Manual/numbered saves and quicksaves are blocked centrally, and developer-requested
 autosaves are deferred until successful event completion. The TUI can author
 `ScriptEventTrigger`, structured route steps, and battle continuation fields;
 the existing validator covers script references, stable NPC identities,
@@ -852,6 +917,118 @@ Unavailable conditional triggers remain absent unless their author supplies
 `whenBlocked`; blocked text therefore remains a deliberate spatial-gate policy,
 not a default for future story stations.
 
+### Planned — graphical cues and field navigation
+
+> Status: field-effect runtime slice in local implementation, October 2026.
+> Story/route classification and Claude's source-preserving Editor handoff are
+> pending. The previous minimap passed functional macOS checks; Andrew rejected both map
+> presentations. Scrollable local/world views, two GPUI zoom levels and dedicated
+> category markers are now under local qualification. Walk animation is accepted.
+
+- **Every terminal glyph has graphical art.** In the graphical field, a cue
+  draws as a slanted exclamation mark with a border, blue or yellow, from
+  replaceable cue artwork instead of its glyph; the terminal keeps its
+  coloured glyph.
+- **Story cues stay in view.** A story cue outside the viewport shows at the
+  screen edge in its direction, so the player always knows which way to head.
+  Only story cues do this; route cues show where they stand.
+- **Minimap.** The GPUI corner atlas replaces the coordinate HUD while the field
+  owns presentation, with compact/larger sizes. Terminal keeps coordinates.
+  Andrew's 18 October reference assessment removes the corner location-name
+  header, menu padding and optional hint strip. The map now fills a one-pixel
+  palette rim within the size limits; the frame follows its aspect. Labels,
+  legend and controls remain in the opened map. Andrew's following review adds
+  a translucent corner and compact/larger/off F3 cycle. Graphical coordinate HUD
+  exclusion now follows scene ownership even while an event owns input or the
+  corner is off; the composer consults explicit suppression without requiring
+  an overlay canvas. The opaque corner menu backing is removed.
+  Andrew explicitly keeps interior outlines. Authored atlas.terminalView now
+  distinguishes floorplan from places: outdoor collision traces are removed,
+  building entrances/locations use single squares, and blank ground, exits and
+  player remain. Local defaults preserve interiors; Game owns outdoor selection.
+  Walking diagnosis found repeated artwork-file probes during shared frame
+  composition. A bounded composition snapshot removes duplicate probes while
+  refreshing file/header facts on the next frame and preserving crop validation.
+  Focused preflight/composer/runtime checks pass 76 tests / 537 assertions;
+  targeted static analysis is clean. Muted native comparison: compact-map
+  composition median 7.545 -> 4.574 ms; longest measured step gap 608.787 ->
+  274.017 ms. Candidate ran 987 frames in 19.065 seconds, zero playback backends,
+  unchanged user files and clean automatic closure. These CPU/pipeline timings
+  are bounded observations. Andrew's 18 October review passes GPUI, including
+  walking, translucency, F3 compact/larger/off and the Nivira-departure HUD fix.
+  Terminal received "Needs changes — I’ll describe them"; its correction and
+  author acceptance remain outstanding. The coordinator prematurely marked the
+  minimap goal complete before that review; that status is not acceptance.
+  Andrew then identified the missing terrain/building context and supplied a
+  blank world-map example. The correction removes the marker-only geography:
+  `atlas.terrain` binds existing layer/glyph identities to source-owned semantic
+  roles, with coarse building silhouettes, roads, water, vegetation, generic
+  blocked terrain and boundary outlines beneath square location markers.
+  No second grid, coordinates, occupancy, image inference or GPUI change is used.
+  Exact bounded source aggregation preserves thin routes, and the legend names
+  the declared roles. Synthetic Engine checks pass 48 tests / 1,068 assertions,
+  including unchanged GPUI composition and retained interior outlines. Editor
+  authoring and current Game metadata qualification are coordinated separately.
+  Andrew's latest 18 October ruling removes player review from this implementation
+  goal; complete technical verification/local integration, then start the queued
+  Lore and Lika'mi work. Later player corrections belong to a separate goal.
+  This correction is now integrated locally: Engine `6a9275a`, Editor
+  `46e04e3`, Game `5a428e4`. Editor's exact-ref affected checks pass
+  65 tests / 256 assertions and static analysis; Game's two-mode atlas check
+  passes 2 tests / 70 assertions. The muted macOS PTY Terminal run passes
+  19 stages, nine terrain checks, 221 frames / 5.095 seconds, zero playback
+  backends, unchanged user data and cleaned temporary saves. Offline source
+  output was inspected; macOS Terminal GUI pixels and other platforms were
+  not inspected for this correction. Implementation and technical integration
+  are complete; the queued Lore/Lika'mi goal can begin.
+  Focused corner/theme/icon-role
+  checks: 31 tests / 835 assertions. Muted installed macOS check: 2749 frames,
+  490 changes, 81.584 seconds, exit 0, no playback backends, user files unchanged;
+  native corner inspected, window/process closed and owned storage removed.
+  Andrew's latest 17 October assessment: walk animation PASS; Terminal and GPUI
+  maps FAIL. His correction requires scrollable local maps, actual world-map
+  switching, two GPUI map zoom levels, dedicated inn/shop/home/BSA category
+  markers and simplified Terminal ground. The forced local whole-map fit and
+  regional connection diagram are removed from the opened player map path.
+  Terminal replaces dotted ground/directional player arrows with blank ground,
+  `- | +` boundaries, `v` local entrances/exits, `@` player and global place squares.
+  GPUI keeps simplified source artwork. Shared map-camera projection reads
+  physical cells, never changes gameplay geometry, movement or saved location,
+  and reuses the bounded overview cache. Corner sizing stays separate from map
+  zoom. Names appear only under marker focus; panning clears focus; Page actions
+  focus/centre places and Home recentres the player. Ordinary route visibility,
+  learned names, explicit secrets and saved knowledge retain the existing rules.
+  Map data explicitly declares global scope and optional parent map/landmark
+  references; nested local maps resolve the actual representative world entry.
+  An unresolved local area can browse explicitly declared global maps without
+  inventing a player position. Game authors those relationships; Editor/GUI use
+  shared validation, selectors and reference safety. Project categories specialize
+  generic inn/shop/home/organization pictograms and can replace icons through the
+  theme. See [map contracts](maps.md#active-map-landmarks-and-discovery).
+  The previous Engine `30cb36b` / Game `7643530` / Renderer `3d0446a` native run
+  verified ownership/discovery/save/revisit behavior, not acceptance of the rejected
+  designs. The revised presentation passed focused Engine/Renderer tests and both Game CPU
+  fixture modes. Final installed macOS GPUI verification: 2598 frames, 434 changes,
+  81.895 seconds, exit 0, muted, no playback backends, user files unchanged and
+  owned storage removed. Required opened controls, zoomed local view and actual
+  world geography were visually inspected. Terminal native appearance awaits
+  Andrew's review. No Linux/WSLg native claim.
+  Publication preflight on 18 October found and repaired two shared causes:
+  unloaded map knowledge now returns before accessing scene context, and
+  menu separator batching preserves the actual horizontal clip when its
+  backing grid rounds outward. Dense themed Config screens remain within
+  the existing 64-layer limit. Regression fixtures install synthetic map
+  data through both map owners, enumerate current semantic map actions and
+  remove the stale expectation that a missing graphical overlay restores
+  explicitly suppressed Terminal layers. The macOS/PHP 8.5 full suite passed
+  9,434 tests / 491,308 assertions in 167.49 seconds with warnings, risky
+  tests and deprecations treated as failures. A subsequent notification
+  fixture improvement passed six tests / 36 assertions with a visible map
+  marker. No Linux/Windows/WSLg coverage is claimed by this run.
+- **Built on field effects.** Cues are map-owned effects of the unified
+  effect timeline ([effect animation](effect-animation.md#field-effects)),
+  alongside the walk-on save point's energy, not a cue-specific animation.
+
 ## Production-hardening extension — scenario field music
 
 > Status: implemented and regression-tested on a local feature branch,
@@ -868,6 +1045,439 @@ introduced. See [audio.md](audio.md#scenario-and-mission-music).
 
 Dedicated Editor authoring and CLI reference validation for this catalog are
 not implemented by this Engine change and remain an explicit tooling handoff.
+
+## Game-defined scene excursions
+
+Andrew requested bespoke mini-games through custom scenes on October 8, 2026.
+This is separate from G4. The generic runtime foundations are implemented
+on Engine develop on October 13, 2026; reference-game integration remains in
+progress. Existing `Game::addScenes()` registers project scenes. Game owns
+the scene, its configuration and its structured result; Engine owns the suspended
+caller and cleanup. This does not implement any particular mini-game.
+
+`SceneManager::beginSceneExcursion($caller, $target, $config)` configures and starts
+an unstarted `ConfigurableSceneInterface` target while retaining the exact live
+caller. The target can read its handle through `getSceneExcursionSession($this)`
+and finish with `finishSceneExcursion($handle, $outcome)`. Game-defined result
+objects implement `SceneExcursionResultInterface`; outcomes distinguish completion,
+player cancellation, abandonment and failure. The waiting event uses its existing
+`EventPendingOperationInterface` to observe `handle->outcome` and to call
+`abandonSceneExcursion()` on cancellation, rather than replaying the event.
+
+The active target reads its exact live caller through
+`getSceneExcursionCaller($this)`, including during configuration and startup.
+This is an ownership lookup, not a class lookup: several registered scenes may
+have the same class. Other scenes, finished or abandoned excursions and stopped
+or replaced callers have no caller access. A project needing a checkpoint uses
+that retained caller with the existing save manager and project-state extension;
+it does not guess the owner through `findScene()`. Arbitrary active story events
+remain unsaveable, and no event continuation or scene reference is serialized.
+
+Entry and return reset input and refuse live modals. Nested excursions, battles
+inside excursions and stale handles are rejected. Configuration/startup failures
+roll back to a live caller; shutdown, navigation, removal or a stopped/replaced
+caller abandon the session without resuming its event. Scene-owned listeners and
+resources are cleaned even if a resource throws. Battle return and excursions
+share one suspension authority, not separate runtimes. Synthetic regression tests
+exercise these ownership and interruption paths; native custom-scene and
+Linux/WSLg acceptance are not claimed.
+
+Each field owns its actual `GameScene::$locationHUDWindow`; suspension hides
+that HUD, return restores its prior active/inactive intent, and stop releases
+only that instance. The global `UIManager::$locationHUDWindow` alias, Battle's
+target-side hiding workaround and FieldState's unconditional resume activation
+are removed. Custom targets must not reach into another scene's HUD. Bare test
+fields inject the protected-write property on their own scene; normal field
+configuration registers it automatically. `UIManager::deactivateElement()` and
+`removeElement()` clear only the owned element's presentation and Console layer,
+preserving notifications and unrelated UI.
+
+The optional [project secondary field action](rendering/input-sources.md#project-secondary-field-action)
+uses semantic input independently of ordinary Talk. The generic
+[project-state save extension](save-compatibility.md#project-owned-campaign-state)
+stores versioned plain data under Game-owned schema policies. Neither extension
+relaxes the active-event save guard. A Game-owned resumable activity entered
+from a stable field can checkpoint its structured state through the retained
+field owner; required checkpoint failures must remain visible to that activity,
+not be mistaken for successful optional autosaves.
+
+Each game's rules, card collection, NPC challenges, winnings, refinement,
+trading, progression gates and authored interface theme belong to that game.
+For card tables and other spatial interfaces, the shared
+`UI/Navigation/DirectionalFocusGraph` navigates explicit cardinal neighbour
+IDs using `FocusDirection`, without polling input or drawing. Replacing the
+node list validates it before mutation and retains focus by stable ID, or uses
+an explicit fallback. Disabled nodes retain their spatial focus; the consumer
+owns activation permission. `MenuGraphNodeInterface` now extends the general
+`DirectionalFocusNodeInterface`: implementers must supply stable `id`, `enabled`
+and `getNeighbourId()` values, deriving IDs from the same menu neighbours rather
+than keeping a second topology. Menu membership and focus events stay in the
+menu contract; a game's table-node contract may extend the navigation parent
+without menu-specific members. Existing menu rendering and input stay unchanged.
+The immediate reference-game plan and its ratified rule decisions are owned
+by Game in its existing private roadmap, not copied into Engine documentation.
+Implementation is queued independently and must not expand G4 acceptance.
+
+## Scenario Director village implementation plan
+
+Planned 15 October 2026. All milestones below are **not started**. This section
+owns the dependency order and completion gates for the village prototype.
+The [Editor roadmap](../../editor/docs/roadmap.md#scenario-blueprint-authoring)
+and [GUI plan](../../gui-editor/docs/plan.md#scenario-director-authoring-and-preview)
+own their component tasks. The [business proposal](../../business-plan/ai-integration-strategy.md)
+owns product positioning, proposed pricing and the fuller knight/druid example.
+Creating this plan does not start implementation or change the current release
+or rendering milestones.
+
+The target is one playable world with an AI dungeon master: the same conflict
+can start with a knight defending the nation or a druid seeking justice for a
+pillaged capital. Player decisions can change allegiance and subsequent
+situations. Dialogue, quests, encounters and visible consequences must follow
+those decisions. Two fixed quest chains with generated wording do not meet
+the final acceptance gate.
+
+### Ownership and existing foundations
+
+| Owner | Reuse | New responsibility |
+| --- | --- | --- |
+| Free Engine | GameState, QuestManager, NpcManager, EventInterpreter, combat, GameConfig and SaveManager | Public blueprint/proposal contracts, generated definitions and instances, typed campaign state, validation and safe consequence execution |
+| Free shared Editor and TUI | EditorSession, SessionHost, record schemas, reference pickers, source preservation, history and shared-file composition | Basic scenario record authoring, diagnostics, revisions, undo and save support |
+| Paid GUI frontend | Existing map/database tools and PHP host | Visual scenario forms, placement selection, relationships and preview controls over shared services |
+| Proposed paid Director addon | Project bootstrap, public core contracts and lifecycle boundaries | Context selection, planning/coherence, asynchronous generation, adapters and generation-testing workflow |
+| Village sample project | Existing project/bootstrap and asset contracts | Maps, people, lore, origins, encounter resources, dialogue style and authored generation policy |
+
+The Director is renderer-neutral. Community generators may use the same free
+proposal boundary. Committed gameplay must load and execute with the free
+scenario runtime policy registered, without a model or a paid provider object.
+Producing future content still depends on the game's declared generation mode.
+
+The existing [project-state extension](save-compatibility.md#project-owned-campaign-state)
+already supplies bounded plain data, namespace policies, migrations and restore
+before campaign consumers. Reuse it. Its registry is the durable owner; domain
+services expose typed operations over those records rather than maintain a second
+mutable store. Existing GameState, inventory and quest progress remain owners of
+their own data. The registry's atomic namespace replacement does **not** transact
+those other owners; SD2 must solve that integration explicitly.
+
+Start with one proposed authored catalog, **assets/Data/scenarios.php**, containing
+a schema version and keyed world, faction, origin and situation records. Map
+regions and resource references are selected records within that catalog.
+This keeps linked scenario edits in one backing document and fits the Editor's
+existing shared-file composition. It is a proposed contract to settle in SD0,
+not an existing supported filename. General cross-file atomic saving must not
+be inferred from that choice.
+
+### Milestones and effort
+
+Work sequentially, finishing each gate before opening the next milestone.
+Validate real-model value through the shared Editor/TUI before the full GUI
+workspace, so visual tooling does not precede the main product experiment.
+A focused development day means roughly four to six hours of implementation
+and verification. These are planning ranges, not measured delivery promises.
+
+| Milestone | Main work | Depends on | Focused days | Demonstrable result |
+| --- | --- | --- | --- | --- |
+| SD0 | Contracts, capability audit and sample scope | Existing foundations | 2–3 | Valid sample records and a mapped executable gameplay loop |
+| SD1 | Typed campaign state and definition restoration | SD0 | 5–8 | A generated campaign snapshot survives save/load without inference |
+| SD2 | Gameplay instances and consequence commitment | SD1 | 8–12 | Both origins can play and change the same world using synthetic proposals |
+| SD3 | Shared Editor and TUI authoring | SD0–SD2 | 5–8 | Blueprints can be authored, validated, undone and round-tripped |
+| SD4 | Director orchestration and reactive planning | SD2–SD3 | 6–10 | The addon drives complete proposal lifecycles using a test adapter |
+| SD5 | Local and online model integration | SD4 | 5–8 | Real models produce validated, meaningfully reactive adventures |
+| SD6 | GUI authoring and campaign inspection | SD3–SD5 | 6–10 | A creator configures and tests the village through the GUI |
+| SD7 | Complete village qualification and packaging | SD5–SD6 | 4–7 | Repeatable independent playtests and a documented prototype package |
+
+Total: **41–66 focused days**, before contingency. Reserve another 20–30% for
+integration and model-quality work: approximately **50–86 days**. At three
+focused days per week that is roughly **17–29 weeks**. Re-estimate after SD2
+and again after the first real-model trial; model quality and consequence
+integration are the largest uncertainties. Packaging and paid-product polish
+beyond the prototype are separate estimates.
+
+### SD0 Contracts and sample scope
+
+**Tasks**
+
+- [ ] Audit the actual command, quest, actor, encounter, placement and save
+  capabilities against the village loop. For each missing verb, identify its
+  proper shared owner before implementation. Negotiation, custody transfer and
+  faction access need executable rules; a prompt instruction is insufficient.
+- [ ] Define versioned blueprint and proposal schemas. Reference existing stable
+  actors/classes/items/troops/maps; distinguish generated instance IDs, authored
+  IDs, social role and visual variant. Specify reference collision and rename
+  behaviour, including deliberate compatibility for existing name-based targets.
+- [ ] Define the proposed persistent campaign record: portable campaign ID,
+  origin, facts and scoped beliefs, relationships, accepted commitments, generated
+  definitions/instances, causal outcomes and bounded application receipts.
+  Inventory quantities, quest progress and ordinary flags remain in their
+  existing stores; references link them instead of copying their authority.
+- [ ] Define proposal fields: request/contract/blueprint versions, campaign and
+  session identity, expected revision, participants, preconditions, supported
+  effects, presentation and continuation hooks. Reject unknown operations and
+  malformed references before admission.
+- [ ] Specify one sample project in the existing examples workflow, proposed as
+  **examples/scenario-village/**. Reuse normal dependencies and startup; no copied
+  Engine/runtime or Last Legend story edits. Inventory the village, forest,
+  shrine, relic, witnesses, faction contacts and reusable combat resources.
+
+**Gate:** validate one opening for each origin and one later change of allegiance
+as plain synthetic proposals. Every proposed effect maps to an existing operation
+or an explicit SD2 task. Record the selected hardware, development time allocation
+and inference/storage budgets for later measurements. No provider installation
+or generation is necessary here.
+
+### SD1 Persistent campaign state and generated definitions
+
+**Tasks**
+
+- [ ] Implement the public scenario record policy and typed access service using
+  ProjectStateParticipantInterface and ProjectStateRegistry. Register before the
+  first campaign restore. Missing old-save state means no generated campaign;
+  malformed or future-version state fails with a useful diagnostic.
+- [ ] Extend definition resolution so QuestManager consumes authored and admitted
+  generated definitions through one validated catalog. Restore generated definitions
+  before quest-log hydration. Derive runtime indexes from the durable records;
+  do not create another quest manager or independent save registry.
+- [ ] Store accepted generated facts, people, dialogue choices and objectives
+  needed for continuity. Keep a causal ledger of commitments/outcomes and compact
+  model context separately; summaries never become authoritative facts.
+  Validate generated references against the candidate snapshot and authored
+  catalog, never the previous live campaign. Pin committed definition versions;
+  a later blueprint edit must not reroll established content on load.
+- [ ] Qualify numbered, quick and autosave snapshots, campaign switching, migrations
+  and failed restoration. Keep pure migration/validation callbacks free of side
+  effects and preserve the active-event save guard.
+- [ ] Enforce size admission before accepting content. The current project-state
+  extension permits **1 MiB across all namespaces**, not per addon. Bound active
+  content, prose and history while preserving unresolved promises and application
+  receipts; refuse new content visibly when a valid compact representation will
+  not fit. Do not raise the shared limit to hide unbounded growth.
+
+**Gate:** save a synthetic generated campaign, terminate its runtime, load it with
+no inference adapter and restore the same definitions, people, knowledge and quest
+references. Loading another campaign does not retain the first one's state.
+An old ordinary project still loads and plays without enabling scenario generation.
+
+### SD2 Playable world instances and safe consequences
+
+**Tasks**
+
+- [ ] Materialise an admitted origin through existing party/actor/class/start-map
+  setup. Validate equipment, entry positions and relationships before activation;
+  register generated people with NpcManager through shared prepare/apply paths.
+- [ ] Add runtime instance overlays to authored maps for scenario participants,
+  interaction bindings and access conditions. Use stable instance identity,
+  existing collision and valid placement regions. Re-entering a map or loading
+  a save reconstructs the same instances without rewriting authored files.
+- [ ] Implement the smallest complete set of reusable village capabilities:
+  reveal a fact, offer/accept a commitment, transfer validated relic custody,
+  change a declared relationship/access condition, resolve an explicit negotiation
+  offer, and launch an eligible normal encounter. Identify any absent shared
+  operation in its owning domain; model text cannot supply PHP implementations.
+- [ ] Introduce a bounded consequence change plan. Preflight all participating
+  owners against the expected campaign revision, prepare complete candidate changes,
+  and apply at one non-yielding boundary with defined rollback on failure.
+  Publish notifications/outcomes only after success. Cover inventory, quest and
+  world/campaign state together where an action touches them. Namespace replacement
+  alone and arbitrary command-by-command mutation are insufficient.
+- [ ] Use durable action identities/receipts and an explicit revision/sequence
+  policy to prevent retries, reloads or stale replies from awarding twice.
+  Retention/compaction must preserve deduplication semantics. Exclusively owned
+  resources cannot be committed to incompatible situations.
+- [ ] Keep situation commitment distinct from later execution. Encounters and
+  dialogue may yield through their normal lifecycle; do not hold a transaction
+  open while the player talks or fights. Actual outcomes trigger later consequences.
+  Save only at stable boundaries; mandatory checkpoint failure must be visible.
+
+**Gate:** run both origins through the same village resources with synthetic
+proposals, including negotiation and a battle, refusal of an offer, a changed
+allegiance and a visible faction response. Inject a failure between prepared
+owner updates and verify no partial custody, reward or relationship change.
+Repeat the action and save/reload without duplication. Both terminal and graphical
+runtime projections must remain possible from the same state; polish comes later.
+
+This milestone proves the gameplay machinery. Synthetic proposals do not prove
+AI improvisation or narrative quality; those gates remain in SD5 and SD7.
+
+### SD3 Shared Editor and terminal authoring
+
+**Tasks**
+
+- [ ] Add source-preserving scenario catalog projections and record schemas for
+  world/conflict, factions, origins and situations. Reuse supported PHP source
+  editing; refuse unsupported computed/constructor source before any write.
+- [ ] Extend EditorSession/SessionHost with capability-described list/read/create,
+  revise, validate, preview and history operations. Use action-named APIs, expected
+  revisions, structured diagnostics and reference pickers. Do not invent a second
+  parser, writer or AI-only mutation path.
+- [ ] Compose linked scenario changes in the single backing catalog with grouped
+  undo/redo and rollback. Validate external map/resource references; a combined
+  map-plus-blueprint edit cannot claim atomic multi-file save without a qualified
+  shared transaction. Prefer selecting existing map regions in this slice.
+- [ ] Expose basic gameplay records in the TUI, including textual region/entry
+  selection and clear conditions/effects. Terminal authoring requires no sprites,
+  graphical crop controls or GUI purchase.
+- [ ] Add a shared preview boundary accepting a scenario catalog revision, origin
+  and synthetic proposal source. Test instances have separate temporary campaign
+  state and use normal runtime services, not a second simulation.
+
+**Gate:** author both origins and a custody/negotiation situation through the TUI
+and the host, undo and redo a linked change, save/reopen without losing unrelated
+PHP or graphical fields, and refuse stale or invalid edits without partial writes.
+
+### SD4 Director addon and reactive orchestration
+
+**Tasks**
+
+- [ ] Establish one separately packaged Director addon, proposed local component
+  **scenario-director/**, with explicit project-bootstrap registration and a small
+  provider interface. Settle the local package/composition shape in SD0; do not
+  introduce a universal plugin framework or create/publish a remote repository.
+- [ ] Implement task-scoped context assembly from canonical facts, the active
+  perspective, permitted character knowledge, faction intentions and relevant
+  causal history. Director summaries remain derived data.
+  Treat player text and generated dialogue as data, not authority to change
+  policy. Core proposal validation enforces permitted operations independently
+  of model instructions.
+- [ ] Implement a proposal lifecycle with queued, running, proposed, validated,
+  committed, refused and cancelled states. Track campaign/session epochs and world
+  revisions. Cancel obsolete work on load/quit/scene teardown; refuse late replies.
+- [ ] Reconsider intentions at semantic outcomes and authored pacing points.
+  Distinguish an offered opportunity from an accepted player objective. Let players
+  decline, negotiate and switch sides; revise plans using actual Engine outcomes.
+  Use the explicit game turn/time policy for faction actions.
+- [ ] Run model work outside the rendering/input loop, using one bounded worker
+  and a cancellable request queue initially. No synchronous network/inference wait
+  in a frame update. Verify process lifetime, timeout and resource cleanup.
+- [ ] Connect a deterministic test adapter to the real proposal interface and the
+  editor preview. Cover malformed output, missing references, stale state, duplicate
+  delivery, timeout, cancellation and exhausted generation budgets.
+
+**Gate:** the packaged addon drives a complete opening, consequential deviation and
+next situation through SD2, with visible reasons for failures and no leaked workers.
+Replacing the test adapter requires no changes to quests, saves or renderer code.
+
+### SD5 Local and online inference
+
+**Tasks**
+
+- [ ] Qualify one local backend/model on the selected machine first, then one
+  online provider through the same proposal contract. Verify capability and model
+  distribution terms at implementation time. Local failure does not silently
+  switch the player to paid cloud use.
+- [ ] Generate bounded structured situations and short dialogue tasks, with finite
+  repair/retry budgets. Preserve schema versions and useful request provenance,
+  while keeping credentials out of projects, saves, output and logs.
+- [ ] Add creator-configured local/cloud policy, startup/model diagnostics,
+  timeouts and deliberate authored continuity behaviour. Existing committed
+  content remains usable during a provider outage.
+- [ ] Use the same models for knight and druid trials. Compare role/motivation,
+  participant binding, causal composition and reaction to a changed allegiance.
+  Reject a result that merely paraphrases a fixed route.
+- [ ] Apply Andrew's dialogue direction: understandable natural speech, with
+  formality and vocabulary reflecting speaker and relationship. Characters should
+  not sound like technical documentation or expose omniscient Director knowledge.
+
+Initial development limits are **one active request, at most one repair retry per
+request, 8,000 input tokens and 2,000 output tokens per call**, subject to a provider's
+smaller limits. These are tunable test policies, not benchmark results. Use one
+capped exploratory batch of at most 25 total attempts per mode before assessing
+quality; all repairs count toward that cap. Set a currency cap before online
+calls using actual provider prices and Andrew's existing spending authorization.
+No authorization means defer paid calls and continue adapter checks with fixtures.
+
+Record schema acceptance, gameplay refusals, retries, p50/p95 latency, memory,
+graphical frame/input effects and actual online usage. Define the acceptable
+interaction wait on the selected target machine before the trial; a model that
+misses it needs smaller tasks, prefetch or a revised configuration, not a hidden
+unresponsive game loop.
+
+**Gate:** both modes produce a coherent playable opening and an action-dependent
+follow-up within their declared limits. A missing model, no internet, invalid
+proposal or exhausted budget follows the authored policy without corrupting the
+campaign or claiming successful generation.
+
+### SD6 GUI workspace and campaign inspection
+
+**Tasks**
+
+- [ ] Add the Scenario Director workspace over SD3 services: world facts/secrets,
+  faction motivations, origins, situation prerequisites/effects, generation policy
+  and actual project reference selectors. Start with forms and readable relation
+  lists; a graph visualization is optional after the loop works.
+- [ ] Select allowed entry and placement regions on the existing map canvas.
+  Persist shared map identity and physical coordinates; changing art does not
+  change placement or collision. TUI records remain sufficient without that view.
+- [ ] Provide Generate new test campaign, Continue, Reset, Validate and diagnostics
+  controls. Begin with synthetic proposals; real generation plugs into the same
+  workflow in SD4–SD5. Keep player-visible knowledge separate from the developer
+  inspector's facts and explain why a proposal qualified or failed.
+- [ ] Show generated people, objectives and proposed consequences with normal
+  Engine previews. Scope test saves to the owned preview instance. Promoting a
+  result to authored content is an explicit reviewed Editor change.
+- [ ] Preserve normal focus/input, cancellation, undo and dirty state. Closing a
+  preview or the editor releases its owned runtime and any later generation job.
+
+**Gate:** a creator configures the two origins, runs the village, inspects a changed
+allegiance, saves/reopens the blueprint and sees the same semantics through TUI
+and GUI. No hand-edited PHP is required for the supplied village capabilities.
+
+### SD7 Complete village qualification and delivery
+
+**Tasks**
+
+- [ ] Assemble the one sample project using the supported editor path and approved
+  reusable assets. Keep the knight/druid conflict independent of Last Legend.
+  Finish an understandable local resolution with continuing conflict hooks.
+- [ ] Walk through each origin, one negotiated resolution, one battle, refusal of
+  an offer and a meaningful change of allegiance. Observe changed cooperation,
+  access, NPC presence, objectives or encounters and the next generated situation.
+- [ ] Save/quit/load at stable boundaries and continue with the committed facts.
+  Load without inference connectivity, restore the same campaign and distinguish
+  unavailable future generation from missing persisted content.
+- [ ] Run synthetic regressions for migrations, invalid/stale/duplicate proposals,
+  cross-owner rollback, knowledge scoping, reachable objectives, resource budgets,
+  cancellation and editor round trips. Do not freeze authored dialogue or NPC
+  coordinates in tests.
+- [ ] Package the free scenario contracts/runtime policy, optional Director
+  bootstrap and example with a small compatibility manifest. Check Community
+  terminal use without Studio, GUI/graphical entitlements where used, and no
+  Atatusoft player activation, credentials or model-provider objects in a build.
+- [ ] Have three unrelated testers play two campaigns each. Include both starting
+  perspectives and a changed allegiance across the sessions. Ask them to explain
+  their motivation, what changed and why the world reacted. Treat this as
+  qualitative prototype evidence, not a willingness-to-pay study.
+
+**Gate:** the sample demonstrates an adaptive adventure with concrete consequences
+in terminal and graphical presentation. Capture compact evidence of environment,
+source/dependency identities, test scope, model policies, latency/usage and known
+limits. Mark each milestone complete only when its gate has passed.
+
+### Verification and resource discipline
+
+Use focused synthetic tests while iterating; complete the applicable component
+plans' required checks once at their completion gates. Broaden or repeat only for
+changed sources, failures or an identified coverage gap. Reuse existing dependencies
+and compatible build caches; do not install several model stacks for comparison
+before qualifying one. Check actual CPU/RAM/disk/quota and other consumers before
+heavy work, and cap worker count, run time, retained prompts and inference spend.
+
+Native launches require verified muted music and sound effects. Qualify each
+claimed platform separately; macOS does not establish Linux/WSLg or Windows
+support. Docker is only needed for a real local coverage gap, with ownership,
+consumer coordination and clean shutdown. No remote CI dispatch or paid capacity
+increase is an implicit milestone task.
+
+Keep one sample project and bounded preview data. Stop owned workers and remove
+owned temporary campaigns, logs and duplicate artifacts after retaining compact
+needed evidence; preserve Andrew's assets, saves and unrelated work. General
+free-form actions, generated terrain/art, persistent multiplayer worlds and an
+Atatusoft-hosted inference service remain future capabilities. Public contracts
+must accommodate additional actions and blueprint families without requiring
+another quest, save or gameplay authority.
+
+The first implementation task is **SD0**. Its deliverable is the versioned
+record/proposal contract and a capability-to-owner map for the two origins and
+their deviation, followed by SD1's persistent synthetic campaign.
 
 ## Sequencing notes
 

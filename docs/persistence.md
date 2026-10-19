@@ -56,7 +56,7 @@ Resumable story-event sessions are intentionally not serialized. While an
 `EventInterpreter` session is active, the shared `SaveManager` writer rejects
 numbered/manual saves and quicksaves with a clear
 `ActiveEventSaveException`. A map transfer inside the script still uses the
-normal transfer path, but any transfer-triggered autosave is deferred until
+normal transfer path, but any developer-requested autosave is deferred until
 the entire script and its trigger completion writes succeed. Failed scripts do
 not flush that deferred autosave.
 

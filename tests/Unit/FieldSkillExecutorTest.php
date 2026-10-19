@@ -270,7 +270,7 @@ it('refunds MP when a state effect is resisted or misses', function (float $resi
   $state = new State('field-focus', 'Field Focus', durationTurns: 2);
   new ReflectionProperty(StateRegistry::class, 'states')->setValue(null, [$state->id => $state]);
   $ally->setStateResistances([$state->id => $resistance]);
-  $random = $this->createMock(CombatRandomSource::class);
+  $random = $this->createStub(CombatRandomSource::class);
   $random->method('nextInt')->willReturn(100);
   $skill = makeFieldEffectSkill(new AddStateSkillEffect($state->id, $chance));
 

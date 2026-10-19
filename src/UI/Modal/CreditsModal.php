@@ -19,7 +19,7 @@ class CreditsModal extends AlertModal
     $width = min(DEFAULT_DIALOG_WIDTH, max(4, get_screen_width()));
     // The same pages also fit the graphical alert when reduced motion is enabled.
     $this->pages = $content->getPages($width - 2, min(12, max(1, get_screen_height() - 3)));
-    parent::__construct($game, $this->pages[0], get_message('title.credits', 'Credits'), $width);
+    parent::__construct($game, $this->pages[0], get_engine_message('title.credits'), $width);
     $this->updatePage();
   }
 

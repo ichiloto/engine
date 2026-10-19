@@ -5,8 +5,16 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameObject;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicSubjectLease;
+use Ichiloto\Engine\Cutscenes\Cinematics\StagedActor;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\EventManager;
+use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
+use Ichiloto\Engine\Events\Triggers\EventTrigger;
+use Ichiloto\Engine\Field\EncounterManager;
+use Ichiloto\Engine\Field\MapLayer;
+use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\IO\Console\Console;
@@ -15,20 +23,25 @@ use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
+use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContext;
 use Ichiloto\Engine\Rendering\RendererClient;
-use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProjector;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Tests\Support\Input\FakeRendererTransport;
-use function Tests\Support\Rendering\graphicalSpriteData;
+use function Tests\Support\Rendering\characterSheetData;
+use function Tests\Support\Rendering\writeCharacterSheetPng;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 /** Supplies scene identity without starting a Game or claiming terminal lifecycle ownership. */
@@ -36,6 +49,35 @@ final class SpritePresentationTestGame extends Game
 {
   public function __construct() {}
   public function __destruct() {}
+}
+
+/** Isolate Game startup while keeping the scene's presentation and movement decisions real. */
+final class SpritePresentationTestScene extends GameScene
+{
+  public function __construct(private readonly Game $testGame) {}
+  public function getGame(): Game { return $this->testGame; }
+}
+
+/**
+ * The standing frame (pattern 1) of the fixture's 48 x 48 pixel frames, by
+ * RPG Maker direction row: down, left, right, up.
+ *
+ * @return array{x: int, y: int, width: int, height: int}
+ */
+function getPlayerStandingFrame(string $direction): array
+{
+  $row = ['south' => 0, 'west' => 1, 'east' => 2, 'north' => 3][$direction];
+  return ['x' => 48, 'y' => $row * 48, 'width' => 48, 'height' => 48];
+}
+
+/** Select a real synthetic field through the scene, without starting a renderer or Game. */
+function configurePlayerSpriteField(GameScene $scene, MapManager $map, bool $graphical = true): void
+{
+  new ReflectionProperty(MapManager::class, 'layers')->setValue($map,
+    new MapLayerSet([new MapLayer('ground', 0, false, 'synthetic',
+      implode("\n", array_fill(0, 30, str_repeat('.', 40))))]));
+  $scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(20, 10, 48, 48),
+    static fn(string $capability): bool => true, graphical: $graphical));
 }
 
 beforeEach(function () {
@@ -50,17 +92,20 @@ beforeEach(function () {
     new ReflectionProperty(Console::class, $name)->setValue(null, $value);
   }
   Console::syncDimensions(20, 10);
+  Console::setTerminalOutputEnabled(false);
   ob_start();
 
   // Reuse the lightweight scene/map fixture approach; Player and Camera run their real constructors.
-  $this->scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getGame'])->getMock();
-  $this->scene->method('getGame')->willReturn(new SpritePresentationTestGame());
+  $this->scene = new SpritePresentationTestScene(new SpritePresentationTestGame());
   $this->camera = new Camera($this->scene, 20, 10, worldSpace: array_fill(0, 30, str_repeat('.', 40)));
   new ReflectionProperty(GameScene::class, 'camera')->setValue($this->scene, $this->camera);
   $this->terminalSprites = ['north' => ['^^'], 'east' => ['>>'], 'south' => ['vv'], 'west' => ['<<']];
-  $this->graphicalSprites = DirectionalGraphicalSpriteSet::fromArray(graphicalSpriteData());
+  $this->assetRoot = sys_get_temp_dir() . '/ichiloto-player-sprite-' . bin2hex(random_bytes(4));
+  $this->sheet = characterSheetData()['sheet'];
+  writeCharacterSheetPng($this->assetRoot . '/' . $this->sheet, 48, 48);
+  $this->graphicalSprites = CharacterSheet::fromArray(characterSheetData());
   $this->player = new Player($this->scene, 'Test hero', new Vector2(7, 4), new Rect(0, 0, 1, 1),
-    ['vv'], MovementHeading::SOUTH, $this->terminalSprites, $this->graphicalSprites);
+    ['vv'], MovementHeading::SOUTH, $this->terminalSprites, $this->graphicalSprites, $this->assetRoot);
   $this->projector = new GraphicalSpriteProjector();
 });
 
@@ -73,6 +118,10 @@ afterEach(function () {
       new ReflectionProperty($class, $name)->setValue(null, $value);
     }
   }
+  $paths = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->assetRoot,
+    FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+  foreach ($paths as $path) { $path->isDir() ? rmdir($path->getPathname()) : unlink($path->getPathname()); }
+  rmdir($this->assetRoot);
 });
 
 it('keeps existing constructor calls terminal-only without adding the capability to GameObject', function () {
@@ -90,8 +139,12 @@ it('preserves terminal configuration and resolves graphical art from the existin
   $plain = new Player($this->scene, 'Terminal hero', new Vector2(7, 4), new Rect(0, 0, 1, 1),
     ['vv'], $heading, $this->terminalSprites);
   $graphical = new Player($this->scene, 'Graphical hero', new Vector2(7, 4), new Rect(0, 0, 1, 1),
-    ['vv'], $heading, $this->terminalSprites, $this->graphicalSprites);
-  expect($graphical->getGraphicalSpriteDefinition())->toBe($this->graphicalSprites->$direction)
+    ['vv'], $heading, $this->terminalSprites, $this->graphicalSprites, $this->assetRoot);
+  $definition = $graphical->getGraphicalSpriteDefinition();
+  expect($definition->asset)->toBe($this->sheet)
+    ->and($definition->sourceRect->toArray())->toBe(getPlayerStandingFrame($direction))
+    ->and([$definition->width, $definition->height, $definition->layer])->toBe([48, 48, 100])
+    ->and($definition->lift)->toBe(6)
     ->and($graphical->heading)->toBe($plain->heading)
     ->and($graphical->sprite)->toBe($plain->sprite)->toBe($this->terminalSprites[$direction])
     ->and($graphical->getDirectionalSprites())->toBe($plain->getDirectionalSprites())->toBe($this->terminalSprites);
@@ -106,10 +159,10 @@ it('preserves terminal configuration and resolves graphical art from the existin
 
 it('uses south for NONE and changes direction without moving or maintaining graphical-facing state', function () {
   new ReflectionProperty(Player::class, 'heading')->setValue($this->player, MovementHeading::NONE);
-  expect($this->player->getGraphicalSpriteDefinition())->toBe($this->graphicalSprites->south);
+  expect($this->player->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(getPlayerStandingFrame('south'));
   foreach ([[0, -1, 'north'], [1, 0, 'east'], [0, 1, 'south'], [-1, 0, 'west']] as [$x, $y, $direction]) {
     $this->player->updatePlayerSprite(new Vector2($x, $y));
-    expect($this->player->getGraphicalSpriteDefinition())->toBe($this->graphicalSprites->$direction)
+    expect($this->player->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(getPlayerStandingFrame($direction))
       ->and($this->player->getGraphicalSpriteId())->toBe('player')
       ->and([$this->player->position->x, $this->player->position->y])->toBe([7.0, 4.0]);
   }
@@ -126,7 +179,7 @@ it('returns a defensive logical position independent of terminal widths overhang
   expect([$current->x, $current->y])->toBe([11.0, 4.0])
     ->and($current)->not->toBe($this->player->position)
     ->and([$sprite->x, $sprite->y])->toBe([8, 2])
-    ->and($this->player->getGraphicalSpriteDefinition())->toBe($this->graphicalSprites->south)
+    ->and($this->player->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(getPlayerStandingFrame('south'))
     ->and($this->player->getDirectionalSprites())->toBe($this->terminalSprites)
     ->and($this->player->sprite)->toBe($terminal);
 })->with([[['@']], [["\u{1F6B6}"]], [['<---wide--->', 'second row']]]);
@@ -154,7 +207,14 @@ it('presents a real Player through the shared client with immutable frames and d
   $client = new RendererClient($transport);
   $input = new RendererInputSource($client);
   $presentation = new RendererPresentation($client, new RendererGridConfig(20, 10));
-  $transport->batches[] = [RendererEvent::fromJson('{"protocol":1,"type":"key","key":"up"}')];
+  // Character frames are source rects; negotiate sprite_source_rect as the native renderer does.
+  $client->start(new RendererSessionConfig('Player sprites', $this->assetRoot, new RendererGridConfig(20, 10),
+    RendererProtocolVersion::V2));
+  $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["sprite_source_rect","tile_batches"]}')];
+  $client->pollEvents();
+  expect($client->supports(RendererSessionConfig::SPRITE_SOURCE_RECT))->toBeTrue();
+  $polls = $transport->polls;
+  $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"key","key":"up"}')];
   $this->player->render();
   $snapshot = Console::snapshot();
   expect(Console::charAt(7, 4))->toBe('v');
@@ -163,7 +223,7 @@ it('presents a real Player through the shared client with immutable frames and d
   $this->player->updatePlayerSprite(Vector2::up());
   $north = $this->projector->project($this->player, $this->camera);
   expect($presentation->present($snapshot, [$north]))->toBeTrue()
-    ->and(array_diff_assoc($north->toArray(), $south->toArray()))->toBe(['asset' => $this->graphicalSprites->north->asset]);
+    ->and($north->toArray())->toBe([...$south->toArray(), 'sourceRect' => getPlayerStandingFrame('north')]);
 
   $this->player->position->x = 11;
   $this->player->position->y = 8;
@@ -172,13 +232,17 @@ it('presents a real Player through the shared client with immutable frames and d
   expect([$moved->x, $moved->y])->toBe([8, 6])
     ->and($presentation->present($snapshot, [$moved]))->toBeTrue()
     ->and($presentation->present($snapshot, [$this->projector->project($this->player, $this->camera)]))->toBeFalse();
-  expect($transport->sent)->toHaveCount(3)->and($transport->polls)->toBe(0)
+  expect($transport->sent)->toHaveCount(3)->and($transport->polls)->toBe($polls)
     ->and($transport->shutdowns)->toBe(0)->and($input->poll())->toBe(KeyCode::UP);
+  $frames = Tests\Support\Rendering\RetainedFrameState::replay($transport->sent);
   foreach ([$south, $north, $moved] as $index => $sprite) {
     expect($transport->sent[$index]->type)->toBe(RendererMessageType::FRAME)
-      ->and($transport->sent[$index]->payload)->toBe([
-        'frame' => $index + 1, 'text' => $snapshot->rows, 'sprites' => [$sprite->toArray()],
-      ]);
+      ->and($frames[$index]['frame'])->toBe($index + 1)
+      ->and(array_column($frames[$index]['textLayers'][0]['runs'], 'text'))->toBe($snapshot->rows)
+      ->and($frames[$index]['sprites'])->toBe([$sprite->toArray()]);
+    if ($index > 0) {
+      expect(array_column($transport->sent[$index]->payload['operations'], 'kind'))->toBe(['sprite']);
+    }
   }
   expect(Console::snapshot())->toEqual($snapshot)->and($this->player->sprite)->toBe(['^^']);
   $this->player->render();
@@ -191,13 +255,192 @@ it('observes a real blocked move as changed facing and unchanged graphical posit
   new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map, [3 => [7 => CollisionType::SOLID->value]]);
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
   $before = $this->projector->project($this->player, $this->camera);
-  expect($before->asset)->toBe($this->graphicalSprites->south->asset)
+  expect($before->sourceRect->toArray())->toBe(getPlayerStandingFrame('south'))
     ->and($map->getCollision(7, 3))->toBe(CollisionType::SOLID)
     ->and($this->player->tryMove(Vector2::up(), $this->camera))->toBeFalse();
   $after = $this->projector->project($this->player, $this->camera);
   expect($this->player->heading)->toBe(MovementHeading::NORTH)
     ->and([$this->player->position->x, $this->player->position->y])->toBe([7.0, 4.0])
-    ->and($this->player->getGraphicalSpriteDefinition())->toBe($this->graphicalSprites->north)
-    ->and(array_diff_assoc($after->toArray(), $before->toArray()))->toBe(['asset' => $this->graphicalSprites->north->asset])
+    ->and($this->player->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(getPlayerStandingFrame('north'))
+    ->and($after->toArray())->toBe([...$before->toArray(), 'sourceRect' => getPlayerStandingFrame('north')])
     ->and($this->player->sprite)->toBe(['^^'])->and(Console::charAt(7, 4))->toBe('^');
 });
+
+it('arrives only once the step has slid into its cell, and at once without a slide', function (bool $terminalOutput) {
+  Console::setTerminalOutputEnabled($terminalOutput);
+  $map = (new ReflectionClass(MapManager::class))->newInstanceWithoutConstructor();
+  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($map, $this->scene);
+  new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map, [3 => [7 => CollisionType::SAVE_POINT->value]]);
+  new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
+  configurePlayerSpriteField($this->scene, $map);
+  $arrivals = new class implements Ichiloto\Engine\Events\Interfaces\ObserverInterface {
+    public array $events = [];
+    public function onNotify(object $entity, Ichiloto\Engine\Events\Interfaces\EventInterface $event): void { $this->events[] = $event; }
+  };
+  $modals = $this->getMockBuilder(Ichiloto\Engine\UI\Modal\ModalManager::class)->disableOriginalConstructor()->onlyMethods(['alert'])->getMock();
+  $notices = [];
+  $modals->expects($this->exactly(2))->method('alert')
+    ->willReturnCallback(function (string $message, string $title) use (&$notices): void { $notices[] = $title; });
+  $modalState = new ReflectionProperty(Ichiloto\Engine\UI\Modal\ModalManager::class, 'instance')->getValue();
+  new ReflectionProperty(Ichiloto\Engine\UI\Modal\ModalManager::class, 'instance')->setValue(null, $modals);
+  new ReflectionProperty(Console::class, 'game')->setValue(null, new SpritePresentationTestGame());
+  try {
+    // A graphical step onto the save point: the notice and the observers wait for the slide.
+    $this->player->addObserver($arrivals);
+    expect($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue()
+      ->and([$this->player->position->x, $this->player->position->y])->toBe([7.0, 3.0])
+      ->and($arrivals->events)->toBe([])->and($notices)->toBe([]);
+    $this->player->advanceGraphicalAnimation(0.01);
+    $this->player->completeArrival();
+    expect($arrivals->events)->toBe([])->and($notices)->toBe([]);
+    $this->player->advanceGraphicalAnimation(1.0);
+    $this->player->completeArrival();
+    expect($arrivals->events)->toHaveCount(1)->and($notices)->toBe(['Save Point']);
+    $this->player->completeArrival();
+    expect($arrivals->events)->toHaveCount(1);
+
+    // A terminal player has no slide, so it arrives as it steps, as it always has.
+    $terminal = new Player($this->scene, 'Terminal hero', new Vector2(7, 4), new Rect(0, 0, 1, 1), ['vv'],
+      MovementHeading::SOUTH, $this->terminalSprites);
+    $terminal->addObserver($arrivals);
+    expect($terminal->tryMove(Vector2::up(), $this->camera))->toBeTrue()
+      ->and($arrivals->events)->toHaveCount(2)->and($notices)->toBe(['Save Point', 'Save Point']);
+  } finally {
+    new ReflectionProperty(Ichiloto\Engine\UI\Modal\ModalManager::class, 'instance')->setValue(null, $modalState);
+  }
+})->with([false, true]);
+
+it('completes a pending arrival before the next step so none is skipped', function (bool $terminalOutput) {
+  Console::setTerminalOutputEnabled($terminalOutput);
+  $map = (new ReflectionClass(MapManager::class))->newInstanceWithoutConstructor();
+  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($map, $this->scene);
+  new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map, [2 => [7 => CollisionType::NONE->value], 3 => [7 => CollisionType::NONE->value]]);
+  new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
+  configurePlayerSpriteField($this->scene, $map);
+  $arrivals = new class implements Ichiloto\Engine\Events\Interfaces\ObserverInterface {
+    public array $events = [];
+    public function onNotify(object $entity, Ichiloto\Engine\Events\Interfaces\EventInterface $event): void { $this->events[] = $event; }
+  };
+  $this->player->addObserver($arrivals);
+  expect($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue()
+    ->and($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue()
+    ->and($arrivals->events)->toHaveCount(1)
+    ->and($arrivals->events[0]->destination->y)->toBe(3.0);
+  $this->player->advanceGraphicalAnimation(1.0);
+  $this->player->completeArrival();
+  $this->player->completeArrival();
+  expect($arrivals->events)->toHaveCount(2)
+    ->and($arrivals->events[1]->destination->y)->toBe(2.0);
+})->with([false, true]);
+
+it('retains step motion independently of the host and follows scene arrival timing', function (
+  bool $graphical, bool $terminalOutput, bool $reduced, bool $sheetless, bool $staged, float $seconds,
+) {
+  Console::setTerminalOutputEnabled($terminalOutput);
+  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['accessibility' => ['reducedMotion' => $reduced]]));
+  $map = (new ReflectionClass(MapManager::class))->newInstanceWithoutConstructor();
+  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($map, $this->scene);
+  new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map,
+    array_fill(0, 30, array_fill(0, 40, CollisionType::ENCOUNTER->value)));
+  new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
+  if ($sheetless) {
+    $this->player = new Player($this->scene, 'Sheetless hero', new Vector2(7, 4), new Rect(0, 0, 1, 1), ['vv'],
+      MovementHeading::SOUTH, $this->terminalSprites);
+    expect($this->player->getGraphicalCharacterSheet())->toBeNull();
+  }
+  new ReflectionProperty(GameScene::class, 'player')->setValue($this->scene, $this->player);
+  configurePlayerSpriteField($this->scene, $map, $graphical);
+  $presented = $this->player;
+  if ($staged) {
+    $stage = new CinematicStageManager($this->scene);
+    new ReflectionProperty(GameScene::class, 'cinematicStage')->setValue($this->scene, $stage);
+    $lease = new CinematicSubjectLease($this->scene, $this->player);
+    $presented = new StagedActor('synthetic-player', null, new Vector2(),
+      graphicalSprites: $sheetless ? $this->graphicalSprites : null, subject: $lease,
+      suppressedSubjects: [$lease], assetRoot: $this->assetRoot);
+    new ReflectionProperty(CinematicStageManager::class, 'actors')->setValue($stage, ['synthetic-player' => $presented]);
+  }
+  $trigger = new class(new Rect(7, 3, 1, 1), ['name' => 'Synthetic arrival']) extends EventTrigger {
+    public int $entries = 0;
+    public function enter(EventTriggerContextInterface $context): void { $this->entries++; }
+  };
+  $this->player->addTrigger($trigger);
+  $encounters = new class($this->scene) extends EncounterManager {
+    public array $steps = [];
+    public function registerStep(?CollisionType $tile): void { $this->steps[] = $tile; }
+  };
+  new ReflectionProperty(GameScene::class, 'encounterManager')->setValue($this->scene, $encounters);
+  $arrivals = new class implements Ichiloto\Engine\Events\Interfaces\ObserverInterface {
+    public array $events = [];
+    public function onNotify(object $entity, Ichiloto\Engine\Events\Interfaces\EventInterface $event): void { $this->events[] = $event; }
+  };
+  $this->player->addObserver($arrivals);
+  $hasPresentedArt = !$sheetless || $staged;
+  $shouldWait = $graphical && !$reduced && $hasPresentedArt && $seconds > 0.0;
+  $walkingSeconds = $this->scene->getStepSeconds(Vector2::up());
+  expect($this->scene->isGraphicalFieldPresented())->toBe($graphical)
+    ->and($this->scene->moveAtPace($seconds, fn() => $this->player->tryMove(Vector2::up(), $this->camera)))->toBeTrue()
+    ->and([$this->player->position->x, $this->player->position->y])->toBe([7.0, 3.0])
+    ->and($presented->getGraphicalSpriteMotion()?->seconds)->toBe($reduced || !$hasPresentedArt || $seconds === 0.0 ? null : $seconds)
+    ->and($trigger->entries)->toBe($shouldWait ? 0 : 1)
+    ->and($encounters->steps)->toHaveCount($shouldWait ? 0 : 1)
+    ->and($arrivals->events)->toHaveCount($shouldWait ? 0 : 1)
+    ->and($this->scene->getStepSeconds(Vector2::up()))->toBe($walkingSeconds);
+  if ($graphical && !$sheetless && !$staged) {
+    $sprite = $this->projector->project($this->player, $this->camera);
+    $viewport = $this->scene->getPresentationViewport(Console::presentationSnapshot(), [$sprite]);
+    expect($sprite->motion?->seconds)->toBe($reduced || $seconds === 0.0 ? null : $seconds)
+      ->and($viewport?->follow?->spriteId)->toBe($this->player->getGraphicalSpriteId());
+  }
+  if ($staged) {
+    expect($this->player->getGraphicalSpriteDefinition())->toBeNull()
+      ->and($this->player->getGraphicalSpriteMotion())->toBeNull()
+      ->and($presented->getGraphicalSpriteDefinition())->not->toBeNull();
+  }
+  $this->scene->advanceFieldPresentation($seconds / 2);
+  $this->player->completeArrival();
+  expect($trigger->entries)->toBe($shouldWait ? 0 : 1)
+    ->and($encounters->steps)->toHaveCount($shouldWait ? 0 : 1)
+    ->and($arrivals->events)->toHaveCount($shouldWait ? 0 : 1);
+  $this->scene->advanceFieldPresentation($seconds / 2);
+  $this->player->completeArrival();
+  $this->player->completeArrival();
+  expect($trigger->entries)->toBe(1)->and($encounters->steps)->toBe([CollisionType::ENCOUNTER])
+    ->and($arrivals->events)->toHaveCount(1)
+    ->and([$arrivals->events[0]->origin->x, $arrivals->events[0]->origin->y])->toBe([7.0, 4.0])
+    ->and([$arrivals->events[0]->destination->x, $arrivals->events[0]->destination->y])->toBe([7.0, 3.0]);
+  if ($sheetless && $staged) {
+    $presented->releaseVisual();
+    expect($this->player->tryMove(Vector2::left(), $this->camera))->toBeTrue()
+      ->and($this->player->getGraphicalSpriteDefinition())->toBeNull()
+      ->and($this->player->getGraphicalSpriteMotion())->toBeNull()
+      ->and($presented->getGraphicalSpriteMotion())->toBeNull()
+      ->and($arrivals->events)->toHaveCount(2)
+      ->and($encounters->steps)->toHaveCount(2)
+      ->and($trigger->entries)->toBe(1);
+    $this->player->completeArrival();
+    expect($arrivals->events)->toHaveCount(2)->and($encounters->steps)->toHaveCount(2);
+  }
+})->with([
+  'graphical preview in terminal host' => [true, true, false, false, false, 0.4],
+  'graphical runtime' => [true, false, false, false, false, 0.4],
+  'Terminal scene in graphical host' => [false, false, false, false, false, 0.4],
+  'ordinary Terminal' => [false, true, false, false, false, 0.4],
+  'reduced-motion preview' => [true, true, true, false, false, 0.4],
+  'reduced-motion runtime' => [true, false, true, false, false, 0.4],
+  'sheetless preview' => [true, true, false, true, false, 0.4],
+  'sheetless runtime' => [true, false, false, true, false, 0.4],
+  'sheetless Terminal in graphical host' => [false, false, false, true, false, 0.4],
+  'sheetless ordinary Terminal' => [false, true, false, true, false, 0.4],
+  'instant route step' => [true, true, false, false, false, 0.0],
+  'staged preview' => [true, true, false, false, true, 0.4],
+  'staged runtime' => [true, false, false, false, true, 0.4],
+  'staged reduced-motion preview' => [true, true, true, false, true, 0.4],
+  'staged Terminal' => [false, true, false, false, true, 0.4],
+  'sheetless staged preview with explicit art' => [true, true, false, true, true, 0.4],
+  'sheetless staged runtime with explicit art' => [true, false, false, true, true, 0.4],
+  'sheetless staged reduced-motion preview' => [true, true, true, true, true, 0.4],
+  'sheetless staged Terminal in graphical host' => [false, false, false, true, true, 0.4],
+  'sheetless staged ordinary Terminal' => [false, true, false, true, true, 0.4],
+  'sheetless staged instant route step' => [true, true, false, true, true, 0.0],
+]);

@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
@@ -305,7 +308,7 @@ class ItemMenuState extends GameSceneState implements CanRender, CanvasProviderI
       });
 
     $this->itemMenuCommandsPanel = new CommandPanel(
-      'Item',
+      Vocabulary::getTerm('command.' . BattleCommandType::ITEM->value, 'Item'),
       '',
       $this->itemMenu,
       new Rect($this->leftMargin, $this->topMargin, self::ITEM_MENU_WIDTH, self::COMMAND_PANEL_HEIGHT),

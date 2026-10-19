@@ -4,6 +4,7 @@ use Ichiloto\Engine\Settings\GameSetting;
 use Ichiloto\Engine\Scenes\Title\TitleOptionsSettingsManager;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 
@@ -70,6 +71,20 @@ class TitleProjectConfigPersistProxy extends ProjectConfig
   }
 }
 
+beforeEach(function () {
+  $this->playerRoot = sys_get_temp_dir() . '/ichiloto-title-player-' . bin2hex(random_bytes(6));
+  mkdir($this->playerRoot);
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
+});
+
+afterEach(function () {
+  ConfigStore::remove(PlayerSettings::class);
+  $settings = $this->playerRoot . '/.data/player-settings.json';
+  if (is_file($settings)) { unlink($settings); }
+  if (is_dir(dirname($settings))) { rmdir(dirname($settings)); }
+  rmdir($this->playerRoot);
+});
+
 function getTitleOptionByKey(TitleOptionsSettingsManager $manager, string $key): GameSetting
 {
   foreach ($manager->getOptions() as $option) {
@@ -100,9 +115,8 @@ it('updates and persists the title volume setting', function () {
 
   expect($label)->toBe('80%')
     ->and($config->get('audio.master_volume'))->toBe(80)
-    ->and(file_get_contents($filename))->toContain("return [")
-    ->and(file_get_contents($filename))->not->toContain('return array (')
-    ->and(file_get_contents($filename))->toContain("'master_volume' => 80");
+    ->and(file_get_contents($filename))->toBe('')
+    ->and((new PlayerSettings($this->playerRoot))->get('audio.master_volume'))->toBe(80);
 
   unlink($filename);
 });

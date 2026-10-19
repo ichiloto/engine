@@ -2,6 +2,8 @@
 
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
+use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
+use Ichiloto\Engine\Entities\Inventory\EquipmentSlotType;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -18,13 +20,13 @@ class PictographStatusViewProxy extends StatusViewState
   }
 }
 
-it('keeps legacy plain equipment pictographs inside the status composition', function () {
+it('removes equipped item icon overrides from status while retaining type icons and pictograph widths in names', function () {
   $character = new Character('Seraphis', 0, new Stats());
   $weaponSlot = $character->equipment[0];
   $weaponSlot->equipment = new Weapon(
-    'Wooden Sword',
+    'Training 🗡',
     'A training weapon.',
-    '🗡',
+    '💎',
     100,
   );
 
@@ -37,11 +39,11 @@ it('keeps legacy plain equipment pictographs inside the status composition', fun
 
   $buffer = Console::getBuffer();
 
-  // The status view emits its equipment row through the same canonical
-  // console boundary used by shops, battle menus, and equipment screens.
-  // A legacy one-code-point sword is made explicitly two cells there, so
-  // its row cannot wrap and corrupt the Info panel below it.
-  expect($buffer[12])->toContain('🗡️ Wooden Sword')
+  // Item-specific icons no longer identify a slot. Authored item names still pass
+  // through the canonical width boundary without corrupting the panel below.
+  expect($buffer[12])->toContain('Training 🗡️')
+    ->and($buffer[12])->toContain(EquipmentIcon::getTerminalGlyph(EquipmentSlotType::WEAPON))
+    ->and($buffer[12])->not->toContain('💎')
     ->and(TerminalText::displayWidth($buffer[12]))->toBe(230)
     ->and(TerminalText::stripAnsi($buffer[36]))->toContain('╚')
     ->and(TerminalText::stripAnsi($buffer[36]))->toContain('╝')

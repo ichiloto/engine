@@ -75,6 +75,42 @@ it('resolves the normal preemptive and ambush intervals with exactly one roll', 
   expect($counts)->toBe(['normal' => 86, 'party' => 8, 'troop' => 6]);
 });
 
+it('counts ATB rounds by living participants completing turns rather than individual actions', function () {
+  [$engine, $context, $party, $enemy] = openingTestBattle();
+  $context->roundNumber = 1;
+  foreach (range(1, 5) as $_) {
+    $engine->recordTurnCompletion($context, new \Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn($party[0]));
+    expect($context->roundNumber)->toBe(1);
+  }
+  foreach (array_slice($party, 1) as $actor) {
+    $engine->recordTurnCompletion($context, new \Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn($actor));
+    expect($context->roundNumber)->toBe(1);
+  }
+  $engine->recordTurnCompletion($context, new \Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn($enemy));
+  expect($context->roundNumber)->toBe(2);
+  $engine->recordTurnCompletion($context, new \Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn($enemy));
+  expect($context->roundNumber)->toBe(2);
+  foreach ($party as $actor) {
+    $engine->recordTurnCompletion($context, new \Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn($actor));
+  }
+  expect($context->roundNumber)->toBe(3);
+});
+
+it('does not wait for knocked-out participants and resets the round ledger between battles', function () {
+  [$engine, $context, $party, $enemy] = openingTestBattle();
+  $context->roundNumber = 1;
+  foreach ($party as $actor) {
+    $engine->recordTurnCompletion($context, new \Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn($actor));
+  }
+  $enemy->stats->currentHp = 0;
+  $engine->recordTurnCompletion($context, new \Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn($party[0]));
+  expect($context->roundNumber)->toBe(2);
+  $engine->resetOpening($context);
+  $context->roundNumber = 1;
+  $engine->recordTurnCompletion($context, new \Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn($party[0]));
+  expect($context->roundNumber)->toBe(1);
+});
+
 it('honors explicit opening overrides without a roll', function (mixed $value, EncounterAdvantage $expected) {
   $random = new OpeningTestRandom(1);
   expect(EncounterAdvantage::forBattle(['firstStrike' => $value], $random))->toBe($expected)

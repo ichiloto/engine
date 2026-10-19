@@ -2,6 +2,7 @@
 <?php
 
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
@@ -18,6 +19,9 @@ function reportRendererEvent(RendererEvent $event): void
   }
   if ($event->message !== null) {
     $data['message'] = $event->message;
+  }
+  foreach (['generation', 'frame', 'presented', 'expectedGeneration', 'resyncRequired'] as $field) {
+    if ($event->$field !== null) { $data[$field] = $event->$field; }
   }
   fwrite(STDOUT, json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . "\n");
 }
@@ -40,7 +44,7 @@ try {
     throw new InvalidArgumentException('Provide --renderer=/absolute/executable, --asset-root=/absolute/directory, and optionally --duration=0..300.');
   }
   $transport = new ProcessRendererTransport(new RendererProcessConfig([$renderer]));
-  $transport->start(new RendererSessionConfig('Ichiloto PHP Transport Smoke Test', $assetRoot));
+  $transport->start(new RendererSessionConfig('Ichiloto PHP Transport Smoke Test', $assetRoot, protocol: RendererProtocolVersion::V2));
   fwrite(STDERR, "PHP hello/ready handshake complete. No frame or gameplay integration.\n");
   $deadline = hrtime(true) + (int) ($duration * 1_000_000_000);
   stream_set_blocking(STDIN, false);

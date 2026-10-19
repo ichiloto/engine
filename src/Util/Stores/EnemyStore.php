@@ -52,12 +52,9 @@ class EnemyStore implements ConfigInterface
    */
   public function get(string $path, mixed $default = null): mixed
   {
-    if (!$default instanceof Enemy) {
-      $default = null;
-    }
+    $enemy = $this->enemies[$path] ?? ($default instanceof Enemy ? $default : null);
 
-    $copy = clone $this->enemies[$path] ?? $default;
-    return $copy;
+    return $enemy === null ? null : clone $enemy;
   }
 
   /**

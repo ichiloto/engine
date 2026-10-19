@@ -12,7 +12,9 @@ beforeEach(function () {
   $this->provider = $this->createStub(GraphicalSpriteProviderInterface::class);
   $this->provider->method('getGraphicalSpriteId')->willReturn('future-object');
   $this->provider->method('getGraphicalSpriteWorldPosition')->willReturn($this->position);
-  $this->provider->method('getGraphicalSpriteDefinition')->willReturn(new GraphicalSpriteDefinition('Other.png', 64, 72, layer: -10));
+  // A field image one cell wide and two cells tall: 48 x 96 logical pixels.
+  $this->provider->method('getGraphicalSpriteDefinition')->willReturn(GraphicalSpriteDefinition::fromArray(
+    ['asset' => 'Other.png', 'cells' => ['width' => 1, 'height' => 2], 'layer' => -10]));
 });
 
 it('stops at an absent definition without asking for identity position or Camera projection', function () {
@@ -31,7 +33,7 @@ it('uses the supplied Camera transform for any provider rather than reproducing 
     ->willReturn(new Vector2(17, 9));
   expect($this->projector->project($this->provider, $camera)->toArray())->toBe([
     'id' => 'future-object', 'asset' => 'Other.png', 'x' => 17, 'y' => 9,
-    'width' => 64, 'height' => 72, 'anchor' => 'bottom_center', 'layer' => -10,
+    'width' => 48, 'height' => 96, 'anchor' => 'bottom_center', 'layer' => -10,
   ]);
 });
 

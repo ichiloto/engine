@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Exception;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
@@ -27,6 +29,8 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\UI\Presentation\CharacterMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\CharacterMenuRows;
+use Ichiloto\Engine\UI\Presentation\SummonEquipmentSlot;
 
 /**
  * Represents the equipment menu state.
@@ -135,6 +139,33 @@ class EquipmentMenuState extends GameSceneState implements CanvasProviderInterfa
    */
   protected ?EquipmentMenuMode $mode = null;
   private array $infoSelection = [];
+  /** @var list<\Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition> */
+  private array $summonDefinitions = [];
+
+  public function getSummonSlot(): ?SummonEquipmentSlot
+  {
+    return $this->character === null ? null : SummonEquipmentSlot::createForCharacter($this->party,
+      $this->character, $this->getGameScene()->gameState, $this->summonDefinitions);
+  }
+
+  /** @return list<\Ichiloto\Engine\UI\Presentation\MenuRow> */
+  public function getEquipmentSlotRows(int $index, bool $focused): array
+  {
+    if ($this->character === null) { return []; }
+    $rows = CharacterMenuRows::slots($this->character, $index, $focused);
+    if (($summon = $this->getSummonSlot()) !== null) {
+      $rows[] = $summon->getRow($index === count($rows), $focused && $index === count($rows));
+    }
+    return $rows;
+  }
+
+  public function openSummonSlot(): void
+  {
+    if ($this->character === null || $this->getSummonSlot() === null) { return; }
+    $menu = $this->getGameScene()->summonsMenuState;
+    $menu->openForCharacter($this->character, $this);
+    $this->setState($menu);
+  }
 
   /**
    * @inheritDoc
@@ -185,6 +216,7 @@ class EquipmentMenuState extends GameSceneState implements CanvasProviderInterfa
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
     $this->character ??= $this->getGameScene()->party->leader;
+    $this->summonDefinitions = SummonsMenuState::loadSummons($this->getGameScene()->gameState, $this->party);
     $this->calculateMargins();
     $this->initializeMenuUI();
     $this->setMode(new EquipmentMenuCommandSelectionMode($this));
@@ -195,7 +227,9 @@ class EquipmentMenuState extends GameSceneState implements CanvasProviderInterfa
    */
   public function exit(): void
   {
-    // Do nothing
+    if (isset($this->getGameScene()->mainMenuState)) {
+      $this->getGameScene()->mainMenuState->rememberPartyPresentationCharacter($this->character);
+    }
   }
 
   /**
@@ -234,7 +268,7 @@ class EquipmentMenuState extends GameSceneState implements CanvasProviderInterfa
            */
           parent::__construct(
             $menu,
-            'Equip',
+            Vocabulary::getTerm('command.equip', 'Equip'),
             'Equip a character with weapons and armor.',
           );
         }
@@ -408,7 +442,7 @@ class EquipmentMenuState extends GameSceneState implements CanvasProviderInterfa
     $this->characterDetailPanel->render();
     $this->equipmentCommandPanel->render();
     $this->equipmentInfoPanel->render();
-    $this->equipmentAssignmentPanel->setSlots($this->character?->equipment ?? []);
+    $this->equipmentAssignmentPanel->setSlots($this->character?->equipment ?? [], $this->character, $this->getSummonSlot());
   }
 
   /**
@@ -456,6 +490,6 @@ class EquipmentMenuState extends GameSceneState implements CanvasProviderInterfa
 
     $this->setMode(new EquipmentMenuCommandSelectionMode($this));
     $this->characterDetailPanel->setDetails($this->character);
-    $this->equipmentAssignmentPanel->setSlots($this->character->equipment);
+    $this->equipmentAssignmentPanel->setSlots($this->character->equipment, $this->character, $this->getSummonSlot());
   }
 }

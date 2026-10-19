@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Exception;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
@@ -19,7 +21,7 @@ class OpenStatusMenuCommand extends MenuItem
 {
   public function __construct(MenuInterface $menu)
   {
-    parent::__construct($menu, 'Status', "View a character's status.");
+    parent::__construct($menu, Vocabulary::getTerm('command.status', 'Status'), "View a character's status.");
   }
 
   /**

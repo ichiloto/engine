@@ -5,6 +5,7 @@ use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\WorldConditionType;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Quests\QuestLog;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 
@@ -12,15 +13,45 @@ it('passes an empty condition list', function () {
   expect(WorldConditionEvaluator::allHold([], new GameState()))->toBeTrue();
 });
 
+it('evaluates explicit quest state without requiring a running scene', function () {
+  $state = new GameState();
+  $quests = new QuestLog();
+  $active = [['type' => 'quest', 'name' => 'synthetic-quest', 'status' => 'active']];
+  $completed = [['type' => 'quest', 'name' => 'synthetic-quest', 'status' => 'completed']];
+  expect(WorldConditionEvaluator::allHold($active, $state, questLog: $quests))->toBeFalse();
+  $quests->accept('synthetic-quest', 1);
+  expect(WorldConditionEvaluator::allHold($active, $state, questLog: $quests))->toBeTrue()
+    ->and(WorldConditionEvaluator::allHold($completed, $state, questLog: $quests))->toBeFalse();
+  $quests->markCompleted('synthetic-quest');
+  expect(WorldConditionEvaluator::allHold($active, $state, questLog: $quests))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold($completed, $state, questLog: $quests))->toBeTrue();
+});
+
 it('publishes the complete stable condition vocabulary', function () {
   expect(WorldConditionType::values())->toBe([
     'quest',
     'switch',
     'event',
+    'map_event',
     'variable',
     'item',
     'key_item',
   ]);
+});
+
+it('reads persisted map-event completion without confusing maps or story flags and supports negation', function () {
+  $state = new GameState();
+  $condition = ['type' => 'map_event', 'name' => 'town/home', 'marker' => 'C'];
+  WorldConditionEvaluator::validateAll([$condition]);
+  $state->recordStoryEvent('town/home');
+  $state->markEventComplete('town/inn', 'C');
+  expect(WorldConditionEvaluator::allHold([$condition], $state))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold([array_replace($condition, ['negate' => true])], $state))->toBeTrue();
+  $state->markEventComplete('town/home', 'C');
+  $state = GameState::fromArray($state->toArray());
+  expect(WorldConditionEvaluator::allHold([$condition], $state))->toBeTrue()
+    ->and(WorldConditionEvaluator::allHold([array_replace($condition, ['negate' => true])], $state))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold([['type' => 'map_event', 'name' => 'town/home', 'negate' => true]], $state))->toBeFalse();
 });
 
 it('evaluates switch, event, and variable conditions', function () {
@@ -137,4 +168,35 @@ it('fails closed for unknown condition types even when they are negated', functi
 
   expect(WorldConditionEvaluator::allHold([['type' => 'phase_of_moon', 'name' => 'full']], $state))->toBeFalse()
     ->and(WorldConditionEvaluator::allHold([['type' => 'phase_of_moon', 'name' => 'full', 'negate' => true]], $state))->toBeFalse();
+});
+
+it('refuses malformed typed condition values at the shared admission boundary', function (array $condition) {
+  expect(fn() => WorldConditionEvaluator::validateAll([$condition], 'synthetic conditions'))->toThrow(InvalidArgumentException::class);
+})->with([
+  'switch coercion' => [['type' => 'switch', 'name' => 'gate', 'value' => 'false']],
+  'null negate' => [['type' => 'event', 'name' => 'activated', 'negate' => null]],
+  'null quantity' => [['type' => 'item', 'name' => 'token', 'quantity' => null]],
+  'null operator' => [['type' => 'variable', 'name' => 'phase', 'op' => null]],
+  'array operator' => [['type' => 'variable', 'name' => 'phase', 'op' => []]],
+  'array value' => [['type' => 'variable', 'name' => 'phase', 'value' => []]],
+  'unknown quest status' => [['type' => 'quest', 'name' => 'quest', 'status' => 'unknown']],
+]);
+
+it('admits explicit false switches and typed shared selectors without changing their meaning', function () {
+  $conditions = [['type' => 'switch', 'name' => 'gate', 'value' => false],
+    ['type' => 'variable', 'name' => 'phase', 'op' => '==', 'value' => 'ready'],
+    ['type' => 'event', 'name' => 'activated', 'negate' => true]];
+  WorldConditionEvaluator::validateAll($conditions);
+  $state = new GameState();
+  $state->setVariable('phase', 'ready');
+  $before = $state->toArray();
+  expect(WorldConditionEvaluator::allHold($conditions, $state))->toBeTrue()->and($state->toArray())->toBe($before);
+});
+
+it('keeps unvalidated runtime coercion separate from narrowed condition admission', function () {
+  $conditions = [['type' => 'switch', 'name' => 'gate', 'value' => 'false']];
+  $state = new GameState();
+  $state->setSwitch('gate');
+  expect(fn() => WorldConditionEvaluator::validateAll($conditions))->toThrow(InvalidArgumentException::class)
+    ->and(WorldConditionEvaluator::allHold($conditions, $state))->toBeTrue();
 });

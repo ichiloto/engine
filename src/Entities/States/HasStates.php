@@ -38,6 +38,12 @@ trait HasStates
    */
   public bool $lastHitWasCritical = false;
 
+  /** State definitions are shared resources; live duration belongs to each battler. */
+  protected function cloneStateInstances(): void
+  {
+    $this->states = array_map(static fn(StateInstance $instance): StateInstance => clone $instance, $this->states);
+  }
+
   /**
    * Sets the battler's state resistances.
    *
@@ -174,6 +180,21 @@ trait HasStates
     }
 
     return null;
+  }
+
+  /** Harmful or action-blocking states take precedence over beneficial states. */
+  public function getStateDisposition(): StateDisposition
+  {
+    $disposition = StateDisposition::NEUTRAL;
+    foreach ($this->states as $instance) {
+      if ($instance->state->preventsAction || $instance->state->disposition === StateDisposition::HARMFUL) {
+        return StateDisposition::HARMFUL;
+      }
+      if ($instance->state->disposition === StateDisposition::BENEFICIAL) {
+        $disposition = StateDisposition::BENEFICIAL;
+      }
+    }
+    return $disposition;
   }
 
   /**

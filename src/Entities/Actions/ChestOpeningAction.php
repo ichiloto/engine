@@ -8,9 +8,12 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Entities\Interfaces\ActionContextInterface;
 use Ichiloto\Engine\Events\Enumerations\LootType;
 use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
+use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Util\Config\ConfigStore;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Util\Stores\ItemStore;
+use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Field\Validation\MapCompletenessValidator;
 use RuntimeException;
 
 /**
@@ -41,6 +44,15 @@ class ChestOpeningAction extends FieldAction
     $this->itemStore = $itemStore;
   }
 
+  /** The reward categories this action can grant through its current runtime paths. */
+  public static function supportsLootType(LootType $type): bool
+  {
+    return match ($type) {
+      LootType::GOLD, LootType::ITEM, LootType::WEAPON, LootType::ARMOR, LootType::ACCESSORY => true,
+      default => false,
+    };
+  }
+
   /**
    * @inheritDoc
    * @throws Exception If an error occurs while loading the configuration.
@@ -51,25 +63,39 @@ class ChestOpeningAction extends FieldAction
     $replacement = 'Nothing';
 
     if ($this->trigger->isComplete) {
-      alert(get_message('obtained_item', '%1 found!', $replacement));
+      alert(get_engine_message('obtained_item', $replacement));
       return;
     }
 
-    $message = get_message('obtained_item', '%1 found!');
+    $issues = MapCompletenessValidator::validateChestReward((array) $this->trigger->data,
+      $this->trigger->mapId ?? '(unbound)',
+      fn(string $reference): string => $this->itemStore->requireDefinitionId($reference, 'opening a chest'),
+      $this->trigger->marker);
+    if ($issues !== []) {
+      $this->reportUnavailableReward(implode(' ', array_column($issues, 'message')));
+      return;
+    }
+
+    $message = get_engine_message('obtained_item');
 
     switch ($this->trigger->lootType) {
       case LootType::GOLD:
         $amount = is_numeric($this->trigger->loot) ? (int) $this->trigger->loot : $this->trigger->quantity;
-        $symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'G');
-        $message = get_message('obtained_gold', '%1 %2 found!', $amount, $symbol);
+        $symbol = Vocabulary::getTerm('currency.symbol', 'G');
+        $message = get_engine_message('obtained_gold', $amount, $symbol);
         $context->party->transact($amount);
         break;
 
       default:
-        $loot = $this->itemStore->get($this->itemStore->requireDefinitionId(
-          strval($this->trigger->loot),
-          'opening a chest',
-        ));
+        try {
+          $loot = $this->itemStore->get($this->itemStore->requireDefinitionId(
+            strval($this->trigger->loot),
+            'opening a chest',
+          ));
+        } catch (NotFoundException $error) {
+          $this->reportUnavailableReward($error->getMessage());
+          return;
+        }
         assert($loot !== null);
         $quantity = $this->trigger->quantity;
         $lootNameText = new Text($loot->name);
@@ -86,5 +112,12 @@ class ChestOpeningAction extends FieldAction
     $context->scene->getGame()->audioManager->playSystemSound(SystemSound::ITEM_GET);
     $context->player->availableAction = null;
     alert($message);
+  }
+
+  private function reportUnavailableReward(string $reason): void
+  {
+    Debug::error(sprintf('[chest.reward] Chest reward could not be resolved on map "%s", event "%s": %s',
+      $this->trigger->mapId ?? '(unbound)', $this->trigger->marker ?? '(unbound)', $reason));
+    alert(get_engine_message('chest.unavailable'));
   }
 }

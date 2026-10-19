@@ -139,7 +139,7 @@ it('lands a weapon element on an enemy weakness in a real basic attack', functio
   );
   equipPiece($character, new Weapon('Flame Brand', '', '🗡', 0, element: 'Fire'));
 
-  $spriteDirectory = sys_get_temp_dir() . '/elemental-gear-' . uniqid();
+  $spriteDirectory = createTestDirectory('elemental-gear-');
   mkdir($spriteDirectory . '/assets/Graphics/Enemies', 0o777, true);
   file_put_contents($spriteDirectory . '/assets/Graphics/Enemies/mite.txt', "..\n");
   $previousDirectory = (string) getcwd();
