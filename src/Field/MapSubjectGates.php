@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Field;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Quests\QuestLog;
 
 /**
  * When each map's events and NPCs are there to be used, as their own source
@@ -51,18 +52,18 @@ final readonly class MapSubjectGates
   }
 
   /** Whether a map's event can be used now; an event the map does not have cannot. */
-  public function allowsEvent(string $map, string $marker, GameState $state, ?Party $party = null): bool
+  public function allowsEvent(string $map, string $marker, GameState $state, ?Party $party = null, ?QuestLog $questLog = null): bool
   {
     $lists = $this->events[$map][$marker] ?? null;
     if ($lists === null || $state->isEventComplete($map, $marker)) { return false; }
-    return array_all($lists, static fn(array $conditions): bool => WorldConditionEvaluator::allHold($conditions, $state, $party));
+    return array_all($lists, static fn(array $conditions): bool => WorldConditionEvaluator::allHold($conditions, $state, $party, $questLog));
   }
 
   /** Whether a map's NPC is present now; an NPC the map does not have is not. */
-  public function allowsNpc(string $map, string $id, GameState $state, ?Party $party = null): bool
+  public function allowsNpc(string $map, string $id, GameState $state, ?Party $party = null, ?QuestLog $questLog = null): bool
   {
     $conditions = $this->npcs[$map][$id] ?? null;
-    return $conditions !== null && WorldConditionEvaluator::allHold($conditions, $state, $party);
+    return $conditions !== null && WorldConditionEvaluator::allHold($conditions, $state, $party, $questLog);
   }
 
   /** @return list<array<string, mixed>> */

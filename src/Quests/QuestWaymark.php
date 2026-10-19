@@ -45,9 +45,9 @@ final readonly class QuestWaymark
   }
 
   /** Whether this waymark currently shows, ignoring objective progress. */
-  public function holds(GameState $gameState, ?Party $party = null): bool
+  public function holds(GameState $gameState, ?Party $party = null, ?QuestLog $questLog = null): bool
   {
-    return $this->conditions === [] || WorldConditionEvaluator::allHold($this->conditions, $gameState, $party);
+    return $this->conditions === [] || WorldConditionEvaluator::allHold($this->conditions, $gameState, $party, $questLog);
   }
 
   /**

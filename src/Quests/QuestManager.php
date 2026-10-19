@@ -328,7 +328,7 @@ class QuestManager
         $label = $objective->displayDescription($gameState, $party);
 
         foreach ($objective->waymarks as $waymarkIndex => $waymark) {
-          if ($waymark->holds($gameState, $party)) {
+          if ($waymark->holds($gameState, $party, $log)) {
             $selected[] = new ActiveQuestWaymark($quest->id, $objectiveIndex, $waymarkIndex, $waymark, $label,
               $quest->isOptional);
           }
