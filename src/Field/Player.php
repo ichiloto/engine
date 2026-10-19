@@ -565,9 +565,12 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   private function enterEventWhenReady(EventTrigger $event, EventTriggerContext $context): bool
   {
     if ($event instanceof AutomaticEventTriggerInterface && $event->runsAutomatically()
-      && !$event->sessionIsActive && $this->getGameScene()->hasUnstableEventSession()) {
+      && !$event->sessionIsActive) {
+      // Completion can be synchronous. Request the next scan before entry so
+      // every owner hands off overlapping or newly eligible arrivals, including
+      // initial/load entry. An existing owner never queues its own replay.
       $this->getGameScene()->requestAutomaticTriggerEvaluation();
-      return false;
+      if ($this->getGameScene()->hasUnstableEventSession()) { return false; }
     }
     $this->eventManager->activeEvents->add($event);
     $event->enter($context);

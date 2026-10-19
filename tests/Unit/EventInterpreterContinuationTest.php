@@ -1255,6 +1255,89 @@ it('starts an automatic script at the initial field position', function () {
     ->and($scene->gameState->isEventComplete('map-a', 'A'))->toBeTrue();
 });
 
+it('chains overlapping initial automatic owners without another player step or replay after interruption', function (string $kind, string $timing) {
+  $commands = [
+    ['type' => 'set_variable', 'name' => 'owner_starts', 'op' => 'add', 'value' => 1],
+    ...($timing === 'immediate' ? [] : [['type' => 'wait', 'seconds' => 1]]),
+    ['type' => 'record_event', 'name' => 'owner_finished'],
+  ];
+  $root = makeCinematicTriggerProject('initial-owner', $commands);
+  $prior = getcwd(); chdir($root);
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $player = new EventTestPlayer(new Vector2(1, 0));
+    $scene->installPlayer($player); $scene->installCinematicRuntime();
+    $dependent = new ScriptEventTrigger(new Rect(1, 0, 1, 1),
+      ['mode' => 'auto', 'reusable' => false, 'script' => [
+        ['type' => 'set_variable', 'name' => 'dependent_rewards', 'op' => 'add', 'value' => 1],
+      ]], conditions: [['type' => 'event', 'name' => 'owner_finished']], mapId: 'map-a', marker: 'D');
+    $class = $kind === 'cinematic' ? CinematicEventTrigger::class : ScriptEventTrigger::class;
+    $owner = new $class(new Rect(1, 0, 1, 1),
+      ['mode' => 'auto', 'reusable' => false] + ($kind === 'cinematic'
+        ? ['cinematicId' => 'initial-owner'] : ['script' => $commands]),
+      sets: [['type' => 'variable', 'name' => 'owner_rewards', 'op' => 'add', 'value' => 1]], mapId: 'map-a', marker: 'A');
+    $arrival = new ScriptEventTrigger(new Rect(1, 0, 1, 1),
+      ['mode' => 'auto', 'reusable' => false, 'script' => [
+        ['type' => 'set_variable', 'name' => 'arrival_rewards', 'op' => 'add', 'value' => 1],
+      ]], mapId: 'map-a', marker: 'B');
+    // The dependent event precedes the owner that makes it available.
+    foreach ([$dependent, $owner, $arrival] as $trigger) {
+      $trigger->bind($scene->gameState, $scene->party); $player->addTrigger($trigger);
+    }
+    $player->evaluateAutomaticTriggersAtCurrentPosition();
+    if ($timing !== 'immediate') {
+      expect($scene->hasUnstableEventSession())->toBeTrue()
+        ->and($scene->gameState->getVariable('arrival_rewards'))->toBe(0);
+      if ($timing === 'interrupted') { $interpreter->failActiveSession('Injected initial-owner interruption.'); }
+      else { $interpreter->update(2); }
+    }
+    expect($scene->hasUnstableEventSession())->toBeFalse()
+      ->and($scene->gameState->getVariable('owner_starts'))->toBe(1)
+      ->and($scene->gameState->getVariable('owner_rewards'))->toBe($timing === 'interrupted' ? 0 : 1)
+      ->and($scene->gameState->getVariable('dependent_rewards'))->toBe($timing === 'interrupted' ? 0 : 1)
+      ->and($scene->gameState->getVariable('arrival_rewards'))->toBe(1)
+      ->and($arrival->isComplete)->toBeTrue()
+      ->and($scene->gameState->isEventComplete('map-a', 'B'))->toBeTrue()
+      ->and([$player->position->x, $player->position->y])->toBe([1.0, 0.0]);
+    $saved = $scene->gameState->toArray();
+    $player->evaluateAutomaticTriggersAtCurrentPosition(); $interpreter->update(2);
+    expect($scene->gameState->toArray())->toBe($saved);
+    if ($timing === 'interrupted') {
+      expect($owner->isComplete)->toBeFalse()->and($player->hasActiveEvent($owner))->toBeTrue();
+      $player->tryFieldMove(Vector2::right(), $scene->camera);
+      $player->tryFieldMove(Vector2::left(), $scene->camera);
+      $interpreter->update(2);
+      expect($owner->isComplete)->toBeTrue()
+        ->and($scene->gameState->getVariable('owner_starts'))->toBe(2)
+        ->and($scene->gameState->getVariable('owner_rewards'))->toBe(1)
+        ->and($scene->gameState->getVariable('dependent_rewards'))->toBe(1)
+        ->and($scene->gameState->getVariable('arrival_rewards'))->toBe(1);
+    }
+  } finally { chdir($prior); }
+})->with(['script', 'cinematic'])->with(['immediate', 'yielded', 'interrupted']);
+
+it('rechecks overlapping initial arrivals after the prior owner changes position or eligibility', function (bool $leave) {
+  [$scene, $interpreter] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(1, 0)); $scene->installPlayer($player);
+  $scene->gameState->setSwitch('arrival_available', true);
+  $owner = new ScriptEventTrigger(new Rect(1, 0, 1, 1),
+    ['mode' => 'auto', 'reusable' => false, 'script' => [['type' => 'wait', 'seconds' => 1]]],
+    mapId: 'map-a', marker: 'A');
+  $arrival = new ScriptEventTrigger(new Rect(1, 0, 1, 1),
+    ['mode' => 'auto', 'reusable' => false, 'script' => [['type' => 'record_event', 'name' => 'arrival_finished']]],
+    conditions: [['type' => 'switch', 'name' => 'arrival_available']], mapId: 'map-a', marker: 'B');
+  foreach ([$owner, $arrival] as $trigger) {
+    $trigger->bind($scene->gameState, $scene->party); $player->addTrigger($trigger);
+  }
+  $player->evaluateAutomaticTriggersAtCurrentPosition();
+  if ($leave) { $player->tryFieldMove(Vector2::right(), $scene->camera); }
+  else { $scene->gameState->setSwitch('arrival_available', false); }
+  $interpreter->update(2);
+  expect($owner->isComplete)->toBeTrue()->and($scene->hasUnstableEventSession())->toBeFalse()
+    ->and($scene->gameState->hasStoryEvent('arrival_finished'))->toBeFalse()
+    ->and($arrival->isComplete)->toBeFalse()->and($player->hasActiveEvent($arrival))->toBeFalse();
+})->with(['left before completion' => true, 'condition changed before completion' => false]);
+
 it('uses named territories for automatic entry and restored presence without repeating earned progress', function (string $arrival) {
   [$scene] = makeEventRuntime();
   $state = new GameState();
