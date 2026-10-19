@@ -39,7 +39,7 @@ class FieldConditions
    */
   public function registerStep(): bool
   {
-    $party = $this->gameScene->party ?? null;
+    $party = $this->gameScene->party;
 
     if (! $party instanceof Party) {
       return true;
