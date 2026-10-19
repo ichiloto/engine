@@ -229,6 +229,40 @@ function makeSubjectOwnershipLoopCast(array $extra = []): array
       'frames' => [0, 1, 2], 'fps' => 10, 'restFrame' => 2]]], $extra);
 }
 
+it('removes field guidance during cinematic ownership and restores unchanged available interactions afterward', function (string $ending) {
+  ConfigStore::put(\Ichiloto\Engine\Util\Config\PlaySettings::class,
+    new \Ichiloto\Engine\Util\Config\PlaySettings(['width' => 24, 'height' => 8]));
+  $event = new \Ichiloto\Engine\Events\Triggers\ScriptEventTrigger(new Rect(8, 4, 1, 1),
+    ['mode' => 'action'], mapId: 'map-a', marker: 'C', cue: ['symbol' => '!', 'color' => 'bright-yellow']);
+  $event->bind($this->scene->gameState);
+  $this->player->addTrigger($event);
+  $this->player->availableAction = $this->createStub(\Ichiloto\Engine\Entities\Interfaces\ActionInterface::class);
+  // This fixture overrides cue drawing for unrelated tests; exercise the production presenter here.
+  $drawCues = new ReflectionMethod(Player::class, 'renderEventCues');
+  $drawCues->invoke($this->player);
+  $this->player->render();
+  expect(array_column(Console::presentationSnapshot()->textLayers, 'id'))->toContain('event-cue:map-a:C', 'field-prompt')
+    ->and($this->player->isActionPromptOverSprite)->toBeTrue();
+  $this->scene->startCinematic(subjectOwnershipDefinition(data: ['cast' => [], 'skip' => ['policy' => 'authored'],
+    'finalizer' => [['type' => 'set_switch', 'name' => 'finished', 'value' => true]]]));
+  $drawCues->invoke($this->player);
+  $this->player->render();
+  expect(array_column(Console::presentationSnapshot()->textLayers, 'id'))->not->toContain('event-cue:map-a:C', 'field-prompt')
+    ->and($this->player->isActionPromptOverSprite)->toBeFalse()
+    ->and($event->shouldRenderCue())->toBeTrue()->and($event->isComplete)->toBeFalse()
+    ->and($this->player->canAct)->toBeTrue();
+  match ($ending) {
+    'complete' => $this->scene->updateEventSession(10),
+    'failure' => $this->scene->eventInterpreter->failActiveSession('Synthetic interruption.'),
+    'skip' => $this->scene->skipCinematic(),
+  };
+  $drawCues->invoke($this->player);
+  $this->player->render();
+  expect(array_column(Console::presentationSnapshot()->textLayers, 'id'))->toContain('event-cue:map-a:C', 'field-prompt')
+    ->and($this->player->isActionPromptOverSprite)->toBeTrue()
+    ->and($event->shouldRenderCue())->toBeTrue()->and($event->isComplete)->toBeFalse();
+})->with(['complete', 'failure', 'skip']);
+
 beforeEach(function () {
   $this->staticBefore = [];
   foreach ([Console::class, Cursor::class, EventManager::class, ConfigStore::class, Time::class, Debug::class] as $class) {

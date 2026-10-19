@@ -576,6 +576,13 @@ duplicate a battle outcome.
 
 ## Skip, checkpoints, finalizers, and cleanup
 
+Cinematic ownership removes interactive field guidance in both presentations:
+authored event cues, their edge markers and the player's action prompt stay
+hidden until control returns. Ambient map effects and cinematic effects remain
+visible. This is a presentation rule; event availability, authored cue conditions
+and completion state remain unchanged. Completion, failure and authored skip
+restore guidance for interactions that are still available.
+
 The default skip policy is `forbidden`. `authored` skip requires a non-empty
 finalizer and is accepted only when every reachable path is skip-safe.
 Validation recursively inspects sequences, parallel lanes, branches, choice

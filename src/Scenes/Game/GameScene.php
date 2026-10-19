@@ -397,7 +397,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
                 if (!($this->cinematicStage?->suppresses($object) ?? false)) { yield $object; }
             }
             foreach ([...($this->fieldEffects?->getSprites($this->getFieldObjectSpriteProviders(), $this->fieldViewport,
-                $this->camera->getWorldOrigin(), Accessibility::prefersReducedMotion()) ?? []),
+                $this->camera->getWorldOrigin(), Accessibility::prefersReducedMotion(), $this->canPresentFieldGuidance()) ?? []),
                 ...($this->cinematicPresentation?->getEffectSprites($this->fieldViewport) ?? [])] as $effect) {
                 if ($effect instanceof ScreenSpaceSpriteProviderInterface) {
                     $this->fieldEdgeSpriteIds[] = $effect->getGraphicalSpriteId();
@@ -418,6 +418,12 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     public function renderFieldEffects(): void
     {
         $this->fieldEffects?->renderText($this->camera, $this->getFieldObjectSpriteProviders(), Accessibility::prefersReducedMotion());
+    }
+
+    /** Cinematic ownership removes interactive guidance until field control returns. */
+    public function canPresentFieldGuidance(): bool
+    {
+        return !$this->isStopping && $this->cinematicController?->active() === null;
     }
 
 
@@ -1057,7 +1063,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->fieldEffects?->showActionPrompt(($this->player?->isActionPromptOverSprite ?? false)
             ? $this->player->getGraphicalSpriteId() : null);
         $this->fieldEffects?->update($seconds, Accessibility::prefersReducedMotion(),
-            $this->getFieldObjectSpriteProviders());
+            $this->getFieldObjectSpriteProviders(), $this->canPresentFieldGuidance());
     }
 
     /**

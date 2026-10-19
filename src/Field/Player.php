@@ -106,7 +106,8 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    * act and is drawn as a sprite, not staged out of view by a cinematic.
    */
   public bool $isActionPromptOverSprite {
-    get => $this->canAct && $this->getGraphicalSpriteDefinition() !== null;
+    get => $this->canAct && $this->getGameScene()->canPresentFieldGuidance()
+      && $this->getGraphicalSpriteDefinition() !== null;
   }
   /**
    * @var ActionInterface|null $availableAction The available action.
@@ -911,7 +912,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     /** @var EventTrigger $event */
     foreach ($this->events as $event) {
       $cueLayer = 'event-cue:' . ($event->mapId ?? '') . ':' . ($event->marker ?? '');
-      if (! $event->shouldRenderCue()) {
+      if (!$this->getGameScene()->canPresentFieldGuidance() || ! $event->shouldRenderCue()) {
         Console::removeLayer($cueLayer);
         continue;
       }
@@ -1005,7 +1006,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   private function renderActionPrompt(Vector2 $screenPosition): void
   {
     $this->clearActionPrompt();
-    if (!$this->canAct) { return; }
+    if (!$this->canAct || !$this->getGameScene()->canPresentFieldGuidance()) { return; }
     $graphical = $this->scene instanceof GameScene && $this->scene->isGraphicalFieldPresented()
       && $this->getGraphicalSpriteDefinition() !== null;
     if ($graphical) {

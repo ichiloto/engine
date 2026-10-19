@@ -386,6 +386,29 @@ it('shares cue conditions and keeps terminal symbol and color untouched', functi
   expect($manager->getSprites([], null, ['x' => 0, 'y' => 0], false))->toBe([]);
 });
 
+it('removes cue and action guidance while retaining ambient effects and unchanged cue state', function (bool $reduced) {
+  $bindingPath = $this->root . '/Data/Presentation/field.php';
+  $binding = require $bindingPath;
+  $binding['actionPrompt'] = ['effect' => 'energy'];
+  file_put_contents($bindingPath, '<?php return ' . var_export($binding, true) . ';');
+  $manager = new FieldEffectManager($this->root);
+  $manager->setCapabilities(true, true);
+  $cue = createFieldCue();
+  $cue->bind(new GameState());
+  $manager->installMap('map', [['id' => 'ambient', 'effect' => 'energy',
+    'anchor' => ['cell' => ['x' => 2, 'y' => 3]]]], null, [$cue]);
+  $player = new FieldEffectSprite('player', new GraphicalSpriteDefinition('Graphics/edge.png', 48, 48), new Vector2(4, 6));
+  $manager->showActionPrompt('player');
+  $visible = $manager->getSprites([$player], null, ['x' => 0, 'y' => 0], $reduced);
+  $hidden = $manager->getSprites([$player], null, ['x' => 0, 'y' => 0], $reduced, showGuidance: false);
+  expect($visible)->toHaveCount(6)->and($hidden)->toHaveCount(2)
+    ->and(array_map(static fn($sprite) => $sprite->getGraphicalSpriteId(), $hidden))
+    ->each->toContain('ambient');
+  $manager->update(.2, $reduced, [$player], showGuidance: false);
+  expect($manager->getSprites([$player], null, ['x' => 0, 'y' => 0], $reduced))->toHaveCount(6)
+    ->and($cue->shouldRenderCue())->toBeTrue()->and($cue->isComplete)->toBeFalse();
+})->with([false, true]);
+
 it('pins story edges but leaves route cues at their authored cell', function () {
   $view = new FieldViewport(new RendererGridConfig(135, 36, 10, 20));
   $manager = new FieldEffectManager($this->root);

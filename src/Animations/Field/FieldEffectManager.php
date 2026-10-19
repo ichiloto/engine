@@ -208,10 +208,11 @@ final class FieldEffectManager
   public int $count { get => count($this->sessions); }
 
   /** @param iterable<GraphicalSpriteProviderInterface>|null $objects */
-  public function update(float $seconds, bool $reducedMotion, ?iterable $objects = null): void
+  public function update(float $seconds, bool $reducedMotion, ?iterable $objects = null, bool $showGuidance = true): void
   {
     if ($objects !== null) { $this->reconcileObjects($objects); }
     foreach ($this->sessions as $id => $session) {
+      if (!$showGuidance && ($id === self::ACTION_PROMPT_ID || isset($this->cues[$id]))) { continue; }
       if (isset($this->cues[$id]) && !$this->cues[$id]->shouldRenderCue()) { continue; }
       FieldEffectSession::playCues($session->update($seconds, $reducedMotion)->crossedCues);
       if ($session->playback->isCompleted) { unset($this->sessions[$id]); }
@@ -235,11 +236,12 @@ final class FieldEffectManager
   }
 
   /** @param iterable<GraphicalSpriteProviderInterface> $objects @param array{x: int, y: int} $origin @return list<FieldEffectSprite> */
-  public function getSprites(iterable $objects, ?FieldViewport $viewport, array $origin, bool $reducedMotion): array
+  public function getSprites(iterable $objects, ?FieldViewport $viewport, array $origin, bool $reducedMotion, bool $showGuidance = true): array
   {
     $indexed = $this->reconcileObjects($objects);
     $sprites = [];
     foreach ($this->sessions as $id => $session) {
+      if (!$showGuidance && ($id === self::ACTION_PROMPT_ID || isset($this->cues[$id]))) { continue; }
       $object = $session->anchor->objectId === null ? null : ($indexed[$session->anchor->objectId] ?? null);
       if ($session->anchor->objectId !== null && $object === null) { $this->removeEffect($id); continue; }
       if (!$this->supported) { continue; }
