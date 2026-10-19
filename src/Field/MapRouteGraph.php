@@ -9,9 +9,6 @@ use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
 use Ichiloto\Engine\Util\Debug;
-use RecursiveDirectoryIterator;
-use RecursiveIteratorIterator;
-use FilesystemIterator;
 use SplPriorityQueue;
 use Throwable;
 
@@ -34,30 +31,6 @@ final readonly class MapRouteGraph
   /** @param array<string, list<MapRoute>> $routes Routes keyed by source map. */
   public function __construct(public array $routes = [])
   {
-  }
-
-  /** Reads every map under `<assetRoot>/Maps`. Unreadable maps are noted and contribute no routes. */
-  public static function scan(string $assetRoot): self
-  {
-    $mapsDirectory = $assetRoot . '/Maps';
-    if (!is_dir($mapsDirectory)) { return new self(); }
-    $root = realpath($mapsDirectory);
-    $categories = MapCategoryCatalog::load($assetRoot);
-    $routes = [];
-    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
-    foreach ($files as $file) {
-      if (!$file->isFile() || !str_ends_with($file->getFilename(), '.data.php')) { continue; }
-      $id = str_replace(DIRECTORY_SEPARATOR, '/', substr($file->getPath(), strlen($root) + 1));
-      if ($id === '') { continue; }
-      try {
-        $source = MapSourceReader::readEventSource(MapSourceReader::resolvePaths($root, $id));
-        $routes[$id] = self::readMap($id, $source['data'], $source['eventLayer'], $assetRoot, $categories);
-      } catch (Throwable $error) {
-        Debug::warn(sprintf('Map routes for %s are unavailable: %s', $id, $error->getMessage()));
-      }
-    }
-    ksort($routes);
-    return new self($routes);
   }
 
   /**

@@ -28,6 +28,7 @@ final class FieldWaymarkResolver
     ?MapRouteGraph $routes, Closure $canUseRoute): array
   {
     $targets = [];
+    $seen = [];
     $routeMarks = [];
     $nextRoutes = [];
     foreach ($active as $entry) {
@@ -35,6 +36,10 @@ final class FieldWaymarkResolver
       if ($waymark->map === $mapId) {
         if ($waymark->subject === null) { continue; }
         foreach ($locator->locate($waymark->subject, $waymark->subjectId) as $index => $anchor) {
+          // Two objectives sending the player to one subject share its mark.
+          $key = $anchor->objectId ?? ($anchor->cell->x . ':' . $anchor->cell->y);
+          if (isset($seen[$key])) { continue; }
+          $seen[$key] = true;
           $targets[] = new FieldWaymark('target:' . $entry->getId() . ':' . $index, FieldWaymarkRole::TARGET,
             $anchor, $entry->label);
         }

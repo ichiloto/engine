@@ -88,8 +88,13 @@ never store coordinates. A waymark without a subject is the map as a whole:
 it marks the way there and nothing once the player arrives.
 
 A waymark shows while its objective is incomplete, its quest is active and
-its own `conditions` hold (the same condition shapes as event triggers).
-That one rule covers the common shapes:
+its own `conditions` hold (the same condition shapes as event triggers). A
+waymark on an event or an NPC also follows that subject as its map authors
+it: an event shows while its conditions hold, its cue's conditions hold
+(when it has a cue) and, if one-shot, it is not yet complete; an NPC shows
+while its presence conditions hold. So a waymark on an event appears with
+that event's own `!`, and its phase is never restated on the quest.
+Together these cover the common shapes:
 
 - **Phases.** A strictly ordered chain gives each step a condition on the
   previous step's flag or a step variable, so only the current step shows.

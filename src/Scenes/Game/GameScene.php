@@ -59,6 +59,7 @@ use Ichiloto\Engine\Field\Waymarks\FieldWaymarkResolver;
 use Ichiloto\Engine\Field\Waymarks\FieldWaymarkTerminalPresenter;
 use Ichiloto\Engine\Field\Waymarks\LiveFieldWaymarkLocator;
 use Ichiloto\Engine\Quests\ActiveQuestWaymark;
+use Ichiloto\Engine\Quests\QuestWaymarkSubject;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgress;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService;
@@ -437,6 +438,28 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     }
 
     /**
+     * The quest waymarks to follow now: those of incomplete objectives whose
+     * own conditions hold, and whose event or NPC is there to be used as its
+     * map authors it (an event's conditions and cue, an NPC's presence).
+     *
+     * @return list<ActiveQuestWaymark>
+     */
+    public function getActiveWaymarks(): array
+    {
+        $active = $this->questManager?->getActiveWaymarks() ?? [];
+        if ($this->mapManager === null || !array_any($active, static fn(ActiveQuestWaymark $entry): bool
+            => in_array($entry->waymark->subject, [QuestWaymarkSubject::EVENT, QuestWaymarkSubject::NPC], true))) {
+            return $active;
+        }
+        $gates = $this->mapManager->getProjectMapIndex()->gates;
+        return array_values(array_filter($active, fn(ActiveQuestWaymark $entry): bool => match ($entry->waymark->subject) {
+            QuestWaymarkSubject::EVENT => $gates->allowsEvent($entry->waymark->map, $entry->waymark->subjectId, $this->gameState, $this->party),
+            QuestWaymarkSubject::NPC => $gates->allowsNpc($entry->waymark->map, $entry->waymark->subjectId, $this->gameState, $this->party),
+            default => true,
+        }));
+    }
+
+    /**
      * The objective waymarks on the active map, derived now from the quest
      * log and world state: targets here and exits toward targets elsewhere.
      *
@@ -444,14 +467,14 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     public function getFieldWaymarks(): array
     {
-        if ($this->questManager === null || $this->mapManager === null || $this->player === null || $this->currentMapId === '') {
+        if ($this->mapManager === null || $this->player === null || $this->currentMapId === '') {
             return [];
         }
-        $active = $this->questManager->getActiveWaymarks();
+        $active = $this->getActiveWaymarks();
         if ($active === []) { return []; }
         $elsewhere = array_any($active, fn(ActiveQuestWaymark $entry): bool => $entry->waymark->map !== $this->currentMapId);
         return FieldWaymarkResolver::resolve($active, $this->currentMapId, new LiveFieldWaymarkLocator($this),
-            $elsewhere ? $this->mapManager->getRouteGraph() : null, $this->canUseRoute(...));
+            $elsewhere ? $this->mapManager->getProjectMapIndex()->routes : null, $this->canUseRoute(...));
     }
 
     /** A route counts while its event is available and any secret landmark claiming it has been revealed. */

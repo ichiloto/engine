@@ -168,10 +168,10 @@ class LocalMapState extends GameSceneState implements CanvasProviderInterface
     {
         $scene=$this->getGameScene();
         $document=$this->globalDocument;
-        if ($document===null || $scene->questManager===null || $scene->mapManager===null) { return []; }
+        if ($document===null || $scene->mapManager===null) { return []; }
         if ($this->globalWaymarks===null || $this->globalWaymarks['map']!==$document->id) {
             $this->globalWaymarks=['map'=>$document->id,'waymarks'=>\Ichiloto\Engine\Field\Waymarks\MapAtlasWaymarks::find(
-                $document,$scene->questManager->getActiveWaymarks(),$scene->mapManager->resolveGlobalAtlas(...),
+                $document,$scene->getActiveWaymarks(),$scene->mapManager->resolveGlobalAtlas(...),
                 $scene->gameState,$scene->party)];
         }
         return $this->globalWaymarks['waymarks'];

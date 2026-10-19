@@ -50,7 +50,7 @@ class MapManager implements CanRenderAt
   public private(set) ?MapOverview $overview = null;
   public private(set) ?MapAtlasDefinition $atlasDefinition = null;
   private ?array $lastKnowledgePosition = null;
-  private ?MapRouteGraph $routeGraph = null;
+  private ?ProjectMapIndex $projectMapIndex = null;
   private ?PresentationWorld $presentationWorld = null;
   private ?bool $presentationWorldPolicy = null;
   /** @var array<string, WorldObject> Installed subjects, never saved or used for collision. */
@@ -990,13 +990,10 @@ class MapManager implements CanRenderAt
     return [...$source, 'graphics' => $graphics, 'occupancy' => $occupancy, 'worldObjects' => $worldObjects];
   }
 
-  /**
-   * Every authored route between maps, read once from map sources. Map
-   * sources do not change during a session.
-   */
-  public function getRouteGraph(): MapRouteGraph
+  /** Every map's routes and subject gates, read once from map sources; they do not change during a session. */
+  public function getProjectMapIndex(): ProjectMapIndex
   {
-    return $this->routeGraph ??= MapRouteGraph::scan($this->getAssetRoot());
+    return $this->projectMapIndex ??= ProjectMapIndex::scan($this->getAssetRoot());
   }
 
   /** The project's asset root, where tilesets and their sheets live. */

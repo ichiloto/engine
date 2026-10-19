@@ -199,7 +199,7 @@ it('routes through transfers and reusable scripted transports, never one-shot st
     'depart' => [['type' => 'transfer', 'map' => 'mines', 'x' => 1, 'y' => 1]],
     'medical-review' => [['type' => 'transfer', 'map' => 'town', 'x' => 1, 'y' => 1]],
   ]);
-  $graph = MapRouteGraph::scan($root);
+  $graph = Ichiloto\Engine\Field\ProjectMapIndex::scan($root)->routes;
   $any = static fn(MapRoute $route): bool => true;
 
   expect(array_map(static fn(MapRoute $route): string => $route->marker . '>' . $route->destination, $graph->routes['annex']))
@@ -221,7 +221,7 @@ it('prefers a plain passage over an equally short scripted transport and skips u
     'annex' => ['events' => []],
     'cellar' => ['events' => []],
   ], ['wolf-return' => [['type' => 'transfer', 'map' => 'annex', 'x' => 1, 'y' => 1]]]);
-  $graph = MapRouteGraph::scan($root);
+  $graph = Ichiloto\Engine\Field\ProjectMapIndex::scan($root)->routes;
   $state = new GameState();
   $canUse = static fn(MapRoute $route): bool => Ichiloto\Engine\Core\WorldConditionEvaluator::allHold($route->conditions, $state);
 
@@ -237,9 +237,39 @@ it('records the landmark that claims a route so secret passages stay hidden unti
       'landmarks' => [['id' => 'hidden-door', 'kind' => 'passage', 'anchor' => ['event' => 'S'], 'secret' => true]]],
     'vault' => ['events' => []],
   ]);
-  $route = MapRouteGraph::scan($root)->routes['hall'][0];
+  $route = Ichiloto\Engine\Field\ProjectMapIndex::scan($root)->routes->routes['hall'][0];
 
   expect($route->landmarkId)->toBe('hidden-door')->and($route->secret)->toBeTrue();
+});
+
+it('gates event and NPC waymarks by what their map authors: conditions, cue conditions and one-shot completion', function () {
+  $root = writeWaymarkProject(['garden' => ['events' => [
+    'H' => [2, 2, ['class' => 'Ichiloto\\Engine\\Events\\Triggers\\ScriptEventTrigger',
+      'conditions' => [['type' => 'event', 'name' => 'relay_open']],
+      'cue' => ['symbol' => '!', 'color' => 'bright-yellow', 'conditions' => [['type' => 'event', 'name' => 'tracks_recorded', 'negate' => true]]],
+      'data' => ['mode' => 'action', 'reusable' => true, 'scriptId' => 'tracks']]],
+    'R' => [5, 5, ['class' => 'Ichiloto\\Engine\\Events\\Triggers\\ScriptEventTrigger',
+      'data' => ['mode' => 'action', 'reusable' => false, 'scriptId' => 'rite']]],
+  ]]]);
+  $data = require $root . '/Maps/garden/garden.data.php';
+  $data['npcs'] = [['id' => 'jori', 'name' => 'Jori', 'sprite' => 'J', 'x' => 1, 'y' => 1,
+    'conditions' => [['type' => 'event', 'name' => 'jori_arrived']]]];
+  file_put_contents($root . '/Maps/garden/garden.data.php', '<?php return ' . var_export($data, true) . ';');
+  $gates = Ichiloto\Engine\Field\ProjectMapIndex::scan($root)->gates;
+  $state = new GameState();
+
+  expect($gates->allowsEvent('garden', 'H', $state))->toBeFalse()
+    ->and($gates->allowsEvent('garden', 'R', $state))->toBeTrue()
+    ->and($gates->allowsNpc('garden', 'jori', $state))->toBeFalse()
+    ->and($gates->allowsEvent('garden', 'missing', $state))->toBeFalse();
+  $state->recordStoryEvent('relay_open');
+  $state->recordStoryEvent('jori_arrived');
+  $state->markEventComplete('garden', 'R');
+  expect($gates->allowsEvent('garden', 'H', $state))->toBeTrue()
+    ->and($gates->allowsNpc('garden', 'jori', $state))->toBeTrue()
+    ->and($gates->allowsEvent('garden', 'R', $state))->toBeFalse();
+  $state->recordStoryEvent('tracks_recorded');
+  expect($gates->allowsEvent('garden', 'H', $state))->toBeFalse();
 });
 
 /* Resolving the active map */
