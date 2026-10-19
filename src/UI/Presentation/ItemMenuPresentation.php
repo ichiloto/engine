@@ -38,7 +38,8 @@ final class ItemMenuPresentation
     $infoHeight = MenuInfoPanel::getHeight($theme, $hints);
     $bodyBottom = MenuLayout::MAX_HEIGHT - $infoHeight;
     $commandHeight = max(60, $m->rowHeight + 2 * min($p, 10));
-    $statusHeight = max(80, 2 * ($m->cellHeight + 2) + 2 * $p);
+    // Level/HP, MP and the target's condition badges.
+    $statusHeight = max(80, 2 * ($m->cellHeight + 2) + MenuConditions::getBadgeHeight($theme) + 2 * $p);
     if ($bodyBottom - $commandHeight - $statusHeight < 160) {
       throw new RuntimeException('Items description leaves insufficient space for inventory and targets.');
     }
@@ -89,6 +90,10 @@ final class ItemMenuPresentation
         Vocabulary::getTerm('stats.hp', 'HP')), [new MenuRowValue($hp)]),
         new MenuRow('mp', Vocabulary::getTerm('stats.mp', 'MP'), [new MenuRowValue($mp)])], new MenuRowLayout(self::inset($statusBox, $p), $columns,
           $m->cellHeight + 2, $m->cellWidth, $m->cellHeight, true));
+      $inner = self::inset($statusBox, $p);
+      $badgesY = $inner->y + 2 * ($m->cellHeight + 2);
+      MenuConditions::renderBadges($view, 'items-status-conditions', $target, new CanvasRectangle($inner->x + $theme->rows->metrics->padding,
+        $badgesY, $inner->width - 2 * $theme->rows->metrics->padding, $inner->y + $inner->height - $badgesY));
     }
 
     $infoBox = self::box(0, $bodyBottom, MenuLayout::MAX_WIDTH, $infoHeight);

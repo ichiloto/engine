@@ -400,3 +400,32 @@ it('keeps inventory and healthy frames when one optional panel image is missing'
     ->and($items[0]->quantity)->toBe(1)
     ->and(file_get_contents($this->root . '/warning.log'))->toContain('missing.png');
 });
+
+it('refuses a wasted cure before asking for a quantity and shows the target conditions in both renderers', function () {
+  $venom = new \Ichiloto\Engine\Entities\States\State('venom', 'Venom', '', 'Saps HP.', label: 'VNM', persistsAfterBattle: true);
+  $cure = new Item('Cure', 'Cures venom.', '/', 10, quantity: 2,
+    scope: new \Ichiloto\Engine\Entities\Inventory\Items\ItemScope(\Ichiloto\Engine\Entities\Enumerations\ItemScopeSide::ALLY),
+    effects: [new \Ichiloto\Engine\Entities\Effects\RemoveStateEffect('Cure venom', '', ['venom'])], id: 'item.cure');
+  $second = $this->party->members->toArray()[1];
+  $second->addState($venom);
+  $this->party->inventory->addItems($cure);
+  $this->state->selectionPanel->setItems([$cure]);
+  $this->state->setMode(new UseItemMode($this->state));
+  itemMenuPress($this->state, KeyCode::ENTER);
+  $this->alerts->amount = 2;
+  $this->alerts->confirmation = true;
+
+  itemMenuPress($this->state, KeyCode::ENTER);
+  expect($this->alerts->messages)->toBe(['Cure would have no effect on First Actor.'])
+    ->and($cure->quantity)->toBe(2)
+    ->and(itemMenuText(ItemMenuPresentation::compose($this->state, $this->theme)))->not->toContain('VNM');
+
+  itemMenuPress($this->state, KeyCode::DOWN);
+  expect(itemMenuText(ItemMenuPresentation::compose($this->state, $this->theme)))->toContain('VNM')
+    ->and(implode("\n", $this->state->statusPanel->getContent()))->toContain('VNM');
+  itemMenuPress($this->state, KeyCode::ENTER);
+  expect($second->hasState('venom'))->toBeFalse()
+    ->and($cure->quantity)->toBe(1)
+    ->and(end($this->alerts->messages))->toBe('Used Cure on Second Actor')
+    ->and(itemMenuText(ItemMenuPresentation::compose($this->state, $this->theme)))->not->toContain('VNM');
+});

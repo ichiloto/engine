@@ -48,6 +48,7 @@ use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
 use Ichiloto\Engine\Scenes\Game\States\AbilityMenuState;
 use Ichiloto\Engine\Field\EncounterManager;
+use Ichiloto\Engine\Field\FieldConditions;
 use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\Field\SkitManager;
 use Ichiloto\Engine\Progress\AchievementManager;
@@ -542,6 +543,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     protected(set) ?EncounterManager $encounterManager = null;
     /**
+     * @var FieldConditions|null The party's conditions acting while the player walks.
+     */
+    protected(set) ?FieldConditions $fieldConditions = null;
+    /**
      * @var NpcManager|null The field NPC manager.
      */
     protected(set) ?NpcManager $npcManager = null;
@@ -774,6 +779,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->questManager = new QuestManager($this->getGame(), $this);
         $this->questManager->hydrate($this->config->questLog);
         $this->encounterManager = new EncounterManager($this);
+        $this->fieldConditions = new FieldConditions($this);
         $this->npcManager = new NpcManager($this);
         $this->cinematicStage = new CinematicStageManager($this);
         $this->cinematicController = new CinematicController($this);

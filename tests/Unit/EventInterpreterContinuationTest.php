@@ -603,6 +603,20 @@ it('recovers every travelling member without changing roster order', function ()
     ->toBe(['First', 'Reserve']);
 });
 
+it('cures only rest-curable and battle-only states when recovering the party', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $member = new Character('Bearer', 0, new Stats(currentHp: 5, totalHp: 100));
+  $member->addState(new \Ichiloto\Engine\Entities\States\State('venom', 'Venom', persistsAfterBattle: true));
+  $member->addState(new \Ichiloto\Engine\Entities\States\State('curse', 'Curse', persistsAfterBattle: true, curedByRest: false));
+  $member->addState(new \Ichiloto\Engine\Entities\States\State('daze', 'Daze', curedByRest: false));
+  $scene->party->addMember($member);
+
+  $interpreter->run([['type' => 'recover_party']], 'rest-cure');
+
+  expect(array_map(static fn($instance): string => $instance->state->id, $member->states))->toBe(['curse'])
+    ->and($member->stats->currentHp)->toBe(100);
+});
+
 it('fails closed on an unknown top-level command and permits a corrected trigger retry', function () {
   $root = createTestDirectory('event-unknown-');
   mkdir($root . '/assets/Events', 0o777, true);

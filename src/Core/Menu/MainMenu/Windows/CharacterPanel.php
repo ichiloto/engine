@@ -60,6 +60,7 @@ class CharacterPanel extends Window implements CanFocus
    * @param string $hp
    * @param string $mp
    * @param string $role
+   * @param string $conditions The member's condition badges, shown after the name.
    * @return void
    */
   public function setDetails(
@@ -67,7 +68,8 @@ class CharacterPanel extends Window implements CanFocus
     int $level,
     string $hp,
     string $mp,
-    string $role = 'N/A'
+    string $role = 'N/A',
+    string $conditions = '',
   ): void
   {
     $leftMargin = 18;
@@ -80,7 +82,7 @@ class CharacterPanel extends Window implements CanFocus
     $fieldWidth = max(15, ...array_map(static fn(array $field): int =>
       TerminalText::displayWidth($field[0]) + 1 + TerminalText::displayWidth($field[1]), $fields));
     $prefix = str_repeat(' ', $leftMargin);
-    $this->details = [$prefix . $name];
+    $this->details = [$prefix . ($conditions === '' ? $name : $name . '  ' . $conditions)];
     foreach ($fields as [$label, $value]) {
       $this->details[] = $prefix . TerminalMenuRow::compose($label, $value, $fieldWidth);
     }

@@ -202,6 +202,12 @@ final class MainMenuPresentation
     $view->rows($id . '-resources', $rows, self::getResourceLayout($theme,
       new CanvasRectangle($identityBox->x, $resourceY, $identityBox->width,
         $box->y + $box->height - $verticalPadding - $resourceY), $rows));
+    // Conditions sit beside the resources they affect.
+    $conditionsX = $identityBox->x + min(self::RESOURCE_WIDTH, $identityBox->width) + $m->sectionGap;
+    if ($conditionsX < $identityBox->x + $identityBox->width) {
+      MenuConditions::renderBadges($view, $id . '-conditions', $member, new CanvasRectangle($conditionsX, $resourceY,
+        $identityBox->x + $identityBox->width - $conditionsX, $box->y + $box->height - $verticalPadding - $resourceY));
+    }
   }
 
   private static function recordHeight(?Character $member, MenuPresentationCatalog $theme, int $verticalPadding): int

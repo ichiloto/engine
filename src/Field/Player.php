@@ -398,6 +398,10 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     // never cuts the slide short. Without a slide it happens at once.
     $this->pendingArrival = function () use ($event, $collisionType): void {
       $this->handleTriggers($event);
+      // A party that falls to a walking condition meets no encounter.
+      if ($this->getGameScene()->fieldConditions?->registerStep() === false) {
+        return;
+      }
       $this->getGameScene()->encounterManager?->registerStep($collisionType);
       if ($this->getGameScene()->mapManager->isAtSavePoint) {
         alert("Access the Menu to save your progress.", 'Save Point');

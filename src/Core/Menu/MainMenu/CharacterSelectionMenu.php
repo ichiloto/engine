@@ -8,6 +8,7 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\UI\Text\TerminalConditions;
 use Ichiloto\Engine\UI\Windows\Window;
 
 /**
@@ -261,7 +262,8 @@ class CharacterSelectionMenu extends Menu
           $member->level,
           "{$member->effectiveStats->currentHp} / {$member->effectiveStats->totalHp}",
           "{$member->effectiveStats->currentMp} / {$member->effectiveStats->totalMp}",
-          $member->role->name
+          $member->role->name,
+          TerminalConditions::composeBadges($member),
         );
         continue;
       }

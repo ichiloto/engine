@@ -210,8 +210,7 @@ trait HasStates
       $hpDelta = 0;
 
       if ($instance->state->tickFormula !== null && ! $this->isKnockedOut) {
-        $target = $this;
-        $hpDelta = intval(eval("return {$instance->state->tickFormula};") ?? 0);
+        $hpDelta = $this->evaluateTickFormula($instance->state);
         $this->stats->currentHp = max(0, $this->stats->currentHp + $hpDelta);
       }
 
@@ -222,12 +221,96 @@ trait HasStates
       ];
     }
 
+    $this->removeExpiredStates();
+
+    return $events;
+  }
+
+  /**
+   * Counts one step walked in the field. Each state whose steps make up a
+   * field turn acts as it does on a battle turn: its tick formula applies and
+   * its duration advances. Field ticks stop at 1 HP unless the state is
+   * authored to knock out. A knocked-out bearer's states wait.
+   *
+   * @return array<int, array{state: State, hpDelta: int, expired: bool}> One event per state that acted, with the HP actually changed.
+   */
+  public function tickFieldStep(): array
+  {
+    if ($this->isKnockedOut) {
+      return [];
+    }
+
+    $events = [];
+
+    foreach ($this->states as $instance) {
+      if (! $instance->advanceFieldStep()) {
+        continue;
+      }
+
+      $hpDelta = 0;
+
+      if ($instance->state->tickFormula !== null && ! $this->isKnockedOut) {
+        $before = $this->stats->currentHp;
+        $floor = $instance->state->fieldTickKnocksOut ? 0 : min(1, $before);
+        $this->stats->currentHp = max($floor, $before + $this->evaluateTickFormula($instance->state));
+        $hpDelta = $this->stats->currentHp - $before;
+      }
+
+      $events[] = [
+        'state' => $instance->state,
+        'hpDelta' => $hpDelta,
+        'expired' => $instance->tickDuration(),
+      ];
+    }
+
+    $this->removeExpiredStates();
+
+    return $events;
+  }
+
+  /**
+   * Cures every state authored as cured by rest (an inn stay or a full party recovery).
+   *
+   * @return State[] The states cured.
+   */
+  public function removeRestCurableStates(): array
+  {
+    $cured = [];
+    $this->states = array_values(array_filter(
+      $this->states,
+      static function (StateInstance $instance) use (&$cured): bool {
+        if (! $instance->state->curedByRest) {
+          return true;
+        }
+
+        $cured[] = $instance->state;
+        return false;
+      }
+    ));
+
+    return $cured;
+  }
+
+  /**
+   * Evaluates a state's authored tick formula against this bearer.
+   *
+   * @param State $state The state.
+   * @return int The HP delta the formula asks for (negative harms).
+   */
+  protected function evaluateTickFormula(State $state): int
+  {
+    $target = $this;
+
+    return intval(eval("return {$state->tickFormula};") ?? 0);
+  }
+
+  /** Drops the states whose duration has run out. */
+  protected function removeExpiredStates(): void
+  {
     $this->states = array_values(array_filter(
       $this->states,
       static fn(StateInstance $instance): bool => $instance->remainingTurns !== 0
     ));
-
-    return $events;
   }
 
   /**

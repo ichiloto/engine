@@ -11,9 +11,9 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as Actor;
 use Ichiloto\Engine\Entities\Effects\HPRecoveryEffect;
 use Ichiloto\Engine\Entities\Effects\BaseEffect;
 use Ichiloto\Engine\Entities\Effects\MPRecoveryEffect;
+use Ichiloto\Engine\Entities\Effects\RemoveStateEffect;
 use Ichiloto\Engine\Entities\Effects\ResurrectionEffect;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
-use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
 use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
@@ -31,18 +31,11 @@ class ItemBattleAction extends BattleAction implements ExecutionEligibility
         $this->item->scope->status, $this->item->scope->randomNumber);
       if ($scope->side !== ItemScopeSide::NONE) { return $scope; }
 
-      // Legacy recovery items omitted a scope. Explicit authored scopes win.
-      foreach ($this->item->effects as $effect) {
-        if ($effect instanceof ResurrectionEffect) {
-          $scope->side = ItemScopeSide::ALLY;
-          $scope->status = ItemScopeStatus::DEAD;
-          break;
-        }
-        if ($effect instanceof HPRecoveryEffect || $effect instanceof MPRecoveryEffect) {
-          $scope->side = ItemScopeSide::ALLY;
-          $scope->status = ItemScopeStatus::ALIVE;
-          break;
-        }
+      // Legacy recovery and cure items omitted a scope. Explicit authored scopes win.
+      if (array_any($this->item->effects, static fn($effect): bool => $effect instanceof ResurrectionEffect
+        || $effect instanceof HPRecoveryEffect || $effect instanceof MPRecoveryEffect || $effect instanceof RemoveStateEffect)) {
+        $scope->side = ItemScopeSide::ALLY;
+        $scope->status = $this->item->targetStatus;
       }
       return $scope;
     }

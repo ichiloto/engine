@@ -220,6 +220,12 @@ A pure consumer of Phase 1:
 > round ticks with popups and expiry alerts in `TurnResolutionState`,
 > prevents-action states consume turns, non-persistent states clear at
 > battle end (demo: Poison + Stun, Venom Strike + Cleanse skills).
+> **Field conditions** (2026-10-20): a state may act while the party walks
+> (`fieldTickSteps`, stopping at 1 HP unless `fieldTickKnocksOut`), rest
+> cures states authored `curedByRest` (inns and `recover_party`), the item
+> `remove_state` effect cures states, field item use refuses items that
+> would change nothing, and the Status menu, party cards and item targets
+> show conditions in both renderers with an authored badge `label`.
 > **Buffs/debuffs** (`HasStatStages`): ±4 stages at 25% per stage,
 > `ModifyStatStageSkillEffect`, composed through `BattlerBattleView` so
 > damage formulas, basic attacks, and turn-order speed all see
