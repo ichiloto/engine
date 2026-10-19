@@ -221,6 +221,57 @@ it('reads unsaved tile layer sources through the same parser and diagnostics as 
     ->toThrow(InvalidArgumentException::class, 'Map home has more than ' . MapGraphics::MAX_LAYERS . ' tile layers.');
 });
 
+it('composes graphics with the supplied current tileset without replacing it with the saved definition', function () {
+  writeTilesetProject($this->root, extra: ", 'pieces' => ['floor' => ['name' => 'Floor', 'layer' => 'terrain', 'glyphs' => ['.'], 'tiles' => ['floor' => ['1']]]]");
+  $path = $this->root . '/Data/Tilesets/home.php';
+  $saved = file_get_contents($path);
+  $map = $this->root . '/Maps/home';
+  mkdir($map . '/graphics', 0777, true);
+  $source = MapGridSource::buildSource('1', 'TILES');
+  file_put_contents($map . '/graphics/01.floor.tiles.php', $source);
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', '.'),
+    new MapLayer('fixtures', 2, false, 'fixtures', '=')]);
+  $current = Tileset::fromArray('home', ['name' => 'Current', 'sheets' => ['B' => 'Graphics/Tilesets/B.png'],
+    'pieces' => ['counter' => ['name' => 'Counter', 'layer' => 'fixtures', 'glyphs' => ['='], 'tiles' => ['floor' => ['1']]]]]);
+  $graphics = MapGraphics::fromSources(['01.floor.tiles.php' => $source], 'home', 'home', $layers, $this->root, tileset: $current);
+
+  expect($graphics->tileset)->toBe($current)
+    ->and($graphics->owners)->toBe(['floor' => 'fixtures'])
+    ->and(MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root, tileset: $current))->toEqual($graphics)
+    ->and(MapGraphics::fromSources(['01.floor.tiles.php' => $source], 'home', 'home', $layers, $this->root)->owners)
+    ->toBe(['floor' => 'terrain'])
+    ->and(file_get_contents($path))->toBe($saved)
+    ->and($layers->getComposedGrid())->toBe([['=']]);
+});
+
+it('reads current graphics before a supplied tileset has any saved file', function () {
+  $map = $this->root . '/Maps/home';
+  mkdir($map . '/graphics', 0777, true);
+  $source = MapGridSource::buildSource('1', 'TILES');
+  file_put_contents($map . '/graphics/01.floor.tiles.php', $source);
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', '.')]);
+  $current = new Tileset('home', 'Current', ['B' => 'Graphics/Tilesets/B.png']);
+  expect(MapGraphics::fromSources(['01.floor.tiles.php' => $source], 'home', 'home', $layers, $this->root, tileset: $current)->tileset)
+    ->toBe($current)
+    ->and(MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root, tileset: $current)->tileset)->toBe($current)
+    ->and(is_dir($this->root . '/Data'))->toBeFalse()
+    ->and(fn() => MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root))
+    ->toThrow(InvalidArgumentException::class, 'Tileset home was not found');
+});
+
+it('refuses a supplied tileset belonging to another map palette', function () {
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', '.')]);
+  $other = new Tileset('other', 'Other', ['B' => 'Graphics/B.png']);
+  expect(fn() => MapGraphics::fromSources([], 'home', 'home', $layers, $this->root, tileset: $other))
+    ->toThrow(InvalidArgumentException::class, "Map home declares tileset 'home' but received tileset 'other'.")
+    ->and(fn() => MapGraphics::loadFromDirectory($this->root . '/Maps/home', 'home', 'home', $layers, $this->root, tileset: $other))
+    ->toThrow(InvalidArgumentException::class, "Map home declares tileset 'home' but received tileset 'other'.")
+    ->and(fn() => MapGraphics::fromSources([], 'home', null, $layers, $this->root, tileset: $other))
+    ->toThrow(InvalidArgumentException::class)
+    ->and(fn() => MapGraphics::loadFromDirectory($this->root . '/Maps/home', 'home', null, $layers, $this->root, tileset: $other))
+    ->toThrow(InvalidArgumentException::class);
+});
+
 it('uploads the tileset, tile layers in their draw bands and glyph-free rows with the world', function () {
   writeTilesetProject($this->root, extra: ", 'above' => [5]");
   $map = $this->root . '/Maps/home';

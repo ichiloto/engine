@@ -191,17 +191,19 @@ final readonly class MapGraphics
     /**
      * Reads a map's graphics, or null when it has none. Grid files are parsed
      * as literal nowdocs and never executed.
+     * A caller-owned tileset may supply the current unsaved definition; its
+     * identity must match the map's declared tileset.
      */
     public static function loadFromDirectory(string $mapDirectory, string $displayDirectory, mixed $tilesetId,
-        MapLayerSet $layers, string $assetRoot, mixed $settings = null): ?self
+        MapLayerSet $layers, string $assetRoot, mixed $settings = null, ?Tileset $tileset = null): ?self
     {
         $directory = $mapDirectory . DIRECTORY_SEPARATOR . self::DIRECTORY;
-        if ($tilesetId === null && !is_dir($directory)) {
+        if ($tilesetId === null && !is_dir($directory) && $tileset === null) {
             return null;
         }
         self::assertTilesetNamed($tilesetId, $displayDirectory);
         return self::fromSources(self::readLayerSources($directory, $displayDirectory), $displayDirectory,
-            $tilesetId, $layers, $assetRoot, $settings);
+            $tilesetId, $layers, $assetRoot, $settings, $tileset);
     }
 
     /**
@@ -242,17 +244,23 @@ final readonly class MapGraphics
      * have not saved yet. Each source is parsed and validated exactly as
      * {@see loadFromDirectory()} reads it from disk, and never executed.
      * Null when the map names no tileset and has no tile layers.
+     * A supplied tileset is used unchanged, without reading its file from
+     * disk, and must have the identity the map declares.
      *
      * @param array<string, string> $sources Source bytes keyed by the layer file's path; only its file name is read.
      */
     public static function fromSources(array $sources, string $displayDirectory, mixed $tilesetId, MapLayerSet $layers,
-        string $assetRoot, mixed $settings = null): ?self
+        string $assetRoot, mixed $settings = null, ?Tileset $tileset = null): ?self
     {
+        if ($tileset !== null && $tileset->id !== $tilesetId) {
+            throw new InvalidArgumentException("Map {$displayDirectory} declares tileset " . var_export($tilesetId, true)
+                . " but received tileset '{$tileset->id}'.");
+        }
         if ($tilesetId === null && $sources === []) {
             return null;
         }
         self::assertTilesetNamed($tilesetId, $displayDirectory);
-        $tileset = Tileset::load($assetRoot, $tilesetId);
+        $tileset ??= Tileset::load($assetRoot, $tilesetId);
         $tileLayers = self::readLayersFromSources($sources, $displayDirectory, $layers);
         $names = array_map(static fn(MapTileLayer $layer): string => $layer->name, $tileLayers);
         $offsets = self::readLayerOffsets($settings, $names, $displayDirectory);
