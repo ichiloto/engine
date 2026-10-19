@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Events\Triggers;
 
 use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Events\Enumerations\EventEngagement;
+use Ichiloto\Engine\Events\MapEventDefinition;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use InvalidArgumentException;
@@ -15,7 +16,7 @@ class EventTriggerFactory
   }
 
   /**
-   * Creates an event trigger.
+   * Creates a trigger from a resolved {@see MapEventDefinition} envelope.
    *
    * @param array $args The arguments.
    * @return EventTrigger The event trigger.

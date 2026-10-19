@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
 use Ichiloto\Engine\Animations\Field\FieldPoseAnimation;
+use Ichiloto\Engine\Events\MapEventDefinition;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 
 /**
@@ -48,9 +49,7 @@ final class CinematicCommandSchema
     'presentation', 'cast', 'skip', 'checkpoints', 'finalizer',
   ];
   public const string CINEMATIC_TRIGGER_CLASS = 'Ichiloto\\Engine\\Events\\Triggers\\CinematicEventTrigger';
-  public const array CINEMATIC_TRIGGER_ROOT_FIELDS = [
-    'class', 'conditions', 'sets', 'whenBlocked', 'cue', 'facing', 'engagement', 'subject', 'data',
-  ];
+  public const array CINEMATIC_TRIGGER_ROOT_FIELDS = MapEventDefinition::ROOT_FIELDS;
   public const array CINEMATIC_TRIGGER_DATA_FIELDS = ['cinematicId', 'mode', 'reusable'];
   public const array CINEMATIC_TRIGGER_MODES = ['action', 'auto'];
   public const array CINEMATIC_TRIGGER_COMPLETION = [

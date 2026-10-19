@@ -6,11 +6,12 @@ namespace Ichiloto\Engine\Field\Validation;
 
 use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
+use Ichiloto\Engine\Events\MapEventDefinition;
 use Ichiloto\Engine\Field\WorldObjectPlacement;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use InvalidArgumentException;
 
-/** Resolves authored ownership once for runtime, unsaved Editor drafts and validation. */
+/** Resolves the {@see MapEventDefinition} envelope for runtime, Editor drafts and validation. */
 final class MapEventResolver
 {
     public static function inspect(array $data, array $eventLayer, string $mapId): MapEventResolution

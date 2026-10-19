@@ -3,8 +3,12 @@
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandSchema;
+use Ichiloto\Engine\Events\MapEventDefinition;
+use Ichiloto\Engine\Events\Triggers\CinematicEventTrigger;
 use Ichiloto\Engine\Events\Triggers\DialogueEventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTriggerFactory;
+use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 use Ichiloto\Engine\Field\MapSourceReader;
 use Ichiloto\Engine\Field\Validation\MapEventResolver;
 
@@ -93,3 +97,68 @@ it('retains disconnected legacy marker cells and reports every invalid bound eve
     $result = MapEventResolver::inspect($map, $grid, 'synthetic/map');
     expect(array_column($result->issues, 'marker'))->toEqualCanonicalizing(['A', 'B']);
 });
+
+it('exports a complete event envelope for subject, marker and legacy-area authoring', function (string $class, string $ownership) {
+    $map = makeSubjectMap();
+    $grid = array_fill(0, 5, array_fill(0, 7, ' '));
+    $definition = $map['events']['F'];
+    $definition['class'] = $class;
+    $definition['data'] = match ($class) {
+        ScriptEventTrigger::class => ['script' => [['type' => 'wait', 'duration' => 0]], 'mode' => ScriptEventTrigger::MODE_ACTION, 'reusable' => false],
+        CinematicEventTrigger::class => ['cinematicId' => 'synthetic-scene', 'mode' => 'action', 'reusable' => false],
+        default => ['dialogue' => []],
+    };
+    $definition['whenBlocked'] = 'Inspect the surroundings first.';
+    $definition['sets'] = [['type' => 'event', 'name' => 'inspection_complete']];
+    $definition['cue'] = ['symbol' => '!', 'color' => 'yellow'];
+    $definition['facing'] = ['North'];
+    if ($ownership !== 'subject') {
+        unset($definition['subject']);
+        if ($ownership === 'legacy area') {
+            $definition['area'] = ['cells' => [[3, 2]]];
+        } else {
+            $grid[2][3] = 'F';
+        }
+    }
+    if (in_array($ownership, ['indexed marker', 'legacy area'], true)) {
+        $definition['marker'] = 'F';
+        $map['events'] = [$definition];
+    } else {
+        $map['events'] = ['F' => $definition];
+    }
+    $rootFields = $class === CinematicEventTrigger::class
+        ? CinematicCommandSchema::CINEMATIC_TRIGGER_ROOT_FIELDS : MapEventDefinition::ROOT_FIELDS;
+    expect(array_diff(array_keys($definition), $rootFields))->toBe([]);
+    $resolved = MapSourceReader::resolveEvents($map, $grid)[0];
+    expect(array_diff(array_keys($resolved), $rootFields))->toBe([]);
+    $event = EventTriggerFactory::create($resolved, 'synthetic/map');
+    expect($event)->toBeInstanceOf($class)
+        ->and($event->marker)->toBe('F')
+        ->and($event->area->containsCell(3, 2))->toBeTrue()
+        ->and($event->facing)->toBe([MovementHeading::NORTH])
+        ->and($event->cue?->symbol)->toBe('!')
+        ->and($event->sets)->toBe($definition['sets']);
+})->with([DialogueEventTrigger::class, ScriptEventTrigger::class, CinematicEventTrigger::class])
+    ->with(['subject', 'keyed marker', 'indexed marker', 'legacy area']);
+
+it('exports script payloads and modes that retain inline and referenced script behavior', function (string $mode) {
+    $root = createTestDirectory('ichiloto-script-definition-');
+    mkdir($root . '/assets/Events', 0700, true);
+    $script = [['type' => 'wait', 'duration' => 0]];
+    file_put_contents($root . '/assets/Events/inspection.php', '<?php return ' . var_export($script, true) . ';');
+    $previous = getcwd();
+    chdir($root);
+    try {
+        foreach (['scriptId' => 'inspection', 'script' => $script] as $field => $value) {
+            $data = [$field => $value, 'mode' => $mode, 'reusable' => false];
+            expect(array_diff(array_keys($data), ScriptEventTrigger::DATA_FIELDS))->toBe([]);
+            $event = EventTriggerFactory::create(['class' => ScriptEventTrigger::class,
+                'area' => ['cells' => [[3, 2]]], 'data' => $data]);
+            expect($event->script)->toBe($script)
+                ->and($event->runsAutomatically())->toBe($mode === ScriptEventTrigger::MODE_AUTO)
+                ->and($event->isReusable)->toBeFalse();
+        }
+    } finally {
+        chdir($previous);
+    }
+})->with(ScriptEventTrigger::MODES);
