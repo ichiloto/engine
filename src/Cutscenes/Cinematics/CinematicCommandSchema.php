@@ -157,6 +157,8 @@ final class CinematicCommandSchema
         'offset' => 'optional signed integer x/y cells within -16384..16384, omitted axes zero',
         'consumers' => ['move_route.waypoints', 'stage_actor'],
         'resolution' => 'current subject position at command or route leg start; no independent x/y or real-subject binding',
+        'attachment' => 'stage_actor only: at.attachment names an attachment declared by the world_object\'s resource; '
+          . 'the terminal shows the visual on the attachment cell and graphical art is centred on its point of the current artwork; no offset; the visual cannot move',
       ],
       'stagedActorBinding' => [
         'subject' => ['kind' => 'player|npc|world_object', 'id' => 'required for npc/world_object'],
