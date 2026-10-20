@@ -2,9 +2,12 @@
 
 namespace Ichiloto\Engine\Battle\Simulation;
 
-use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\BattlePartyRoster;
+use Ichiloto\Engine\Battle\BattleTargetPolicy;
 use Ichiloto\Engine\Battle\CounterAttackResolver;
+use Ichiloto\Engine\Battle\EnemyActionEvaluator;
+use Ichiloto\Engine\Battle\InherentAttack;
+use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Battle\ReservePolicy;
 use Ichiloto\Engine\Battle\BattlerBattleView;
@@ -23,8 +26,14 @@ use Ichiloto\Engine\Entities\Troop;
  * long it drags, and which party member keeps dying. The combat itself is the
  * game's own, so the numbers this reports are the numbers a player will meet.
  *
- * Both sides simply attack here. A designer wants the shape of a fight before
- * tactics, and tactics are what a player brings to change that shape.
+ * Each side acts as it would with nobody choosing for it. A party member uses
+ * its inherent attack (its authored attackSkill, or the built-in attack), and
+ * an enemy chooses from its authored action patterns exactly as it does in
+ * play. A designer wants the shape of a fight before tactics, and tactics are
+ * what a player brings to change that shape. Each turn keeps the live turn's
+ * rules: a guard ends when its battler acts again, a blocking state consumes
+ * the turn, recipients are revalidated against the action's scope, counters
+ * answer landed hits, and states tick when the battler's turn ends.
  *
  * @package Ichiloto\Engine\Battle\Simulation
  */
@@ -122,15 +131,18 @@ class BattleSimulator
     );
   }
 
-  /** Seeded preview seam proving simulator/live parity at the action boundary. */
+  /**
+   * Seeded preview seam proving simulator/live parity at the action boundary:
+   * one inherent attack, the same one a simulated run makes.
+   */
   public function previewAttack(
     CharacterInterface $actor,
     CharacterInterface $target,
     ?int $seed = null,
   ): CombatActionResult
   {
-    $action = new AttackAction(
-      'Attack',
+    $action = InherentAttack::createAction(
+      $actor,
       new CombatResolver(),
       new SeededCombatRandomSource($seed ?? $this->seed),
     );
@@ -162,7 +174,7 @@ class BattleSimulator
     SeededCombatRandomSource $random,
   ): array
   {
-    $attack = new AttackAction('Attack', new CombatResolver(), $random);
+    $resolver = new CombatResolver();
     $counters = new CounterAttackResolver($this->skills, $random);
     $turns = 0;
 
@@ -193,27 +205,56 @@ class BattleSimulator
         }
 
         $isAlly = in_array($battler, $allies, true);
-        $targets = $this->living($isAlly ? $enemies : $allies);
 
-        if ($targets === []) {
+        if ($this->living($isAlly ? $enemies : $allies) === []) {
           break;
         }
 
-        $target = $targets[$random->nextInt(0, count($targets) - 1)];
-        $attack->execute($battler, [$target]);
-        $result = $attack->lastResult;
-
-        if ($result === null) {
-          continue;
+        // A guard raised last round protects until this battler acts again.
+        if (method_exists($battler, 'stopGuarding')) {
+          $battler->stopGuarding();
         }
 
-        $this->recordResult($result, $battler, $target, $isAlly, $damage, $hpLoss, $healing, $mitigation);
-        foreach ($counters->resolveResponses($result, $battler, [$target], $allies, $enemies) as $response) {
-          if (!$counters->canExecute($response, $allies, $enemies)) { continue; }
-          $response->action->execute($response->actor, [$response->target]);
-          if (($counterResult = $response->action->lastResult) !== null) {
-            $this->recordResult($counterResult, $response->actor, $response->target, !$isAlly,
-              $damage, $hpLoss, $healing, $mitigation);
+        // A state like sleep or paralysis consumes the turn outright.
+        $blocked = method_exists($battler, 'getActionBlockingState') && $battler->getActionBlockingState() !== null;
+
+        if (! $blocked) {
+          [$action, $chosen] = $isAlly
+            ? [InherentAttack::createAction($battler, $resolver, $random), []]
+            : EnemyActionEvaluator::chooseAction(
+              $battler, $allies, $enemies, $turns, $this->highestLevelOf($allies), random: $random);
+          $targets = BattleTargetPolicy::resolveTargets(
+            $action->targetScope,
+            $battler,
+            $isAlly ? $allies : $enemies,
+            $isAlly ? $enemies : $allies,
+            $chosen === [] && $isAlly ? $this->pickRandom($this->living($enemies), $random) : $chosen,
+            $random,
+          );
+
+          if ($targets !== []) {
+            $action->execute($battler, $targets);
+
+            if (($result = $action->lastResult) !== null) {
+              $this->recordResult($result, $battler, $targets, $isAlly, $damage, $hpLoss, $healing, $mitigation);
+              foreach ($counters->resolveResponses($result, $battler, $targets, $allies, $enemies) as $response) {
+                if (!$counters->canExecute($response, $allies, $enemies)) { continue; }
+                $response->action->execute($response->actor, [$response->target]);
+                if (($counterResult = $response->action->lastResult) !== null) {
+                  $this->recordResult($counterResult, $response->actor, [$response->target], !$isAlly,
+                    $damage, $hpLoss, $healing, $mitigation);
+                }
+              }
+            }
+          }
+        }
+
+        // State duration and damage belong to the battler's completed turn.
+        if ($battler->stats->currentHp > 0 && method_exists($battler, 'tickStates')) {
+          $before = $battler->stats->currentHp;
+          $battler->tickStates();
+          if (($loss = $before - $battler->stats->currentHp) > 0) {
+            $hpLoss[$battler->name] = ($hpLoss[$battler->name] ?? 0.0) + $loss;
           }
         }
       }
@@ -230,13 +271,47 @@ class BattleSimulator
     return ['result' => 'stalemate', 'turns' => $turns];
   }
 
-  private function recordResult(CombatActionResult $result, CharacterInterface $actor, CharacterInterface $target,
+  /**
+   * @param CharacterInterface[] $targets The action's recipients.
+   */
+  private function recordResult(CombatActionResult $result, CharacterInterface $actor, array $targets,
     bool $isAlly, array &$damage, array &$hpLoss, array &$healing, array &$mitigation): void
   {
     if ($isAlly) { $damage[$actor->name] = ($damage[$actor->name] ?? 0.0) + $result->actualHpLost(); }
-    $hpLoss[$target->name] = ($hpLoss[$target->name] ?? 0.0) + $result->actualHpLost();
     $healing[$actor->name] = ($healing[$actor->name] ?? 0.0) + $result->actualHpRestored();
-    $mitigation[$target->name] = ($mitigation[$target->name] ?? 0.0) + $result->mitigation();
+    $names = [];
+    foreach ($targets as $target) { $names[CombatResolver::identity($target)] = $target->name; }
+    foreach ($result->targets as $outcome) {
+      $name = $names[$outcome->targetId] ?? null;
+      if ($name === null) { continue; }
+      $hpLoss[$name] = ($hpLoss[$name] ?? 0.0) + $outcome->actualHpLost();
+      $mitigation[$name] = ($mitigation[$name] ?? 0.0) + $outcome->mitigation();
+    }
+  }
+
+  /**
+   * Returns one battler picked at random, as a party member picks its target.
+   *
+   * @param CharacterInterface[] $battlers The candidates.
+   * @return CharacterInterface[] The pick, or nothing when there are no candidates.
+   */
+  private function pickRandom(array $battlers, SeededCombatRandomSource $random): array
+  {
+    return $battlers === [] ? [] : [$battlers[$random->nextInt(0, count($battlers) - 1)]];
+  }
+
+  /**
+   * Returns the highest level in the party, which enemy party-level conditions read.
+   *
+   * @param CharacterInterface[] $allies The active party.
+   */
+  private function highestLevelOf(array $allies): int
+  {
+    $level = 1;
+    foreach ($allies as $ally) {
+      if ($ally instanceof Character) { $level = max($level, $ally->level); }
+    }
+    return $level;
   }
 
   /**

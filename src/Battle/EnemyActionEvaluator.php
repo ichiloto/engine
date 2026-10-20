@@ -2,7 +2,6 @@
 
 namespace Ichiloto\Engine\Battle;
 
-use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\NativeCombatRandomSource;
@@ -19,7 +18,8 @@ use Ichiloto\Engine\Entities\Skills\Skill;
  * RPG-Maker semantics: every pattern whose condition holds (and whose skill
  * the enemy can afford) is a candidate; among candidates, patterns rated
  * within 2 of the best stay in the pool and are picked weighted by
- * `rating - (best - 3)`.
+ * `rating - (best - 3)`. The chosen action rolls with the caller's random
+ * source, so a seeded caller (the battle simulator) replays the same fight.
  *
  * @package Ichiloto\Engine\Battle
  */
@@ -29,7 +29,8 @@ class EnemyActionEvaluator
    * Chooses an enemy action and resolves its targets from authored patterns.
    *
    * The enemy's "enemy" scope points at the player party, while ally scope
-   * points at its own troop. A basic attack is used when no pattern is usable.
+   * points at its own troop. When no pattern is usable the enemy uses its
+   * inherent attack: its authored attackSkill, or the built-in attack.
    *
    * @param CharacterInterface $enemy The acting enemy.
    * @param CharacterInterface[] $partyTargets The player battlers, including KO targets.
@@ -61,13 +62,13 @@ class EnemyActionEvaluator
 
       if ($pattern !== null && $pattern->skill instanceof Skill) {
         return [
-          new SkillBattleAction($pattern->skill),
+          new SkillBattleAction($pattern->skill, random: $random),
           self::resolveTargets($enemy, $pattern->skill, $partyTargets, $troopTargets, $random),
         ];
       }
     }
 
-    $action = new AttackAction('Attack');
+    $action = InherentAttack::createAction($enemy, random: $random);
     $eligible = BattleTargetPolicy::getEligibleTargets($action->targetScope, $enemy, $troopTargets, $partyTargets);
     return [$action, $eligible === [] ? [] : [$eligible[$random->nextInt(0, count($eligible) - 1)]]];
   }
