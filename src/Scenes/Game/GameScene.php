@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Game;
 
 use Ichiloto\Engine\IO\Saves\SaveFeatures;
+use Ichiloto\Engine\Localization\MessageCatalog;
 use Ichiloto\Engine\Animations\Field\FieldEffectManager;
 use Ichiloto\Engine\Rendering\Sprites\ScreenSpaceSpriteProviderInterface;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
@@ -1595,6 +1596,24 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
             $this->income?->recordBattleWon();
         }
         $this->resumeEventAfterBattle($result);
+    }
+
+    /**
+     * The player has stepped onto a save point: the project's save point
+     * script runs (`save.point_script`), or the Engine's save point notice
+     * shows when the project names none.
+     */
+    public function arriveAtSavePoint(): void
+    {
+        $script = SaveFeatures::getSavePointScript();
+        if ($script !== null) {
+            $this->eventInterpreter?->run([['type' => 'common_event', 'id' => $script]], 'save-point:' . $script);
+            return;
+        }
+        $prompt = MessageCatalog::resolveTerm('save.point_prompt', allowEmpty: true);
+        if ($prompt !== '') {
+            alert($prompt, get_engine_message('save.point_title'));
+        }
     }
 
     /** The campaign's income, for the income script commands. */

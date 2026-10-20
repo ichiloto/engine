@@ -103,6 +103,8 @@ final class EngineMessageTerms
     'prompt.save' => ['default' => 'Which file would you like to save to?', 'placeholders' => [], 'description' => 'Save-menu selection prompt.'],
     'quest.level_gained' => ['default' => '%1 reached %2 %3.', 'placeholders' => ['%1' => 'Character name', '%2' => 'Level label', '%3' => 'New level'], 'description' => 'A character gains a level from a quest reward.'],
     'save.complete_title' => ['default' => '%1 Complete', 'placeholders' => ['%1' => 'Save command label'], 'description' => 'Heading after saving succeeds.'],
+    'save.point_prompt' => ['default' => 'Access the Menu to save your progress.', 'placeholders' => [], 'description' => 'Shown on arriving at a save point when the project runs no save point script (save.point_script). Blank is silent.'],
+    'save.point_title' => ['default' => 'Save Point', 'placeholders' => [], 'description' => 'Heading of the save point notice.'],
     'save.event_in_progress' => ['default' => 'Please wait until the current event finishes before saving.', 'placeholders' => [], 'description' => 'Saving is blocked while an event is running.'],
     'save.load_failed' => ['default' => 'This save could not be loaded. Please choose another save.', 'placeholders' => [], 'description' => 'A save failed to load.'],
     'save.newer_version' => ['default' => 'This save needs a newer version of the game.', 'placeholders' => [], 'description' => 'A save uses a newer unsupported version.'],

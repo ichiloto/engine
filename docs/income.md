@@ -80,6 +80,9 @@ paid. What remains carries over to the next period.
 | `collect_income` | `schedule`, optional `resultVariable` | Moves held pay into party gold. What does not fit under the gold limit stays held. Collection does not check the schedule's conditions: earned pay stays collectable. |
 | `adjust_income` | `schedule`, `amount` | Adds a one-time bonus (positive) or deduction (negative) to the next payment. A deduction larger than that payment carries on to later payments. A payment never takes gold away. |
 
+A save point can collect too: name a script that runs `collect_income` as the
+project's `save.point_script` (see save-compatibility.md).
+
 `resultVariable` receives the amount paid or collected, so a collection event
 can answer "nothing waiting" in its own words, or run the game's own scene.
 Naming a schedule the project does not declare fails the event with that id.

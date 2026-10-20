@@ -431,7 +431,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     $scene->income?->recordStep();
     $scene->encounterManager?->registerStep($collisionType, $destination);
     if ($scene->mapManager->isAtSavePoint) {
-      alert("Access the Menu to save your progress.", 'Save Point');
+      $scene->arriveAtSavePoint();
     }
 
     return true;
