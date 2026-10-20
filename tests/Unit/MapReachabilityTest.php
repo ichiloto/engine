@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Core\CellArea;
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Field\InteractionReach;
@@ -73,6 +74,25 @@ it('validates reachable approaches to solid object events with their allowed hea
   expect($report->isReachable(1, 0))->toBeFalse()
     ->and($report->problems === [])->toBe($reachable);
 })->with(['all approaches' => [[], true], 'from below' => [['North'], true], 'from above' => [['South'], false]]);
+
+it('reaches a faced object whose own walkable cell is the only approach', function () {
+  // The object sits at the end of a one-cell-wide dead end: no adjacent cell faces it, but it can be stood on.
+  $event = new ReachabilityEvent(CellArea::fromCells([[1, 0]]), ChestEventTrigger::class, 'C',
+    EventEngagement::FACING, [MovementHeading::SOUTH]);
+  $report = new MapReachability('walkable-object', reachabilityGrid(['#.#', '#.#']), [$event])
+    ->analyze([new ReachabilityEntrance(1, 1, 'door')]);
+  expect($event->getStandingArea()->containsCell(1, 0))->toBeTrue()
+    ->and($report->problems)->toBe([]);
+});
+
+it('treats the walkable cells of a faced transfer as an exit', function () {
+  $transfer = new ReachabilityEvent(CellArea::fromCells([[1, 1]]), TransferPlayerTrigger::class, 'T', EventEngagement::FACING);
+  $chest = new ReachabilityEvent(CellArea::fromCells([[1, 2]]), ChestEventTrigger::class, 'C');
+  // The only way to the chest passes over the transfer's walkable cell, which leaves the map first.
+  $report = new MapReachability('walkable-transfer', reachabilityGrid(['#.#', '#.#', '#.#']), [$transfer, $chest])
+    ->analyze([new ReachabilityEntrance(1, 0, 'door')]);
+  expect($report->problems)->not->toBe([]);
+});
 
 it('rejects distant or enclosed object events despite nearby floor or area gaps', function () {
   $event = new ReachabilityEvent(CellArea::fromCells([[1, 0], [3, 0]]), ChestEventTrigger::class,
@@ -492,4 +512,78 @@ it('reads a door marker painted in two places as one event on exactly those cell
   } finally {
     removeReachabilityProject($root);
   }
+});
+
+// An office entered through a door at (1, 0); the officer stands at (3, 2)
+// behind a two-cell desk at (3, 3)-(4, 3):
+//   #.#####
+//   #.....#
+//   #..@..#
+//   #..==.#
+//   #.....#
+//   #.....#
+//   #######
+function approachOffice(array $event, array $npcConditions = []): MapReachability
+{
+  $definition = [...['class' => \Ichiloto\Engine\Events\Triggers\ScriptEventTrigger::class, 'marker' => 'C',
+    'area' => ['cells' => [[3, 3], [4, 3]]], 'engagement' => 'facing', 'speakers' => ['officer'],
+    'data' => ['mode' => 'action', 'scriptId' => 'inspection']], ...$event];
+
+  return new MapReachability('office', reachabilityGrid(['#.#####', '#.....#', '#.....#', '#..==.#', '#.....#', '#.....#', '#######']),
+    [ReachabilityEvent::fromDefinition($definition)], [],
+    [reachabilityNpc(['id' => 'officer', 'name' => 'Officer', 'x' => 3, 'y' => 2, 'conditions' => $npcConditions])]);
+}
+
+it('reports an interaction the player reaches from behind and must walk round to use', function () {
+  $problems = approachOffice(['facing' => ['North']])->findDetouredApproaches([new ReachabilityEntrance(1, 0, 'the north door')]);
+
+  expect(reachabilityProblems($problems))->toBe([
+    'detoured_approach: Arriving from the north door, the player first reaches event C (ScriptEventTrigger) at (3, 3) on (3, 1), beside its speaker Officer, where it does not answer, and walks 3 more steps round to (3, 4) to use it.',
+  ])->and($problems[0]->kind->isBlocking())->toBeFalse();
+});
+
+it('accepts an interaction met on a side where it answers, or within one step of it', function (array $event, int $x, int $y) {
+  expect(approachOffice($event)->findDetouredApproaches([new ReachabilityEntrance($x, $y, 'a door')]))->toBe([]);
+})->with([
+  'arriving in front of the desk' => [['facing' => ['North']], 1, 5],
+  'answering from every side' => [['facing' => []], 1, 0],
+  'facing the arrival path' => [['facing' => ['South'], 'speakers' => []], 1, 0],
+]);
+
+it('skips automatic events and arrivals that cannot happen while the event runs', function () {
+  $office = approachOffice(['facing' => ['North'], 'data' => ['mode' => 'auto', 'scriptId' => 'inspection']]);
+  $gated = approachOffice(['facing' => ['North'], 'conditions' => [['type' => 'event', 'name' => 'inspected', 'negate' => true]]]);
+
+  expect($office->findDetouredApproaches([new ReachabilityEntrance(1, 0, 'the north door')]))->toBe([])
+    ->and($gated->findDetouredApproaches([new ReachabilityEntrance(1, 0, 'the north door after inspection',
+      [['type' => 'event', 'name' => 'inspected']])]))->toBe([])
+    ->and($gated->findDetouredApproaches([new ReachabilityEntrance(1, 0, 'the north door')]))->toHaveCount(1);
+});
+
+it('reads a speaker absent while the event runs as neither contact nor obstacle', function () {
+  $problems = approachOffice(['facing' => ['North'], 'conditions' => [['type' => 'event', 'name' => 'opened']]],
+    [['type' => 'event', 'name' => 'opened', 'negate' => true]])->findDetouredApproaches([new ReachabilityEntrance(1, 0, 'the north door')]);
+
+  // Without the officer the player stands on her cell, at the desk's empty north side, and still walks round it.
+  expect(reachabilityProblems($problems))->toBe([
+    'detoured_approach: Arriving from the north door, the player first reaches event C (ScriptEventTrigger) at (3, 3) on (3, 2), where it does not answer, and walks 2 more steps round to (3, 4) to use it.',
+  ]);
+});
+
+it('reports a detoured approach through the project analysis, naming the arrival', function () {
+  $assets = createTestDirectory('approach-reachability-project-') . '/assets';
+  mkdir($assets . '/Data', 0777, true);
+  writeReachabilityMap($assets, 'office', ['#.#####', '#.....#', '#.....#', '#..==.#', '#.....#', '#######'],
+    ['       ', '       ', '       ', '   CC  ', '       ', '       '], ['events' => ['C' => [
+      'class' => \Ichiloto\Engine\Events\Triggers\DialogueEventTrigger::class, 'engagement' => 'facing', 'facing' => ['North'],
+      'data' => ['dialogue' => [['text' => 'Ready.']]],
+    ]]]);
+  file_put_contents($assets . '/Maps/collisions.php', '<?php return ["." => \Ichiloto\Engine\Events\Enumerations\CollisionType::NONE, "#" => \Ichiloto\Engine\Events\Enumerations\CollisionType::SOLID, "=" => \Ichiloto\Engine\Events\Enumerations\CollisionType::COUNTER];');
+  file_put_contents($assets . '/Data/system.php', '<?php return ' . var_export([
+    'startingPositions' => ['player' => ['destinationMap' => 'office', 'spawnPoint' => ['x' => 1, 'y' => 0]]],
+  ], true) . ';');
+
+  expect(reachabilityProblems(ProjectReachability::analyze($assets)->getAllProblems()))->toBe([
+    'detoured_approach: Arriving from the starting position, the player first reaches event C (DialogueEventTrigger) at (3, 3) on (3, 2), where it does not answer, and walks 2 more steps round to (3, 4) to use it.',
+  ]);
 });

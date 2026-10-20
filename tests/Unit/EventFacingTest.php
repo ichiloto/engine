@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
@@ -43,6 +44,7 @@ class FacingAutomaticProbe extends FacingProbeTrigger implements AutomaticEventT
 {
   public bool $sessionIsActive = false;
   public function runsAutomatically(): bool { return true; }
+  public static function determineRunsAutomatically(array $data): bool { return true; }
 }
 
 class FacingProbePlayer extends Player
@@ -116,13 +118,13 @@ it('switches facing prompts on blocked turns in either authored order without a 
   $north = new FacingProbeTrigger(new Rect(2, 2, 1, 1), facing: ['North']);
   $east = new FacingProbeTrigger(new Rect(2, 2, 1, 1), facing: ['East']);
   foreach ($reverse ? [$east, $north] : [$north, $east] as $event) { $this->player->addTrigger($event); }
-  expect($this->player->tryMove(Vector2::right(), $this->scene->camera))->toBeFalse()
+  expect($this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeFalse()
     ->and($this->player->availableAction->owner)->toBe($east);
-  $this->player->tryMove(Vector2::up(), $this->scene->camera);
+  $this->player->tryMove(Vector2::up(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   expect($this->player->availableAction->owner)->toBe($north)
     ->and($east->calls)->toBe(['enter', 'exit'])
     ->and([$this->player->position->x, $this->player->position->y])->toBe([2.0, 2.0]);
-  $this->player->tryMove(Vector2::up(), $this->scene->camera);
+  $this->player->tryMove(Vector2::up(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   expect($north->calls)->toBe(['enter']);
   $this->player->face(Vector2::down(), $this->scene->camera);
   expect($this->player->availableAction)->toBeNull()->and($north->calls)->toBe(['enter', 'exit']);
@@ -210,11 +212,31 @@ it('reaches only the immediate faced object cell in every cardinal direction', f
   $object = new Vector2(2 + $direction->x, 2 + $direction->y);
   $event = new FacingProbeTrigger(new Rect($object->x, $object->y, 1, 1), engagement: EventEngagement::FACING);
   expect($event->canEngage(new Vector2(2, 2), $heading))->toBeTrue()
-    ->and($event->canEngage($object, $heading))->toBeFalse()
     ->and($event->canEngage(new Vector2(2 - $direction->x, 2 - $direction->y), $heading))->toBeFalse()
     ->and($event->canEngage(new Vector2(2 + $direction->y, 2 + $direction->x), $heading))->toBeFalse()
     ->and($event->canEngage(new Vector2(2, 2), MovementHeading::NONE))->toBeFalse();
 })->with([MovementHeading::NORTH, MovementHeading::EAST, MovementHeading::SOUTH, MovementHeading::WEST]);
+
+it('answers while the player stands on a walkable object cell, facing any allowed heading', function () {
+  $event = new FacingProbeTrigger(new Rect(2, 1, 2, 1), engagement: EventEngagement::FACING);
+  foreach ([MovementHeading::NORTH, MovementHeading::EAST, MovementHeading::SOUTH, MovementHeading::WEST] as $heading) {
+    expect($event->canEngage(new Vector2(2, 1), $heading))->toBeTrue()
+      ->and($event->canEngage(new Vector2(3, 1), $heading))->toBeTrue();
+  }
+  $restricted = EventTriggerFactory::create(['class' => FacingProbeTrigger::class,
+    'area' => ['cells' => [[2, 1]]], 'data' => [], 'engagement' => 'facing', 'facing' => ['North']]);
+  expect($restricted->canEngage(new Vector2(2, 1), MovementHeading::NORTH))->toBeTrue()
+    ->and($restricted->canEngage(new Vector2(2, 1), MovementHeading::SOUTH))->toBeFalse();
+
+  $this->player->addTrigger($event);
+  $this->player->setFacingSprite(['South'], engageEvents: false);
+  $this->player->dispatchMovement(new Vector2(2, 2), new Vector2(2, 1));
+  expect($event->calls)->toBe(['enter'])->and($this->player->availableAction)->not->toBeNull();
+  $this->player->face(Vector2::left(), $this->scene->camera);
+  $this->player->dispatchMovement(new Vector2(2, 1), new Vector2(3, 1));
+  $this->player->dispatchMovement(new Vector2(3, 1), new Vector2(3, 0));
+  expect($event->calls)->toBe(['enter', 'stay', 'exit'])->and($this->player->availableAction)->toBeNull();
+});
 
 it('uses exact object cells and combines reach with optional headings and world conditions', function () {
   $event = EventTriggerFactory::create(['class' => FacingProbeTrigger::class,
@@ -238,9 +260,9 @@ it('switches concrete object prompts on blocked turns in either authored order',
   $script = new \Ichiloto\Engine\Events\Triggers\ScriptEventTrigger(new Rect(2, 1, 1, 1),
     ['mode' => 'action', 'script' => []], engagement: EventEngagement::FACING);
   foreach ($reverse ? [$script, $sleep] : [$sleep, $script] as $event) { $this->player->addTrigger($event); }
-  expect($this->player->tryMove(Vector2::right(), $this->scene->camera))->toBeFalse()
+  expect($this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeFalse()
     ->and($this->player->availableAction)->toBeInstanceOf(\Ichiloto\Engine\Entities\Actions\SleepAction::class);
-  $this->player->tryMove(Vector2::up(), $this->scene->camera);
+  $this->player->tryMove(Vector2::up(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   expect($this->player->availableAction)->toBeInstanceOf(\Ichiloto\Engine\Entities\Actions\RunScriptAction::class)
     ->and([$this->player->position->x, $this->player->position->y])->toBe([2.0, 2.0]);
   $this->player->face(Vector2::down(), $this->scene->camera);

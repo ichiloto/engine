@@ -101,9 +101,14 @@ no class-specific facing field or presentation-driven collision is needed.
 ### Events on objects
 
 Set root-level `'engagement' => 'facing'` to place the event marker on the object
-itself. The player engages it from outside the event area, facing an immediately
-adjacent marker cell. Solid object cells work: interaction does not require
-walking onto them. Exact marker cells define reach, including disconnected or
+itself. The player engages it facing an immediately adjacent marker cell, or
+standing on one of its cells. Collision alone decides whether a cell can be
+stood on: a solid object answers only from beside it, while an object lying on
+walkable ground (a lamp on the floor, tracks in the dirt) also answers while the
+player stands on it, whichever way the player faces. Solid object cells work:
+interaction does not require walking onto them. A faced transfer or other entry
+effect on a walkable cell happens on stepping onto that cell, as with `inside`;
+map reachability treats such a transfer's cells as an exit. Exact marker cells define reach, including disconnected or
 multi-cell objects; gaps, diagonals and cells farther away are excluded. Object
 reach stops at the faced cell and does not extend across NPC talk counters.
 
@@ -347,6 +352,13 @@ set the NPC's heading or transform after the talk turn (a `move_route` turn or
 step, even one toward the player, or cinematic staging that was restored),
 when a cinematic still stages the NPC as the conversation ends, or when the
 NPC has left the current map.
+
+Set `'facing' => 'north'` (`north`, `east`, `south` or `west`, any case;
+default `south`) for the heading an NPC stands with when its map loads, such
+as a clerk facing the door a desk is approached from. The base `sprite` is the
+south look; another heading shows its directional glyph and sheet row. Talking
+turns it and turns it back to this heading like any other, and an unknown
+value reads as south (`NpcManager::readFacing()`).
 
 Set `'directionFix' => true` (RPG Maker's Direction Fix; a bool, default
 `false`) to keep an NPC's heading when it is talked to; it neither turns nor

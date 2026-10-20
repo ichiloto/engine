@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Animations\Field\FieldEffectManager;
 use Ichiloto\Engine\Core\Game;
@@ -180,7 +181,7 @@ it('keeps exactly one above-art prompt aligned with the player through real 2x m
     $frame = presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
     foreach ([null, Vector2::right(), Vector2::right(), Vector2::up()] as $direction) {
         if ($direction !== null) {
-            expect($this->player->tryMove($direction, $this->camera))->toBeTrue();
+            expect($this->player->tryMove($direction, $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue();
             $frame = presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
         }
         $sprite = $frame['sprites'][0];
@@ -208,7 +209,7 @@ it('keeps exactly one above-art prompt aligned with the player through real 2x m
     $this->field->renderTheField();
     presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
     $before = $this->camera->getWorldOrigin();
-    expect($this->player->tryMove(Vector2::right(), $this->camera))->toBeTrue()
+    expect($this->player->tryMove(Vector2::right(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
         ->and($this->camera->getWorldOrigin())->not->toBe($before);
     $frame = presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
     $sprite = $frame['sprites'][0];

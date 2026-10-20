@@ -26,6 +26,12 @@ final readonly class MapReachabilityReport
   {
   }
 
+  /** The same report with further problems found on the same map. */
+  public function withProblems(array $problems): self
+  {
+    return new self($this->mapId, $this->reachableCells, [...$this->problems, ...$problems], $this->spokenToCells);
+  }
+
   /** Whether the player can stand on a cell. */
   public function isReachable(int $x, int $y): bool
   {

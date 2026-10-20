@@ -92,9 +92,8 @@ final class CinematicStageManager
     }
 
     $sprite = $sprite === null ? null : (is_array($sprite) ? array_values(array_map('strval', $sprite)) : [strval($sprite)]);
-    $facing = isset($entry['facing'])
-      ? (MovementHeading::tryFrom(ucfirst(strtolower(strval($entry['facing'])))) ?? MovementHeading::SOUTH)
-      : ($independentActor?->facing ?? MovementHeading::SOUTH);
+    $facing = CinematicFacing::resolve($this->gameScene, $entry, $position)
+      ?? $independentActor?->facing ?? MovementHeading::SOUTH;
     $graphicalSprites = isset($entry['sprites2d']) ? self::getGraphicalSprites($entry['sprites2d']) : null;
     $suppressed = $subject !== null ? [spl_object_id($subject) => $subject] : [];
     foreach ($entry['suppress'] ?? [] as $reference) {
@@ -143,6 +142,7 @@ final class CinematicStageManager
   public static function validateBinding(array $entry): void
   {
     if (array_key_exists('at', $entry) || array_key_exists('offset', $entry)) { CinematicRelativePosition::validate($entry, true); }
+    CinematicFacing::validate($entry);
     if (array_key_exists('replace', $entry) && !is_bool($entry['replace'])) {
       throw new \InvalidArgumentException('Staged actor replace must be boolean.');
     }
@@ -153,7 +153,7 @@ final class CinematicStageManager
       return;
     }
     if (($entry['collision'] ?? false) !== false
-      || array_intersect(['x', 'y', 'facing', 'at', 'offset'], array_keys($entry)) !== []) {
+      || array_intersect(['x', 'y', 'at', 'offset', ...CinematicFacing::FIELDS], array_keys($entry)) !== []) {
       throw new \InvalidArgumentException('A bound visual inherits real position/facing and cannot add collision.');
     }
     $suppressed = array_key_exists('suppress', $entry) ? $entry['suppress'] : [];
