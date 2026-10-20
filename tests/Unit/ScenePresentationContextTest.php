@@ -110,7 +110,7 @@ beforeEach(function () {
     $edges = array_fill_keys(FieldPresentationCatalog::DIRECTIONS, ['asset' => 'Graphics/edge.png']);
     $edges['east']['quarterTurns'] = 1;
     file_put_contents($this->root . '/Data/Presentation/field.php', '<?php return ' . var_export([
-        'cues' => ['bright-yellow' => ['effect' => 'energy', 'edges' => $edges]]], true) . ';');
+        'cues' => ['bright-yellow' => ['effect' => 'energy', 'pointer' => $edges]]], true) . ';');
     file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
         'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1']], true) . ';');
     $this->scene = new ContextFieldSceneProbe($this->root);

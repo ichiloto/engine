@@ -4,6 +4,15 @@
 
 ### Added
 
+- `cueStyle` in `Data/Presentation/field.php` keeps cue marks readable on any
+  ground: an optional plate behind every graphical mark, an optional gentle
+  bob (still under reduced motion), the edge pointer spacing, and a Terminal
+  background cell and bold for every cue glyph (default black and bold).
+- Edge markers are composed from the upright cue mark and a separate pointer
+  that alone turns, on the outward side.
+- NPCs take the same authored `cue` as events, drawn above the NPC with the
+  shared cue treatment; a waymark on that NPC lets its cue stand in.
+
 - Event speakers: a map event names the NPCs who speak it (`speakers`), and
   map validation (`event.speaker`) reports a speaker who is not on the map,
   is never present while the event can run, wanders freely or stands more
@@ -41,6 +50,9 @@
 
 ### Changed
 
+- Removed: cue bindings' `edges` (one baked image rotated whole, which laid the
+  `!` on its side) are refused; author `pointer` images instead. Terminal cue
+  glyphs now draw bold on a black cell by default.
 - Removed: story cues (`cue.kind` `story`) no longer draw their own edge
   arrows. Off-screen guidance now comes from quest objective waymarks, which
   use the same cue binding edge images. Cue kind remains authored data.

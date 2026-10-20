@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\WorldStateWriter;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
+use Ichiloto\Engine\Events\Triggers\EventCue;
 use Ichiloto\Engine\Messaging\Dialogue\ConditionalDialogue;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Quests\QuestManager;
@@ -38,6 +39,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  *     'dialogue' => [['name' => 'Mom', 'text' => '…'], …],
  *     'script' => [ …event commands… ],          // replaces dialogue when present
  *     'conditions' => [ …trigger conditions… ],  // NPC only appears while these hold
+ *     'cue' => ['symbol' => '!', 'color' => 'bright-yellow', 'conditions' => [ … ]], // same contract as an event cue
  *     'sets' => [ …trigger sets… ],              // applied after every conversation
  *   ],
  * ],
@@ -84,6 +86,7 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
    * @param string|null $graphicalSpriteId Map-scoped presentation identity, independent of script/save identity.
    * @param string|null $assetRoot Project asset root for graphical preflight.
    * @param bool $directionFix True keeps the heading when the player talks to it (RPG Maker's Direction Fix).
+   * @param EventCue|null $cue Optional guidance drawn above the NPC: the same cue contract events use.
    */
   public function __construct(
     protected(set) string $name,
@@ -101,6 +104,7 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
     ?string $graphicalSpriteId = null,
     ?string $assetRoot = null,
     protected(set) bool $directionFix = false,
+    protected(set) ?EventCue $cue = null,
   )
   {
     $this->id = $id !== null && trim($id) !== '' ? trim($id) : null;

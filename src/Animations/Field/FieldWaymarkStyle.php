@@ -62,16 +62,16 @@ final readonly class FieldWaymarkStyle
     return new self(trim($color), trim($symbol), $inset);
   }
 
-  /** Formatter markup for the on-screen marker. */
-  public function styleSymbol(): string
+  /** Formatter markup for the on-screen marker, with the game's cue treatment. */
+  public function styleSymbol(FieldCueStyle $cueStyle = new FieldCueStyle()): string
   {
-    return sprintf('<fg=%s>%s</>', $this->color, $this->symbol);
+    return $cueStyle->styleGlyph($this->symbol, $this->color);
   }
 
-  /** Formatter markup for an edge arrow pointing the given compass direction. */
-  public function styleArrow(string $direction): string
+  /** Formatter markup for an edge arrow pointing the given compass direction, with the game's cue treatment. */
+  public function styleArrow(string $direction, FieldCueStyle $cueStyle = new FieldCueStyle()): string
   {
     $arrow = self::ARROWS[$direction] ?? throw new InvalidArgumentException("Unknown edge direction '{$direction}'.");
-    return sprintf('<fg=%s>%s</>', $this->color, $arrow);
+    return $cueStyle->styleGlyph($arrow, $this->color);
   }
 }

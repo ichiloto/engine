@@ -137,6 +137,11 @@ two placements are not part of it, so standing there triggers nothing and an
 unavailable event's `whenBlocked` gate only stops steps onto its own cells.
 A cue shows on each separate placement. Cinematics that name a marker as a
 subject use its first cell in reading order, the top-left of a rectangle.
+An NPC takes the same `cue` (symbol, colour, conditions, optional kind),
+read by the same validator, and shows it in the cell above itself while it
+is on the field and the cue's conditions hold; the cue follows the NPC as it
+moves and takes the game's `cueStyle` treatment like any cue. Use it instead
+of a separate stand-in NPC whose sprite is a cue.
 Quest waymarks name markers the same way and mark each placement; see
 [Waymarks](quests.md#waymarks-where-an-objective-sends-the-player) for how
 objectives are marked on the field, the local map and the world map, and how

@@ -518,7 +518,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         }
         return FieldWaymarkTerminalPresenter::place($this->getFieldWaymarks(), $this->fieldEffects->waymarkStyle,
             $this->camera->getScreenSpacePosition(...), $this->camera->screen->getWidth(), $this->camera->screen->getHeight(),
-            $this->camera->getScreenSpacePosition($this->player->position), $this->player->getCuedEventMarkers());
+            $this->camera->getScreenSpacePosition($this->player->position), [...$this->player->getCuedEventMarkers(),
+                ...array_fill_keys(array_map(static fn($npc): string => FieldWaymarkTerminalPresenter::OBJECT_KEY
+                    . $npc->getGraphicalSpriteId(), $this->npcManager?->listCuedNpcs() ?? []), true)],
+            $this->fieldEffects->cueStyle);
     }
 
     private function hasGraphicalFieldPresentation(): bool
@@ -1166,6 +1169,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->fieldEffects?->showActionPrompt(($this->player?->isActionPromptOverSprite ?? false)
             ? $this->player->getGraphicalSpriteId() : null);
         $this->fieldEffects?->showWaymarks($this->hasGraphicalFieldPresentation() ? $this->getFieldWaymarks() : []);
+        $this->fieldEffects?->showNpcCues($this->hasGraphicalFieldPresentation() ? ($this->npcManager?->listCuedNpcs() ?? []) : []);
         $this->fieldEffects?->update($seconds, Accessibility::prefersReducedMotion(),
             $this->getFieldObjectSpriteProviders(), $this->canPresentFieldGuidance());
     }

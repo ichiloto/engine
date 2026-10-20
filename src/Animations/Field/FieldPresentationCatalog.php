@@ -23,17 +23,21 @@ final readonly class FieldPresentationCatalog
   public array $resources;
   /** The game's objective waymark style; the Engine default when not authored. */
   public FieldWaymarkStyle $waymarks;
+  /** How every cue mark stays readable; the Engine default when not authored. */
+  public FieldCueStyle $cueStyle;
 
   /**
    * @param array<string, array<string, mixed>> $cues
    * @param string|null $actionPrompt The effect drawn over the player while it can act, or null for its glyph.
    * @param array<string, WorldObjectResource> $resources Immutable reusable presentation definitions.
    * @param FieldWaymarkStyle|null $waymarks The objective waymark style.
+   * @param FieldCueStyle|null $cueStyle How every cue mark stays readable.
    */
   public function __construct(public array $cues = [], public ?string $actionPrompt = null, array $resources = [],
-    ?FieldWaymarkStyle $waymarks = null)
+    ?FieldWaymarkStyle $waymarks = null, ?FieldCueStyle $cueStyle = null)
   {
     $this->waymarks = $waymarks ?? new FieldWaymarkStyle();
+    $this->cueStyle = $cueStyle ?? new FieldCueStyle();
     $copy = [];
     foreach ($resources as $id => $resource) {
       if (!$resource instanceof WorldObjectResource || $resource->id !== $id) {
@@ -52,9 +56,9 @@ final readonly class FieldPresentationCatalog
 
   public static function fromArray(mixed $data, string $assetRoot, EffectPresentation $presentation = EffectPresentation::GRAPHICAL): self
   {
-    if (!is_array($data) || array_diff(array_keys($data), ['cues', 'actionPrompt', 'resources', 'waymarks']) !== []
+    if (!is_array($data) || array_diff(array_keys($data), ['cues', 'cueStyle', 'actionPrompt', 'resources', 'waymarks']) !== []
       || !is_array($data['cues'] ?? [])) {
-      throw new InvalidArgumentException('Field presentation accepts cues, actionPrompt, named resources and waymarks.');
+      throw new InvalidArgumentException('Field presentation accepts cues, cueStyle, actionPrompt, named resources and waymarks.');
     }
     $prompt = $data['actionPrompt'] ?? null;
     if ($prompt !== null && (!is_array($prompt) || array_keys($prompt) !== ['effect'] || !is_string($prompt['effect']))) {
@@ -63,24 +67,31 @@ final readonly class FieldPresentationCatalog
     if ($prompt !== null) { EffectTimelineLibrary::assertId($prompt['effect']); }
     $cues = $data['cues'] ?? [];
     foreach ($cues as $color => $cue) {
-      if (!is_string($color) || !is_array($cue) || array_diff(array_keys($cue), ['effect', 'edges']) !== []
+      if (is_array($cue) && array_key_exists('edges', $cue)) {
+        throw new InvalidArgumentException('Cue edges are now an upright marker and a turning pointer: replace edges with pointer images.');
+      }
+      if (!is_string($color) || !is_array($cue) || array_diff(array_keys($cue), ['effect', 'pointer']) !== []
         || !is_string($cue['effect'] ?? null)) {
-        throw new InvalidArgumentException('A field cue binding needs an effect identity and optional directional edges.');
+        throw new InvalidArgumentException('A field cue binding needs an effect identity and optional directional pointer images.');
       }
       EffectTimelineLibrary::assertId($cue['effect']);
-      $edges = $cue['edges'] ?? [];
-      if (!is_array($edges) || array_diff(array_keys($edges), self::DIRECTIONS) !== []) {
-        throw new InvalidArgumentException('Cue edges must be keyed by compass direction.');
+      $pointer = $cue['pointer'] ?? [];
+      if (!is_array($pointer) || array_diff(array_keys($pointer), self::DIRECTIONS) !== []) {
+        throw new InvalidArgumentException('Cue pointer images must be keyed by compass direction.');
       }
-      foreach ($edges as $image) {
+      foreach ($pointer as $image) {
         if (!is_array($image) || array_diff(array_keys($image), ['asset', 'quarterTurns']) !== []
           || !is_string($image['asset'] ?? null) || !is_int($image['quarterTurns'] ?? 0)
           || ($image['quarterTurns'] ?? 0) < 0 || ($image['quarterTurns'] ?? 0) > 3) {
-          throw new InvalidArgumentException('Cue edge images need asset and optional quarterTurns 0..3.');
+          throw new InvalidArgumentException('Cue pointer images need asset and optional quarterTurns 0..3.');
         }
         SpriteValidation::validateAssetPath($image['asset']);
         if ($presentation === EffectPresentation::GRAPHICAL) { PngAssetPreflight::inspect($assetRoot, $image['asset']); }
       }
+    }
+    $cueStyle = FieldCueStyle::fromArray($data['cueStyle'] ?? null);
+    if ($cueStyle->plate !== null && $presentation === EffectPresentation::GRAPHICAL) {
+      PngAssetPreflight::inspect($assetRoot, $cueStyle->plate);
     }
     $declarations = array_key_exists('resources', $data) ? $data['resources'] : [];
     if (!is_array($declarations)) { throw new InvalidArgumentException('Field resources must be keyed by stable resource id.'); }
@@ -89,7 +100,7 @@ final readonly class FieldPresentationCatalog
       WorldObjectResource::assertId($id);
       $resources[$id] = WorldObjectResource::fromArray($id, $resource);
     }
-    return new self($cues, $prompt['effect'] ?? null, $resources, FieldWaymarkStyle::fromArray($data['waymarks'] ?? null));
+    return new self($cues, $prompt['effect'] ?? null, $resources, FieldWaymarkStyle::fromArray($data['waymarks'] ?? null), $cueStyle);
   }
 
   public function getResource(string $id): WorldObjectResource

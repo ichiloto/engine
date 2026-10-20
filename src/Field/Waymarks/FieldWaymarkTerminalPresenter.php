@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Field\Waymarks;
 
 use Closure;
+use Ichiloto\Engine\Animations\Field\FieldCueStyle;
 use Ichiloto\Engine\Animations\Field\FieldPresentationCatalog;
 use Ichiloto\Engine\Animations\Field\FieldWaymarkStyle;
 use Ichiloto\Engine\Core\Vector2;
@@ -23,6 +24,8 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 final class FieldWaymarkTerminalPresenter
 {
   public const string LAYER = 'field-waymarks';
+  /** How a cued object (an NPC showing its own cue) is named among the cued markers. */
+  public const string OBJECT_KEY = 'object:';
   /** Terminal cells are about twice as tall as they are wide. */
   private const float CELL_ASPECT = 2.0;
   private ?string $signature = null;
@@ -32,11 +35,13 @@ final class FieldWaymarkTerminalPresenter
    *
    * @param list<FieldWaymark> $waymarks
    * @param Closure(Vector2): Vector2 $toScreen Projects a world cell to a screen cell.
-   * @param array<string, true> $cuedMarkers Events whose own cue already marks them on screen.
+   * @param array<string, true> $cuedMarkers Events (by marker) and objects (by OBJECT_KEY and sprite identity) whose own cue
+   *   already marks them on screen.
+   * @param FieldCueStyle $cueStyle The game's cue treatment: background and bold.
    * @return list<array{x: int, y: int, text: string}>
    */
   public static function place(array $waymarks, FieldWaymarkStyle $style, Closure $toScreen, int $width, int $height,
-    ?Vector2 $player = null, array $cuedMarkers = []): array
+    ?Vector2 $player = null, array $cuedMarkers = [], FieldCueStyle $cueStyle = new FieldCueStyle()): array
   {
     if ($width < 1 || $height < 1) { return []; }
     $placements = [];
@@ -48,14 +53,15 @@ final class FieldWaymarkTerminalPresenter
       $x = (int)$screen->x;
       $y = (int)$screen->y;
       if ($x >= 0 && $x < $width && $y >= 0 && $y < $height) {
-        if ($waymark->anchor->eventMarker !== null && isset($cuedMarkers[$waymark->anchor->eventMarker])) { continue; }
+        if (($waymark->anchor->eventMarker !== null && isset($cuedMarkers[$waymark->anchor->eventMarker]))
+          || ($waymark->anchor->objectId !== null && isset($cuedMarkers[self::OBJECT_KEY . $waymark->anchor->objectId]))) { continue; }
         // A character occupies its cell, so its waymark floats above it.
         if ($waymark->anchor->objectId !== null && $y > 0) { $y--; }
-        $text = $style->styleSymbol();
+        $text = $style->styleSymbol($cueStyle);
       } else {
         $edge = self::locateEdge($x, $y, $width, $height, $style->inset, $playerX, $playerY);
         [$x, $y] = [$edge['x'], $edge['y']];
-        $text = $style->styleArrow($edge['direction']);
+        $text = $style->styleArrow($edge['direction'], $cueStyle);
       }
       if ($x === $playerX && $y === $playerY) { continue; }
       if (isset($taken["{$x}:{$y}"])) { continue; }

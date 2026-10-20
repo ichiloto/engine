@@ -71,7 +71,7 @@ beforeEach(function () {
   mkdir($this->root . '/Data/Presentation', 0777, true);
   $edges = array_fill_keys(FieldPresentationCatalog::DIRECTIONS, ['asset' => 'Graphics/edge.png']);
   $edges['west']['quarterTurns'] = 2;
-  $binding = ['cues' => ['bright-yellow' => ['effect' => 'energy', 'edges' => $edges]]];
+  $binding = ['cues' => ['bright-yellow' => ['effect' => 'energy', 'pointer' => $edges]]];
   file_put_contents($this->root . '/Data/Presentation/field.php', '<?php return ' . var_export($binding, true) . ';');
   $this->library = new EffectTimelineLibrary($this->root);
 });
@@ -296,7 +296,7 @@ it('does not make directional edge PNGs dependencies of terminal cue bindings', 
   unlink($this->root . '/Graphics/edge.png');
   $catalog = FieldPresentationCatalog::load($this->root, EffectPresentation::TERMINAL);
   expect($catalog->cues['bright-yellow']['effect'])->toBe('energy')
-    ->and($catalog->cues['bright-yellow']['edges']['west']['quarterTurns'])->toBe(2);
+    ->and($catalog->cues['bright-yellow']['pointer']['west']['quarterTurns'])->toBe(2);
   expect(fn() => FieldPresentationCatalog::load($this->root))->toThrow(RuntimeException::class);
 });
 
@@ -474,7 +474,7 @@ it('places straight and diagonal edge images in all eight directions', function 
 it('keeps waymark glyphs when an edge image is missing or its rotation is unsupported', function (bool $missing) {
   if ($missing) {
     file_put_contents($this->root . '/Data/Presentation/field.php', '<?php return ' . var_export([
-      'cues' => ['bright-yellow' => ['effect' => 'energy', 'edges' => []]],
+      'cues' => ['bright-yellow' => ['effect' => 'energy', 'pointer' => []]],
     ], true) . ';');
   }
   $manager = new FieldEffectManager($this->root);
