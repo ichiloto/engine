@@ -70,15 +70,15 @@ afterEach(function () {
   ScriptCommandRegistry::reset();
 });
 
-it('registers the Engine shop and inn for every project', function () {
+it('registers the Engine shop, inn and income commands for every project', function () {
   $catalog = ScriptCommandCatalog::createEngineCatalog();
 
-  expect($catalog->types)->toBe(['shop', 'inn'])
+  expect($catalog->types)->toBe(['shop', 'inn', 'payday', 'collect_income', 'adjust_income'])
     ->and($catalog->findDefinition('shop')?->handlerClass)->toBe(ShopCommand::class)
     ->and($catalog->findDefinition('inn')?->handlerClass)->toBe(InnCommand::class)
     ->and($catalog->createHandler('shop'))->toBeInstanceOf(ShopCommand::class)
     ->and($catalog->findDefinition('transfer'))->toBeNull()
-    ->and(ScriptCommandRegistry::getCatalog()->types)->toBe(['shop', 'inn']);
+    ->and(ScriptCommandRegistry::getCatalog()->types)->toBe(['shop', 'inn', 'payday', 'collect_income', 'adjust_income']);
   $catalog->assertHandlersLoadable();
 });
 
@@ -172,7 +172,7 @@ it('adds project commands after the Engine commands with their declared fields',
   $catalog = ScriptCommandCatalog::fromDeclarations([makeCarriageDeclaration()], 'test project');
   $definition = $catalog->findDefinition('hire_carriage');
 
-  expect($catalog->types)->toBe(['shop', 'inn', 'hire_carriage'])
+  expect($catalog->types)->toBe(['shop', 'inn', 'payday', 'collect_income', 'adjust_income', 'hire_carriage'])
     ->and($definition?->label)->toBe('Hire Carriage')
     ->and($definition?->description)->toBe('Takes the party along a road for a fare.')
     ->and(array_map(static fn($field): string => $field->key, $definition->fields))
@@ -258,7 +258,7 @@ it('refuses malformed project declarations with their place', function (mixed $d
 it('keeps the Engine commands when a project declares none', function () {
   ScriptCommandRegistry::configureFromProject(makeScriptCommandProject(null));
 
-  expect(ScriptCommandRegistry::getCatalog()->types)->toBe(['shop', 'inn']);
+  expect(ScriptCommandRegistry::getCatalog()->types)->toBe(['shop', 'inn', 'payday', 'collect_income', 'adjust_income']);
 });
 
 it('loads the project declaration file and forgets a prior project', function () {
