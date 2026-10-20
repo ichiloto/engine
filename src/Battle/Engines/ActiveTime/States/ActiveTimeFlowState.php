@@ -54,6 +54,7 @@ class ActiveTimeFlowState extends PlayerActionState
     }
 
     $context->ui->refresh();
+    $context->runTurnStartEvents();
   }
 
   /**

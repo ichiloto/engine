@@ -82,7 +82,7 @@ class Turn
   {
     if ($this->endStateEvents !== null) { return $this->endStateEvents; }
     $this->endStateEvents = [];
-    if (!$this->battler->isKnockedOut && method_exists($this->battler, 'tickStates')) {
+    if ($this->battler->isFighting && method_exists($this->battler, 'tickStates')) {
       $this->endStateEvents = $this->battler->tickStates();
     }
     $this->complete();

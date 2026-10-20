@@ -27,4 +27,6 @@ enum ScriptCommandReference: string
   case STAGE_TIMELINE = 'stage_timeline';
   /** An income schedule declared in the project's income data. */
   case INCOME_SCHEDULE = 'income_schedule';
+  /** A member of the troop whose battle event runs, by its index in the troop's enemies. */
+  case TROOP_MEMBER = 'troop_member';
 }

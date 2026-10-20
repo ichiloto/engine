@@ -43,7 +43,9 @@ final class TerminalBattlePresentation
       $defeat = $playback?->getEnemyDefeatTreatment($battler, $reducedMotion);
       if ($battler->isKnockedOut && !($defeat['visible'] ?? false)) { continue; }
       $position = $this->effects->getTroopPresentedPosition($battler, $playback, $reducedMotion);
-      array_push($draws, ...self::getSpriteDraws(EnemyDefeatStyle::applyTerminalTreatment($battler->image, $defeat), $this->origin->x + $position->x,
+      $sprite = $battler->hasConceded ? EnemyDefeatStyle::applyTerminalConcession($battler->image)
+        : EnemyDefeatStyle::applyTerminalTreatment($battler->image, $defeat);
+      array_push($draws, ...self::getSpriteDraws($sprite, $this->origin->x + $position->x,
         $this->origin->y + $position->y, $this->effects->getTroopAvailableWidth($position)));
     }
     $composed = $playback === null ? ['draws' => [], 'flashes' => []] : $this->effects->compose($playback,

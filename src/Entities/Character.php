@@ -90,6 +90,16 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
     }
   }
 
+  /** @inheritDoc */
+  public bool $isFighting {
+    get => ! $this->isKnockedOut;
+  }
+
+  /** @inheritDoc Party members have no authored knockout floor. */
+  public int $knockoutFloor {
+    get => 0;
+  }
+
   /**
    * @var bool Whether the character is conscious. This is when the character's HP is greater than 0.
    */

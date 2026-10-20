@@ -385,6 +385,19 @@ authored map stays authoritative, so the art conforms to the map's entrances
 and never the reverse (see Doorways and entrances below). Omission declares
 no door.
 
+Optional `attachments` name features of the artwork where visuals attach,
+such as an aerial a signal pulses on: a list of 1..16 entries with a stable
+lowercase `id`, the terminal `cell` that shows the feature, as x/y relative
+to a placement's anchor, and its `point` on the artwork, normalized x/y in
+0..1 of the drawn image like the pivot. A staged visual placed on one
+(`at` with `attachment`, see Cinematics) shows on the cell in the terminal
+and is centred on the point of the object's current art in the graphical
+field. Replacing or re-cropping the art means updating the point once in the
+resource; every visual on the feature follows, and no event or cinematic
+holds a cell or pixel for it. While the object draws no art, the cell
+presents the visual in the graphical field too. Effects on map ground stay
+cell-anchored.
+
 ```php
 // Data/Presentation/field.php (asset-root-relative)
 return ['resources' => [
@@ -396,6 +409,8 @@ return ['resources' => [
     'occupancyStamp' => [['x' => 0, 'y' => 0,
       'type' => \Ichiloto\Engine\Events\Enumerations\CollisionType::SOLID]],
     'doorway' => [['x' => 0, 'y' => 0, 'entrance' => 'front']],
+    'attachments' => [['id' => 'chimney', 'cell' => ['x' => 1, 'y' => -2],
+      'point' => ['x' => 0.8, 'y' => 0.1]]],
   ],
 ]];
 

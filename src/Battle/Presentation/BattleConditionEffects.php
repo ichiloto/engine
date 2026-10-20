@@ -66,7 +66,7 @@ final class BattleConditionEffects
     if (!is_finite($seconds) || $seconds < 0) { throw new InvalidArgumentException('Condition time must be finite and non-negative.'); }
     $entries = $this->slots->assign($battler, BattlerConditions::getEntries($battler),
       static fn(array $entry): int => TerminalText::displayWidth($entry['glyph']) + 1);
-    return $battler->isKnockedOut || $entries === [] ? null : new BattlerConditionEffect($battler, $entries, $this, $seconds, $useBindings);
+    return !$battler->isFighting || $entries === [] ? null : new BattlerConditionEffect($battler, $entries, $this, $seconds, $useBindings);
   }
 
   public function getTimeline(string $key, bool $terminal): ?CompiledEffectTimeline

@@ -200,7 +200,8 @@ class BattleSimulator
       );
 
       foreach ($order as $battler) {
-        if ($battler->stats->currentHp <= 0) {
+        // Only a battler still in the fight acts: not knocked out, conceded or held at its floor.
+        if ($this->living([$battler]) === []) {
           continue;
         }
 
@@ -250,7 +251,7 @@ class BattleSimulator
         }
 
         // State duration and damage belong to the battler's completed turn.
-        if ($battler->stats->currentHp > 0 && method_exists($battler, 'tickStates')) {
+        if ($battler->isFighting && method_exists($battler, 'tickStates')) {
           $before = $battler->stats->currentHp;
           $battler->tickStates();
           if (($loss = $before - $battler->stats->currentHp) > 0) {
@@ -324,7 +325,10 @@ class BattleSimulator
   {
     return array_values(array_filter(
       $battlers,
-      static fn(CharacterInterface $battler): bool => $battler->stats->currentHp > 0
+      // The simulator runs no battle events. A knockout floor exists so an event can end the
+      // fight, so a battler held at its floor has finished its part, as it would in play.
+      static fn(CharacterInterface $battler): bool => $battler->isFighting
+        && ($battler->knockoutFloor === 0 || $battler->stats->currentHp > $battler->knockoutFloor)
     ));
   }
 

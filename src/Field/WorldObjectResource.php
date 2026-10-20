@@ -22,6 +22,9 @@ use InvalidArgumentException;
  * opening, or in front of a door painted on a solid face. It is a fact about
  * the art, which conforms to the map: validation requires every placement's
  * doorway to meet an entrance exactly as declared ({@see \Ichiloto\Engine\Field\Validation\MapDoorwayRule}).
+ *
+ * Attachments name features of the artwork where visuals attach, such as an
+ * aerial; a visual staged on one follows the current art ({@see WorldObjectAttachment}).
  */
 final readonly class WorldObjectResource
 {
@@ -37,6 +40,8 @@ final readonly class WorldObjectResource
         public ?WorldSignStyle $sign = null,
         /** @var list<array{x: int, y: int, entrance: DoorwayEntrance}> Relative cells of the painted doors. */
         public array $doorway = [],
+        /** @var list<WorldObjectAttachment> */
+        public array $attachments = [],
     ) {}
 
     public static function assertId(mixed $id): void
@@ -49,14 +54,14 @@ final readonly class WorldObjectResource
     public static function fromArray(string $id, mixed $data): self
     {
         self::assertId($id);
-        if (!is_array($data) || array_diff(array_keys($data), ['name', 'pivot', 'sprites2d', 'occupancyStamp', 'sign', 'doorway']) !== []
+        if (!is_array($data) || array_diff(array_keys($data), ['name', 'pivot', 'sprites2d', 'occupancyStamp', 'sign', 'doorway', 'attachments']) !== []
             || !is_string($data['name'] ?? null) || trim($data['name']) === ''
             || str_contains($data['name'], "\0") || preg_match('//u', $data['name']) !== 1
             || !is_array($data['pivot'] ?? null)
             || (array_key_exists('sprites2d', $data) === array_key_exists('sign', $data))
             || (array_key_exists('sprites2d', $data) && !is_array($data['sprites2d']))
             || (array_key_exists('sign', $data) && !is_array($data['sign']))) {
-            throw new InvalidArgumentException("World object resource '{$id}' requires name, pivot and exactly one sprites2d or sign presentation, with optional occupancyStamp and doorway.");
+            throw new InvalidArgumentException("World object resource '{$id}' requires name, pivot and exactly one sprites2d or sign presentation, with optional occupancyStamp, doorway and attachments.");
         }
         $stamp = array_key_exists('occupancyStamp', $data) ? $data['occupancyStamp'] : [];
         if (!is_array($stamp) || !array_is_list($stamp) || count($stamp) > WorldObjectDefinition::MAX_CELLS) {
@@ -88,7 +93,13 @@ final readonly class WorldObjectResource
         }
         return new self($id, $data['name'], PresentationSpritePivot::fromArray($data['pivot']),
             array_key_exists('sprites2d', $data) ? FieldSpriteRole::readDefinition($sprites) : null, $cells,
-            array_key_exists('sign', $data) ? WorldSignStyle::fromArray($data['sign']) : null, $doorway);
+            array_key_exists('sign', $data) ? WorldSignStyle::fromArray($data['sign']) : null, $doorway,
+            array_key_exists('attachments', $data) ? WorldObjectAttachment::readList($id, $data['attachments']) : []);
+    }
+
+    public function findAttachment(string $id): ?WorldObjectAttachment
+    {
+        return array_find($this->attachments, static fn(WorldObjectAttachment $attachment): bool => $attachment->id === $id);
     }
 
     /** @return list<array{x: int, y: int, entrance: DoorwayEntrance}> */

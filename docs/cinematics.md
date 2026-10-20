@@ -357,10 +357,25 @@ offset. Independent staged actors use the same `at`/`offset` shape:
 `at` supports `player`, `npc`, `world_object`, `staged_actor`, `party_actor` and
 `marker` through `CinematicSubjectResolver`. Named subjects require their stable
 ID; the player and current leading party actor need no ID. The reference contains
-only `kind` and optional `id`. Offset axes are signed integer cells within
+only `kind`, optional `id` and, for a staged visual, optional `attachment`. Offset axes are signed integer cells within
 -16384..16384; omitted axes are zero. An explicit null or empty offset is invalid.
 Do not also declare independent x/y coordinates. Real-subject bound visuals
 still inherit their real transform and cannot declare `at` or an offset.
+
+An independent staged visual may sit on a feature of a world object's art
+instead: `at` adds `attachment`, the id of an attachment the object's
+resource declares (see Graphical Field). The terminal shows the visual on
+the attachment's cell; graphical art is centred on the attachment's point of
+the object's current artwork, so replaced art carries it along. It takes no
+offset and cannot move. A replacement staged without a new place keeps its
+attachment. Only staged visuals accept an attachment; route waypoints refuse
+one.
+
+```php
+['type' => 'stage_actor', 'id' => 'relay-pulse', 'sprite' => '*',
+ 'at' => ['kind' => 'world_object', 'id' => 'relay', 'attachment' => 'aerial'],
+ 'sprites2d' => ['asset' => 'Graphics/Effects/Pulse.png', 'layer' => 150]],
+```
 
 `CinematicRelativePosition` is the shared runtime/authoring boundary. It resolves
 the subject when staging begins or each route leg begins, reading its current

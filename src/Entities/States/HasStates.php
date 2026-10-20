@@ -210,8 +210,16 @@ trait HasStates
       $hpDelta = 0;
 
       if ($instance->state->tickFormula !== null && ! $this->isKnockedOut) {
+        $before = $this->stats->currentHp;
         $hpDelta = $this->evaluateTickFormula($instance->state);
-        $this->stats->currentHp = max(0, $this->stats->currentHp + $hpDelta);
+        $floor = min($before, max(0, $this->knockoutFloor));
+
+        // An authored knockout floor holds damaging ticks above it, like any other battle damage.
+        if ($floor > 0 && $before + $hpDelta < $floor) {
+          $hpDelta = $floor - $before;
+        }
+
+        $this->stats->currentHp = max(0, $before + $hpDelta);
       }
 
       $events[] = [

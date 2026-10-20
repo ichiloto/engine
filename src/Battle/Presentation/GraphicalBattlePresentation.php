@@ -38,12 +38,14 @@ final class GraphicalBattlePresentation
   private array $compositionDiagnostics = [];
   private readonly BattleConditionEffects $conditionEffects;
   private readonly BattleHeadAttachmentLayout $headAttachments;
+  private readonly EnemyDefeatStyle $defeatStyle;
 
   private function __construct(public readonly BattleArenaDefinition $arena, public readonly BattleCanvasLayout $layout,
     private readonly BattleConfig $battle,
     private readonly string $assetRoot, private readonly ?BattleScale $scale)
   {
     $this->headAttachments = new BattleHeadAttachmentLayout();
+    $this->defeatStyle = EnemyDefeatStyle::createFromConfig();
     $this->conditionEffects = BattleConditionEffects::createFromConfig(
       new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($assetRoot));
   }
@@ -228,6 +230,7 @@ final class GraphicalBattlePresentation
       $role = $playback?->getPoseRole($battler) ?? BattlePoseRole::getRestingRole($battler);
       $pose = $includeOptionalArtwork ? $participant['poses']?->getPose($role) : null;
       $usesKnockoutPose = false;
+      $usesConcedePose = false;
       if ($includeOptionalArtwork && $pose === null && $role !== BattlePoseRole::IDLE) {
         $diagnostic = $identity . ':' . $role->value . ':unregistered';
         if (!isset($this->poseDiagnostics[$diagnostic])) {
@@ -252,6 +255,7 @@ final class GraphicalBattlePresentation
           $bounds = $posedBounds;
           $participant['available'] = true;
           $usesKnockoutPose = $candidateRole === BattlePoseRole::KNOCKOUT->value;
+          $usesConcedePose = $candidateRole === BattlePoseRole::CONCEDE->value;
           break;
         } catch (\InvalidArgumentException|RuntimeException $error) {
           $diagnostic = $identity . ':' . $candidateRole . ':' . $pose->asset;
@@ -280,7 +284,12 @@ final class GraphicalBattlePresentation
       $conditionBattlers[$identity] = $battler;
       if ($participant['available']) {
         $images[] = $combatantImages[$identity] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
-          $image->sourceRect, $defeat['opacity'] ?? ($participant['party'] && $battler->isKnockedOut && !$usesKnockoutPose ? 0.4 : 1));
+          $image->sourceRect, $defeat['opacity'] ?? match (true) {
+            $participant['party'] && $battler->isKnockedOut && !$usesKnockoutPose => 0.4,
+            // Without a concede pose, the enemy's current artwork is held, subdued.
+            !$participant['party'] && ($battler->hasConceded ?? false) && !$usesConcedePose => $this->defeatStyle->concededOpacity,
+            default => 1,
+          });
         if (($defeat['pulse'] ?? false) && $compositing && $includeOptionalArtwork) {
           try {
             $composites[] = \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageTint::compose(

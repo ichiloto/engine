@@ -175,7 +175,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
     foreach ($this->getBattleParticipants($context) as $battler) {
       $id = spl_object_id($battler);
 
-      if ($battler->isKnockedOut) {
+      if (! $battler->isFighting) {
         $this->gaugeValues[$id] = 0.0;
         $this->removeReadyBattler($battler);
         continue;
@@ -211,7 +211,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
   {
     $this->readyBattlers = array_values(array_filter(
       $this->readyBattlers,
-      fn(CharacterInterface $battler): bool => ! $battler->isKnockedOut
+      fn(CharacterInterface $battler): bool => $battler->isFighting
         && ($this->gaugeValues[spl_object_id($battler)] ?? 0.0) >= self::READY_GAUGE,
     ));
 
@@ -363,7 +363,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
       $id = spl_object_id($battler);
       $this->initiativeSeeds[$id] = $this->randomFloat(0.0, 1.0);
 
-      if ($battler->isKnockedOut) {
+      if (! $battler->isFighting) {
         $this->gaugeValues[$id] = 0.0;
         continue;
       }

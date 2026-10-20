@@ -126,5 +126,38 @@ final class EngineScriptCommands
         ['key' => 'amount', 'label' => 'Amount', 'kind' => 'integer', 'required' => true],
       ],
     ],
+    [
+      'type' => 'end_battle',
+      'class' => EndBattleCommand::class,
+      'label' => 'End Battle',
+      'description' => 'Ends the battle once this page finishes. Victory counts every enemy still fighting as defeated and awards the ordinary victory rewards.',
+      'scopes' => ['battle'],
+      'fields' => [
+        [
+          'key' => 'outcome',
+          'label' => 'Outcome',
+          'kind' => 'option',
+          'options' => ['victory', 'escape', 'defeat'],
+          'required' => true,
+          'description' => "Defeat follows the battle's defeat policy: game over unless the script that started it continues.",
+        ],
+      ],
+    ],
+    [
+      'type' => 'concede',
+      'class' => ConcedeCommand::class,
+      'label' => 'Enemy Concedes',
+      'description' => 'The enemy stops fighting and counts as defeated for victory and rewards. It stays on screen in its conceding pose instead of fading out like a knockout.',
+      'scopes' => ['battle'],
+      'fields' => [
+        [
+          'key' => 'enemy',
+          'label' => 'Enemy',
+          'kind' => 'reference',
+          'reference' => 'troop_member',
+          'required' => true,
+        ],
+      ],
+    ],
   ];
 }

@@ -5,19 +5,20 @@ namespace Ichiloto\Engine\Events\Interpreter;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
-use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Modal\SelectModal;
 use Ichiloto\Engine\UI\Modal\TextBoxModal;
 
 /**
- * Drives the existing terminal modals one game-loop tick at a time.
+ * Drives the existing terminal modals one game-loop tick at a time, over the
+ * field or a battle. Graphical renderers compose the same modals over the
+ * host scene's canvas.
  */
 final class ModalEventPresentation implements EventDialoguePresentationInterface
 {
   protected ?ModalInterface $modal = null;
 
-  public function __construct(protected GameScene $gameScene)
+  public function __construct(protected EventPresentationHostInterface $host)
   {
   }
 
@@ -30,7 +31,7 @@ final class ModalEventPresentation implements EventDialoguePresentationInterface
   {
     $this->reset();
     $this->modal = new TextBoxModal(
-      $this->gameScene->getGame(),
+      $this->host->getGame(),
       $text,
       $speaker,
       charactersPerSecond: dialogue_speed(),
@@ -49,7 +50,7 @@ final class ModalEventPresentation implements EventDialoguePresentationInterface
       intval((get_screen_height() - $height) / 2),
     );
     $this->modal = new SelectModal(
-      $this->gameScene->getGame(),
+      $this->host->getGame(),
       $prompt,
       $options,
       $title,
@@ -93,7 +94,7 @@ final class ModalEventPresentation implements EventDialoguePresentationInterface
     $this->modal = null;
 
     if ($hadModal) {
-      $this->gameScene->restoreFieldAfterOverlay();
+      $this->host->restoreAfterEventOverlay();
     }
   }
 }
