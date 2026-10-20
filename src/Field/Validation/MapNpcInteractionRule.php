@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field\Validation;
 
-use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Events\Triggers\CinematicEventTrigger;
 use Ichiloto\Engine\Events\Triggers\DialogueEventTrigger;
 use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
@@ -17,8 +16,9 @@ use InvalidArgumentException;
  * What talking to an NPC does belongs to the NPC.
  *
  * `npc.page`: each NPC's pages read as {@see NpcPages} reads them; a page
- * staging other speakers keeps them beside the NPC whenever the page can
- * run ({@see MapEventSpeakerRule}); and no page is hidden behind an earlier
+ * staging other speakers needs them on the map and present whenever the page
+ * can run ({@see MapEventSpeakerRule}: the scene happens beside the NPC the
+ * player talks to, so their distance is the author's staging); and no page is hidden behind an earlier
  * reusable page that runs whenever it could, since talking runs the first
  * available page. The shadow check compares authored conditions only, so it
  * reports what it can prove and stays silent otherwise.
@@ -27,7 +27,9 @@ use InvalidArgumentException;
  * script, Cinematic or lines an NPC delivers (it names NPC speakers), sits on
  * a cell apart from the NPC, so talking to the NPC itself says something
  * else. It belongs on the delivering NPC's pages, with its cue. Scenes that
- * start on arrival are not conversations. Shop and inn events stay with the
+ * start on arrival are not conversations. An event bound to a world object
+ * is that object's interaction (a terminal, a reception counter); its
+ * speakers answer for it. Shop and inn events stay with the
  * counter or fixture they are authored on; a page offers either service
  * through the `shop` and `inn` script commands when the NPC should own it.
  */
@@ -73,12 +75,11 @@ final class MapNpcInteractionRule
                     "NPC '{$placement->name}' has a top-level script, so its dialogue never runs.",
                     cells: [[$placement->x, $placement->y]], path: $path, hint: 'Author the script and the dialogue as pages.');
             }
-            $standing = MapEventSpeakerRule::findStandingCells($placement);
             foreach ($pages->pages as $page) {
                 $label = sprintf("%s's page %d", $placement->name, $page->index + 1);
-                if ($page->speakers !== [] && $standing !== null) {
+                if ($page->speakers !== []) {
                     $issues = [...$issues, ...MapEventSpeakerRule::inspectSpeakers($mapId, $placements,
-                        array_values(array_diff($page->speakers, [$placement->id])), CellArea::fromCells($standing),
+                        array_values(array_diff($page->speakers, [$placement->id])), null,
                         [...$placement->conditions, ...$page->conditions], $label, null, [...$path, $page->index, 'speakers'],
                         'the page', $placement->name)];
                 }
@@ -110,6 +111,7 @@ final class MapNpcInteractionRule
                 continue;
             }
             if (strtolower(trim(strval($event['data']['mode'] ?? ''))) === ScriptEventTrigger::MODE_AUTO) { continue; }
+            if (($event['subject']['kind'] ?? null) === 'world_object') { continue; }
             try {
                 $speakers = array_values(array_filter(MapEventSpeakerRule::readSpeakers($event), static fn(string $id): bool => isset($names[$id])));
             } catch (InvalidArgumentException) {

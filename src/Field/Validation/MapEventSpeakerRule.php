@@ -94,8 +94,11 @@ final class MapEventSpeakerRule
     }
 
     /**
-     * Checks that each speaker stands beside an area whenever the scene there
-     * can run: the event's cells, or the NPC whose page stages the scene.
+     * Checks that each speaker is an NPC on the map, present whenever the
+     * scene can run and, given an area (an event's cells), standing beside it.
+     * Without an area only presence is checked: an NPC page's scene happens
+     * beside the NPC the player talks to, so its other speakers need only be
+     * there.
      *
      * @param array<string, list<NpcPlacement>> $placements {@see self::readPlacements()}
      * @param list<string> $speakers
@@ -103,14 +106,14 @@ final class MapEventSpeakerRule
      * @param list<int|string> $path
      * @return list<MapValidationIssue>
      */
-    public static function inspectSpeakers(string $mapId, array $placements, array $speakers, CellArea $area, array $conditions,
+    public static function inspectSpeakers(string $mapId, array $placements, array $speakers, ?CellArea $area, array $conditions,
         string $label, ?string $marker, array $path, string $scene = 'the event', string $place = "the event's area"): array
     {
         $issues = [];
         foreach ($speakers as $id) {
             if (!isset($placements[$id])) {
                 $issues[] = new MapValidationIssue($mapId, self::RULE, "{$label} names speaker '{$id}', who is not an NPC on {$mapId}.",
-                    $marker, $area->cells, $path, 'Choose a speaker from the NPCs on this map, or remove it.');
+                    $marker, $area?->cells ?? [], $path, 'Choose a speaker from the NPCs on this map, or remove it.');
                 continue;
             }
             $present = array_values(array_filter($placements[$id],
@@ -118,9 +121,10 @@ final class MapEventSpeakerRule
             if ($present === []) {
                 $issues[] = new MapValidationIssue($mapId, self::RULE,
                     "{$label} names speaker '{$id}', who is never present while {$scene} can run.",
-                    $marker, $area->cells, $path, "Give the speaker a page shown in that phase, beside {$place}.");
+                    $marker, $area?->cells ?? [], $path, "Give the speaker a page shown in that phase, beside {$place}.");
                 continue;
             }
+            if ($area === null) { continue; }
             foreach ($present as $page) {
                 $standing = self::getStandingCells($page);
                 $away = $standing === null ? [[$page->x, $page->y]] : array_values(array_filter($standing,

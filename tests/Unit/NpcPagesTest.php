@@ -89,7 +89,7 @@ it('reads a reusable NPC page that transfers as a route used by talking to the N
     ->and($routes[0]->conditions)->toBe([['type' => 'event', 'name' => 'here'], ['type' => 'event', 'name' => 'briefed']]);
 });
 
-it('flags a player-started event an NPC delivers from a separate cell, not arrivals, shops or unvoiced events', function () {
+it('flags a player-started event an NPC delivers from a separate cell, not arrivals, shops, objects or unvoiced events', function () {
   $event = static fn(string $marker, string $class, array $data, ?array $speakers): array => array_filter([
     'marker' => $marker, 'class' => $class, 'data' => $data, 'area' => ['cells' => [[4, 3]]], 'speakers' => $speakers,
   ], static fn($value): bool => $value !== null);
@@ -98,6 +98,8 @@ it('flags a player-started event an NPC delivers from a separate cell, not arriv
     $event('A', ScriptEventTrigger::class, ['mode' => 'auto', 'scriptId' => 'arrival'], ['mentor']),
     $event('S', ShopEventTrigger::class, [], ['mentor']),
     $event('N', ScriptEventTrigger::class, ['mode' => 'action', 'scriptId' => 'notice'], null),
+    [...$event('T', ScriptEventTrigger::class, ['mode' => 'action', 'scriptId' => 'terminal'], ['mentor']),
+      'subject' => ['kind' => 'world_object', 'id' => 'terminal-1']],
   ]);
 
   expect($issues)->toHaveCount(1)
@@ -105,23 +107,24 @@ it('flags a player-started event an NPC delivers from a separate cell, not arriv
     ->and($issues[0]->message)->toContain("Mentor's to deliver")->and($issues[0]->hint)->toContain("Mentor's pages");
 });
 
-it('flags a page that an earlier reusable page always pre-empts, and a staged speaker away from the NPC', function () {
+it('flags a page an earlier reusable page always pre-empts, and a staged speaker never there while it runs', function () {
   $npc = makeStoryNpc(['dialogue' => [
     ['conditions' => [['type' => 'event', 'name' => 'arrived']], 'lines' => [['name' => 'Mentor', 'text' => 'See the desk.']]],
     ['id' => 'briefing', 'conditions' => [['type' => 'event', 'name' => 'arrived'], ['type' => 'event', 'name' => 'gone', 'negate' => true]],
       'scriptId' => 'briefing', 'reusable' => false, 'speakers' => ['aide'], 'cue' => ['symbol' => '!', 'color' => 'bright-yellow']],
     ['lines' => [['name' => 'Mentor', 'text' => 'Hello.']]],
   ]]);
-  $aide = ['id' => 'aide', 'name' => 'Aide', 'x' => 9, 'y' => 9, 'dialogue' => [['name' => 'Aide', 'text' => 'Hm.']]];
+  // Across the room is fine: the scene happens beside the mentor. Gone whenever the briefing can run is not.
+  $aide = ['id' => 'aide', 'name' => 'Aide', 'x' => 9, 'y' => 9, 'conditions' => [['type' => 'event', 'name' => 'gone']],
+    'dialogue' => [['name' => 'Aide', 'text' => 'Hm.']]];
   $issues = MapNpcInteractionRule::inspectPages('room', ['npcs' => [$npc, $aide]]);
   $rules = array_map(static fn($issue): string => $issue->rule . ': ' . $issue->message, $issues);
 
   expect($rules)->toHaveCount(2)
-    ->and($rules[0])->toContain('event.speaker')->toContain("Mentor's page 2")->toContain('Aide')
+    ->and($rules[0])->toContain('event.speaker')->toContain("Mentor's page 2")->toContain("'aide', who is never present")
     ->and($rules[1])->toContain('npc.page')->toContain("Mentor's page 2 never runs: page 1")->toContain('scene and cue');
 
-  $aide['x'] = 5;
-  $aide['y'] = 5;
+  unset($aide['conditions']);
   $npc['dialogue'] = array_reverse($npc['dialogue']);
   $npc['dialogue'] = [$npc['dialogue'][1], $npc['dialogue'][2], $npc['dialogue'][0]];
   expect(MapNpcInteractionRule::inspectPages('room', ['npcs' => [$npc, $aide]]))->toBe([]);

@@ -178,7 +178,9 @@ A scene the player starts by action and an NPC delivers belongs to that NPC.
 `validateEvents`) reports a script, Cinematic or dialogue event in `action`
 mode that names NPC speakers: the player would have to find its cell, while
 talking to the NPC says something else. Move it onto the first speaker's
-pages. Scenes that start on arrival (`auto`) are not conversations. Shop and
+pages. Scenes that start on arrival (`auto`) are not conversations, and an
+event bound to a world object is that object's interaction (a terminal, a
+reception counter), which its speakers answer for. Shop and
 inn events stay with the counter or fixture they are authored on; a page
 offers either service with the `shop` and `inn` script commands when the
 NPC should own it.
