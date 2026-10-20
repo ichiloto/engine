@@ -63,7 +63,8 @@ are read at payment time, so a promotion raises the next payment.
   time (the wall clock shown in menus and save slots) is unchanged and separate.
   A game-defined scene, such as a minigame excursion, counts once it implements
   `PlayActivitySourceInterface`.
-- **`steps`** counts every step the player completes on a field map.
+- **`steps`** counts every step the player walks on a field map under their own
+  control. Scripted movement (move routes, cinematics) is not counted.
 - **`battles`** counts battles the party wins. Escapes and defeats do not count.
 - **`event`** counts nothing. Pay arrives only through `payday`, so a game with
   its own calendar, day and night cycle or story beats decides when.
