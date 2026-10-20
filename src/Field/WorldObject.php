@@ -70,6 +70,27 @@ final class WorldObject implements GraphicalSpriteProviderInterface
     public function getGraphicalSpriteWorldPosition(): Vector2 { return $this->position; }
     public function getGraphicalSpriteMotion(): ?PresentationSpriteMotion { return null; }
 
+    /**
+     * Where an attachment lies on the art drawn now, in field pixels from the
+     * map origin: the drawn image's pivot sits at the anchor cell's ground
+     * point, so the attachment is its point's distance from the pivot away.
+     * Null while no art is drawn; the terminal cell then presents it.
+     *
+     * @return array{x: float, y: float}|null
+     */
+    public function locateAttachment(WorldObjectAttachment $attachment): ?array
+    {
+        $frame = $this->getGraphicalSpriteDefinition();
+        $canvas = $frame === null ? $this->getPresentationWorldCanvas() : null;
+        if ($frame === null && $canvas === null) { return null; }
+        $width = $frame?->width ?? $canvas->canvas->width;
+        $height = $frame?->height ?? $canvas->canvas->height;
+        $pivot = $frame === null ? $canvas->pivot : $frame->pivot;
+        return ['x' => ($this->definition->x + .5) * FieldViewport::TILE_SIZE + ($attachment->pointX - ($pivot?->x ?? .5)) * $width,
+            'y' => ($this->definition->y + 1) * FieldViewport::TILE_SIZE - ($frame?->lift ?? 0)
+                + ($attachment->pointY - ($pivot?->y ?? 1.0)) * $height];
+    }
+
     public function getTerminalSymbol(): ?string
     {
         return $this->getTerminalCells()[$this->definition->y][$this->definition->x] ?? null;

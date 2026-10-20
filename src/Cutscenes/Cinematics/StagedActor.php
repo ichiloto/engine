@@ -67,6 +67,8 @@ final class StagedActor implements GraphicalSpriteProviderInterface
     /** @var CinematicSubjectLease[] */
     public readonly array $suppressedSubjects = [],
     ?string $assetRoot = null,
+    /** Holds the visual on a feature of a world object's art; its position is the attachment's terminal cell. */
+    public readonly ?CinematicAttachment $attachment = null,
   )
   {
     $this->localFacing = $facing;
@@ -110,6 +112,9 @@ final class StagedActor implements GraphicalSpriteProviderInterface
   public function move(Vector2 $direction, ?float $stepSeconds = null): void
   {
     $this->assertIndependentMotion();
+    if ($this->attachment !== null) {
+      throw new \RuntimeException('An attached staged visual stays on its attachment; stage it elsewhere to move it.');
+    }
     $this->setFacing($direction);
     $origin = clone $this->position;
     $this->position->x += $direction->x;
@@ -137,12 +142,15 @@ final class StagedActor implements GraphicalSpriteProviderInterface
   public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
   {
     if (!$this->isVisible) { return null; }
-    return $this->getFrameDefinition();
+    $frame = $this->getFrameDefinition();
+    return $frame === null ? null : ($this->attachment?->place($frame)['image'] ?? $frame);
   }
 
   public function getGraphicalSpriteWorldPosition(): Vector2
   {
-    return clone $this->position;
+    $frame = $this->attachment !== null && $this->isVisible ? $this->getFrameDefinition() : null;
+    $placement = $frame === null ? null : $this->attachment->place($frame);
+    return $placement['position'] ?? clone $this->position;
   }
 
   public function getGraphicalSpriteMotion(): ?PresentationSpriteMotion
