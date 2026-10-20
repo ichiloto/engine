@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Core\CellArea;
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Field\InteractionReach;
@@ -73,6 +74,25 @@ it('validates reachable approaches to solid object events with their allowed hea
   expect($report->isReachable(1, 0))->toBeFalse()
     ->and($report->problems === [])->toBe($reachable);
 })->with(['all approaches' => [[], true], 'from below' => [['North'], true], 'from above' => [['South'], false]]);
+
+it('reaches a faced object whose own walkable cell is the only approach', function () {
+  // The object sits at the end of a one-cell-wide dead end: no adjacent cell faces it, but it can be stood on.
+  $event = new ReachabilityEvent(CellArea::fromCells([[1, 0]]), ChestEventTrigger::class, 'C',
+    EventEngagement::FACING, [MovementHeading::SOUTH]);
+  $report = new MapReachability('walkable-object', reachabilityGrid(['#.#', '#.#']), [$event])
+    ->analyze([new ReachabilityEntrance(1, 1, 'door')]);
+  expect($event->getStandingArea()->containsCell(1, 0))->toBeTrue()
+    ->and($report->problems)->toBe([]);
+});
+
+it('treats the walkable cells of a faced transfer as an exit', function () {
+  $transfer = new ReachabilityEvent(CellArea::fromCells([[1, 1]]), TransferPlayerTrigger::class, 'T', EventEngagement::FACING);
+  $chest = new ReachabilityEvent(CellArea::fromCells([[1, 2]]), ChestEventTrigger::class, 'C');
+  // The only way to the chest passes over the transfer's walkable cell, which leaves the map first.
+  $report = new MapReachability('walkable-transfer', reachabilityGrid(['#.#', '#.#', '#.#']), [$transfer, $chest])
+    ->analyze([new ReachabilityEntrance(1, 0, 'door')]);
+  expect($report->problems)->not->toBe([]);
+});
 
 it('rejects distant or enclosed object events despite nearby floor or area gaps', function () {
   $event = new ReachabilityEvent(CellArea::fromCells([[1, 0], [3, 0]]), ChestEventTrigger::class,

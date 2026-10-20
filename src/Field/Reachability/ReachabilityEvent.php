@@ -60,7 +60,8 @@ final class ReachabilityEvent
   public function getStandingArea(): CellArea
   {
     if ($this->engagement === EventEngagement::INSIDE) { return $this->area; }
-    $cells = [];
+    // A walkable object cell is a standing cell too; a solid one is never reached.
+    $cells = $this->area->cells;
     foreach ($this->area->cells as [$x, $y]) {
       foreach ($this->facing ?: [MovementHeading::NORTH, MovementHeading::EAST, MovementHeading::SOUTH, MovementHeading::WEST] as $heading) {
         $direction = $heading->getDirection();

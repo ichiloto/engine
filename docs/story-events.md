@@ -101,9 +101,14 @@ no class-specific facing field or presentation-driven collision is needed.
 ### Events on objects
 
 Set root-level `'engagement' => 'facing'` to place the event marker on the object
-itself. The player engages it from outside the event area, facing an immediately
-adjacent marker cell. Solid object cells work: interaction does not require
-walking onto them. Exact marker cells define reach, including disconnected or
+itself. The player engages it facing an immediately adjacent marker cell, or
+standing on one of its cells. Collision alone decides whether a cell can be
+stood on: a solid object answers only from beside it, while an object lying on
+walkable ground (a lamp on the floor, tracks in the dirt) also answers while the
+player stands on it, whichever way the player faces. Solid object cells work:
+interaction does not require walking onto them. A faced transfer or other entry
+effect on a walkable cell happens on stepping onto that cell, as with `inside`;
+map reachability treats such a transfer's cells as an exit. Exact marker cells define reach, including disconnected or
 multi-cell objects; gaps, diagonals and cells farther away are excluded. Object
 reach stops at the faced cell and does not extend across NPC talk counters.
 

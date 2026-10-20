@@ -211,11 +211,31 @@ it('reaches only the immediate faced object cell in every cardinal direction', f
   $object = new Vector2(2 + $direction->x, 2 + $direction->y);
   $event = new FacingProbeTrigger(new Rect($object->x, $object->y, 1, 1), engagement: EventEngagement::FACING);
   expect($event->canEngage(new Vector2(2, 2), $heading))->toBeTrue()
-    ->and($event->canEngage($object, $heading))->toBeFalse()
     ->and($event->canEngage(new Vector2(2 - $direction->x, 2 - $direction->y), $heading))->toBeFalse()
     ->and($event->canEngage(new Vector2(2 + $direction->y, 2 + $direction->x), $heading))->toBeFalse()
     ->and($event->canEngage(new Vector2(2, 2), MovementHeading::NONE))->toBeFalse();
 })->with([MovementHeading::NORTH, MovementHeading::EAST, MovementHeading::SOUTH, MovementHeading::WEST]);
+
+it('answers while the player stands on a walkable object cell, facing any allowed heading', function () {
+  $event = new FacingProbeTrigger(new Rect(2, 1, 2, 1), engagement: EventEngagement::FACING);
+  foreach ([MovementHeading::NORTH, MovementHeading::EAST, MovementHeading::SOUTH, MovementHeading::WEST] as $heading) {
+    expect($event->canEngage(new Vector2(2, 1), $heading))->toBeTrue()
+      ->and($event->canEngage(new Vector2(3, 1), $heading))->toBeTrue();
+  }
+  $restricted = EventTriggerFactory::create(['class' => FacingProbeTrigger::class,
+    'area' => ['cells' => [[2, 1]]], 'data' => [], 'engagement' => 'facing', 'facing' => ['North']]);
+  expect($restricted->canEngage(new Vector2(2, 1), MovementHeading::NORTH))->toBeTrue()
+    ->and($restricted->canEngage(new Vector2(2, 1), MovementHeading::SOUTH))->toBeFalse();
+
+  $this->player->addTrigger($event);
+  $this->player->setFacingSprite(['South'], engageEvents: false);
+  $this->player->dispatchMovement(new Vector2(2, 2), new Vector2(2, 1));
+  expect($event->calls)->toBe(['enter'])->and($this->player->availableAction)->not->toBeNull();
+  $this->player->face(Vector2::left(), $this->scene->camera);
+  $this->player->dispatchMovement(new Vector2(2, 1), new Vector2(3, 1));
+  $this->player->dispatchMovement(new Vector2(3, 1), new Vector2(3, 0));
+  expect($event->calls)->toBe(['enter', 'stay', 'exit'])->and($this->player->availableAction)->toBeNull();
+});
 
 it('uses exact object cells and combines reach with optional headings and world conditions', function () {
   $event = EventTriggerFactory::create(['class' => FacingProbeTrigger::class,
