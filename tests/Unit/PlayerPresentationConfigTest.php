@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
@@ -224,12 +225,12 @@ it('animates only successful player steps and rests on blocked movement or facin
   $map->method('canMoveTo')->willReturnOnConsecutiveCalls(true, false);
   $map->method('scrollMap')->willReturn(false);
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
-  expect($player->tryMove(Vector2::right(), $this->camera))->toBeTrue();
+  expect($player->tryMove(Vector2::right(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue();
   $player->advanceGraphicalAnimation(0.08);
   $walking = $player->getGraphicalSpriteDefinition();
   expect($walking->asset)->toBe($this->sheet)->and($walking->sourceRect->toArray())->toBe(getPlayerSheetFrame('east', 2))
     ->and($player->position->x)->toBe(8.0)->and($player->sprite)->toBe(['>']);
-  expect($player->tryMove(Vector2::up(), $this->camera))->toBeFalse();
+  expect($player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeFalse();
   $player->advanceGraphicalAnimation(0.08);
   $idle = $player->getGraphicalSpriteDefinition();
   expect($idle->sourceRect->toArray())->toBe(getPlayerSheetFrame('north'))
@@ -321,7 +322,7 @@ it('composes real field Player movement facing masking and duplicate detection i
     ->and(Console::charAt(7, 4))->toBe('v');
   $frames = RetainedFrameState::replay($transport->sent);
   expect(mb_substr(RetainedFrameState::getTextRows($frames[0], 20, 10)[4], 7, 1))->toBe('.');
-  expect($player->tryMove(Vector2::up(), $this->camera))->toBeFalse();
+  expect($player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeFalse();
   $this->runtime->present($this->scene);
   $frames = RetainedFrameState::replay($transport->sent);
   $south = $frames[0]['sprites'][0];

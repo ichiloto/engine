@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Core\GameState;
@@ -295,7 +296,7 @@ class EventTestPlayer extends Player
     $this->eventManager = EventManager::getInstance(new EventTestGame());
   }
 
-  public function tryMove(Vector2 $direction, Camera $camera): bool
+  public function tryMove(Vector2 $direction, Camera $camera, StepOrigin $stepOrigin): bool
   {
     $scene = $this->scene ?? null;
     $destinationX = intval($this->position->x + $direction->x);
@@ -314,7 +315,7 @@ class EventTestPlayer extends Player
 
   public function tryFieldMove(Vector2 $direction, Camera $camera): bool
   {
-    return parent::tryMove($direction, $camera);
+    return parent::tryMove($direction, $camera, StepOrigin::PLAYER_INPUT);
   }
 
   public function face(Vector2 $direction, Camera $camera): void

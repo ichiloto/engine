@@ -130,8 +130,8 @@ final class ProjectReachability
     // Every arrival, with what the player must reach for it to happen: null
     // for one that can happen anywhere (the start, common events, cinematics).
     $arrivals = [];
-    $addArrival = static function (string $from, string $to, int $x, int $y, string $source, ?Closure $requires)
-      use (&$arrivals, &$problems, $maps): void {
+    $addArrival = static function (string $from, string $to, int $x, int $y, string $source, ?Closure $requires,
+      array $conditions = []) use (&$arrivals, &$problems, $maps): void {
       if (! isset($maps[$to])) {
         $problems[] = new ReachabilityProblem($from, ReachabilityProblemKind::UNKNOWN_DESTINATION,
           sprintf('%s sends the player to map "%s", which the project does not have or cannot read.', $source, $to));
@@ -140,7 +140,7 @@ final class ProjectReachability
       }
 
       $arrivals[] = ['from' => $requires === null ? null : $from, 'to' => $to,
-        'entrance' => new ReachabilityEntrance($x, $y, $source), 'requires' => $requires];
+        'entrance' => new ReachabilityEntrance($x, $y, $source, $conditions), 'requires' => $requires];
     };
     $standingIn = static fn(Rect|CellArea $area): Closure => static fn(MapReachabilityReport $report): bool => $report->isAnyReachable($area);
     $besideNpc = static fn(NpcPlacement $npc): Closure => static fn(MapReachabilityReport $report): bool =>
@@ -154,10 +154,10 @@ final class ProjectReachability
 
         if ($event instanceof TransferPlayerTrigger) {
           $addArrival($mapId, $event->destinationMap, intval($event->spawnPoint->x), intval($event->spawnPoint->y),
-            "transfer {$marker} on {$mapId}", $standingIn($standingArea));
+            "transfer {$marker} on {$mapId}", $standingIn($standingArea), $event->conditions);
         } elseif ($event instanceof SleepEventTrigger) {
           $addArrival($mapId, $mapId, intval($event->spawnPoint->x), intval($event->spawnPoint->y),
-            "sleep event {$marker} on {$mapId}", $standingIn($standingArea));
+            "sleep event {$marker} on {$mapId}", $standingIn($standingArea), $event->conditions);
         }
       }
 
@@ -174,7 +174,7 @@ final class ProjectReachability
 
         foreach ($npc === null ? [] : self::findScriptedArrivals($entry, $mapId) as $arrival) {
           $addArrival($mapId, $arrival['map'], $arrival['x'], $arrival['y'],
-            "a scripted {$arrival['kind']} by NPC {$npc->name} on {$mapId}", $besideNpc($npc));
+            "a scripted {$arrival['kind']} by NPC {$npc->name} on {$mapId}", $besideNpc($npc), $npc->conditions);
         }
       }
 
@@ -183,7 +183,8 @@ final class ProjectReachability
 
         foreach (self::findScriptedArrivals($definition['data'] ?? [], $mapId) as $arrival) {
           $addArrival($mapId, $arrival['map'], $arrival['x'], $arrival['y'],
-            sprintf('a scripted %s in event %s on %s', $arrival['kind'], $event->marker ?? '?', $mapId), $standingIn($event->getStandingArea()));
+            sprintf('a scripted %s in event %s on %s', $arrival['kind'], $event->marker ?? '?', $mapId), $standingIn($event->getStandingArea()),
+            $event->conditions);
         }
       }
 
@@ -238,7 +239,9 @@ final class ProjectReachability
     } while ($changed);
 
     foreach ($maps as $mapId => $map) {
-      $reports[$mapId] ??= $map['map']->analyze([]);
+      $reports[$mapId] = isset($reports[$mapId])
+        ? $reports[$mapId]->withProblems($map['map']->findDetouredApproaches($entrances[$mapId]))
+        : $map['map']->analyze([]);
     }
 
     ksort($reports);

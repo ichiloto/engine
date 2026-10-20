@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Field\Reachability;
 
 use Ichiloto\Engine\Core\CellArea;
+use Ichiloto\Engine\Core\WorldConditionExclusion;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\Enumerations\EventEngagement;
 use Ichiloto\Engine\Field\InteractionReach;
@@ -34,6 +35,12 @@ use Ichiloto\Engine\Field\NpcPlacement;
 final readonly class MapReachability
 {
   /**
+   * Steps a player may walk on from first reaching an interaction's subject
+   * to where it answers before the approach counts as walking round it.
+   */
+  public const int APPROACH_DETOUR_TOLERANCE = 1;
+
+  /**
    * @param int[][] $collisions The map's collision grid, CollisionType values.
    * @param ReachabilityEvent[] $events The map's events, with resolved areas.
    * @param MapTrigger[] $edgeTriggers The map's edge triggers.
@@ -57,25 +64,9 @@ final readonly class MapReachability
    */
   public function analyze(array $entrances): MapReachabilityReport
   {
-    $blocked = [];
-
-    foreach ($this->npcs as $npc) {
-      if (! $npc->wanders && ! $npc->isConditional) {
-        $blocked[self::key($npc->x, $npc->y)] = true;
-      }
-    }
-
-    $exits = [];
-
-    foreach ($this->getExitAreas() as $area) {
-      foreach ($area->cells as [$x, $y]) {
-        $exits[self::key($x, $y)] = true;
-      }
-    }
-
+    $blocked = $this->getFixedNpcCells();
     $problems = [];
-    $reachable = [];
-    $queue = [];
+    $starts = [];
 
     if ($entrances === []) {
       $problems[] = new ReachabilityProblem($this->mapId, ReachabilityProblemKind::NO_ENTRANCE,
@@ -88,41 +79,16 @@ final readonly class MapReachability
           sprintf('The player arrives at (%d, %d) from %s, %s.', $entrance->x, $entrance->y, $entrance->source,
             $this->describeBlockedCell($entrance->x, $entrance->y, $blocked)),
           $entrance->x, $entrance->y);
-
-        // Movement checks only the destination, so a player placed on a
-        // blocked cell can still step off it; one outside the map cannot.
-        if (! isset($this->collisions[$entrance->y][$entrance->x])) {
-          continue;
-        }
       }
 
-      $key = self::key($entrance->x, $entrance->y);
-
-      if (! isset($reachable[$key])) {
-        $reachable[$key] = true;
-        $queue[] = [$entrance->x, $entrance->y];
+      // Movement checks only the destination, so a player placed on a
+      // blocked cell can still step off it; one outside the map cannot.
+      if (isset($this->collisions[$entrance->y][$entrance->x])) {
+        $starts[] = [$entrance->x, $entrance->y];
       }
     }
 
-    while ($queue !== []) {
-      [$x, $y] = array_shift($queue);
-
-      // Arriving on an exit is allowed; stepping onto one leaves the map.
-      if (isset($exits[self::key($x, $y)]) && ! $this->isEntranceCell($x, $y, $entrances)) {
-        continue;
-      }
-
-      foreach ([[0, -1], [1, 0], [0, 1], [-1, 0]] as [$dx, $dy]) {
-        $nx = $x + $dx;
-        $ny = $y + $dy;
-        $key = self::key($nx, $ny);
-
-        if (! isset($reachable[$key]) && $this->canStandOn($nx, $ny, $blocked)) {
-          $reachable[$key] = true;
-          $queue[] = [$nx, $ny];
-        }
-      }
-    }
+    $reachable = array_map(static fn(): bool => true, $this->measureWalks($starts, $blocked));
 
     if ($entrances !== []) {
       array_push($problems, ...$this->findUnreachableTargets($reachable));
@@ -139,14 +105,196 @@ final readonly class MapReachability
     return new MapReachabilityReport($this->mapId, $reachable, $problems, $spokenTo);
   }
 
+  /**
+   * Finds interactions the player meets from a side where they do not answer.
+   *
+   * From each arrival, the player walks the fewest steps to the event's
+   * subject: onto or beside its cells from any side, or to a cell where they
+   * can speak to one of its speakers. If the nearest cell where the event
+   * answers (its engagement and facing) is more than
+   * {@see self::APPROACH_DETOUR_TOLERANCE} steps further, the player has
+   * reached the subject behind or beside it and must walk round to use it.
+   * Arrivals whose conditions exclude the event's are skipped, and the
+   * speakers present while the event can run block their cells. One problem
+   * is reported per event, naming the arrival with the longest walk round.
+   *
+   * @param ReachabilityEntrance[] $entrances Where the player arrives.
+   * @return ReachabilityProblem[]
+   */
+  public function findDetouredApproaches(array $entrances): array
+  {
+    $problems = [];
+
+    foreach ($this->events as $event) {
+      if (! $event->isInteraction) {
+        continue;
+      }
+
+      $blocked = $this->getFixedNpcCells();
+      $speakers = [];
+      $contact = [];
+
+      foreach ($event->getContactArea()->cells as [$x, $y]) {
+        $contact[self::key($x, $y)] = null;
+      }
+
+      foreach ($this->npcs as $npc) {
+        if ($npc->id === null || $npc->wanders || ! in_array($npc->id, $event->speakers, true)
+          || WorldConditionExclusion::proveExclusive($event->conditions, $npc->conditions)) {
+          continue;
+        }
+
+        $blocked[self::key($npc->x, $npc->y)] = true;
+
+        foreach ($this->getTalkCells($npc) as [$x, $y]) {
+          if (! array_key_exists(self::key($x, $y), $contact)) {
+            $contact[self::key($x, $y)] = $npc->name;
+          }
+        }
+      }
+
+      $uses = array_map(static fn(array $cell): string => self::key(...$cell), $event->getStandingArea()->cells);
+      $worst = null;
+      $detoured = 0;
+
+      foreach ($entrances as $entrance) {
+        if (! isset($this->collisions[$entrance->y][$entrance->x])
+          || WorldConditionExclusion::proveExclusive($event->conditions, $entrance->conditions)) {
+          continue;
+        }
+
+        $steps = $this->measureWalks([[$entrance->x, $entrance->y]], $blocked);
+        $use = self::findNearest($uses, $steps);
+        $natural = self::findNearest(array_keys($contact), $steps);
+
+        if ($use === null || $natural === null || $steps[$use] - $steps[$natural] <= self::APPROACH_DETOUR_TOLERANCE) {
+          continue;
+        }
+
+        $detoured++;
+        $detour = $steps[$use] - $steps[$natural];
+
+        if ($worst === null || $detour > $worst['detour']) {
+          $worst = ['entrance' => $entrance, 'detour' => $detour, 'natural' => $natural, 'use' => $use];
+        }
+      }
+
+      if ($worst === null) {
+        continue;
+      }
+
+      $at = $event->area->firstCell;
+      [$naturalX, $naturalY] = array_map(intval(...), explode(',', $worst['natural']));
+      [$useX, $useY] = array_map(intval(...), explode(',', $worst['use']));
+      $speaker = $contact[$worst['natural']];
+      $problems[] = new ReachabilityProblem($this->mapId, ReachabilityProblemKind::DETOURED_APPROACH,
+        sprintf('Arriving from %s, the player first reaches event %s (%s) at (%d, %d) on (%d, %d)%s, where it does not answer, and walks %d more %s round to (%d, %d) to use it%s.',
+          $worst['entrance']->source, $event->marker ?? '?', basename(str_replace('\\', '/', $event->class)), $at->x, $at->y,
+          $naturalX, $naturalY, $speaker === null ? '' : ", beside its speaker {$speaker}",
+          $worst['detour'], $worst['detour'] === 1 ? 'step' : 'steps', $useX, $useY,
+          $detoured > 1 ? sprintf(' (%d arrivals meet it this way)', $detoured) : ''),
+        (int) $at->x, (int) $at->y);
+    }
+
+    return $problems;
+  }
+
+  /**
+   * Counts the fewest steps from the starting cells to every cell the player
+   * can walk to, under the field's movement rules.
+   *
+   * @param list<array{int, int}> $starts Cells on the map where the player arrives.
+   * @param array<string, true> $blocked Cells NPCs stand on.
+   * @return array<string, int> Steps keyed "x,y".
+   */
+  private function measureWalks(array $starts, array $blocked): array
+  {
+    $exits = [];
+
+    foreach ($this->getExitAreas() as $area) {
+      foreach ($area->cells as [$x, $y]) {
+        $exits[self::key($x, $y)] = true;
+      }
+    }
+
+    $steps = [];
+    $queue = [];
+    $arrivals = [];
+
+    foreach ($starts as [$x, $y]) {
+      $key = self::key($x, $y);
+      $arrivals[$key] = true;
+
+      if (! isset($steps[$key])) {
+        $steps[$key] = 0;
+        $queue[] = [$x, $y];
+      }
+    }
+
+    for ($index = 0; $index < count($queue); $index++) {
+      [$x, $y] = $queue[$index];
+
+      // Arriving on an exit is allowed; stepping onto one leaves the map.
+      if (isset($exits[self::key($x, $y)]) && ! isset($arrivals[self::key($x, $y)])) {
+        continue;
+      }
+
+      foreach ([[0, -1], [1, 0], [0, 1], [-1, 0]] as [$dx, $dy]) {
+        $nx = $x + $dx;
+        $ny = $y + $dy;
+        $key = self::key($nx, $ny);
+
+        if (! isset($steps[$key]) && $this->canStandOn($nx, $ny, $blocked)) {
+          $steps[$key] = $steps[self::key($x, $y)] + 1;
+          $queue[] = [$nx, $ny];
+        }
+      }
+    }
+
+    return $steps;
+  }
+
+  /**
+   * @param list<string> $cells Candidate cells keyed "x,y", in a stable order.
+   * @param array<string, int> $steps
+   * @return string|null The first of the cells the fewest steps away, or null when none is reached.
+   */
+  private static function findNearest(array $cells, array $steps): ?string
+  {
+    $nearest = null;
+
+    foreach ($cells as $cell) {
+      if (isset($steps[$cell]) && ($nearest === null || $steps[$cell] < $steps[$nearest])) {
+        $nearest = $cell;
+      }
+    }
+
+    return $nearest;
+  }
+
+  /** @return array<string, true> Cells fixed NPCs present in every story state stand on. */
+  private function getFixedNpcCells(): array
+  {
+    $blocked = [];
+
+    foreach ($this->npcs as $npc) {
+      if (! $npc->wanders && ! $npc->isConditional) {
+        $blocked[self::key($npc->x, $npc->y)] = true;
+      }
+    }
+
+    return $blocked;
+  }
+
   /** @return CellArea[] Areas that take the player off the map. */
   private function getExitAreas(): array
   {
     $areas = array_map(static fn(MapTrigger $trigger): CellArea => CellArea::fromRect($trigger->area), $this->edgeTriggers);
 
     foreach ($this->events as $event) {
-      // Facing an object is directional; its marker is not a compulsory step-through exit.
-      if ($event->isExit && $event->engagement === EventEngagement::INSIDE) {
+      // Standing on any walkable cell of an exit leaves the map, a faced object's included;
+      // a solid object cell is never reached, so including it changes nothing.
+      if ($event->isExit) {
         $areas[] = $event->area;
       }
     }
@@ -216,6 +364,12 @@ final readonly class MapReachability
    */
   private function isSpokenToFrom(NpcPlacement $npc, array $reachable): bool
   {
+    return array_any($this->getTalkCells($npc), static fn(array $cell): bool => isset($reachable[self::key(...$cell)]));
+  }
+
+  /** @return list<array{int, int}> Cells from which the player speaks to this NPC, beside it or across one counter cell. */
+  private function getTalkCells(NpcPlacement $npc): array
+  {
     $occupied = [];
 
     foreach ($this->npcs as $other) {
@@ -224,19 +378,19 @@ final readonly class MapReachability
 
     $isCounterAt = fn(int $x, int $y): bool => ($this->collisions[$y][$x] ?? null) === CollisionType::COUNTER->value;
     $hasNpcAt = static fn(int $x, int $y): bool => isset($occupied[self::key($x, $y)]);
+    $cells = [];
 
     foreach ([[0, -1], [1, 0], [0, 1], [-1, 0]] as [$dx, $dy]) {
       for ($distance = 1; $distance <= InteractionReach::MAX_COUNTER_CELLS + 1; $distance++) {
         $x = $npc->x + $dx * $distance;
         $y = $npc->y + $dy * $distance;
-        if (isset($reachable[self::key($x, $y)])
-          && InteractionReach::findTalkCell($x, $y, -$dx, -$dy, $isCounterAt, $hasNpcAt) === [$npc->x, $npc->y]) {
-          return true;
+        if (InteractionReach::findTalkCell($x, $y, -$dx, -$dy, $isCounterAt, $hasNpcAt) === [$npc->x, $npc->y]) {
+          $cells[] = [$x, $y];
         }
       }
     }
 
-    return false;
+    return $cells;
   }
 
   /** @param array<string, true> $blocked */
@@ -260,19 +414,6 @@ final readonly class MapReachability
       default => 'on a cell the player cannot stand on',
     };
   }
-
-  /** @param ReachabilityEntrance[] $entrances */
-  private function isEntranceCell(int $x, int $y, array $entrances): bool
-  {
-    foreach ($entrances as $entrance) {
-      if ($entrance->x === $x && $entrance->y === $y) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
 
   private static function key(int $x, int $y): string
   {

@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\IO\Console\Console;
@@ -104,6 +105,7 @@ class NpcManager
         assetRoot: $graphicalSprites === null ? null
           : ($this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets'),
         directionFix: ($entry['directionFix'] ?? false) === true,
+        facing: self::readFacing($entry),
       );
       if (isset($this->gameScene->gameState)) {
         $npc->bind($mapId, $this->gameScene->gameState, $this->gameScene->party);
@@ -112,6 +114,18 @@ class NpcManager
     }
 
     return $npcs;
+  }
+
+  /**
+   * Reads the heading an NPC entry stands with: `facing`, one of the cardinal
+   * names in any case. Absent or unknown reads as south, the field's default;
+   * the Editor reports an unknown value.
+   */
+  public static function readFacing(array $entry): MovementHeading
+  {
+    $facing = is_string($entry['facing'] ?? null) ? MovementHeading::tryFrom(ucfirst(strtolower(trim($entry['facing'])))) : null;
+
+    return $facing === null || $facing === MovementHeading::NONE ? MovementHeading::SOUTH : $facing;
   }
 
   /** @param Npc[] $npcs */

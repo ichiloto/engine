@@ -35,6 +35,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  *     'movement' => 'fixed',                     // or 'wander'
  *     'wanderArea' => ['x' => 20, 'y' => 4, 'width' => 6, 'height' => 3],
  *     'directionFix' => false,                   // true: no turn to the player while talking
+ *     'facing' => 'south',                       // heading it stands with: north, east, south (default) or west
  *     // Interaction pages: talking runs the first page whose conditions
  *     // hold (see NpcPages and NpcPage). Each page shows its lines, runs at
  *     // most one of script, scriptId or cinematicId, applies its sets and
@@ -112,6 +113,7 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
    * @param string|null $graphicalSpriteId Map-scoped presentation identity, independent of script/save identity.
    * @param string|null $assetRoot Project asset root for graphical preflight.
    * @param bool $directionFix True keeps the heading when the player talks to it (RPG Maker's Direction Fix).
+   * @param MovementHeading $facing The heading it stands with until something turns it.
    */
   public function __construct(
     protected(set) string $name,
@@ -128,10 +130,15 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
     ?string $graphicalSpriteId = null,
     ?string $assetRoot = null,
     protected(set) bool $directionFix = false,
+    MovementHeading $facing = MovementHeading::SOUTH,
   )
   {
     $this->pages ??= NpcPages::fromEntry([]);
     $this->id = $id !== null && trim($id) !== '' ? trim($id) : null;
+    // The authored sprite is the look for the default south heading; another heading uses its directional glyph.
+    if ($facing !== MovementHeading::SOUTH) {
+      $this->face($facing->getDirection());
+    }
     $this->graphicalSpriteId = $graphicalSpriteId ?? 'npc:object:' . spl_object_id($this);
     $this->walkAnimation = new CharacterWalkAnimation();
     $this->graphicalAssetGuard = $graphicalSprites === null ? null : new CharacterSheetAssetGuard(
