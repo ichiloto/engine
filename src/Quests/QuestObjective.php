@@ -23,6 +23,8 @@ class QuestObjective
    *   the reveal conditions hold.
    * @param array<int, array<string, mixed>> $revealConditions World conditions
    *   that reveal the more specific text.
+   * @param list<QuestWaymark> $waymarks Where the objective sends the player,
+   *   in authored order; each shows while its own conditions hold.
    */
   public function __construct(
     protected(set) QuestObjectiveType $type,
@@ -31,6 +33,7 @@ class QuestObjective
     protected(set) string $description = '',
     protected(set) string $revealedDescription = '',
     protected(set) array $revealConditions = [],
+    protected(set) array $waymarks = [],
   )
   {
     $this->quantity = max(1, $this->quantity);
@@ -41,6 +44,13 @@ class QuestObjective
 
     $this->revealedDescription = trim($this->revealedDescription);
     $this->revealConditions = array_values(array_filter($this->revealConditions, is_array(...)));
+
+    foreach ($this->waymarks as $waymark) {
+      if (! $waymark instanceof QuestWaymark) {
+        throw new InvalidArgumentException('Quest objective waymarks must be QuestWaymark values.');
+      }
+    }
+    $this->waymarks = array_values($this->waymarks);
   }
 
   /**
@@ -96,6 +106,12 @@ class QuestObjective
       throw new InvalidArgumentException('Quest objectives require a target.');
     }
 
+    $waymarks = $data['waymarks'] ?? [];
+
+    if (! is_array($waymarks) || ! array_is_list($waymarks)) {
+      throw new InvalidArgumentException('Quest objective waymarks must be a list.');
+    }
+
     return new self(
       $type,
       $target,
@@ -103,6 +119,7 @@ class QuestObjective
       strval($data['description'] ?? ''),
       strval($data['revealedDescription'] ?? ''),
       is_array($data['revealConditions'] ?? null) ? $data['revealConditions'] : [],
+      array_map(QuestWaymark::fromArray(...), $waymarks),
     );
   }
 }

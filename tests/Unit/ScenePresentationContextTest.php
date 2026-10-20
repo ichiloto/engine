@@ -279,25 +279,24 @@ it('refuses invalid presentation deltas before mutation and does not advance a s
     expect(($this->compose)())->not->toEqual($before);
 });
 
-it('keeps story edge cues screen-pinned and degrades missing turns and image support through existing field rules', function () {
-    $cue = new ScriptEventTrigger(new Rect(100, 7, 1, 1), ['mode' => 'action', 'reusable' => false],
-        mapId: 'synthetic', marker: 'E', cue: ['symbol' => '!', 'color' => 'bright-yellow', 'kind' => 'story']);
-    $this->scene->fieldEffects->installMap('synthetic', [], null, [$cue]);
+it('keeps waymark edges screen-pinned and degrades missing turns and image support to glyph waymarks', function () {
+    $waymark = new Ichiloto\Engine\Field\Waymarks\FieldWaymark('w', Ichiloto\Engine\Field\Waymarks\FieldWaymarkRole::TARGET,
+        new Ichiloto\Engine\Field\Waymarks\FieldWaymarkAnchor(new Vector2(100, 7)), 'Go');
+    $this->scene->fieldEffects->installMap('synthetic', [], null, []);
     $this->scene->setPresentationContext(($this->createContext)());
+    $this->scene->fieldEffects->showWaymarks([$waymark]);
     $frame = ($this->compose)();
     $edge = array_find($frame->sprites, static fn($sprite) => str_ends_with($sprite->id, ':edge'));
     expect($edge)->not->toBeNull()->and($edge->quarterTurns)->toBe(1)
         ->and($frame->viewport->spriteIds)->not->toContain($edge->id)
         ->and($edge->x)->toBeGreaterThanOrEqual(0)->and($edge->x)->toBeLessThan($this->grid->columns);
-    $this->capabilities = fn($feature) => $feature !== RendererSessionConfig::SPRITE_QUARTER_TURNS;
-    $this->scene->setPresentationContext(($this->createContext)());
-    $degraded = ($this->compose)();
-    expect(array_column($degraded->sprites, 'id'))->not->toContain($edge->id)
-        ->and($degraded->sprites)->toHaveCount(2);
-    $this->capabilities = fn($feature) => $feature !== RendererSessionConfig::SPRITE_SOURCE_RECT;
-    $this->scene->setPresentationContext(($this->createContext)());
-    expect(($this->compose)()->sprites)->toHaveCount(1)->and($this->scene->fieldEffects->canPresentCue($cue))->toBeFalse()
-        ->and($this->scene->fieldEffects->count)->toBe(1);
+    foreach ([RendererSessionConfig::SPRITE_QUARTER_TURNS, RendererSessionConfig::SPRITE_SOURCE_RECT] as $missing) {
+        $this->capabilities = fn($feature) => $feature !== $missing;
+        $this->scene->setPresentationContext(($this->createContext)());
+        $degraded = ($this->compose)();
+        expect(array_filter(array_column($degraded->sprites, 'id'), static fn(string $id) => str_contains($id, 'waymark')))->toBe([])
+            ->and($this->scene->fieldEffects->canPresentWaymarks())->toBeFalse();
+    }
 });
 
 it('keeps Terminal previews image-free and never conceals the original cover or dialogue layers', function () {

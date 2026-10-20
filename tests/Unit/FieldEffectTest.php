@@ -409,19 +409,57 @@ it('removes cue and action guidance while retaining ambient effects and unchange
     ->and($cue->shouldRenderCue())->toBeTrue()->and($cue->isComplete)->toBeFalse();
 })->with([false, true]);
 
-it('pins story edges but leaves route cues at their authored cell', function () {
+it('pins off-screen waymarks to the view edge and draws on-screen ones at their subject', function () {
+  $view = new FieldViewport(new RendererGridConfig(135, 36, 10, 20));
+  $manager = new FieldEffectManager($this->root);
+  $manager->setCapabilities(true, true);
+  $manager->installMap('map', null, null, []);
+  $far = new Ichiloto\Engine\Field\Waymarks\FieldWaymark('far', Ichiloto\Engine\Field\Waymarks\FieldWaymarkRole::TARGET,
+    new Ichiloto\Engine\Field\Waymarks\FieldWaymarkAnchor(new Vector2(100, 7)), 'Go');
+  $near = new Ichiloto\Engine\Field\Waymarks\FieldWaymark('near', Ichiloto\Engine\Field\Waymarks\FieldWaymarkRole::ROUTE,
+    new Ichiloto\Engine\Field\Waymarks\FieldWaymarkAnchor(new Vector2(3, 2)), 'Exit');
+  $manager->showWaymarks([$far, $near]);
+  $sprites = $manager->getSprites([], $view, ['x' => 0, 'y' => 0], false);
+  $edges = array_values(array_filter($sprites, static fn($sprite) => $sprite instanceof FieldEdgeSprite));
+
+  expect($manager->canPresentWaymarks())->toBeTrue()
+    ->and($edges)->toHaveCount(1)
+    ->and(array_filter($sprites, static fn($sprite) => !$sprite instanceof FieldEdgeSprite
+      && $sprite->getGraphicalSpriteWorldPosition()->x === 3.0))->toHaveCount(2);
+
+  $manager->showWaymarks([$near]);
+  expect(array_filter($manager->getSprites([], $view, ['x' => 0, 'y' => 0], false),
+    static fn($sprite) => $sprite instanceof FieldEdgeSprite))->toBe([]);
+  $manager->update(.2, false, [], showGuidance: false);
+  expect($manager->getSprites([], $view, ['x' => 0, 'y' => 0], false, showGuidance: false))->toBe([]);
+  $manager->showWaymarks([]);
+  expect($manager->count)->toBe(0);
+});
+
+it('leaves story cues at their authored cell; objective waymarks own the edge', function () {
   $view = new FieldViewport(new RendererGridConfig(135, 36, 10, 20));
   $manager = new FieldEffectManager($this->root);
   $manager->setCapabilities(true, true);
   $manager->installMap('map', null, null, [createFieldCue()]);
-  $edges = $manager->getSprites([], $view, ['x' => 0, 'y' => 0], false);
-  expect($edges)->toHaveCount(1)->and($edges[0])->toBeInstanceOf(FieldEdgeSprite::class);
-  $manager->installMap('map', null, null, [createFieldCue('route')]);
-  $routes = $manager->getSprites([], $view, ['x' => 0, 'y' => 0], false);
-  expect($routes)->toHaveCount(2)->and($routes[0])->not->toBeInstanceOf(FieldEdgeSprite::class)
-    ->and($routes[0]->getGraphicalSpriteWorldPosition()->x)->toBe(100.0);
-  $sprites = [new PresentationSprite('player', 'Graphics/edge.png', 2, 3, 48, 48), new PresentationSprite('edge', 'Graphics/edge.png', 100, 5, 48, 48)];
-  expect($view->createViewport([], $sprites, screenSpriteIds: ['edge'])->spriteIds)->toBe(['player']);
+  $sprites = $manager->getSprites([], $view, ['x' => 0, 'y' => 0], false);
+
+  expect($sprites)->toHaveCount(2)->and($sprites[0])->not->toBeInstanceOf(FieldEdgeSprite::class)
+    ->and($sprites[0]->getGraphicalSpriteWorldPosition()->x)->toBe(100.0);
+  $screen = [new PresentationSprite('player', 'Graphics/edge.png', 2, 3, 48, 48), new PresentationSprite('edge', 'Graphics/edge.png', 100, 5, 48, 48)];
+  expect($view->createViewport([], $screen, screenSpriteIds: ['edge'])->spriteIds)->toBe(['player']);
+});
+
+it('keeps an edge image off the player and inside the waymark inset', function () {
+  $view = new FieldViewport(new RendererGridConfig(135, 36, 10, 20));
+  $plain = FieldCueEdgePlacement::locate(new Vector2(100, 7), ['x' => 0, 'y' => 0], $view);
+  $inset = FieldCueEdgePlacement::locate(new Vector2(100, 7), ['x' => 0, 'y' => 0], $view, 2);
+  $tile = FieldViewport::TILE_SIZE * $view->zoom;
+  $playerColumn = ($plain['position']->x + 0.5) * 10 ;
+  $player = new Vector2(($view->columns - 1) / 2 + ($playerColumn - 1350 / 2) / $tile, 7);
+  $avoided = FieldCueEdgePlacement::locate(new Vector2(100, 7), ['x' => 0, 'y' => 0], $view, 0, $player);
+
+  expect($inset['position']->x)->toBeLessThan($plain['position']->x)
+    ->and($avoided['position'])->not->toEqual($plain['position']);
 });
 
 it('places straight and diagonal edge images in all eight directions', function (int $x, int $y, string $direction) {
@@ -433,7 +471,7 @@ it('places straight and diagonal edge images in all eight directions', function 
 })->with([[100, 7, 'east'], [100, 100, 'southeast'], [13, 100, 'south'], [-100, 100, 'southwest'],
   [-100, 7, 'west'], [-100, -100, 'northwest'], [13, -100, 'north'], [100, -100, 'northeast']]);
 
-it('retains cell cue artwork when an edge image is missing or its rotation is unsupported', function (bool $missing) {
+it('keeps waymark glyphs when an edge image is missing or its rotation is unsupported', function (bool $missing) {
   if ($missing) {
     file_put_contents($this->root . '/Data/Presentation/field.php', '<?php return ' . var_export([
       'cues' => ['bright-yellow' => ['effect' => 'energy', 'edges' => []]],
@@ -441,14 +479,12 @@ it('retains cell cue artwork when an edge image is missing or its rotation is un
   }
   $manager = new FieldEffectManager($this->root);
   $manager->setCapabilities(true, false);
-  $cue = createFieldCue('story', 0, 7);
-  $manager->installMap('map', [], null, [$cue]);
-  $view = new FieldViewport(new RendererGridConfig(135, 36, 10, 20));
-  $sprites = $manager->getSprites([], $view, ['x' => 100, 'y' => 0], false);
-  expect($manager->canPresentCue($cue))->toBeTrue()->and($sprites)->toHaveCount(2)
-    ->and($sprites[0])->not->toBeInstanceOf(FieldEdgeSprite::class)
-    ->and($sprites[0]->getGraphicalSpriteWorldPosition())->toEqual(new Vector2(0, 7))
-    ->and(file_get_contents($this->root . '/warning.log'))->toContain('cue art remains at its cell');
+  $manager->installMap('map', [], null, []);
+  $manager->showWaymarks([new Ichiloto\Engine\Field\Waymarks\FieldWaymark('w', Ichiloto\Engine\Field\Waymarks\FieldWaymarkRole::TARGET,
+    new Ichiloto\Engine\Field\Waymarks\FieldWaymarkAnchor(new Vector2(0, 7)), 'Go')]);
+
+  expect($manager->canPresentWaymarks())->toBeFalse()->and($manager->count)->toBe(0)
+    ->and(file_get_contents($this->root . '/warning.log'))->toContain('waymark glyphs remain');
 })->with([false, true]);
 
 it('keeps glyphs and static tiles usable when effect art or renderer capabilities are absent', function () {

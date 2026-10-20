@@ -22,6 +22,7 @@ final readonly class MenuPresentationCatalog
     'focus' => [220, 232, 240], 'disabled' => [126, 137, 147], 'edge' => [162, 172, 182],
     'background' => [13, 18, 24], 'panel' => [24, 31, 40],
     'increase' => [118, 213, 159], 'decrease' => [237, 142, 142],
+    'objective' => [240, 196, 64],
   ];
 
   public MenuRowSkin $rows;

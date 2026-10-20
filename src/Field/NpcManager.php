@@ -269,6 +269,14 @@ class NpcManager
     return null;
   }
 
+  /** Finds a stable-id NPC only while its conditions place it on the map. */
+  public function findPresentById(string $id): ?Npc
+  {
+    $npc = $this->findById($id);
+
+    return $npc !== null && $this->conditionsHold($npc->conditions) ? $npc : null;
+  }
+
   /**
    * Moves a stable-id NPC one cardinal tile using current passability.
    */
