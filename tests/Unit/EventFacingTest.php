@@ -44,6 +44,7 @@ class FacingAutomaticProbe extends FacingProbeTrigger implements AutomaticEventT
 {
   public bool $sessionIsActive = false;
   public function runsAutomatically(): bool { return true; }
+  public static function determineRunsAutomatically(array $data): bool { return true; }
 }
 
 class FacingProbePlayer extends Player

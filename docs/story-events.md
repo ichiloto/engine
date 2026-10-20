@@ -353,6 +353,13 @@ step, even one toward the player, or cinematic staging that was restored),
 when a cinematic still stages the NPC as the conversation ends, or when the
 NPC has left the current map.
 
+Set `'facing' => 'north'` (`north`, `east`, `south` or `west`, any case;
+default `south`) for the heading an NPC stands with when its map loads, such
+as a clerk facing the door a desk is approached from. The base `sprite` is the
+south look; another heading shows its directional glyph and sheet row. Talking
+turns it and turns it back to this heading like any other, and an unknown
+value reads as south (`NpcManager::readFacing()`).
+
 Set `'directionFix' => true` (RPG Maker's Direction Fix; a bool, default
 `false`) to keep an NPC's heading when it is talked to; it neither turns nor
 turns back. It governs the talk turn only: wander steps and `move_route` still

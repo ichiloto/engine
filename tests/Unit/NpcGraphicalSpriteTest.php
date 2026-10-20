@@ -1048,3 +1048,15 @@ it('shows the action prompt only for an NPC that has something to say', function
   $player->refreshTalkTarget();
   expect($player->canAct)->toBeFalse();
 });
+
+it('stands an NPC with its authored facing until something turns it', function (array $extra, MovementHeading $heading, string $sprite) {
+  $this->manager->configure([getNpcTestEntry([...$extra, 'conditions' => []])]);
+  $npc = $this->manager->findById('guide');
+
+  expect($npc->heading)->toBe($heading)->and($npc->sprite)->toBe($sprite);
+})->with([
+  'default' => [[], MovementHeading::SOUTH, 'G'],
+  'north' => [['facing' => 'north'], MovementHeading::NORTH, 'N'],
+  'west, any case' => [['facing' => ' West '], MovementHeading::WEST, 'W'],
+  'unknown reads as south' => [['facing' => 'up'], MovementHeading::SOUTH, 'G'],
+]);
