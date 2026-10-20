@@ -18,10 +18,9 @@ class BattleEventState extends BattleSceneState
   /** @inheritDoc */
   public function enter(): void
   {
-    // Page dialogue replaces command input; the battlefield and party status stay in view.
-    $this->ui->commandWindow->erase();
-    $this->ui->commandContextWindow->erase();
+    // Page dialogue takes the place of the command and party windows; the battlefield stays in view.
     $this->ui->fieldWindow->clearTargetIndicators();
+    $this->ui->hideControls();
   }
 
   /** @inheritDoc */
