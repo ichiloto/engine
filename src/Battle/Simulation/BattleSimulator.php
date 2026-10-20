@@ -249,7 +249,10 @@ class BattleSimulator
   {
     return array_values(array_filter(
       $battlers,
-      static fn(CharacterInterface $battler): bool => $battler->stats->currentHp > 0
+      // The simulator runs no battle events. A knockout floor exists so an event can end the
+      // fight, so a battler held at its floor has finished its part, as it would in play.
+      static fn(CharacterInterface $battler): bool => $battler->isFighting
+        && ($battler->knockoutFloor === 0 || $battler->stats->currentHp > $battler->knockoutFloor)
     ));
   }
 

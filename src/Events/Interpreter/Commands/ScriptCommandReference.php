@@ -25,4 +25,6 @@ enum ScriptCommandReference: string
   case ACTOR = 'actor';
   /** A standalone, cue-free stage timeline admitted by EffectTimelineLibrary::loadStage(). */
   case STAGE_TIMELINE = 'stage_timeline';
+  /** A member of the troop whose battle event runs, by its index in the troop's enemies. */
+  case TROOP_MEMBER = 'troop_member';
 }

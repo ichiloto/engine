@@ -288,8 +288,10 @@ class BattleFieldWindow extends Window implements \Ichiloto\Engine\Battle\Presen
   protected function renderTroopBattler(Enemy $battler): void
   {
     if ($this->battleScreen->usesGraphicalField()) { return; }
-    $spriteData = \Ichiloto\Engine\Battle\Presentation\EnemyDefeatStyle::applyTerminalTreatment($battler->image,
-      $this->commandPlayback?->getEnemyDefeatTreatment($battler, \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion()));
+    $spriteData = $battler->hasConceded
+      ? \Ichiloto\Engine\Battle\Presentation\EnemyDefeatStyle::applyTerminalConcession($battler->image)
+      : \Ichiloto\Engine\Battle\Presentation\EnemyDefeatStyle::applyTerminalTreatment($battler->image,
+        $this->commandPlayback?->getEnemyDefeatTreatment($battler, \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion()));
     $position = $this->getTroopPresentedPosition($battler);
     $x = $this->position->x + $position->x;
     $y = $this->position->y + $position->y;
@@ -561,7 +563,7 @@ class BattleFieldWindow extends Window implements \Ichiloto\Engine\Battle\Presen
     foreach ($this->queuedTroopTargets as $index => $count) {
       $battler = $troopMembers[$index] ?? null;
 
-      if (! $battler instanceof Enemy || $battler->isKnockedOut || $count < 1) {
+      if (! $battler instanceof Enemy || ! $battler->isFighting || $count < 1) {
         continue;
       }
 

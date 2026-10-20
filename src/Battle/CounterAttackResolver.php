@@ -80,7 +80,7 @@ final class CounterAttackResolver
 
   private function canRespond(CharacterInterface $actor, CharacterInterface $target, array $party, array $troop): bool
   {
-    return !$actor->isKnockedOut && !$target->isKnockedOut
+    return $actor->isFighting && $target->isFighting
       && $actor instanceof CounterAttackProvider && $actor->getActionBlockingState() === null
       && ((in_array($actor, $party, true) && in_array($target, $troop, true))
         || (in_array($actor, $troop, true) && in_array($target, $party, true)));

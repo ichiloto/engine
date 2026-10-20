@@ -52,17 +52,22 @@ class EventInterpreter
   public const array COMMAND_TYPES = CinematicCommandSchema::COMMAND_TYPES;
 
   protected ?EventExecutionSession $activeSession = null;
+  /** Where sessions run: the field scene unless another host is given. */
+  protected EventExecutionHostInterface $host;
   protected(set) ?EventExecutionSession $lastSession = null;
 
   /**
    * @param ScriptCommandCatalog|null $scriptCommands The registered commands; the project's when omitted.
+   * @param EventExecutionHostInterface|null $host Where sessions run; the field scene when omitted.
    */
   public function __construct(
     protected GameScene $gameScene,
     protected ?EventPresentationInterface $presentation = null,
     protected ?ScriptCommandCatalog $scriptCommands = null,
+    ?EventExecutionHostInterface $host = null,
   )
   {
+    $this->host = $host ?? $gameScene;
     $this->presentation ??= new ModalEventPresentation($gameScene);
   }
 
@@ -124,7 +129,7 @@ class EventInterpreter
       ? $this->gameScene->currentMapId
       : null;
     $this->activeSession = new EventExecutionSession($commands, $scriptId, $completionTarget, $origin);
-    $this->gameScene->onEventSessionStarted($this->activeSession);
+    $this->host->onEventSessionStarted($this->activeSession);
 
     return $this->activeSession;
   }
@@ -369,8 +374,14 @@ class EventInterpreter
     array $command,
   ): EventCommandResult
   {
-    $gameState = $this->gameScene->gameState;
+    $gameState = $this->host->getEventWorldState();
+    $party = $this->host->getEventParty();
     $type = strval($command['type'] ?? '');
+    $scope = $this->host->getEventScope();
+
+    if (in_array($type, self::COMMAND_TYPES, true) && ! $scope->allowsBuiltInCommand($type)) {
+      throw new RuntimeException(sprintf('"%s" cannot run in %s.', $type, $scope->getLabel()));
+    }
 
     switch ($type) {
       case 'text':
@@ -432,8 +443,8 @@ class EventInterpreter
         $itemStore = ConfigStore::get(ItemStore::class);
         $quantity = max(1, intval($command['quantity'] ?? 1));
 
-        if ($itemStore instanceof ItemStore && $this->gameScene->party) {
-          $this->gameScene->party->addItems(...$itemStore->instantiate(
+        if ($itemStore instanceof ItemStore && $party) {
+          $party->addItems(...$itemStore->instantiate(
             strval($command['item'] ?? ''),
             $quantity,
             'granting an item from a story event command',
@@ -442,11 +453,11 @@ class EventInterpreter
         return EventCommandResult::COMPLETED;
 
       case 'give_gold':
-        $this->gameScene->party?->credit(intval($command['amount'] ?? 0));
+        $party?->credit(intval($command['amount'] ?? 0));
         return EventCommandResult::COMPLETED;
 
       case 'recover_party':
-        foreach ($this->gameScene->party?->members->toArray() ?? [] as $member) {
+        foreach ($party?->members->toArray() ?? [] as $member) {
           $member->clearBattleStates();
           $member->recoverFromRest();
           $member->stats->currentAp = $member->stats->totalAp;
@@ -814,6 +825,11 @@ class EventInterpreter
     $catalog = $this->scriptCommands ?? ScriptCommandRegistry::getCatalog();
     $definition = $catalog->findDefinition($type)
       ?? throw new RuntimeException($this->unknownCommandDiagnostic($session, $lane, $type));
+    $scope = $this->host->getEventScope();
+
+    if (! $definition->runsIn($scope)) {
+      throw new RuntimeException(sprintf('"%s" cannot run in %s.', $type, $scope->getLabel()));
+    }
     $problems = $definition->findProblems($command);
 
     if ($problems !== []) {
@@ -821,7 +837,7 @@ class EventInterpreter
     }
 
     $outcome = $catalog->createHandler($type)->execute(
-      new ScriptCommandContext($this->gameScene, $session->scriptId, $session->origin),
+      new ScriptCommandContext($this->gameScene, $session->scriptId, $session->origin, $this->host->getBattleControl()),
       $command,
     );
 
@@ -1050,7 +1066,7 @@ class EventInterpreter
     $session->complete();
     $this->lastSession = $session;
     $this->activeSession = null;
-    $this->gameScene->onEventSessionFinished($session, true);
+    $this->host->onEventSessionFinished($session, true);
   }
 
   protected function fail(string $message, ?Throwable $throwable = null): void
@@ -1068,7 +1084,9 @@ class EventInterpreter
       'cancel operations' => fn() => $session->fail($message),
       'release lanes' => fn() => $session->cancelLanes(),
       'reset presentation' => fn() => $this->presentation->reset(),
-      'clear cinematic presentation' => fn() => $this->gameScene->cinematicPresentation?->clear(),
+      // A battle page must never clear the presentation of the field script suspended behind its battle.
+      'clear cinematic presentation' => fn() => $this->host->getEventScope() === EventExecutionScope::FIELD
+        ? $this->gameScene->cinematicPresentation?->clear() : null,
       'notify failure target' => fn() => $session->completionTarget?->onEventSessionFailed($this->gameScene, $session),
     ] as $step => $cleanup) {
       try {
@@ -1081,7 +1099,7 @@ class EventInterpreter
     $this->lastSession = $session;
     $this->activeSession = null;
     try {
-      $this->gameScene->onEventSessionFinished($session, false);
+      $this->host->onEventSessionFinished($session, false);
     } catch (Throwable $failure) {
       $diagnostics[] = sprintf('Event session %d failure cleanup (finish scene): %s', $session->id, $failure->getMessage());
     }
@@ -1107,8 +1125,8 @@ class EventInterpreter
   {
     return WorldConditionEvaluator::allHold(
       $conditions,
-      $this->gameScene->gameState,
-      $this->gameScene->party,
+      $this->host->getEventWorldState(),
+      $this->host->getEventParty(),
     );
   }
 

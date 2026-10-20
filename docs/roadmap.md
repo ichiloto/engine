@@ -50,7 +50,7 @@ fastest path to "full 2D JRPGs" is mostly *wiring what is already designed*.
 - CutsceneState, DialogueState, MapState, OverworldState (empty; never entered)
 - Status ailments, buffs/debuffs, elements, crits, accuracy/evasion rolls,
   Guard, Escape, multi-target resolution, enemy AI, random encounters,
-  boss mechanics, battle events
+  boss mechanics (battle events: shipped, see [battle-events.md](battle-events.md))
 - Switches/variables/quest state (read-side only; `recordStoryEvent` uncalled)
 - NPC actors, event conditions/pages, field cutscene scripting, skits
 - Class wiring (`classes.php` never loaded — every character is 'Hero'),

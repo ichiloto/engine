@@ -9,12 +9,20 @@ use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use InvalidArgumentException;
 
-/** Bounded, themeable treatment; no combat or audio state is stored here. */
+/**
+ * Bounded, themeable treatment; no combat or audio state is stored here.
+ * A conceded enemy is held at `concededOpacity` when its artwork has no
+ * concede pose, and drawn dim in the Terminal.
+ */
 final readonly class EnemyDefeatStyle
 {
   public function __construct(public int $pulses = 3, public float $pulseSeconds = .12,
-    public float $fadeSeconds = .25, public array $color = [255, 64, 64], public bool $audio = true)
+    public float $fadeSeconds = .25, public array $color = [255, 64, 64], public bool $audio = true,
+    public float $concededOpacity = .6)
   {
+    if (!is_finite($concededOpacity) || $concededOpacity < .2 || $concededOpacity > 1) {
+      throw new InvalidArgumentException('A conceded enemy opacity must be from .2 to 1.');
+    }
     if ($pulses < 1 || $pulses > 8 || !is_finite($pulseSeconds) || $pulseSeconds < .05 || $pulseSeconds > .5
       || !is_finite($fadeSeconds) || $fadeSeconds < .05 || $fadeSeconds > 2
       || !array_is_list($color) || count($color) !== 3 || array_any($color, static fn($v) => !is_int($v))) {
@@ -31,7 +39,7 @@ final readonly class EnemyDefeatStyle
 
   public static function createFromArray(array $data): self
   {
-    if (array_diff(array_keys($data), ['pulses', 'pulseSeconds', 'fadeSeconds', 'color', 'audio']) !== []) {
+    if (array_diff(array_keys($data), ['pulses', 'pulseSeconds', 'fadeSeconds', 'color', 'audio', 'concededOpacity']) !== []) {
       throw new InvalidArgumentException('Unknown enemy defeat setting.');
     }
     return new self(...$data);
@@ -50,6 +58,12 @@ final readonly class EnemyDefeatStyle
       'pulse' => !$reducedMotion && $elapsed >= 0 && $elapsed < $pulseEnd
         && fmod($elapsed, $this->pulseSeconds) < $this->pulseSeconds / 2,
       'color' => PresentationColor::rgb(...$this->color)];
+  }
+
+  /** Terminal has no poses or alpha: a conceded enemy stays on screen, steadily dim. */
+  public static function applyTerminalConcession(array $sprite): array
+  {
+    return array_map(static fn(string $line): string => "\033[2m" . TerminalText::stripAnsi($line) . Color::RESET->value, $sprite);
   }
 
   /** Terminal has no alpha; a steady dim phase precedes removal, never a KO label. */

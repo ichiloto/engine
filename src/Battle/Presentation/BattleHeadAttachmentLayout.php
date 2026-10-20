@@ -31,7 +31,7 @@ final class BattleHeadAttachmentLayout
         $result = $pending = $occupied = [];
         // Keep all existing badges first, so a newly applied condition never displaces another battler's badge.
         foreach ($battlers as $id => $battler) {
-            if ($battler->isKnockedOut || !isset($bounds[$id])) { continue; }
+            if (!$battler->isFighting || !isset($bounds[$id])) { continue; }
             $entries = $this->slots->assign($battler, BattlerConditions::getEntries($battler));
             $offsets = array_intersect_key($this->offsets[$battler] ?? [], array_column($entries, null, 'slot'));
             $body = $bounds[$id];

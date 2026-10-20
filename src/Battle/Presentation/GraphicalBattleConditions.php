@@ -50,7 +50,7 @@ final class GraphicalBattleConditions
       $layout->width, $layout->height, $style, $layout->skin?->targetCursor);
     $images = $text = $protected = [];
     foreach ($battlers as $identity => $battler) {
-      if ($battler->isKnockedOut || !isset($bounds[$identity])) { continue; }
+      if (!$battler->isFighting || !isset($bounds[$identity])) { continue; }
       $entries = $placements[$identity] ?? [];
       if ($entries === []) { continue; }
       $badgeFrames = $badgeMarkers = $badgeLabels = [];

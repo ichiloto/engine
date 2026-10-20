@@ -130,7 +130,7 @@ class ActionExecutionState extends TurnState
       return;
     }
 
-    if ($turn->battler->isKnockedOut) {
+    if (! $turn->battler->isFighting) {
       $context->advanceTurn();
       $this->transitionToResolutionIfNeeded($context);
       return;
@@ -237,7 +237,7 @@ class ActionExecutionState extends TurnState
   {
     $this->endingTurn = true;
     $battler = $turn->battler;
-    if (!method_exists($battler, 'tickStates') || $battler->states === [] || $battler->isKnockedOut) {
+    if (!method_exists($battler, 'tickStates') || $battler->states === [] || ! $battler->isFighting) {
       $turn->resolveEndStateTicks();
       $this->finishTurn($context);
       return;
@@ -270,6 +270,8 @@ class ActionExecutionState extends TurnState
     $this->endingTurn = false;
     $context->advanceTurn();
     $this->transitionToResolutionIfNeeded($context);
+    // The next state waits for the troop's due event pages; a conceding enemy leaves the fight before it updates.
+    $context->runTurnEndEvents();
   }
 
   /** @param array<int, array{state: object, hpDelta: int, expired: bool}> $events */

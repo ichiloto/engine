@@ -18,7 +18,7 @@ class AttackAction extends BattleAction
    */
   public function execute(Actor $actor, array $targets): void
   {
-    if ($actor->isKnockedOut) {
+    if (! $actor->isFighting) {
       return;
     }
 
@@ -27,7 +27,7 @@ class AttackAction extends BattleAction
     $targetResults = [];
 
     foreach ($targets as $target) {
-      if (! $target instanceof Actor || $target->isKnockedOut) {
+      if (! $target instanceof Actor || ! $target->isFighting) {
         continue;
       }
 

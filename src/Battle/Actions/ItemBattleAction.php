@@ -57,7 +57,7 @@ class ItemBattleAction extends BattleAction implements ExecutionEligibility
 
   public function getExecutionRefusal(Actor $actor): ?string
   {
-    if ($actor->isKnockedOut) {
+    if (! $actor->isFighting) {
       return sprintf('%s cannot act while knocked out.', $actor->name);
     }
     $quantity = $this->inventory?->getQuantityById($this->item->id) ?? $this->item->quantity;

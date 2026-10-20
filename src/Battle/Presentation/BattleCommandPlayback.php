@@ -104,7 +104,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   public function getPoseRole(CharacterInterface $battler): BattlePoseRole
   {
     $rest = BattlePoseRole::getRestingRole($battler);
-    if ($this->cancelled || $this->isCompleted || $rest === BattlePoseRole::KNOCKOUT) { return $rest; }
+    if ($this->cancelled || $this->isCompleted || $rest === BattlePoseRole::KNOCKOUT || $rest === BattlePoseRole::CONCEDE) { return $rest; }
     if (!in_array($this->phase, ['advance', 'return', 'finish'], true)) {
       return $this->reactions[spl_object_id($battler)] ?? ($battler === $this->actor ? $this->pose : $rest);
     }

@@ -2,13 +2,13 @@
 
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
+use Ichiloto\Engine\Battle\BattleConclusion;
 use Assegai\Collections\Stack;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Actions\GuardAction;
 use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
 use Ichiloto\Engine\Battle\Actions\PassAction;
 use Ichiloto\Engine\Battle\BattleAction;
-use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Battle\BattlerBattleView;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\BattleCommand;
@@ -406,13 +406,7 @@ class PlayerActionState extends TurnState
       $scene = $context->game->sceneManager->currentScene;
 
       if ($scene instanceof BattleScene) {
-        play_sound(SystemSound::ESCAPE);
-        $scene->result = new BattleResult('Escaped', [
-          'The party slipped away!',
-          'Press enter to continue.',
-        ]);
-        $scene->shouldLoadGameOver = false;
-        $scene->setState($scene->victoryState);
+        (new BattleConclusion($context->game, $context->party, $context->troop))->concludeEscape($scene);
       }
 
       return;

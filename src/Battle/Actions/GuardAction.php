@@ -22,7 +22,7 @@ class GuardAction extends BattleAction
    */
   public function execute(Actor $actor, array $targets): void
   {
-    if ($actor->isKnockedOut) {
+    if (! $actor->isFighting) {
       return;
     }
 

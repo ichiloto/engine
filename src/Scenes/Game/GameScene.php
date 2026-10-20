@@ -109,7 +109,7 @@ use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInter
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface
+class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface, \Ichiloto\Engine\Events\Interpreter\EventExecutionHostInterface, \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface
 {
     private ?FieldViewport $fieldViewport = null;
     private ?ScenePresentationContext $presentationContext = null;
@@ -1577,6 +1577,27 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->eventInterpreter?->failActiveSession($message);
     }
 
+    /** Field scripts own the map, the player and the camera. */
+    public function getEventScope(): \Ichiloto\Engine\Events\Interpreter\EventExecutionScope
+    {
+        return \Ichiloto\Engine\Events\Interpreter\EventExecutionScope::FIELD;
+    }
+
+    public function getEventWorldState(): GameState
+    {
+        return $this->gameState;
+    }
+
+    public function getEventParty(): ?Party
+    {
+        return $this->party;
+    }
+
+    public function getBattleControl(): ?\Ichiloto\Engine\Battle\Events\BattleEventControlInterface
+    {
+        return null;
+    }
+
     /**
      * Lifecycle hook called when a new session begins.
      */
@@ -1628,6 +1649,12 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             $this->hasDeferredAutoSave = false;
             $this->autoSave();
         }
+    }
+
+    /** Event dialogue closes over the field, so the field redraws. */
+    public function restoreAfterEventOverlay(): void
+    {
+        $this->restoreFieldAfterOverlay();
     }
 
     /**

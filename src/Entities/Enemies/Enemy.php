@@ -37,6 +37,62 @@ class Enemy implements CharacterInterface, CounterAttackProvider
   }
 
   /**
+   * Whether a battle event made this enemy concede. A conceded enemy counts
+   * as defeated for victory and rewards, but it is not knocked out: it stays
+   * on screen in its conceding presentation instead of fading away.
+   */
+  protected(set) bool $hasConceded = false;
+
+  /** @inheritDoc */
+  public bool $isFighting {
+    get => ! $this->isKnockedOut && ! $this->hasConceded;
+  }
+
+  /**
+   * The share of maximum HP, 0..99, that battle damage cannot take this
+   * enemy below. The troop authors it, so a battle event can end the fight
+   * before an ordinary knockout. 0 lets damage knock the enemy out.
+   */
+  protected(set) int $knockoutFloorPercent = 0;
+
+  /** @inheritDoc */
+  public int $knockoutFloor {
+    get => $this->knockoutFloorPercent === 0 || $this->hasConceded ? 0
+      : max(1, intdiv($this->stats->totalHp * $this->knockoutFloorPercent + 99, 100));
+  }
+
+  /**
+   * Sets the troop-authored knockout floor for this battle instance.
+   *
+   * @param int $percent The share of maximum HP, 0..99.
+   */
+  public function setKnockoutFloorPercent(int $percent): void
+  {
+    if ($percent < 0 || $percent > 99) {
+      throw new \InvalidArgumentException('An enemy knockout floor must be a share of maximum HP from 0 to 99.');
+    }
+
+    $this->knockoutFloorPercent = $percent;
+  }
+
+  /**
+   * Makes a fighting enemy concede: it stops acting and being targeted and
+   * counts as defeated, without the knockout treatment.
+   *
+   * @return bool True when the enemy conceded now; false when it was already out of the fight.
+   */
+  public function concede(): bool
+  {
+    if (! $this->isFighting) {
+      return false;
+    }
+
+    $this->hasConceded = true;
+
+    return true;
+  }
+
+  /**
    * @var ActionPattern[] The action patterns of the enemy.
    */
   protected(set) array $actionPatterns = [];
