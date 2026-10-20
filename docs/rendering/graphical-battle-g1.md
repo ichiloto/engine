@@ -853,10 +853,12 @@ bindings are reused; no new artwork or game-owned drawing is required.
 The old keyboard-specific instruction and hardcoded help labels are removed.
 Hints resolve the same semantic actions used by input and obey `showInputHints`.
 Terminal retains its windows and resolves its readable controls from that same
-hint snapshot. Contract text uses `TextViewport` for complete scrolling in both
-presentations, removing the old silent 23-line truncation. Navigation, eligibility,
-exclusive tenancy, assignment, release, modal feedback and save identity remain
-owned by the existing state and party services.
+hint snapshot. Info is a `MenuDetailSheet` (see below): the name and lore read as
+prose; Move (its name, then its description), Element, the authored attributes,
+Strong vs and Weak vs are label/value fields. It scrolls through `TextViewport`
+in both presentations, without the old silent 23-line truncation. Navigation,
+eligibility, exclusive tenancy, assignment, release, modal feedback and save
+identity remain owned by the existing state and party services.
 
 
 Andrew’s subsequent 2026-10-18 review removes the wielder list entirely, including
@@ -868,6 +870,32 @@ Character cycling, assignment and release rebuild the filtered projection.
 Future characters and roles remain in authored eligibility data without being
 shown in the list, contract or footer. Already open party-wide definitions keep
 their established view-only access. No gameplay rule or saved assignment changes.
+
+### Shared detail sheets
+
+Reading views that mix prose with labelled values use one Engine component,
+`MenuDetailSheet`, in every renderer: Summons Info, the quest journal, Records,
+and the Magic and Abilities Terminal detail panels. Owners supply sections of
+`MenuDetailEntry` prose or fields; owners never format labels, colons or padding.
+Fields in a section share one value column; long values wrap inside it, and a
+value column narrower than `MenuDetailSheet::MIN_VALUE_CELLS` stacks the label
+above its indented value.
+
+Canvas paints field labels and values in the theme `text` colour and closes each
+field with the approved data-record separator (`edge` colour, row-metric width
+and `recordSeparatorOpacity`), drawn inside the field's last line. Prose keeps
+its own colour role and has no separator, as the UI kit's row-separator rules
+require. Field labels carry no punctuation in Canvas.
+
+Terminal has no separators, so it names a field with the attached suffix
+`TerminalMenuRow::LABEL_SUFFIX` (`Label:` then the value column), the style of
+the Status screen. Single Terminal fields outside a sheet use
+`TerminalMenuRow::composeField()`. Selectable list rows, such as Config
+settings, stay label and value without a colon, matching Title Options.
+
+The sheet's source text anchors the owner's `TextViewport` reading position, so
+scrolling survives reflow between renderers. Labels for engine-named fields come
+from project vocabulary through `Vocabulary::getLabel()`.
 
 
 ### Brief action callouts

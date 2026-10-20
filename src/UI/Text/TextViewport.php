@@ -16,8 +16,14 @@ final class TextViewport
   /** Owners call this on entry/selection/content changes, never from a painter. */
   public function setText(string $text): void
   {
-    $text = str_replace(["\r\n", "\r", "\t"], ["\n", "\n", '    '], TerminalText::stripAnsi($text));
+    $text = self::normalize($text);
     if ($text !== $this->text) { $this->text = $text; $this->reset(); }
+  }
+
+  /** The source form every reading position is anchored in; structured documents build theirs with it. */
+  public static function normalize(string $text): string
+  {
+    return str_replace(["\r\n", "\r", "\t"], ["\n", "\n", '    '], TerminalText::stripAnsi($text));
   }
 
   public function reset(): void { $this->offset = 0; }
@@ -26,7 +32,7 @@ final class TextViewport
   public static function preview(string $text, int $columns): string
   {
     if ($columns < 4) { throw new InvalidArgumentException('A readable preview requires at least four cells.'); }
-    $text = str_replace(["\r\n", "\r", "\t"], ["\n", "\n", '    '], TerminalText::stripAnsi($text));
+    $text = self::normalize($text);
     $lines = self::wrap($text, $columns);
     if (count($lines) === 1) { return $lines[0][1]; }
     $prefix = '';
@@ -44,7 +50,15 @@ final class TextViewport
   public function page(int $columns, int $rows): TextPage
   {
     if ($columns < 1 || $rows < 1) { throw new InvalidArgumentException('Text viewport needs positive columns and rows.'); }
-    $wrapped = self::wrap($this->text, $columns);
+    return $this->createLayoutPage(self::wrap($this->text, $columns), $columns, $rows);
+  }
+
+  /** A structured document supplies its own lines, anchored in offsets of the same source text.
+   * @param non-empty-list<array{int, string}> $wrapped Ascending source byte offset and displayed line.
+   */
+  public function createLayoutPage(array $wrapped, int $columns, int $rows): TextPage
+  {
+    if ($columns < 1 || $rows < 1 || $wrapped === []) { throw new InvalidArgumentException('Text viewport needs positive columns, rows and lines.'); }
     $first = 0;
     foreach ($wrapped as $index => [$offset]) {
       if ($offset > $this->offset) { break; }
@@ -62,6 +76,14 @@ final class TextViewport
     if ($direction === 0) { return; }
     if ($page->source !== $this->text) { $page = $this->page($page->columns, $page->rows); }
     $this->offset = $direction > 0 ? $page->nextOffset : $page->previousOffset;
+  }
+
+  /** Cells a single line occupies under the same budget as wrap(), for aligning structured columns. */
+  public static function measure(string $text): int
+  {
+    preg_match_all('/\X/u', $text, $symbols);
+    return array_sum(array_map(static fn(string $symbol): int => max(TerminalText::getSymbolWidth($symbol),
+      mb_strlen($symbol, 'UTF-8')), $symbols[0]));
   }
 
   /** Complete graphemes fit both terminal cell widths and Canvas scalar budgets.

@@ -40,10 +40,10 @@ final class SummonsMenuPresentation
       $g['body']->width - 2 * $p, $g['body']->height - 2 * $p);
     if ($content->detailsOpen) {
       [$columns, $rows] = self::getDetailPageSize($content, $theme, $width, $height);
-      if ($page === null || $page->columns !== $columns || $page->rows !== $rows) {
+      if ($page === null || $content->details === null || $page->columns !== $columns || $page->rows !== $rows) {
         throw new RuntimeException('Summon contract page must match its measured viewport.');
       }
-      $view->prose('summons-detail', implode("\n", $page->lines), $body);
+      $view->details('summons-detail', $content->details->layout($columns), $page, $body);
       if ($page->total > $page->rows) {
         $view->renderBorderCaption('summons-detail-range', $page->range(),
           new CanvasRectangle($body->x, $g['body']->y + $g['body']->height - $p, $body->width, $p));

@@ -103,7 +103,7 @@ it('uses the same themed scrollbar for quest prose without painting over text or
     array_map(fn($i) => ['text' => 'Objective ' . $i], range(1, 80)))]);
   $content = new JournalMenuContent('Quests', ['Active', 'Completed'], 0, '',
     [['label' => 'A journey', 'values' => ['', 'In progress']]], 0, 'No quests', 'journey',
-    $document->text, '', true, true, $document);
+    $document->sheet, '', true, true, $document);
   $reading = new TextViewport();
   $reading->setText($document->text);
   [$columns, $rows] = QuestJournalPresentation::pageSize($content, $theme, $width, $height);

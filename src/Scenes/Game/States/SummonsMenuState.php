@@ -13,7 +13,6 @@ use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
@@ -21,8 +20,8 @@ use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Scenes\SceneStateContext;
-use Ichiloto\Engine\UI\Presentation\{MenuCanvasState, MenuPresentationCatalog, MenuRow, MenuRowValue,
-    SummonsMenuContent, SummonsMenuPresentation, SummonsMenuView};
+use Ichiloto\Engine\UI\Presentation\{MenuCanvasState, MenuDetailEntry, MenuDetailSheet, MenuPresentationCatalog, MenuRow,
+    MenuRowValue, SummonsMenuContent, SummonsMenuPresentation, SummonsMenuView};
 use Ichiloto\Engine\UI\Text\{TerminalMenuRow, TextPage, TextViewport};
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -90,12 +89,15 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
 
     protected function initializeUI(): void
     {
-        $left = max(0, intdiv(get_screen_width() - self::MENU_WIDTH, 2));
-        $top = max(0, intdiv(get_screen_height() - self::SUMMARY_PANEL_HEIGHT - self::LIST_PANEL_HEIGHT - self::INFO_PANEL_HEIGHT, 2));
+        // Like the other reading menus, the panels shrink to a smaller terminal instead of running off it.
+        $width = min(self::MENU_WIDTH, max(20, get_screen_width()));
+        $listHeight = max(3, min(self::LIST_PANEL_HEIGHT, get_screen_height() - self::SUMMARY_PANEL_HEIGHT - self::INFO_PANEL_HEIGHT));
+        $left = max(0, intdiv(get_screen_width() - $width, 2));
+        $top = max(0, intdiv(get_screen_height() - self::SUMMARY_PANEL_HEIGHT - $listHeight - self::INFO_PANEL_HEIGHT, 2));
         $border = new DefaultBorderPack();
-        $this->summaryPanel = new Window('', '', new Vector2($left, $top), self::MENU_WIDTH, self::SUMMARY_PANEL_HEIGHT, $border);
-        $this->listPanel = new Window('', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT), self::MENU_WIDTH, self::LIST_PANEL_HEIGHT, $border);
-        $this->infoPanel = new Window('Info', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT + self::LIST_PANEL_HEIGHT), self::MENU_WIDTH, self::INFO_PANEL_HEIGHT, $border);
+        $this->summaryPanel = new Window('', '', new Vector2($left, $top), $width, self::SUMMARY_PANEL_HEIGHT, $border);
+        $this->listPanel = new Window('', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT), $width, $listHeight, $border);
+        $this->infoPanel = new Window('Info', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT + $listHeight), $width, self::INFO_PANEL_HEIGHT, $border);
     }
 
     private function refreshDefinitions(): void
@@ -169,9 +171,10 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $title = Vocabulary::getTerm('command.' . BattleCommandType::SUMMON->value, 'Summons');
         if (in_array($this->view, [SummonsMenuView::ACTIONS, SummonsMenuView::INFO], true)) { $title = $definition?->name ?? $title; }
         if ($this->view === SummonsMenuView::HOLDERS) { $title = 'Assign / ' . ($definition?->name ?? $title); }
+        $info = $this->view === SummonsMenuView::INFO;
         return new SummonsMenuContent($this->character, $title, $this->character === null ? [] : [$this->character->name],
-            $this->getRows(), $this->activeIndex, $this->view === SummonsMenuView::INFO, $definition?->description ?? '',
-            null, $this->getActionHints());
+            $this->getRows(), $this->activeIndex, $info, $definition?->description ?? '',
+            null, $this->getActionHints(), $info ? $this->getDetailSheet() : null);
     }
 
     /** @return list<\Ichiloto\Engine\IO\ActionHint> */
@@ -200,7 +203,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $page = null;
         if ($content->detailsOpen) {
             [$columns, $rows] = SummonsMenuPresentation::getDetailPageSize($content, $theme);
-            $page = $this->detailViewport->page($columns, $rows);
+            $page = $content->details->createPage($this->detailViewport, $columns, $rows);
         }
         $canvas = SummonsMenuPresentation::compose($content, $theme, $page, $this->menuInfoText, $time);
         if ($page !== null) { $this->lastDetailPage = $page; }
@@ -212,12 +215,11 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $this->refreshDefinitions();
         $this->activeIndex = min($this->activeIndex, max(0, count($this->getRows()) - 1));
         $this->detailViewport ??= new TextViewport();
-        $this->detailViewport->setText($this->getDetailText());
         $content = $this->getPresentationContent();
         $this->lastRows = $this->getRowSnapshot($content->rows);
         $this->summaryPanel->setContent([$content->title, ...$content->summary]);
         $this->summaryPanel->render();
-        if ($content->detailsOpen) { $this->refreshDetailPanel(); }
+        if ($content->details !== null) { $this->refreshDetailPanel($content->details); }
         else { $this->refreshListPanel(); }
         $this->infoPanel->setContent([$content->description, '']);
         $this->infoPanel->setHelp(implode('  ', array_map(static fn($hint): string => ($hint->control?->label ?? 'Unbound') . ':' . $hint->label, $content->hints)));
@@ -227,12 +229,12 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     private function refreshListPanel(): void
     {
         $rows = $this->getRows();
-        $size = self::LIST_PANEL_HEIGHT - 2;
+        $size = $this->listPanel->getContentHeight();
         $offset = max(0, min($this->activeIndex - intdiv($size, 2), count($rows) - $size));
         $lines = [];
         foreach (array_slice($rows, $offset, $size) as $row) {
             $lines[] = TerminalMenuRow::compose($row->label, implode('  ', array_map(static fn(MenuRowValue $value): string => $value->text, $row->values)),
-                self::MENU_WIDTH - 4, prefix: $row->focused ? ' > ' : '   ');
+                $this->listPanel->getContentWidth(), prefix: $row->focused ? ' > ' : '   ');
         }
         if ($rows === []) { $lines[] = $this->character === null ? 'No summons.' : 'No assignable summons.'; }
         $this->listPanel->setContent(array_pad($lines, $size, ''));
@@ -240,29 +242,38 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $this->listPanel->render();
     }
 
-    protected function refreshDetailPanel(): void
+    protected function refreshDetailPanel(MenuDetailSheet $details): void
     {
-        $page = $this->detailViewport->page(self::MENU_WIDTH - 6, self::LIST_PANEL_HEIGHT - 2);
+        $page = $details->createPage($this->detailViewport, $this->listPanel->getContentWidth() - 2, $this->listPanel->getContentHeight(),
+            TerminalMenuRow::LABEL_SUFFIX);
         $this->listPanel->setContent($page->lines);
         $this->listPanel->setHelp($page->total > $page->rows ? $page->range() : '');
         $this->listPanel->render();
         $this->lastDetailPage = $page;
     }
 
-    protected function getDetailText(): string
+    /** Lore reads as prose; the move, element, authored attributes and matchups are label/value fields. */
+    protected function getDetailSheet(): MenuDetailSheet
     {
         $definition = $this->getSelectedSummon();
-        if ($definition === null) { return ''; }
-        $lines = [$definition->name, '', $definition->lore !== '' ? $definition->lore : $definition->description, ''];
-        $labels = ['Move', 'Element', 'Strong vs', 'Weak vs', ...array_map('strval', array_keys($definition->attributes))];
-        $width = max(array_map(TerminalText::displayWidth(...), $labels));
-        $row = static fn(string $label, string $value): string => TerminalText::padRight($label, $width) . ' : ' . $value;
-        if ($definition->moveName !== null) { $lines[] = $row('Move', $definition->moveName . ': ' . $definition->description); }
-        if ($definition->element !== '') { $lines[] = $row('Element', $definition->element); }
-        foreach ($definition->attributes as $label => $value) { $lines[] = $row((string)$label, (string)$value); }
-        if ($definition->strengths !== []) { $lines[] = $row('Strong vs', implode(', ', $definition->strengths)); }
-        if ($definition->weaknesses !== []) { $lines[] = $row('Weak vs', implode(', ', $definition->weaknesses)); }
-        return implode("\n", $lines);
+        if ($definition === null) { return new MenuDetailSheet([]); }
+        $prose = $definition->lore !== '' ? [MenuDetailEntry::createProse($definition->lore)] : [];
+        $fields = [];
+        if ($definition->moveName !== null) {
+            $fields[] = MenuDetailEntry::createField('Move', $definition->moveName
+                . ($definition->description !== '' ? "\n" . $definition->description : ''));
+        } elseif ($definition->description !== '') {
+            $prose[] = MenuDetailEntry::createProse($definition->description);
+        }
+        if ($definition->element !== '') { $fields[] = MenuDetailEntry::createField('Element', $definition->element); }
+        foreach ($definition->attributes as $label => $value) {
+            if (is_scalar($value) && trim((string)$value) !== '' && trim((string)$label) !== '') {
+                $fields[] = MenuDetailEntry::createField((string)$label, (string)$value);
+            }
+        }
+        if ($definition->strengths !== []) { $fields[] = MenuDetailEntry::createField('Strong vs', implode(', ', $definition->strengths)); }
+        if ($definition->weaknesses !== []) { $fields[] = MenuDetailEntry::createField('Weak vs', implode(', ', $definition->weaknesses)); }
+        return new MenuDetailSheet([[MenuDetailEntry::createProse($definition->name, 'accent')], $prose, $fields]);
     }
 
     private function setView(SummonsMenuView $view, int $index = 0): void
@@ -290,7 +301,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         if ($v !== 0.0) {
             if ($this->view === SummonsMenuView::INFO && $this->lastDetailPage !== null) {
                 $this->detailViewport->scroll($v > 0 ? 1 : -1, $this->lastDetailPage);
-                $this->refreshDetailPanel();
+                $this->refreshDetailPanel($this->getDetailSheet());
             } elseif (($total = count($this->getRows())) > 0) {
                 $this->activeIndex = wrap($this->activeIndex + ($v > 0 ? 1 : -1), 0, $total - 1);
                 $this->refreshUI();

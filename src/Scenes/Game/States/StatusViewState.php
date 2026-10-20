@@ -49,6 +49,12 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
   protected const int EQUIPMENT_SUMMARY_PANEL_HEIGHT = self::STATS_SUMMARY_PANEL_HEIGHT;
   protected const int INFO_PANEL_WIDTH = 110;
   protected const int INFO_PANEL_HEIGHT = self::CONDITIONS_PANEL_HEIGHT;
+  /** Terminal field columns: stats fill their panel; resources sit beside the name, experience to their right. */
+  protected const int STATS_FIELD_WIDTH = 35;
+  protected const int PROFILE_FIELD_INDENT = 20;
+  protected const int PROFILE_FIELD_WIDTH = 37;
+  protected const int EXPERIENCE_FIELD_GAP = 5;
+  protected const int EXPERIENCE_FIELD_WIDTH = 35;
   /**
    * @var int The left margin of the status view.
    */
@@ -188,15 +194,14 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
   {
     $this->profileSummaryPanel->setContent($this->buildProfileSummaryContent());
 
-    $this->statsSummaryPanel->setContent(array_pad([
-      sprintf(" %s:%27s", Vocabulary::getTerm('stats.attack', 'Attack'), $this->character?->effectiveStats->attack),
-      sprintf(" %s:%26s", Vocabulary::getTerm('stats.defence', 'Defence'), $this->character?->effectiveStats->defence),
-      sprintf(" %s:%25s", Vocabulary::getTerm('stats.magicAttack', 'M.Attack'), $this->character?->effectiveStats->magicAttack),
-      sprintf(" %s:%24s", Vocabulary::getTerm('stats.magicDefence', 'M.Defence'), $this->character?->effectiveStats->magicDefence),
-      sprintf(" %s:%26s", Vocabulary::getTerm('stats.evasion', 'Evasion'), $this->character?->effectiveStats->evasion),
-      sprintf(" %s:%28s", Vocabulary::getTerm('stats.speed', 'Speed'), $this->character?->effectiveStats->speed),
-      sprintf(" %s:%28s", Vocabulary::getTerm('stats.grace', 'Grace'), $this->character?->effectiveStats->grace),
-    ], self::STATS_SUMMARY_PANEL_HEIGHT - 2, ''));
+    $stats = $this->character?->effectiveStats;
+    $fields = [];
+    foreach (['attack' => 'Attack', 'defence' => 'Defence', 'magicAttack' => 'M.Attack', 'magicDefence' => 'M.Defence',
+      'evasion' => 'Evasion', 'speed' => 'Speed', 'grace' => 'Grace'] as $stat => $fallback) {
+      $fields[Vocabulary::getTerm('stats.' . $stat, $fallback)] = (string)($stats?->$stat ?? '');
+    }
+    $this->statsSummaryPanel->setContent(array_pad(self::composeFields($fields, self::STATS_FIELD_WIDTH, ' '),
+      self::STATS_SUMMARY_PANEL_HEIGHT - 2, ''));
 
     $this->equipmentSummaryPanel->setContent(array_pad(
       array_map(function(EquipmentSlot $slot) {
@@ -205,7 +210,8 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
           $equipmentName = $slot->equipment->name;
         }
         $type = $this->character === null ? $slot->semanticSlot : CharacterMenuRows::getSlotIcon($this->character, $slot);
-        $label = TerminalMenuRow::composeIconLabel(EquipmentIcon::getTerminalGlyph($type), "{$slot->name}:", 2);
+        $label = TerminalMenuRow::composeIconLabel(EquipmentIcon::getTerminalGlyph($type),
+          $slot->name . TerminalMenuRow::LABEL_SUFFIX, 2);
         $width = $this->equipmentSummaryPanel->getContentWidth();
         return TerminalMenuRow::compose($label, $equipmentName, $width, prefix: '  ',
           valueAlignment: 'left', labelWidth: 20);
@@ -232,21 +238,43 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
     $totalMp = $this->character?->effectiveStats->totalMp ?? 0;
     $totalAp = $this->character?->effectiveStats->totalAp ?? 0;
 
+    $resources = self::composeFields([
+      'Role' => $this->character?->role->name ?? 'N/A',
+      Vocabulary::getTerm('stats.level', 'Lv') => (string)($this->character?->level ?? 1),
+      Vocabulary::getTerm('stats.hp', 'HP') => "{$currentHp} / {$totalHp}",
+      Vocabulary::getTerm('stats.mp', 'MP') => "{$currentMp} / {$totalMp}",
+      Vocabulary::getTerm('stats.ap', 'AP') => "{$currentAp} / {$totalAp}",
+    ], self::PROFILE_FIELD_WIDTH, str_repeat(' ', self::PROFILE_FIELD_INDENT));
+    $experience = self::composeFields([
+      get_engine_message('exp_total', Vocabulary::getTerm('stats.exp', 'EXP')) => (string)($this->character?->currentExp ?? 0),
+      get_engine_message('exp_next', Vocabulary::getTerm('stats.level', 'Level')) => (string)($this->character?->nextLevelExp ?? 0),
+    ], self::EXPERIENCE_FIELD_WIDTH);
+    $gap = str_repeat(' ', self::EXPERIENCE_FIELD_GAP);
+
     return array_pad([
       sprintf(' %s', $this->character?->name ?? 'N/A'),
-      sprintf("%19s Role:%12s", ' ', $this->character?->role->name ?? 'N/A'),
-      sprintf(
-        "%19s %s:%12s       %-14s %20d",
-        ' ',
-        Vocabulary::getTerm('stats.level', 'Lv'),
-        $this->character?->level ?? 1,
-        get_engine_message('exp_total', Vocabulary::getTerm('stats.exp', 'EXP')) . ':', $this->character?->currentExp ?? 0,
-      ),
-      sprintf("%42s%-14s %20d",' ', get_engine_message('exp_next', Vocabulary::getTerm('stats.level', 'Level')) . ':', $this->character?->nextLevelExp ?? 0),
-      sprintf("%19s %s:%12s", ' ', Vocabulary::getTerm('stats.hp', 'HP'), "{$currentHp} / {$totalHp}"),
-      sprintf("%19s %s:%12s", ' ', Vocabulary::getTerm('stats.mp', 'MP'), "{$currentMp} / {$totalMp}"),
-      sprintf("%19s %s:%12s", ' ', Vocabulary::getTerm('stats.ap', 'AP'), "{$currentAp} / {$totalAp}"),
+      $resources[0],
+      $resources[1] . $gap . $experience[0],
+      str_repeat(' ', self::PROFILE_FIELD_WIDTH) . $gap . $experience[1],
+      ...array_slice($resources, 2),
     ], self::PROFILE_SUMMARY_PANEL_HEIGHT - 2, '');
+  }
+
+  /**
+   * Composes label/value fields in the shared Terminal style, with one value column for the group.
+   *
+   * @param array<string, string> $fields Labels mapped to formatted values.
+   * @return string[] One line per field.
+   */
+  private static function composeFields(array $fields, int $width, string $prefix = ''): array
+  {
+    $labelWidth = max(array_map(static fn($label): int => TerminalText::displayWidth((string)$label . TerminalMenuRow::LABEL_SUFFIX),
+      array_keys($fields)));
+    $lines = [];
+    foreach ($fields as $label => $value) {
+      $lines[] = TerminalMenuRow::composeField((string)$label, $value, $width, $prefix, 'right', $labelWidth);
+    }
+    return $lines;
   }
 
   /**

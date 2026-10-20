@@ -140,7 +140,7 @@ it('removes eligibility rosters and only offers assignable summons in the Equipm
   $state = createSummonsMenuProbe([$allowed, $future], true);
   $before = serialize([$allowed->wielders, $future->wielders]);
   expect(array_column($state->getPresentationContent()->rows, 'label'))->toBe(['Allowed spirit']);
-  $detail = new ReflectionMethod($state, 'getDetailText')->invoke($state);
+  $detail = new ReflectionMethod($state, 'getDetailSheet')->invoke($state)->text;
   expect($detail)->not->toContain('future.identity', 'Wielders', 'One bearer', 'Actor')
     ->and($state->getPresentationContent()->status)->toBeNull();
   $later = new Character('Later hero', 1, new Stats(currentHp: 100), actorId: 'future.identity');

@@ -9,12 +9,23 @@ use Ichiloto\Engine\IO\Console\TerminalText;
 /** Terminal cell layout only; callers retain semantic icons, selection and values. */
 final class TerminalMenuRow
 {
+  /** Terminal has no record separators, so a data field names its label with this attached suffix. */
+  public const string LABEL_SUFFIX = ':';
+
   public static function composeIconLabel(string $icon, string $label, int $iconWidth = 0): string
   {
     $label = TerminalText::stabilize($label);
     if ($icon === '') { return $label; }
     $icon = TerminalText::stabilize($icon);
     return TerminalText::padRight($icon, max($iconWidth, TerminalText::displayWidth($icon))) . ' ' . $label;
+  }
+
+  /** One label/value data field in the shared Terminal style: "Label:" and the value in its own column. */
+  public static function composeField(string $label, string $value, int $width, string $prefix = '',
+    string $valueAlignment = 'left', ?int $labelWidth = null): string
+  {
+    return self::compose($label . self::LABEL_SUFFIX, $value, $width, $prefix, valueAlignment: $valueAlignment,
+      labelWidth: $labelWidth);
   }
 
   /** Reserve the value first so fitting a long label never clips a price or quantity. */

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Menu\MagicMenu\Windows\MagicTabPanel;
 use Ichiloto\Engine\Entities\Party;
@@ -218,7 +219,9 @@ it('moves detail ranges to border help and keeps complete scrolling and back foc
   $panel = $records ? $state->info() : $state->list();
   $seen = [];
   for ($i = 0; $i < 100; $i++) {
-    $page = $state->getPresentationPage($state->list()->getContentWidth() - 2, $panel->getContentHeight());
+    // Terminal reads the same sheet with its attached field-label suffix.
+    $page = $state->getPresentationContent()->details->createPage(clone new ReflectionProperty(get_parent_class($state), 'reading')->getValue($state),
+      $state->list()->getContentWidth() - 2, $panel->getContentHeight(), TerminalMenuRow::LABEL_SUFFIX);
     expect($panel->getHelp())->toBe(($records ? 'Details - ' : '') . $page->range())
       ->and(array_slice($panel->getContent(), 0, count($page->lines)))->toBe($page->lines)
       ->and(implode('', $panel->getContent()))->not->toContain($page->range());

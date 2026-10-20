@@ -41,6 +41,7 @@ use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Modal\PromptModal;
 use Ichiloto\Engine\UI\Presentation\JournalMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\UI\Text\TextViewport;
 use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -246,8 +247,11 @@ it('reaches complete long quest and earned report text in terminal and graphical
     $page = new ReflectionProperty($state, 'displayedPage')->getValue($state);
     foreach ($page->lines as $line => $text) { $seen[$page->first + $line] = $text; }
     if ($graphical) {
+      // Canvas draws field labels and values as separate aligned runs over the same measured lines.
+      $layout = $state->getPresentationContent()->details->layout($page->columns);
       $painted = array_filter(journalMenuText($frame), fn($id) => $id === 'journal-text' || str_starts_with($id, 'journal-text-'), ARRAY_FILTER_USE_KEY);
-      expect(implode('', $painted))->toBe(implode('', $page->lines));
+      expect(implode('', $painted))->toBe(implode('', array_map(fn($line) => $line->label . $line->text,
+        array_slice($layout->lines, $page->first, $page->rows))));
     }
     else {
       $panel = new ReflectionProperty($state, $records ? 'infoPanel' : 'listPanel')->getValue($state);
@@ -258,9 +262,11 @@ it('reaches complete long quest and earned report text in terminal and graphical
     journalMenuKey($state, KeyCode::DOWN);
   }
   ksort($seen);
-  expect(array_values($seen))->toBe(array_column(TextViewport::wrap($page->source, $page->columns), 1))
+  $suffix = $graphical ? '' : TerminalMenuRow::LABEL_SUFFIX;
+  expect(array_values($seen))->toBe(array_column($state->getPresentationContent()->details
+      ->layout($page->columns, $suffix)->getWrappedLines(), 1))
     ->and(implode('', $seen))->toContain('Authored line 001')->toContain('Authored line 060')
-    ->toContain($records ? 'FINAL REPORT DETAIL' : 'Reward: 123 G, 456 EXP, Reward Tonic x3');
+    ->toContain($records ? 'FINAL REPORT DETAIL' : "Reward{$suffix} 123 G, 456 EXP, Reward Tonic x3");
   expect($state->getPresentationContent()->index)->toBe(0);
   journalMenuKey($state, KeyCode::ESCAPE);
   expect($state->getPresentationContent()->detailsOpen)->toBeFalse()->and($this->returnState->entries)->toBe(0);
@@ -270,10 +276,10 @@ it('reaches complete long quest and earned report text in terminal and graphical
 
 it('keeps secret and discovery masking and resets reading when earned content changes', function () {
   $state = journalMenuOwner($this, true);
-  expect($state->getPresentationContent()->detailText)->toContain('Quick source card.')->not->toContain('Authored line');
+  expect($state->getPresentationContent()->details->text)->toContain('Quick source card.')->not->toContain('Authored line');
   journalMenuKey($state, KeyCode::Q);
   $secret = $state->getPresentationContent();
-  expect($secret->rows[0]['label'])->toBe('???')->and($secret->detailText)->not->toContain('SECRET')->not->toContain('PRIVATE');
+  expect($secret->rows[0]['label'])->toBe('???')->and($secret->details->text)->not->toContain('SECRET')->not->toContain('PRIVATE');
   journalMenuKey($state, KeyCode::DOWN);
   journalMenuKey($state, KeyCode::ENTER);
   journalMenuKey($state, KeyCode::DOWN);
@@ -283,9 +289,10 @@ it('keeps secret and discovery masking and resets reading when earned content ch
   $this->knowledge->unlockReport('place.known', 'report.known', 'fixture');
   $state->resume();
   expect($state->getPresentationPage(104, 4)->first)->toBe(0)
-    ->and($state->getPresentationContent()->detailText)->toContain('Authored line 060')->toContain('Earned Report')->not->toContain('UNEARNED');
+    ->and($state->getPresentationContent()->details->text)->toContain('Authored line 060')->toContain('Earned Report')->not->toContain('UNEARNED');
   $this->knowledge->withdrawReport('place.known', 'report.known', 'fixture');
-  expect($state->getPresentationContent()->detailText)->toContain('Withdrawn: Report summary.');
+  $withdrawn = array_find($state->getPresentationContent()->details->getEntries(), fn($entry) => $entry->label === 'Withdrawn');
+  expect($withdrawn?->text)->toBe('Report summary.');
 });
 
 it('follows long lists preserves same selection on back and retains completed tab semantics', function () {
@@ -301,10 +308,10 @@ it('follows long lists preserves same selection on back and retains completed ta
   expect($state->getPresentationContent()->index)->toBe(35);
   $this->quests->log->markCompleted('quest.35');
   journalMenuKey($state, KeyCode::TAB);
-  expect($state->getPresentationContent()->tabIndex)->toBe(1)->and($state->getPresentationContent()->detailText)->toContain('[Complete] Ask the witness. (2/2)');
+  expect($state->getPresentationContent()->tabIndex)->toBe(1)->and($state->getPresentationContent()->details->text)->toContain('[Complete] Ask the witness. (2/2)');
   $this->flags->setSwitch('reveal', true);
   $state->resume();
-  expect($state->getPresentationContent()->detailText)->toContain('SECRET REVEALED TARGET')->not->toContain('Ask the witness.');
+  expect($state->getPresentationContent()->details->text)->toContain('SECRET REVEALED TARGET')->not->toContain('Ask the witness.');
 });
 
 it('consumes confirm and back once even when a binding also drives navigation', function (bool $records) {
@@ -388,7 +395,7 @@ it('marks long localized list previews and keeps their full values readable with
   $page = $state->getPresentationPage(...JournalMenuPresentation::pageSize($content, $theme, 960, 540));
   $frame = JournalMenuPresentation::compose($content, $theme, $page, width: 960, height: 540);
   expect(implode('', array_filter(journalMenuText($frame), fn($id) => str_starts_with($id, 'journal-entry-0-'), ARRAY_FILTER_USE_KEY)))->toContain('...')
-    ->and($content->detailText)->toContain($name)->toContain($quest->giver)->toContain('Objective 30 (0/1)');
+    ->and($content->details->text)->toContain($name)->toContain($quest->giver)->toContain('Objective 30 (0/1)');
   journalMenuPng($this->root . '/surface.png', 79, 43);
   $second = JournalMenuPresentation::compose($content, $theme, $page, width: 960, height: 540);
   expect($second->toArray()['width'])->toBe(960)->and(journalMenuText($second))->toBe(journalMenuText($frame));

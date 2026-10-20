@@ -377,8 +377,9 @@ The initial character picker and assignment by confirming the reading view
 are removed.
 
 Selecting a summon offers **Info** and, when a current member can hold it,
-**Assign**. Info is a separate scrollable reading view containing lore, move,
-element, attributes, strengths and weaknesses. Confirming it never changes
+**Assign**. Info is a separate scrollable reading view: the name and lore as
+prose, then the move, element, attributes, strengths and weaknesses as aligned
+label/value fields in the shared detail sheet. Confirming it never changes
 ownership. Assign lists only current party members accepted by the Party
 assignment service. Choosing a new holder moves an exclusive contract through
 `Party::reassignSummon()` atomically; choosing its current holder releases it.

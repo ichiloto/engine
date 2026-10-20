@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Localization\Vocabulary;
@@ -94,7 +95,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
             ? get_engine_message('magic.empty_discovered', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic'))
             : get_engine_message('magic.empty_learned', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic')));
         if ($skill !== null) {
-            $fields = ['MP Cost' => (string)$skill->cost, 'Occasion' => $this->formatOccasionLabel($skill->occasion),
+            $fields = [Vocabulary::getLabel('stats.mp', 'MP') . ' Cost' => (string)$skill->cost, 'Occasion' => $this->formatOccasionLabel($skill->occasion),
                 'Scope' => $skill->scope->side->value];
             if ($targeting) {
                 $target = $this->targetCandidates[$index] ?? null;
@@ -102,8 +103,8 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
                 if ($target !== null) {
                     $fields['Target'] = $target->name;
                     $fields['Status'] = $target->isKnockedOut ? 'Knocked Out' : 'Ready';
-                    $fields['HP'] = number_format($target->effectiveStats->currentHp) . ' / ' . number_format($target->effectiveStats->totalHp);
-                    $fields['MP'] = number_format($target->effectiveStats->currentMp) . ' / ' . number_format($target->effectiveStats->totalMp);
+                    $fields[Vocabulary::getLabel('stats.hp', 'HP')] = number_format($target->effectiveStats->currentHp) . ' / ' . number_format($target->effectiveStats->totalHp);
+                    $fields[Vocabulary::getLabel('stats.mp', 'MP')] = number_format($target->effectiveStats->currentMp) . ' / ' . number_format($target->effectiveStats->totalMp);
                 }
             } elseif ($learnable !== null) {
                 $fields['Status'] = $learnable->getStatusLabel($actor, $this->party, $events);
@@ -381,88 +382,15 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
     protected function buildDetailLines(): array
     {
         $availableLines = self::CONTENT_PANEL_HEIGHT - 2;
-        $availableWidth = self::DETAIL_PANEL_WIDTH - 4;
-        $sourceLines = $this->isSelectingTarget()
-            ? $this->buildTargetDetailLines()
-            : match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
-                'Use' => $this->buildUseDetailLines(),
-                'Learn' => $this->buildLearnDetailLines(),
-                'Sort' => $this->buildSortDetailLines(),
-                default => [],
-            };
-
-        $lines = [];
-
-        foreach ($sourceLines as $line) {
-            foreach (explode("\n", wrap_text($line, max(1, $availableWidth))) as $wrappedLine) {
-                $lines[] = TerminalText::truncateToWidth($wrappedLine, $availableWidth);
-            }
-        }
+        $content = $this->getPresentationContent();
+        // The Terminal panel also names the learn source; the graphical fields omit it because they do not scroll.
+        $learnable = !$this->isSelectingTarget() && ($this->tabs[$this->activeTabIndex] ?? 'Use') === 'Learn'
+            ? $this->getActiveLearnableSpell() : null;
+        $source = $learnable === null ? [] : ['Source' => $learnable->note !== '' ? $learnable->note : 'Unrecorded'];
+        $lines = $content === null ? [] : array_column($content->getDetailSheet($source)
+            ->layout(self::DETAIL_PANEL_WIDTH - 4, TerminalMenuRow::LABEL_SUFFIX)->getWrappedLines(), 1);
 
         return array_slice(array_pad($lines, $availableLines, ''), 0, $availableLines);
-    }
-
-    /**
-     * Builds the detail text for the Use tab.
-     *
-     * @return string[] The detail lines.
-     */
-    protected function buildUseDetailLines(): array
-    {
-        $spell = $this->getActiveUseSpell();
-
-        if (!$spell instanceof MagicSkill) {
-            return [
-                get_engine_message('magic.empty_learned', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic')),
-                '',
-                'Use magic will appear here once this character has learned or acquired spells.',
-            ];
-        }
-
-        return [
-            $spell->name,
-            sprintf('%s Cost : %d', Vocabulary::getTerm('stats.mp', 'MP'), $spell->cost),
-            sprintf('Occasion: %s', $this->formatOccasionLabel($spell->occasion)),
-            sprintf('Scope   : %s', $spell->scope->side->value),
-            '',
-            $spell->description,
-        ];
-    }
-
-    /**
-     * Builds target and spell details while a one-target cast is pending.
-     *
-     * @return string[] The target detail lines.
-     */
-    protected function buildTargetDetailLines(): array
-    {
-        $spell = $this->pendingUseSpell;
-        $target = $this->targetCandidates[$this->activeTargetIndex] ?? null;
-
-        if (!$spell instanceof MagicSkill || !$target instanceof Character) {
-            return ['No eligible target.'];
-        }
-
-        return [
-            $spell->name,
-            sprintf('Caster: %s', $this->character?->name ?? 'Unknown'),
-            sprintf('Cost  : %d %s', $spell->cost, Vocabulary::getTerm('stats.mp', 'MP')),
-            '',
-            sprintf('Target: %s', $target->name),
-            sprintf('Status: %s', $target->isKnockedOut ? 'Knocked Out' : 'Ready'),
-            sprintf(
-                '%-6s: %s / %s',
-                Vocabulary::getTerm('stats.hp', 'HP'),
-                number_format($target->effectiveStats->currentHp),
-                number_format($target->effectiveStats->totalHp),
-            ),
-            sprintf(
-                '%-6s: %s / %s',
-                Vocabulary::getTerm('stats.mp', 'MP'),
-                number_format($target->effectiveStats->currentMp),
-                number_format($target->effectiveStats->totalMp),
-            ),
-        ];
     }
 
     /**
@@ -492,37 +420,6 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
     }
 
     /**
-     * Builds the detail text for the Learn tab.
-     *
-     * @return string[] The detail lines.
-     */
-    protected function buildLearnDetailLines(): array
-    {
-        $learnableSpell = $this->getActiveLearnableSpell();
-
-        if (!$learnableSpell instanceof LearnableSpell || !$this->character instanceof Character) {
-            return [
-                get_engine_message('magic.empty_discovered', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic')),
-                '',
-                'Discovered spells and their learning requirements will appear here.',
-            ];
-        }
-
-        $progress = $learnableSpell->requirement->describeProgress($this->character, $this->party, $learnableSpell->trainingHours, $this->getGameScene()->storyEvents);
-
-        return [
-            $learnableSpell->skill->name,
-            sprintf('Status  : %s', $learnableSpell->getStatusLabel($this->character, $this->party, $this->getGameScene()->storyEvents)),
-            sprintf('Occasion: %s', $this->formatOccasionLabel($learnableSpell->skill->occasion)),
-            $learnableSpell->note !== '' ? sprintf('Source  : %s', $learnableSpell->note) : 'Source  : Unrecorded',
-            '',
-            $progress !== '' ? $progress : 'No additional requirements.',
-            '',
-            $learnableSpell->skill->description,
-        ];
-    }
-
-    /**
      * Returns the selected learnable spell, if any.
      *
      * @return LearnableSpell|null The selected learnable spell.
@@ -530,25 +427,6 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
     protected function getActiveLearnableSpell(): ?LearnableSpell
     {
         return $this->character?->spellbook->getLearnableSpells()[$this->activeLearnIndex] ?? null;
-    }
-
-    /**
-     * Builds the detail text for the Sort tab.
-     *
-     * @return string[] The detail lines.
-     */
-    protected function buildSortDetailLines(): array
-    {
-        return [
-            Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'Spell') . ' Order',
-            '',
-            sprintf('Current: %s', $this->character?->spellbook->getSortOrder()->value ?? SpellSortOrder::A_TO_Z->value),
-            '',
-            'A-Z keeps learned magic alphabetical.',
-            'Z-A reverses the learned magic list.',
-            '',
-            'Apply a sort order to reorganize the Use tab.',
-        ];
     }
 
     /**

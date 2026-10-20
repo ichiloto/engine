@@ -18,8 +18,11 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Presentation\JournalMenuContent;
 use Ichiloto\Engine\UI\Presentation\JournalMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuDetailEntry;
+use Ichiloto\Engine\UI\Presentation\MenuDetailSheet;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\SelectionStyle;
+use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\UI\Text\TextPage;
 use Ichiloto\Engine\UI\Text\TextViewport;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -137,24 +140,28 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
       }
     }
     $row = $this->rows[$this->activeIndex] ?? null;
-    $lines = [];
+    $sections = [];
     if ($row instanceof Achievement) {
       $unlocked = $manager?->isUnlocked($row->id) ?? false;
-      $lines = $row->isSecret && !$unlocked ? ['???', 'A secret achievement. Earn it to reveal what it was.', 'Locked']
-        : [trim($row->icon . ' ' . $row->name), $row->description, $unlocked ? 'Unlocked' : 'Locked', 'Points: ' . $row->points];
+      $sections[] = $row->isSecret && !$unlocked
+        ? [MenuDetailEntry::createProse('???'), MenuDetailEntry::createProse('A secret achievement. Earn it to reveal what it was.'),
+          MenuDetailEntry::createProse('Locked')]
+        : [...self::createProse(trim($row->icon . ' ' . $row->name)), ...self::createProse($row->description),
+          MenuDetailEntry::createProse($unlocked ? 'Unlocked' : 'Locked'), MenuDetailEntry::createField('Points', (string)$row->points)];
     } elseif ($row instanceof KnowledgeSubject) {
       $depth = $knowledge->progress->depth($row->id);
-      $lines = [$row->displayName, 'Type: ' . $row->recordType];
-      if ($row->family !== null) { $lines[] = 'Family: ' . $row->family; }
-      if ($row->species !== null) { $lines[] = 'Species: ' . $row->species; }
-      array_push($lines, 'Depth: ' . strtolower($depth->name), '',
-        $depth->value >= KnowledgeDepth::OBSERVED->value && $row->deepCard !== null ? $row->deepCard : $row->quickCard);
+      $sections = [[...self::createProse($row->displayName), ...self::createField('Type', $row->recordType),
+        ...self::createField('Family', $row->family ?? ''), ...self::createField('Species', $row->species ?? ''),
+        MenuDetailEntry::createField('Depth', strtolower($depth->name))],
+        self::createProse($depth->value >= KnowledgeDepth::OBSERVED->value && $row->deepCard !== null
+          ? $row->deepCard : $row->quickCard)];
       // Retain the owner's first earned report, including amended/withdrawn status.
       foreach ($knowledge->catalog->reportsFor($row->id) as $report) {
         $state = $knowledge->progress->reportState($row->id, $report->id);
         if ($state === null) { continue; }
-        array_push($lines, '', $report->title, ucfirst(strval($state['status'] ?? 'active')) . ': ' . $report->summary);
-        if ($report->details !== null) { $lines[] = $report->details; }
+        $sections[] = [...self::createProse($report->title),
+          ...self::createField(ucfirst(strval($state['status'] ?? 'active')), $report->summary),
+          ...self::createProse($report->details ?? '')];
         break;
       }
     }
@@ -162,7 +169,7 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
       'Field Index (' . count($knowledge->discoveredSubjects()) . ')'], $this->tab === self::TAB_ACHIEVEMENTS ? 0 : 1,
       'Points: ' . ($manager?->earnedPoints() ?? 0), $rows, $this->activeIndex,
       $this->tab === self::TAB_ACHIEVEMENTS ? 'No achievements authored.' : 'No field records discovered.',
-      $row === null ? '' : $this->tab . ':' . $row->id, implode("\n", $lines), '', $this->viewingDetail, false);
+      $row === null ? '' : $this->tab . ':' . $row->id, new MenuDetailSheet($sections), '', $this->viewingDetail, false);
   }
 
   public function getPresentationPage(int $columns, int $rows): TextPage
@@ -170,8 +177,7 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
     $content = $this->getPresentationContent();
     $reading = clone $this->reading;
     if ($content->entryKey !== $this->readingKey) { $reading->reset(); }
-    $reading->setText($content->detailText);
-    return $reading->page($columns, $rows);
+    return $content->details->createPage($reading, $columns, $rows);
   }
 
   protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
@@ -187,7 +193,7 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
   {
     if ($content->entryKey !== $this->readingKey) { $this->reading->reset(); }
     $this->readingKey = $content->entryKey;
-    $this->reading->setText($content->detailText);
+    $this->reading->setText($content->details->text);
   }
 
   protected function initializeUI(): void
@@ -221,13 +227,26 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
     if ($content->rows === []) { $lines[] = $content->emptyText; }
     $this->listPanel->setContent(array_pad($lines, $capacity, ''));
     $metadata = !$this->viewingDetail && $content->rows !== [] ? ['View details'] : [];
-    $page = $this->reading->page($width, $this->infoPanel->getContentHeight() - count($metadata));
+    $page = $content->details->createPage($this->reading, $width, $this->infoPanel->getContentHeight() - count($metadata),
+      TerminalMenuRow::LABEL_SUFFIX);
     $this->displayedPage = $page;
     $this->infoPanel->setHelp($this->viewingDetail ? 'Details - ' . $page->range() : '');
     $this->infoPanel->setContent(array_pad([...$metadata, ...$page->lines], $this->infoPanel->getContentHeight(), ''));
     $this->summaryPanel->render();
     $this->listPanel->render();
     $this->infoPanel->render();
+  }
+
+  /** @return list<MenuDetailEntry> Authored prose may be absent. */
+  private static function createProse(string $text): array
+  {
+    return trim($text) === '' ? [] : [MenuDetailEntry::createProse($text)];
+  }
+
+  /** @return list<MenuDetailEntry> An authored value may be absent; its field is then omitted. */
+  private static function createField(string $label, string $value): array
+  {
+    return trim($value) === '' ? [] : [MenuDetailEntry::createField($label, $value)];
   }
 
   public function resume(): void

@@ -14,6 +14,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextBatch;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\UI\Text\TextPage;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 use RuntimeException;
 
@@ -94,6 +95,33 @@ final class MenuCanvas
     }
     $this->text[] = new CanvasTextLayer($id, 30, $bounds->x, $bounds->y,
       new RendererGridConfig((int)floor($bounds->width / $m->cellWidth), count($lines), $m->cellWidth, $m->cellHeight), $runs, $bounds);
+    $this->protectText($this->text[array_key_last($this->text)]);
+  }
+
+  /** A measured detail page: prose lines, and label/value fields that share the record palette and separators. */
+  public function details(string $id, MenuDetailLayout $layout, TextPage $page, CanvasRectangle $bounds): void
+  {
+    $m = $this->theme->metrics;
+    $row = $this->theme->rows->metrics;
+    if ($page->source !== $layout->source || $page->columns !== $layout->columns
+      || $page->columns * $m->cellWidth > $bounds->width || $page->rows * $m->cellHeight > $bounds->height) {
+      throw new RuntimeException("Menu details {$id} page must match its measured viewport.");
+    }
+    $lines = array_slice($layout->lines, $page->first, $page->rows);
+    $runs = [];
+    foreach ($lines as $index => $line) {
+      if ($line->label !== '') { $runs[] = new PresentationTextRun($index, 0, $line->label, $this->theme->colors['text']); }
+      if ($line->text !== '') { $runs[] = new PresentationTextRun($index, $line->column, $line->text, $this->theme->colors[$line->color]); }
+      // The data-record rule sits inside the record's last line, as rows keep theirs inside their height.
+      if ($line->closesField && $row->separatorWidth > 0) {
+        $this->fill("{$id}-{$index}-separator", new CanvasRectangle($bounds->x,
+          $bounds->y + ($index + 1) * $m->cellHeight - $row->separatorWidth, $bounds->width, $row->separatorWidth),
+          'edge', 25, $row->recordSeparatorOpacity);
+      }
+    }
+    if ($runs === []) { return; }
+    $this->text[] = new CanvasTextLayer($id, 30, $bounds->x, $bounds->y,
+      new RendererGridConfig($page->columns, count($lines), $m->cellWidth, $m->cellHeight), $runs, $bounds);
     $this->protectText($this->text[array_key_last($this->text)]);
   }
 

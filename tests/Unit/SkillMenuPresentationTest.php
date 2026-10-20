@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Assegai\Collections\Stack;
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Core\Game;
@@ -241,22 +242,22 @@ it('uses plain skill names in terminal lists and detail headers while retaining 
   $name = $magic ? 'Alpha Restore' : 'Alpha Guard';
   $class = $state::class;
   $list = new ReflectionMethod($class, $magic ? 'buildUseEntries' : 'buildReadyEntries')->invoke($state);
-  $details = new ReflectionMethod($class, $magic ? 'buildUseDetailLines' : 'buildReadyDetailLines')->invoke($state);
+  $details = new ReflectionMethod($class, 'buildDetailLines')->invoke($state);
   expect(trim(TerminalText::stripAnsi($list[0])))->toStartWith($name)
     ->and(implode('', $list))->not->toContain('NOT A NATIVE ICON')
     ->and($details[0])->toBe($name)
-    ->and($details[1])->toBe('MP Cost : ' . ($magic ? 3 : 7))
+    ->and($details[1])->toMatch('/^MP Cost' . TerminalMenuRow::LABEL_SUFFIX . ' +' . ($magic ? 3 : 7) . '$/')
     ->and($state->getPresentationContent()->rows[0]->icon)->toBe($magic ? 'skill.magic' : 'skill.ability');
   skillMenuKey($state, KeyCode::RIGHT);
   $name = $magic ? 'Zeta Spell' : 'Zeta Ability';
   $list = new ReflectionMethod($class, 'buildLearnEntries')->invoke($state);
-  $details = new ReflectionMethod($class, 'buildLearnDetailLines')->invoke($state);
+  $details = new ReflectionMethod($class, 'buildDetailLines')->invoke($state);
   expect(trim(TerminalText::stripAnsi($list[0])))->toStartWith($name)
     ->and($details[0])->toBe($name);
   if ($magic) {
     skillMenuKey($state, KeyCode::LEFT);
     skillMenuKey($state, KeyCode::ENTER);
-    $details = new ReflectionMethod($class, 'buildTargetDetailLines')->invoke($state);
+    $details = new ReflectionMethod($class, 'buildDetailLines')->invoke($state);
     expect($details[0])->toBe('Alpha Restore');
   }
 })->with([false, true]);
@@ -267,10 +268,10 @@ it('shows and reviews learned alternate attacks in both field menu presentations
   new ReflectionProperty($this->actor, 'abilityBook')->setValue($this->actor, new AbilityBook([$attack]));
   if ($graphical) { skillMenuRuntime($this, skillMenuTheme()); }
   $state = skillMenuOwner($this, false);
-  $details = new ReflectionMethod(AbilityMenuState::class, 'buildReadyDetailLines')->invoke($state);
+  $details = new ReflectionMethod(AbilityMenuState::class, 'buildDetailLines')->invoke($state);
   $rows = new ReflectionMethod(AbilityMenuState::class, 'buildReadyEntries')->invoke($state);
   expect($details[0])->toBe($attack->name)
-    ->and($details[1])->toBe('MP Cost : 4')
+    ->and($details[1])->toMatch('/^MP Cost' . TerminalMenuRow::LABEL_SUFFIX . ' +4$/')
     ->and(trim(TerminalText::stripAnsi($rows[0])))->toStartWith($attack->name)
     ->and($state->getPresentationContent()->description)->toBe($attack->description);
   if ($graphical) {
@@ -326,7 +327,7 @@ it('agrees with learning flags in terminal and canvas and only spends costs on o
   $state->resume();
   $content = $state->getPresentationContent();
   expect($content->fields['Status'])->toBe('Ready')->and($content->detailText)->toContain('trial.complete [Done]');
-  $terminal = new ReflectionMethod($state, 'buildLearnDetailLines')->invoke($state);
+  $terminal = new ReflectionMethod($state, 'buildDetailLines')->invoke($state);
   expect(implode(' ', $terminal))->toContain('Ready')->toContain('trial.complete [Done]');
   for ($redraw = 0; $redraw < 3; $redraw++) { SkillMenuPresentation::compose($state->getPresentationContent(), $theme); }
   expect($this->party->inventory->getQuantity('token.training'))->toBe(3)->and($this->party->accountBalance)->toBe(300);

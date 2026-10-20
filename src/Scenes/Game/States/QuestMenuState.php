@@ -18,6 +18,7 @@ use Ichiloto\Engine\UI\Presentation\JournalMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\SelectionStyle;
+use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\UI\Text\TextPage;
 use Ichiloto\Engine\UI\Text\TextViewport;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -119,7 +120,7 @@ class QuestMenuState extends GameSceneState implements CanvasProviderInterface
     $quest = $this->quests[$this->activeIndex] ?? null;
     $sections = [];
     if ($quest !== null) {
-      $identity = [['text' => 'Giver: ' . ($quest->giver !== '' ? $quest->giver : '-')],
+      $identity = [['label' => 'Giver', 'text' => $quest->giver !== '' ? $quest->giver : '-'],
         ['text' => $this->describeOverallProgress($quest)]];
       if ($quest->isOptional) { $identity[] = ['text' => 'Side Quest']; }
       $sections[] = new JournalSection($quest->name !== '' ? $quest->name : $quest->id, $identity, $rows[$this->activeIndex]['icon']);
@@ -134,14 +135,14 @@ class QuestMenuState extends GameSceneState implements CanvasProviderInterface
       }
       $sections[] = new JournalSection('Objectives', $objectives, 'journal.objectives');
       if (($rewards = $quest->describeRewards()) !== '') {
-        $sections[] = new JournalSection('Rewards', [['text' => 'Reward: ' . $rewards]], 'journal.rewards');
+        $sections[] = new JournalSection('Rewards', [['label' => 'Reward', 'text' => $rewards]], 'journal.rewards');
       }
     }
     $document = new JournalDocument($sections);
     return new JournalMenuContent('Quests', ['Active (' . count($manager?->activeQuests() ?? []) . ')',
       'Completed (' . count($manager?->completedQuests() ?? []) . ')'], $this->showingCompleted ? 1 : 0, '', $rows,
       $this->activeIndex, $this->showingCompleted ? 'No completed quests.' : 'No active quests.',
-      $quest?->id ?? '', $document->text, $quest?->description ?? '', $this->viewingDetail, true, $document);
+      $quest?->id ?? '', $document->sheet, $quest?->description ?? '', $this->viewingDetail, true, $document);
   }
 
   /** Reading a different renderer's geometry cannot navigate or reset the owner. */
@@ -150,8 +151,7 @@ class QuestMenuState extends GameSceneState implements CanvasProviderInterface
     $content = $this->getPresentationContent();
     $reading = clone $this->reading;
     if ($content->entryKey !== $this->readingKey) { $reading->reset(); }
-    $reading->setText($content->detailText);
-    return $reading->page($columns, $rows);
+    return $content->details->createPage($reading, $columns, $rows);
   }
 
   protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
@@ -167,7 +167,7 @@ class QuestMenuState extends GameSceneState implements CanvasProviderInterface
   {
     if ($content->entryKey !== $this->readingKey) { $this->reading->reset(); }
     $this->readingKey = $content->entryKey;
-    $this->reading->setText($content->detailText);
+    $this->reading->setText($content->details->text);
   }
 
   protected function initializeUI(): void
@@ -191,7 +191,7 @@ class QuestMenuState extends GameSceneState implements CanvasProviderInterface
     assert($this->summaryPanel instanceof MagicTabPanel);
     $this->summaryPanel->setTabs($content->tabs, $content->tabIndex);
     $this->summaryPanel->setContent([...$this->summaryPanel->getContent(), $content->summary]);
-    $page = $this->reading->page($width, $capacity);
+    $page = $content->details->createPage($this->reading, $width, $capacity, TerminalMenuRow::LABEL_SUFFIX);
     $this->displayedPage = $page;
     if ($this->viewingDetail) {
       $lines = $page->lines;

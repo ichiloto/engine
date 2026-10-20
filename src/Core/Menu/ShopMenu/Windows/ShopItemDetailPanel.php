@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\ShopMenu\Windows;
 
+use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\Localization\Vocabulary;
 
 use Ichiloto\Engine\Core\Menu\ShopMenu\ShopMenu;
@@ -62,7 +63,8 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
   public function updateContent(): void
   {
     $content = [
-      sprintf(" %s %39d", get_engine_message('inventory.possession'), $this->possession),
+      TerminalMenuRow::composeField(get_engine_message('inventory.possession'), (string)$this->possession,
+        $this->getContentWidth() - 1, ' ', 'right'),
     ];
 
     $content = array_pad($content, $this->height - 2, '');

@@ -89,6 +89,7 @@ final class QuestJournalPresentation
   {
     $m = $view->theme->metrics;
     $styles = array_slice($document->lines($page->columns), $page->first, $page->rows);
+    $layout = $document->sheet->layout($page->columns);
     $sections = [];
     foreach ($styles as $index => $line) {
       if ($line['section'] !== null) { $sections[$line['section']][] = $index; }
@@ -116,7 +117,7 @@ final class QuestJournalPresentation
       }
       $markers[] = ['text' => $fallback, 'color' => $line['color']];
     }
-    $view->textLines('journal-text', array_map(fn($line) => ['text' => $line['text'], 'color' => $line['color']], $styles), $g['text']);
+    $view->details('journal-text', $layout, $page, $g['text']);
     $view->textLines('journal-markers', $markers, new CanvasRectangle($g['sectionX'] + 2, $g['text']->y,
       $g['gutter'] - 6, $g['text']->height));
   }
