@@ -4,6 +4,7 @@ use Ichiloto\Engine\Animations\Field\FieldPresentationCatalog;
 use Ichiloto\Engine\Animations\Field\FieldPoseAnimation;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
+use Ichiloto\Engine\Field\Enumerations\DoorwayEntrance;
 use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\WorldObjectDefinition;
@@ -63,17 +64,21 @@ it('refuses malformed resource contracts using the existing role pivot path and 
         'fractional doorway' => $source['doorway'] = [['x' => .5, 'y' => 0]],
         'repeated doorway' => $source['doorway'] = [['x' => 0, 'y' => 0], ['x' => 0, 'y' => 0]],
         'doorway budget' => $source['doorway'] = array_map(static fn(int $x): array => ['x' => $x, 'y' => 0], range(0, 16)),
+        'unknown doorway entrance' => $source['doorway'] = [['x' => 0, 'y' => 0, 'entrance' => 'behind']],
+        'untyped doorway entrance' => $source['doorway'] = [['x' => 0, 'y' => 0, 'entrance' => DoorwayEntrance::FRONT]],
     };
     expect(fn() => FieldPresentationCatalog::fromArray(['resources' => [$id => $source]], '/missing-synthetic-root'))
         ->toThrow(InvalidArgumentException::class);
 })->with(['id', 'name', 'unknown field', 'path', 'absolute path', 'pivot', 'nonfinite pivot', 'ui layer', 'null role',
     'source dimensions', 'null stamp', 'untyped collision', 'pass through', 'duplicate cell', 'noninteger offset', 'offset range', 'stamp budget',
-    'empty doorway', 'doorway field', 'fractional doorway', 'repeated doorway', 'doorway budget']);
+    'empty doorway', 'doorway field', 'fractional doorway', 'repeated doorway', 'doorway budget', 'unknown doorway entrance',
+    'untyped doorway entrance']);
 
-it('reads a doorway as relative cells and keeps it absent unless declared', function () {
+it('reads a doorway as relative cells with their declared entrance and keeps it absent unless declared', function () {
     $plain = WorldObjectResource::fromArray('whole', createWorldObjectResourceSource());
-    $cave = WorldObjectResource::fromArray('cave', createWorldObjectResourceSource(['doorway' => [['x' => 0, 'y' => 0], ['x' => 1, 'y' => -1]]]));
-    expect($plain->doorway)->toBe([])->and($cave->doorway)->toBe([['x' => 0, 'y' => 0], ['x' => 1, 'y' => -1]]);
+    $cave = WorldObjectResource::fromArray('cave', createWorldObjectResourceSource(['doorway' => [['x' => 0, 'y' => 0], ['x' => 1, 'y' => -1, 'entrance' => 'front']]]));
+    expect($plain->doorway)->toBe([])->and($cave->doorway)->toBe([
+        ['x' => 0, 'y' => 0, 'entrance' => DoorwayEntrance::ON], ['x' => 1, 'y' => -1, 'entrance' => DoorwayEntrance::FRONT]]);
 });
 
 it('detaches recipe references and resolves signed offsets without clipping or mutating physical data', function () {
