@@ -126,8 +126,8 @@ it('rasterizes actual 32px badges at one to one scale beside synthetic 150px bat
       foreach (array_keys($keys) as $index => $stat) {
         $actor->setStatStage($stat, $sign * ($index % 2 === 0 ? 1 : -1) * ($index % 4 + 1));
       }
-      $actor->addState(new State('poison', 'Poison'));
-      $actor->addState(new State('stun', 'Stun'));
+      $actor->addState(new State('poison', 'Poison', label: 'PSN'));
+      $actor->addState(new State('stun', 'Stun', label: 'STN'));
       $box = new CanvasRectangle(335 + 400 * $column, $y, 75, 150);
       $battlers[spl_object_id($actor)] = $actor;
       $bounds[spl_object_id($actor)] = $box;

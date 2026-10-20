@@ -3,6 +3,9 @@
 namespace Ichiloto\Engine\Entities\Inventory\Items;
 
 use Ichiloto\Engine\Entities\Effects\EffectFactory;
+use Ichiloto\Engine\Entities\Effects\ResurrectionEffect;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
 use Ichiloto\Engine\Entities\Enumerations\ItemUserType;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Interfaces\EffectInterface;
@@ -18,6 +21,23 @@ use ReflectionException;
 class Item extends InventoryItem
 {
   protected(set) ?int $animationId = null;
+
+  /**
+   * @var ItemScopeStatus The life status the item's targets must have. An
+   * authored scope states it; an item authored without a scope side reaches
+   * the fallen when it resurrects and the living otherwise.
+   */
+  public ItemScopeStatus $targetStatus {
+    get {
+      if ($this->scope->side !== ItemScopeSide::NONE) {
+        return $this->scope->status;
+      }
+
+      return array_any($this->effects, static fn($effect): bool => $effect instanceof ResurrectionEffect)
+        ? ItemScopeStatus::DEAD
+        : ItemScopeStatus::ALIVE;
+    }
+  }
 
   /**
    * The Item constructor.

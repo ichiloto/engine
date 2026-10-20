@@ -9,6 +9,7 @@ use Ichiloto\Engine\Entities\Effects\HPRecoveryEffect;
 use Ichiloto\Engine\Entities\Effects\MaxHPIncrementEffect;
 use Ichiloto\Engine\Entities\Effects\MaxMPIncrementEffect;
 use Ichiloto\Engine\Entities\Effects\MPRecoveryEffect;
+use Ichiloto\Engine\Entities\Effects\RemoveStateEffect;
 use Ichiloto\Engine\Entities\Effects\ResurrectionEffect;
 use Ichiloto\Engine\Entities\Enumerations\ArmorType;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
@@ -57,7 +58,16 @@ final class ItemRecord
     'hp_damage' => HPDamageEffect::class,
     'max_hp_increment' => MaxHPIncrementEffect::class,
     'max_mp_increment' => MaxMPIncrementEffect::class,
+    'remove_state' => RemoveStateEffect::class,
   ];
+
+  /** The keys an effect holds besides its type, name and description, by type; the rest share the value keys. */
+  private const array EFFECT_KEYS = [
+    'remove_state' => ['stateIds'],
+  ];
+
+  /** The keys an effect with a value holds besides its type, name and description. */
+  private const array VALUE_EFFECT_KEYS = ['value', 'successRate', 'valueBasis'];
 
   /** The keys every kind's data may hold. */
   private const array COMMON_KEYS = [
@@ -311,12 +321,6 @@ final class ItemRecord
         throw new InvalidArgumentException(sprintf('%s must be an effect.', rtrim($path, '.')));
       }
 
-      foreach (array_keys($effect) as $key) {
-        if (! in_array($key, ['type', 'name', 'description', 'value', 'successRate', 'valueBasis'], true)) {
-          throw new InvalidArgumentException(sprintf('Unknown key "%s%s" for an item effect.', $path, $key));
-        }
-      }
-
       $type = self::requireString($effect, 'type', $path);
       $class = self::EFFECTS[$type] ?? throw new InvalidArgumentException(sprintf(
         '%stype "%s" is not one of %s.',
@@ -324,6 +328,29 @@ final class ItemRecord
         $type,
         implode(', ', array_keys(self::EFFECTS)),
       ));
+
+      foreach (array_keys($effect) as $key) {
+        if (! in_array($key, ['type', 'name', 'description', ...(self::EFFECT_KEYS[$type] ?? self::VALUE_EFFECT_KEYS)], true)) {
+          throw new InvalidArgumentException(sprintf('Unknown key "%s%s" for a %s item effect.', $path, $key, $type));
+        }
+      }
+
+      if ($class === RemoveStateEffect::class) {
+        $stateIds = $effect['stateIds'] ?? null;
+
+        if (! is_array($stateIds) || $stateIds === [] || ! array_is_list($stateIds)
+          || array_filter($stateIds, static fn(mixed $id): bool => ! is_string($id) || trim($id) === '') !== []) {
+          throw new InvalidArgumentException(sprintf('%sstateIds must list the states it cures.', $path));
+        }
+
+        $read[] = new RemoveStateEffect(
+          self::requireText($effect, 'name', $path),
+          self::requireText($effect, 'description', $path),
+          $stateIds,
+        );
+        continue;
+      }
+
       $successRate = $effect['successRate'] ?? 1.0;
 
       if (! is_int($successRate) && ! is_float($successRate)) {
@@ -351,6 +378,16 @@ final class ItemRecord
   {
     $type = array_search($effect::class, self::EFFECTS, true)
       ?: throw new InvalidArgumentException(sprintf('%s is not an effect an item record can name.', $effect::class));
+
+    if ($effect instanceof RemoveStateEffect) {
+      return [
+        'type' => $type,
+        'name' => $effect->name,
+        'description' => $effect->description,
+        'stateIds' => $effect->stateIds,
+      ];
+    }
+
     $data = [
       'type' => $type,
       'name' => $effect->name,

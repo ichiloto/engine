@@ -181,12 +181,16 @@ an `effect` id and optional `edges` keyed by eight compass directions.
 Each edge names an asset-relative PNG and optional clockwise `quarterTurns`
 (0..3). These pinned sprites are excluded from camera follow. Quarter-turn
 support is an optional renderer drawing capability, not a native effect clock.
-An event's explicit `cue.kind` is `story` or `route`. Only story cues produce
-edge arrows; omitted kinds remain unclassified, physical-only, pending author
-review. Color never implies kind. Existing cue conditions and terminal styling
-remain authoritative and unchanged.
-Unavailable edge images or quarter-turn support retain the cell's cue artwork
-and log a note; they do not suppress an otherwise usable cue effect.
+Edge images belong to objective waymarks: the binding whose colour matches the
+game's `waymarks.color` draws waymark markers and their edge arrows (see
+[Waymarks](quests.md#waymarks-where-an-objective-sends-the-player)). Cues
+themselves always stay at their authored cells. An event's explicit `cue.kind`
+(`story` or `route`) remains authored classification; since 20 October 2026 a
+story cue no longer draws its own edge arrow, because quest objectives own
+off-screen guidance. Color never implies kind. Existing cue conditions and
+terminal styling remain authoritative and unchanged.
+A binding without all eight usable edge images (or a renderer that cannot
+rotate them) leaves waymarks as terminal glyphs and logs a note once.
 
 The initial field subset did not include battle playback; its current shared
 runtime and outstanding acceptance are recorded below. Still outstanding for

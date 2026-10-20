@@ -285,9 +285,11 @@ also reports unknown commands before playtesting from the same authoritative
 `EventInterpreter::COMMAND_TYPES` vocabulary.
 
 `recover_party` is the generic stable-checkpoint recovery command. It restores
-HP, MP, and AP for every travelling member and clears battle-only states. It
-does not change equipment, inventory, experience, party order, persistent
-states, or story state.
+HP, MP, and AP for every travelling member, clears battle-only states and
+cures the persistent states authored as `curedByRest` (an inn stay cures the
+same states). It does not change equipment, inventory, experience, party
+order, persistent states authored with `curedByRest => false`, or story
+state.
 
 ## Movement routes
 

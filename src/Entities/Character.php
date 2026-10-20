@@ -33,6 +33,7 @@ use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationScore;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Skills\BasicSkill;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
+use Ichiloto\Engine\Entities\Skills\SkillTargetPolicy;
 use Ichiloto\Engine\Entities\Magic\Spellbook;
 use Ichiloto\Engine\Entities\Roles\CharacterRole;
 use Ichiloto\Engine\Entities\Skills\Skill;
@@ -654,6 +655,9 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
   }
 
   /**
+   * Uses an item on this character from the field menu, telling the player
+   * what happened.
+   *
    * @param InventoryItem $item
    * @param int $quantity
    * @inheritDoc
@@ -661,25 +665,99 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
    */
   public function use(InventoryItem $item, int $quantity = 1): void
   {
-    if (! $this->canUseItem($item) ) {
-      alert(sprintf('%s cannot be used.', $item->name));
+    $refusal = $this->getItemUseRefusal($item);
+
+    if ($refusal !== null) {
+      alert($refusal);
       return;
     }
 
     assert($item instanceof Item);
-    for ($uses = 0; $uses < $quantity; $uses++) {
-      if ($item->quantity < 1) {
-        alert(sprintf('%s is out of stock.', $item->name));
-        return;
-      }
+    $this->applyItem($item, $quantity);
+    alert(get_engine_message('item.used', $item->name, $this->name));
+  }
 
+  /**
+   * Explains why an item cannot be used on this character from the field
+   * menu now: equipment is never used, the item's occasion must allow the
+   * menu, this character must have the life status the item reaches, and the
+   * item must change something (a Potion at full HP or an Antidote on a
+   * healthy character would only be wasted).
+   *
+   * @param InventoryItem $item The item.
+   * @return string|null Why it cannot be used, or null when it can.
+   */
+  public function getItemUseRefusal(InventoryItem $item): ?string
+  {
+    if (! $item instanceof Item || ! $this->canUseItem($item)) {
+      return get_engine_message('item.cannot_use', $item->name);
+    }
+
+    if ($item->quantity < 1) {
+      return get_engine_message('item.out_of_stock', $item->name);
+    }
+
+    if (! in_array($item->occasion, [Occasion::ALWAYS, Occasion::MENU_SCREEN], true)) {
+      return get_engine_message('item.wrong_occasion', $item->name);
+    }
+
+    if (! SkillTargetPolicy::matchesStatus($this, $item->targetStatus) || ! $this->wouldItemChange($item)) {
+      return get_engine_message('item.no_effect', $item->name, $this->name);
+    }
+
+    return null;
+  }
+
+  /**
+   * Applies up to the given quantity of an item to this character, one unit
+   * at a time, consuming only the units that change something.
+   *
+   * @param Item $item The item.
+   * @param int $quantity The most units to use.
+   * @return int The units used.
+   */
+  public function applyItem(Item $item, int $quantity = 1): int
+  {
+    $used = 0;
+
+    while ($used < $quantity && $this->getItemUseRefusal($item) === null) {
       foreach ($item->effects as $effect) {
         $effect->apply($this);
       }
 
       $item->quantity--;
+      $used++;
     }
-    alert(sprintf("Used %s on %s", $item->name, $this->name));
+
+    return $used;
+  }
+
+  /**
+   * Determines whether an item's effects would change this character, by
+   * applying them to a copy; nothing here changes.
+   *
+   * @param Item $item The item.
+   * @return bool True when HP, MP, stats or states would change.
+   */
+  private function wouldItemChange(Item $item): bool
+  {
+    $probe = clone $this;
+    $before = $probe->captureItemTargetCondition();
+
+    foreach ($item->effects as $effect) {
+      $effect->apply($probe);
+    }
+
+    return $probe->captureItemTargetCondition() !== $before;
+  }
+
+  /** Captures the values an item can change, detached from the live objects. */
+  private function captureItemTargetCondition(): string
+  {
+    return serialize([
+      $this->stats->jsonSerialize(),
+      array_map(static fn(StateInstance $instance): array => [$instance->state->id, $instance->remainingTurns], $this->states),
+    ]);
   }
 
   /**
@@ -1390,6 +1468,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
         static fn(StateInstance $instance): array => [
           'id' => $instance->state->id,
           'remainingTurns' => $instance->remainingTurns,
+          ...($instance->fieldSteps > 0 ? ['fieldSteps' => $instance->fieldSteps] : []),
         ],
         array_values(array_filter(
           $this->states,
@@ -1458,7 +1537,18 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
         ));
       }
 
-      $this->states[] = new StateInstance($state, $remainingTurns);
+      $fieldSteps = $entry['fieldSteps'] ?? 0;
+
+      if (! is_int($fieldSteps) || $fieldSteps < 0) {
+        throw new PersistentStateRestoreException(sprintf(
+          'Persistent state "%s" has an invalid fieldSteps value.',
+          $stateId
+        ));
+      }
+
+      // A state re-authored with fewer steps acts on the next step, never skips a turn.
+      $limit = $state->fieldTickSteps === null ? 0 : $state->fieldTickSteps - 1;
+      $this->states[] = new StateInstance($state, $remainingTurns, min($fieldSteps, $limit));
     }
   }
 
@@ -1503,5 +1593,18 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
   {
     $this->stats->currentHp = $this->stats->totalHp;
     $this->stats->currentMp = $this->stats->totalMp;
+  }
+
+  /**
+   * Recovers the character as a rest does (an inn stay or a full party
+   * recovery): HP and MP are restored and the states authored as cured by
+   * rest are removed. AP and other states are unchanged.
+   *
+   * @return void
+   */
+  public function recoverFromRest(): void
+  {
+    $this->restoreVitals();
+    $this->removeRestCurableStates();
   }
 }

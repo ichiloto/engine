@@ -13,6 +13,7 @@ use Ichiloto\Engine\Localization\MessageCatalog;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\IO\Console\TerminalText;
 
 /** Shared physical atlas drawing. It reads knowledge supplied by gameplay. */
 final class MapAtlasTerminal
@@ -60,10 +61,14 @@ final class MapAtlasTerminal
         return $base;
     }
 
-    /** @return list<string> Stable whole-map rows; a selected landmark takes priority in a cluster. */
+    /**
+     * @param list<\Ichiloto\Engine\Field\Waymarks\FieldWaymark> $waymarks Drawn over landmarks, under a selection and the player.
+     * @return list<string> Stable whole-map rows; a selected landmark takes priority in a cluster.
+     */
     public static function renderMap(MapOverview $overview, array $landmarks, Vector2 $player,
         MovementHeading $heading, int $width, int $height, int $selected = -1,
-        ?MapProjection $projection = null, bool $global = false, bool $drawOutlines = true): array
+        ?MapProjection $projection = null, bool $global = false, bool $drawOutlines = true,
+        array $waymarks = [], ?\Ichiloto\Engine\Animations\Field\FieldWaymarkStyle $waymarkStyle = null): array
     {
         $projection ??= $overview->getTerminalProjection($width, $height);
         $raster = $overview->getTerminalRaster($width, $height, $projection,$drawOutlines);
@@ -94,6 +99,17 @@ final class MapAtlasTerminal
                     $occupied[$key] = false;
                 }
             }
+        }
+        $waymarkStyle ??= new \Ichiloto\Engine\Animations\Field\FieldWaymarkStyle();
+        foreach ($waymarks as $waymark) {
+            $cell = $waymark->anchor->cell;
+            if (!$projection->containsCell((int)$cell->x,(int)$cell->y)) { continue; }
+            $point = $projection->projectCell((int)$cell->x, (int)$cell->y);
+            $x = min($width - 1, (int) floor($point->x));
+            $y = min($height - 1, (int) floor($point->y));
+            if (($occupied["{$x}:{$y}"] ?? false) === true) { continue; }
+            $raster[$y][$x] = TerminalText::formatStyles($waymarkStyle->styleSymbol());
+            $occupied["{$x}:{$y}"] = false;
         }
         $playerX = (int) floor($player->x);
         $playerY = (int) floor($player->y);

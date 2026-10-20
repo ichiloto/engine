@@ -202,6 +202,12 @@ The single highest-leverage build. A `GameState` store carried by
 > See [quests.md](quests.md). The editor's quests database category also
 > shipped (list/objectives/rewards/preview panes, lossless round-trip,
 > Save All + dirty markers + identity-pinned undo integration).
+>
+> Objective waymarks (PT-19, 20 October 2026): objectives author `waymarks`
+> as stable map subjects with their own conditions; the field shows them on
+> screen or as edge arrows, the local and world maps mark them, and the next
+> usable exit is marked for objectives on other maps
+> ([quests.md](quests.md#waymarks-where-an-objective-sends-the-player)).
 
 A pure consumer of Phase 1:
 - `assets/Data/quests.php`: id, name, description, giver, steps/objectives
@@ -220,6 +226,12 @@ A pure consumer of Phase 1:
 > round ticks with popups and expiry alerts in `TurnResolutionState`,
 > prevents-action states consume turns, non-persistent states clear at
 > battle end (demo: Poison + Stun, Venom Strike + Cleanse skills).
+> **Field conditions** (2026-10-20): a state may act while the party walks
+> (`fieldTickSteps`, stopping at 1 HP unless `fieldTickKnocksOut`), rest
+> cures states authored `curedByRest` (inns and `recover_party`), the item
+> `remove_state` effect cures states, field item use refuses items that
+> would change nothing, and the Status menu, party cards and item targets
+> show conditions in both renderers with an authored badge `label`.
 > **Buffs/debuffs** (`HasStatStages`): ±4 stages at 25% per stage,
 > `ModifyStatStageSkillEffect`, composed through `BattlerBattleView` so
 > damage formulas, basic attacks, and turn-order speed all see

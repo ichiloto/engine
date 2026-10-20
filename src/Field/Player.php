@@ -398,6 +398,10 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     // never cuts the slide short. Without a slide it happens at once.
     $this->pendingArrival = function () use ($event, $collisionType): void {
       $this->handleTriggers($event);
+      // A party that falls to a walking condition meets no encounter.
+      if ($this->getGameScene()->fieldConditions?->registerStep() === false) {
+        return;
+      }
       $this->getGameScene()->encounterManager?->registerStep($collisionType);
       if ($this->getGameScene()->mapManager->isAtSavePoint) {
         alert("Access the Menu to save your progress.", 'Save Point');
@@ -904,6 +908,20 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     return null;
   }
 
+  /** Finds a current-map event by its stable marker letter. */
+  public function findEventByMarker(string $marker): ?EventTrigger
+  {
+    $marker = trim($marker);
+
+    foreach ($this->events as $event) {
+      if ($event->marker === $marker) {
+        return $event;
+      }
+    }
+
+    return null;
+  }
+
   /**
    * Renders authored cues for available, incomplete map events.
    *
@@ -931,6 +949,28 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
         }
       }, PresentationLayerPolicy::WORLD);
     }
+
+    // Waymarks are field guidance too; recomposed frames rebuild their layer here.
+    $this->getGameScene()->renderFieldWaymarks(force: true);
+  }
+
+  /**
+   * The markers of events whose own cue shows now, which stand in for a
+   * waymark on the same event while it is on screen.
+   *
+   * @return array<string, true>
+   */
+  public function getCuedEventMarkers(): array
+  {
+    $markers = [];
+
+    foreach ($this->events as $event) {
+      if ($event->marker !== null && $event->shouldRenderCue()) {
+        $markers[$event->marker] = true;
+      }
+    }
+
+    return $markers;
   }
 
   /**

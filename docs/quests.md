@@ -65,6 +65,85 @@ Objectives that mirror world state (`collect`, `reach_map`, `flag`) are
 re-evaluated when the quest is accepted, so a quest the player has already
 partly satisfied starts with honest progress.
 
+## Waymarks: where an objective sends the player
+
+An objective may list `waymarks`, the places the player should head for.
+They are guidance only: they never advance or complete anything.
+
+```php
+['type' => 'flag', 'target' => 'garden_crosswind_evidence_complete',
+  'description' => 'Take the five readings.',
+  'waymarks' => [
+    ['map' => 'overworld/garden-of-roads', 'event' => 'H',
+      'conditions' => [['type' => 'event', 'name' => 'garden_crosswind_tracks_recorded', 'negate' => true]]],
+    ['map' => 'overworld/garden-of-roads', 'npc' => 'jori-dalen'],
+    ['map' => 'garden-of-roads/crosswind-relay', 'object' => 'pressure-trace-1'],
+  ]],
+```
+
+Each waymark names a `map` and at most one stable subject on it: an `event`
+marker letter, an `npc` id, a world `object` id or a minimap `landmark` id.
+Moving that subject in the Editor moves the waymark with it, so waymarks
+never store coordinates. A waymark without a subject is the map as a whole:
+it marks the way there and nothing once the player arrives.
+
+A waymark shows while its objective is incomplete, its quest is active and
+its own `conditions` hold (the same condition shapes as event triggers). A
+waymark on an event or an NPC also follows that subject as its map authors
+it: an event shows while its conditions hold, its cue's conditions hold
+(when it has a cue) and, if one-shot, it is not yet complete; an NPC shows
+while its presence conditions hold. So a waymark on an event appears with
+that event's own `!`, and its phase is never restated on the quest.
+Together these cover the common shapes:
+
+- **Phases.** A strictly ordered chain gives each step a condition on the
+  previous step's flag or a step variable, so only the current step shows.
+- **Free order.** Several waymarks without ordering conditions show at once,
+  each with a condition that hides it once its own part is done.
+- **Optional extras** are simply not listed; their own event cues remain.
+
+Every active quest contributes, side quests included. Waymarks are derived
+from the quest log and world state each time they are drawn, so they are
+right straight after a load or a long break and add nothing to saves.
+
+### On the field, the local map and the world map
+
+`GameScene::getFieldWaymarks()` resolves the current waymarks for the active
+map. A subject here is marked where it is now (moving NPCs are followed). A
+waymark on another map marks the first exit of the cheapest usable route
+toward it. Routes come from `Field\MapRouteGraph`: transfer events, legacy
+transfers, and reusable script events whose script transfers the player (a
+repeatable transport). One-shot scripts and cinematics are story
+consequences, so they are not routes. A route counts while its event's
+conditions hold, and a route through a secret landmark counts only once that
+landmark is revealed. Plain passages win over scripted transports of equal
+length. An exit that is itself a target is marked once, as the target.
+
+On the field, an on-screen waymark draws the game's waymark symbol, above a
+character or at an event; an event's own cue stands in for it while visible.
+An off-screen waymark hugs the view edge with an arrow pointing toward it,
+kept off the player's cell. Guidance hides while a cinematic owns the field,
+and the UI layer (dialogue, menus) always draws over it. The local map marks
+objectives and routes with legend entries **Objective** and **Way to
+objective**. The world map marks objectives that lie on it, and the places it
+enters through for objectives inside them, only while that place is visible
+to the player, so it never reveals an undiscovered location.
+
+The style is the game's: `waymarks` in `Data/Presentation/field.php`.
+
+```php
+'waymarks' => ['color' => 'bright-yellow', 'symbol' => '!', 'inset' => 0],
+```
+
+`color` is a terminal colour and selects the graphical art too: the cue
+binding of that colour supplies the on-screen effect and its eight edge
+images. `inset` keeps edge arrows that many cells in from the edge (0..8).
+These are the Engine defaults when `waymarks` is omitted. Without a usable
+binding (effect image and all eight edges the renderer can draw), the
+terminal glyphs remain the waymarks in the graphical field as well. Map
+markers use the menu theme's `objective` colour and the optional icon roles
+`map.objective` and `map.objective.route`.
+
 ## Giving quests
 
 Any event trigger can grant a quest through its completion `sets`:

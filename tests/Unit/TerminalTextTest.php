@@ -214,11 +214,19 @@ it('keeps padded columns aligned around unstable glyphs', function () {
 
 it('remeasures modifier graphemes when the terminal composition capability changes', function (bool $first) {
   $capability = new ReflectionProperty(\Ichiloto\Engine\IO\Console\TerminalCapabilities::class, 'supportsCompositeEmoji');
-  foreach ([$first, !$first, $first] as $composes) {
-    $capability->setValue(null, $composes);
-    $glyph = "\u{261D}\u{1F3FD}";
-    expect(TerminalText::stabilizeSymbol($glyph))->toBe($composes ? $glyph : "\u{261D}")
-      ->and(TerminalText::displayWidth($glyph))->toBe($composes ? 2 : 1);
+  // A project setting outranks detection; this test drives detection alone, whatever an earlier test configured.
+  $store = new ReflectionClass(\Ichiloto\Engine\Util\Config\ConfigStore::class);
+  $saved = $store->getStaticProperties();
+  \Ichiloto\Engine\Util\Config\ConfigStore::remove(\Ichiloto\Engine\Util\Config\ProjectConfig::class);
+  try {
+    foreach ([$first, !$first, $first] as $composes) {
+      $capability->setValue(null, $composes);
+      $glyph = "\u{261D}\u{1F3FD}";
+      expect(TerminalText::stabilizeSymbol($glyph))->toBe($composes ? $glyph : "\u{261D}")
+        ->and(TerminalText::displayWidth($glyph))->toBe($composes ? 2 : 1);
+    }
+  } finally {
+    foreach ($saved as $name => $value) { $store->setStaticPropertyValue($name, $value); }
   }
 })->with([false, true]);
 
