@@ -81,6 +81,7 @@ function fullEnemyRecord(string $name = 'Blob'): array
     'stateResistances' => ['poison' => 0.5],
     'elementAffinities' => ['Fire' => 2.0, 'Water' => -1.0],
     'knowledgeSubjectId' => 'creature.blob',
+    'attackSkill' => 'Nip',
   ];
 }
 
@@ -125,6 +126,8 @@ it('builds an enemy from its record, resolving skills through the shared catalog
       ->and($blob->getElementMultiplier('fire'))->toBe(2.0)
       ->and($blob->stateResistances)->toBe(['poison' => 0.5])
       ->and($blob->knowledgeSubjectId)->toBe('creature.blob')
+      // Its inherent attack is the catalogue's skill too.
+      ->and($blob->attackSkill)->toBe($skills->findSkill('Nip'))
       ->and($catalog->getSourceFile('Blob'))->toBe('Enemies/blob.php');
   });
 });
@@ -134,7 +137,7 @@ it('writes back exactly the record it read', function () {
     $skills = SkillCatalog::load($assets);
     $minimal = fullEnemyRecord();
     unset($minimal['actionPatterns'], $minimal['position'], $minimal['battleAnimation'],
-      $minimal['stateResistances'], $minimal['elementAffinities'], $minimal['knowledgeSubjectId']);
+      $minimal['stateResistances'], $minimal['elementAffinities'], $minimal['knowledgeSubjectId'], $minimal['attackSkill']);
 
     foreach ([fullEnemyRecord(), $minimal] as $record) {
       expect(EnemyRecord::writeEnemy(EnemyRecord::readEnemy($record, $skills)))->toBe($record);
@@ -166,6 +169,10 @@ it('reports a broken record against its file and keeps the other enemies', funct
   'unknown condition' => [
     array_replace(fullEnemyRecord('Broken'), ['actionPatterns' => [['skill' => 'Nip', 'rating' => 5, 'condition' => ['type' => 'Moon']]]]),
     'actionPatterns.0.condition.type "Moon"',
+  ],
+  'unknown attack skill' => [
+    array_replace(fullEnemyRecord('Broken'), ['attackSkill' => 'Roar']),
+    'The enemy attackSkill "Roar" must reference a catalogued BasicSkill',
   ],
   'missing sprite' => [array_replace(fullEnemyRecord('Broken'), ['imagePath' => 'ghost']), 'ghost'],
 ]);
