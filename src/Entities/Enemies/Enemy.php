@@ -58,10 +58,15 @@ class Enemy implements CharacterInterface, CounterAttackProvider, InherentAttack
    */
   protected(set) int $knockoutFloorPercent = 0;
 
-  /** @inheritDoc */
+  /**
+   * @inheritDoc
+   *
+   * Rounded down, so an enemy held at its floor is always at or below the
+   * same share of its HP, which is how an event page's HP condition reads it.
+   */
   public int $knockoutFloor {
     get => $this->knockoutFloorPercent === 0 || $this->hasConceded ? 0
-      : max(1, intdiv($this->stats->totalHp * $this->knockoutFloorPercent + 99, 100));
+      : max(1, intdiv($this->stats->totalHp * $this->knockoutFloorPercent, 100));
   }
 
   /**
@@ -73,6 +78,12 @@ class Enemy implements CharacterInterface, CounterAttackProvider, InherentAttack
   {
     if ($percent < 0 || $percent > 99) {
       throw new \InvalidArgumentException('An enemy knockout floor must be a share of maximum HP from 0 to 99.');
+    }
+
+    // A share under 1 HP could only be reached at 0 HP, which the floor exists to prevent.
+    if ($percent > 0 && $this->stats->totalHp * $percent < 100) {
+      throw new \InvalidArgumentException(sprintf('A %d%% knockout floor of %s\'s %d maximum HP is less than 1 HP; raise it.',
+        $percent, $this->name, $this->stats->totalHp));
     }
 
     $this->knockoutFloorPercent = $percent;
