@@ -58,6 +58,14 @@ files independently of menu capacity. No Game setting is needed for 30 slots.
 Editor controls for authoring this project setting are not implemented here;
 source-preserving settings authoring remains in the Editor owner's lane.
 
+Arriving on a save point cell (`?` collision) runs the event script named by
+`config.php` `save.point_script`, as a `common_event` would, so a game can heal,
+pay out held income or speak there. Without one, the Engine shows its own save
+point notice, reworded through the `save.point_prompt` and `save.point_title`
+Terms (a blank prompt is silent). The script id is validated as a stable id;
+the Editor offers it from the project's event scripts in Configuration.
+**Removed:** the hard-coded English save point alert text.
+
 `SaveManager::getSaveSlots()` remains the numbered-only writable Save catalog.
 Developer `config.php` options `save.autosave` (default false) and
 `save.quicksave` (default true, preserving the existing Quick Save capability)
