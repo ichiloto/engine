@@ -43,11 +43,12 @@ afterEach(function () {
 it('diagnoses field clearance, side clearance and both overlapping members without changing placement', function () {
   $party = new CanvasImage('party', 'image.png', new CanvasRectangle(900, 100, 100, 100));
   $enemy = new CanvasImage('enemy', 'image.png', new CanvasRectangle(550, 60, 100, 100));
-  $other = new CanvasImage('other', 'image.png', new CanvasRectangle(590, 100, 100, 100));
+  // Standing on the same ground: the footings (the lowest part of the art, across its middle) overlap.
+  $other = new CanvasImage('other', 'image.png', new CanvasRectangle(590, 64, 100, 100));
   $before = serialize([$party, $enemy, $other, $this->layout]);
   $issues = BattleFormationClearance::inspect($this->layout, [$party], [$enemy, $other], $this->root);
-  expect($issues['party'])->toBeEmpty()->and(implode(' ', $issues['enemy']))->toContain('battler area', 'enemy area', 'overlaps battler other')
-    ->and(implode(' ', $issues['other']))->toContain('enemy area', 'overlaps battler enemy')
+  expect($issues['party'])->toBeEmpty()->and(implode(' ', $issues['enemy']))->toContain('battler area', 'enemy area', 'same ground as battler other')
+    ->and(implode(' ', $issues['other']))->toContain('enemy area', 'same ground as battler enemy')
     ->and(serialize([$party, $enemy, $other, $this->layout]))->toBe($before);
 });
 
@@ -65,8 +66,8 @@ it('keeps diagnostic keys opaque while naming both overlapping members with thei
   $before = serialize($images);
   $issues = BattleFormationClearance::inspect(new BattleCanvasLayout(1350, 720), [], $images, $this->root, $labels);
   expect($issues)->toBe([
-    'opaque-a' => ['Visible artwork overlaps battler Same creature (enemy member 2).'],
-    'opaque-b' => ['Visible artwork overlaps battler Same creature (enemy member 1).'],
+    'opaque-a' => ['Stands on the same ground as battler Same creature (enemy member 2).'],
+    'opaque-b' => ['Stands on the same ground as battler Same creature (enemy member 1).'],
   ])->and(serialize($images))->toBe($before)
     ->and(BattleFormationClearance::getBattlerLabel('Hero', true, 2))->toBe('Hero (party slot 3)');
 });
@@ -102,7 +103,7 @@ it('refuses side regions outside the canvas before composition', function () {
     ->toThrow(InvalidArgumentException::class);
 });
 
-it('checks cursor clearance against the explicit field and other visible members', function () {
+it('checks cursor clearance against the explicit field and side regions', function () {
   $enemy = new CanvasImage('enemy', 'image.png', new CanvasRectangle(20, 80, 580, 420));
   $issues = BattleFormationClearance::inspect($this->layout, [], [$enemy], $this->root);
   expect(implode(' ', $issues['enemy']))->toContain('No target cursor placement');
@@ -117,4 +118,12 @@ it('accepts edge contact and retains regions when an arena replaces the skin', f
   $layout = $this->layout->getForArena($arena);
   expect($layout->battlerArea)->toBe($this->layout->battlerArea)->and($layout->enemyArea)->toBe($this->layout->enemyArea)
     ->and($layout->partyArea)->toBe($this->layout->partyArea);
+});
+
+it('lets one battler stand in front of another, its art covering the other\'s, without a diagnostic', function () {
+  // Behind: feet at 300. In front, lower and overlapping its art: feet at 380.
+  $behind = new CanvasImage('behind', 'image.png', new CanvasRectangle(500, 200, 100, 100));
+  $front = new CanvasImage('front', 'image.png', new CanvasRectangle(530, 280, 100, 100));
+  expect(BattleFormationClearance::inspect(new BattleCanvasLayout(1350, 720), [], [$behind, $front], $this->root))
+    ->toBe(['behind' => [], 'front' => []]);
 });

@@ -98,7 +98,38 @@ final readonly class BattlePresentationCatalog
     $catalog = self::loadCode($assetRoot);
     if ($catalog === null) { return null; }
     $bindings = BattlerBindings::load($assetRoot);
-    return $bindings === null ? $catalog : $catalog->bindBattlers($bindings);
+    $catalog = $bindings === null ? $catalog : $catalog->bindBattlers($bindings);
+    $arenas = BattleArenaBindings::load($assetRoot);
+    return $arenas === null ? $catalog : $catalog->bindArenas($arenas);
+  }
+
+  /**
+   * This catalog with arenas bound as data ({@see BattleArenaBindings})
+   * beside those its code registers. Each arena identity, and the default
+   * arena, has one owner: one named in both is refused, never overridden.
+   *
+   * @throws InvalidArgumentException When code and data both own an arena or the default, or no layout can draw them.
+   */
+  public function bindArenas(BattleArenaBindings $bindings): self
+  {
+    if ($bindings->arenas === []) {
+      return $bindings->defaultArena === null ? $this
+        : throw new InvalidArgumentException(BattleArenaBindings::FILE . ' names a default arena it does not declare.');
+    }
+    $ui = $this->ui ?? throw new InvalidArgumentException(BattleArenaBindings::FILE
+      . ' declares arenas, but ' . self::FILE . ' gives no battle canvas layout to draw them on.');
+    $shared = array_values(array_intersect(array_keys($bindings->arenas), array_keys($this->arenas)));
+    if ($shared !== []) {
+      throw new InvalidArgumentException(sprintf('%s %s declared both in %s and in %s; one of them must own it.',
+        implode(', ', $shared), count($shared) === 1 ? 'is' : 'are', self::FILE, BattleArenaBindings::FILE));
+    }
+    if ($bindings->defaultArena !== null && $this->defaultArena !== null) {
+      throw new InvalidArgumentException(sprintf('The default battle arena is named both in %s and in %s; one of them must own it.',
+        self::FILE, BattleArenaBindings::FILE));
+    }
+    return new self([...$this->arenas, ...$bindings->getDefinitions($ui->width, $ui->height)], $this->actors, $this->enemies,
+      $this->ui, $this->results, $this->pause, $this->actorPoses, $this->enemyPoses,
+      $this->defaultArena ?? $bindings->defaultArena, $this->scale);
   }
 
   /** Load the validated code-owned catalog so editors can bind proposed, unsaved data. */

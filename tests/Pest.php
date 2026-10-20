@@ -12,6 +12,7 @@ use Ichiloto\Engine\UI\UIManager;
 use Tests\Support\PassiveGame;
 
 require_once __DIR__ . '/Support/PassiveGame.php';
+require_once __DIR__ . '/Support/BattleStageFixtures.php';
 
 /*
 |--------------------------------------------------------------------------

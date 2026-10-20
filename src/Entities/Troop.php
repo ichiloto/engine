@@ -7,7 +7,7 @@ use Ichiloto\Engine\Battle\BattleClassification;
 use Ichiloto\Engine\Battle\EscapePolicy;
 use Ichiloto\Engine\Battle\Events\BattleEventPage;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
-use Ichiloto\Engine\Battle\Presentation\BattlerSlot;
+use Ichiloto\Engine\Battle\Presentation\BattleStageSlot;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
@@ -50,7 +50,7 @@ class Troop extends BattleGroup
    * An optional authored retreat rule. Null preserves the project default.
    */
   protected(set) ?EscapePolicy $escapePolicy = null;
-  /** @var SplObjectStorage<Enemy, ?BattlerSlot> Placements follow instances, never names or mutable roster indices. */
+  /** @var SplObjectStorage<Enemy, ?BattleStageSlot> Places follow instances, never names or mutable roster indices. */
   private SplObjectStorage $graphicalFormation;
   /**
    * @var list<BattleEventPage> The troop's event pages, which name members by their index in the troop.
@@ -101,7 +101,7 @@ class Troop extends BattleGroup
     }
     if (!array_is_list($graphicalFormation) || count($graphicalFormation) > 64
       || ($graphicalFormation !== [] && count($graphicalFormation) !== count($this->members))) {
-      throw new InvalidArgumentException('Troop graphical formation must provide one slot or null per enemy instance, at most 64.');
+      throw new InvalidArgumentException('Troop graphical formation must provide one stage place or null per enemy instance, at most 64.');
     }
     foreach ($eventPages as $page) {
       if (! $page instanceof BattleEventPage) {
@@ -112,8 +112,8 @@ class Troop extends BattleGroup
     $this->graphicalFormation = new SplObjectStorage();
     foreach ($this->members as $index => $enemy) {
       $slot = $graphicalFormation[$index] ?? null;
-      if ($slot !== null && !$slot instanceof BattlerSlot) {
-        throw new InvalidArgumentException('Troop graphical placements must be BattlerSlot entries or null.');
+      if ($slot !== null && !$slot instanceof BattleStageSlot) {
+        throw new InvalidArgumentException('Troop graphical placements must be BattleStageSlot entries or null.');
       }
       $this->graphicalFormation[$enemy] = $slot;
     }
@@ -129,7 +129,11 @@ class Troop extends BattleGroup
     return $member instanceof Enemy ? $member : null;
   }
 
-  public function getGraphicalSlot(Enemy $enemy): ?BattlerSlot
+  /**
+   * The member's authored place in the troop's graphical formation, or null
+   * when nobody has placed it: the battle then arranges it beside the others.
+   */
+  public function getStagePlace(Enemy $enemy): ?BattleStageSlot
   {
     if ($this->graphicalFormationError !== null) {
       throw new RuntimeException($this->graphicalFormationError);
@@ -169,7 +173,7 @@ class Troop extends BattleGroup
       $slot = null;
       if (array_key_exists('graphicalPlacement', $enemyData)) {
         try {
-          $slot = BattlerSlot::fromArray($enemyData['graphicalPlacement'], "{$source}.enemies[{$index}].graphicalPlacement");
+          $slot = BattleStageSlot::fromArray($enemyData['graphicalPlacement'], "{$source}.enemies[{$index}].graphicalPlacement");
         } catch (InvalidArgumentException $error) {
           // Refuse only optional graphics, preserving the authored combat and terminal positions.
           $formationErrors[] = $error->getMessage();
