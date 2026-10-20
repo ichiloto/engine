@@ -9,6 +9,7 @@ use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicController;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicFacing;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicPresentationManager;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
 use Ichiloto\Engine\Entities\Party;
@@ -939,6 +940,62 @@ it('resolves each relative route leg when it begins and retraces only the path a
     ->and($this->player->heading)->toBe(MovementHeading::SOUTH);
   if (!$reduced) { expect($visited)->toContain([8, 4])->not->toContain([9, 4], [4, 4]); }
 })->with([false, true]);
+
+it('leaves a waypoint route facing what its waypoint names, whatever its last step was', function (array $waypoint, string $subject, array $cell, MovementHeading $heading) {
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => false]]);
+  $route = ['type' => 'move_route', 'secondsPerStep' => .1, 'waypoints' => [$waypoint]];
+  CinematicScriptValidator::validate([$route]);
+  $session = $this->scene->startCinematic(subjectOwnershipDefinition([
+    $subject === 'npc' ? [...$route, 'subject' => 'npc', 'npcId' => 'guide'] : $route,
+  ], ['cast' => []]));
+  for ($tick = 0; $tick < 60 && $this->scene->hasUnstableEventSession(); $tick++) {
+    $this->scene->eventInterpreter->update(.1);
+  }
+  $mover = $subject === 'npc' ? $this->npc : $this->player;
+  expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and([(int) $mover->position->x, (int) $mover->position->y])->toBe($cell)
+    ->and($mover->heading)->toBe($heading);
+})->with([
+  // From (3, 4) the last step into (6, 6) is east or south; the guide at (7, 4) lies north along the longer axis.
+  'player toward an npc' => [['at' => ['kind' => 'npc', 'id' => 'guide'], 'offset' => ['x' => -1, 'y' => 2],
+    'faceToward' => ['kind' => 'npc', 'id' => 'guide']], 'player', [6, 6], MovementHeading::NORTH],
+  'player with a fixed facing' => [['x' => 5, 'y' => 4, 'facing' => 'south'], 'player', [5, 4], MovementHeading::SOUTH],
+  'npc toward the player' => [['x' => 7, 'y' => 6, 'faceToward' => ['kind' => 'player']], 'npc', [7, 6], MovementHeading::WEST],
+  'turn in place' => [['x' => 3, 'y' => 4, 'faceToward' => ['kind' => 'npc', 'id' => 'guide']], 'player', [3, 4], MovementHeading::EAST],
+]);
+
+it('stages an independent actor facing a subject from its staged cell', function () {
+  $north = $this->stage->add(['id' => 'below-guide', 'sprite' => 'B', 'x' => 7, 'y' => 8, 'faceToward' => ['kind' => 'npc', 'id' => 'guide']]);
+  $east = $this->stage->add(['id' => 'beside-player', 'sprite' => 'E', 'at' => ['kind' => 'player'], 'offset' => ['x' => -2],
+    'faceToward' => ['kind' => 'player']]);
+  $kept = $this->stage->add(['id' => 'on-guide', 'sprite' => 'G', 'at' => ['kind' => 'npc', 'id' => 'guide'],
+    'faceToward' => ['kind' => 'npc', 'id' => 'guide']]);
+  expect($north->facing)->toBe(MovementHeading::NORTH)->and($east->facing)->toBe(MovementHeading::EAST)
+    ->and($kept->facing)->toBe(MovementHeading::SOUTH)
+    ->and(CinematicFacing::getHeadingToward(new Vector2(0, 0), new Vector2(2, -2)))->toBe(MovementHeading::NORTH)
+    ->and(CinematicFacing::getHeadingToward(new Vector2(0, 0), new Vector2(-3, 2)))->toBe(MovementHeading::WEST);
+});
+
+it('rejects contradictory or malformed end facings in both runtime and authoring', function (array $facing) {
+  $stage = ['type' => 'stage_actor', 'id' => 'companion', 'sprite' => 'C', 'x' => 1, 'y' => 1, ...$facing];
+  $route = ['type' => 'move_route', 'waypoints' => [['x' => 1, ...$facing]]];
+  expect(fn() => CinematicScriptValidator::validate([$stage]))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => $this->stage->add($stage))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => CinematicScriptValidator::validate([$route]))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => MovementRouteRunner::validatePathOptions($route))->toThrow(\Ichiloto\Engine\Exceptions\MovementRouteException::class);
+})->with([
+  [['facing' => 'up']],
+  [['facing' => 'north', 'faceToward' => ['kind' => 'player']]],
+  [['faceToward' => 'player']],
+  [['faceToward' => ['kind' => 'npc']]],
+  [['faceToward' => ['kind' => 'screen_position', 'x' => 1, 'y' => 1]]],
+  [['faceToward' => ['kind' => 'player', 'offset' => ['x' => 1]]]],
+]);
+
+it('keeps a bound visual on its real subject heading', function () {
+  expect(fn() => $this->stage->add(['id' => 'bound', 'subject' => ['kind' => 'player'], 'faceToward' => ['kind' => 'npc', 'id' => 'guide']]))
+    ->toThrow(InvalidArgumentException::class, 'inherits real position/facing');
+});
 
 it('refuses missing relative subjects and blocked destinations before a route can mutate the field', function () {
   $before = [$this->player->position->x, $this->player->position->y, $this->scene->gameState->toArray()];
