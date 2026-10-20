@@ -119,8 +119,8 @@ it('reads an authored page and keeps its authored shape', function () {
 it('refuses malformed pages with messages that say what to fix', function (array $page, string $message) {
   expect(fn() => battleEventPage($page))->toThrow(InvalidArgumentException::class, $message);
 })->with([
-  'no conditions' => [['commands' => [['type' => 'wait']]], 'needs at least one condition'],
-  'no commands' => [['conditions' => ['turn' => 1]], 'needs a list of commands'],
+  'no conditions' => [['commands' => []], 'needs at least one condition'],
+  'commands not a list' => [['conditions' => ['turn' => 1], 'commands' => ['type' => 'wait']], 'commands must be a list'],
   'unknown key' => [['conditions' => ['turn' => 1], 'commands' => [['type' => 'wait']], 'trigger' => 'x'], 'unknown key "trigger"'],
   'unknown span' => [['span' => 'always', 'conditions' => ['turn' => 1], 'commands' => [['type' => 'wait']]], 'span must be battle, turn or moment'],
   'member out of range' => [['conditions' => ['enemy' => 2, 'enemyHpPercent' => 50], 'commands' => [['type' => 'wait']]], 'names troop member 2, but the troop has 2'],

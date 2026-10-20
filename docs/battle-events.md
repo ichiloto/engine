@@ -42,7 +42,7 @@ Pages live under the troop's `events` key in `Data/troops.php`:
     in the battle with HP at or below that share of its maximum.
   - `world`: world conditions, the shapes `WorldConditionEvaluator` reads
     (switches, variables, story events, items, quests).
-- `commands`: the commands to run (below).
+- `commands`: the commands to run (below). A page may hold none yet; it then runs nothing.
 
 `BattleEventPage::readPages()` validates pages when the troop loads and
 refuses malformed ones with the troop, page and command path in the message.

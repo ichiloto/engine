@@ -105,8 +105,9 @@ final readonly class BattleEventPage
     $conditions = BattleEventConditions::fromArray($data['conditions'] ?? [], "{$where}.conditions", $memberCount);
     $commands = $data['commands'] ?? [];
 
-    if (! is_array($commands) || ! array_is_list($commands) || $commands === []) {
-      throw new InvalidArgumentException("{$where} needs a list of commands to run.");
+    // An empty page is allowed, as an author adds a page before its commands; it runs nothing.
+    if (! is_array($commands) || ! array_is_list($commands)) {
+      throw new InvalidArgumentException("{$where} commands must be a list of commands.");
     }
 
     $problems = self::findCommandProblems($commands, "{$where}.commands", $memberCount, $catalog);
