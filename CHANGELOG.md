@@ -10,6 +10,8 @@
   background cell and bold for every cue glyph (default black and bold).
 - Edge markers are composed from the upright cue mark and a separate pointer
   that alone turns, on the outward side.
+- NPCs take the same authored `cue` as events, drawn above the NPC with the
+  shared cue treatment; a waymark on that NPC lets its cue stand in.
 
 - Event speakers: a map event names the NPCs who speak it (`speakers`), and
   map validation (`event.speaker`) reports a speaker who is not on the map,

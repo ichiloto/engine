@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Field;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Events\Triggers\EventCue;
 use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -100,6 +101,7 @@ class NpcManager
         assetRoot: $graphicalSprites === null ? null
           : ($this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets'),
         directionFix: ($entry['directionFix'] ?? false) === true,
+        cue: EventCue::fromArray(is_array($entry['cue'] ?? null) ? $entry['cue'] : null),
       );
     }
 
@@ -229,6 +231,37 @@ class NpcManager
         $this->gameScene->camera->renderOnScreen([$npc->sprite], $npc->position);
       });
     }
+    $this->renderCue($npc);
+  }
+
+  /**
+   * Draws an NPC's cue glyph in the cell above it while the cue shows,
+   * unless graphical cue art draws it. The glyph follows the NPC as it moves.
+   */
+  private function renderCue(Npc $npc): void
+  {
+    $layer = 'npc-cue:' . $npc->getGraphicalSpriteId();
+    Console::removeLayer($layer);
+    if ($npc->cue === null || !$this->shouldRenderCue($npc)
+      || ($this->gameScene->isGraphicalFieldPresented() && ($this->gameScene->fieldEffects?->canPresentNpcCue($npc) ?? false))) {
+      return;
+    }
+    $glyph = $this->gameScene->fieldEffects?->cueStyle->styleGlyph($npc->cue->symbol, $npc->cue->color) ?? $npc->cue->styledSymbol();
+    Console::withLayer($layer, fn() => $this->gameScene->camera->renderOnScreen([$glyph],
+      new Vector2($npc->position->x, $npc->position->y - 1)), PresentationLayerPolicy::WORLD);
+  }
+
+  /** Whether an NPC's cue shows now: the NPC is on the field, guidance shows and the cue's own conditions hold. */
+  public function shouldRenderCue(Npc $npc): bool
+  {
+    return $npc->cue !== null && $this->isPresentationVisible($npc) && $this->gameScene->canPresentFieldGuidance()
+      && $this->conditionsHold($npc->cue->conditions);
+  }
+
+  /** @return list<Npc> The NPCs whose cues show now. */
+  public function listCuedNpcs(): array
+  {
+    return array_values(array_filter($this->npcs, $this->shouldRenderCue(...)));
   }
 
   /**

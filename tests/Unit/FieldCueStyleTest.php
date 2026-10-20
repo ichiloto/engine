@@ -148,3 +148,67 @@ it('drops the plate and bob without new art or data changes beyond the style', f
     ->and($sprites[0]->getGraphicalSpriteDefinition()->lift)->toBe(0)
     ->and($manager->canPresentWaymarks())->toBeTrue();
 });
+
+/* NPC cues share the event cue contract */
+
+function makeCuedNpc(?array $cue, Vector2 $position = new Vector2(4, 3)): Ichiloto\Engine\Field\Npc
+{
+  return new Ichiloto\Engine\Field\Npc('Halen', '@', $position, id: 'halen',
+    graphicalSpriteId: 'npc:map:test:id:halen', cue: Ichiloto\Engine\Events\Triggers\EventCue::fromArray($cue));
+}
+
+it('reads an NPC cue with the event cue validator, refusing what events refuse', function () {
+  expect(makeCuedNpc(['symbol' => '!', 'color' => 'bright-yellow'])->cue?->symbol)->toBe('!')
+    ->and(makeCuedNpc(null)->cue)->toBeNull()
+    ->and(fn() => makeCuedNpc(['symbol' => '!!', 'color' => 'bright-yellow']))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => makeCuedNpc(['symbol' => '!', 'color' => 'plaid']))->toThrow(InvalidArgumentException::class);
+});
+
+it('gates an NPC waymark by its presence and its own cue', function () {
+  $read = Ichiloto\Engine\Field\MapSubjectGates::readMap(['npcs' => [[
+    'id' => 'halen', 'name' => 'Halen', 'x' => 1, 'y' => 1, 'conditions' => [['type' => 'event', 'name' => 'arrived']],
+    'cue' => ['symbol' => '!', 'color' => 'bright-yellow', 'conditions' => [['type' => 'event', 'name' => 'rescued', 'negate' => true]]],
+  ]]]);
+  $gates = new Ichiloto\Engine\Field\MapSubjectGates([], ['garden' => $read['npcs']]);
+  $state = new Ichiloto\Engine\Core\GameState();
+
+  expect($gates->allowsNpc('garden', 'halen', $state))->toBeFalse();
+  $state->recordStoryEvent('arrived');
+  expect($gates->allowsNpc('garden', 'halen', $state))->toBeTrue();
+  $state->recordStoryEvent('rescued');
+  expect($gates->allowsNpc('garden', 'halen', $state))->toBeFalse();
+});
+
+it('draws an NPC cue above the NPC on its plate, follows it, and stands in for its waymark', function () {
+  writeCueStyleProject($this->root, ['plate' => 'Graphics/plate.png']);
+  $manager = new FieldEffectManager($this->root);
+  $manager->setCapabilities(true, true);
+  $manager->installMap('map', [], null, []);
+  $npc = makeCuedNpc(['symbol' => '!', 'color' => 'bright-yellow']);
+  $manager->showNpcCues([$npc]);
+  $manager->showWaymarks([new FieldWaymark('w', FieldWaymarkRole::TARGET,
+    new FieldWaymarkAnchor(new Vector2(4, 3), $npc->getGraphicalSpriteId()), 'Find Halen')]);
+  $sprites = $manager->getSprites([$npc], $this->view, ['x' => 0, 'y' => 0], false);
+  $ids = array_map(static fn($sprite) => $sprite->getGraphicalSpriteId(), $sprites);
+
+  expect($manager->canPresentNpcCue($npc))->toBeTrue()
+    ->and(array_filter($ids, static fn(string $id) => str_contains($id, 'waymark')))->toBe([])
+    ->and(array_map(static fn($sprite) => $sprite->getGraphicalSpriteWorldPosition(), $sprites))
+    ->each->toEqual(new Vector2(4, 2))
+    ->and(array_filter($ids, static fn(string $id) => str_ends_with($id, ':plate')))->toHaveCount(1);
+
+  $manager->showNpcCues([]);
+  expect($manager->canPresentNpcCue($npc))->toBeFalse()
+    ->and(array_filter(array_map(static fn($sprite) => $sprite->getGraphicalSpriteId(),
+      $manager->getSprites([$npc], $this->view, ['x' => 0, 'y' => 0], false)), static fn(string $id) => str_contains($id, 'waymark')))
+    ->not->toBe([]);
+});
+
+it('lets an NPC showing its own cue stand in for its Terminal waymark', function () {
+  $waymark = new FieldWaymark('w', FieldWaymarkRole::TARGET, new FieldWaymarkAnchor(new Vector2(4, 3), 'npc:halen'), 'Find Halen');
+  $place = static fn(array $cued) => Ichiloto\Engine\Field\Waymarks\FieldWaymarkTerminalPresenter::place([$waymark],
+    new Ichiloto\Engine\Animations\Field\FieldWaymarkStyle(), static fn(Vector2 $cell): Vector2 => $cell, 40, 20, null, $cued);
+
+  expect($place([Ichiloto\Engine\Field\Waymarks\FieldWaymarkTerminalPresenter::OBJECT_KEY . 'npc:halen' => true]))->toBe([])
+    ->and($place([]))->toHaveCount(1);
+});

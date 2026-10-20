@@ -9,6 +9,7 @@ use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Field\MapGraphics;
+use Ichiloto\Engine\Field\Npc;
 use Ichiloto\Engine\Field\Waymarks\FieldWaymark;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
@@ -34,6 +35,8 @@ final class FieldEffectManager
   private array $cues = [];
   /** @var array<string, FieldWaymark> Waymark sessions keyed by session id. */
   private array $waymarks = [];
+  /** @var array<string, Npc> NPC cue sessions keyed by session id. */
+  private array $npcCues = [];
   private ?bool $waymarksUsable = null;
   /** Presentation seconds, for the cue bob; advanced only by update(). */
   private float $clock = 0.0;
@@ -261,6 +264,48 @@ final class FieldEffectManager
     }
   }
 
+  /**
+   * Shows exactly these NPCs' cues: each with its colour's cue art, above the
+   * NPC it follows. A colour without a binding keeps its glyph.
+   *
+   * @param list<Npc> $npcs NPCs whose cues show now.
+   */
+  public function showNpcCues(array $npcs): void
+  {
+    $wanted = [];
+    foreach ($npcs as $npc) {
+      if ($npc->cue === null) { continue; }
+      $binding = $this->catalog->cues[$npc->cue->color] ?? null;
+      if ($binding === null) {
+        $this->note('binding:' . $npc->cue->color, 'No graphical binding for cue color ' . $npc->cue->color . '; its original glyph remains.');
+        continue;
+      }
+      $id = self::getNpcCueId($npc);
+      $wanted[$id] = true;
+      if (!isset($this->sessions[$id])) {
+        $this->startEffect($id, $binding['effect'], FieldEffectAnchor::fromArray(['object' => $npc->getGraphicalSpriteId()]));
+      }
+      if (isset($this->sessions[$id])) { $this->npcCues[$id] = $npc; }
+    }
+    foreach (array_keys($this->npcCues) as $id) {
+      if (!isset($wanted[$id])) { $this->removeEffect($id); }
+    }
+  }
+
+  /** Whether graphical cue art draws an NPC's cue, so its glyph stands down. */
+  public function canPresentNpcCue(Npc $npc): bool
+  {
+    if (!$this->supported || $this->presentation !== EffectPresentation::GRAPHICAL) { return false; }
+    $session = $this->sessions[self::getNpcCueId($npc)] ?? null;
+    return $session !== null
+      && array_any($session->playback->timeline->playbackSegments, static fn(array $segment): bool => $segment['layer'] === 'image');
+  }
+
+  private static function getNpcCueId(Npc $npc): string
+  {
+    return 'npc-cue-' . $npc->getGraphicalSpriteId();
+  }
+
   public function startEffect(string $id, string $effect, FieldEffectAnchor $anchor): void
   {
     try {
@@ -279,12 +324,12 @@ final class FieldEffectManager
   public function removeEffect(string $id): void
   {
     if (isset($this->sessions[$id])) { $this->sessions[$id]->playback->pause(); }
-    unset($this->sessions[$id], $this->cues[$id], $this->waymarks[$id]);
+    unset($this->sessions[$id], $this->cues[$id], $this->waymarks[$id], $this->npcCues[$id]);
   }
   public function clear(): void
   {
     foreach (array_keys($this->sessions) as $id) { $this->removeEffect($id); }
-    $this->cues = []; $this->waymarks = []; $this->mapId = '';
+    $this->cues = []; $this->waymarks = []; $this->npcCues = []; $this->mapId = '';
   }
   public int $count { get => count($this->sessions); }
 
@@ -338,9 +383,12 @@ final class FieldEffectManager
       $position = $object?->getGraphicalSpriteWorldPosition() ?? $session->anchor->cell;
       if ($position === null) { continue; }
       $waymark = $this->waymarks[$id] ?? null;
+      $npcCue = isset($this->npcCues[$id]);
       // Waymark art draws all or nothing; otherwise the terminal glyphs are the waymarks.
       if ($waymark !== null && !$this->canPresentWaymarks()) { continue; }
-      $bob = $cue === null && $waymark === null ? 0 : $this->catalog->cueStyle->getBobLift($this->clock, $reducedMotion);
+      $bob = $cue === null && $waymark === null && !$npcCue ? 0 : $this->catalog->cueStyle->getBobLift($this->clock, $reducedMotion);
+      // An NPC occupies its cell, so its cue floats above it.
+      if ($npcCue) { $position = new Vector2($position->x, $position->y - 1); }
       if ($waymark !== null) {
         // A character occupies its cell, so its waymark floats above it.
         if ($object !== null) { $position = new Vector2($position->x, $position->y - 1); }
@@ -350,10 +398,11 @@ final class FieldEffectManager
           array_push($sprites, ...$this->composeEdgeMarker($session, $edge, $viewport, $bob, $reducedMotion));
           continue;
         }
-        if ($this->isCuePresented($waymark->anchor->eventMarker)) { continue; }
+        if ($this->isCuePresented($waymark->anchor->eventMarker)
+          || ($waymark->anchor->objectId !== null && $this->isNpcCuePresented($waymark->anchor->objectId))) { continue; }
       }
       $marks = $session->getSprites($position, $reducedMotion, $object?->getGraphicalSpriteMotion());
-      if ($cue !== null || $waymark !== null) {
+      if ($cue !== null || $waymark !== null || $npcCue) {
         $marks = [...$this->createPlate($session->id . ':plate', $position, $bob, $object?->getGraphicalSpriteMotion()),
           ...array_map(fn(FieldEffectSprite $mark): FieldEffectSprite => self::raise($mark, $bob), $marks)];
       }
@@ -430,7 +479,7 @@ final class FieldEffectManager
   /** Guidance hides while a cinematic owns the field: the action prompt, cues and waymarks. */
   private function isGuidance(string $id): bool
   {
-    return $id === self::ACTION_PROMPT_ID || isset($this->cues[$id]) || isset($this->waymarks[$id]);
+    return $id === self::ACTION_PROMPT_ID || isset($this->cues[$id]) || isset($this->waymarks[$id]) || isset($this->npcCues[$id]);
   }
 
   /** Whether an event's own cue art marks it now, so its waymark need not. */
@@ -439,6 +488,15 @@ final class FieldEffectManager
     if ($marker === null) { return false; }
     foreach ($this->cues as $id => $event) {
       if ($event->marker === $marker && isset($this->sessions[$id]) && $event->shouldRenderCue()) { return true; }
+    }
+    return false;
+  }
+
+  /** Whether the NPC with this sprite identity shows its own cue art now, so its waymark need not. */
+  private function isNpcCuePresented(string $objectId): bool
+  {
+    foreach ($this->npcCues as $id => $npc) {
+      if ($npc->getGraphicalSpriteId() === $objectId && isset($this->sessions[$id])) { return true; }
     }
     return false;
   }
