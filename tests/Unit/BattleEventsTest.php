@@ -307,3 +307,24 @@ it('reads the troop knockout floor and event pages from troop data', function ()
   $data['enemies'][0]['knockoutFloorPercent'] = 100;
   expect(fn() => Troop::fromArray($data))->toThrow(InvalidArgumentException::class, 'knockoutFloorPercent');
 });
+
+it('holds an enemy at a floor its own HP condition of the same share always reaches', function (int $maxHp, int $percent) {
+  $enemy = battleEventEnemy('Rival', $maxHp);
+  new ReflectionProperty(Enemy::class, 'stats')->setValue($enemy, new Stats(currentHp: $maxHp, totalHp: $maxHp));
+  $enemy->setKnockoutFloorPercent($percent);
+  // Held where damage stops: at its floor.
+  $enemy->stats->currentHp = $enemy->knockoutFloor;
+  $runner = battleEventRunner([battleEventPage([
+    'conditions' => ['enemy' => 0, 'enemyHpPercent' => $percent], 'commands' => [['type' => 'concede', 'enemy' => 0]],
+  ], 1)], [$enemy]);
+
+  expect($enemy->knockoutFloor)->toBeGreaterThan(0)
+    ->and($runner->queueDuePages(1, 'action:1'))->toBeTrue();
+})->with([[535, 25], [400, 25], [333, 10], [100, 1], [7, 50], [101, 99]]);
+
+it('refuses a knockout floor smaller than 1 HP, which no HP condition could reach', function () {
+  $enemy = battleEventEnemy('Rival', 99);
+  new ReflectionProperty(Enemy::class, 'stats')->setValue($enemy, new Stats(currentHp: 99, totalHp: 99));
+
+  expect(fn() => $enemy->setKnockoutFloorPercent(1))->toThrow(InvalidArgumentException::class, 'less than 1 HP');
+});

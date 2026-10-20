@@ -92,7 +92,7 @@ records however the battle ended.
 ## Knockout floor
 
 A troop member's `knockoutFloorPercent` (0..99) is the share of its maximum HP
-that battle damage, including damaging states, cannot take it below. It lets a
+that battle damage, including damaging states, cannot take it below. The floor in HP rounds down, so an enemy held there always meets an HP condition of the same share; a share smaller than 1 HP is refused when the troop loads, since only a knockout could reach it. It lets a
 page such as a concession run before an ordinary knockout. A conceded enemy
 has no floor. `BattleSimulator` runs no battle events, so it counts a battler
 held at its floor as finished.
