@@ -19,6 +19,7 @@ use Ichiloto\Engine\UI\Presentation\JournalMenuContent;
 use Ichiloto\Engine\UI\Presentation\JournalMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
 use Ichiloto\Engine\UI\Presentation\MenuDetailStyle;
+use Ichiloto\Engine\UI\Presentation\MenuDetailViewport;
 use Ichiloto\Engine\UI\Presentation\MenuDetailEntry;
 use Ichiloto\Engine\UI\Presentation\MenuDetailSheet;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
@@ -172,19 +173,18 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
       $row === null ? '' : $this->tab . ':' . $row->id, new MenuDetailSheet($sections), '', $this->viewingDetail, false);
   }
 
-  public function getPresentationPage(int $columns, int $rows, MenuDetailStyle $style = new MenuDetailStyle()): TextPage
+  public function getPresentationPage(MenuDetailViewport $area, MenuDetailStyle $style = new MenuDetailStyle()): TextPage
   {
     $content = $this->getPresentationContent();
     $reading = clone $this->reading;
     if ($content->entryKey !== $this->readingKey) { $reading->reset(); }
-    return $content->details->createPage($reading, $columns, $rows, $style);
+    return $content->details->createPage($reading, $area, $style);
   }
 
   protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
   {
     $content = $this->getPresentationContent();
-    [$columns, $rows] = JournalMenuPresentation::pageSize($content, $theme);
-    $page = $this->getPresentationPage($columns, $rows, $theme->details);
+    $page = $this->getPresentationPage(JournalMenuPresentation::pageSize($content, $theme), $theme->details);
     $canvas = JournalMenuPresentation::compose($content, $theme, $page, $time);
     $this->displayedPage = $page;
     return $canvas;
@@ -228,7 +228,7 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
     if ($content->rows === []) { $lines[] = $content->emptyText; }
     $this->listPanel->setContent(array_pad($lines, $capacity, ''));
     $metadata = !$this->viewingDetail && $content->rows !== [] ? ['View details'] : [];
-    $page = $content->details->createPage($this->reading, $width, $this->infoPanel->getContentHeight() - count($metadata),
+    $page = $content->details->createPage($this->reading, new MenuDetailViewport($width, $this->infoPanel->getContentHeight() - count($metadata)),
       MenuDetailStyle::createTerminal());
     $this->displayedPage = $page;
     $this->infoPanel->setHelp($this->viewingDetail ? 'Details - ' . $page->range() : '');

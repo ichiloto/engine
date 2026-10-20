@@ -82,13 +82,15 @@ final readonly class MenuDetailSheet
   }
 
   /** Syncs the owner's reading position to this sheet, then reads the page one renderer measured. */
-  public function createPage(TextViewport $viewport, int $columns, int $rows, MenuDetailStyle $style = new MenuDetailStyle()): TextPage
+  public function createPage(TextViewport $viewport, MenuDetailViewport $area, MenuDetailStyle $style = new MenuDetailStyle()): TextPage
   {
     $viewport->setText($this->text);
-    return $viewport->createLayoutPage($this->layout($columns, $style)->getWrappedLines(), $columns, $rows);
+    $layout = $this->layout($area->columns, $style);
+    return $viewport->createLayoutPage($layout->getWrappedLines(), $area->columns, $area->height,
+      array_column($layout->measureLines($area->lineHeight), 'height'));
   }
 
-  /** A null column stacks the label above its indented value.
+  /** A null column, or a wrapping value the style stacks, places the label above its indented value.
    * @return non-empty-list<MenuDetailLine>
    */
   private static function layoutField(MenuDetailEntry $field, int $start, int $entry, ?int $column, int $columns,
@@ -97,7 +99,8 @@ final readonly class MenuDetailSheet
     $valueStart = $start + strlen($field->label) + 1;
     $color = $field->color ?? $style->valueColor;
     $lines = [];
-    $stacked = $column === null;
+    $stacked = $column === null || ($style->stackWrappedValues && count(TextViewport::wrap($field->text, $columns - $column)) > 1);
+    $alignment = $stacked ? $style->stackedValueAlignment : $style->valueAlignment;
     if ($stacked) {
       foreach (TextViewport::wrap($field->label . $style->labelSuffix, $columns) as [$offset, $label]) {
         $lines[] = new MenuDetailLine($start + min($offset, strlen($field->label)), label: $label, isField: true, entry: $entry);
@@ -108,8 +111,8 @@ final readonly class MenuDetailSheet
     foreach (TextViewport::wrap($field->text, $cells) as $index => [$offset, $text]) {
       $first = !$stacked && $index === 0;
       // Right-aligned values end at the sheet's edge; wrapping whitespace does not count toward the edge.
-      $text = $style->valueAlignment === HorizontalAlignment::RIGHT ? rtrim($text) : $text;
-      $shift = $style->valueAlignment === HorizontalAlignment::RIGHT ? $cells - TextViewport::measure($text) : 0;
+      $text = $alignment === HorizontalAlignment::RIGHT ? rtrim($text) : $text;
+      $shift = $alignment === HorizontalAlignment::RIGHT ? $cells - TextViewport::measure($text) : 0;
       $lines[] = new MenuDetailLine($first ? $start : $valueStart + $offset, $text, $column + $shift,
         $first ? $field->label . $style->labelSuffix : '', $color, true, entry: $entry);
     }

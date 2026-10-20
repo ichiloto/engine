@@ -13,14 +13,14 @@ use RuntimeException;
 /** Summon contracts use the shared menu frames, records, text viewport and semantic hints. */
 final class SummonsMenuPresentation
 {
-  /** @return array{int, int} Owner uses the same finite detail viewport for semantic scrolling. */
-  public static function getDetailPageSize(SummonsMenuContent $content, MenuPresentationCatalog $theme,
-    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): array
+  /** The owner pages Info through this same finite viewport for semantic scrolling. */
+  public static function getDetailViewport(SummonsMenuContent $content, MenuPresentationCatalog $theme,
+    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): MenuDetailViewport
   {
     $body = self::getGeometry($content, $theme, $width, $height)['body'];
     $m = $theme->metrics;
-    return [(int)floor(($body->width - 2 * $m->panelPadding) / $m->cellWidth),
-      (int)floor(($body->height - 2 * $m->panelPadding) / $m->cellHeight)];
+    return new MenuDetailViewport((int)floor(($body->width - 2 * $m->panelPadding) / $m->cellWidth),
+      (int)floor($body->height - 2 * $m->panelPadding), $m->cellHeight);
   }
 
   public static function compose(SummonsMenuContent $content, MenuPresentationCatalog $theme, ?TextPage $page,
@@ -39,12 +39,12 @@ final class SummonsMenuPresentation
     $body = new CanvasRectangle($g['body']->x + $p, $g['body']->y + $p,
       $g['body']->width - 2 * $p, $g['body']->height - 2 * $p);
     if ($content->detailsOpen) {
-      [$columns, $rows] = self::getDetailPageSize($content, $theme, $width, $height);
-      if ($page === null || $content->details === null || $page->columns !== $columns || $page->rows !== $rows) {
+      $area = self::getDetailViewport($content, $theme, $width, $height);
+      if ($page === null || $content->details === null || $page->columns !== $area->columns || $page->rows !== $area->height) {
         throw new RuntimeException('Summon contract page must match its measured viewport.');
       }
-      $view->details('summons-detail', $content->details->layout($columns, $theme->details), $page, $body);
-      if ($page->total > $page->rows) {
+      $view->details('summons-detail', $content->details->layout($area->columns, $theme->details), $page, $body);
+      if ($page->total > count($page->lines)) {
         $view->renderBorderCaption('summons-detail-range', $page->range(),
           new CanvasRectangle($body->x, $g['body']->y + $g['body']->height - $p, $body->width, $p));
       }

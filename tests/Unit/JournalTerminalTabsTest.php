@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Ichiloto\Engine\UI\Presentation\MenuDetailStyle;
+use Ichiloto\Engine\UI\Presentation\MenuDetailViewport;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Menu\MagicMenu\Windows\MagicTabPanel;
 use Ichiloto\Engine\Entities\Party;
@@ -221,7 +222,7 @@ it('moves detail ranges to border help and keeps complete scrolling and back foc
   for ($i = 0; $i < 100; $i++) {
     // Terminal reads the same sheet with its attached field-label suffix.
     $page = $state->getPresentationContent()->details->createPage(clone new ReflectionProperty(get_parent_class($state), 'reading')->getValue($state),
-      $state->list()->getContentWidth() - 2, $panel->getContentHeight(), MenuDetailStyle::createTerminal());
+      new MenuDetailViewport($state->list()->getContentWidth() - 2, $panel->getContentHeight()), MenuDetailStyle::createTerminal());
     expect($panel->getHelp())->toBe(($records ? 'Details - ' : '') . $page->range())
       ->and(array_slice($panel->getContent(), 0, count($page->lines)))->toBe($page->lines)
       ->and(implode('', $panel->getContent()))->not->toContain($page->range());

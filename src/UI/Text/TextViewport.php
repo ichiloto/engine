@@ -54,20 +54,33 @@ final class TextViewport
   }
 
   /** A structured document supplies its own lines, anchored in offsets of the same source text.
+   * Lines may differ in height: $height and $heights share one unit (rows when every line is one row, or pixels).
+   * The page shows the whole lines that fit; the last page is filled from the end.
    * @param non-empty-list<array{int, string}> $wrapped Ascending source byte offset and displayed line.
+   * @param list<int>|null $heights One positive height per line; null means one unit each.
    */
-  public function createLayoutPage(array $wrapped, int $columns, int $rows): TextPage
+  public function createLayoutPage(array $wrapped, int $columns, int $height, ?array $heights = null): TextPage
   {
-    if ($columns < 1 || $rows < 1 || $wrapped === []) { throw new InvalidArgumentException('Text viewport needs positive columns, rows and lines.'); }
+    $heights ??= array_fill(0, count($wrapped), 1);
+    if ($columns < 1 || $height < 1 || $wrapped === [] || count($heights) !== count($wrapped)
+      || !array_all($heights, static fn($size) => is_int($size) && $size > 0)) {
+      throw new InvalidArgumentException('Text viewport needs positive columns, height, lines and line heights.');
+    }
     $first = 0;
     foreach ($wrapped as $index => [$offset]) {
       if ($offset > $this->offset) { break; }
       $first = $index;
     }
-    $maximum = max(0, count($wrapped) - $rows);
+    // The furthest first line whose remainder still fills the viewport.
+    $maximum = count($wrapped) - 1;
+    for ($used = $heights[$maximum]; $maximum > 0 && $used + $heights[$maximum - 1] <= $height; ) { $used += $heights[--$maximum]; }
     $first = min($first, $maximum);
-    return new TextPage($this->text, array_column(array_slice($wrapped, $first, $rows), 1), $first, count($wrapped),
-      $columns, $rows, $wrapped[max(0, $first - 1)][0], $wrapped[min($maximum, $first + 1)][0]);
+    $count = 0;
+    for ($used = 0; $first + $count < count($wrapped) && ($count === 0 || $used + $heights[$first + $count] <= $height); $count++) {
+      $used += $heights[$first + $count];
+    }
+    return new TextPage($this->text, array_column(array_slice($wrapped, $first, $count), 1), $first, count($wrapped),
+      $columns, $height, $wrapped[max(0, $first - 1)][0], $wrapped[min($maximum, $first + 1)][0]);
   }
 
   /** Semantic navigation supplies direction and the last successfully displayed PHP layout. */

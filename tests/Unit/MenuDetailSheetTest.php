@@ -5,6 +5,7 @@ use Ichiloto\Engine\UI\Presentation\MenuCanvas;
 use Ichiloto\Engine\UI\Presentation\MenuDetailEntry;
 use Ichiloto\Engine\UI\Presentation\MenuDetailSheet;
 use Ichiloto\Engine\UI\Presentation\MenuDetailStyle;
+use Ichiloto\Engine\UI\Presentation\MenuDetailViewport;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Text\TextViewport;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
@@ -30,7 +31,7 @@ function composeSyntheticDetails(array $theme, int $columns = 40): array
   $bounds = new CanvasRectangle(100, 80, $columns * $m->cellWidth, 20 * $m->cellHeight);
   $view = new MenuCanvas($catalog);
   $view->details('details', $sheet->layout($columns, $catalog->details),
-    $sheet->createPage(new TextViewport(), $columns, 20, $catalog->details), $bounds);
+    $sheet->createPage(new TextViewport(), new MenuDetailViewport($columns, (int)$bounds->height, $m->cellHeight), $catalog->details), $bounds);
   return [$view, $sheet, $bounds, $view->finish(), $catalog];
 }
 
@@ -65,15 +66,15 @@ it('pages, scrolls to the end and keeps the reading position across reflow', fun
   $sorted = $offsets;
   sort($sorted);
   expect($offsets)->toBe(array_values(array_unique($offsets)))->and($offsets)->toBe($sorted);
-  $page = $sheet->createPage($viewport, 24, 4);
+  $page = $sheet->createPage($viewport, new MenuDetailViewport(24, 4));
   for ($i = 0; $i < 40 && $page->first + $page->rows < $page->total; $i++) {
     $viewport->scroll(1, $page);
-    $page = $sheet->createPage($viewport, 24, 4);
+    $page = $sheet->createPage($viewport, new MenuDetailViewport(24, 4));
   }
   expect($page->first + $page->rows)->toBe($page->total)->and(implode("\n", $page->lines))->toContain('Beta, Gamma');
-  expect(implode("\n", $sheet->createPage($viewport, 60, 4, MenuDetailStyle::createTerminal())->lines))->toContain('Beta, Gamma');
+  expect(implode("\n", $sheet->createPage($viewport, new MenuDetailViewport(60, 4), MenuDetailStyle::createTerminal())->lines))->toContain('Beta, Gamma');
   $viewport->reset();
-  expect($sheet->createPage($viewport, 24, 4)->first)->toBe(0);
+  expect($sheet->createPage($viewport, new MenuDetailViewport(24, 4))->first)->toBe(0);
 });
 
 it('rejects blank entries, multi-line labels and unsupported theme detail styles', function () {
@@ -102,7 +103,7 @@ it('paints field records with the theme separators and colours, never prose, und
     ->and(array_find($text->runs, fn($run) => $run->text === 'Synthetic subject')->foreground)->toEqual($theme->colors['accent'])
     ->and(array_find($text->runs, fn($run) => $run->text === 'Beta, Gamma')->foreground)->toEqual($theme->colors['increase'])
     ->and($kind->foreground)->toEqual($theme->colors['text']);
-  expect(fn() => $view->details('wrong', $sheet->layout(41, $theme->details), $sheet->createPage(new TextViewport(), 40, 20), $bounds))
+  expect(fn() => $view->details('wrong', $sheet->layout(41, $theme->details), $sheet->createPage(new TextViewport(), new MenuDetailViewport(40, (int)$bounds->height, $theme->metrics->cellHeight)), $bounds))
     ->toThrow(RuntimeException::class);
 })->with([[[]], [['metrics' => ['cellWidth' => 8, 'cellHeight' => 18, 'rowHeight' => 34],
   'colors' => ['text' => [43, 30, 10], 'edge' => [120, 90, 40], 'accent' => [150, 40, 20]],
@@ -120,4 +121,44 @@ it('lets a theme restyle field labels, values, alignment and separators without 
     ->and($alpha->column + mb_strlen('Alpha'))->toBe(40)
     ->and(array_find($text->runs, fn($run) => $run->text === 'Beta, Gamma')->foreground)->toEqual($theme->colors['increase'])
     ->and(array_filter($frame->textLayers, fn($layer) => str_contains($layer->id, '-separator')))->toBeEmpty();
+});
+
+it('applies a record design as theme data: stacked wrapping values, right short values, minimum record height', function () {
+  $data = ['details' => ['valueAlignment' => 'right', 'stackWrappedValues' => true, 'stackedIndentCells' => 0,
+    'labelColor' => 'disabled', 'recordMinHeight' => 40]];
+  [, $sheet, $bounds, $frame, $theme] = composeSyntheticDetails($data);
+  $m = $theme->metrics;
+  $layout = $sheet->layout(40, $theme->details);
+  $move = array_values(array_filter($layout->lines, fn($line) => $line->entry === 2));
+  expect($move[0]->label)->toBe('Move')->and($move[0]->text)->toBe('')
+    ->and(array_column(array_slice($move, 1), 'column'))->each->toBe(0)
+    ->and($move[1]->text)->toBe('Named move');
+  $kind = array_find($layout->lines, fn($line) => $line->label === 'Kind');
+  expect($kind->column + mb_strlen($kind->text))->toBe(40);
+  // Every field record is at least 40px; prose keeps one line height; text centres in the record.
+  $metrics = $layout->measureLines($m->cellHeight);
+  foreach (array_unique(array_filter(array_column($layout->lines, 'entry'), fn($entry) => $entry !== null)) as $entry) {
+    $indexes = array_keys(array_filter($layout->lines, fn($line) => $line->entry === $entry));
+    $height = array_sum(array_map(fn($i) => $metrics[$i]['height'], $indexes));
+    expect($height)->toBe($layout->lines[$indexes[0]]->isField ? max(40, count($indexes) * $m->cellHeight) : count($indexes) * $m->cellHeight);
+  }
+  $kindIndex = array_search($kind, $layout->lines, true);
+  expect($metrics[$kindIndex])->toBe(['height' => 40, 'top' => intdiv(40 - $m->cellHeight, 2)]);
+  $text = array_merge(...array_map(fn($layer) => array_map(fn($run) => [$layer->y + $run->row * $layer->grid->cellHeight, $run], $layer->runs),
+    array_filter($frame->textLayers, fn($layer) => str_starts_with($layer->id, 'details') && !str_contains($layer->id, 'separator'))));
+  $label = array_find($text, fn($item) => $item[1]->text === 'Kind');
+  expect($label[1]->foreground)->toEqual($theme->colors['disabled']);
+  $rules = array_values(array_filter($frame->textLayers, fn($layer) => str_contains($layer->id, '-separator')));
+  expect(array_sum(array_map(fn($layer) => count($layer->runs), $rules)))->toBe(3);
+  // Paging counts pixels and shows whole lines; scrolling reaches the last record.
+  $viewport = new TextViewport();
+  $area = new \Ichiloto\Engine\UI\Presentation\MenuDetailViewport(40, 100, $m->cellHeight);
+  $page = $sheet->createPage($viewport, $area, $theme->details);
+  for ($i = 0; $i < 40 && $page->first + count($page->lines) < $page->total; $i++) {
+    expect(array_sum(array_map(fn($i) => $metrics[$i]['height'], range($page->first, $page->first + count($page->lines) - 1))))
+      ->toBeLessThanOrEqual(100);
+    $viewport->scroll(1, $page);
+    $page = $sheet->createPage($viewport, $area, $theme->details);
+  }
+  expect($page->first + count($page->lines))->toBe($page->total)->and(implode("\n", $page->lines))->toContain('Beta, Gamma');
 });

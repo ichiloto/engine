@@ -885,25 +885,34 @@ theme's optional `details` block; omitted keys keep the Engine default:
 
 ```php
 'details' => [
-  'labelSuffix' => '',          // text attached to each label
-  'gapCells' => 1,              // cells between the label column and values
-  'minValueCells' => 12,        // narrower values stack under their label
+  'labelSuffix' => '',             // text attached to each label
+  'gapCells' => 1,                 // cells between the label column and values
+  'minValueCells' => 12,           // narrower values stack under their label
+  'stackWrappedValues' => false,   // a value needing two or more lines stacks under its label
   'stackedIndentCells' => 2,
-  'valueAlignment' => 'left',   // or 'right'
-  'labelColor' => 'text',       // theme colour roles
-  'valueColor' => 'text',       // for values the owner does not colour
-  'separators' => true,         // close each field with the record separator
+  'valueAlignment' => 'left',      // 'right' for short values beside their label
+  'stackedValueAlignment' => 'left',
+  'labelColor' => 'text',          // theme colour roles
+  'valueColor' => 'text',          // for values the owner does not colour
+  'separators' => true,            // close each field with the record separator
+  'recordMinHeight' => 0,          // minimum field record height in pixels; text centres in it
 ],
 ```
 
 The separator is the theme's data-record rule (`edge` colour, row-metric width
-and `recordSeparatorOpacity`), drawn inside the field's last line. Prose keeps
-its own colour role and never has a separator. Terminal uses
-`MenuDetailStyle::createTerminal()`: no separators, so each label carries the
-attached suffix `TerminalMenuRow::LABEL_SUFFIX` (`Label:`), the Status screen
-style. Single Terminal fields outside a sheet use
-`TerminalMenuRow::composeField()`. Selectable list rows, such as Config
-settings, stay label and value without a colon, matching Title Options.
+and `recordSeparatorOpacity`), drawn inside the field record's last line. Prose
+keeps its own colour role and never has a separator. Canvas pages by pixels
+through a `MenuDetailViewport` (columns, height, cell height), showing only
+whole lines, so taller records still scroll line by line. Panel padding is the
+theme's `metrics.panelPadding`.
+
+Terminal uses `MenuDetailStyle::createTerminal()`: rows instead of pixels, no
+separators, and the attached suffix `TerminalMenuRow::LABEL_SUFFIX` (`Label:`),
+the Status screen style. The game's graphical theme never changes the Terminal
+presentation; that suffix is one Engine constant, also used by
+`TerminalMenuRow::composeField()` for single Terminal fields such as Status.
+Selectable list rows, such as Config settings, stay label and value without a
+colon, matching Title Options.
 
 The sheet's source text anchors the owner's `TextViewport` reading position, so
 scrolling survives reflow between renderers. Labels for engine-named fields come

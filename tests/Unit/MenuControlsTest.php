@@ -105,21 +105,20 @@ it('uses the same themed scrollbar for quest prose without painting over text or
     [['label' => 'A journey', 'values' => ['', 'In progress']]], 0, 'No quests', 'journey',
     $document->sheet, '', true, true, $document);
   $reading = new TextViewport();
-  $reading->setText($document->text);
-  [$columns, $rows] = QuestJournalPresentation::pageSize($content, $theme, $width, $height);
+  $area = QuestJournalPresentation::pageSize($content, $theme, $width, $height);
   for ($i = 0; $i < 100; $i++) {
-    $page = $reading->page($columns, $rows);
+    $page = $document->sheet->createPage($reading, $area, $theme->details);
     $frame = QuestJournalPresentation::compose($content, $theme, $page, width: $width, height: $height);
-    expect($reading->page($columns, $rows))->toEqual($page);
+    expect($document->sheet->createPage($reading, $area, $theme->details))->toEqual($page);
     $pieces = [...$frame->images, ...$frame->textLayers];
     $track = array_find($pieces, fn($piece) => str_starts_with($piece->id, 'journal-scroll-track'))->clipRect;
     $text = array_find($frame->textLayers, fn($piece) => str_starts_with($piece->id, 'journal-text'));
     expect($text->clipRect->x + $text->clipRect->width)->toBeLessThan($track->x);
     $frame->toArray();
-    if ($page->first + $page->rows >= $page->total) { break; }
+    if ($page->first + count($page->lines) >= $page->total) { break; }
     $reading->scroll(1, $page);
   }
-  expect($page->first + $page->rows)->toBe($page->total);
+  expect($page->first + count($page->lines))->toBe($page->total);
   $down = array_find($pieces, fn($piece) => str_starts_with($piece->id, 'journal-scroll-down'));
   expect($down->opacity)->toBe(0.35);
 })->with([[1350, 720], [960, 540], [736, 414]])->with([false, true]);

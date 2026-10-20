@@ -98,31 +98,52 @@ final class MenuCanvas
     $this->protectText($this->text[array_key_last($this->text)]);
   }
 
-  /** A measured detail page: prose lines, and label/value fields styled by the layout's MenuDetailStyle. */
-  public function details(string $id, MenuDetailLayout $layout, TextPage $page, CanvasRectangle $bounds): void
+  /** A measured detail page: prose lines, and label/value fields styled by the layout's MenuDetailStyle.
+   * Lines sharing one text pitch share a text layer. Returns each visible line's top and height in canvas pixels.
+   * @return list<array{y: float, height: int}>
+   */
+  public function details(string $id, MenuDetailLayout $layout, TextPage $page, CanvasRectangle $bounds): array
   {
     $m = $this->theme->metrics;
     $row = $this->theme->rows->metrics;
-    if ($page->source !== $layout->source || $page->columns !== $layout->columns
-      || $page->columns * $m->cellWidth > $bounds->width || $page->rows * $m->cellHeight > $bounds->height) {
+    $metrics = array_slice($layout->measureLines($m->cellHeight), $page->first, count($page->lines));
+    $lines = array_slice($layout->lines, $page->first, count($page->lines));
+    if ($page->source !== $layout->source || $page->columns !== $layout->columns || $page->rows > $bounds->height
+      || $page->columns * $m->cellWidth > $bounds->width || array_sum(array_column($metrics, 'height')) > $bounds->height) {
       throw new RuntimeException("Menu details {$id} page must match its measured viewport.");
     }
-    $lines = array_slice($layout->lines, $page->first, $page->rows);
-    $runs = [];
+    $positions = [];
+    $blocks = [];
+    $y = $bounds->y;
     foreach ($lines as $index => $line) {
-      if ($line->label !== '') { $runs[] = new PresentationTextRun($index, 0, $line->label, $this->theme->colors[$layout->style->labelColor]); }
-      if ($line->text !== '') { $runs[] = new PresentationTextRun($index, $line->column, $line->text, $this->theme->colors[$line->color]); }
+      ['height' => $height, 'top' => $top] = $metrics[$index];
+      $positions[] = ['y' => $y, 'height' => $height];
+      $textY = $y + $top;
+      $block = array_key_last($blocks);
+      if ($block === null || abs($blocks[$block]['y'] + count($blocks[$block]['lines']) * $m->cellHeight - $textY) > 0.001) {
+        $blocks[] = ['y' => $textY, 'lines' => []];
+        $block = array_key_last($blocks);
+      }
+      $blocks[$block]['lines'][] = $line;
       // The data-record rule sits inside the record's last line, as rows keep theirs inside their height.
       if ($line->closesField && $layout->style->separators && $row->separatorWidth > 0) {
-        $this->fill("{$id}-{$index}-separator", new CanvasRectangle($bounds->x,
-          $bounds->y + ($index + 1) * $m->cellHeight - $row->separatorWidth, $bounds->width, $row->separatorWidth),
-          'edge', 25, $row->recordSeparatorOpacity);
+        $this->fill("{$id}-{$index}-separator", new CanvasRectangle($bounds->x, $y + $height - $row->separatorWidth,
+          $bounds->width, $row->separatorWidth), 'edge', 25, $row->recordSeparatorOpacity);
       }
+      $y += $height;
     }
-    if ($runs === []) { return; }
-    $this->text[] = new CanvasTextLayer($id, 30, $bounds->x, $bounds->y,
-      new RendererGridConfig($page->columns, count($lines), $m->cellWidth, $m->cellHeight), $runs, $bounds);
-    $this->protectText($this->text[array_key_last($this->text)]);
+    foreach ($blocks as $index => ['y' => $top, 'lines' => $blockLines]) {
+      $runs = [];
+      foreach ($blockLines as $line => $detail) {
+        if ($detail->label !== '') { $runs[] = new PresentationTextRun($line, 0, $detail->label, $this->theme->colors[$layout->style->labelColor]); }
+        if ($detail->text !== '') { $runs[] = new PresentationTextRun($line, $detail->column, $detail->text, $this->theme->colors[$detail->color]); }
+      }
+      if ($runs === []) { continue; }
+      $this->text[] = new CanvasTextLayer($index === 0 ? $id : "{$id}-{$index}", 30, $bounds->x, $top,
+        new RendererGridConfig($page->columns, count($blockLines), $m->cellWidth, $m->cellHeight), $runs, $bounds);
+      $this->protectText($this->text[array_key_last($this->text)]);
+    }
+    return $positions;
   }
 
   /** Compact reading metadata occupies frame padding, not the prose viewport. */

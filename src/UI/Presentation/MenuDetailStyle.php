@@ -15,14 +15,16 @@ use InvalidArgumentException;
 final readonly class MenuDetailStyle
 {
   public const array KEYS = ['labelSuffix', 'gapCells', 'minValueCells', 'stackedIndentCells', 'valueAlignment',
-    'labelColor', 'valueColor', 'separators'];
+    'stackWrappedValues', 'stackedValueAlignment', 'labelColor', 'valueColor', 'separators', 'recordMinHeight'];
 
   /**
    * @param string $labelSuffix Text attached to each field label, such as Terminal's colon.
    * @param int $minValueCells A narrower value column places the label on its own line above the value.
    * @param string $labelColor Theme colour role for field labels.
    * @param string $valueColor Theme colour role for field values the owner does not colour itself.
+   * @param bool $stackWrappedValues A value needing more than one line sits under its label instead of beside it.
    * @param bool $separators Whether each field closes with the theme's data-record separator.
+   * @param int $recordMinHeight Minimum field record height in the renderer's line unit (Canvas pixels); text centres in it.
    */
   public function __construct(
     public string $labelSuffix = '',
@@ -30,14 +32,18 @@ final readonly class MenuDetailStyle
     public int $minValueCells = 12,
     public int $stackedIndentCells = 2,
     public HorizontalAlignment $valueAlignment = HorizontalAlignment::LEFT,
+    public bool $stackWrappedValues = false,
+    public HorizontalAlignment $stackedValueAlignment = HorizontalAlignment::LEFT,
     public string $labelColor = 'text',
     public string $valueColor = 'text',
     public bool $separators = true,
+    public int $recordMinHeight = 0,
   ) {
     if (str_contains($labelSuffix, "\n") || $gapCells < 0 || $gapCells > 8 || $minValueCells < 1 || $minValueCells > 64
       || $stackedIndentCells < 0 || $stackedIndentCells > 16 || $valueAlignment === HorizontalAlignment::CENTER
-      || $labelColor === '' || $valueColor === '') {
-      throw new InvalidArgumentException('Detail style requires a one-line suffix, bounded cells, left or right values and colour roles.');
+      || $stackedValueAlignment === HorizontalAlignment::CENTER || $labelColor === '' || $valueColor === ''
+      || $recordMinHeight < 0 || $recordMinHeight > 256) {
+      throw new InvalidArgumentException('Detail style requires a one-line suffix, bounded cells and heights, left or right values and colour roles.');
     }
   }
 
@@ -51,20 +57,24 @@ final readonly class MenuDetailStyle
   public static function createFromArray(array $data): self
   {
     if (array_diff(array_keys($data), self::KEYS) !== []) { throw new InvalidArgumentException('Unsupported menu details field.'); }
-    $alignment = $data['valueAlignment'] ?? 'left';
-    if (!in_array($alignment, ['left', 'right'], true)) { throw new InvalidArgumentException('Menu details valueAlignment must be left or right.'); }
-    foreach (['labelSuffix', 'labelColor', 'valueColor'] as $key) {
-      if (isset($data[$key]) && !is_string($data[$key])) { throw new InvalidArgumentException("Menu details {$key} must be a string."); }
+    $types = ['labelSuffix' => 'string', 'labelColor' => 'string', 'valueColor' => 'string', 'gapCells' => 'integer',
+      'minValueCells' => 'integer', 'stackedIndentCells' => 'integer', 'recordMinHeight' => 'integer',
+      'stackWrappedValues' => 'boolean', 'separators' => 'boolean', 'valueAlignment' => 'string', 'stackedValueAlignment' => 'string'];
+    foreach ($data as $key => $value) {
+      if (gettype($value) !== $types[$key]) { throw new InvalidArgumentException("Menu details {$key} must be a {$types[$key]}."); }
     }
-    foreach (['gapCells', 'minValueCells', 'stackedIndentCells'] as $key) {
-      if (isset($data[$key]) && !is_int($data[$key])) { throw new InvalidArgumentException("Menu details {$key} must be an integer."); }
+    foreach (['valueAlignment', 'stackedValueAlignment'] as $key) {
+      if (isset($data[$key])) { $data[$key] = self::createAlignment($key, $data[$key]); }
     }
-    if (isset($data['separators']) && !is_bool($data['separators'])) { throw new InvalidArgumentException('Menu details separators must be a boolean.'); }
-    $default = new self();
-    return new self($data['labelSuffix'] ?? $default->labelSuffix, $data['gapCells'] ?? $default->gapCells,
-      $data['minValueCells'] ?? $default->minValueCells, $data['stackedIndentCells'] ?? $default->stackedIndentCells,
-      $alignment === 'right' ? HorizontalAlignment::RIGHT : HorizontalAlignment::LEFT,
-      $data['labelColor'] ?? $default->labelColor, $data['valueColor'] ?? $default->valueColor,
-      $data['separators'] ?? $default->separators);
+    return new self(...$data);
+  }
+
+  private static function createAlignment(string $key, string $value): HorizontalAlignment
+  {
+    return match ($value) {
+      'left' => HorizontalAlignment::LEFT,
+      'right' => HorizontalAlignment::RIGHT,
+      default => throw new InvalidArgumentException("Menu details {$key} must be left or right."),
+    };
   }
 }

@@ -122,8 +122,13 @@ it('exposes complete long contracts through the shared scroll viewport and seman
   expect($texts)->toContain('Pad', 'Scroll down')->not->toContain('enter:', 'tab:', 'c:');
   $viewport = new ReflectionProperty($state, 'detailViewport')->getValue($state);
   $page = new ReflectionProperty($state, 'lastDetailPage')->getValue($state);
-  expect($page->total)->toBeGreaterThan($page->rows)->and($page->source)->toContain('Contract line 100');
-  for ($i = 0; $i < $page->total; $i++) { $viewport->scroll(1, $page); $page = $viewport->page($page->columns, $page->rows); }
+  expect($page->total)->toBeGreaterThan(count($page->lines))->and($page->source)->toContain('Contract line 100');
+  // Semantic scrolling through the owner's own measured Canvas pages reaches the end.
+  for ($i = 0; $i < $page->total; $i++) {
+    $viewport->scroll(1, $page);
+    new ReflectionMethod($state, 'composeMenuCanvas')->invoke($state, $theme, 0.0);
+    $page = new ReflectionProperty($state, 'lastDetailPage')->getValue($state);
+  }
   expect(implode("\n", $page->lines))->toContain('Contract line 100');
   new ReflectionMethod($state, 'composeMenuCanvas')->invoke($state, $theme, 0.0);
   $help = new ReflectionMethod($state, 'getActionHints')->invoke($state);
