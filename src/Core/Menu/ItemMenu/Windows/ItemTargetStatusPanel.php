@@ -8,6 +8,7 @@ use Ichiloto\Engine\Entities\Character as Target;
 use Ichiloto\Engine\Scenes\Game\States\ItemMenuState;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\UI\Text\TerminalConditions;
 
 class ItemTargetStatusPanel extends Window
 {
@@ -58,7 +59,7 @@ class ItemTargetStatusPanel extends Window
   public function updateContent(): void
   {
     if (!$this->target) {
-      $this->setContent(['', '']);
+      $this->setContent(['', '', '']);
       $this->render();
       return;
     }
@@ -68,6 +69,7 @@ class ItemTargetStatusPanel extends Window
     $content = [
       sprintf("%s %02d %16s %12s", Vocabulary::getTerm('stats.level', 'Lvl'), $this->target->level, Vocabulary::getTerm('stats.hp', 'HP'), $hp),
       sprintf("%23s %12s", Vocabulary::getTerm('stats.mp', 'MP'), $mp),
+      TerminalConditions::composeBadges($this->target),
     ];
     $this->setContent($content);
     $this->render();

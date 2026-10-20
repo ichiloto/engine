@@ -1169,3 +1169,28 @@ it('replaces only the unavailable main menu portrait and retains other cards and
   mainMenuPresentationPng($this->root . '/broken.png', 33, 55);
   expect(array_column($this->scene->getPresentationCanvas()->images, 'asset'))->toContain('broken.png');
 });
+
+it('shows each member\'s conditions beside their resources in both renderers', function (bool $alternative) {
+  mainMenuPresentationPng($this->root . '/venom.png', 31, 47);
+  $member = $this->party->members->toArray()[1];
+  $member->addState(new \Ichiloto\Engine\Entities\States\State('venom', 'Venom', 'V', 'Saps HP.', label: 'VNM'));
+  $member->addState(new \Ichiloto\Engine\Entities\States\State('daze', 'Daze', '', '', label: 'DZE'));
+  $theme = mainMenuPresentationTheme($alternative);
+  $theme['icons']['status.state.venom'] = 'venom.png';
+  $frame = $this->state->canvas(new MenuPresentationCatalog($this->root, $theme));
+  $layers = array_column($frame->textLayers, null, 'id');
+  $hp = $layers['main-party-1-resources-hp-text'];
+  $badges = array_values(array_filter($frame->images, fn($image) => $image->asset === 'venom.png'));
+  $labels = array_values(array_filter($frame->textLayers, fn($layer) => str_starts_with($layer->id, 'main-party-1-conditions-')));
+
+  expect($badges)->toHaveCount(1)
+    ->and(array_column($labels[0]->runs, 'text'))->toBe(['DZE'])
+    ->and($badges[0]->destination->x)->toBeGreaterThanOrEqual($hp->clipRect->x + $hp->clipRect->width)
+    ->and($labels[0]->x)->toBeGreaterThan($badges[0]->destination->x)
+    ->and(array_filter(array_column($frame->textLayers, 'id'), fn($id) => str_contains($id, 'main-party-0-conditions')))->toBe([]);
+
+  $this->state->characterSelectionMenu->refreshMembers();
+  $panels = new ReflectionProperty($this->state->characterSelectionMenu, 'characterPanels')->getValue($this->state->characterSelectionMenu);
+  expect(TerminalText::stripAnsi($panels[1]->getContent()[0]))->toContain('Actor 1  V DZE')
+    ->and(TerminalText::stripAnsi($panels[0]->getContent()[0]))->not->toContain('DZE');
+})->with([false, true]);

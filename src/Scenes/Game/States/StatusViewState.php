@@ -13,6 +13,9 @@ use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
 use Ichiloto\Engine\UI\Presentation\CharacterMenuRows;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\UI\Text\TerminalMenuRow;
+use Ichiloto\Engine\UI\Text\TerminalConditions;
+use Ichiloto\Engine\Battle\Presentation\BattlerConditions;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -40,11 +43,12 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
   protected const int PROFILE_SUMMARY_PANEL_WIDTH = 110;
   protected const int PROFILE_SUMMARY_PANEL_HEIGHT = 9;
   protected const int STATS_SUMMARY_PANEL_WIDTH = 40;
-  protected const int STATS_SUMMARY_PANEL_HEIGHT = 31 - self::PROFILE_SUMMARY_PANEL_HEIGHT;
+  protected const int CONDITIONS_PANEL_HEIGHT = 8;
+  protected const int STATS_SUMMARY_PANEL_HEIGHT = 35 - self::PROFILE_SUMMARY_PANEL_HEIGHT - self::CONDITIONS_PANEL_HEIGHT;
   protected const int EQUIPMENT_SUMMARY_PANEL_WIDTH = 70;
   protected const int EQUIPMENT_SUMMARY_PANEL_HEIGHT = self::STATS_SUMMARY_PANEL_HEIGHT;
   protected const int INFO_PANEL_WIDTH = 110;
-  protected const int INFO_PANEL_HEIGHT = 35 - (self::PROFILE_SUMMARY_PANEL_HEIGHT + self::STATS_SUMMARY_PANEL_HEIGHT);
+  protected const int INFO_PANEL_HEIGHT = self::CONDITIONS_PANEL_HEIGHT;
   /**
    * @var int The left margin of the status view.
    */
@@ -70,7 +74,7 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
    */
   protected ?Window $equipmentSummaryPanel = null;
   /**
-   * @var Window|null The info panel for the status view.
+   * @var Window|null The conditions panel for the status view: the character's current states.
    */
   protected ?Window $infoPanel = null;
   /**
@@ -164,7 +168,7 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
       $this->borderPack
     );
     $this->infoPanel = new Window(
-      'Info',
+      get_engine_message('status.conditions'),
       'tab:Next shift+Tab:Prev esc:Back',
       new Vector2($this->leftMargin, $this->topMargin + self::PROFILE_SUMMARY_PANEL_HEIGHT + self::STATS_SUMMARY_PANEL_HEIGHT),
       self::INFO_PANEL_WIDTH,
@@ -209,6 +213,8 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
       self::EQUIPMENT_SUMMARY_PANEL_HEIGHT - 2,
       ''));
 
+    $this->infoPanel->setContent($this->buildConditionsContent());
+
     $this->renderUI();
   }
 
@@ -241,6 +247,32 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
       sprintf("%19s %s:%12s", ' ', Vocabulary::getTerm('stats.mp', 'MP'), "{$currentMp} / {$totalMp}"),
       sprintf("%19s %s:%12s", ' ', Vocabulary::getTerm('stats.ap', 'AP'), "{$currentAp} / {$totalAp}"),
     ], self::PROFILE_SUMMARY_PANEL_HEIGHT - 2, '');
+  }
+
+  /**
+   * Builds the character's current conditions: each with its badge, name and
+   * description, or only badges and names when the descriptions do not fit.
+   *
+   * @return string[] The conditions rows.
+   */
+  protected function buildConditionsContent(): array
+  {
+    $rows = self::INFO_PANEL_HEIGHT - 2;
+    $width = $this->infoPanel->getContentWidth() - 2;
+
+    if ($this->character === null || BattlerConditions::getEntries($this->character) === []) {
+      return array_pad([' ' . get_engine_message('status.no_conditions')], $rows, '');
+    }
+
+    $lines = TerminalConditions::composeLines($this->character, $width);
+
+    if (count($lines) > $rows) {
+      $names = array_map(static fn(array $entry): string => TerminalMenuRow::composeIconLabel($entry['badge'], $entry['name']),
+        BattlerConditions::getEntries($this->character));
+      $lines = TerminalText::wrapToWidth(implode('   ', $names), $width);
+    }
+
+    return array_pad(array_map(static fn(string $line): string => ' ' . $line, array_slice($lines, 0, $rows)), $rows, '');
   }
 
   /**

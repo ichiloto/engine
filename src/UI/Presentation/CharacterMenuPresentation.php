@@ -146,20 +146,69 @@ final class CharacterMenuPresentation
     $hintHeight = MenuActionHints::height($hints, $theme, self::WIDTH - 2 * $p);
     $infoHeight = $hintHeight > 0 ? max(80, 2 * $p + $hintHeight) : 0;
     $bodyHeight = self::HEIGHT - $profileHeight - $infoHeight;
-    $statBox = self::box(0, $profileHeight, self::PROFILE_WIDTH, $bodyHeight);
-    $slotBox = self::box(self::PROFILE_WIDTH, $profileHeight, self::WIDTH - self::PROFILE_WIDTH, $bodyHeight);
+    $rows = CharacterMenuRows::stats($character, $theme);
+    $slots = CharacterMenuRows::slots($character);
+    // The stats and equipment keep the height their rows need; conditions take the rest.
+    $statsHeight = 2 * $p + max(self::measureRows($theme, $rows, self::layout($theme,
+      self::inset(self::box(0, 0, self::PROFILE_WIDTH, $bodyHeight), $p), self::numericColumns($rows))),
+      self::measureRows($theme, $slots, self::slotLayout($theme,
+        self::inset(self::box(0, 0, self::WIDTH - self::PROFILE_WIDTH, $bodyHeight), $p), $slots)));
+    $conditionsHeight = $bodyHeight - $statsHeight;
+    if ($conditionsHeight < 2 * $p + $m->cellHeight + MenuConditions::getBadgeHeight($theme)) {
+      throw new RuntimeException('Status conditions leave insufficient space for stats and equipment.');
+    }
+    $statBox = self::box(0, $profileHeight, self::PROFILE_WIDTH, $statsHeight);
+    $slotBox = self::box(self::PROFILE_WIDTH, $profileHeight, self::WIDTH - self::PROFILE_WIDTH, $statsHeight);
     $view->frame('status-stats', $statBox);
     $view->frame('status-equipment', $slotBox);
-    $rows = CharacterMenuRows::stats($character, $theme);
     $view->rows('status-stats', $rows, self::layout($theme, self::inset($statBox, $p), self::numericColumns($rows)));
-    $slots = CharacterMenuRows::slots($character);
     $view->rows('status-slots', $slots, self::slotLayout($theme, self::inset($slotBox, $p), $slots));
+    self::conditions($view, $character, self::box(0, $profileHeight + $statsHeight, self::WIDTH, $conditionsHeight));
     if ($hintHeight > 0) {
       $infoBox = self::box(0, self::HEIGHT - $infoHeight, self::WIDTH, $infoHeight);
       $view->frame('status-info', $infoBox, 'quiet');
       $view->hints('status-hints', $hints, self::inset($infoBox, $p));
     }
     return $view->finish();
+  }
+
+  /**
+   * Lists the character's conditions with their icons, names and
+   * descriptions, or compact badges when the descriptions do not fit.
+   */
+  private static function conditions(MenuCanvas $view, Character $character, CanvasRectangle $box): void
+  {
+    $theme = $view->theme;
+    $m = $theme->metrics;
+    $p = $m->panelPadding;
+    $view->frame('status-conditions', $box);
+    $body = self::inset($box, $p);
+    $headingHeight = $view->prose('status-conditions-title', get_engine_message('status.conditions'), $body, 'accent');
+    $content = new CanvasRectangle($body->x, $body->y + $headingHeight, $body->width, $body->height - $headingHeight);
+    $rows = MenuConditions::getRows($character, true);
+    if ($rows === []) {
+      $view->prose('status-conditions-none', get_engine_message('status.no_conditions'), $content, 'disabled');
+      return;
+    }
+    $label = max(array_map(static fn(MenuRow $row): int => mb_strlen($row->label, 'UTF-8'), $rows));
+    $probe = self::layout($theme, $content);
+    $iconCells = (int)ceil($theme->rows->metrics->iconWidth / $m->cellWidth) + $theme->rows->metrics->gapCells;
+    $description = $probe->textCells($theme->rows->metrics) - $label - $iconCells - 2 * $theme->rows->metrics->gapCells;
+    if ($description > 0) {
+      $layout = self::layout($theme, $content, [new MenuRowColumn($description, HorizontalAlignment::LEFT)]);
+      if (self::measureRows($theme, $rows, $layout) <= $content->height) {
+        $view->rows('status-conditions', $rows, $layout);
+        return;
+      }
+    }
+    MenuConditions::renderBadges($view, 'status-conditions-badges', $character, $content);
+  }
+
+  /** @param list<MenuRow> $rows */
+  private static function measureRows(MenuPresentationCatalog $theme, array $rows, MenuRowLayout $layout): int
+  {
+    return array_sum(array_map(static fn(MenuRow $row): int => $layout->heightFor($row, $theme->rows->metrics,
+      MenuRowPainter::canShowIcon($row, $theme->icons)), $rows));
   }
 
   /** @return list<ActionHint> */
