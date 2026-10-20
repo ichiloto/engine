@@ -5,11 +5,11 @@
 ### Added
 
 - `cueStyle` in `Data/Presentation/field.php` keeps cue marks readable on any
-  ground: an optional plate behind every graphical mark, an optional gentle
-  bob (still under reduced motion), the edge pointer spacing, and a Terminal
+  ground: an optional gentle bob (still under reduced motion), the edge pointer spacing, and a Terminal
   background cell and bold for every cue glyph (default black and bold).
 - Edge markers are composed from the upright cue mark and a separate pointer
-  that alone turns, on the outward side.
+  that alone turns, on the outward side. Each cue colour may name a `plate`
+  drawn behind its marks.
 - NPCs take the same authored `cue` as events, drawn above the NPC with the
   shared cue treatment; a waymark on that NPC lets its cue stand in.
 

@@ -19,7 +19,7 @@ use function Tests\Support\Rendering\writeTestPng;
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 /** A synthetic project: a looping one-image cue effect, replaceable pointer art and an optional plate. */
-function writeCueStyleProject(string $root, array $style = [], array $pointer = []): void
+function writeCueStyleProject(string $root, array $style = [], array $pointer = [], ?string $plate = null): void
 {
   writeTestPng($root . '/Graphics/mark.png', 16, 2);
   writeTestPng($root . '/Graphics/pointer.png', 3, 3);
@@ -36,7 +36,8 @@ function writeCueStyleProject(string $root, array $style = [], array $pointer = 
     'asset' => str_contains(substr($direction, 1), 'east') || str_contains(substr($direction, 1), 'west')
       ? 'Graphics/pointer-diagonal.png' : 'Graphics/pointer.png', 'quarterTurns' => $turn], array_keys($turns), $turns)));
   file_put_contents($root . '/Data/Presentation/field.php', '<?php return ' . var_export([
-    'cues' => ['bright-yellow' => ['effect' => 'mark', 'pointer' => $pointer]], 'cueStyle' => $style], true) . ';');
+    'cues' => ['bright-yellow' => ['effect' => 'mark', 'pointer' => $pointer, ...($plate === null ? [] : ['plate' => $plate])]],
+    'cueStyle' => $style], true) . ';');
 }
 
 function showWaymarkAt(FieldEffectManager $manager, Vector2 $cell): void
@@ -56,16 +57,25 @@ afterEach(function () {
 });
 
 it('reads the cue style with Engine defaults and refuses values the presentation cannot honour', function () {
-  $style = FieldCueStyle::fromArray(['plate' => 'Graphics/plate.png', 'bob' => ['height' => 3, 'seconds' => 1.5],
+  $style = FieldCueStyle::fromArray(['bob' => ['height' => 3, 'seconds' => 1.5],
     'pointerSpacing' => ['x' => 14, 'y' => 26], 'terminal' => ['background' => null, 'bold' => false]]);
 
-  expect($style->plate)->toBe('Graphics/plate.png')->and($style->bobHeight)->toBe(3)->and($style->bobSeconds)->toBe(1.5)
+  expect($style->bobHeight)->toBe(3)->and($style->bobSeconds)->toBe(1.5)
     ->and($style->pointerSpacingX)->toBe(14)->and($style->pointerSpacingY)->toBe(26)->and($style->styleGlyph('!', 'bright-yellow'))->toBe('<fg=bright-yellow>!</>')
     ->and(FieldCueStyle::fromArray(null)->styleGlyph('!', 'bright-yellow'))->toBe('<fg=bright-yellow;bg=black;options=bold>!</>');
   foreach ([['bob' => ['height' => 13]], ['bob' => ['seconds' => 0.1]], ['pointerSpacing' => ['y' => 97]], ['terminal' => ['background' => 'plaid']],
-    ['outline' => 2], ['plate' => '../outside.png']] as $invalid) {
+    ['outline' => 2], ['plate' => 'Graphics/plate.png']] as $invalid) {
     expect(fn() => FieldCueStyle::fromArray($invalid))->toThrow(InvalidArgumentException::class);
   }
+});
+
+it('reads each cue colour\'s own plate and refuses one outside the assets', function () {
+  writeCueStyleProject($this->root, plate: 'Graphics/plate.png');
+  $catalog = FieldPresentationCatalog::load($this->root);
+
+  expect($catalog->cues['bright-yellow']['plate'])->toBe('Graphics/plate.png')
+    ->and(fn() => FieldPresentationCatalog::fromArray(['cues' => ['bright-yellow' => ['effect' => 'mark', 'plate' => '../outside.png']]],
+      $this->root))->toThrow(InvalidArgumentException::class);
 });
 
 it('refuses cue art that bakes the mark into rotating edge images', function () {
@@ -84,7 +94,7 @@ it('bobs gently and holds still under reduced motion or without a bob', function
 
 it('keeps an edge marker upright and turns only its pointer, outward, in all eight directions', function (int $x, int $y,
   string $direction) {
-  writeCueStyleProject($this->root, ['plate' => 'Graphics/plate.png', 'pointerSpacing' => ['x' => 24, 'y' => 30]]);
+  writeCueStyleProject($this->root, ['pointerSpacing' => ['x' => 24, 'y' => 30]], plate: 'Graphics/plate.png');
   $manager = new FieldEffectManager($this->root);
   $manager->setCapabilities(true, true);
   $manager->installMap('map', [], null, []);
@@ -118,7 +128,7 @@ it('keeps an edge marker upright and turns only its pointer, outward, in all eig
   [-100, 7, 'west'], [-100, -100, 'northwest'], [13, -100, 'north'], [100, -100, 'northeast']]);
 
 it('puts every event cue on its plate and bobs it, holding still under reduced motion', function (bool $reduced) {
-  writeCueStyleProject($this->root, ['plate' => 'Graphics/plate.png', 'bob' => ['height' => 4, 'seconds' => 1.0]]);
+  writeCueStyleProject($this->root, ['bob' => ['height' => 4, 'seconds' => 1.0]], plate: 'Graphics/plate.png');
   $manager = new FieldEffectManager($this->root);
   $manager->setCapabilities(true, true);
   $cue = new ScriptEventTrigger(new Rect(3, 2, 1, 1), ['mode' => 'action', 'reusable' => false], mapId: 'map', marker: 'E',
@@ -180,7 +190,7 @@ it('gates an NPC waymark by its presence and its own cue', function () {
 });
 
 it('draws an NPC cue above the NPC on its plate, follows it, and stands in for its waymark', function () {
-  writeCueStyleProject($this->root, ['plate' => 'Graphics/plate.png']);
+  writeCueStyleProject($this->root, plate: 'Graphics/plate.png');
   $manager = new FieldEffectManager($this->root);
   $manager->setCapabilities(true, true);
   $manager->installMap('map', [], null, []);
