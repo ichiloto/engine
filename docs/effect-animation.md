@@ -177,20 +177,41 @@ original terminal glyph or static tile and log a diagnostic, not a gameplay
 failure.
 
 `Data/Presentation/field.php` owns `cues`, keyed by terminal color, each with
-an `effect` id and optional `edges` keyed by eight compass directions.
-Each edge names an asset-relative PNG and optional clockwise `quarterTurns`
-(0..3). These pinned sprites are excluded from camera follow. Quarter-turn
-support is an optional renderer drawing capability, not a native effect clock.
-Edge images belong to objective waymarks: the binding whose colour matches the
-game's `waymarks.color` draws waymark markers and their edge arrows (see
+an `effect` id (the upright cue mark) and optional `pointer` images keyed by
+eight compass directions. Each pointer names an asset-relative PNG and an
+optional clockwise `quarterTurns` (0..3); a straight and a diagonal image with
+quarter turns cover all eight. An edge marker is composed, never baked: the
+upright mark (with the cue plate) sits inside the view and only the pointer
+turns, on the outward side. Older `edges`, which rotated a mark baked into
+one image, are refused with a message to split them. These pinned sprites are
+excluded from camera follow. Quarter-turn support is an optional renderer
+drawing capability, not a native effect clock. Pointers belong to objective
+waymarks: the binding whose colour matches the game's `waymarks.color` draws
+waymark marks and their edge markers (see
 [Waymarks](quests.md#waymarks-where-an-objective-sends-the-player)). Cues
 themselves always stay at their authored cells. An event's explicit `cue.kind`
 (`story` or `route`) remains authored classification; since 20 October 2026 a
 story cue no longer draws its own edge arrow, because quest objectives own
-off-screen guidance. Color never implies kind. Existing cue conditions and
-terminal styling remain authoritative and unchanged.
-A binding without all eight usable edge images (or a renderer that cannot
+off-screen guidance. Color never implies kind.
+A binding without all eight usable pointer images (or a renderer that cannot
 rotate them) leaves waymarks as terminal glyphs and logs a note once.
+
+`cueStyle` keeps every cue mark readable on any ground, as each game chooses:
+
+```php
+'cueStyle' => [
+  'plate' => 'Graphics/System/CuePlate.png',     // drawn behind every graphical mark; omit for none
+  'bob' => ['height' => 3, 'seconds' => 1.2],     // logical pixels and seconds; held still under reduced motion
+  'pointerDistance' => 30,                        // logical pixels from an edge mark's centre to its pointer
+  'terminal' => ['background' => 'black', 'bold' => true],
+],
+```
+
+The mark's outline is part of its artwork, so new art drops in by changing
+the cue effect or plate data only. In the Terminal every cue glyph (event
+cues, waymark marks and edge arrows) takes the style's background cell and
+bold. Engine defaults: no plate, no bob, a 30-pixel pointer distance, and a
+black, bold Terminal cell.
 
 The initial field subset did not include battle playback; its current shared
 runtime and outstanding acceptance are recorded below. Still outstanding for

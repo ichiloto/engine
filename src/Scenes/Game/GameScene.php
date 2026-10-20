@@ -518,7 +518,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         }
         return FieldWaymarkTerminalPresenter::place($this->getFieldWaymarks(), $this->fieldEffects->waymarkStyle,
             $this->camera->getScreenSpacePosition(...), $this->camera->screen->getWidth(), $this->camera->screen->getHeight(),
-            $this->camera->getScreenSpacePosition($this->player->position), $this->player->getCuedEventMarkers());
+            $this->camera->getScreenSpacePosition($this->player->position), $this->player->getCuedEventMarkers(),
+            $this->fieldEffects->cueStyle);
     }
 
     private function hasGraphicalFieldPresentation(): bool

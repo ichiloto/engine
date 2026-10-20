@@ -11,6 +11,8 @@ use Ichiloto\Engine\Rendering\FieldViewport;
 final class FieldCueEdgePlacement
 {
   /**
+   * Where an edge image goes: its compass direction and its grid cell.
+   *
    * @param array{x: int, y: int} $origin
    * @param int $inset Cells kept between the edge image and the view edge.
    * @param Vector2|null $player The player's world cell; the image slides along the edge off it.
@@ -18,13 +20,28 @@ final class FieldCueEdgePlacement
    */
   public static function locate(Vector2 $cell, array $origin, FieldViewport $view, int $inset = 0, ?Vector2 $player = null): ?array
   {
+    $edge = self::locatePixels($cell, $origin, $view, $inset, $player);
+    if ($edge === null) { return null; }
+    ['position' => $position] = self::findCell($edge['x'], $edge['y'], $view);
+
+    return ['direction' => $edge['direction'], 'position' => $position];
+  }
+
+  /**
+   * Where an edge image's centre goes on the surface, in logical pixels, and
+   * the unit vector pointing out of the view in its compass direction.
+   *
+   * @param array{x: int, y: int} $origin
+   * @return array{direction: string, x: float, y: float, outward: array{x: float, y: float}}|null Null while on screen.
+   */
+  public static function locatePixels(Vector2 $cell, array $origin, FieldViewport $view, int $inset = 0, ?Vector2 $player = null): ?array
+  {
     $x = $cell->x - $origin['x'];
     $y = $cell->y - $origin['y'];
     if ($x >= 0 && $x < $view->columns && $y >= 0 && $y < $view->rows) { return null; }
     $dx = $x - ($view->columns - 1) / 2;
     $dy = $y - ($view->rows - 1) / 2;
-    $direction = (int)round(atan2($dy, $dx) / (M_PI / 4));
-    $direction = ($direction + 8) % 8;
+    $index = ((int)round(atan2($dy, $dx) / (M_PI / 4)) + 8) % 8;
     $halfWidth = max(0, ($view->columns - 1) / 2 - $inset);
     $halfHeight = max(0, ($view->rows - 1) / 2 - $inset);
     $scale = min($dx == 0 ? INF : $halfWidth / abs($dx), $dy == 0 ? INF : $halfHeight / abs($dy));
@@ -45,8 +62,24 @@ final class FieldCueEdgePlacement
         }
       }
     }
-    return ['direction' => FieldPresentationCatalog::DIRECTIONS[$direction],
-      'position' => new Vector2((int)round($pixelX / $view->grid->cellWidth - 0.5),
-        (int)round(($pixelY + $tile / 2) / $view->grid->cellHeight - 1))];
+    $angle = $index * M_PI / 4;
+
+    return ['direction' => FieldPresentationCatalog::DIRECTIONS[$index], 'x' => $pixelX, 'y' => $pixelY,
+      'outward' => ['x' => round(cos($angle), 6), 'y' => round(sin($angle), 6)]];
+  }
+
+  /**
+   * The grid cell and lift that put a tile-sized, bottom-centred image's
+   * centre at a surface pixel: columns to the grid's precision, rows exactly.
+   *
+   * @return array{position: Vector2, lift: int}
+   */
+  public static function findCell(float $pixelX, float $pixelY, FieldViewport $view): array
+  {
+    $bottom = $pixelY + FieldViewport::TILE_SIZE * $view->zoom / 2;
+    $row = (int)ceil($bottom / $view->grid->cellHeight) - 1;
+
+    return ['position' => new Vector2((int)round($pixelX / $view->grid->cellWidth - 0.5), $row),
+      'lift' => (int)round(($row + 1) * $view->grid->cellHeight - $bottom)];
   }
 }

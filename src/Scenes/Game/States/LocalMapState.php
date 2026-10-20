@@ -222,7 +222,7 @@ class LocalMapState extends GameSceneState implements CanvasProviderInterface
         $style=$this->getGameScene()->fieldEffects?->waymarkStyle;
         $map=MapAtlasTerminal::renderMap($snapshot->overview,$landmarks,new Vector2($snapshot->playerX,$snapshot->playerY),
             $snapshot->heading,$mapWidth,$mapHeight,$this->selected,$projection,$snapshot->global,$snapshot->terminalView==='floorplan',
-            $snapshot->waymarks,$style);
+            $snapshot->waymarks,$style,$this->getGameScene()->fieldEffects?->cueStyle);
         $rows=[TerminalText::padCenter('N',$width),...$map];
         $legend=$snapshot->overview->terrain!==null
             ? MapAtlasTerminal::getTerrainLegend($snapshot->overview,$snapshot->global,$snapshot->terminalView==='places')

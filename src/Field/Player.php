@@ -945,7 +945,8 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
 
       Console::withLayer($cueLayer, function () use ($event): void {
         foreach ($event->cue->findPositions($event->area) as $position) {
-          $this->scene->camera->renderOnScreen([$event->cue->styledSymbol()], $position);
+          $this->scene->camera->renderOnScreen([$this->getGameScene()->fieldEffects?->cueStyle->styleGlyph($event->cue->symbol,
+            $event->cue->color) ?? $event->cue->styledSymbol()], $position);
         }
       }, PresentationLayerPolicy::WORLD);
     }

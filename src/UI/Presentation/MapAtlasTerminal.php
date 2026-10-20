@@ -68,7 +68,8 @@ final class MapAtlasTerminal
     public static function renderMap(MapOverview $overview, array $landmarks, Vector2 $player,
         MovementHeading $heading, int $width, int $height, int $selected = -1,
         ?MapProjection $projection = null, bool $global = false, bool $drawOutlines = true,
-        array $waymarks = [], ?\Ichiloto\Engine\Animations\Field\FieldWaymarkStyle $waymarkStyle = null): array
+        array $waymarks = [], ?\Ichiloto\Engine\Animations\Field\FieldWaymarkStyle $waymarkStyle = null,
+        ?\Ichiloto\Engine\Animations\Field\FieldCueStyle $cueStyle = null): array
     {
         $projection ??= $overview->getTerminalProjection($width, $height);
         $raster = $overview->getTerminalRaster($width, $height, $projection,$drawOutlines);
@@ -108,7 +109,7 @@ final class MapAtlasTerminal
             $x = min($width - 1, (int) floor($point->x));
             $y = min($height - 1, (int) floor($point->y));
             if (($occupied["{$x}:{$y}"] ?? false) === true) { continue; }
-            $raster[$y][$x] = TerminalText::formatStyles($waymarkStyle->styleSymbol());
+            $raster[$y][$x] = TerminalText::formatStyles($waymarkStyle->styleSymbol($cueStyle ?? new \Ichiloto\Engine\Animations\Field\FieldCueStyle()));
             $occupied["{$x}:{$y}"] = false;
         }
         $playerX = (int) floor($player->x);

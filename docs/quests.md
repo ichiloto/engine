@@ -136,11 +136,14 @@ The style is the game's: `waymarks` in `Data/Presentation/field.php`.
 ```
 
 `color` is a terminal colour and selects the graphical art too: the cue
-binding of that colour supplies the on-screen effect and its eight edge
-images. `inset` keeps edge arrows that many cells in from the edge (0..8).
-These are the Engine defaults when `waymarks` is omitted. Without a usable
-binding (effect image and all eight edges the renderer can draw), the
-terminal glyphs remain the waymarks in the graphical field as well. Map
+binding of that colour supplies the upright mark and its eight pointer
+images. An edge marker shows the upright mark, on the game's cue plate, with
+only the pointer turned toward the target (see `cueStyle` in
+[effect-animation.md](effect-animation.md)). `inset` keeps edge markers that
+many cells in from the edge (0..8). These are the Engine defaults when
+`waymarks` is omitted. Without a usable binding (effect image and all eight
+pointers the renderer can draw), the terminal glyphs remain the waymarks in
+the graphical field as well. Map
 markers use the menu theme's `objective` colour and the optional icon roles
 `map.objective` and `map.objective.route`.
 

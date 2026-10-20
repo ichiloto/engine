@@ -35,6 +35,8 @@ final class FieldEffectManager
   /** @var array<string, FieldWaymark> Waymark sessions keyed by session id. */
   private array $waymarks = [];
   private ?bool $waymarksUsable = null;
+  /** Presentation seconds, for the cue bob; advanced only by update(). */
+  private float $clock = 0.0;
   /** @var array<string, true> */
   private array $notes = [];
   private string $mapId = '';
@@ -188,9 +190,12 @@ final class FieldEffectManager
   /** The game's objective waymark style, shared with the terminal presenter. */
   public FieldWaymarkStyle $waymarkStyle { get => $this->catalog->waymarks; }
 
+  /** How every cue mark stays readable, shared with the terminal presenters. */
+  public FieldCueStyle $cueStyle { get => $this->catalog->cueStyle; }
+
   /**
    * Whether graphical art draws every waymark: the cue binding of the
-   * waymark colour has an image effect and all eight edge images this
+   * waymark colour has an image effect and all eight pointer images this
    * renderer can draw. Otherwise the terminal glyphs remain the waymarks.
    */
   public function canPresentWaymarks(): bool
@@ -204,13 +209,13 @@ final class FieldEffectManager
       return $this->waymarksUsable = false;
     }
     foreach (FieldPresentationCatalog::DIRECTIONS as $direction) {
-      $image = $binding['edges'][$direction] ?? null;
+      $image = $binding['pointer'][$direction] ?? null;
       if ($image === null) {
-        $this->note('waymark-edges', "The {$color} cue binding has no {$direction} edge image; waymark glyphs remain.");
+        $this->note('waymark-edges', "The {$color} cue binding has no {$direction} pointer image; waymark glyphs remain.");
         return $this->waymarksUsable = false;
       }
       if (($image['quarterTurns'] ?? 0) > 0 && !$this->turnsSupported) {
-        $this->note('turns', 'This renderer cannot rotate field edge images; waymark glyphs remain.');
+        $this->note('turns', 'This renderer cannot rotate field pointer images; waymark glyphs remain.');
         return $this->waymarksUsable = false;
       }
     }
@@ -287,6 +292,7 @@ final class FieldEffectManager
   public function update(float $seconds, bool $reducedMotion, ?iterable $objects = null, bool $showGuidance = true): void
   {
     if ($objects !== null) { $this->reconcileObjects($objects); }
+    $this->clock += $seconds;
     foreach ($this->sessions as $id => $session) {
       if (!$showGuidance && $this->isGuidance($id)) { continue; }
       if (isset($this->cues[$id]) && !$this->cues[$id]->shouldRenderCue()) { continue; }
@@ -334,22 +340,84 @@ final class FieldEffectManager
       $waymark = $this->waymarks[$id] ?? null;
       // Waymark art draws all or nothing; otherwise the terminal glyphs are the waymarks.
       if ($waymark !== null && !$this->canPresentWaymarks()) { continue; }
+      $bob = $cue === null && $waymark === null ? 0 : $this->catalog->cueStyle->getBobLift($this->clock, $reducedMotion);
       if ($waymark !== null) {
         // A character occupies its cell, so its waymark floats above it.
         if ($object !== null) { $position = new Vector2($position->x, $position->y - 1); }
-        if ($viewport !== null && ($edge = FieldCueEdgePlacement::locate($position, $origin, $viewport, $this->catalog->waymarks->inset, $player)) !== null) {
-          $image = $this->catalog->cues[$this->catalog->waymarks->color]['edges'][$edge['direction']];
-          $size = (int)round(FieldViewport::TILE_SIZE * $viewport->zoom);
-          $sprites[] = new FieldEdgeSprite($session->id . ':edge', new GraphicalSpriteDefinition($image['asset'], $size, $size,
-            PresentationSpriteAnchor::BOTTOM_CENTER, PresentationLayerPolicy::FIELD_EFFECT_FRONT,
-            quarterTurns: $image['quarterTurns'] ?? 0), $edge['position']);
+        $edge = $viewport === null ? null
+          : FieldCueEdgePlacement::locatePixels($position, $origin, $viewport, $this->catalog->waymarks->inset, $player);
+        if ($edge !== null) {
+          array_push($sprites, ...$this->composeEdgeMarker($session, $edge, $viewport, $bob, $reducedMotion));
           continue;
         }
         if ($this->isCuePresented($waymark->anchor->eventMarker)) { continue; }
       }
-      array_push($sprites, ...$session->getSprites($position, $reducedMotion, $object?->getGraphicalSpriteMotion()));
+      $marks = $session->getSprites($position, $reducedMotion, $object?->getGraphicalSpriteMotion());
+      if ($cue !== null || $waymark !== null) {
+        $marks = [...$this->createPlate($session->id . ':plate', $position, $bob, $object?->getGraphicalSpriteMotion()),
+          ...array_map(fn(FieldEffectSprite $mark): FieldEffectSprite => self::raise($mark, $bob), $marks)];
+      }
+      array_push($sprites, ...$marks);
     }
     return $sprites;
+  }
+
+  /**
+   * An off-screen waymark at the view edge: its upright mark on the cue
+   * plate, inside, and a pointer on the outward side. Only the pointer turns.
+   *
+   * @param array{direction: string, x: float, y: float, outward: array{x: float, y: float}} $edge
+   * @return list<FieldEffectSprite>
+   */
+  private function composeEdgeMarker(FieldEffectSession $session, array $edge, FieldViewport $view, int $bob,
+    bool $reducedMotion): array
+  {
+    $zoom = $view->zoom;
+    $size = (int)round(FieldViewport::TILE_SIZE * $zoom);
+    $distance = $this->catalog->cueStyle->pointerDistance * $zoom;
+    $mark = FieldCueEdgePlacement::findCell($edge['x'] - $edge['outward']['x'] * $distance,
+      $edge['y'] - $edge['outward']['y'] * $distance, $view);
+    $pointer = FieldCueEdgePlacement::findCell($edge['x'], $edge['y'], $view);
+    $sprites = [];
+    $plate = $this->catalog->cueStyle->plate;
+    if ($plate !== null) {
+      $sprites[] = new FieldScreenSprite($session->id . ':edge-plate', new GraphicalSpriteDefinition($plate, $size, $size,
+        PresentationSpriteAnchor::BOTTOM_CENTER, PresentationLayerPolicy::FIELD_CUE_PLATE,
+        lift: min($size, $mark['lift'] + (int)round($bob * $zoom))), $mark['position']);
+    }
+    foreach ($session->getSprites(new Vector2(0, 0), $reducedMotion) as $index => $frame) {
+      $definition = $frame->getGraphicalSpriteDefinition();
+      $height = (int)round($definition->height * $zoom);
+      $sprites[] = new FieldScreenSprite($session->id . ':edge-mark-' . $index, new GraphicalSpriteDefinition($definition->asset,
+        max(1, (int)round($definition->width * $zoom)), max(1, $height), $definition->anchor, $definition->layer,
+        $definition->sourceRect, min($height, $mark['lift'] + (int)round(($definition->lift + $bob) * $zoom)), 0, $definition->pivot),
+        $mark['position']);
+    }
+    $image = $this->catalog->cues[$this->catalog->waymarks->color]['pointer'][$edge['direction']];
+    $sprites[] = new FieldEdgeSprite($session->id . ':edge', new GraphicalSpriteDefinition($image['asset'], $size, $size,
+      PresentationSpriteAnchor::BOTTOM_CENTER, PresentationLayerPolicy::FIELD_EFFECT_FRONT,
+      lift: min($size, $pointer['lift'] + (int)round($bob * $zoom)), quarterTurns: $image['quarterTurns'] ?? 0), $pointer['position']);
+    return $sprites;
+  }
+
+  /** The cue plate behind a mark at a world cell, when the game draws one. @return list<FieldEffectSprite> */
+  private function createPlate(string $id, Vector2 $position, int $bob, ?\Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion $motion): array
+  {
+    $plate = $this->catalog->cueStyle->plate;
+    if ($plate === null) { return []; }
+    return [new FieldEffectSprite($id, new GraphicalSpriteDefinition($plate, FieldViewport::TILE_SIZE, FieldViewport::TILE_SIZE,
+      PresentationSpriteAnchor::BOTTOM_CENTER, PresentationLayerPolicy::FIELD_CUE_PLATE, lift: $bob), $position, $motion)];
+  }
+
+  /** The same mark drawn higher by the bob. */
+  private static function raise(FieldEffectSprite $mark, int $bob): FieldEffectSprite
+  {
+    if ($bob === 0) { return $mark; }
+    $definition = $mark->getGraphicalSpriteDefinition();
+    return new FieldEffectSprite($mark->getGraphicalSpriteId(), new GraphicalSpriteDefinition($definition->asset, $definition->width,
+      $definition->height, $definition->anchor, $definition->layer, $definition->sourceRect,
+      min($definition->height, $definition->lift + $bob), $definition->quarterTurns, $definition->pivot),
+      $mark->getGraphicalSpriteWorldPosition(), $mark->getGraphicalSpriteMotion());
   }
 
   /** Guidance hides while a cinematic owns the field: the action prompt, cues and waymarks. */

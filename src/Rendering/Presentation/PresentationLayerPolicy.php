@@ -17,6 +17,8 @@ final class PresentationLayerPolicy
   public const FIELD_EFFECT_BEHIND = -1;
   /** Foreground effects stay below authored above-character tiles (900..). */
   public const FIELD_EFFECT_FRONT = 899;
+  /** A cue's plate, directly behind its mark. */
+  public const FIELD_CUE_PLATE = 898;
   public const FIELD_PROMPT_ID = 'field-prompt';
   public const UI = 1000;
   public const CINEMATIC = 2000;
