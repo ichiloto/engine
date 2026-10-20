@@ -375,11 +375,15 @@ trunk base), and an existing `sprites2d` draw role. An optional authoring-only
 refuse. Omission means no recipe, not inferred collision.
 
 An optional `doorway` names, as a list of 1..16 distinct relative x/y cells
-from a placement's anchor, where the artwork paints an opening the player
-walks through, such as a cave mouth or a building door. It describes the art;
-the authored map stays authoritative, so the art conforms to the map's
-entrances and never the reverse (see Doorways and entrances below). Omission
-declares no opening.
+from a placement's anchor, where the artwork paints a door, and for each one
+where its entrance lies (`entrance`, a `DoorwayEntrance` value). `'on'`, the
+default, is an opening the player walks onto, such as a cave mouth or an open
+archway. `'front'` is a door painted on a solid face, such as an overworld
+town's, entered RPG Maker style from the walkable cell directly in front of
+it, below it on the map. Any other value refuses. It describes the art; the
+authored map stays authoritative, so the art conforms to the map's entrances
+and never the reverse (see Doorways and entrances below). Omission declares
+no door.
 
 ```php
 // Data/Presentation/field.php (asset-root-relative)
@@ -391,6 +395,7 @@ return ['resources' => [
       'cells' => ['width' => 3, 'height' => 4]],
     'occupancyStamp' => [['x' => 0, 'y' => 0,
       'type' => \Ichiloto\Engine\Events\Enumerations\CollisionType::SOLID]],
+    'doorway' => [['x' => 0, 'y' => 0, 'entrance' => 'front']],
   ],
 ]];
 
@@ -490,8 +495,10 @@ over anything standing on its covered cells in rows above its anchor row, its
 ground row, since the field orders subjects by ground row. So an entrance
 cell inside an object's `covers` above that row is an error: the player would
 vanish under the art there. A placement whose resource declares a `doorway`
-must have an entrance under every doorway cell. Both read authored cells
-only. Image size, pixels and draw layers decide nothing, an object without
+must meet an entrance exactly as each door declares: on the door cell for
+`'on'`, and on the cell below it for `'front'`, whose door cell itself must
+hold no entrance. A door drawn one cell off in any direction reports. Both
+read authored cells only. Image size, pixels and draw layers decide nothing, an object without
 `covers` claims only its anchor, and overhang above open floor or ordinary
 events stays legal. An object and an entrance whose conditions provably never
 hold together (`WorldConditionExclusion`) do not meet. The fix moves the

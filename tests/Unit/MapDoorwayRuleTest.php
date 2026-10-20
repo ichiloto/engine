@@ -44,6 +44,29 @@ it('reports an entrance behind the ground row inside the object, whatever its ar
         ->and($issues[0]->message)->toContain('cave-1')->toContain('ground row is 4');
 });
 
+it('meets each declared entrance relation exactly and reports it one cell off in every direction', function (string $relation) {
+    // The door is painted at the anchor, 2,4; 'on' is entered there and 'front' from 2,5.
+    $entranceAt = $relation === 'front' ? [2, 5] : [2, 4];
+    $doorway = [['x' => 0, 'y' => 0, ...($relation === 'default' ? [] : ['entrance' => $relation])]];
+    [$data, $grid] = makeDoorwayMap([$entranceAt]);
+    expect(inspectDoorways($data, $grid, $doorway))->toBe([]);
+    foreach ([[-1, 0], [1, 0], [0, -1], [0, 1]] as [$dx, $dy]) {
+        [$data, $grid] = makeDoorwayMap([[$entranceAt[0] + $dx, $entranceAt[1] + $dy]]);
+        $issues = inspectDoorways($data, $grid, $doorway);
+        // An entrance moved behind the ground row also reports that the art hides it; the doorway is always reported.
+        expect(array_values(array_filter($issues, static fn($issue): bool => $issue->path === ['worldObjects', 0])))->toHaveCount(1)
+            ->and($issues[array_key_last($issues)]->cells)->toBe([[2, 4]]);
+    }
+})->with(['default', 'on', 'front']);
+
+it('reports a door entered from the front whose entrance also lies on the painted door', function () {
+    [$data, $grid] = makeDoorwayMap([[2, 4], [2, 5]]);
+    $issues = inspectDoorways($data, $grid, [['x' => 0, 'y' => 0, 'entrance' => 'front']]);
+    expect($issues)->toHaveCount(1)->and($issues[0]->cells)->toBe([[2, 4]])->and($issues[0]->message)->toContain('on the door itself');
+    // The same entrance meets a door declared as walked onto.
+    expect(inspectDoorways($data, $grid, [['x' => 0, 'y' => 0, 'entrance' => 'on']]))->toBe([]);
+});
+
 it('reports a painted doorway with no entrance under it', function () {
     [$data, $grid] = makeDoorwayMap([[2, 4]]);
     $issues = inspectDoorways($data, $grid);

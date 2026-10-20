@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Animations\Field\FieldPoseAnimation;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
+use Ichiloto\Engine\Field\Enumerations\DoorwayEntrance;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Sprites\FieldSpriteRole;
@@ -17,9 +18,10 @@ use InvalidArgumentException;
  * Reusable presentation intent; occupancyStamp is an authoring recipe, never runtime collision.
  *
  * A doorway names the cells, relative to a placement's anchor, where the
- * artwork paints an opening the player walks through. It is a fact about the
- * art, which conforms to the map: validation requires every placement's
- * doorway to stand on an entrance ({@see \Ichiloto\Engine\Field\Validation\MapDoorwayRule}).
+ * artwork paints a door, and where each door's entrance lies: on the painted
+ * opening, or in front of a door painted on a solid face. It is a fact about
+ * the art, which conforms to the map: validation requires every placement's
+ * doorway to meet an entrance exactly as declared ({@see \Ichiloto\Engine\Field\Validation\MapDoorwayRule}).
  */
 final readonly class WorldObjectResource
 {
@@ -33,7 +35,7 @@ final readonly class WorldObjectResource
         /** @var list<array{x: int, y: int, type: CollisionType}> Relative physical cells. */
         public array $occupancyStamp,
         public ?WorldSignStyle $sign = null,
-        /** @var list<array{x: int, y: int}> Relative cells of the painted opening. */
+        /** @var list<array{x: int, y: int, entrance: DoorwayEntrance}> Relative cells of the painted doors. */
         public array $doorway = [],
     ) {}
 
@@ -89,7 +91,7 @@ final readonly class WorldObjectResource
             array_key_exists('sign', $data) ? WorldSignStyle::fromArray($data['sign']) : null, $doorway);
     }
 
-    /** @return list<array{x: int, y: int}> */
+    /** @return list<array{x: int, y: int, entrance: DoorwayEntrance}> */
     private static function readDoorway(string $id, array $data): array
     {
         if (!array_key_exists('doorway', $data)) { return []; }
@@ -99,14 +101,19 @@ final readonly class WorldObjectResource
         }
         $cells = $seen = [];
         foreach ($doorway as $cell) {
-            if (!is_array($cell) || array_diff(array_keys($cell), ['x', 'y']) !== [] || !is_int($cell['x'] ?? null) || !is_int($cell['y'] ?? null)
+            if (!is_array($cell) || array_diff(array_keys($cell), ['x', 'y', 'entrance']) !== [] || !is_int($cell['x'] ?? null) || !is_int($cell['y'] ?? null)
                 || isset($seen[$cell['y']][$cell['x']])) {
                 throw new InvalidArgumentException("Resource '{$id}' doorway requires distinct integer x/y offsets from the anchor.");
+            }
+            $entrance = DoorwayEntrance::tryFrom(is_string($cell['entrance'] ?? null) ? $cell['entrance'] : '');
+            if (array_key_exists('entrance', $cell) && $entrance === null) {
+                throw new InvalidArgumentException("Resource '{$id}' doorway entrance must be one of: "
+                    . implode(', ', array_column(DoorwayEntrance::cases(), 'value')) . '.');
             }
             SpriteValidation::validateSigned32BitRange($cell['x']);
             SpriteValidation::validateSigned32BitRange($cell['y']);
             $seen[$cell['y']][$cell['x']] = true;
-            $cells[] = ['x' => $cell['x'], 'y' => $cell['y']];
+            $cells[] = ['x' => $cell['x'], 'y' => $cell['y'], 'entrance' => $entrance ?? DoorwayEntrance::ON];
         }
         return $cells;
     }

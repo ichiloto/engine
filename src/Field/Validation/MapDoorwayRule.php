@@ -8,6 +8,7 @@ use Ichiloto\Engine\Animations\Field\FieldPresentationCatalog;
 use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\WorldConditionExclusion;
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
+use Ichiloto\Engine\Field\Enumerations\DoorwayEntrance;
 use Ichiloto\Engine\Field\WorldObjectDefinition;
 use Ichiloto\Engine\Field\WorldObjectPlacement;
 use InvalidArgumentException;
@@ -17,9 +18,11 @@ use InvalidArgumentException;
  * art drawn around them.
  *
  * An entrance is a transfer event. A world object's resource may declare the
- * cells where its artwork paints an opening ({@see \Ichiloto\Engine\Field\WorldObjectResource::$doorway});
- * each placement's doorway must lie on an entrance, so art and the authored
- * map agree. A world object draws over anything standing on the rows of its
+ * cells where its artwork paints a door ({@see \Ichiloto\Engine\Field\WorldObjectResource::$doorway})
+ * and where each door's entrance lies ({@see DoorwayEntrance}); each
+ * placement's doors must meet an entrance exactly as declared, so art and the
+ * authored map agree. A door entered from the front must also keep the
+ * entrance off its own painted cell. A world object draws over anything standing on the rows of its
  * covered cells above its anchor row, its ground row, so no entrance may lie
  * there. Both read authored cells only: image size, pixels and the draw
  * layer decide nothing, and ordinary overhang above open floor stays legal.
@@ -80,18 +83,28 @@ final class MapDoorwayRule
             foreach ($doorway as $cell) {
                 $x = $placement->x + $cell['x'];
                 $y = $placement->y + $cell['y'];
-                if (!array_any($meeting, static fn(array $entrance): bool => $entrance['area']->containsCell($x, $y))) { $off[] = [$x, $y]; }
+                [$entranceX, $entranceY] = $cell['entrance']->getEntranceCell($x, $y);
+                $entered = array_any($meeting, static fn(array $entrance): bool => $entrance['area']->containsCell($entranceX, $entranceY));
+                // A door painted on a solid face is entered from the front, never walked onto.
+                $onSolidDoor = $cell['entrance'] === DoorwayEntrance::FRONT
+                    && array_any($meeting, static fn(array $entrance): bool => $entrance['area']->containsCell($x, $y));
+                if (!$entered || $onSolidDoor) { $off[] = [$x, $y, $cell['entrance'], $onSolidDoor]; }
             }
             if ($off === []) { continue; }
-            $issues[] = new MapValidationIssue($mapId, self::RULE, sprintf(
-                "World object '%s' paints its doorway at %d,%d, where no entrance is.", $placement->id, $off[0][0], $off[0][1],
-            ), cells: $off, path: [WorldObjectDefinition::DATA_KEY, $index],
-                hint: "Place the object so its painted doorway sits on the entrance, or correct the resource's doorway to match its art.");
+            [$x, $y, $relation, $onSolidDoor] = $off[0];
+            $issues[] = new MapValidationIssue($mapId, self::RULE, match (true) {
+                $onSolidDoor => sprintf("World object '%s' paints a door at %d,%d entered from the front, but an entrance lies on the door itself.",
+                    $placement->id, $x, $y),
+                $relation === DoorwayEntrance::FRONT => sprintf("World object '%s' paints a door at %d,%d entered from the front, with no entrance at %d,%d.",
+                    $placement->id, $x, $y, $x, $y + 1),
+                default => sprintf("World object '%s' paints its doorway at %d,%d, where no entrance is.", $placement->id, $x, $y),
+            }, cells: array_map(static fn(array $cell): array => [$cell[0], $cell[1]], $off), path: [WorldObjectDefinition::DATA_KEY, $index],
+                hint: "Place the object so each painted door meets its entrance as its resource declares, or correct the resource's doorway to match its art.");
         }
         return $issues;
     }
 
-    /** @return list<array{x: int, y: int}> */
+    /** @return list<array{x: int, y: int, entrance: DoorwayEntrance}> */
     private static function readDoorway(mixed $entry, ?FieldPresentationCatalog $catalog): array
     {
         $id = is_array($entry) ? ($entry['resource'] ?? null) : null;
