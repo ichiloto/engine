@@ -12,7 +12,8 @@ final class MenuDetailEntry
 {
   public bool $isField { get => $this->label !== ''; }
 
-  private function __construct(public readonly string $label, public readonly string $text, public readonly string $color)
+  /** A field's null colour takes the renderer style's value colour. */
+  private function __construct(public readonly string $label, public readonly string $text, public readonly ?string $color)
   {
     if (trim($text) === '') { throw new InvalidArgumentException('Blank space is not a detail entry. Supply only real content.'); }
   }
@@ -24,7 +25,7 @@ final class MenuDetailEntry
   }
 
   /** The label names the value; renderers supply alignment and separators, never punctuation in the owner's label. */
-  public static function createField(string $label, string $value, string $color = 'text'): self
+  public static function createField(string $label, string $value, ?string $color = null): self
   {
     $label = trim(TextViewport::normalize($label));
     if ($label === '' || str_contains($label, "\n")) { throw new InvalidArgumentException('A detail field needs a one-line label.'); }

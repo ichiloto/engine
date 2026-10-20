@@ -88,8 +88,8 @@ final class QuestJournalPresentation
   private static function document(MenuCanvas $view, JournalDocument $document, TextPage $page, array $g): void
   {
     $m = $view->theme->metrics;
-    $styles = array_slice($document->lines($page->columns), $page->first, $page->rows);
-    $layout = $document->sheet->layout($page->columns);
+    $styles = array_slice($document->lines($page->columns, $view->theme->details), $page->first, $page->rows);
+    $layout = $document->sheet->layout($page->columns, $view->theme->details);
     $sections = [];
     foreach ($styles as $index => $line) {
       if ($line['section'] !== null) { $sections[$line['section']][] = $index; }

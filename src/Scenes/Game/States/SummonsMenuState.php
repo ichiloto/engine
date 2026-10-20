@@ -20,7 +20,7 @@ use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Scenes\SceneStateContext;
-use Ichiloto\Engine\UI\Presentation\{MenuCanvasState, MenuDetailEntry, MenuDetailSheet, MenuPresentationCatalog, MenuRow,
+use Ichiloto\Engine\UI\Presentation\{MenuCanvasState, MenuDetailEntry, MenuDetailSheet, MenuDetailStyle, MenuPresentationCatalog, MenuRow,
     MenuRowValue, SummonsMenuContent, SummonsMenuPresentation, SummonsMenuView};
 use Ichiloto\Engine\UI\Text\{TerminalMenuRow, TextPage, TextViewport};
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -203,7 +203,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $page = null;
         if ($content->detailsOpen) {
             [$columns, $rows] = SummonsMenuPresentation::getDetailPageSize($content, $theme);
-            $page = $content->details->createPage($this->detailViewport, $columns, $rows);
+            $page = $content->details->createPage($this->detailViewport, $columns, $rows, $theme->details);
         }
         $canvas = SummonsMenuPresentation::compose($content, $theme, $page, $this->menuInfoText, $time);
         if ($page !== null) { $this->lastDetailPage = $page; }
@@ -245,7 +245,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     protected function refreshDetailPanel(MenuDetailSheet $details): void
     {
         $page = $details->createPage($this->detailViewport, $this->listPanel->getContentWidth() - 2, $this->listPanel->getContentHeight(),
-            TerminalMenuRow::LABEL_SUFFIX);
+            MenuDetailStyle::createTerminal());
         $this->listPanel->setContent($page->lines);
         $this->listPanel->setHelp($page->total > $page->rows ? $page->range() : '');
         $this->listPanel->render();

@@ -26,6 +26,8 @@ final readonly class MenuPresentationCatalog
   ];
 
   public MenuRowSkin $rows;
+  /** Label/value field presentation in detail sheets. */
+  public MenuDetailStyle $details;
   public MenuThemeMetrics $metrics;
   public ?MenuIconRegistry $icons;
   /** @var array<string, PresentationColor> */
@@ -40,7 +42,7 @@ final readonly class MenuPresentationCatalog
 
   public function __construct(public string $assetRoot, array $data)
   {
-    self::keys($data, ['schema', 'colors', 'metrics', 'rowMetrics', 'rowArtwork', 'frames', 'icons', 'cursor', 'portraits', 'showInputHints', 'notifications', 'atlas']);
+    self::keys($data, ['schema', 'colors', 'metrics', 'rowMetrics', 'rowArtwork', 'frames', 'icons', 'cursor', 'portraits', 'showInputHints', 'notifications', 'atlas', 'details']);
     if (($data['schema'] ?? null) !== 'ichiloto.menu/1') {
       throw new InvalidArgumentException('Menu catalog requires schema ichiloto.menu/1.');
     }
@@ -62,6 +64,10 @@ final readonly class MenuPresentationCatalog
     }
     $this->colors = $palette;
     $this->metrics = new MenuThemeMetrics(...self::map($data, 'metrics'));
+    $this->details = MenuDetailStyle::createFromArray(self::map($data, 'details'));
+    foreach ([$this->details->labelColor, $this->details->valueColor] as $role) {
+      if (!isset($palette[$role])) { throw new InvalidArgumentException("Menu details colour role {$role} is not a theme colour."); }
+    }
     $art = self::artwork(self::map($data, 'rowArtwork'), MenuRowSkin::ARTWORK);
     $this->rows = new MenuRowSkin(array_intersect_key($palette, array_flip(MenuRowSkin::COLORS)),
       new MenuRowMetrics(...self::map($data, 'rowMetrics')), $art, $assetRoot);

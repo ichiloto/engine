@@ -23,7 +23,7 @@ final readonly class JournalDocument
       foreach ($section->entries as $entry) {
         // Authored text may be empty, as a quest without a description is; blank space is not an entry.
         if (trim($entry['text']) === '') { continue; }
-        $items[] = isset($entry['label']) ? MenuDetailEntry::createField($entry['label'], $entry['text'], $entry['color'] ?? 'text')
+        $items[] = isset($entry['label']) ? MenuDetailEntry::createField($entry['label'], $entry['text'], $entry['color'] ?? null)
           : MenuDetailEntry::createProse($entry['text'], $entry['color'] ?? 'text');
         $entries[] = ['section' => $index, 'heading' => false, 'icon' => $entry['icon'] ?? null];
       }
@@ -37,11 +37,11 @@ final readonly class JournalDocument
   /** Metadata follows the measured entries, never guessed by parsing translated display text.
    * @return list<array{text: string, section: ?int, heading: bool, icon: ?string, color: string}>
    */
-  public function lines(int $columns, string $labelSuffix = ''): array
+  public function lines(int $columns, MenuDetailStyle $style = new MenuDetailStyle()): array
   {
     $lines = [];
     $seen = [];
-    $layout = $this->sheet->layout($columns, $labelSuffix);
+    $layout = $this->sheet->layout($columns, $style);
     foreach ($layout->getWrappedLines() as $index => [, $text]) {
       $line = $layout->lines[$index];
       $entry = $line->entry === null ? null : $this->entries[$line->entry];

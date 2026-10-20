@@ -2,7 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
-use Ichiloto\Engine\UI\Text\TerminalMenuRow;
+use Ichiloto\Engine\UI\Presentation\MenuDetailStyle;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Localization\Vocabulary;
@@ -350,7 +350,7 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
         $availableLines = self::CONTENT_PANEL_HEIGHT - 2;
         $content = $this->getPresentationContent();
         $lines = $content === null ? [] : array_column($content->getDetailSheet()
-            ->layout(self::DETAIL_PANEL_WIDTH - 4, TerminalMenuRow::LABEL_SUFFIX)->getWrappedLines(), 1);
+            ->layout(self::DETAIL_PANEL_WIDTH - 4, MenuDetailStyle::createTerminal())->getWrappedLines(), 1);
 
         return array_slice(array_pad($lines, $availableLines, ''), 0, $availableLines);
     }

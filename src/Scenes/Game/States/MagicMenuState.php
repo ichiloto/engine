@@ -2,7 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
-use Ichiloto\Engine\UI\Text\TerminalMenuRow;
+use Ichiloto\Engine\UI\Presentation\MenuDetailStyle;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Localization\Vocabulary;
@@ -388,7 +388,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
             ? $this->getActiveLearnableSpell() : null;
         $source = $learnable === null ? [] : ['Source' => $learnable->note !== '' ? $learnable->note : 'Unrecorded'];
         $lines = $content === null ? [] : array_column($content->getDetailSheet($source)
-            ->layout(self::DETAIL_PANEL_WIDTH - 4, TerminalMenuRow::LABEL_SUFFIX)->getWrappedLines(), 1);
+            ->layout(self::DETAIL_PANEL_WIDTH - 4, MenuDetailStyle::createTerminal())->getWrappedLines(), 1);
 
         return array_slice(array_pad($lines, $availableLines, ''), 0, $availableLines);
     }

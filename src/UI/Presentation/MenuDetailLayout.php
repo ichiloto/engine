@@ -10,7 +10,7 @@ use Ichiloto\Engine\UI\Text\TextViewport;
 final readonly class MenuDetailLayout
 {
   /** @param non-empty-list<MenuDetailLine> $lines */
-  public function __construct(public string $source, public int $columns, public array $lines) {}
+  public function __construct(public string $source, public int $columns, public array $lines, public MenuDetailStyle $style) {}
 
   /** Plain lines for Terminal output and for paging through TextViewport.
    * @return non-empty-list<array{int, string}>

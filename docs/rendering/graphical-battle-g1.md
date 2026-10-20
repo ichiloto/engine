@@ -876,20 +876,32 @@ their established view-only access. No gameplay rule or saved assignment changes
 Reading views that mix prose with labelled values use one Engine component,
 `MenuDetailSheet`, in every renderer: Summons Info, the quest journal, Records,
 and the Magic and Abilities Terminal detail panels. Owners supply sections of
-`MenuDetailEntry` prose or fields; owners never format labels, colons or padding.
-Fields in a section share one value column; long values wrap inside it, and a
-value column narrower than `MenuDetailSheet::MIN_VALUE_CELLS` stacks the label
-above its indented value.
+`MenuDetailEntry` prose or fields; owners never format labels, colons, padding
+or alignment. Fields in a section share one value column and long values wrap
+inside it.
 
-Canvas paints field labels and values in the theme `text` colour and closes each
-field with the approved data-record separator (`edge` colour, row-metric width
+A `MenuDetailStyle` decides how fields look. Canvas reads it from the menu
+theme's optional `details` block; omitted keys keep the Engine default:
+
+```php
+'details' => [
+  'labelSuffix' => '',          // text attached to each label
+  'gapCells' => 1,              // cells between the label column and values
+  'minValueCells' => 12,        // narrower values stack under their label
+  'stackedIndentCells' => 2,
+  'valueAlignment' => 'left',   // or 'right'
+  'labelColor' => 'text',       // theme colour roles
+  'valueColor' => 'text',       // for values the owner does not colour
+  'separators' => true,         // close each field with the record separator
+],
+```
+
+The separator is the theme's data-record rule (`edge` colour, row-metric width
 and `recordSeparatorOpacity`), drawn inside the field's last line. Prose keeps
-its own colour role and has no separator, as the UI kit's row-separator rules
-require. Field labels carry no punctuation in Canvas.
-
-Terminal has no separators, so it names a field with the attached suffix
-`TerminalMenuRow::LABEL_SUFFIX` (`Label:` then the value column), the style of
-the Status screen. Single Terminal fields outside a sheet use
+its own colour role and never has a separator. Terminal uses
+`MenuDetailStyle::createTerminal()`: no separators, so each label carries the
+attached suffix `TerminalMenuRow::LABEL_SUFFIX` (`Label:`), the Status screen
+style. Single Terminal fields outside a sheet use
 `TerminalMenuRow::composeField()`. Selectable list rows, such as Config
 settings, stay label and value without a colon, matching Title Options.
 

@@ -41,7 +41,7 @@ use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Modal\PromptModal;
 use Ichiloto\Engine\UI\Presentation\JournalMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
-use Ichiloto\Engine\UI\Text\TerminalMenuRow;
+use Ichiloto\Engine\UI\Presentation\MenuDetailStyle;
 use Ichiloto\Engine\UI\Text\TextViewport;
 use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -248,7 +248,8 @@ it('reaches complete long quest and earned report text in terminal and graphical
     foreach ($page->lines as $line => $text) { $seen[$page->first + $line] = $text; }
     if ($graphical) {
       // Canvas draws field labels and values as separate aligned runs over the same measured lines.
-      $layout = $state->getPresentationContent()->details->layout($page->columns);
+      $layout = $state->getPresentationContent()->details->layout($page->columns,
+        (new MenuPresentationCatalog($this->root, journalMenuTheme()))->details);
       $painted = array_filter(journalMenuText($frame), fn($id) => $id === 'journal-text' || str_starts_with($id, 'journal-text-'), ARRAY_FILTER_USE_KEY);
       expect(implode('', $painted))->toBe(implode('', array_map(fn($line) => $line->label . $line->text,
         array_slice($layout->lines, $page->first, $page->rows))));
@@ -262,9 +263,10 @@ it('reaches complete long quest and earned report text in terminal and graphical
     journalMenuKey($state, KeyCode::DOWN);
   }
   ksort($seen);
-  $suffix = $graphical ? '' : TerminalMenuRow::LABEL_SUFFIX;
+  $style = $graphical ? (new MenuPresentationCatalog($this->root, journalMenuTheme()))->details : MenuDetailStyle::createTerminal();
+  $suffix = $style->labelSuffix;
   expect(array_values($seen))->toBe(array_column($state->getPresentationContent()->details
-      ->layout($page->columns, $suffix)->getWrappedLines(), 1))
+      ->layout($page->columns, $style)->getWrappedLines(), 1))
     ->and(implode('', $seen))->toContain('Authored line 001')->toContain('Authored line 060')
     ->toContain($records ? 'FINAL REPORT DETAIL' : "Reward{$suffix} 123 G, 456 EXP, Reward Tonic x3");
   expect($state->getPresentationContent()->index)->toBe(0);

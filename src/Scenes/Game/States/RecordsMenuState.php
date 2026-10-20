@@ -18,11 +18,11 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Presentation\JournalMenuContent;
 use Ichiloto\Engine\UI\Presentation\JournalMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuDetailStyle;
 use Ichiloto\Engine\UI\Presentation\MenuDetailEntry;
 use Ichiloto\Engine\UI\Presentation\MenuDetailSheet;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\SelectionStyle;
-use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\UI\Text\TextPage;
 use Ichiloto\Engine\UI\Text\TextViewport;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -172,18 +172,19 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
       $row === null ? '' : $this->tab . ':' . $row->id, new MenuDetailSheet($sections), '', $this->viewingDetail, false);
   }
 
-  public function getPresentationPage(int $columns, int $rows): TextPage
+  public function getPresentationPage(int $columns, int $rows, MenuDetailStyle $style = new MenuDetailStyle()): TextPage
   {
     $content = $this->getPresentationContent();
     $reading = clone $this->reading;
     if ($content->entryKey !== $this->readingKey) { $reading->reset(); }
-    return $content->details->createPage($reading, $columns, $rows);
+    return $content->details->createPage($reading, $columns, $rows, $style);
   }
 
   protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
   {
     $content = $this->getPresentationContent();
-    $page = $this->getPresentationPage(...JournalMenuPresentation::pageSize($content, $theme));
+    [$columns, $rows] = JournalMenuPresentation::pageSize($content, $theme);
+    $page = $this->getPresentationPage($columns, $rows, $theme->details);
     $canvas = JournalMenuPresentation::compose($content, $theme, $page, $time);
     $this->displayedPage = $page;
     return $canvas;
@@ -228,7 +229,7 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
     $this->listPanel->setContent(array_pad($lines, $capacity, ''));
     $metadata = !$this->viewingDetail && $content->rows !== [] ? ['View details'] : [];
     $page = $content->details->createPage($this->reading, $width, $this->infoPanel->getContentHeight() - count($metadata),
-      TerminalMenuRow::LABEL_SUFFIX);
+      MenuDetailStyle::createTerminal());
     $this->displayedPage = $page;
     $this->infoPanel->setHelp($this->viewingDetail ? 'Details - ' . $page->range() : '');
     $this->infoPanel->setContent(array_pad([...$metadata, ...$page->lines], $this->infoPanel->getContentHeight(), ''));

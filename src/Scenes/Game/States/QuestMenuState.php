@@ -16,9 +16,9 @@ use Ichiloto\Engine\UI\Presentation\JournalDocument;
 use Ichiloto\Engine\UI\Presentation\JournalSection;
 use Ichiloto\Engine\UI\Presentation\JournalMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuDetailStyle;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\SelectionStyle;
-use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\UI\Text\TextPage;
 use Ichiloto\Engine\UI\Text\TextViewport;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -146,18 +146,19 @@ class QuestMenuState extends GameSceneState implements CanvasProviderInterface
   }
 
   /** Reading a different renderer's geometry cannot navigate or reset the owner. */
-  public function getPresentationPage(int $columns, int $rows): TextPage
+  public function getPresentationPage(int $columns, int $rows, MenuDetailStyle $style = new MenuDetailStyle()): TextPage
   {
     $content = $this->getPresentationContent();
     $reading = clone $this->reading;
     if ($content->entryKey !== $this->readingKey) { $reading->reset(); }
-    return $content->details->createPage($reading, $columns, $rows);
+    return $content->details->createPage($reading, $columns, $rows, $style);
   }
 
   protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
   {
     $content = $this->getPresentationContent();
-    $page = $this->getPresentationPage(...JournalMenuPresentation::pageSize($content, $theme));
+    [$columns, $rows] = JournalMenuPresentation::pageSize($content, $theme);
+    $page = $this->getPresentationPage($columns, $rows, $theme->details);
     $canvas = JournalMenuPresentation::compose($content, $theme, $page, $time);
     $this->displayedPage = $page;
     return $canvas;
@@ -191,7 +192,7 @@ class QuestMenuState extends GameSceneState implements CanvasProviderInterface
     assert($this->summaryPanel instanceof MagicTabPanel);
     $this->summaryPanel->setTabs($content->tabs, $content->tabIndex);
     $this->summaryPanel->setContent([...$this->summaryPanel->getContent(), $content->summary]);
-    $page = $content->details->createPage($this->reading, $width, $capacity, TerminalMenuRow::LABEL_SUFFIX);
+    $page = $content->details->createPage($this->reading, $width, $capacity, MenuDetailStyle::createTerminal());
     $this->displayedPage = $page;
     if ($this->viewingDetail) {
       $lines = $page->lines;

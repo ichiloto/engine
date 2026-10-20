@@ -98,7 +98,7 @@ final class MenuCanvas
     $this->protectText($this->text[array_key_last($this->text)]);
   }
 
-  /** A measured detail page: prose lines, and label/value fields that share the record palette and separators. */
+  /** A measured detail page: prose lines, and label/value fields styled by the layout's MenuDetailStyle. */
   public function details(string $id, MenuDetailLayout $layout, TextPage $page, CanvasRectangle $bounds): void
   {
     $m = $this->theme->metrics;
@@ -110,10 +110,10 @@ final class MenuCanvas
     $lines = array_slice($layout->lines, $page->first, $page->rows);
     $runs = [];
     foreach ($lines as $index => $line) {
-      if ($line->label !== '') { $runs[] = new PresentationTextRun($index, 0, $line->label, $this->theme->colors['text']); }
+      if ($line->label !== '') { $runs[] = new PresentationTextRun($index, 0, $line->label, $this->theme->colors[$layout->style->labelColor]); }
       if ($line->text !== '') { $runs[] = new PresentationTextRun($index, $line->column, $line->text, $this->theme->colors[$line->color]); }
       // The data-record rule sits inside the record's last line, as rows keep theirs inside their height.
-      if ($line->closesField && $row->separatorWidth > 0) {
+      if ($line->closesField && $layout->style->separators && $row->separatorWidth > 0) {
         $this->fill("{$id}-{$index}-separator", new CanvasRectangle($bounds->x,
           $bounds->y + ($index + 1) * $m->cellHeight - $row->separatorWidth, $bounds->width, $row->separatorWidth),
           'edge', 25, $row->recordSeparatorOpacity);
