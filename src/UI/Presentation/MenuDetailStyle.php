@@ -104,6 +104,12 @@ final readonly class MenuDetailStyle
     return new self(...$data, iconCells: $iconCells, iconRoles: $iconRoles);
   }
 
+  /** @param list<string> $iconRoles */
+  public function withIconRoles(array $iconRoles): self
+  {
+    return new self(...[...get_object_vars($this), 'iconRoles' => array_values($iconRoles)]);
+  }
+
   public function getAlignment(MenuDetailKind $kind): HorizontalAlignment
   {
     return $this->valueAlignment[$kind->value] ?? HorizontalAlignment::LEFT;

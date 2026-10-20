@@ -43,7 +43,7 @@ final class SummonsMenuPresentation
       if ($page === null || $content->details === null || $page->columns !== $area->columns || $page->rows !== $area->height) {
         throw new RuntimeException('Summon contract page must match its measured viewport.');
       }
-      $view->details('summons-detail', $content->details->layout($area->columns, $theme->details), $page, $body);
+      $view->details('summons-detail', $content->details->layout($area->columns, $theme->createDetailStyle()), $page, $body);
       if ($page->total > count($page->lines)) {
         $view->renderBorderCaption('summons-detail-range', $page->range(),
           new CanvasRectangle($body->x, $g['body']->y + $g['body']->height - $p, $body->width, $p));

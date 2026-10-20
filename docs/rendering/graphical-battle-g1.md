@@ -876,11 +876,13 @@ their established view-only access. No gameplay rule or saved assignment changes
 Reading views that mix prose with labelled values use one Engine component,
 `MenuDetailSheet`, in every renderer: Summons Info, the quest journal, Records,
 and the Magic and Abilities Terminal detail panels. Owners supply sections of
-`MenuDetailEntry` prose or fields; owners never format labels, colons, padding
-or alignment. Fields in a section share one value column and long values wrap
-inside it.
+`MenuDetailEntry` values and state what each is: prose, a heading, or a field
+holding text, a number or an icon list (`MenuDetailIcon`: an icon role and the
+name shown where the icon is not drawn). Owners never format labels, colons,
+padding or alignment. Fields in a section share one label column. An empty
+icon list is a real answer ("none") and keeps its row.
 
-A `MenuDetailStyle` decides how fields look. Canvas reads it from the menu
+A `MenuDetailStyle` decides how entries look. Canvas reads it from the menu
 theme's optional `details` block; omitted keys keep the Engine default:
 
 ```php
@@ -888,31 +890,49 @@ theme's optional `details` block; omitted keys keep the Engine default:
   'labelSuffix' => '',             // text attached to each label
   'gapCells' => 1,                 // cells between the label column and values
   'minValueCells' => 12,           // narrower values stack under their label
+  'valueAlignment' => ['text' => 'left', 'number' => 'right', 'icons' => 'left'],
+  'valuePlacement' => ['text' => 'beside', 'number' => 'beside', 'icons' => 'beside'], // or 'below'
   'stackWrappedValues' => false,   // a value needing two or more lines stacks under its label
   'stackedIndentCells' => 2,
-  'valueAlignment' => 'left',      // 'right' for short values beside their label
   'stackedValueAlignment' => 'left',
   'labelColor' => 'text',          // theme colour roles
   'valueColor' => 'text',          // for values the owner does not colour
   'separators' => true,            // close each field with the record separator
   'recordMinHeight' => 0,          // minimum field record height in pixels; text centres in it
+  'emptyValueText' => '',          // shown for an empty icon list
+  'headingColor' => 'accent',
+  'headingBackground' => null,     // colour role behind headings
+  'headingMinHeight' => 0,
 ],
 ```
 
+A heading draws the theme's `details.header` frame artwork when bound, else its
+`headingBackground` colour, else no backing. Icon lists draw each role the
+theme binds to available artwork (`icons`), sized by the row icon box; any other
+icon shows its name. Availability is checked when composing
+(`MenuPresentationCatalog::createDetailStyle()`), never when the theme loads.
+
 The separator is the theme's data-record rule (`edge` colour, row-metric width
 and `recordSeparatorOpacity`), drawn inside the field record's last line. Prose
-keeps its own colour role and never has a separator. Canvas pages by pixels
-through a `MenuDetailViewport` (columns, height, cell height), showing only
-whole lines, so taller records still scroll line by line. Panel padding is the
-theme's `metrics.panelPadding`.
+never has a separator. Canvas pages by pixels through a `MenuDetailViewport`
+(columns, height, cell height), showing only whole lines, so taller records
+still scroll line by line. Panel padding is the theme's `metrics.panelPadding`.
 
 Terminal uses `MenuDetailStyle::createTerminal()`: rows instead of pixels, no
-separators, and the attached suffix `TerminalMenuRow::LABEL_SUFFIX` (`Label:`),
-the Status screen style. The game's graphical theme never changes the Terminal
-presentation; that suffix is one Engine constant, also used by
-`TerminalMenuRow::composeField()` for single Terminal fields such as Status.
-Selectable list rows, such as Config settings, stay label and value without a
-colon, matching Title Options.
+separators or icons (names instead), `-` for an empty icon list, and the
+attached suffix `TerminalMenuRow::LABEL_SUFFIX` (`Label:`), the Status screen
+style. The game's graphical theme never changes the Terminal presentation; that
+suffix is one Engine constant, also used by `TerminalMenuRow::composeField()`
+for single Terminal fields such as Status. Selectable list rows, such as Config
+settings, stay label and value without a colon, matching Title Options.
+
+Elemental affinities read through `ElementalAffinityDetails`, shared by Summons
+Info and any later enemy Assess screen. `ElementalAffinityTier` classifies each
+multiplier exactly as combat does (`ElementalAffinityResolver::classify`):
+weakness above 1, lesser resistance below 1, greater resistance at or below
+half, immunity at 0, absorption below 0. Every tier keeps its row. Element icons
+use the roles `element.<identity>`, lowercased; the effective-against row lists
+elements the same way.
 
 The sheet's source text anchors the owner's `TextViewport` reading position, so
 scrolling survives reflow between renderers. Labels for engine-named fields come

@@ -107,9 +107,9 @@ it('uses the same themed scrollbar for quest prose without painting over text or
   $reading = new TextViewport();
   $area = QuestJournalPresentation::pageSize($content, $theme, $width, $height);
   for ($i = 0; $i < 100; $i++) {
-    $page = $document->sheet->createPage($reading, $area, $theme->details);
+    $page = $document->sheet->createPage($reading, $area, $theme->createDetailStyle());
     $frame = QuestJournalPresentation::compose($content, $theme, $page, width: $width, height: $height);
-    expect($document->sheet->createPage($reading, $area, $theme->details))->toEqual($page);
+    expect($document->sheet->createPage($reading, $area, $theme->createDetailStyle()))->toEqual($page);
     $pieces = [...$frame->images, ...$frame->textLayers];
     $track = array_find($pieces, fn($piece) => str_starts_with($piece->id, 'journal-scroll-track'))->clipRect;
     $text = array_find($frame->textLayers, fn($piece) => str_starts_with($piece->id, 'journal-text'));

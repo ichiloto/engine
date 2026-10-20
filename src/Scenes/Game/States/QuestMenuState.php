@@ -158,7 +158,7 @@ class QuestMenuState extends GameSceneState implements CanvasProviderInterface
   protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
   {
     $content = $this->getPresentationContent();
-    $page = $this->getPresentationPage(JournalMenuPresentation::pageSize($content, $theme), $theme->details);
+    $page = $this->getPresentationPage(JournalMenuPresentation::pageSize($content, $theme), $theme->createDetailStyle());
     $canvas = JournalMenuPresentation::compose($content, $theme, $page, $time);
     $this->displayedPage = $page;
     return $canvas;

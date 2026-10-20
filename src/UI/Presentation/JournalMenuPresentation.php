@@ -73,7 +73,7 @@ final class JournalMenuPresentation
       if ($page->columns !== (int)floor($g['text']->width / $m->cellWidth) || $page->rows !== (int)floor($g['text']->height)) {
         throw new RuntimeException('Journal text page must match the measured display viewport.');
       }
-      $view->details('journal-text', $content->details->layout($page->columns, $theme->details), $page, $g['text']);
+      $view->details('journal-text', $content->details->layout($page->columns, $theme->createDetailStyle()), $page, $g['text']);
     } elseif ($hasEntry) {
       $view->prose('journal-preview', TextViewport::preview($content->previewText, (int)floor($g['preview']->width / $m->cellWidth)), $g['preview']);
     }

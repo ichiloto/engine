@@ -74,11 +74,8 @@ final readonly class MenuPresentationCatalog
     $cursor = $data['cursor'] ?? null;
     if ($cursor !== null && !is_string($cursor)) { throw new InvalidArgumentException('Menu cursor must be a PNG path.'); }
     $this->icons = $bindings !== [] || $cursor !== null ? new MenuIconRegistry($assetRoot, $bindings, $cursor) : null;
-    // Detail icon lists draw only roles bound to available artwork; any other icon shows its name.
-    $drawn = array_values(array_filter(array_keys($this->icons?->icons ?? []),
-      fn(string $role): bool => PngAssetPreflight::getAvailableSize($assetRoot, $this->icons->icons[$role]) !== null));
     $this->details = MenuDetailStyle::createFromArray(self::map($data, 'details'),
-      (int)ceil($this->rows->metrics->iconWidth / $this->metrics->cellWidth), $drawn);
+      (int)ceil($this->rows->metrics->iconWidth / $this->metrics->cellWidth));
     foreach (array_filter([$this->details->labelColor, $this->details->valueColor, $this->details->headingColor,
       $this->details->headingBackground]) as $role) {
       if (!isset($palette[$role])) { throw new InvalidArgumentException("Menu details colour role {$role} is not a theme colour."); }
@@ -91,6 +88,13 @@ final readonly class MenuPresentationCatalog
       SpriteValidation::validateAssetPath($asset);
     }
     $this->portraits = $portraits;
+  }
+
+  /** The authored detail style with the icon roles whose artwork is available now; checked when composing, never at load. */
+  public function createDetailStyle(): MenuDetailStyle
+  {
+    return $this->details->withIconRoles(array_keys(array_filter($this->icons?->icons ?? [],
+      fn(string $asset): bool => PngAssetPreflight::getAvailableSize($this->assetRoot, $asset) !== null)));
   }
 
   public static function exists(string $assetRoot): bool

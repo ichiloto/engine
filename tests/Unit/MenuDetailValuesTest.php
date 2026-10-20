@@ -40,8 +40,8 @@ function composeSyntheticValues(array $details): array
   $sheet = createSyntheticValueSheet();
   $bounds = new CanvasRectangle(50, 40, 40 * $m->cellWidth, 16 * $m->cellHeight);
   $view = new MenuCanvas($theme);
-  $positions = $view->details('values', $sheet->layout(40, $theme->details),
-    $sheet->createPage(new TextViewport(), new MenuDetailViewport(40, (int)$bounds->height, $m->cellHeight), $theme->details), $bounds);
+  $positions = $view->details('values', $sheet->layout(40, $theme->createDetailStyle()),
+    $sheet->createPage(new TextViewport(), new MenuDetailViewport(40, (int)$bounds->height, $m->cellHeight), $theme->createDetailStyle()), $bounds);
   return [$view->finish(), $theme, $positions];
 }
 
@@ -74,7 +74,7 @@ it('draws bound icons, names for unbound ones, themed headings and placement bel
     ->and(array_column($runs, 'text'))->toContain('Gale', 'Weaknesses', 'Immunities')->not->toContain('Heat')
     ->and(array_find($runs, fn($run) => $run->text === 'Rewards')->foreground)->toEqual($theme->colors['focus'])
     ->and($positions[0]['height'])->toBe(40);
-  $layout = createSyntheticValueSheet()->layout(40, $theme->details);
+  $layout = createSyntheticValueSheet()->layout(40, $theme->createDetailStyle());
   $weak = array_search(array_find($layout->lines, fn($line) => $line->label === 'Weaknesses'), $layout->lines, true);
   expect($layout->lines[$weak]->items)->toBe([])->and($layout->lines[$weak + 1]->items[0]['role'])->toBe('element.heat');
 });

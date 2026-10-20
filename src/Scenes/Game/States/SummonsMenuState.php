@@ -204,7 +204,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $page = null;
         if ($content->detailsOpen) {
             $page = $content->details->createPage($this->detailViewport,
-                SummonsMenuPresentation::getDetailViewport($content, $theme), $theme->details);
+                SummonsMenuPresentation::getDetailViewport($content, $theme), $theme->createDetailStyle());
         }
         $canvas = SummonsMenuPresentation::compose($content, $theme, $page, $this->menuInfoText, $time);
         if ($page !== null) { $this->lastDetailPage = $page; }
