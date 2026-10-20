@@ -27,9 +27,10 @@ use InvalidArgumentException;
  * script, Cinematic or lines an NPC delivers (it names NPC speakers), sits on
  * a cell apart from the NPC, so talking to the NPC itself says something
  * else. It belongs on the delivering NPC's pages, with its cue. Scenes that
- * start on arrival are not conversations. An event bound to a world object
- * is that object's interaction (a terminal, a reception counter); its
- * speakers answer for it. Shop and inn events stay with the
+ * start on arrival are not conversations. An event bound to a subject, a
+ * world object or a named map area, is that thing's or place's interaction
+ * (a terminal, a reception counter, a safe position); its speakers answer
+ * for it. Shop and inn events stay with the
  * counter or fixture they are authored on; a page offers either service
  * through the `shop` and `inn` script commands when the NPC should own it.
  */
@@ -111,7 +112,7 @@ final class MapNpcInteractionRule
                 continue;
             }
             if (strtolower(trim(strval($event['data']['mode'] ?? ''))) === ScriptEventTrigger::MODE_AUTO) { continue; }
-            if (($event['subject']['kind'] ?? null) === 'world_object') { continue; }
+            if (is_array($event['subject'] ?? null)) { continue; }
             try {
                 $speakers = array_values(array_filter(MapEventSpeakerRule::readSpeakers($event), static fn(string $id): bool => isset($names[$id])));
             } catch (InvalidArgumentException) {

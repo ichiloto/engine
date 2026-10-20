@@ -89,7 +89,7 @@ it('reads a reusable NPC page that transfers as a route used by talking to the N
     ->and($routes[0]->conditions)->toBe([['type' => 'event', 'name' => 'here'], ['type' => 'event', 'name' => 'briefed']]);
 });
 
-it('flags a player-started event an NPC delivers from a separate cell, not arrivals, shops, objects or unvoiced events', function () {
+it('flags a player-started event an NPC delivers from a separate cell, not arrivals, shops, objects, places or unvoiced events', function () {
   $event = static fn(string $marker, string $class, array $data, ?array $speakers): array => array_filter([
     'marker' => $marker, 'class' => $class, 'data' => $data, 'area' => ['cells' => [[4, 3]]], 'speakers' => $speakers,
   ], static fn($value): bool => $value !== null);
@@ -100,6 +100,8 @@ it('flags a player-started event an NPC delivers from a separate cell, not arriv
     $event('N', ScriptEventTrigger::class, ['mode' => 'action', 'scriptId' => 'notice'], null),
     [...$event('T', ScriptEventTrigger::class, ['mode' => 'action', 'scriptId' => 'terminal'], ['mentor']),
       'subject' => ['kind' => 'world_object', 'id' => 'terminal-1']],
+    [...$event('P', ScriptEventTrigger::class, ['mode' => 'action', 'scriptId' => 'safe-position'], ['mentor']),
+      'subject' => ['kind' => 'area', 'id' => 'safe-position']],
   ]);
 
   expect($issues)->toHaveCount(1)
