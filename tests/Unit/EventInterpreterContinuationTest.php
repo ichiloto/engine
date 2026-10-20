@@ -1855,7 +1855,7 @@ it('forwards map encounter arenas and clears their binding when maps change', fu
   try {
     [$scene] = makeEventRuntime();
     $manager = new class($scene) extends Ichiloto\Engine\Field\EncounterManager {
-      public function trigger(): void { $this->startEncounter(); }
+      public function trigger(): void { $this->startEncounter($this->troopWeights); }
     };
     $map = ['troops' => ['Technical Troop' => 1], 'rate' => 12];
     $manager->configure($map + ['battleArena' => 'arena.road']);
@@ -1888,10 +1888,10 @@ it('dispatches selected encounter scenes without leaking row settings into other
     [$scene] = makeEventRuntime();
     $manager = new class($scene) extends Ichiloto\Engine\Field\EncounterManager {
       public string $choice = 'Technical Troop';
-      public function trigger(): void { $this->startEncounter(); }
+      public function trigger(): void { $this->startEncounter($this->troopWeights); }
       public function getWeights(): array { return $this->troopWeights; }
-      protected function pickTroopName(): ?string {
-        return array_key_exists($this->choice, $this->troopWeights) ? $this->choice : null;
+      protected function pickTroopName(array $weights): ?string {
+        return array_key_exists($this->choice, $weights) ? $this->choice : null;
       }
     };
     $manager->configure([

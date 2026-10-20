@@ -328,7 +328,8 @@ class MapManager implements CanRenderAt
 
     return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers'],
       $source['graphics'], $source['worldObjects'], MapLandmarkCatalog::readMap($map, $source['tiles'], MapCategoryCatalog::load($this->getAssetRoot())),
-      new MapOverview($source['tiles'], $collisions, MapAtlasTerrain::readMap($map,$source['layers'])));
+      new MapOverview($source['tiles'], $collisions, MapAtlasTerrain::readMap($map,$source['layers'])),
+      MapAreaCatalog::readMap($map, $source['tiles']));
   }
 
   /** Resolve current authored hierarchy without activating a destination or observing it for discovery. */
@@ -388,7 +389,8 @@ class MapManager implements CanRenderAt
     }
 
     $this->gameScene->encounterManager?->configure(
-      is_array($map['encounters'] ?? null) ? $map['encounters'] : null
+      is_array($map['encounters'] ?? null) ? $map['encounters'] : null,
+      $prepared->areas
     );
     $this->gameScene->npcManager?->applyPreparedNpcs($prepared->npcs ?? []);
 

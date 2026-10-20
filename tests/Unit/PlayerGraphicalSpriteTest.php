@@ -368,7 +368,7 @@ it('retains step motion independently of the host and follows scene arrival timi
   $this->player->addTrigger($trigger);
   $encounters = new class($this->scene) extends EncounterManager {
     public array $steps = [];
-    public function registerStep(?CollisionType $tile): void { $this->steps[] = $tile; }
+    public function registerStep(?CollisionType $tile, ?\Ichiloto\Engine\Core\Vector2 $position = null): void { $this->steps[] = $tile; }
   };
   new ReflectionProperty(GameScene::class, 'encounterManager')->setValue($this->scene, $encounters);
   $arrivals = new class implements Ichiloto\Engine\Events\Interfaces\ObserverInterface {

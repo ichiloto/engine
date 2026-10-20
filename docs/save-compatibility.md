@@ -389,10 +389,16 @@ to an earlier step, since saves already past that version will not run it again.
 
 `ContentReferenceCategory` is the shared runtime/editor vocabulary: maps,
 one-shot events, quests, actors, items, equipment, abilities, spells,
-summons, states, story events, enemies, and achievements. Alias entries use a
-list of `from`/`to` pairs so contradictory duplicate sources remain visible
-to validation. Chains resolve deterministically; self-aliases and cycles are
-invalid. No rename is inferred.
+summons, states, story events, enemies, achievements and knowledge subjects.
+Alias entries use a list of `from`/`to` pairs so contradictory duplicate
+sources remain visible to validation. Chains resolve deterministically;
+self-aliases and cycles are invalid. No rename is inferred.
+
+A `knowledge_subjects` alias retires a subject into its successor, for
+instance when two field records turn out to describe one species. A save that
+holds progress for both keeps one record: the deeper depth, every observation
+and report, and the outcomes of both added together, since each counted
+different encounters.
 
 Actor definitions must declare a non-empty string `data.id`. Display-name and
 filename lookup aliases have been removed: only IDs resolve definitions, so two

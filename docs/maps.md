@@ -55,7 +55,8 @@ those outcomes. This supports local arrival flags without treating entry into
 the entire map as entry into one district.
 
 A landmark can use `anchor => ['area'=>'survey-reach']`; learning its name does
-not run the event or change its eligibility. `MapAreaCatalog` owns declaration
+not run the event or change its eligibility. A random encounter entry can be
+limited to areas with `'areas' => ['survey-reach']` (see Random encounters). `MapAreaCatalog` owns declaration
 validation, and `MapEventDefinition::SUBJECT_KINDS` exports supported subject
 kinds for authoring. Runtime and unsaved source validation use the same catalog.
 `MapLandmarkAnchors::readMap` requires the physical grid when named areas exist;
@@ -924,3 +925,33 @@ that counts the player's walking (`Field\Enumerations\StepOrigin`).
 
 The engine warns when a map declares `encounters` in a shape it cannot read,
 because a silent no-op is indistinguishable from a design decision.
+
+### Encounters limited to named areas
+
+A troop can live in part of a map: its entry names the map's named `areas`
+(see Named local areas) it is met in.
+
+```php
+'encounters' => [
+  'troops' => [
+    'Roost Bats' => ['weight' => 3, 'areas' => ['east-roost', 'shaft-roost']],
+    'Store Rats' => ['weight' => 2, 'areas' => ['supply-nook']],
+    'Road Wolves' => 1, // anywhere the map counts steps
+  ],
+  'rate' => 24,
+  'tiles' => 'any',
+],
+```
+
+A troop with `areas` is met only while the player stands in one of them; a
+troop without is met anywhere the map counts steps. A step where no troop can
+be met does not count toward the next encounter, so a map whose troops all
+live in areas is quiet between them and `rate` is the average number of
+counted steps inside those areas. The danger-tile rule still applies first:
+with `'tiles' => 'encounter'`, only danger tiles inside an area count.
+
+`areas` is a nonempty list of unique area ids. An entry whose scope cannot be
+read, or that names an area the map does not declare, is never met (the
+engine warns): reading it as the whole map would put the troop where its
+author kept it out. `EncounterManager::getTroopWeightsAt()` reports the troops
+a cell offers.

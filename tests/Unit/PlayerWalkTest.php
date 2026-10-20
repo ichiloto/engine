@@ -526,7 +526,7 @@ it('keeps held walking cardinal at a blocked corner and applies effects once per
     new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
     $encounters = new class($scene) extends EncounterManager {
       public array $steps = [];
-      public function registerStep(?CollisionType $tile): void { $this->steps[] = $tile; }
+      public function registerStep(?CollisionType $tile, ?\Ichiloto\Engine\Core\Vector2 $position = null): void { $this->steps[] = $tile; }
     };
     new ReflectionProperty(GameScene::class, 'encounterManager')->setValue($scene, $encounters);
     $observer = new class implements ObserverInterface {

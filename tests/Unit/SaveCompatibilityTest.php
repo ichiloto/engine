@@ -1031,3 +1031,32 @@ it('applies persistent-state aliases during complete save loading and fails on t
     chdir($originalDirectory);
   }
 });
+
+it('folds an aliased knowledge subject into its successor, keeping what each side earned', function () {
+  $manifest = makeCompatibilityManifest(['aliases' => ['knowledge_subjects' => [['from' => 'creature.old-wolf', 'to' => 'creature.wolf']]]]);
+  $config = makeCompatibilityConfig();
+  $config->applySaveCompatibilityData([...$config->getSaveCompatibilityData(), 'knowledge' => ['subjects' => [
+    'creature.old-wolf' => ['depth' => 2, 'observations' => ['tracks' => ['seen' => true]], 'outcomes' => ['encountered' => 3, 'defeated' => 2], 'reports' => []],
+    'creature.rat' => ['depth' => 1, 'observations' => [], 'outcomes' => ['encountered' => 1], 'reports' => []],
+    'creature.wolf' => ['depth' => 1, 'observations' => ['howl' => ['seen' => true]], 'outcomes' => ['encountered' => 2, 'escaped' => 1], 'reports' => []],
+  ]]]);
+
+  $subjects = new SaveContentResolver($manifest, '/saves/knowledge.iedata')->resolve($config)->getSaveCompatibilityData()['knowledge']['subjects'];
+
+  expect(array_keys($subjects))->toBe(['creature.rat', 'creature.wolf'])
+    ->and($subjects['creature.wolf']['depth'])->toBe(2)
+    ->and($subjects['creature.wolf']['outcomes'])->toBe(['defeated' => 2, 'encountered' => 5, 'escaped' => 1])
+    ->and(array_keys($subjects['creature.wolf']['observations']))->toEqualCanonicalizing(['howl', 'tracks'])
+    ->and($subjects['creature.rat']['outcomes'])->toBe(['encountered' => 1]);
+});
+
+it('refuses a save holding a tombstoned knowledge subject', function () {
+  $manifest = makeCompatibilityManifest(['tombstones' => ['knowledge_subjects' => ['creature.removed']]]);
+  $config = makeCompatibilityConfig();
+  $config->applySaveCompatibilityData([...$config->getSaveCompatibilityData(), 'knowledge' => ['subjects' => [
+    'creature.removed' => ['depth' => 1, 'observations' => [], 'outcomes' => [], 'reports' => []],
+  ]]]);
+
+  expect(fn() => new SaveContentResolver($manifest, '/saves/knowledge.iedata')->resolve($config))
+    ->toThrow(RuntimeException::class, 'creature.removed');
+});

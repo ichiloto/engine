@@ -126,7 +126,7 @@ beforeEach(function () {
   $this->encounters = new class($this->scene) extends EncounterManager {
     public array $steps = [];
     public ?Closure $onStep = null;
-    public function registerStep(?CollisionType $tile): void
+    public function registerStep(?CollisionType $tile, ?\Ichiloto\Engine\Core\Vector2 $position = null): void
     {
       $this->steps[] = $tile;
       ($this->onStep)?->__invoke();
