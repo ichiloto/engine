@@ -21,6 +21,7 @@ use Ichiloto\Engine\Events\Triggers\EventTriggerContext;
 use Ichiloto\Engine\Events\Interfaces\AutomaticEventTriggerInterface;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\InputManager;
@@ -310,23 +311,27 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function move(Vector2 $direction, Camera $camera): void
   {
-    $this->tryMove($direction, $camera);
+    $this->tryMove($direction, $camera, StepOrigin::PLAYER_INPUT);
   }
 
   /**
    * Attempts a real field movement and reports whether it succeeded.
    *
-   * Player input keeps using {@see move()}; story routes use this result so
-   * a collision becomes a controlled script failure instead of an endless
-   * wait or a silently skipped step.
+   * Story routes use this result so a collision becomes a controlled script
+   * failure instead of an endless wait or a silently skipped step.
+   *
+   * Every step runs its destination's triggers. Only a player-controlled step
+   * advances step-driven systems (walking conditions, random encounters) and
+   * shows the save point notice; scripted movement never counts as walking.
    *
    * @param Vector2 $direction The cardinal movement vector.
    * @param Camera $camera The field camera.
+   * @param StepOrigin $stepOrigin Whether the player or a script moves the player.
    * @return bool True when the player moved.
    * @throws NotFoundException If the scene is not set.
    * @throws OutOfBounds If the destination is out of bounds.
    */
-  public function tryMove(Vector2 $direction, Camera $camera): bool
+  public function tryMove(Vector2 $direction, Camera $camera, StepOrigin $stepOrigin): bool
   {
     // Clone: $this->position is mutated by the move below, so holding a
     // reference would make the movement event report an origin equal to its
@@ -396,20 +401,37 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     // The step is committed; what reaching the cell does waits until the
     // player is seen to arrive, so a dialogue, notice, battle or transfer
     // never cuts the slide short. Without a slide it happens at once.
-    $this->pendingArrival = function () use ($event, $collisionType): void {
+    $this->pendingArrival = function () use ($event, $collisionType, $stepOrigin): void {
       $this->handleTriggers($event);
-      // A party that falls to a walking condition meets no encounter.
-      if ($this->getGameScene()->fieldConditions?->registerStep() === false) {
+      if ($stepOrigin === StepOrigin::PLAYER_INPUT && !$this->registerWalkingStep($collisionType)) {
         return;
-      }
-      $this->getGameScene()->income?->recordStep();
-      $this->getGameScene()->encounterManager?->registerStep($collisionType);
-      if ($this->getGameScene()->mapManager->isAtSavePoint) {
-        alert("Access the Menu to save your progress.", 'Save Point');
       }
       $this->notify($this->getGameScene(), $event);
     };
     $this->completeArrival();
+
+    return true;
+  }
+
+  /**
+   * Advances what counts the player's own walking once a player-controlled
+   * step arrives.
+   *
+   * @param CollisionType|null $collisionType The collision type of the cell stepped onto.
+   * @return bool True when the party walks on; false when a walking condition ended the game.
+   */
+  private function registerWalkingStep(?CollisionType $collisionType): bool
+  {
+    $scene = $this->getGameScene();
+    // A party that falls to a walking condition meets no encounter.
+    if ($scene->fieldConditions?->registerStep() === false) {
+      return false;
+    }
+    $scene->income?->recordStep();
+    $scene->encounterManager?->registerStep($collisionType);
+    if ($scene->mapManager->isAtSavePoint) {
+      alert("Access the Menu to save your progress.", 'Save Point');
+    }
 
     return true;
   }

@@ -276,10 +276,10 @@ final class CinematicScriptValidator
       }
     }
 
-    if (array_key_exists('facing', $entry)
-      && ! in_array(strtolower(trim(strval($entry['facing']))), ['north', 'south', 'east', 'west'], true)
-    ) {
-      throw self::failure($cinematicId, $path, 'staged actor facing must be north, south, east, or west.');
+    try {
+      CinematicFacing::validate($entry);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, $path, 'staged actor ' . lcfirst($error->getMessage()));
     }
   }
 

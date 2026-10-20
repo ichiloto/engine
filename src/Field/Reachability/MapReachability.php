@@ -145,8 +145,9 @@ final readonly class MapReachability
     $areas = array_map(static fn(MapTrigger $trigger): CellArea => CellArea::fromRect($trigger->area), $this->edgeTriggers);
 
     foreach ($this->events as $event) {
-      // Facing an object is directional; its marker is not a compulsory step-through exit.
-      if ($event->isExit && $event->engagement === EventEngagement::INSIDE) {
+      // Standing on any walkable cell of an exit leaves the map, a faced object's included;
+      // a solid object cell is never reached, so including it changes nothing.
+      if ($event->isExit) {
         $areas[] = $event->area;
       }
     }

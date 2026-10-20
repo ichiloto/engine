@@ -373,6 +373,34 @@ An already-started leg keeps its planned endpoint rather than chasing a moving
 target. Later legs read the subject's then-current position. Recorded returns
 retrace the actual successful path, with no new save state.
 
+#### End facing
+
+A walking character keeps the heading of its last step. A staged position says
+which way its character faces once it is there: `facing` names a cardinal
+(`north`, `east`, `south`, `west`), and `faceToward` names a map subject with the
+same `kind`/`id` reference as `at`. Any waypoint, absolute or relative, and any
+independent staged actor accepts one of the two, never both:
+
+```php
+['type' => 'move_route', 'subject' => 'player',
+ 'waypoints' => [['at' => ['kind' => 'world_object', 'id' => 'lamp-1'],
+                  'offset' => ['x' => -3, 'y' => 1],
+                  'faceToward' => ['kind' => 'world_object', 'id' => 'lamp-1']]]],
+['type' => 'stage_actor', 'id' => 'companion', 'sprite' => 'C',
+ 'at' => ['kind' => 'world_object', 'id' => 'lamp-1'], 'offset' => ['x' => 3, 'y' => 1],
+ 'faceToward' => ['kind' => 'world_object', 'id' => 'lamp-1']],
+```
+
+`CinematicFacing` is the shared runtime/authoring boundary. `faceToward` is
+resolved when the staging command or route leg begins, from the cell the
+character stands on there: it turns along the longer axis toward the subject's
+current cell, and an even split faces north or south. A character standing on
+its subject keeps its heading. A waypoint's facing is one turn after the leg's
+last step, also when the leg needs no step. Recorded returns retrace only steps
+and still restore the entry facing. Bound visuals inherit their real subject's
+heading and declare neither field; turn the real player or NPC with its route.
+Ordinary NPC scripts and map-event routes accept the same waypoint fields.
+
 ```php
 ['type' => 'move_route', 'subject' => 'player', 'remember' => 'approach',
  'waypoints' => [['y' => 5], ['x' => 12, 'y' => 5]], 'secondsPerStep' => 0.15],
