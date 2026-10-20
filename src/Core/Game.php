@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Core;
 
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Audio\FieldMusicCatalog;
+use Ichiloto\Engine\Income\IncomeCatalog;
 use Assegai\Collections\ItemList;
 use Assegai\Util\Path;
 use Error;
@@ -549,6 +550,7 @@ class Game implements CanRun, SubjectInterface
         ConfigStore::put(PlayerSettings::class, new PlayerSettings(dataRoot: $this->launchDataRoot));
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
         ConfigStore::put(FieldMusicCatalog::class, FieldMusicCatalog::fromProject());
+        ConfigStore::put(IncomeCatalog::class, IncomeCatalog::fromProject());
 
         ConfigStore::put(InputConfig::class, new InputConfig());
         ConfigStore::remove(ProgressionSettings::class);
@@ -1233,6 +1235,11 @@ SPLASH_SCREEN;
         $this->sceneManager->update();
         if ($this->terminalCleanedUp) {
             return;
+        }
+        // Active play belongs to the campaign, whichever scene ran this frame.
+        $campaign = $this->sceneManager->findScene(GameScene::class);
+        if ($campaign instanceof GameScene) {
+            $campaign->advanceActivePlay(Time::getDeltaTime(), $this->sceneManager->currentScene);
         }
 
         $this->modalManager->processPendingAlerts();
