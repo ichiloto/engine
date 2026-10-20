@@ -742,12 +742,23 @@ their integration remains with the Editor owner.
 > unchanged. Invalid resources, field-only actions and ambiguous linked summon
 > actions are refused rather than silently omitted.
 >
-> The existing `--runs` simulator is still attack-only. Custom command/skill/
-> summon loadouts must not produce misleading simulation reports: Console
-> refuses them with `--runs`; play the configured fight instead. A future
-> simulator action policy must use shared action selection, targeting and
-> transaction semantics, including enemy patterns and deterministic replay,
-> rather than a special summon executor. This capability is not implemented.
+> **Simulator action choice (2026-10-20):** `--runs` measured both sides with
+> the built-in x1 `AttackAction` and ignored enemy patterns, so a project whose
+> actors attack with an authored `attackSkill` (Last Legend's x4 Attack) and
+> whose enemies use patterned skills played very differently from what the
+> simulator reported. Party members now attack with their inherent attack
+> (`Battle\InherentAttack`: the authored `attackSkill`, or the built-in
+> attack), and enemies choose through `EnemyActionEvaluator`, as live play
+> does, with the run's seeded random source. Each turn keeps the live turn's
+> rules: a guard ends when its battler acts again, a blocking state consumes
+> the turn, recipients are revalidated by `BattleTargetPolicy`, counters answer
+> landed hits, and states tick at the end of the battler's turn. Enemies may
+> author `attackSkill` too; the enemy fallback uses it before the built-in
+> attack. Custom command/skill/summon loadouts still must not produce
+> misleading reports: Console refuses them with `--runs`; play the configured
+> fight instead. Party skill, item and guard choices remain a future action
+> policy; it must use the same shared selection, targeting and transaction
+> semantics rather than a special executor.
 >
 > It earned itself on the first run: every early enemy in the demo shared one
 > placeholder stat block (a level 14 bat with 203 HP and 30 defence) against

@@ -5,7 +5,13 @@ use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
 use Ichiloto\Engine\Battle\Resolution\SeededCombatRandomSource;
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
+use Ichiloto\Engine\Entities\Enemies\ActionCondition;
+use Ichiloto\Engine\Entities\Enemies\ActionPattern;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
+use Ichiloto\Engine\Entities\Skills\BasicSkill;
+use Ichiloto\Engine\Entities\Skills\SkillInvocation;
+use Ichiloto\Engine\Entities\States\State;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
@@ -205,3 +211,56 @@ it('isolates every run and exceptions from caller afflictions, stages, guarding 
     ->and([serialize($hero), serialize($enemy)])->toBe($before)
     ->and($hero->states[0]->state)->toBe($state)->and($enemy->states[0]->state)->toBe($state);
 })->with([false, true]);
+
+/** A sure-hit basic skill dealing the user's attack times a multiplier. */
+function makeSimulationStrike(string $name, int $multiplier): BasicSkill
+{
+  return new BasicSkill($name, '', '', 0, 0, invocation: new SkillInvocation(accuracy: 100),
+    effects: [new HPDamageSkillEffect('$user->stats->attack * ' . $multiplier, variance: 0)]);
+}
+
+it('has a party member attack with its authored attack skill, in runs and previews', function () {
+  $stats = fn(): Stats => new Stats(currentHp: 400, attack: 10, defence: 0, speed: 9, grace: 0);
+  $target = fn(): Enemy => makeSimulationEnemy('Dummy', new Stats(currentHp: 300, attack: 1, defence: 0, speed: 1));
+  $plain = new Party();
+  $plain->addMember(new Character('Plain', 0, $stats()));
+  $skilled = new Party();
+  $skilled->addMember(new Character('Skilled', 0, $stats(), attackSkill: makeSimulationStrike('Heavy Strike', 5)));
+
+  $builtIn = new BattleSimulator()->simulate($plain, new Troop('Dummy', [$target()]), 5);
+  $authored = new BattleSimulator()->simulate($skilled, new Troop('Dummy', [$target()]), 5);
+  $plainPreview = new BattleSimulator(seed: 3)->previewAttack($plain->battlers->toArray()[0], $target());
+  $skilledPreview = new BattleSimulator(seed: 3)->previewAttack($skilled->battlers->toArray()[0], $target());
+
+  expect($authored->averageTurns)->toBeLessThan($builtIn->averageTurns)
+    ->and($skilledPreview->actionId)->toBe('skill.heavy-strike')
+    ->and($plainPreview->actionId)->toBe('attack')
+    ->and($skilledPreview->actualHpLost())->toBeGreaterThan($plainPreview->actualHpLost());
+});
+
+it('has an enemy act from its authored action patterns and fall back to its own attack skill', function () {
+  $party = fn(): Party => makeSimulationParty('Hero', new Stats(currentHp: 200, attack: 5, defence: 0, speed: 1, grace: 0));
+  $brute = fn(): Enemy => makeSimulationEnemy('Brute', new Stats(currentHp: 60, attack: 2, defence: 0, speed: 20));
+  $patterned = $brute();
+  new ReflectionProperty(Enemy::class, 'actionPatterns')
+    ->setValue($patterned, [new ActionPattern(makeSimulationStrike('Crush', 50), 5, new ActionCondition())]);
+  $armed = $brute();
+  new ReflectionProperty(Enemy::class, 'attackSkill')->setValue($armed, makeSimulationStrike('Crush', 50));
+
+  expect(new BattleSimulator()->simulate($party(), new Troop('Brute', [$brute()]), 5)->victories)->toBe(5)
+    ->and(new BattleSimulator()->simulate($party(), new Troop('Brute', [$patterned]), 5)->defeats)->toBe(5)
+    ->and(new BattleSimulator()->simulate($party(), new Troop('Brute', [$armed]), 5)->defeats)->toBe(5);
+});
+
+it('ticks states when each battler ends its turn, as a live turn does', function () {
+  // Neither side can hurt the other; only the poison can end the fight.
+  $party = makeSimulationParty('Pacifist', new Stats(currentHp: 500, attack: 0, defence: 999, speed: 5, grace: 0));
+  $enemy = makeSimulationEnemy('Poisoned', new Stats(currentHp: 20, attack: 0, defence: 999, speed: 4));
+  $enemy->addState(new State('poison', 'Poison', durationTurns: 10, tickFormula: '-5'));
+
+  $report = new BattleSimulator(turnLimit: 8)->simulate($party, new Troop('Poisoned', [$enemy]), 3);
+
+  expect($report->victories)->toBe(3)
+    ->and($report->hpLost['Poisoned'])->toBe(20.0)
+    ->and($enemy->stats->currentHp)->toBe(20);
+});
