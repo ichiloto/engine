@@ -478,9 +478,18 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             $elsewhere ? $this->mapManager->getProjectMapIndex()->routes : null, $this->canUseRoute(...));
     }
 
-    /** A route counts while its event is available and any secret landmark claiming it has been revealed. */
+    /**
+     * A route counts while its event is available (for an NPC page, while
+     * talking to the NPC runs that page) and any secret landmark claiming it
+     * has been revealed.
+     */
     private function canUseRoute(MapRoute $route): bool
     {
+        if ($route->npcId !== null && $route->npcPage !== null && $this->mapManager !== null
+            && !$this->mapManager->getProjectMapIndex()->gates->allowsNpcPage($route->source, $route->npcId, $route->npcPage,
+                $this->gameState, $this->party)) {
+            return false;
+        }
         return WorldConditionEvaluator::allHold($route->conditions, $this->gameState, $this->party)
             && (!$route->secret || $route->landmarkId === null
                 || $this->gameState->hasRevealedLandmark($route->source, $route->landmarkId));

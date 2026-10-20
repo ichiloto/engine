@@ -71,7 +71,8 @@ final class MapCompletenessValidator
                     $event['area']['cells'] ?? [], ['events', $marker ?? '']);
             }
         }
-        return [...$issues, ...MapEventSpeakerRule::inspect($mapId, $data, $result->events)];
+        return [...$issues, ...MapEventSpeakerRule::inspect($mapId, $data, $result->events),
+            ...MapNpcInteractionRule::inspect($mapId, $data, $result->events)];
     }
 
     /**

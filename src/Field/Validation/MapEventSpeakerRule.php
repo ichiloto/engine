@@ -63,11 +63,7 @@ final class MapEventSpeakerRule
      */
     public static function inspect(string $mapId, array $data, array $events): array
     {
-        $pages = [];
-        foreach (is_array($data['npcs'] ?? null) ? $data['npcs'] : [] as $entry) {
-            $placement = NpcPlacement::fromArray($entry);
-            if ($placement?->id !== null) { $pages[$placement->id][] = $placement; }
-        }
+        $placements = self::readPlacements($data);
         $issues = [];
         foreach ($events as $event) {
             $marker = is_string($event['marker'] ?? null) ? $event['marker'] : null;
@@ -79,37 +75,70 @@ final class MapEventSpeakerRule
                     hint: 'Choose each speaker from the NPCs on this map.');
                 continue;
             }
-            if ($speakers === []) { continue; }
-            $area = CellArea::fromArray($event['area'], 'Event area');
-            $conditions = is_array($event['conditions'] ?? null) ? $event['conditions'] : [];
-            $label = $marker === null ? 'This event' : "Event '{$marker}'";
-            foreach ($speakers as $id) {
-                $present = array_values(array_filter($pages[$id] ?? [],
-                    static fn(NpcPlacement $page): bool => !WorldConditionExclusion::proveExclusive($conditions, $page->conditions)));
-                if (!isset($pages[$id])) {
-                    $issues[] = new MapValidationIssue($mapId, self::RULE, "{$label} names speaker '{$id}', who is not an NPC on {$mapId}.",
-                        $marker, $area->cells, $path, 'Choose a speaker from the NPCs on this map, or remove it.');
-                    continue;
-                }
-                if ($present === []) {
-                    $issues[] = new MapValidationIssue($mapId, self::RULE,
-                        "{$label} names speaker '{$id}', who is never present while the event can run.",
-                        $marker, $area->cells, $path, "Give the speaker a page shown in the event's phase, beside its area.");
-                    continue;
-                }
-                foreach ($present as $page) {
-                    $standing = self::getStandingCells($page);
-                    $away = $standing === null ? [[$page->x, $page->y]] : array_values(array_filter($standing,
-                        static fn(array $cell): bool => !self::isBeside($area, $cell[0], $cell[1])));
-                    if ($away === []) { continue; }
-                    $issues[] = new MapValidationIssue($mapId, self::RULE, sprintf(
-                        $standing === null ? '%s is spoken by %s, who wanders freely from %d,%d.' : '%s is spoken by %s, who stands at %d,%d, away from the event.',
-                        $label, $page->name, $page->x, $page->y,
-                    ), $marker, $away, $path, "Move the speaker beside the event's area, or bind the event to where the speaker stands.");
-                }
+            $issues = [...$issues, ...self::inspectSpeakers($mapId, $placements, $speakers,
+                CellArea::fromArray($event['area'], 'Event area'), is_array($event['conditions'] ?? null) ? $event['conditions'] : [],
+                $marker === null ? 'This event' : "Event '{$marker}'", $marker, $path)];
+        }
+        return $issues;
+    }
+
+    /** @return array<string, list<NpcPlacement>> The map's NPC placements by stable id. */
+    public static function readPlacements(array $data): array
+    {
+        $placements = [];
+        foreach (is_array($data['npcs'] ?? null) ? $data['npcs'] : [] as $entry) {
+            $placement = NpcPlacement::fromArray($entry);
+            if ($placement?->id !== null) { $placements[$placement->id][] = $placement; }
+        }
+        return $placements;
+    }
+
+    /**
+     * Checks that each speaker stands beside an area whenever the scene there
+     * can run: the event's cells, or the NPC whose page stages the scene.
+     *
+     * @param array<string, list<NpcPlacement>> $placements {@see self::readPlacements()}
+     * @param list<string> $speakers
+     * @param list<array<string, mixed>> $conditions When the scene can run.
+     * @param list<int|string> $path
+     * @return list<MapValidationIssue>
+     */
+    public static function inspectSpeakers(string $mapId, array $placements, array $speakers, CellArea $area, array $conditions,
+        string $label, ?string $marker, array $path, string $scene = 'the event', string $place = "the event's area"): array
+    {
+        $issues = [];
+        foreach ($speakers as $id) {
+            if (!isset($placements[$id])) {
+                $issues[] = new MapValidationIssue($mapId, self::RULE, "{$label} names speaker '{$id}', who is not an NPC on {$mapId}.",
+                    $marker, $area->cells, $path, 'Choose a speaker from the NPCs on this map, or remove it.');
+                continue;
+            }
+            $present = array_values(array_filter($placements[$id],
+                static fn(NpcPlacement $page): bool => !WorldConditionExclusion::proveExclusive($conditions, $page->conditions)));
+            if ($present === []) {
+                $issues[] = new MapValidationIssue($mapId, self::RULE,
+                    "{$label} names speaker '{$id}', who is never present while {$scene} can run.",
+                    $marker, $area->cells, $path, "Give the speaker a page shown in that phase, beside {$place}.");
+                continue;
+            }
+            foreach ($present as $page) {
+                $standing = self::getStandingCells($page);
+                $away = $standing === null ? [[$page->x, $page->y]] : array_values(array_filter($standing,
+                    static fn(array $cell): bool => !self::isBeside($area, $cell[0], $cell[1])));
+                if ($away === []) { continue; }
+                $issues[] = new MapValidationIssue($mapId, self::RULE, sprintf(
+                    $standing === null ? '%s is spoken by %s, who wanders freely from %d,%d.' : '%s is spoken by %s, who stands at %d,%d, away from %s.',
+                    $label, $page->name, $page->x, $page->y, $scene,
+                ), $marker, $away, $path, "Move the speaker beside {$place}, or stage {$scene} where the speaker stands.");
             }
         }
         return $issues;
+    }
+
+    /** @return list<array{int, int}>|null Where a placement may stand: its cell, its whole wander area, or null when it wanders freely. */
+    public static function findStandingCells(NpcPlacement $page): ?array
+    {
+        return self::getStandingCells($page);
     }
 
     /** @return list<array{int, int}>|null Where a page may stand: its cell, its whole wander area, or null when it wanders freely. */
