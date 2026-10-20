@@ -11,6 +11,7 @@ use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Entities\Actions\FieldActionContext;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Field\PlayerWalk;
 use Ichiloto\Engine\Field\FieldActionRegistry;
 use Ichiloto\Engine\Field\SkitPrompt;
@@ -346,7 +347,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         if (Input::isHeldInputAvailable()) {
             // The walk's clock and the step's presentation share one duration.
             $this->playerWalk->update(Time::getDeltaTime(), static fn(Vector2 $direction, float $seconds): bool
-                => $scene->moveAtPace($seconds, static fn(): bool => $scene->player->tryMove($direction, $scene->camera)));
+                => $scene->moveAtPace($seconds, static fn(): bool => $scene->player->tryMove($direction, $scene->camera, StepOrigin::PLAYER_INPUT)));
             return;
         }
 

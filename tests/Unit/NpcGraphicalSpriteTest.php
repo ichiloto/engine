@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
@@ -226,7 +227,7 @@ it('blocks the occupied NPC anchor at 23 5 while allowing the adjacent cell at 2
   expect($this->scene->mapManager->canMoveTo(22, 5))->toBeTrue()
     ->and($this->scene->mapManager->canMoveTo(23, 5, $collision))->toBeFalse()
     ->and($collision)->toBe(CollisionType::NPC)
-    ->and($player->tryMove(Vector2::right(), $this->scene->camera))->toBeFalse()
+    ->and($player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeFalse()
     ->and([$player->position->x, $player->position->y])->toBe([22.0, 5.0])
     ->and($player->heading)->toBe(MovementHeading::EAST)
     ->and($this->manager->moveNpcById('mother', Vector2::left()))->toBeFalse()
@@ -338,14 +339,14 @@ it('defers prepared NPC field occupancy at a restored saved player cell until or
       ->and(mb_substr(RetainedFrameState::getTextRows($frame, 24, 8)[$entry['y']], $entry['x'], 1))->toBe($playerGlyph);
   }
 
-  expect($this->scene->player->tryMove(Vector2::left(), $this->scene->camera))->toBeTrue()
+  expect($this->scene->player->tryMove(Vector2::left(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
     ->and($this->manager->visibleNpcs())->toBe([$npc])
     ->and($this->manager->getGraphicalSpriteProviders())->toBe([$npc])
     ->and($this->manager->npcAt($entry['x'], $entry['y']))->toBe($npc)
     ->and($this->scene->mapManager->canMoveTo($entry['x'], $entry['y'], $collision))->toBeFalse()
     ->and($collision)->toBe(CollisionType::NPC)
     ->and(Console::charAt($entry['x'], $entry['y']))->toBe($sprite)
-    ->and($this->scene->player->tryMove(Vector2::right(), $this->scene->camera))->toBeFalse()
+    ->and($this->scene->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeFalse()
     ->and($this->manager->findById($npc->id))->toBe($npc)
     ->and([$npc->position->x, $npc->position->y])->toBe([(float)$entry['x'], (float)$entry['y']])
     ->and($npc->heading)->toBe($heading)->and($npc->directionFix)->toBeTrue()
@@ -373,7 +374,7 @@ it('defers condition activation under the player and uses ordinary reconciliatio
   $this->scene->player->position->y = 4;
   $this->scene->camera->detach();
   if ($graphical) { $this->runtime->start('Deferred conditional NPC', 24, 8); }
-  expect($this->scene->player->tryMove(Vector2::right(), $this->scene->camera))->toBeTrue();
+  expect($this->scene->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue();
   $this->scene->gameState->setSwitch('npc_present', true);
   $this->scene->renderPresentationOverlay();
   expect($this->manager->visibleNpcs())->toBe([])
@@ -381,7 +382,7 @@ it('defers condition activation under the player and uses ordinary reconciliatio
     ->and($this->manager->getGraphicalSpriteProviders())->toBe([])
     ->and($this->manager->findById('guide'))->toBe($this->npc)
     ->and(Console::charAt(7, 4))->not->toBe('G')->and($field->redraws)->toBe(1);
-  expect($this->scene->player->tryMove(Vector2::left(), $this->scene->camera))->toBeTrue()
+  expect($this->scene->player->tryMove(Vector2::left(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
     ->and($this->manager->visibleNpcs())->toBe([$this->npc])
     ->and($this->manager->getGraphicalSpriteProviders())->toBe([$this->npc])
     ->and(Console::charAt(7, 4))->toBe('G');
@@ -389,8 +390,8 @@ it('defers condition activation under the player and uses ordinary reconciliatio
   $this->scene->gameState->setSwitch('npc_present', false);
   $this->scene->renderPresentationOverlay();
   expect(Console::charAt(7, 4))->toBe('.')
-    ->and($this->scene->player->tryMove(Vector2::right(), $this->scene->camera))->toBeTrue()
-    ->and($this->scene->player->tryMove(Vector2::left(), $this->scene->camera))->toBeTrue()
+    ->and($this->scene->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
+    ->and($this->scene->player->tryMove(Vector2::left(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
     ->and($this->manager->visibleNpcs())->toBe([])
     ->and($this->manager->getGraphicalSpriteProviders())->toBe([]);
   $this->scene->gameState->setSwitch('npc_present', true);

@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
@@ -116,13 +117,13 @@ it('switches facing prompts on blocked turns in either authored order without a 
   $north = new FacingProbeTrigger(new Rect(2, 2, 1, 1), facing: ['North']);
   $east = new FacingProbeTrigger(new Rect(2, 2, 1, 1), facing: ['East']);
   foreach ($reverse ? [$east, $north] : [$north, $east] as $event) { $this->player->addTrigger($event); }
-  expect($this->player->tryMove(Vector2::right(), $this->scene->camera))->toBeFalse()
+  expect($this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeFalse()
     ->and($this->player->availableAction->owner)->toBe($east);
-  $this->player->tryMove(Vector2::up(), $this->scene->camera);
+  $this->player->tryMove(Vector2::up(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   expect($this->player->availableAction->owner)->toBe($north)
     ->and($east->calls)->toBe(['enter', 'exit'])
     ->and([$this->player->position->x, $this->player->position->y])->toBe([2.0, 2.0]);
-  $this->player->tryMove(Vector2::up(), $this->scene->camera);
+  $this->player->tryMove(Vector2::up(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   expect($north->calls)->toBe(['enter']);
   $this->player->face(Vector2::down(), $this->scene->camera);
   expect($this->player->availableAction)->toBeNull()->and($north->calls)->toBe(['enter', 'exit']);
@@ -238,9 +239,9 @@ it('switches concrete object prompts on blocked turns in either authored order',
   $script = new \Ichiloto\Engine\Events\Triggers\ScriptEventTrigger(new Rect(2, 1, 1, 1),
     ['mode' => 'action', 'script' => []], engagement: EventEngagement::FACING);
   foreach ($reverse ? [$script, $sleep] : [$sleep, $script] as $event) { $this->player->addTrigger($event); }
-  expect($this->player->tryMove(Vector2::right(), $this->scene->camera))->toBeFalse()
+  expect($this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeFalse()
     ->and($this->player->availableAction)->toBeInstanceOf(\Ichiloto\Engine\Entities\Actions\SleepAction::class);
-  $this->player->tryMove(Vector2::up(), $this->scene->camera);
+  $this->player->tryMove(Vector2::up(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   expect($this->player->availableAction)->toBeInstanceOf(\Ichiloto\Engine\Entities\Actions\RunScriptAction::class)
     ->and([$this->player->position->x, $this->player->position->y])->toBe([2.0, 2.0]);
   $this->player->face(Vector2::down(), $this->scene->camera);

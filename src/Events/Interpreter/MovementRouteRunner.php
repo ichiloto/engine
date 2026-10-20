@@ -6,6 +6,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Cutscenes\Cinematics\StagedActor;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicRelativePosition;
 use Ichiloto\Engine\Exceptions\MovementRouteException;
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Field\Npc;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -145,7 +146,7 @@ final class MovementRouteRunner implements EventPendingOperationInterface
     $succeeded = $this->gameScene->moveAtPace($stepSeconds, fn(): bool => match ($subject) {
       'player' => $faceOnly
         ? $this->facePlayer($direction)
-        : ($this->gameScene->player?->tryMove($direction, $this->gameScene->camera) ?? false),
+        : ($this->gameScene->player?->tryMove($direction, $this->gameScene->camera, StepOrigin::SCRIPTED) ?? false),
       'npc' => $faceOnly
         ? $this->gameScene->npcManager?->faceNpc(strval($this->command['npcId'] ?? ''), $direction) ?? false
         : $this->gameScene->npcManager?->moveNpcById(strval($this->command['npcId'] ?? ''), $direction) ?? false,

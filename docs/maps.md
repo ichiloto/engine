@@ -890,5 +890,10 @@ often:
 Weights are relative, so a `Bat x 2` above is met roughly five times as often
 as `Great Wolf` twice. A map with no `encounters` key never rolls one.
 
+Only steps the player takes count. A move route, cinematic or other scripted
+movement of the player still runs the triggers of every cell it reaches, but
+never advances encounters, walking conditions such as poison, or anything else
+that counts the player's walking (`Field\Enumerations\StepOrigin`).
+
 The engine warns when a map declares `encounters` in a shape it cannot read,
 because a silent no-op is indistinguishable from a design decision.

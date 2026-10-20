@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
@@ -473,7 +474,7 @@ it('suppresses paired ordinary art and direct redraws without hiding collision o
   $this->player->erase();
   expect(Console::charAt(7, 4))->toBe('@')->and($this->scene->restoredTiles)->toBe([]);
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   expect($actor->position->x)->toBe(8.0)->and($actor->facing)->toBe(MovementHeading::EAST)
     ->and(Console::charAt(8, 4))->not->toBe('E')->and($this->scene->restoredTiles)->toBe([]);
   $this->stage->advanceGraphicalAnimation(0.08);
@@ -487,7 +488,7 @@ it('suppresses paired ordinary art and direct redraws without hiding collision o
 
 it('animates real player routes independently of its ordinary graphical provider', function () {
   $actor = $this->stage->add(subjectOwnershipCast(['subject' => ['kind' => 'player']]));
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   $this->stage->advanceGraphicalAnimation(0.08);
   // East is the sheet's third direction row; the first stride shows walking pattern 2.
   expect($actor->getGraphicalSpriteDefinition()->asset)->toBe(characterSheetData()['sheet'])
@@ -495,7 +496,7 @@ it('animates real player routes independently of its ordinary graphical provider
     ->and($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(96)
     ->and($actor->position->x)->toBe(4.0);
   $this->scene->mapManager->blocked = true;
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(48)
     ->and($actor->position->x)->toBe(4.0);
   expect(fn() => $this->stage->move('pose', Vector2::right()))->toThrow(RuntimeException::class, 'real subject');
@@ -576,7 +577,7 @@ it('inherits each omitted renderer role independently from its real subject', fu
   } else {
     expect($actor->getGraphicalSpriteDefinition())->toEqual($ordinaryGraphics);
   }
-  $kind === 'player' ? $this->player->tryMove(Vector2::right(), $this->scene->camera)
+  $kind === 'player' ? $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT)
     : $this->scene->npcManager->moveNpcById('guide', Vector2::right());
   $this->stage->advanceGraphicalAnimation(0.08);
   $expectedTerminal = $overrides['sprites']['east'] ?? (isset($overrides['sprite']) ? [$overrides['sprite']] : (array)$subject->sprite);
@@ -608,7 +609,7 @@ it('replaces explicit bound roles with live subject inheritance without discardi
   writeTestPng($this->assetRoot . '/pose.png', 32, 48);
   $old = $this->stage->add(subjectOwnershipCast(['subject' => ['kind' => 'player'], 'sprite' => 'P',
     'sprites2d' => ['asset' => 'pose.png']]));
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   $inherited = $this->stage->add(['id' => $old->id, 'replace' => true, 'subject' => ['kind' => 'player']]);
   expect($inherited->subject)->toBe($old->subject)->and($old->isVisible)->toBeFalse()
     ->and($inherited->sprite)->toBe($this->player->sprite)
@@ -660,7 +661,7 @@ it('keeps inherited graphical art when the interpreter applies a terminal-only b
 
 it('releases a replaced paired participant while retaining its failure recovery', function () {
   $this->stage->add(subjectOwnershipCast(['suppress' => [['kind' => 'player']]]));
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   $this->stage->add(subjectOwnershipCast(['replace' => true]));
   expect($this->stage->suppresses($this->player))->toBeFalse()
     ->and($this->player->getGraphicalSpriteDefinition())->not->toBeNull();
@@ -717,7 +718,7 @@ it('reserves ownership across temporary eligibility changes rather than creating
 it('restores failure transforms but retains committed transforms and story outcomes', function () {
   $session = $this->scene->startCinematic(subjectOwnershipDefinition());
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   $this->stage->commitSubjectTransforms($this->npc);
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
   $this->scene->gameState->setSwitch('outcome', true);
@@ -738,7 +739,7 @@ it('keeps intentional transforms on successful completion and rejects stale call
   $first = $this->scene->startCinematic(subjectOwnershipDefinition());
   $old = $this->stage->require('pose');
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   $this->scene->eventInterpreter->update(10);
   expect($first->status)->toBe(EventExecutionStatus::COMPLETED)
     ->and($this->npc->position->x)->toBe(8.0)->and($this->player->position->x)->toBe(4.0);
@@ -794,7 +795,7 @@ it('restores and releases map-local leases before transfer and makes held refere
 it('clears the source-map lease before the real transfer path assigns destination coordinates', function () {
   $this->scene->startCinematic(subjectOwnershipDefinition());
   $old = $this->stage->require('pose');
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
   $this->scene->mapManager->onLoad = function (string $filename, Player $player): void {
     expect($filename)->toBe('map-b')->and($player->position->x)->toBe(18.0)
@@ -1181,7 +1182,7 @@ it('restores temporary transforms before direct interpreter skip and preserves t
     'finalizer' => [['type' => 'move_player', 'x' => 19, 'y' => 6],
       ['type' => 'set_variable', 'name' => 'count', 'value' => 1], ['type' => 'camera', 'operation' => 'attach']]]));
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   expect($this->scene->eventInterpreter->skipActiveCinematic())->toBeTrue()
     ->and($session->status)->toBe(EventExecutionStatus::COMPLETED)
     ->and($this->npc->position->x)->toBe(7.0)->and($this->player->position->x)->toBe(19.0)
@@ -1199,7 +1200,7 @@ it('preserves finalizer moves and story writes when a later finalizer command fa
       ['type' => 'set_switch', 'name' => 'ratified', 'value' => true],
       ['type' => 'set_switch', 'name' => 'inject-failure', 'value' => true]]]));
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   if ($skip) {
     expect($this->scene->skipCinematic())->toBeFalse();
   } else {
