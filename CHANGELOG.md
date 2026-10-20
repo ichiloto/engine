@@ -4,6 +4,17 @@
 
 ### Added
 
+- Event speakers: a map event names the NPCs who speak it (`speakers`), and
+  map validation (`event.speaker`) reports a speaker who is not on the map,
+  is never present while the event can run, wanders freely or stands more
+  than one cell from the event's area.
+- World-object resource doorways: a resource declares the cells where its art
+  paints an opening (`doorway`), and map validation (`object.doorway`)
+  reports a placement whose doorway has no entrance under it, or an entrance
+  behind an object's ground row inside its covered cells, where the art hides
+  the player.
+- `Core\WorldConditionExclusion`, the proof that two condition lists never
+  hold together, moved from the Editor so the Engine's rules share it.
 - Objective waymarks: quest objectives author `waymarks` (a map and one
   stable event, NPC, world object or landmark, with their own conditions for
   phases and free-order work). Off-screen waymarks hug the field view edge

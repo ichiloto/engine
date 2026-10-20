@@ -374,6 +374,13 @@ trunk base), and an existing `sprites2d` draw role. An optional authoring-only
 `CollisionType` cases; `PASS_THROUGH`, duplicate offsets and more than 256 cells
 refuse. Omission means no recipe, not inferred collision.
 
+An optional `doorway` names, as a list of 1..16 distinct relative x/y cells
+from a placement's anchor, where the artwork paints an opening the player
+walks through, such as a cave mouth or a building door. It describes the art;
+the authored map stays authoritative, so the art conforms to the map's
+entrances and never the reverse (see Doorways and entrances below). Omission
+declares no opening.
+
 ```php
 // Data/Presentation/field.php (asset-root-relative)
 return ['resources' => [
@@ -455,8 +462,9 @@ optional `marker`, exact `cells`, authored `path` and `hint`. These are readines
 errors; drafts remain saveable. A graphical project passes `requiresGraphics:
 true`; a Terminal-only game needs no graphical assets.
 
-`validateEvents`, `validateChestReward` and `validateCoverage` are the narrow
-entry points used by inspectors. `validate` combines them without a running
+`validateEvents` (event areas, definitions and speakers), `validateDoorways`,
+`validateChestReward` and `validateCoverage` are the narrow entry points used
+by inspectors. `validate` combines them without a running
 scene or global configuration. `MapEventResolver::inspect` retains all area and
 subject defects; runtime `MapSourceReader::resolveEvents` requires that result
 to be valid. Coverage uses the Engine's tile ownership, current image admission
@@ -474,8 +482,25 @@ the old behavior that could complete an empty chest, debit gold or truncate a
 fractional amount. The chest stays closed and reports its existing player-safe
 message, with detailed `chest.reward` diagnostics in the log.
 
+### Doorways and entrances
+
+`MapDoorwayRule` (rule `object.doorway`, part of `validate`) keeps entrances
+visible. An entrance is a `TransferPlayerTrigger` event. A world object draws
+over anything standing on its covered cells in rows above its anchor row, its
+ground row, since the field orders subjects by ground row. So an entrance
+cell inside an object's `covers` above that row is an error: the player would
+vanish under the art there. A placement whose resource declares a `doorway`
+must have an entrance under every doorway cell. Both read authored cells
+only. Image size, pixels and draw layers decide nothing, an object without
+`covers` claims only its anchor, and overhang above open floor or ordinary
+events stays legal. An object and an entrance whose conditions provably never
+hold together (`WorldConditionExclusion`) do not meet. The fix moves the
+entrance to the front of the art, or the art to the entrance; never a raised
+layer, a blocker derived from the image or a moved collision cell.
+
 These checks resolve declared identities and cells. They cannot infer an
-inspection subject or a local speaker from dialogue prose. Story referents and
+inspection subject or a local speaker from dialogue prose; speakers are
+declared on the event (see [maps](maps.md#event-speakers)). Story referents and
 mandatory quest approach contracts require explicit authored references and a
 content audit; they are not silently treated as verified by this API.
 An unavailable placement removes its presentation override, restoring any
