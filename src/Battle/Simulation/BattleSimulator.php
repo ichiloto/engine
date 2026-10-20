@@ -200,7 +200,8 @@ class BattleSimulator
       );
 
       foreach ($order as $battler) {
-        if ($battler->stats->currentHp <= 0) {
+        // Only a battler still in the fight acts: not knocked out, conceded or held at its floor.
+        if ($this->living([$battler]) === []) {
           continue;
         }
 
@@ -250,7 +251,7 @@ class BattleSimulator
         }
 
         // State duration and damage belong to the battler's completed turn.
-        if ($battler->stats->currentHp > 0 && method_exists($battler, 'tickStates')) {
+        if ($battler->isFighting && method_exists($battler, 'tickStates')) {
           $before = $battler->stats->currentHp;
           $battler->tickStates();
           if (($loss = $before - $battler->stats->currentHp) > 0) {
