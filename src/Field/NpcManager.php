@@ -6,7 +6,6 @@ use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
-use Ichiloto\Engine\Events\Triggers\EventCue;
 use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -84,14 +83,18 @@ class NpcManager
       }
 
       $graphicalSprites = $this->loadGraphicalSprites($entry, $mapId, $id !== '' ? $id : "entry:$index ($name)");
-      $npcs[] = new Npc(
+      try {
+        $pages = NpcPages::fromEntry($entry);
+      } catch (InvalidArgumentException $error) {
+        throw new RuntimeException(sprintf('NPC "%s" on map "%s": %s', $id !== '' ? $id : $name, $mapId, $error->getMessage()), previous: $error);
+      }
+      $npc = new Npc(
         name: $name,
         sprite: strval($entry['sprite'] ?? '@'),
         position: new Vector2($placement->x, $placement->y),
         wanders: $placement->wanders,
         wanderArea: $wanderArea,
-        dialogue: array_values(array_filter((array) ($entry['dialogue'] ?? []), is_array(...))),
-        script: array_values(array_filter((array) ($entry['script'] ?? []), is_array(...))),
+        pages: $pages,
         conditions: $placement->conditions,
         sets: array_values(array_filter((array) ($entry['sets'] ?? []), is_array(...))),
         id: $id !== '' ? $id : null,
@@ -102,9 +105,12 @@ class NpcManager
         assetRoot: $graphicalSprites === null ? null
           : ($this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets'),
         directionFix: ($entry['directionFix'] ?? false) === true,
-        cue: EventCue::fromArray(is_array($entry['cue'] ?? null) ? $entry['cue'] : null),
         facing: self::readFacing($entry),
       );
+      if (isset($this->gameScene->gameState)) {
+        $npc->bind($mapId, $this->gameScene->gameState, $this->gameScene->party);
+      }
+      $npcs[] = $npc;
     }
 
     return $npcs;

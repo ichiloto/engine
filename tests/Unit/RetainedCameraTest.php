@@ -64,7 +64,7 @@ it('keeps map-owned fixture appearance intact while retaining its NPC identity a
   $manager->render();
   expect(Console::presentationSnapshot())->toEqual($before)
     ->and($manager->npcAt(2, 1))->toBe($manager->findById('wall-fixture'))
-    ->and($manager->npcAt(2, 1)?->dialogue)->toBe([['text' => 'An inscription on the wall.']])
+    ->and($manager->npcAt(2, 1)?->pages->pages[0]->lines)->toBe([['text' => 'An inscription on the wall.']])
     ->and($manager->npcAt(2, 1)?->wanders)->toBeFalse();
 
   // Omission retains the normal NPC default; only an explicit empty string opts out.

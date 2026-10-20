@@ -3,12 +3,13 @@
 namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\WorldStateWriter;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Events\Triggers\EventCue;
-use Ichiloto\Engine\Messaging\Dialogue\ConditionalDialogue;
+use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
@@ -35,12 +36,21 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  *     'wanderArea' => ['x' => 20, 'y' => 4, 'width' => 6, 'height' => 3],
  *     'directionFix' => false,                   // true: no turn to the player while talking
  *     'facing' => 'south',                       // heading it stands with: north, east, south (default) or west
- *     // Either a plain page list, or conditional variants where the first
- *     // matching entry is spoken (see ConditionalDialogue).
- *     'dialogue' => [['name' => 'Mom', 'text' => '…'], …],
- *     'script' => [ …event commands… ],          // replaces dialogue when present
+ *     // Interaction pages: talking runs the first page whose conditions
+ *     // hold (see NpcPages and NpcPage). Each page shows its lines, runs at
+ *     // most one of script, scriptId or cinematicId, applies its sets and
+ *     // shows its own cue while it is the page talking would run.
+ *     'dialogue' => [
+ *       ['id' => 'assignment', 'conditions' => [ … ], 'scriptId' => 'first-assignment', 'reusable' => false,
+ *        'cue' => ['symbol' => '!', 'color' => 'bright-yellow']],
+ *       ['lines' => [['name' => 'Mom', 'text' => '…']]],
+ *     ],
+ *     // Shorthand for one unconditional page: a plain line list, or a
+ *     // top-level script, with that page's cue on the NPC itself.
+ *     // 'dialogue' => [['name' => 'Mom', 'text' => '…'], …],
+ *     // 'script' => [ …event commands… ],
+ *     // 'cue' => ['symbol' => '!', 'color' => 'bright-yellow', 'conditions' => [ … ]],
  *     'conditions' => [ …trigger conditions… ],  // NPC only appears while these hold
- *     'cue' => ['symbol' => '!', 'color' => 'bright-yellow', 'conditions' => [ … ]], // same contract as an event cue
  *     'sets' => [ …trigger sets… ],              // applied after every conversation
  *   ],
  * ],
@@ -57,8 +67,8 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
 
   protected(set) MovementHeading $heading = MovementHeading::SOUTH;
 
-  /** @var array<int, array<string, mixed>> Variant writes awaiting script completion. */
-  protected array $pendingConversationSets = [];
+  /** The page whose action is running, completed when its session ends. */
+  protected ?NpcPage $pendingPage = null;
   protected(set) bool $conversationIsActive = false;
   /**
    * The heading the talk turn replaced, restored when that conversation
@@ -70,6 +80,23 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
   private readonly string $graphicalSpriteId;
   private readonly CharacterWalkAnimation $walkAnimation;
   private readonly ?CharacterSheetAssetGuard $graphicalAssetGuard;
+  private ?string $mapId = null;
+  private ?GameState $gameState = null;
+  private ?Party $party = null;
+
+  /**
+   * The page talking runs now: the first page whose conditions hold and which
+   * has not retired. Null before the NPC is bound to its map's world state.
+   */
+  public ?NpcPage $currentPage {
+    get => $this->mapId === null || $this->gameState === null ? null
+      : $this->pages->selectPage($this->mapId, $this->gameState, $this->party);
+  }
+
+  /** The cue of the page talking runs now: the NPC's guidance always matches what talking does. */
+  public ?EventCue $cue {
+    get => $this->currentPage?->cue;
+  }
 
   /**
    * @param string $name The NPC's name (talk-to quests match it).
@@ -77,8 +104,7 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
    * @param Vector2 $position The world position.
    * @param bool $wanders True when the NPC takes random steps.
    * @param array{x: int, y: int, width: int, height: int}|null $wanderArea Bounds for wandering; null wanders freely.
-   * @param array<int, array<string, mixed>> $dialogue Dialogue pages (name + text).
-   * @param array<int, array<string, mixed>> $script Event-script commands; replaces dialogue when non-empty.
+   * @param NpcPages|null $pages Interaction pages; none when null.
    * @param array<int, array<string, mixed>> $conditions Visibility conditions (trigger shapes).
    * @param array<int, array<string, mixed>> $sets World-state writes applied after each conversation.
    * @param string|null $id Stable map-local script identity.
@@ -87,7 +113,6 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
    * @param string|null $graphicalSpriteId Map-scoped presentation identity, independent of script/save identity.
    * @param string|null $assetRoot Project asset root for graphical preflight.
    * @param bool $directionFix True keeps the heading when the player talks to it (RPG Maker's Direction Fix).
-   * @param EventCue|null $cue Optional guidance drawn above the NPC: the same cue contract events use.
    * @param MovementHeading $facing The heading it stands with until something turns it.
    */
   public function __construct(
@@ -96,8 +121,7 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
     protected(set) Vector2 $position,
     protected(set) bool $wanders = false,
     protected(set) ?array $wanderArea = null,
-    protected(set) array $dialogue = [],
-    protected(set) array $script = [],
+    protected(set) ?NpcPages $pages = null,
     protected(set) array $conditions = [],
     protected(set) array $sets = [],
     protected(set) ?string $id = null,
@@ -106,10 +130,10 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
     ?string $graphicalSpriteId = null,
     ?string $assetRoot = null,
     protected(set) bool $directionFix = false,
-    protected(set) ?EventCue $cue = null,
     MovementHeading $facing = MovementHeading::SOUTH,
   )
   {
+    $this->pages ??= NpcPages::fromEntry([]);
     $this->id = $id !== null && trim($id) !== '' ? trim($id) : null;
     // The authored sprite is the look for the default south heading; another heading uses its directional glyph.
     if ($facing !== MovementHeading::SOUTH) {
@@ -172,14 +196,26 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
     $this->walkAnimation->stop();
   }
 
-  /** Whether speaking to this NPC does anything: it has lines or a script. */
+  /** Whether speaking to this NPC can do anything: some page has lines or an action. */
   public bool $isTalkable {
-    get => $this->dialogue !== [] || $this->script !== [];
+    get => $this->pages->isTalkable;
   }
 
   /**
-   * Talks to the NPC: plays its script or dialogue, applies its `sets`,
-   * and records the conversation for talk-to quests.
+   * Binds the NPC to its map and the world state its pages read, as map
+   * events are bound.
+   */
+  public function bind(string $mapId, GameState $gameState, ?Party $party = null): void
+  {
+    $this->mapId = $mapId;
+    $this->gameState = $gameState;
+    $this->party = $party;
+  }
+
+  /**
+   * Talks to the NPC: runs the current page (its lines, then its script,
+   * shared event script or Cinematic), applies its `sets` and the NPC's,
+   * retires a one-shot page and records the conversation for talk-to quests.
    *
    * @param GameScene $gameScene The running game scene.
    * @return void
@@ -189,37 +225,32 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
     if ($this->conversationIsActive) {
       return;
     }
+    $this->bind($this->mapId ?? $gameScene->currentMapId, $gameScene->gameState, $gameScene->party);
+    $page = $this->currentPage;
 
-    if (! empty($this->script)) {
-      $this->beginScript($gameScene, $this->script, []);
+    if ($page === null) {
+      // Every page is gated out: nothing is said, but the talk still counts.
+      $this->applySets($gameScene);
+      QuestManager::current()?->recordTalkTo($this->name);
+      $this->endConversation($gameScene);
       return;
-    } else {
-      // Pick what to say from the state of the world, so a character can
-      // acknowledge what the player has actually done.
-      $variant = ConditionalDialogue::select($this->dialogue, $gameScene->gameState, $gameScene->party);
-
-      foreach ($variant['lines'] as $page) {
-        show_text(
-          strval($page['text'] ?? ''),
-          strval($page['name'] ?? $this->name),
-          charactersPerSecond: dialogue_speed(),
-          presentation: DialogueContext::getFromText($page),
-        );
-      }
-
-      if (! empty($variant['script'])) {
-        $this->beginScript($gameScene, $variant['script'], $variant['sets']);
-        return;
-      }
-
-      // A variant's own writes land before the NPC's, so "first time you
-      // report back" state is recorded by the line that said it.
-      WorldStateWriter::applyAll($variant['sets'], $gameScene->gameState);
     }
 
-    $this->applySets($gameScene);
-    QuestManager::current()?->recordTalkTo($this->name);
-    $this->endConversation($gameScene);
+    foreach ($page->lines as $line) {
+      show_text(
+        strval($line['text'] ?? ''),
+        strval($line['name'] ?? $this->name),
+        charactersPerSecond: dialogue_speed(),
+        presentation: DialogueContext::getFromText($line),
+      );
+    }
+
+    if ($page->hasAction) {
+      $this->beginAction($gameScene, $page);
+      return;
+    }
+
+    $this->finishPage($gameScene, $page);
   }
 
   /**
@@ -283,33 +314,51 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
   }
 
   /**
-   * Starts the asynchronous script portion of an NPC conversation.
-   *
-   * @param array<int, array<string, mixed>> $script The commands to run.
-   * @param array<int, array<string, mixed>> $variantSets Writes belonging to the chosen dialogue variant.
+   * Starts the asynchronous action of a page: inline commands, a shared
+   * event script (run as a common event, from the same assets/Events files
+   * map script events use) or a first-class Cinematic.
    */
-  protected function beginScript(GameScene $gameScene, array $script, array $variantSets): void
+  protected function beginAction(GameScene $gameScene, NpcPage $page): void
   {
-    $identity = sprintf(
-      'npc:%s:%s',
-      $gameScene->currentMapId,
-      $this->id ?? $this->name,
-    );
-    $this->pendingConversationSets = $variantSets;
-    // State-only scripts may finish before startEventScript() returns. Set
+    $mapId = $this->mapId ?? $gameScene->currentMapId;
+    $this->pendingPage = $page;
+    // State-only scripts may finish before the session start returns. Set
     // the guard first so the completion callback remains authoritative.
     $this->conversationIsActive = true;
-    $session = $gameScene->startEventScript($script, $identity, $this, [
-      'map' => $gameScene->currentMapId,
-      'trigger' => static::class,
-      'npc' => $this->id ?? $this->name,
-    ]);
+    if ($page->cinematicId !== null) {
+      $session = $gameScene->startCinematic($page->cinematicId, $this);
+    } else {
+      $session = $gameScene->startEventScript(
+        $page->scriptId === null ? $page->script : [['type' => 'common_event', 'id' => $page->scriptId]],
+        $page->scriptId ?? sprintf('npc:%s:%s', $mapId, $this->id ?? $this->name),
+        $this,
+        [
+          'map' => $mapId,
+          'trigger' => static::class,
+          'npc' => $this->id ?? $this->name,
+          'page' => $page->id ?? $page->index,
+        ],
+      );
+    }
 
-    if ($session === null) {
+    if ($session === null && $this->conversationIsActive) {
       $this->conversationIsActive = false;
-      $this->pendingConversationSets = [];
+      $this->pendingPage = null;
       $this->endConversation($gameScene);
     }
+  }
+
+  /**
+   * Completes a page: its own writes land before the NPC's, so "first time
+   * you report back" state is recorded by the page that said it.
+   */
+  protected function finishPage(GameScene $gameScene, NpcPage $page): void
+  {
+    WorldStateWriter::applyAll($page->sets, $gameScene->gameState);
+    $this->pages->retire($page, $this->mapId ?? $gameScene->currentMapId, $gameScene->gameState);
+    $this->applySets($gameScene);
+    QuestManager::current()?->recordTalkTo($this->name);
+    $this->endConversation($gameScene);
   }
 
   /** Turns the NPC back to the heading it had before the player talked to it. */
@@ -321,18 +370,23 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
   /** @inheritDoc */
   public function onEventSessionCompleted(GameScene $gameScene, EventExecutionSession $session): void
   {
-    WorldStateWriter::applyAll($this->pendingConversationSets, $gameScene->gameState);
-    $this->applySets($gameScene);
-    QuestManager::current()?->recordTalkTo($this->name);
-    $this->pendingConversationSets = [];
+    $page = $this->pendingPage;
+    $this->pendingPage = null;
     $this->conversationIsActive = false;
-    $this->endConversation($gameScene);
+    if ($page === null) {
+      // Every page is gated out: nothing is said, but the talk still counts.
+      $this->applySets($gameScene);
+      QuestManager::current()?->recordTalkTo($this->name);
+      $this->endConversation($gameScene);
+      return;
+    }
+    $this->finishPage($gameScene, $page);
   }
 
   /** @inheritDoc */
   public function onEventSessionFailed(GameScene $gameScene, EventExecutionSession $session): void
   {
-    $this->pendingConversationSets = [];
+    $this->pendingPage = null;
     $this->conversationIsActive = false;
     $this->endConversation($gameScene);
   }

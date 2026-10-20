@@ -8,6 +8,7 @@ use Closure;
 use Ichiloto\Engine\Field\MapRoute;
 use Ichiloto\Engine\Field\MapRouteGraph;
 use Ichiloto\Engine\Quests\ActiveQuestWaymark;
+use Ichiloto\Engine\Quests\QuestWaymarkSubject;
 
 /**
  * Turns the active quest waymarks into points on the active map.
@@ -51,6 +52,13 @@ final class FieldWaymarkResolver
       }
       $route = $nextRoutes[$waymark->map];
       if ($route === null || isset($routeMarks[$route->marker])) { continue; }
+      if ($route->npcId !== null) {
+        // Talking to the NPC is the way on: mark the NPC where it stands now.
+        $routeMarks[$route->marker] = array_map(static fn(FieldWaymarkAnchor $anchor) => new FieldWaymark(
+          'route:' . $mapId . ':' . $route->marker, FieldWaymarkRole::ROUTE, $anchor, $entry->label, $route->destination),
+          $locator->locate(QuestWaymarkSubject::NPC, $route->npcId));
+        continue;
+      }
       $routeMarks[$route->marker] = array_map(
         static fn($piece) => new FieldWaymark('route:' . $mapId . ':' . $route->marker, FieldWaymarkRole::ROUTE,
           new FieldWaymarkAnchor($piece->findCenterCell(), eventMarker: str_starts_with($route->marker, '@') ? null : $route->marker),

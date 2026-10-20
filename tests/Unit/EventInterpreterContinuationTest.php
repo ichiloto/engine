@@ -1406,7 +1406,7 @@ it('defers NPC conversation writes and prevents duplicate rewards while its scri
     name: 'Guide',
     sprite: 'G',
     position: new Vector2(2, 2),
-    script: [['type' => 'wait', 'seconds' => 0.1]],
+    pages: \Ichiloto\Engine\Field\NpcPages::fromEntry(['script' => [['type' => 'wait', 'seconds' => 0.1]]]),
     sets: [['type' => 'variable', 'name' => 'npc_reward_count', 'op' => 'add', 'value' => 1]],
     id: 'guide',
   );
@@ -1421,6 +1421,106 @@ it('defers NPC conversation writes and prevents duplicate rewards while its scri
 
   expect($scene->gameState->getVariable('npc_reward_count'))->toBe(1)
     ->and($interpreter->hasActiveSession())->toBeFalse();
+});
+
+it('runs the NPC page talking selects: its shared script, its writes, then retires a one-shot page and shows the next cue', function () {
+  $root = createTestDirectory('npc-page-script-');
+  mkdir($root . '/assets/Events', 0o777, true);
+  file_put_contents($root . '/assets/Events/first-assignment.php', <<<'PHP'
+<?php
+return [
+  ['type' => 'wait', 'seconds' => 0.1],
+  ['type' => 'record_event', 'name' => 'assignment_heard'],
+];
+PHP);
+  $previousDirectory = getcwd();
+  chdir($root);
+
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $npcs = new NpcManager($scene);
+    $npcs->configure([[
+      'id' => 'supervisor', 'name' => 'Supervisor', 'sprite' => 'S', 'x' => 5, 'y' => 5,
+      'dialogue' => [
+        ['id' => 'assignment', 'conditions' => [['type' => 'event', 'name' => 'sample_taken']],
+          'scriptId' => 'first-assignment', 'reusable' => false, 'sets' => [['type' => 'event', 'name' => 'assignment_issued']],
+          'cue' => ['symbol' => '!', 'color' => 'bright-yellow']],
+        ['conditions' => [['type' => 'event', 'name' => 'assignment_issued']],
+          'lines' => [['name' => 'Supervisor', 'text' => 'Report to the field post.']]],
+        ['lines' => [['name' => 'Supervisor', 'text' => 'See the physician first.']]],
+      ],
+    ]]);
+    $npc = $npcs->findById('supervisor');
+
+    expect($npc->cue)->toBeNull()->and($npc->currentPage?->index)->toBe(2);
+    $scene->gameState->recordStoryEvent('sample_taken');
+    expect($npc->cue?->symbol)->toBe('!')->and($npc->currentPage?->id)->toBe('assignment');
+
+    $npc->talk($scene);
+    expect($interpreter->hasActiveSession())->toBeTrue()
+      ->and($scene->gameState->hasStoryEvent('assignment_issued'))->toBeFalse();
+    $interpreter->update(0.1);
+
+    expect($scene->gameState->hasStoryEvent('assignment_heard'))->toBeTrue()
+      ->and($scene->gameState->hasStoryEvent('assignment_issued'))->toBeTrue()
+      ->and($scene->gameState->isEventComplete('map-a', 'supervisor/assignment'))->toBeTrue()
+      ->and($npc->currentPage?->index)->toBe(1)
+      ->and($npc->cue)->toBeNull();
+  } finally {
+    chdir($previousDirectory);
+  }
+});
+
+it('plays an NPC page Cinematic and completes the page only when the Cinematic does', function () {
+  $root = makeCinematicTriggerProject('listening-stone', [
+    ['type' => 'wait', 'seconds' => 0.1],
+    ['type' => 'record_event', 'name' => 'stone_heard'],
+  ]);
+  $prior = getcwd();
+  chdir($root);
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $scene->installCinematicRuntime();
+    $npc = new \Ichiloto\Engine\Field\Npc('Liora', 'L', new Vector2(2, 2), id: 'liora',
+      pages: \Ichiloto\Engine\Field\NpcPages::fromEntry(['id' => 'liora', 'dialogue' => [
+        ['id' => 'stone', 'cinematicId' => 'listening-stone', 'reusable' => false, 'sets' => [['type' => 'event', 'name' => 'stone_page_done']]],
+        ['lines' => [['name' => 'Liora', 'text' => 'It is quiet now.']]],
+      ]]));
+    $npc->bind('map-a', $scene->gameState, $scene->party);
+
+    $npc->talk($scene);
+    expect($scene->gameState->hasStoryEvent('stone_page_done'))->toBeFalse()
+      ->and($npc->conversationIsActive)->toBeTrue();
+    $interpreter->update(0.1);
+
+    expect($scene->gameState->hasStoryEvent('stone_heard'))->toBeTrue()
+      ->and($scene->gameState->hasStoryEvent('stone_page_done'))->toBeTrue()
+      ->and($npc->conversationIsActive)->toBeFalse()
+      ->and($npc->currentPage?->index)->toBe(1);
+  } finally {
+    chdir($prior);
+  }
+});
+
+it('carries a one-shot cell event completion from an old save onto the NPC page that replaced it', function () {
+  $manifest = SaveCompatibilityManifest::fromArray('npc-pages', ['contentVersion' => 0, 'aliases' => [
+    'one_shot_events' => [['from' => 'map-a:L', 'to' => 'map-a:supervisor/assignment']],
+  ]]);
+  // Saved mid-sequence: the sample was taken and the old cell event L had already run.
+  $saved = ['storyEvents' => ['sample_taken'], 'completedEvents' => ['map-a:L' => true]];
+  $restored = [];
+  foreach ($saved['completedEvents'] as $identity => $value) {
+    $restored[$manifest->resolveOneShotEvent($identity, 'old.save')] = $value;
+  }
+  $state = GameState::fromArray([...$saved, 'completedEvents' => $restored]);
+  $pages = \Ichiloto\Engine\Field\NpcPages::fromEntry(['id' => 'supervisor', 'dialogue' => [
+    ['id' => 'assignment', 'conditions' => [['type' => 'event', 'name' => 'sample_taken']], 'script' => [['type' => 'wait', 'seconds' => 0.1]],
+      'reusable' => false],
+    ['lines' => [['name' => 'Supervisor', 'text' => 'Report to the field post.']]],
+  ]]);
+
+  expect($pages->selectPage('map-a', $state)?->index)->toBe(1)
+    ->and($pages->selectPage('map-a', GameState::fromArray($saved))?->id)->toBe('assignment');
 });
 
 it('executes player and stable-id NPC routes step by step including facing', function () {

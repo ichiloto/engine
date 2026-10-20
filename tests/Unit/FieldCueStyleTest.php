@@ -163,8 +163,11 @@ it('drops the plate and bob without new art or data changes beyond the style', f
 
 function makeCuedNpc(?array $cue, Vector2 $position = new Vector2(4, 3)): Ichiloto\Engine\Field\Npc
 {
-  return new Ichiloto\Engine\Field\Npc('Halen', '@', $position, id: 'halen',
-    graphicalSpriteId: 'npc:map:test:id:halen', cue: Ichiloto\Engine\Events\Triggers\EventCue::fromArray($cue));
+  $npc = new Ichiloto\Engine\Field\Npc('Halen', '@', $position, id: 'halen',
+    pages: Ichiloto\Engine\Field\NpcPages::fromEntry(['id' => 'halen', 'cue' => $cue]),
+    graphicalSpriteId: 'npc:map:test:id:halen');
+  $npc->bind('test', new Ichiloto\Engine\Core\GameState());
+  return $npc;
 }
 
 it('reads an NPC cue with the event cue validator, refusing what events refuse', function () {

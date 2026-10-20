@@ -376,21 +376,9 @@ final readonly class MapReachability
       $occupied[self::key($other->x, $other->y)] = true;
     }
 
-    $isCounterAt = fn(int $x, int $y): bool => ($this->collisions[$y][$x] ?? null) === CollisionType::COUNTER->value;
-    $hasNpcAt = static fn(int $x, int $y): bool => isset($occupied[self::key($x, $y)]);
-    $cells = [];
-
-    foreach ([[0, -1], [1, 0], [0, 1], [-1, 0]] as [$dx, $dy]) {
-      for ($distance = 1; $distance <= InteractionReach::MAX_COUNTER_CELLS + 1; $distance++) {
-        $x = $npc->x + $dx * $distance;
-        $y = $npc->y + $dy * $distance;
-        if (InteractionReach::findTalkCell($x, $y, -$dx, -$dy, $isCounterAt, $hasNpcAt) === [$npc->x, $npc->y]) {
-          $cells[] = [$x, $y];
-        }
-      }
-    }
-
-    return $cells;
+    return InteractionReach::findTalkCells($npc->x, $npc->y,
+      fn(int $x, int $y): bool => ($this->collisions[$y][$x] ?? null) === CollisionType::COUNTER->value,
+      static fn(int $x, int $y): bool => isset($occupied[self::key($x, $y)]));
   }
 
   /** @param array<string, true> $blocked */

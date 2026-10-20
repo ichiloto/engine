@@ -350,8 +350,8 @@ it('defers prepared NPC field occupancy at a restored saved player cell until or
     ->and($this->manager->findById($npc->id))->toBe($npc)
     ->and([$npc->position->x, $npc->position->y])->toBe([(float)$entry['x'], (float)$entry['y']])
     ->and($npc->heading)->toBe($heading)->and($npc->directionFix)->toBeTrue()
-    ->and($npc->conditions)->toBe($entry['conditions'])->and($npc->script)->toBe($entry['script'])
-    ->and($npc->dialogue)->toBe($entry['dialogue'])->and($npc->wanderArea)->toBe($entry['wanderArea']);
+    ->and($npc->conditions)->toBe($entry['conditions'])->and($npc->pages)->toEqual(\Ichiloto\Engine\Field\NpcPages::fromEntry($entry))
+    ->and($npc->wanderArea)->toBe($entry['wanderArea']);
   if ($graphical) {
     $this->runtime->present($this->scene);
     $frames = RetainedFrameState::replay($this->transport->sent);

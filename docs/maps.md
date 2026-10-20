@@ -138,11 +138,9 @@ two placements are not part of it, so standing there triggers nothing and an
 unavailable event's `whenBlocked` gate only stops steps onto its own cells.
 A cue shows on each separate placement. Cinematics that name a marker as a
 subject use its first cell in reading order, the top-left of a rectangle.
-An NPC takes the same `cue` (symbol, colour, conditions, optional kind),
-read by the same validator, and shows it in the cell above itself while it
-is on the field and the cue's conditions hold; the cue follows the NPC as it
-moves and takes the game's `cueStyle` treatment like any cue. Use it instead
-of a separate stand-in NPC whose sprite is a cue.
+An NPC's pages take the same `cue` (symbol, colour, conditions, optional
+kind), read by the same validator; the NPC shows the cue of the page talking
+would run, in the cell above itself (see [NPC pages](#npc-pages)).
 Quest waymarks name markers the same way and mark each placement; see
 [Waymarks](quests.md#waymarks-where-an-objective-sends-the-player) for how
 objectives are marked on the field, the local map and the world map, and how
@@ -154,12 +152,10 @@ An event names the people who speak its lines with `speakers`, a list of 1..8
 distinct stable NPC ids on the same map:
 
 ```php
-'B' => [
+'H' => [
   'class' => ScriptEventTrigger::class,
-  'subject' => ['kind' => 'world_object', 'id' => 'registration-desk-1'],
-  'engagement' => 'facing',
-  'speakers' => ['registrar-kemi'],
-  'data' => ['mode' => 'action', 'reusable' => false, 'scriptId' => 'registration'],
+  'speakers' => ['analysis-supervisor'],
+  'data' => ['mode' => 'auto', 'reusable' => false, 'scriptId' => 'assessment-briefing'],
 ],
 ```
 
@@ -177,6 +173,67 @@ present, wanders freely or stands away is reported with the cells where they
 stand. A scene that walks people into place is authored as pages conditioned on
 that phase, standing where the scene needs them, so the rule reads the map
 without running scripts.
+
+A scene the player starts by action and an NPC delivers belongs to that NPC.
+`MapNpcInteractionRule` (rule `event.npc-interaction`, also part of
+`validateEvents`) reports a script, Cinematic or dialogue event in `action`
+mode that names NPC speakers: the player would have to find its cell, while
+talking to the NPC says something else. Move it onto the first speaker's
+pages. Scenes that start on arrival (`auto`) are not conversations, and an
+event bound to a world object is that object's interaction (a terminal, a
+reception counter) and one bound to a named area is that place's (a safe
+position, a gap a creature holds); their speakers answer for them. Shop and
+inn events stay with the counter or fixture they are authored on; a page
+offers either service with the `shop` and `inn` script commands when the
+NPC should own it.
+
+### NPC pages
+
+An NPC's ordered `dialogue` variants are its interaction pages, as RPG
+Maker's event pages. Talking runs the first page whose `conditions` hold and
+which has not retired, so the most advanced story state goes first and an
+unconditional page last:
+
+```php
+'npcs' => [[
+  'id' => 'field-supervisor',
+  'name' => 'Supervisor Ilyan',
+  'x' => 55, 'y' => 11,
+  'dialogue' => [
+    [
+      'id' => 'first-assignment',
+      'conditions' => [['type' => 'event', 'name' => 'blood_sample_submitted'],
+        ['type' => 'event', 'name' => 'assignment_issued', 'negate' => true]],
+      'cue' => ['symbol' => '!', 'color' => 'bright-yellow'],
+      'scriptId' => 'garden-of-roads-assignment',
+      'reusable' => false,
+    ],
+    ['lines' => [['name' => 'Supervisor Ilyan', 'text' => 'Use the east deployment gate.']]],
+  ],
+]],
+```
+
+A page shows its `lines`, then runs at most one action: inline `script`
+commands, the shared script `scriptId` (`assets/Events/<id>.php`, run as a
+Common Event, the files map script events use) or the Cinematic
+`cinematicId`. Its `sets` apply when it finishes, before the NPC's own
+`sets`. Its `cue` is the NPC's guidance while it is the page talking would
+run, so a waymark on the NPC appears and retires with that cue. A page with
+`reusable` false retires once its action completes; it needs a stable `id`,
+and its completion is saved as the one-shot event `{map}:{npcId}/{pageId}`,
+so moving a one-shot map event onto a page maps the old `{map}:{marker}`
+identity there through `aliases.one_shot_events`. `speakers` names the
+other NPCs its scene stages; each must stand beside the NPC whenever the page
+can run, as event speakers stand beside their event.
+
+A plain list of lines, or a top-level `script` (which replaces any
+dialogue), is one unconditional page, and only that shorthand carries its
+`cue` on the NPC itself. `NpcPages` reads pages for the field, waymarks,
+routes and validation alike. The rule `npc.page` reports malformed pages,
+dialogue a top-level script hides, a page an earlier reusable page always
+pre-empts (its authored conditions include all of the earlier page's) and a
+staged speaker away from the NPC. A reusable page whose script transfers is
+a route, used by talking to the NPC while it is the page talking runs.
 
 ## Active-map landmarks and discovery
 
