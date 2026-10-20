@@ -2,6 +2,9 @@
 
 namespace Tests\Support\Input;
 
+use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
+use Ichiloto\Engine\Rendering\Presentation\RetainedPresentation;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererTransportState;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\Interfaces\RendererTransportInterface;
@@ -27,6 +30,10 @@ final class FakeRendererTransport implements RendererTransportInterface
   public ?RendererTransportException $shutdownFailure = null;
   public bool $acceptWrites = true;
   public int $pendingWriteBytes = 0;
+  /** A responsive renderer consumes every queued frame packet and acknowledges it on the next poll. */
+  public bool $acknowledgeFrames = false;
+  /** @var list<RendererEvent> */
+  private array $acknowledgements = [];
 
   public function start(RendererSessionConfig $session): void
   {
@@ -47,7 +54,23 @@ final class FakeRendererTransport implements RendererTransportInterface
       throw $this->sendFailure;
     }
     $this->sent[] = $message;
+    if ($this->acknowledgeFrames && $message->type === RendererMessageType::FRAME) {
+      $this->acknowledgements[] = RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'frame_ack',
+        'generation' => $message->payload['generation'], 'frame' => $message->payload['frame'],
+        'presented' => $message->payload['present']], JSON_THROW_ON_ERROR));
+    }
     ($this->onSend)?->__invoke($this, $message);
+  }
+
+  /** The renderer consumed the latest queued frame packet; for presenters used without Runtime feedback. */
+  public function acknowledgeLatestFrame(RetainedPresentation|RendererPresentation $presenter): void
+  {
+    for ($index = count($this->sent) - 1; $index >= 0; $index--) {
+      if ($this->sent[$index]->type === RendererMessageType::FRAME) {
+        $presenter->acknowledge($this->sent[$index]->payload['generation'], $this->sent[$index]->payload['present']);
+        return;
+      }
+    }
   }
 
   public function trySend(RendererMessage $message): bool
@@ -68,7 +91,9 @@ final class FakeRendererTransport implements RendererTransportInterface
     if ($this->failure !== null) {
       throw $this->failure;
     }
-    return array_shift($this->batches) ?? [];
+    $batch = [...(array_shift($this->batches) ?? []), ...$this->acknowledgements];
+    $this->acknowledgements = [];
+    return $batch;
   }
 
   public function shutdown(): ?int

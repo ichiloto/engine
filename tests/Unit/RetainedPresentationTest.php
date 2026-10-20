@@ -56,11 +56,13 @@ it('uploads a world once and emits only a viewport for every scrolling direction
     $world = retainedTestWorld();
     $text = new ConsolePresentationChanges(200, 50, true, order: []);
     expect($sender->present($text, [], retainedTestViewport(), $world))->toBeTrue();
+    $transport->acknowledgeLatestFrame($sender);
     $transport->sent = [];
     $text = new ConsolePresentationChanges(200, 50, false);
     foreach ([[1, 0], [1, 1], [0, 1], [0, 0], [-3, -2]] as [$x, $y]) {
         expect($sender->present($text, [], retainedTestViewport($x, $y), $world))->toBeTrue();
         $payload = end($transport->sent)->payload;
+        $transport->acknowledgeLatestFrame($sender);
         expect($payload['operations'])->toBe([])->and($payload['reset'])->toBeFalse()
             ->and($payload['viewport']['worldOrigin'])->toBe(['column' => $x, 'row' => $y]);
     }
@@ -96,8 +98,10 @@ it('sends changed text rows only and explicitly removes vanished layers and spri
         'rows' => [['row' => 1, 'runs' => [new PresentationTextRun(1, 0, $text)]]]];
     $sprite = new PresentationSprite('actor', 'actor.png', 0, 0, 10, 20);
     $sender->present(new ConsolePresentationChanges(20, 4, true, [$layer('Hi')], order: ['dialogue']), [$sprite], null);
+    $transport->acknowledgeLatestFrame($sender);
     $transport->sent = [];
     $sender->present(new ConsolePresentationChanges(20, 4, false, [$layer('Hello')]), [$sprite], null);
+    $transport->acknowledgeLatestFrame($sender);
     expect($transport->sent[0]->payload['operations'])->toBe([['op' => 'textRows', 'id' => 'dialogue',
         'rows' => [['row' => 1, 'runs' => [new PresentationTextRun(1, 0, 'Hello')->toArray()]]]]]);
     $sender->present(new ConsolePresentationChanges(20, 4, false, removedIds: ['dialogue'], order: []), [], null);
@@ -110,13 +114,16 @@ it('retains canvas elements through edits and removes field state across battle 
     $sender = new RetainedPresentation(new RendererClient($transport));
     $world = retainedTestWorld();
     $sender->present(new ConsolePresentationChanges(20, 4, true, order: []), [], retainedTestViewport(), $world);
+    $transport->acknowledgeLatestFrame($sender);
     $image = fn(float $opacity) => new CanvasImage('portrait', 'actor.png', new CanvasRectangle(0, 0, 10, 20), opacity: $opacity);
     $sender->presentCanvas(new PresentationCanvas(100, 100, [$image(1)]));
     $entry = end($transport->sent)->payload;
+    $transport->acknowledgeLatestFrame($sender);
     expect($entry['operations'][0])->toBe(['op' => 'remove', 'kind' => 'world', 'id' => 'map'])
         ->and($entry['viewport'])->toBeNull();
     $transport->sent = [];
     $sender->presentCanvas(new PresentationCanvas(100, 100, [$image(.5)]));
+    $transport->acknowledgeLatestFrame($sender);
     expect($transport->sent[0]->payload['operations'])->toHaveCount(1)
         ->and($transport->sent[0]->payload['operations'][0]['kind'])->toBe('canvas_image');
     expect($sender->presentCanvas(new PresentationCanvas(100, 100, [$image(.5)])))->toBeFalse();
@@ -135,12 +142,14 @@ it('retains a field world camera sprites and notifications while dialogue overla
     $notice = ['id' => 'notice', 'layer' => 2000,
         'rows' => [['row' => 0, 'runs' => [new PresentationTextRun(0, 0, 'Notice')]]]];
     $sender->present(new ConsolePresentationChanges(20, 4, true, [$notice], order: ['notice']), [$sprite], $viewport, $world);
+    $transport->acknowledgeLatestFrame($sender);
     $transport->sent = [];
     $canvas = new PresentationCanvas(200, 80, [new CanvasImage('dialogue-frame', 'frame.png', new CanvasRectangle(0, 40, 200, 40))]);
     $sender->present(new ConsolePresentationChanges(20, 4, false), [$sprite], $viewport, $world, $canvas);
     $operations = end($transport->sent)->payload['operations'];
     expect(array_column($operations, 'kind'))->toBe(['canvas', 'canvas_image'])
         ->and($operations[0]['value']['mode'])->toBe('overlay');
+    $transport->acknowledgeLatestFrame($sender);
     $transport->sent = [];
     $sender->present(new ConsolePresentationChanges(20, 4, false), [$sprite], $viewport, $world);
     expect(end($transport->sent)->payload['operations'])->toBe([
@@ -367,12 +376,15 @@ it('captures accumulated rows world camera and sprites without sending or advanc
     ], order: ['field-hud']);
     $sprite = new PresentationSprite('hero', 'hero.png', 2, 1, 10, 20);
     $sender->present($text(0, 'Location', true), [$sprite], retainedTestViewport(), $world);
+    $transport->acknowledgeLatestFrame($sender);
     $sender->present($text(1, 'Gold'), [$sprite], retainedTestViewport(), $world);
+    $transport->acknowledgeLatestFrame($sender);
     $sent = count($transport->sent);
     $frozen = $sender->captureFrame();
     expect(count($transport->sent))->toBe($sent)->and($frozen->world)->toBe($world)
         ->and(array_keys($frozen->textRows['field-hud']))->toBe([0, 1]);
     $sender->present($text(0, 'Changed'), [], null);
+    $transport->acknowledgeLatestFrame($sender);
     $overlay = new \Ichiloto\Engine\Rendering\ScreenTransitionTreatment(getScreenTransitionFixture())
         ->compose(\Ichiloto\Engine\Rendering\ScreenTransitionPhase::HOLD, 1, 200, 80);
     $sender->presentFrame($frozen, $overlay);
@@ -381,6 +393,7 @@ it('captures accumulated rows world camera and sprites without sending or advanc
         ->and($frame['sprites'][0]['id'])->toBe('hero')->and($frame['viewport']['worldId'])->toBe('map')
         ->and($frame['worlds']['map']['glyphRows'])->not->toBeEmpty()
         ->and($frame['canvas']['composites'][0]['operations'][0]['masks'])->toBe([]);
+    $transport->acknowledgeLatestFrame($sender);
     expect($sender->presentFrame($frozen, $overlay))->toBeFalse();
     $sender->invalidate();
     expect($sender->presentFrame($frozen, $overlay))->toBeTrue()->and(end($transport->sent)->payload['reset'])->toBeTrue();
@@ -390,6 +403,7 @@ it('prepares an incoming canvas without exposing it until the covered atomic rep
     $transport = new FakeRendererTransport();
     $sender = new RetainedPresentation(new RendererClient($transport));
     $sender->present(new ConsolePresentationChanges(20, 4, true, order: []), [], retainedTestViewport(), retainedTestWorld());
+    $transport->acknowledgeLatestFrame($sender);
     $outgoing = $sender->captureFrame();
     $sent = count($transport->sent);
     $incoming = $sender->prepareCanvas(new PresentationCanvas(200, 80, [new CanvasImage('battle', 'battle.png', new CanvasRectangle(0, 0, 200, 80))]));
@@ -401,6 +415,7 @@ it('prepares an incoming canvas without exposing it until the covered atomic rep
     expect($frame['worlds'] ?? [])->toBe([])->and($frame['sprites'])->toBe([])->and($frame['textLayers'])->toBe([])
         ->and($frame['canvas']['images'][0]['id'])->toBe('battle')
         ->and($frame['canvas']['composites'][0]['operations'][0]['opacity'])->toBe(1.0);
+    $transport->acknowledgeLatestFrame($sender);
     $sender->presentFrame($incoming);
     expect(RetainedFrameState::getLatestFrame($transport->sent)['canvas'])->not->toHaveKey('composites');
     $foreign = new RetainedPresentation(new RendererClient(new FakeRendererTransport()));
@@ -420,4 +435,100 @@ it('prepares retained incoming rows without consuming the outgoing desired state
     $sender->presentFrame($incoming);
     expect(RetainedFrameState::getLatestFrame($transport->sent)['textLayers'][0]['runs'][0]['text'])->toBe('New')
         ->and($sender->presentFrame($incoming))->toBeFalse();
+});
+
+it('holds superseded frames while the renderer owes acknowledgements and sends only the newest state once it catches up', function () {
+    $transport = new FakeRendererTransport();
+    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sprite = fn(int $x) => [new PresentationSprite('hero', 'hero.png', $x, 0, 10, 20)];
+    $sent = range(0, RetainedPresentation::MAX_FRAMES_IN_FLIGHT - 1);
+    foreach ($sent as $x) {
+        expect($sender->present(new ConsolePresentationChanges(20, 4, $x === 0, order: []), $sprite($x), null))->toBeTrue();
+    }
+    $text = new ConsolePresentationChanges(20, 4, false);
+    foreach (range(count($sent), 40) as $x) { expect($sender->present($text, $sprite($x), null))->toBeFalse(); }
+    expect($transport->sent)->toHaveCount(count($sent))->and($sender->hasPendingUpload())->toBeTrue();
+    $sender->acknowledge($transport->sent[0]->payload['generation'], true);
+    expect($sender->present($text, $sprite(40), null))->toBeTrue();
+    $latest = end($transport->sent)->payload;
+    expect($latest['operations'])->toHaveCount(1)->and($latest['operations'][0]['value']['x'])->toBe(40)
+        ->and(array_map(fn(array $frame) => $frame['sprites'][0]['x'], RetainedFrameState::replay($transport->sent)))
+        ->toBe([...$sent, 40]);
+    $transport->acknowledgeLatestFrame($sender);
+    expect($sender->present($text, $sprite(40), null))->toBeFalse()->and($sender->hasPendingUpload())->toBeFalse();
+});
+
+it('sends nothing after catching up when held changes returned to the delivered state', function () {
+    $transport = new FakeRendererTransport();
+    $sender = new RetainedPresentation(new RendererClient($transport));
+    $text = new ConsolePresentationChanges(20, 4, false);
+    $sprite = fn(int $x) => [new PresentationSprite('hero', 'hero.png', $x, 0, 10, 20)];
+    $sender->present(new ConsolePresentationChanges(20, 4, true, order: []), $sprite(0), null);
+    foreach (range(1, RetainedPresentation::MAX_FRAMES_IN_FLIGHT - 1) as $x) { $sender->present($text, $sprite($x), null); }
+    $delivered = RetainedPresentation::MAX_FRAMES_IN_FLIGHT - 1;
+    expect($sender->present($text, $sprite(99), null))->toBeFalse()
+        ->and($sender->present($text, $sprite($delivered), null))->toBeFalse();
+    $transport->acknowledgeLatestFrame($sender);
+    expect($sender->present($text, $sprite($delivered), null))->toBeFalse()
+        ->and($transport->sent)->toHaveCount(RetainedPresentation::MAX_FRAMES_IN_FLIGHT)
+        ->and($sender->hasPendingUpload())->toBeFalse();
+});
+
+it('never holds recovery behind unacknowledged frames after a rejection or an acknowledgement timeout', function () {
+    $transport = new FakeRendererTransport(); $time = 0.0;
+    $sender = new RetainedPresentation(new RendererClient($transport), clock: function () use (&$time): float { return $time; });
+    $text = new ConsolePresentationChanges(20, 4, false);
+    $sprite = fn(int $x) => [new PresentationSprite('hero', 'hero.png', $x, 0, 10, 20)];
+    $sender->present(new ConsolePresentationChanges(20, 4, true, order: []), $sprite(0), null);
+    foreach (range(1, RetainedPresentation::MAX_FRAMES_IN_FLIGHT) as $x) { $sender->present($text, $sprite($x), null); }
+    $sender->invalidate(expectedGeneration: 1);
+    expect($sender->present($text, $sprite(5), null))->toBeTrue()->and(end($transport->sent)->payload['reset'])->toBeTrue();
+    expect($sender->present($text, $sprite(6), null))->toBeTrue();
+    expect($sender->present($text, $sprite(7), null))->toBeFalse();
+    $time = RetainedPresentation::ACK_TIMEOUT_SECONDS;
+    expect($sender->present($text, $sprite(8), null))->toBeTrue()
+        ->and(end($transport->sent)->payload['reset'])->toBeTrue()
+        ->and(RetainedFrameState::getLatestFrame($transport->sent)['sprites'][0]['x'])->toBe(8);
+});
+
+it('re-sends only an inserted or removed record, never the unchanged records painted after it', function () {
+    $transport = new FakeRendererTransport();
+    $sender = new RetainedPresentation(new RendererClient($transport));
+    $canvas = fn(bool $bird) => new PresentationCanvas(100, 100, [
+        ...($bird ? [new CanvasImage('bird', 'bird.png', new CanvasRectangle(0, 0, 8, 8))] : []),
+        ...array_map(fn(int $n) => new CanvasImage("panel-$n", 'panel.png', new CanvasRectangle($n * 8, 8, 8, 8)), range(0, 9)),
+    ]);
+    $sprites = fn(bool $npc) => [new PresentationSprite('a', 'a.png', 0, 0, 10, 20),
+        ...($npc ? [new PresentationSprite('npc', 'npc.png', 1, 3, 10, 20)] : []), new PresentationSprite('c', 'c.png', 2, 5, 10, 20)];
+    $text = fn(bool $dialogue) => new ConsolePresentationChanges(20, 4, false,
+        order: ['hud', ...($dialogue ? ['dialogue'] : []), 'notice']);
+    $layer = fn(string $id) => ['id' => $id, 'layer' => 1000, 'rows' => [['row' => 0, 'runs' => [new PresentationTextRun(0, 0, $id)]]]];
+    $sender->present(new ConsolePresentationChanges(20, 4, true, [$layer('hud'), $layer('notice')], order: ['hud', 'notice']),
+        $sprites(false), null, canvasOverlay: null);
+    $transport->acknowledgeLatestFrame($sender);
+    $sender->presentCanvas($canvas(false));
+    $transport->acknowledgeLatestFrame($sender);
+    $sender->presentCanvas($canvas(true));
+    expect(end($transport->sent)->payload['operations'])->toHaveCount(1)
+        ->and(end($transport->sent)->payload['operations'][0]['id'])->toBe('bird')
+        ->and(array_column(RetainedFrameState::getLatestFrame($transport->sent)['canvas']['images'], 'id'))
+        ->toBe(['bird', ...array_map(fn(int $n) => "panel-$n", range(0, 9))]);
+    $transport->acknowledgeLatestFrame($sender);
+    $sender->presentCanvas($canvas(false));
+    expect(end($transport->sent)->payload['operations'])->toBe([['op' => 'remove', 'kind' => 'canvas_image', 'id' => 'bird']]);
+    $transport->acknowledgeLatestFrame($sender);
+    expect($sender->presentCanvas($canvas(false)))->toBeFalse();
+
+    $field = new RetainedPresentation(new RendererClient($peer = new FakeRendererTransport()));
+    $field->present(new ConsolePresentationChanges(20, 4, true, [$layer('hud'), $layer('notice')], order: ['hud', 'notice']), $sprites(false), null);
+    $peer->acknowledgeLatestFrame($field);
+    $field->present(new ConsolePresentationChanges(20, 4, false, [$layer('dialogue')], order: ['hud', 'dialogue', 'notice']), $sprites(true), null);
+    $operations = end($peer->sent)->payload['operations'];
+    $frame = RetainedFrameState::getLatestFrame($peer->sent);
+    expect(array_map(fn(array $op) => $op['op'] . ':' . ($op['kind'] ?? '') . ':' . $op['id'], $operations))
+        ->toEqualCanonicalizing(['put:text:dialogue', 'put:sprite:npc'])
+        ->and(array_column($frame['sprites'], 'id'))->toBe(['a', 'npc', 'c'])
+        ->and(array_column($frame['textLayers'], 'id'))->toBe(['hud', 'dialogue', 'notice']);
+    $peer->acknowledgeLatestFrame($field);
+    expect($field->present($text(true), $sprites(true), null))->toBeFalse();
 });

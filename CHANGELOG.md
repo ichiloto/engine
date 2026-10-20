@@ -50,6 +50,14 @@
 
 ### Changed
 
+- Removed: superseded intermediate native frames are no longer delivered while
+  the renderer is behind. At most two complete frames wait for the renderer,
+  and changes made meanwhile go out as one newest frame when it catches up, so
+  input no longer waits behind a queue of stale frames (title key-to-screen
+  p50 681 ms to 76 ms under heavy CPU load).
+- Retained element orders are sparse ranks that survive insertions, removals
+  and moves, so one appearing canvas image, sprite or text layer no longer
+  re-sends every element painted after it.
 - Removed: cue bindings' `edges` (one baked image rotated whole, which laid the
   `!` on its side) are refused; author `pointer` images instead. Terminal cue
   glyphs now draw bold on a black cell by default.

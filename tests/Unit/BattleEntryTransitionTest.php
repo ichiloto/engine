@@ -180,6 +180,7 @@ beforeEach(function () {
     '<?php return new \\Ichiloto\\Engine\\Rendering\\ScreenTransitionCatalog(['
     . "'gilded-sweep' => new \\Ichiloto\\Engine\\Rendering\\ScreenTransitionTreatment({$data})], battle: 'gilded-sweep');");
   $this->transport = new FakeRendererTransport();
+  $this->transport->acknowledgeFrames = true;
   $capabilities = ['graphical_canvas', 'canvas_compositing', 'canvas_overlay', 'window_activation'];
   $this->transport->onStart = static function ($peer) use ($capabilities): void {
     $peer->batches = [[RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $capabilities]))]];

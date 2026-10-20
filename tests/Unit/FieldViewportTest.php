@@ -145,6 +145,7 @@ it('validates viewport membership and prevents canvas mixing', function () {
 
 it('uses the reduced camera for real field projection while UI and menu frames stay unscaled', function (bool $advertisesLegacyViewport) {
     $transport = new FakeRendererTransport();
+    $transport->acknowledgeFrames = true;
     $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
         'capabilities' => $advertisesLegacyViewport ? ['frame_viewport'] : []], JSON_THROW_ON_ERROR))];
     $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
