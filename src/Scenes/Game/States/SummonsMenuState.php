@@ -20,7 +20,8 @@ use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Scenes\SceneStateContext;
-use Ichiloto\Engine\UI\Presentation\{MenuCanvasState, MenuDetailEntry, MenuDetailSheet, MenuDetailStyle, MenuDetailViewport, MenuPresentationCatalog, MenuRow,
+use Ichiloto\Engine\Entities\Elements\ElementalAffinityTier;
+use Ichiloto\Engine\UI\Presentation\{ElementalAffinityDetails, MenuCanvasState, MenuDetailEntry, MenuDetailSheet, MenuDetailStyle, MenuDetailViewport, MenuPresentationCatalog, MenuRow,
     MenuRowValue, SummonsMenuContent, SummonsMenuPresentation, SummonsMenuView};
 use Ichiloto\Engine\UI\Text\{TerminalMenuRow, TextPage, TextViewport};
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -252,28 +253,36 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $this->lastDetailPage = $page;
     }
 
-    /** Lore reads as prose; the move, element, authored attributes and matchups are label/value fields. */
+    /**
+     * Lore reads as prose, then Move, Profile and Resistances sections. Elements are icon-list values from the
+     * summon's affinity contract; the legacy strengths and weaknesses lists still read as Effective against and
+     * Weaknesses until their sources are migrated.
+     */
     protected function getDetailSheet(): MenuDetailSheet
     {
         $definition = $this->getSelectedSummon();
         if ($definition === null) { return new MenuDetailSheet([]); }
-        $prose = $definition->lore !== '' ? [MenuDetailEntry::createProse($definition->lore)] : [];
-        $fields = [];
-        if ($definition->moveName !== null) {
-            $fields[] = MenuDetailEntry::createField('Move', $definition->moveName
-                . ($definition->description !== '' ? "\n" . $definition->description : ''));
-        } elseif ($definition->description !== '') {
-            $prose[] = MenuDetailEntry::createProse($definition->description);
-        }
-        if ($definition->element !== '') { $fields[] = MenuDetailEntry::createField('Element', $definition->element); }
+        $move = [MenuDetailEntry::createHeading(Vocabulary::getLabel('summons.info.move', 'Move'))];
+        if ($definition->moveName !== null) { $move[] = MenuDetailEntry::createProse($definition->moveName); }
+        if ($definition->description !== '') { $move[] = MenuDetailEntry::createProse($definition->description); }
+        $move[] = ElementalAffinityDetails::createEffectiveEntry([...$definition->effectiveAgainst, ...$definition->strengths]);
+        $profile = [];
+        if ($definition->element !== '') { $profile[] = MenuDetailEntry::createField(Vocabulary::getLabel('summons.info.element', 'Element'), $definition->element); }
         foreach ($definition->attributes as $label => $value) {
-            if (is_scalar($value) && trim((string)$value) !== '' && trim((string)$label) !== '') {
-                $fields[] = MenuDetailEntry::createField((string)$label, (string)$value);
-            }
+            if (!is_scalar($value) || trim((string)$value) === '' || trim((string)$label) === '') { continue; }
+            $profile[] = is_int($value) || is_float($value)
+                ? MenuDetailEntry::createNumber((string)$label, (string)$value)
+                : MenuDetailEntry::createField((string)$label, (string)$value);
         }
-        if ($definition->strengths !== []) { $fields[] = MenuDetailEntry::createField('Strong vs', implode(', ', $definition->strengths)); }
-        if ($definition->weaknesses !== []) { $fields[] = MenuDetailEntry::createField('Weak vs', implode(', ', $definition->weaknesses)); }
-        return new MenuDetailSheet([[MenuDetailEntry::createProse($definition->name, 'accent')], $prose, $fields]);
+        return new MenuDetailSheet([
+            [MenuDetailEntry::createProse($definition->name, 'accent')],
+            $definition->lore !== '' ? [MenuDetailEntry::createProse($definition->lore)] : [],
+            $move,
+            $profile === [] ? [] : [MenuDetailEntry::createHeading(Vocabulary::getLabel('summons.info.profile', 'Profile')), ...$profile],
+            [MenuDetailEntry::createHeading(Vocabulary::getLabel('affinities.resistances', 'Resistances')),
+                ...ElementalAffinityDetails::createResistanceEntries($definition->elementAffinities,
+                    [ElementalAffinityTier::WEAKNESS->value => $definition->weaknesses])],
+        ]);
     }
 
     private function setView(SummonsMenuView $view, int $index = 0): void

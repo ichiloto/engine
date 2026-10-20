@@ -65,15 +65,17 @@ final readonly class MenuDetailSheet
       $labels = array_map(static fn(MenuDetailEntry $field): int => TextViewport::measure($field->label . $style->labelSuffix),
         array_filter($entries, static fn(MenuDetailEntry $item): bool => $item->isField));
       $column = $labels === [] ? 0 : max($labels) + $style->gapCells;
-      $stacked = $columns - $column < $style->minValueCells;
+      $narrow = $columns - $column < $style->minValueCells;
       foreach ($entries as $index => $item) {
         $start = $this->starts[$section][$index];
-        if (!$item->isField) {
-          foreach (TextViewport::wrap($item->text, $columns) as [$offset, $text]) {
-            $lines[] = new MenuDetailLine($start + $offset, $text, color: $item->color ?? 'text', entry: $entry);
-          }
+        if ($item->isField) {
+          array_push($lines, ...self::layoutField($item, $start, $entry, $narrow ? null : $column, $columns, $style));
         } else {
-          array_push($lines, ...self::layoutField($item, $start, $entry, $stacked ? null : $column, $columns, $style));
+          $heading = $item->kind === MenuDetailKind::HEADING;
+          foreach (TextViewport::wrap($item->text, $columns) as [$offset, $text]) {
+            $lines[] = new MenuDetailLine($start + $offset, $text, color: $heading ? $style->headingColor : ($item->color ?? 'text'),
+              entry: $entry, isHeading: $heading);
+          }
         }
         $entry++;
       }
@@ -90,7 +92,7 @@ final readonly class MenuDetailSheet
       array_column($layout->measureLines($area->lineHeight), 'height'));
   }
 
-  /** A null column, or a wrapping value the style stacks, places the label above its indented value.
+  /** A null column, a kind placed below its label, or a wrapping value the style stacks puts the value under the label.
    * @return non-empty-list<MenuDetailLine>
    */
   private static function layoutField(MenuDetailEntry $field, int $start, int $entry, ?int $column, int $columns,
@@ -98,9 +100,11 @@ final readonly class MenuDetailSheet
   {
     $valueStart = $start + strlen($field->label) + 1;
     $color = $field->color ?? $style->valueColor;
+    $below = $style->isPlacedBelow($field->kind);
+    $stacked = $column === null || $below
+      || ($style->stackWrappedValues && count(self::layoutValue($field, $columns - $column, $style)) > 1);
+    $alignment = $stacked && !$below ? $style->stackedValueAlignment : $style->getAlignment($field->kind);
     $lines = [];
-    $stacked = $column === null || ($style->stackWrappedValues && count(TextViewport::wrap($field->text, $columns - $column)) > 1);
-    $alignment = $stacked ? $style->stackedValueAlignment : $style->valueAlignment;
     if ($stacked) {
       foreach (TextViewport::wrap($field->label . $style->labelSuffix, $columns) as [$offset, $label]) {
         $lines[] = new MenuDetailLine($start + min($offset, strlen($field->label)), label: $label, isField: true, entry: $entry);
@@ -108,16 +112,52 @@ final readonly class MenuDetailSheet
       $column = $columns > 2 * $style->stackedIndentCells ? $style->stackedIndentCells : 0;
     }
     $cells = $columns - $column;
-    foreach (TextViewport::wrap($field->text, $cells) as $index => [$offset, $text]) {
+    foreach (self::layoutValue($field, $cells, $style) as $index => $piece) {
       $first = !$stacked && $index === 0;
-      // Right-aligned values end at the sheet's edge; wrapping whitespace does not count toward the edge.
-      $text = $alignment === HorizontalAlignment::RIGHT ? rtrim($text) : $text;
-      $shift = $alignment === HorizontalAlignment::RIGHT ? $cells - TextViewport::measure($text) : 0;
-      $lines[] = new MenuDetailLine($first ? $start : $valueStart + $offset, $text, $column + $shift,
-        $first ? $field->label . $style->labelSuffix : '', $color, true, entry: $entry);
+      $shift = $alignment === HorizontalAlignment::RIGHT ? $cells - $piece['width'] : 0;
+      $lines[] = new MenuDetailLine($first ? $start : $valueStart + $piece['offset'], $piece['text'], $column + $shift,
+        $first ? $field->label . $style->labelSuffix : '', $color, true, entry: $entry,
+        items: array_map(static fn(array $item): array => [...$item, 'column' => $item['column'] + $column + $shift], $piece['items']));
+    }
+    if (!$stacked && $lines === []) {
+      $lines[] = new MenuDetailLine($start, label: $field->label . $style->labelSuffix, isField: true, entry: $entry);
     }
     $last = array_pop($lines);
-    $lines[] = new MenuDetailLine($last->offset, $last->text, $last->column, $last->label, $last->color, true, true, $entry);
+    $lines[] = new MenuDetailLine($last->offset, $last->text, $last->column, $last->label, $last->color, true, true,
+      $entry, items: $last->items);
     return $lines;
+  }
+
+  /** A value's lines for a column width: wrapped text, or icons and fallback names in rows of cells.
+   * @return list<array{offset: int, text: string, width: int, items: list<array{column: int, role: ?string, text: string}>}>
+   */
+  private static function layoutValue(MenuDetailEntry $field, int $cells, MenuDetailStyle $style): array
+  {
+    $drawn = array_filter($field->icons, static fn(MenuDetailIcon $icon): bool => in_array($icon->role, $style->iconRoles, true));
+    if ($field->kind !== MenuDetailKind::ICONS || $drawn === []) {
+      $text = $field->kind === MenuDetailKind::ICONS && $field->icons === [] ? $style->emptyValueText : $field->text;
+      if ($text === '') { return []; }
+      return array_map(static function (array $line): array {
+        $text = rtrim($line[1]);
+        return ['offset' => $line[0], 'text' => $text, 'width' => TextViewport::measure($text), 'items' => []];
+      }, TextViewport::wrap($text, $cells));
+    }
+    // Drawn icons take their cells; any icon the renderer lacks shows its name in its place.
+    $pieces = [];
+    $line = null;
+    $offset = 0;
+    foreach ($field->icons as $icon) {
+      $role = in_array($icon->role, $style->iconRoles, true) ? $icon->role : null;
+      $width = $role === null ? TextViewport::measure($icon->name) : $style->iconCells;
+      if ($line !== null && $line['width'] + 1 + $width > $cells) { $pieces[] = $line; $line = null; }
+      $column = $line === null ? 0 : $line['width'] + 1;
+      $line ??= ['offset' => $offset, 'text' => '', 'width' => 0, 'items' => []];
+      $line['items'][] = ['column' => $column, 'role' => $role, 'text' => $role === null ? $icon->name : ''];
+      $line['text'] = trim($line['text'] . ' ' . $icon->name);
+      $line['width'] = $column + $width;
+      $offset += strlen($icon->name) + 2;
+    }
+    $pieces[] = $line;
+    return $pieces;
   }
 }

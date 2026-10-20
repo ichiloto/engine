@@ -82,7 +82,7 @@ it('rejects blank entries, multi-line labels and unsupported theme detail styles
     ->and(fn() => MenuDetailEntry::createField("Two\nlines", 'Value'))->toThrow(InvalidArgumentException::class)
     ->and(fn() => MenuDetailEntry::createField('Label', ''))->toThrow(InvalidArgumentException::class)
     ->and((new MenuDetailSheet([[], []]))->layout(10)->lines)->toHaveCount(1);
-  foreach ([['valueAlignment' => 'center'], ['gapCells' => -1], ['separators' => 'yes'], ['unknown' => 1],
+  foreach ([['valueAlignment' => ['text' => 'center']], ['valueAlignment' => ['unknown' => 'left']], ['valuePlacement' => ['icons' => 'above']], ['gapCells' => -1], ['separators' => 'yes'], ['unknown' => 1],
     ['labelColor' => 'not-a-theme-role']] as $details) {
     expect(fn() => new MenuPresentationCatalog(createTestDirectory('menu-details'), ['schema' => 'ichiloto.menu/1', 'details' => $details]))
       ->toThrow(InvalidArgumentException::class);
@@ -111,11 +111,11 @@ it('paints field records with the theme separators and colours, never prose, und
 
 it('lets a theme restyle field labels, values, alignment and separators without owner or code changes', function () {
   [, , , $frame, $theme] = composeSyntheticDetails(['details' => ['labelSuffix' => ' -', 'gapCells' => 3,
-    'valueAlignment' => 'right', 'labelColor' => 'accent', 'valueColor' => 'disabled', 'separators' => false]]);
+    'valueAlignment' => ['text' => 'right'], 'labelColor' => 'accent', 'valueColor' => 'disabled', 'separators' => false]]);
   $text = array_find($frame->textLayers, fn($layer) => $layer->id === 'details');
   $kind = array_find($text->runs, fn($run) => $run->text === 'Kind -');
   $alpha = array_find($text->runs, fn($run) => $run->text === 'Alpha' && $run->row === $kind->row);
-  expect($theme->details->valueAlignment)->toBe(HorizontalAlignment::RIGHT)
+  expect($theme->details->getAlignment(\Ichiloto\Engine\UI\Presentation\MenuDetailKind::TEXT))->toBe(HorizontalAlignment::RIGHT)
     ->and($kind->foreground)->toEqual($theme->colors['accent'])
     ->and($alpha->foreground)->toEqual($theme->colors['disabled'])
     ->and($alpha->column + mb_strlen('Alpha'))->toBe(40)
@@ -124,7 +124,7 @@ it('lets a theme restyle field labels, values, alignment and separators without 
 });
 
 it('applies a record design as theme data: stacked wrapping values, right short values, minimum record height', function () {
-  $data = ['details' => ['valueAlignment' => 'right', 'stackWrappedValues' => true, 'stackedIndentCells' => 0,
+  $data = ['details' => ['valueAlignment' => ['text' => 'right'], 'stackWrappedValues' => true, 'stackedIndentCells' => 0,
     'labelColor' => 'disabled', 'recordMinHeight' => 40]];
   [, $sheet, $bounds, $frame, $theme] = composeSyntheticDetails($data);
   $m = $theme->metrics;

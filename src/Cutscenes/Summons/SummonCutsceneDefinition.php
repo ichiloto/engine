@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Cutscenes\Summons;
 
+use Ichiloto\Engine\Entities\Elements\ElementRegistry;
+
 /**
  * Represents one authored summon cutscene definition.
  *
@@ -62,6 +64,10 @@ final class SummonCutsceneDefinition
     public ?int $restFrame = null,
     public array $presentations = [],
     public ?array $stage = null,
+    /** @var array<string, float> Defensive affinities: element identity to multiplier, as enemies declare them. */
+    public array $elementAffinities = [],
+    /** @var list<string> Element identities this summon's move is effective against. */
+    public array $effectiveAgainst = [],
   )
   {
     $this->id = trim($id);
@@ -73,6 +79,10 @@ final class SummonCutsceneDefinition
     $this->strengths = array_values(array_filter(array_map('strval', $strengths), static fn(string $entry): bool => trim($entry) !== ''));
     $this->weaknesses = array_values(array_filter(array_map('strval', $weaknesses), static fn(string $entry): bool => trim($entry) !== ''));
     $this->attributes = $attributes;
+    $this->elementAffinities = ElementRegistry::normalizeAffinities($elementAffinities);
+    $this->effectiveAgainst = array_values(array_unique(array_map(static fn(mixed $element): string
+      => ElementRegistry::canonicalize(is_string($element) ? $element : '') ?? throw new \InvalidArgumentException('Effective-against entries must be element identities.'),
+      $effectiveAgainst)));
     $this->version = max(1, $version);
     $this->linkedSummonId = $this->normalizeOptionalString($linkedSummonId);
     $this->linkedActionId = $this->normalizeOptionalString($linkedActionId);
@@ -161,6 +171,8 @@ final class SummonCutsceneDefinition
       isset($timeline['restFrame']) ? intval($timeline['restFrame']) : null,
       is_array($timeline['presentations'] ?? null) ? $timeline['presentations'] : [],
       $timeline['stage'] ?? null,
+      is_array($data['elementAffinities'] ?? null) ? $data['elementAffinities'] : [],
+      is_array($data['effectiveAgainst'] ?? null) ? $data['effectiveAgainst'] : [],
     );
   }
 
@@ -214,6 +226,10 @@ final class SummonCutsceneDefinition
       'targetPresentation' => $this->targetPresentation->toArray(),
       'authoring' => $this->authoring,
     ];
+
+    // Written only when authored, so existing summon sources round-trip unchanged.
+    if ($this->elementAffinities !== []) { $data['elementAffinities'] = $this->elementAffinities; }
+    if ($this->effectiveAgainst !== []) { $data['effectiveAgainst'] = $this->effectiveAgainst; }
 
     if ($this->availability !== null) {
       $data['availability'] = $this->availability->toArray();

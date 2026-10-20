@@ -305,3 +305,23 @@ it('refreshes a reordered party before accepting confirmation against an obsolet
   expect($first->hasSummon('spirit'))->toBeFalse()->and($other->hasSummon('spirit'))->toBeFalse()
     ->and(array_column($state->getPresentationContent()->rows, 'label'))->toBe([$other->name, $first->name]);
 });
+
+it('reads Info as Move, Profile and Resistances with every resistance row, keeping legacy matchups visible', function () {
+  $definition = new SummonCutsceneDefinition('spirit', 'Spirit', 'Its move description.', 'Spirit move',
+    lore: 'Spirit lore.', element: 'Fire', strengths: ['Ice'], weaknesses: ['Water'], attributes: ['Power' => 'A', 'Speed' => 3],
+    elementAffinities: ['Fire' => 0.25, 'Earth' => 0.0], effectiveAgainst: ['Wind']);
+  $state = createSummonsMenuProbe([$definition]);
+  new ReflectionProperty($state, 'view')->setValue($state, SummonsMenuView::INFO);
+  new ReflectionProperty($state, 'selectedSummonId')->setValue($state, 'spirit');
+  $sheet = new ReflectionMethod($state, 'getDetailSheet')->invoke($state);
+  $entries = $sheet->getEntries();
+  $headings = array_column(array_filter($entries, fn($entry) => $entry->kind === \Ichiloto\Engine\UI\Presentation\MenuDetailKind::HEADING), 'text');
+  $icons = fn(string $label) => array_column(array_find($entries, fn($entry) => $entry->label === $label)->icons, 'name');
+  expect($headings)->toBe(['Move', 'Profile', 'Resistances'])
+    ->and($icons('Effective against'))->toBe(['Wind', 'Ice'])
+    ->and($icons('Weaknesses'))->toBe(['Water'])
+    ->and($icons('Greater Resistances'))->toBe(['Fire'])
+    ->and($icons('Immunities'))->toBe(['Earth'])
+    ->and($icons('Lesser Resistances'))->toBe([])->and($icons('Absorbed Elements'))->toBe([])
+    ->and(array_find($entries, fn($entry) => $entry->label === 'Speed')->kind)->toBe(\Ichiloto\Engine\UI\Presentation\MenuDetailKind::NUMBER);
+});

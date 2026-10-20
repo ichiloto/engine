@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationTheme;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use InvalidArgumentException;
@@ -64,19 +65,24 @@ final readonly class MenuPresentationCatalog
     }
     $this->colors = $palette;
     $this->metrics = new MenuThemeMetrics(...self::map($data, 'metrics'));
-    $this->details = MenuDetailStyle::createFromArray(self::map($data, 'details'));
-    foreach ([$this->details->labelColor, $this->details->valueColor] as $role) {
-      if (!isset($palette[$role])) { throw new InvalidArgumentException("Menu details colour role {$role} is not a theme colour."); }
-    }
     $art = self::artwork(self::map($data, 'rowArtwork'), MenuRowSkin::ARTWORK);
     $this->rows = new MenuRowSkin(array_intersect_key($palette, array_flip(MenuRowSkin::COLORS)),
       new MenuRowMetrics(...self::map($data, 'rowMetrics')), $art, $assetRoot);
     $this->frames = self::artwork(self::map($data, 'frames'), ['panel', 'quiet', 'portrait', 'dialogue', 'nameplate',
-      'slider.track', 'slider.thumb', 'scroll.track', 'scroll.thumb']);
+      'slider.track', 'slider.thumb', 'scroll.track', 'scroll.thumb', 'details.header']);
     $bindings = self::map($data, 'icons');
     $cursor = $data['cursor'] ?? null;
     if ($cursor !== null && !is_string($cursor)) { throw new InvalidArgumentException('Menu cursor must be a PNG path.'); }
     $this->icons = $bindings !== [] || $cursor !== null ? new MenuIconRegistry($assetRoot, $bindings, $cursor) : null;
+    // Detail icon lists draw only roles bound to available artwork; any other icon shows its name.
+    $drawn = array_values(array_filter(array_keys($this->icons?->icons ?? []),
+      fn(string $role): bool => PngAssetPreflight::getAvailableSize($assetRoot, $this->icons->icons[$role]) !== null));
+    $this->details = MenuDetailStyle::createFromArray(self::map($data, 'details'),
+      (int)ceil($this->rows->metrics->iconWidth / $this->metrics->cellWidth), $drawn);
+    foreach (array_filter([$this->details->labelColor, $this->details->valueColor, $this->details->headingColor,
+      $this->details->headingBackground]) as $role) {
+      if (!isset($palette[$role])) { throw new InvalidArgumentException("Menu details colour role {$role} is not a theme colour."); }
+    }
     $portraits = self::map($data, 'portraits');
     foreach ($portraits as $actorId => $asset) {
       if (!is_string($actorId) || $actorId === '' || !is_string($asset)) {

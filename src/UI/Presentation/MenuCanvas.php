@@ -115,18 +115,26 @@ final class MenuCanvas
     $positions = [];
     $blocks = [];
     $y = $bounds->y;
+    $style = $layout->style;
     foreach ($lines as $index => $line) {
       ['height' => $height, 'top' => $top] = $metrics[$index];
       $positions[] = ['y' => $y, 'height' => $height];
       $textY = $y + $top;
+      if ($line->isHeading) { $this->renderDetailHeading("{$id}-{$index}-heading", new CanvasRectangle($bounds->x, $y, $bounds->width, $height), $style); }
       $block = array_key_last($blocks);
       if ($block === null || abs($blocks[$block]['y'] + count($blocks[$block]['lines']) * $m->cellHeight - $textY) > 0.001) {
         $blocks[] = ['y' => $textY, 'lines' => []];
         $block = array_key_last($blocks);
       }
       $blocks[$block]['lines'][] = $line;
+      foreach ($line->items as $item => $value) {
+        if ($value['role'] === null) { continue; }
+        $box = new CanvasRectangle($bounds->x + $value['column'] * $m->cellWidth, $textY,
+          $style->iconCells * $m->cellWidth, $m->cellHeight);
+        $this->icon("{$id}-{$index}-icon-{$item}", $value['role'], $box);
+      }
       // The data-record rule sits inside the record's last line, as rows keep theirs inside their height.
-      if ($line->closesField && $layout->style->separators && $row->separatorWidth > 0) {
+      if ($line->closesField && $style->separators && $row->separatorWidth > 0) {
         $this->fill("{$id}-{$index}-separator", new CanvasRectangle($bounds->x, $y + $height - $row->separatorWidth,
           $bounds->width, $row->separatorWidth), 'edge', 25, $row->recordSeparatorOpacity);
       }
@@ -135,8 +143,13 @@ final class MenuCanvas
     foreach ($blocks as $index => ['y' => $top, 'lines' => $blockLines]) {
       $runs = [];
       foreach ($blockLines as $line => $detail) {
-        if ($detail->label !== '') { $runs[] = new PresentationTextRun($line, 0, $detail->label, $this->theme->colors[$layout->style->labelColor]); }
-        if ($detail->text !== '') { $runs[] = new PresentationTextRun($line, $detail->column, $detail->text, $this->theme->colors[$detail->color]); }
+        if ($detail->label !== '') { $runs[] = new PresentationTextRun($line, 0, $detail->label, $this->theme->colors[$style->labelColor]); }
+        $values = $detail->items === [] ? [['column' => $detail->column, 'role' => null, 'text' => $detail->text]] : $detail->items;
+        foreach ($values as $value) {
+          if ($value['role'] === null && $value['text'] !== '') {
+            $runs[] = new PresentationTextRun($line, $value['column'], $value['text'], $this->theme->colors[$detail->color]);
+          }
+        }
       }
       if ($runs === []) { continue; }
       $this->text[] = new CanvasTextLayer($index === 0 ? $id : "{$id}-{$index}", 30, $bounds->x, $top,
@@ -144,6 +157,13 @@ final class MenuCanvas
       $this->protectText($this->text[array_key_last($this->text)]);
     }
     return $positions;
+  }
+
+  /** A detail heading uses the theme's details.header artwork, else its heading colour role, else no backing. */
+  private function renderDetailHeading(string $id, CanvasRectangle $bounds, MenuDetailStyle $style): void
+  {
+    if (isset($this->theme->frames['details.header'])) { $this->frame($id, $bounds, 'details.header', 20); }
+    elseif ($style->headingBackground !== null) { $this->fill($id, $bounds, $style->headingBackground, 20); }
   }
 
   /** Compact reading metadata occupies frame padding, not the prose viewport. */
