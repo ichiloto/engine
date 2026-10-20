@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Scenes\Battle;
 
 use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Core\Interfaces\PlayActivitySourceInterface;
+use Ichiloto\Engine\Core\PlayActivity;
 use Ichiloto\Engine\Battle\BattleConclusion;
 use Ichiloto\Engine\Battle\Events\BattleEventRunner;
 use Ichiloto\Engine\Battle\Events\BattleOutcome;
@@ -60,7 +62,7 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
  *
  * @package Ichiloto\Engine\Scenes\Battle
  */
-class BattleScene extends AbstractScene implements CanvasProviderInterface, EventPresentationHostInterface
+class BattleScene extends AbstractScene implements CanvasProviderInterface, PlayActivitySourceInterface, EventPresentationHostInterface
 {
   /** Runs the troop's event pages; null when the troop has none. */
   public private(set) ?BattleEventRunner $battleEvents = null;
@@ -87,6 +89,16 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Even
       $this->resultsBattlefield = $this->graphicalPresentation?->frame()
         ?? new PresentationCanvas($layout->width, $layout->height, textLayers: $field);
     }
+  }
+
+  /** Commands are play; openings and results are presentation; the pause menu is not play. */
+  public function getPlayActivity(): PlayActivity
+  {
+    return match (true) {
+      $this->state instanceof BattlePauseState => PlayActivity::PAUSED,
+      $this->state instanceof BattleRunState => PlayActivity::PLAYING,
+      default => PlayActivity::PRESENTING,
+    };
   }
 
   public function endResults(): void

@@ -50,6 +50,9 @@ it('exports one authoritative runtime and authoring vocabulary', function () {
     ->and($schema['relativePosition']['fields'])->toBe(['at', 'offset'])
     ->and($schema['relativePosition']['subjectKinds'])->toContain('player', 'npc', 'world_object', 'staged_actor', 'party_actor', 'marker')
     ->and($schema['relativePosition']['consumers'])->toBe(['move_route.waypoints', 'stage_actor'])
+    ->and($schema['endFacing']['fields'])->toBe(['facing', 'faceToward'])
+    ->and($schema['endFacing']['consumers'])->toBe(['move_route.waypoints', 'stage_actor'])
+    ->and($schema['stagedActorFields'])->toContain('facing', 'faceToward')
     ->and($schema['cinematicEventTrigger']['dataFields'])->toBe(['cinematicId', 'mode', 'reusable'])
     ->and($schema['cinematicEventTrigger']['modes'])->toBe(['action', 'auto'])
     ->and($schema['cinematicEventTrigger']['completion'])->toBe([

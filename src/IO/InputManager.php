@@ -43,6 +43,8 @@ class InputManager
   private static ?InputSourceInterface $inputSource = null;
   /** Held controls and press edges; populated only by sources that report releases. */
   private static ?KeyHoldState $holds = null;
+  /** Monotonic seconds of the last press or held control; null before any input update. */
+  private static ?float $lastInputAt = null;
   /** Completed input updates, so a consumer can tell it skipped one (a menu, a modal, a battle). */
   private static int $inputUpdates = 0;
   /**
@@ -278,6 +280,9 @@ class InputManager
     try {
       self::$keyPress = self::getInputSource()->poll();
       self::updateHeldState();
+      if (self::$keyPress !== null || self::getHolds()->isAnyKeyHeld || self::$lastInputAt === null) {
+        self::$lastInputAt = hrtime(true) / 1_000_000_000;
+      }
     } catch (Throwable $error) {
       // A failed or disconnected source can no longer vouch for any held key.
       self::getHolds()->clear();
@@ -439,6 +444,15 @@ class InputManager
   {
     $source = self::getInputSource();
     return $source instanceof HeldInputSourceInterface && $source->canReportHeldState();
+  }
+
+  /**
+   * Seconds since the player last pressed or held a control. The first
+   * input update counts as input, so a session starts active, not idle.
+   */
+  public static function getSecondsSinceInput(): float
+  {
+    return self::$lastInputAt === null ? 0.0 : max(0.0, hrtime(true) / 1_000_000_000 - self::$lastInputAt);
   }
 
   /** The number of input updates so far; each game loop iteration and modal poll is one. */
