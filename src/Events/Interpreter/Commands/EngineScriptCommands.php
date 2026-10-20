@@ -86,5 +86,78 @@ final class EngineScriptCommands
         ],
       ],
     ],
+    [
+      'type' => 'payday',
+      'class' => PaydayCommand::class,
+      'label' => 'Payday',
+      'description' => 'Pays one period of an income schedule now, at its current rate, held or deposited as the schedule says.',
+      'fields' => [
+        ['key' => 'schedule', 'label' => 'Schedule', 'kind' => 'reference', 'reference' => 'income_schedule', 'required' => true],
+        [
+          'key' => 'resultVariable',
+          'label' => 'Result Variable',
+          'kind' => 'text',
+          'description' => 'Receives the pay; 0 while the schedule is not running.',
+        ],
+      ],
+    ],
+    [
+      'type' => 'collect_income',
+      'class' => CollectIncomeCommand::class,
+      'label' => 'Collect Income',
+      'description' => 'Moves the pay an income schedule holds into party gold.',
+      'fields' => [
+        ['key' => 'schedule', 'label' => 'Schedule', 'kind' => 'reference', 'reference' => 'income_schedule', 'required' => true],
+        [
+          'key' => 'resultVariable',
+          'label' => 'Result Variable',
+          'kind' => 'text',
+          'description' => 'Receives the amount collected; 0 when nothing was waiting.',
+        ],
+      ],
+    ],
+    [
+      'type' => 'adjust_income',
+      'class' => AdjustIncomeCommand::class,
+      'label' => 'Adjust Income',
+      'description' => "Adds a one-time bonus, or a deduction when negative, to an income schedule's next payment.",
+      'fields' => [
+        ['key' => 'schedule', 'label' => 'Schedule', 'kind' => 'reference', 'reference' => 'income_schedule', 'required' => true],
+        ['key' => 'amount', 'label' => 'Amount', 'kind' => 'integer', 'required' => true],
+      ],
+    ],
+    [
+      'type' => 'end_battle',
+      'class' => EndBattleCommand::class,
+      'label' => 'End Battle',
+      'description' => 'Ends the battle once this page finishes. Victory counts every enemy still fighting as defeated and awards the ordinary victory rewards.',
+      'scopes' => ['battle'],
+      'fields' => [
+        [
+          'key' => 'outcome',
+          'label' => 'Outcome',
+          'kind' => 'option',
+          'options' => ['victory', 'escape', 'defeat'],
+          'required' => true,
+          'description' => "Defeat follows the battle's defeat policy: game over unless the script that started it continues.",
+        ],
+      ],
+    ],
+    [
+      'type' => 'concede',
+      'class' => ConcedeCommand::class,
+      'label' => 'Enemy Concedes',
+      'description' => 'The enemy stops fighting and counts as defeated for victory and rewards. It stays on screen in its conceding pose instead of fading out like a knockout.',
+      'scopes' => ['battle'],
+      'fields' => [
+        [
+          'key' => 'enemy',
+          'label' => 'Enemy',
+          'kind' => 'reference',
+          'reference' => 'troop_member',
+          'required' => true,
+        ],
+      ],
+    ],
   ];
 }

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Game;
 
 use Ichiloto\Engine\IO\Saves\SaveFeatures;
+use Ichiloto\Engine\Localization\MessageCatalog;
 use Ichiloto\Engine\Animations\Field\FieldEffectManager;
 use Ichiloto\Engine\Rendering\Sprites\ScreenSpaceSpriteProviderInterface;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
@@ -44,6 +45,12 @@ use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
+use Ichiloto\Engine\Core\Interfaces\PlayActivitySourceInterface;
+use Ichiloto\Engine\Core\PlayActivity;
+use Ichiloto\Engine\Income\IncomeCatalog;
+use Ichiloto\Engine\Income\IncomeLedger;
+use Ichiloto\Engine\Income\IncomeService;
+use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
 use Ichiloto\Engine\Scenes\Game\States\AbilityMenuState;
@@ -109,7 +116,7 @@ use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInter
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface
+class GameScene extends AbstractScene implements PlayActivitySourceInterface, GraphicalSpriteProviderHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface, \Ichiloto\Engine\Events\Interpreter\EventExecutionHostInterface, \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface
 {
     private ?FieldViewport $fieldViewport = null;
     private ?ScenePresentationContext $presentationContext = null;
@@ -478,9 +485,18 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             $elsewhere ? $this->mapManager->getProjectMapIndex()->routes : null, $this->canUseRoute(...));
     }
 
-    /** A route counts while its event is available and any secret landmark claiming it has been revealed. */
+    /**
+     * A route counts while its event is available (for an NPC page, while
+     * talking to the NPC runs that page) and any secret landmark claiming it
+     * has been revealed.
+     */
     private function canUseRoute(MapRoute $route): bool
     {
+        if ($route->npcId !== null && $route->npcPage !== null && $this->mapManager !== null
+            && !$this->mapManager->getProjectMapIndex()->gates->allowsNpcPage($route->source, $route->npcId, $route->npcPage,
+                $this->gameState, $this->party)) {
+            return false;
+        }
         return WorldConditionEvaluator::allHold($route->conditions, $this->gameState, $this->party)
             && (!$route->secret || $route->landmarkId === null
                 || $this->gameState->hasRevealedLandmark($route->source, $route->landmarkId));
@@ -678,6 +694,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     protected(set) Bestiary $bestiary;
     /** Generic player-earned field knowledge and reports. */
     protected(set) KnowledgeProgressService $knowledge;
+    /** The campaign's scheduled income; runs nothing when the project declares no schedules. */
+    protected(set) ?IncomeService $income = null;
     /**
      * @var string[] The currently recorded story-event flags.
      */
@@ -889,6 +907,14 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->skitManager = new SkitManager($this);
         $this->achievementManager = new AchievementManager($this->getGame(), $this);
         $this->achievementManager->hydrate($this->config->achievements);
+        $incomeCatalog = ConfigStore::has(IncomeCatalog::class) ? ConfigStore::get(IncomeCatalog::class) : null;
+        $this->income = new IncomeService(
+            $incomeCatalog instanceof IncomeCatalog ? $incomeCatalog : new IncomeCatalog(),
+            IncomeLedger::fromArray($this->config->income),
+            $this->gameState,
+            $this->party,
+            $this->showIncomeNotice(...),
+        );
         $catalog = ConfigStore::get(KnowledgeCatalog::class);
         $catalog = $catalog instanceof KnowledgeCatalog ? $catalog : KnowledgeCatalog::empty();
         $this->knowledge = new KnowledgeProgressService(
@@ -1312,6 +1338,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             achievements: $this->achievementManager?->toArray() ?? [],
             bestiary: [],
             knowledge: isset($this->knowledge) ? $this->knowledge->progress->toArray() : [],
+            income: $this->income?->ledger->toArray() ?? [],
             projectState: $this->getGame()->getProjectStateRegistry()->captureSnapshot(),
         );
     }
@@ -1569,12 +1596,110 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     }
 
     /**
+     * Takes a finished battle back into the campaign: counts a won battle
+     * for income, then resumes the script that started it, if any.
+     */
+    public function concludeBattle(BattleResult $result): void
+    {
+        if ($result->outcome() === 'victory') {
+            $this->income?->recordBattleWon();
+        }
+        $this->resumeEventAfterBattle($result);
+    }
+
+    /**
+     * The player has stepped onto a save point: the project's save point
+     * script runs (`save.point_script`), or the Engine's save point notice
+     * shows when the project names none.
+     */
+    public function arriveAtSavePoint(): void
+    {
+        $script = SaveFeatures::getSavePointScript();
+        if ($script !== null) {
+            $this->eventInterpreter?->run([['type' => 'common_event', 'id' => $script]], 'save-point:' . $script);
+            return;
+        }
+        $prompt = MessageCatalog::resolveTerm('save.point_prompt', allowEmpty: true);
+        if ($prompt !== '') {
+            alert($prompt, get_engine_message('save.point_title'));
+        }
+    }
+
+    /** The campaign's income, for the income script commands. */
+    public function requireIncome(): IncomeService
+    {
+        return $this->income ?? throw new \RuntimeException('Income is unavailable before a campaign starts.');
+    }
+
+    /** @inheritDoc */
+    public function getPlayActivity(): PlayActivity
+    {
+        if (ModalManager::getInstance($this->getGame())->currentModal !== null) {
+            return PlayActivity::PAUSED;
+        }
+        return match (true) {
+            $this->state instanceof CutsceneState => PlayActivity::PRESENTING,
+            $this->state instanceof DialogueState, $this->state instanceof OverworldState => PlayActivity::PLAYING,
+            // A running event owns the field: the game is presenting, not waiting on the player.
+            $this->state instanceof FieldState => $this->hasUnstableEventSession() ? PlayActivity::PRESENTING : PlayActivity::PLAYING,
+            default => PlayActivity::PAUSED,
+        };
+    }
+
+    /**
+     * Counts one frame of the campaign's active play, whatever scene the
+     * frame belonged to. Scenes that cannot say what the player is doing
+     * count as paused.
+     *
+     * @param float $seconds The frame's length.
+     * @param SceneInterface|null $currentScene The scene that ran the frame.
+     */
+    public function advanceActivePlay(float $seconds, ?SceneInterface $currentScene): void
+    {
+        if ($this->income === null || !$this->income->isEnabled) {
+            return;
+        }
+        $activity = $currentScene instanceof PlayActivitySourceInterface ? $currentScene->getPlayActivity() : PlayActivity::PAUSED;
+        $this->income->advanceActivePlay($seconds, $activity, InputManager::getSecondsSinceInput());
+    }
+
+    private function showIncomeNotice(string $title, string $text): void
+    {
+        try {
+            notify($this->getGame(), NotificationChannel::INFO, $title, $text, NotificationDuration::MEDIUM);
+        } catch (Throwable $error) {
+            Debug::warn('An income notice could not be shown: ' . $error->getMessage());
+        }
+    }
+
+    /**
      * Cancels a scripted battle continuation when normal defeat goes to the
      * game-over scene.
      */
     public function failEventAfterBattle(string $message): void
     {
         $this->eventInterpreter?->failActiveSession($message);
+    }
+
+    /** Field scripts own the map, the player and the camera. */
+    public function getEventScope(): \Ichiloto\Engine\Events\Interpreter\EventExecutionScope
+    {
+        return \Ichiloto\Engine\Events\Interpreter\EventExecutionScope::FIELD;
+    }
+
+    public function getEventWorldState(): GameState
+    {
+        return $this->gameState;
+    }
+
+    public function getEventParty(): ?Party
+    {
+        return $this->party;
+    }
+
+    public function getBattleControl(): ?\Ichiloto\Engine\Battle\Events\BattleEventControlInterface
+    {
+        return null;
     }
 
     /**
@@ -1628,6 +1753,12 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             $this->hasDeferredAutoSave = false;
             $this->autoSave();
         }
+    }
+
+    /** Event dialogue closes over the field, so the field redraws. */
+    public function restoreAfterEventOverlay(): void
+    {
+        $this->restoreFieldAfterOverlay();
     }
 
     /**

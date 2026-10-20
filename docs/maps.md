@@ -55,7 +55,8 @@ those outcomes. This supports local arrival flags without treating entry into
 the entire map as entry into one district.
 
 A landmark can use `anchor => ['area'=>'survey-reach']`; learning its name does
-not run the event or change its eligibility. `MapAreaCatalog` owns declaration
+not run the event or change its eligibility. A random encounter entry can be
+limited to areas with `'areas' => ['survey-reach']` (see Random encounters). `MapAreaCatalog` owns declaration
 validation, and `MapEventDefinition::SUBJECT_KINDS` exports supported subject
 kinds for authoring. Runtime and unsaved source validation use the same catalog.
 `MapLandmarkAnchors::readMap` requires the physical grid when named areas exist;
@@ -137,11 +138,9 @@ two placements are not part of it, so standing there triggers nothing and an
 unavailable event's `whenBlocked` gate only stops steps onto its own cells.
 A cue shows on each separate placement. Cinematics that name a marker as a
 subject use its first cell in reading order, the top-left of a rectangle.
-An NPC takes the same `cue` (symbol, colour, conditions, optional kind),
-read by the same validator, and shows it in the cell above itself while it
-is on the field and the cue's conditions hold; the cue follows the NPC as it
-moves and takes the game's `cueStyle` treatment like any cue. Use it instead
-of a separate stand-in NPC whose sprite is a cue.
+An NPC's pages take the same `cue` (symbol, colour, conditions, optional
+kind), read by the same validator; the NPC shows the cue of the page talking
+would run, in the cell above itself (see [NPC pages](#npc-pages)).
 Quest waymarks name markers the same way and mark each placement; see
 [Waymarks](quests.md#waymarks-where-an-objective-sends-the-player) for how
 objectives are marked on the field, the local map and the world map, and how
@@ -153,12 +152,10 @@ An event names the people who speak its lines with `speakers`, a list of 1..8
 distinct stable NPC ids on the same map:
 
 ```php
-'B' => [
+'H' => [
   'class' => ScriptEventTrigger::class,
-  'subject' => ['kind' => 'world_object', 'id' => 'registration-desk-1'],
-  'engagement' => 'facing',
-  'speakers' => ['registrar-kemi'],
-  'data' => ['mode' => 'action', 'reusable' => false, 'scriptId' => 'registration'],
+  'speakers' => ['analysis-supervisor'],
+  'data' => ['mode' => 'auto', 'reusable' => false, 'scriptId' => 'assessment-briefing'],
 ],
 ```
 
@@ -176,6 +173,67 @@ present, wanders freely or stands away is reported with the cells where they
 stand. A scene that walks people into place is authored as pages conditioned on
 that phase, standing where the scene needs them, so the rule reads the map
 without running scripts.
+
+A scene the player starts by action and an NPC delivers belongs to that NPC.
+`MapNpcInteractionRule` (rule `event.npc-interaction`, also part of
+`validateEvents`) reports a script, Cinematic or dialogue event in `action`
+mode that names NPC speakers: the player would have to find its cell, while
+talking to the NPC says something else. Move it onto the first speaker's
+pages. Scenes that start on arrival (`auto`) are not conversations, and an
+event bound to a world object is that object's interaction (a terminal, a
+reception counter) and one bound to a named area is that place's (a safe
+position, a gap a creature holds); their speakers answer for them. Shop and
+inn events stay with the counter or fixture they are authored on; a page
+offers either service with the `shop` and `inn` script commands when the
+NPC should own it.
+
+### NPC pages
+
+An NPC's ordered `dialogue` variants are its interaction pages, as RPG
+Maker's event pages. Talking runs the first page whose `conditions` hold and
+which has not retired, so the most advanced story state goes first and an
+unconditional page last:
+
+```php
+'npcs' => [[
+  'id' => 'field-supervisor',
+  'name' => 'Supervisor Ilyan',
+  'x' => 55, 'y' => 11,
+  'dialogue' => [
+    [
+      'id' => 'first-assignment',
+      'conditions' => [['type' => 'event', 'name' => 'blood_sample_submitted'],
+        ['type' => 'event', 'name' => 'assignment_issued', 'negate' => true]],
+      'cue' => ['symbol' => '!', 'color' => 'bright-yellow'],
+      'scriptId' => 'garden-of-roads-assignment',
+      'reusable' => false,
+    ],
+    ['lines' => [['name' => 'Supervisor Ilyan', 'text' => 'Use the east deployment gate.']]],
+  ],
+]],
+```
+
+A page shows its `lines`, then runs at most one action: inline `script`
+commands, the shared script `scriptId` (`assets/Events/<id>.php`, run as a
+Common Event, the files map script events use) or the Cinematic
+`cinematicId`. Its `sets` apply when it finishes, before the NPC's own
+`sets`. Its `cue` is the NPC's guidance while it is the page talking would
+run, so a waymark on the NPC appears and retires with that cue. A page with
+`reusable` false retires once its action completes; it needs a stable `id`,
+and its completion is saved as the one-shot event `{map}:{npcId}/{pageId}`,
+so moving a one-shot map event onto a page maps the old `{map}:{marker}`
+identity there through `aliases.one_shot_events`. `speakers` names the
+other NPCs its scene stages; each must stand beside the NPC whenever the page
+can run, as event speakers stand beside their event.
+
+A plain list of lines, or a top-level `script` (which replaces any
+dialogue), is one unconditional page, and only that shorthand carries its
+`cue` on the NPC itself. `NpcPages` reads pages for the field, waymarks,
+routes and validation alike. The rule `npc.page` reports malformed pages,
+dialogue a top-level script hides, a page an earlier reusable page always
+pre-empts (its authored conditions include all of the earlier page's) and a
+staged speaker away from the NPC. A reusable page whose script transfers is
+a route, used by talking to the NPC while it is the page talking runs.
 
 ## Active-map landmarks and discovery
 
@@ -656,7 +714,34 @@ through. Each map's report lists:
 - a talkable NPC no reachable cell reaches, beside it or across one counter cell by the
   same rule the field talks by, whose lines nobody can read;
 - an arrival naming a map the project does not have, and a map the field
-  cannot read.
+  cannot read;
+- an interaction the player meets from the wrong side, a warning rather than a
+  blocker (see below).
+
+### Approach sides
+
+Interactions should face the way the player comes in. For every interaction
+(an action event that is faced, such as a desk or terminal, or that names
+speakers; transfers and automatic events are routes and scenes, not
+interactions), `MapReachability::findDetouredApproaches()` walks from each
+arrival into the map to the fewest-steps cell where the player first stands
+at the event's subject: on or beside its cells from any side, or where they
+can speak to one of its speakers by the field's talk rule. When the nearest
+cell where the event actually answers (its engagement and authored facing) is
+more than `MapReachability::APPROACH_DETOUR_TOLERANCE` (one) steps further,
+the player has reached the subject behind or beside it and must walk round.
+`ProjectReachability` reports one `DETOURED_APPROACH` problem per event, naming
+the arrival with the longest walk round, the cell the player naturally reaches,
+the extra steps and the cell where the event answers. Arrivals carry the
+conditions of the event or NPC that sends the player
+(`ReachabilityEntrance::$conditions`), so an arrival that cannot happen while
+the event runs is skipped, by the same `WorldConditionExclusion` proof the
+speaker rule uses; speakers present while the event runs block their cells.
+`AutomaticEventTriggerInterface::determineRunsAutomatically()` reads a
+trigger's mode from its authored data, so the analysis tells automatic events
+apart without building triggers. Fix a finding where the room is designed:
+turn the desk and its speaker toward the arrival path, move the event's cells
+to the side the player reaches, or allow its facing from that side.
 
 `MapReachability` runs the same analysis on one map's collision grid, events
 and NPCs, for tests with synthetic maps. Its bounded candidate cells use
@@ -890,5 +975,40 @@ often:
 Weights are relative, so a `Bat x 2` above is met roughly five times as often
 as `Great Wolf` twice. A map with no `encounters` key never rolls one.
 
+Only steps the player takes count. A move route, cinematic or other scripted
+movement of the player still runs the triggers of every cell it reaches, but
+never advances encounters, walking conditions such as poison, or anything else
+that counts the player's walking (`Field\Enumerations\StepOrigin`).
+
 The engine warns when a map declares `encounters` in a shape it cannot read,
 because a silent no-op is indistinguishable from a design decision.
+
+### Encounters limited to named areas
+
+A troop can live in part of a map: its entry names the map's named `areas`
+(see Named local areas) it is met in.
+
+```php
+'encounters' => [
+  'troops' => [
+    'Roost Bats' => ['weight' => 3, 'areas' => ['east-roost', 'shaft-roost']],
+    'Store Rats' => ['weight' => 2, 'areas' => ['supply-nook']],
+    'Road Wolves' => 1, // anywhere the map counts steps
+  ],
+  'rate' => 24,
+  'tiles' => 'any',
+],
+```
+
+A troop with `areas` is met only while the player stands in one of them; a
+troop without is met anywhere the map counts steps. A step where no troop can
+be met does not count toward the next encounter, so a map whose troops all
+live in areas is quiet between them and `rate` is the average number of
+counted steps inside those areas. The danger-tile rule still applies first:
+with `'tiles' => 'encounter'`, only danger tiles inside an area count.
+
+`areas` is a nonempty list of unique area ids. An entry whose scope cannot be
+read, or that names an area the map does not declare, is never met (the
+engine warns): reading it as the whole map would put the troop where its
+author kept it out. `EncounterManager::getTroopWeightsAt()` reports the troops
+a cell offers.

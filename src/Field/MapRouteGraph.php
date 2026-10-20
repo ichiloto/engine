@@ -16,8 +16,8 @@ use Throwable;
  * Every authored way between the project's maps, read from map sources.
  *
  * A route is a transfer event, a legacy transfer trigger, or a reusable
- * script event whose script transfers the player (a repeatable transport).
- * One-shot scripts and cinematics move the player as a story consequence,
+ * script event or NPC page whose script transfers the player (a repeatable
+ * transport). One-shot scripts and cinematics move the player as a story consequence,
  * so they are not routes. The graph is static for a session; whether a
  * route can be used now is decided per query from world state.
  */
@@ -84,6 +84,27 @@ final readonly class MapRouteGraph
         $routes[] = new MapRoute($mapId, $destination, $marker, CellArea::fromArray($event['area']),
           array_values(array_filter((array) ($event['conditions'] ?? []), 'is_array')), $scripted,
           $landmark?->id, $landmark?->secret ?? false);
+      }
+    }
+    foreach (is_array($map['npcs'] ?? null) ? $map['npcs'] : [] as $entry) {
+      $placement = NpcPlacement::fromArray($entry);
+      if ($placement?->id === null) { continue; }
+      try {
+        $pages = NpcPages::fromEntry($entry);
+      } catch (Throwable $error) {
+        Debug::warn(sprintf('NPC %s on %s is unusable for routes: %s', $placement->id, $mapId, $error->getMessage()));
+        continue;
+      }
+      foreach ($pages->pages as $page) {
+        if (!$page->reusable || $page->cinematicId !== null) { continue; }
+        $script = $page->scriptId === null ? $page->script : self::readScript($assetRoot, $page->scriptId);
+        $visited = [];
+        foreach (array_unique(self::findTransferDestinations($script, $assetRoot, $visited)) as $destination) {
+          if ($destination === $mapId) { continue; }
+          $routes[] = new MapRoute($mapId, $destination, '@npc:' . $placement->id,
+            CellArea::fromCells([[$placement->x, $placement->y]]), [...$placement->conditions, ...$page->conditions], true,
+            npcId: $placement->id, npcPage: $page->index);
+        }
       }
     }
     foreach ($map['triggers'] ?? [] as $index => $trigger) {

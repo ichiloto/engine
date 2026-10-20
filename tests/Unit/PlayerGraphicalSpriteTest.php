@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameObject;
@@ -257,7 +258,7 @@ it('observes a real blocked move as changed facing and unchanged graphical posit
   $before = $this->projector->project($this->player, $this->camera);
   expect($before->sourceRect->toArray())->toBe(getPlayerStandingFrame('south'))
     ->and($map->getCollision(7, 3))->toBe(CollisionType::SOLID)
-    ->and($this->player->tryMove(Vector2::up(), $this->camera))->toBeFalse();
+    ->and($this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeFalse();
   $after = $this->projector->project($this->player, $this->camera);
   expect($this->player->heading)->toBe(MovementHeading::NORTH)
     ->and([$this->player->position->x, $this->player->position->y])->toBe([7.0, 4.0])
@@ -287,7 +288,7 @@ it('arrives only once the step has slid into its cell, and at once without a sli
   try {
     // A graphical step onto the save point: the notice and the observers wait for the slide.
     $this->player->addObserver($arrivals);
-    expect($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue()
+    expect($this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
       ->and([$this->player->position->x, $this->player->position->y])->toBe([7.0, 3.0])
       ->and($arrivals->events)->toBe([])->and($notices)->toBe([]);
     $this->player->advanceGraphicalAnimation(0.01);
@@ -303,7 +304,7 @@ it('arrives only once the step has slid into its cell, and at once without a sli
     $terminal = new Player($this->scene, 'Terminal hero', new Vector2(7, 4), new Rect(0, 0, 1, 1), ['vv'],
       MovementHeading::SOUTH, $this->terminalSprites);
     $terminal->addObserver($arrivals);
-    expect($terminal->tryMove(Vector2::up(), $this->camera))->toBeTrue()
+    expect($terminal->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
       ->and($arrivals->events)->toHaveCount(2)->and($notices)->toBe(['Save Point', 'Save Point']);
   } finally {
     new ReflectionProperty(Ichiloto\Engine\UI\Modal\ModalManager::class, 'instance')->setValue(null, $modalState);
@@ -322,8 +323,8 @@ it('completes a pending arrival before the next step so none is skipped', functi
     public function onNotify(object $entity, Ichiloto\Engine\Events\Interfaces\EventInterface $event): void { $this->events[] = $event; }
   };
   $this->player->addObserver($arrivals);
-  expect($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue()
-    ->and($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue()
+  expect($this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
+    ->and($this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
     ->and($arrivals->events)->toHaveCount(1)
     ->and($arrivals->events[0]->destination->y)->toBe(3.0);
   $this->player->advanceGraphicalAnimation(1.0);
@@ -367,7 +368,7 @@ it('retains step motion independently of the host and follows scene arrival timi
   $this->player->addTrigger($trigger);
   $encounters = new class($this->scene) extends EncounterManager {
     public array $steps = [];
-    public function registerStep(?CollisionType $tile): void { $this->steps[] = $tile; }
+    public function registerStep(?CollisionType $tile, ?\Ichiloto\Engine\Core\Vector2 $position = null): void { $this->steps[] = $tile; }
   };
   new ReflectionProperty(GameScene::class, 'encounterManager')->setValue($this->scene, $encounters);
   $arrivals = new class implements Ichiloto\Engine\Events\Interfaces\ObserverInterface {
@@ -379,7 +380,7 @@ it('retains step motion independently of the host and follows scene arrival timi
   $shouldWait = $graphical && !$reduced && $hasPresentedArt && $seconds > 0.0;
   $walkingSeconds = $this->scene->getStepSeconds(Vector2::up());
   expect($this->scene->isGraphicalFieldPresented())->toBe($graphical)
-    ->and($this->scene->moveAtPace($seconds, fn() => $this->player->tryMove(Vector2::up(), $this->camera)))->toBeTrue()
+    ->and($this->scene->moveAtPace($seconds, fn() => $this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT)))->toBeTrue()
     ->and([$this->player->position->x, $this->player->position->y])->toBe([7.0, 3.0])
     ->and($presented->getGraphicalSpriteMotion()?->seconds)->toBe($reduced || !$hasPresentedArt || $seconds === 0.0 ? null : $seconds)
     ->and($trigger->entries)->toBe($shouldWait ? 0 : 1)
@@ -411,7 +412,7 @@ it('retains step motion independently of the host and follows scene arrival timi
     ->and([$arrivals->events[0]->destination->x, $arrivals->events[0]->destination->y])->toBe([7.0, 3.0]);
   if ($sheetless && $staged) {
     $presented->releaseVisual();
-    expect($this->player->tryMove(Vector2::left(), $this->camera))->toBeTrue()
+    expect($this->player->tryMove(Vector2::left(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
       ->and($this->player->getGraphicalSpriteDefinition())->toBeNull()
       ->and($this->player->getGraphicalSpriteMotion())->toBeNull()
       ->and($presented->getGraphicalSpriteMotion())->toBeNull()

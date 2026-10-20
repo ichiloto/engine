@@ -59,7 +59,7 @@ final class CinematicCommandSchema
     'failure' => 'retryable_without_completion_writes',
   ];
   public const array STAGED_ACTOR_FIELDS = [
-    'id', 'sprite', 'asset', 'x', 'y', 'facing', 'visible', 'collision', 'sprites', 'sprites2d',
+    'id', 'sprite', 'asset', 'x', 'y', 'facing', 'faceToward', 'visible', 'collision', 'sprites', 'sprites2d',
     'subject', 'suppress', 'replace', 'at', 'offset',
   ];
   public const array RELATIVE_POSITION_FIELDS = ['at', 'offset'];
@@ -145,7 +145,7 @@ final class CinematicCommandSchema
       ],
       'movementRoute' => [
         'modes' => ['steps', 'waypoints', 'retrace'],
-        'waypoints' => 'non-empty list: integer x/y (omitted axis retains current coordinate), or at kind/id with optional signed integer offset x/y',
+        'waypoints' => 'non-empty list: integer x/y (omitted axis retains current coordinate), or at kind/id with optional signed integer offset x/y; either may add an end facing',
         'planning' => 'deterministic cardinal path per authored waypoint, bounded by current map; no replan after a blocked step',
         'remember' => 'unique session-local id; cinematic real player or NPC only',
         'retrace' => 'consume completed recorded path once from the original endpoint, then restore entry facing',
@@ -157,6 +157,16 @@ final class CinematicCommandSchema
         'offset' => 'optional signed integer x/y cells within -16384..16384, omitted axes zero',
         'consumers' => ['move_route.waypoints', 'stage_actor'],
         'resolution' => 'current subject position at command or route leg start; no independent x/y or real-subject binding',
+        'attachment' => 'stage_actor only: at.attachment names an attachment declared by the world_object\'s resource; '
+          . 'the terminal shows the visual on the attachment cell and graphical art is centred on its point of the current artwork; no offset; the visual cannot move',
+      ],
+      'endFacing' => [
+        'fields' => CinematicFacing::FIELDS,
+        'cardinals' => CinematicFacing::CARDINALS,
+        'subjectKinds' => CinematicRelativePosition::SUBJECT_KINDS,
+        'consumers' => ['move_route.waypoints', 'stage_actor'],
+        'resolution' => 'facing is fixed; faceToward turns along the longer axis toward the subject (an even split faces vertically) from the staged cell, resolved at command or route leg start; on the subject itself the heading is kept',
+        'exclusive' => 'facing and faceToward are never declared together; a bound visual declares neither',
       ],
       'stagedActorBinding' => [
         'subject' => ['kind' => 'player|npc|world_object', 'id' => 'required for npc/world_object'],

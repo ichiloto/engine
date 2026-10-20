@@ -125,3 +125,30 @@ it('shares detached animation intent and admits the existing character-sheet rol
         ->and(fn() => new FieldPresentationCatalog(resources: ['wrong-id' => $resource]))->toThrow(InvalidArgumentException::class)
         ->and(fn() => new FieldPresentationCatalog(resources: ['whole' => []]))->toThrow(InvalidArgumentException::class);
 });
+
+it('reads attachments as named anchor-relative cells and artwork points and refuses malformed ones', function (?string $invalid) {
+    $attachment = ['id' => 'aerial', 'cell' => ['x' => 5, 'y' => -4], 'point' => ['x' => .78, 'y' => 0]];
+    $attachments = [$attachment];
+    match ($invalid) {
+        null => null,
+        'empty' => $attachments = [],
+        'id' => $attachments[0]['id'] = 'Aerial',
+        'repeated' => $attachments[] = $attachment,
+        'fractional cell' => $attachments[0]['cell']['x'] = .5,
+        'missing point' => $attachments[0] = ['id' => 'aerial', 'cell' => ['x' => 0, 'y' => 0]],
+        'point outside art' => $attachments[0]['point']['y'] = -.1,
+        'unknown field' => $attachments[0]['offset'] = ['x' => 1, 'y' => 0],
+        'budget' => $attachments = array_map(static fn(int $i): array => [...$attachment, 'id' => 'a' . $i], range(0, 16)),
+    };
+    $read = fn() => WorldObjectResource::fromArray('relay', createWorldObjectResourceSource(['attachments' => $attachments]));
+    if ($invalid !== null) {
+        expect($read)->toThrow(InvalidArgumentException::class);
+        return;
+    }
+    $resource = $read();
+    expect(array_map(static fn($point): array => $point->toArray(), $resource->attachments))
+        ->toBe([['id' => 'aerial', 'cell' => ['x' => 5, 'y' => -4], 'point' => ['x' => .78, 'y' => 0.0]]])
+        ->and($resource->findAttachment('aerial'))->toBe($resource->attachments[0])
+        ->and($resource->findAttachment('chimney'))->toBeNull()
+        ->and(WorldObjectResource::fromArray('plain', createWorldObjectResourceSource())->attachments)->toBe([]);
+})->with([null, 'empty', 'id', 'repeated', 'fractional cell', 'missing point', 'point outside art', 'unknown field', 'budget']);

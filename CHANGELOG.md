@@ -4,6 +4,15 @@
 
 ### Added
 
+- Battle events: troops author `events` pages (conditions on turn, enemy HP,
+  party member HP and world state; a `battle`, `turn` or `moment` span) that
+  run the shared event interpreter over the paused battle. Battle commands
+  `concede` (an enemy yields: defeated for victory and rewards, kept on screen
+  in a `concede` pose or a subdued hold, no knockout fade) and `end_battle`
+  (victory, escape or defeat). Troop members take `knockoutFloorPercent`.
+  Registered commands declare `scopes`; they run in field scripts unless they
+  declare `battle`. Every battle ending goes through `BattleConclusion`. See
+  [docs/battle-events.md](docs/battle-events.md).
 - `cueStyle` in `Data/Presentation/field.php` keeps cue marks readable on any
   ground: an optional gentle bob (still under reduced motion), the edge pointer spacing, and a Terminal
   background cell and bold for every cue glyph (default black and bold).

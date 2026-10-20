@@ -111,9 +111,11 @@ final class CombatResolver
 
     if ($requestedChange < 0) {
       $requestedDamage = abs($requestedChange);
-      $actualLost = min(max(0, $preHp), $requestedDamage);
-      $overkill = max(0, $requestedDamage - max(0, $preHp));
-      $request->target->stats->currentHp = max(0, $preHp - $requestedDamage);
+      // An authored knockout floor holds HP above zero; damage never heals a battler already below it.
+      $floor = min(max(0, $preHp), max(0, $request->target->knockoutFloor));
+      $actualLost = min(max(0, $preHp - $floor), $requestedDamage);
+      $overkill = $requestedDamage - $actualLost;
+      $request->target->stats->currentHp = max($floor, $preHp - $requestedDamage);
     } elseif ($requestedChange > 0) {
       $headroom = max(0, $request->target->stats->totalHp - $preHp);
       $actualRestored = min($headroom, $requestedChange);

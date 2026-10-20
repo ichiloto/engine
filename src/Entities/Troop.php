@@ -5,6 +5,8 @@ namespace Ichiloto\Engine\Entities;
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Battle\BattleClassification;
 use Ichiloto\Engine\Battle\EscapePolicy;
+use Ichiloto\Engine\Battle\Events\BattleEventPage;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Battle\Presentation\BattlerSlot;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
@@ -50,6 +52,10 @@ class Troop extends BattleGroup
   protected(set) ?EscapePolicy $escapePolicy = null;
   /** @var SplObjectStorage<Enemy, ?BattlerSlot> Placements follow instances, never names or mutable roster indices. */
   private SplObjectStorage $graphicalFormation;
+  /**
+   * @var list<BattleEventPage> The troop's event pages, which name members by their index in the troop.
+   */
+  protected(set) array $eventPages = [];
   private ?string $graphicalFormationError = null;
 
   /**
@@ -57,7 +63,7 @@ class Troop extends BattleGroup
    *
    * @param string $name The name of the troop.
    * @param array|null $enemies The enemies in the troop.
-   * @param array $events The events of the troop.
+   * @param list<BattleEventPage> $eventPages The troop's validated event pages.
    * @param array $config The configuration of the troop.
    * @param string|null $backgroundMusic The troop's battle music, or null to
    *   use the project-wide battle theme.
@@ -66,7 +72,7 @@ class Troop extends BattleGroup
   public function __construct(
     protected(set) string $name,
     ?array $enemies = null,
-    protected array $events = [],
+    array $eventPages = [],
     array $config = [],
     ?string $backgroundMusic = null,
     ?EscapePolicy $escapePolicy = null,
@@ -97,6 +103,12 @@ class Troop extends BattleGroup
       || ($graphicalFormation !== [] && count($graphicalFormation) !== count($this->members))) {
       throw new InvalidArgumentException('Troop graphical formation must provide one slot or null per enemy instance, at most 64.');
     }
+    foreach ($eventPages as $page) {
+      if (! $page instanceof BattleEventPage) {
+        throw new InvalidArgumentException('Troop event pages must be validated BattleEventPage entries.');
+      }
+    }
+    $this->eventPages = array_values($eventPages);
     $this->graphicalFormation = new SplObjectStorage();
     foreach ($this->members as $index => $enemy) {
       $slot = $graphicalFormation[$index] ?? null;
@@ -105,6 +117,16 @@ class Troop extends BattleGroup
       }
       $this->graphicalFormation[$enemy] = $slot;
     }
+  }
+
+  /**
+   * Returns the enemy at an authored member index, as event pages name it.
+   */
+  public function getMember(int $index): ?Enemy
+  {
+    $member = $this->members->toArray()[$index] ?? null;
+
+    return $member instanceof Enemy ? $member : null;
   }
 
   public function getGraphicalSlot(Enemy $enemy): ?BattlerSlot
@@ -156,6 +178,11 @@ class Troop extends BattleGroup
       }
       $enemy = $enemiesStore->get($enemyData['enemy'] ?? throw new RequiredFieldException('enemy'));
       if (!$enemy instanceof Enemy) {
+        if ($events !== []) {
+          // Event pages name members by index, so every member must resolve.
+          throw new InvalidArgumentException(sprintf('%s.enemies[%d] names unknown enemy "%s"; its event pages cannot name members.',
+            $source, $index, strval($enemyData['enemy'])));
+        }
         continue;
       }
 
@@ -163,6 +190,11 @@ class Troop extends BattleGroup
       $enemyPosition = Vector2::fromArray($enemyData['position'] ?? []);
       $enemyClone->position->x = $enemyPosition->x;
       $enemyClone->position->y = $enemyPosition->y;
+      $floor = $enemyData['knockoutFloorPercent'] ?? 0;
+      if (!is_int($floor) || $floor < 0 || $floor > 99) {
+        throw new InvalidArgumentException(sprintf('%s.enemies[%d].knockoutFloorPercent must be a whole number from 0 to 99.', $source, $index));
+      }
+      $enemyClone->setKnockoutFloorPercent($floor);
 
       $enemies[] = $enemyClone;
       $formation[] = $slot;
@@ -181,10 +213,11 @@ class Troop extends BattleGroup
       : null;
     $classification = BattleClassification::resolve($data['classification'] ?? null, $source);
 
+    $eventPages = BattleEventPage::readPages($events, $source, count($enemies), ScriptCommandRegistry::getCatalog());
     $troop = new self(
       $name,
       $enemies,
-      $events,
+      $eventPages,
       backgroundMusic: is_string($backgroundMusic) ? $backgroundMusic : null,
       escapePolicy: $escapePolicy,
       definitionId: is_string($data['id'] ?? null) ? $data['id'] : null,

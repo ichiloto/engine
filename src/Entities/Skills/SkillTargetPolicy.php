@@ -20,8 +20,9 @@ final class SkillTargetPolicy
   {
     return match ($status) {
       ItemScopeStatus::DEAD => $character->isKnockedOut,
-      ItemScopeStatus::ANY => true,
-      ItemScopeStatus::ALIVE => ! $character->isKnockedOut,
+      // A conceded enemy has left the battle: neither alive nor dead, it is never a target.
+      ItemScopeStatus::ANY => $character->isFighting || $character->isKnockedOut,
+      ItemScopeStatus::ALIVE => $character->isFighting,
     };
   }
 

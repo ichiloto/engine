@@ -242,6 +242,9 @@ final readonly class ScriptCommandField
         }
       }
     }
+    if ($this->reference === ScriptCommandReference::TROOP_MEMBER) {
+      return is_int($value) && $value >= 0 ? [] : [sprintf('"%s" must name a troop member by its index.', $path)];
+    }
     return is_string($value) ? [] : [sprintf('"%s" must be text.', $path)];
   }
 

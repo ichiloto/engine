@@ -1532,3 +1532,71 @@ it('removes retained inactive field sign tickets on excursion and preserves usab
     $client->releaseTextPreparation($other);
     $client->shutdown();
 })->with(['pending' => [false], 'prepared' => [true]]);
+
+function stageOnSyntheticAerial(WorldObjectTestScene $scene, string $root, array $point): \Ichiloto\Engine\Cutscenes\Cinematics\StagedActor
+{
+    $catalog = createResourceWorldObjectCatalog($root, ['attachments' => [['id' => 'aerial', 'cell' => ['x' => 1, 'y' => -2], 'point' => $point]]]);
+    $scene->mapManager->applyPreparedMap(createWorldObjectPreparedMap([['id' => 'tower', 'resource' => 'whole', 'anchor' => ['x' => 1, 'y' => 2]]],
+        catalog: $catalog), $scene->player);
+    $scene->cinematicStage->clear();
+    return $scene->cinematicStage->add(['id' => 'pulse', 'sprite' => '*', 'sprites2d' => ['asset' => 'Graphics/glow.png', 'layer' => 150],
+        'at' => ['kind' => 'world_object', 'id' => 'tower', 'attachment' => 'aerial']]);
+}
+
+/** Where the renderer draws a field image's centre: its pivot at the cell's ground point, raised by its lift. */
+function findDrawnCentre(\Ichiloto\Engine\Cutscenes\Cinematics\StagedActor $actor): array
+{
+    $image = $actor->getGraphicalSpriteDefinition();
+    $cell = $actor->getGraphicalSpriteWorldPosition();
+    $pivot = $image->pivot ?? new \Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot();
+    return [round(($cell->x + .5) * 48 - $pivot->x * $image->width + $image->width / 2, 3),
+        round(($cell->y + 1) * 48 - $pivot->y * $image->height - $image->lift + $image->height / 2, 3)];
+}
+
+it('centres a staged visual on its resource attachment while the terminal keeps the attachment cell', function () {
+    // Ground (72, 144); the point lies (.45, -.65) of the 144x192 art from the pivot: (136.8, 19.2).
+    $pulse = stageOnSyntheticAerial($this->scene, $this->root, ['x' => .7, 'y' => .1]);
+    expect($pulse->position)->toEqual(new Vector2(2, 0))
+        ->and($pulse->getGraphicalSpriteWorldPosition())->toEqual(new Vector2(2, 0))
+        ->and($pulse->getGraphicalSpriteDefinition()->pivot->toArray())->toEqualWithDelta(['x' => .15, 'y' => 1.0], 1e-9)
+        ->and($pulse->getGraphicalSpriteDefinition()->lift)->toBe(5)
+        ->and($pulse->getGraphicalSpriteDefinition()->layer)->toBe(150)
+        ->and(findDrawnCentre($pulse))->toEqualWithDelta([136.8, 19.2], .5);
+
+    // Replacement art of other dimensions draws in the same cells, so the visual stays on the feature.
+    writeTestPng($this->root . '/assets/Graphics/base.png', 30, 17);
+    expect(findDrawnCentre($pulse))->toEqualWithDelta([136.8, 19.2], .5);
+
+    // Re-authoring the point for new art moves every visual on it; the terminal cell is unchanged.
+    $moved = stageOnSyntheticAerial($this->scene, $this->root, ['x' => .5, 'y' => .5]);
+    expect(findDrawnCentre($moved))->toEqualWithDelta([108.0, 96.0], .5)
+        ->and($moved->getGraphicalSpriteWorldPosition())->toEqual(new Vector2(2, 2))
+        ->and($moved->position)->toEqual(new Vector2(2, 0));
+
+    // A replacement staged without a new place stays on the attachment; it never walks off it.
+    $replaced = $this->scene->cinematicStage->add(['id' => 'pulse', 'replace' => true, 'sprite' => '*',
+        'sprites2d' => ['asset' => 'Graphics/glow.png']]);
+    expect($replaced->attachment?->attachment->id)->toBe('aerial')->and(findDrawnCentre($replaced))->toEqualWithDelta([108.0, 96.0], .5)
+        ->and(fn() => $this->scene->cinematicStage->move('pulse', new Vector2(1, 0)))->toThrow(RuntimeException::class);
+
+    // Without drawn object art the terminal cell presents the visual in the graphical field too.
+    unlink($this->root . '/assets/Graphics/base.png');
+    $bare = stageOnSyntheticAerial($this->scene, $this->root, ['x' => .5, 'y' => .5]);
+    expect($bare->getGraphicalSpriteWorldPosition())->toEqual(new Vector2(2, 0))
+        ->and($bare->getGraphicalSpriteDefinition()->pivot)->toBeNull();
+});
+
+it('refuses attachments outside staged visuals, off world objects, with offsets or undeclared', function () {
+    $staged = ['id' => 'pulse', 'sprite' => '*', 'at' => ['kind' => 'world_object', 'id' => 'fixture', 'attachment' => 'aerial']];
+    CinematicStageManager::validateBinding($staged);
+    expect(fn() => \Ichiloto\Engine\Cutscenes\Cinematics\CinematicRelativePosition::validate($staged))->toThrow(InvalidArgumentException::class)
+        ->and(fn() => CinematicStageManager::validateBinding([...$staged, 'at' => ['kind' => 'npc', 'id' => 'guide', 'attachment' => 'aerial']]))
+        ->toThrow(InvalidArgumentException::class)
+        ->and(fn() => CinematicStageManager::validateBinding([...$staged, 'offset' => ['x' => 1]]))->toThrow(InvalidArgumentException::class)
+        ->and(fn() => CinematicStageManager::validateBinding([...$staged, 'at' => [...$staged['at'], 'attachment' => 'Aerial']]))
+        ->toThrow(InvalidArgumentException::class)
+        ->and(fn() => new \Ichiloto\Engine\Events\Interpreter\MovementRouteRunner($this->scene,
+            ['waypoints' => [['at' => $staged['at']]]]))->toThrow(\Ichiloto\Engine\Exceptions\MovementRouteException::class, 'Only a staged visual')
+        // The inline fixture has no resource, so it declares no attachment.
+        ->and(fn() => $this->scene->cinematicStage->add($staged))->toThrow(RuntimeException::class);
+});

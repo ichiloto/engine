@@ -301,9 +301,10 @@ final class FieldEffectManager
       && array_any($session->playback->timeline->playbackSegments, static fn(array $segment): bool => $segment['layer'] === 'image');
   }
 
+  /** The cue's colour is part of its identity, so a page showing another colour restarts the art. */
   private static function getNpcCueId(Npc $npc): string
   {
-    return 'npc-cue-' . $npc->getGraphicalSpriteId();
+    return 'npc-cue-' . $npc->getGraphicalSpriteId() . ':' . ($npc->cue?->color ?? '');
   }
 
   public function startEffect(string $id, string $effect, FieldEffectAnchor $anchor): void

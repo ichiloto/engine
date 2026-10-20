@@ -1421,11 +1421,13 @@ summon/stage/real-engine suites pass 239 tests / 3,325 assertions; scoped source
 static analysis is clean.
 
 Command ownership is independent of the skill catalogue and artwork. Actor
-definitions may select `attackSkill` by catalogue reference: it must be a
-battle-usable `BasicSkill`. The actor's current definition owns that inherent
-attack, including after restoring an old save; it is not mutable save data.
-Absence uses the Engine's built-in `AttackAction`, not an arbitrary catalogue
-entry or a name-based guess. Additional attacks must be learned BasicSkills.
+and enemy definitions may select `attackSkill` by catalogue reference: it must
+be a battle-usable `BasicSkill`. The actor's current definition owns that
+inherent attack, including after restoring an old save; it is not mutable save
+data. Absence uses the Engine's built-in `AttackAction`, not an arbitrary
+catalogue entry or a name-based guess. `Battle\InherentAttack` builds that
+action for every path that makes a battler simply attack: an enemy with no
+usable action pattern, and the battle simulator and its previews. Additional attacks must be learned BasicSkills.
 The Skill menu contains only learned, battle-usable special abilities; summon
 actions stay in Summon/Petition, and spells in Magic. Defining a skill never
 grants it to actors. Enemy action patterns and explicit sandbox loadouts retain

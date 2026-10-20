@@ -57,7 +57,7 @@ class ScriptEventTrigger extends EventTrigger implements AutomaticEventTriggerIn
   public function configure(): void
   {
     $this->isReusable = (bool) ($this->data->reusable ?? true);
-    $this->runsAutomatically = strval($this->data->mode ?? self::MODE_ACTION) === self::MODE_AUTO;
+    $this->runsAutomatically = self::determineRunsAutomatically((array) $this->data);
     $scriptId = trim(strval($this->data->scriptId ?? ''));
     $this->scriptId = $scriptId !== '' ? $scriptId : null;
     $this->script = $this->resolveScript();
@@ -66,6 +66,12 @@ class ScriptEventTrigger extends EventTrigger implements AutomaticEventTriggerIn
   public function runsAutomatically(): bool
   {
     return $this->runsAutomatically;
+  }
+
+  /** @inheritDoc */
+  public static function determineRunsAutomatically(array $data): bool
+  {
+    return strval($data['mode'] ?? self::MODE_ACTION) === self::MODE_AUTO;
   }
 
   /**

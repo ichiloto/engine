@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
@@ -359,7 +360,7 @@ final class WalkingFieldScene extends GameScene
       /** @var list<array{int, int, float}> */
       public array $moves = [];
       public function __construct(public GameScene $owner) { $this->position = new Vector2(5, 5); }
-      public function tryMove(Vector2 $direction, Camera $camera): bool
+      public function tryMove(Vector2 $direction, Camera $camera, StepOrigin $stepOrigin): bool
       {
         $this->moves[] = [(int)$direction->x, (int)$direction->y, $this->owner->getStepSeconds($direction)];
         $this->position->add($direction);
@@ -525,7 +526,7 @@ it('keeps held walking cardinal at a blocked corner and applies effects once per
     new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
     $encounters = new class($scene) extends EncounterManager {
       public array $steps = [];
-      public function registerStep(?CollisionType $tile): void { $this->steps[] = $tile; }
+      public function registerStep(?CollisionType $tile, ?\Ichiloto\Engine\Core\Vector2 $position = null): void { $this->steps[] = $tile; }
     };
     new ReflectionProperty(GameScene::class, 'encounterManager')->setValue($scene, $encounters);
     $observer = new class implements ObserverInterface {
