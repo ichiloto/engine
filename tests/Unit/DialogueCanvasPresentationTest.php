@@ -605,6 +605,7 @@ it('integrates active event-owned dialogue with the retained field and removes o
         'speakers' => ['Display Hero' => 'hero'],
     ], true) . ';');
     $peer = new FakeRendererTransport();
+    $peer->acknowledgeFrames = true;
     $capabilities = $graphical ? ['graphical_canvas', 'canvas_overlay', 'canvas_clip_opacity', 'sprite_source_rect'] : [];
     $peer->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $capabilities]))];
     $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['not-launched']), $this->root), $peer);

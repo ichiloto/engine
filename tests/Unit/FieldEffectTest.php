@@ -359,10 +359,12 @@ it('retains track identities and updates only source frames, then removes tracks
   $byId = array_column($initial, 'value', 'id');
   expect($initial)->toHaveCount(3)
     ->and($byId['edge']['quarterTurns'] ?? null)->toBe($rotation ? 2 : null);
+  $transport->acknowledgeLatestFrame($sender);
   $transport->sent = [];
   $session->update(0.2);
   $sender->present(new ConsolePresentationChanges(30, 15, false), [...$project(), $edge], null);
   $changes = end($transport->sent)->payload['operations'];
+  $transport->acknowledgeLatestFrame($sender);
   expect($changes)->toHaveCount(2)
     ->and(array_column($changes, 'id'))->toBe(['energy:ground', 'energy:motes'])
     ->and($changes[0]['value']['sourceRect']['x'])->toBe(2)

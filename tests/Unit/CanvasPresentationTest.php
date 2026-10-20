@@ -85,6 +85,7 @@ it('replaces the retained fitting declaration on each switch and returns to nati
   [$presenter, $transport] = canvasPresenter([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_VIEWPORT_FIT]);
   foreach ([CanvasViewportFit::NATIVE, CanvasViewportFit::CONTAIN, CanvasViewportFit::NATIVE] as $fit) {
     expect($presenter->presentCanvas(new PresentationCanvas(20, 20, viewportFit: $fit)))->toBeTrue();
+    $transport->acknowledgeLatestFrame($presenter);
   }
   $frames = RetainedFrameState::replay($transport->sent);
   expect($frames[0]['canvas'])->not->toHaveKey('viewportFit')
@@ -443,14 +444,18 @@ it('shares transactional deduplication and sequencing across canvas and field tr
   [$presenter, $transport] = canvasPresenter(['graphical_canvas']);
   $canvas = new PresentationCanvas(1350, 720, [canvasImage()]);
   $field = new ConsolePresentationSnapshot(2, 1, []);
-  expect($presenter->present($field))->toBeTrue()->and($presenter->presentCanvas($canvas))->toBeTrue()
-    ->and($presenter->presentCanvas($canvas))->toBeFalse();
+  expect($presenter->present($field))->toBeTrue();
+  $transport->acknowledgeLatestFrame($presenter);
+  expect($presenter->presentCanvas($canvas))->toBeTrue();
+  $transport->acknowledgeLatestFrame($presenter);
+  expect($presenter->presentCanvas($canvas))->toBeFalse();
   $transport->sendFailure = new RendererTransportException('backpressure');
   expect(fn() => $presenter->presentCanvas(new PresentationCanvas(1350, 720)))->toThrow(RendererTransportException::class);
   expect(fn() => $presenter->presentCanvas($canvas))->toThrow(RendererTransportException::class);
   $transport->sendFailure = null;
-  expect($presenter->presentCanvas(new PresentationCanvas(1350, 720)))->toBeTrue()
-    ->and($presenter->present($field))->toBeTrue()->and($presenter->present($field))->toBeFalse();
+  expect($presenter->presentCanvas(new PresentationCanvas(1350, 720)))->toBeTrue();
+  $transport->acknowledgeLatestFrame($presenter);
+  expect($presenter->present($field))->toBeTrue()->and($presenter->present($field))->toBeFalse();
   $frames = RetainedFrameState::replay($transport->sent);
   expect(array_map(fn($m) => $m->payload['frame'], $transport->sent))->toBe([1, 2, 3, 4])
     ->and($transport->sent[2]->payload['reset'])->toBeTrue()

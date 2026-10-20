@@ -130,7 +130,8 @@ Defaults in `RendererProcessConfig`:
 Limits and timeouts are injectable and validated. A full outbound buffer declines
 the new message without changing previously queued bytes (`trySend()` returns
 false; `send()` throws). The retained producer additionally uses a 1 MiB pending
-high-water mark and bounded 32-packet/32-pass work and acknowledgement windows,
+high-water mark, bounded 32-packet/32-pass work and acknowledgement windows and at
+most two unacknowledged complete frames,
 rather than treating the transport's 8 MiB capacity as an upload target. Its
 [resumable upload budget](presentation.md#nonblocking-upload-and-coalescing) keeps
 a valid slow reader from causing a whole-map queue overflow. Incoming overflow,

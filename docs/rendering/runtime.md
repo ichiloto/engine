@@ -459,7 +459,9 @@ in the same iteration. Large uploads resume over later presentation calls with
 bounded zero-wait servicing inside the sender; only the final `present:true`
 publishes the new state. The producer targets 1 MiB/32 packets and at most 32 I/O
 passes per call, caps pending bytes at 1 MiB (one larger indivisible record only
-on an empty queue), and allows at most 32 unacknowledged packets. Existing line
+on an empty queue), and allows at most 32 unacknowledged packets and two
+unacknowledged complete frames. Changes made while two frames are unacknowledged
+are sent as one newest frame when the renderer catches up. Existing line
 and transport capacity limits are unchanged. See the exact
 [upload budgets](presentation.md#nonblocking-upload-and-coalescing).
 
