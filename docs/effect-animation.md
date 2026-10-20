@@ -202,7 +202,7 @@ rotate them) leaves waymarks as terminal glyphs and logs a note once.
 'cueStyle' => [
   'plate' => 'Graphics/System/CuePlate.png',     // drawn behind every graphical mark; omit for none
   'bob' => ['height' => 3, 'seconds' => 1.2],     // logical pixels and seconds; held still under reduced motion
-  'pointerDistance' => 30,                        // logical pixels from an edge mark's centre to its pointer
+  'pointerSpacing' => ['x' => 24, 'y' => 30],     // logical pixels from an edge mark's centre to its pointer
   'terminal' => ['background' => 'black', 'bold' => true],
 ],
 ```
@@ -210,7 +210,7 @@ rotate them) leaves waymarks as terminal glyphs and logs a note once.
 The mark's outline is part of its artwork, so new art drops in by changing
 the cue effect or plate data only. In the Terminal every cue glyph (event
 cues, waymark marks and edge arrows) takes the style's background cell and
-bold. Engine defaults: no plate, no bob, a 30-pixel pointer distance, and a
+bold. Engine defaults: no plate, no bob, pointer spacing 24 across and 30 up or down (a tall mark needs more), and a
 black, bold Terminal cell.
 
 The initial field subset did not include battle playback; its current shared

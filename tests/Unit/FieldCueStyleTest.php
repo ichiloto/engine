@@ -57,12 +57,12 @@ afterEach(function () {
 
 it('reads the cue style with Engine defaults and refuses values the presentation cannot honour', function () {
   $style = FieldCueStyle::fromArray(['plate' => 'Graphics/plate.png', 'bob' => ['height' => 3, 'seconds' => 1.5],
-    'pointerDistance' => 24, 'terminal' => ['background' => null, 'bold' => false]]);
+    'pointerSpacing' => ['x' => 14, 'y' => 26], 'terminal' => ['background' => null, 'bold' => false]]);
 
   expect($style->plate)->toBe('Graphics/plate.png')->and($style->bobHeight)->toBe(3)->and($style->bobSeconds)->toBe(1.5)
-    ->and($style->pointerDistance)->toBe(24)->and($style->styleGlyph('!', 'bright-yellow'))->toBe('<fg=bright-yellow>!</>')
+    ->and($style->pointerSpacingX)->toBe(14)->and($style->pointerSpacingY)->toBe(26)->and($style->styleGlyph('!', 'bright-yellow'))->toBe('<fg=bright-yellow>!</>')
     ->and(FieldCueStyle::fromArray(null)->styleGlyph('!', 'bright-yellow'))->toBe('<fg=bright-yellow;bg=black;options=bold>!</>');
-  foreach ([['bob' => ['height' => 13]], ['bob' => ['seconds' => 0.1]], ['pointerDistance' => 97], ['terminal' => ['background' => 'plaid']],
+  foreach ([['bob' => ['height' => 13]], ['bob' => ['seconds' => 0.1]], ['pointerSpacing' => ['y' => 97]], ['terminal' => ['background' => 'plaid']],
     ['outline' => 2], ['plate' => '../outside.png']] as $invalid) {
     expect(fn() => FieldCueStyle::fromArray($invalid))->toThrow(InvalidArgumentException::class);
   }
@@ -84,7 +84,7 @@ it('bobs gently and holds still under reduced motion or without a bob', function
 
 it('keeps an edge marker upright and turns only its pointer, outward, in all eight directions', function (int $x, int $y,
   string $direction) {
-  writeCueStyleProject($this->root, ['plate' => 'Graphics/plate.png', 'pointerDistance' => 30]);
+  writeCueStyleProject($this->root, ['plate' => 'Graphics/plate.png', 'pointerSpacing' => ['x' => 24, 'y' => 30]]);
   $manager = new FieldEffectManager($this->root);
   $manager->setCapabilities(true, true);
   $manager->installMap('map', [], null, []);
@@ -98,7 +98,8 @@ it('keeps an edge marker upright and turns only its pointer, outward, in all eig
   $centre = static function ($sprite) {
     $definition = $sprite->getGraphicalSpriteDefinition();
     $position = $sprite->getGraphicalSpriteWorldPosition();
-    return [($position->x + 0.5) * 10, ($position->y + 1) * 20 - $definition->lift - $definition->height / 2];
+    return [($position->x + 0.5) * 10 + (0.5 - ($definition->pivot?->x ?? 0.5)) * $definition->width,
+      ($position->y + 1) * 20 - $definition->lift - $definition->height / 2];
   };
   [$px, $py] = $centre($pointer);
   [$mx, $my] = $centre($mark);

@@ -6,7 +6,7 @@
 
 - `cueStyle` in `Data/Presentation/field.php` keeps cue marks readable on any
   ground: an optional plate behind every graphical mark, an optional gentle
-  bob (still under reduced motion), the edge pointer distance, and a Terminal
+  bob (still under reduced motion), the edge pointer spacing, and a Terminal
   background cell and bold for every cue glyph (default black and bold).
 - Edge markers are composed from the upright cue mark and a separate pointer
   that alone turns, on the outward side.

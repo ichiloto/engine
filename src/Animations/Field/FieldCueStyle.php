@@ -15,25 +15,28 @@ use Symfony\Component\Console\Formatter\OutputFormatterStyle;
  *
  * Graphics: an optional plate image drawn behind the mark, an optional
  * gentle bob (held still under reduced motion), and how far an edge
- * marker's pointer sits from its mark. The mark's own outline belongs to its
+ * marker's pointer sits from its mark across and up or down. The mark's own outline belongs to its
  * artwork. Terminal: a contrasting background cell and bold, so a glyph
  * reads on coloured terrain.
  */
 final readonly class FieldCueStyle
 {
-  public const array FIELDS = ['plate', 'bob', 'pointerDistance', 'terminal'];
+  public const array FIELDS = ['plate', 'bob', 'pointerSpacing', 'terminal'];
+  public const array SPACING_FIELDS = ['x', 'y'];
   public const array BOB_FIELDS = ['height', 'seconds'];
   public const array TERMINAL_FIELDS = ['background', 'bold'];
   public const int MAX_BOB_HEIGHT = 12;
   public const float MIN_BOB_SECONDS = 0.4;
   public const float MAX_BOB_SECONDS = 4.0;
-  public const int MAX_POINTER_DISTANCE = 96;
+  public const int MAX_POINTER_SPACING = 96;
 
   /**
    * @param string|null $plate Asset-relative PNG drawn behind each graphical mark, or none.
    * @param int $bobHeight Logical pixels a graphical mark rises at the top of its bob; 0 holds it still.
    * @param float $bobSeconds One full bob.
-   * @param int $pointerDistance Logical pixels from an edge marker's centre to its pointer's centre.
+   * @param int $pointerSpacingX Logical pixels across from an edge mark's centre to its pointer's centre.
+   * @param int $pointerSpacingY Logical pixels up or down from an edge mark's centre to its pointer's centre; a tall
+   *   mark needs more than a wide one. A diagonal pointer takes both, scaled by its direction.
    * @param string|null $terminalBackground The background colour behind a cue glyph, or none.
    * @param bool $terminalBold Whether a cue glyph is bold.
    */
@@ -41,7 +44,8 @@ final readonly class FieldCueStyle
     public ?string $plate = null,
     public int $bobHeight = 0,
     public float $bobSeconds = 1.2,
-    public int $pointerDistance = 30,
+    public int $pointerSpacingX = 24,
+    public int $pointerSpacingY = 30,
     public ?string $terminalBackground = 'black',
     public bool $terminalBold = true,
   )
@@ -53,8 +57,10 @@ final readonly class FieldCueStyle
     if (!is_finite($this->bobSeconds) || $this->bobSeconds < self::MIN_BOB_SECONDS || $this->bobSeconds > self::MAX_BOB_SECONDS) {
       throw new InvalidArgumentException('A cue bob must last 0.4..4 seconds.');
     }
-    if ($this->pointerDistance < 0 || $this->pointerDistance > self::MAX_POINTER_DISTANCE) {
-      throw new InvalidArgumentException('A cue pointer distance must be 0..96 logical pixels.');
+    foreach ([$this->pointerSpacingX, $this->pointerSpacingY] as $spacing) {
+      if ($spacing < 0 || $spacing > self::MAX_POINTER_SPACING) {
+        throw new InvalidArgumentException('Cue pointer spacing must be 0..96 logical pixels.');
+      }
     }
     if ($this->terminalBackground !== null) {
       try {
@@ -70,7 +76,7 @@ final readonly class FieldCueStyle
   {
     if ($data === null) { return new self(); }
     if (!is_array($data) || array_diff(array_keys($data), self::FIELDS) !== []) {
-      throw new InvalidArgumentException('cueStyle accepts plate, bob, pointerDistance and terminal.');
+      throw new InvalidArgumentException('cueStyle accepts plate, bob, pointerSpacing and terminal.');
     }
     $plate = $data['plate'] ?? null;
     if ($plate !== null && !is_string($plate)) { throw new InvalidArgumentException('A cue plate is an asset path.'); }
@@ -79,8 +85,11 @@ final readonly class FieldCueStyle
       || !is_int($bob['height'] ?? 0) || !(is_int($bob['seconds'] ?? 1) || is_float($bob['seconds'] ?? 1.0)))) {
       throw new InvalidArgumentException('A cue bob needs an integer height and a number of seconds.');
     }
-    $distance = $data['pointerDistance'] ?? 30;
-    if (!is_int($distance)) { throw new InvalidArgumentException('A cue pointer distance is whole logical pixels.'); }
+    $spacing = $data['pointerSpacing'] ?? [];
+    if (!is_array($spacing) || array_diff(array_keys($spacing), self::SPACING_FIELDS) !== []
+      || !is_int($spacing['x'] ?? 24) || !is_int($spacing['y'] ?? 30)) {
+      throw new InvalidArgumentException('Cue pointer spacing is whole logical pixels x and y.');
+    }
     $terminal = $data['terminal'] ?? [];
     if (!is_array($terminal) || array_diff(array_keys($terminal), self::TERMINAL_FIELDS) !== []) {
       throw new InvalidArgumentException('Cue terminal styling accepts background and bold.');
@@ -91,7 +100,7 @@ final readonly class FieldCueStyle
     if (!is_bool($bold)) { throw new InvalidArgumentException('Cue bold is true or false.'); }
 
     return new self($plate === null ? null : trim($plate), (int)($bob['height'] ?? 0), (float)($bob['seconds'] ?? 1.2),
-      $distance, $background === null ? null : trim($background), $bold);
+      $spacing['x'] ?? 24, $spacing['y'] ?? 30, $background === null ? null : trim($background), $bold);
   }
 
   /** Formatter markup for a cue glyph in its colour, on the style's background. */

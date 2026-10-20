@@ -374,29 +374,36 @@ final class FieldEffectManager
   {
     $zoom = $view->zoom;
     $size = (int)round(FieldViewport::TILE_SIZE * $zoom);
-    $distance = $this->catalog->cueStyle->pointerDistance * $zoom;
-    $mark = FieldCueEdgePlacement::findCell($edge['x'] - $edge['outward']['x'] * $distance,
-      $edge['y'] - $edge['outward']['y'] * $distance, $view);
-    $pointer = FieldCueEdgePlacement::findCell($edge['x'], $edge['y'], $view);
+    $markX = $edge['x'] - $edge['outward']['x'] * $this->catalog->cueStyle->pointerSpacingX * $zoom;
+    $markY = $edge['y'] - $edge['outward']['y'] * $this->catalog->cueStyle->pointerSpacingY * $zoom;
+    $place = static fn(int $width): array => FieldCueEdgePlacement::findCell($markX, $markY, $view, $width);
+    $pointer = FieldCueEdgePlacement::findCell($edge['x'], $edge['y'], $view, $size);
+    $lift = static fn(array $cell, int $height, int $extra): int => max(0, min($height, $cell['lift'] + $extra));
     $sprites = [];
     $plate = $this->catalog->cueStyle->plate;
     if ($plate !== null) {
+      $cell = $place($size);
       $sprites[] = new FieldScreenSprite($session->id . ':edge-plate', new GraphicalSpriteDefinition($plate, $size, $size,
         PresentationSpriteAnchor::BOTTOM_CENTER, PresentationLayerPolicy::FIELD_CUE_PLATE,
-        lift: min($size, $mark['lift'] + (int)round($bob * $zoom))), $mark['position']);
+        lift: $lift($cell, $size, (int)round($bob * $zoom)), pivot: $cell['pivot']), $cell['position']);
     }
     foreach ($session->getSprites(new Vector2(0, 0), $reducedMotion) as $index => $frame) {
       $definition = $frame->getGraphicalSpriteDefinition();
-      $height = (int)round($definition->height * $zoom);
+      $width = max(1, (int)round($definition->width * $zoom));
+      $height = max(1, (int)round($definition->height * $zoom));
+      $cell = $place($width);
+      $pivot = $definition->pivot === null ? $cell['pivot']
+        : new \Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot(
+          max(0.0, min(1.0, $definition->pivot->x + $cell['pivot']->x - 0.5)), $definition->pivot->y);
       $sprites[] = new FieldScreenSprite($session->id . ':edge-mark-' . $index, new GraphicalSpriteDefinition($definition->asset,
-        max(1, (int)round($definition->width * $zoom)), max(1, $height), $definition->anchor, $definition->layer,
-        $definition->sourceRect, min($height, $mark['lift'] + (int)round(($definition->lift + $bob) * $zoom)), 0, $definition->pivot),
-        $mark['position']);
+        $width, $height, $definition->anchor, $definition->layer, $definition->sourceRect,
+        $lift($cell, $height, (int)round(($definition->lift + $bob) * $zoom)), 0, $pivot), $cell['position']);
     }
     $image = $this->catalog->cues[$this->catalog->waymarks->color]['pointer'][$edge['direction']];
     $sprites[] = new FieldEdgeSprite($session->id . ':edge', new GraphicalSpriteDefinition($image['asset'], $size, $size,
       PresentationSpriteAnchor::BOTTOM_CENTER, PresentationLayerPolicy::FIELD_EFFECT_FRONT,
-      lift: min($size, $pointer['lift'] + (int)round($bob * $zoom)), quarterTurns: $image['quarterTurns'] ?? 0), $pointer['position']);
+      lift: $lift($pointer, $size, (int)round($bob * $zoom)), quarterTurns: $image['quarterTurns'] ?? 0, pivot: $pointer['pivot']),
+      $pointer['position']);
     return $sprites;
   }
 
