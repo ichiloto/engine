@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Field\WorldObject;
 use RuntimeException;
 use InvalidArgumentException;
 
@@ -62,11 +63,27 @@ final class CinematicSubjectResolver
 
   private function getWorldObjectPosition(string $id): Vector2
   {
+    return $this->findWorldObject($id)->position;
+  }
+
+  /** A current world object's named attachment, which its resource declares. */
+  public function attachment(string $objectId, string $attachmentId): CinematicAttachment
+  {
+    $object = $this->findWorldObject($objectId);
+    $attachment = $object->definition->resource?->findAttachment($attachmentId);
+    if ($attachment === null) {
+      throw new RuntimeException(sprintf('Map world object "%s" has no attachment "%s".', $objectId, $attachmentId));
+    }
+    return new CinematicAttachment($object, $attachment);
+  }
+
+  private function findWorldObject(string $id): WorldObject
+  {
     $object = $this->gameScene->mapManager?->findWorldObject($id);
     if ($object === null || !$object->isCurrent()) {
       throw new RuntimeException(sprintf('Map world object "%s" was not found.', $id));
     }
-    return $object->position;
+    return $object;
   }
 
   protected function getPartyActorPosition(string $id): Vector2
