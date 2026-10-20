@@ -656,7 +656,34 @@ through. Each map's report lists:
 - a talkable NPC no reachable cell reaches, beside it or across one counter cell by the
   same rule the field talks by, whose lines nobody can read;
 - an arrival naming a map the project does not have, and a map the field
-  cannot read.
+  cannot read;
+- an interaction the player meets from the wrong side, a warning rather than a
+  blocker (see below).
+
+### Approach sides
+
+Interactions should face the way the player comes in. For every interaction
+(an action event that is faced, such as a desk or terminal, or that names
+speakers; transfers and automatic events are routes and scenes, not
+interactions), `MapReachability::findDetouredApproaches()` walks from each
+arrival into the map to the fewest-steps cell where the player first stands
+at the event's subject: on or beside its cells from any side, or where they
+can speak to one of its speakers by the field's talk rule. When the nearest
+cell where the event actually answers (its engagement and authored facing) is
+more than `MapReachability::APPROACH_DETOUR_TOLERANCE` (one) steps further,
+the player has reached the subject behind or beside it and must walk round.
+`ProjectReachability` reports one `DETOURED_APPROACH` problem per event, naming
+the arrival with the longest walk round, the cell the player naturally reaches,
+the extra steps and the cell where the event answers. Arrivals carry the
+conditions of the event or NPC that sends the player
+(`ReachabilityEntrance::$conditions`), so an arrival that cannot happen while
+the event runs is skipped, by the same `WorldConditionExclusion` proof the
+speaker rule uses; speakers present while the event runs block their cells.
+`AutomaticEventTriggerInterface::determineRunsAutomatically()` reads a
+trigger's mode from its authored data, so the analysis tells automatic events
+apart without building triggers. Fix a finding where the room is designed:
+turn the desk and its speaker toward the arrival path, move the event's cells
+to the side the player reaches, or allow its facing from that side.
 
 `MapReachability` runs the same analysis on one map's collision grid, events
 and NPCs, for tests with synthetic maps. Its bounded candidate cells use
@@ -889,6 +916,11 @@ often:
 
 Weights are relative, so a `Bat x 2` above is met roughly five times as often
 as `Great Wolf` twice. A map with no `encounters` key never rolls one.
+
+Only steps the player takes count. A move route, cinematic or other scripted
+movement of the player still runs the triggers of every cell it reaches, but
+never advances encounters, walking conditions such as poison, or anything else
+that counts the player's walking (`Field\Enumerations\StepOrigin`).
 
 The engine warns when a map declares `encounters` in a shape it cannot read,
 because a silent no-op is indistinguishable from a design decision.

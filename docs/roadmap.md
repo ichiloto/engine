@@ -1502,6 +1502,15 @@ The first implementation task is **SD0**. Its deliverable is the versioned
 record/proposal contract and a capability-to-owner map for the two origins and
 their deviation, followed by SD1's persistent synthetic campaign.
 
+## Scheduled income ✅ *2026-10-20*
+
+Optional, project-authored recurring pay ([income.md](income.md)): schedules in
+`assets/Data/income.php` advance by active play time (idle, menus and pauses
+excluded), steps, won battles or the `payday` command; pay follows a
+condition-keyed rate table, deposits or waits for `collect_income`, and takes
+one-time `adjust_income` bonuses and deductions. Standing is an additive save
+field. Authoring lives in the Editor database (both editors).
+
 ## Sequencing notes
 
 - Phase 1 before everything story-shaped; Phases 2 and 3 can proceed in

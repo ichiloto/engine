@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
@@ -226,7 +227,7 @@ it('preserves an in-flight step its animation and its exactly-once arrival acros
     public function onNotify(object $entity, EventInterface $event): void { $this->events[] = $event; }
   };
   $this->player->addObserver($observer);
-  expect($this->player->tryMove(Vector2::right(), $this->camera))->toBeTrue();
+  expect($this->player->tryMove(Vector2::right(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue();
   $motion = $this->player->getGraphicalSpriteMotion();
   $this->player->advanceGraphicalAnimation(.01);
   $pattern = $this->player->getGraphicalSpriteDefinition()->sourceRect->x / 16;
@@ -259,7 +260,7 @@ it('keeps terminal arrivals immediate in both graphical ownership modes', functi
   };
   $this->player->addObserver($observer);
   $this->party->swapMembers(0, 1);
-  expect($this->player->tryMove(Vector2::right(), $this->camera))->toBeTrue()
+  expect($this->player->tryMove(Vector2::right(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
     ->and($observer->events)->toHaveCount(1)->and($this->player->sprite)->toBe(['>']);
   $this->player->completeArrival();
   expect($observer->events)->toHaveCount(1);
@@ -272,7 +273,7 @@ it('keeps reduced-motion arrivals immediate and leader changes on the standing f
     public function onNotify(object $entity, EventInterface $event): void { $this->events[] = $event; }
   };
   $this->player->addObserver($observer);
-  expect($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue();
+  expect($this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue();
   $this->party->swapMembers(0, 1);
   expect($observer->events)->toHaveCount(1)
     ->and($this->player->getGraphicalSpriteMotion())->toBeNull()
@@ -286,11 +287,11 @@ it('starts an artless step without a slide while preserving a prior pending arri
     public function onNotify(object $entity, EventInterface $event): void { $this->events[] = $event; }
   };
   $this->player->addObserver($observer);
-  expect($this->player->tryMove(Vector2::right(), $this->camera))->toBeTrue();
+  expect($this->player->tryMove(Vector2::right(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue();
   ($this->setFirstFieldRole)(null);
   $this->player->completeArrival();
   expect($observer->events)->toBe([]);
-  expect($this->player->tryMove(Vector2::right(), $this->camera))->toBeTrue()
+  expect($this->player->tryMove(Vector2::right(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
     ->and($observer->events)->toHaveCount(2)
     ->and(array_map(static fn($event): float => $event->destination->x, $observer->events))->toBe([8.0, 9.0])
     ->and($this->player->getGraphicalSpriteDefinition())->toBeNull()
@@ -433,7 +434,7 @@ it('inherits configured player staging and retains explicit scripted actor ident
   $named = $stage->add(['id' => 'scripted-first', 'sprite' => 'S', 'x' => 2, 'y' => 3, 'sprites2d' => $this->firstRole]);
   expect($inherited->getGraphicalSpriteDefinition()->asset)->toBe($initialRole['sheet'])
     ->and($this->player->getGraphicalSpriteDefinition())->toBeNull();
-  $this->player->tryMove(Vector2::right(), $this->camera);
+  $this->player->tryMove(Vector2::right(), $this->camera, StepOrigin::PLAYER_INPUT);
   $this->party->swapMembers(0, 1);
   expect($inherited->getGraphicalSpriteDefinition()->asset)->toBe($selectedRole['sheet'])
     ->and($inherited->facing)->toBe(MovementHeading::EAST)

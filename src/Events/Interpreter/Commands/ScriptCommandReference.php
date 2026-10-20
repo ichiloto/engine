@@ -25,4 +25,6 @@ enum ScriptCommandReference: string
   case ACTOR = 'actor';
   /** A standalone, cue-free stage timeline admitted by EffectTimelineLibrary::loadStage(). */
   case STAGE_TIMELINE = 'stage_timeline';
+  /** An income schedule declared in the project's income data. */
+  case INCOME_SCHEDULE = 'income_schedule';
 }

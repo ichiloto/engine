@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
@@ -359,7 +360,7 @@ final class WalkingFieldScene extends GameScene
       /** @var list<array{int, int, float}> */
       public array $moves = [];
       public function __construct(public GameScene $owner) { $this->position = new Vector2(5, 5); }
-      public function tryMove(Vector2 $direction, Camera $camera): bool
+      public function tryMove(Vector2 $direction, Camera $camera, StepOrigin $stepOrigin): bool
       {
         $this->moves[] = [(int)$direction->x, (int)$direction->y, $this->owner->getStepSeconds($direction)];
         $this->position->add($direction);

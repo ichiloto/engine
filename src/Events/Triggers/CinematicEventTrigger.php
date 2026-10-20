@@ -35,7 +35,7 @@ final class CinematicEventTrigger extends EventTrigger implements
   {
     $this->isReusable = (bool) ($this->data->reusable ?? true);
     $mode = strtolower(trim(strval($this->data->mode ?? 'action')));
-    $this->runsAutomatically = $mode === 'auto';
+    $this->runsAutomatically = self::determineRunsAutomatically((array) $this->data);
 
     if (! in_array($mode, CinematicCommandSchema::CINEMATIC_TRIGGER_MODES, true)) {
       $this->configurationError = sprintf('unsupported mode "%s"', $mode !== '' ? $mode : '(empty)');
@@ -54,6 +54,12 @@ final class CinematicEventTrigger extends EventTrigger implements
   public function runsAutomatically(): bool
   {
     return $this->runsAutomatically;
+  }
+
+  /** @inheritDoc */
+  public static function determineRunsAutomatically(array $data): bool
+  {
+    return strtolower(trim(strval($data['mode'] ?? 'action'))) === 'auto';
   }
 
   /** Starts the referenced Cinematic when the field has no other owner. */

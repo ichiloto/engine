@@ -30,6 +30,7 @@ class GameConfig implements SceneConfigurationInterface
    * @param array<string, string[]> $playerSprites The directional player sprites.
    * @param int $playTimeSeconds The elapsed play time in seconds.
    * @param array<string, array{version: int, data: array<array-key, mixed>}> $projectState Optional project-owned plain data.
+   * @param array<string, array{progress: float, held: int, adjustment: int}> $income Scheduled income standing, by schedule id.
    */
   public function __construct(
     protected(set) string $mapId,
@@ -48,6 +49,7 @@ class GameConfig implements SceneConfigurationInterface
     protected(set) array $bestiary = [],
     protected(set) array $knowledge = [],
     protected(set) array $projectState = [],
+    protected(set) array $income = [],
   )
   {
     $this->projectState = ProjectStateData::copySnapshot($projectState);
@@ -122,6 +124,7 @@ class GameConfig implements SceneConfigurationInterface
       'bestiary' => $this->bestiary,
       'knowledge' => $this->knowledge,
       'projectState' => ProjectStateData::copySnapshot($this->projectState),
+      'income' => $this->income,
     ];
   }
 
@@ -177,6 +180,7 @@ class GameConfig implements SceneConfigurationInterface
     $this->achievements ??= [];
     $this->bestiary ??= [];
     $this->knowledge ??= [];
+    $this->income ??= [];
     $this->projectState = $projectState;
   }
 
