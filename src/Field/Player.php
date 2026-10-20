@@ -401,9 +401,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     // The step is committed; what reaching the cell does waits until the
     // player is seen to arrive, so a dialogue, notice, battle or transfer
     // never cuts the slide short. Without a slide it happens at once.
-    $this->pendingArrival = function () use ($event, $collisionType, $stepOrigin): void {
+    $this->pendingArrival = function () use ($event, $collisionType, $stepOrigin, $destination): void {
       $this->handleTriggers($event);
-      if ($stepOrigin === StepOrigin::PLAYER_INPUT && !$this->registerWalkingStep($collisionType)) {
+      if ($stepOrigin === StepOrigin::PLAYER_INPUT && !$this->registerWalkingStep($collisionType, $destination)) {
         return;
       }
       $this->notify($this->getGameScene(), $event);
@@ -418,9 +418,10 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    * step arrives.
    *
    * @param CollisionType|null $collisionType The collision type of the cell stepped onto.
+   * @param Vector2 $destination The cell stepped onto.
    * @return bool True when the party walks on; false when a walking condition ended the game.
    */
-  private function registerWalkingStep(?CollisionType $collisionType): bool
+  private function registerWalkingStep(?CollisionType $collisionType, Vector2 $destination): bool
   {
     $scene = $this->getGameScene();
     // A party that falls to a walking condition meets no encounter.
@@ -428,7 +429,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
       return false;
     }
     $scene->income?->recordStep();
-    $scene->encounterManager?->registerStep($collisionType);
+    $scene->encounterManager?->registerStep($collisionType, $destination);
     if ($scene->mapManager->isAtSavePoint) {
       alert("Access the Menu to save your progress.", 'Save Point');
     }
