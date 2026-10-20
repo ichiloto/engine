@@ -7,6 +7,8 @@ use Ichiloto\Engine\Battle\BattleRewards;
 use Ichiloto\Engine\Battle\CounterAttackProvider;
 use Ichiloto\Engine\Battle\CounterAttackRule;
 use Ichiloto\Engine\Battle\HasCounterAttacks;
+use Ichiloto\Engine\Battle\InherentAttack;
+use Ichiloto\Engine\Battle\InherentAttacker;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Inventory\Accessory;
@@ -16,6 +18,7 @@ use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\States\HasStates;
 use Ichiloto\Engine\Entities\States\HasStatStages;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
+use Ichiloto\Engine\Entities\Skills\BasicSkill;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeIdentity;
 
@@ -24,7 +27,7 @@ use Ichiloto\Engine\Progress\Knowledge\KnowledgeIdentity;
  *
  * @package Ichiloto\Engine\Entities\Enemies
  */
-class Enemy implements CharacterInterface, CounterAttackProvider
+class Enemy implements CharacterInterface, CounterAttackProvider, InherentAttacker
 {
   use HasStates;
   use HasStatStages;
@@ -46,6 +49,8 @@ class Enemy implements CharacterInterface, CounterAttackProvider
   protected(set) array $image = [];
   /** Stable project-authored knowledge subject, when this enemy has one. */
   protected(set) ?string $knowledgeSubjectId = null;
+  /** The basic skill this enemy attacks with when no pattern applies; null keeps the built-in attack. */
+  protected(set) ?BasicSkill $attackSkill = null;
 
   /**
    * Enemy constructor.
@@ -60,6 +65,7 @@ class Enemy implements CharacterInterface, CounterAttackProvider
    * @param array<string, float> $stateResistances Per-state infliction multipliers (0 grants immunity).
    * @param array<string, float> $elementAffinities Elemental damage multipliers (2.0 weak, 0.5 resist, 0 null, negative absorbs).
    * @param string|null $knowledgeSubjectId Stable project-owned knowledge subject ID.
+   * @param BasicSkill|null $attackSkill The basic skill it attacks with when no pattern applies.
    */
   public function __construct(
     protected(set) string $name,
@@ -74,6 +80,7 @@ class Enemy implements CharacterInterface, CounterAttackProvider
     array $elementAffinities = [],
     ?string $knowledgeSubjectId = null,
     ?CounterAttackRule $counterAttack = null,
+    ?BasicSkill $attackSkill = null,
   )
   {
     foreach ($actionPatterns as $pattern) {
@@ -84,6 +91,7 @@ class Enemy implements CharacterInterface, CounterAttackProvider
 
     $this->setStateResistances($stateResistances);
     $this->counterAttack = $counterAttack;
+    $this->attackSkill = InherentAttack::requireBattleUsable($attackSkill, 'enemy');
     $this->setElementAffinities($elementAffinities);
     $this->knowledgeSubjectId = $knowledgeSubjectId === null || trim($knowledgeSubjectId) === ''
       ? null

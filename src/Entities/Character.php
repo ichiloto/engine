@@ -9,6 +9,8 @@ use Ichiloto\Engine\Battle\BattleCommandLoadout;
 use Ichiloto\Engine\Battle\CounterAttackProvider;
 use Ichiloto\Engine\Battle\CounterAttackRule;
 use Ichiloto\Engine\Battle\HasCounterAttacks;
+use Ichiloto\Engine\Battle\InherentAttack;
+use Ichiloto\Engine\Battle\InherentAttacker;
 use Ichiloto\Engine\Battle\Resolution\ElementalAffinityResolver;
 use Ichiloto\Engine\Entities\Abilities\AbilityBook;
 use Ichiloto\Engine\Entities\Enumerations\WeaponType;
@@ -58,7 +60,7 @@ use InvalidArgumentException;
  *
  * @package Ichiloto\Engine\Entities
  */
-class Character implements CharacterInterface, CanEquip, CounterAttackProvider
+class Character implements CharacterInterface, CanEquip, CounterAttackProvider, InherentAttacker
 {
   use HasStates {
     getElementMultiplier as private getBaseElementMultiplier;
@@ -331,10 +333,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
     $this->currentExp = $currentExp;
     $this->equipment = $equipment;
     $this->attackStyle = $attackStyle;
-    if ($attackSkill !== null && !in_array($attackSkill->occasion, [Occasion::ALWAYS, Occasion::BATTLE_SCREEN], true)) {
-      throw new InvalidArgumentException('The actor attackSkill must be usable in battle.');
-    }
-    $this->attackSkill = $attackSkill;
+    $this->attackSkill = InherentAttack::requireBattleUsable($attackSkill, 'actor');
     $this->counterAttack = $counterAttack;
     $this->abilityBook = $abilityBook ?? new AbilityBook();
     $this->spellbook = $spellbook ?? new Spellbook();
@@ -1431,17 +1430,9 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
 
   private static function resolveAttackSkill(mixed $reference): ?BasicSkill
   {
-    if ($reference === null) {
-      return null;
-    }
-    if (!is_string($reference) || trim($reference) === '') {
-      throw new InvalidArgumentException('The actor attackSkill must be a non-empty skill reference.');
-    }
-    $skill = SkillCatalog::getProjectCatalog()->findSkill($reference);
-    if (!$skill instanceof BasicSkill) {
-      throw new InvalidArgumentException(sprintf('The actor attackSkill "%s" must reference a catalogued BasicSkill.', $reference));
-    }
-    return $skill;
+    return $reference === null
+      ? null
+      : InherentAttack::resolveSkill($reference, SkillCatalog::getProjectCatalog(), 'actor');
   }
 
   /**

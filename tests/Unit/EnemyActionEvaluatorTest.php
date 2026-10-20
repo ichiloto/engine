@@ -179,3 +179,20 @@ it('does not substitute self when the opposing side has no eligible recipients',
   [$action, $targets] = EnemyActionEvaluator::chooseAction($enemy, [$fallen], [$enemy], 1, 1);
   expect($action)->toBeInstanceOf(AttackAction::class)->and($targets)->toBe([]);
 });
+
+it('falls back to the enemy inherent attack: its authored attack skill, or the built-in attack', function () {
+  $strike = new BasicSkill('Tail Lash', '', '', 0, 0, new ItemScope(), Occasion::BATTLE_SCREEN, new SkillInvocation());
+  $party = [new Character('Hero', 0, new Stats(currentHp: 50, totalHp: 50))];
+  $plain = makePatternEnemy();
+  $armed = makePatternEnemy();
+  (new ReflectionProperty(Enemy::class, 'attackSkill'))->setValue($armed, $strike);
+
+  [$builtIn, $builtInTargets] = EnemyActionEvaluator::chooseAction($plain, $party, [$plain], 1, 1);
+  [$authored, $authoredTargets] = EnemyActionEvaluator::chooseAction($armed, $party, [$armed], 1, 1);
+
+  expect($builtIn)->toBeInstanceOf(AttackAction::class)
+    ->and($authored)->toBeInstanceOf(SkillBattleAction::class)
+    ->and($authored->skill)->toBe($strike)
+    ->and($builtInTargets)->toBe($party)
+    ->and($authoredTargets)->toBe($party);
+});
