@@ -403,7 +403,8 @@ final class FieldEffectManager
       }
       $marks = $session->getSprites($position, $reducedMotion, $object?->getGraphicalSpriteMotion());
       if ($cue !== null || $waymark !== null || $npcCue) {
-        $marks = [...$this->createPlate($session->id . ':plate', $position, $bob, $object?->getGraphicalSpriteMotion()),
+        $color = $cue?->cue?->color ?? ($npcCue ? $this->npcCues[$id]->cue?->color : $this->catalog->waymarks->color);
+        $marks = [...$this->createPlate($session->id . ':plate', (string)$color, $position, $bob, $object?->getGraphicalSpriteMotion()),
           ...array_map(fn(FieldEffectSprite $mark): FieldEffectSprite => self::raise($mark, $bob), $marks)];
       }
       array_push($sprites, ...$marks);
@@ -412,7 +413,7 @@ final class FieldEffectManager
   }
 
   /**
-   * An off-screen waymark at the view edge: its upright mark on the cue
+   * An off-screen waymark at the view edge: its upright mark on its colour's
    * plate, inside, and a pointer on the outward side. Only the pointer turns.
    *
    * @param array{direction: string, x: float, y: float, outward: array{x: float, y: float}} $edge
@@ -429,7 +430,7 @@ final class FieldEffectManager
     $pointer = FieldCueEdgePlacement::findCell($edge['x'], $edge['y'], $view, $size);
     $lift = static fn(array $cell, int $height, int $extra): int => max(0, min($height, $cell['lift'] + $extra));
     $sprites = [];
-    $plate = $this->catalog->cueStyle->plate;
+    $plate = $this->catalog->cues[$this->catalog->waymarks->color]['plate'] ?? null;
     if ($plate !== null) {
       $cell = $place($size);
       $sprites[] = new FieldScreenSprite($session->id . ':edge-plate', new GraphicalSpriteDefinition($plate, $size, $size,
@@ -456,10 +457,11 @@ final class FieldEffectManager
     return $sprites;
   }
 
-  /** The cue plate behind a mark at a world cell, when the game draws one. @return list<FieldEffectSprite> */
-  private function createPlate(string $id, Vector2 $position, int $bob, ?\Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion $motion): array
+  /** The plate a cue colour draws behind its mark at a world cell, when it has one. @return list<FieldEffectSprite> */
+  private function createPlate(string $id, string $color, Vector2 $position, int $bob,
+    ?\Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion $motion): array
   {
-    $plate = $this->catalog->cueStyle->plate;
+    $plate = $this->catalog->cues[$color]['plate'] ?? null;
     if ($plate === null) { return []; }
     return [new FieldEffectSprite($id, new GraphicalSpriteDefinition($plate, FieldViewport::TILE_SIZE, FieldViewport::TILE_SIZE,
       PresentationSpriteAnchor::BOTTOM_CENTER, PresentationLayerPolicy::FIELD_CUE_PLATE, lift: $bob), $position, $motion)];

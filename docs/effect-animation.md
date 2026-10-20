@@ -177,7 +177,8 @@ original terminal glyph or static tile and log a diagnostic, not a gameplay
 failure.
 
 `Data/Presentation/field.php` owns `cues`, keyed by terminal color, each with
-an `effect` id (the upright cue mark) and optional `pointer` images keyed by
+an `effect` id (the upright cue mark), an optional `plate` image drawn behind
+that colour's marks, and optional `pointer` images keyed by
 eight compass directions. Each pointer names an asset-relative PNG and an
 optional clockwise `quarterTurns` (0..3); a straight and a diagonal image with
 quarter turns cover all eight. An edge marker is composed, never baked: the
@@ -200,17 +201,17 @@ rotate them) leaves waymarks as terminal glyphs and logs a note once.
 
 ```php
 'cueStyle' => [
-  'plate' => 'Graphics/System/CuePlate.png',     // drawn behind every graphical mark; omit for none
   'bob' => ['height' => 3, 'seconds' => 1.2],     // logical pixels and seconds; held still under reduced motion
   'pointerSpacing' => ['x' => 24, 'y' => 30],     // logical pixels from an edge mark's centre to its pointer
   'terminal' => ['background' => 'black', 'bold' => true],
 ],
 ```
 
-The mark's outline is part of its artwork, so new art drops in by changing
-the cue effect or plate data only. In the Terminal every cue glyph (event
+The mark's outline is part of its artwork and each colour names its own
+plate, so new art drops in by changing the cue binding's effect, plate or
+pointer data only. In the Terminal every cue glyph (event
 cues, waymark marks and edge arrows) takes the style's background cell and
-bold. Engine defaults: no plate, no bob, pointer spacing 24 across and 30 up or down (a tall mark needs more), and a
+bold. Engine defaults: no bob, pointer spacing 24 across and 30 up or down (a tall mark needs more), and a
 black, bold Terminal cell.
 
 The initial field subset did not include battle playback; its current shared

@@ -70,9 +70,13 @@ final readonly class FieldPresentationCatalog
       if (is_array($cue) && array_key_exists('edges', $cue)) {
         throw new InvalidArgumentException('Cue edges are now an upright marker and a turning pointer: replace edges with pointer images.');
       }
-      if (!is_string($color) || !is_array($cue) || array_diff(array_keys($cue), ['effect', 'pointer']) !== []
-        || !is_string($cue['effect'] ?? null)) {
-        throw new InvalidArgumentException('A field cue binding needs an effect identity and optional directional pointer images.');
+      if (!is_string($color) || !is_array($cue) || array_diff(array_keys($cue), ['effect', 'plate', 'pointer']) !== []
+        || !is_string($cue['effect'] ?? null) || (array_key_exists('plate', $cue) && !is_string($cue['plate']))) {
+        throw new InvalidArgumentException('A field cue binding needs an effect identity, an optional plate image and optional directional pointer images.');
+      }
+      if (isset($cue['plate'])) {
+        SpriteValidation::validateAssetPath($cue['plate']);
+        if ($presentation === EffectPresentation::GRAPHICAL) { PngAssetPreflight::inspect($assetRoot, $cue['plate']); }
       }
       EffectTimelineLibrary::assertId($cue['effect']);
       $pointer = $cue['pointer'] ?? [];
@@ -90,9 +94,6 @@ final readonly class FieldPresentationCatalog
       }
     }
     $cueStyle = FieldCueStyle::fromArray($data['cueStyle'] ?? null);
-    if ($cueStyle->plate !== null && $presentation === EffectPresentation::GRAPHICAL) {
-      PngAssetPreflight::inspect($assetRoot, $cueStyle->plate);
-    }
     $declarations = array_key_exists('resources', $data) ? $data['resources'] : [];
     if (!is_array($declarations)) { throw new InvalidArgumentException('Field resources must be keyed by stable resource id.'); }
     $resources = [];

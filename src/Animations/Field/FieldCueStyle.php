@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Animations\Field;
 
-use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use InvalidArgumentException;
 use Symfony\Component\Console\Formatter\OutputFormatterStyle;
 
@@ -13,15 +12,14 @@ use Symfony\Component\Console\Formatter\OutputFormatterStyle;
  * waymarks and their edge markers. Authored as `cueStyle` in
  * `Data/Presentation/field.php`.
  *
- * Graphics: an optional plate image drawn behind the mark, an optional
- * gentle bob (held still under reduced motion), and how far an edge
+ * Graphics: an optional gentle bob (held still under reduced motion), and how far an edge
  * marker's pointer sits from its mark across and up or down. The mark's own outline belongs to its
  * artwork. Terminal: a contrasting background cell and bold, so a glyph
  * reads on coloured terrain.
  */
 final readonly class FieldCueStyle
 {
-  public const array FIELDS = ['plate', 'bob', 'pointerSpacing', 'terminal'];
+  public const array FIELDS = ['bob', 'pointerSpacing', 'terminal'];
   public const array SPACING_FIELDS = ['x', 'y'];
   public const array BOB_FIELDS = ['height', 'seconds'];
   public const array TERMINAL_FIELDS = ['background', 'bold'];
@@ -31,7 +29,6 @@ final readonly class FieldCueStyle
   public const int MAX_POINTER_SPACING = 96;
 
   /**
-   * @param string|null $plate Asset-relative PNG drawn behind each graphical mark, or none.
    * @param int $bobHeight Logical pixels a graphical mark rises at the top of its bob; 0 holds it still.
    * @param float $bobSeconds One full bob.
    * @param int $pointerSpacingX Logical pixels across from an edge mark's centre to its pointer's centre.
@@ -41,7 +38,6 @@ final readonly class FieldCueStyle
    * @param bool $terminalBold Whether a cue glyph is bold.
    */
   public function __construct(
-    public ?string $plate = null,
     public int $bobHeight = 0,
     public float $bobSeconds = 1.2,
     public int $pointerSpacingX = 24,
@@ -50,7 +46,6 @@ final readonly class FieldCueStyle
     public bool $terminalBold = true,
   )
   {
-    if ($this->plate !== null) { SpriteValidation::validateAssetPath($this->plate); }
     if ($this->bobHeight < 0 || $this->bobHeight > self::MAX_BOB_HEIGHT) {
       throw new InvalidArgumentException('A cue bob height must be 0..12 logical pixels.');
     }
@@ -76,10 +71,8 @@ final readonly class FieldCueStyle
   {
     if ($data === null) { return new self(); }
     if (!is_array($data) || array_diff(array_keys($data), self::FIELDS) !== []) {
-      throw new InvalidArgumentException('cueStyle accepts plate, bob, pointerSpacing and terminal.');
+      throw new InvalidArgumentException('cueStyle accepts bob, pointerSpacing and terminal; a plate belongs to its cue colour.');
     }
-    $plate = $data['plate'] ?? null;
-    if ($plate !== null && !is_string($plate)) { throw new InvalidArgumentException('A cue plate is an asset path.'); }
     $bob = $data['bob'] ?? null;
     if ($bob !== null && (!is_array($bob) || array_diff(array_keys($bob), self::BOB_FIELDS) !== []
       || !is_int($bob['height'] ?? 0) || !(is_int($bob['seconds'] ?? 1) || is_float($bob['seconds'] ?? 1.0)))) {
@@ -99,7 +92,7 @@ final readonly class FieldCueStyle
     $bold = $terminal['bold'] ?? true;
     if (!is_bool($bold)) { throw new InvalidArgumentException('Cue bold is true or false.'); }
 
-    return new self($plate === null ? null : trim($plate), (int)($bob['height'] ?? 0), (float)($bob['seconds'] ?? 1.2),
+    return new self((int)($bob['height'] ?? 0), (float)($bob['seconds'] ?? 1.2),
       $spacing['x'] ?? 24, $spacing['y'] ?? 30, $background === null ? null : trim($background), $bold);
   }
 
