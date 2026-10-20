@@ -402,6 +402,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
       if ($this->getGameScene()->fieldConditions?->registerStep() === false) {
         return;
       }
+      $this->getGameScene()->income?->recordStep();
       $this->getGameScene()->encounterManager?->registerStep($collisionType);
       if ($this->getGameScene()->mapManager->isAtSavePoint) {
         alert("Access the Menu to save your progress.", 'Save Point');
