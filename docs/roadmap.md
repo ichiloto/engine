@@ -393,37 +393,48 @@ Turn the polished stage into a real fight. Roughly in order:
 > `trainingHours` decision (kept — spells still gate on it), and the equipment
 > stat-delta preview, which was already implemented in `CharacterDetailPanel`.
 
-#### Project-owned level-up recovery (2026-10-13)
+#### Project-owned level-up recovery (2026-10-13, three modes 2026-10-21)
 
 `assets/Data/system.php` may declare this optional section:
 
 ```php
 'progression' => [
-  'restoreVitalsOnLevelUp' => true,
+  'levelUpRecovery' => 'full',
 ],
 ```
 
 The section must be an associative PHP array (an empty array is valid); its
-only supported key is `restoreVitalsOnLevelUp`, whose value must be a literal
-boolean. Omitted section or key means `true`, preserving existing games. Null,
-strings, numbers, lists, objects and unknown section keys are rejected rather
-than coerced. Unrelated system fields remain unchanged.
+only supported key is `levelUpRecovery`, a `LevelUpRecovery` value. Andrew,
+2026-10-21: "make it an editor setting, default to full restore".
+
+| Value | Current HP and MP after a level gained | Precedent |
+|---|---|---|
+| `full` (default) | refilled to the new maxima | Dragon Quest XI, Octopath, Xenoblade 2 |
+| `increase` | each gains what its maximum gained | Pokemon |
+| `none` | unchanged; only the maxima rise | Final Fantasy IV to VI |
+
+One mode covers both resources. A knocked-out member (0 HP) is restored only
+by `full`, which matches the behaviour before the modes existed; `increase`
+keeps 0 HP (adding to it would revive by levelling) while MP gains its
+increase. A multi-level award recovers exactly as the same levels gained one
+award at a time. Omitted section or key means `full`. Null, booleans, case
+names, unknown values and unknown keys are rejected rather than coerced. The
+2026-10-13 boolean `restoreVitalsOnLevelUp` is refused with its replacement
+named (`full` for true, `none` for false); no project data used it.
 
 `SystemData::$progression` is a validated, immutable `ProgressionSettings`.
 Game bootstrap registers the same contract in `ConfigStore` for the existing
-`ExperienceAwarder::award()` / `awardParty()` path. `true` restores current HP
-and MP to their equipment-aware maxima only when an award raises the level;
-`false` disables that automatic refill and preserves current resources (with
-the existing maximum clamping). EXP, level growth, automatic role-skill grants,
-AP and states are unchanged. Battle and quest awards share this path; scripted
-and migration EXP callers must use it too, not raw `Character::addExperience()`.
-This adds no new script command or migration behavior.
+`ExperienceAwarder::award()` / `awardParty()` path, which battle victories and
+quest rewards share for active and reserve members alike. The mode applies only
+when an award raises the level. EXP, level growth, automatic role-skill grants,
+AP and states are unchanged. Scripted and migration EXP callers must use this
+path too, not raw `Character::addExperience()`.
 
 This is developer-owned project data, not a player option, launch override or
 save field. Equipment recalculation, save hydration, legacy invalid-vital save
-recovery and battle-test setup keep their existing semantics. Editor/GUI
-authoring must preserve other system data and round-trip literal booleans;
-their integration remains with the Editor owner.
+recovery and battle-test setup keep their existing semantics. The Editor
+authors it as Database > System > Level Up HP/MP, which the GUI editor shows
+through the same record schema.
 
 #### Original plan
 - **Classes** — `ClassStore` over `classes.php`; actors reference a class by

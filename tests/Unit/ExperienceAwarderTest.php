@@ -12,6 +12,7 @@ use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Entities\ParameterChanges;
 use Ichiloto\Engine\Entities\States\State;
 use Ichiloto\Engine\Progression\ExperienceAwarder;
+use Ichiloto\Engine\Progression\LevelUpRecovery;
 use Ichiloto\Engine\Progression\ProgressionSettings;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
@@ -144,8 +145,24 @@ it('reports capped progression without a fictional next-level threshold', functi
   ]);
 });
 
-it('applies the project recovery policy without changing growth, equipment, skills, AP or states', function (bool $restore) {
-  ConfigStore::put(ProgressionSettings::class, ProgressionSettings::fromArray(['restoreVitalsOnLevelUp' => $restore]));
+/** The current HP and MP each mode leaves after maxima rose from the before values. */
+function expectedLevelUpVitals(LevelUpRecovery $mode, Character $character, array $current, array $previousTotals): array
+{
+  [$hp, $mp] = $current;
+  [$totalHp, $totalMp] = [$character->stats->totalHp, $character->stats->totalMp];
+
+  return match ($mode) {
+    LevelUpRecovery::FULL => [$totalHp, $totalMp],
+    LevelUpRecovery::INCREASE => [
+      $hp === 0 ? 0 : min($totalHp, $hp + $totalHp - $previousTotals[0]),
+      min($totalMp, $mp + $totalMp - $previousTotals[1]),
+    ],
+    LevelUpRecovery::NONE => [$hp, $mp],
+  };
+}
+
+it('applies the project recovery mode without changing growth, equipment, skills, AP or states', function (LevelUpRecovery $mode) {
+  ConfigStore::put(ProgressionSettings::class, ProgressionSettings::fromArray(['levelUpRecovery' => $mode->value]));
   $character = progressionTestCharacter('Policy Hero');
   $gear = new Weapon('Fixture Blade', '', '!', 1, parameterChanges: new ParameterChanges(totalHp: 50, totalMp: 10));
   $slot = $character->equipment[0];
@@ -167,37 +184,71 @@ it('applies the project recovery policy without changing growth, equipment, skil
     ->and($character->currentExp)->toBe($experience)
     ->and($character->stats->totalHp)->toBeGreaterThan($beforeHp)
     ->and($character->stats->totalMp)->toBeGreaterThan($beforeMp)
-    ->and($character->stats->currentHp)->toBe($restore ? $character->stats->totalHp : 7)
-    ->and($character->stats->currentMp)->toBe($restore ? $character->stats->totalMp : 3)
+    ->and([$character->stats->currentHp, $character->stats->currentMp])
+      ->toBe(expectedLevelUpVitals($mode, $character, [7, 3], [$beforeHp, $beforeMp]))
+    ->and($character->stats->currentHp)->toBeLessThanOrEqual($character->stats->totalHp)
+    ->and($character->stats->currentMp)->toBeLessThanOrEqual($character->stats->totalMp)
     ->and($character->stats->currentAp)->toBe(2)
     ->and($character->states[0]->remainingTurns)->toBe(4)
     ->and($character->hasState('fixture-state'))->toBeTrue()
     ->and($character->equipment[0]->equipment)->toBe($gear)
     ->and($result->learnedAbilities)->toBe(['Role Ability'])
     ->and($result->learnedMagic)->toBe(['Role Magic']);
-})->with([true, false]);
+})->with(LevelUpRecovery::cases());
 
-it('preserves a knocked-out travelling member when recovery is disabled', function (bool $restore) {
-  ConfigStore::put(ProgressionSettings::class, new ProgressionSettings($restore));
+it('recovers a multi-level jump exactly as the same levels gained one award at a time', function (LevelUpRecovery $mode) {
+  ConfigStore::put(ProgressionSettings::class, new ProgressionSettings($mode));
+  $jumping = progressionTestCharacter('Jumping');
+  $stepping = progressionTestCharacter('Stepping');
+  foreach ([$jumping, $stepping] as $character) {
+    $character->stats->currentHp = 9;
+    $character->stats->currentMp = 4;
+  }
+  $thresholds = $jumping->getLevelExperienceThresholds();
+
+  ExperienceAwarder::award($jumping, $thresholds[5]);
+  foreach ([2, 3, 4, 5] as $level) {
+    ExperienceAwarder::award($stepping, $thresholds[$level] - $stepping->currentExp);
+  }
+
+  expect($jumping->level)->toBe(5)
+    ->and($stepping->level)->toBe(5)
+    ->and($jumping->stats->totalHp)->toBe($stepping->stats->totalHp)
+    ->and([$jumping->stats->currentHp, $jumping->stats->currentMp])
+      ->toBe([$stepping->stats->currentHp, $stepping->stats->currentMp]);
+})->with(LevelUpRecovery::cases());
+
+it('treats active and reserve members alike and revives a knocked-out member only by full restore', function (LevelUpRecovery $mode) {
+  ConfigStore::put(ProgressionSettings::class, new ProgressionSettings($mode));
   $party = new Party();
-  foreach (['Active', 'Reserve'] as $name) {
+  // Five travelling members: three battlers and two reserves, a knocked-out member among each.
+  $vitals = ['Active Down' => [0, 0], 'Active Hurt' => [20, 5], 'Active Fresh' => [100, 30], 'Reserve Down' => [0, 2], 'Reserve Hurt' => [20, 5]];
+  $previousTotals = [];
+  foreach ($vitals as $name => [$hp, $mp]) {
     $character = progressionTestCharacter($name);
-    $character->stats->currentHp = 0;
-    $character->stats->currentMp = 0;
+    $previousTotals[$name] = [$character->stats->totalHp, $character->stats->totalMp];
+    $character->stats->currentHp = $hp;
+    $character->stats->currentMp = $mp;
     $party->addMember($character);
   }
+  $reserves = array_map(static fn(Character $member): string => $member->name,
+    array_slice($party->members->toArray(), Party::BATTLE_SIZE));
 
   $results = ExperienceAwarder::awardParty($party, 10000);
-  expect($results)->toHaveCount(2);
+
+  expect($results)->toHaveCount(5)->and($reserves)->toBe(['Reserve Down', 'Reserve Hurt']);
   foreach ($party->members->toArray() as $character) {
     expect($character->level)->toBeGreaterThanOrEqual(4)
-      ->and($character->stats->currentHp)->toBe($restore ? $character->stats->totalHp : 0)
-      ->and($character->stats->currentMp)->toBe($restore ? $character->stats->totalMp : 0);
+      ->and($character->stats->totalHp)->toBeGreaterThan($previousTotals[$character->name][0])
+      ->and($character->stats->totalMp)->toBeGreaterThan($previousTotals[$character->name][1])
+      ->and([$character->stats->currentHp, $character->stats->currentMp])
+        ->toBe(expectedLevelUpVitals($mode, $character, $vitals[$character->name], $previousTotals[$character->name]))
+      ->and($character->isKnockedOut)->toBe($vitals[$character->name][0] === 0 && $mode !== LevelUpRecovery::FULL);
   }
-})->with([true, false]);
+})->with(LevelUpRecovery::cases());
 
-it('never refills resources without a level gain under either policy', function (bool $restore) {
-  ConfigStore::put(ProgressionSettings::class, new ProgressionSettings($restore));
+it('never changes resources without a level gain under any mode', function (LevelUpRecovery $mode) {
+  ConfigStore::put(ProgressionSettings::class, new ProgressionSettings($mode));
   $character = progressionTestCharacter('Unchanged');
   $character->stats->currentHp = 7;
   $character->stats->currentMp = 3;
@@ -209,10 +260,10 @@ it('never refills resources without a level gain under either policy', function 
   }
   ExperienceAwarder::reconcileAutomaticRoleSkills($character);
   expect($character->stats->currentHp)->toBe(7)->and($character->stats->currentMp)->toBe(3);
-})->with([true, false]);
+})->with(LevelUpRecovery::cases());
 
-it('leaves damaged save hydration and equipment recalculation outside the recovery policy', function (bool $restore) {
-  ConfigStore::put(ProgressionSettings::class, new ProgressionSettings($restore));
+it('leaves damaged save hydration and equipment recalculation outside the recovery mode', function (LevelUpRecovery $mode) {
+  ConfigStore::put(ProgressionSettings::class, new ProgressionSettings($mode));
   new ReflectionProperty(ClassStore::class, 'definitions')->setValue(null, [
     'fixture role' => ['name' => 'Fixture Role', 'parameterCurves' => [
       'totalHp' => ['baseValue' => 100], 'totalMp' => ['baseValue' => 30],
@@ -243,14 +294,14 @@ it('leaves damaged save hydration and equipment recalculation outside the recove
   $slot->equipment = null;
   new ReflectionMethod(Character::class, 'adjustStatTotals')->invoke($loaded);
   expect($loaded->stats->currentHp)->toBe(7)->and($loaded->stats->currentMp)->toBe(3);
-})->with([true, false]);
+})->with(LevelUpRecovery::cases());
 
 it('rejects invalid award inputs before modifying character progression', function () {
   $character = progressionTestCharacter('Invalid');
   $before = serialize($character);
   expect(fn() => ExperienceAwarder::award($character, -1))->toThrow(InvalidArgumentException::class)
     ->and(serialize($character))->toBe($before);
-  ConfigStore::put(ProgressionSettings::class, new SceneAudioConfigStub(['restoreVitalsOnLevelUp' => false]));
+  ConfigStore::put(ProgressionSettings::class, new SceneAudioConfigStub(['levelUpRecovery' => 'none']));
   expect(fn() => ExperienceAwarder::award($character, 10000))->toThrow(InvalidArgumentException::class, 'validated project contract')
     ->and(serialize($character))->toBe($before);
 });
