@@ -742,6 +742,20 @@ their integration remains with the Editor owner.
 > unchanged. Invalid resources, field-only actions and ambiguous linked summon
 > actions are refused rather than silently omitted.
 >
+> **Battle-test troops and the graphical arena (2026-10-21):** after the
+> troops, the arena composes a test troop (`TestTroopComposer` over
+> `BattleTestTroop`): enemies join where `TerminalBattleEffects::findTroopPlace()`
+> stands a new member on the terminal field, move on the stage where a
+> graphical battle draws it, are fought like any troop and can be kept as a
+> troop through a `BattleTestTroopKeeper` (the Editor's writer for the
+> Console; `LaunchTroopHandOver` back to an editor that launched the test,
+> asked for by the launch context's `keepTroops`). Without a keeper a composed
+> troop is for testing only. Under a graphical renderer the arena is drawn in
+> the game's menu theme (`BattleTestMenuPresentation`) beside the battle's own
+> resting stage (`BattleFormationLayout::composeImagesInto()`); Terminal and
+> GPUI read one list model, `BattleTestMenuList`, and the Terminal reads as
+> before.
+>
 > **Simulator action choice (2026-10-20):** `--runs` measured both sides with
 > the built-in x1 `AttackAction` and ignored enemy patterns, so a project whose
 > actors attack with an authored `attackSkill` (Last Legend's x4 Attack) and
