@@ -10,7 +10,6 @@ use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
@@ -37,6 +36,8 @@ use Ichiloto\Engine\UI\Presentation\MenuDetailSheet;
 use Ichiloto\Engine\UI\Presentation\MenuDetailStyle;
 use Ichiloto\Engine\UI\Presentation\MenuDetailViewport;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\MenuRowColumn;
+use Ichiloto\Engine\UI\Presentation\MenuTableText;
 use Ichiloto\Engine\UI\Text\TextViewport;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -300,7 +301,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             return array_fill(0, self::SUMMARY_HEIGHT - 2, '');
         }
         // Name, level and the SP total sit together, as one corner block; the Terminal shows the total at once.
-        $lines = [sprintf(' %s   %s %d   %s %d', $this->character->name, Vocabulary::getTerm('stats.level', 'Lv'), $this->character->level,
+        $lines = [sprintf(' %s   %s %d   %s %d', $this->character->name, Vocabulary::getTerm('stats.level_short'), $this->character->level,
             MasteryVocabulary::getPointsLabel(), $this->character->mastery->points)];
         foreach ($this->getSummary() as $label => $value) {
             $lines[] = sprintf(' %s: %s', $label, $value);
@@ -309,15 +310,17 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         return array_pad(array_slice($lines, 0, self::SUMMARY_HEIGHT - 2), self::SUMMARY_HEIGHT - 2, '');
     }
 
-    /** @return list<string> Each skill on one line, its status or price right-aligned in one column. */
+    /** @return list<string> Each skill on one line, its status or price right-aligned in one shared column. */
     protected function buildListEntries(): array
     {
         $width = self::MENU_WIDTH - self::DETAIL_WIDTH - 6;
-        return array_map(function (MasteryNodeStatus $status) use ($width): string {
-            $value = $this->describeState($status);
-            $name = TerminalText::truncateToWidth($this->getNodeLabel($status), max(1, $width - TerminalText::displayWidth($value) - 2));
-            return TerminalText::padRight($name, max(1, $width - TerminalText::displayWidth($value))) . $value;
-        }, $this->getRegionStatuses());
+        $statuses = $this->getRegionStatuses();
+        $values = array_map($this->describeState(...), $statuses);
+        $columns = [MenuRowColumn::fit($values)];
+        $labelCells = max(1, $width - MenuTableText::getColumnCells($columns));
+
+        return array_map(fn(MasteryNodeStatus $status, string $value): string =>
+            MenuTableText::formatRow($this->getNodeLabel($status), [$value], $columns, $labelCells), $statuses, $values);
     }
 
     /** @return list<string> The focused skill's detail sheet, in the shared Terminal columns. */
@@ -404,7 +407,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             $status->secret => '???',
             $status->state === MasteryNodeState::LEARNED => $this->getLearnedText(),
             $status->state === MasteryNodeState::OPEN => (string)$status->node->cost,
-            $status->opensAtLevel !== null => sprintf('Unlocks at %s %d', Vocabulary::getTerm('stats.level', 'Lv'), $status->opensAtLevel),
+            $status->opensAtLevel !== null => sprintf('Unlocks at %s %d', Vocabulary::getTerm('stats.level_short'), $status->opensAtLevel),
             default => 'Locked',
         };
     }
@@ -413,7 +416,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     protected function describeCardState(MasteryNodeStatus $status): string
     {
         return $status->state === MasteryNodeState::LOCKED && ! $status->secret && $status->opensAtLevel !== null
-            ? sprintf('%s %d', Vocabulary::getTerm('stats.level', 'Lv'), $status->opensAtLevel)
+            ? sprintf('%s %d', Vocabulary::getTerm('stats.level_short'), $status->opensAtLevel)
             : $this->describeState($status);
     }
 
@@ -437,7 +440,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         }
         $conditions = [];
         if ($status->opensAtLevel !== null) {
-            $conditions[] = sprintf('Unlocks at %s %d', Vocabulary::getTerm('stats.level', 'Lv'), $status->opensAtLevel);
+            $conditions[] = sprintf('Unlocks at %s %d', Vocabulary::getTerm('stats.level_short'), $status->opensAtLevel);
         }
         if ($status->missing !== []) {
             $map = $this->getMap();

@@ -44,7 +44,7 @@ final class MasteryMenuPresentation
 
     // Summary: portrait, name, level and SP together in one corner block, then how much is learned.
     $portrait = isset($theme->portraits[$actor->actorId]) ? $m->portraitSize : 0;
-    $identity = $content->title . "\n" . $actor->name . "\n" . Vocabulary::getTerm('stats.level', 'Lv') . ' ' . $actor->level
+    $identity = $content->title . "\n" . $actor->name . "\n" . Vocabulary::getTerm('stats.level_short') . ' ' . $actor->level
       . "\n" . $content->getPointsText($time);
     $summaryText = implode("\n", array_map(static fn(string $label, string $value): string => "{$label}: {$value}",
       array_keys($content->summary), $content->summary));
