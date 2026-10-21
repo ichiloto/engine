@@ -604,3 +604,15 @@ it('keeps skill content and healthy artwork when only the actor portrait is unav
   expect($state->getPresentationContent()->tabIndex)->toBe(1)
     ->and(implode('', skillMenuText($this->scene->getPresentationCanvas())))->toContain($magic ? 'Zeta Spell' : 'Zeta Ability');
 })->with([false, true]);
+
+it('shows the Learn tab only to a character with something to learn there', function (bool $magic) {
+  $state = skillMenuOwner($this, $magic);
+  $withLearnables = $state->getPresentationContent()->tabs;
+  skillMenuKey($state, KeyCode::Q);
+  $without = $state->getPresentationContent();
+
+  expect($withLearnables)->toContain('Learn')
+    ->and($without->character)->toBe($this->ally)
+    ->and($without->tabs)->toBe($magic ? ['Use', 'Sort'] : ['Ready', 'Sort'])
+    ->and($without->tabs[$without->tabIndex])->toBe($magic ? 'Use' : 'Ready');
+})->with([false, true]);

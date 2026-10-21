@@ -70,7 +70,9 @@ final class BattleTargetPolicy
     }
     $selected = array_values($selected);
     if ($scope->number === ItemScopeNumber::ONE) {
-      return [$selected[0] ?? $eligible[0]];
+      $target = $selected[0] ?? $eligible[0];
+
+      return [$scope->side === ItemScopeSide::ENEMY ? self::applyCover($target, $eligible) : $target];
     }
 
     $count = max(1, min($scope->targetCount ?? 1, count($eligible)));
@@ -86,5 +88,29 @@ final class BattleTargetPolicy
       array_splice($pool, $index, 1);
     }
     return $selected;
+  }
+
+  /**
+   * Redirects a single-target hit meant for the weakest member of a side to a
+   * member of that side who is covering it (Cover). The weakest member is the
+   * one with the smallest share of its maximum HP; a coverer never covers itself.
+   *
+   * @param CharacterInterface $target The intended target.
+   * @param CharacterInterface[] $side The target's side, as eligible for this action.
+   * @return CharacterInterface The battler the hit lands on.
+   */
+  private static function applyCover(CharacterInterface $target, array $side): CharacterInterface
+  {
+    $coverer = array_find($side, static fn(CharacterInterface $member): bool => $member !== $target
+      && $member->isFighting && method_exists($member, 'isCoveringAllies') && $member->isCoveringAllies());
+    if ($coverer === null) {
+      return $target;
+    }
+
+    $share = static fn(CharacterInterface $member): float => $member->stats->currentHp / max(1, $member->stats->totalHp);
+    $covered = array_filter($side, static fn(CharacterInterface $member): bool => $member !== $coverer && $member->isFighting);
+    usort($covered, static fn(CharacterInterface $a, CharacterInterface $b): int => $share($a) <=> $share($b));
+
+    return ($covered[0] ?? null) === $target ? $coverer : $target;
   }
 }

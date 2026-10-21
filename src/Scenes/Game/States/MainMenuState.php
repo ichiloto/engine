@@ -10,6 +10,7 @@ use Ichiloto\Engine\Core\Menu\Commands\OpenControlsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenEquipmentMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenItemsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenMagicMenuCommand;
+use Ichiloto\Engine\Core\Menu\Commands\OpenMasteryMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenQuestsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenRecordsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenSummonsMenuCommand;
@@ -315,6 +316,11 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
             ->addItem(new OpenAbilityMenuCommand($this->mainMenu))
             ->addItem(new OpenEquipmentMenuCommand($this->mainMenu))
             ->addItem(new OpenMagicMenuCommand($this->mainMenu));
+
+        // Each character's own skills are learned on their Mastery Map, when the project gives them one.
+        if (MasteryMenuState::projectHasMaps()) {
+            $this->mainMenu->addItem(new OpenMasteryMenuCommand($this->mainMenu));
+        }
 
         // Only currently available summons belong in player management.
         if (! empty(SummonsMenuState::loadSummons($this->getGameScene()->gameState, $this->party))) {

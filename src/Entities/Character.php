@@ -41,6 +41,7 @@ use Ichiloto\Engine\Entities\Roles\CharacterRole;
 use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\Entities\Stats\EntityStatCapPolicy;
 use Ichiloto\Engine\Entities\Stats\PermanentGrowthLedger;
+use Ichiloto\Engine\Progression\Mastery\MasteryProgress;
 use Ichiloto\Engine\Entities\Stats\PermanentStatModifier;
 use Ichiloto\Engine\Entities\Stats\StatKey;
 use Ichiloto\Engine\Entities\Stats\StatResolution;
@@ -71,6 +72,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
   public function __clone(): void
   {
     $this->stats = clone $this->stats;
+    $this->mastery = clone $this->mastery;
     $this->cloneStateInstances();
   }
 
@@ -279,6 +281,8 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
   protected(set) array $actorNaturalAdjustments = [];
   /** Saved acquired permanent growth; never contains equipment or temporary effects. */
   protected(set) PermanentGrowthLedger $permanentGrowth;
+  /** What this character has done on their Mastery Map; the map itself is the project's data. */
+  public MasteryProgress $mastery;
   /** Optional stable identity of a project-defined runtime-selectable natural variant. */
   protected(set) ?string $naturalVariantId = null;
   /** Stable project actor identity; distinct from the mutable display name. */
@@ -349,6 +353,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
     $this->spellbook = $spellbook ?? new Spellbook();
     $this->actorNaturalAdjustments = self::normalizeNaturalAdjustments($actorNaturalAdjustments);
     $this->permanentGrowth = $permanentGrowth ?? new PermanentGrowthLedger();
+    $this->mastery = new MasteryProgress();
     $this->naturalVariantId = ($naturalVariantId !== null && trim($naturalVariantId) !== '')
       ? trim($naturalVariantId)
       : null;
@@ -1249,6 +1254,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
     $this->permanentGrowth = PermanentGrowthLedger::fromArray(
       is_array($data['permanentGrowth'] ?? null) ? $data['permanentGrowth'] : []
     );
+    $this->mastery = MasteryProgress::fromArray(is_array($data['mastery'] ?? null) ? $data['mastery'] : []);
     $this->summons = self::normalizeSummonAssignments($data['summons'] ?? []);
 
     $savedRole = $data['role'] ?? $data['class'] ?? null;
@@ -1328,6 +1334,11 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
         $this->spellbook = is_array($value)
           ? Spellbook::fromArray($value)
           : ($value instanceof Spellbook ? $value : new Spellbook());
+        continue;
+      }
+
+      if ($key === 'mastery') {
+        $this->mastery = is_array($value) ? MasteryProgress::fromArray($value) : new MasteryProgress();
         continue;
       }
 
@@ -1477,6 +1488,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
         ))
       ),
       'permanentGrowth' => $this->permanentGrowth->jsonSerialize(),
+      'mastery' => $this->mastery->jsonSerialize(),
       ...($this->naturalVariantId !== null ? ['naturalVariantId' => $this->naturalVariantId] : []),
     ];
   }

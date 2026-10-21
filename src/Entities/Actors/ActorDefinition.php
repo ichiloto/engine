@@ -7,6 +7,7 @@ use Ichiloto\Engine\Battle\CounterAttackRule;
 use Ichiloto\Engine\Entities\Enumerations\WeaponType;
 use Ichiloto\Engine\Entities\Stats\StatKey;
 use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
+use Ichiloto\Engine\Progression\ExperienceAwarder;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Util\Debug;
@@ -130,6 +131,9 @@ final class ActorDefinition
     if ($savedState !== []) {
       $character->restoreMutableState($savedState);
     }
+    // A new or restored character knows every role skill of their level and
+    // stands where their Mastery Map says, even if a save predates either.
+    ExperienceAwarder::reconcileAutomaticRoleSkills($character);
 
     return $character;
   }
