@@ -212,6 +212,7 @@ final class GraphicalBattlePresentation
     $combatantImages = [];
     $conditionBattlers = [];
     $groundAnchors = [];
+    $partySides = [];
     $protectedCombatants = [];
     foreach ($this->participants as $identity => $participant) {
       $battler = $participant['battler'];
@@ -271,10 +272,11 @@ final class GraphicalBattlePresentation
       $unmovedX = $bounds->x;
       $unmovedY = $bounds->y;
       $bounds = new CanvasRectangle(clamp($bounds->x + $slot->width * $recoil
-        + ($participant['party'] ? -1 : 1) * $slot->width * .25 * $advance,
+        + BattleEffectDirection::getOpponentsSign($participant['party']) * $slot->width * .25 * $advance,
         0, max(0, $this->layout->width - $bounds->width)),
         clamp($bounds->y, 0, max(0, $this->layout->height - $bounds->height)), $bounds->width, $bounds->height);
       $groundAnchors[$identity] = new Vector2($slot->x + ($bounds->x - $unmovedX), $slot->y + ($bounds->y - $unmovedY));
+      $partySides[$identity] = $participant['party'];
       $image = new CanvasImage($image->id, $art->asset, $bounds, $image->layer, $art->sourceRect);
       $combatantBounds[$identity] = $bounds;
       $popups = array_filter($feedback, static fn(array $popup) => $popup['battler'] === $battler);
@@ -363,7 +365,7 @@ final class GraphicalBattlePresentation
         $includeOptionalArtwork);
       if ($condition === null) { continue; }
       $ambient = GraphicalBattleEffects::compose($condition, $this->layout, $combatantBounds, $this->assetRoot,
-        $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors);
+        $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors, $partySides);
       array_push($images, ...$ambient->images);
       array_push($text, ...$ambient->textLayers);
       array_push($composites, ...$ambient->composites);
@@ -371,7 +373,7 @@ final class GraphicalBattlePresentation
     }
     if ($playback !== null && $includeOptionalArtwork) {
       $effects = GraphicalBattleEffects::compose($playback, $this->layout, $combatantBounds, $this->assetRoot,
-        $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors);
+        $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors, $partySides);
       array_push($images, ...$effects->images);
       array_push($text, ...$effects->textLayers);
       array_push($composites, ...$effects->composites);

@@ -607,6 +607,17 @@ healing and other undirected effects omit it. No actor-name or artwork-path
 inference is involved. Terminal playback mirrors its small glyph strokes and
 offsets, not graphical poses or full-screen flourishes.
 
+A directional track may also declare `toward => recipient|opponents` (track level,
+battle only, with `facing`; `EffectFacingTarget::cases()` lists it for authoring).
+`recipient`, the default, is the turn described above. `opponents` turns the track
+toward the anchored battler's opponents whatever side its caster stands on: a ward
+raised in front of its recipient faces that recipient's enemies when an ally casts
+it from either side or the battler casts it on itself. `BattleEffectDirection::getOpponentsSign`
+owns the side convention (the party faces west, the troop east) for command advance
+and these tracks alike. GPUI passes each combatant's side from its formation; Terminal
+reads it from the battler's party or troop membership. A subject with neither keeps the
+authored facing. Last Legend's Barrier ward (`battle-barrier`) is the first consumer.
+
 Battle image keyframes additionally accept boolean `flipX` and `flipY`. These
 mirror the selected source cell, not the entire sheet or its destination. The
 automatic horizontal mirror combines with the authored `flipX` (two mirrors
@@ -1177,7 +1188,7 @@ the artwork binding is not frozen into a save.
 A null skill reference uses an explicitly declared semantic animation default,
 not its display name. `ActionAnimationResolver::getSupportedRoles()` supplies
 the closed role list for validation and Editor selectors: `attack`, `skill`,
-`restorative`, `attack-unarmed`, and `attack-<type>` for every `WeaponType`.
+`restorative`, `buff`, `debuff`, `attack-unarmed`, and `attack-<type>` for every `WeaponType`.
 Both AttackAction and BasicSkill without an explicit id use the actor's current
 equipped weapon type, otherwise the actor's authored `attackStyle`, otherwise
 `attack-unarmed`. Actor data may declare `attackStyle` as a `WeaponType` or its
@@ -1187,7 +1198,11 @@ bonus. It is rebuilt from current actor data when loading saves, never serialize
 as mutable state. Equipping a different weapon type overrides it; removing that
 upgrade restores the base style. Unclassified equipped weapons and non-equipment
 creatures use neutral `attack`, not an inferred blade. No class/name inference.
-Other skills retain restorative/buff-magic or generic-skill defaults. Explicit
+Restorative magic uses the `restorative` role; enhancement (`buff`) and affliction
+(`debuff`) magic use their own roles, so an unbound buff no longer borrows the healing
+look and an unbound debuff no longer borrows the generic skill strike (removed
+October 21, 2026: buff magic previously defaulted to `restorative`, debuff magic to
+`skill`). Other skills retain the generic-skill default. Explicit
 skill/item ids remain authoritative. Missing or duplicate role bindings are
 diagnosed and omit only that effect; they never silently substitute a slash.
 
