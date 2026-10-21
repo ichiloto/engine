@@ -512,11 +512,16 @@ line, where staging, footing, effects and its contact meet the ground
   flatness, and how fast it shrinks and fades with height), with each arena's
   strength and colour (`'shadow' => ['strength' => 1.3, 'color' => '#1a120c']`
   in arenas.php). No theme style draws no shadows.
-- Ripples and burrows ring the body where it breaks the surface, at layer
-  101, sized to its drawn width: the theme's sprite sheets
-  (`BattleContactEffects`, each a `BattlerPose` with its pivot on the surface
-  line), or until art exists a plain Engine-drawn placeholder in the theme's
-  colours.
+- Ripples and burrows are the surface reacting where a sunk body breaks it,
+  not decals over it (Andrew rejected overlays: "Both seem fake and overlay
+  the character"). Each (`BattleSurfaceEffect` in the theme's
+  `BattleContactEffects`) has an optional back layer drawn behind the body
+  (layer 95: water or earth rising around it) and an optional front lip
+  drawn over its surface line (layer 101), each a sprite sheet
+  (`BattlerPose`) with its pivot on the surface line, sized to the body's
+  drawn width; two aligned sheets share one placement. Until art exists the
+  Engine draws a quiet placeholder in the theme's colours: a faint ring
+  behind the body and a thin lip along its front edge only, never across it.
 - A battler scales its contact's width and strength (`contactWidth`,
   `contactOpacity`). Art that paints its own shadow is declared
   (`'bakedShadow' => true`): the Engine draws no second one and the art keeps
