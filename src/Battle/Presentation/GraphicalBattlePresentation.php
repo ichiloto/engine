@@ -39,6 +39,10 @@ final class GraphicalBattlePresentation
   private readonly BattleConditionEffects $conditionEffects;
   private readonly BattleHeadAttachmentLayout $headAttachments;
   private readonly EnemyDefeatStyle $defeatStyle;
+  /** Where this battle's party and troop stand, fixed for the battle. */
+  private BattleStaging $staging;
+  /** @var array<int, BattlerSlot> Troop member instance => its slot; defeat never renumbers survivors. */
+  private array $enemySlots = [];
 
   private function __construct(public readonly BattleArenaDefinition $arena, public readonly BattleCanvasLayout $layout,
     private readonly BattleConfig $battle,
@@ -62,6 +66,40 @@ final class GraphicalBattlePresentation
     return $placed['bounds'];
   }
 
+  /** Where a participant stands: its frontline slot, or its troop place on this arena's ground. */
+  public function getSlot(CharacterInterface $battler): BattlerSlot
+  {
+    $identity = spl_object_id($battler);
+    $participant = $this->participants[$identity] ?? throw new RuntimeException('Not a participant of this graphical battle.');
+    if (!$participant['party']) {
+      return $this->enemySlots[$identity] ?? throw new RuntimeException('A troop participant lost its graphical formation slot.');
+    }
+    $index = array_search($battler, $this->battle->partyRoster->battlers, true);
+    return $index === false ? throw new RuntimeException('Only frontline members stand in the party formation.')
+      : $this->staging->party[$index] ?? throw new RuntimeException('Graphical battle requires a slot for every active party member.');
+  }
+
+  public function getStaging(): BattleStaging
+  {
+    return $this->staging;
+  }
+
+  private function stage(): BattleStaging
+  {
+    $getSize = function (CharacterInterface $battler, ?BattleStageSlot $place): array {
+      $participant = $this->participants[spl_object_id($battler)];
+      return BattleFormationLayout::getStandingSize($participant['available'] ? $participant['art'] : null,
+        $participant['poses'], $participant['scale'], $this->scale, $place, $this->assetRoot);
+    };
+    $enemies = $this->battle->troop->members->toArray();
+    $places = array_map(fn($enemy): ?BattleStageSlot => $this->battle->troop->getStagePlace($enemy), $enemies);
+    $staging = BattleStaging::stage($this->layout, $this->arena,
+      array_map(static fn(CharacterInterface $battler): array => $getSize($battler, null), $this->battle->partyRoster->battlers),
+      $places, array_map($getSize, $enemies, $places));
+    foreach ($enemies as $index => $enemy) { $this->enemySlots[spl_object_id($enemy)] = $staging->enemies[$index]; }
+    return $staging;
+  }
+
   /** @return list<string> */
   public function requiredCapabilities(): array
   {
@@ -82,11 +120,9 @@ final class GraphicalBattlePresentation
     $images = PngAssetPreflight::getAvailableSize($assetRoot, $arena->background->asset) === null ? [] : [$arena->background];
     foreach ([[$battle->party->members->toArray(), true],
       [$battle->troop->members->toArray(), false]] as [$members, $party]) {
-      foreach ($members as $index => $member) {
+      foreach ($members as $member) {
         $key = $member instanceof Character ? $member->actorId : $member->name;
         $art = ($party ? $catalog->actors : $catalog->enemies)[$key] ?? null;
-        $slot = $party ? ($layout->partySlots[0] ?? null) : $battle->troop->getGraphicalSlot($member);
-        if ($slot === null) { throw new RuntimeException("Graphical battle requires a formation slot for every participant: {$key}"); }
         if ($art === null) {
           Debug::warn("No battler artwork registered; using a name fallback: {$key}");
         }
@@ -113,28 +149,40 @@ final class GraphicalBattlePresentation
         }
         $poses = ($party ? $catalog->actorPoses : $catalog->enemyPoses)[$key] ?? null;
         $profile = $catalog->scale?->getProfile($key, $party);
-        $image = new CanvasImage('combatant-' . $identity, $art->asset,
-          $presentation->placeBaseArtwork($slot, $available ? $art : null, $poses, $identity, $profile), 100, $art->sourceRect);
-        // Explicit reserve replacement may place any member in an active slot.
-        // Asset preparation must not change the battle's participation policy.
-        foreach ($party ? $layout->partySlots : [$slot] as $possibleSlot) {
-          $bounds = $presentation->placeBaseArtwork($possibleSlot, $available ? $art : null, $poses, $identity, $profile);
-          $bounds->assertWithin($layout->width, $layout->height);
-          if ($available) { $layout->skin?->targetCursor?->layout($bounds, $layout->width, $layout->height); }
-          if (min($bounds->width, $bounds->height) < 1) {
-            throw new RuntimeException('Battler images must cover at least one graphical unit in each dimension.');
-          }
-        }
-        $presentation->participants[$identity] = ['battler' => $member, 'party' => $party, 'image' => $image,
-          'art' => $art, 'available' => $available,
-          'poses' => $poses, 'scale' => $profile];
-        if ($available) { $images[] = $image; }
+        $presentation->participants[$identity] = ['battler' => $member, 'party' => $party,
+          'image' => new CanvasImage('combatant-' . $identity, $art->asset, new CanvasRectangle(0, 0, 1, 1), 100, $art->sourceRect),
+          'art' => $art, 'available' => $available, 'poses' => $poses, 'scale' => $profile];
       }
     }
-    GraphicalBattleHud::preflight($layout, $assetRoot, $images);
-    if (count($battle->partyRoster->battlers) > count($layout->partySlots)) {
+    if ($layout->partySlots !== [] && count($battle->partyRoster->battlers) > count($layout->partySlots)) {
       throw new RuntimeException('Graphical battle requires a slot for every active party member.');
     }
+    $presentation->staging = $presentation->stage();
+    foreach ($presentation->participants as $identity => $participant) {
+      $available = $participant['available'];
+      $art = $participant['art'];
+      $member = $participant['battler'];
+      // Explicit reserve replacement may place any member in an active slot.
+      // Asset preparation must not change the battle's participation policy.
+      $slots = $participant['party'] ? $presentation->staging->party : [$presentation->enemySlots[$identity]];
+      foreach ($slots as $possibleSlot) {
+        $bounds = $presentation->placeBaseArtwork($possibleSlot, $available ? $art : null, $participant['poses'], $identity,
+          $participant['scale']);
+        $bounds->assertWithin($layout->width, $layout->height);
+        if ($available) { $layout->skin?->targetCursor?->layout($bounds, $layout->width, $layout->height); }
+        if (min($bounds->width, $bounds->height) < 1) {
+          throw new RuntimeException('Battler images must cover at least one graphical unit in each dimension.');
+        }
+      }
+      $slot = $slots[0] ?? null;
+      if ($slot === null) { throw new RuntimeException("Graphical battle requires a formation slot for every participant: {$member->name}"); }
+      $image = new CanvasImage('combatant-' . $identity, $art->asset,
+        $presentation->placeBaseArtwork($slot, $available ? $art : null, $participant['poses'], $identity, $participant['scale']),
+        100, $art->sourceRect);
+      $presentation->participants[$identity]['image'] = $image;
+      if ($available) { $images[] = $image; }
+    }
+    GraphicalBattleHud::preflight($layout, $assetRoot, $images);
     // Resolve every image before battle-entry effects; no partially valid formation.
     new PresentationCanvas($layout->width, $layout->height, $images);
     if ($layout->battlerArea !== null || $layout->enemyArea !== null || $layout->partyArea !== null) {
@@ -214,7 +262,7 @@ final class GraphicalBattlePresentation
     $groundAnchors = [];
     $partySides = [];
     $protectedCombatants = [];
-    foreach ($this->participants as $identity => $participant) {
+    foreach ($this->getDrawOrder($frontline, $enemies) as $identity => $participant) {
       $battler = $participant['battler'];
       $image = $participant['image'];
       $index = array_search($battler, $participant['party'] ? $frontline : $enemies, true);
@@ -222,9 +270,7 @@ final class GraphicalBattlePresentation
       $size = PngAssetPreflight::getAvailableSize($this->assetRoot, $image->asset);
       $participant['available'] = $size !== null;
       $art = $size === null ? $participant['art'] : $participant['art']->clampedTo($size['width'], $size['height']);
-      $slot = $participant['party'] ? $this->layout->partySlots[$index]
-        : $this->battle->troop->getGraphicalSlot($battler);
-      if ($slot === null) { throw new RuntimeException('A troop participant lost its graphical formation slot.'); }
+      $slot = $this->getSlot($battler);
       $bounds = $this->placeBaseArtwork($slot, $participant['available'] ? $art : null,
         $participant['poses'], $identity, $participant['scale']);
       $artworkScale = $participant['available'] ? $bounds->width / $art->width / $slot->displayScale : null;
@@ -402,6 +448,21 @@ final class GraphicalBattlePresentation
       protectedAreas: [...$areas, ...($stageCanvas?->getOverlayProtection() ?? [])]);
     CanvasImagePreflight::inspect($canvas->images, $this->assetRoot, $canvas->composites);
     return $canvas;
+  }
+
+  /**
+   * Standing participants from back to front, so a nearer battler is drawn
+   * over one behind it; equal depths keep party before troop, then member order.
+   *
+   * @return array<int, array> Identity => participant.
+   */
+  private function getDrawOrder(array $frontline, array $enemies): array
+  {
+    $standing = array_filter($this->participants, static fn(array $participant): bool =>
+      in_array($participant['battler'], $participant['party'] ? $frontline : $enemies, true));
+    $depths = array_map(fn(array $participant): float => $this->getSlot($participant['battler'])->y, $standing);
+    uksort($standing, static fn(int $one, int $two): int => $depths[$one] <=> $depths[$two]);
+    return $standing;
   }
 
   /** @param list<array{text: string, color: ?PresentationColor}> $lines @param list<CanvasTextLayer> $ui */

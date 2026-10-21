@@ -51,8 +51,8 @@ final class GraphicalBattleHud
     $pitch = $arena->uiGrid;
     $ox = ($arena->width - 135 * $pitch->cellWidth) / 2;
     $oy = ($arena->height - 36 * $pitch->cellHeight) / 2;
-    $y = $oy + 30 * $pitch->cellHeight;
-    $height = 6 * $pitch->cellHeight;
+    $y = $arena->getHudTop();
+    $height = BattleCanvasLayout::HUD_ROWS * $pitch->cellHeight;
     foreach ([['command', $hud->commands, 0, 14], ['submenu', $hud->context, 14, 62], ['names', $hud->names, 76, 24]] as [$id, $list, $column, $columns]) {
       if ($list === null) { continue; }
       $x = $ox + $column * $pitch->cellWidth;
