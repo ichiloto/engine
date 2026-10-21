@@ -92,8 +92,8 @@ it('lifts a hovering body over its feet and shrinks and fades its shadow with th
 });
 
 it('reads a battler\'s grounding and an arena\'s shadow light as data, refusing what it cannot read by its path', function () {
-  expect(BattlerGrounding::fromArray(['hover' => .4, 'shadow' => 'artwork', 'shadowWidth' => 1.2], 'enemies.Bat.grounding')->toArray())
-    ->toBe(['hover' => .4, 'shadow' => 'artwork', 'shadowWidth' => 1.2])
+  expect(BattlerGrounding::fromArray(['hover' => .4, 'shadow' => 'none', 'shadowWidth' => 1.2], 'enemies.Bat.grounding')->toArray())
+    ->toBe(['hover' => .4, 'shadow' => 'none', 'shadowWidth' => 1.2])
     ->and(BattlerGrounding::fromArray([], 'g')->shadow)->toBe(BattlerShadowSource::ENGINE)
     ->and(fn() => BattlerGrounding::fromArray(['shadow' => 'painted'], 'enemies.Bat.grounding'))
     ->toThrow(InvalidArgumentException::class, 'enemies.Bat.grounding.shadow: expected one of engine, artwork, none')
