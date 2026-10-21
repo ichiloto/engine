@@ -55,6 +55,7 @@ use Ichiloto\Engine\Exceptions\PersistentStateRestoreException;
 use Ichiloto\Engine\Exceptions\SummonAssignmentException;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveHydrationContext;
 use InvalidArgumentException;
+use LogicException;
 
 /**
  * The Character class.
@@ -1186,6 +1187,23 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
   public function getDeferredSaveData(): ?array
   {
     return $this->deferredSaveData;
+  }
+
+  /**
+   * Replaces the raw save array retained during compatibility processing, so
+   * a project content migration can convert it before the character is
+   * hydrated from it.
+   *
+   * @param array<string, mixed> $data The converted save array.
+   * @throws LogicException When the character is not awaiting save hydration.
+   */
+  public function replaceDeferredSaveData(array $data): void
+  {
+    if ($this->deferredSaveData === null) {
+      throw new LogicException(sprintf('%s is not awaiting save hydration; only a loading save can be converted.', $this->name));
+    }
+
+    $this->deferredSaveData = $data;
   }
 
   /**
