@@ -103,6 +103,63 @@ function graphicalBattleFixture(bool $skinned = false, bool $directionalCursor =
     ui: $layout, defaultArena: 'arena.test'), $hero, $enemies];
 }
 
+it('lies a contact shadow under every battler\'s feet, under a hovering flier\'s risen body, and none without compositing', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  new ReflectionProperty(Enemy::class, 'habitat')->setValue($enemies[0], \Ichiloto\Engine\Entities\Enemies\EnemyHabitat::AIR);
+  $layout = $catalog->ui;
+  $shaded = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: new BattleCanvasLayout(1350, 720, feedbackArea: $layout->feedbackArea, partySlots: $layout->partySlots,
+      shadow: new \Ichiloto\Engine\Battle\Presentation\BattlerShadowStyle(PresentationColor::rgb(0, 0, 0)), airElevation: .5),
+    defaultArena: 'arena.test');
+  $plain = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $shaded, $this->root);
+  $frame = $presentation->frame();
+  $shadows = array_column(array_filter($frame->composites, static fn($composite) => str_starts_with($composite->id, 'contact-')), null, 'id');
+  $image = static fn($frame, $battler) => array_column($frame->images, null, 'id')['combatant-' . spl_object_id($battler)];
+
+  expect(array_keys($shadows))->toEqualCanonicalizing(array_map(static fn($battler) => 'contact-' . spl_object_id($battler), [$hero, ...$enemies]));
+  foreach ([$hero, ...$enemies] as $battler) {
+    $slot = $presentation->getSlot($battler);
+    $shadow = $shadows['contact-' . spl_object_id($battler)];
+    // On the ground at the feet, under the bodies.
+    expect($shadow->destination->x + $shadow->destination->width / 2)->toEqualWithDelta($slot->x, .5)
+      ->and($shadow->destination->y + $shadow->destination->height / 2)->toEqualWithDelta($slot->y, .5)
+      ->and($shadow->layer)->toBeLessThan($image($frame, $battler)->layer);
+  }
+  // The flier's body rises by half its slot height; the grounded twin's does not move.
+  $flier = $presentation->getSlot($enemies[0]);
+  expect($image($plain->frame(), $enemies[0])->destination->y - $image($frame, $enemies[0])->destination->y)
+    ->toEqualWithDelta(min($image($plain->frame(), $enemies[0])->destination->y, .5 * $flier->height * $flier->displayScale), .000001)
+    ->and($image($frame, $enemies[1])->destination)->toEqual($image($plain->frame(), $enemies[1])->destination)
+    ->and($plain->frame()->composites)->toBeEmpty()
+    ->and(array_filter($presentation->frame(compositing: false)->composites, static fn($composite) => str_starts_with($composite->id, 'contact-')))
+    ->toBeEmpty();
+});
+
+it('sinks a water creature below the surface line, hiding the art beneath it, and ripples the water at its feet', function () {
+  [$battle, $catalog, , $enemies] = graphicalBattleFixture();
+  foreach ($enemies as $enemy) {
+    new ReflectionProperty(Enemy::class, 'habitat')->setValue($enemy, \Ichiloto\Engine\Entities\Enemies\EnemyHabitat::WATER);
+  }
+  $sunk = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies, ui: $catalog->ui, defaultArena: 'arena.test',
+    enemyGrounding: ['Twin' => new \Ichiloto\Engine\Battle\Presentation\BattlerGrounding(elevation: -.25)]);
+  $plain = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root)->frame();
+  $presentation = GraphicalBattlePresentation::prepare($battle, $sunk, $this->root);
+  $frame = $presentation->frame();
+  foreach ($enemies as $enemy) {
+    $slot = $presentation->getSlot($enemy);
+    $id = 'combatant-' . spl_object_id($enemy);
+    $image = array_column($frame->images, null, 'id')[$id];
+    $ripple = array_column($frame->composites, null, 'id')['contact-' . spl_object_id($enemy)];
+    // Sunk a quarter of its slot's height, only the art above the surface line shows; the ripple rings it there.
+    expect($image->destination->y - array_column($plain->images, null, 'id')[$id]->destination->y)
+      ->toEqualWithDelta(.25 * $slot->height * $slot->displayScale, .000001)
+      ->and($image->clipRect->y + $image->clipRect->height)->toEqualWithDelta($slot->y, .000001)
+      ->and($ripple->layer)->toBeGreaterThan($image->layer)
+      ->and($ripple->destination->y + $ripple->destination->height / 2)->toEqualWithDelta($slot->y, .5);
+  }
+});
+
 it('retains enemy artwork through feedback then pulses or fades and clears without render side effects', function (bool $reduced) {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture(true);
   $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
@@ -1574,7 +1631,10 @@ it('arranges troop members nobody placed beside the placed ones, on the ground, 
     ->and(hypot($second->x - $first->x, $second->y - $first->y))->toBeGreaterThan(1.0);
   $unplaced = new BattleConfig($fixture->party, new Troop('Twins', $enemies));
   $arranged = GraphicalBattlePresentation::prepare($unplaced, $catalog, $this->root);
-  expect(max(array_map(fn($enemy) => $arranged->getSlot($enemy)->y, $enemies)))->toBe($arranged->getStaging()->ground->bottom);
+  // The arranged troop faces the party: its formation centres on the middle of the theme's party formation.
+  $depths = array_map(fn($place) => $place->depth, $arranged->getStaging()->enemyPlaces);
+  $slots = $catalog->ui->partySlots;
+  expect((min($depths) + max($depths)) / 2)->toEqualWithDelta(array_sum(array_map(fn($slot) => $slot->depth, $slots)) / count($slots), .001);
 });
 
 

@@ -33,10 +33,11 @@ final class BattleTestMenuPresentation
    * @param ?int $partySelected The member chosen while the party is being set up.
    * @param ?string $arena The arena fights take place in, where arenas are offered.
    * @param ?int $outlined The test troop member to outline on the stage.
+   * @param bool $compositing Whether the renderer draws composites, such as battlers' shadows.
    */
   public static function compose(MenuPresentationCatalog $theme, BattleTestMenuList $list, bool $listFocused,
     array $party, ?int $partySelected, ?string $arena, ?BattleFormationLayout $stage, ?int $outlined, bool $placing,
-    ?string $stageIssue = null, float $time = 0, int $width = PresentationCanvas::DEFAULT_WIDTH,
+    ?string $stageIssue = null, float $time = 0, bool $compositing = true, int $width = PresentationCanvas::DEFAULT_WIDTH,
     int $height = PresentationCanvas::DEFAULT_HEIGHT): PresentationCanvas
   {
     $view = new MenuCanvas($theme, $width, $height, $time);
@@ -51,7 +52,7 @@ final class BattleTestMenuPresentation
       $height - self::MARGIN - ($stageBox->y + $stageBox->height + self::GAP));
 
     self::renderList($view, $theme, $list, $listFocused, $arena, $listBox);
-    self::renderStage($view, $theme, $stage, $outlined, $placing, $stageIssue, $stageBox);
+    self::renderStage($view, $theme, $stage, $outlined, $placing, $stageIssue, $stageBox, $compositing);
     self::renderParty($view, $theme, $party, $partySelected, $partyBox);
 
     return $view->finish();
@@ -97,7 +98,7 @@ final class BattleTestMenuPresentation
   }
 
   private static function renderStage(MenuCanvas $view, MenuPresentationCatalog $theme, ?BattleFormationLayout $stage, ?int $outlined,
-    bool $placing, ?string $issue, CanvasRectangle $box): void
+    bool $placing, ?string $issue, CanvasRectangle $box, bool $compositing): void
   {
     if ($stage === null) {
       $view->frame('battle-test-stage', $box, 'quiet');
@@ -107,7 +108,8 @@ final class BattleTestMenuPresentation
           $box->width - 2 * $m->panelPadding, 2 * $m->cellHeight), 'disabled', HorizontalAlignment::CENTER);
       return;
     }
-    $view->picture($box, $stage->composeImagesInto($box, 1));
+    ['images' => $images, 'composites' => $composites] = $stage->composeInto($box, 1, $compositing);
+    $view->picture($box, $images, $composites);
     $view->renderOutline('battle-test-stage-edge', $box, 'edge', 1, 6);
     $member = $outlined === null ? null : ($stage->enemies[$outlined] ?? null);
     if ($member !== null) {

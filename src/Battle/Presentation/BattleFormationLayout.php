@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Entities\Enemies\EnemyHabitat;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
@@ -35,7 +37,8 @@ final readonly class BattleFormationLayout
    * Arena selection is preview context only; this never mutates a troop or combat state.
    * Members without a place are arranged by the Engine beside the placed ones,
    * exactly as the battle arranges them ({@see BattleStaging}).
-   * @param list<array{enemyId: string, slot: ?BattleStageSlot}> $enemies
+   * @param list<array{enemyId: string, slot: ?BattleStageSlot, habitat?: EnemyHabitat}> $enemies Each member, where it is
+   * placed, and where it lives (land when not given).
    * @param list<string> $partyActorIds
    */
   public static function compose(BattlePresentationCatalog $catalog, ?string $arenaId, array $enemies,
@@ -66,8 +69,9 @@ final readonly class BattleFormationLayout
     $places = [];
     foreach ($enemies as $entry) {
       if (!is_array($entry) || !is_string($entry['enemyId'] ?? null) || !array_key_exists('slot', $entry)
-        || !($entry['slot'] === null || $entry['slot'] instanceof BattleStageSlot)) {
-        throw new InvalidArgumentException('Enemy previews require enemyId and a typed stage place or null.');
+        || !($entry['slot'] === null || $entry['slot'] instanceof BattleStageSlot)
+        || !(($entry['habitat'] ?? null) === null || $entry['habitat'] instanceof EnemyHabitat)) {
+        throw new InvalidArgumentException('Enemy previews require enemyId, a typed stage place or null, and a habitat when given.');
       }
       CanvasValidation::id($entry['enemyId']);
       $places[] = $entry['slot'];
@@ -77,15 +81,16 @@ final readonly class BattleFormationLayout
       $catalog->scale?->getProfile($id, $party), $catalog->scale, $place, $assetRoot);
     $staging = BattleStaging::stage($layout, $arena,
       array_map(static fn(string $id): array => $getSize($id, true, null), $partyActorIds),
-      $places, array_map(static fn(array $entry): array => $getSize($entry['enemyId'], false, $entry['slot']), $enemies));
+      $places, array_map(static fn(array $entry): array => $getSize($entry['enemyId'], false, $entry['slot']), $enemies),
+      array_map(static fn(array $entry): EnemyHabitat => $entry['habitat'] ?? EnemyHabitat::LAND, $enemies));
     $party = $troop = [];
     foreach ($partyActorIds as $index => $id) {
       $party[] = self::resolveBattler($catalog, $layout, $assetRoot, $id, true,
-        $staging->party[$index], $index, $elapsedSeconds, $reducedMotion);
+        $staging->party[$index], $index, $elapsedSeconds, $reducedMotion, $arena);
     }
     foreach ($enemies as $index => $entry) {
       $troop[] = self::resolveBattler($catalog, $layout, $assetRoot, $entry['enemyId'], false,
-        $staging->enemies[$index], $index, $elapsedSeconds, $reducedMotion);
+        $staging->enemies[$index], $index, $elapsedSeconds, $reducedMotion, $arena, $entry['habitat'] ?? EnemyHabitat::LAND);
     }
     return new self($layout, $arena, $staging, $backgrounds, $party, $troop, $catalog->getArenaChoices());
   }
@@ -94,32 +99,46 @@ final readonly class BattleFormationLayout
    * The formation as the battle draws it at rest, for a preview to paint
    * with the renderer itself: the arena's background (cropped and placed as
    * the arena declares), then every battler with usable art, its idle pose
-   * cropped from its sheet and scaled as the battle scales it, from back to
-   * front in the battle's own draw order. A battler without art has no image
-   * here, as in battle, where only its name stands for it.
+   * cropped from its sheet and scaled as the battle scales it (a sunk body
+   * clipped at its surface line), and where it meets the surface (a
+   * shadow, ripple or burrow), from back to front in the battle's own draw
+   * order. A battler without art has no image here, as in battle, where only
+   * its name stands for it. Without compositing, Engine-drawn contacts such
+   * as shadows are left out, as the battle leaves them out.
    */
-  public function composeCanvas(): PresentationCanvas
+  public function composeCanvas(bool $compositing = true): PresentationCanvas
   {
-    return new PresentationCanvas($this->layout->width, $this->layout->height, $this->getImages());
+    return new PresentationCanvas($this->layout->width, $this->layout->height, $this->getImages(),
+      composites: $compositing ? $this->getComposites() : []);
   }
 
   /**
    * The same picture drawn into a frame of a larger canvas, such as a menu
-   * showing the stage beside its lists: every image scaled by the frame's
-   * width over the battle's and placed in it, its crop unchanged; the
-   * background on the layer given and the battlers, back to front, on the
-   * one above it.
+   * showing the stage beside its lists: every image and composite scaled by
+   * the frame's width over the battle's and placed in it, crops and clips
+   * kept, on consecutive layers from the one given in the battle's own
+   * layer order.
    *
-   * @return list<CanvasImage>
+   * @return array{images: list<CanvasImage>, composites: list<CanvasComposite>}
    */
-  public function composeImagesInto(CanvasRectangle $frame, int $layer = 0): array
+  public function composeInto(CanvasRectangle $frame, int $layer = 0, bool $compositing = true): array
   {
     $scale = $frame->width / $this->layout->width;
-    $backgrounds = count($this->backgrounds);
     $images = $this->getImages();
-    return array_map(static fn(CanvasImage $image, int $index): CanvasImage => new CanvasImage('stage-' . $image->id, $image->asset,
-      self::getRectangleInto($image->destination, $frame, $scale), $layer + ($index < $backgrounds ? 0 : 1), $image->sourceRect,
-      $image->opacity, flipX: $image->flipX, flipY: $image->flipY), $images, array_keys($images));
+    $composites = $compositing ? $this->getComposites() : [];
+    $layers = array_values(array_unique([...array_column($images, 'layer'), ...array_column($composites, 'layer')]));
+    sort($layers);
+    $rank = array_flip($layers);
+    $into = static fn(?CanvasRectangle $rectangle): ?CanvasRectangle => $rectangle === null ? null
+      : self::getRectangleInto($rectangle, $frame, $scale);
+    return [
+      'images' => array_map(static fn(CanvasImage $image): CanvasImage => new CanvasImage('stage-' . $image->id, $image->asset,
+        $into($image->destination), $layer + $rank[$image->layer], $image->sourceRect, $image->opacity, $into($image->clipRect),
+        $image->brightness, $image->flipX, $image->flipY), $images),
+      'composites' => array_map(static fn(CanvasComposite $composite): CanvasComposite => new CanvasComposite('stage-' . $composite->id,
+        $composite->width, $composite->height, $into($composite->destination), $composite->operations, $layer + $rank[$composite->layer],
+        $composite->opacity, $into($composite->clipRect)), $composites),
+    ];
   }
 
   /** A rectangle on the battle canvas as it lands in a frame drawn at a scale. */
@@ -129,15 +148,32 @@ final readonly class BattleFormationLayout
       max(1, $rectangle->width * $scale), max(1, $rectangle->height * $scale));
   }
 
-  /** @return list<CanvasImage> The background, then every battler with art from back to front. */
+  /** @return list<CanvasImage> The background, then every battler with art and its contact art, from back to front. */
   private function getImages(): array
   {
-    $battlers = [...$this->party, ...$this->enemies];
     $images = $this->backgrounds;
-    foreach (BattleStaging::getDrawOrder(array_map(static fn(BattleFormationBattler $battler): BattlerSlot => $battler->slot, $battlers)) as $index) {
-      if ($battlers[$index]->image !== null) { $images[] = $battlers[$index]->image; }
+    foreach ($this->getStanding() as $battler) {
+      if ($battler->image !== null) { array_push($images, $battler->image, ...$battler->contactImages); }
     }
     return $images;
+  }
+
+  /** @return list<CanvasComposite> Every battler's Engine-drawn contact, such as its shadow, from back to front. */
+  private function getComposites(): array
+  {
+    $composites = [];
+    foreach ($this->getStanding() as $battler) {
+      if ($battler->image !== null) { array_push($composites, ...$battler->contactComposites); }
+    }
+    return $composites;
+  }
+
+  /** @return list<BattleFormationBattler> The party and the troop from back to front, in the battle's draw order. */
+  private function getStanding(): array
+  {
+    $battlers = [...$this->party, ...$this->enemies];
+    return array_map(static fn(int $index): BattleFormationBattler => $battlers[$index],
+      BattleStaging::getDrawOrder(array_map(static fn(BattleFormationBattler $battler): BattlerSlot => $battler->slot, $battlers)));
   }
 
   /**
@@ -271,7 +307,7 @@ final readonly class BattleFormationLayout
 
   private static function resolveBattler(BattlePresentationCatalog $catalog, BattleCanvasLayout $layout,
     string $assetRoot, string $id, bool $party, BattlerSlot $slot, int $index,
-    float $elapsedSeconds, bool $reducedMotion): BattleFormationBattler
+    float $elapsedSeconds, bool $reducedMotion, ?BattleArenaDefinition $arena = null, ?EnemyHabitat $habitat = null): BattleFormationBattler
   {
     CanvasValidation::id($id);
     $diagnostics = [];
@@ -299,10 +335,21 @@ final readonly class BattleFormationLayout
         $diagnostics[] = "Idle pose unavailable for {$id}: {$error->getMessage()}";
       }
     }
+    // The body rises or sinks by its elevation, hidden below the surface line; its contact stays at its feet.
+    $grounding = ($party ? $catalog->actorGrounding : $catalog->enemyGrounding)[$id] ?? null;
+    $habitat = $party ? null : $habitat;
+    $elevation = BattlerGroundContact::getElevation($grounding, $habitat, $layout);
+    $contact = BattlerGroundContact::getContact($grounding, $habitat, $elevation);
+    $offset = BattlerGroundContact::getOffset($elevation, $slot, $catalog->scale);
+    [$bounds, $clip] = BattlerGroundContact::place($bounds, $offset, $slot->y, $layout);
+    $bodySpan = $profile === null ? null : $catalog->scale->referenceHeight * $profile->relativeSize * $slot->displayScale;
+    $horizontal = $profile?->horizontal ?? false;
     $image = $available ? new CanvasImage(($party ? 'party-' : 'enemy-') . $index, $art->asset,
-      $bounds, 100, $art->sourceRect) : null;
+      $bounds, 100, $art->sourceRect, clipRect: $clip) : null;
+    $surface = $available ? BattlerGroundContact::compose(($party ? 'party-contact-' : 'enemy-contact-') . $index, $slot->x, $slot->y,
+      $bodySpan ?? $bounds->height, $horizontal, $bounds->width, $elevation, $contact, $layout, $arena, $grounding, $assetRoot,
+      $elapsedSeconds, $reducedMotion) : ['images' => [], 'composites' => []];
     return new BattleFormationBattler($id, $party, $slot, $registered === null && !$available ? null : $art,
-      $bounds, $image, $profile === null ? null : $catalog->scale->referenceHeight * $profile->relativeSize * $slot->displayScale,
-      $profile?->horizontal ?? false, $diagnostics);
+      $bounds, $image, $bodySpan, $horizontal, $diagnostics, $contact, $surface['images'], $surface['composites'], $offset);
   }
 }

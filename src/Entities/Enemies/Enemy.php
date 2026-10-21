@@ -118,6 +118,8 @@ class Enemy implements CharacterInterface, CounterAttackProvider, InherentAttack
   protected(set) ?string $knowledgeSubjectId = null;
   /** The basic skill this enemy attacks with when no pattern applies; null keeps the built-in attack. */
   protected(set) ?BasicSkill $attackSkill = null;
+  /** Where it lives: land, water or air, which decides where a graphical battle stands it. */
+  protected(set) EnemyHabitat $habitat = EnemyHabitat::LAND;
 
   /**
    * Enemy constructor.
@@ -133,6 +135,7 @@ class Enemy implements CharacterInterface, CounterAttackProvider, InherentAttack
    * @param array<string, float> $elementAffinities Elemental damage multipliers (2.0 weak, 0.5 resist, 0 null, negative absorbs).
    * @param string|null $knowledgeSubjectId Stable project-owned knowledge subject ID.
    * @param BasicSkill|null $attackSkill The basic skill it attacks with when no pattern applies.
+   * @param EnemyHabitat $habitat Where it lives: land, water or air.
    */
   public function __construct(
     protected(set) string $name,
@@ -148,8 +151,10 @@ class Enemy implements CharacterInterface, CounterAttackProvider, InherentAttack
     ?string $knowledgeSubjectId = null,
     ?CounterAttackRule $counterAttack = null,
     ?BasicSkill $attackSkill = null,
+    EnemyHabitat $habitat = EnemyHabitat::LAND,
   )
   {
+    $this->habitat = $habitat;
     foreach ($actionPatterns as $pattern) {
       if ($pattern instanceof ActionPattern) {
         $this->actionPatterns[] = $pattern;
@@ -227,6 +232,7 @@ class Enemy implements CharacterInterface, CounterAttackProvider, InherentAttack
       'actionPatterns' => $this->actionPatterns,
       'knowledgeSubjectId' => $this->knowledgeSubjectId,
       'counterAttack' => $this->counterAttack?->toArray(),
+      'habitat' => $this->habitat->value,
     ];
   }
 
@@ -276,6 +282,7 @@ class Enemy implements CharacterInterface, CounterAttackProvider, InherentAttack
         $this->{$key} = match($key) {
           'stats' => is_array($value) ? Stats::fromArray($value) : $value,
           'counterAttack' => CounterAttackRule::fromArray($value),
+          'habitat' => $value instanceof EnemyHabitat ? $value : EnemyHabitat::resolve($value),
           default => $value
         };
       }

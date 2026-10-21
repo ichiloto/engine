@@ -3,6 +3,7 @@
 use Ichiloto\Engine\Battle\Presentation\BattleArenaBindings;
 use Ichiloto\Engine\Battle\Presentation\BattleArenaDefinition;
 use Ichiloto\Engine\Battle\Presentation\BattleCanvasLayout;
+use Ichiloto\Engine\Battle\Presentation\BattleFooting;
 use Ichiloto\Engine\Battle\Presentation\BattleFormationClearance;
 use Ichiloto\Engine\Battle\Presentation\BattleFormationSpacing;
 use Ichiloto\Engine\Battle\Presentation\BattleGround;
@@ -10,13 +11,14 @@ use Ichiloto\Engine\Battle\Presentation\BattleGroundBand;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Battle\Presentation\BattleStageSlot;
 use Ichiloto\Engine\Battle\Presentation\BattleStaging;
+use Ichiloto\Engine\Entities\Enemies\EnemyHabitat;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 
-function stagingArena(?BattleGround $ground): BattleArenaDefinition
+function stagingArena(?BattleGround $ground, BattleFooting $footing = new BattleFooting()): BattleArenaDefinition
 {
   return new BattleArenaDefinition('Synthetic field', new CanvasImage('field', 'field.png', new CanvasRectangle(0, 0, 1350, 720)),
-    ground: $ground);
+    ground: $ground, footing: $footing);
 }
 
 function stagingLayout(array $partySlots = [], ?BattleGround $ground = null, float $gap = 0): BattleCanvasLayout
@@ -128,9 +130,109 @@ it('keeps authored places and gives unplaced members the spots no placed member 
     ->and([$arranged[2]->x, $arranged[2]->depth])->toBe([$full[1]->x, $full[1]->depth]);
 });
 
+it('faces the party with an arranged troop: centred on the theme formation\'s middle, a lone enemy mid-field', function (int $count) {
+  $party = [new BattleStageSlot(1000, 200, 100, 180), new BattleStageSlot(1100, 100, 100, 180), new BattleStageSlot(1200, 0, 100, 180)];
+  $layout = stagingLayout($party, new BattleGround(top: 200), 12);
+  $bodies = array_fill(0, $count, ['width' => 100.0, 'height' => 120.0]);
+  $staging = BattleStaging::stage($layout, stagingArena(new BattleGround(top: 300)), array_fill(0, 3, ['width' => 100.0, 'height' => 180.0]),
+    array_fill(0, $count, null), $bodies);
+  $feet = array_map(static fn($slot): float => $slot->y, $staging->enemies);
+  // The party's middle stands 100 back from the near edge at 588: the troop's middle stands there too.
+  expect((min($feet) + max($feet)) / 2)->toEqualWithDelta(488.0, .000001)
+    ->and(BattleStaging::arrange($layout, false, $bodies) == $staging->enemyPlaces)->toBeTrue();
+  if ($count === 1) { expect($feet[0])->toBe($staging->party[1]->y); }
+  // Small creatures spread as deep and as wide as the party stands (200 back and 200 across), not huddled together.
+  if ($count === 2) {
+    $columns = array_map(static fn($slot): float => $slot->x, $staging->enemies);
+    expect(max($feet) - min($feet))->toEqualWithDelta(200.0, .000001)
+      ->and(max($columns) - min($columns))->toEqualWithDelta(200.0, .000001);
+  }
+})->with([1, 2, 4]);
+
+it('never stands a centred troop in front of the near edge or with its art below the battler area', function () {
+  $party = [new BattleStageSlot(1000, 20, 100, 180), new BattleStageSlot(1200, 0, 100, 180)];
+  $layout = stagingLayout($party, new BattleGround(top: 250), 12);
+  // A deep troop centred on a shallow party would put its front rank 60 in front of the near edge.
+  $deep = BattleStaging::arrange($layout, false, array_fill(0, 3, ['width' => 100.0, 'height' => 200.0]));
+  expect(min(array_map(static fn($place): float => $place->depth, $deep)))->toBe(0.0);
+  // Feet at the party's middle (578) would put 30% of 200 drawn below them at 638, past the area's bottom at 600.
+  $low = BattleStaging::arrange($layout, false, [['width' => 100.0, 'height' => 200.0, 'pivotY' => .7]]);
+  expect($low[0]->depth)->toEqualWithDelta(48.0, .000001);
+});
+
+it('reads footing polygons by their widest run at a height and finds the nearest height they reach', function () {
+  // A U open at the top: two posts joined across the bottom.
+  $u = [[0, 0], [100, 0], [100, 100], [0, 100]];
+  $posts = [[0, 0], [20, 0], [20, 80], [90, 80], [90, 0], [100, 0], [100, 100], [0, 100]];
+  expect(BattleFooting::getSpan($u, 50))->toBe([0.0, 100.0])
+    ->and(BattleFooting::getSpan($posts, 40))->toBe([0.0, 20.0])
+    ->and(BattleFooting::getSpan($posts, 90))->toBe([0.0, 100.0])
+    ->and(BattleFooting::getSpan($u, 150))->toBeNull()
+    ->and(BattleFooting::getSpan([], 50))->toBeNull()
+    ->and(BattleFooting::getSpan($u, 100))->toBe([0.0, 100.0])
+    ->and(BattleFooting::getNearestFootedHeight($u, 150))->toBe(100.0)
+    ->and(BattleFooting::getNearestFootedHeight($u, 50))->toBe(50.0)
+    ->and(fn() => new BattleFooting([[0, 0], [1, 1]]))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => new BattleFooting(water: [[0, 0], [1, 1], [-1, 5]]))->toThrow(InvalidArgumentException::class)
+    ->and((new BattleFooting($u))->toArray())->toBe(['land' => [['x' => 0.0, 'y' => 0.0], ['x' => 100.0, 'y' => 0.0],
+      ['x' => 100.0, 'y' => 100.0], ['x' => 0.0, 'y' => 100.0]]]);
+});
+
+it('stands each side on its arena footing: an arranged troop follows a road, authored and theme places step onto it', function () {
+  $party = [new BattleStageSlot(700, 100, 100, 180), new BattleStageSlot(1200, 0, 100, 180)];
+  $layout = stagingLayout($party, new BattleGround(top: 300), 12);
+  // A road whose left edge runs from (300, 300) down to (550, 588), with a verge on its left.
+  $road = [[300, 300], [1350, 300], [1350, 588], [550, 588]];
+  // Rocks past 1150 on the party's side.
+  $road = [[300, 300], [1150, 300], [1150, 588], [550, 588]];
+  $arena = stagingArena(new BattleGround(top: 300), new BattleFooting($road));
+  $leftEdge = static fn(float $y): float => 300 + ($y - 300) * 250 / 288;
+  foreach ([1, 2, 4] as $count) {
+    $staging = BattleStaging::stage($layout, $arena, array_fill(0, 2, ['width' => 100.0, 'height' => 180.0]),
+      array_fill(0, $count, null), array_fill(0, $count, ['width' => 100.0, 'height' => 120.0]));
+    foreach ($staging->enemies as $slot) {
+      expect($slot->x)->toBeGreaterThanOrEqual($leftEdge($slot->y) - .000001)->toBeLessThanOrEqual(675.0);
+    }
+    expect(array_map(static fn($slot): float => $slot->x, $staging->party))->toBe([700.0, 1150.0]);
+    // Footing holds feet, not art: the lanes keep their spacing rather than squeezing into a column.
+    $columns = array_map(static fn($slot): float => $slot->x, $staging->enemies);
+    if ($count > 1) { expect(max($columns) - min($columns))->toBeGreaterThan(100.0); }
+  }
+  // An authored place on the verge steps across onto the road at the same height.
+  $verge = BattleStaging::stage($layout, $arena, [], [new BattleStageSlot(320, 0, 100, 120)], [['width' => 100.0, 'height' => 120.0]]);
+  expect([$verge->enemies[0]->x, $verge->enemies[0]->y])->toBe([550.0, 588.0])
+    // Without footing the same place stands where it was authored.
+    ->and(BattleStaging::stage($layout, stagingArena(new BattleGround(top: 300)), [], [new BattleStageSlot(320, 0, 100, 120)],
+      [['width' => 100.0, 'height' => 120.0]])->enemies[0]->x)->toBe(320.0);
+});
+
+it('stands each enemy where its habitat lives: a land beast on a lake\'s shore, a water creature in it, a flier over either', function () {
+  $layout = stagingLayout([new BattleStageSlot(1000, 100, 100, 180)], new BattleGround(top: 300), 12);
+  // The lake fills the left of the picture; its shore runs down the right, into the enemies' half only near the bottom.
+  $water = [[0, 300], [700, 300], [600, 588], [0, 588]];
+  $shore = [[700, 300], [1350, 300], [1350, 588], [600, 588]];
+  $lake = new BattleFooting($shore, $water);
+  $arena = stagingArena(new BattleGround(top: 300), $lake);
+  $body = [['width' => 100.0, 'height' => 120.0]];
+  $stand = static fn(EnemyHabitat $habitat) => BattleStaging::stage($layout, $arena, [], [null], $body, [$habitat])->enemies[0];
+  $inside = static fn(array $polygon, $slot): bool => ($run = BattleFooting::getSpan($polygon, $slot->y)) !== null
+    && $slot->x >= $run[0] - .000001 && $slot->x <= $run[1] + .000001;
+  expect($inside($water, $stand(EnemyHabitat::WATER)))->toBeTrue()
+    ->and($inside($shore, $stand(EnemyHabitat::LAND)))->toBeTrue()
+    // A flier keeps to its own side: over the lake rather than the shore across the field.
+    ->and($inside($water, $stand(EnemyHabitat::AIR)))->toBeTrue()
+    // Footing a habitat has, or would have on an arena marking none, which is land throughout.
+    ->and(array_map($lake->hasFootingFor(...), EnemyHabitat::cases()))->toBe([true, true, true])
+    ->and(array_map((new BattleFooting($shore))->hasFootingFor(...), EnemyHabitat::cases()))->toBe([true, false, true])
+    ->and(array_map((new BattleFooting())->hasFootingFor(...), EnemyHabitat::cases()))->toBe([true, false, true])
+    ->and((new BattleFooting())->getFootedRun(EnemyHabitat::LAND, 400))->toBeNull()
+    ->and(fn() => BattleStaging::stage($layout, $arena, [], [null], $body, ['water']))->toThrow(InvalidArgumentException::class);
+});
+
 it('reads arenas as data with their ground and binds them beside code arenas with one owner each', function () {
   $data = ['default' => 'arena.road', 'arenas' => [
-    'arena.road' => ['name' => 'Road', 'background' => ['image' => 'Arenas/Road.png'], 'ground' => ['top' => 330]],
+    'arena.road' => ['name' => 'Road', 'background' => ['image' => 'Arenas/Road.png'], 'ground' => ['top' => 330],
+      'footing' => ['land' => [['x' => 340, 'y' => 330], ['x' => 675, 'y' => 330], ['x' => 600.0, 'y' => 590]]]],
     'arena.mine' => ['name' => 'Mine', 'background' => ['image' => 'Mine.png', 'source' => ['x' => 240, 'y' => 408, 'width' => 675, 'height' => 360]]],
   ]];
   $bindings = BattleArenaBindings::getFromArray($data);
@@ -142,6 +244,9 @@ it('reads arenas as data with their ground and binds them beside code arenas wit
     ->and($bound->arenas['arena.road']->background->destination->toArray())->toBe(['x' => 0.0, 'y' => 0.0, 'width' => 1350.0, 'height' => 720.0])
     ->and($bound->arenas['arena.mine']->background->sourceRect->toArray())->toBe(['x' => 240, 'y' => 408, 'width' => 675, 'height' => 360])
     ->and($bound->arenas['arena.mine']->ground)->toBeNull()
+    ->and($bound->arenas['arena.road']->footing->land)->toBe([[340.0, 330.0], [675.0, 330.0], [600.0, 590.0]])
+    ->and($bound->arenas['arena.road']->footing->water)->toBe([])
+    ->and($bound->arenas['arena.mine']->footing->toArray())->toBe([])
     ->and(fn() => (new BattlePresentationCatalog(['arena.road' => stagingArena(null)], [], [], ui: stagingLayout()))->bindArenas($bindings))
     ->toThrow(InvalidArgumentException::class, 'arena.road is declared both in')
     ->and(fn() => (new BattlePresentationCatalog(['arena.code' => stagingArena(null)], [], [], ui: stagingLayout(), defaultArena: 'arena.code'))->bindArenas($bindings))
@@ -156,6 +261,9 @@ it('refuses unreadable arena data by its path in the file', function (array $dat
   'no image' => [['arenas' => ['a' => ['name' => 'A', 'background' => []]]], 'arenas.a.background'],
   'fractional crop' => [['arenas' => ['a' => ['name' => 'A', 'background' => ['image' => 'a.png', 'source' => ['x' => .5, 'y' => 0, 'width' => 1, 'height' => 1]]]]], 'arenas.a.background.source.x'],
   'ground' => [['arenas' => ['a' => ['name' => 'A', 'background' => ['image' => 'a.png'], 'ground' => ['top' => 'high']]]], 'arenas.a.ground.top'],
+  'footing point' => [['arenas' => ['a' => ['name' => 'A', 'background' => ['image' => 'a.png'], 'footing' => ['land' => [['x' => 1, 'y' => 'low']]]]]], 'arenas.a.footing.land[0]'],
+  'footing size' => [['arenas' => ['a' => ['name' => 'A', 'background' => ['image' => 'a.png'], 'footing' => ['water' => [['x' => 1, 'y' => 1]]]]]], 'arenas.a.footing: The water footing'],
+  'footing habitat' => [['arenas' => ['a' => ['name' => 'A', 'background' => ['image' => 'a.png'], 'footing' => ['lava' => []]]]], 'arenas.a.footing: expected land and water'],
   'unknown default' => [['default' => 'b', 'arenas' => ['a' => ['name' => 'A', 'background' => ['image' => 'a.png']]]], 'default'],
 ]);
 

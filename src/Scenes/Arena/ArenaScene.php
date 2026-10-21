@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Scenes\Arena;
 use Ichiloto\Engine\Battle\Presentation\BattleFormationLayout;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Battle\Presentation\BattleStageSlot;
+use Ichiloto\Engine\Entities\Enemies\EnemyHabitat;
 use Ichiloto\Engine\Battle\Presentation\TerminalBattleEffects;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
@@ -620,7 +621,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       return BattleTestMenuPresentation::compose($this->menuTheme, $this->describeList(),
         $focus !== ArenaSetupEditor::PARTY, $this->listPartyStats(),
         in_array($focus, [ArenaSetupEditor::PARTY, ArenaSetupEditor::MEMBER, ArenaSetupEditor::CHOOSER], true) ? $editor->memberIndex : null,
-        $this->getArenaName(), $stage, $outlined, $composer?->focus === TestTroopComposer::PLACING, $issue);
+        $this->getArenaName(), $stage, $outlined, $composer?->focus === TestTroopComposer::PLACING, $issue,
+        compositing: $runtime->supports(RendererSessionConfig::CANVAS_COMPOSITING));
     } catch (Throwable $error) {
       if ($this->presentationError !== $error->getMessage()) {
         Debug::error('The battle test menu is drawn in the terminal\'s windows: ' . $error->getMessage());
@@ -669,6 +671,10 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
         $enemies[] = ['enemyId' => strval($member['enemy'] ?? ''), 'slot' => $place];
       }
     }
+    // Each enemy stands where its habitat lives, as in battle.
+    $store = ConfigStore::has(EnemyStore::class) ? ConfigStore::get(EnemyStore::class) : null;
+    $enemies = array_map(static fn(array $entry): array => [...$entry,
+      'habitat' => $store?->all()[$entry['enemyId']]->habitat ?? EnemyHabitat::LAND], $enemies);
     $party = array_map(static fn(BattleTestMember $member): string => $member->actorId, $editor->setup->members);
     $party = $catalog->ui->partySlots === [] ? $party : array_slice($party, 0, count($catalog->ui->partySlots));
     $key = serialize([$enemies, $party, $editor->setup->arena]);

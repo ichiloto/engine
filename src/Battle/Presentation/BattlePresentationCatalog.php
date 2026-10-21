@@ -24,12 +24,18 @@ final readonly class BattlePresentationCatalog
   public array $actorPoses;
   /** @var array<string, BattlePoseSet> EnemyStore catalog keys. */
   public array $enemyPoses;
+  /** @var array<string, BattlerGrounding> How actors meet the ground: hover and contact shadow. */
+  public array $actorGrounding;
+  /** @var array<string, BattlerGrounding> How enemies meet the ground: hover and contact shadow. */
+  public array $enemyGrounding;
 
   public function __construct(array $arenas, array $actors, array $enemies, public ?BattleCanvasLayout $ui = null,
     public ?BattleResultsSkin $results = null, public ?BattlePauseSkin $pause = null,
     array $actorPoses = [], array $enemyPoses = [], public ?string $defaultArena = null,
-    public ?BattleScale $scale = null)
+    public ?BattleScale $scale = null, array $actorGrounding = [], array $enemyGrounding = [])
   {
+    $this->actorGrounding = self::catalog($actorGrounding, BattlerGrounding::class);
+    $this->enemyGrounding = self::catalog($enemyGrounding, BattlerGrounding::class);
     $this->arenas = self::catalog($arenas, BattleArenaDefinition::class);
     if ($defaultArena !== null && !isset($this->arenas[$defaultArena])) {
       throw new InvalidArgumentException("Unknown default battle arena: {$defaultArena}");
@@ -129,7 +135,7 @@ final readonly class BattlePresentationCatalog
     }
     return new self([...$this->arenas, ...$bindings->getDefinitions($ui->width, $ui->height)], $this->actors, $this->enemies,
       $this->ui, $this->results, $this->pause, $this->actorPoses, $this->enemyPoses,
-      $this->defaultArena ?? $bindings->defaultArena, $this->scale);
+      $this->defaultArena ?? $bindings->defaultArena, $this->scale, $this->actorGrounding, $this->enemyGrounding);
   }
 
   /** Load the validated code-owned catalog so editors can bind proposed, unsaved data. */
@@ -186,7 +192,8 @@ final readonly class BattlePresentationCatalog
     );
     return new self($this->arenas, [...$this->actors, ...$bindings->actors], [...$this->enemies, ...$bindings->enemies],
       $this->ui, $this->results, $this->pause, [...$this->actorPoses, ...$bindings->actorPoses],
-      [...$this->enemyPoses, ...$bindings->enemyPoses], $this->defaultArena, $scale);
+      [...$this->enemyPoses, ...$bindings->enemyPoses], $this->defaultArena, $scale,
+      [...$this->actorGrounding, ...$bindings->actorGrounding], [...$this->enemyGrounding, ...$bindings->enemyGrounding]);
   }
 
   /**

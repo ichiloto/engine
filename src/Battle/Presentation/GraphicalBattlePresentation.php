@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Enemies\Enemy;
+use Ichiloto\Engine\Entities\Enemies\EnemyHabitat;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\SgrColorParser;
@@ -32,7 +34,7 @@ use Ichiloto\Engine\Cutscenes\Presentation\CinematicStagePresentation;
 /** Holds identity/layout, not combat state. Generating a frame has no gameplay effects. */
 final class GraphicalBattlePresentation
 {
-  /** @var array<int, array{battler: CharacterInterface, party: bool, image: CanvasImage, art: BattlerArtwork, available: bool, poses: ?BattlePoseSet, scale: ?BattlerScale}> */
+  /** @var array<int, array{battler: CharacterInterface, party: bool, image: CanvasImage, art: BattlerArtwork, available: bool, poses: ?BattlePoseSet, scale: ?BattlerScale, grounding: ?BattlerGrounding, habitat: ?EnemyHabitat}> */
   private array $participants = [];
   private array $poseDiagnostics = [];
   private array $compositionDiagnostics = [];
@@ -95,7 +97,8 @@ final class GraphicalBattlePresentation
     $places = array_map(fn($enemy): ?BattleStageSlot => $this->battle->troop->getStagePlace($enemy), $enemies);
     $staging = BattleStaging::stage($this->layout, $this->arena,
       array_map(static fn(CharacterInterface $battler): array => $getSize($battler, null), $this->battle->partyRoster->battlers),
-      $places, array_map($getSize, $enemies, $places));
+      $places, array_map($getSize, $enemies, $places),
+      array_map(static fn($enemy): EnemyHabitat => $enemy instanceof Enemy ? $enemy->habitat : EnemyHabitat::LAND, $enemies));
     foreach ($enemies as $index => $enemy) { $this->enemySlots[spl_object_id($enemy)] = $staging->enemies[$index]; }
     return $staging;
   }
@@ -151,7 +154,9 @@ final class GraphicalBattlePresentation
         $profile = $catalog->scale?->getProfile($key, $party);
         $presentation->participants[$identity] = ['battler' => $member, 'party' => $party,
           'image' => new CanvasImage('combatant-' . $identity, $art->asset, new CanvasRectangle(0, 0, 1, 1), 100, $art->sourceRect),
-          'art' => $art, 'available' => $available, 'poses' => $poses, 'scale' => $profile];
+          'art' => $art, 'available' => $available, 'poses' => $poses, 'scale' => $profile,
+          'grounding' => ($party ? $catalog->actorGrounding : $catalog->enemyGrounding)[$key] ?? null,
+          'habitat' => $member instanceof Enemy ? $member->habitat : null];
       }
     }
     if ($layout->partySlots !== [] && count($battle->partyRoster->battlers) > count($layout->partySlots)) {
@@ -312,6 +317,12 @@ final class GraphicalBattlePresentation
           }
         }
       }
+      // The body rises or sinks by its elevation, hidden below the surface line; a knocked-out one lies on the ground.
+      $elevation = BattlerGroundContact::getElevation($participant['grounding'], $participant['habitat'], $this->layout,
+        $battler->isKnockedOut);
+      $contact = BattlerGroundContact::getContact($participant['grounding'], $participant['habitat'], $elevation);
+      [$bounds, $clip] = BattlerGroundContact::place($bounds, BattlerGroundContact::getOffset($elevation, $slot, $this->scale),
+        $slot->y, $this->layout);
       $advance = !$reducedMotion && $playback?->actor === $battler ? $playback->getAdvanceFraction() : 0;
       $recoil = ($playback?->getRecoilFraction($battler, $reducedMotion) ?? 0)
         + ($playback?->getShakeFraction($battler, $reducedMotion) ?? 0);
@@ -323,7 +334,8 @@ final class GraphicalBattlePresentation
         clamp($bounds->y, 0, max(0, $this->layout->height - $bounds->height)), $bounds->width, $bounds->height);
       $groundAnchors[$identity] = new Vector2($slot->x + ($bounds->x - $unmovedX), $slot->y + ($bounds->y - $unmovedY));
       $partySides[$identity] = $participant['party'];
-      $image = new CanvasImage($image->id, $art->asset, $bounds, $image->layer, $art->sourceRect);
+      $image = new CanvasImage($image->id, $art->asset, $bounds, $image->layer, $art->sourceRect,
+        clipRect: $clip === null ? null : new CanvasRectangle($bounds->x, $clip->y, $bounds->width, $clip->height));
       $combatantBounds[$identity] = $bounds;
       $popups = array_filter($feedback, static fn(array $popup) => $popup['battler'] === $battler);
       $defeat = $playback?->getEnemyDefeatTreatment($battler, $reducedMotion);
@@ -332,12 +344,22 @@ final class GraphicalBattlePresentation
       $conditionBattlers[$identity] = $battler;
       if ($participant['available']) {
         $images[] = $combatantImages[$identity] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
-          $image->sourceRect, $defeat['opacity'] ?? match (true) {
+          $image->sourceRect, clipRect: $image->clipRect, opacity: $defeat['opacity'] ?? match (true) {
             $participant['party'] && $battler->isKnockedOut && !$usesKnockoutPose => 0.4,
             // Without a concede pose, the enemy's current artwork is held, subdued.
             !$participant['party'] && ($battler->hasConceded ?? false) && !$usesConcedePose => $this->defeatStyle->concededOpacity,
             default => 1,
           });
+        // Its contact follows its feet through steps, recoil and poses, and fades with it. Engine-drawn
+        // contacts are composites; a ripple or burrow sheet is art and needs none.
+        $profile = $participant['scale'];
+        $surface = BattlerGroundContact::compose('contact-' . $identity, $groundAnchors[$identity]->x, $groundAnchors[$identity]->y,
+          $profile !== null && $this->scale !== null ? $this->scale->referenceHeight * $profile->relativeSize * $slot->displayScale
+            : $bounds->height, ($profile?->horizontal ?? false) || $usesKnockoutPose, $bounds->width, $elevation, $contact,
+          $this->layout, $this->arena, $participant['grounding'], $this->assetRoot, $field?->getPoseElapsedSeconds() ?? 0,
+          $reducedMotion, $combatantImages[$identity]->opacity);
+        array_push($images, ...$surface['images']);
+        if ($compositing) { array_push($composites, ...$surface['composites']); }
         if (($defeat['pulse'] ?? false) && $compositing && $includeOptionalArtwork) {
           try {
             $composites[] = \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageTint::compose(

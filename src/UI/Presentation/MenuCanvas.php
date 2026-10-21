@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\UI\Presentation;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
 
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -26,6 +27,8 @@ final class MenuCanvas
   private array $text = [];
   private array $fills = [];
   private array $protectedAreas = [];
+  /** @var list<CanvasComposite> Composites an owner's picture brings. */
+  private array $composites = [];
 
   /** Protect readable content or an entire critical control, not its decorative backing. */
   public function protect(CanvasRectangle $bounds): void
@@ -73,18 +76,24 @@ final class MenuCanvas
 
   /**
    * A picture an owner composed, such as a battle stage beside a menu's
-   * lists: its images placed as given, each inside the bounds, which the
-   * picture protects.
+   * lists: its images and composites placed as given, each inside the
+   * canvas, the bounds protected.
    *
    * @param list<CanvasImage> $images
+   * @param list<CanvasComposite> $composites
    */
-  public function picture(CanvasRectangle $bounds, array $images): void
+  public function picture(CanvasRectangle $bounds, array $images, array $composites = []): void
   {
     $bounds->assertWithin($this->width, $this->height);
     foreach ($images as $image) {
-      if (!$image instanceof CanvasImage) { throw new RuntimeException('A menu picture is made of canvas images.'); }
+      if (!$image instanceof CanvasImage) { throw new RuntimeException('A menu picture is made of canvas images and composites.'); }
       $image->destination->assertWithin($this->width, $this->height);
       $this->images[] = $image;
+    }
+    foreach ($composites as $composite) {
+      if (!$composite instanceof CanvasComposite) { throw new RuntimeException('A menu picture is made of canvas images and composites.'); }
+      $composite->destination->assertWithin($this->width, $this->height);
+      $this->composites[] = $composite;
     }
     $this->protect($bounds);
   }
@@ -373,9 +382,9 @@ final class MenuCanvas
     $this->compactRules();
     $this->text = CanvasTextBatch::compact($this->text);
     if (count($this->text) > StyledPresentationFrame::MAX_TEXT_LAYERS) { throw new RuntimeException('Menu composition exceeds the existing Canvas text-layer budget: ' . count($this->text)); }
-    CanvasImagePreflight::inspect($this->images, $this->theme->assetRoot);
+    CanvasImagePreflight::inspect($this->images, $this->theme->assetRoot, $this->composites);
     return new PresentationCanvas($this->width, $this->height, $this->images, textLayers: $this->text,
-      protectedAreas: $this->protectedAreas);
+      composites: $this->composites, protectedAreas: $this->protectedAreas);
   }
 
   private function protectText(CanvasTextLayer $layer): void

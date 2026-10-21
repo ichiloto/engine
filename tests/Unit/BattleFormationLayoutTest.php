@@ -413,8 +413,11 @@ it('composes the canvas the battle draws at rest: the cropped background, then e
   // A background cropped from a larger sheet, as an arena may declare one, and a party drawn from a pose sheet.
   $arena = new BattleArenaDefinition('A cropped scene', new CanvasImage('arena', 'arena.png', new CanvasRectangle(0, 0, 1350, 720),
     sourceRect: new \Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect(20, 10, 200, 100)));
+  // A theme that draws contact shadows under battlers' feet.
+  $layout = new BattleCanvasLayout(1350, 720, ground: new BattleGround(bottom: 720), partySlots: $this->layout->partySlots,
+    shadow: new \Ichiloto\Engine\Battle\Presentation\BattlerShadowStyle(\Ichiloto\Engine\Rendering\Presentation\PresentationColor::rgb(0, 0, 0)));
   $catalog = new BattlePresentationCatalog(['scene' => $arena], ['Hero' => $this->art], ['Creature' => $this->enemyArt],
-    ui: $this->layout, actorPoses: ['Hero' => $this->poses], defaultArena: 'scene', scale: $this->scale);
+    ui: $layout, actorPoses: ['Hero' => $this->poses], defaultArena: 'scene', scale: $this->scale);
   // The second member stands further back than the first, so the battle draws it first.
   $near = formationSlot(300, 600, 200, 230);
   $far = formationSlot(500, 420, 200, 230);
@@ -437,7 +440,12 @@ it('composes the canvas the battle draws at rest: the cropped background, then e
     $image->destination, $image->sourceRect, $image->flipX, $image->flipY, $image->opacity], $images);
 
   $canvas = $preview->composeCanvas();
+  $contacts = static fn(array $composites): array => array_map(static fn($composite): array => [$composite->destination,
+    $composite->layer, $composite->operations], $composites);
   expect($describe($canvas->images))->toEqual($describe($frame->images))
+    // Where each battler meets the ground, a shadow here, is drawn as the battle draws it.
+    ->and($contacts($canvas->composites))->toEqual($contacts($frame->composites))
+    ->and($canvas->composites)->not->toBe([])
     ->and($canvas->images[0]->sourceRect)->toEqual($arena->background->sourceRect)
     ->and(array_map(static fn(CanvasImage $image): string => $image->id, $canvas->images))->toBe(['arena', 'enemy-1', 'party-0', 'enemy-0'])
     ->and([$canvas->width, $canvas->height])->toBe([1350, 720]);

@@ -425,10 +425,10 @@ where the UI's bottom windows begin, read by `GraphicalBattleHud` too).
 
 `BattleStaging::stage()` stands one battle's formations on that ground:
 
-- A stage place's depth is measured back from the near edge, so the front
-  rank stands on the near edge of every arena. A side deeper than the ground
-  is compressed in depth as a whole, keeping its shape; nobody stands beyond
-  the far edge.
+- A stage place's depth is measured back from the near edge, so a formation
+  keeps its shape on every arena. A side deeper than the ground is compressed
+  in depth as a whole, keeping its shape; nobody stands in front of the near
+  edge or beyond the far edge.
 - The party uses the layout's `partySlots` (stage places, back to front); a
   smaller frontline takes the front-most slots. A layout without party slots
   has its party arranged like a troop.
@@ -438,9 +438,36 @@ where the UI's bottom windows begin, read by `GraphicalBattleHud` too).
   times the nearer battler's drawn height and alternating between an inner
   lane and an outer lane `lateral` times their mean drawn width beyond it,
   fitted and centred across the side's area by the art's real extent either
-  side of its feet. A battler whose art reaches below the battler area (a
+  side of its feet. The arrangement centres its depth on the middle of the
+  theme's party formation (`partySlots`), so the two sides face each other
+  across the field and a lone enemy stands mid-field; larger troops spread
+  back and forward around that middle, at least as deep and as wide as the
+  party formation stands, so a pair of small creatures uses the field as the
+  party does rather than huddling. The middle is the formation's, not the
+  frontline's, so a troop aligned in an editor stands where the battle would
+  arrange it whatever the party's size. Without party slots both sides start
+  from the near edge alike. A battler whose art reaches below the battler area (a
   creature's body under its waterline) stands that much further back. Spacing
   follows the current artwork, so replaced art re-spaces itself.
+- An arena may mark its picture's footing (`BattleFooting`): a polygon of
+  canvas points for its land (a road's dirt rather than its grass verge,
+  rocks or fences) and one for its water. An arena marking neither is land
+  throughout. The party stands on land; each enemy stands where its
+  `habitat` lives (`EnemyHabitat`: `land`, the default, `water` or `air`,
+  authored on the enemy record), an air enemy over land or water. Each side
+  still keeps to its own area, using footing beyond it only when its habitat
+  has none inside (a land beast on a lake arena stands on the shore). Footing
+  holds feet, not art: a tail may overhang the verge. Arranged ranks centre
+  across their footing at the height they stand at, so a troop follows a
+  road's line, keeping their lanes' spacing; an authored or theme place whose
+  feet fall outside steps to the nearest footed height and across into it, its
+  perspective scale following. The polygons' edges count as footing. Data
+  arenas author it as `'footing' => ['land' => points, 'water' => points]`,
+  each a list of `['x' => , 'y' => ]` points (3 to 256) in
+  `Data/Presentation/arenas.php`, edited on the Battle Arenas page of both
+  editors. `BattleFooting::hasFootingFor()` says whether a habitat has
+  anywhere to stand, which the Editor's validation checks for every
+  encounter's arena.
 - Battlers are drawn back to front by where their feet stand, so a nearer
   battler covers one behind it.
 
@@ -458,6 +485,46 @@ same ground: two footings (the lowest 12% of visible art across its middle
 battler's, which a staged field needs; art outside the authored areas and a
 target cursor with no room are still reported. Diagnostics never move
 battlers.
+
+### Surface Contact And Elevation
+
+Andrew, 21 October 2026: "can we have a shadow system for battlers. That way
+we don't have to keep worrying about including it in the art", and "we need to
+consider semi-submerged characters like Loch Ness (or perhaps in future we'll
+have monsters that are half submerged in the ground like a mole). These
+obviously won't have shadow." Every battler's feet point stays on the surface
+line, where staging, footing, effects and its contact meet the ground
+(`BattlerGroundContact`, shared by the battle and every formation preview):
+
+- Elevation, signed, in reference heights (`BattlerGrounding::$elevation` in
+  battlers.php `grounding`): positive raises the body over its feet, zero
+  stands, negative sinks it that far below the surface line and the art below
+  the line is clipped (`CanvasImage::$clipRect`), so a creature rises out of
+  water or pokes out of the ground without art painted half-buried. An air
+  enemy without its own takes the theme's `airElevation`; a knocked-out
+  battler lies on the ground.
+- Contact (`BattlerContact`): `shadow`, `ripple`, `burrow` or `none`, what is
+  drawn where it meets the surface. Without its own choice: negative elevation
+  in water ripples, negative on land burrows, everything else casts a shadow.
+- The shadow is a radial-gradient composite at layer 90, under every body,
+  styled by the theme (`BattleCanvasLayout::$shadow`, a `BattlerShadowStyle`:
+  colour, strength, softness, width as a share of the body footprint,
+  flatness, and how fast it shrinks and fades with height), with each arena's
+  strength and colour (`'shadow' => ['strength' => 1.3, 'color' => '#1a120c']`
+  in arenas.php). No theme style draws no shadows.
+- Ripples and burrows ring the body where it breaks the surface, at layer
+  101, sized to its drawn width: the theme's sprite sheets
+  (`BattleContactEffects`, each a `BattlerPose` with its pivot on the surface
+  line), or until art exists a plain Engine-drawn placeholder in the theme's
+  colours.
+- A battler scales its contact's width and strength (`contactWidth`,
+  `contactOpacity`). Art that paints its own shadow is declared
+  (`'bakedShadow' => true`): the Engine draws no second one and the art keeps
+  the height it was painted at, so an elevation or another contact on it is
+  refused until the art is shadow-free.
+- Contacts follow the feet through steps, recoil, poses, knockouts and
+  concession and fade with the battler. A renderer without composites draws
+  no Engine-drawn contacts; the Terminal battle never reads any of it.
 
 ### Ownership Audit And Game Migration (2026-10-02)
 
