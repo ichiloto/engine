@@ -186,6 +186,9 @@ it('stands each side on its arena footing: an arranged troop follows a road, aut
       expect($slot->x)->toBeGreaterThanOrEqual($leftEdge($slot->y) - .000001)->toBeLessThanOrEqual(675.0);
     }
     expect(array_map(static fn($slot): float => $slot->x, $staging->party))->toBe([800.0, 1150.0]);
+    // Footing holds feet, not art: the lanes keep their spacing rather than squeezing into a column.
+    $columns = array_map(static fn($slot): float => $slot->x, $staging->enemies);
+    if ($count > 1) { expect(max($columns) - min($columns))->toBeGreaterThan(100.0); }
   }
   // An authored place on the verge steps across onto the road at the same height.
   $verge = BattleStaging::stage($layout, $arena, [], [new BattleStageSlot(320, 0, 100, 120)], [['width' => 100.0, 'height' => 120.0]]);

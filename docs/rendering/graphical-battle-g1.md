@@ -449,9 +449,10 @@ where the UI's bottom windows begin, read by `GraphicalBattleHud` too).
   follows the current artwork, so replaced art re-spaces itself.
 - An arena may declare each side's footing (`BattleFooting`): a polygon of
   canvas points where that side may plant its feet, such as the dirt of a road
-  rather than its grass verge, rocks or fences. Arranged ranks centre across
-  the footing at the height they stand at, their lanes narrowing to fit its
-  narrowest rank; an authored or theme place whose feet fall outside steps to
+  rather than its grass verge, rocks or fences. It holds feet, not art: a
+  tail may overhang the verge. Arranged ranks centre across the footing at
+  the height they stand at, so a troop follows a road's line, keeping their
+  lanes' spacing; an authored or theme place whose feet fall outside steps to
   the nearest footed height and across into it, its perspective scale
   following. The polygon's edges count as footing. A side without footing may
   stand anywhere on its area of the ground. Data arenas author it as

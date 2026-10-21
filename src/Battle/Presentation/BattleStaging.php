@@ -94,7 +94,8 @@ final readonly class BattleStaging
    * Without a theme formation both sides start from the near edge alike.
    * Across, each rank centres on the side's footing at the height
    * it stands at on the given ground (the side's area without footing), so
-   * the formation follows a road rather than a verge. Authored places are
+   * the formation follows a road rather than a verge: feet stay on the
+   * footing, art on the side. Authored places are
    * kept; each unplaced member takes the arrangement's spot that no
    * authored member stands nearest, in member order.
    *
@@ -167,10 +168,7 @@ final readonly class BattleStaging
       $deficit = max(0.0, ...array_map(static fn(float $depth, float $lift): float => $lift - $depth, $depths, $lifts));
       $depths = array_map(static fn(float $depth): float => $depth + $deficit, $depths);
     }
-    // Where each rank's feet land on this ground, and the footing it may stand on there.
-    $compression = max($depths) <= $ground->depth ? 1.0 : $ground->depth / max($depths);
-    $spans = array_map(static fn(float $depth): array => self::getStandingSpan($layout, $party,
-      $ground->getFootY($depth * $compression), $footing), $depths);
+    [$left, $right] = self::getSideRange($layout, $party);
     // Each battler's art reaches its pivot's share of its width to the left of its feet, the rest to the right.
     $getExtent = static function (float $step) use ($bodies, $offsets): array {
       $reach = [INF, -INF];
@@ -182,23 +180,39 @@ final readonly class BattleStaging
       return $reach;
     };
     $step = $layout->spacing->lateral * array_sum(array_column($bodies, 'width')) / $count;
-    // The formation never leaves its footing: narrow the lanes until it fits the narrowest rank, then centre each rank.
-    $narrowest = min(array_map(static fn(array $span): float => $span[1] - $span[0], $spans));
-    for ($narrowing = 0; $narrowing < 32 && ($getExtent($step)[1] - $getExtent($step)[0]) > $narrowest; $narrowing++) {
+    // The formation never leaves the side: narrow the lanes until it fits.
+    for ($narrowing = 0; $narrowing < 32 && ($getExtent($step)[1] - $getExtent($step)[0]) > $right - $left; $narrowing++) {
       $step *= .85;
     }
     [$near, $far] = $getExtent($step);
+    // Each rank centres across the footing at the height its feet land at on this ground (across the side without
+    // footing), so a formation follows a road's line; its art stays on the side and its feet on the footing.
+    $compression = max($depths) <= $ground->depth ? 1.0 : $ground->depth / max($depths);
     $spots = [];
     foreach ($bodies as $index => $body) {
-      [$left, $right] = $spans[$index];
-      $x = ($left + $right) / 2 - ($near + $far) / 2 + $offsets[$index] * $step;
+      [$footLeft, $footRight] = self::getStandingSpan($layout, $party, $ground->getFootY($depths[$index] * $compression), $footing);
+      $x = ($footLeft + $footRight) / 2 - ($near + $far) / 2 + $offsets[$index] * $step;
       $share = $body['pivotX'] ?? .5;
       if ($right - $left >= $body['width']) {
         $x = max($left + $share * $body['width'], min($right - (1 - $share) * $body['width'], $x));
       }
+      $x = max($footLeft, min($footRight, $x));
       $spots[] = new BattleStageSlot(max(0, min($layout->width, $x)), $depths[$index], $body['width'], $body['height']);
     }
     return $spots;
+  }
+
+  /**
+   * The canvas columns a side's art stands within: its authored area, or
+   * without one, the left half for enemies and the right for the party.
+   *
+   * @return array{0: float, 1: float}
+   */
+  private static function getSideRange(BattleCanvasLayout $layout, bool $party): array
+  {
+    $area = $party ? $layout->partyArea : $layout->enemyArea;
+    return $area === null ? ($party ? [$layout->width / 2, $layout->width] : [0.0, $layout->width / 2])
+      : [$area->x, $area->x + $area->width];
   }
 
   /**
@@ -211,10 +225,7 @@ final readonly class BattleStaging
    */
   private static function getStandingSpan(BattleCanvasLayout $layout, bool $party, float $footY, array $footing): array
   {
-    $area = $party ? $layout->partyArea : $layout->enemyArea;
-    // Without an authored side area, enemies take the left half and the party the right.
-    $side = [$area?->x ?? ($party ? $layout->width / 2 : 0),
-      $area === null ? ($party ? $layout->width : $layout->width / 2) : $area->x + $area->width];
+    $side = self::getSideRange($layout, $party);
     $run = BattleFooting::getSpan($footing, BattleFooting::getNearestFootedHeight($footing, $footY));
     if ($run === null) { return $side; }
     $overlap = [max($side[0], $run[0]), min($side[1], $run[1])];
