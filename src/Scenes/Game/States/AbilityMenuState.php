@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\UI\Presentation\MenuDetailStyle;
+use Ichiloto\Engine\UI\Text\TextViewport;
+use Ichiloto\Engine\UI\Presentation\MenuDetailViewport;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Localization\Vocabulary;
@@ -80,7 +83,7 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
             ? get_engine_message('ability.empty_discovered', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities'))
             : get_engine_message('ability.empty_learned', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities'));
         if ($skill !== null) {
-            $fields = ['MP Cost' => (string)$skill->cost, 'Occasion' => $this->formatOccasionLabel($skill->occasion),
+            $fields = [Vocabulary::getLabel('stats.mp', 'MP') . ' Cost' => (string)$skill->cost, 'Occasion' => $this->formatOccasionLabel($skill->occasion),
                 'Scope' => $skill->scope->side->value];
             if ($learnable !== null) {
                 $fields['Status'] = $learnable->getStatusLabel($actor, $this->party, $events, $time);
@@ -353,50 +356,15 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
     protected function buildDetailLines(): array
     {
         $availableLines = self::CONTENT_PANEL_HEIGHT - 2;
-        $availableWidth = self::DETAIL_PANEL_WIDTH - 4;
-        $sourceLines = match ($this->tabs[$this->activeTabIndex] ?? 'Ready') {
-            'Ready' => $this->buildReadyDetailLines(),
-            'Learn' => $this->buildLearnDetailLines(),
-            'Sort' => $this->buildSortDetailLines(),
-            default => [],
-        };
+        $content = $this->getPresentationContent();
+        $sheet = $content?->getDetailSheet();
+        if ($sheet === null) { return array_fill(0, $availableLines, ''); }
+        // The panel shows the sheet's first page with the shared Terminal headings and record rules.
+        $width = self::DETAIL_PANEL_WIDTH - 4;
+        $style = MenuDetailStyle::createTerminal();
+        $page = $sheet->createPage(new TextViewport(), new MenuDetailViewport($width, $availableLines), $style);
 
-        $lines = [];
-
-        foreach ($sourceLines as $line) {
-            foreach (explode("\n", wrap_text($line, max(1, $availableWidth))) as $wrappedLine) {
-                $lines[] = TerminalText::truncateToWidth($wrappedLine, $availableWidth);
-            }
-        }
-
-        return array_slice(array_pad($lines, $availableLines, ''), 0, $availableLines);
-    }
-
-    /**
-     * Builds the detail text for the Ready tab.
-     *
-     * @return string[] The detail lines.
-     */
-    protected function buildReadyDetailLines(): array
-    {
-        $ability = $this->getActiveReadyAbility();
-
-        if (!$ability instanceof Skill) {
-            return [
-                get_engine_message('ability.empty_learned', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities')),
-                '',
-                'Battle abilities will appear here once this character has unlocked or learned them.',
-            ];
-        }
-
-        return [
-            $ability->name,
-            sprintf('%s Cost : %d', Vocabulary::getTerm('stats.mp', 'MP'), $ability->cost),
-            sprintf('Occasion: %s', $this->formatOccasionLabel($ability->occasion)),
-            sprintf('Scope   : %s', $ability->scope->side->value),
-            '',
-            $ability->description,
-        ];
+        return array_pad($sheet->layout($width, $style)->getTerminalLines($page, $width), $availableLines, '');
     }
 
     /**
@@ -426,50 +394,6 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
     }
 
     /**
-     * Builds the detail text for the Learn tab.
-     *
-     * @return string[] The detail lines.
-     */
-    protected function buildLearnDetailLines(): array
-    {
-        $learnableAbility = $this->getActiveLearnableAbility();
-
-        if (!$learnableAbility instanceof LearnableAbility || !$this->character instanceof Character) {
-            return [
-                get_engine_message('ability.empty_discovered', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities')),
-                '',
-                'Discovered abilities and their unlock requirements will appear here.',
-            ];
-        }
-
-        $progress = $learnableAbility->requirement->describeProgress(
-            $this->character,
-            $this->party,
-            $this->getGameScene()->storyEvents,
-            $this->getElapsedPlayTime()
-        );
-
-        return [
-            $learnableAbility->skill->name,
-            sprintf(
-                'Status  : %s',
-                $learnableAbility->getStatusLabel(
-                    $this->character,
-                    $this->party,
-                    $this->getGameScene()->storyEvents,
-                    $this->getElapsedPlayTime()
-                )
-            ),
-            sprintf('Occasion: %s', $this->formatOccasionLabel($learnableAbility->skill->occasion)),
-            $learnableAbility->note !== '' ? sprintf('Source  : %s', $learnableAbility->note) : 'Source  : Unrecorded',
-            '',
-            $progress !== '' ? $progress : 'No additional requirements.',
-            '',
-            $learnableAbility->skill->description,
-        ];
-    }
-
-    /**
      * Returns the selected learnable ability, if any.
      *
      * @return LearnableAbility|null The selected ability.
@@ -477,25 +401,6 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
     protected function getActiveLearnableAbility(): ?LearnableAbility
     {
         return $this->character?->abilityBook->getLearnableAbilities()[$this->activeLearnIndex] ?? null;
-    }
-
-    /**
-     * Builds the detail text for the Sort tab.
-     *
-     * @return string[] The detail lines.
-     */
-    protected function buildSortDetailLines(): array
-    {
-        return [
-            Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'Ability') . ' Order',
-            '',
-            sprintf('Current: %s', $this->character?->abilityBook->getSortOrder()->value ?? AbilitySortOrder::A_TO_Z->value),
-            '',
-            'A-Z keeps learned abilities alphabetical.',
-            'Z-A reverses the learned ability list.',
-            '',
-            'Apply a sort order to reorganize the Ready tab.',
-        ];
     }
 
     /**

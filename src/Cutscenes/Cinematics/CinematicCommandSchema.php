@@ -94,7 +94,7 @@ final class CinematicCommandSchema
     'id', 'name', 'description', 'moveName', 'wielders', 'lore', 'element',
     'strengths', 'weaknesses', 'attributes', 'version', 'linkedSummonId',
     'linkedActionId', 'tags', 'playback', 'transitionIn', 'transitionOut',
-    'effectTiming', 'targetPresentation', 'authoring', 'availability',
+    'effectTiming', 'targetPresentation', 'authoring', 'availability', 'elementAffinities', 'effectiveAgainst',
   ];
   public const array SUMMON_TIMELINE_FIELDS = [
     'formatVersion', 'fps', 'lengthFrames', 'restFrame', 'presentations', 'stage', 'tracks', 'cues', 'editor',

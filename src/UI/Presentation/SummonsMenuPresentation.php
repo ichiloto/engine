@@ -13,14 +13,14 @@ use RuntimeException;
 /** Summon contracts use the shared menu frames, records, text viewport and semantic hints. */
 final class SummonsMenuPresentation
 {
-  /** @return array{int, int} Owner uses the same finite detail viewport for semantic scrolling. */
-  public static function getDetailPageSize(SummonsMenuContent $content, MenuPresentationCatalog $theme,
-    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): array
+  /** The owner pages Info through this same finite viewport for semantic scrolling. */
+  public static function getDetailViewport(SummonsMenuContent $content, MenuPresentationCatalog $theme,
+    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): MenuDetailViewport
   {
     $body = self::getGeometry($content, $theme, $width, $height)['body'];
     $m = $theme->metrics;
-    return [(int)floor(($body->width - 2 * $m->panelPadding) / $m->cellWidth),
-      (int)floor(($body->height - 2 * $m->panelPadding) / $m->cellHeight)];
+    return new MenuDetailViewport((int)floor(($body->width - 2 * $m->panelPadding) / $m->cellWidth),
+      (int)floor($body->height - 2 * $m->panelPadding), $m->cellHeight);
   }
 
   public static function compose(SummonsMenuContent $content, MenuPresentationCatalog $theme, ?TextPage $page,
@@ -33,18 +33,18 @@ final class SummonsMenuPresentation
     $view = new MenuCanvas($theme, $width, $height, $time);
     $view->frame('summons-summary', $g['summary']);
     $view->prose('summons-title', $content->title, $g['title'], 'accent');
-    $view->prose('summons-character', implode("\n", $content->summary), $g['identity']);
+    $view->prose('summons-character', implode("\n", $content->summary), $g['identity'], 'muted');
     if ($g['portrait'] !== null && $content->character !== null) { $view->portrait($content->character->actorId, $g['portrait'], 'summons-portrait'); }
     $view->frame('summons-contracts', $g['body']);
     $body = new CanvasRectangle($g['body']->x + $p, $g['body']->y + $p,
       $g['body']->width - 2 * $p, $g['body']->height - 2 * $p);
     if ($content->detailsOpen) {
-      [$columns, $rows] = self::getDetailPageSize($content, $theme, $width, $height);
-      if ($page === null || $page->columns !== $columns || $page->rows !== $rows) {
+      $area = self::getDetailViewport($content, $theme, $width, $height);
+      if ($page === null || $content->details === null || $page->columns !== $area->columns) {
         throw new RuntimeException('Summon contract page must match its measured viewport.');
       }
-      $view->prose('summons-detail', implode("\n", $page->lines), $body);
-      if ($page->total > $page->rows) {
+      $view->details('summons-detail', $content->details->layout($area->columns, $theme->createDetailStyle(), $area), $page, $body);
+      if ($page->total > count($page->lines)) {
         $view->renderBorderCaption('summons-detail-range', $page->range(),
           new CanvasRectangle($body->x, $g['body']->y + $g['body']->height - $p, $body->width, $p));
       }

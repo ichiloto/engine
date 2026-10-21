@@ -20,12 +20,13 @@ final class JournalMenuPresentation
   private const float TITLE_WIDTH_SHARE = 0.22;
   // Reserve half the row for record identity before distributing numeric values.
   private const float VALUE_WIDTH_SHARE = 0.50;
-  /** @return array{int, int} Text columns and rows, shared with the PHP scrolling owner. */
-  public static function pageSize(JournalMenuContent $content, MenuPresentationCatalog $theme, int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): array
+  /** The reading viewport, shared with the PHP scrolling owner. */
+  public static function pageSize(JournalMenuContent $content, MenuPresentationCatalog $theme, int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): MenuDetailViewport
   {
     if ($content->journal && $content->document !== null) { return QuestJournalPresentation::pageSize($content, $theme, $width, $height); }
     $bounds = self::geometry($content, $theme, $width, $height)['text'];
-    return [(int)floor($bounds->width / $theme->metrics->cellWidth), (int)floor($bounds->height / $theme->metrics->cellHeight)];
+    return new MenuDetailViewport((int)floor($bounds->width / $theme->metrics->cellWidth), (int)floor($bounds->height),
+      $theme->metrics->cellHeight);
   }
 
   public static function compose(JournalMenuContent $content, MenuPresentationCatalog $theme, TextPage $page,
@@ -69,11 +70,10 @@ final class JournalMenuPresentation
     $metadata = !$hasEntry ? '' : ($content->detailsOpen ? 'Details - ' . $page->range() : 'View details');
     $view->prose('journal-reading-state', $metadata, $g['metadata'], $content->detailsOpen ? 'accent' : 'disabled');
     if ($hasEntry && (!$content->journal || $content->detailsOpen)) {
-      if ($page->columns !== (int)floor($g['text']->width / $m->cellWidth)
-        || $page->rows !== (int)floor($g['text']->height / $m->cellHeight)) {
+      if ($page->columns !== (int)floor($g['text']->width / $m->cellWidth) || $page->rows !== (int)floor($g['text']->height)) {
         throw new RuntimeException('Journal text page must match the measured display viewport.');
       }
-      $view->prose('journal-text', implode("\n", $page->lines), $g['text']);
+      $view->details('journal-text', $content->details->layout($page->columns, $theme->createDetailStyle()), $page, $g['text']);
     } elseif ($hasEntry) {
       $view->prose('journal-preview', TextViewport::preview($content->previewText, (int)floor($g['preview']->width / $m->cellWidth)), $g['preview']);
     }

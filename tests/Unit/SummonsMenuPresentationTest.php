@@ -122,8 +122,13 @@ it('exposes complete long contracts through the shared scroll viewport and seman
   expect($texts)->toContain('Pad', 'Scroll down')->not->toContain('enter:', 'tab:', 'c:');
   $viewport = new ReflectionProperty($state, 'detailViewport')->getValue($state);
   $page = new ReflectionProperty($state, 'lastDetailPage')->getValue($state);
-  expect($page->total)->toBeGreaterThan($page->rows)->and($page->source)->toContain('Contract line 100');
-  for ($i = 0; $i < $page->total; $i++) { $viewport->scroll(1, $page); $page = $viewport->page($page->columns, $page->rows); }
+  expect($page->total)->toBeGreaterThan(count($page->lines))->and($page->source)->toContain('Contract line 100');
+  // Semantic scrolling through the owner's own measured Canvas pages reaches the end.
+  for ($i = 0; $i < $page->total; $i++) {
+    $viewport->scroll(1, $page);
+    new ReflectionMethod($state, 'composeMenuCanvas')->invoke($state, $theme, 0.0);
+    $page = new ReflectionProperty($state, 'lastDetailPage')->getValue($state);
+  }
   expect(implode("\n", $page->lines))->toContain('Contract line 100');
   new ReflectionMethod($state, 'composeMenuCanvas')->invoke($state, $theme, 0.0);
   $help = new ReflectionMethod($state, 'getActionHints')->invoke($state);
@@ -140,7 +145,7 @@ it('removes eligibility rosters and only offers assignable summons in the Equipm
   $state = createSummonsMenuProbe([$allowed, $future], true);
   $before = serialize([$allowed->wielders, $future->wielders]);
   expect(array_column($state->getPresentationContent()->rows, 'label'))->toBe(['Allowed spirit']);
-  $detail = new ReflectionMethod($state, 'getDetailText')->invoke($state);
+  $detail = new ReflectionMethod($state, 'getDetailSheet')->invoke($state)->text;
   expect($detail)->not->toContain('future.identity', 'Wielders', 'One bearer', 'Actor')
     ->and($state->getPresentationContent()->status)->toBeNull();
   $later = new Character('Later hero', 1, new Stats(currentHp: 100), actorId: 'future.identity');
@@ -299,4 +304,33 @@ it('refreshes a reordered party before accepting confirmation against an obsolet
   summonMenuKey($state, KeyCode::ENTER);
   expect($first->hasSummon('spirit'))->toBeFalse()->and($other->hasSummon('spirit'))->toBeFalse()
     ->and(array_column($state->getPresentationContent()->rows, 'label'))->toBe([$other->name, $first->name]);
+});
+
+it('reads Info as Move, Profile and Resistances with every resistance row, keeping legacy matchups visible', function () {
+  $definition = new SummonCutsceneDefinition('spirit', 'Spirit', 'Its move description.', 'Spirit move',
+    lore: 'Spirit lore.', element: 'Fire', strengths: ['Ice'], weaknesses: ['Water'], attributes: ['Power' => 'A', 'Speed' => 3],
+    elementAffinities: ['Fire' => 0.25, 'Earth' => 0.0], effectiveAgainst: ['Wind']);
+  $state = createSummonsMenuProbe([$definition]);
+  new ReflectionProperty($state, 'view')->setValue($state, SummonsMenuView::INFO);
+  new ReflectionProperty($state, 'selectedSummonId')->setValue($state, 'spirit');
+  $sheet = new ReflectionMethod($state, 'getDetailSheet')->invoke($state);
+  $entries = $sheet->getEntries();
+  $headings = array_column(array_filter($entries, fn($entry) => $entry->kind === \Ichiloto\Engine\UI\Presentation\MenuDetailKind::HEADING), 'text');
+  $icons = fn(string $label) => array_column(array_find($entries, fn($entry) => $entry->label === $label)->icons, 'name');
+  expect($headings)->toBe(['Move', 'Profile', 'Resistances'])
+    ->and($icons('Effective against'))->toBe(['Wind', 'Ice'])
+    ->and($icons('Weaknesses'))->toBe(['Water'])
+    ->and($icons('Greater Resistances'))->toBe(['Fire'])
+    ->and($icons('Immunities'))->toBe(['Earth'])
+    ->and($icons('Lesser Resistances'))->toBe([])->and($icons('Absorbed Elements'))->toBe([])
+    ->and(array_find($entries, fn($entry) => $entry->label === 'Speed')->kind)->toBe(\Ichiloto\Engine\UI\Presentation\MenuDetailKind::NUMBER);
+  // A summon with only the legacy lists keeps them and marks the unrecorded tiers.
+  $legacy = new SummonCutsceneDefinition('legacy', 'Legacy', weaknesses: ['Water']);
+  new ReflectionProperty(SummonsMenuState::class, 'availableSummons')->setValue($state, [$legacy]);
+  new ReflectionProperty($state, 'selectedSummonId')->setValue($state, 'legacy');
+  new ReflectionMethod($state, 'refreshUI')->invoke($state);
+  $entries = new ReflectionMethod($state, 'getDetailSheet')->invoke($state)->getEntries();
+  $value = fn(string $label) => array_find($entries, fn($entry) => $entry->label === $label);
+  expect(array_column($value('Weaknesses')->icons, 'name'))->toBe(['Water'])
+    ->and($value('Immunities')->text)->toBe('Not recorded')->and($value('Effective against')->text)->toBe('Not recorded');
 });

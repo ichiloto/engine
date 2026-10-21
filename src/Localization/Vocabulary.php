@@ -22,6 +22,13 @@ final class Vocabulary
     return is_string($term) ? $term : $default;
   }
 
+  /** A term that names a label/value field. A field cannot have a blank label, so a blank term keeps the default. */
+  public static function getLabel(string $path, string $default): string
+  {
+    $term = trim(self::getTerm($path, $default));
+    return $term !== '' ? $term : $default;
+  }
+
   /** Resolve a map of terms, retaining base entries not translated by the active locale. */
   public static function getTerms(string $path): array
   {

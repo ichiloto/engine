@@ -215,7 +215,8 @@ it('shares renamed skill headings and resource terms across Terminal and canvas 
   $terminal = implode(' ', invokeMenuVocabularyMethod($state, 'buildSummaryLines'));
   expect($terminal)->toContain($term, 'Rank', 'Vitality', 'Mana')
     ->and(implode(' ', invokeMenuVocabularyMethod($state, $magic ? 'buildUseEntries' : 'buildReadyEntries')))->toContain('Mana')
-    ->and(implode(' ', invokeMenuVocabularyMethod($state, $magic ? 'buildUseDetailLines' : 'buildReadyDetailLines')))->toContain('Mana Cost');
+    ->and(implode(' ', invokeMenuVocabularyMethod($state, 'buildDetailLines')))->toContain('Mana Cost')
+    ->and($content->fields)->toHaveKey('Mana Cost');
   $data = ['schema' => 'ichiloto.menu/1'];
   if ($alternative) { $data['metrics'] = ['cellWidth' => 8, 'cellHeight' => 18, 'rowHeight' => 34, 'panelPadding' => 16, 'sectionGap' => 8, 'portraitSize' => 88]; }
   $canvas = SkillMenuPresentation::compose($content, new MenuPresentationCatalog($this->root, $data));
@@ -251,13 +252,13 @@ it('uses renamed terms for empty and sort headings without translating the tab i
   $state->character = $this->actor;
   $term = $magic ? 'Arcana' : 'Techniques';
   expect($state->getPresentationContent()->emptyText)->toBe('No learned ' . $term . '.')
-    ->and(invokeMenuVocabularyMethod($state, $magic ? 'buildUseDetailLines' : 'buildReadyDetailLines')[0])->toBe('No learned ' . $term . '.');
+    ->and(invokeMenuVocabularyMethod($state, 'buildDetailLines')[0])->toBe('No learned ' . $term . '.');
   new ReflectionProperty($state, 'activeTabIndex')->setValue($state, 1);
   expect($state->getPresentationContent()->emptyText)->toBe('No discovered ' . $term . '.')
-    ->and(invokeMenuVocabularyMethod($state, 'buildLearnDetailLines')[0])->toBe('No discovered ' . $term . '.');
+    ->and(invokeMenuVocabularyMethod($state, 'buildDetailLines')[0])->toBe('No discovered ' . $term . '.');
   new ReflectionProperty($state, 'activeTabIndex')->setValue($state, 2);
   expect($state->getPresentationContent()->detailTitle)->toBe($term . ' Order')
-    ->and(invokeMenuVocabularyMethod($state, 'buildSortDetailLines')[0])->toBe($term . ' Order');
+    ->and(invokeMenuVocabularyMethod($state, 'buildDetailLines')[0])->toBe($term . ' Order');
 })->with([false, true]);
 
 it('shares renamed stat and experience labels in status and equipment with stable row identities', function () {
