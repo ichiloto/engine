@@ -34,21 +34,28 @@ final class BattlerGroundContact
   /**
    * A battler's elevation in reference heights: its own, else the theme's
    * height for an air enemy, else none. A knocked-out battler lies on the
-   * ground, and artwork that paints its own shadow keeps the height it was
-   * painted at.
+   * ground, and artwork that paints its own shadow (the pose shown, else the
+   * battler's) keeps the height it was painted at.
    */
   public static function getElevation(?BattlerGrounding $grounding, ?EnemyHabitat $habitat, BattleCanvasLayout $layout,
-    bool $knockedOut = false): float
+    bool $knockedOut = false, ?BattlerPose $pose = null): float
   {
-    if ($knockedOut || ($grounding?->bakedShadow ?? false)) { return 0.0; }
+    if ($knockedOut || self::isPaintedShadow($grounding, $pose)) { return 0.0; }
     return $grounding?->elevation ?? ($habitat === EnemyHabitat::AIR ? $layout->airElevation : 0.0);
   }
 
   /** What is drawn where it meets the surface: its own choice, else its habitat's and elevation's; none over a painted shadow. */
-  public static function getContact(?BattlerGrounding $grounding, ?EnemyHabitat $habitat, float $elevation): BattlerContact
+  public static function getContact(?BattlerGrounding $grounding, ?EnemyHabitat $habitat, float $elevation,
+    ?BattlerPose $pose = null): BattlerContact
   {
-    if ($grounding?->bakedShadow ?? false) { return BattlerContact::NONE; }
+    if (self::isPaintedShadow($grounding, $pose)) { return BattlerContact::NONE; }
     return $grounding?->contact ?? BattlerContact::getDefault($habitat, $elevation);
+  }
+
+  /** Whether the art shown paints its own shadow: the pose's say, else the battler's. */
+  public static function isPaintedShadow(?BattlerGrounding $grounding, ?BattlerPose $pose): bool
+  {
+    return $pose?->bakedShadow ?? $grounding?->bakedShadow ?? false;
   }
 
   /** The canvas distance an elevation raises (positive) or sinks (negative) the body at a slot's perspective. */

@@ -521,7 +521,10 @@ line, where staging, footing, effects and its contact meet the ground
   `contactOpacity`). Art that paints its own shadow is declared
   (`'bakedShadow' => true`): the Engine draws no second one and the art keeps
   the height it was painted at, so an elevation or another contact on it is
-  refused until the art is shadow-free.
+  refused until the art is shadow-free. A pose may say the same of its own
+  art (`'bakedShadow' => true` on the pose, or `false` for a clean pose of a
+  battler otherwise declared), so a clean idle casts the Engine's shadow while
+  a knockout that paints its own does not; the pose shown decides.
 - Contacts follow the feet through steps, recoil, poses, knockouts and
   concession and fade with the battler. A renderer without composites draws
   no Engine-drawn contacts; the Terminal battle never reads any of it.

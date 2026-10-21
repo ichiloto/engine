@@ -115,6 +115,19 @@ it('meets the surface by habitat and elevation unless the battler says, with not
     ->and(BattlerGroundContact::getContact(new BattlerGrounding(bakedShadow: true), EnemyHabitat::LAND, 0))->toBe(BattlerContact::NONE);
 });
 
+it('lets a pose say its own art paints a shadow where the battler\'s other art does not', function () {
+  $knockout = new BattlerPose('KO.png', bakedShadow: true);
+  $idle = new BattlerPose('Idle.png');
+  $layout = contactLayout(airElevation: .5);
+  expect(BattlerGroundContact::getContact(null, null, 0, $knockout))->toBe(BattlerContact::NONE)
+    ->and(BattlerGroundContact::getContact(null, null, 0, $idle))->toBe(BattlerContact::SHADOW)
+    // A pose painted shadow-free overrides a battler declared as painting its own.
+    ->and(BattlerGroundContact::getContact(new BattlerGrounding(bakedShadow: true), null, 0, new BattlerPose('Clean.png', bakedShadow: false)))
+    ->toBe(BattlerContact::SHADOW)
+    ->and(BattlerGroundContact::getElevation(null, EnemyHabitat::AIR, $layout, pose: $knockout))->toBe(0.0)
+    ->and(BattlerGroundContact::getElevation(null, EnemyHabitat::AIR, $layout, pose: $idle))->toBe(.5);
+});
+
 it('rings a sunk body with the theme\'s ripple or burrow art, or a plain placeholder until art exists', function () {
   $ripple = contactAt(BattlerContact::RIPPLE, -.2)['composites'][0];
   $burrow = contactAt(BattlerContact::BURROW, -.2)['composites'][0];
