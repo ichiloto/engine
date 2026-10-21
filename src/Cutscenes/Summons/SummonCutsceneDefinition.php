@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Cutscenes\Summons;
 
+use Ichiloto\Engine\Entities\Elements\ElementRegistry;
+
 /**
  * Represents one authored summon cutscene definition.
  *
@@ -62,6 +64,11 @@ final class SummonCutsceneDefinition
     public ?int $restFrame = null,
     public array $presentations = [],
     public ?array $stage = null,
+    /** @var array<string, float>|null Defensive affinities, element identity to multiplier as enemies declare them.
+     * Null means not recorded; a recorded map leaves unlisted elements neutral, so its empty tiers mean none. */
+    public ?array $elementAffinities = null,
+    /** @var list<string>|null Element identities this summon's move is effective against; null means not recorded. */
+    public ?array $effectiveAgainst = null,
   )
   {
     $this->id = trim($id);
@@ -73,6 +80,10 @@ final class SummonCutsceneDefinition
     $this->strengths = array_values(array_filter(array_map('strval', $strengths), static fn(string $entry): bool => trim($entry) !== ''));
     $this->weaknesses = array_values(array_filter(array_map('strval', $weaknesses), static fn(string $entry): bool => trim($entry) !== ''));
     $this->attributes = $attributes;
+    $this->elementAffinities = $elementAffinities === null ? null : ElementRegistry::normalizeAffinities($elementAffinities);
+    $this->effectiveAgainst = $effectiveAgainst === null ? null : array_values(array_unique(array_map(static fn(mixed $element): string
+      => ElementRegistry::canonicalize(is_string($element) ? $element : '') ?? throw new \InvalidArgumentException('Effective-against entries must be element identities.'),
+      $effectiveAgainst)));
     $this->version = max(1, $version);
     $this->linkedSummonId = $this->normalizeOptionalString($linkedSummonId);
     $this->linkedActionId = $this->normalizeOptionalString($linkedActionId);
@@ -161,7 +172,16 @@ final class SummonCutsceneDefinition
       isset($timeline['restFrame']) ? intval($timeline['restFrame']) : null,
       is_array($timeline['presentations'] ?? null) ? $timeline['presentations'] : [],
       $timeline['stage'] ?? null,
+      self::readRecordedList($data, 'elementAffinities'),
+      self::readRecordedList($data, 'effectiveAgainst'),
     );
+  }
+
+  /** An absent key is not recorded; a present one must be a list or map. */
+  private static function readRecordedList(array $data, string $key): ?array
+  {
+    if (!array_key_exists($key, $data)) { return null; }
+    return is_array($data[$key]) ? $data[$key] : throw new \InvalidArgumentException("Summon {$key} must be an array.");
   }
 
   /**
@@ -214,6 +234,10 @@ final class SummonCutsceneDefinition
       'targetPresentation' => $this->targetPresentation->toArray(),
       'authoring' => $this->authoring,
     ];
+
+    // Written only when recorded, so existing summon sources round-trip unchanged.
+    if ($this->elementAffinities !== null) { $data['elementAffinities'] = $this->elementAffinities; }
+    if ($this->effectiveAgainst !== null) { $data['effectiveAgainst'] = $this->effectiveAgainst; }
 
     if ($this->availability !== null) {
       $data['availability'] = $this->availability->toArray();

@@ -34,4 +34,17 @@ final readonly class SkillMenuContent
     public bool $targeting = false,
     public ?MenuInfoText $infoModel = null,
   ) {}
+
+  /** The selected entry's heading and fields, then its requirement or guidance text, for renderers that read it as one sheet.
+   * @param array<string, string> $additionalFields Renderer-specific fields that follow the shared ones.
+   */
+  public function getDetailSheet(array $additionalFields = []): MenuDetailSheet
+  {
+    $fields = [];
+    foreach ([...$this->fields, ...$additionalFields] as $label => $value) {
+      if (trim($value) !== '') { $fields[] = MenuDetailEntry::createField((string)$label, $value); }
+    }
+    return new MenuDetailSheet([[...($this->detailTitle === '' ? [] : [MenuDetailEntry::createProse($this->detailTitle)]), ...$fields],
+      trim($this->detailText) === '' ? [] : [MenuDetailEntry::createProse($this->detailText)]]);
+  }
 }

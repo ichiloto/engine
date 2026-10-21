@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationTheme;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use InvalidArgumentException;
@@ -23,9 +24,13 @@ final readonly class MenuPresentationCatalog
     'background' => [13, 18, 24], 'panel' => [24, 31, 40],
     'increase' => [118, 213, 159], 'decrease' => [237, 142, 142],
     'objective' => [240, 196, 64],
+    // Quiet secondary text such as detail-field labels.
+    'muted' => [126, 137, 147],
   ];
 
   public MenuRowSkin $rows;
+  /** Label/value field presentation in detail sheets. */
+  public MenuDetailStyle $details;
   public MenuThemeMetrics $metrics;
   public ?MenuIconRegistry $icons;
   /** @var array<string, PresentationColor> */
@@ -40,7 +45,7 @@ final readonly class MenuPresentationCatalog
 
   public function __construct(public string $assetRoot, array $data)
   {
-    self::keys($data, ['schema', 'colors', 'metrics', 'rowMetrics', 'rowArtwork', 'frames', 'icons', 'cursor', 'portraits', 'showInputHints', 'notifications', 'atlas']);
+    self::keys($data, ['schema', 'colors', 'metrics', 'rowMetrics', 'rowArtwork', 'frames', 'icons', 'cursor', 'portraits', 'showInputHints', 'notifications', 'atlas', 'details']);
     if (($data['schema'] ?? null) !== 'ichiloto.menu/1') {
       throw new InvalidArgumentException('Menu catalog requires schema ichiloto.menu/1.');
     }
@@ -66,11 +71,17 @@ final readonly class MenuPresentationCatalog
     $this->rows = new MenuRowSkin(array_intersect_key($palette, array_flip(MenuRowSkin::COLORS)),
       new MenuRowMetrics(...self::map($data, 'rowMetrics')), $art, $assetRoot);
     $this->frames = self::artwork(self::map($data, 'frames'), ['panel', 'quiet', 'portrait', 'dialogue', 'nameplate',
-      'slider.track', 'slider.thumb', 'scroll.track', 'scroll.thumb']);
+      'slider.track', 'slider.thumb', 'scroll.track', 'scroll.thumb', 'details.header']);
     $bindings = self::map($data, 'icons');
     $cursor = $data['cursor'] ?? null;
     if ($cursor !== null && !is_string($cursor)) { throw new InvalidArgumentException('Menu cursor must be a PNG path.'); }
     $this->icons = $bindings !== [] || $cursor !== null ? new MenuIconRegistry($assetRoot, $bindings, $cursor) : null;
+    $this->details = MenuDetailStyle::createFromArray(self::map($data, 'details'),
+      (int)ceil($this->rows->metrics->iconWidth / $this->metrics->cellWidth));
+    foreach (array_filter([$this->details->labelColor, $this->details->valueColor, $this->details->headingColor,
+      $this->details->headingBackground, $this->details->headingRuleColor]) as $role) {
+      if (!isset($palette[$role])) { throw new InvalidArgumentException("Menu details colour role {$role} is not a theme colour."); }
+    }
     $portraits = self::map($data, 'portraits');
     foreach ($portraits as $actorId => $asset) {
       if (!is_string($actorId) || $actorId === '' || !is_string($asset)) {
@@ -79,6 +90,13 @@ final readonly class MenuPresentationCatalog
       SpriteValidation::validateAssetPath($asset);
     }
     $this->portraits = $portraits;
+  }
+
+  /** The authored detail style with the icon roles whose artwork is available now; checked when composing, never at load. */
+  public function createDetailStyle(): MenuDetailStyle
+  {
+    return $this->details->withIconRoles(array_keys(array_filter($this->icons?->icons ?? [],
+      fn(string $asset): bool => PngAssetPreflight::getAvailableSize($this->assetRoot, $asset) !== null)));
   }
 
   public static function exists(string $assetRoot): bool
