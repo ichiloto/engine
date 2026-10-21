@@ -57,13 +57,47 @@ function masteryMenuKey(MasteryMenuState $state, KeyCode $key): void
   $state->execute();
 }
 
-/** Writes a synthetic project: two regions, and a map whose second region holds two skills. */
+/** Answers the menu's confirmation dialog without opening one, keeping each question asked. */
+function masteryMenuAnswers(bool $answer): ModalManager
+{
+  $modals = new class extends ModalManager {
+    /** @var list<string> */
+    public array $asked = [];
+    public bool $answer = true;
+    public function __construct() {}
+    public function confirm(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): bool
+    {
+      $this->asked[] = $message;
+      return $this->answer;
+    }
+  };
+  $modals->answer = $answer;
+  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $modals);
+
+  return $modals;
+}
+
+/** Every word the menu shows the player: tabs, list, summary, details and help. */
+function masteryMenuWords(MasteryMenuState $state): string
+{
+  $content = $state->getPresentationContent();
+  $list = new ReflectionMethod($state, 'buildListEntries')->invoke($state);
+  $summary = new ReflectionMethod($state, 'buildSummaryLines')->invoke($state);
+  $detail = new ReflectionMethod($state, 'buildDetailLines')->invoke($state);
+
+  return implode("\n", [...$content->regions, ...$list, ...$summary, ...$detail, ...array_keys($content->summary),
+    ...$content->summary, ...array_keys($content->fields), ...$content->fields, ...$content->detailStatus,
+    ...array_map(static fn($node) => $node->value, $content->nodes), $content->description, $content->emptyText, $content->status ?? '']);
+}
+
+/** Writes a synthetic project: two regions, and a map whose second region holds three skills, the last locked. */
 function writeMasteryMenuProject(string $root): void
 {
   mkdir($root . '/assets/Data/Skills', 0777, true);
   mkdir($root . '/assets/Data/Mastery', 0777, true);
   foreach ([new SpecialSkill('Start Cut', 'A first cut.', '', 2, 0, effects: [new HPDamageSkillEffect('1')]),
-    new MagicSkill('Spark', 'Calls a spark down on one foe.', '', 4, 0), new MagicSkill('Storm', 'A storm.', '', 9, 0)] as $n => $skill) {
+    new MagicSkill('Spark', 'Calls a spark down on one foe.', '', 4, 0), new MagicSkill('Storm', 'A storm.', '', 9, 0),
+    new MagicSkill('Tempest', 'A tempest.', '', 20, 0)] as $n => $skill) {
     file_put_contents(sprintf('%s/assets/Data/Skills/%04d.php', $root, $n + 1),
       '<?php return ' . var_export(['class' => \Ichiloto\Engine\Entities\Skills\Skill::class, 'data' => SkillRecord::writeSkill($skill)], true) . ';');
   }
@@ -73,6 +107,7 @@ function writeMasteryMenuProject(string $root): void
     ['id' => 'cut', 'skill' => 'Start Cut', 'region' => 'blades', 'cost' => 0, 'order' => 1],
     ['id' => 'spark', 'skill' => 'Spark', 'region' => 'storms', 'cost' => 50, 'order' => 2],
     ['id' => 'storm', 'skill' => 'Storm', 'region' => 'storms', 'cost' => 80, 'order' => 3],
+    ['id' => 'tempest', 'skill' => 'Tempest', 'region' => 'storms', 'cost' => 120, 'opensAtLevel' => 5, 'requires' => ['storm'], 'order' => 4],
   ]], true) . ';');
 }
 
@@ -135,34 +170,82 @@ afterEach(function () {
   rmdir($this->root);
 });
 
-it('opens on the region being studied and shows the same nodes and focus to both renderers', function () {
+it('opens on the region being learned and shows the same nodes and focus to both renderers', function () {
   \Ichiloto\Engine\Progression\Mastery\MasteryProgression::forCharacter($this->hero)?->advance($this->hero, 10);
   $this->state->enter();
   $content = $this->state->getPresentationContent();
   $list = new ReflectionMethod($this->state, 'buildListEntries')->invoke($this->state);
 
   expect(MasteryMenuState::projectHasMaps())->toBeTrue()
-    ->and($content->regions)->toBe(['Blades', 'Storms'])
+    ->and($content->regions)->toBe(['Blades 1/1', 'Storms 0/3'])
     ->and($content->regionIndex)->toBe(1)
     ->and($content->focusedNode)->toBe('spark')
     ->and(array_map(static fn($node) => [$node->id, $node->state], $content->nodes))
-      ->toBe([['cut', MasteryNodeState::LEARNED], ['spark', MasteryNodeState::STUDYING], ['storm', MasteryNodeState::OPEN]])
-    ->and($list[0])->toContain('Spark')->toContain('Studying 10 / 50')
-    ->and($list[1])->toContain('Storm')->toContain('Open')
-    ->and($content->summary['Studying'])->toBe('Spark (10 / 50 EXP)');
+      ->toBe([['cut', MasteryNodeState::LEARNED], ['spark', MasteryNodeState::STUDYING], ['storm', MasteryNodeState::OPEN],
+        ['tempest', MasteryNodeState::LOCKED]])
+    ->and($list[0])->toContain('Spark')->toContain('Learning 10/50')
+    ->and(rtrim($list[1]))->toStartWith('Storm')->toEndWith(' 80')
+    ->and($list[2])->toContain('Tempest')->toContain('Unlocks at Lv 5')
+    ->and(array_column(array_map(static fn($node) => [$node->id, $node->value], $content->nodes), 1, 0))
+      ->toBe(['cut' => 'Learned', 'spark' => '10/50', 'storm' => '80', 'tempest' => 'Lv 5'])
+    ->and($content->summary)->toBe(['Learning' => 'Spark 10/50', 'Learned' => '1/4'])
+    ->and($content->detailStatus)->toBe(['Learning 10/50']);
 });
 
-it('studies the focused node on confirm, keeps the old node\'s progress, and returns to the main menu on cancel', function () {
+it('says what unlocks a locked skill and refuses it without asking', function () {
+  $modals = masteryMenuAnswers(true);
+  $this->state->enter();
+  masteryMenuKey($this->state, KeyCode::RIGHT);
+  masteryMenuKey($this->state, KeyCode::UP);
+  $content = $this->state->getPresentationContent();
+
+  expect($content->focusedNode)->toBe('tempest')
+    ->and($content->detailStatus)->toBe(['Unlocks at Lv 5', 'Unlocked after learning Storm'])
+    ->and($content->fields['SP'])->toBe('120');
+
+  masteryMenuKey($this->state, KeyCode::ENTER);
+  expect($modals->asked)->toBe([])
+    ->and($this->hero->mastery->studying)->not->toBe('tempest')
+    ->and($this->state->getPresentationContent()->status)->toBe('Unlocks at Lv 5. Unlocked after learning Storm.');
+});
+
+it('shows unspent points with the project\'s own label, and never shows engineering words', function () {
+  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['vocab' => ['mastery' => ['points' => 'JP', 'points_name' => 'Job Points']]]));
+  $modals = masteryMenuAnswers(false);
+  \Ichiloto\Engine\Progression\Mastery\MasteryProgression::forCharacter($this->hero)?->advance($this->hero, 0);
+  $this->hero->mastery->banked = 30;
+  $this->state->enter();
+  $content = $this->state->getPresentationContent();
+  $summary = new ReflectionMethod($this->state, 'buildSummaryLines')->invoke($this->state);
+
+  masteryMenuKey($this->state, KeyCode::DOWN);
+  masteryMenuKey($this->state, KeyCode::ENTER);
+
+  expect($content->points)->toBe('JP 30')
+    ->and($summary[0])->toContain('Hero')->toContain('Lv 1')->toContain('JP 30')
+    ->and($content->description)->toContain('Job Points (JP)')
+    ->and($modals->asked)->toBe(['Learn Storm for 80 JP?'])
+    ->and(masteryMenuWords($this->state))
+      ->not->toMatch('/\\b(banked?|stud(y|ies|ying)|regions?|nodes?|states?|needs|opens?)\\b|to learn:/i');
+});
+
+it('learns the focused skill once the player confirms its SP cost, keeps the old skill\'s progress, and returns on cancel', function () {
   \Ichiloto\Engine\Progression\Mastery\MasteryProgression::forCharacter($this->hero)?->advance($this->hero, 10);
+  $modals = masteryMenuAnswers(false);
   $this->state->enter();
 
   masteryMenuKey($this->state, KeyCode::DOWN);
+  masteryMenuKey($this->state, KeyCode::ENTER);
+  expect($modals->asked)->toBe(['Learn Storm for 80 SP?'])
+    ->and($this->hero->mastery->studying)->not->toBe('storm');
+
+  $modals->answer = true;
   masteryMenuKey($this->state, KeyCode::ENTER);
   $content = $this->state->getPresentationContent();
 
   expect($this->hero->mastery->studying)->toBe('storm')
     ->and($this->hero->mastery->getProgress('spark'))->toBe(10)
-    ->and($content->status)->toBe('Hero now studies Storm.')
+    ->and($content->status)->toBe('Hero is now learning Storm.')
     ->and(array_find($content->nodes, static fn($node) => $node->id === 'storm')->state)->toBe(MasteryNodeState::STUDYING);
 
   masteryMenuKey($this->state, KeyCode::ESCAPE);

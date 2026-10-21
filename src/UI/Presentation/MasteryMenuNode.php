@@ -11,7 +11,7 @@ final readonly class MasteryMenuNode
 {
   /**
    * @param int $region The index of the region it sits in.
-   * @param string $value Its state in words (Learned, Studying 40 / 162 EXP, Opens at Lv 5).
+   * @param string $value Its status as the card shows it (Learned, 40/162, Lv 5, or its SP cost).
    * @param list<string> $requires The ids of the nodes it builds on.
    * @param array{x: float, y: float}|null $position Where the authored map places it, 0 to 1 across the map.
    */

@@ -18,7 +18,7 @@ use RuntimeException;
  * Draws one character's Mastery Map: the project's regions laid out around
  * the character, each node as a card in its region, the links from the
  * nodes it builds on, and the focused node's details. Choosing what to
- * study stays with the menu state; the Terminal list shows the same
+ * learn stays with the menu state; the Terminal list shows the same
  * projection and focus.
  */
 final class MasteryMenuPresentation
@@ -41,9 +41,10 @@ final class MasteryMenuPresentation
     $actor = $content->character;
     $view = new MenuCanvas($theme, $width, $height, $time);
 
-    // Summary: who, and what they study.
+    // Summary: portrait, name, level and SP together in one corner block, then what they are learning.
     $portrait = isset($theme->portraits[$actor->actorId]) ? $m->portraitSize : 0;
-    $identity = $content->title . "\n" . $actor->name . "\n" . Vocabulary::getTerm('stats.level', 'Lv') . ' ' . $actor->level;
+    $identity = $content->title . "\n" . $actor->name . "\n" . Vocabulary::getTerm('stats.level', 'Lv') . ' ' . $actor->level
+      . ($content->points !== '' ? "\n" . $content->points : '');
     $summaryText = implode("\n", array_map(static fn(string $label, string $value): string => "{$label}: {$value}",
       array_keys($content->summary), $content->summary));
     $identityWidth = (int)floor($innerWidth * 0.35);
@@ -60,7 +61,7 @@ final class MasteryMenuPresentation
       $innerWidth - $identityWidth - $gap, $textHeight));
 
     // Footer: description, status and hints.
-    $hints = [ActionHints::resolve('confirm', 'Study'), ActionHints::resolve('cancel', 'Back'),
+    $hints = [ActionHints::resolve('confirm', 'Learn'), ActionHints::resolve('cancel', 'Back'),
       ActionHints::resolve('character_next', 'Next', KeyCode::TAB), ActionHints::resolve('character_previous', 'Prev', KeyCode::SHIFT_TAB)];
     $hintHeight = MenuActionHints::height($hints, $theme, $innerWidth);
     $infoHeight = MenuInfoPanel::getHeight($theme, $hints, $host->width);
@@ -82,15 +83,24 @@ final class MasteryMenuPresentation
     $detailInner = $detailFrame->width - 2 * $p;
     $detailY = $detailFrame->y + $p;
     $titleHeight = self::textHeight($content->detailTitle, $detailInner, $theme);
+    $status = implode("\n", $content->detailStatus);
+    $statusHeight = self::textHeight($status, $detailInner, $theme);
     $fields = implode("\n", array_map(static fn(string $label, string $value): string => "{$label}: {$value}",
       array_keys($content->fields), $content->fields));
     $fieldsHeight = self::textHeight($fields, $detailInner, $theme);
     $detailTextHeight = self::textHeight($content->detailText, $detailInner, $theme);
-    if ($titleHeight + $fieldsHeight + $detailTextHeight + 2 * $gap > $detailFrame->height - 2 * $p) {
+    if ($titleHeight + $statusHeight + $fieldsHeight + $detailTextHeight + ($statusHeight > 0 ? 3 : 2) * $gap > $detailFrame->height - 2 * $p) {
       throw new RuntimeException('Mastery details exceed their finite viewport; terminal presentation retained.');
     }
     $view->prose('mastery-detail-title', $content->detailTitle, new CanvasRectangle($detailFrame->x + $p, $detailY, $detailInner, $titleHeight), 'accent');
     $detailY += $titleHeight + $gap;
+    if ($statusHeight > 0) {
+      // The focused node's status under its name, coloured as its card is.
+      $focused = array_find($content->nodes, static fn(MasteryMenuNode $node): bool => $node->id === $content->focusedNode);
+      $view->prose('mastery-detail-status', $status, new CanvasRectangle($detailFrame->x + $p, $detailY, $detailInner, $statusHeight),
+        self::getStateColor($focused?->state ?? MasteryNodeState::OPEN));
+      $detailY += $statusHeight + $gap;
+    }
     if ($fieldsHeight > 0) {
       $view->prose('mastery-detail-fields', $fields, new CanvasRectangle($detailFrame->x + $p, $detailY, $detailInner, $fieldsHeight));
       $detailY += $fieldsHeight + $gap;
@@ -188,12 +198,18 @@ final class MasteryMenuPresentation
       $text = new CanvasRectangle($card->x + $gap, $card->y + max(2, (int)floor($gap / 2)), $card->width - 2 * $gap, 2 * $m->cellHeight);
       $view->prose("mastery-node-{$node->id}-label",
         mb_strimwidth($node->label, 0, $cells, '…') . "\n" . mb_strimwidth($node->value, 0, $cells, '…'), $text,
-        match ($node->state) {
-          MasteryNodeState::LEARNED => 'increase',
-          MasteryNodeState::STUDYING, MasteryNodeState::OPEN => 'text',
-          MasteryNodeState::LOCKED => 'disabled',
-        });
+        self::getStateColor($node->state));
     }
+  }
+
+  /** Learned reads bright, available plain and locked grey, on cards and in the details alike. */
+  private static function getStateColor(MasteryNodeState $state): string
+  {
+    return match ($state) {
+      MasteryNodeState::LEARNED => 'increase',
+      MasteryNodeState::STUDYING, MasteryNodeState::OPEN => 'text',
+      MasteryNodeState::LOCKED => 'disabled',
+    };
   }
 
   private static function textHeight(string $text, float $width, MenuPresentationCatalog $theme): int

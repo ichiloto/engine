@@ -16,10 +16,12 @@ use Ichiloto\Engine\UI\Text\MenuInfoText;
 final readonly class MasteryMenuContent
 {
   /**
-   * @param list<string> $regions Each region's name, in map order.
+   * @param list<string> $regions Each region's label (its name and Learned/Total count), in map order.
    * @param list<MasteryMenuNode> $nodes Every node, in default study order.
    * @param array<string, string> $summary
    * @param array<string, string> $fields The focused node's details.
+   * @param string $points The character's unspent points as the corner block shows them ("SP 120"); empty when none.
+   * @param list<string> $detailStatus The focused node's status under its name (Learned, Learning 10/50, what unlocks it).
    */
   public function __construct(
     public Character $character,
@@ -36,5 +38,7 @@ final readonly class MasteryMenuContent
     public string $description,
     public ?string $status,
     public ?MenuInfoText $infoModel = null,
+    public string $points = '',
+    public array $detailStatus = [],
   ) {}
 }
