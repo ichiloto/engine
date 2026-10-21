@@ -65,3 +65,13 @@ it('says why there is no stage where nothing graphical draws one', function () {
   expect($text)->toContain('draws no graphical battle stage')->toContain('Bats')->toContain('No party could be built')
     ->and(array_filter($canvas->images, static fn(CanvasImage $image): bool => str_starts_with($image->id, 'stage-')))->toBe([]);
 });
+
+it('draws a long troop list while the party is set up, a row without a value beside rows with one', function () {
+  $rows = [...array_map(static fn(int $i): array => ["Troop {$i}", "{$i} enemies, level 1"], range(1, 40)), ['+ Compose a test troop', '']];
+  // The cursor is in the party: no row is chosen, and the troop being fought stays in view.
+  $canvas = BattleTestMenuPresentation::compose($this->theme, new BattleTestMenuList('Troop', $rows, null, anchor: 40), true,
+    [['Kaelion', ['Lv' => '5']]], 0, 'Cave', null, null, false);
+  $text = implode(' ', array_map(static fn($layer): string => implode('', array_map(static fn($run): string => $run->text, $layer->runs)), $canvas->textLayers));
+
+  expect($text)->toContain('Compose a test troop')->toContain('Troop 39')->not->toContain('Troop 2 ');
+});

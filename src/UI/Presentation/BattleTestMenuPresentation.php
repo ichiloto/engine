@@ -79,17 +79,21 @@ final class BattleTestMenuPresentation
       $bottom -= $noteHeight + $m->sectionGap / 2;
       $view->prose('battle-test-note', $list->note, new CanvasRectangle($inner->x, $bottom + $m->sectionGap / 2, $inner->width, $noteHeight), 'accent');
     }
+    // A list with values gives every row its value column, empty where a row has none (such as composing a test troop).
+    $valued = array_any($list->rows, static fn(array $row): bool => $row[0] !== '' && $row[1] !== '');
     $rows = [];
     foreach ($list->rows as $index => [$label, $value]) {
       $selected = $index === $list->selected;
       $rows[] = new MenuRow('battle-test-row-' . $index, $label === '' ? $value : $label,
-        $label === '' || $value === '' ? [] : [new MenuRowValue($value)], selected: $selected, focused: $focused && $selected);
+        $valued ? [new MenuRowValue($label === '' ? '' : $value)] : [], selected: $selected, focused: $focused && $selected);
     }
     if ($rows !== []) {
       $rowHeight = (int) ceil(max($m->cellHeight + $theme->rows->metrics->separatorWidth, $theme->rows->metrics->cursorHeight,
         min($m->rowHeight, $m->cellHeight + $m->sectionGap / 3)));
+      // The row under the cursor stays in view, or the one the list keeps there while the cursor is elsewhere.
       $view->rows('battle-test-rows', $rows, new MenuRowLayout(new CanvasRectangle($inner->x, $y, $inner->width, max($rowHeight, $bottom - $y)),
-        self::getValueColumns($rows, $inner->width, $m->cellWidth), $rowHeight, $m->cellWidth, $m->cellHeight, wrapText: true), $list->selected);
+        self::getValueColumns($rows, $inner->width, $m->cellWidth), $rowHeight, $m->cellWidth, $m->cellHeight, wrapText: true),
+        $list->selected ?? $list->anchor ?? 0);
     }
     // A theme may hide input hints; then they take no room.
     if ($hintHeight > 0) {
@@ -163,9 +167,10 @@ final class BattleTestMenuPresentation
    */
   private static function getValueColumns(array $rows, float $width, int $cellWidth): array
   {
-    $widest = max([0, ...array_map(static fn(MenuRow $row): int => max([0, ...array_map(static fn(MenuRowValue $value): int =>
+    if (!array_any($rows, static fn(MenuRow $row): bool => $row->values !== [])) { return []; }
+    $widest = max([1, ...array_map(static fn(MenuRow $row): int => max([0, ...array_map(static fn(MenuRowValue $value): int =>
       mb_strlen($value->text), $row->values)]), $rows)]);
-    return $widest === 0 ? [] : [new MenuRowColumn(max(1, min($widest, (int) floor($width / $cellWidth / 2))))];
+    return [new MenuRowColumn(max(1, min($widest, (int) floor($width / $cellWidth / 2))))];
   }
 
   /** A rectangle kept inside another, for an outline that never leaves its picture. */

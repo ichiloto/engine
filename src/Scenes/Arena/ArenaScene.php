@@ -525,7 +525,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
             ['down', 'Party'], ['cancel', 'Quit']],
         $focus === ArenaSetupEditor::TROOPS
           ? ($editor?->offersArenas ?? false ? 'enter:Fight  left/right:Arena  down:Party  q:Quit' : 'enter:Fight  down:Party  q:Quit') : '',
-        '%-24s %s', namesArena: true),
+        '%-24s %s', namesArena: true, anchor: $editor?->troopIndex),
     };
   }
 

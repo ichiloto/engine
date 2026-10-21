@@ -19,6 +19,7 @@ final readonly class BattleTestMenuList
    * @param string $format How the terminal writes a row with a value: a sprintf of label then value.
    * @param string|null $note What the last action here came to, such as keeping a troop, shown beneath the rows.
    * @param bool $namesArena Whether the arena fights take place in belongs with this list, where arenas are offered.
+   * @param ?int $anchor The row kept in view while the cursor is elsewhere (on the troop being fought while the party is set up).
    */
   public function __construct(
     public string $title,
@@ -29,6 +30,7 @@ final readonly class BattleTestMenuList
     public string $format = '%s %s',
     public ?string $note = null,
     public bool $namesArena = false,
+    public ?int $anchor = null,
   ) {}
 
   /** A row as the terminal writes it: the label alone, or label and value in the list's format. */
