@@ -17,9 +17,11 @@ use InvalidArgumentException;
  */
 final readonly class MenuRowColumn
 {
+  /** @param ?int $gap Cells before the column, wider than the theme's where columns need telling apart; the theme's when null. */
   public function __construct(public int $cells, public HorizontalAlignment $alignment = HorizontalAlignment::RIGHT,
-    public ?string $label = null)
+    public ?string $label = null, public ?int $gap = null)
   {
+    if ($gap !== null && ($gap < 0 || $gap > 8)) { throw new InvalidArgumentException('A menu column keeps 0..8 cells before it.'); }
     if ($cells < 1 || $cells > RendererGridConfig::MAX_COLUMNS) {
       throw new InvalidArgumentException(sprintf('Menu value columns require 1..%d cells.', RendererGridConfig::MAX_COLUMNS));
     }
@@ -29,11 +31,16 @@ final readonly class MenuRowColumn
   }
 
   /** A column just wide enough for every figure given, after its label when it has one. */
-  public static function fit(array $figures, HorizontalAlignment $alignment = HorizontalAlignment::RIGHT, ?string $label = null): self
+  public static function fit(array $figures, HorizontalAlignment $alignment = HorizontalAlignment::RIGHT, ?string $label = null,
+    ?int $gap = null): self
   {
     $widest = max([1, ...array_map(static fn(string $figure): int => mb_strlen($figure, 'UTF-8'), $figures)]);
-    return new self(($label === null ? 0 : mb_strlen($label, 'UTF-8') + 1) + $widest, $alignment, $label);
+    return new self(($label === null ? 0 : mb_strlen($label, 'UTF-8') + 1) + $widest, $alignment, $label,
+      $gap ?? ($label === null ? null : self::LABELLED_GAP));
   }
+
+  /** Cells before a labelled column, so one stat's figure never reads into the next stat's label. */
+  public const int LABELLED_GAP = 2;
 
   /**
    * One labelled column per field, in the first row's order, each as wide as

@@ -33,7 +33,7 @@ final class MenuTableText
   /** @param list<MenuRowColumn> $columns The cells the columns take, with the gap before each. */
   public static function getColumnCells(array $columns): int
   {
-    return array_sum(array_map(static fn(MenuRowColumn $column): int => self::GAP + $column->cells, $columns));
+    return array_sum(array_map(static fn(MenuRowColumn $column): int => ($column->gap ?? self::GAP) + $column->cells, $columns));
   }
 
   /**
@@ -46,7 +46,7 @@ final class MenuTableText
   {
     $text = TerminalText::padRight(MenuTextWrap::ellipsize($label === '' ? ' ' : $label, $labelCells), $labelCells);
     foreach ($columns as $index => $column) {
-      $text .= str_repeat(' ', self::GAP) . $column->formatCell((string) ($figures[$index] ?? ''));
+      $text .= str_repeat(' ', $column->gap ?? self::GAP) . $column->formatCell((string) ($figures[$index] ?? ''));
     }
     return $columns === [] ? rtrim($text) : $text;
   }

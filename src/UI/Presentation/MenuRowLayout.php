@@ -89,7 +89,7 @@ final readonly class MenuRowLayout
 
   public function valueCells(MenuRowMetrics $metrics): int
   {
-    return array_sum(array_map(fn(MenuRowColumn $column) => $column->cells + $metrics->gapCells, $this->columns));
+    return array_sum(array_map(fn(MenuRowColumn $column) => $column->cells + ($column->gap ?? $metrics->gapCells), $this->columns));
   }
 
   public function assertFits(MenuRowMetrics $metrics, bool $hasSeparateTreatment = false): void

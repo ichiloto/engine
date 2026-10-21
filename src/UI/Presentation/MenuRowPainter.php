@@ -200,7 +200,7 @@ final class MenuRowPainter
     }
     $column = $labelCells;
     foreach ($layout->columns as $index => $definition) {
-      $column += $metrics->gapCells;
+      $column += $definition->gap ?? $metrics->gapCells;
       $value = $row->values[$index];
       if ($value->direction !== null) {
         $left = $bounds->x + $bounds->width - $metrics->padding - $cells * $layout->cellWidth;
