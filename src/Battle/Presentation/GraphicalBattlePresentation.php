@@ -359,7 +359,7 @@ final class GraphicalBattlePresentation
           $profile !== null && $this->scale !== null ? $this->scale->referenceHeight * $profile->relativeSize * $slot->displayScale
             : $bounds->height, ($profile?->horizontal ?? false) || $usesKnockoutPose, $bounds->width, $elevation, $contact,
           $this->layout, $this->arena, $participant['grounding'], $this->assetRoot, $field?->getPoseElapsedSeconds() ?? 0,
-          $reducedMotion, $combatantImages[$identity]->opacity);
+          $reducedMotion, $combatantImages[$identity]->opacity, $combatantImages[$identity], $usesKnockoutPose);
         array_push($images, ...$surface['images']);
         if ($compositing) { array_push($composites, ...$surface['composites']); }
         if (($defeat['pulse'] ?? false) && $compositing && $includeOptionalArtwork) {
