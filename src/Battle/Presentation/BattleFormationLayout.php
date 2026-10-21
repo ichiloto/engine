@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Entities\Enemies\EnemyHabitat;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
@@ -34,7 +35,8 @@ final readonly class BattleFormationLayout
    * Arena selection is preview context only; this never mutates a troop or combat state.
    * Members without a place are arranged by the Engine beside the placed ones,
    * exactly as the battle arranges them ({@see BattleStaging}).
-   * @param list<array{enemyId: string, slot: ?BattleStageSlot}> $enemies
+   * @param list<array{enemyId: string, slot: ?BattleStageSlot, habitat?: EnemyHabitat}> $enemies Each member, where it is
+   * placed, and where it lives (land when not given).
    * @param list<string> $partyActorIds
    */
   public static function compose(BattlePresentationCatalog $catalog, ?string $arenaId, array $enemies,
@@ -65,8 +67,9 @@ final readonly class BattleFormationLayout
     $places = [];
     foreach ($enemies as $entry) {
       if (!is_array($entry) || !is_string($entry['enemyId'] ?? null) || !array_key_exists('slot', $entry)
-        || !($entry['slot'] === null || $entry['slot'] instanceof BattleStageSlot)) {
-        throw new InvalidArgumentException('Enemy previews require enemyId and a typed stage place or null.');
+        || !($entry['slot'] === null || $entry['slot'] instanceof BattleStageSlot)
+        || !(($entry['habitat'] ?? null) === null || $entry['habitat'] instanceof EnemyHabitat)) {
+        throw new InvalidArgumentException('Enemy previews require enemyId, a typed stage place or null, and a habitat when given.');
       }
       CanvasValidation::id($entry['enemyId']);
       $places[] = $entry['slot'];
@@ -76,7 +79,8 @@ final readonly class BattleFormationLayout
       $catalog->scale?->getProfile($id, $party), $catalog->scale, $place, $assetRoot);
     $staging = BattleStaging::stage($layout, $arena,
       array_map(static fn(string $id): array => $getSize($id, true, null), $partyActorIds),
-      $places, array_map(static fn(array $entry): array => $getSize($entry['enemyId'], false, $entry['slot']), $enemies));
+      $places, array_map(static fn(array $entry): array => $getSize($entry['enemyId'], false, $entry['slot']), $enemies),
+      array_map(static fn(array $entry): EnemyHabitat => $entry['habitat'] ?? EnemyHabitat::LAND, $enemies));
     $party = $troop = [];
     foreach ($partyActorIds as $index => $id) {
       $party[] = self::resolveBattler($catalog, $layout, $assetRoot, $id, true,

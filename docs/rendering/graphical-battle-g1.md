@@ -425,10 +425,10 @@ where the UI's bottom windows begin, read by `GraphicalBattleHud` too).
 
 `BattleStaging::stage()` stands one battle's formations on that ground:
 
-- A stage place's depth is measured back from the near edge, so the front
-  rank stands on the near edge of every arena. A side deeper than the ground
-  is compressed in depth as a whole, keeping its shape; nobody stands beyond
-  the far edge.
+- A stage place's depth is measured back from the near edge, so a formation
+  keeps its shape on every arena. A side deeper than the ground is compressed
+  in depth as a whole, keeping its shape; nobody stands in front of the near
+  edge or beyond the far edge.
 - The party uses the layout's `partySlots` (stage places, back to front); a
   smaller frontline takes the front-most slots. A layout without party slots
   has its party arranged like a troop.
@@ -438,9 +438,36 @@ where the UI's bottom windows begin, read by `GraphicalBattleHud` too).
   times the nearer battler's drawn height and alternating between an inner
   lane and an outer lane `lateral` times their mean drawn width beyond it,
   fitted and centred across the side's area by the art's real extent either
-  side of its feet. A battler whose art reaches below the battler area (a
+  side of its feet. The arrangement centres its depth on the middle of the
+  theme's party formation (`partySlots`), so the two sides face each other
+  across the field and a lone enemy stands mid-field; larger troops spread
+  back and forward around that middle, at least as deep and as wide as the
+  party formation stands, so a pair of small creatures uses the field as the
+  party does rather than huddling. The middle is the formation's, not the
+  frontline's, so a troop aligned in an editor stands where the battle would
+  arrange it whatever the party's size. Without party slots both sides start
+  from the near edge alike. A battler whose art reaches below the battler area (a
   creature's body under its waterline) stands that much further back. Spacing
   follows the current artwork, so replaced art re-spaces itself.
+- An arena may mark its picture's footing (`BattleFooting`): a polygon of
+  canvas points for its land (a road's dirt rather than its grass verge,
+  rocks or fences) and one for its water. An arena marking neither is land
+  throughout. The party stands on land; each enemy stands where its
+  `habitat` lives (`EnemyHabitat`: `land`, the default, `water` or `air`,
+  authored on the enemy record), an air enemy over land or water. Each side
+  still keeps to its own area, using footing beyond it only when its habitat
+  has none inside (a land beast on a lake arena stands on the shore). Footing
+  holds feet, not art: a tail may overhang the verge. Arranged ranks centre
+  across their footing at the height they stand at, so a troop follows a
+  road's line, keeping their lanes' spacing; an authored or theme place whose
+  feet fall outside steps to the nearest footed height and across into it, its
+  perspective scale following. The polygons' edges count as footing. Data
+  arenas author it as `'footing' => ['land' => points, 'water' => points]`,
+  each a list of `['x' => , 'y' => ]` points (3 to 256) in
+  `Data/Presentation/arenas.php`, edited on the Battle Arenas page of both
+  editors. `BattleFooting::hasFootingFor()` says whether a habitat has
+  anywhere to stand, which the Editor's validation checks for every
+  encounter's arena.
 - Battlers are drawn back to front by where their feet stand, so a nearer
   battler covers one behind it.
 
