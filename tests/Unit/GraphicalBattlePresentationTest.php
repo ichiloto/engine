@@ -2064,6 +2064,23 @@ it('requires crop capability and removes party KO captions without changing heal
     ->and($hero->stats->currentHp)->toBe(0);
 });
 
+it('shows an enemy\'s own concede pose when it yields, and dims its resting art when it has none', function () {
+  [$battle, $catalog, , $enemies] = graphicalBattleFixture();
+  $pose = new \Ichiloto\Engine\Battle\Presentation\BattlerPose('graphical-canvas/synthetic-320x180.png', pivotY: .9);
+  $withPose = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies, ui: $catalog->ui,
+    defaultArena: $catalog->defaultArena, enemyPoses: ['Twin' => new \Ichiloto\Engine\Battle\Presentation\BattlePoseSet(['concede' => $pose])]);
+  [$yielding, $other] = $enemies;
+  expect($yielding->concede())->toBeTrue();
+  $posed = graphicalCombatantImage(GraphicalBattlePresentation::prepare($battle, $withPose, $this->root)->frame(), $yielding);
+  $dimmed = graphicalCombatantImage(GraphicalBattlePresentation::prepare($battle, $catalog, $this->root)->frame(), $yielding);
+  expect($posed->asset)->toBe($pose->asset)->and($posed->opacity)->toBe(1.0)
+    ->and($dimmed->asset)->toBe($catalog->enemies['Twin']->asset)
+    ->and($dimmed->opacity)->toBe(\Ichiloto\Engine\Battle\Presentation\EnemyDefeatStyle::createFromConfig()->concededOpacity)
+    ->and($dimmed->opacity)->toBeLessThan(1.0)
+    // The member still fighting keeps its own art at full strength either way.
+    ->and(graphicalCombatantImage(GraphicalBattlePresentation::prepare($battle, $withPose, $this->root)->frame(), $other)->opacity)->toBe(1.0);
+});
+
 it('shows registered knockout artwork without KO captions and restores idle artwork after revival', function (bool $reducedMotion, bool $skinned) {
   ConfigStore::put(Ichiloto\Engine\Util\Config\ProjectConfig::class,
     new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
