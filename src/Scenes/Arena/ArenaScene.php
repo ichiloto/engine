@@ -556,7 +556,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       TestTroopComposer::MEMBER => new BattleTestMenuList(sprintf('%d %s', $composer->memberIndex + 1, $member['enemy'] ?? ''),
         array_map(static fn(string $action): array => [$action === 'move' ? 'Move on the stage' : 'Remove from the troop', ''], $composer->actions),
         $composer->actionIndex, [['confirm', 'Choose'], ['cancel', 'Back']], 'enter:Choose  esc:Back'),
-      TestTroopComposer::PLACING => new BattleTestMenuList(sprintf('Moving %d %s', $composer->memberIndex + 1, $member['enemy'] ?? ''), [], null,
+      TestTroopComposer::PLACING => new BattleTestMenuList(sprintf('Moving %d %s', $composer->memberIndex + 1, $member['enemy'] ?? ''),
+        $member['place'] === null ? [] : [['Across', sprintf('%d', round($member['place']->x))], ['Back from the front', sprintf('%d', round($member['place']->depth))]], null,
         [['left', 'Across'], ['up', 'Back and forward'], ['confirm', 'Done'], ['cancel', 'Put back']], 'arrows:Move  enter:Done  esc:Put back'),
       default => new BattleTestMenuList('Test Troop',
         array_map(fn(string $row): array => [$this->describeComposerRow($composer, $row), ''], $composer->rows),
@@ -611,7 +612,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       $focus = $editor->focus;
       $composer = $editor->composer;
       $composing = $focus === ArenaSetupEditor::COMPOSER || $editor->onComposeRow;
-      $outlined = $focus === ArenaSetupEditor::COMPOSER ? $composer?->memberIndex : null;
+      $outlined = $focus !== ArenaSetupEditor::COMPOSER ? null
+        : ($composer?->focus === TestTroopComposer::ENEMIES ? count($composer->troop->members) : $composer?->memberIndex);
       ['stage' => $stage, 'issue' => $issue] = $this->composeStage($runtime->supports(RendererSessionConfig::SPRITE_SOURCE_RECT),
         $runtime->getAssetRoot(), $composing);
 
@@ -645,9 +647,14 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       return ['stage' => null, 'issue' => $catalog?->ui === null ? null : 'The renderer cannot crop battle art, so the stage is not drawn.'];
     }
     $enemies = [];
-    if ($composing && $editor->composer !== null) {
-      foreach ($editor->composer->troop->members as $member) {
+    $composer = $editor->composer;
+    if ($composing && $composer !== null) {
+      foreach ($composer->troop->members as $member) {
         $enemies[] = ['enemyId' => $member['enemy'], 'slot' => $member['place']];
+      }
+      // The enemy being chosen stands where it would join, so it can be seen before it is added.
+      if ($composer->focus === TestTroopComposer::ENEMIES && isset($composer->enemies[$composer->enemyIndex]) && ! $composer->troop->isFull) {
+        $enemies[] = ['enemyId' => $composer->enemies[$composer->enemyIndex], 'slot' => null];
       }
     } else {
       foreach ($this->troopData[$editor->troopIndex]['enemies'] ?? [] as $index => $member) {

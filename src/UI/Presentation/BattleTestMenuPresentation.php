@@ -25,7 +25,7 @@ final class BattleTestMenuPresentation
 {
   private const int MARGIN = 10;
   private const int GAP = 10;
-  private const int LIST_WIDTH = 420;
+  private const int LIST_WIDTH = 460;
   private const int PARTY_ROWS = 4;
 
   /**
@@ -88,9 +88,10 @@ final class BattleTestMenuPresentation
       $rowHeight = (int) ceil(max($m->cellHeight + $theme->rows->metrics->separatorWidth, $theme->rows->metrics->cursorHeight,
         min($m->rowHeight, $m->cellHeight + $m->sectionGap / 3)));
       $view->rows('battle-test-rows', $rows, new MenuRowLayout(new CanvasRectangle($inner->x, $y, $inner->width, max($rowHeight, $bottom - $y)),
-        self::getValueColumns($rows, $inner->width, $m->cellWidth), $rowHeight, $m->cellWidth, $m->cellHeight), $list->selected);
+        self::getValueColumns($rows, $inner->width, $m->cellWidth), $rowHeight, $m->cellWidth, $m->cellHeight, wrapText: true), $list->selected);
     }
-    if ($hints !== []) {
+    // A theme may hide input hints; then they take no room.
+    if ($hintHeight > 0) {
       $view->hints('battle-test-hints', $hints, new CanvasRectangle($inner->x, $inner->y + $inner->height - $hintHeight, $inner->width, $hintHeight));
     }
   }
@@ -140,7 +141,7 @@ final class BattleTestMenuPresentation
     $rowHeight = (int) max($m->cellHeight, floor(($inner->y + $inner->height - $y) / max(self::PARTY_ROWS, count($rows))));
     $view->rows('battle-test-members', $rows, new MenuRowLayout(new CanvasRectangle($inner->x, $y, $inner->width, $inner->y + $inner->height - $y),
       self::getValueColumns($rows, $inner->width, $m->cellWidth), min($rowHeight, (int) max($m->cellHeight, $m->rowHeight)), $m->cellWidth,
-      $m->cellHeight), $selected);
+      $m->cellHeight, wrapText: true), $selected);
   }
 
   /**
