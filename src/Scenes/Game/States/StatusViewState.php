@@ -240,14 +240,14 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
 
     $resources = self::composeFields([
       'Role' => $this->character?->role->name ?? 'N/A',
-      Vocabulary::getTerm('stats.level', 'Lv') => (string)($this->character?->level ?? 1),
+      Vocabulary::getTerm('stats.level_short') => (string)($this->character?->level ?? 1),
       Vocabulary::getTerm('stats.hp', 'HP') => "{$currentHp} / {$totalHp}",
       Vocabulary::getTerm('stats.mp', 'MP') => "{$currentMp} / {$totalMp}",
       Vocabulary::getTerm('stats.ap', 'AP') => "{$currentAp} / {$totalAp}",
     ], self::PROFILE_FIELD_WIDTH, str_repeat(' ', self::PROFILE_FIELD_INDENT));
     $experience = self::composeFields([
       get_engine_message('exp_total', Vocabulary::getTerm('stats.exp', 'EXP')) => (string)($this->character?->currentExp ?? 0),
-      get_engine_message('exp_next', Vocabulary::getTerm('stats.level', 'Level')) => (string)($this->character?->nextLevelExp ?? 0),
+      get_engine_message('exp_next', Vocabulary::getTerm('stats.level')) => (string)($this->character?->nextLevelExp ?? 0),
     ], self::EXPERIENCE_FIELD_WIDTH);
     $gap = str_repeat(' ', self::EXPERIENCE_FIELD_GAP);
 

@@ -138,7 +138,7 @@ it('removes per-level toasts and retains quest reward details in one acknowledge
     if ($quiet) { expect($pending)->toBe([]); }
     else {
       expect($pending)->toHaveCount(1)->and($pending[0]['title'])->toBe('A named quest')
-        ->and($pending[0]['message'])->toBe("Rewards: 200 G, 1000 EXP\nHero reached level 4. Learned Dual Slash, Burn 1.\nFriend reached level 4. Learned Dual Slash, Burn 1.");
+        ->and($pending[0]['message'])->toBe("Rewards: 200 G, 1000 EXP\nHero reached Level 4. Learned Dual Slash, Burn 1.\nFriend reached Level 4. Learned Dual Slash, Burn 1.");
     }
   } finally { new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $saved); }
 })->with([false, true]);

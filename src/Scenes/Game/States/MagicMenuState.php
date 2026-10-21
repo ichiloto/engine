@@ -367,7 +367,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
             sprintf(' %s', $this->character->name),
             sprintf(
                 ' %s %-3d  %s %9s / %-9s  %s %5s / %-5s',
-                Vocabulary::getTerm('stats.level', 'Lv'),
+                Vocabulary::getTerm('stats.level_short'),
                 $this->character->level,
                 Vocabulary::getTerm('stats.hp', 'HP'),
                 number_format($this->character->effectiveStats->currentHp),

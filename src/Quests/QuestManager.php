@@ -539,7 +539,7 @@ class QuestManager
       }
 
       $line = get_engine_message('quest.level_gained', $result->character->name,
-        Vocabulary::getTerm('stats.level', 'level'), $result->newLevel);
+        Vocabulary::getTerm('stats.level'), $result->newLevel);
       $learned = $result->learnedSkills();
 
       if ($learned !== []) {

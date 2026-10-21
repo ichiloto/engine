@@ -229,7 +229,7 @@ final class MainMenuPresentation
   {
     $stats = $member->effectiveStats;
     return [new MenuRow('role', 'Role', [new MenuRowValue($member->role->name)]),
-      new MenuRow('level', Vocabulary::getTerm('stats.level', 'Lv'), [new MenuRowValue((string)$member->level)]),
+      new MenuRow('level', Vocabulary::getTerm('stats.level_short'), [new MenuRowValue((string)$member->level)]),
       new MenuRow('hp', Vocabulary::getTerm('stats.hp', 'HP'), [new MenuRowValue($stats->currentHp . ' / ' . $stats->totalHp)]),
       new MenuRow('mp', Vocabulary::getTerm('stats.mp', 'MP'), [new MenuRowValue($stats->currentMp . ' / ' . $stats->totalMp)])];
   }

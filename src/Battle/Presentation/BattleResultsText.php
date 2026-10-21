@@ -37,7 +37,7 @@ final class BattleResultsText
         foreach ($rewards->progression as $member) {
           if ($member->after === null) { continue; }
           array_push($lines, ...self::formatLabelValue($member->after->name . ':',
-            sprintf('%s %d -> %d  +%d %s', Vocabulary::getTerm('stats.level_short', Vocabulary::getTerm('stats.level', 'Lv')),
+            sprintf('%s %d -> %d  +%d %s', Vocabulary::getTerm('stats.level_short'),
               $member->oldLevel, $member->newLevel, $member->experienceAwarded, Vocabulary::getTerm('stats.exp', 'EXP')),
             $width));
         }

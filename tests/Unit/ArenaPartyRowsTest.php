@@ -16,8 +16,9 @@ it('justifies the arena party: names left, figures right-aligned in columns endi
   ])->and(array_map(strlen(...), $rows))->toBe([56, 56, 56]);
 });
 
-it('keeps a space between a long name and its stats rather than overrunning them', function () {
-  $rows = ArenaScene::formatPartyRows([['A very long party member name', ['Lv' => '1', 'HP' => '1/1']]], 30);
+it('cuts a name too long for its row with an ellipsis, keeping the stats in their columns at the edge', function () {
+  $rows = ArenaScene::formatPartyRows([['A very long party member name', ['Lv' => '1', 'HP' => '1/1']], ['Al', ['Lv' => '20', 'HP' => '10/10']]], 30);
 
-  expect($rows[0])->toContain('name Lv 1  HP 1/1 ');
+  expect(mb_strlen($rows[0]))->toBe(30)->and($rows[0])->toContain("\u{2026}")->toEndWith('Lv  1  HP   1/1 ')
+    ->and($rows[1])->toEndWith('Lv 20  HP 10/10 ');
 });

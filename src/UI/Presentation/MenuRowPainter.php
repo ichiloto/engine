@@ -193,7 +193,7 @@ final class MenuRowPainter
     $cells = $layout->textCells($metrics);
     $labelCells = $cells - $layout->valueCells($metrics);
     $runs = [];
-    $lines = $layout->lines($row->label, $labelCells - $iconCells);
+    $lines = $layout->labelLines($row->label, $labelCells - $iconCells);
     $lineCount = count($lines);
     foreach ($lines as $line => $text) {
       if ($text !== '') { $runs[] = new PresentationTextRun($line, $iconCells, $text, $color); }
@@ -213,12 +213,17 @@ final class MenuRowPainter
           continue;
         }
       }
-      $lines = $layout->lines($value->text, $definition->cells);
+      $lines = $layout->valueLines($value->text, $definition);
       $lineCount = max($lineCount, count($lines));
+      // A labelled column holds its label in one place on the value's first line, as every presentation lays it out.
+      $labelCells = $definition->cells - $definition->getFigureCells();
+      if ($definition->label !== null && $lines[0] !== '') {
+        $runs[] = new PresentationTextRun(0, $column, $definition->label, $row->disabled ? $color : ($value->color ?? $color));
+      }
       foreach ($lines as $line => $text) {
         $length = mb_strlen($text, 'UTF-8');
-        $space = $definition->cells - $length;
-        $offset = match ($definition->alignment) {
+        $space = $definition->getFigureCells() - $length;
+        $offset = $labelCells + match ($definition->alignment) {
           HorizontalAlignment::LEFT => 0,
           HorizontalAlignment::CENTER => intdiv($space, 2),
           HorizontalAlignment::RIGHT => $space,

@@ -9,6 +9,19 @@ use InvalidArgumentException;
 /** Word-aware wrapping for the existing one-codepoint-per-cell Canvas contract. */
 final class MenuTextWrap
 {
+  /**
+   * One line of text in a number of cells: the whole text when it fits,
+   * else as much as fits with an ellipsis in its last cell, so a cut is seen.
+   */
+  public static function ellipsize(string $text, int $cells): string
+  {
+    if ($cells < 1 || !mb_check_encoding($text, 'UTF-8')) {
+      throw new InvalidArgumentException('Menu text requires UTF-8 and a positive cell width.');
+    }
+    $text = str_replace("\n", ' ', self::normalizeText($text));
+    return mb_strlen($text, 'UTF-8') <= $cells ? $text : rtrim(mb_substr($text, 0, $cells - 1, 'UTF-8')) . "\u{2026}";
+  }
+
   /** @return non-empty-list<string> Complete text, with whitespace retained at wrap boundaries. */
   public static function lines(string $text, int $cells): array
   {

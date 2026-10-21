@@ -22,6 +22,9 @@ use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\UI\Presentation\BattleTestMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\MenuRowColumn;
+use Ichiloto\Engine\UI\Presentation\MenuTableText;
+use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -495,7 +498,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     $arena = $list->namesArena ? $this->getArenaName() : null;
     $this->listPanel?->setTitle($arena === null ? $list->title : sprintf('%s · Arena: < %s >', $list->title, $arena));
     $this->listPanel?->setHelp($list->help);
-    $this->listPanel?->setContent($this->formatList($list->getTerminalRows(), $list->selected, $innerWidth,
+    // Each row follows the cursor's place, ` > `.
+    $this->listPanel?->setContent($this->formatList($list->getTerminalRows($innerWidth - 3), $list->selected, $innerWidth,
       self::LIST_HEIGHT - 2, $focus === ArenaSetupEditor::PARTY ? ArenaSetupEditor::TROOPS : $focus));
     $this->listPanel?->render();
 
@@ -518,27 +522,37 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       ArenaSetupEditor::MEMBER => $this->describeMember(),
       ArenaSetupEditor::CHOOSER => $this->describeChoices(),
       ArenaSetupEditor::COMPOSER => $this->describeComposer(),
-      default => new BattleTestMenuList('Troop', $this->listTroopRows(),
-        $focus === ArenaSetupEditor::TROOPS ? ($editor?->troopIndex ?? 0) : null,
-        $focus === ArenaSetupEditor::PARTY ? [['confirm', 'Edit'], ['cancel', 'Back']]
+      default => new BattleTestMenuList('Troop', ...$this->listTroopRows(),
+        selected: $focus === ArenaSetupEditor::TROOPS ? ($editor?->troopIndex ?? 0) : null,
+        hints: $focus === ArenaSetupEditor::PARTY ? [['confirm', 'Edit'], ['cancel', 'Back']]
           : [['confirm', ($editor?->onComposeRow ?? false) ? 'Compose' : 'Fight'], ...(($editor?->offersArenas ?? false) ? [['left', 'Arena']] : []),
             ['down', 'Party'], ['cancel', 'Quit']],
-        $focus === ArenaSetupEditor::TROOPS
+        help: $focus === ArenaSetupEditor::TROOPS
           ? ($editor?->offersArenas ?? false ? 'enter:Fight  left/right:Arena  down:Party  q:Quit' : 'enter:Fight  down:Party  q:Quit') : '',
-        '%-24s %s', namesArena: true, anchor: $editor?->troopIndex),
+        namesArena: true, anchor: $editor?->troopIndex),
     };
   }
 
-  /** @return list<array{0: string, 1: string}> The troop list's rows: each troop, then composing a test troop where one can be. */
+  /**
+   * The troop list's rows and columns: each troop by name, how many enemies
+   * it holds ("x2") and their levels ("Lv 1-2"), each in its own column,
+   * then composing a test troop where one can be.
+   *
+   * @return array{rows: list<array{0: string, 1: list<string>}>, columns: list<MenuRowColumn>}
+   */
   protected function listTroopRows(): array
   {
     $rows = array_map($this->describeTroop(...), $this->troops);
     if ($this->editor?->composer !== null) {
       $count = count($this->editor->composer->troop->members);
-      $rows[] = [$count === 0 ? '+ Compose a test troop' : sprintf('+ Test troop (%d %s)', $count, $count === 1 ? 'enemy' : 'enemies'), ''];
+      $rows[] = [$count === 0 ? '+ Compose a test troop' : '+ Test troop', $count === 0 ? ['', ''] : ['x' . $count, '']];
+    }
+    if ($rows === []) {
+      return ['rows' => [['This project has no troops to fight.', []]], 'columns' => []];
     }
 
-    return $rows === [] ? [[' This project has no troops to fight.', '']] : $rows;
+    return ['rows' => $rows, 'columns' => [MenuRowColumn::fit(array_column(array_column($rows, 1), 0)),
+      MenuRowColumn::fit(array_column(array_column($rows, 1), 1), label: Vocabulary::getTerm('stats.level_short'))]];
   }
 
   /** The test troop composer: its rows, the enemies to add, or what can be done to a member. */
@@ -552,19 +566,33 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     $member = $composer->memberIndex === null ? null : $composer->troop->members[$composer->memberIndex] ?? null;
 
     return match ($composer->focus) {
-      TestTroopComposer::ENEMIES => new BattleTestMenuList('Add an enemy', array_map(static fn(string $enemy): array => [$enemy, ''], $composer->enemies),
+      TestTroopComposer::ENEMIES => new BattleTestMenuList('Add an enemy', array_map(static fn(string $enemy): array => [$enemy, []], $composer->enemies),
         $composer->enemyIndex, [['confirm', 'Add'], ['cancel', 'Back']], 'enter:Add  esc:Back'),
       TestTroopComposer::MEMBER => new BattleTestMenuList(sprintf('%d %s', $composer->memberIndex + 1, $member['enemy'] ?? ''),
-        array_map(static fn(string $action): array => [$action === 'move' ? 'Move on the stage' : 'Remove from the troop', ''], $composer->actions),
+        array_map(static fn(string $action): array => [$action === 'move' ? 'Move on the stage' : 'Remove from the troop', []], $composer->actions),
         $composer->actionIndex, [['confirm', 'Choose'], ['cancel', 'Back']], 'enter:Choose  esc:Back'),
-      TestTroopComposer::PLACING => new BattleTestMenuList(sprintf('Moving %d %s', $composer->memberIndex + 1, $member['enemy'] ?? ''),
-        $member['place'] === null ? [] : [['Across', sprintf('%d', round($member['place']->x))], ['Back from the front', sprintf('%d', round($member['place']->depth))]], null,
-        [['left', 'Across'], ['up', 'Back and forward'], ['confirm', 'Done'], ['cancel', 'Put back']], 'arrows:Move  enter:Done  esc:Put back'),
+      TestTroopComposer::PLACING => $this->describePlacing($composer, $member),
       default => new BattleTestMenuList('Test Troop',
-        array_map(fn(string $row): array => [$this->describeComposerRow($composer, $row), ''], $composer->rows),
+        array_map(fn(string $row): array => [$this->describeComposerRow($composer, $row), []], $composer->rows),
         $composer->rowIndex, [['confirm', 'Choose'], ...($arenas ? [['left', 'Arena']] : []), ['cancel', 'Back']],
         'enter:Choose  esc:Back' . ($arenas ? '  left/right:Arena' : ''), note: $this->keepStatus, namesArena: true),
     };
+  }
+
+  /**
+   * A member being moved: its place across and back from the front, the
+   * figures in one column.
+   *
+   * @param array{enemy: string, position: array{0: int, 1: int}, place: ?BattleStageSlot}|null $member
+   */
+  private function describePlacing(TestTroopComposer $composer, ?array $member): BattleTestMenuList
+  {
+    $rows = $member['place'] === null ? [] : [['Across', [sprintf('%d', round($member['place']->x))]],
+      ['Back from the front', [sprintf('%d', round($member['place']->depth))]]];
+
+    return new BattleTestMenuList(sprintf('Moving %d %s', $composer->memberIndex + 1, $member['enemy'] ?? ''), $rows, null,
+      [['left', 'Across'], ['up', 'Back and forward'], ['confirm', 'Done'], ['cancel', 'Put back']], 'arrows:Move  enter:Done  esc:Put back',
+      $rows === [] ? [] : [MenuRowColumn::fit(array_column(array_column($rows, 1), 0))]);
   }
 
   /** One of the composer's rows, as a list shows it. */
@@ -732,22 +760,18 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
   }
 
   /**
-   * Describes a troop for the list: its name, and how many enemies of what levels.
+   * Describes a troop for the list: its name, how many enemies it holds and
+   * their levels, as figures for the list's columns.
    *
-   * @return array{0: string, 1: string}
+   * @return array{0: string, 1: list<string>}
    */
   protected function describeTroop(Troop $troop): array
   {
     $members = $troop->members->toArray();
     $levels = array_map(static fn(object $enemy): int => $enemy->level ?? 1, $members);
 
-    return [$troop->name, sprintf(
-      '%d %s, %s %s',
-      count($members),
-      count($members) === 1 ? 'enemy' : 'enemies',
-      Vocabulary::getTerm('stats.level', 'level'),
-      $levels === [] ? '?' : (min($levels) === max($levels) ? min($levels) : min($levels) . '-' . max($levels))
-    )];
+    return [$troop->name, ['x' . count($members),
+      $levels === [] ? '?' : (min($levels) === max($levels) ? (string) min($levels) : min($levels) . '-' . max($levels))]];
   }
 
   /** The member being edited: its actor, level, equipment, test loadout and removal. */
@@ -762,19 +786,20 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     $rows = [];
     foreach ($editor->fields as $field) {
       $rows[] = match (true) {
-        $field === 'actor' => ['Actor', sprintf('< %s >', $this->getActorName($member->actorId))],
-        $field === 'level' => ['Level', sprintf('< %d >', $member->level)],
-        $field === 'remove' => ['Remove from the party', ''],
-        $field === 'commands' => ['Commands', $member->commands === null ? '(Normal)' : implode(', ', array_column($member->commands, 'value'))],
-        $field === 'skills' || $field === 'magic' => [ucfirst($field), 'Choose extra learned actions'],
-        $field === 'summons' => ['Summons', $member->summons === [] ? '(No extra grants)' : implode(', ', $member->summons)],
+        $field === 'actor' => ['Actor', [sprintf('< %s >', $this->getActorName($member->actorId))]],
+        $field === 'level' => [Vocabulary::getTerm('stats.level_short'), [sprintf('< %d >', $member->level)]],
+        $field === 'remove' => ['Remove from the party', ['']],
+        $field === 'commands' => ['Commands', [$member->commands === null ? '(Normal)' : implode(', ', array_column($member->commands, 'value'))]],
+        $field === 'skills' || $field === 'magic' => [ucfirst($field), ['Choose extra learned actions']],
+        $field === 'summons' => ['Summons', [$member->summons === [] ? '(No extra grants)' : implode(', ', $member->summons)]],
         default => [substr($field, 5),
-          ($id = $member->equipment[substr($field, 5)] ?? null) === null ? '(None)' : $items->displayNameFor($id)],
+          [($id = $member->equipment[substr($field, 5)] ?? null) === null ? '(None)' : $items->displayNameFor($id)]],
       };
     }
 
     return new BattleTestMenuList($this->getActorName($member->actorId), $rows, $editor->fieldIndex,
-      [['left', 'Change'], ['confirm', 'Choose'], ['cancel', 'Done']], 'left/right:Change  enter:Choose  esc:Done', '%-12s%s');
+      [['left', 'Change'], ['confirm', 'Choose'], ['cancel', 'Done']], 'left/right:Change  enter:Choose  esc:Done',
+      [MenuRowColumn::fit(array_column(array_column($rows, 1), 0), HorizontalAlignment::LEFT)]);
   }
 
   /** What the selected slot can hold, or the test grants a loadout field can be given. */
@@ -785,7 +810,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     $equipment = str_starts_with($field, 'slot:');
     $choices = $editor?->getChoices() ?? [];
     $rows = array_map(static fn($choice): array => [$equipment ? $choice['name']
-      : (($editor?->isChoiceSelected($choice['id']) ? '[x] ' : '[ ] ') . $choice['name']), ''], $choices);
+      : (($editor?->isChoiceSelected($choice['id']) ? '[x] ' : '[ ] ') . $choice['name']), []], $choices);
     return new BattleTestMenuList(sprintf('%s for %s', $equipment ? substr($field, 5) : ucfirst($field), $this->getActorName($editor?->member?->actorId ?? '')),
       $rows, $editor?->choiceIndex, $equipment ? [['confirm', 'Equip'], ['cancel', 'Back']] : [['confirm', 'Toggle'], ['cancel', 'Done']],
       $equipment ? 'enter:Equip  esc:Back' : 'enter:Toggle  esc:Done  test grants only');
@@ -833,7 +858,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     $members = [];
     foreach ($this->previewParty?->members?->toArray() ?? [] as $character) {
       $members[] = [$character->name, [
-        Vocabulary::getTerm('stats.level_short', Vocabulary::getTerm('stats.level', 'Lv')) => (string) $character->level,
+        Vocabulary::getTerm('stats.level_short') => (string) $character->level,
         Vocabulary::getTerm('stats.hp', 'HP') => "{$character->stats->currentHp}/{$character->stats->totalHp}",
         Vocabulary::getTerm('stats.mp', 'MP') => "{$character->stats->currentMp}/{$character->stats->totalMp}",
       ]];
@@ -843,10 +868,22 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
   }
 
   /**
+   * The party's stat columns: one labelled column per stat, each figure
+   * right-aligned to the widest of its column, as every presentation lays
+   * the party out.
+   *
+   * @param list<array{0: string, 1: array<string, string>}> $members Each member's name and stats, figures by label.
+   * @return list<MenuRowColumn>
+   */
+  public static function getPartyColumns(array $members): array
+  {
+    return MenuRowColumn::listForFields(array_column($members, 1));
+  }
+
+  /**
    * Lays the party out in justified rows: each name on the left, and the
-   * stats on the right, ending at the panel's edge. Every stat keeps its
-   * label in place and right-aligns its figure to the widest of its
-   * column, so the figures line up from row to row.
+   * stats in their columns ending at the panel's edge, so the figures line
+   * up from row to row ({@see getPartyColumns()}).
    *
    * @param list<array{0: string, 1: array<string, string>}> $members Each member's name and stats, figures by label.
    * @param int $width The panel's inner width.
@@ -854,24 +891,11 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
    */
   public static function formatPartyRows(array $members, int $width): array
   {
-    $widths = [];
-    foreach ($members as [, $stats]) {
-      foreach ($stats as $label => $figure) {
-        $widths[$label] = max($widths[$label] ?? 0, TerminalText::displayWidth($figure));
-      }
-    }
+    $columns = self::getPartyColumns($members);
+    // A space either side, as the panel's rows have.
+    $labelCells = max(1, $width - 2 - MenuTableText::getColumnCells($columns));
 
-    $rows = [];
-    foreach ($members as [$name, $stats]) {
-      $columns = [];
-      foreach ($stats as $label => $figure) {
-        $columns[] = $label . ' ' . TerminalText::padLeft($figure, $widths[$label]);
-      }
-      $right = implode('  ', $columns) . ' ';
-      $rows[] = TerminalText::padRight(' ' . $name, max(TerminalText::displayWidth(' ' . $name) + 1,
-        $width - TerminalText::displayWidth($right))) . $right;
-    }
-
-    return $rows;
+    return array_map(static fn(array $member): string => TerminalText::padRight(
+      ' ' . MenuTableText::formatRow($member[0], array_values($member[1]), $columns, $labelCells) . ' ', $width), $members);
   }
 }

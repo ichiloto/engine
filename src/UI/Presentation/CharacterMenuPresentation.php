@@ -127,7 +127,7 @@ final class CharacterMenuPresentation
     $resourceX = $profile->x + $p + $identityWidth + $m->sectionGap;
     $view->prose('status-role', $character->role->name, new CanvasRectangle($resourceX, $profile->y + $p, 360, $roleHeight));
     $stats = $character->effectiveStats;
-    $resources = [new MenuRow('level', Vocabulary::getTerm('stats.level', 'Lv'), [new MenuRowValue((string)$character->level)])];
+    $resources = [new MenuRow('level', Vocabulary::getTerm('stats.level_short'), [new MenuRowValue((string)$character->level)])];
     foreach (['Hp', 'Mp', 'Ap'] as $resource) {
       $resources[] = new MenuRow(strtolower($resource), Vocabulary::getTerm('stats.' . strtolower($resource), strtoupper($resource)),
         [new MenuRowValue($stats->{'current' . $resource} . ' / ' . $stats->{'total' . $resource})]);
@@ -137,7 +137,7 @@ final class CharacterMenuPresentation
       $m->cellHeight + 1, $m->cellWidth, $m->cellHeight, true));
     $exp = [new MenuRow('current', get_engine_message('exp_total', Vocabulary::getTerm('stats.exp', 'EXP')),
       [new MenuRowValue(number_format($character->currentExp))]),
-      new MenuRow('next', get_engine_message('exp_next', Vocabulary::getTerm('stats.level', 'Level')),
+      new MenuRow('next', get_engine_message('exp_next', Vocabulary::getTerm('stats.level')),
         [new MenuRowValue(number_format($character->nextLevelExp))])];
     $expX = $resourceX + 360 + $m->sectionGap;
     $view->rows('status-exp', $exp, self::layout($theme, new CanvasRectangle($expX, $resourceBox->y,

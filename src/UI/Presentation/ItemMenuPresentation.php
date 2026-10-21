@@ -39,7 +39,7 @@ final class ItemMenuPresentation
     $bodyBottom = MenuLayout::MAX_HEIGHT - $infoHeight;
     $commandHeight = max(60, $m->rowHeight + 2 * min($p, 10));
     // Level/HP, MP and the target's condition badges.
-    $statusHeight = max(80, 2 * ($m->cellHeight + 2) + MenuConditions::getBadgeHeight($theme) + 2 * $p);
+    $statusHeight = max(80, 3 * ($m->cellHeight + 2) + MenuConditions::getBadgeHeight($theme) + 2 * $p);
     if ($bodyBottom - $commandHeight - $statusHeight < 160) {
       throw new RuntimeException('Items description leaves insufficient space for inventory and targets.');
     }
@@ -85,13 +85,15 @@ final class ItemMenuPresentation
     if ($target !== null) {
       $hp = $target->stats->currentHp . ' / ' . $target->stats->totalHp;
       $mp = $target->stats->currentMp . ' / ' . $target->stats->totalMp;
-      $columns = [new MenuRowColumn(max(mb_strlen($hp), mb_strlen($mp)))];
-      $view->rows('items-status', [new MenuRow('hp', sprintf('%s %02d %s', Vocabulary::getTerm('stats.level', 'Lvl'), $target->level,
-        Vocabulary::getTerm('stats.hp', 'HP')), [new MenuRowValue($hp)]),
-        new MenuRow('mp', Vocabulary::getTerm('stats.mp', 'MP'), [new MenuRowValue($mp)])], new MenuRowLayout(self::inset($statusBox, $p), $columns,
-          $m->cellHeight + 2, $m->cellWidth, $m->cellHeight, true));
+      // Level, HP and MP each on its own row, their figures right-aligned in one column.
+      $level = (string) $target->level;
+      $columns = [MenuRowColumn::fit([$level, $hp, $mp])];
+      $view->rows('items-status', [new MenuRow('level', Vocabulary::getTerm('stats.level_short'), [new MenuRowValue($level)]),
+        new MenuRow('hp', Vocabulary::getTerm('stats.hp'), [new MenuRowValue($hp)]),
+        new MenuRow('mp', Vocabulary::getTerm('stats.mp'), [new MenuRowValue($mp)])], new MenuRowLayout(self::inset($statusBox, $p), $columns,
+          $m->cellHeight + 2, $m->cellWidth, $m->cellHeight, ellipsis: true));
       $inner = self::inset($statusBox, $p);
-      $badgesY = $inner->y + 2 * ($m->cellHeight + 2);
+      $badgesY = $inner->y + 3 * ($m->cellHeight + 2);
       MenuConditions::renderBadges($view, 'items-status-conditions', $target, new CanvasRectangle($inner->x + $theme->rows->metrics->padding,
         $badgesY, $inner->width - 2 * $theme->rows->metrics->padding, $inner->y + $inner->height - $badgesY));
     }
