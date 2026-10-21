@@ -213,7 +213,8 @@ it('stands each enemy where its habitat lives: a land beast on a lake\'s shore, 
     && $slot->x >= $run[0] - .000001 && $slot->x <= $run[1] + .000001;
   expect($inside($water, $stand(EnemyHabitat::WATER)))->toBeTrue()
     ->and($inside($shore, $stand(EnemyHabitat::LAND)))->toBeTrue()
-    ->and($inside($water, $stand(EnemyHabitat::AIR)) || $inside($shore, $stand(EnemyHabitat::AIR)))->toBeTrue()
+    // A flier keeps to its own side: over the lake rather than the shore across the field.
+    ->and($inside($water, $stand(EnemyHabitat::AIR)))->toBeTrue()
     // Footing a habitat has, or would have on an arena marking none, which is land throughout.
     ->and(array_map($lake->hasFootingFor(...), EnemyHabitat::cases()))->toBe([true, true, true])
     ->and(array_map((new BattleFooting($shore))->hasFootingFor(...), EnemyHabitat::cases()))->toBe([true, false, true])

@@ -237,7 +237,7 @@ final readonly class BattleStaging
     EnemyHabitat $habitat): array
   {
     $side = self::getSideRange($layout, $party);
-    $run = $footing->getFootedRun($habitat, $footY);
+    $run = $footing->getFootedRun($habitat, $footY, $side);
     if ($run === null) { return $side; }
     $overlap = [max($side[0], $run[0]), min($side[1], $run[1])];
     return $overlap[0] < $overlap[1] ? $overlap : $run;
@@ -253,7 +253,7 @@ final readonly class BattleStaging
   private static function getFootedSlot(BattleCanvasLayout $layout, bool $party, BattleGroundBand $ground, BattleFooting $footing,
     EnemyHabitat $habitat, BattlerSlot $slot): BattlerSlot
   {
-    $run = $footing->getFootedRun($habitat, $slot->y);
+    $run = $footing->getFootedRun($habitat, $slot->y, self::getSideRange($layout, $party));
     if ($run === null) { return $slot; }
     $y = max($ground->top, min($ground->bottom, $run[2]));
     [$left, $right] = self::getStandingSpan($layout, $party, $y, $footing, $habitat);

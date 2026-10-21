@@ -65,23 +65,30 @@ final readonly class BattleFooting
   }
 
   /**
-   * The widest stretch a battler of a habitat may stand on across a canvas
-   * height, at the nearest height it has footing; null where it has no limit.
+   * The stretch a battler of a habitat may stand on across a canvas height,
+   * at the nearest height it has footing; null where it has no limit. Of
+   * several (an air battler's land and water), the one reaching furthest
+   * into the given columns (its side of the field), then the nearest, then
+   * the widest.
    *
+   * @param array{0: float, 1: float}|null $within The columns preferred.
    * @return array{0: float, 1: float, 2: float}|null The run's left and right, and the footed height.
    */
-  public function getFootedRun(EnemyHabitat $habitat, float $y): ?array
+  public function getFootedRun(EnemyHabitat $habitat, float $y, ?array $within = null): ?array
   {
-    $widest = null;
+    $best = null;
+    $rank = null;
     foreach ($this->getPolygons($habitat) as $polygon) {
       $height = self::getNearestFootedHeight($polygon, $y);
       $run = self::getSpan($polygon, $height);
-      if ($run !== null && ($widest === null || abs($height - $y) < abs($widest[2] - $y)
-          || ($height === $widest[2] && $run[1] - $run[0] > $widest[1] - $widest[0]))) {
-        $widest = [$run[0], $run[1], $height];
+      if ($run === null) { continue; }
+      $inside = $within === null ? 0.0 : max(0.0, min($within[1], $run[1]) - max($within[0], $run[0]));
+      $candidate = [$inside, -abs($height - $y), $run[1] - $run[0]];
+      if ($rank === null || $candidate > $rank) {
+        [$best, $rank] = [[$run[0], $run[1], $height], $candidate];
       }
     }
-    return $widest;
+    return $best;
   }
 
   /**
