@@ -269,6 +269,12 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
      */
     protected function normalizeSelectionIndexes(): void
     {
+        // A character with nothing left to learn here shows no Learn tab; their own skills may come from a Mastery Map.
+        $current = $this->tabs[$this->activeTabIndex] ?? null;
+        $this->tabs = array_values(array_filter(['Ready', 'Learn', 'Sort'], fn(string $tab): bool => $tab !== 'Learn'
+            || ($this->character?->abilityBook->getLearnableAbilities() ?? []) !== []));
+        $index = $current === null ? false : array_search($current, $this->tabs, true);
+        $this->activeTabIndex = $index === false ? clamp($this->activeTabIndex, 0, count($this->tabs) - 1) : $index;
         $readyCount = count($this->character?->abilityBook->getLearnedAbilities() ?? []);
         $learnCount = count($this->character?->abilityBook->getLearnableAbilities() ?? []);
         $sortCount = count($this->sortOptions);

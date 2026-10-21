@@ -89,6 +89,11 @@ final class CombatResolver
     $afterCritical = $critical ? $afterMitigation * $request->criticalMultiplier : $afterMitigation;
     $guardApplied = $request->guardEligible && $request->kind->isDamage() && ($request->target->isGuarding ?? false);
     $afterGuard = $guardApplied ? $afterCritical * CombatCalibration::GUARD_FACTOR : $afterCritical;
+    // Protective states (Barrier) scale every hit a guard could block; a rate of 0 blocks it outright.
+    $protection = $request->guardEligible && $request->kind->isDamage() && method_exists($request->target, 'getDamageTakenRate')
+      ? $request->target->getDamageTakenRate()
+      : 1.0;
+    $afterGuard *= $protection;
     $affinity = $request->kind->isDamage()
       ? ElementalAffinityResolver::forTarget($request->target, $request->element)
       : ['outcome' => ElementalOutcome::NORMAL, 'multiplier' => 1.0];
@@ -96,7 +101,7 @@ final class CombatResolver
     $roundedMagnitude = intval(round(abs($resolved), 0, PHP_ROUND_HALF_UP));
 
     if ($request->kind->isDamage() && $affinity['outcome'] !== ElementalOutcome::NULL
-      && $affinity['outcome'] !== ElementalOutcome::ABSORB) {
+      && $affinity['outcome'] !== ElementalOutcome::ABSORB && $protection > 0.0) {
       $roundedMagnitude = max($request->minimumDamage, $roundedMagnitude);
     }
 

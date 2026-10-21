@@ -296,7 +296,7 @@ final class SkillRecord
         );
       })(),
       'remove_state' => (static function () use ($effect, $path): RemoveStateSkillEffect {
-        self::refuseUnknownKeys($effect, ['type', 'stateIds'], $path);
+        self::refuseUnknownKeys($effect, ['type', 'stateIds', 'chancePercent'], $path);
         $stateIds = $effect['stateIds'] ?? null;
 
         if (! is_array($stateIds) || $stateIds === [] || ! array_is_list($stateIds)
@@ -304,7 +304,10 @@ final class SkillRecord
           throw new InvalidArgumentException(sprintf('%sstateIds must list the states it removes.', $path));
         }
 
-        return new RemoveStateSkillEffect($stateIds);
+        return new RemoveStateSkillEffect(
+          $stateIds,
+          array_key_exists('chancePercent', $effect) ? self::requireInt($effect, 'chancePercent', $path) : 100,
+        );
       })(),
       'modify_stat_stage' => (static function () use ($effect, $path): ModifyStatStageSkillEffect {
         self::refuseUnknownKeys($effect, ['type', 'stat', 'delta', 'affectsUser'], $path);
@@ -362,7 +365,11 @@ final class SkillRecord
         static fn(mixed $value, string $key): bool => $key !== 'chancePercent' || $value !== 100,
         ARRAY_FILTER_USE_BOTH,
       ),
-      $effect instanceof RemoveStateSkillEffect => ['type' => 'remove_state', 'stateIds' => array_values(array_map('strval', $effect->stateIds))],
+      $effect instanceof RemoveStateSkillEffect => array_filter(
+        ['type' => 'remove_state', 'stateIds' => array_values(array_map('strval', $effect->stateIds)), 'chancePercent' => $effect->chancePercent],
+        static fn(mixed $value, string $key): bool => $key !== 'chancePercent' || $value !== 100,
+        ARRAY_FILTER_USE_BOTH,
+      ),
       $effect instanceof ModifyStatStageSkillEffect => array_filter(
         ['type' => 'modify_stat_stage', 'stat' => $effect->stat, 'delta' => $effect->delta, 'affectsUser' => $effect->affectsUser],
         static fn(mixed $value, string $key): bool => $key !== 'affectsUser' || $value === true,

@@ -55,6 +55,8 @@ class State
    * @param int|null $fieldTickSteps Steps walked in the field that count as one turn; null means the state does not act in the field.
    * @param bool $fieldTickKnocksOut True when field ticks may reduce HP to 0; otherwise they stop at 1 HP.
    * @param bool $curedByRest True when resting at an inn or a full party recovery cures the state.
+   * @param float $damageTakenRate Scales every hit a guard could block (0.5 halves it, 0 blocks it outright, 1 leaves it unchanged).
+   * @param bool $coversAllies True when the bearer takes the single-target hits meant for its weakest ally (Cover).
    */
   public function __construct(
     protected(set) string $id,
@@ -71,10 +73,15 @@ class State
     protected(set) ?int $fieldTickSteps = null,
     protected(set) bool $fieldTickKnocksOut = false,
     protected(set) bool $curedByRest = true,
+    protected(set) float $damageTakenRate = 1.0,
+    protected(set) bool $coversAllies = false,
   )
   {
     if ($fieldTickSteps !== null && $fieldTickSteps < 1) {
       throw new InvalidArgumentException(sprintf('State "%s" fieldTickSteps must be at least 1 step.', $id));
+    }
+    if ($damageTakenRate < 0.0) {
+      throw new InvalidArgumentException(sprintf('State "%s" damageTakenRate cannot be negative.', $id));
     }
   }
 
@@ -106,10 +113,15 @@ class State
       throw new InvalidArgumentException(sprintf('State "%s" fieldTickSteps must be a whole number of steps, at least 1.', $id));
     }
 
-    foreach (['fieldTickKnocksOut', 'curedByRest'] as $flag) {
+    foreach (['fieldTickKnocksOut', 'curedByRest', 'coversAllies'] as $flag) {
       if (array_key_exists($flag, $data) && ! is_bool($data[$flag])) {
         throw new InvalidArgumentException(sprintf('State "%s" %s must be true or false.', $id, $flag));
       }
+    }
+
+    $damageTakenRate = $data['damageTakenRate'] ?? 1.0;
+    if (! is_int($damageTakenRate) && ! is_float($damageTakenRate)) {
+      throw new InvalidArgumentException(sprintf('State "%s" damageTakenRate must be a number.', $id));
     }
 
     return new self(
@@ -127,6 +139,8 @@ class State
       $fieldTickSteps,
       $data['fieldTickKnocksOut'] ?? false,
       $data['curedByRest'] ?? true,
+      floatval($damageTakenRate),
+      $data['coversAllies'] ?? false,
     );
   }
 }

@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Progression;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Progression\Mastery\MasteryProgression;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use InvalidArgumentException;
 
@@ -59,8 +60,9 @@ final class ExperienceAwarder
   }
 
   /**
-   * Reconciles only automatic role-level grants at or below the restored level.
-   * This is safe to repeat and never touches optional book learnables.
+   * Reconciles automatic role-level grants at or below the restored level, and
+   * the character's Mastery Map with what they know and their level. This is
+   * safe to repeat and never touches optional book learnables.
    */
   public static function reconcileAutomaticRoleSkills(Character $character): ExperienceAwardResult
   {
@@ -95,6 +97,18 @@ final class ExperienceAwarder
       }
       $details[] = ['name' => $grant->skill->name, 'description' => $grant->skill->description,
         'kind' => $grant->skill instanceof MagicSkill ? 'Magic' : 'Ability', 'cost' => $grant->skill->cost];
+    }
+
+    // The same EXP fills the node the character studies on their Mastery Map;
+    // a reconciliation (no EXP) brings the map up to what they know and their level.
+    foreach (MasteryProgression::forCharacter($character)?->advance($character, $experience)->learned ?? [] as $skill) {
+      if ($skill instanceof MagicSkill) {
+        $magic[] = $skill->name;
+      } else {
+        $abilities[] = $skill->name;
+      }
+      $details[] = ['name' => $skill->name, 'description' => $skill->description,
+        'kind' => $skill instanceof MagicSkill ? 'Magic' : 'Ability', 'cost' => $skill->cost];
     }
 
     return new ExperienceAwardResult(
