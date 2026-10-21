@@ -100,12 +100,62 @@ final readonly class BattleFormationLayout
    */
   public function composeCanvas(): PresentationCanvas
   {
+    return new PresentationCanvas($this->layout->width, $this->layout->height, $this->getImages());
+  }
+
+  /**
+   * The same picture drawn into a frame of a larger canvas, such as a menu
+   * showing the stage beside its lists: every image scaled by the frame's
+   * width over the battle's and placed in it, its crop unchanged; the
+   * background on the layer given and the battlers, back to front, on the
+   * one above it.
+   *
+   * @return list<CanvasImage>
+   */
+  public function composeImagesInto(CanvasRectangle $frame, int $layer = 0): array
+  {
+    $scale = $frame->width / $this->layout->width;
+    $backgrounds = count($this->backgrounds);
+    $images = $this->getImages();
+    return array_map(static fn(CanvasImage $image, int $index): CanvasImage => new CanvasImage('stage-' . $image->id, $image->asset,
+      self::getRectangleInto($image->destination, $frame, $scale), $layer + ($index < $backgrounds ? 0 : 1), $image->sourceRect,
+      $image->opacity, flipX: $image->flipX, flipY: $image->flipY), $images, array_keys($images));
+  }
+
+  /** A rectangle on the battle canvas as it lands in a frame drawn at a scale. */
+  public static function getRectangleInto(CanvasRectangle $rectangle, CanvasRectangle $frame, float $scale): CanvasRectangle
+  {
+    return new CanvasRectangle($frame->x + $rectangle->x * $scale, $frame->y + $rectangle->y * $scale,
+      max(1, $rectangle->width * $scale), max(1, $rectangle->height * $scale));
+  }
+
+  /** @return list<CanvasImage> The background, then every battler with art from back to front. */
+  private function getImages(): array
+  {
     $battlers = [...$this->party, ...$this->enemies];
     $images = $this->backgrounds;
     foreach (BattleStaging::getDrawOrder(array_map(static fn(BattleFormationBattler $battler): BattlerSlot => $battler->slot, $battlers)) as $index) {
       if ($battlers[$index]->image !== null) { $images[] = $battlers[$index]->image; }
     }
-    return new PresentationCanvas($this->layout->width, $this->layout->height, $images);
+    return $images;
+  }
+
+  /**
+   * Where each troop member stands: its own place, or the Engine's
+   * arrangement beside the placed ones, sized from the enemies' current art
+   * as the battle sizes them; with no places given, the arrangement for all.
+   *
+   * @param list<string> $enemyIds
+   * @param list<?BattleStageSlot> $places One per member, or none.
+   * @return list<BattleStageSlot>
+   */
+  public static function arrangeTroop(BattlePresentationCatalog $catalog, array $enemyIds, array $places, string $assetRoot): array
+  {
+    $layout = $catalog->ui ?? throw new RuntimeException('Arranging a troop requires an explicit battle canvas layout.');
+    $bodies = array_map(static fn(string $id, int $index): array => self::getStandingSize(
+      self::getAvailableArtwork($catalog, $id, false, $assetRoot), $catalog->enemyPoses[$id] ?? null,
+      $catalog->scale?->getProfile($id, false), $catalog->scale, $places[$index] ?? null, $assetRoot), $enemyIds, array_keys($enemyIds));
+    return BattleStaging::arrange($layout, false, $bodies, $places);
   }
 
   /**

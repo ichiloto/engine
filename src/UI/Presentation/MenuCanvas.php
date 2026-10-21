@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\UI\Presentation;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
 
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
@@ -68,6 +69,24 @@ final class MenuCanvas
         $thickness, $bounds->height - 2 * $thickness)] as $index => $edge) {
       $this->fill($id . '-outline-' . $index, $edge, $color, $layer, $opacity);
     }
+  }
+
+  /**
+   * A picture an owner composed, such as a battle stage beside a menu's
+   * lists: its images placed as given, each inside the bounds, which the
+   * picture protects.
+   *
+   * @param list<CanvasImage> $images
+   */
+  public function picture(CanvasRectangle $bounds, array $images): void
+  {
+    $bounds->assertWithin($this->width, $this->height);
+    foreach ($images as $image) {
+      if (!$image instanceof CanvasImage) { throw new RuntimeException('A menu picture is made of canvas images.'); }
+      $image->destination->assertWithin($this->width, $this->height);
+      $this->images[] = $image;
+    }
+    $this->protect($bounds);
   }
 
   /** Decorative semantic roles are optional; a missing role is not an unknown item. */

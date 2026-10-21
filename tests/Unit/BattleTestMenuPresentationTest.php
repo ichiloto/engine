@@ -1,0 +1,67 @@
+<?php
+
+use Ichiloto\Engine\Battle\Presentation\BattleArenaDefinition;
+use Ichiloto\Engine\Battle\Presentation\BattleCanvasLayout;
+use Ichiloto\Engine\Battle\Presentation\BattleFormationLayout;
+use Ichiloto\Engine\Battle\Presentation\BattleGround;
+use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
+use Ichiloto\Engine\Battle\Presentation\BattlerArtwork;
+use Ichiloto\Engine\Battle\Presentation\BattleStageSlot;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
+use Ichiloto\Engine\Scenes\Arena\BattleTestMenuList;
+use Ichiloto\Engine\UI\Presentation\BattleTestMenuPresentation;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+
+require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
+
+beforeEach(function () {
+  $this->root = sys_get_temp_dir() . '/ichiloto-battle-test-menu-' . bin2hex(random_bytes(6));
+  mkdir($this->root);
+  \Tests\Support\Rendering\writeTestPng($this->root . '/cave.png', 400, 300);
+  \Tests\Support\Rendering\writeTestPng($this->root . '/bat.png', 80, 60);
+  $arena = new BattleArenaDefinition('Cave', new CanvasImage('arena', 'cave.png', new CanvasRectangle(0, 0, 1350, 720),
+    sourceRect: new SpriteSourceRect(50, 40, 300, 160)));
+  $this->catalog = new BattlePresentationCatalog(['cave' => $arena], [], ['Bat' => new BattlerArtwork('bat.png', 80, 60, 40, 60)],
+    ui: new BattleCanvasLayout(1350, 720, ground: new BattleGround(top: 300, bottom: 600)), defaultArena: 'cave');
+  $this->theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false]);
+});
+
+afterEach(function () {
+  foreach (glob($this->root . '/*') ?: [] as $file) { unlink($file); }
+  rmdir($this->root);
+});
+
+it('draws the battle\'s resting stage beside the list, scaled into its frame with the arena crop kept, the chosen member outlined', function () {
+  $stage = BattleFormationLayout::compose($this->catalog, 'cave', [['enemyId' => 'Bat', 'slot' => new BattleStageSlot(300, 0, 80, 60)],
+    ['enemyId' => 'Bat', 'slot' => null]], [], $this->root);
+  $list = new BattleTestMenuList('Test Troop', [['1 Bat', ''], ['2 Bat', ''], ['+ Add an enemy', ''], ['Fight', '']], 1,
+    note: 'Kept as Bat x 2 in Troops.', namesArena: true);
+  $canvas = BattleTestMenuPresentation::compose($this->theme, $list, true, [['Kaelion', ['Lv' => '5', 'HP' => '120/120']]], null,
+    'Cave', $stage, 1, true);
+
+  $stageImages = array_values(array_filter($canvas->images, static fn(CanvasImage $image): bool => str_starts_with($image->id, 'stage-')));
+  $frame = $stageImages[0]->destination;
+  $scale = $frame->width / 1350;
+  $text = implode(' ', array_map(static fn($layer): string => implode('', array_map(static fn($run): string => $run->text, $layer->runs)), $canvas->textLayers));
+
+  // The background keeps its crop and fills the stage frame; every battler stands where the battle stands it, scaled.
+  expect(array_column($stageImages, 'asset'))->toBe(['cave.png', 'bat.png', 'bat.png'])
+    ->and($stageImages[0]->sourceRect)->toEqual(new SpriteSourceRect(50, 40, 300, 160))
+    ->and(round($frame->height, 3))->toBe(round(720 * $scale, 3))
+    ->and(array_map(static fn(CanvasImage $image): array => [$image->id, round($image->destination->x - $frame->x, 3),
+      round($image->destination->y - $frame->y, 3)], array_slice($stageImages, 1)))
+    ->toEqualCanonicalizing(array_map(static fn($battler): array => ['stage-' . $battler->image->id,
+      round($battler->image->destination->x * $scale, 3), round($battler->image->destination->y * $scale, 3)], $stage->enemies))
+    ->and($text)->toContain('Test Troop')->toContain('Arena  < Cave >')->toContain('Kept as Bat x 2 in Troops.')->toContain('Kaelion');
+});
+
+it('says why there is no stage where nothing graphical draws one', function () {
+  $canvas = BattleTestMenuPresentation::compose($this->theme, new BattleTestMenuList('Troop', [['Bats', '2 enemies, level 1']], 0), true,
+    [], null, null, null, null, false);
+  $text = implode(' ', array_map(static fn($layer): string => implode('', array_map(static fn($run): string => $run->text, $layer->runs)), $canvas->textLayers));
+
+  expect($text)->toContain('draws no graphical battle stage')->toContain('Bats')->toContain('No party could be built')
+    ->and(array_filter($canvas->images, static fn(CanvasImage $image): bool => str_starts_with($image->id, 'stage-')))->toBe([]);
+});

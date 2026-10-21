@@ -43,6 +43,8 @@ use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\IO\LaunchDataRoot;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Scenes\Arena\BattleTestTroopKeeper;
+use Ichiloto\Engine\Scenes\Arena\LaunchTroopHandOver;
 use Ichiloto\Engine\Scenes\Arena\ProjectBattleTest;
 use Ichiloto\Engine\Rendering\Launch\ApplicationIcon;
 use Ichiloto\Engine\Rendering\Launch\RendererLaunchIntent;
@@ -188,6 +190,7 @@ class Game implements CanRun, SubjectInterface
     private ?GameLaunchContext $pendingLaunchContext = null;
     private ?CinematicDefinition $pendingLaunchCinematic = null;
     private ?ProjectBattleTest $pendingLaunchBattleTest = null;
+    private ?BattleTestTroopKeeper $pendingLaunchTroopKeeper = null;
     private ?string $launchDataRoot = null;
     private bool $launchPrepared = false;
     private ?GameStartupMode $resolvedStartupMode = null;
@@ -900,10 +903,14 @@ class Game implements CanRun, SubjectInterface
         $this->pendingLaunchCinematic = null;
         if ($context?->battleTest !== null) {
             $this->pendingLaunchBattleTest = $context->battleTest;
+            // The launching editor keeps the troops the test composes, through the launch's data root.
+            $this->pendingLaunchTroopKeeper = $context->keepTroops && $context->dataRoot !== null
+                ? new LaunchTroopHandOver($context->dataRoot) : null;
             try {
                 $this->sceneManager->loadScene(ArenaScene::class);
             } finally {
                 $this->pendingLaunchBattleTest = null;
+                $this->pendingLaunchTroopKeeper = null;
             }
             return;
         }
@@ -955,6 +962,14 @@ class Game implements CanRun, SubjectInterface
         $test = $this->pendingLaunchBattleTest;
         $this->pendingLaunchBattleTest = null;
         return $test;
+    }
+
+    /** Who keeps the troops a launched battle test composes, once; none when the launch keeps none. */
+    public function consumeLaunchTroopKeeper(): ?BattleTestTroopKeeper
+    {
+        $keeper = $this->pendingLaunchTroopKeeper;
+        $this->pendingLaunchTroopKeeper = null;
+        return $keeper;
     }
 
     protected function preflightLaunchContext(): void
