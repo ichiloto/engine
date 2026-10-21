@@ -10,6 +10,7 @@ use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationPolicyRe
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Progression\ExperienceAwarder;
+use Ichiloto\Engine\Progression\LevelUpRecovery;
 use Ichiloto\Engine\Progression\ProgressionSettings;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 
@@ -53,22 +54,23 @@ afterEach(function () {
   ScriptCommandRegistry::configure($this->previousScriptCatalog);
 });
 
-it('loads the authorable progression contract without changing other system data', function (array $extra, bool $restore) {
+it('loads the authorable progression contract without changing other system data', function (array $extra, LevelUpRecovery $recovery) {
   $data = createProgressionSystemData($extra);
   $system = SystemData::fromArray($data);
 
-  expect($system->progression->restoreVitalsOnLevelUp)->toBe($restore)
-    ->and($system->progression->get('restoreVitalsOnLevelUp'))->toBe($restore)
+  expect($system->progression->levelUpRecovery)->toBe($recovery)
+    ->and($system->progression->get('levelUpRecovery'))->toBe($recovery)
     ->and($system->title)->toBe($data['title'])
     ->and($system->startingParty)->toBe($data['startingParty'])
     ->and($system->startingInventory)->toBe($data['startingInventory'])
     ->and(json_decode(json_encode($system->startingPositions), true))->toBe($data['startingPositions'])
     ->and($system->elements)->toBe($data['elements']);
 })->with([
-  'omitted section' => [[], true],
-  'omitted key' => [['progression' => []], true],
-  'restore' => [['progression' => ['restoreVitalsOnLevelUp' => true]], true],
-  'preserve' => [['progression' => ['restoreVitalsOnLevelUp' => false]], false],
+  'omitted section' => [[], LevelUpRecovery::FULL],
+  'omitted key' => [['progression' => []], LevelUpRecovery::FULL],
+  'full' => [['progression' => ['levelUpRecovery' => 'full']], LevelUpRecovery::FULL],
+  'increase' => [['progression' => ['levelUpRecovery' => 'increase']], LevelUpRecovery::INCREASE],
+  'none' => [['progression' => ['levelUpRecovery' => 'none']], LevelUpRecovery::NONE],
 ]);
 
 it('rejects malformed progression sections and fields rather than coercing authored data', function (mixed $section) {
@@ -78,28 +80,32 @@ it('rejects malformed progression sections and fields rather than coercing autho
   'null section' => [null],
   'boolean section' => [false],
   'numeric section' => [0],
-  'string section' => ['false'],
-  'object section' => [(object) ['restoreVitalsOnLevelUp' => false]],
-  'list section' => [[false]],
-  'unknown key' => [['restoreOnLevelUp' => false]],
-  'unknown mixed key' => [['restoreVitalsOnLevelUp' => false, 'other' => true]],
-  'null value' => [['restoreVitalsOnLevelUp' => null]],
-  'integer value' => [['restoreVitalsOnLevelUp' => 1]],
-  'zero value' => [['restoreVitalsOnLevelUp' => 0]],
-  'float value' => [['restoreVitalsOnLevelUp' => 1.0]],
-  'string true' => [['restoreVitalsOnLevelUp' => 'true']],
-  'string false' => [['restoreVitalsOnLevelUp' => 'false']],
-  'array value' => [['restoreVitalsOnLevelUp' => []]],
+  'string section' => ['none'],
+  'object section' => [(object) ['levelUpRecovery' => 'none']],
+  'list section' => [['none']],
+  'unknown key' => [['recovery' => 'none']],
+  'unknown mixed key' => [['levelUpRecovery' => 'none', 'other' => true]],
+  'null value' => [['levelUpRecovery' => null]],
+  'boolean value' => [['levelUpRecovery' => false]],
+  'integer value' => [['levelUpRecovery' => 1]],
+  'unknown mode' => [['levelUpRecovery' => 'half']],
+  'mode by case name' => [['levelUpRecovery' => 'FULL']],
+  'array value' => [['levelUpRecovery' => []]],
 ]);
 
+it('names the replacement when a project still declares the earlier boolean', function (bool $restore) {
+  expect(fn() => ProgressionSettings::fromArray(['restoreVitalsOnLevelUp' => $restore]))
+    ->toThrow(InvalidArgumentException::class, "replaced by levelUpRecovery: write 'full' for true or 'none' for false");
+})->with([true, false]);
+
 it('keeps project progression immutable at runtime', function () {
-  $settings = ProgressionSettings::fromArray(['restoreVitalsOnLevelUp' => false]);
-  expect($settings->has('restoreVitalsOnLevelUp'))->toBeTrue()
+  $settings = ProgressionSettings::fromArray(['levelUpRecovery' => 'none']);
+  expect($settings->has('levelUpRecovery'))->toBeTrue()
     ->and($settings->has('other'))->toBeFalse()
     ->and($settings->get('other', 'missing'))->toBe('missing')
-    ->and(fn() => $settings->set('restoreVitalsOnLevelUp', true))->toThrow(LogicException::class)
+    ->and(fn() => $settings->set('levelUpRecovery', 'full'))->toThrow(LogicException::class)
     ->and(fn() => $settings->persist())->toThrow(LogicException::class)
-    ->and($settings->restoreVitalsOnLevelUp)->toBeFalse();
+    ->and($settings->levelUpRecovery)->toBe(LevelUpRecovery::NONE);
 });
 
 it('uses the authored setting through production bootstrap and resets it for a later project declaration', function () {
@@ -113,26 +119,28 @@ it('uses the authored setting through production bootstrap and resets it for a l
   chdir($project);
   $game = new ProgressionConfigurationGame();
 
-  foreach ([false, true, null] as $restore) {
-    $data = createProgressionSystemData($restore === null ? [] : ['progression' => ['restoreVitalsOnLevelUp' => $restore]]);
+  foreach (['none', 'increase', 'full', null] as $mode) {
+    $data = createProgressionSystemData($mode === null ? [] : ['progression' => ['levelUpRecovery' => $mode]]);
     $source = '<?php return ' . var_export($data, true) . ';';
     file_put_contents($path, $source);
     $game->initializeProjectConfiguration();
     $character = new Character('Bootstrap Hero', 0, new Stats(currentHp: 100, currentMp: 30));
     $character->stats->currentHp = 7;
     $character->stats->currentMp = 3;
+    $previousTotalHp = $character->stats->totalHp;
     $result = ExperienceAwarder::award($character, $character->getLevelExperienceThresholds()[2]);
 
-    expect(ConfigStore::get(ProgressionSettings::class)->get('restoreVitalsOnLevelUp'))->toBe($restore ?? true)
+    expect(ConfigStore::get(ProgressionSettings::class)->get('levelUpRecovery'))->toBe(LevelUpRecovery::from($mode ?? 'full'))
       ->and($result->levelledUp())->toBeTrue()
-      ->and($character->stats->currentHp)->toBe($restore === false ? 7 : $character->stats->totalHp)
-      ->and($character->stats->currentMp)->toBe($restore === false ? 3 : $character->stats->totalMp)
+      ->and($character->stats->currentHp)->toBe(match ($mode) {
+        'none' => 7, 'increase' => 7 + $character->stats->totalHp - $previousTotalHp, default => $character->stats->totalHp,
+      })
       ->and(file_get_contents($path))->toBe($source)
       ->and(file_exists($project . '/.data/player-settings.json'))->toBeFalse();
   }
 
   file_put_contents($path, '<?php return ' . var_export(createProgressionSystemData([
-    'progression' => ['restoreVitalsOnLevelUp' => 'false'],
+    'progression' => ['levelUpRecovery' => 'half'],
   ]), true) . ';');
   expect(fn() => $game->initializeProjectConfiguration())->toThrow(InvalidArgumentException::class, 'system.progression')
     ->and(ConfigStore::has(ProgressionSettings::class))->toBeFalse();

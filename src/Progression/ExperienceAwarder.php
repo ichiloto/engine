@@ -33,14 +33,16 @@ final class ExperienceAwarder
 
     $before = ProgressionSnapshot::capture($character);
     $oldLevel = $before->level;
+    $previousTotalHp = $character->stats->totalHp;
+    $previousTotalMp = $character->stats->totalMp;
     $character->addExperience($experience);
     $newLevel = $character->level;
 
     // Level recovery is part of progression, not generic stat recalculation.
     // Keeping it here makes battle, quest, and scripted EXP agree while
     // equipment changes and save hydration continue to preserve damage.
-    if ($newLevel > $oldLevel && $settings->restoreVitalsOnLevelUp) {
-      $character->restoreVitals();
+    if ($newLevel > $oldLevel) {
+      $settings->levelUpRecovery->recover($character, $previousTotalHp, $previousTotalMp);
     }
 
     return self::grantAutomaticRoleSkills($character, $oldLevel, $newLevel, $experience, $before);
