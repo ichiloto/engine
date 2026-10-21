@@ -34,6 +34,18 @@ generation, so its screenshots are reference only and must never be fed to an im
 - **Avoid:** banked, study/studying/studies, region, node, state, subject, pool, owner, queue, payload,
   resolve, and any other word taken from code or data files.
 
+- **Level is "Lv" in rows, lists and status lines** (the game's short level term). The full word is for
+  sentences only ("Level 5!").
+
+## Alignment
+
+- Things line up. Values sit in real columns: each label in a fixed place, each figure right-aligned to the
+  widest figure in its column, so a shorter number never shifts its row.
+- A list row is one line. Names never wrap; size the column to the widest name and truncate with an ellipsis
+  only when a name genuinely cannot fit.
+- Graphical presentations keep at least the Terminal's tidiness: the same column model drives both, and no
+  presentation joins several values into one string.
+
 ## Text and icons
 
 - Growth screens are about 15 to 25 percent text (FFX, FFXVI, Xenoblade 3, Tales of Arise). The board
