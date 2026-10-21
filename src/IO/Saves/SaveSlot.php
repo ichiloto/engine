@@ -89,7 +89,7 @@ readonly class SaveSlot
       return '';
     }
 
-    return sprintf('%s %s %d', $this->leaderName, Vocabulary::getTerm('stats.level', 'Lv'), $this->leaderLevel);
+    return sprintf('%s %s %d', $this->leaderName, Vocabulary::getTerm('stats.level_short'), $this->leaderLevel);
   }
 
   /** Shared labels for both Terminal and graphical save/load records. */

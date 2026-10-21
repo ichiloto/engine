@@ -39,7 +39,7 @@ final class SkillMenuPresentation
     $identity = $content->title . "\n" . $actor->name . "\nRole: " . $actor->role->name;
     $nameHeight = self::textHeight($identity, $nameWidth, $theme);
     $stats = $actor->effectiveStats;
-    $resources = [new MenuRow('0', Vocabulary::getTerm('stats.level', 'Lv'), [new MenuRowValue((string)$actor->level)]),
+    $resources = [new MenuRow('0', Vocabulary::getTerm('stats.level_short'), [new MenuRowValue((string)$actor->level)]),
       new MenuRow('1', Vocabulary::getTerm('stats.hp', 'HP'), [new MenuRowValue(number_format($stats->currentHp) . ' / ' . number_format($stats->totalHp))]),
       new MenuRow('2', Vocabulary::getTerm('stats.mp', 'MP'), [new MenuRowValue(number_format($stats->currentMp) . ' / ' . number_format($stats->totalMp))])];
     $resourceHeight = self::fieldHeight($resources, $resourcesWidth, $theme);

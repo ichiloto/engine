@@ -114,7 +114,7 @@ final class BattleResultsContent
     assert($before !== null && $after !== null);
     $add($after->name, 'accent');
     if ($stage['kind'] === 'level') {
-      $add(Vocabulary::getTerm('stats.level', 'Level') . ' ' . $before->level . "  \u{2192}  " . $after->level, 'accent');
+      $add(Vocabulary::getTerm('stats.level_short') . ' ' . $before->level . "  \u{2192}  " . $after->level, 'accent');
       foreach ($after->stats as $stat => $value) {
         if (!array_key_exists($stat, $before->stats)) { continue; }
         $old = $before->stats[$stat];

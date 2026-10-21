@@ -75,7 +75,7 @@ class CharacterPanel extends Window implements CanFocus
     $leftMargin = 18;
     $fields = [
       ['Role:', $role],
-      [Vocabulary::getTerm('stats.level', 'Lv'), (string)$level],
+      [Vocabulary::getTerm('stats.level_short'), (string)$level],
       [Vocabulary::getTerm('stats.hp', 'HP'), $hp],
       [Vocabulary::getTerm('stats.mp', 'MP'), $mp],
     ];

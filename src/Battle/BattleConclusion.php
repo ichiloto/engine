@@ -130,10 +130,10 @@ final readonly class BattleConclusion
 
     foreach ($levelUps as $levelUp) {
       $lines[] = get_engine_message('battle.level_gained', $levelUp->character->name,
-        Vocabulary::getTerm('stats.level', 'level'), $levelUp->newLevel);
+        Vocabulary::getTerm('stats.level'), $levelUp->newLevel);
       $entries[] = [
         'label' => sprintf('%s:', $levelUp->character->name),
-        'value' => sprintf('%s %d!', Vocabulary::getTerm('stats.level', 'Level'), $levelUp->newLevel),
+        'value' => sprintf('%s %d!', Vocabulary::getTerm('stats.level'), $levelUp->newLevel),
       ];
 
       foreach ($levelUp->learnedSkills() as $skillName) {

@@ -202,7 +202,7 @@ it('uses legacy command game labels only when the game term is missing', functio
 
 it('shares renamed skill headings and resource terms across Terminal and canvas without changing source or tabs', function (bool $magic, bool $alternative) {
   putSceneAudioConfig(['vocab' => ['command' => ['magic' => 'Arcana', 'skill' => 'Techniques'],
-    'stats' => ['level' => 'Rank', 'hp' => 'Vitality', 'mp' => 'Mana']]]);
+    'stats' => ['level' => 'Rank', 'level_short' => 'Rank', 'hp' => 'Vitality', 'mp' => 'Mana']]]);
   $state = $magic ? new MagicMenuState($this->context) : new AbilityMenuState($this->context);
   $state->character = $this->actor;
   $before = [$this->actor->actorId, $this->actor->stats->currentMp, $this->party->accountBalance,
@@ -226,7 +226,7 @@ it('shares renamed skill headings and resource terms across Terminal and canvas 
 })->with([false, true])->with([false, true]);
 
 it('keeps all skill resource values when authored labels are identical or empty', function () {
-  putSceneAudioConfig(['vocab' => ['stats' => ['level' => '', 'hp' => '', 'mp' => '']]]);
+  putSceneAudioConfig(['vocab' => ['stats' => ['level' => '', 'level_short' => '', 'hp' => '', 'mp' => '']]]);
   $state = new MagicMenuState($this->context);
   $state->character = $this->actor;
   $canvas = SkillMenuPresentation::compose($state->getPresentationContent(), new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']));
@@ -262,7 +262,7 @@ it('uses renamed terms for empty and sort headings without translating the tab i
 })->with([false, true]);
 
 it('shares renamed stat and experience labels in status and equipment with stable row identities', function () {
-  putSceneAudioConfig(['vocab' => ['stats' => ['level' => 'Rank', 'hp' => 'Vitality', 'mp' => 'Mana', 'ap' => 'Focus',
+  putSceneAudioConfig(['vocab' => ['stats' => ['level' => 'Rank', 'level_short' => 'Rank', 'hp' => 'Vitality', 'mp' => 'Mana', 'ap' => 'Focus',
     'exp' => 'Insight', 'attack' => 'Power'], 'shop' => ['exp_total' => 'Collected %1']]]);
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']);
   $status = new StatusViewState($this->context);
@@ -284,7 +284,7 @@ it('shares renamed stat and experience labels in status and equipment with stabl
 });
 
 it('preserves authored full experience messages while substituting optional vocabulary arguments', function () {
-  putSceneAudioConfig(['vocab' => ['stats' => ['exp' => 'Insight', 'level' => 'Rank'], 'shop' => ['exp_total' => 'Do not replace the message']],
+  putSceneAudioConfig(['vocab' => ['stats' => ['exp' => 'Insight', 'level' => 'Rank', 'level_short' => 'Rank'], 'shop' => ['exp_total' => 'Do not replace the message']],
     'messages' => ['exp_total' => 'Owned %1', 'exp_next' => 'Until %1']]);
   $status = new StatusViewState($this->context);
   $status->character = $this->actor;
@@ -381,7 +381,7 @@ it('shares file and level terms in Terminal and canvas slots without changing se
   $window = new SaveSlotWindow(new \Ichiloto\Engine\Core\Vector2(), 110);
   $window->setSlot($slot);
   expect($slot->getLeaderSummary())->toBe('Authored Leader Lv 4')->and($window->getTitle())->toBe('File 7');
-  putSceneAudioConfig(['vocab' => ['stats' => ['level' => 'Rank']], 'messages' => ['file' => 'Archive']]);
+  putSceneAudioConfig(['vocab' => ['stats' => ['level' => 'Rank', 'level_short' => 'Rank']], 'messages' => ['file' => 'Archive']]);
   $window->setSlot($slot, $selected);
   expect($slot->getLeaderSummary())->toBe('Authored Leader Rank 4')->and($window->getTitle())->toContain('Archive 7')
     ->and(implode(' ', $window->getContent()))->toContain('Authored Leader Rank 4', 'Authored Location');

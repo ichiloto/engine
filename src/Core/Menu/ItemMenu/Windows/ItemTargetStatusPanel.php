@@ -67,7 +67,7 @@ class ItemTargetStatusPanel extends Window
     $hp = "{$this->target->stats->currentHp} / {$this->target->stats->totalHp}";
     $mp = "{$this->target->stats->currentMp} / {$this->target->stats->totalMp}";
     $content = [
-      sprintf("%s %02d %16s %12s", Vocabulary::getTerm('stats.level', 'Lvl'), $this->target->level, Vocabulary::getTerm('stats.hp', 'HP'), $hp),
+      sprintf("%s %02d %16s %12s", Vocabulary::getTerm('stats.level_short'), $this->target->level, Vocabulary::getTerm('stats.hp', 'HP'), $hp),
       sprintf("%23s %12s", Vocabulary::getTerm('stats.mp', 'MP'), $mp),
       TerminalConditions::composeBadges($this->target),
     ];

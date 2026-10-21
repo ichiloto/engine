@@ -149,7 +149,7 @@ final class GraphicalBattleResults
         $this->line('party-name-' . $slot . '-' . $line, $name, 196, $y + $line * 28,
           $row['nameColumns'] * 14, 14, 28, 'text', alpha: $alpha);
       }
-      $this->line('party-level-' . $slot, Vocabulary::getTerm('stats.level_short', Vocabulary::getTerm('stats.level', 'Lv')) . ' ' . $progress['level'], 680, $y, 98, 13, 26, 'accent', 'right', $alpha);
+      $this->line('party-level-' . $slot, Vocabulary::getTerm('stats.level_short') . ' ' . $progress['level'], 680, $y, 98, 13, 26, 'accent', 'right', $alpha);
       $gain = $award->experienceAwarded > 0 ? '+' . $award->experienceAwarded : '';
       $this->line('party-gain-' . $slot, $gain, 778 - $row['gainWidth'], $y + 28,
         $row['gainWidth'], 13, 26, 'positive', 'right', $alpha);

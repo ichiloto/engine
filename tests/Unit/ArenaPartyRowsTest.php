@@ -10,14 +10,22 @@ it('justifies the arena party: names left, figures right-aligned in columns endi
   ], 56);
 
   expect($rows)->toBe([
-    ' Kaelion                    Lv  1  HP 140/140  MP  8/10 ',
-    ' Liora                      Lv 12  HP   90/90  MP 18/24 ',
-    ' Drazek                     Lv  1  HP 110/110  MP 10/12 ',
+    ' Kaelion                  Lv  1   HP 140/140   MP  8/10 ',
+    ' Liora                    Lv 12   HP   90/90   MP 18/24 ',
+    ' Drazek                   Lv  1   HP 110/110   MP 10/12 ',
   ])->and(array_map(strlen(...), $rows))->toBe([56, 56, 56]);
 });
 
-it('keeps a space between a long name and its stats rather than overrunning them', function () {
-  $rows = ArenaScene::formatPartyRows([['A very long party member name', ['Lv' => '1', 'HP' => '1/1']]], 30);
+it('cuts a name too long for its row with an ellipsis, keeping the stats in their columns at the edge', function () {
+  $rows = ArenaScene::formatPartyRows([['A very long party member name', ['Lv' => '1', 'HP' => '1/1']], ['Al', ['Lv' => '20', 'HP' => '10/10']]], 30);
 
-  expect($rows[0])->toContain('name Lv 1  HP 1/1 ');
+  expect(mb_strlen($rows[0]))->toBe(30)->and($rows[0])->toContain("\u{2026}")->toEndWith('Lv  1   HP   1/1 ')
+    ->and($rows[1])->toEndWith('Lv 20   HP 10/10 ');
+});
+
+it('keeps groups apart: the gap between stats is wider than a label and its widest figure', function () {
+  $row = ArenaScene::formatPartyRows([['Kaelion', ['Lv' => '1', 'HP' => '140/140', 'MP' => '10/10']]], 50)[0];
+
+  // Inside a group one space; between groups three, whatever the figures.
+  expect($row)->toContain('Lv 1   HP 140/140   MP 10/10');
 });
