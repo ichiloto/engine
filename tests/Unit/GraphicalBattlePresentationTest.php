@@ -630,7 +630,9 @@ it('selects each supplied command pose in both real battle engines and returns t
       ->and($image->asset)->toBe($expected->asset)->and($image->sourceRect)->toEqual($expected->sourceRect)
       ->and($image->destination->width)->toBe($baseline->destination->width)
       ->and($battler->stats->currentMp)->toBe(10);
-    new ReflectionProperty(Ichiloto\Engine\Core\Time::class, 'deltaTime')->setValue(null, 10);
+    // Step past this command's own plan, whose length follows its action's pacing.
+    new ReflectionProperty(Ichiloto\Engine\Core\Time::class, 'deltaTime')->setValue(null,
+      $playback->plan->timeline->defaults['lengthFrames'] / 120 + 1);
     $engine->run($context);
     $rest = array_column($presentation->frame($field)->images, null, 'id')[$identity];
     $restRole = $role === 'guard' ? BattlePoseRole::GUARD : BattlePoseRole::ENHANCED;

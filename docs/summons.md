@@ -41,6 +41,9 @@ return [
 - `name` is the summon's identity (the "[ IFRIT ]" title card).
 - `moveName` is what the battle log announces when the summon acts. Without
   it, the summon name is announced instead.
+- The action `linkedActionId` names is paced as a summon, whatever it is
+  called: at the slow animation pace the move is read for about 4.2 s before
+  the summon arrives (2.8 s medium, 1.7 s fast).
 
 ### Codex fields
 
