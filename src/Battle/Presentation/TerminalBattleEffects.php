@@ -121,7 +121,7 @@ final class TerminalBattleEffects
       'y' => intval($this->origin->y + $position->y) - 1] + $identity;
   }
 
-  /** @return array{x: int, y: int}|null */
+  /** @return array{x: int, y: int, partyIndex?: int, troopIndex?: int}|null */
   public function getAnimationOrigin(CharacterInterface $battler, AnimationTargetPosition $position,
     array $party, array $troop, ?BattleCommandPlayback $playback = null, bool $reducedMotion = false): ?array
   {
@@ -133,11 +133,12 @@ final class TerminalBattleEffects
     if ($anchor === null) { return null; }
     $sprite = $battler instanceof Character ? $battler->images->battle : $battler->image;
     $height = max(1, count($sprite));
+    // The battler's membership travels with its point, for effects that face its opponents.
     return ['x' => $anchor['x'], 'y' => $anchor['y'] + 1 + match ($position) {
       AnimationTargetPosition::HEAD => 0,
       AnimationTargetPosition::FEET => $height - 1,
       default => intdiv($height, 2),
-    }];
+    }] + array_diff_key($anchor, ['x' => true, 'y' => true]);
   }
 
   /** Logical field coordinates are one-based, matching the live field's indicators. */
@@ -190,8 +191,10 @@ final class TerminalBattleEffects
           $casterOrigin = $resolveOrigin($playback->actor, AnimationTargetPosition::CENTER);
           $recipientOrigin = $recipient === null ? null
             : $resolveOrigin($recipient, AnimationTargetPosition::CENTER);
-          $oriented = $screen || $casterOrigin === null || $recipientOrigin === null ? $command
-            : BattleEffectDirection::orientCommand($command, $casterOrigin['x'], $recipientOrigin['x']);
+          $oriented = $screen ? $command : BattleEffectDirection::orientForSubject($command, $casterOrigin['x'] ?? null,
+            $recipientOrigin['x'] ?? null, match (true) {
+              isset($origin['partyIndex']) => true, isset($origin['troopIndex']) => false, default => null,
+            });
           array_push($draws, ...self::getCommandDraws($oriented, $origin));
         }
       }

@@ -25,10 +25,11 @@ final class GraphicalBattleEffects
   /** @param array<int, CanvasRectangle> $bounds Combatant instance identities.
    * @param array<int, CanvasImage> $battlerImages Current visible poses, including crop, motion and opacity.
    * @param array<int, Vector2>|null $groundAnchors Current posed ground points; rectangle-only hosts use bottom centres.
+   * @param array<int, bool> $partySides Combatant identity => whether it stands with the party; opponent-facing tracks read it.
    */
   public static function compose(BattleEffectPlayback $playback, BattleCanvasLayout $arena,
     array $bounds, string $assetRoot, bool $reducedMotion, array $battlerImages = [], bool $imageFlips = true,
-    bool $compositing = true, ?array $groundAnchors = null): PresentationCanvas
+    bool $compositing = true, ?array $groundAnchors = null, array $partySides = []): PresentationCanvas
   {
     $groundAnchors ??= array_map(static fn(CanvasRectangle $box): Vector2 =>
       new Vector2($box->x + $box->width / 2, $box->y + $box->height), $bounds);
@@ -72,14 +73,12 @@ final class GraphicalBattleEffects
         foreach ($subjects as $subject) {
           $box = $subject === null ? null : ($bounds[spl_object_id($subject)] ?? null);
           if ($subject !== null && $box === null) { continue; }
-          $oriented = $command;
           $recipient = $anchor === 'caster'
             ? array_find($playback->targets, static fn($target): bool => $target !== $playback->actor) : $subject;
           $casterX = ($groundAnchors[spl_object_id($playback->actor)] ?? null)?->x;
           $recipientX = $recipient === null ? null : ($groundAnchors[spl_object_id($recipient)] ?? null)?->x;
-          if ($casterX !== null && $recipientX !== null) {
-            $oriented = BattleEffectDirection::orientCommand($command, $casterX, $recipientX);
-          }
+          $oriented = BattleEffectDirection::orientForSubject($command, $casterX, $recipientX,
+            $subject === null ? null : ($partySides[spl_object_id($subject)] ?? null));
           $data = $oriented['payload'] ?? [];
           $id = 'command-effect-' . $oriented['trackId'] . '-' . ($subject === null ? 'screen' : spl_object_id($subject));
           $position = $oriented['position'] ?? ['x' => 0, 'y' => 0];

@@ -222,9 +222,9 @@ it('preserves head center feet and screen geometry without graphical motion', fu
     $origins[$position->value] = $effects->getAnimationOrigin($this->actor, $position, $party, $this->targets, $playback, $reduced);
   }
   $x = ($reduced ? 109 : 103) + 5 + 1;
-  expect($origins['head'])->toBe(['x' => $x, 'y' => 8])
-    ->and($origins['center'])->toBe(['x' => $x, 'y' => 9])
-    ->and($origins['feet'])->toBe(['x' => $x, 'y' => 10])
+  expect($origins['head'])->toBe(['x' => $x, 'y' => 8, 'partyIndex' => 0])
+    ->and($origins['center'])->toBe(['x' => $x, 'y' => 9, 'partyIndex' => 0])
+    ->and($origins['feet'])->toBe(['x' => $x, 'y' => 10, 'partyIndex' => 0])
     ->and($origins['screen'])->toBe(['x' => 72, 'y' => 18]);
   $playback->update($playback->plan->phases['return']['start'] / BattleCommandTimeline::FPS);
   expect($effects->getPartyPresentedPosition(0, $this->actor, $playback, $reduced))->toEqual($this->positions->idlePositions[0]);
@@ -400,4 +400,20 @@ it('inspects results only commands at rest without executing them', function () 
   $presentation = new TerminalBattlePresentation($this->battle);
   expect($presentation->getFrame($playback))->toBe($presentation->getFrame())
     ->and($playback->session->currentFrame)->toBe(0)->and($hits)->toBe(0)->and($cues)->toBe(0);
+});
+
+it('raises an opponent-facing terminal ward on the side facing each subject opponents', function () {
+  $effect = terminalPreviewEffect([['content' => '(', 'position' => ['x' => -2, 'y' => 0],
+    'payload' => ['facing' => 'west', 'toward' => 'opponents']]]);
+  $playback = new BattleCommandPlayback(new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect),
+    $this->actor, [$this->actor, $this->targets[0]], BattlePoseRole::MAGIC, static fn() => null, static fn() => null);
+  $playback->update($playback->plan->phases['target']['start'] / BattleCommandTimeline::FPS);
+  $effects = new TerminalBattleEffects();
+  $resolve = fn($battler, $position) => $effects->getAnimationOrigin($battler, $position, [$this->actor], $this->targets, $playback);
+  $frame = $effects->compose($playback, $resolve);
+  $party = $resolve($this->actor, AnimationTargetPosition::CENTER);
+  $troop = $resolve($this->targets[0], AnimationTargetPosition::CENTER);
+  // The party's ward stands west of it toward the troop; the troop's mirrors east toward the party.
+  expect($frame['draws'])->toBe([['text' => '(', 'x' => $party['x'] - 2, 'y' => $party['y']],
+    ['text' => ')', 'x' => $troop['x'] + 2, 'y' => $troop['y']]]);
 });

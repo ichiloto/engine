@@ -95,8 +95,14 @@ final class EffectTimelineValidator
         || ($track['anchor'] ?? 'target') === 'screen')) {
         throw new InvalidArgumentException("Effect {$id} facing requires an east/west battle image or glyph anchored to a battler.");
       }
+      if (array_key_exists('toward', $track)) {
+        EffectFacingTarget::parse($track['toward']);
+        if (!array_key_exists('facing', $track)) {
+          throw new InvalidArgumentException("Effect {$id} toward turns a directional track; declare its facing too.");
+        }
+      }
       if (in_array($track['type'] ?? '', ['glyph', 'text', 'flash', 'shake'], true)) {
-        if (array_diff(array_keys($track), ['id', 'type', 'anchor', 'keyframes', 'presentation', ...($forBattle ? ['facing'] : [])]) !== []
+        if (array_diff(array_keys($track), ['id', 'type', 'anchor', 'keyframes', 'presentation', ...($forBattle ? ['facing', 'toward'] : [])]) !== []
           || !in_array($track['anchor'] ?? 'target', ['caster', 'target', 'screen'], true)
           || !is_array($track['keyframes'] ?? null) || !array_is_list($track['keyframes'])
           || $track['keyframes'] === [] || count($track['keyframes']) > 10000) {
@@ -111,6 +117,7 @@ final class EffectTimelineValidator
           self::validateKeyframe($id, $keyframe, $forSummon);
           if (isset($track['anchor'])) { $keyframe['payload']['anchor'] = $track['anchor']; }
           if (isset($track['facing'])) { $keyframe['payload']['facing'] = $track['facing']; }
+          if (isset($track['toward'])) { $keyframe['payload']['toward'] = $track['toward']; }
         }
         unset($keyframe);
         usort($track['keyframes'], static fn(array $a, array $b): int => $a['frame'] <=> $b['frame']);
@@ -120,12 +127,12 @@ final class EffectTimelineValidator
           if (!$forSummon && $keyframe['frame'] <= $end) { throw new InvalidArgumentException("Effect {$id} presentation track has overlapping keyframes."); }
           $end = $keyframe['frame'] + ($keyframe['duration'] ?? 1) - 1;
         }
-        unset($track['facing']);
+        unset($track['facing'], $track['toward']);
         $normalized[] = \Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneTrack::fromArray($track)->toArray();
         continue;
       }
       if (!is_array($track) || array_diff(array_keys($track), ['id', 'type', 'asset', 'sheet', 'cells', 'fit', 'depth', 'keyframes',
-        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'attachment'] : []),
+        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment'] : []),
         ...($acceptsStage ? ['placement', 'zIndex'] : []), ...($forStage ? ['anchor'] : [])]) !== []
         || ($track['type'] ?? null) !== 'image' || !is_string($track['id'] ?? null)) {
         throw new InvalidArgumentException("Effect {$id} currently accepts image tracks with id, asset, sheet, cells, depth and keyframes.");
@@ -210,6 +217,7 @@ final class EffectTimelineValidator
             ...(!isset($track['attachment']) ? [] : ['attachment' => $track['attachment']]),
             ...(!isset($track['pivot']) ? [] : ['pivot' => $track['pivot']]),
             ...(!isset($track['facing']) ? [] : ['facing' => $track['facing']]),
+            ...(!isset($track['toward']) ? [] : ['toward' => $track['toward']]),
             ...(!array_key_exists('flipX', $frame) ? [] : ['flipX' => $frame['flipX']]),
             ...(!array_key_exists('flipY', $frame) ? [] : ['flipY' => $frame['flipY']]),
             ...(!$onStage ? [] : ['placement' => $placement, 'zIndex' => $zIndex,
@@ -284,7 +292,7 @@ final class EffectTimelineValidator
       'visible', 'zIndex', 'payload', ...($forSummon ? ['blendMode', 'easing'] : [])]) !== [] || !is_array($frame['payload'] ?? [])) {
       throw new InvalidArgumentException("Effect {$id} has an invalid presentation keyframe payload.");
     }
-    if (array_intersect(array_keys($frame['payload'] ?? []), ['facing', 'flipX', 'flipY']) !== []) {
+    if (array_intersect(array_keys($frame['payload'] ?? []), ['facing', 'toward', 'flipX', 'flipY']) !== []) {
       throw new InvalidArgumentException("Effect {$id} orientation belongs to the track, not an untyped glyph payload.");
     }
     foreach (['content', 'assetId', 'color'] as $key) {

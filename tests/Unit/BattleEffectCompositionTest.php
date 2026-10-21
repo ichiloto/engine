@@ -141,3 +141,45 @@ it('keeps contained directional images on each stable ground point rather than a
     rmdir($root);
   }
 })->with([false, true]);
+
+it('raises an opponent-facing ward in front of each recipient by its side, not by where the caster stands', function (bool $reduced) {
+  $root = sys_get_temp_dir() . '/ichiloto-ward-' . bin2hex(random_bytes(5));
+  mkdir($root);
+  writeTestPng($root . '/ward.png', 64, 32);
+  try {
+    $effect = new EffectTimelineLibrary($root)->compile('ward',
+      ['fps' => 10, 'lengthFrames' => 1, 'restFrame' => 0, 'tracks' => [[
+        'id' => 'pane', 'type' => 'image', 'asset' => 'ward.png', 'anchor' => 'target',
+        'attachment' => 'ground', 'pivot' => ['x' => .75, 'y' => 1], 'facing' => 'west', 'toward' => 'opponents',
+        'sheet' => ['columns' => 2, 'rows' => 1], 'cells' => ['width' => 2, 'height' => 2],
+        'keyframes' => [['frame' => 0, 'sourceFrame' => 0]],
+      ]]], true);
+    $caster = new Character('Caster', 1, new Stats());
+    $west = new Character('West ally', 1, new Stats());
+    $east = new Character('East ally', 1, new Stats());
+    $foe = new Character('Foe', 1, new Stats());
+    $playback = new BattleCommandPlayback(new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect),
+      $caster, [$west, $east, $caster, $foe], BattlePoseRole::MAGIC, static fn() => null, static fn() => null);
+    $playback->update($playback->plan->phases['target']['start'] / 120);
+    $bounds = $ground = $sides = [];
+    foreach ([[$caster, 1000, true], [$west, 900, true], [$east, 1100, true], [$foe, 300, false]] as [$battler, $x, $party]) {
+      $bounds[spl_object_id($battler)] = new CanvasRectangle($x - 20, 200, 40, 80);
+      $ground[spl_object_id($battler)] = new Vector2($x, 280);
+      $sides[spl_object_id($battler)] = $party;
+    }
+    $images = GraphicalBattleEffects::compose($playback, new BattleCanvasLayout(1440, 840), $bounds, $root,
+      $reduced, groundAnchors: $ground, partySides: $sides)->images;
+    // Each pane stands on its recipient's ground, ahead of it toward its opponents.
+    expect($images)->toHaveCount(4)
+      ->and(array_map(static fn($image): bool => $image->flipX, $images))->toBe([false, false, false, true])
+      ->and(array_map(static fn($image): float => $image->destination->x, $images))->toBe([828.0, 1028.0, 928.0, 276.0])
+      ->and($playback->presentationFailure)->toBeNull();
+    // Without side membership the ward keeps its authored facing.
+    $unsided = GraphicalBattleEffects::compose($playback, new BattleCanvasLayout(1440, 840), $bounds, $root,
+      $reduced, groundAnchors: $ground)->images;
+    expect(array_map(static fn($image): bool => $image->flipX, $unsided))->toBe([false, false, false, false]);
+  } finally {
+    unlink($root . '/ward.png');
+    rmdir($root);
+  }
+})->with([false, true]);
