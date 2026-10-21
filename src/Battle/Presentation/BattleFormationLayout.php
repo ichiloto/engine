@@ -350,7 +350,7 @@ final readonly class BattleFormationLayout
       $bounds, 100, $art->sourceRect, clipRect: $clip) : null;
     $surface = $available ? BattlerGroundContact::compose(($party ? 'party-contact-' : 'enemy-contact-') . $index, $slot->x, $slot->y,
       $bodySpan ?? $bounds->height, $horizontal, $bounds->width, $elevation, $contact, $layout, $arena, $grounding, $assetRoot,
-      $elapsedSeconds, $reducedMotion) : ['images' => [], 'composites' => []];
+      $elapsedSeconds, $reducedMotion, drawn: $image) : ['images' => [], 'composites' => []];
     return new BattleFormationBattler($id, $party, $slot, $registered === null && !$available ? null : $art,
       $bounds, $image, $bodySpan, $horizontal, $diagnostics, $contact, $surface['images'], $surface['composites'], $offset);
   }
