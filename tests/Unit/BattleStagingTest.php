@@ -129,7 +129,7 @@ it('keeps authored places and gives unplaced members the spots no placed member 
     ->and([$arranged[2]->x, $arranged[2]->depth])->toBe([$full[1]->x, $full[1]->depth]);
 });
 
-it('faces the party with an arranged troop: centred on the party\'s middle depth, a lone enemy mid-field', function (int $count) {
+it('faces the party with an arranged troop: centred on the theme formation\'s middle, a lone enemy mid-field', function (int $count) {
   $party = [new BattleStageSlot(1000, 200, 100, 180), new BattleStageSlot(1100, 100, 100, 180), new BattleStageSlot(1200, 0, 100, 180)];
   $layout = stagingLayout($party, new BattleGround(top: 200), 12);
   $bodies = array_fill(0, $count, ['width' => 100.0, 'height' => 120.0]);

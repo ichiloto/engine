@@ -13,7 +13,7 @@ use InvalidArgumentException;
  * as stage slots (feet column and depth back from the ground's near edge),
  * so the same troop or party stands on any arena's ground: nobody in front of
  * the near edge, nobody beyond the far edge. An arranged troop centres on the
- * party's middle depth so the sides face each other. A side deeper than the
+ * middle of the theme's party formation so the sides face each other. A side deeper than the
  * ground is compressed in depth as a whole, keeping its shape, and the
  * ground's perspective scales battlers by how far back they stand. Feet land
  * on the side's footing when the arena declares one ({@see BattleFooting}).
@@ -58,10 +58,7 @@ final readonly class BattleStaging
     $footing = $arena?->footing ?? new BattleFooting();
     $party = self::getPartyPlaces($layout, $partyBodies);
     $partyCompression = self::getCompression($ground, $party);
-    // The troop faces the party across the field: its formation centres on the party's middle depth.
-    $partyCentre = $party === [] ? null
-      : array_sum(array_map(static fn(BattleStageSlot $place): float => $place->depth, $party)) / count($party) * $partyCompression;
-    $enemies = self::arrange($layout, false, $enemyBodies, $enemyPlaces, $partyCentre, $ground, $footing->enemies);
+    $enemies = self::arrange($layout, false, $enemyBodies, $enemyPlaces, $ground, $footing->enemies);
     $enemyCompression = self::getCompression($ground, $enemies);
     $stand = static fn(bool $side, float $compression): Closure => static fn(BattleStageSlot $place): BattlerSlot =>
       self::getFootedSlot($layout, $side, $ground, $footing->getPolygon($side), $place->getSlotOn($ground, $compression));
@@ -90,10 +87,12 @@ final readonly class BattleStaging
    * (first) to front (last), each rank stepping back by a share of the
    * nearer battler's height and alternating between an inner and an outer
    * lane, spaced by the theme ({@see BattleFormationSpacing}) and the
-   * battlers' drawn sizes. A troop centres its depth on the party's middle
-   * depth (the theme formation's, unless the battle gives the frontline's),
-   * so the sides face each other across the field and a lone enemy stands
-   * mid-field. Across, each rank centres on the side's footing at the height
+   * battlers' drawn sizes. A troop centres its depth on the middle of the
+   * theme's party formation, so the sides face each other across the field
+   * and a lone enemy stands mid-field, and a troop aligned in an editor
+   * stands where the battle would arrange it whatever the party's size.
+   * Without a theme formation both sides start from the near edge alike.
+   * Across, each rank centres on the side's footing at the height
    * it stands at on the given ground (the side's area without footing), so
    * the formation follows a road rather than a verge. Authored places are
    * kept; each unplaced member takes the arrangement's spot that no
@@ -101,12 +100,11 @@ final readonly class BattleStaging
    *
    * @param list<array{width: float, height: float, pivotX?: float, pivotY?: float}> $bodies Drawn size and the feet's shares of it.
    * @param list<?BattleStageSlot> $placed
-   * @param ?float $centreDepth The depth, in canvas units back from the near edge, the troop centres on.
    * @param list<array{0: float, 1: float}> $footing The side's footing polygon on that ground, or none.
    * @return list<BattleStageSlot>
    */
   public static function arrange(BattleCanvasLayout $layout, bool $party, array $bodies, array $placed = [],
-    ?float $centreDepth = null, ?BattleGroundBand $ground = null, array $footing = []): array
+    ?BattleGroundBand $ground = null, array $footing = []): array
   {
     $count = count($bodies);
     if ($placed === []) { $placed = array_fill(0, $count, null); }
@@ -121,11 +119,9 @@ final readonly class BattleStaging
         throw new InvalidArgumentException('Battler drawn sizes must be finite and positive, with pivot shares within 0..1.');
       }
     }
-    if (!$party && $centreDepth === null && $layout->partySlots !== []) {
-      $centreDepth = array_sum(array_map(static fn(BattleStageSlot $slot): float => $slot->depth, $layout->partySlots))
-        / count($layout->partySlots);
-    }
-    $spots = self::getStagger($layout, $party, $bodies, $party ? null : $centreDepth, $ground ?? $layout->getGround(null), $footing);
+    $centreDepth = $party || $layout->partySlots === [] ? null
+      : array_sum(array_map(static fn(BattleStageSlot $slot): float => $slot->depth, $layout->partySlots)) / count($layout->partySlots);
+    $spots = self::getStagger($layout, $party, $bodies, $centreDepth, $ground ?? $layout->getGround(null), $footing);
     $free = array_keys($spots);
     foreach ($placed as $place) {
       if ($place === null) { continue; }

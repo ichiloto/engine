@@ -438,11 +438,13 @@ where the UI's bottom windows begin, read by `GraphicalBattleHud` too).
   times the nearer battler's drawn height and alternating between an inner
   lane and an outer lane `lateral` times their mean drawn width beyond it,
   fitted and centred across the side's area by the art's real extent either
-  side of its feet. The arrangement centres its depth on the party's middle
-  depth (the staged frontline's, or the theme's party slots when previewing
-  without a battle), so the two sides face each other across the field and a
-  lone enemy stands mid-field; larger troops spread back and forward around
-  that middle. A battler whose art reaches below the battler area (a
+  side of its feet. The arrangement centres its depth on the middle of the
+  theme's party formation (`partySlots`), so the two sides face each other
+  across the field and a lone enemy stands mid-field; larger troops spread
+  back and forward around that middle. The middle is the formation's, not the
+  frontline's, so a troop aligned in an editor stands where the battle would
+  arrange it whatever the party's size. Without party slots both sides start
+  from the near edge alike. A battler whose art reaches below the battler area (a
   creature's body under its waterline) stands that much further back. Spacing
   follows the current artwork, so replaced art re-spaces itself.
 - An arena may declare each side's footing (`BattleFooting`): a polygon of
