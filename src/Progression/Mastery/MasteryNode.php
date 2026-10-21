@@ -24,7 +24,7 @@ final readonly class MasteryNode
    * @param int $opensAtLevel The character level it opens at.
    * @param list<string> $requires The nodes that must be learned first.
    * @param int $order Its place in the default study order.
-   * @param array{x: float, y: float}|null $position Where a graphical map draws it.
+   * @param array{x: float, y: float}|null $position Where a graphical map draws it, as fractions (0 to 1) of the map's width and height.
    */
   public function __construct(
     public string $id,
@@ -68,8 +68,9 @@ final readonly class MasteryNode
       throw new InvalidArgumentException(sprintf('Mastery node %s requires must list node ids.', $id));
     }
     $position = $data['position'] ?? null;
-    if ($position !== null && (! is_array($position) || ! is_numeric($position['x'] ?? null) || ! is_numeric($position['y'] ?? null))) {
-      throw new InvalidArgumentException(sprintf('Mastery node %s position must give x and y.', $id));
+    if ($position !== null && (! is_array($position) || ! is_numeric($position['x'] ?? null) || ! is_numeric($position['y'] ?? null)
+      || $position['x'] < 0 || $position['x'] > 1 || $position['y'] < 0 || $position['y'] > 1)) {
+      throw new InvalidArgumentException(sprintf('Mastery node %s position must give x and y between 0 and 1.', $id));
     }
 
     return new self(
