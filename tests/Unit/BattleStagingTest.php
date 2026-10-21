@@ -141,6 +141,12 @@ it('faces the party with an arranged troop: centred on the theme formation\'s mi
   expect((min($feet) + max($feet)) / 2)->toEqualWithDelta(488.0, .000001)
     ->and(BattleStaging::arrange($layout, false, $bodies) == $staging->enemyPlaces)->toBeTrue();
   if ($count === 1) { expect($feet[0])->toBe($staging->party[1]->y); }
+  // Small creatures spread as deep and as wide as the party stands (200 back and 200 across), not huddled together.
+  if ($count === 2) {
+    $columns = array_map(static fn($slot): float => $slot->x, $staging->enemies);
+    expect(max($feet) - min($feet))->toEqualWithDelta(200.0, .000001)
+      ->and(max($columns) - min($columns))->toEqualWithDelta(200.0, .000001);
+  }
 })->with([1, 2, 4]);
 
 it('never stands a centred troop in front of the near edge or with its art below the battler area', function () {

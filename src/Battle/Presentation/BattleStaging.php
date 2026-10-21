@@ -95,7 +95,9 @@ final readonly class BattleStaging
    * lane, spaced by the theme ({@see BattleFormationSpacing}) and the
    * battlers' drawn sizes. A troop centres its depth on the middle of the
    * theme's party formation, so the sides face each other across the field
-   * and a lone enemy stands mid-field, and a troop aligned in an editor
+   * and a lone enemy stands mid-field, and spreads at least as deep and as
+   * wide as that formation stands, so small creatures use the field as the
+   * party does rather than huddling; a troop aligned in an editor
    * stands where the battle would arrange it whatever the party's size.
    * Without a theme formation both sides start from the near edge alike.
    * Across, each rank centres on the footing its habitat lives on at the
@@ -165,10 +167,16 @@ final readonly class BattleStaging
     $floor = $layout->battlerArea === null ? $layout->getHudTop() : $layout->battlerArea->y + $layout->battlerArea->height;
     $lifts = array_map(static fn(array $body): float => max(0.0, $ground->bottom + (1 - ($body['pivotY'] ?? 1.0)) * $body['height'] - $floor),
       $bodies);
+    // A troop facing a theme formation spreads at least as deep and as wide as that formation stands, so a pair of
+    // small creatures uses the field as the party does rather than huddling; larger troops keep the theme's spacing.
+    $slots = $party ? [] : $layout->partySlots;
+    $columns = array_map(static fn(BattleStageSlot $slot): float => $slot->x, $slots);
+    $rows = array_map(static fn(BattleStageSlot $slot): float => $slot->depth, $slots);
+    $spread = $slots === [] || $count < 2 ? 0.0 : (max($rows) - min($rows)) / ($count - 1);
     $depths = array_fill(0, $count, 0.0);
     $depths[$count - 1] = $lifts[$count - 1];
     for ($index = $count - 2; $index >= 0; $index--) {
-      $depths[$index] = max($lifts[$index], $depths[$index + 1] + $layout->spacing->depth * $bodies[$index + 1]['height']);
+      $depths[$index] = max($lifts[$index], $depths[$index + 1] + max($spread, $layout->spacing->depth * $bodies[$index + 1]['height']));
     }
     if ($centreDepth !== null) {
       $shift = $centreDepth - ($depths[0] + $depths[$count - 1]) / 2;
@@ -188,7 +196,7 @@ final readonly class BattleStaging
       }
       return $reach;
     };
-    $step = $layout->spacing->lateral * array_sum(array_column($bodies, 'width')) / $count;
+    $step = max($slots === [] ? 0.0 : max($columns) - min($columns), $layout->spacing->lateral * array_sum(array_column($bodies, 'width')) / $count);
     // The formation never leaves the side: narrow the lanes until it fits.
     for ($narrowing = 0; $narrowing < 32 && ($getExtent($step)[1] - $getExtent($step)[0]) > $right - $left; $narrowing++) {
       $step *= .85;

@@ -441,7 +441,9 @@ where the UI's bottom windows begin, read by `GraphicalBattleHud` too).
   side of its feet. The arrangement centres its depth on the middle of the
   theme's party formation (`partySlots`), so the two sides face each other
   across the field and a lone enemy stands mid-field; larger troops spread
-  back and forward around that middle. The middle is the formation's, not the
+  back and forward around that middle, at least as deep and as wide as the
+  party formation stands, so a pair of small creatures uses the field as the
+  party does rather than huddling. The middle is the formation's, not the
   frontline's, so a troop aligned in an editor stands where the battle would
   arrange it whatever the party's size. Without party slots both sides start
   from the near edge alike. A battler whose art reaches below the battler area (a
