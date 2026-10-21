@@ -30,6 +30,9 @@ final readonly class BattlerGrounding
       || !is_finite($shadowOpacity) || $shadowOpacity < 0 || $shadowOpacity > 4) {
       throw new InvalidArgumentException('A battler shadow scales its width within 0..4 and its strength within 0..4 of the theme\'s.');
     }
+    if ($hover !== null && $hover > 0 && $shadow === BattlerShadowSource::ARTWORK) {
+      throw new InvalidArgumentException('Artwork that paints its own shadow cannot hover: the shadow would rise with the body. Hover it once its art is shadow-free and its shadow is the engine\'s.');
+    }
   }
 
   /** @throws InvalidArgumentException Naming the entry, by its path in the file. */

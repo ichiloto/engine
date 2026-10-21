@@ -509,7 +509,9 @@ ground, so artwork paints bodies only:
   reference heights: the body rises that far over its feet point while
   staging, effects, footing and the shadow stay on the ground. An air enemy
   without its own hover takes the theme's `airHover`; a knocked-out battler
-  lies on the ground.
+  lies on the ground. Artwork that paints its own shadow keeps the height it
+  was painted at (its shadow cannot leave the body), and a hover on it is
+  refused until the art is shadow-free and its shadow is the Engine's.
 - The shadow is a radial-gradient composite (`BattlerContactShadow`) at layer
   90, under every body, following the feet through steps, recoil, poses,
   knockouts and concession and fading with the battler. A renderer without

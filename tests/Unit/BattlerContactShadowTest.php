@@ -78,8 +78,10 @@ it('lifts a hovering body over its feet and shrinks and fades its shadow with th
   expect($flier)->toBe(.5)
     ->and(BattlerContactShadow::getHover(null, EnemyHabitat::LAND, $layout))->toBe(0.0)
     ->and(BattlerContactShadow::getHover(new BattlerGrounding(hover: .2), EnemyHabitat::AIR, $layout))->toBe(.2)
-    // A knocked-out flier lies on the ground.
+    // A knocked-out flier lies on the ground; art painting its own shadow keeps the height it was painted at.
     ->and(BattlerContactShadow::getHover(null, EnemyHabitat::AIR, $layout, knockedOut: true))->toBe(0.0)
+    ->and(BattlerContactShadow::getHover(new BattlerGrounding(shadow: BattlerShadowSource::ARTWORK), EnemyHabitat::AIR, $layout))->toBe(0.0)
+    ->and(fn() => new BattlerGrounding(hover: .3, shadow: BattlerShadowSource::ARTWORK))->toThrow(InvalidArgumentException::class, 'cannot hover')
     // In reference heights, at the slot's perspective; without a reference, by the slot's own height.
     ->and(BattlerContactShadow::getLift(.5, $slot, new \Ichiloto\Engine\Battle\Presentation\BattleScale('Hero', 150,
       ['Hero' => new \Ichiloto\Engine\Battle\Presentation\BattlerScale(1, 1)])))->toEqualWithDelta(90.0, .000001)

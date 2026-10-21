@@ -28,12 +28,14 @@ final class BattlerContactShadow
   /**
    * How many reference heights a battler's body hovers over its feet: its
    * own, else the theme's flier height for an air enemy, else none. A
-   * knocked-out battler lies on the ground.
+   * knocked-out battler lies on the ground, and artwork that paints its own
+   * shadow keeps the height it was painted at, since its shadow cannot leave
+   * the body.
    */
   public static function getHover(?BattlerGrounding $grounding, ?EnemyHabitat $habitat, BattleCanvasLayout $layout,
     bool $knockedOut = false): float
   {
-    if ($knockedOut) { return 0.0; }
+    if ($knockedOut || $grounding?->shadow === BattlerShadowSource::ARTWORK) { return 0.0; }
     return $grounding?->hover ?? ($habitat === EnemyHabitat::AIR ? $layout->airHover : 0.0);
   }
 
