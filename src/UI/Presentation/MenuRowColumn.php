@@ -39,8 +39,12 @@ final readonly class MenuRowColumn
       $gap ?? ($label === null ? null : self::LABELLED_GAP));
   }
 
-  /** Cells before a labelled column, so one stat's figure never reads into the next stat's label. */
-  public const int LABELLED_GAP = 2;
+  /**
+   * Cells before a labelled column: the gap between one stat's group and the
+   * next, clearly wider than the single space between a label and its widest
+   * figure, so "Lv 1   HP 140/140" reads as two groups.
+   */
+  public const int LABELLED_GAP = 3;
 
   /**
    * One labelled column per field, in the first row's order, each as wide as
