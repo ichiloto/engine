@@ -114,18 +114,39 @@ final class CharacterMenuPresentation
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $identityWidth = max(180, $m->portraitSize);
-    $nameHeight = count(MenuCanvas::wrap($character->name, (int)floor($identityWidth / $m->cellWidth))) * $m->cellHeight;
-    $roleHeight = count(MenuCanvas::wrap($character->role->name, (int)floor(360 / $m->cellWidth))) * $m->cellHeight;
-    $profileHeight = max(180, 2 * $p + $roleHeight + 4 * ($m->cellHeight + 1) + $m->sectionGap,
-      2 * $p + $nameHeight + $m->sectionGap + $m->portraitSize);
+    $hints = self::characterHints();
+    $hintHeight = MenuActionHints::height($hints, $theme, self::WIDTH - 2 * $p);
+    $infoHeight = $hintHeight > 0 ? max(80, 2 * $p + $hintHeight) : 0;
+    $rows = CharacterMenuRows::stats($character, $theme);
+    $slots = CharacterMenuRows::slots($character);
+    // The stats and equipment keep the height their rows need.
+    $statsHeight = 2 * $p + max(self::measureRows($theme, $rows, self::layout($theme,
+      self::inset(self::box(0, 0, self::PROFILE_WIDTH, self::HEIGHT), $p), self::numericColumns($rows))),
+      self::measureRows($theme, $slots, self::slotLayout($theme,
+        self::inset(self::box(0, 0, self::WIDTH - self::PROFILE_WIDTH, self::HEIGHT), $p), $slots)));
+    // Conditions keep at least one line; the profile's name and role wrap into what is left.
+    $profileLimit = self::HEIGHT - $infoHeight - $statsHeight - 2 * $p - MenuConditions::getBadgeHeight($theme);
+    $nameLines = (int)floor(($profileLimit - 2 * $p - $m->sectionGap - $m->portraitSize) / $m->cellHeight);
+    $roleLines = (int)floor(($profileLimit - 2 * $p - $m->sectionGap - 4 * ($m->cellHeight + 1)) / $m->cellHeight);
+    if (min($nameLines, $roleLines) < 1) {
+      throw new RuntimeException('Status stats and equipment leave insufficient space for the profile.');
+    }
+    $nameCells = (int)floor($identityWidth / $m->cellWidth);
+    $roleCells = (int)floor(360 / $m->cellWidth);
+    $name = implode('', MenuTextWrap::fitLines($character->name, $nameCells, $nameLines));
+    $role = implode('', MenuTextWrap::fitLines($character->role->name, $roleCells, $roleLines));
+    $nameHeight = count(MenuCanvas::wrap($name, $nameCells)) * $m->cellHeight;
+    $roleHeight = count(MenuCanvas::wrap($role, $roleCells)) * $m->cellHeight;
+    $profileHeight = min($profileLimit, max(180, 2 * $p + $roleHeight + 4 * ($m->cellHeight + 1) + $m->sectionGap,
+      2 * $p + $nameHeight + $m->sectionGap + $m->portraitSize));
     $profile = self::box(0, 0, self::WIDTH, $profileHeight);
     $view->frame('status-profile', $profile);
-    $nameHeight = $view->prose('status-name', $character->name,
+    $nameHeight = $view->prose('status-name', $name,
       new CanvasRectangle($profile->x + $p, $profile->y + $p, $identityWidth, $profileHeight - 2 * $p - $m->portraitSize - $m->sectionGap));
     $view->portrait($character->actorId, new CanvasRectangle($profile->x + $p, $profile->y + $p + $nameHeight + $m->sectionGap,
       $m->portraitSize, $m->portraitSize));
     $resourceX = $profile->x + $p + $identityWidth + $m->sectionGap;
-    $view->prose('status-role', $character->role->name, new CanvasRectangle($resourceX, $profile->y + $p, 360, $roleHeight));
+    $view->prose('status-role', $role, new CanvasRectangle($resourceX, $profile->y + $p, 360, $roleHeight));
     $stats = $character->effectiveStats;
     $resources = [new MenuRow('level', Vocabulary::getTerm('stats.level_short'), [new MenuRowValue((string)$character->level)])];
     foreach (['Hp', 'Mp', 'Ap'] as $resource) {
@@ -142,21 +163,7 @@ final class CharacterMenuPresentation
     $expX = $resourceX + 360 + $m->sectionGap;
     $view->rows('status-exp', $exp, self::layout($theme, new CanvasRectangle($expX, $resourceBox->y,
       $profile->x + $profile->width - $p - $expX, $profileHeight - $p - ($resourceBox->y - $profile->y)), self::numericColumns($exp)));
-    $hints = self::characterHints();
-    $hintHeight = MenuActionHints::height($hints, $theme, self::WIDTH - 2 * $p);
-    $infoHeight = $hintHeight > 0 ? max(80, 2 * $p + $hintHeight) : 0;
-    $bodyHeight = self::HEIGHT - $profileHeight - $infoHeight;
-    $rows = CharacterMenuRows::stats($character, $theme);
-    $slots = CharacterMenuRows::slots($character);
-    // The stats and equipment keep the height their rows need; conditions take the rest.
-    $statsHeight = 2 * $p + max(self::measureRows($theme, $rows, self::layout($theme,
-      self::inset(self::box(0, 0, self::PROFILE_WIDTH, $bodyHeight), $p), self::numericColumns($rows))),
-      self::measureRows($theme, $slots, self::slotLayout($theme,
-        self::inset(self::box(0, 0, self::WIDTH - self::PROFILE_WIDTH, $bodyHeight), $p), $slots)));
-    $conditionsHeight = $bodyHeight - $statsHeight;
-    if ($conditionsHeight < 2 * $p + $m->cellHeight + MenuConditions::getBadgeHeight($theme)) {
-      throw new RuntimeException('Status conditions leave insufficient space for stats and equipment.');
-    }
+    $conditionsHeight = self::HEIGHT - $infoHeight - $profileHeight - $statsHeight;
     $statBox = self::box(0, $profileHeight, self::PROFILE_WIDTH, $statsHeight);
     $slotBox = self::box(self::PROFILE_WIDTH, $profileHeight, self::WIDTH - self::PROFILE_WIDTH, $statsHeight);
     $view->frame('status-stats', $statBox);
@@ -175,6 +182,7 @@ final class CharacterMenuPresentation
   /**
    * Lists the character's conditions with their icons, names and
    * descriptions, or compact badges when the descriptions do not fit.
+   * A panel with room for one line leads it with the heading.
    */
   private static function conditions(MenuCanvas $view, Character $character, CanvasRectangle $box): void
   {
@@ -183,11 +191,24 @@ final class CharacterMenuPresentation
     $p = $m->panelPadding;
     $view->frame('status-conditions', $box);
     $body = self::inset($box, $p);
-    $headingHeight = $view->prose('status-conditions-title', get_engine_message('status.conditions'), $body, 'accent');
-    $content = new CanvasRectangle($body->x, $body->y + $headingHeight, $body->width, $body->height - $headingHeight);
+    $title = get_engine_message('status.conditions');
+    $line = MenuConditions::getBadgeHeight($theme);
+    $lead = 0;
+    if ($body->height >= $m->cellHeight + $line) {
+      $headingHeight = $view->prose('status-conditions-title', $title, $body, 'accent');
+      $content = new CanvasRectangle($body->x, $body->y + $headingHeight, $body->width, $body->height - $headingHeight);
+    } else {
+      $titleWidth = mb_strlen($title, 'UTF-8') * $m->cellWidth;
+      $view->prose('status-conditions-title', $title,
+        new CanvasRectangle($body->x, $body->y + ($line - $m->cellHeight) / 2, $titleWidth, $m->cellHeight), 'accent');
+      $offset = $titleWidth + 2 * $m->cellWidth;
+      $lead = ($line - $m->cellHeight) / 2;
+      $content = new CanvasRectangle($body->x + $offset, $body->y, $body->width - $offset, $body->height);
+    }
     $rows = MenuConditions::getRows($character, true);
     if ($rows === []) {
-      $view->prose('status-conditions-none', get_engine_message('status.no_conditions'), $content, 'disabled');
+      $view->prose('status-conditions-none', get_engine_message('status.no_conditions'),
+        new CanvasRectangle($content->x, $content->y + $lead, $content->width, $content->height - $lead), 'disabled');
       return;
     }
     $label = max(array_map(static fn(MenuRow $row): int => mb_strlen($row->label, 'UTF-8'), $rows));
