@@ -40,6 +40,14 @@ final class BattleResultsContent
     return $rows;
   }
 
+  /** The party rows on the primary page the player is looking at. */
+  public static function getVisiblePartyRows(BattleResultsPlayback $playback): array
+  {
+    $rows = self::partyRows($playback->rewards);
+    $page = min($playback->scrollOffset, max(0, (int)ceil(count($rows) / 4) - 1));
+    return array_slice($rows, $page * 4, 4);
+  }
+
   public static function itemLines(BattleRewards $rewards): array
   {
     $lines = [];

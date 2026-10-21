@@ -196,12 +196,21 @@ Games opt in per sound by declaring a track under `audio.sounds`:
     'enemy_collapse' => 'enemy-down',
     'item_get' => 'item-get',
     'shop' => 'coin',
+    'counter' => 'counter-tick-loop',
+  ],
+  // Optional: each sound's own volume, 0 to 100, under the master volume.
+  'sound_volumes' => [
+    'counter' => 35,
   ],
 ],
 ```
 
 Sounds without a configured track are silent. The available keys are the
-cases of `Ichiloto\Engine\Audio\Enumerations\SystemSound`.
+cases of `Ichiloto\Engine\Audio\Enumerations\SystemSound`. Every sound also
+reads `audio.sound_volumes.<key>` (default 100), which scales it under the
+master volume, so a dense sound can sit under the music without editing the
+file. The Editor's Configuration category offers both the track (chosen from
+the project's SFX folder) and the volume for every system sound.
 
 The engine fires these at its built-in interaction points: cursor movement,
 confirm and cancel across every menu surface (title, main menu, item, shop,
@@ -213,6 +222,23 @@ sound for defeated enemies), chest loot, and saving. An animation's authored
 frame sound takes precedence over its generic action-category cue, and summon
 timelines own their audiovisual presentation. Dialogue boxes deliberately stay
 silent when advancing text.
+
+### The counter tick
+
+`counter` is a looping sound for numbers that count on screen. Its track
+should be a seamless loop. It is shared through `$audioManager->counterSound`
+(`CounterSound`): a count calls `holdTick($owner)` on each frame its displayed
+value moves and `releaseTick($owner)` when the count finishes, is completed
+early, or its screen closes. However many counts run together, one loop plays,
+and it stops when the last holder releases it. A hold that is not renewed
+before the next audio update lapses there, so a screen torn down without a
+release, or a count frozen under a blocking modal, cannot leave the tick
+playing. Counts that do not animate (the terminal projection, reduced motion)
+show their final value and never hold the tick.
+
+Battle results hold it while their EXP gauges visibly count
+(`BattleResultsPlayback::$isCounting`). A new counting presentation adopts the
+same two calls rather than playing or stopping the sound itself.
 
 ## Direct playback (custom systems)
 
@@ -342,3 +368,13 @@ such; for the rest the manager respawns the player when the track ends, from
 `update()` in the game loop. A track whose player dies repeatedly right after
 spawning is abandoned after three attempts so a broken file can never put the
 game loop into a respawn storm.
+
+Looping sound effects (`startSoundEffectLoop()`, `startSystemSoundLoop()`)
+return an owned `SoundEffectLoop` handle. The manager prefers a player that
+loops natively (`mpv`, `ffplay`); with only `afplay` it respawns the player
+each time the loop ends, which leaves a gap of up to one frame between passes.
+A loop sounds only while `audio.sfx` is on and its volume is above zero, and
+resumes by itself when they come back. `stop()` on the handle ends the player
+at once; `shutdown()` stops every loop. A player that fails (a non-zero exit,
+or a native looper that ends on its own) leaves its loop silent instead of
+respawning it every frame.
