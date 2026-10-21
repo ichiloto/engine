@@ -269,7 +269,7 @@ it('reaches complete long quest and earned report text in terminal and graphical
   expect(array_values($seen))->toBe(array_column($state->getPresentationContent()->details
       ->layout($page->columns, $style)->getWrappedLines(), 1))
     ->and(implode('', $seen))->toContain('Authored line 001')->toContain('Authored line 060')
-    ->toContain($records ? 'FINAL REPORT DETAIL' : "Reward{$suffix} 123 G, 456 EXP, Reward Tonic x3");
+    ->toMatch($records ? '/FINAL REPORT DETAIL/' : '/Reward' . preg_quote($suffix, '/') . ' +123 G, 456 EXP, Reward Tonic x3/');
   expect($state->getPresentationContent()->index)->toBe(0);
   journalMenuKey($state, KeyCode::ESCAPE);
   expect($state->getPresentationContent()->detailsOpen)->toBeFalse()->and($this->returnState->entries)->toBe(0);

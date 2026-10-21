@@ -946,49 +946,70 @@ name shown where the icon is not drawn). Owners never format labels, colons,
 padding or alignment. Fields in a section share one label column. An empty
 icon list is a real answer ("none") and keeps its row.
 
-A `MenuDetailStyle` decides how entries look. Canvas reads it from the menu
-theme's optional `details` block; omitted keys keep the Engine default:
+A `MenuDetailStyle` decides how entries look (approved Summons Info Revision 2,
+21 October 2026). No presentation adds colons to labels, in any renderer. Only
+numbers align right; words and icon lists align left at the label column's
+edge. Canvas reads the style from the menu theme's optional `details` block;
+omitted keys keep the Engine default:
 
 ```php
 'details' => [
-  'labelSuffix' => '',             // text attached to each label
+  'labelSuffix' => '',             // text attached to each label (none by design)
   'gapCells' => 1,                 // cells between the label column and values
+  'minLabelCells' => 0,            // label column floor, kept only while a useful value column remains
   'minValueCells' => 12,           // narrower values stack under their label
   'valueAlignment' => ['text' => 'left', 'number' => 'right', 'icons' => 'left'],
   'valuePlacement' => ['text' => 'beside', 'number' => 'beside', 'icons' => 'beside'], // or 'below'
   'stackWrappedValues' => false,   // a value needing two or more lines stacks under its label
   'stackedIndentCells' => 2,
   'stackedValueAlignment' => 'left',
-  'labelColor' => 'text',          // theme colour roles
+  'labelColor' => 'text',          // theme colour roles; Last Legend uses 'muted'
   'valueColor' => 'text',          // for values the owner does not colour
-  'separators' => true,            // close each field with the record separator
-  'recordMinHeight' => 0,          // minimum field record height in pixels; text centres in it
-  'emptyValueText' => '',          // shown for an empty icon list
+  'separators' => true,            // close each record with the data-record rule
+  'separatorText' => '',           // text-cell renderers: a rule line of this text instead
+  'recordMinHeight' => 0,          // minimum record height in pixels; text centres in it
+  'emptyValueText' => null,        // known-empty icon list; null uses vocabulary details.none ("None")
+  'showIconNames' => true,         // names follow drawn icons
+  'iconGapCells' => 2,
   'headingColor' => 'accent',
   'headingBackground' => null,     // colour role behind headings
+  'headingRuleColor' => null,      // colour role of a rule under each heading
+  'headingRuleOpacity' => 1.0,
   'headingMinHeight' => 0,
+  'columns' => 1,                  // headed sections may share columns
+  'columnGapCells' => 3,
+  'minColumnCells' => 30,
 ],
 ```
 
-A heading draws the theme's `details.header` frame artwork when bound, else its
-`headingBackground` colour, else no backing. Icon lists draw each role the
-theme binds to available artwork (`icons`), sized by the row icon box; any other
-icon shows its name. Availability is checked when composing
+Sections before the first heading (lead prose) span the sheet. With `columns`
+above 1, the headed sections split, in order, into the columns that keep the
+tallest column shortest, but only when the whole sheet then fits its viewport;
+otherwise every section stacks and the owner scrolls. A heading draws the
+theme's `details.header` frame artwork when bound, else its background colour,
+plus its rule. Icon lists draw each role the theme binds to available artwork
+(`icons`), sized by the row icon box and followed by the name; any other icon
+shows its name. Availability is checked when composing
 (`MenuPresentationCatalog::createDetailStyle()`), never when the theme loads.
+The theme palette has a `muted` role for quiet secondary text.
 
-The separator is the theme's data-record rule (`edge` colour, row-metric width
-and `recordSeparatorOpacity`), drawn inside the field record's last line. Prose
-never has a separator. Canvas pages by pixels through a `MenuDetailViewport`
-(columns, height, cell height), showing only whole lines, so taller records
-still scroll line by line. Panel padding is the theme's `metrics.panelPadding`.
+The Canvas record rule is the theme's data-record separator (`edge` colour,
+row-metric width and `recordSeparatorOpacity`), drawn inside the record's last
+line, as wide as its column. Prose never has a rule. Canvas pages by pixels
+through a `MenuDetailViewport` (columns, height, cell height), showing only
+whole lines. Panel padding is the theme's `metrics.panelPadding`.
 
-Terminal uses `MenuDetailStyle::createTerminal()`: rows instead of pixels, no
-separators or icons (names instead), `-` for an empty icon list, and the
-attached suffix `TerminalMenuRow::LABEL_SUFFIX` (`Label:`), the Status screen
-style. The game's graphical theme never changes the Terminal presentation; that
-suffix is one Engine constant, also used by `TerminalMenuRow::composeField()`
-for single Terminal fields such as Status. Selectable list rows, such as Config
-settings, stay label and value without a colon, matching Title Options.
+Terminal uses `MenuDetailStyle::createTerminal()`: rows instead of pixels, a
+22-cell label column with a 3-cell gap, a `TerminalMenuRow::RULE` line after
+each record, headings as a black strip with yellow text, element names instead
+of icons, "None" for a known-empty list, and the reading range on the Info
+footer's second line. The game's graphical theme never changes the Terminal
+presentation. Single Terminal fields outside a sheet, such as the Status
+screen's, use `TerminalMenuRow::composeField()`, also without colons.
+
+The sheet's source text anchors the owner's `TextViewport` reading position, so
+scrolling survives reflow between renderers. Labels for engine-named fields come
+from project vocabulary through `Vocabulary::getLabel()`.
 
 Elemental affinities read through `ElementalAffinityDetails`, shared by Summons
 Info and any later enemy Assess screen. `ElementalAffinityTier` classifies each
@@ -996,11 +1017,8 @@ multiplier exactly as combat does (`ElementalAffinityResolver::classify`):
 weakness above 1, lesser resistance below 1, greater resistance at or below
 half, immunity at 0, absorption below 0. Every tier keeps its row. Element icons
 use the roles `element.<identity>`, lowercased; the effective-against row lists
-elements the same way.
-
-The sheet's source text anchors the owner's `TextViewport` reading position, so
-scrolling survives reflow between renderers. Labels for engine-named fields come
-from project vocabulary through `Vocabulary::getLabel()`.
+elements the same way. Affinities a summon's source omits read "Not recorded"
+(vocabulary `affinities.unrecorded`), distinct from a recorded empty tier.
 
 
 ### Brief action callouts

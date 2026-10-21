@@ -24,6 +24,8 @@ final readonly class MenuPresentationCatalog
     'background' => [13, 18, 24], 'panel' => [24, 31, 40],
     'increase' => [118, 213, 159], 'decrease' => [237, 142, 142],
     'objective' => [240, 196, 64],
+    // Quiet secondary text such as detail-field labels.
+    'muted' => [126, 137, 147],
   ];
 
   public MenuRowSkin $rows;
@@ -77,7 +79,7 @@ final readonly class MenuPresentationCatalog
     $this->details = MenuDetailStyle::createFromArray(self::map($data, 'details'),
       (int)ceil($this->rows->metrics->iconWidth / $this->metrics->cellWidth));
     foreach (array_filter([$this->details->labelColor, $this->details->valueColor, $this->details->headingColor,
-      $this->details->headingBackground]) as $role) {
+      $this->details->headingBackground, $this->details->headingRuleColor]) as $role) {
       if (!isset($palette[$role])) { throw new InvalidArgumentException("Menu details colour role {$role} is not a theme colour."); }
     }
     $portraits = self::map($data, 'portraits');

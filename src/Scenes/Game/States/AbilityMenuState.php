@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Ichiloto\Engine\UI\Presentation\MenuDetailStyle;
+use Ichiloto\Engine\UI\Text\TextViewport;
+use Ichiloto\Engine\UI\Presentation\MenuDetailViewport;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Localization\Vocabulary;
@@ -355,10 +357,14 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
     {
         $availableLines = self::CONTENT_PANEL_HEIGHT - 2;
         $content = $this->getPresentationContent();
-        $lines = $content === null ? [] : array_column($content->getDetailSheet()
-            ->layout(self::DETAIL_PANEL_WIDTH - 4, MenuDetailStyle::createTerminal())->getWrappedLines(), 1);
+        $sheet = $content?->getDetailSheet();
+        if ($sheet === null) { return array_fill(0, $availableLines, ''); }
+        // The panel shows the sheet's first page with the shared Terminal headings and record rules.
+        $width = self::DETAIL_PANEL_WIDTH - 4;
+        $style = MenuDetailStyle::createTerminal();
+        $page = $sheet->createPage(new TextViewport(), new MenuDetailViewport($width, $availableLines), $style);
 
-        return array_slice(array_pad($lines, $availableLines, ''), 0, $availableLines);
+        return array_pad($sheet->layout($width, $style)->getTerminalLines($page, $width), $availableLines, '');
     }
 
     /**

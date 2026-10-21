@@ -195,7 +195,7 @@ class QuestMenuState extends GameSceneState implements CanvasProviderInterface
     $page = $content->details->createPage($this->reading, new MenuDetailViewport($width, $capacity), MenuDetailStyle::createTerminal());
     $this->displayedPage = $page;
     if ($this->viewingDetail) {
-      $lines = $page->lines;
+      $lines = $content->details->layout($width, MenuDetailStyle::createTerminal())->getTerminalLines($page, $width);
       $this->listPanel->setHelp($page->range());
     }
     else {

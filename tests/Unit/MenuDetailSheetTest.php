@@ -39,7 +39,9 @@ it('aligns every field value in one column while prose keeps the full width', fu
   $layout = createSyntheticDetailSheet()->layout(40, $style);
   $fields = array_values(array_filter($layout->lines, fn($line) => $line->isField));
   $prose = array_values(array_filter($layout->lines, fn($line) => !$line->isField && $line->text !== ''));
-  $column = TextViewport::measure('A longer label' . $style->labelSuffix) + $style->gapCells;
+  // The style's minimum label column applies while a useful value column remains.
+  $column = max(TextViewport::measure('A longer label' . $style->labelSuffix) + $style->gapCells,
+    40 - ($style->minLabelCells + $style->gapCells) >= $style->minValueCells ? $style->minLabelCells + $style->gapCells : 0);
   expect(array_unique(array_column($fields, 'column')))->toBe([$column])
     ->and(array_column($prose, 'column'))->each->toBe(0)
     ->and(array_column(array_filter($fields, fn($line) => $line->label !== ''), 'label'))

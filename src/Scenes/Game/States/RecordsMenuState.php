@@ -232,7 +232,8 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
       MenuDetailStyle::createTerminal());
     $this->displayedPage = $page;
     $this->infoPanel->setHelp($this->viewingDetail ? 'Details - ' . $page->range() : '');
-    $this->infoPanel->setContent(array_pad([...$metadata, ...$page->lines], $this->infoPanel->getContentHeight(), ''));
+    $lines = $content->details->layout($width, MenuDetailStyle::createTerminal())->getTerminalLines($page, $width);
+    $this->infoPanel->setContent(array_pad([...$metadata, ...$lines], $this->infoPanel->getContentHeight(), ''));
     $this->summaryPanel->render();
     $this->listPanel->render();
     $this->infoPanel->render();

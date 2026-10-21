@@ -211,7 +211,7 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
         }
         $type = $this->character === null ? $slot->semanticSlot : CharacterMenuRows::getSlotIcon($this->character, $slot);
         $label = TerminalMenuRow::composeIconLabel(EquipmentIcon::getTerminalGlyph($type),
-          $slot->name . TerminalMenuRow::LABEL_SUFFIX, 2);
+          $slot->name, 2);
         $width = $this->equipmentSummaryPanel->getContentWidth();
         return TerminalMenuRow::compose($label, $equipmentName, $width, prefix: '  ',
           valueAlignment: 'left', labelWidth: 20);
@@ -268,7 +268,7 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
    */
   private static function composeFields(array $fields, int $width, string $prefix = ''): array
   {
-    $labelWidth = max(array_map(static fn($label): int => TerminalText::displayWidth((string)$label . TerminalMenuRow::LABEL_SUFFIX),
+    $labelWidth = max(array_map(static fn($label): int => TerminalText::displayWidth((string)$label),
       array_keys($fields)));
     $lines = [];
     foreach ($fields as $label => $value) {

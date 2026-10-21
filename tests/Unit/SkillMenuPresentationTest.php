@@ -246,7 +246,7 @@ it('uses plain skill names in terminal lists and detail headers while retaining 
   expect(trim(TerminalText::stripAnsi($list[0])))->toStartWith($name)
     ->and(implode('', $list))->not->toContain('NOT A NATIVE ICON')
     ->and($details[0])->toBe($name)
-    ->and($details[1])->toMatch('/^MP Cost' . TerminalMenuRow::LABEL_SUFFIX . ' +' . ($magic ? 3 : 7) . '$/')
+    ->and($details[1])->toMatch('/^MP Cost +' . ($magic ? 3 : 7) . '$/')
     ->and($state->getPresentationContent()->rows[0]->icon)->toBe($magic ? 'skill.magic' : 'skill.ability');
   skillMenuKey($state, KeyCode::RIGHT);
   $name = $magic ? 'Zeta Spell' : 'Zeta Ability';
@@ -271,7 +271,7 @@ it('shows and reviews learned alternate attacks in both field menu presentations
   $details = new ReflectionMethod(AbilityMenuState::class, 'buildDetailLines')->invoke($state);
   $rows = new ReflectionMethod(AbilityMenuState::class, 'buildReadyEntries')->invoke($state);
   expect($details[0])->toBe($attack->name)
-    ->and($details[1])->toMatch('/^MP Cost' . TerminalMenuRow::LABEL_SUFFIX . ' +4$/')
+    ->and($details[1])->toMatch('/^MP Cost +4$/')
     ->and(trim(TerminalText::stripAnsi($rows[0])))->toStartWith($attack->name)
     ->and($state->getPresentationContent()->description)->toBe($attack->description);
   if ($graphical) {

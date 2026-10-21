@@ -99,48 +99,57 @@ final class MenuCanvas
   }
 
   /** A measured detail page: prose lines, and label/value fields styled by the layout's MenuDetailStyle.
-   * Lines sharing one text pitch share a text layer. Returns each visible line's top and height in canvas pixels.
-   * @return list<array{y: float, height: int}>
+   * Column arrangements flow each column from the band top. Lines sharing a column and one text pitch share a
+   * text layer. Returns each visible line's top, height and left edge in canvas pixels.
+   * @return list<array{y: float, height: int, x: float, width: float}>
    */
   public function details(string $id, MenuDetailLayout $layout, TextPage $page, CanvasRectangle $bounds): array
   {
     $m = $this->theme->metrics;
     $row = $this->theme->rows->metrics;
+    $style = $layout->style;
     $metrics = array_slice($layout->measureLines($m->cellHeight), $page->first, count($page->lines));
     $lines = array_slice($layout->lines, $page->first, count($page->lines));
-    if ($page->source !== $layout->source || $page->columns !== $layout->columns || $page->rows > $bounds->height
-      || $page->columns * $m->cellWidth > $bounds->width || array_sum(array_column($metrics, 'height')) > $bounds->height) {
+    $columnTops = [];
+    $leadY = $bounds->y;
+    $positions = [];
+    foreach ($lines as $index => $line) {
+      $y = $line->band === null ? $leadY : ($columnTops[$line->band] ??= $leadY);
+      $positions[] = ['y' => $y, 'height' => $metrics[$index]['height'],
+        'x' => $bounds->x + $line->origin * $m->cellWidth, 'width' => $line->span === null ? $bounds->width : $line->span * $m->cellWidth];
+      if ($line->band === null) { $leadY += $metrics[$index]['height']; } else { $columnTops[$line->band] += $metrics[$index]['height']; }
+    }
+    $used = max([$leadY, ...array_values($columnTops)]) - $bounds->y;
+    if ($page->source !== $layout->source || $page->columns !== $layout->columns
+      || (!$layout->isColumnar && $page->rows > $bounds->height) || $used > $bounds->height
+      || $page->columns * $m->cellWidth > $bounds->width) {
       throw new RuntimeException("Menu details {$id} page must match its measured viewport.");
     }
-    $positions = [];
     $blocks = [];
-    $y = $bounds->y;
-    $style = $layout->style;
     foreach ($lines as $index => $line) {
-      ['height' => $height, 'top' => $top] = $metrics[$index];
-      $positions[] = ['y' => $y, 'height' => $height];
-      $textY = $y + $top;
-      if ($line->isHeading) { $this->renderDetailHeading("{$id}-{$index}-heading", new CanvasRectangle($bounds->x, $y, $bounds->width, $height), $style); }
+      ['y' => $y, 'height' => $height, 'x' => $x, 'width' => $width] = $positions[$index];
+      $box = new CanvasRectangle($x, $y, $width, $height);
+      $textY = $y + $metrics[$index]['top'];
+      if ($line->isHeading) { $this->renderDetailHeading("{$id}-{$index}-heading", $box, $style); }
       $block = array_key_last($blocks);
-      if ($block === null || abs($blocks[$block]['y'] + count($blocks[$block]['lines']) * $m->cellHeight - $textY) > 0.001) {
-        $blocks[] = ['y' => $textY, 'lines' => []];
+      if ($block === null || $blocks[$block]['x'] !== $x
+        || abs($blocks[$block]['y'] + count($blocks[$block]['lines']) * $m->cellHeight - $textY) > 0.001) {
+        $blocks[] = ['x' => $x, 'y' => $textY, 'width' => $width, 'lines' => []];
         $block = array_key_last($blocks);
       }
       $blocks[$block]['lines'][] = $line;
       foreach ($line->items as $item => $value) {
         if ($value['role'] === null) { continue; }
-        $box = new CanvasRectangle($bounds->x + $value['column'] * $m->cellWidth, $textY,
-          $style->iconCells * $m->cellWidth, $m->cellHeight);
-        $this->icon("{$id}-{$index}-icon-{$item}", $value['role'], $box);
+        $this->icon("{$id}-{$index}-icon-{$item}", $value['role'], new CanvasRectangle($x + $value['column'] * $m->cellWidth,
+          $textY, $style->iconCells * $m->cellWidth, $m->cellHeight));
       }
       // The data-record rule sits inside the record's last line, as rows keep theirs inside their height.
-      if ($line->closesField && $style->separators && $row->separatorWidth > 0) {
-        $this->fill("{$id}-{$index}-separator", new CanvasRectangle($bounds->x, $y + $height - $row->separatorWidth,
-          $bounds->width, $row->separatorWidth), 'edge', 25, $row->recordSeparatorOpacity);
+      if ($line->closesField && $style->separators && $style->separatorText === '' && $row->separatorWidth > 0) {
+        $this->fill("{$id}-{$index}-separator", new CanvasRectangle($x, $y + $height - $row->separatorWidth,
+          $width, $row->separatorWidth), 'edge', 25, $row->recordSeparatorOpacity);
       }
-      $y += $height;
     }
-    foreach ($blocks as $index => ['y' => $top, 'lines' => $blockLines]) {
+    foreach ($blocks as $index => ['x' => $x, 'y' => $top, 'width' => $width, 'lines' => $blockLines]) {
       $runs = [];
       foreach ($blockLines as $line => $detail) {
         if ($detail->label !== '') { $runs[] = new PresentationTextRun($line, 0, $detail->label, $this->theme->colors[$style->labelColor]); }
@@ -152,8 +161,8 @@ final class MenuCanvas
         }
       }
       if ($runs === []) { continue; }
-      $this->text[] = new CanvasTextLayer($index === 0 ? $id : "{$id}-{$index}", 30, $bounds->x, $top,
-        new RendererGridConfig($page->columns, count($blockLines), $m->cellWidth, $m->cellHeight), $runs, $bounds);
+      $this->text[] = new CanvasTextLayer($index === 0 ? $id : "{$id}-{$index}", 30, $x, $top,
+        new RendererGridConfig((int)floor($width / $m->cellWidth), count($blockLines), $m->cellWidth, $m->cellHeight), $runs, $bounds);
       $this->protectText($this->text[array_key_last($this->text)]);
     }
     return $positions;
@@ -164,6 +173,11 @@ final class MenuCanvas
   {
     if (isset($this->theme->frames['details.header'])) { $this->frame($id, $bounds, 'details.header', 20); }
     elseif ($style->headingBackground !== null) { $this->fill($id, $bounds, $style->headingBackground, 20); }
+    $rule = $this->theme->rows->metrics->separatorWidth;
+    if ($style->headingRuleColor !== null && $rule > 0) {
+      $this->fill($id . '-rule', new CanvasRectangle($bounds->x, $bounds->y + $bounds->height - $rule, $bounds->width, $rule),
+        $style->headingRuleColor, 21, $style->headingRuleOpacity);
+    }
   }
 
   /** Compact reading metadata occupies frame padding, not the prose viewport. */

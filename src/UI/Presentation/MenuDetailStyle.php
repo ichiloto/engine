@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Presentation;
 
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 use InvalidArgumentException;
@@ -14,9 +15,11 @@ use InvalidArgumentException;
  */
 final readonly class MenuDetailStyle
 {
-  public const array KEYS = ['labelSuffix', 'gapCells', 'minValueCells', 'stackedIndentCells', 'valueAlignment',
-    'valuePlacement', 'stackWrappedValues', 'stackedValueAlignment', 'labelColor', 'valueColor', 'separators',
-    'recordMinHeight', 'emptyValueText', 'headingColor', 'headingBackground', 'headingMinHeight'];
+  public const array KEYS = ['labelSuffix', 'gapCells', 'minLabelCells', 'minValueCells', 'stackedIndentCells',
+    'valueAlignment', 'valuePlacement', 'stackWrappedValues', 'stackedValueAlignment', 'labelColor', 'valueColor',
+    'separators', 'separatorText', 'recordMinHeight', 'emptyValueText', 'showIconNames', 'iconGapCells',
+    'headingColor', 'headingBackground', 'headingMinHeight', 'headingRuleColor', 'headingRuleOpacity',
+    'columns', 'columnGapCells', 'minColumnCells'];
   public const array PLACEMENTS = ['beside', 'below'];
 
   /** @var array<string, HorizontalAlignment> By field kind value: text, number, icons. */
@@ -34,14 +37,21 @@ final readonly class MenuDetailStyle
    * @param string $valueColor Theme colour role for field values the owner does not colour itself.
    * @param bool $separators Whether each field closes with the theme's data-record separator.
    * @param int $recordMinHeight Minimum field record height in the renderer's line unit (Canvas pixels); text centres in it.
-   * @param string $emptyValueText Shown for an empty icon list, which keeps its row.
+   * @param int $minLabelCells The label column is at least this wide where the value column can still fit.
+   * @param string $separatorText Text-cell renderers close each record with a rule line of this text instead of a pixel rule.
+   * @param ?string $emptyValueText Shown for a known-empty icon list; null uses the vocabulary term details.none ("None").
+   * @param bool $showIconNames Names follow drawn icons; an undrawn icon always shows its name.
    * @param ?string $headingBackground Theme colour role behind headings, unless the theme binds details.header artwork.
+   * @param ?string $headingRuleColor Theme colour role for a rule under each heading, at $headingRuleOpacity.
+   * @param int $columns Sections after the lead prose may share up to this many columns, used only when the whole
+   *   sheet then fits its viewport; otherwise sections stack and scroll.
    * @param int $iconCells Cells one drawn icon occupies; the renderer derives it from its icon box.
    * @param list<string> $iconRoles Icon roles this renderer draws; other icons show their names.
    */
   public function __construct(
     public string $labelSuffix = '',
     public int $gapCells = 1,
+    public int $minLabelCells = 0,
     public int $minValueCells = 12,
     public int $stackedIndentCells = 2,
     array $valueAlignment = [],
@@ -51,11 +61,19 @@ final readonly class MenuDetailStyle
     public string $labelColor = 'text',
     public string $valueColor = 'text',
     public bool $separators = true,
+    public string $separatorText = '',
     public int $recordMinHeight = 0,
-    public string $emptyValueText = '',
+    public ?string $emptyValueText = null,
+    public bool $showIconNames = true,
+    public int $iconGapCells = 2,
     public string $headingColor = 'accent',
     public ?string $headingBackground = null,
     public int $headingMinHeight = 0,
+    public ?string $headingRuleColor = null,
+    public float $headingRuleOpacity = 1.0,
+    public int $columns = 1,
+    public int $columnGapCells = 3,
+    public int $minColumnCells = 30,
     public int $iconCells = 1,
     public array $iconRoles = [],
   ) {
@@ -65,7 +83,10 @@ final readonly class MenuDetailStyle
       || !array_all($valuePlacement, static fn($placement) => in_array($placement, self::PLACEMENTS, true))) {
       throw new InvalidArgumentException('Detail value alignment and placement are keyed by text, number or icons.');
     }
-    if (str_contains($labelSuffix, "\n") || str_contains($emptyValueText, "\n") || $gapCells < 0 || $gapCells > 8
+    if (str_contains($labelSuffix, "\n") || str_contains($emptyValueText ?? '', "\n") || str_contains($separatorText, "\n")
+      || $gapCells < 0 || $gapCells > 8 || $minLabelCells < 0 || $minLabelCells > 64 || $iconGapCells < 0 || $iconGapCells > 8
+      || $headingRuleColor === '' || !is_finite($headingRuleOpacity) || $headingRuleOpacity < 0 || $headingRuleOpacity > 1
+      || $columns < 1 || $columns > 4 || $columnGapCells < 0 || $columnGapCells > 16 || $minColumnCells < 1 || $minColumnCells > 256
       || $minValueCells < 1 || $minValueCells > 64 || $stackedIndentCells < 0 || $stackedIndentCells > 16
       || $stackedValueAlignment === HorizontalAlignment::CENTER || $labelColor === '' || $valueColor === ''
       || $headingColor === '' || $headingBackground === '' || $recordMinHeight < 0 || $recordMinHeight > 256
@@ -78,10 +99,19 @@ final readonly class MenuDetailStyle
     $this->valuePlacement = [...array_fill_keys($kinds, 'beside'), ...$valuePlacement];
   }
 
-  /** Terminal has no record separators or icons: labels carry an attached suffix and icons show their names. */
+  /**
+   * The Engine's Terminal treatment (approved Summons Info Revision 2, 21 October 2026): no added label colons,
+   * a 22-cell label column with a 3-cell gap, a rule line after each record, element names instead of icons.
+   */
   public static function createTerminal(): self
   {
-    return new self(TerminalMenuRow::LABEL_SUFFIX, separators: false, emptyValueText: '-');
+    return new self(gapCells: 3, minLabelCells: 22, separatorText: TerminalMenuRow::RULE);
+  }
+
+  /** The known-empty text: the style's own, else the project's vocabulary term. */
+  public function getEmptyValueText(): string
+  {
+    return $this->emptyValueText ?? Vocabulary::getLabel('details.none', 'None');
   }
 
   /**
@@ -95,8 +125,11 @@ final readonly class MenuDetailStyle
       'minValueCells' => 'integer', 'stackedIndentCells' => 'integer', 'recordMinHeight' => 'integer',
       'stackWrappedValues' => 'boolean', 'separators' => 'boolean', 'valueAlignment' => 'array', 'valuePlacement' => 'array',
       'stackedValueAlignment' => 'string', 'emptyValueText' => 'string', 'headingColor' => 'string',
-      'headingBackground' => 'string', 'headingMinHeight' => 'integer'];
+      'headingBackground' => 'string', 'headingMinHeight' => 'integer', 'minLabelCells' => 'integer',
+      'separatorText' => 'string', 'showIconNames' => 'boolean', 'iconGapCells' => 'integer', 'headingRuleColor' => 'string',
+      'headingRuleOpacity' => 'double', 'columns' => 'integer', 'columnGapCells' => 'integer', 'minColumnCells' => 'integer'];
     foreach ($data as $key => $value) {
+      if ($types[$key] === 'double' && is_int($value)) { $data[$key] = $value = (float)$value; }
       if (gettype($value) !== $types[$key]) { throw new InvalidArgumentException("Menu details {$key} must be a {$types[$key]}."); }
     }
     if (isset($data['stackedValueAlignment'])) { $data['stackedValueAlignment'] = self::createAlignment($data['stackedValueAlignment']); }

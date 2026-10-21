@@ -33,17 +33,17 @@ final class SummonsMenuPresentation
     $view = new MenuCanvas($theme, $width, $height, $time);
     $view->frame('summons-summary', $g['summary']);
     $view->prose('summons-title', $content->title, $g['title'], 'accent');
-    $view->prose('summons-character', implode("\n", $content->summary), $g['identity']);
+    $view->prose('summons-character', implode("\n", $content->summary), $g['identity'], 'muted');
     if ($g['portrait'] !== null && $content->character !== null) { $view->portrait($content->character->actorId, $g['portrait'], 'summons-portrait'); }
     $view->frame('summons-contracts', $g['body']);
     $body = new CanvasRectangle($g['body']->x + $p, $g['body']->y + $p,
       $g['body']->width - 2 * $p, $g['body']->height - 2 * $p);
     if ($content->detailsOpen) {
       $area = self::getDetailViewport($content, $theme, $width, $height);
-      if ($page === null || $content->details === null || $page->columns !== $area->columns || $page->rows !== $area->height) {
+      if ($page === null || $content->details === null || $page->columns !== $area->columns) {
         throw new RuntimeException('Summon contract page must match its measured viewport.');
       }
-      $view->details('summons-detail', $content->details->layout($area->columns, $theme->createDetailStyle()), $page, $body);
+      $view->details('summons-detail', $content->details->layout($area->columns, $theme->createDetailStyle(), $area), $page, $body);
       if ($page->total > count($page->lines)) {
         $view->renderBorderCaption('summons-detail-range', $page->range(),
           new CanvasRectangle($body->x, $g['body']->y + $g['body']->height - $p, $body->width, $p));

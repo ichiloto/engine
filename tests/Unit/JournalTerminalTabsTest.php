@@ -224,7 +224,9 @@ it('moves detail ranges to border help and keeps complete scrolling and back foc
     $page = $state->getPresentationContent()->details->createPage(clone new ReflectionProperty(get_parent_class($state), 'reading')->getValue($state),
       new MenuDetailViewport($state->list()->getContentWidth() - 2, $panel->getContentHeight()), MenuDetailStyle::createTerminal());
     expect($panel->getHelp())->toBe(($records ? 'Details - ' : '') . $page->range())
-      ->and(array_slice($panel->getContent(), 0, count($page->lines)))->toBe($page->lines)
+      // Headings and record rules carry Terminal colour; their text is the page's.
+      ->and(array_map(fn($line) => rtrim(TerminalText::stripAnsi($line)), array_slice($panel->getContent(), 0, count($page->lines))))
+        ->toBe(array_map(rtrim(...), $page->lines))
       ->and(implode('', $panel->getContent()))->not->toContain($page->range());
     foreach ($page->lines as $line => $value) { $seen[$page->first + $line] = $value; }
     if ($page->first + count($page->lines) === $page->total) { break; }

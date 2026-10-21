@@ -170,10 +170,12 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     {
         $definition = $this->getSelectedSummon();
         $title = Vocabulary::getTerm('command.' . BattleCommandType::SUMMON->value, 'Summons');
+        $summary = $this->character === null ? [] : [$this->character->name];
+        if ($this->view === SummonsMenuView::INFO) { $summary = [$title . ' · ' . Vocabulary::getLabel('summons.info', 'Info')]; }
         if (in_array($this->view, [SummonsMenuView::ACTIONS, SummonsMenuView::INFO], true)) { $title = $definition?->name ?? $title; }
         if ($this->view === SummonsMenuView::HOLDERS) { $title = 'Assign / ' . ($definition?->name ?? $title); }
         $info = $this->view === SummonsMenuView::INFO;
-        return new SummonsMenuContent($this->character, $title, $this->character === null ? [] : [$this->character->name],
+        return new SummonsMenuContent($this->character, $title, $summary,
             $this->getRows(), $this->activeIndex, $info, $definition?->description ?? '',
             null, $this->getActionHints(), $info ? $this->getDetailSheet() : null);
     }
@@ -222,8 +224,16 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $this->summaryPanel->render();
         if ($content->details !== null) { $this->refreshDetailPanel($content->details); }
         else { $this->refreshListPanel(); }
-        $this->infoPanel->setContent([$content->description, '']);
         $this->infoPanel->setHelp(implode('  ', array_map(static fn($hint): string => ($hint->control?->label ?? 'Unbound') . ':' . $hint->label, $content->hints)));
+        $this->refreshInfoPanel($content->description);
+    }
+
+    /** The reading range sits under the description in the Info footer, only while Info overflows. */
+    private function refreshInfoPanel(string $description): void
+    {
+        $page = $this->view === SummonsMenuView::INFO ? $this->lastDetailPage : null;
+        $this->infoPanel->setContent([$description, $page !== null && $page->total > count($page->lines)
+            ? sprintf('%d-%d / %d', $page->first + 1, $page->first + count($page->lines), $page->total) : '']);
         $this->infoPanel->render();
     }
 
@@ -247,8 +257,9 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     {
         $page = $details->createPage($this->detailViewport, new MenuDetailViewport($this->listPanel->getContentWidth() - 2,
             $this->listPanel->getContentHeight()), MenuDetailStyle::createTerminal());
-        $this->listPanel->setContent($page->lines);
-        $this->listPanel->setHelp($page->total > count($page->lines) ? $page->range() : '');
+        $layout = $details->layout($page->columns, MenuDetailStyle::createTerminal());
+        $this->listPanel->setContent($layout->getTerminalLines($page, $page->columns));
+        $this->listPanel->setHelp('');
         $this->listPanel->render();
         $this->lastDetailPage = $page;
     }
@@ -269,15 +280,18 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
             : [...$definition->effectiveAgainst ?? [], ...$definition->strengths];
         $move[] = ElementalAffinityDetails::createEffectiveEntry($effective);
         $profile = [];
-        if ($definition->element !== '') { $profile[] = MenuDetailEntry::createField(Vocabulary::getLabel('summons.info.element', 'Element'), $definition->element); }
+        if ($definition->element !== '') {
+            $profile[] = MenuDetailEntry::createIcons(Vocabulary::getLabel('summons.info.element', 'Element'),
+                ElementalAffinityDetails::createIcons([$definition->element]));
+        }
         foreach ($definition->attributes as $label => $value) {
             if (!is_scalar($value) || trim((string)$value) === '' || trim((string)$label) === '') { continue; }
             $profile[] = is_int($value) || is_float($value)
                 ? MenuDetailEntry::createNumber((string)$label, (string)$value)
                 : MenuDetailEntry::createField((string)$label, (string)$value);
         }
+        // The summary names the summon; the body leads with its lore.
         return new MenuDetailSheet([
-            [MenuDetailEntry::createProse($definition->name, 'accent')],
             $definition->lore !== '' ? [MenuDetailEntry::createProse($definition->lore)] : [],
             $move,
             $profile === [] ? [] : [MenuDetailEntry::createHeading(Vocabulary::getLabel('summons.info.profile', 'Profile')), ...$profile],
@@ -313,6 +327,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
             if ($this->view === SummonsMenuView::INFO && $this->lastDetailPage !== null) {
                 $this->detailViewport->scroll($v > 0 ? 1 : -1, $this->lastDetailPage);
                 $this->refreshDetailPanel($this->getDetailSheet());
+                $this->refreshInfoPanel($this->getSelectedSummon()?->description ?? '');
             } elseif (($total = count($this->getRows())) > 0) {
                 $this->activeIndex = wrap($this->activeIndex + ($v > 0 ? 1 : -1), 0, $total - 1);
                 $this->refreshUI();
