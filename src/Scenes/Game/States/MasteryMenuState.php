@@ -15,6 +15,7 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Progression\Mastery\MasteryCatalog;
+use Ichiloto\Engine\Progression\Mastery\MasteryLayout;
 use Ichiloto\Engine\Progression\Mastery\MasteryNodeState;
 use Ichiloto\Engine\Progression\Mastery\MasteryNodeStatus;
 use Ichiloto\Engine\Progression\Mastery\MasteryProgression;
@@ -88,9 +89,12 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $regions = $this->getRegionNames();
         $regionIds = $this->getRegionIds();
         $focused = $this->getFocusedStatus();
+        $map = $this->getMap();
+        $places = $map === null ? [] : MasteryLayout::place($map, $regionIds);
         $nodes = array_map(fn(MasteryNodeStatus $status): MasteryMenuNode => new MasteryMenuNode(
             $status->node->id, $status->node->skill, max(0, (int)array_search($status->node->region, $regionIds, true)),
-            $status->state, $this->describeState($status), $status->node->requires, $status->node->position), $statuses);
+            $status->state, $this->describeCardState($status), $status->node->requires,
+            isset($places[$status->node->id]) ? ['x' => $places[$status->node->id]['x'], 'y' => $places[$status->node->id]['y']] : null), $statuses);
 
         return new MasteryMenuContent($actor, $this->getTitle(), $regions, $this->regionIndex, array_values($nodes),
             $focused?->node->id, $this->getSummary(), $focused?->node->skill ?? $this->getEmptyText(),
@@ -348,6 +352,19 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             MasteryNodeState::OPEN => $status->progress > 0 ? sprintf('Open %d / %d', $status->progress, $status->node->cost) : 'Open',
             MasteryNodeState::LOCKED => $status->opensAtLevel !== null
                 ? sprintf('Opens at %s %d', Vocabulary::getTerm('stats.level', 'Lv'), $status->opensAtLevel)
+                : 'Locked',
+        };
+    }
+
+    /** The node's state as a map card has room for it. */
+    protected function describeCardState(MasteryNodeStatus $status): string
+    {
+        return match ($status->state) {
+            MasteryNodeState::LEARNED => 'Learned',
+            MasteryNodeState::STUDYING => sprintf('%d/%d EXP', $status->progress, $status->node->cost),
+            MasteryNodeState::OPEN => 'Open',
+            MasteryNodeState::LOCKED => $status->opensAtLevel !== null
+                ? sprintf('Opens %s %d', Vocabulary::getTerm('stats.level', 'Lv'), $status->opensAtLevel)
                 : 'Locked',
         };
     }

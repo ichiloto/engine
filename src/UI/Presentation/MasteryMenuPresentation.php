@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\UI\Presentation;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\Localization\Vocabulary;
+use Ichiloto\Engine\Progression\Mastery\MasteryLayout;
 use Ichiloto\Engine\Progression\Mastery\MasteryNodeState;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
@@ -25,7 +26,7 @@ final class MasteryMenuPresentation
   /** The map takes this share of the body; the details take the rest. */
   private const float MAP_WIDTH_SHARE = 0.64;
   /** A node card is this many cells wide at most. */
-  private const int CARD_CELLS = 22;
+  private const int CARD_CELLS = 16;
   /** Link lines are this many pixels thick. */
   private const int LINK_THICKNESS = 2;
 
@@ -116,56 +117,43 @@ final class MasteryMenuPresentation
   {
     $m = $view->theme->metrics;
     $gap = $m->sectionGap;
-    $regionCount = max(1, count($content->regions));
-    $columns = (int)ceil(sqrt($regionCount));
-    $rows = (int)ceil($regionCount / $columns);
+    ['columns' => $columns, 'rows' => $rows] = MasteryLayout::getGrid(count($content->regions));
     $cellWidth = $map->width / $columns;
     $cellHeight = $map->height / $rows;
-    $cardWidth = (int)min($cellWidth - 2 * $gap, self::CARD_CELLS * $m->cellWidth);
+    // Cards fit the columns a region's nodes may share.
+    $cardWidth = (int)min($cellWidth / MasteryLayout::REGION_COLUMNS - $gap, self::CARD_CELLS * $m->cellWidth);
     $cardHeight = 2 * $m->cellHeight + 2 * max(2, (int)floor($gap / 2));
     $labelHeight = $m->cellHeight;
     if ($cardWidth < 6 * $m->cellWidth) {
       throw new RuntimeException('Mastery map regions are too narrow for their nodes; terminal presentation retained.');
     }
 
-    $cells = [];
     foreach ($content->regions as $index => $name) {
       $column = $index % $columns;
       $row = intdiv($index, $columns);
       $cell = new CanvasRectangle($map->x + $column * $cellWidth, $map->y + $row * $cellHeight, $cellWidth, $cellHeight);
-      $cells[$index] = $cell;
       $active = $index === $content->regionIndex;
-      // Regions on the left label and stack from their left edge, those on the right from theirs, so the centre stays open.
+      // A region names itself at the top of its share of the map, toward the outer edge.
       $alignment = $column < $columns / 2 ? HorizontalAlignment::LEFT : HorizontalAlignment::RIGHT;
-      $labelY = $row < $rows / 2 ? $cell->y : $cell->y + $cell->height - $labelHeight;
+      $labelY = $cell->y;
       $view->prose("mastery-region-{$index}", $name, new CanvasRectangle($cell->x + $gap, $labelY, $cell->width - 2 * $gap, $labelHeight),
         $active ? 'accent' : 'edge', $alignment);
     }
 
-    // Each node's card: where the authored map puts it, or stacked in its region from the outer corner.
+    // Each node's card, centred on its place on the map (MasteryLayout): authored, or in its region's column.
     $cards = [];
-    $stacked = [];
     foreach ($content->nodes as $node) {
-      $cell = $cells[$node->region] ?? $cells[0];
-      if ($node->position !== null) {
-        $left = $map->x + $node->position['x'] * $map->width - $cardWidth / 2;
-        $top = $map->y + $node->position['y'] * $map->height - $cardHeight / 2;
-      } else {
-        $slot = $stacked[$node->region] = ($stacked[$node->region] ?? -1) + 1;
-        $column = $node->region % $columns;
-        $row = intdiv($node->region, $columns);
-        $left = $column < $columns / 2 ? $cell->x + $gap : $cell->x + $cell->width - $gap - $cardWidth;
-        $top = $row < $rows / 2
-          ? $cell->y + $labelHeight + $gap + $slot * ($cardHeight + $gap)
-          : $cell->y + $cell->height - $labelHeight - $gap - ($slot + 1) * $cardHeight - $slot * $gap;
-      }
-      if ($node->position === null && ($top < $cell->y || $top + $cardHeight > $cell->y + $cell->height)) {
-        throw new RuntimeException('A Mastery map region holds more nodes than fit; terminal presentation retained.');
-      }
+      $place = $node->position ?? ['x' => 0.5, 'y' => 0.5];
       $card = new CanvasRectangle(
-        max($map->x, min($map->x + $map->width - $cardWidth, $left)),
-        max($map->y, min($map->y + $map->height - $cardHeight, $top)),
+        max($map->x, min($map->x + $map->width - $cardWidth, $map->x + $place['x'] * $map->width - $cardWidth / 2)),
+        max($map->y + $labelHeight, min($map->y + $map->height - $cardHeight, $map->y + $place['y'] * $map->height - $cardHeight / 2)),
         $cardWidth, $cardHeight);
+      foreach ($cards as $other) {
+        if ($card->x < $other->x + $other->width && $other->x < $card->x + $card->width
+          && $card->y < $other->y + $other->height && $other->y < $card->y + $card->height) {
+          throw new RuntimeException('Mastery map nodes overlap at this size; terminal presentation retained.');
+        }
+      }
       $cards[$node->id] = $card;
     }
 

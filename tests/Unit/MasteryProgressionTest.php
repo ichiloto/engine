@@ -126,3 +126,16 @@ it('refuses a map whose requirements loop, repeat a skill, or name an unknown re
   'unknown requirement' => [[['id' => 'a', 'skill' => 'A', 'region' => 'blades', 'requires' => ['z']]], 'unknown node z'],
   'negative cost' => [[['id' => 'a', 'skill' => 'A', 'region' => 'blades', 'cost' => -1]], 'less than 0 EXP'],
 ]);
+
+it('places unplaced nodes down the middle of their region in study order, and authored ones where the author put them', function () {
+  $map = MasteryMap::fromArray(['actor' => 'Hero', 'nodes' => [
+    ['id' => 'a', 'skill' => 'A', 'region' => 'blades', 'order' => 1],
+    ['id' => 'b', 'skill' => 'B', 'region' => 'blades', 'order' => 2],
+    ['id' => 'c', 'skill' => 'C', 'region' => 'storms', 'order' => 3, 'position' => ['x' => 0.9, 'y' => 0.1]],
+  ]], ['blades', 'storms', 'wards', 'guards']);
+  $places = \Ichiloto\Engine\Progression\Mastery\MasteryLayout::place($map, ['blades', 'storms', 'wards', 'guards']);
+
+  expect($places['a'])->toBe(['x' => 0.25, 'y' => 1 / 6, 'placed' => false])
+    ->and($places['b'])->toBe(['x' => 0.25, 'y' => 2 / 6, 'placed' => false])
+    ->and($places['c'])->toBe(['x' => 0.9, 'y' => 0.1, 'placed' => true]);
+});

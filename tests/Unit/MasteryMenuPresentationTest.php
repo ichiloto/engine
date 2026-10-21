@@ -43,17 +43,17 @@ afterEach(function () {
 
 it('draws each region, each node with its state, and the focused node\'s details', function () {
   $canvas = MasteryMenuPresentation::compose(masteryMenuContent([
-    new MasteryMenuNode('cut', 'Start Cut', 0, MasteryNodeState::LEARNED, 'Learned'),
-    new MasteryMenuNode('spark', 'Spark', 1, MasteryNodeState::STUDYING, 'Studying 10 / 50'),
-    new MasteryMenuNode('storm', 'Storm', 1, MasteryNodeState::LOCKED, 'Opens at Lv 5', ['spark']),
+    new MasteryMenuNode('cut', 'Start Cut', 0, MasteryNodeState::LEARNED, 'Learned', position: ['x' => 0.25, 'y' => 0.5]),
+    new MasteryMenuNode('spark', 'Spark', 1, MasteryNodeState::STUDYING, '10/50 EXP', position: ['x' => 0.75, 'y' => 0.33]),
+    new MasteryMenuNode('storm', 'Storm', 1, MasteryNodeState::LOCKED, 'Opens Lv 5', ['spark'], ['x' => 0.75, 'y' => 0.67]),
   ]), $this->theme);
   $text = masteryCanvasText($canvas);
   $surfaces = array_map(static fn($layer) => $layer->id, $canvas->textLayers);
 
   expect($text['mastery-region-0'])->toBe('Blades')
     ->and($text['mastery-region-1'])->toBe('Storms')
-    ->and($text['mastery-node-spark-label'])->toContain('Spark')->toContain('Studying 10 / 50')
-    ->and($text['mastery-node-storm-label'])->toContain('Opens at Lv 5')
+    ->and($text['mastery-node-spark-label'])->toContain('Spark')->toContain('10/50 EXP')
+    ->and($text['mastery-node-storm-label'])->toContain('Opens Lv 5')
     ->and($text['mastery-detail-title'])->toBe('Spark')
     ->and($text['mastery-detail-text'])->toBe('Calls a spark down on one foe.')
     ->and(array_filter($surfaces, static fn(string $id): bool => str_starts_with($id, 'mastery-link-spark-storm')))->not->toBeEmpty()
@@ -74,8 +74,9 @@ it('places an authored node where the map puts it and keeps every card inside th
     ->and($label->y)->toBeGreaterThan($region->y);
 });
 
-it('leaves a region holding more nodes than fit to the Terminal list', function () {
+it('leaves a map whose nodes overlap at this size to the Terminal list', function () {
   $nodes = array_map(static fn(int $n): MasteryMenuNode => new MasteryMenuNode("n{$n}", "Skill {$n}", 0, MasteryNodeState::OPEN, 'Open'), range(1, 30));
+  $nodes = array_map(static fn(MasteryMenuNode $node): MasteryMenuNode => new MasteryMenuNode($node->id, $node->label, 0, $node->state, $node->value, position: ['x' => 0.25, 'y' => 0.5]), $nodes);
 
   expect(fn() => MasteryMenuPresentation::compose(masteryMenuContent($nodes, 'n1'), $this->theme))->toThrow(RuntimeException::class, 'terminal presentation retained');
 });
