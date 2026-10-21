@@ -114,7 +114,15 @@ final class BattleTestMenuPresentation
     $member = $outlined === null ? null : ($stage->enemies[$outlined] ?? null);
     if ($member !== null) {
       $scale = $box->width / $stage->layout->width;
-      $bounds = BattleFormationLayout::getRectangleInto($member->image?->destination ?? $member->bounds, $box, $scale);
+      // A sunk body is outlined where it shows, above its surface line.
+      $shown = $member->image?->destination ?? $member->bounds;
+      $clip = $member->image?->clipRect;
+      if ($clip !== null) {
+        $top = max($shown->y, $clip->y);
+        $bottom = min($shown->y + $shown->height, $clip->y + $clip->height);
+        $shown = $bottom > $top ? new CanvasRectangle($shown->x, $top, $shown->width, $bottom - $top) : $shown;
+      }
+      $bounds = BattleFormationLayout::getRectangleInto($shown, $box, $scale);
       $thickness = $placing ? 3 : 2;
       if (2 * $thickness < min($bounds->width, $bounds->height)) {
         $view->renderOutline('battle-test-stage-member', self::getInside($bounds, $box), $placing ? 'accent' : 'focus', $thickness, 7);
