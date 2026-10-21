@@ -82,7 +82,7 @@ final class ActionAnimationResolver
   /** @return list<string> */
   public static function getSupportedRoles(): array
   {
-    return ['attack', 'skill', 'restorative', 'attack-unarmed',
+    return ['attack', 'skill', 'restorative', 'buff', 'debuff', 'attack-unarmed',
       ...array_map(static fn(WeaponType $type): string => 'attack-' . strtolower($type->value), WeaponType::cases())];
   }
 
@@ -93,7 +93,10 @@ final class ActionAnimationResolver
     }
 
     return match ($skill instanceof MagicSkill ? $skill->effectType : null) {
-      MagicEffectType::RESTORATIVE, MagicEffectType::BUFF => 'restorative',
+      MagicEffectType::RESTORATIVE => 'restorative',
+      // An enhancement or affliction is not a heal or a strike; projects bind each to its own look.
+      MagicEffectType::BUFF => 'buff',
+      MagicEffectType::DEBUFF => 'debuff',
       default => 'skill',
     };
   }

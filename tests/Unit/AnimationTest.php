@@ -194,7 +194,8 @@ it('shares ordered legacy animation names with the editor', function () {
 it('selects semantic defaults without depending on skill display names', function () {
   $magic = static fn(MagicEffectType $type): MagicSkill => new MagicSkill('Renamed magic', '', '', 0, 0, effectType: $type);
   expect(ActionAnimationResolver::getSkillRole($magic(MagicEffectType::RESTORATIVE)))->toBe('restorative')
-    ->and(ActionAnimationResolver::getSkillRole($magic(MagicEffectType::BUFF)))->toBe('restorative')
+    ->and(ActionAnimationResolver::getSkillRole($magic(MagicEffectType::BUFF)))->toBe('buff')
+    ->and(ActionAnimationResolver::getSkillRole($magic(MagicEffectType::DEBUFF)))->toBe('debuff')
     ->and(ActionAnimationResolver::getSkillRole($magic(MagicEffectType::DESTRUCTIVE)))->toBe('skill')
     ->and(ActionAnimationResolver::getSkillRole(new SpecialSkill('Renamed technique', '', '', 0, 0)))->toBe('skill')
     ->and(ActionAnimationResolver::getSkillRole(new BasicSkill('Renamed strike', '', '', 0, 0)))->toBe('attack');
