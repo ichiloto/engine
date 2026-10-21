@@ -13,6 +13,7 @@ use Ichiloto\Engine\Battle\Presentation\BattlerSlot;
 use Ichiloto\Engine\Battle\Presentation\BattleScale;
 use Ichiloto\Engine\Battle\Presentation\BattlerScale;
 use Ichiloto\Engine\Battle\Presentation\BattleShadowLight;
+use Ichiloto\Engine\Battle\Presentation\BattleSurfaceEffect;
 use Ichiloto\Engine\Entities\Enemies\EnemyHabitat;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -115,25 +116,50 @@ it('meets the surface by habitat and elevation unless the battler says, with not
     ->and(BattlerGroundContact::getContact(new BattlerGrounding(bakedShadow: true), EnemyHabitat::LAND, 0))->toBe(BattlerContact::NONE);
 });
 
-it('rings a sunk body with the theme\'s ripple or burrow art, or a plain placeholder until art exists', function () {
-  $ripple = contactAt(BattlerContact::RIPPLE, -.2)['composites'][0];
-  $burrow = contactAt(BattlerContact::BURROW, -.2)['composites'][0];
-  // Ringing the drawn body (300 wide) at the surface line, in front of it.
-  expect($ripple->width)->toBe(270)->and($ripple->layer)->toBeGreaterThan(100)
-    ->and($ripple->destination->y + $ripple->destination->height / 2)->toEqualWithDelta(560.0, .5)
-    ->and($ripple->operations[0]->data['brush']['stops'][0]['color'])->toBe(['kind' => 'rgb', 'r' => 222, 'g' => 236, 'b' => 244])
-    ->and($burrow->operations[0]->data['brush']['stops'][1]['color'])->toBe(['kind' => 'rgb', 'r' => 84, 'g' => 62, 'b' => 42]);
+it('lets a pose say its own art paints a shadow where the battler\'s other art does not', function () {
+  $knockout = new BattlerPose('KO.png', bakedShadow: true);
+  $idle = new BattlerPose('Idle.png');
+  $layout = contactLayout(airElevation: .5);
+  expect(BattlerGroundContact::getContact(null, null, 0, $knockout))->toBe(BattlerContact::NONE)
+    ->and(BattlerGroundContact::getContact(null, null, 0, $idle))->toBe(BattlerContact::SHADOW)
+    // A pose painted shadow-free overrides a battler declared as painting its own.
+    ->and(BattlerGroundContact::getContact(new BattlerGrounding(bakedShadow: true), null, 0, new BattlerPose('Clean.png', bakedShadow: false)))
+    ->toBe(BattlerContact::SHADOW)
+    ->and(BattlerGroundContact::getElevation(null, EnemyHabitat::AIR, $layout, pose: $knockout))->toBe(0.0)
+    ->and(BattlerGroundContact::getElevation(null, EnemyHabitat::AIR, $layout, pose: $idle))->toBe(.5);
+});
+
+it('reacts the surface around a sunk body with a back layer behind it and a front lip over it, quietly until art exists', function () {
+  [$back, $front] = contactAt(BattlerContact::RIPPLE, -.2)['composites'];
+  $burrow = contactAt(BattlerContact::BURROW, -.2)['composites'];
+  // Around the drawn body (300 wide) at the surface line: the back behind the body, the lip over it.
+  expect($back->width)->toBe(270)->and($back->layer)->toBeLessThan(100)->and($front->layer)->toBeGreaterThan(100)
+    ->and($back->destination->y + $back->destination->height / 2)->toEqualWithDelta(560.0, .5)
+    ->and($back->operations[0]->data['brush']['stops'][0]['color'])->toBe(['kind' => 'rgb', 'r' => 222, 'g' => 236, 'b' => 244])
+    ->and($burrow[0]->operations[0]->data['brush']['stops'][2]['color'])->toBe(['kind' => 'rgb', 'r' => 84, 'g' => 62, 'b' => 42]);
+  // Nothing opaque crosses the body: the placeholder is faint, clear at its centre, and its lip only covers the front edge.
+  foreach ([$back, $front] as $layer) {
+    $stops = $layer->operations[0]->data['brush']['stops'];
+    expect($layer->opacity * max(array_column($stops, 'opacity')))->toBeLessThanOrEqual(.4)
+      ->and($stops[0]['opacity'])->toBe(0.0);
+  }
+  expect($front->operations[0]->data['masks'][0]['contours'][0][0])->toBe([0.0, (float) ($front->height / 2)]);
 
   $root = sys_get_temp_dir() . '/ichiloto-contact-' . bin2hex(random_bytes(4));
-  writeTestPng($root . '/Effects/Ripple.png', 400, 50);
-  $layout = contactLayout(effects: new BattleContactEffects(ripple: new BattlerPose('Effects/Ripple.png', columns: 4, frames: [0, 1, 2, 3],
-    fps: 8, pivotY: .5)));
-  $art = contactAt(BattlerContact::RIPPLE, -.2, layout: $layout, root: $root);
-  // One 100 by 50 frame stretched to 270 wide, its pivot on the feet.
-  expect($art['composites'])->toBe([])
-    ->and($art['images'][0]->asset)->toBe('Effects/Ripple.png')
-    ->and($art['images'][0]->destination->toArray())->toBe(['x' => 365.0, 'y' => 492.5, 'width' => 270.0, 'height' => 135.0])
-    ->and($art['images'][0]->sourceRect->width)->toBe(100);
+  writeTestPng($root . '/Effects/RippleBack.png', 400, 50);
+  writeTestPng($root . '/Effects/RippleLip.png', 100, 50);
+  $sheet = static fn(string $asset, int $columns): BattlerPose => new BattlerPose($asset, columns: $columns,
+    frames: range(0, $columns - 1), fps: 8, pivotY: .5);
+  $both = contactAt(BattlerContact::RIPPLE, -.2, layout: contactLayout(effects: new BattleContactEffects(
+    ripple: new BattleSurfaceEffect($sheet('Effects/RippleBack.png', 4), $sheet('Effects/RippleLip.png', 1)))), root: $root);
+  $backOnly = contactAt(BattlerContact::RIPPLE, -.2, layout: contactLayout(effects: new BattleContactEffects(
+    ripple: new BattleSurfaceEffect(back: $sheet('Effects/RippleBack.png', 4)))), root: $root);
+  // Two aligned sheets share one placement: each stretched to 270 wide with its pivot on the feet.
+  expect($both['composites'])->toBe([])
+    ->and(array_map(static fn($image): array => [$image->asset, $image->layer, $image->destination->x, $image->destination->y + $image->destination->height / 2], $both['images']))
+    ->toBe([['Effects/RippleBack.png', BattlerGroundContact::SURFACE_BACK_LAYER, 365.0, 560.0],
+      ['Effects/RippleLip.png', BattlerGroundContact::SURFACE_FRONT_LAYER, 365.0, 560.0]])
+    ->and(array_column($backOnly['images'], 'layer'))->toBe([BattlerGroundContact::SURFACE_BACK_LAYER]);
   exec('rm -rf ' . escapeshellarg($root));
 });
 

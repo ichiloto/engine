@@ -150,8 +150,8 @@ it('sinks a water creature below the surface line, hiding the art beneath it, an
     $slot = $presentation->getSlot($enemy);
     $id = 'combatant-' . spl_object_id($enemy);
     $image = array_column($frame->images, null, 'id')[$id];
-    $ripple = array_column($frame->composites, null, 'id')['contact-' . spl_object_id($enemy)];
-    // Sunk a quarter of its slot's height, only the art above the surface line shows; the ripple rings it there.
+    $ripple = array_column($frame->composites, null, 'id')['contact-' . spl_object_id($enemy) . '-front'];
+    // Sunk a quarter of its slot's height, only the art above the surface line shows; the ripple's lip lies over it there.
     expect($image->destination->y - array_column($plain->images, null, 'id')[$id]->destination->y)
       ->toEqualWithDelta(.25 * $slot->height * $slot->displayScale, .000001)
       ->and($image->clipRect->y + $image->clipRect->height)->toEqualWithDelta($slot->y, .000001)

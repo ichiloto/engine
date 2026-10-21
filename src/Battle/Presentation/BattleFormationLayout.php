@@ -323,6 +323,7 @@ final readonly class BattleFormationLayout
     $bounds = $placed['bounds'];
     if ($placed['diagnostic'] !== null) { $diagnostics[] = $placed['diagnostic']; }
     $pose = $poses?->getPose(BattlePoseRole::IDLE);
+    $shownPose = null;
     if ($pose !== null) {
       try {
         $idle = $pose->getArtwork($assetRoot, $elapsedSeconds, $reducedMotion);
@@ -331,6 +332,7 @@ final readonly class BattleFormationLayout
           $layout, $profile, $catalog->scale, $pose->scaleSpan, $poses);
         $art = $idle;
         $available = true;
+        $shownPose = $pose;
       } catch (InvalidArgumentException|RuntimeException $error) {
         $diagnostics[] = "Idle pose unavailable for {$id}: {$error->getMessage()}";
       }
@@ -338,8 +340,8 @@ final readonly class BattleFormationLayout
     // The body rises or sinks by its elevation, hidden below the surface line; its contact stays at its feet.
     $grounding = ($party ? $catalog->actorGrounding : $catalog->enemyGrounding)[$id] ?? null;
     $habitat = $party ? null : $habitat;
-    $elevation = BattlerGroundContact::getElevation($grounding, $habitat, $layout);
-    $contact = BattlerGroundContact::getContact($grounding, $habitat, $elevation);
+    $elevation = BattlerGroundContact::getElevation($grounding, $habitat, $layout, pose: $shownPose);
+    $contact = BattlerGroundContact::getContact($grounding, $habitat, $elevation, $shownPose);
     $offset = BattlerGroundContact::getOffset($elevation, $slot, $catalog->scale);
     [$bounds, $clip] = BattlerGroundContact::place($bounds, $offset, $slot->y, $layout);
     $bodySpan = $profile === null ? null : $catalog->scale->referenceHeight * $profile->relativeSize * $slot->displayScale;

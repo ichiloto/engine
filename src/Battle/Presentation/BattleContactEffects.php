@@ -7,12 +7,12 @@ namespace Ichiloto\Engine\Battle\Presentation;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 
 /**
- * The theme's surface effects where a sunk battler meets the surface: a
- * ripple in water and a burrow in the ground. Each is a sprite sheet the
- * game's art supplies ({@see BattlerPose}: frames, rate, looping, and its
- * pivot on the surface line, stretched to the battler's footprint), drawn in
- * front of the body's waterline or groundline. Without art the Engine draws
- * a plain placeholder in these colours, so a game is never left without one.
+ * The theme's surface reactions where a sunk battler meets the surface: a
+ * ripple in water and a burrow in the ground, each a back layer behind the
+ * body and a front lip over it ({@see BattleSurfaceEffect}), art the game
+ * supplies. Without art the Engine draws a quiet placeholder in these
+ * colours (a faint ring behind the body and a thin lip along its front edge,
+ * never across it), so a game is never left without one.
  */
 final readonly class BattleContactEffects
 {
@@ -20,8 +20,8 @@ final readonly class BattleContactEffects
   public PresentationColor $burrowColor;
 
   public function __construct(
-    public ?BattlerPose $ripple = null,
-    public ?BattlerPose $burrow = null,
+    public BattleSurfaceEffect $ripple = new BattleSurfaceEffect(),
+    public BattleSurfaceEffect $burrow = new BattleSurfaceEffect(),
     ?PresentationColor $rippleColor = null,
     ?PresentationColor $burrowColor = null,
   ) {

@@ -40,7 +40,8 @@ use RuntimeException;
  * artwork or a pose appears; a pivot defaults to bottom centre. `grounding`
  * says how the battler meets the ground ({@see BattlerGrounding}): its hover
  * and whether the Engine draws its contact shadow (`engine`), its artwork
- * paints one (`artwork`) or it has none (`none`).
+ * paints one (`artwork`) or it has none (`none`). A pose may say its own art
+ * paints a shadow (`bakedShadow`) where the battler's other art does not.
  */
 final readonly class BattlerBindings
 {
@@ -50,7 +51,7 @@ final readonly class BattlerBindings
   private const array REFERENCE_KEYS = ['actor', 'height'];
   private const array BATTLER_KEYS = ['artwork', 'poses', 'scale', 'grounding'];
   private const array ARTWORK_KEYS = ['image', 'pivot'];
-  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan'];
+  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan', 'bakedShadow'];
   private const array PIVOT_KEYS = ['x', 'y'];
   private const array PROFILE_KEYS = ['relativeSize', 'sourceSpan', 'horizontal'];
 
@@ -194,6 +195,7 @@ final readonly class BattlerBindings
         $pivotX,
         $pivotY,
         array_key_exists('scaleSpan', $pose) ? self::requireNumber($pose['scaleSpan'], "{$at}.scaleSpan") : null,
+        array_key_exists('bakedShadow', $pose) ? self::readBoolean($pose, 'bakedShadow', false, $at) : null,
       );
     }
     return new BattlePoseSet($poses);

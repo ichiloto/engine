@@ -70,11 +70,13 @@ it('joins the battlers code registers, under the one scale reference', function 
 });
 
 it('binds how a battler meets the surface: its elevation, its contact, and art that paints its own shadow', function () {
-  ($this->bind)(['enemies' => ['Wisp' => [...$this->wisp, 'grounding' => ['elevation' => .4, 'contactWidth' => 1.2]],
+  ($this->bind)(['enemies' => ['Wisp' => [...$this->wisp, 'grounding' => ['elevation' => .4, 'contactWidth' => 1.2],
+    'poses' => ['knockout' => ['image' => 'Graphics/Wisp/Attack.png', 'bakedShadow' => true]]],
     'Ember' => [...$this->wisp, 'grounding' => ['bakedShadow' => true]]]]);
   $catalog = BattlePresentationCatalog::load($this->root);
 
   expect($catalog->enemyGrounding['Wisp']->toArray())->toBe(['elevation' => .4, 'contactWidth' => 1.2])
+    ->and($catalog->enemyPoses['Wisp']->getPose(BattlePoseRole::KNOCKOUT)->bakedShadow)->toBeTrue()
     ->and($catalog->enemyGrounding['Ember']->bakedShadow)->toBeTrue()
     ->and($catalog->actorGrounding)->toBe([]);
 });

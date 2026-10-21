@@ -25,6 +25,8 @@ final readonly class BattlerPose
     public float $pivotX = 0.5,
     public float $pivotY = 1.0,
     public ?float $scaleSpan = null,
+    /** Whether this pose's art paints its own shadow; null follows the battler's grounding. */
+    public ?bool $bakedShadow = null,
   ) {
     SpriteValidation::validateAssetPath($asset);
     if ($scaleSpan !== null) { BattlerScale::validateUnit($scaleSpan); }

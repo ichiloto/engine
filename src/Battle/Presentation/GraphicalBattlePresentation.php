@@ -283,6 +283,7 @@ final class GraphicalBattlePresentation
       $pose = $includeOptionalArtwork ? $participant['poses']?->getPose($role) : null;
       $usesKnockoutPose = false;
       $usesConcedePose = false;
+      $shownPose = null;
       if ($includeOptionalArtwork && $pose === null && $role !== BattlePoseRole::IDLE) {
         $diagnostic = $identity . ':' . $role->value . ':unregistered';
         if (!isset($this->poseDiagnostics[$diagnostic])) {
@@ -308,6 +309,7 @@ final class GraphicalBattlePresentation
           $participant['available'] = true;
           $usesKnockoutPose = $candidateRole === BattlePoseRole::KNOCKOUT->value;
           $usesConcedePose = $candidateRole === BattlePoseRole::CONCEDE->value;
+          $shownPose = $pose;
           break;
         } catch (\InvalidArgumentException|RuntimeException $error) {
           $diagnostic = $identity . ':' . $candidateRole . ':' . $pose->asset;
@@ -319,8 +321,8 @@ final class GraphicalBattlePresentation
       }
       // The body rises or sinks by its elevation, hidden below the surface line; a knocked-out one lies on the ground.
       $elevation = BattlerGroundContact::getElevation($participant['grounding'], $participant['habitat'], $this->layout,
-        $battler->isKnockedOut);
-      $contact = BattlerGroundContact::getContact($participant['grounding'], $participant['habitat'], $elevation);
+        $battler->isKnockedOut, $shownPose);
+      $contact = BattlerGroundContact::getContact($participant['grounding'], $participant['habitat'], $elevation, $shownPose);
       [$bounds, $clip] = BattlerGroundContact::place($bounds, BattlerGroundContact::getOffset($elevation, $slot, $this->scale),
         $slot->y, $this->layout);
       $advance = !$reducedMotion && $playback?->actor === $battler ? $playback->getAdvanceFraction() : 0;
