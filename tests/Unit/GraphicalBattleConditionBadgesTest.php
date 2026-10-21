@@ -276,8 +276,8 @@ it('keeps persistent badges through animation gaps failed bindings and reduced m
   $catalog = new BattlePresentationCatalog(['test' => new BattleArenaDefinition('Test',
     new CanvasImage('arena', 'arena.png', new CanvasRectangle(0, 0, 1350, 720)))],
     array_fill_keys(['Actor', 'Second', 'Third', 'Reserve'], new BattlerArtwork('actor.png', 16, 16, 8, 16)), [],
-    ui: new BattleCanvasLayout(1350, 720, partySlots: [new BattlerSlot(900, 240, 100, 100),
-      new BattlerSlot(1000, 400, 100, 100), new BattlerSlot(1100, 560, 100, 100)]), defaultArena: 'test');
+    ui: new BattleCanvasLayout(1350, 720, partySlots: [getStageSlot(900, 240, 100, 100),
+      getStageSlot(1000, 400, 100, 100), getStageSlot(1100, 560, 100, 100)]), defaultArena: 'test');
   mkdir($this->badgeRoot . '/Animations/loop', 0777, true);
   file_put_contents($this->badgeRoot . '/Animations/loop/loop.timeline.php', '<?php return ' . var_export([
     'fps' => 10, 'lengthFrames' => 3, 'restFrame' => 0, 'playback' => 'loop', 'tracks' => [[
@@ -313,7 +313,7 @@ it('keeps newly applied and settled state badges at one head anchor through tran
   $catalog = new BattlePresentationCatalog(['test' => new BattleArenaDefinition('Test',
     new CanvasImage('arena', 'arena.png', new CanvasRectangle(0, 0, 1350, 720)))],
     ['Actor' => new BattlerArtwork('actor.png', 16, 16, 8, 16)], [],
-    ui: new BattleCanvasLayout(1350, 720, partySlots: [new BattlerSlot(600, 280, 100, 160)], skin: $skin,
+    ui: new BattleCanvasLayout(1350, 720, partySlots: [getStageSlot(600, 280, 100, 160)], skin: $skin,
       feedbackArea: new CanvasRectangle(0, 80, 1350, 452)), defaultArena: 'test');
   $presentation = GraphicalBattlePresentation::prepare(new BattleConfig($party, new Troop('Empty', [])), $catalog, $this->badgeRoot);
   $body = array_find($presentation->frame(now: 1)->images, static fn($image) => $image->asset === 'actor.png')->destination;

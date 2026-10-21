@@ -877,8 +877,10 @@ defeat ceremony are independent of G3; headless API acceptance is not native
 visual/audio or production-art acceptance. See
 [graphical-battle-g1.md](rendering/graphical-battle-g1.md#battlefield-conditions-and-enemy-defeat).
 
-The catalog's `ui` owns shared canvas dimensions, party slots and feedback
-safe area; each troop enemy's `graphicalPlacement` owns its slot. Arena scenes
+The catalog's `ui` owns shared canvas dimensions, the party formation and
+feedback safe area; each troop enemy's `graphicalPlacement` owns its stage
+place, and the arena's ground decides where both stand
+([staging](rendering/graphical-battle-g1.md#arena-ground-and-staging)). Arena scenes
 own only a display name, background and optional skin. Effects follow the
 actual combatant instance, not an arena-side troop override; see the
 [formation contract and ownership audit](rendering/graphical-battle-g1.md#troop-owned-graphical-formation).
