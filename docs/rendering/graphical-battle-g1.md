@@ -425,10 +425,10 @@ where the UI's bottom windows begin, read by `GraphicalBattleHud` too).
 
 `BattleStaging::stage()` stands one battle's formations on that ground:
 
-- A stage place's depth is measured back from the near edge, so the front
-  rank stands on the near edge of every arena. A side deeper than the ground
-  is compressed in depth as a whole, keeping its shape; nobody stands beyond
-  the far edge.
+- A stage place's depth is measured back from the near edge, so a formation
+  keeps its shape on every arena. A side deeper than the ground is compressed
+  in depth as a whole, keeping its shape; nobody stands in front of the near
+  edge or beyond the far edge.
 - The party uses the layout's `partySlots` (stage places, back to front); a
   smaller frontline takes the front-most slots. A layout without party slots
   has its party arranged like a troop.
@@ -438,9 +438,24 @@ where the UI's bottom windows begin, read by `GraphicalBattleHud` too).
   times the nearer battler's drawn height and alternating between an inner
   lane and an outer lane `lateral` times their mean drawn width beyond it,
   fitted and centred across the side's area by the art's real extent either
-  side of its feet. A battler whose art reaches below the battler area (a
+  side of its feet. The arrangement centres its depth on the party's middle
+  depth (the staged frontline's, or the theme's party slots when previewing
+  without a battle), so the two sides face each other across the field and a
+  lone enemy stands mid-field; larger troops spread back and forward around
+  that middle. A battler whose art reaches below the battler area (a
   creature's body under its waterline) stands that much further back. Spacing
   follows the current artwork, so replaced art re-spaces itself.
+- An arena may declare each side's footing (`BattleFooting`): a polygon of
+  canvas points where that side may plant its feet, such as the dirt of a road
+  rather than its grass verge, rocks or fences. Arranged ranks centre across
+  the footing at the height they stand at, their lanes narrowing to fit its
+  narrowest rank; an authored or theme place whose feet fall outside steps to
+  the nearest footed height and across into it, its perspective scale
+  following. The polygon's edges count as footing. A side without footing may
+  stand anywhere on its area of the ground. Data arenas author it as
+  `enemyFooting` and `partyFooting`, each a list of `['x' => , 'y' => ]`
+  points (3 to 256) in `Data/Presentation/arenas.php`, edited on the Battle
+  Arenas page of both editors.
 - Battlers are drawn back to front by where their feet stand, so a nearer
   battler covers one behind it.
 

@@ -27,22 +27,25 @@ use RuntimeException;
  *           'name' => 'Road',
  *           'background' => ['image' => 'Graphics/Arenas/Road.png', 'source' => ['x' => 0, 'y' => 0, 'width' => 675, 'height' => 360]],
  *           'ground' => ['top' => 330, 'bottom' => 590, 'perspective' => 0.9],
+ *           'enemyFooting' => [['x' => 340, 'y' => 330], ['x' => 675, 'y' => 330], ['x' => 675, 'y' => 590], ['x' => 520, 'y' => 590]],
  *         ],
  *       ],
  *     ];
  *
- * `source` and `ground`, and each ground edge, are optional.
+ * `source`, `ground` (and each ground edge) and each side's footing polygon
+ * (`enemyFooting`, `partyFooting`: canvas points where that side may plant
+ * its feet) are optional.
  */
 final readonly class BattleArenaBindings
 {
   public const string FILE = 'Data/Presentation/arenas.php';
 
   private const array TOP_KEYS = ['default', 'arenas'];
-  private const array ARENA_KEYS = ['name', 'background', 'ground'];
+  private const array ARENA_KEYS = ['name', 'background', 'ground', 'enemyFooting', 'partyFooting'];
   private const array BACKGROUND_KEYS = ['image', 'source'];
   private const array SOURCE_KEYS = ['x', 'y', 'width', 'height'];
 
-  /** @param array<string, array{name: string, image: string, source: ?SpriteSourceRect, ground: ?BattleGround}> $arenas */
+  /** @param array<string, array{name: string, image: string, source: ?SpriteSourceRect, ground: ?BattleGround, footing: BattleFooting}> $arenas */
   private function __construct(
     public array $arenas,
     public ?string $defaultArena,
@@ -109,7 +112,15 @@ final readonly class BattleArenaBindings
         $source = new SpriteSourceRect($rect['x'], $rect['y'], $rect['width'], $rect['height']);
       }
       $ground = array_key_exists('ground', $entry) ? BattleGround::fromArray($entry['ground'], "{$where}.ground") : null;
-      $arenas[$id] = ['name' => $name, 'image' => $image, 'source' => $source, 'ground' => $ground];
+      try {
+        $footing = new BattleFooting(
+          array_key_exists('enemyFooting', $entry) ? BattleFooting::readPolygon($entry['enemyFooting'], "{$where}.enemyFooting") : [],
+          array_key_exists('partyFooting', $entry) ? BattleFooting::readPolygon($entry['partyFooting'], "{$where}.partyFooting") : [],
+        );
+      } catch (InvalidArgumentException $error) {
+        throw str_starts_with($error->getMessage(), $where) ? $error : new InvalidArgumentException("{$where}: {$error->getMessage()}", previous: $error);
+      }
+      $arenas[$id] = ['name' => $name, 'image' => $image, 'source' => $source, 'ground' => $ground, 'footing' => $footing];
     }
     $default = $data['default'] ?? null;
     if ($default !== null && (!is_string($default) || !isset($arenas[$default]))) {
@@ -130,7 +141,7 @@ final readonly class BattleArenaBindings
     foreach ($this->arenas as $id => $arena) {
       $definitions[$id] = new BattleArenaDefinition($arena['name'],
         new CanvasImage($id, $arena['image'], new CanvasRectangle(0, 0, $width, $height), sourceRect: $arena['source']),
-        ground: $arena['ground']);
+        ground: $arena['ground'], footing: $arena['footing']);
     }
     return $definitions;
   }

@@ -10,7 +10,9 @@ use InvalidArgumentException;
 /**
  * Scene artwork and the ground its background shows. Formations belong to
  * troops and the theme; the arena only says where on its picture battlers
- * may stand ({@see BattleGround}), so any formation stands on any arena.
+ * may stand: the band of ground ({@see BattleGround}) and, per side, the
+ * footing within it ({@see BattleFooting}), so any formation stands on any
+ * arena.
  */
 final readonly class BattleArenaDefinition
 {
@@ -19,6 +21,7 @@ final readonly class BattleArenaDefinition
     public CanvasImage $background,
     public ?BattleUiSkin $skin = null,
     public ?BattleGround $ground = null,
+    public BattleFooting $footing = new BattleFooting(),
   ) {
     if (trim($name) === '' || preg_match('/\p{Cc}/u', $name) !== 0) {
       throw new InvalidArgumentException('Battle arena display name must be nonempty text without control characters.');

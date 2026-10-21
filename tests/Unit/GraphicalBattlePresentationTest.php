@@ -1574,7 +1574,12 @@ it('arranges troop members nobody placed beside the placed ones, on the ground, 
     ->and(hypot($second->x - $first->x, $second->y - $first->y))->toBeGreaterThan(1.0);
   $unplaced = new BattleConfig($fixture->party, new Troop('Twins', $enemies));
   $arranged = GraphicalBattlePresentation::prepare($unplaced, $catalog, $this->root);
-  expect(max(array_map(fn($enemy) => $arranged->getSlot($enemy)->y, $enemies)))->toBe($arranged->getStaging()->ground->bottom);
+  // The arranged troop faces the party: its formation centres on the party's middle depth.
+  $staging = $arranged->getStaging();
+  $depths = array_map(fn($place) => $place->depth * $staging->enemyCompression, $staging->enemyPlaces);
+  $partyCentre = array_sum(array_map(fn($place) => $place->depth, $staging->partyPlaces)) / count($staging->partyPlaces)
+    * $staging->partyCompression;
+  expect((min($depths) + max($depths)) / 2)->toEqualWithDelta($partyCentre, .001);
 });
 
 
