@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Entities\Enemies\Enemy;
+use Ichiloto\Engine\Entities\Enemies\EnemyHabitat;
 use Ichiloto\Engine\Entities\Enemies\EnemyCatalog;
 use Ichiloto\Engine\Entities\Enemies\EnemyRecord;
 use Ichiloto\Engine\Entities\Enumerations\ActionConditionType;
@@ -82,6 +83,7 @@ function fullEnemyRecord(string $name = 'Blob'): array
     'elementAffinities' => ['Fire' => 2.0, 'Water' => -1.0],
     'knowledgeSubjectId' => 'creature.blob',
     'attackSkill' => 'Nip',
+    'habitat' => 'water',
   ];
 }
 
@@ -137,11 +139,15 @@ it('writes back exactly the record it read', function () {
     $skills = SkillCatalog::load($assets);
     $minimal = fullEnemyRecord();
     unset($minimal['actionPatterns'], $minimal['position'], $minimal['battleAnimation'],
-      $minimal['stateResistances'], $minimal['elementAffinities'], $minimal['knowledgeSubjectId'], $minimal['attackSkill']);
+      $minimal['stateResistances'], $minimal['elementAffinities'], $minimal['knowledgeSubjectId'], $minimal['attackSkill'],
+      $minimal['habitat']);
 
     foreach ([fullEnemyRecord(), $minimal] as $record) {
       expect(EnemyRecord::writeEnemy(EnemyRecord::readEnemy($record, $skills)))->toBe($record);
     }
+    // An enemy without a habitat lives on land, as every enemy stood before habitats.
+    expect(EnemyRecord::readEnemy($minimal, $skills)->habitat)->toBe(EnemyHabitat::LAND)
+      ->and(EnemyRecord::readEnemy(fullEnemyRecord(), $skills)->habitat)->toBe(EnemyHabitat::WATER);
   });
 });
 
@@ -174,6 +180,7 @@ it('reports a broken record against its file and keeps the other enemies', funct
     array_replace(fullEnemyRecord('Broken'), ['attackSkill' => 'Roar']),
     'The enemy attackSkill "Roar" must reference a catalogued BasicSkill',
   ],
+  'unknown habitat' => [array_replace(fullEnemyRecord('Broken'), ['habitat' => 'lava']), 'field "habitat" must be one of: land, water, air'],
   'missing sprite' => [array_replace(fullEnemyRecord('Broken'), ['imagePath' => 'ghost']), 'ghost'],
 ]);
 

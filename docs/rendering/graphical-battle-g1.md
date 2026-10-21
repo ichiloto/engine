@@ -447,18 +447,25 @@ where the UI's bottom windows begin, read by `GraphicalBattleHud` too).
   from the near edge alike. A battler whose art reaches below the battler area (a
   creature's body under its waterline) stands that much further back. Spacing
   follows the current artwork, so replaced art re-spaces itself.
-- An arena may declare each side's footing (`BattleFooting`): a polygon of
-  canvas points where that side may plant its feet, such as the dirt of a road
-  rather than its grass verge, rocks or fences. It holds feet, not art: a
-  tail may overhang the verge. Arranged ranks centre across the footing at
-  the height they stand at, so a troop follows a road's line, keeping their
-  lanes' spacing; an authored or theme place whose feet fall outside steps to
-  the nearest footed height and across into it, its perspective scale
-  following. The polygon's edges count as footing. A side without footing may
-  stand anywhere on its area of the ground. Data arenas author it as
-  `enemyFooting` and `partyFooting`, each a list of `['x' => , 'y' => ]`
-  points (3 to 256) in `Data/Presentation/arenas.php`, edited on the Battle
-  Arenas page of both editors.
+- An arena may mark its picture's footing (`BattleFooting`): a polygon of
+  canvas points for its land (a road's dirt rather than its grass verge,
+  rocks or fences) and one for its water. An arena marking neither is land
+  throughout. The party stands on land; each enemy stands where its
+  `habitat` lives (`EnemyHabitat`: `land`, the default, `water` or `air`,
+  authored on the enemy record), an air enemy over land or water. Each side
+  still keeps to its own area, using footing beyond it only when its habitat
+  has none inside (a land beast on a lake arena stands on the shore). Footing
+  holds feet, not art: a tail may overhang the verge. Arranged ranks centre
+  across their footing at the height they stand at, so a troop follows a
+  road's line, keeping their lanes' spacing; an authored or theme place whose
+  feet fall outside steps to the nearest footed height and across into it, its
+  perspective scale following. The polygons' edges count as footing. Data
+  arenas author it as `'footing' => ['land' => points, 'water' => points]`,
+  each a list of `['x' => , 'y' => ]` points (3 to 256) in
+  `Data/Presentation/arenas.php`, edited on the Battle Arenas page of both
+  editors. `BattleFooting::hasFootingFor()` says whether a habitat has
+  anywhere to stand, which the Editor's validation checks for every
+  encounter's arena.
 - Battlers are drawn back to front by where their feet stand, so a nearer
   battler covers one behind it.
 

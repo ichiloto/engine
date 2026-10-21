@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
-use Closure;
+use Ichiloto\Engine\Entities\Enemies\EnemyHabitat;
 use InvalidArgumentException;
 
 /**
@@ -16,7 +16,7 @@ use InvalidArgumentException;
  * middle of the theme's party formation so the sides face each other. A side deeper than the
  * ground is compressed in depth as a whole, keeping its shape, and the
  * ground's perspective scales battlers by how far back they stand. Feet land
- * on the side's footing when the arena declares one ({@see BattleFooting}).
+ * on the footing their habitat lives on when the arena marks one ({@see BattleFooting}).
  *
  * A party smaller than the theme's formation takes its front-most slots. A
  * member with no authored place (a troop placed by nobody yet, or a member
@@ -46,24 +46,30 @@ final readonly class BattleStaging
    * @param list<array{width: float, height: float}> $partyBodies Each frontline member's drawn size before slot depth.
    * @param list<?BattleStageSlot> $enemyPlaces Each troop member's authored place, or null to arrange it.
    * @param list<array{width: float, height: float}> $enemyBodies Each troop member's drawn size before slot depth.
+   * @param list<EnemyHabitat> $enemyHabitats Where each troop member lives; none stands every member on land.
    */
   public static function stage(BattleCanvasLayout $layout, ?BattleArenaDefinition $arena, array $partyBodies,
-    array $enemyPlaces, array $enemyBodies): self
+    array $enemyPlaces, array $enemyBodies, array $enemyHabitats = []): self
   {
+    if ($enemyHabitats === []) { $enemyHabitats = array_fill(0, count($enemyBodies), EnemyHabitat::LAND); }
     if (!array_is_list($partyBodies) || !array_is_list($enemyPlaces) || !array_is_list($enemyBodies)
-      || count($enemyPlaces) !== count($enemyBodies) || count($partyBodies) > 64 || count($enemyBodies) > 64) {
-      throw new InvalidArgumentException('Staging requires one drawn size per battler and one place or null per troop member.');
+      || count($enemyPlaces) !== count($enemyBodies) || count($partyBodies) > 64 || count($enemyBodies) > 64
+      || !array_is_list($enemyHabitats) || count($enemyHabitats) !== count($enemyBodies)
+      || array_any($enemyHabitats, static fn(mixed $habitat): bool => !$habitat instanceof EnemyHabitat)) {
+      throw new InvalidArgumentException('Staging requires one drawn size per battler and one place or null and one habitat per troop member.');
     }
     $ground = $layout->getGround($arena);
     $footing = $arena?->footing ?? new BattleFooting();
     $party = self::getPartyPlaces($layout, $partyBodies);
     $partyCompression = self::getCompression($ground, $party);
-    $enemies = self::arrange($layout, false, $enemyBodies, $enemyPlaces, $ground, $footing->enemies);
+    $enemies = self::arrange($layout, false, $enemyBodies, $enemyPlaces, $ground, $footing, $enemyHabitats);
     $enemyCompression = self::getCompression($ground, $enemies);
-    $stand = static fn(bool $side, float $compression): Closure => static fn(BattleStageSlot $place): BattlerSlot =>
-      self::getFootedSlot($layout, $side, $ground, $footing->getPolygon($side), $place->getSlotOn($ground, $compression));
-    return new self($ground, array_map($stand(true, $partyCompression), $party), array_map($stand(false, $enemyCompression), $enemies),
-      $party, $enemies, $partyCompression, $enemyCompression);
+    // The party stands on land; each troop member where its habitat lives.
+    $partySlots = array_map(static fn(BattleStageSlot $place): BattlerSlot => self::getFootedSlot($layout, true, $ground, $footing,
+      EnemyHabitat::LAND, $place->getSlotOn($ground, $partyCompression)), $party);
+    $enemySlots = array_map(static fn(BattleStageSlot $place, EnemyHabitat $habitat): BattlerSlot => self::getFootedSlot($layout, false,
+      $ground, $footing, $habitat, $place->getSlotOn($ground, $enemyCompression)), $enemies, $enemyHabitats);
+    return new self($ground, $partySlots, $enemySlots, $party, $enemies, $partyCompression, $enemyCompression);
   }
 
   /**
@@ -92,23 +98,25 @@ final readonly class BattleStaging
    * and a lone enemy stands mid-field, and a troop aligned in an editor
    * stands where the battle would arrange it whatever the party's size.
    * Without a theme formation both sides start from the near edge alike.
-   * Across, each rank centres on the side's footing at the height
-   * it stands at on the given ground (the side's area without footing), so
-   * the formation follows a road rather than a verge: feet stay on the
-   * footing, art on the side. Authored places are
+   * Across, each rank centres on the footing its habitat lives on at the
+   * height it stands at on the given ground (the side's area without
+   * footing), so the formation follows a road rather than a verge: feet stay
+   * on the footing, art on the side. Authored places are
    * kept; each unplaced member takes the arrangement's spot that no
    * authored member stands nearest, in member order.
    *
    * @param list<array{width: float, height: float, pivotX?: float, pivotY?: float}> $bodies Drawn size and the feet's shares of it.
    * @param list<?BattleStageSlot> $placed
-   * @param list<array{0: float, 1: float}> $footing The side's footing polygon on that ground, or none.
+   * @param ?BattleFooting $footing The arena's footing on that ground; none stands anywhere on the side's area.
+   * @param list<EnemyHabitat> $habitats Where each battler lives; none stands every one on land.
    * @return list<BattleStageSlot>
    */
   public static function arrange(BattleCanvasLayout $layout, bool $party, array $bodies, array $placed = [],
-    ?BattleGroundBand $ground = null, array $footing = []): array
+    ?BattleGroundBand $ground = null, ?BattleFooting $footing = null, array $habitats = []): array
   {
     $count = count($bodies);
     if ($placed === []) { $placed = array_fill(0, $count, null); }
+    if ($habitats === []) { $habitats = array_fill(0, $count, EnemyHabitat::LAND); }
     if (!array_is_list($bodies) || !array_is_list($placed) || count($placed) !== $count) {
       throw new InvalidArgumentException('Arranging a side requires one drawn size and one place or null per battler.');
     }
@@ -122,7 +130,8 @@ final readonly class BattleStaging
     }
     $centreDepth = $party || $layout->partySlots === [] ? null
       : array_sum(array_map(static fn(BattleStageSlot $slot): float => $slot->depth, $layout->partySlots)) / count($layout->partySlots);
-    $spots = self::getStagger($layout, $party, $bodies, $centreDepth, $ground ?? $layout->getGround(null), $footing);
+    $spots = self::getStagger($layout, $party, $bodies, $centreDepth, $ground ?? $layout->getGround(null), $footing ?? new BattleFooting(),
+      $habitats);
     $free = array_keys($spots);
     foreach ($placed as $place) {
       if ($place === null) { continue; }
@@ -141,11 +150,11 @@ final readonly class BattleStaging
 
   /**
    * @param list<array{width: float, height: float, pivotX?: float, pivotY?: float}> $bodies
-   * @param list<array{0: float, 1: float}> $footing
+   * @param list<EnemyHabitat> $habitats
    * @return list<BattleStageSlot>
    */
   private static function getStagger(BattleCanvasLayout $layout, bool $party, array $bodies, ?float $centreDepth,
-    BattleGroundBand $ground, array $footing): array
+    BattleGroundBand $ground, BattleFooting $footing, array $habitats): array
   {
     $count = count($bodies);
     $outward = $party ? 1 : -1;
@@ -190,7 +199,8 @@ final readonly class BattleStaging
     $compression = max($depths) <= $ground->depth ? 1.0 : $ground->depth / max($depths);
     $spots = [];
     foreach ($bodies as $index => $body) {
-      [$footLeft, $footRight] = self::getStandingSpan($layout, $party, $ground->getFootY($depths[$index] * $compression), $footing);
+      [$footLeft, $footRight] = self::getStandingSpan($layout, $party, $ground->getFootY($depths[$index] * $compression), $footing,
+        $habitats[$index] ?? EnemyHabitat::LAND);
       $x = ($footLeft + $footRight) / 2 - ($near + $far) / 2 + $offsets[$index] * $step;
       $share = $body['pivotX'] ?? .5;
       if ($right - $left >= $body['width']) {
@@ -216,36 +226,37 @@ final readonly class BattleStaging
   }
 
   /**
-   * The run of canvas columns a side may stand on at a height: its footing
-   * there (nearest footed height when the polygon does not reach), within
-   * the side's area when they overlap; the side's area alone without footing.
+   * The run of canvas columns a battler of a habitat may stand on at a
+   * height: its footing there (at the nearest footed height when it does
+   * not reach), within the side's area when they overlap; the side's area
+   * alone where its habitat has no footing to keep to.
    *
-   * @param list<array{0: float, 1: float}> $footing
    * @return array{0: float, 1: float}
    */
-  private static function getStandingSpan(BattleCanvasLayout $layout, bool $party, float $footY, array $footing): array
+  private static function getStandingSpan(BattleCanvasLayout $layout, bool $party, float $footY, BattleFooting $footing,
+    EnemyHabitat $habitat): array
   {
     $side = self::getSideRange($layout, $party);
-    $run = BattleFooting::getSpan($footing, BattleFooting::getNearestFootedHeight($footing, $footY));
+    $run = $footing->getFootedRun($habitat, $footY);
     if ($run === null) { return $side; }
     $overlap = [max($side[0], $run[0]), min($side[1], $run[1])];
     return $overlap[0] < $overlap[1] ? $overlap : $run;
   }
 
   /**
-   * A staged slot moved onto its side's footing when its feet fall outside
-   * it: to the nearest footed height, then across into the footing there,
-   * its perspective scale following the new height. A slot already on its
-   * footing, or a side without one, is returned as it is.
-   *
-   * @param list<array{0: float, 1: float}> $footing
+   * A staged slot moved onto the footing its habitat lives on when its feet
+   * fall outside it: to the nearest footed height, then across into the
+   * footing there, its perspective scale following the new height. A slot
+   * already on its footing, or one with no footing to keep to, is returned
+   * as it is.
    */
-  private static function getFootedSlot(BattleCanvasLayout $layout, bool $party, BattleGroundBand $ground, array $footing,
-    BattlerSlot $slot): BattlerSlot
+  private static function getFootedSlot(BattleCanvasLayout $layout, bool $party, BattleGroundBand $ground, BattleFooting $footing,
+    EnemyHabitat $habitat, BattlerSlot $slot): BattlerSlot
   {
-    if ($footing === []) { return $slot; }
-    $y = max($ground->top, min($ground->bottom, BattleFooting::getNearestFootedHeight($footing, $slot->y)));
-    [$left, $right] = self::getStandingSpan($layout, $party, $y, $footing);
+    $run = $footing->getFootedRun($habitat, $slot->y);
+    if ($run === null) { return $slot; }
+    $y = max($ground->top, min($ground->bottom, $run[2]));
+    [$left, $right] = self::getStandingSpan($layout, $party, $y, $footing, $habitat);
     $x = max($left, min($right, $slot->x));
     if ($x === $slot->x && $y === $slot->y) { return $slot; }
     $scale = $slot->displayScale / $ground->getDepthScale($slot->y) * $ground->getDepthScale($y);

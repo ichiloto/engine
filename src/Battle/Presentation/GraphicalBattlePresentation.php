@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Enemies\Enemy;
+use Ichiloto\Engine\Entities\Enemies\EnemyHabitat;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\SgrColorParser;
@@ -95,7 +97,8 @@ final class GraphicalBattlePresentation
     $places = array_map(fn($enemy): ?BattleStageSlot => $this->battle->troop->getStagePlace($enemy), $enemies);
     $staging = BattleStaging::stage($this->layout, $this->arena,
       array_map(static fn(CharacterInterface $battler): array => $getSize($battler, null), $this->battle->partyRoster->battlers),
-      $places, array_map($getSize, $enemies, $places));
+      $places, array_map($getSize, $enemies, $places),
+      array_map(static fn($enemy): EnemyHabitat => $enemy instanceof Enemy ? $enemy->habitat : EnemyHabitat::LAND, $enemies));
     foreach ($enemies as $index => $enemy) { $this->enemySlots[spl_object_id($enemy)] = $staging->enemies[$index]; }
     return $staging;
   }

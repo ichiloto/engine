@@ -11,6 +11,7 @@ use Ichiloto\Engine\Battle\Presentation\BattleGroundBand;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Battle\Presentation\BattleStageSlot;
 use Ichiloto\Engine\Battle\Presentation\BattleStaging;
+use Ichiloto\Engine\Entities\Enemies\EnemyHabitat;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 
@@ -166,8 +167,8 @@ it('reads footing polygons by their widest run at a height and finds the nearest
     ->and(BattleFooting::getNearestFootedHeight($u, 150))->toBe(100.0)
     ->and(BattleFooting::getNearestFootedHeight($u, 50))->toBe(50.0)
     ->and(fn() => new BattleFooting([[0, 0], [1, 1]]))->toThrow(InvalidArgumentException::class)
-    ->and(fn() => new BattleFooting(party: [[0, 0], [1, 1], [-1, 5]]))->toThrow(InvalidArgumentException::class)
-    ->and((new BattleFooting($u))->toArray())->toBe(['enemies' => [['x' => 0.0, 'y' => 0.0], ['x' => 100.0, 'y' => 0.0],
+    ->and(fn() => new BattleFooting(water: [[0, 0], [1, 1], [-1, 5]]))->toThrow(InvalidArgumentException::class)
+    ->and((new BattleFooting($u))->toArray())->toBe(['land' => [['x' => 0.0, 'y' => 0.0], ['x' => 100.0, 'y' => 0.0],
       ['x' => 100.0, 'y' => 100.0], ['x' => 0.0, 'y' => 100.0]]]);
 });
 
@@ -176,8 +177,9 @@ it('stands each side on its arena footing: an arranged troop follows a road, aut
   $layout = stagingLayout($party, new BattleGround(top: 300), 12);
   // A road whose left edge runs from (300, 300) down to (550, 588), with a verge on its left.
   $road = [[300, 300], [1350, 300], [1350, 588], [550, 588]];
-  $partyFooting = [[800, 300], [1150, 300], [1150, 588], [800, 588]];
-  $arena = stagingArena(new BattleGround(top: 300), new BattleFooting($road, $partyFooting));
+  // Rocks past 1150 on the party's side.
+  $road = [[300, 300], [1150, 300], [1150, 588], [550, 588]];
+  $arena = stagingArena(new BattleGround(top: 300), new BattleFooting($road));
   $leftEdge = static fn(float $y): float => 300 + ($y - 300) * 250 / 288;
   foreach ([1, 2, 4] as $count) {
     $staging = BattleStaging::stage($layout, $arena, array_fill(0, 2, ['width' => 100.0, 'height' => 180.0]),
@@ -185,7 +187,7 @@ it('stands each side on its arena footing: an arranged troop follows a road, aut
     foreach ($staging->enemies as $slot) {
       expect($slot->x)->toBeGreaterThanOrEqual($leftEdge($slot->y) - .000001)->toBeLessThanOrEqual(675.0);
     }
-    expect(array_map(static fn($slot): float => $slot->x, $staging->party))->toBe([800.0, 1150.0]);
+    expect(array_map(static fn($slot): float => $slot->x, $staging->party))->toBe([700.0, 1150.0]);
     // Footing holds feet, not art: the lanes keep their spacing rather than squeezing into a column.
     $columns = array_map(static fn($slot): float => $slot->x, $staging->enemies);
     if ($count > 1) { expect(max($columns) - min($columns))->toBeGreaterThan(100.0); }
@@ -198,10 +200,32 @@ it('stands each side on its arena footing: an arranged troop follows a road, aut
       [['width' => 100.0, 'height' => 120.0]])->enemies[0]->x)->toBe(320.0);
 });
 
+it('stands each enemy where its habitat lives: a land beast on a lake\'s shore, a water creature in it, a flier over either', function () {
+  $layout = stagingLayout([new BattleStageSlot(1000, 100, 100, 180)], new BattleGround(top: 300), 12);
+  // The lake fills the left of the picture; its shore runs down the right, into the enemies' half only near the bottom.
+  $water = [[0, 300], [700, 300], [600, 588], [0, 588]];
+  $shore = [[700, 300], [1350, 300], [1350, 588], [600, 588]];
+  $lake = new BattleFooting($shore, $water);
+  $arena = stagingArena(new BattleGround(top: 300), $lake);
+  $body = [['width' => 100.0, 'height' => 120.0]];
+  $stand = static fn(EnemyHabitat $habitat) => BattleStaging::stage($layout, $arena, [], [null], $body, [$habitat])->enemies[0];
+  $inside = static fn(array $polygon, $slot): bool => ($run = BattleFooting::getSpan($polygon, $slot->y)) !== null
+    && $slot->x >= $run[0] - .000001 && $slot->x <= $run[1] + .000001;
+  expect($inside($water, $stand(EnemyHabitat::WATER)))->toBeTrue()
+    ->and($inside($shore, $stand(EnemyHabitat::LAND)))->toBeTrue()
+    ->and($inside($water, $stand(EnemyHabitat::AIR)) || $inside($shore, $stand(EnemyHabitat::AIR)))->toBeTrue()
+    // Footing a habitat has, or would have on an arena marking none, which is land throughout.
+    ->and(array_map($lake->hasFootingFor(...), EnemyHabitat::cases()))->toBe([true, true, true])
+    ->and(array_map((new BattleFooting($shore))->hasFootingFor(...), EnemyHabitat::cases()))->toBe([true, false, true])
+    ->and(array_map((new BattleFooting())->hasFootingFor(...), EnemyHabitat::cases()))->toBe([true, false, true])
+    ->and((new BattleFooting())->getFootedRun(EnemyHabitat::LAND, 400))->toBeNull()
+    ->and(fn() => BattleStaging::stage($layout, $arena, [], [null], $body, ['water']))->toThrow(InvalidArgumentException::class);
+});
+
 it('reads arenas as data with their ground and binds them beside code arenas with one owner each', function () {
   $data = ['default' => 'arena.road', 'arenas' => [
     'arena.road' => ['name' => 'Road', 'background' => ['image' => 'Arenas/Road.png'], 'ground' => ['top' => 330],
-      'enemyFooting' => [['x' => 340, 'y' => 330], ['x' => 675, 'y' => 330], ['x' => 600.0, 'y' => 590]]],
+      'footing' => ['land' => [['x' => 340, 'y' => 330], ['x' => 675, 'y' => 330], ['x' => 600.0, 'y' => 590]]]],
     'arena.mine' => ['name' => 'Mine', 'background' => ['image' => 'Mine.png', 'source' => ['x' => 240, 'y' => 408, 'width' => 675, 'height' => 360]]],
   ]];
   $bindings = BattleArenaBindings::getFromArray($data);
@@ -213,8 +237,8 @@ it('reads arenas as data with their ground and binds them beside code arenas wit
     ->and($bound->arenas['arena.road']->background->destination->toArray())->toBe(['x' => 0.0, 'y' => 0.0, 'width' => 1350.0, 'height' => 720.0])
     ->and($bound->arenas['arena.mine']->background->sourceRect->toArray())->toBe(['x' => 240, 'y' => 408, 'width' => 675, 'height' => 360])
     ->and($bound->arenas['arena.mine']->ground)->toBeNull()
-    ->and($bound->arenas['arena.road']->footing->getPolygon(false))->toBe([[340.0, 330.0], [675.0, 330.0], [600.0, 590.0]])
-    ->and($bound->arenas['arena.road']->footing->getPolygon(true))->toBe([])
+    ->and($bound->arenas['arena.road']->footing->land)->toBe([[340.0, 330.0], [675.0, 330.0], [600.0, 590.0]])
+    ->and($bound->arenas['arena.road']->footing->water)->toBe([])
     ->and($bound->arenas['arena.mine']->footing->toArray())->toBe([])
     ->and(fn() => (new BattlePresentationCatalog(['arena.road' => stagingArena(null)], [], [], ui: stagingLayout()))->bindArenas($bindings))
     ->toThrow(InvalidArgumentException::class, 'arena.road is declared both in')
@@ -230,8 +254,9 @@ it('refuses unreadable arena data by its path in the file', function (array $dat
   'no image' => [['arenas' => ['a' => ['name' => 'A', 'background' => []]]], 'arenas.a.background'],
   'fractional crop' => [['arenas' => ['a' => ['name' => 'A', 'background' => ['image' => 'a.png', 'source' => ['x' => .5, 'y' => 0, 'width' => 1, 'height' => 1]]]]], 'arenas.a.background.source.x'],
   'ground' => [['arenas' => ['a' => ['name' => 'A', 'background' => ['image' => 'a.png'], 'ground' => ['top' => 'high']]]], 'arenas.a.ground.top'],
-  'footing point' => [['arenas' => ['a' => ['name' => 'A', 'background' => ['image' => 'a.png'], 'enemyFooting' => [['x' => 1, 'y' => 'low']]]]], 'arenas.a.enemyFooting[0]'],
-  'footing size' => [['arenas' => ['a' => ['name' => 'A', 'background' => ['image' => 'a.png'], 'partyFooting' => [['x' => 1, 'y' => 1]]]]], 'arenas.a: The party\' footing'],
+  'footing point' => [['arenas' => ['a' => ['name' => 'A', 'background' => ['image' => 'a.png'], 'footing' => ['land' => [['x' => 1, 'y' => 'low']]]]]], 'arenas.a.footing.land[0]'],
+  'footing size' => [['arenas' => ['a' => ['name' => 'A', 'background' => ['image' => 'a.png'], 'footing' => ['water' => [['x' => 1, 'y' => 1]]]]]], 'arenas.a.footing: The water footing'],
+  'footing habitat' => [['arenas' => ['a' => ['name' => 'A', 'background' => ['image' => 'a.png'], 'footing' => ['lava' => []]]]], 'arenas.a.footing: expected land and water'],
   'unknown default' => [['default' => 'b', 'arenas' => ['a' => ['name' => 'A', 'background' => ['image' => 'a.png']]]], 'default'],
 ]);
 

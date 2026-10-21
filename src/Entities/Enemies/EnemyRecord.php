@@ -36,7 +36,7 @@ final class EnemyRecord
   public const array KEYS = [
     'name', 'level', 'imagePath', 'stats', 'rewards', 'actionPatterns', 'position',
     'battleAnimation', 'stateResistances', 'elementAffinities', 'knowledgeSubjectId',
-    'counterAttack', 'attackSkill',
+    'counterAttack', 'attackSkill', 'habitat',
   ];
 
   /**
@@ -78,6 +78,7 @@ final class EnemyRecord
       self::readOptionalString($data['knowledgeSubjectId'] ?? null, 'knowledgeSubjectId'),
       $counterAttack,
       InherentAttack::resolveSkill($data['attackSkill'] ?? null, $skills, 'enemy'),
+      EnemyHabitat::resolve($data['habitat'] ?? null, sprintf('Enemy "%s"', $name)),
     );
   }
 
@@ -129,6 +130,7 @@ final class EnemyRecord
 
     if ($enemy->counterAttack !== null) { $data['counterAttack'] = $enemy->counterAttack->toArray(); }
     if ($enemy->attackSkill !== null) { $data['attackSkill'] = $enemy->attackSkill->name; }
+    if ($enemy->habitat !== EnemyHabitat::LAND) { $data['habitat'] = $enemy->habitat->value; }
     return $data;
   }
 
