@@ -69,6 +69,16 @@ it('joins the battlers code registers, under the one scale reference', function 
     ->and($catalog->scale->getProfile('Hero', true))->toEqual(new BattlerScale(1, .75));
 });
 
+it('binds how a battler meets the ground: its hover and who draws its contact shadow', function () {
+  ($this->bind)(['enemies' => ['Wisp' => [...$this->wisp, 'grounding' => ['hover' => .4, 'shadowWidth' => 1.2]],
+    'Ember' => [...$this->wisp, 'grounding' => ['shadow' => 'artwork']]]]);
+  $catalog = BattlePresentationCatalog::load($this->root);
+
+  expect($catalog->enemyGrounding['Wisp']->toArray())->toBe(['hover' => .4, 'shadowWidth' => 1.2])
+    ->and($catalog->enemyGrounding['Ember']->shadow)->toBe(\Ichiloto\Engine\Battle\Presentation\BattlerShadowSource::ARTWORK)
+    ->and($catalog->actorGrounding)->toBe([]);
+});
+
 it('loads code ownership separately so unsaved binding edits can be validated without disk mutations', function () {
   ($this->bind)(['enemies' => ['Wisp' => $this->wisp]]);
   $before = file_get_contents($this->root . '/' . BattlerBindings::FILE);

@@ -35,18 +35,19 @@ use RuntimeException;
  * `source`, `ground` (and each ground edge) and `footing` are optional:
  * `footing` marks the picture's land and water as polygons of canvas points
  * where battlers may plant their feet ({@see BattleFooting}); an arena
- * without it is land throughout.
+ * without it is land throughout. `shadow` is the arena's light on battlers'
+ * contact shadows: `['strength' => 1.3, 'color' => '#1a120c']` ({@see BattleShadowLight}).
  */
 final readonly class BattleArenaBindings
 {
   public const string FILE = 'Data/Presentation/arenas.php';
 
   private const array TOP_KEYS = ['default', 'arenas'];
-  private const array ARENA_KEYS = ['name', 'background', 'ground', 'footing'];
+  private const array ARENA_KEYS = ['name', 'background', 'ground', 'footing', 'shadow'];
   private const array BACKGROUND_KEYS = ['image', 'source'];
   private const array SOURCE_KEYS = ['x', 'y', 'width', 'height'];
 
-  /** @param array<string, array{name: string, image: string, source: ?SpriteSourceRect, ground: ?BattleGround, footing: BattleFooting}> $arenas */
+  /** @param array<string, array{name: string, image: string, source: ?SpriteSourceRect, ground: ?BattleGround, footing: BattleFooting, shadow: ?BattleShadowLight}> $arenas */
   private function __construct(
     public array $arenas,
     public ?string $defaultArena,
@@ -114,7 +115,9 @@ final readonly class BattleArenaBindings
       }
       $ground = array_key_exists('ground', $entry) ? BattleGround::fromArray($entry['ground'], "{$where}.ground") : null;
       $footing = array_key_exists('footing', $entry) ? BattleFooting::fromArray($entry['footing'], "{$where}.footing") : new BattleFooting();
-      $arenas[$id] = ['name' => $name, 'image' => $image, 'source' => $source, 'ground' => $ground, 'footing' => $footing];
+      $light = array_key_exists('shadow', $entry) ? BattleShadowLight::fromArray($entry['shadow'], "{$where}.shadow") : null;
+      $arenas[$id] = ['name' => $name, 'image' => $image, 'source' => $source, 'ground' => $ground, 'footing' => $footing,
+        'shadow' => $light];
     }
     $default = $data['default'] ?? null;
     if ($default !== null && (!is_string($default) || !isset($arenas[$default]))) {
@@ -135,7 +138,7 @@ final readonly class BattleArenaBindings
     foreach ($this->arenas as $id => $arena) {
       $definitions[$id] = new BattleArenaDefinition($arena['name'],
         new CanvasImage($id, $arena['image'], new CanvasRectangle(0, 0, $width, $height), sourceRect: $arena['source']),
-        ground: $arena['ground'], footing: $arena['footing']);
+        ground: $arena['ground'], footing: $arena['footing'], shadowLight: $arena['shadow']);
     }
     return $definitions;
   }

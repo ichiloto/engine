@@ -15,7 +15,10 @@ use InvalidArgumentException;
  * The theme also owns where battlers stand: its party formation (stage slots
  * from back to front), the default ground for arenas that declare none, the
  * gap between the ground's near edge and the battle UI, and the spacing the
- * Engine arranges unplaced battlers with ({@see BattleStaging}).
+ * Engine arranges unplaced battlers with ({@see BattleStaging}). It also owns
+ * the contact shadow drawn under battlers' feet ({@see BattlerShadowStyle};
+ * none draws none) and how high fliers hover by default, in reference
+ * heights ({@see BattlerContactShadow}).
  */
 readonly class BattleCanvasLayout
 {
@@ -39,6 +42,8 @@ readonly class BattleCanvasLayout
     public ?BattleGround $ground = null,
     public float $groundGap = 0,
     public BattleFormationSpacing $spacing = new BattleFormationSpacing(),
+    public ?BattlerShadowStyle $shadow = null,
+    public float $airHover = 0.0,
   ) {
     new PresentationCanvas($width, $height);
     $feedbackArea?->assertWithin($width, $height);
@@ -57,6 +62,9 @@ readonly class BattleCanvasLayout
       if ($slot->x > $width || $slot->depth > $height || $slot->width > $width || $slot->height > $height) {
         throw new InvalidArgumentException('Party slot geometry must fit inside the shared battle canvas.');
       }
+    }
+    if (!is_finite($airHover) || $airHover < 0 || $airHover > 4) {
+      throw new InvalidArgumentException('Fliers hover between 0 and 4 reference heights.');
     }
     if (!is_finite($groundGap) || $groundGap < 0 || $groundGap >= $this->getHudTop()) {
       throw new InvalidArgumentException('The ground gap must be finite and leave ground above the battle UI.');
@@ -94,6 +102,6 @@ readonly class BattleCanvasLayout
     return $arena->skin === null || $arena->skin === $this->skin ? $this
       : new self($this->width, $this->height, $this->uiGrid->cellWidth, $this->uiGrid->cellHeight,
         $arena->skin, $this->feedbackArea, $this->partySlots, $this->battlerArea, $this->enemyArea, $this->partyArea,
-        $this->ground, $this->groundGap, $this->spacing);
+        $this->ground, $this->groundGap, $this->spacing, $this->shadow, $this->airHover);
   }
 }

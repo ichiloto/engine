@@ -34,7 +34,7 @@ use Ichiloto\Engine\Cutscenes\Presentation\CinematicStagePresentation;
 /** Holds identity/layout, not combat state. Generating a frame has no gameplay effects. */
 final class GraphicalBattlePresentation
 {
-  /** @var array<int, array{battler: CharacterInterface, party: bool, image: CanvasImage, art: BattlerArtwork, available: bool, poses: ?BattlePoseSet, scale: ?BattlerScale}> */
+  /** @var array<int, array{battler: CharacterInterface, party: bool, image: CanvasImage, art: BattlerArtwork, available: bool, poses: ?BattlePoseSet, scale: ?BattlerScale, grounding: ?BattlerGrounding, habitat: ?EnemyHabitat}> */
   private array $participants = [];
   private array $poseDiagnostics = [];
   private array $compositionDiagnostics = [];
@@ -154,7 +154,9 @@ final class GraphicalBattlePresentation
         $profile = $catalog->scale?->getProfile($key, $party);
         $presentation->participants[$identity] = ['battler' => $member, 'party' => $party,
           'image' => new CanvasImage('combatant-' . $identity, $art->asset, new CanvasRectangle(0, 0, 1, 1), 100, $art->sourceRect),
-          'art' => $art, 'available' => $available, 'poses' => $poses, 'scale' => $profile];
+          'art' => $art, 'available' => $available, 'poses' => $poses, 'scale' => $profile,
+          'grounding' => ($party ? $catalog->actorGrounding : $catalog->enemyGrounding)[$key] ?? null,
+          'habitat' => $member instanceof Enemy ? $member->habitat : null];
       }
     }
     if ($layout->partySlots !== [] && count($battle->partyRoster->battlers) > count($layout->partySlots)) {
@@ -315,6 +317,11 @@ final class GraphicalBattlePresentation
           }
         }
       }
+      // A hovering body rises over its feet; a knocked-out one lies on the ground. Its shadow stays beneath its feet.
+      $hover = BattlerContactShadow::getHover($participant['grounding'], $participant['habitat'], $this->layout,
+        $battler->isKnockedOut);
+      $lift = min($bounds->y, BattlerContactShadow::getLift($hover, $slot, $this->scale));
+      $bounds = new CanvasRectangle($bounds->x, $bounds->y - $lift, $bounds->width, $bounds->height);
       $advance = !$reducedMotion && $playback?->actor === $battler ? $playback->getAdvanceFraction() : 0;
       $recoil = ($playback?->getRecoilFraction($battler, $reducedMotion) ?? 0)
         + ($playback?->getShakeFraction($battler, $reducedMotion) ?? 0);
@@ -341,6 +348,15 @@ final class GraphicalBattlePresentation
             !$participant['party'] && ($battler->hasConceded ?? false) && !$usesConcedePose => $this->defeatStyle->concededOpacity,
             default => 1,
           });
+        // The contact shadow follows the battler's feet through steps, recoil and poses, and fades with it.
+        if ($compositing) {
+          $profile = $participant['scale'];
+          $shadow = BattlerContactShadow::compose('shadow-' . $identity, $groundAnchors[$identity]->x, $groundAnchors[$identity]->y,
+            $profile !== null && $this->scale !== null ? $this->scale->referenceHeight * $profile->relativeSize * $slot->displayScale
+              : $bounds->height, ($profile?->horizontal ?? false) || $usesKnockoutPose, $hover, $this->layout, $this->arena,
+            $participant['grounding'], $combatantImages[$identity]->opacity);
+          if ($shadow !== null) { $composites[] = $shadow; }
+        }
         if (($defeat['pulse'] ?? false) && $compositing && $includeOptionalArtwork) {
           try {
             $composites[] = \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageTint::compose(

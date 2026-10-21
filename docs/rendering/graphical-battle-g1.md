@@ -486,6 +486,37 @@ battler's, which a staged field needs; art outside the authored areas and a
 target cursor with no room are still reported. Diagnostics never move
 battlers.
 
+### Contact Shadows And Hover
+
+Andrew, 21 October 2026: "can we have a shadow system for battlers. That way
+we don't have to keep worrying about including it in the art." The Engine
+draws a contact shadow under every battler's feet point on the arena's
+ground, so artwork paints bodies only:
+
+- The theme owns its style (`BattleCanvasLayout::$shadow`, a
+  `BattlerShadowStyle`): colour, centre strength, softness (0 a hard edge,
+  1 fading from the centre), width as a share of the battler's footprint (a
+  lying or four-legged body's length, a standing body's height times
+  `standing`), flatness, and how fast it shrinks and fades per reference
+  height of hover. No style draws no shadows.
+- Each arena may set its light on it (`'shadow' => ['strength' => 1.3,
+  'color' => '#1a120c']` in arenas.php, a `BattleShadowLight`): darker in a
+  mine, softer on bright grass.
+- Each battler's `grounding` in battlers.php (`BattlerGrounding`) may scale
+  its shadow's width or strength, opt out (`'shadow' => 'none'`, a creature in
+  water), or declare that its artwork paints its own (`'shadow' =>
+  'artwork'`), so the Engine never draws a second. It also sets `hover`, in
+  reference heights: the body rises that far over its feet point while
+  staging, effects, footing and the shadow stay on the ground. An air enemy
+  without its own hover takes the theme's `airHover`; a knocked-out battler
+  lies on the ground.
+- The shadow is a radial-gradient composite (`BattlerContactShadow`) at layer
+  90, under every body, following the feet through steps, recoil, poses,
+  knockouts and concession and fading with the battler. A renderer without
+  composites draws none; the Terminal battle never reads any of it.
+  `BattleFormationLayout::compose()` gives each previewed battler the same
+  shadow and lift, so editors and previews match the battle.
+
 ### Ownership Audit And Game Migration (2026-10-02)
 
 The correction moves enemy formation from scenes to troops, and party/UI/safe

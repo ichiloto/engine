@@ -84,11 +84,11 @@ final readonly class BattleFormationLayout
     $party = $troop = [];
     foreach ($partyActorIds as $index => $id) {
       $party[] = self::resolveBattler($catalog, $layout, $assetRoot, $id, true,
-        $staging->party[$index], $index, $elapsedSeconds, $reducedMotion);
+        $staging->party[$index], $index, $elapsedSeconds, $reducedMotion, $arena);
     }
     foreach ($enemies as $index => $entry) {
       $troop[] = self::resolveBattler($catalog, $layout, $assetRoot, $entry['enemyId'], false,
-        $staging->enemies[$index], $index, $elapsedSeconds, $reducedMotion);
+        $staging->enemies[$index], $index, $elapsedSeconds, $reducedMotion, $arena, $entry['habitat'] ?? EnemyHabitat::LAND);
     }
     return new self($layout, $arena, $staging, $backgrounds, $party, $troop, $catalog->getArenaChoices());
   }
@@ -206,7 +206,7 @@ final readonly class BattleFormationLayout
 
   private static function resolveBattler(BattlePresentationCatalog $catalog, BattleCanvasLayout $layout,
     string $assetRoot, string $id, bool $party, BattlerSlot $slot, int $index,
-    float $elapsedSeconds, bool $reducedMotion): BattleFormationBattler
+    float $elapsedSeconds, bool $reducedMotion, ?BattleArenaDefinition $arena = null, ?EnemyHabitat $habitat = null): BattleFormationBattler
   {
     CanvasValidation::id($id);
     $diagnostics = [];
@@ -234,10 +234,18 @@ final readonly class BattleFormationLayout
         $diagnostics[] = "Idle pose unavailable for {$id}: {$error->getMessage()}";
       }
     }
+    // A hovering body rises over its feet; its contact shadow stays on the ground beneath them.
+    $grounding = ($party ? $catalog->actorGrounding : $catalog->enemyGrounding)[$id] ?? null;
+    $hover = BattlerContactShadow::getHover($grounding, $party ? null : $habitat, $layout);
+    $lift = min($bounds->y, BattlerContactShadow::getLift($hover, $slot, $catalog->scale));
+    $bounds = new CanvasRectangle($bounds->x, $bounds->y - $lift, $bounds->width, $bounds->height);
+    $bodySpan = $profile === null ? null : $catalog->scale->referenceHeight * $profile->relativeSize * $slot->displayScale;
+    $horizontal = $profile?->horizontal ?? false;
     $image = $available ? new CanvasImage(($party ? 'party-' : 'enemy-') . $index, $art->asset,
       $bounds, 100, $art->sourceRect) : null;
+    $shadow = $available ? BattlerContactShadow::compose(($party ? 'party-shadow-' : 'enemy-shadow-') . $index, $slot->x, $slot->y,
+      $bodySpan ?? $bounds->height, $horizontal, $hover, $layout, $arena, $grounding) : null;
     return new BattleFormationBattler($id, $party, $slot, $registered === null && !$available ? null : $art,
-      $bounds, $image, $profile === null ? null : $catalog->scale->referenceHeight * $profile->relativeSize * $slot->displayScale,
-      $profile?->horizontal ?? false, $diagnostics);
+      $bounds, $image, $bodySpan, $horizontal, $diagnostics, $shadow, $lift);
   }
 }
