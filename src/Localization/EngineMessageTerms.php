@@ -96,6 +96,7 @@ final class EngineMessageTerms
     'new_game.failed' => ['default' => 'The game could not start. Please try again.', 'placeholders' => [], 'description' => 'Starting a new game failed.'],
     'new_game.unavailable_title' => ['default' => '%1 Unavailable', 'placeholders' => ['%1' => 'New-game command label'], 'description' => 'Heading when a new game cannot start.'],
     'obtained_exp' => ['default' => '%1 %2 obtained!', 'placeholders' => ['%1' => 'Experience amount', '%2' => 'Experience label'], 'description' => 'Battle experience reward.'],
+    'obtained_skill_points' => ['default' => '%1 %2 obtained!', 'placeholders' => ['%1' => 'Mastery point amount', '%2' => 'Mastery points label'], 'description' => 'Battle Mastery point (SP) reward.'],
     'obtained_gold' => ['default' => '%1 %2 found!', 'placeholders' => ['%1' => 'Currency amount', '%2' => 'Currency symbol'], 'description' => 'Currency received from a chest or battle.'],
     'obtained_item' => ['default' => '%1 found!', 'placeholders' => ['%1' => 'Item reward text'], 'description' => 'Item received from a chest.'],
     'chest.unavailable' => ['default' => 'The chest will not open.', 'placeholders' => [], 'description' => 'A chest reward could not be resolved; no reward or completion is applied.'],

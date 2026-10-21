@@ -2,46 +2,54 @@
 
 namespace Ichiloto\Engine\Progression\Mastery;
 
+use InvalidArgumentException;
 use JsonSerializable;
 
 /**
- * What one character has done on their Mastery Map, and only that: the node
- * they study, the EXP put into each node they have not finished, the nodes
- * they have learned, and EXP banked while no node was open. The map itself
- * and the skills it teaches stay in the project's data.
+ * What one character has done on their Mastery Map, and only that: the
+ * Mastery points (SP) they hold and the nodes they have learned. The map
+ * itself, its prices and the skills it teaches stay in the project's data.
  *
  * @package Ichiloto\Engine\Progression\Mastery
  */
 final class MasteryProgress implements JsonSerializable
 {
   /**
-   * @param string|null $studying The node the player chose to study next; null follows the default order.
-   * @param array<string, int> $progress EXP put into each unfinished node.
+   * Keys of the progress saved before Mastery spent points: the node then
+   * studied, EXP put into unfinished nodes, and EXP banked while nothing was
+   * open. A project converts them with a content migration; they are never
+   * read as points.
+   */
+  public const array EXPERIENCE_KEYS = ['studying', 'progress', 'banked'];
+
+  /**
+   * @param int $points The Mastery points (SP) the character holds, unspent.
    * @param list<string> $learned The nodes learned.
-   * @param int $banked EXP earned while no node was open, for the next one that opens.
    */
   public function __construct(
-    public ?string $studying = null,
-    public array $progress = [],
+    public int $points = 0,
     public array $learned = [],
-    public int $banked = 0,
   )
   {
+    if ($points < 0) {
+      throw new InvalidArgumentException('A character cannot hold fewer than 0 Mastery points.');
+    }
   }
 
-  /** @param array<string, mixed> $data */
+  /**
+   * @param array<string, mixed> $data
+   * @throws InvalidArgumentException When the data still holds EXP progress no content migration converted.
+   */
   public static function fromArray(array $data): self
   {
-    $progress = [];
-    foreach (is_array($data['progress'] ?? null) ? $data['progress'] : [] as $node => $amount) {
-      if (is_string($node) && is_int($amount) && $amount > 0) {
-        $progress[$node] = $amount;
-      }
+    $unconverted = array_values(array_intersect(self::EXPERIENCE_KEYS, array_keys($data)));
+    if ($unconverted !== []) {
+      throw new InvalidArgumentException(sprintf('Mastery progress still holds EXP (%s) from before Mastery spent points; '
+        . 'the project needs a content migration that converts it.', implode(', ', $unconverted)));
     }
     $learned = array_values(array_unique(array_filter(is_array($data['learned'] ?? null) ? $data['learned'] : [], 'is_string')));
-    $studying = $data['studying'] ?? null;
 
-    return new self(is_string($studying) && $studying !== '' ? $studying : null, $progress, $learned, max(0, intval($data['banked'] ?? 0)));
+    return new self(max(0, intval($data['points'] ?? 0)), $learned);
   }
 
   public function hasLearned(string $node): bool
@@ -49,31 +57,29 @@ final class MasteryProgress implements JsonSerializable
     return in_array($node, $this->learned, true);
   }
 
-  public function getProgress(string $node): int
-  {
-    return $this->progress[$node] ?? 0;
-  }
-
-  /** Records a node as learned; its progress is no longer kept. */
+  /** Records a node as learned. */
   public function markLearned(string $node): void
   {
     if (! $this->hasLearned($node)) {
       $this->learned[] = $node;
     }
-    unset($this->progress[$node]);
-    if ($this->studying === $node) {
-      $this->studying = null;
+  }
+
+  /** Adds Mastery points the character earned. */
+  public function addPoints(int $points): void
+  {
+    if ($points < 0) {
+      throw new InvalidArgumentException('Mastery point awards cannot be negative.');
     }
+    $this->points += $points;
   }
 
   /** @return array<string, mixed> */
   public function jsonSerialize(): array
   {
     return array_filter([
-      'studying' => $this->studying,
-      'progress' => $this->progress,
+      'points' => $this->points,
       'learned' => $this->learned,
-      'banked' => $this->banked,
-    ], static fn(mixed $value): bool => $value !== null && $value !== [] && $value !== 0);
+    ], static fn(mixed $value): bool => $value !== [] && $value !== 0);
   }
 }

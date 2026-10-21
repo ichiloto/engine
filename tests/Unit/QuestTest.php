@@ -25,7 +25,7 @@ it('hydrates a quest from its data-file entry', function () {
       ['type' => 'reach_map', 'target' => 'happyville/town-center'],
       ['type' => 'collect', 'target' => 'S-Mana', 'quantity' => 2],
     ],
-    'rewards' => ['gold' => 200, 'experience' => 50, 'items' => ['S-Potion']],
+    'rewards' => ['gold' => 200, 'experience' => 50, 'skillPoints' => 10, 'items' => ['S-Potion']],
     'prerequisites' => [['type' => 'quest', 'name' => 'intro', 'status' => 'completed']],
   ]);
 
@@ -35,7 +35,7 @@ it('hydrates a quest from its data-file entry', function () {
     ->and($quest->objectives)->toHaveCount(2)
     ->and($quest->objectives[0]->type)->toBe(QuestObjectiveType::REACH_MAP)
     ->and($quest->objectives[1]->quantity)->toBe(2)
-    ->and($quest->describeRewards())->toBe('200 G, 50 EXP, S-Potion');
+    ->and($quest->describeRewards())->toBe('200 G, 50 EXP, 10 SP, S-Potion');
 });
 
 it('rejects quests without ids or objectives', function () {

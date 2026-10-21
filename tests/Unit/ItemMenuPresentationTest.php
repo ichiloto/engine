@@ -66,7 +66,8 @@ class ItemMenuAlerts extends ModalManager
     $this->messages[] = $message;
     ($this->onAlert ?? static fn() => null)();
   }
-  public function confirm(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): bool { return $this->confirmation; }
+  public function confirm(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH,
+    string $confirmLabel = 'OK', string $cancelLabel = 'Cancel'): bool { return $this->confirmation; }
   public function selectQuantity(string $message, int $maximum, string $title = '', int $initial = 1, int $width = DEFAULT_DIALOG_WIDTH): ?int { return $this->amount; }
 }
 

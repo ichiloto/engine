@@ -75,6 +75,25 @@ it('uses the same configured currency in graphical and terminal rewards without 
   expect($label->x + $label->width)->toBeLessThan($value->x);
 });
 
+it('shows the Mastery points a battle gave, with the project\'s label, beside EXP and gold in both presentations', function () {
+  putSceneAudioConfig(['vocab' => ['mastery' => ['points' => 'JP'], 'stats' => ['exp' => 'XP']]]);
+  $playback = new BattleResultsPlayback(new BattleRewards(150, 123, [], skillPointsPerMember: 30), true);
+  $skin = new BattleResultsSkin(getRewardVocabularyTextures(['panel', 'quiet', 'track', 'selector', 'portrait', 'exp', 'divider', 'button']),
+    array_fill_keys(['text', 'muted', 'accent', 'positive', 'negative', 'ink'], PresentationColor::rgb(220, 220, 220)));
+  $layers = array_column(GraphicalBattleResults::frame(new PresentationCanvas(1350, 720), $skin, $playback)->textLayers, null, 'id');
+  $none = array_column(GraphicalBattleResults::frame(new PresentationCanvas(1350, 720), $skin,
+    new BattleResultsPlayback(new BattleRewards(150, 123, []), true))->textLayers, null, 'id');
+
+  expect(implode('', array_column($layers['results-skill-points-label']->runs, 'text')))->toBe('JP / MEMBER')
+    ->and(implode('', array_column($layers['results-skill-points-value']->runs, 'text')))->toBe('30')
+    // Each total keeps its own row, in reading order: EXP, then JP, then gold.
+    ->and($layers['results-experience-value']->bounds->y)->toBeLessThan($layers['results-skill-points-value']->bounds->y)
+    ->and($layers['results-skill-points-value']->bounds->y + $layers['results-skill-points-value']->bounds->height)
+      ->toBeLessThanOrEqual($layers['results-gold-value']->bounds->y)
+    ->and($none)->not->toHaveKey('results-skill-points-value')
+    ->and(implode("\n", BattleResultsText::getLines($playback, 80)))->toContain('XP per member: 150   JP: 30');
+});
+
 it('keeps quest and learning summaries currency-aware while preserving serialized cost and reward identities', function () {
   $quest = new Quest('synthetic.quest', 'Authored quest', rewards: ['gold' => 20, 'experience' => 30]);
   expect($quest->describeRewards())->toBe('20 TK, 30 XP')

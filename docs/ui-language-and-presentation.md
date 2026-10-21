@@ -19,6 +19,8 @@ generation, so its screenshots are reference only and must never be fed to an im
 - **Points are a short label and a number.** "SP 120", "Current SP 6925", "Ability Points 6054",
   "JP Obtained 928". An unspent pool gets no special word ("banked", "stored", "reserve"). Show the
   amount.
+  Ichiloto reads the label from `vocab.mastery.points` (Engine default "SP") and the spelled-out name,
+  used once in help, from `vocab.mastery.points_name` (default "Skill Points").
 - **Cost is a bare number** on or under each item, repeated in its detail: "Required SP: 4",
   "SP: 1000", "Cost to Learn Next Skill 30 JP".
 - **Status is one word or icon.** Learned (with a check or star), Learning (with progress, e.g.
