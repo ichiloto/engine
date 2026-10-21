@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Battle\Presentation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use InvalidArgumentException;
 use RuntimeException;
@@ -87,6 +88,24 @@ final readonly class BattleFormationLayout
         $staging->enemies[$index], $index, $elapsedSeconds, $reducedMotion);
     }
     return new self($layout, $arena, $staging, $backgrounds, $party, $troop, $catalog->getArenaChoices());
+  }
+
+  /**
+   * The formation as the battle draws it at rest, for a preview to paint
+   * with the renderer itself: the arena's background (cropped and placed as
+   * the arena declares), then every battler with usable art, its idle pose
+   * cropped from its sheet and scaled as the battle scales it, from back to
+   * front in the battle's own draw order. A battler without art has no image
+   * here, as in battle, where only its name stands for it.
+   */
+  public function composeCanvas(): PresentationCanvas
+  {
+    $battlers = [...$this->party, ...$this->enemies];
+    $images = $this->backgrounds;
+    foreach (BattleStaging::getDrawOrder(array_map(static fn(BattleFormationBattler $battler): BattlerSlot => $battler->slot, $battlers)) as $index) {
+      if ($battlers[$index]->image !== null) { $images[] = $battlers[$index]->image; }
+    }
+    return new PresentationCanvas($this->layout->width, $this->layout->height, $images);
   }
 
   /**

@@ -460,9 +460,8 @@ final class GraphicalBattlePresentation
   {
     $standing = array_filter($this->participants, static fn(array $participant): bool =>
       in_array($participant['battler'], $participant['party'] ? $frontline : $enemies, true));
-    $depths = array_map(fn(array $participant): float => $this->getSlot($participant['battler'])->y, $standing);
-    uksort($standing, static fn(int $one, int $two): int => $depths[$one] <=> $depths[$two]);
-    return $standing;
+    $order = BattleStaging::getDrawOrder(array_map(fn(array $participant): BattlerSlot => $this->getSlot($participant['battler']), $standing));
+    return array_combine($order, array_map(static fn(int $identity): array => $standing[$identity], $order));
   }
 
   /** @param list<array{text: string, color: ?PresentationColor}> $lines @param list<CanvasTextLayer> $ui */

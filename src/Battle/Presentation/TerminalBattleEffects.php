@@ -85,6 +85,56 @@ final class TerminalBattleEffects
       [...$this->positions->idlePositions, ...$this->positions->activePositions]));
   }
 
+  /**
+   * Where a new troop member stands on the terminal field: the free place
+   * nearest the middle of the troop's zone, so a first member stands in its
+   * middle and later ones gather beside the members already there. A place
+   * is free when the sprite, with the name row above it, fits the zone and
+   * keeps one cell clear of every member's; a row counts as tall as two
+   * columns, as the terminal draws them. With no free place it is the place
+   * the sprite overlaps least, so an author can move it from there.
+   *
+   * @param list<array{position: Vector2, sprite: list<string>}> $members Those standing already.
+   * @param list<string> $sprite The new member's sprite rows.
+   */
+  public function findTroopPlace(array $members, array $sprite): Vector2
+  {
+    $width = max(1, self::getSpriteWidth($sprite));
+    $height = max(1, count($sprite));
+    // The zone a sprite may take: inside the border, a name row above it, clear of the step towards the party.
+    [$left, $right] = [self::TROOP_ZONE_LEFT, $this->getPartyZoneLeft() - self::BATTLE_SIDE_GAP - self::TROOP_STEP_X_OFFSET - $width];
+    [$top, $bottom] = [2, $this->height - 1 - $height];
+    if ($right < $left || $bottom < $top) { return new Vector2($left, max(0, min($top, $this->height - $height))); }
+    $taken = array_map(static fn(array $member): array => self::getTroopFootprint($member['position'], $member['sprite']), $members);
+    $centre = [($left + $right) / 2, ($top + $bottom) / 2];
+    $best = null;
+    for ($y = $top; $y <= $bottom; $y++) {
+      for ($x = $left; $x <= $right; $x++) {
+        $mine = self::getTroopFootprint(new Vector2($x, $y), $sprite);
+        $overlap = array_sum(array_map(static fn(array $other): int => self::getOverlap($mine, $other, 1), $taken));
+        $distance = hypot($x - $centre[0], 2 * ($y - $centre[1]));
+        if ($best === null || [$overlap, $distance] < [$best[0], $best[1]]) { $best = [$overlap, $distance, $x, $y]; }
+      }
+    }
+    return new Vector2($best[2], $best[3]);
+  }
+
+  /** @return array{int, int, int, int} The cells a member's sprite and name row take: left, top, right and bottom, inclusive. */
+  private static function getTroopFootprint(Vector2 $position, array $sprite): array
+  {
+    $x = intval($position->x);
+    $y = intval($position->y);
+    return [$x, $y - 1, $x + max(1, self::getSpriteWidth($sprite)) - 1, $y + max(1, count($sprite)) - 1];
+  }
+
+  /** The cells two footprints share once each is grown by a margin. @param array{int, int, int, int} $one @param array{int, int, int, int} $two */
+  private static function getOverlap(array $one, array $two, int $margin): int
+  {
+    $width = min($one[2], $two[2] + $margin) - max($one[0], $two[0] - $margin) + 1;
+    $height = min($one[3], $two[3] + $margin) - max($one[1], $two[1] - $margin) + 1;
+    return max(0, $width) * max(0, $height);
+  }
+
   public function getTroopAvailableWidth(Vector2 $position): int
   {
     return max(0, $this->getPartyZoneLeft() - self::BATTLE_SIDE_GAP - intval($position->x));

@@ -123,6 +123,24 @@ final readonly class BattleStaging
     return $arranged;
   }
 
+  /**
+   * Standing battlers from back to front, so a nearer one is drawn over one
+   * behind it: by the canvas height their feet stand at, equal heights
+   * keeping the order given (the party before the troop, then member order).
+   * The one draw order of a graphical battle and of every preview of it.
+   *
+   * @template TKey of array-key
+   * @param array<TKey, BattlerSlot> $slots
+   * @return list<TKey> The keys, back first.
+   */
+  public static function getDrawOrder(array $slots): array
+  {
+    $keys = array_keys($slots);
+    // PHP's sort is stable, so equal heights keep the order given.
+    usort($keys, static fn(int|string $one, int|string $two): int => $slots[$one]->y <=> $slots[$two]->y);
+    return $keys;
+  }
+
   /** @param list<array{width: float, height: float, pivotX?: float, pivotY?: float}> $bodies @return list<BattleStageSlot> */
   private static function getStagger(BattleCanvasLayout $layout, bool $party, array $bodies): array
   {

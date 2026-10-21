@@ -408,3 +408,37 @@ it('can preview a plain canvas without choosing or writing an arena into a troop
     ->and($preview->arenaChoices)->toBe([])->and($preview->party[0]->image)->not->toBeNull()
     ->and(array_map('file_get_contents', glob($this->root . '/*.png')))->toBe($before);
 });
+
+it('composes the canvas the battle draws at rest: the cropped background, then each battler back to front', function () {
+  // A background cropped from a larger sheet, as an arena may declare one, and a party drawn from a pose sheet.
+  $arena = new BattleArenaDefinition('A cropped scene', new CanvasImage('arena', 'arena.png', new CanvasRectangle(0, 0, 1350, 720),
+    sourceRect: new \Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect(20, 10, 200, 100)));
+  $catalog = new BattlePresentationCatalog(['scene' => $arena], ['Hero' => $this->art], ['Creature' => $this->enemyArt],
+    ui: $this->layout, actorPoses: ['Hero' => $this->poses], defaultArena: 'scene', scale: $this->scale);
+  // The second member stands further back than the first, so the battle draws it first.
+  $near = formationSlot(300, 600, 200, 230);
+  $far = formationSlot(500, 420, 200, 230);
+  $preview = BattleFormationLayout::compose($catalog, 'scene',
+    [['enemyId' => 'Creature', 'slot' => $near], ['enemyId' => 'Creature', 'slot' => $far]], ['Hero'], $this->root);
+  $party = new Party();
+  $party->addMember(new Character('Hero', 1, new Stats(currentHp: 100, totalHp: 100)));
+  $enemies = [];
+  foreach ([0, 1] as $index) {
+    $enemy = new ReflectionClass(Enemy::class)->newInstanceWithoutConstructor();
+    foreach (['name' => 'Creature', 'level' => 1, 'stats' => new Stats(currentHp: 100, totalHp: 100),
+      'position' => new Vector2(1, 1)] as $key => $value) {
+      new ReflectionProperty(Enemy::class, $key)->setValue($enemy, $value);
+    }
+    $enemies[] = $enemy;
+  }
+  $battle = new BattleConfig($party, new Troop('Synthetic', $enemies, graphicalFormation: [$near, $far]));
+  $frame = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root)->frame();
+  $describe = static fn(array $images): array => array_map(static fn(CanvasImage $image): array => [$image->asset,
+    $image->destination, $image->sourceRect, $image->flipX, $image->flipY, $image->opacity], $images);
+
+  $canvas = $preview->composeCanvas();
+  expect($describe($canvas->images))->toEqual($describe($frame->images))
+    ->and($canvas->images[0]->sourceRect)->toEqual($arena->background->sourceRect)
+    ->and(array_map(static fn(CanvasImage $image): string => $image->id, $canvas->images))->toBe(['arena', 'enemy-1', 'party-0', 'enemy-0'])
+    ->and([$canvas->width, $canvas->height])->toBe([1350, 720]);
+});
