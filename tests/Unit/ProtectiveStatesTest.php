@@ -133,3 +133,45 @@ it('keeps a certain cure free of rolls and of the default chance in exported dat
 
   expect(SkillRecord::writeSkill($skill)['effects'][0])->toBe(['type' => 'remove_state', 'stateIds' => ['poison']]);
 });
+
+it('starts a state the bearer gives itself after the turn it was given, and others at once', function () {
+  $parry = new State('parry', 'Parry', durationTurns: 2, disposition: StateDisposition::BENEFICIAL);
+  $self = protectionBattler();
+  $self->addState($parry, givenByBearer: true);
+  $other = protectionBattler();
+  $other->addState($parry);
+
+  $self->tickStates();
+  $other->tickStates();
+  expect($self->hasState('parry'))->toBeTrue()->and($other->hasState('parry'))->toBeTrue();
+
+  $self->tickStates();
+  $other->tickStates();
+  expect($self->hasState('parry'))->toBeTrue()->and($other->hasState('parry'))->toBeFalse();
+
+  $self->tickStates();
+  expect($self->hasState('parry'))->toBeFalse();
+});
+
+it('marks a state a skill user gives itself as given by its bearer', function () {
+  $skill = SkillRecord::readSkill([
+    'kind' => 'special', 'name' => 'Synthetic Guard', 'description' => '', 'icon' => '', 'cost' => 0, 'cooldown' => 0,
+    'occasion' => 'Battle Screen', 'scope' => ['side' => 'User', 'number' => 'One', 'status' => 'Alive'],
+    'invocation' => ['message' => '', 'speed' => 0, 'accuracy' => 0, 'repeat' => 1, 'apGain' => 0],
+    'effects' => [['type' => 'add_state', 'stateId' => 'synthetic-guard']],
+  ]);
+  $registry = new ReflectionProperty(Ichiloto\Engine\Entities\States\StateRegistry::class, 'states');
+  $prior = $registry->getValue();
+  $registry->setValue(null, ['synthetic-guard' => new State('synthetic-guard', 'Guard', durationTurns: 1)]);
+  $user = protectionBattler();
+  $ally = protectionBattler();
+
+  $skill->effects[0]->apply(new SkillEffectContext($user, $user));
+  $skill->effects[0]->apply(new SkillEffectContext($user, $ally));
+  $user->tickStates();
+  $ally->tickStates();
+
+  $registry->setValue(null, $prior);
+
+  expect($user->hasState('synthetic-guard'))->toBeTrue()->and($ally->hasState('synthetic-guard'))->toBeFalse();
+});

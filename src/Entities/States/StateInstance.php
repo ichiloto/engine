@@ -13,11 +13,13 @@ class StateInstance
    * @param State $state The state definition.
    * @param int|null $remainingTurns Turns left before expiry; null lasts until cured.
    * @param int $fieldSteps Steps walked in the field since the state last acted there.
+   * @param bool $awaitsNextTurn True when the bearer gave itself the state this turn, so the end of that turn does not count against it.
    */
   public function __construct(
     protected(set) State $state,
     public ?int $remainingTurns = null,
     public int $fieldSteps = 0,
+    public bool $awaitsNextTurn = false,
   )
   {
   }
