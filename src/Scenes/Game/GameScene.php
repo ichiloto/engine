@@ -54,6 +54,7 @@ use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
 use Ichiloto\Engine\Scenes\Game\States\AbilityMenuState;
+use Ichiloto\Engine\Scenes\Game\States\MasteryMenuState;
 use Ichiloto\Engine\Field\EncounterManager;
 use Ichiloto\Engine\Field\FieldConditions;
 use Ichiloto\Engine\Field\NpcManager;
@@ -588,6 +589,10 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
      */
     protected(set) ?AbilityMenuState $abilityMenuState = null;
     /**
+     * @var MasteryMenuState|null The Mastery Map menu state.
+     */
+    protected(set) ?MasteryMenuState $masteryMenuState = null;
+    /**
      * @var SummonsMenuState|null The summon-assignment menu state.
      */
     protected(set) ?SummonsMenuState $summonsMenuState = null;
@@ -973,6 +978,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $this->equipmentMenuState = new EquipmentMenuState($this->sceneStateContext);
         $this->itemMenuState = new ItemMenuState($this->sceneStateContext);
         $this->abilityMenuState = new AbilityMenuState($this->sceneStateContext);
+        $this->masteryMenuState = new MasteryMenuState($this->sceneStateContext);
         $this->summonsMenuState = new SummonsMenuState($this->sceneStateContext);
         $this->questMenuState = new QuestMenuState($this->sceneStateContext);
         $this->recordsMenuState = new RecordsMenuState($this->sceneStateContext);
