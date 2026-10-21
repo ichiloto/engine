@@ -317,11 +317,12 @@ final class GraphicalBattlePresentation
           }
         }
       }
-      // A hovering body rises over its feet; a knocked-out one lies on the ground. Its shadow stays beneath its feet.
-      $hover = BattlerContactShadow::getHover($participant['grounding'], $participant['habitat'], $this->layout,
+      // The body rises or sinks by its elevation, hidden below the surface line; a knocked-out one lies on the ground.
+      $elevation = BattlerGroundContact::getElevation($participant['grounding'], $participant['habitat'], $this->layout,
         $battler->isKnockedOut);
-      $lift = min($bounds->y, BattlerContactShadow::getLift($hover, $slot, $this->scale));
-      $bounds = new CanvasRectangle($bounds->x, $bounds->y - $lift, $bounds->width, $bounds->height);
+      $contact = BattlerGroundContact::getContact($participant['grounding'], $participant['habitat'], $elevation);
+      [$bounds, $clip] = BattlerGroundContact::place($bounds, BattlerGroundContact::getOffset($elevation, $slot, $this->scale),
+        $slot->y, $this->layout);
       $advance = !$reducedMotion && $playback?->actor === $battler ? $playback->getAdvanceFraction() : 0;
       $recoil = ($playback?->getRecoilFraction($battler, $reducedMotion) ?? 0)
         + ($playback?->getShakeFraction($battler, $reducedMotion) ?? 0);
@@ -333,7 +334,8 @@ final class GraphicalBattlePresentation
         clamp($bounds->y, 0, max(0, $this->layout->height - $bounds->height)), $bounds->width, $bounds->height);
       $groundAnchors[$identity] = new Vector2($slot->x + ($bounds->x - $unmovedX), $slot->y + ($bounds->y - $unmovedY));
       $partySides[$identity] = $participant['party'];
-      $image = new CanvasImage($image->id, $art->asset, $bounds, $image->layer, $art->sourceRect);
+      $image = new CanvasImage($image->id, $art->asset, $bounds, $image->layer, $art->sourceRect,
+        clipRect: $clip === null ? null : new CanvasRectangle($bounds->x, $clip->y, $bounds->width, $clip->height));
       $combatantBounds[$identity] = $bounds;
       $popups = array_filter($feedback, static fn(array $popup) => $popup['battler'] === $battler);
       $defeat = $playback?->getEnemyDefeatTreatment($battler, $reducedMotion);
@@ -342,21 +344,22 @@ final class GraphicalBattlePresentation
       $conditionBattlers[$identity] = $battler;
       if ($participant['available']) {
         $images[] = $combatantImages[$identity] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
-          $image->sourceRect, $defeat['opacity'] ?? match (true) {
+          $image->sourceRect, clipRect: $image->clipRect, opacity: $defeat['opacity'] ?? match (true) {
             $participant['party'] && $battler->isKnockedOut && !$usesKnockoutPose => 0.4,
             // Without a concede pose, the enemy's current artwork is held, subdued.
             !$participant['party'] && ($battler->hasConceded ?? false) && !$usesConcedePose => $this->defeatStyle->concededOpacity,
             default => 1,
           });
-        // The contact shadow follows the battler's feet through steps, recoil and poses, and fades with it.
-        if ($compositing) {
-          $profile = $participant['scale'];
-          $shadow = BattlerContactShadow::compose('shadow-' . $identity, $groundAnchors[$identity]->x, $groundAnchors[$identity]->y,
-            $profile !== null && $this->scale !== null ? $this->scale->referenceHeight * $profile->relativeSize * $slot->displayScale
-              : $bounds->height, ($profile?->horizontal ?? false) || $usesKnockoutPose, $hover, $this->layout, $this->arena,
-            $participant['grounding'], $combatantImages[$identity]->opacity);
-          if ($shadow !== null) { $composites[] = $shadow; }
-        }
+        // Its contact follows its feet through steps, recoil and poses, and fades with it. Engine-drawn
+        // contacts are composites; a ripple or burrow sheet is art and needs none.
+        $profile = $participant['scale'];
+        $surface = BattlerGroundContact::compose('contact-' . $identity, $groundAnchors[$identity]->x, $groundAnchors[$identity]->y,
+          $profile !== null && $this->scale !== null ? $this->scale->referenceHeight * $profile->relativeSize * $slot->displayScale
+            : $bounds->height, ($profile?->horizontal ?? false) || $usesKnockoutPose, $bounds->width, $elevation, $contact,
+          $this->layout, $this->arena, $participant['grounding'], $this->assetRoot, $field?->getPoseElapsedSeconds() ?? 0,
+          $reducedMotion, $combatantImages[$identity]->opacity);
+        array_push($images, ...$surface['images']);
+        if ($compositing) { array_push($composites, ...$surface['composites']); }
         if (($defeat['pulse'] ?? false) && $compositing && $includeOptionalArtwork) {
           try {
             $composites[] = \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageTint::compose(

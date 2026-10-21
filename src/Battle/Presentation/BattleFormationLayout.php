@@ -234,18 +234,21 @@ final readonly class BattleFormationLayout
         $diagnostics[] = "Idle pose unavailable for {$id}: {$error->getMessage()}";
       }
     }
-    // A hovering body rises over its feet; its contact shadow stays on the ground beneath them.
+    // The body rises or sinks by its elevation, hidden below the surface line; its contact stays at its feet.
     $grounding = ($party ? $catalog->actorGrounding : $catalog->enemyGrounding)[$id] ?? null;
-    $hover = BattlerContactShadow::getHover($grounding, $party ? null : $habitat, $layout);
-    $lift = min($bounds->y, BattlerContactShadow::getLift($hover, $slot, $catalog->scale));
-    $bounds = new CanvasRectangle($bounds->x, $bounds->y - $lift, $bounds->width, $bounds->height);
+    $habitat = $party ? null : $habitat;
+    $elevation = BattlerGroundContact::getElevation($grounding, $habitat, $layout);
+    $contact = BattlerGroundContact::getContact($grounding, $habitat, $elevation);
+    $offset = BattlerGroundContact::getOffset($elevation, $slot, $catalog->scale);
+    [$bounds, $clip] = BattlerGroundContact::place($bounds, $offset, $slot->y, $layout);
     $bodySpan = $profile === null ? null : $catalog->scale->referenceHeight * $profile->relativeSize * $slot->displayScale;
     $horizontal = $profile?->horizontal ?? false;
     $image = $available ? new CanvasImage(($party ? 'party-' : 'enemy-') . $index, $art->asset,
-      $bounds, 100, $art->sourceRect) : null;
-    $shadow = $available ? BattlerContactShadow::compose(($party ? 'party-shadow-' : 'enemy-shadow-') . $index, $slot->x, $slot->y,
-      $bodySpan ?? $bounds->height, $horizontal, $hover, $layout, $arena, $grounding) : null;
+      $bounds, 100, $art->sourceRect, clipRect: $clip) : null;
+    $surface = $available ? BattlerGroundContact::compose(($party ? 'party-contact-' : 'enemy-contact-') . $index, $slot->x, $slot->y,
+      $bodySpan ?? $bounds->height, $horizontal, $bounds->width, $elevation, $contact, $layout, $arena, $grounding, $assetRoot,
+      $elapsedSeconds, $reducedMotion) : ['images' => [], 'composites' => []];
     return new BattleFormationBattler($id, $party, $slot, $registered === null && !$available ? null : $art,
-      $bounds, $image, $bodySpan, $horizontal, $diagnostics, $shadow, $lift);
+      $bounds, $image, $bodySpan, $horizontal, $diagnostics, $contact, $surface['images'], $surface['composites'], $offset);
   }
 }

@@ -17,8 +17,10 @@ final readonly class BattleFormationBattler
   /**
    * @param ?float $bodySpan Calibrated body axis in canvas units, not an inferred silhouette.
    * @param list<string> $diagnostics Optional-art failures retained for author feedback.
-   * @param ?CanvasComposite $shadow Its contact shadow on the ground at its feet, when the Engine draws one.
-   * @param float $lift How far its body hovers above its feet, in canvas units.
+   * @param BattlerContact $contact What is drawn where it meets the surface.
+   * @param list<CanvasImage> $contactImages That contact as art (a ripple or burrow sheet's frame).
+   * @param list<CanvasComposite> $contactComposites That contact as the Engine draws it (a shadow, or a placeholder).
+   * @param float $offset How far its body is raised above (positive) or sunk below (negative) its feet, in canvas units.
    */
   public function __construct(
     public string $id,
@@ -30,8 +32,10 @@ final readonly class BattleFormationBattler
     public ?float $bodySpan,
     public bool $horizontal,
     public array $diagnostics = [],
-    public ?CanvasComposite $shadow = null,
-    public float $lift = 0.0,
+    public BattlerContact $contact = BattlerContact::NONE,
+    public array $contactImages = [],
+    public array $contactComposites = [],
+    public float $offset = 0.0,
   ) {
     $this->ground = new Vector2($slot->x, $slot->y);
   }

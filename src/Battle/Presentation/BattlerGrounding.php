@@ -7,31 +7,36 @@ namespace Ichiloto\Engine\Battle\Presentation;
 use InvalidArgumentException;
 
 /**
- * How one battler meets the ground in a graphical battle: how high its body
- * hovers over its feet point (in reference heights; none takes the theme's
- * default for its habitat, a flier's height or zero) and who draws its
- * contact shadow, with its width and strength against the theme's. Bound per
+ * How one battler meets the surface in a graphical battle: its elevation, in
+ * reference heights (positive hovers above its feet point, negative sits that
+ * far below the surface line, which hides the art beneath it; none takes the
+ * theme's height for air enemies, else zero), what is drawn where it meets
+ * the surface ({@see BattlerContact}; none takes the default for its habitat
+ * and elevation), whether its artwork already paints its own shadow (so the
+ * Engine never draws a second, and the art keeps the height it was painted
+ * at), and the contact's width and strength against the theme's. Bound per
  * identity in battlers.php ({@see BattlerBindings}); presentation only.
  */
 final readonly class BattlerGrounding
 {
-  private const array KEYS = ['hover', 'shadow', 'shadowWidth', 'shadowOpacity'];
+  private const array KEYS = ['elevation', 'contact', 'bakedShadow', 'contactWidth', 'contactOpacity'];
 
   public function __construct(
-    public ?float $hover = null,
-    public BattlerShadowSource $shadow = BattlerShadowSource::ENGINE,
-    public float $shadowWidth = 1.0,
-    public float $shadowOpacity = 1.0,
+    public ?float $elevation = null,
+    public ?BattlerContact $contact = null,
+    public bool $bakedShadow = false,
+    public float $contactWidth = 1.0,
+    public float $contactOpacity = 1.0,
   ) {
-    if ($hover !== null && (!is_finite($hover) || $hover < 0 || $hover > 4)) {
-      throw new InvalidArgumentException('A battler hovers between 0 and 4 reference heights.');
+    if ($elevation !== null && (!is_finite($elevation) || abs($elevation) > 4)) {
+      throw new InvalidArgumentException('A battler\'s elevation is within -4..4 reference heights.');
     }
-    if (!is_finite($shadowWidth) || $shadowWidth <= 0 || $shadowWidth > 4
-      || !is_finite($shadowOpacity) || $shadowOpacity < 0 || $shadowOpacity > 4) {
-      throw new InvalidArgumentException('A battler shadow scales its width within 0..4 and its strength within 0..4 of the theme\'s.');
+    if (!is_finite($contactWidth) || $contactWidth <= 0 || $contactWidth > 4
+      || !is_finite($contactOpacity) || $contactOpacity < 0 || $contactOpacity > 4) {
+      throw new InvalidArgumentException('A battler\'s contact scales its width within 0..4 and its strength within 0..4 of the theme\'s.');
     }
-    if ($hover !== null && $hover > 0 && $shadow === BattlerShadowSource::ARTWORK) {
-      throw new InvalidArgumentException('Artwork that paints its own shadow cannot hover: the shadow would rise with the body. Hover it once its art is shadow-free and its shadow is the engine\'s.');
+    if ($bakedShadow && (($elevation ?? 0.0) !== 0.0 || !in_array($contact, [null, BattlerContact::SHADOW], true))) {
+      throw new InvalidArgumentException('Artwork that paints its own shadow stands at the height it was painted, with that shadow: give it an elevation or another contact once its art is shadow-free.');
     }
   }
 
@@ -46,24 +51,29 @@ final readonly class BattlerGrounding
       return is_int($data[$key]) || is_float($data[$key]) ? (float) $data[$key]
         : throw new InvalidArgumentException("{$where}.{$key}: expected a number.");
     };
-    $shadow = $data['shadow'] ?? BattlerShadowSource::ENGINE->value;
-    $source = is_string($shadow) ? BattlerShadowSource::tryFrom($shadow) : null;
-    if ($source === null) {
-      throw new InvalidArgumentException(sprintf('%s.shadow: expected one of %s.', $where,
-        implode(', ', array_column(BattlerShadowSource::cases(), 'value'))));
+    $contact = null;
+    if (array_key_exists('contact', $data)) {
+      $contact = (is_string($data['contact']) ? BattlerContact::tryFrom($data['contact']) : null)
+        ?? throw new InvalidArgumentException(sprintf('%s.contact: expected one of %s.', $where,
+          implode(', ', array_column(BattlerContact::cases(), 'value'))));
+    }
+    if (array_key_exists('bakedShadow', $data) && !is_bool($data['bakedShadow'])) {
+      throw new InvalidArgumentException("{$where}.bakedShadow: expected true or false.");
     }
     try {
-      return new self($number('hover'), $source, $number('shadowWidth') ?? 1.0, $number('shadowOpacity') ?? 1.0);
+      return new self($number('elevation'), $contact, $data['bakedShadow'] ?? false,
+        $number('contactWidth') ?? 1.0, $number('contactOpacity') ?? 1.0);
     } catch (InvalidArgumentException $error) {
       throw new InvalidArgumentException("{$where}: {$error->getMessage()}", previous: $error);
     }
   }
 
-  /** @return array<string, float|string> The authored form, leaving out what reading would assume. */
+  /** @return array<string, bool|float|string> The authored form, leaving out what reading would assume. */
   public function toArray(): array
   {
-    return array_filter(['hover' => $this->hover, 'shadow' => $this->shadow === BattlerShadowSource::ENGINE ? null : $this->shadow->value,
-      'shadowWidth' => $this->shadowWidth === 1.0 ? null : $this->shadowWidth,
-      'shadowOpacity' => $this->shadowOpacity === 1.0 ? null : $this->shadowOpacity], static fn($value): bool => $value !== null);
+    return array_filter(['elevation' => $this->elevation, 'contact' => $this->contact?->value,
+      'bakedShadow' => $this->bakedShadow ?: null,
+      'contactWidth' => $this->contactWidth === 1.0 ? null : $this->contactWidth,
+      'contactOpacity' => $this->contactOpacity === 1.0 ? null : $this->contactOpacity], static fn($value): bool => $value !== null);
   }
 }

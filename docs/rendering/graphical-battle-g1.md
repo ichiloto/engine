@@ -486,38 +486,45 @@ battler's, which a staged field needs; art outside the authored areas and a
 target cursor with no room are still reported. Diagnostics never move
 battlers.
 
-### Contact Shadows And Hover
+### Surface Contact And Elevation
 
 Andrew, 21 October 2026: "can we have a shadow system for battlers. That way
-we don't have to keep worrying about including it in the art." The Engine
-draws a contact shadow under every battler's feet point on the arena's
-ground, so artwork paints bodies only:
+we don't have to keep worrying about including it in the art", and "we need to
+consider semi-submerged characters like Loch Ness (or perhaps in future we'll
+have monsters that are half submerged in the ground like a mole). These
+obviously won't have shadow." Every battler's feet point stays on the surface
+line, where staging, footing, effects and its contact meet the ground
+(`BattlerGroundContact`, shared by the battle and every formation preview):
 
-- The theme owns its style (`BattleCanvasLayout::$shadow`, a
-  `BattlerShadowStyle`): colour, centre strength, softness (0 a hard edge,
-  1 fading from the centre), width as a share of the battler's footprint (a
-  lying or four-legged body's length, a standing body's height times
-  `standing`), flatness, and how fast it shrinks and fades per reference
-  height of hover. No style draws no shadows.
-- Each arena may set its light on it (`'shadow' => ['strength' => 1.3,
-  'color' => '#1a120c']` in arenas.php, a `BattleShadowLight`): darker in a
-  mine, softer on bright grass.
-- Each battler's `grounding` in battlers.php (`BattlerGrounding`) may scale
-  its shadow's width or strength, opt out (`'shadow' => 'none'`, a creature in
-  water), or declare that its artwork paints its own (`'shadow' =>
-  'artwork'`), so the Engine never draws a second. It also sets `hover`, in
-  reference heights: the body rises that far over its feet point while
-  staging, effects, footing and the shadow stay on the ground. An air enemy
-  without its own hover takes the theme's `airHover`; a knocked-out battler
-  lies on the ground. Artwork that paints its own shadow keeps the height it
-  was painted at (its shadow cannot leave the body), and a hover on it is
-  refused until the art is shadow-free and its shadow is the Engine's.
-- The shadow is a radial-gradient composite (`BattlerContactShadow`) at layer
-  90, under every body, following the feet through steps, recoil, poses,
-  knockouts and concession and fading with the battler. A renderer without
-  composites draws none; the Terminal battle never reads any of it.
-  `BattleFormationLayout::compose()` gives each previewed battler the same
-  shadow and lift, so editors and previews match the battle.
+- Elevation, signed, in reference heights (`BattlerGrounding::$elevation` in
+  battlers.php `grounding`): positive raises the body over its feet, zero
+  stands, negative sinks it that far below the surface line and the art below
+  the line is clipped (`CanvasImage::$clipRect`), so a creature rises out of
+  water or pokes out of the ground without art painted half-buried. An air
+  enemy without its own takes the theme's `airElevation`; a knocked-out
+  battler lies on the ground.
+- Contact (`BattlerContact`): `shadow`, `ripple`, `burrow` or `none`, what is
+  drawn where it meets the surface. Without its own choice: negative elevation
+  in water ripples, negative on land burrows, everything else casts a shadow.
+- The shadow is a radial-gradient composite at layer 90, under every body,
+  styled by the theme (`BattleCanvasLayout::$shadow`, a `BattlerShadowStyle`:
+  colour, strength, softness, width as a share of the body footprint,
+  flatness, and how fast it shrinks and fades with height), with each arena's
+  strength and colour (`'shadow' => ['strength' => 1.3, 'color' => '#1a120c']`
+  in arenas.php). No theme style draws no shadows.
+- Ripples and burrows ring the body where it breaks the surface, at layer
+  101, sized to its drawn width: the theme's sprite sheets
+  (`BattleContactEffects`, each a `BattlerPose` with its pivot on the surface
+  line), or until art exists a plain Engine-drawn placeholder in the theme's
+  colours.
+- A battler scales its contact's width and strength (`contactWidth`,
+  `contactOpacity`). Art that paints its own shadow is declared
+  (`'bakedShadow' => true`): the Engine draws no second one and the art keeps
+  the height it was painted at, so an elevation or another contact on it is
+  refused until the art is shadow-free.
+- Contacts follow the feet through steps, recoil, poses, knockouts and
+  concession and fade with the battler. A renderer without composites draws
+  no Engine-drawn contacts; the Terminal battle never reads any of it.
 
 ### Ownership Audit And Game Migration (2026-10-02)
 
