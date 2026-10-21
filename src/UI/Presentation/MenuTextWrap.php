@@ -22,6 +22,26 @@ final class MenuTextWrap
     return mb_strlen($text, 'UTF-8') <= $cells ? $text : rtrim(mb_substr($text, 0, $cells - 1, 'UTF-8')) . "\u{2026}";
   }
 
+  /**
+   * Text wrapped into at most a number of lines: every line when they fit,
+   * else the first lines and an ellipsized last line, so a cut is seen.
+   *
+   * @return non-empty-list<string>
+   */
+  public static function fitLines(string $text, int $cells, int $lines): array
+  {
+    if ($lines < 1) {
+      throw new InvalidArgumentException('Menu text requires at least one line.');
+    }
+    $wrapped = self::lines($text, $cells);
+    if (count($wrapped) <= $lines) {
+      return $wrapped;
+    }
+    $kept = array_slice($wrapped, 0, $lines - 1);
+    $kept[] = self::ellipsize(implode('', array_slice($wrapped, $lines - 1)), $cells);
+    return $kept;
+  }
+
   /** @return non-empty-list<string> Complete text, with whitespace retained at wrap boundaries. */
   public static function lines(string $text, int $cells): array
   {

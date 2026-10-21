@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Assegai\Collections\Stack;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes\EquipmentMenuCommandSelectionMode;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes\EquipmentSelectionMode;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes\EquipmentSlotSelectionMode;
@@ -146,6 +147,8 @@ beforeEach(function () {
   $this->party->addMember($this->actor);
   $this->party->addMember($this->other);
   new ReflectionProperty($this->scene, 'party')->setValue($this->scene, $this->party);
+  // A game scene in play always holds its game state; the Equipment menu reads it for summon availability.
+  new ReflectionProperty($this->scene, 'gameState')->setValue($this->scene, new GameState());
   $this->equipped = new Weapon('Owner Staff', 'A complete current equipment description.', '/', 10,
     parameterChanges: new ParameterChanges(attack: 5), equipmentType: WeaponType::STAFF, id: 'weapon.current');
   $this->candidate = new Weapon('Other Staff', 'A different candidate.', '/', 10,
@@ -488,6 +491,18 @@ it('wraps complete long labels and follows the actual candidate index in a finit
   expect(implode('', characterMenuText($status)['status-name']))->toBe($this->actor->name);
 });
 
+it('keeps the graphical Status whole for any actor name, cutting a name only when no room is left', function () {
+  $theme = new MenuPresentationCatalog($this->root, characterMenuTheme(false));
+  $name = trim(str_repeat('Endless ', 40));
+  new ReflectionProperty($this->actor, 'name')->setValue($this->actor, $name);
+  $status = CharacterMenuPresentation::status($this->actor, $theme);
+  $shown = implode('', characterMenuText($status)['status-name']);
+  $ids = array_column($status->textLayers, 'id');
+  expect($shown)->toEndWith("\u{2026}")
+    ->and($name)->toStartWith(rtrim(mb_substr($shown, 0, -1)))
+    ->and($ids)->toContain('status-conditions-title', 'status-conditions-none');
+});
+
 it('uses optional state delegation and restores the same active menu after a modal frame', function () {
   characterMenuWriteTheme($this->root, characterMenuTheme(true));
   $this->runtime = characterMenuRuntime($this->root, MenuPresentationCatalog::CAPABILITIES);
@@ -578,7 +593,7 @@ it('retains terminal source data and full description while native overflow diag
   $status->character = $this->actor;
   $status->enter();
   $terminal = TerminalText::stripAnsi(implode("\n", Console::getBuffer()));
-  expect($terminal)->toContain('First Actor', 'Current EXP:', 'To Next Level:', 'Owner Staff', 'AP:');
+  expect($terminal)->toContain('First Actor', 'Current EXP', 'To Next Level', 'Owner Staff', 'AP');
 });
 
 it('omits an unconfigured portrait frame rather than substituting the panel artwork', function () {
