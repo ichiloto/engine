@@ -49,25 +49,35 @@ final class ElementalAffinityDetails
   }
 
   /**
-   * One row per defensive tier, every tier present: an empty row states that none applies.
+   * One row per defensive tier, every tier present. With recorded affinities an empty row states that none applies;
+   * without them a tier reads as not recorded unless other authored data (such as a legacy list) names elements.
    *
-   * @param array<string, float> $affinities Canonical identities to multipliers.
+   * @param array<string, float>|null $affinities Canonical identities to multipliers, or null when not recorded.
    * @param array<string, list<string>> $additions Further identities by tier value, such as legacy authored lists.
    * @return list<MenuDetailEntry>
    */
-  public static function createResistanceEntries(array $affinities, array $additions = []): array
+  public static function createResistanceEntries(?array $affinities, array $additions = []): array
   {
     $entries = [];
-    foreach (ElementalAffinityTier::group($affinities) as $tier => $elements) {
-      $entries[] = MenuDetailEntry::createIcons(Vocabulary::getLabel('affinities.' . $tier, self::TIER_LABELS[$tier]),
-        self::createIcons([...$elements, ...($additions[$tier] ?? [])]));
+    foreach (ElementalAffinityTier::group($affinities ?? []) as $tier => $elements) {
+      $label = Vocabulary::getLabel('affinities.' . $tier, self::TIER_LABELS[$tier]);
+      $elements = [...$elements, ...($additions[$tier] ?? [])];
+      $entries[] = $affinities === null && $elements === [] ? self::createUnrecordedEntry($label)
+        : MenuDetailEntry::createIcons($label, self::createIcons($elements));
     }
     return $entries;
   }
 
-  /** @param list<string> $elements */
-  public static function createEffectiveEntry(array $elements): MenuDetailEntry
+  /** @param list<string>|null $elements Null when not recorded. */
+  public static function createEffectiveEntry(?array $elements): MenuDetailEntry
   {
-    return MenuDetailEntry::createIcons(Vocabulary::getLabel('affinities.effective', 'Effective against'), self::createIcons($elements));
+    $label = Vocabulary::getLabel('affinities.effective', 'Effective against');
+    return $elements === null ? self::createUnrecordedEntry($label) : MenuDetailEntry::createIcons($label, self::createIcons($elements));
+  }
+
+  /** Unknown is not "none": the row says so, muted, instead of showing an empty list. */
+  private static function createUnrecordedEntry(string $label): MenuDetailEntry
+  {
+    return MenuDetailEntry::createField($label, Vocabulary::getLabel('affinities.unrecorded', 'Not recorded'), 'disabled');
   }
 }

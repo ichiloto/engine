@@ -92,12 +92,21 @@ it('classifies affinity tiers from the multipliers combat applies, every tier pr
   expect(array_column($entries, 'label'))->toHaveCount(5)
     ->and(array_map(fn($icon) => [$icon->role, $icon->name], $entries[0]->icons))->toBe([['element.heat', 'Heat'], ['element.unlisted', 'Unlisted']])
     ->and($entries[4]->icons[0]->name)->toBe('Cold');
+  // Not recorded is not "none": unknown tiers say so; tiers other data names still list their elements.
+  $unrecorded = ElementalAffinityDetails::createResistanceEntries(null, ['weakness' => ['Heat']]);
+  expect($unrecorded[0]->kind)->toBe(\Ichiloto\Engine\UI\Presentation\MenuDetailKind::ICONS)
+    ->and(array_column(array_slice($unrecorded, 1), 'text'))->each->toBe('Not recorded')
+    ->and(ElementalAffinityDetails::createEffectiveEntry(null)->text)->toBe('Not recorded')
+    ->and(ElementalAffinityDetails::createEffectiveEntry([])->icons)->toBe([]);
 });
 
 it('carries summon affinities through the element vocabulary and writes them only when authored', function () {
   $timeline = ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];
   $plain = SummonCutsceneDefinition::fromArrays(['id' => 'plain', 'name' => 'Plain'], $timeline);
-  expect($plain->toDataArray())->not->toHaveKeys(['elementAffinities', 'effectiveAgainst']);
+  expect($plain->toDataArray())->not->toHaveKeys(['elementAffinities', 'effectiveAgainst'])
+    ->and($plain->elementAffinities)->toBeNull()->and($plain->effectiveAgainst)->toBeNull();
+  $neutral = SummonCutsceneDefinition::fromArrays(['id' => 'neutral', 'name' => 'Neutral', 'elementAffinities' => []], $timeline);
+  expect($neutral->toDataArray()['elementAffinities'])->toBe([]);
   $summon = SummonCutsceneDefinition::fromArrays(['id' => 'spirit', 'name' => 'Spirit',
     'elementAffinities' => ['heat' => 0.25, 'Cold' => '1.5'], 'effectiveAgainst' => ['cold', 'Cold']], $timeline);
   expect($summon->elementAffinities)->toBe(['Heat' => 0.25, 'Cold' => 1.5])->and($summon->effectiveAgainst)->toBe(['Cold'])

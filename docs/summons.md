@@ -379,7 +379,10 @@ list, and the elements its move is effective against:
 'effectiveAgainst' => ['Ice'],
 ```
 
-Both are written only when authored. The earlier free-text `strengths` and
+Both are written only when recorded. An absent key means not recorded, and the
+Summons menu says so ("Not recorded") rather than showing an empty row. A
+recorded map leaves unlisted elements neutral, as for enemies, so its empty
+tiers mean none. The earlier free-text `strengths` and
 `weaknesses` lists still load and still show (as Effective against and
 Weaknesses) until a summon's source is migrated; they are not validated, so a
 name outside the element list shows as written.

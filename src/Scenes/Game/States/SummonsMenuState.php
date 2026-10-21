@@ -265,7 +265,9 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $move = [MenuDetailEntry::createHeading(Vocabulary::getLabel('summons.info.move', 'Move'))];
         if ($definition->moveName !== null) { $move[] = MenuDetailEntry::createProse($definition->moveName); }
         if ($definition->description !== '') { $move[] = MenuDetailEntry::createProse($definition->description); }
-        $move[] = ElementalAffinityDetails::createEffectiveEntry([...$definition->effectiveAgainst, ...$definition->strengths]);
+        $effective = $definition->effectiveAgainst === null && $definition->strengths === [] ? null
+            : [...$definition->effectiveAgainst ?? [], ...$definition->strengths];
+        $move[] = ElementalAffinityDetails::createEffectiveEntry($effective);
         $profile = [];
         if ($definition->element !== '') { $profile[] = MenuDetailEntry::createField(Vocabulary::getLabel('summons.info.element', 'Element'), $definition->element); }
         foreach ($definition->attributes as $label => $value) {

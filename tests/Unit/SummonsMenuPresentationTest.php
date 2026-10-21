@@ -324,4 +324,13 @@ it('reads Info as Move, Profile and Resistances with every resistance row, keepi
     ->and($icons('Immunities'))->toBe(['Earth'])
     ->and($icons('Lesser Resistances'))->toBe([])->and($icons('Absorbed Elements'))->toBe([])
     ->and(array_find($entries, fn($entry) => $entry->label === 'Speed')->kind)->toBe(\Ichiloto\Engine\UI\Presentation\MenuDetailKind::NUMBER);
+  // A summon with only the legacy lists keeps them and marks the unrecorded tiers.
+  $legacy = new SummonCutsceneDefinition('legacy', 'Legacy', weaknesses: ['Water']);
+  new ReflectionProperty(SummonsMenuState::class, 'availableSummons')->setValue($state, [$legacy]);
+  new ReflectionProperty($state, 'selectedSummonId')->setValue($state, 'legacy');
+  new ReflectionMethod($state, 'refreshUI')->invoke($state);
+  $entries = new ReflectionMethod($state, 'getDetailSheet')->invoke($state)->getEntries();
+  $value = fn(string $label) => array_find($entries, fn($entry) => $entry->label === $label);
+  expect(array_column($value('Weaknesses')->icons, 'name'))->toBe(['Water'])
+    ->and($value('Immunities')->text)->toBe('Not recorded')->and($value('Effective against')->text)->toBe('Not recorded');
 });
