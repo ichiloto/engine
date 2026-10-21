@@ -106,12 +106,14 @@ trait HasStates
    *
    * @param State $state The state to add.
    * @param int $chancePercent The base infliction chance (before resistance).
+   * @param bool $givenByBearer True when the bearer gives itself the state on its own turn: its duration and ticks start after that turn.
    * @return bool True when the state was newly inflicted.
    */
   public function addState(
     State $state,
     int $chancePercent = 100,
     ?CombatRandomSource $random = null,
+    bool $givenByBearer = false,
   ): bool
   {
     if ($this->hasState($state->id)) {
@@ -127,7 +129,7 @@ trait HasStates
       return false;
     }
 
-    $this->states[] = new StateInstance($state, $state->durationTurns);
+    $this->states[] = new StateInstance($state, $state->durationTurns, awaitsNextTurn: $givenByBearer);
 
     return true;
   }
@@ -182,6 +184,37 @@ trait HasStates
     return null;
   }
 
+  /**
+   * Returns how much of a blockable hit this battler takes: every protective state's rate multiplied together.
+   *
+   * @return float 1.0 unprotected, 0.5 halved, 0.0 blocked outright.
+   */
+  public function getDamageTakenRate(): float
+  {
+    $rate = 1.0;
+    foreach ($this->states as $instance) {
+      $rate *= $instance->state->damageTakenRate;
+    }
+
+    return $rate;
+  }
+
+  /**
+   * Determines whether a state has this battler taking the hits meant for its weakest ally.
+   *
+   * @return bool True while the battler covers its allies.
+   */
+  public function isCoveringAllies(): bool
+  {
+    foreach ($this->states as $instance) {
+      if ($instance->state->coversAllies) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   /** Harmful or action-blocking states take precedence over beneficial states. */
   public function getStateDisposition(): StateDisposition
   {
@@ -207,6 +240,13 @@ trait HasStates
     $events = [];
 
     foreach ($this->states as $instance) {
+      // A state the bearer gave itself this turn starts counting after it.
+      if ($instance->awaitsNextTurn) {
+        $instance->awaitsNextTurn = false;
+        $events[] = ['state' => $instance->state, 'hpDelta' => 0, 'expired' => false];
+        continue;
+      }
+
       $hpDelta = 0;
 
       if ($instance->state->tickFormula !== null && ! $this->isKnockedOut) {
@@ -302,14 +342,17 @@ trait HasStates
   /**
    * Evaluates a state's authored tick formula against this bearer.
    *
+   * A healing tick (a positive delta) stops at the bearer's maximum HP, as any other recovery does.
+   *
    * @param State $state The state.
-   * @return int The HP delta the formula asks for (negative harms).
+   * @return int The HP delta the tick applies (negative harms).
    */
   protected function evaluateTickFormula(State $state): int
   {
     $target = $this;
+    $delta = intval(eval("return {$state->tickFormula};") ?? 0);
 
-    return intval(eval("return {$state->tickFormula};") ?? 0);
+    return $delta > 0 ? min($delta, max(0, $this->stats->totalHp - $this->stats->currentHp)) : $delta;
   }
 
   /** Drops the states whose duration has run out. */

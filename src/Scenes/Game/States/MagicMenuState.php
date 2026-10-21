@@ -309,6 +309,12 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
      */
     protected function normalizeSelectionIndexes(): void
     {
+        // A character with nothing left to learn here shows no Learn tab; their own skills may come from a Mastery Map.
+        $current = $this->tabs[$this->activeTabIndex] ?? null;
+        $this->tabs = array_values(array_filter(['Use', 'Learn', 'Sort'], fn(string $tab): bool => $tab !== 'Learn'
+            || ($this->character?->spellbook->getLearnableSpells() ?? []) !== []));
+        $index = $current === null ? false : array_search($current, $this->tabs, true);
+        $this->activeTabIndex = $index === false ? clamp($this->activeTabIndex, 0, count($this->tabs) - 1) : $index;
         $useCount = count($this->character?->spellbook->getLearnedSpells() ?? []);
         $learnCount = count($this->character?->spellbook->getLearnableSpells() ?? []);
         $sortCount = count($this->sortOptions);

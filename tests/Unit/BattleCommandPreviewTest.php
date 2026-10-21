@@ -12,7 +12,7 @@ use Ichiloto\Engine\Battle\Presentation\BattlePoseRole;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationSnapshot;
 use Ichiloto\Engine\Battle\Presentation\BattlerArtwork;
-use Ichiloto\Engine\Battle\Presentation\BattlerSlot;
+use Ichiloto\Engine\Battle\Presentation\BattleGround;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattlePresentation;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneCompiler;
@@ -47,14 +47,14 @@ beforeEach(function () {
     new ReflectionProperty(Enemy::class, $key)->setValue($this->target, $value);
   }
   $this->battle = new BattleConfig($party, new Troop('Preview troop', [$this->target],
-    graphicalFormation: [new BattlerSlot(100, 200, 48, 96)]));
+    graphicalFormation: [getStageSlot(100, 200, 48, 96, groundBottom: 250)]));
   $art = new BattlerArtwork('body.png', 8, 16, 4, 16);
   $this->catalog = new BattlePresentationCatalog([
     'preview' => new BattleArenaDefinition('Preview',
       new CanvasImage('arena', 'arena.png', new CanvasRectangle(0, 0, 400, 300))),
   ], ['Preview Hero' => $art], ['Preview Target' => $art],
-    ui: new BattleCanvasLayout(400, 300, uiCellWidth: 2, uiCellHeight: 4,
-      partySlots: [new BattlerSlot(320, 200, 48, 96)]),
+    ui: new BattleCanvasLayout(400, 300, uiCellWidth: 2, uiCellHeight: 4, ground: new BattleGround(bottom: 250),
+      partySlots: [getStageSlot(320, 200, 48, 96, groundBottom: 250)]),
     defaultArena: 'preview');
   $definition = SummonCutsceneDefinition::fromArrays(['id' => 'preview-call', 'name' => 'Preview Call',
     'effectTiming' => ['mode' => 'cue', 'cueId' => 'contact']], [

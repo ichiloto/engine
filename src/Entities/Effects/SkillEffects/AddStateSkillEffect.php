@@ -48,7 +48,7 @@ class AddStateSkillEffect extends SkillEffect
         $context->recordSecondaryOutcome(
           'state',
           $state->id,
-          $target->addState($state, $this->chancePercent, $context->random),
+          $target->addState($state, $this->chancePercent, $context->random, $target === $context->user),
         );
       }
     }

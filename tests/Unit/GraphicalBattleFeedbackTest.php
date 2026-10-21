@@ -70,7 +70,7 @@ function getGraphicalFeedbackLayout(?CanvasRectangle $area = null): BattleCanvas
 {
   return new BattleCanvasLayout(1350, 720,
     skin: graphicalFeedbackSkin(), feedbackArea: $area ?? new CanvasRectangle(0, 80, 1350, 452),
-    partySlots: [new BattlerSlot(969, 265, 143, 181)]);
+    partySlots: [getStageSlot(969, 265, 143, 181)]);
 }
 
 function graphicalFeedbackParticipant(int $id, array $lines, array $persistent = [], ?CanvasRectangle $bounds = null): array
@@ -94,7 +94,7 @@ function graphicalFeedbackFixture(string $name = 'Hero'): array
     $enemies[] = $enemy;
   }
   $battle = new BattleConfig($party, new Troop('Twins', $enemies, graphicalFormation:
-    [new BattlerSlot(375, 467, 173, 197), new BattlerSlot(497, 233, 197, 119)]));
+    [getStageSlot(375, 467, 173, 197), getStageSlot(497, 233, 197, 119)]));
   $art = new BattlerArtwork('graphical-canvas/synthetic-143x181.png', 143, 181, 71.5, 181);
   $presentation = GraphicalBattlePresentation::prepare($battle,
     new BattlePresentationCatalog(['arena.test' => new BattleArenaDefinition('Test scene',

@@ -276,7 +276,7 @@ Example structure (generic geometry and placeholder paths, not game artwork):
 <?php
 declare(strict_types=1);
 
-use Ichiloto\Engine\Battle\Presentation\{BattleArenaDefinition, BattleCanvasLayout, BattlePresentationCatalog, BattlerArtwork, BattlerSlot};
+use Ichiloto\Engine\Battle\Presentation\{BattleArenaDefinition, BattleCanvasLayout, BattleGround, BattlePresentationCatalog, BattlerArtwork, BattleStageSlot};
 use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasImage, CanvasRectangle};
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 
@@ -285,6 +285,7 @@ return new BattlePresentationCatalog(
     'arena.example' => new BattleArenaDefinition(
       name: 'Example clearing',
       background: new CanvasImage('arena', 'Graphics/Battle/arena.png', new CanvasRectangle(0, 0, 1350, 720)),
+      ground: new BattleGround(top: 300),
     ),
   ],
   actors: [
@@ -299,16 +300,19 @@ return new BattlePresentationCatalog(
   ui: new BattleCanvasLayout(1350, 720,
     skin: require __DIR__ . '/battle-ui.php',
     feedbackArea: new CanvasRectangle(0, 80, 1350, 452),
-    partySlots: [new BattlerSlot(969, 265, 143, 181)]),
+    partySlots: [new BattleStageSlot(969, 0, 143, 181)],
+    groundGap: 20),
   defaultArena: 'arena.example',
 );
 ```
 
-`BattleCanvasLayout` owns canvas dimensions, the compatibility UI grid, party
-slots and feedback safe area. Its skin is optional; a skinned layout requires
-an explicit feedback safe area. `BattleArenaDefinition` is a scene only: a
-display `name`, `background`, and optional `skin`. It no longer extends the
-layout or owns enemy/party positions. A scene skin changes treatment without
+`BattleCanvasLayout` owns canvas dimensions, the compatibility UI grid, the
+party formation, the theme's ground defaults and formation spacing, and the
+feedback safe area. Its skin is optional; a skinned layout requires
+an explicit feedback safe area. `BattleArenaDefinition` is a scene: a
+display `name`, `background`, optional `skin`, and the optional `ground` its
+picture shows (see [Arena Ground And Staging](#arena-ground-and-staging)). It
+does not extend the layout or own enemy/party positions. A scene skin changes treatment without
 changing shared geometry. Preflight checks its background against the shared
 canvas, validates PNGs and capabilities before battle-entry effects, and refuses
 unusable optional graphics without cancelling combat.
@@ -361,40 +365,99 @@ identity is added. Targets and feedback refer to the actual PHP object.
 ### Troop-Owned Graphical Formation
 
 Arena-side `enemySlots` and `enemySlotsByTroop` are removed, not retained as
-compatibility overrides. Each troop enemy in `Data/troops.php` owns its
-graphical placement beside its unchanged terminal position:
+compatibility overrides. Each troop enemy in `Data/troops.php` may own its
+graphical place beside its unchanged terminal position:
 
 ```php
 ['enemy' => 'Existing Enemy Catalog Key', 'position' => [15, 7],
  'graphicalPlacement' => [
-   'x' => 375, 'y' => 467, 'width' => 173, 'height' => 197,
+   'x' => 375, 'depth' => 120, 'width' => 173, 'height' => 197,
  ]],
 ```
 
-These are `BattlerSlot` pivot destination and maximum contain dimensions in
-shared canvas units, not terminal cells or copied source-image dimensions.
-Exactly four numeric finite keys are accepted: positions nonnegative,
-dimensions positive, each at most 16384. `Troop::fromArray($data, $source)`
-diagnoses invalid optional data with its troop/enemy source path, preserves the
-combatants and terminal positions, and records a refusal for graphical
-preflight. Absence is allowed for terminal-only content but not inferred from
-terminal coordinates. Canvas bounds and complete participant coverage are
-checked during graphical preparation.
+These are `BattleStageSlot` values in shared canvas units: `x` is the column
+the feet stand on, `depth` how far back from the arena ground's near edge, and
+width/height the movement and legacy contain limits, with optional
+`displayScale`. They are not terminal cells or copied source-image
+dimensions. A placement written with a fixed canvas `y` (the contract before
+20 October 2026) is refused with what to do: place the member again.
+`Troop::fromArray($data, $source)` diagnoses invalid optional data with its
+troop/enemy source path, preserves the combatants and terminal positions, and
+records a refusal for graphical preflight. A member without a placement is
+arranged by the battle ([staging](#arena-ground-and-staging)); placements are
+never inferred from terminal coordinates.
 
-`Troop::getGraphicalSlot($enemy): ?BattlerSlot` associates the authored slot
+`Troop::getStagePlace($enemy): ?BattleStageSlot` associates the authored place
 with the actual instantiated Enemy object. Sorting, removing a defeated enemy,
-or having repeated enemies of one type cannot reassign a survivor's placement.
-The association survives ordinary serialization without adding a save schema.
-Party placement belongs to the shared layout and follows the active frontline.
-Any valid troop formation can be prepared against any valid scene; neither
-selection nor geometry depends on troop names.
+or having repeated enemies of one type cannot reassign a survivor's place; the
+battle's staged slots are keyed by instance too. The association survives
+ordinary serialization without adding a save schema. Party placement belongs
+to the shared layout and follows the active frontline. Any valid troop
+formation stands on any valid scene; neither selection nor geometry depends on
+troop names.
 
-Claude owns Editor work: source-preserving graphicalPlacement round trips
-through existing troop editing transactions/undo; arena reference pickers from
-getArenaChoices(); validate battleArena keys in map encounters and scripted
-battle commands. Refuse unsupported PHP edits before writing. Do not add a
-mandatory graphical authoring workflow to the TUI or flatten authored catalogs.
-Runtime support does not claim this authoring work is complete.
+The Editor authors placements source-preservingly through troop transactions:
+Align writes the Engine's arrangement for every member, Arrange Automatically
+clears every placement, and the GUI editor's canvas drops a member at a column
+and depth on the previewed arena's ground, each one undo step. Arenas are
+authored as data (`Data/Presentation/arenas.php`, Battle Arenas in the GUI
+editor). The TUI keeps no mandatory graphical workflow.
+
+### Arena Ground And Staging
+
+Andrew, 20 October 2026, on GPUI battles: "in GPUI we have to think about the
+background and how characters place vs the horizon. We are often leaving too
+much space between the Battle UI's menu (bottom of screen) and the lowest
+placed battler." Formations were absolute canvas points shared by every arena,
+so on many backgrounds the back of the party stood near the horizon while the
+front left an empty strip above the battle UI.
+
+Each arena declares the ground its picture shows as `BattleGround(top,
+bottom, perspective)`: `top` is the far edge battlers may stand on (just below
+the horizon or walkable edge), `bottom` the near edge, and `perspective` the
+display scale of a battler on the far edge relative to one on the near edge,
+linear between. Every field is optional: an arena inherits the layout's
+`ground` (the theme's default ground), and the layout's own defaults are the
+battler area's top (or the canvas top) and the battle UI's top less the
+theme's `groundGap` (`BattleCanvasLayout::getHudTop()` is the one owner of
+where the UI's bottom windows begin, read by `GraphicalBattleHud` too).
+`BattleCanvasLayout::getGround($arena)` resolves a `BattleGroundBand`.
+
+`BattleStaging::stage()` stands one battle's formations on that ground:
+
+- A stage place's depth is measured back from the near edge, so the front
+  rank stands on the near edge of every arena. A side deeper than the ground
+  is compressed in depth as a whole, keeping its shape; nobody stands beyond
+  the far edge.
+- The party uses the layout's `partySlots` (stage places, back to front); a
+  smaller frontline takes the front-most slots. A layout without party slots
+  has its party arranged like a troop.
+- Troop members with a place keep it; the rest are arranged by
+  `BattleStaging::arrange()`: a staggered echelon from back (first member) to
+  front (last), each rank stepping back by `BattleFormationSpacing::depth`
+  times the nearer battler's drawn height and alternating between an inner
+  lane and an outer lane `lateral` times their mean drawn width beyond it,
+  fitted and centred across the side's area by the art's real extent either
+  side of its feet. A battler whose art reaches below the battler area (a
+  creature's body under its waterline) stands that much further back. Spacing
+  follows the current artwork, so replaced art re-spaces itself.
+- Battlers are drawn back to front by where their feet stand, so a nearer
+  battler covers one behind it.
+
+`GraphicalBattlePresentation::getSlot($battler)` and `getStaging()` expose the
+staged `BattlerSlot`s; base art, poses, cursors, condition slots, feedback,
+effects, defeat and concession treatments all read these, so they follow the
+ground without their own geometry. `BattleFormationLayout::compose()` stages
+previews through the same rule and returns its `staging`. The Terminal battle,
+combat, saves and terminal positions never read any of it; richer staging
+(animated poses, overlapping effects, summons) builds on the same slots.
+
+Clearance (`BattleFormationClearance`) now reports battlers standing on the
+same ground: two footings (the lowest 12% of visible art across its middle
+60%) that overlap. It no longer reports art that merely overlaps another
+battler's, which a staged field needs; art outside the authored areas and a
+target cursor with no room are still reported. Diagnostics never move
+battlers.
 
 ### Ownership Audit And Game Migration (2026-10-02)
 
@@ -491,7 +554,8 @@ remains intact. Editor work and native cross-platform acceptance remain separate
 
 Whole-image `BattlerArtwork` dimensions come from the current PNG and pivots
 scale with replacement dimensions. Explicit atlas regions retain source-pixel
-geometry relative to their crop. `BattlerSlot(x, y, width, height, displayScale: 1.0)` gives the
+geometry relative to their crop. The staged `BattlerSlot(x, y, width, height, displayScale: 1.0)` (a stage place
+stood on the arena's ground, perspective included in its display scale) gives the
 graphical pivot destination and movement/legacy contain dimensions. The catalog's
 optional `BattleScale` owns a shared reference actor, reference body height and
 identity-keyed actor/enemy proportions. `BattlerScale` calibrates that body unit

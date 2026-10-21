@@ -23,6 +23,7 @@ final readonly class BattleFormationLayout
   private function __construct(
     public BattleCanvasLayout $layout,
     public ?BattleArenaDefinition $arena,
+    public BattleStaging $staging,
     public array $backgrounds,
     public array $party,
     public array $enemies,
@@ -31,7 +32,9 @@ final readonly class BattleFormationLayout
 
   /**
    * Arena selection is preview context only; this never mutates a troop or combat state.
-   * @param list<array{enemyId: string, slot: BattlerSlot}> $enemies
+   * Members without a place are arranged by the Engine beside the placed ones,
+   * exactly as the battle arranges them ({@see BattleStaging}).
+   * @param list<array{enemyId: string, slot: ?BattleStageSlot}> $enemies
    * @param list<string> $partyActorIds
    */
   public static function compose(BattlePresentationCatalog $catalog, ?string $arenaId, array $enemies,
@@ -45,7 +48,7 @@ final readonly class BattleFormationLayout
     $arena = $arenaId === null ? null : $catalog->getArena($arenaId);
     $layout = $catalog->ui ?? throw new RuntimeException('A graphical formation requires an explicit battle canvas layout.');
     if ($arena !== null) { $layout = $layout->getForArena($arena); }
-    if (count($partyActorIds) > count($layout->partySlots)) {
+    if ($layout->partySlots !== [] && count($partyActorIds) > count($layout->partySlots)) {
       throw new InvalidArgumentException('The formation requires a slot for every preview party member.');
     }
     $backgrounds = [];
@@ -55,20 +58,75 @@ final readonly class BattleFormationLayout
         $backgrounds[] = $arena->background;
       }
     }
+    foreach ($partyActorIds as $id) {
+      if (!is_string($id)) { throw new InvalidArgumentException('Party preview identities must be strings.'); }
+      CanvasValidation::id($id);
+    }
+    $places = [];
+    foreach ($enemies as $entry) {
+      if (!is_array($entry) || !is_string($entry['enemyId'] ?? null) || !array_key_exists('slot', $entry)
+        || !($entry['slot'] === null || $entry['slot'] instanceof BattleStageSlot)) {
+        throw new InvalidArgumentException('Enemy previews require enemyId and a typed stage place or null.');
+      }
+      CanvasValidation::id($entry['enemyId']);
+      $places[] = $entry['slot'];
+    }
+    $getSize = static fn(string $id, bool $party, ?BattleStageSlot $place): array => self::getStandingSize(
+      self::getAvailableArtwork($catalog, $id, $party, $assetRoot), (($party ? $catalog->actorPoses : $catalog->enemyPoses)[$id] ?? null),
+      $catalog->scale?->getProfile($id, $party), $catalog->scale, $place, $assetRoot);
+    $staging = BattleStaging::stage($layout, $arena,
+      array_map(static fn(string $id): array => $getSize($id, true, null), $partyActorIds),
+      $places, array_map(static fn(array $entry): array => $getSize($entry['enemyId'], false, $entry['slot']), $enemies));
     $party = $troop = [];
     foreach ($partyActorIds as $index => $id) {
-      if (!is_string($id)) { throw new InvalidArgumentException('Party preview identities must be strings.'); }
       $party[] = self::resolveBattler($catalog, $layout, $assetRoot, $id, true,
-        $layout->partySlots[$index], $index, $elapsedSeconds, $reducedMotion);
+        $staging->party[$index], $index, $elapsedSeconds, $reducedMotion);
     }
     foreach ($enemies as $index => $entry) {
-      if (!is_array($entry) || !is_string($entry['enemyId'] ?? null) || !($entry['slot'] ?? null) instanceof BattlerSlot) {
-        throw new InvalidArgumentException('Enemy previews require enemyId and a typed graphical slot.');
-      }
       $troop[] = self::resolveBattler($catalog, $layout, $assetRoot, $entry['enemyId'], false,
-        $entry['slot'], $index, $elapsedSeconds, $reducedMotion);
+        $staging->enemies[$index], $index, $elapsedSeconds, $reducedMotion);
     }
-    return new self($layout, $arena, $backgrounds, $party, $troop, $catalog->getArenaChoices());
+    return new self($layout, $arena, $staging, $backgrounds, $party, $troop, $catalog->getArenaChoices());
+  }
+
+  /**
+   * A battler's drawn size before slot depth, at rest: what staging spaces it
+   * by. Read from the current artwork (its idle pose when it has one) at
+   * battle scale, or the legacy width or contain fit; the reference body when
+   * no art is usable, so a name stand-in still takes a place.
+   *
+   * @return array{width: float, height: float, pivotX: float, pivotY: float}
+   */
+  public static function getStandingSize(?BattlerArtwork $art, ?BattlePoseSet $poses, ?BattlerScale $profile,
+    ?BattleScale $scale, ?BattleStageSlot $place, string $assetRoot): array
+  {
+    $pose = $poses?->getPose(BattlePoseRole::IDLE);
+    try {
+      $posed = $pose?->getArtwork($assetRoot, 0, true);
+    } catch (InvalidArgumentException|RuntimeException) {
+      $posed = null;
+    }
+    $drawn = $posed ?? $art;
+    if ($drawn === null) {
+      $unit = $scale === null ? 1.0 : $scale->referenceHeight * ($profile?->relativeSize ?? 1.0);
+      return ['width' => $unit, 'height' => $unit, 'pivotX' => .5, 'pivotY' => 1.0];
+    }
+    $pixelScale = match (true) {
+      $profile !== null && $scale !== null => $profile->getPixelScale($scale->referenceHeight, $drawn,
+        $posed === null ? null : $pose->scaleSpan),
+      $poses?->displayWidth !== null && $art !== null => $poses->displayWidth / $art->width,
+      $place !== null => min($place->width / $drawn->width, $place->height / $drawn->height),
+      default => 1.0,
+    };
+    return ['width' => $drawn->width * $pixelScale, 'height' => $drawn->height * $pixelScale,
+      'pivotX' => $drawn->pivotX / $drawn->width, 'pivotY' => $drawn->pivotY / $drawn->height];
+  }
+
+  private static function getAvailableArtwork(BattlePresentationCatalog $catalog, string $id, bool $party, string $assetRoot): ?BattlerArtwork
+  {
+    $art = ($party ? $catalog->actors : $catalog->enemies)[$id] ?? null;
+    $size = $art === null ? null : PngAssetPreflight::getAvailableSize($assetRoot, $art->asset);
+    return $size === null ? null : $art->clampedTo($size['width'], $size['height']);
   }
 
   /** Metadata for the existing name-only runtime fallback; no substitute image is drawn. */
