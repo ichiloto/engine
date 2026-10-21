@@ -5,6 +5,8 @@ namespace Ichiloto\Engine\Battle\Enumerations;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\BattleCommandCatalog;
+use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
 
 /**
@@ -22,11 +24,18 @@ enum BattleActionCategory: string
   /**
    * Infers the action timing category from the given battle action.
    *
+   * A summon is whatever an authored summon links to, so its pacing follows
+   * the command catalogue's action type rather than the action's name.
+   *
    * @param BattleAction|null $action The action to categorize.
    * @return self
    */
   public static function fromAction(?BattleAction $action): self
   {
+    if (BattleCommandCatalog::getActionType($action) === BattleCommandType::SUMMON) {
+      return self::SUMMON;
+    }
+
     if ($action instanceof AttackAction || $action === null) {
       return self::PHYSICAL_ATTACK;
     }
@@ -45,7 +54,6 @@ enum BattleActionCategory: string
     $name = strtolower($action->name);
 
     return match (true) {
-      str_contains($name, 'summon'), str_contains($name, 'esper') => self::SUMMON,
       str_contains($name, 'flare'), str_contains($name, 'ultima'), str_contains($name, 'meteor') => self::HIGH_MAGIC,
       str_contains($name, 'magic'), str_contains($name, 'spell') => self::BASIC_MAGIC,
       default => self::PHYSICAL_ATTACK,
