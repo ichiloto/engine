@@ -128,6 +128,17 @@ editing surface is owned by the GUI Editor plan. Related docs:
   the band's `width` as a fraction of a cell and its
   `opacity`. Its look belongs to the tileset because it matches that art's
   lighting. A tileset without `shadows` casts none.
+- A tileset may say what its tiles show at ground level (`appearance`), for
+  validation alone: `'appearance' => ['barrier' => ['C', 1544, 7], 'ground'
+  => ['A5']]`. Each class (`ground`, `water`, `barrier`, `overhead`: art
+  over the player or a light decoration that says nothing about the ground)
+  lists whole sheets and flag identities, as shadow casters do. A tile's own
+  entry comes first, then `above` (overhead) and `tables` (barrier), then its
+  sheet's entry, then RPG Maker's sheet kinds: A1 water, A2 ground, A3
+  barrier, A4 ground on its tops and barrier on its wall faces. A5 and B to E
+  hold anything and have no default; a cell showing such a tile is not
+  judged until it is classified. The game ignores `appearance` and it never
+  changes passage ([look and passage](#look-and-passage)).
 
 ## Graphical map data
 
@@ -519,6 +530,45 @@ events stays legal. An object and an entrance whose conditions provably never
 hold together (`WorldConditionExclusion`) do not meet. The fix moves the
 entrance to the front of the art, or the art to the entrance; never a raised
 layer, a blocker derived from the image or a moved collision cell.
+
+### Look and passage
+
+`MapPassageAgreementRule` (rules `passage.invisible-wall`,
+`passage.walk-through`, `passage.footprint` and `passage.unjudged`, through
+`MapCompletenessValidator::validatePassageAgreement`) compares what a map with
+graphics shows with what its collision lets the player do, cell by cell.
+Collision is read through `MapCollisionResolver::resolveMap`, so declared
+occupancy and glyph-keyed compatibility are judged alike; graphics stay
+independent of it, and nothing here changes either. It warns about:
+
+- a solid cell that shows only walkable ground: no obstacle tile, no art drawn
+  over the player and no world object art standing in its middle;
+- a walkable cell whose topmost ground-claiming tile is water or a barrier, or
+  that a world object's opaque art covers by at least 60% on the object's
+  ground rows;
+- a world object whose art covers less than half of its solid cells' area and
+  leaves some of them bare. Its solid cells are its `covers` cells and its
+  resource's `occupancyStamp`, where collision blocks movement, without its
+  painted doorway. A slender post standing in its cell leaves nothing bare.
+
+Art covers a cell when it stands in the cell's middle, where the player stops
+(opaque pixels in the central quarter of its columns on a quarter of its
+rows), so a sliver of a building along a cell's edge is not taken for the
+building. Coverage is read from the current PNG each time, placed as the field
+draws the object; nothing about the image is stored, so replacing it needs no
+update. A tile's class comes from its tileset's `appearance`. A cell is not
+judged when what it shows is unknown: an unclassified tile, a terminal glyph
+still showing, an NPC, or art that cannot be read (`passage.unjudged`).
+Entrances and painted doorways belong to the doorway rule above, art above an
+object's top ground row is ordinary overhang, a conditional object's art does
+not count as shown (it is absent at times), and a walkable pocket walled in on
+every side with no event or NPC in it, as a terminal map draws a wall's face,
+is never walked through. A tile layer drawn half a cell off counts as an
+obstacle over every cell it overlaps but never makes a cell a walk-through.
+
+Findings are warnings: artists own composition, so a map with them plays,
+saves and loads unchanged. The Editor reports them in validation and the GUI
+editor's collision view marks every cell (see the Editor manual).
 
 These checks resolve declared identities and cells. They cannot infer an
 inspection subject or a local speaker from dialogue prose; speakers are

@@ -14,12 +14,14 @@ use RuntimeException;
  * A project tileset: RPG Maker sheets by name, the graphical flags RPG Maker
  * keeps per tile, and the pieces maps are built from with it. Passage
  * settings do not exist here: collision always comes from the terminal
- * layers. Loaded from `Data/Tilesets/<id>.php`.
+ * layers. What each tile shows at ground level ({@see TilesetAppearance}) is
+ * for validation alone and never changes passage. Loaded from
+ * `Data/Tilesets/<id>.php`.
  */
 final readonly class Tileset
 {
   public const string DIRECTORY = 'Data/Tilesets';
-  private const array FIELDS = ['name', 'sheets', 'above', 'tables', 'pieces', 'missingArt', 'shadows'];
+  private const array FIELDS = ['name', 'sheets', 'above', 'tables', 'pieces', 'missingArt', 'shadows', TilesetAppearance::DATA_KEY];
 
   /**
    * @param array<string, string> $sheets Asset-relative PNG paths keyed by sheet name.
@@ -28,6 +30,7 @@ final readonly class Tileset
    * @param array<string, TilesetPiece> $pieces Whole items, keyed by piece id, in authored order.
    * @param int|null $missingArt The plain tile that marks a cell whose art is still to do, or null.
    * @param TilesetShadows|null $shadows The shadow its raised tiles cast, or null when none do.
+   * @param TilesetAppearance $appearance What its tiles show at ground level, read by validation only.
    */
   public function __construct(
     public string $id,
@@ -38,6 +41,7 @@ final readonly class Tileset
     public array $pieces = [],
     public ?int $missingArt = null,
     public ?TilesetShadows $shadows = null,
+    public TilesetAppearance $appearance = new TilesetAppearance(),
   ) {}
 
   public static function load(string $assetRoot, string $id): self
@@ -97,7 +101,8 @@ final readonly class Tileset
     }
     $shadows = array_key_exists('shadows', $data)
       ? TilesetShadows::fromArray($data['shadows'], $context, self::getIdentityList(...)) : null;
-    return new self($id, $data['name'], $sheets, $above, $tables, $pieces, $missingArt, $shadows);
+    $appearance = TilesetAppearance::fromArray($data[TilesetAppearance::DATA_KEY] ?? [], $context, self::getIdentityList(...));
+    return new self($id, $data['name'], $sheets, $above, $tables, $pieces, $missingArt, $shadows, $appearance);
   }
 
   /** @return list<int> Flag identities, one per autotile kind. */
@@ -124,6 +129,12 @@ final readonly class Tileset
   public function isTable(int $id): bool
   {
     return in_array(TileId::getFlagId($id), $this->tables, true);
+  }
+
+  /** What a tile shows at ground level, or null when unknown ({@see TilesetAppearance::classify()}). */
+  public function classifyAppearance(int $id): ?TileAppearance
+  {
+    return $this->appearance->classify($id, $this);
   }
 
   /**
