@@ -7,24 +7,27 @@ use InvalidArgumentException;
 /**
  * One node of a character's Mastery Map: a skill the character can learn
  * there. It names the skill by its catalogue identity and owns no copy of it.
- * A node costs the EXP the character must put into it, opens at a level once
- * the nodes it requires are learned, and has a place in the default study
- * order. Its position places it on a graphical map and means nothing to its
- * progression.
+ * A node has a price in Mastery points (SP), opens at a level once the nodes
+ * it requires are learned, and may stay a secret ("???") until then. Its
+ * position places it on a graphical map and means nothing to its
+ * progression. Nodes are listed in the order their map file gives them.
  *
  * @package Ichiloto\Engine\Progression\Mastery
  */
 final readonly class MasteryNode
 {
+  /** The keys a node's data may hold. */
+  public const array KEYS = ['id', 'skill', 'region', 'cost', 'opensAtLevel', 'requires', 'position', 'hidden'];
+
   /**
    * @param string $id The node's identity, stable across renames and moves.
    * @param string $skill The skill it teaches, by catalogue name.
    * @param string $region The region it sits in.
-   * @param int $cost The EXP it takes to learn; 0 is known from the start.
+   * @param int $cost The Mastery points (SP) it takes to learn; 0 is learned as soon as it opens.
    * @param int $opensAtLevel The character level it opens at.
    * @param list<string> $requires The nodes that must be learned first.
-   * @param int $order Its place in the default study order.
    * @param array{x: float, y: float}|null $position Where a graphical map draws it, as fractions (0 to 1) of the map's width and height.
+   * @param bool $hidden Whether menus keep it a secret ("???") while it is locked.
    */
   public function __construct(
     public string $id,
@@ -33,8 +36,8 @@ final readonly class MasteryNode
     public int $cost = 0,
     public int $opensAtLevel = 1,
     public array $requires = [],
-    public int $order = 0,
     public ?array $position = null,
+    public bool $hidden = false,
   )
   {
     if (trim($id) === '' || $id !== trim($id)) {
@@ -44,7 +47,7 @@ final readonly class MasteryNode
       throw new InvalidArgumentException(sprintf('Mastery node %s names no skill.', $id));
     }
     if ($cost < 0) {
-      throw new InvalidArgumentException(sprintf('Mastery node %s cannot cost less than 0 EXP.', $id));
+      throw new InvalidArgumentException(sprintf('Mastery node %s cannot cost less than 0 points.', $id));
     }
     if ($opensAtLevel < 1) {
       throw new InvalidArgumentException(sprintf('Mastery node %s must open at level 1 or later.', $id));
@@ -53,15 +56,23 @@ final readonly class MasteryNode
 
   /**
    * @param array<string, mixed> $data
-   * @throws InvalidArgumentException When the entry is malformed.
+   * @throws InvalidArgumentException When the entry is malformed or holds a key nodes do not have.
    */
   public static function fromArray(array $data): self
   {
     $id = strval($data['id'] ?? '');
-    foreach (['cost', 'opensAtLevel', 'order'] as $key) {
+    foreach (array_keys($data) as $key) {
+      if (! in_array($key, self::KEYS, true)) {
+        throw new InvalidArgumentException(sprintf('Mastery node %s has unknown key "%s".', $id, $key));
+      }
+    }
+    foreach (['cost', 'opensAtLevel'] as $key) {
       if (array_key_exists($key, $data) && ! is_int($data[$key])) {
         throw new InvalidArgumentException(sprintf('Mastery node %s %s must be a whole number.', $id, $key));
       }
+    }
+    if (array_key_exists('hidden', $data) && ! is_bool($data['hidden'])) {
+      throw new InvalidArgumentException(sprintf('Mastery node %s hidden must be true or false.', $id));
     }
     $requires = $data['requires'] ?? [];
     if (! is_array($requires) || ! array_is_list($requires) || array_filter($requires, static fn(mixed $node): bool => ! is_string($node)) !== []) {
@@ -80,8 +91,8 @@ final readonly class MasteryNode
       $data['cost'] ?? 0,
       $data['opensAtLevel'] ?? 1,
       array_values($requires),
-      $data['order'] ?? 0,
       $position === null ? null : ['x' => floatval($position['x']), 'y' => floatval($position['y'])],
+      $data['hidden'] ?? false,
     );
   }
 }

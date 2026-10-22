@@ -504,11 +504,11 @@ class QuestManager
       $party->credit($gold);
     }
 
-    if (($experience = intval($quest->rewards['experience'] ?? 0)) > 0) {
-      $progressionResults = ExperienceAwarder::awardParty($party, $experience);
-    } else {
-      $progressionResults = [];
-    }
+    $experience = max(0, intval($quest->rewards['experience'] ?? 0));
+    $skillPoints = max(0, intval($quest->rewards['skillPoints'] ?? 0));
+    $progressionResults = $experience > 0 || $skillPoints > 0
+      ? ExperienceAwarder::awardParty($party, $experience, $skillPoints)
+      : [];
 
     $itemReferences = array_values(array_filter(
       (array) ($quest->rewards['items'] ?? []),

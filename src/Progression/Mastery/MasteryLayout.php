@@ -6,7 +6,7 @@ namespace Ichiloto\Engine\Progression\Mastery;
  * Where a graphical map places each node, as fractions (0 to 1) of the map's
  * width and height: the node's authored position, or else a place in its
  * region. Regions share the map as a grid in the project's order; a region's
- * unplaced nodes stand in study order in one column, or two once there are
+ * unplaced nodes stand in the order the map lists them, in one column, or two once there are
  * three or more, spread down the region. Every renderer and editor that draws
  * a map reads these places, so the map an author arranges is the map the
  * player sees.

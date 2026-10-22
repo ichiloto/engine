@@ -71,7 +71,7 @@ function fullEnemyRecord(string $name = 'Blob'): array
       'maxHp' => 40, 'maxMp' => 6, 'attack' => 9, 'defence' => 4, 'magicAttack' => 3,
       'magicDefence' => 5, 'speed' => 7, 'grace' => 2, 'evasion' => 1,
     ],
-    'rewards' => ['experience' => 12, 'gold' => 30],
+    'rewards' => ['experience' => 12, 'gold' => 30, 'skillPoints' => 3],
     'actionPatterns' => [
       ['skill' => 'Nip', 'rating' => 5],
       ['skill' => 'Brace', 'rating' => 7, 'condition' => ['type' => 'HP', 'range' => [0, 50]]],
@@ -140,12 +140,15 @@ it('writes back exactly the record it read', function () {
     $minimal = fullEnemyRecord();
     unset($minimal['actionPatterns'], $minimal['position'], $minimal['battleAnimation'],
       $minimal['stateResistances'], $minimal['elementAffinities'], $minimal['knowledgeSubjectId'], $minimal['attackSkill'],
-      $minimal['habitat']);
+      $minimal['habitat'], $minimal['rewards']['skillPoints']);
 
     foreach ([fullEnemyRecord(), $minimal] as $record) {
       expect(EnemyRecord::writeEnemy(EnemyRecord::readEnemy($record, $skills)))->toBe($record);
     }
     // An enemy without a habitat lives on land, as every enemy stood before habitats.
+    // An enemy without Mastery points gives none, as every enemy did before them.
+    expect(EnemyRecord::readEnemy($minimal, $skills)->rewards->skillPoints)->toBe(0)
+      ->and(EnemyRecord::readEnemy(fullEnemyRecord(), $skills)->rewards->skillPoints)->toBe(3);
     expect(EnemyRecord::readEnemy($minimal, $skills)->habitat)->toBe(EnemyHabitat::LAND)
       ->and(EnemyRecord::readEnemy(fullEnemyRecord(), $skills)->habitat)->toBe(EnemyHabitat::WATER);
   });
@@ -181,6 +184,8 @@ it('reports a broken record against its file and keeps the other enemies', funct
     'The enemy attackSkill "Roar" must reference a catalogued BasicSkill',
   ],
   'unknown habitat' => [array_replace(fullEnemyRecord('Broken'), ['habitat' => 'lava']), 'field "habitat" must be one of: land, water, air'],
+  'negative Mastery points' => [array_replace(fullEnemyRecord('Broken'), ['rewards' => ['experience' => 1, 'gold' => 1, 'skillPoints' => -2]]),
+    'rewards.skillPoints must be a whole number of 0 or more'],
   'missing sprite' => [array_replace(fullEnemyRecord('Broken'), ['imagePath' => 'ghost']), 'ghost'],
 ]);
 

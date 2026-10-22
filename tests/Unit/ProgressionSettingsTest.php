@@ -111,7 +111,7 @@ it('keeps project progression immutable at runtime', function () {
 it('uses the authored setting through production bootstrap and resets it for a later project declaration', function () {
   $project = createTestDirectory('ichiloto-progression-');
   mkdir($project . '/assets/Data', 0700, true);
-  file_put_contents($project . '/ichiloto.json', '{"id":"progression-fixture","format":1}');
+  file_put_contents($project . '/ichiloto.json', '{"id":"progression-fixture","format":' . \Ichiloto\Engine\Core\ProjectFormat::CURRENT . '}');
   foreach (['config.php', 'input.php', 'assets/Data/items.php', 'assets/Data/enemies.php'] as $path) {
     file_put_contents($project . '/' . $path, '<?php return [];');
   }

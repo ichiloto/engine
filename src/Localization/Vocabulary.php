@@ -22,6 +22,8 @@ final class Vocabulary
     'stats.hp' => 'HP',
     'stats.mp' => 'MP',
     'stats.exp' => 'EXP',
+    'mastery.points' => 'SP',
+    'mastery.points_name' => 'Skill Points',
   ];
 
   /** A term as the game words it, else the default given, else the Engine's own ({@see DEFAULTS}), else nothing. */

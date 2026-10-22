@@ -12,6 +12,7 @@ use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Progression\ExperienceAwarder;
+use Ichiloto\Engine\Progression\Mastery\MasteryVocabulary;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -51,11 +52,13 @@ final readonly class BattleConclusion
   public function concludeVictory(BattleScene $scene): void
   {
     $experience = 0;
+    $skillPoints = 0;
     $gold = 0;
     $items = [];
 
     foreach ($this->troop->members->toArray() as $enemy) {
       $experience += $enemy->rewards->experience;
+      $skillPoints += $enemy->rewards->skillPoints;
       $gold += $enemy->rewards->gold;
 
       if ($item = $enemy->rewards->item) {
@@ -63,7 +66,7 @@ final readonly class BattleConclusion
       }
     }
 
-    $progressionResults = ExperienceAwarder::awardParty($this->party, $experience);
+    $progressionResults = ExperienceAwarder::awardParty($this->party, $experience, $skillPoints);
     $levelUps = array_values(array_filter(
       $progressionResults,
       static fn($result): bool => $result->levelledUp(),
@@ -103,8 +106,12 @@ final readonly class BattleConclusion
       get_engine_message('obtained_exp', $experience, Vocabulary::getTerm('stats.exp', 'EXP')),
       get_engine_message('obtained_gold', $gold, Vocabulary::getTerm('currency.symbol', 'G')),
     ];
+    if ($skillPoints > 0) {
+      $lines[] = get_engine_message('obtained_skill_points', $skillPoints, MasteryVocabulary::getPointsLabel());
+    }
     $entries = [
       ['label' => Vocabulary::getTerm('stats.exp', 'EXP') . ':', 'value' => (string)$experience],
+      ...($skillPoints > 0 ? [['label' => MasteryVocabulary::getPointsLabel() . ':', 'value' => (string)$skillPoints]] : []),
       ['label' => Vocabulary::getTerm('currency.name', 'Gold') . ':',
         'value' => trim(sprintf('%d %s', $gold, Vocabulary::getTerm('currency.symbol', 'G')))],
     ];
@@ -139,7 +146,8 @@ final readonly class BattleConclusion
     }
 
     $scene->result = new BattleResult('Victory', $lines, $items, $entries,
-      new BattleRewards($experience, $goldReceived, $progressionResults, $rewardItems, $rewardSummary));
+      new BattleRewards($experience, $goldReceived, $progressionResults, $rewardItems, $rewardSummary,
+        skillPointsPerMember: $skillPoints));
     $scene->setState($scene->victoryState);
   }
 

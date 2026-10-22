@@ -6,18 +6,17 @@ use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Util\Debug;
-use InvalidArgumentException;
 
 /**
  * Moves a character along their Mastery Map: the one place where a node's
- * state is worked out, EXP goes into the node being studied, nodes are
- * learned and their skills join the character's ability book or spellbook.
- * Every menu, reward and save path uses it.
+ * state is worked out, Mastery points (SP) are added and spent, and nodes
+ * are learned so their skills join the character's ability book or
+ * spellbook. Every menu, reward and save path uses it.
  *
- * The character studies the node the player chose, or else the first open
- * node in the default order. EXP earned while no node is open is banked and
- * goes into the next node that opens. A node costing nothing is learned as
- * soon as it opens.
+ * Battles and quests add points to the character's total through
+ * ExperienceAwarder. The player
+ * spends them on any open node whose price the total covers, and the node
+ * is learned at once. A node costing nothing is learned as soon as it opens.
  *
  * @package Ichiloto\Engine\Progression\Mastery
  */
@@ -35,127 +34,95 @@ final readonly class MasteryProgression
     return $map === null ? null : new self($map, SkillCatalog::getProjectCatalog());
   }
 
-  /** @return list<MasteryNodeStatus> Every node's state, in default study order. */
+  /** @return list<MasteryNodeStatus> Every node's state, in the order the map lists them. */
   public function describe(Character $character): array
   {
-    $target = $this->findTarget($character);
-
-    return array_values(array_map(fn(MasteryNode $node): MasteryNodeStatus => $this->getStatus($character, $node, $target), $this->map->nodes));
+    return array_values(array_map(fn(MasteryNode $node): MasteryNodeStatus => $this->getStatus($character, $node), $this->map->nodes));
   }
 
   /**
-   * Makes an open node the one the character studies; its progress is kept, as is every other node's.
+   * Spends the node's price from the character's points and learns it.
    *
-   * @throws InvalidArgumentException When the node is unknown, learned or still locked.
+   * @throws MasteryRefusal When the node is unknown, already learned, still locked, or costs more than the character holds.
    */
-  public function choose(Character $character, string $nodeId): void
+  public function learn(Character $character, string $nodeId): MasteryAdvance
   {
-    $node = $this->map->findNode($nodeId) ?? throw new InvalidArgumentException(sprintf('%s has no mastery node %s.', $character->name, $nodeId));
-    if ($character->mastery->hasLearned($node->id)) {
-      throw new InvalidArgumentException(sprintf('%s already knows %s.', $character->name, $node->skill));
-    }
-    if (! $this->isOpen($character, $node)) {
-      throw new InvalidArgumentException(sprintf('%s cannot study %s yet.', $character->name, $node->skill));
-    }
-    $character->mastery->studying = $node->id;
-    // EXP banked while nothing was open goes into what is now studied.
-    $this->advance($character, 0);
+    $node = $this->map->findNode($nodeId) ?? throw new MasteryRefusal(MasteryRefusalReason::UNKNOWN,
+      sprintf('%s has no mastery node %s.', $character->name, $nodeId));
+    $status = $this->getStatus($character, $node);
+    match (true) {
+      $status->state === MasteryNodeState::LEARNED => throw new MasteryRefusal(MasteryRefusalReason::LEARNED,
+        sprintf('%s already knows %s.', $character->name, $node->skill)),
+      $status->state === MasteryNodeState::LOCKED => throw new MasteryRefusal(MasteryRefusalReason::LOCKED,
+        sprintf('%s cannot learn %s yet.', $character->name, $node->skill)),
+      ! $status->affordable => throw new MasteryRefusal(MasteryRefusalReason::SHORT,
+        sprintf('%s holds %d of the %d points %s costs.', $character->name, $character->mastery->points, $node->cost, $node->skill)),
+      default => null,
+    };
+    $skill = $this->skills->findSkill($node->skill) ?? throw new MasteryRefusal(MasteryRefusalReason::UNKNOWN,
+      sprintf('%s\'s mastery node %s teaches unknown skill %s.', $character->name, $node->id, $node->skill));
+    $character->mastery->points -= $node->cost;
+    $character->learnSkill($skill);
+    $character->mastery->markLearned($node->id);
+
+    // Learning a node may open free nodes that build on it.
+    return new MasteryAdvance([$skill, ...$this->reconcile($character)->learned]);
   }
 
   /**
-   * Puts EXP into the studied node, learning every node it completes and
-   * moving on to the next; what is left when no node is open is banked.
-   * Skills the character already knows count their nodes as learned, and
-   * free nodes are learned as they open, so this also brings an old save
-   * up to its map.
+   * Brings the map up to what the character knows and their level: skills
+   * the character already knows count their nodes as learned, and free
+   * nodes are learned as they open. Safe to repeat; it spends nothing, so
+   * it also brings an old save up to its map.
    */
-  public function advance(Character $character, int $experience): MasteryAdvance
+  public function reconcile(Character $character): MasteryAdvance
   {
     $mastery = $character->mastery;
-    $learned = [];
     foreach ($this->map->nodes as $node) {
       if (! $mastery->hasLearned($node->id) && $this->knows($character, $node->skill)) {
         $mastery->markLearned($node->id);
       }
     }
-    $pool = $mastery->banked + max(0, $experience);
-    $mastery->banked = 0;
-
-    while (true) {
+    $learned = [];
+    do {
+      $opened = false;
       foreach ($this->map->nodes as $node) {
-        if ($node->cost === 0 && ! $mastery->hasLearned($node->id) && $this->isOpen($character, $node)
-          && ($skill = $this->learn($character, $node)) !== null) {
+        if ($node->cost === 0 && ! $mastery->hasLearned($node->id) && $this->isOpen($character, $node)) {
+          $skill = $this->skills->findSkill($node->skill);
+          if ($skill === null) {
+            Debug::warn(sprintf('%s\'s mastery node %s teaches unknown skill %s.', $character->name, $node->id, $node->skill));
+            continue;
+          }
+          $character->learnSkill($skill);
+          $mastery->markLearned($node->id);
           $learned[] = $skill;
-          continue 2;
+          $opened = true;
         }
       }
-      $target = $this->findTarget($character);
-      if ($target === null) {
-        $mastery->banked = $pool;
-        break;
-      }
-      $need = $target->cost - $mastery->getProgress($target->id);
-      if ($pool < $need) {
-        $mastery->progress[$target->id] = $mastery->getProgress($target->id) + $pool;
-        break;
-      }
-      $pool -= $need;
-      $skill = $this->learn($character, $target);
-      if ($skill === null) {
-        $mastery->banked = $pool;
-        break;
-      }
-      $learned[] = $skill;
-    }
+    } while ($opened);
 
-    return new MasteryAdvance($learned, $this->findTarget($character)?->id);
+    return new MasteryAdvance($learned);
   }
 
-  private function getStatus(Character $character, MasteryNode $node, ?MasteryNode $target): MasteryNodeStatus
+  private function getStatus(Character $character, MasteryNode $node): MasteryNodeStatus
   {
-    $progress = $character->mastery->getProgress($node->id);
+    $affordable = $character->mastery->points >= $node->cost;
     if ($character->mastery->hasLearned($node->id)) {
-      return new MasteryNodeStatus($node, MasteryNodeState::LEARNED, $node->cost);
+      return new MasteryNodeStatus($node, MasteryNodeState::LEARNED, $affordable);
     }
     $missing = array_values(array_filter($node->requires, static fn(string $required): bool => ! $character->mastery->hasLearned($required)));
     if ($character->level < $node->opensAtLevel || $missing !== []) {
-      return new MasteryNodeStatus($node, MasteryNodeState::LOCKED, $progress,
+      return new MasteryNodeStatus($node, MasteryNodeState::LOCKED, $affordable,
         $character->level < $node->opensAtLevel ? $node->opensAtLevel : null, $missing);
     }
 
-    return new MasteryNodeStatus($node, $target === $node ? MasteryNodeState::STUDYING : MasteryNodeState::OPEN, $progress);
-  }
-
-  /** The node EXP goes into: the one chosen while it stays open, else the first open node in default order. */
-  private function findTarget(Character $character): ?MasteryNode
-  {
-    $chosen = $character->mastery->studying === null ? null : $this->map->findNode($character->mastery->studying);
-    if ($chosen !== null && ! $character->mastery->hasLearned($chosen->id) && $this->isOpen($character, $chosen)) {
-      return $chosen;
-    }
-
-    return array_find($this->map->nodes, fn(MasteryNode $node): bool =>
-      ! $character->mastery->hasLearned($node->id) && $this->isOpen($character, $node) && $this->skills->findSkill($node->skill) !== null);
+    return new MasteryNodeStatus($node, MasteryNodeState::OPEN, $affordable);
   }
 
   private function isOpen(Character $character, MasteryNode $node): bool
   {
     return $character->level >= $node->opensAtLevel
       && array_all($node->requires, static fn(string $required): bool => $character->mastery->hasLearned($required));
-  }
-
-  private function learn(Character $character, MasteryNode $node): ?Skill
-  {
-    $skill = $this->skills->findSkill($node->skill);
-    if ($skill === null) {
-      Debug::warn(sprintf('%s\'s mastery node %s teaches unknown skill %s.', $character->name, $node->id, $node->skill));
-
-      return null;
-    }
-    $character->learnSkill($skill);
-    $character->mastery->markLearned($node->id);
-
-    return $skill;
   }
 
   private function knows(Character $character, string $skill): bool

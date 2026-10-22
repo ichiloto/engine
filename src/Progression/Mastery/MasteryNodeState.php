@@ -11,9 +11,7 @@ enum MasteryNodeState: string
 {
   /** The character knows its skill. */
   case LEARNED = 'learned';
-  /** EXP the character earns goes into it. */
-  case STUDYING = 'studying';
-  /** It can be chosen to study. */
+  /** Its level and the nodes it requires are reached; it can be learned once the character holds its price. */
   case OPEN = 'open';
   /** Its level or a node it requires is still ahead. */
   case LOCKED = 'locked';

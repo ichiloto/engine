@@ -159,11 +159,14 @@ class ModalManager implements CanUpdate, CanRender
    * @param string $message The message to display.
    * @param string $title The title of the alert.
    * @param int $width The width of the alert.
+   * @param string $confirmLabel The confirming button's label, such as "Yes".
+   * @param string $cancelLabel The declining button's label, such as "No".
    * @return bool The result of the confirmation.
    */
-  public function confirm(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): bool
+  public function confirm(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH,
+    string $confirmLabel = 'OK', string $cancelLabel = 'Cancel'): bool
   {
-    $this->modals->push(new ConfirmModal($this->game, $message, $title, $width));
+    $this->modals->push(new ConfirmModal($this->game, $message, $title, $width, $confirmLabel, $cancelLabel));
     $result = $this->modals->peek()->open();
     $this->modals->pop();
 

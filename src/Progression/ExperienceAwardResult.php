@@ -5,7 +5,8 @@ namespace Ichiloto\Engine\Progression;
 use Ichiloto\Engine\Entities\Character;
 
 /**
- * The complete, presentation-neutral result of one character EXP award.
+ * The complete, presentation-neutral result of one character EXP award,
+ * with the Mastery points (SP) the same reward added.
  */
 final readonly class ExperienceAwardResult
 {
@@ -24,6 +25,7 @@ final readonly class ExperienceAwardResult
     public ?ProgressionSnapshot $after = null,
     /** @var list<array{name: string, description: string, kind: string, cost: int}> */
     public array $learnedDetails = [],
+    public int $skillPointsAwarded = 0,
   )
   {
   }

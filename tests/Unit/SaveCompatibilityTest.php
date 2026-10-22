@@ -79,6 +79,23 @@ class RecordingPostResolutionContentVersion0To1 implements ContentMigrationInter
   }
 }
 
+/** A synthetic project migration: Mastery EXP progress becomes points before the character hydrates. */
+class ConvertingMasteryContentVersion0To1 implements ContentMigrationInterface
+{
+  public function migrate(array $payload): array
+  {
+    $config = $payload['config'] ?? null;
+    foreach ($config instanceof GameConfig ? $config->party->members->toArray() : [] as $member) {
+      $raw = $member->getDeferredSaveData();
+      $mastery = is_array($raw['mastery'] ?? null) ? $raw['mastery'] : [];
+      $experience = intval($mastery['banked'] ?? 0) + array_sum(is_array($mastery['progress'] ?? null) ? $mastery['progress'] : []);
+      $member->replaceDeferredSaveData([...$raw, 'mastery' => ['points' => intdiv($experience, 5), 'learned' => $mastery['learned'] ?? []]]);
+    }
+
+    return $payload;
+  }
+}
+
 class SaveCompatibilitySceneStub extends GameScene
 {
   public function __construct(private GameConfig $snapshot)
@@ -346,6 +363,27 @@ it('offers content migrations a post-resolution phase only after actors hydrate'
 
   expect(RecordingPostResolutionContentVersion0To1::$actorWasDeferred)->toBeTrue()
     ->and(RecordingPostResolutionContentVersion0To1::$actorWasHydrated)->toBeTrue();
+
+  cleanupCompatibilityManager($manager);
+});
+
+it('lets a content migration convert a loading character\'s saved data before it hydrates', function () {
+  $slug = 'save-compatibility-character-conversion-' . uniqid();
+  $manager = new SaveManager(new SaveCompatibilityTestGame(), "./tests/Support/Data/{$slug}", "./tests/Support/Data/{$slug}/quick",
+    makeCompatibilityManifest(['contentVersion' => 1, 'migrations' => [['from' => 0, 'to' => 1, 'class' => ConvertingMasteryContentVersion0To1::class]]]));
+  $path = $manager->getSlotPath(1);
+  $legacy = serialize(['studying' => 'spark', 'progress' => ['spark' => 40], 'banked' => 15, 'learned' => ['cut']]);
+  $payload = serialize(['slot' => makeCompatibilitySlot($path), 'config' => makeCompatibilityConfig()]);
+  $marker = 's:7:"mastery";a:0:{}';
+  expect(substr_count($payload, $marker))->toBe(1);
+  if (! is_dir(dirname($path))) { mkdir(dirname($path), 0777, true); }
+  file_put_contents($path, 'IED1' . gzencode(str_replace($marker, 's:7:"mastery";' . $legacy, $payload), 9));
+
+  $hero = $manager->loadSaveFile($path)->config->party->members->toArray()[0];
+
+  expect($hero->mastery->points)->toBe(11)
+    ->and($hero->mastery->learned)->toBe(['cut'])
+    ->and(fn() => $hero->replaceDeferredSaveData([]))->toThrow(LogicException::class, 'not awaiting save hydration');
 
   cleanupCompatibilityManager($manager);
 });

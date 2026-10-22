@@ -10,7 +10,8 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use InvalidArgumentException;
 
 /**
- * The single progression path for battle, quest, script, and migration EXP.
+ * The single progression path for battle, quest, script, and migration EXP,
+ * and for the Mastery points (SP) the same rewards give.
  */
 final class ExperienceAwarder
 {
@@ -18,10 +19,13 @@ final class ExperienceAwarder
   {
   }
 
-  public static function award(Character $character, int $experience): ExperienceAwardResult
+  public static function award(Character $character, int $experience, int $skillPoints = 0): ExperienceAwardResult
   {
     if ($experience < 0) {
       throw new InvalidArgumentException('Experience awards cannot be negative.');
+    }
+    if ($skillPoints < 0) {
+      throw new InvalidArgumentException('Mastery point awards cannot be negative.');
     }
 
     $settings = ConfigStore::has(ProgressionSettings::class)
@@ -45,7 +49,10 @@ final class ExperienceAwarder
       $settings->levelUpRecovery->recover($character, $previousTotalHp, $previousTotalMp);
     }
 
-    return self::grantAutomaticRoleSkills($character, $oldLevel, $newLevel, $experience, $before);
+    // Points join the total before the map is brought up to the new level, which may open free nodes.
+    $character->mastery->addPoints($skillPoints);
+
+    return self::grantAutomaticRoleSkills($character, $oldLevel, $newLevel, $experience, $before, $skillPoints);
   }
 
   /**
@@ -53,10 +60,10 @@ final class ExperienceAwarder
    *
    * @return ExperienceAwardResult[]
    */
-  public static function awardParty(Party $party, int $experience): array
+  public static function awardParty(Party $party, int $experience, int $skillPoints = 0): array
   {
     return array_map(
-      static fn(Character $character): ExperienceAwardResult => self::award($character, $experience),
+      static fn(Character $character): ExperienceAwardResult => self::award($character, $experience, $skillPoints),
       $party->members->toArray(),
     );
   }
@@ -77,6 +84,7 @@ final class ExperienceAwarder
     int $maximumInclusiveLevel,
     int $experience,
     ?ProgressionSnapshot $before = null,
+    int $skillPoints = 0,
   ): ExperienceAwardResult
   {
     $abilities = [];
@@ -101,9 +109,8 @@ final class ExperienceAwarder
         'kind' => $grant->skill instanceof MagicSkill ? 'Magic' : 'Ability', 'cost' => $grant->skill->cost];
     }
 
-    // The same EXP fills the node the character studies on their Mastery Map;
-    // a reconciliation (no EXP) brings the map up to what they know and their level.
-    foreach (MasteryProgression::forCharacter($character)?->advance($character, $experience)->learned ?? [] as $skill) {
+    // The Mastery Map comes up to what the character knows and their level: free nodes that opened are learned.
+    foreach (MasteryProgression::forCharacter($character)?->reconcile($character)->learned ?? [] as $skill) {
       if ($skill instanceof MagicSkill) {
         $magic[] = $skill->name;
       } else {
@@ -123,6 +130,7 @@ final class ExperienceAwarder
       $before,
       ProgressionSnapshot::capture($character),
       $details,
+      $skillPoints,
     );
   }
 }

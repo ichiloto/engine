@@ -12,7 +12,7 @@ use InvalidArgumentException;
  */
 final readonly class MasteryMap
 {
-  /** @var array<string, MasteryNode> The nodes, by id, in default study order. */
+  /** @var array<string, MasteryNode> The nodes, by id, in the order the map lists them. */
   public array $nodes;
 
   /**
@@ -47,7 +47,6 @@ final readonly class MasteryMap
       }
     }
     self::refuseLoops($actorId, $byId);
-    uasort($byId, static fn(MasteryNode $a, MasteryNode $b): int => $a->order <=> $b->order);
     $this->nodes = $byId;
   }
 

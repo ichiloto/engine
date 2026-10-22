@@ -69,6 +69,7 @@ final class EnemyRecord
         self::requireInt($rewards, 'experience', 'rewards.'),
         self::requireInt($rewards, 'gold', 'rewards.'),
         self::readDrops($rewards['items'] ?? []),
+        self::readSkillPoints($rewards),
       ),
       self::readActionPatterns($data['actionPatterns'] ?? [], $skills),
       self::readPosition($data['position'] ?? null),
@@ -189,6 +190,19 @@ final class EnemyRecord
     ];
   }
 
+  /** The Mastery points (SP) the enemy gives; a record without them gives none. */
+  private static function readSkillPoints(array $rewards): int
+  {
+    if (! array_key_exists('skillPoints', $rewards)) {
+      return 0;
+    }
+    if (! is_int($rewards['skillPoints']) || $rewards['skillPoints'] < 0) {
+      throw new InvalidArgumentException('rewards.skillPoints must be a whole number of 0 or more.');
+    }
+
+    return $rewards['skillPoints'];
+  }
+
   /**
    * @return list<array{item: string, rate: float}>
    */
@@ -217,6 +231,9 @@ final class EnemyRecord
   private static function writeRewards(BattleRewards $rewards): array
   {
     $data = ['experience' => $rewards->experience, 'gold' => $rewards->gold];
+    if ($rewards->skillPoints !== 0) {
+      $data['skillPoints'] = $rewards->skillPoints;
+    }
     $items = array_map(
       static fn(DropItem $drop): array => ['item' => $drop->item->id, 'rate' => $drop->dropRate],
       $rewards->items,

@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Localization\Vocabulary;
+use Ichiloto\Engine\Progression\Mastery\MasteryVocabulary;
 use InvalidArgumentException;
 
 /** Terminal projection of the same facts and stage order as the graphical view. */
@@ -29,9 +30,11 @@ final class BattleResultsText
     }
     switch ($stage['kind']) {
       case 'primary':
-        $lines = [sprintf('%s: %d   %s: %d %s',
+        $lines = [sprintf('%s: %d   %s%s: %d %s',
           Vocabulary::getTerm('battle.experience_per_member', Vocabulary::getTerm('stats.exp', 'EXP') . ' per member'),
-          $rewards->experiencePerMember, Vocabulary::getTerm('currency.name', 'Gold'),
+          $rewards->experiencePerMember,
+          $rewards->skillPointsPerMember > 0 ? sprintf('%s: %d   ', MasteryVocabulary::getPointsLabel(), $rewards->skillPointsPerMember) : '',
+          Vocabulary::getTerm('currency.name', 'Gold'),
           $rewards->gold, Vocabulary::getTerm('currency.symbol', 'G')),
           Vocabulary::getTerm('battle.party_progress', 'Party Progress')];
         foreach ($rewards->progression as $member) {

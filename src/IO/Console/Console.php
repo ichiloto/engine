@@ -2114,16 +2114,19 @@ class Console
    * @param string $message The message to show.
    * @param string $title The title of the dialog.
    * @param int $width The width of the dialog.
+   * @param string $confirmLabel The confirming button's label, such as "Yes".
+   * @param string $cancelLabel The declining button's label, such as "No".
    * @return bool Whether the user confirmed or not.
    * @throws Exception If the game instance is not set.
    */
-  public static function confirm(string $message, string $title = 'Confirm', int $width = DEFAULT_DIALOG_WIDTH): bool
+  public static function confirm(string $message, string $title = 'Confirm', int $width = DEFAULT_DIALOG_WIDTH,
+    string $confirmLabel = 'OK', string $cancelLabel = 'Cancel'): bool
   {
     if (!self::$game) {
       throw new RuntimeException('The game instance is not set.');
     }
 
-    return ModalManager::getInstance(self::$game)->confirm($message, $title, $width);
+    return ModalManager::getInstance(self::$game)->confirm($message, $title, $width, $confirmLabel, $cancelLabel);
   }
 
   /**

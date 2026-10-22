@@ -15,10 +15,11 @@ final class ProjectFormat
 {
   public const string KEY = 'format';
   /** The format this engine reads. */
-  public const int CURRENT = 1;
+  public const int CURRENT = 2;
   /** What each version introduced. */
   public const array CHANGES = [
     1 => 'a stable project id and save compatibility manifest',
+    2 => 'Mastery Maps that spend Mastery points (SP): nodes keep their map order and lose their study order',
   ];
 
   /** A project without a recorded version predates the format chain. */
