@@ -111,6 +111,62 @@ it('keeps objectives without waymarks valid and refuses a malformed waymark list
     ->toThrow(InvalidArgumentException::class);
 });
 
+/* Leading to where a quest starts */
+
+function questStartingAt(string $id, array $startWaymarks, array $prerequisites = [], bool $optional = false): Quest
+{
+  return Quest::fromArray(['id' => $id, 'name' => $id, 'optional' => $optional, 'prerequisites' => $prerequisites,
+    'objectives' => [['type' => 'flag', 'target' => "{$id}_done"]], 'startWaymarks' => $startWaymarks]);
+}
+
+it('reads a quest\'s start waymarks and refuses a malformed list', function () {
+  expect(questStartingAt('errand', [['map' => 'home', 'npc' => 'keeper']])->startWaymarks[0]->toArray())
+    ->toBe(['map' => 'home', 'npc' => 'keeper'])
+    ->and(questWithWaymarks('plain', [['type' => 'flag', 'target' => 'done']])->startWaymarks)->toBe([])
+    ->and(fn() => questStartingAt('bad', ['map' => 'home']))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => questStartingAt('bad', [['map' => 'home', 'x' => 3]]))->toThrow(InvalidArgumentException::class);
+});
+
+it('shows a quest\'s start waymarks while it can start and each one\'s own conditions hold', function () {
+  $quest = questStartingAt('errand', [
+    ['map' => 'home', 'npc' => 'keeper'],
+    ['map' => 'home', 'event' => 'N', 'conditions' => [['type' => 'event', 'name' => 'note_read', 'negate' => true]]],
+  ], [['type' => 'event', 'name' => 'woke_up']]);
+  $log = new QuestLog();
+  $state = new GameState();
+
+  // Its prerequisite does not hold yet.
+  expect(QuestManager::selectStartWaymarks([$quest], $log, $state))->toBe([]);
+
+  $state->recordStoryEvent('woke_up');
+  $leads = QuestManager::selectStartWaymarks([$quest], $log, $state);
+  expect(array_map(static fn($entry): string => $entry->waymark->subjectId, $leads))->toBe(['keeper', 'N'])
+    ->and($leads[0]->objectiveIndex)->toBe(-1)
+    ->and($leads[0]->getId())->toBe('errand:-1:0')
+    ->and($leads[0]->isOptionalQuest)->toBeFalse()
+    ->and($leads[0]->fillsGap)->toBeFalse()
+    ->and($leads[0]->label)->toBe('Continue the story');
+
+  $state->recordStoryEvent('note_read');
+  expect(array_map(static fn($entry): string => $entry->waymark->subjectId, QuestManager::selectStartWaymarks([$quest], $log, $state)))
+    ->toBe(['keeper']);
+
+  // Once the quest starts, its objectives lead instead; once finished, nothing does.
+  $log->accept('errand', 1);
+  expect(QuestManager::selectStartWaymarks([$quest], $log, $state))->toBe([]);
+  $log->markCompleted('errand');
+  expect(QuestManager::selectStartWaymarks([$quest], $log, $state))->toBe([]);
+});
+
+it('marks a side quest\'s start waymark as optional, without naming the quest', function () {
+  $leads = QuestManager::selectStartWaymarks([questStartingAt('lost-cat', [['map' => 'town', 'npc' => 'neighbour']], optional: true)],
+    new QuestLog(), new GameState());
+
+  expect($leads)->toHaveCount(1)
+    ->and($leads[0]->isOptionalQuest)->toBeTrue()
+    ->and($leads[0]->label)->toBe('Side Quest');
+});
+
 /* Which waymarks are current */
 
 it('shows waymarks only for incomplete objectives of active quests', function () {

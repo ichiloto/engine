@@ -203,3 +203,123 @@ it('reads battle-set flags for the Editor\'s guidance check through the same ind
     ->toBe(['gate D'])
     ->and(StoryGuidance::findUnguidedGates([$led], $index))->toBe([]);
 });
+
+/* Quest starts: what starts each main quest must be led to before it starts. */
+
+function storyStarter(string $quest, array $page = []): array
+{
+  return [...$page, 'lines' => [['text' => 'A task for you.']], 'sets' => [['type' => 'quest', 'name' => $quest]]];
+}
+
+/** A keeper who starts the errand, and a scout who starts the next quest once the errand is done. */
+function storyStartIndex(array $scoutPages = [], array $keeperPages = []): StoryIndex
+{
+  $reader = new StoryContentReader(static fn(): mixed => null, static fn(): mixed => null);
+
+  return StoryIndex::read($reader, ['home' => ['events' => [], 'npcs' => [
+    ['id' => 'keeper', 'name' => 'Keeper', 'x' => 1, 'y' => 1, 'dialogue' => $keeperPages ?: [storyStarter('errand')]],
+    ['id' => 'scout', 'name' => 'Scout', 'x' => 2, 'y' => 1, 'dialogue' => $scoutPages ?: [storyStarter('next')]],
+  ]]]);
+}
+
+function storyStartQuest(string $id, array $extra = []): Quest
+{
+  return Quest::fromArray(['id' => $id, 'name' => ucfirst($id),
+    'objectives' => [['type' => 'flag', 'target' => "{$id}_done", 'waymarks' => [['map' => 'far']]]], ...$extra]);
+}
+
+function describeUnguidedStarts(array $quests, StoryIndex $index): array
+{
+  return array_map(static fn(Quest $quest): string => $quest->id, StoryGuidance::findUnguidedStarts($quests, $index));
+}
+
+it('finds a main quest whose start nothing leads to, and none once a start waymark or an earlier objective does', function () {
+  $index = storyStartIndex();
+  $next = ['prerequisites' => [['type' => 'quest', 'name' => 'errand']]];
+  $toScout = ['objectives' => [['type' => 'flag', 'target' => 'errand_done', 'waymarks' => [['map' => 'home', 'npc' => 'scout']]]]];
+
+  expect(describeUnguidedStarts([storyStartQuest('errand'), storyStartQuest('next', $next)], $index))->toBe(['errand', 'next'])
+    // The opening: the first quest leads to its own giver before it starts.
+    ->and(describeUnguidedStarts([storyStartQuest('errand', ['startWaymarks' => [['map' => 'home', 'npc' => 'keeper']]]),
+      storyStartQuest('next', $next)], $index))->toBe(['next'])
+    // Between quests: the errand's objective leads to the scout, or the next quest leads there itself.
+    ->and(describeUnguidedStarts([storyStartQuest('errand', $toScout), storyStartQuest('next', $next)], $index))->toBe(['errand'])
+    ->and(describeUnguidedStarts([storyStartQuest('next', [...$next, 'startWaymarks' => [['map' => 'home', 'npc' => 'scout']]])], $index))
+    ->toBe([]);
+});
+
+it('does not count guidance of a quest start that can only show once the quest has started', function (array $errand) {
+  expect(describeUnguidedStarts([storyStartQuest('errand', $errand), storyStartQuest('next')], storyStartIndex()))->toContain('next');
+})->with([
+  'a waymark waiting for the quest' => [['objectives' => [['type' => 'flag', 'target' => 'errand_done', 'waymarks' => [
+    ['map' => 'home', 'npc' => 'scout', 'conditions' => [['type' => 'quest', 'name' => 'next', 'status' => 'active']]]]]]]],
+  'a quest needing the quest to start' => [['prerequisites' => [['type' => 'quest', 'name' => 'next', 'status' => 'completed']],
+    'objectives' => [['type' => 'flag', 'target' => 'errand_done', 'waymarks' => [['map' => 'home', 'npc' => 'scout']]]]]],
+  'an optional quest' => [['optional' => true, 'startWaymarks' => [['map' => 'home', 'npc' => 'scout']]]],
+]);
+
+it('does not count the objectives of a quest that starts only with the quest it leads to', function () {
+  // Only the scout starts the errand, handing over both quests at once, so neither is active before the other.
+  $index = storyStartIndex([['lines' => [['text' => 'Two tasks.']],
+    'sets' => [['type' => 'quest', 'name' => 'next'], ['type' => 'quest', 'name' => 'errand']]]], [['lines' => [['text' => 'Hello.']]]]);
+  $errand = storyStartQuest('errand', ['objectives' => [['type' => 'flag', 'target' => 'errand_done',
+    'waymarks' => [['map' => 'home', 'npc' => 'scout']]]]]);
+
+  expect(describeUnguidedStarts([$errand, storyStartQuest('next')], $index))->toContain('next');
+});
+
+it('reports a main quest nothing in the project starts, and leaves side quests alone', function () {
+  $index = storyStartIndex();
+
+  expect(describeUnguidedStarts([storyStartQuest('stray')], $index))->toBe(['stray'])
+    ->and($index->findStarters('stray'))->toBe([])
+    ->and(describeUnguidedStarts([storyStartQuest('stray', ['optional' => true])], $index))->toBe([]);
+});
+
+it('counts a start waymark that leads to what sets a gate\'s flag', function () {
+  // The keeper starts the errand and opens the gate in one conversation.
+  $reader = new StoryContentReader(static fn(): mixed => null, static fn(): mixed => null);
+  $index = StoryIndex::read($reader, ['home' => ['events' => [
+    ['marker' => 'D', 'class' => 'Ichiloto\\Engine\\Events\\Triggers\\TransferPlayerTrigger', 'whenBlocked' => 'Shut.',
+      'conditions' => [['type' => 'event', 'name' => 'gate_opened']], 'data' => ['destinationMap' => 'yard']],
+  ], 'npcs' => [['id' => 'keeper', 'name' => 'Keeper', 'x' => 1, 'y' => 1, 'dialogue' => [['lines' => [['text' => 'Go on.']],
+    'sets' => [['type' => 'quest', 'name' => 'errand'], ['type' => 'event', 'name' => 'gate_opened']]]]]]]]);
+
+  expect(StoryGuidance::findUnguidedGates([storyStartQuest('errand')], $index))->toHaveCount(1)
+    ->and(StoryGuidance::findUnguidedGates([storyStartQuest('errand', ['startWaymarks' => [['map' => 'home', 'npc' => 'keeper']]])],
+      $index))->toBe([]);
+});
+
+it('does not count a start waymark toward a flag set by something that does not start its quest', function () {
+  // The keeper's first page opens the gate; only the second hands over the errand, which ends the start waymark.
+  $reader = new StoryContentReader(static fn(): mixed => null, static fn(): mixed => null);
+  $index = StoryIndex::read($reader, ['home' => ['events' => [
+    ['marker' => 'D', 'class' => 'Ichiloto\\Engine\\Events\\Triggers\\TransferPlayerTrigger', 'whenBlocked' => 'Shut.',
+      'conditions' => [['type' => 'event', 'name' => 'gate_opened']], 'data' => ['destinationMap' => 'yard']],
+  ], 'npcs' => [['id' => 'keeper', 'name' => 'Keeper', 'x' => 1, 'y' => 1, 'dialogue' => [
+    ['conditions' => [['type' => 'quest', 'name' => 'errand', 'status' => 'active']], 'lines' => [['text' => 'Open it.']],
+      'sets' => [['type' => 'event', 'name' => 'gate_opened']]],
+    storyStarter('errand'),
+  ]]]]]);
+
+  expect(StoryGuidance::findUnguidedGates([storyStartQuest('errand', ['startWaymarks' => [['map' => 'home', 'npc' => 'keeper']]])],
+    $index))->toHaveCount(1);
+});
+
+it('leaves the opening to the first quest\'s start waymark, with nothing filled or reported', function () {
+  $reports = [];
+  $maps = ['home' => ['events' => [], 'npcs' => [['id' => 'keeper', 'name' => 'Keeper', 'x' => 1, 'y' => 1,
+    'dialogue' => [storyStarter('errand')]]]]];
+  $wayfinder = storyWayfinder($maps, $reports);
+  $log = new QuestLog();
+  $state = new GameState();
+  $quests = ['errand' => storyStartQuest('errand', ['startWaymarks' => [['map' => 'home', 'npc' => 'keeper']]])];
+
+  $shown = \Ichiloto\Engine\Quests\QuestManager::selectStartWaymarks($quests, $log, $state);
+  expect(describeStoryWaymarks($shown))->toBe(['home npc keeper'])
+    ->and($wayfinder->findGapWaymarks($shown, $quests, $log, $state))->toBe([])
+    ->and($reports)->toBe([])
+    // Without it, the runtime fills the same step and reports the gap.
+    ->and(describeStoryWaymarks($wayfinder->findGapWaymarks([], [storyStartQuest('errand')], $log, $state)))->toBe(['home npc keeper'])
+    ->and($reports)->toHaveCount(1);
+});
