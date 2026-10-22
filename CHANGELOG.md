@@ -59,6 +59,11 @@
 
 ### Changed
 
+- The terminal battle's troop zone starts at column 3, so the focus marker
+  two cells left of a troop sprite stays inside the border.
+  `TerminalBattleEffects::getTroopPlaceProblems()` names what an authored troop
+  position leaves out (its target badge row, the focus marker, its step towards
+  the party, the bottom border), by the zone `findTroopPlace()` places members in.
 - Removed: superseded intermediate native frames are no longer delivered while
   the renderer is behind. At most two complete frames wait for the renderer,
   and changes made meanwhile go out as one newest frame when it catches up, so

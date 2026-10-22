@@ -20,7 +20,10 @@ use RuntimeException;
 final class TerminalBattleEffects
 {
   private const int TROOP_STEP_X_OFFSET = 3;
-  private const int TROOP_ZONE_LEFT = 2;
+  // The focus marker stands two cells left of a troop sprite, inside the border.
+  private const int TROOP_ZONE_LEFT = 3;
+  // The target badge takes the row above a troop sprite, inside the border.
+  private const int TROOP_ZONE_TOP = 2;
   private const int BATTLE_SIDE_GAP = 3;
   private const int LEGACY_SCREEN_INSET = 2;
   private readonly PartyBattlerPositions $positions;
@@ -99,11 +102,8 @@ final class TerminalBattleEffects
    */
   public function findTroopPlace(array $members, array $sprite): Vector2
   {
-    $width = max(1, self::getSpriteWidth($sprite));
     $height = max(1, count($sprite));
-    // The zone a sprite may take: inside the border, a name row above it, clear of the step towards the party.
-    [$left, $right] = [self::TROOP_ZONE_LEFT, $this->getPartyZoneLeft() - self::BATTLE_SIDE_GAP - self::TROOP_STEP_X_OFFSET - $width];
-    [$top, $bottom] = [2, $this->height - 1 - $height];
+    [$left, $top, $right, $bottom] = $this->getTroopZone($sprite);
     if ($right < $left || $bottom < $top) { return new Vector2($left, max(0, min($top, $this->height - $height))); }
     $taken = array_map(static fn(array $member): array => self::getTroopFootprint($member['position'], $member['sprite']), $members);
     $centre = [($left + $right) / 2, ($top + $bottom) / 2];
@@ -117,6 +117,42 @@ final class TerminalBattleEffects
       }
     }
     return new Vector2($best[2], $best[3]);
+  }
+
+  /**
+   * What an authored terminal position leaves out on the field: the target
+   * badge row above the sprite, the focus marker beside it, the step towards
+   * the party, or the bottom border. The battle still runs, so these are for
+   * authors to correct, not a reason to refuse the troop.
+   *
+   * @param list<string> $sprite The member's sprite rows.
+   * @return list<string> The problems in plain words; empty when the place fits.
+   */
+  public function getTroopPlaceProblems(Vector2 $position, array $sprite): array
+  {
+    [$left, $top, $right, $bottom] = $this->getTroopZone($sprite);
+    [$x, $y] = [intval($position->x), intval($position->y)];
+    return array_values(array_filter([
+      $y < $top ? 'leaves no room above it for its target badge' : null,
+      $x < $left ? 'leaves no room beside it for the focus marker' : null,
+      $x > $right ? 'reaches the party\'s side when it steps forward' : null,
+      $y > $bottom ? 'crosses the bottom of the battlefield' : null,
+    ]));
+  }
+
+  /**
+   * The places a sprite's top-left cell may take: inside the border with the
+   * focus marker beside it and a badge row above it, clear of its step
+   * towards the party.
+   *
+   * @param list<string> $sprite
+   * @return array{int, int, int, int} Left, top, right and bottom, inclusive.
+   */
+  private function getTroopZone(array $sprite): array
+  {
+    return [self::TROOP_ZONE_LEFT, self::TROOP_ZONE_TOP,
+      $this->getPartyZoneLeft() - self::BATTLE_SIDE_GAP - self::TROOP_STEP_X_OFFSET - max(1, self::getSpriteWidth($sprite)),
+      $this->height - 1 - max(1, count($sprite))];
   }
 
   /** @return array{int, int, int, int} The cells a member's sprite and name row take: left, top, right and bottom, inclusive. */

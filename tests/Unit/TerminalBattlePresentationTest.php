@@ -273,7 +273,8 @@ it('clips ANSI wide troop art before the party zone and never paints half a glyp
   $effects = new TerminalBattleEffects();
   $idle = $effects->getTroopIdlePosition($enemy);
   $active = $effects->getTroopActivePosition($enemy);
-  expect($idle)->toEqual(new Vector2(2, 5))->and($active)->toEqual(new Vector2(5, 5));
+  // Too wide for the zone: it stands at the zone's left, column 3, with room for the focus marker.
+  expect($idle)->toEqual(new Vector2(3, 5))->and($active)->toEqual(new Vector2(6, 5));
   $playback = new BattleCommandPlayback(new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1)),
     $enemy, [$this->actor], BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
   $frame = new TerminalBattlePresentation($battle)->getFrame($playback);
