@@ -74,3 +74,43 @@ it('sets families side by side, each topped by its foundation or a heading, and 
     ->and($board->getFamilies('stones')[0]->name)->toBe('Stones')
     ->and($board->getFamilyPlaceIds($board->getFamilies('stones')[0]))->toBe([MasteryFamily::getHeadingId(MasteryFamily::getTrunkId('stones')), 'pebble', 'boulder', 'rubble']);
 });
+
+it('sets a sub-family inside the tree of the family it grows within, under that family\'s top, keeping its own top, name and nodes', function () {
+  $node = static fn(string $id, string $kind, array $extra = []): array => ['id' => $id, 'kind' => $kind, ...($kind === 'foundation' ? ['name' => ucfirst($id)] : ['skill' => ucfirst($id)]), ...$extra];
+  $board = new MasteryBoard(MasteryTree::fromArray([
+    'regions' => [['id' => 'stars', 'name' => 'Stars']],
+    'branches' => [
+      // Declared before the family it grows within, as an author may leave it: the board still sets it inside.
+      ['id' => 'hours', 'region' => 'stars', 'name' => 'Hours', 'kind' => 'non-elemental', 'within' => 'odd', 'nodes' => [
+        $node('hasten', 'application'), $node('linger', 'application'), $node('skip', 'advanced')]],
+      ['id' => 'flame', 'region' => 'stars', 'name' => 'Flame', 'kind' => 'element', 'element' => 'Fire', 'nodes' => [
+        $node('flame', 'foundation'), $node('spark-1', 'application', ['grade' => 1])]],
+      ['id' => 'ember', 'region' => 'stars', 'name' => 'Ember', 'kind' => 'aspect', 'within' => 'flame', 'nodes' => [
+        $node('ember', 'foundation'), $node('glow', 'application')]],
+      ['id' => 'odd', 'region' => 'stars', 'name' => 'Odd', 'kind' => 'non-elemental', 'nodes' => [$node('quirk', 'application')]],
+    ],
+  ]));
+  $odd = $board->findFamily('odd');
+  $hours = $board->findFamily('hours');
+  $heading = MasteryFamily::getHeadingId('hours');
+
+  // The discipline lists only the families growing from it; a sub-family is found by its id and counts within its family.
+  expect(array_map(static fn(MasteryFamily $family): string => $family->id, $board->getFamilies('stars')))->toBe(['flame', 'odd'])
+    ->and($hours->parent)->toBe('odd')
+    ->and($odd->nodes)->toBe(['quirk', 'hasten', 'linger', 'skip'])
+    ->and($odd->ownNodes)->toBe(['quirk'])
+    ->and($board->getFamilyPlaceIds($odd))->toBe([MasteryFamily::getHeadingId('odd'), 'quirk', $heading, 'hasten', 'linger', 'skip'])
+    ->and($board->places[$heading]['parent'])->toBe(MasteryFamily::getHeadingId('odd'))
+    ->and($board->places['skip']['parent'])->toBe($heading)
+    ->and($board->isHeading($heading))->toBeTrue()
+    // A sub-family's places belong to the outer family on the discipline, and are the sub-family's own.
+    ->and([$board->places['hasten']['family'], $board->places['hasten']['subfamily']])->toBe(['odd', 'hours'])
+    ->and($board->findPlaceFamily($heading))->toBe($odd)
+    ->and($board->findPlaceSubfamily($heading))->toBe($hours)
+    ->and($board->findPlaceSubfamily('quirk'))->toBe($odd)
+    // A sub-family with a foundation hangs it from the outer foundation its chain grows from.
+    ->and($board->places['ember']['parent'])->toBe('flame')
+    ->and($board->children['flame'])->toBe(['spark-1', 'ember'])
+    ->and($board->places['glow']['parent'])->toBe('ember')
+    ->and($board->widths['stars'])->toBe(6);
+});

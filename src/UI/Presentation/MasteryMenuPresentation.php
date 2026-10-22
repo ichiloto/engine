@@ -264,9 +264,9 @@ final class MasteryMenuPresentation
         continue;
       }
       self::renderNode($view, $shapes, $motion, $marks, $content, $theme, $time, $node, $x, $y, $radius, $accent, $dim, $area, $badges);
-      // A name sits under the badge, or clear of the focus rings at a family's top.
-      $labelY = $y + $radius + ($node->badge !== null ? 12 : ($node->parent === null ? 15 : 6));
-      if ($node->parent === null) {
+      // A name sits under the badge, or clear of the focus rings at a family's or sub-family's top, which it names.
+      $labelY = $y + $radius + ($node->badge !== null ? 12 : ($node->isFamilyTop() ? 15 : 6));
+      if ($node->isFamilyTop()) {
         $tops[] = ['text' => $node->label, 'x' => $x, 'y' => $labelY, 'color' => self::getLabelColor($node), 'alignment' => HorizontalAlignment::CENTER];
       } else {
         $labels[] = ['text' => $node->label, 'x' => $x, 'y' => $labelY, 'color' => self::getLabelColor($node), 'alignment' => HorizontalAlignment::CENTER];

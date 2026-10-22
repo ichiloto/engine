@@ -774,7 +774,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     }
 
     /**
-     * A row's right-hand column in the Terminal list: a family's count on its top row, or a node's status,
+     * A row's right-hand column in the Terminal list: a family's or sub-family's count on its top row, or a node's status,
      * price or what it waits for. While a first Learn press asks about a node, its price is on the footer
      * line instead, so it is said once.
      */
@@ -783,10 +783,8 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         if ($this->pending === $node->id) {
             return '';
         }
-        if ($node->parent === null) {
-            $tab = array_find($content->families, static fn(MasteryMenuTab $tab): bool => $tab->id === $node->family);
-
-            return $tab === null ? '' : $this->describeCount($tab->learned, $tab->total);
+        if ($node->heads !== null) {
+            return $this->describeCount($node->heads->learned, $node->heads->total);
         }
         $status = $this->findStatus($node->id);
 
@@ -824,10 +822,15 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             return new MasteryMenuSelection($regionName, Vocabulary::getTerm('mastery.discipline'));
         }
         if ($board->isHeading($focus)) {
-            $family = $board->findPlaceFamily($focus);
+            $family = $board->findPlaceSubfamily($focus);
+            $outer = $family?->parent === null ? null : $board->findFamily($family->parent);
 
-            // A discipline's own trunk is named for the discipline, so its heading says what it is instead.
-            return new MasteryMenuSelection($family?->name ?? '', $family?->branch === null ? Vocabulary::getTerm('mastery.discipline') : $regionName);
+            // A discipline's own trunk is named for the discipline, so its heading says what it is instead; a sub-family names the family it grows within.
+            return new MasteryMenuSelection($family?->name ?? '', match (true) {
+                $family?->branch === null => Vocabulary::getTerm('mastery.discipline'),
+                $outer !== null => $outer->name,
+                default => $regionName,
+            });
         }
         $status = $statuses[$focus] ?? null;
         if ($status === null || $status->secret) {
@@ -883,7 +886,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $focus = $this->level === MasteryMenuLevel::TREE ? $this->focus[$region] ?? null : null;
         $status = $focus === null ? null : $statuses[$focus] ?? null;
         if ($focus === null || $board->isHeading($focus) || $status?->node->kind === MasteryNodeKind::FOUNDATION) {
-            $family = $focus === null ? $board->findFamily($this->familyFocus[$region] ?? '') : $board->findPlaceFamily($focus);
+            $family = $focus === null ? $board->findFamily($this->familyFocus[$region] ?? '') : $board->findPlaceSubfamily($focus);
             $here = $family === null ? [] : array_intersect_key($statuses, array_flip($family->nodes));
 
             return [['text' => $this->describeCount(self::countLearned($here), count($here)), 'color' => 'text']];
@@ -975,7 +978,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             return [];
         }
         if ($board->isHeading($focus)) {
-            return array_values(array_filter([$this->getFamilySummary($board->findPlaceFamily($focus))]));
+            return array_values(array_filter([$this->getFamilySummary($board->findPlaceSubfamily($focus))]));
         }
         $status = $statuses[$focus] ?? null;
         if ($status === null || $status->secret) {
@@ -988,7 +991,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
 
         // A foundation is its family's first step, so its family's summary says what it opens.
         return array_values(array_filter([
-            $status->node->kind === MasteryNodeKind::FOUNDATION ? $this->getFamilySummary($board->findPlaceFamily($focus)) : '',
+            $status->node->kind === MasteryNodeKind::FOUNDATION ? $this->getFamilySummary($board->findPlaceSubfamily($focus)) : '',
             $description,
             $after === [] ? '' : MessageCatalog::getTerm('mastery.after', implode(', ', $after)),
         ]));
@@ -1093,18 +1096,20 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     {
         $board = $this->getBoard();
         $place = $board->places[$id];
-        $family = $board->findFamily($place['family']);
+        // The family or sub-family whose own place it is names, pictures and counts it.
+        $family = $board->findFamily($place['subfamily']);
+        $heads = $family !== null && MasteryBoard::getRootId($family) === $id ? $this->createFamilyTab($family, $statuses) : null;
         $status = $statuses[$id] ?? null;
         if ($status === null) {
             return new MasteryMenuNode($id, $family?->name ?? $id, null, $place['lane'], $place['stage'], $place['parent'], $place['family'],
-                iconRoles: $this->getFamilyIconRoles($family));
+                iconRoles: $this->getFamilyIconRoles($family), heads: $heads);
         }
         $badge = $this->describeBadge($status);
 
         return new MasteryMenuNode($id, $status->secret ? '???' : $status->node->name, $status->state, $place['lane'], $place['stage'],
             $place['parent'], $place['family'], $badge['text'], $badge['target'],
             ["mastery.node.{$id}", ...$this->getFamilyIconRoles($family)], $status->affordable, isset($curriculum[$id]),
-            $status->secret ? null : $this->describePrice($status));
+            $status->secret ? null : $this->describePrice($status), $heads);
     }
 
     /** @param array<string, MasteryNodeStatus> $statuses */
@@ -1124,8 +1129,9 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     }
 
     /**
-     * A family's icon roles, most particular first: its own, its element's shared icon, then the
-     * board's generic node. A discipline's own role pictures its tab, not its skills.
+     * A family's icon roles, most particular first: its own, its element's shared icon, those of the
+     * family it grows within when it is a sub-family, then the board's generic node. A discipline's
+     * own role pictures its tab, not its skills.
      *
      * @return list<string>
      */
@@ -1134,9 +1140,10 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         if ($family === null) {
             return ['mastery.node'];
         }
+        $outer = $family->parent === null ? null : $this->getBoard()?->findFamily($family->parent);
 
-        return array_values(array_filter(["mastery.family.{$family->id}",
-            $family->element === null ? null : 'element.' . strtolower($family->element), 'mastery.node']));
+        return array_values(array_unique(array_filter(["mastery.family.{$family->id}",
+            $family->element === null ? null : 'element.' . strtolower($family->element), ...$this->getFamilyIconRoles($outer)])));
     }
 
     /** @param array<string, MasteryNodeStatus> $statuses */

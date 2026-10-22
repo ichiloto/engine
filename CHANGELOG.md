@@ -4,6 +4,17 @@
 
 ### Added
 
+- A mastery branch may grow `within` another branch of its region
+  (`['id' => 'time', 'within' => 'diamonds-non-elemental', ...]`) as a
+  sub-family of that branch's family. The Magi Arts board sets it inside the
+  outer family's tree under that family's top, with its own heading or
+  foundation, name, Info summary, count and icon; the discipline lists only
+  the families growing from it, and the Terminal lists the sub-family in its
+  family's list with its count on its top row. Where the outer branch has a
+  foundation, the sub-family's chain grows from it. Node ids are unchanged, so
+  moving a branch in or out of another needs no save migration. The tree
+  refuses an unknown outer branch, one in another region, and branches
+  growing within each other in a loop.
 - Knowledge record types may carry an authored `label`
   (`['id' => 'summon', 'label' => '...']`); Records shows a type by its label,
   or its id while it has none. A subject may name the `summon` it is a record
