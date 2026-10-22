@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Progression\Mastery;
 use Assegai\Util\Path;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Util\Stores\ClassStore;
 use InvalidArgumentException;
 use Throwable;
 
@@ -50,7 +51,7 @@ final class MasteryCatalog
     $assetRoot = Path::join(Path::getCurrentWorkingDirectory(), 'assets');
     if (! isset(self::$projectCatalogs[$assetRoot])) {
       $catalog = self::load($assetRoot, SkillCatalog::getProjectCatalog());
-      foreach ($catalog->problems as $problem) {
+      foreach ([...$catalog->problems, ...$catalog->findCurriculumProblems(ClassStore::all())] as $problem) {
         Debug::warn(sprintf('Mastery maps: %s', $problem));
       }
       self::$projectCatalogs[$assetRoot] = $catalog;
@@ -106,6 +107,27 @@ final class MasteryCatalog
     }
 
     return new self($tree, $maps, $problems);
+  }
+
+  /**
+   * What is wrong with the roles' curricula against the tree: each curriculum entry naming a node the
+   * tree does not have. A curriculum only guides, so such an entry is reported and never shown.
+   *
+   * @param array<string, array<string, mixed>> $classes The project's class definitions (`classes.php`), by name.
+   * @return list<string>
+   */
+  public function findCurriculumProblems(array $classes): array
+  {
+    $problems = [];
+    foreach ($classes as $class) {
+      foreach (is_array($class['curriculum'] ?? null) ? $class['curriculum'] : [] as $node) {
+        if (is_string($node) && $this->tree->findNode($node) === null) {
+          $problems[] = sprintf('classes.php: %s\'s curriculum names node %s, which the mastery tree does not have', strval($class['name'] ?? ''), $node);
+        }
+      }
+    }
+
+    return $problems;
   }
 
   /** Whether the project has a tree to learn from. */

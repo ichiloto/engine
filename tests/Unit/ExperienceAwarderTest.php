@@ -305,3 +305,17 @@ it('rejects invalid award inputs before modifying character progression', functi
   expect(fn() => ExperienceAwarder::award($character, 10000))->toThrow(InvalidArgumentException::class, 'validated project contract')
     ->and(serialize($character))->toBe($before);
 });
+
+it('gives a role its curriculum of Mastery node ids, leaving out entries that are not ids', function () {
+  new ReflectionProperty(ClassStore::class, 'definitions')->setValue(null, [
+    'scholar' => ['name' => 'Scholar', 'curriculum' => ['spark-1', ' padded ', 7, 'storm', 'spark-1']],
+    'squire' => ['name' => 'Squire'],
+  ]);
+  $scholar = new Character('Scholar', 0, new Stats());
+  $scholar->applyClass('Scholar');
+  $squire = new Character('Squire', 0, new Stats());
+  $squire->applyClass('Squire');
+
+  expect($scholar->role->curriculum)->toBe(['spark-1', 'storm'])
+    ->and($squire->role->curriculum)->toBe([]);
+});

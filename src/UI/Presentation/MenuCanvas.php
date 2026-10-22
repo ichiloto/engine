@@ -14,6 +14,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextBatch;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\UI\Text\TextPage;
@@ -305,6 +306,79 @@ final class MenuCanvas
     return $height;
   }
 
+  /**
+   * Single-line texts of one size: each item stands exactly at its anchor (its left edge, middle or
+   * right edge, by its alignment) and whatever falls outside the bounds is cut there. Items never
+   * wrap. Items that share a place on the cell lattice share one text layer, so a screen with many
+   * short labels of one size (a board's node names, a row of tabs) costs a few layers, not one each.
+   *
+   * @param list<array{text: string, x: float, y: float, color: string|PresentationColor, alignment?: HorizontalAlignment}> $items
+   *   A colour is a theme role, or a colour the theme supplies elsewhere (a discipline's accent).
+   * @param array{int, int} $cell The cell width and height, which set the text's size.
+   */
+  public function renderTexts(string $id, array $items, CanvasRectangle $bounds, array $cell, int $layer = 30, float $opacity = 1): void
+  {
+    [$cellWidth, $cellHeight] = $cell;
+    $groups = [];
+    foreach ($items as $item) {
+      $text = $item['text'];
+      $cells = TerminalText::displayWidth($text);
+      if ($cells === 0) { continue; }
+      $left = match ($item['alignment'] ?? HorizontalAlignment::LEFT) {
+        HorizontalAlignment::CENTER => $item['x'] - $cells * $cellWidth / 2,
+        HorizontalAlignment::RIGHT => $item['x'] - $cells * $cellWidth,
+        default => $item['x'],
+      };
+      $offsetX = round(fmod(fmod($left - $bounds->x, $cellWidth) + $cellWidth, $cellWidth), 2);
+      $offsetY = round(fmod(fmod($item['y'] - $bounds->y, $cellHeight) + $cellHeight, $cellHeight), 2);
+      $groups["{$offsetX}:{$offsetY}"][] = [$item, $left, $offsetX, $offsetY];
+    }
+    $index = 0;
+    foreach ($groups as $group) {
+      [, , $offsetX, $offsetY] = $group[0];
+      $originX = $bounds->x + $offsetX;
+      $originY = $bounds->y + $offsetY;
+      $columns = max(1, (int)ceil(($bounds->x + $bounds->width - $originX) / $cellWidth));
+      $rows = max(1, (int)ceil(($bounds->y + $bounds->height - $originY) / $cellHeight));
+      $columns = min($columns, (int)floor(($this->width - $originX) / $cellWidth));
+      $rows = min($rows, (int)floor(($this->height - $originY) / $cellHeight));
+      if ($columns < 1 || $rows < 1) { continue; }
+      $runs = [];
+      foreach ($group as [$item, $left]) {
+        $column = (int)round(($left - $originX) / $cellWidth);
+        $row = (int)round(($item['y'] - $originY) / $cellHeight);
+        $text = $item['text'];
+        if ($row < 0 || $row >= $rows || $column >= $columns || $column + TerminalText::displayWidth($text) <= 0) { continue; }
+        if ($column < 0) {
+          $text = mb_substr($text, -$column, null, 'UTF-8');
+          $column = 0;
+        }
+        $text = TerminalText::truncateToWidth($text, $columns - $column);
+        if ($text === '') { continue; }
+        $color = $item['color'];
+        $runs[] = new PresentationTextRun($row, $column, $text, $color instanceof PresentationColor ? $color : $this->theme->colors[$color]);
+      }
+      if ($runs === []) { continue; }
+      $this->text[] = new CanvasTextLayer($id . ($index++ === 0 ? '' : '-' . $index), $layer, $originX, $originY,
+        new RendererGridConfig($columns, $rows, $cellWidth, $cellHeight), $runs, $bounds, $opacity);
+      $this->protectText($this->text[array_key_last($this->text)]);
+    }
+  }
+
+  /** One single-line text of a size, at its anchor (see renderTexts). */
+  public function renderText(string $id, string $text, float $x, float $y, array $cell, string|PresentationColor $color = 'text',
+    HorizontalAlignment $alignment = HorizontalAlignment::LEFT, int $layer = 30): void
+  {
+    $width = max($cell[0], TerminalText::displayWidth($text) * $cell[0]);
+    $left = match ($alignment) {
+      HorizontalAlignment::CENTER => $x - $width / 2,
+      HorizontalAlignment::RIGHT => $x - $width,
+      default => $x,
+    };
+    $bounds = new CanvasRectangle(max(0, $left), max(0, $y), min($width, $this->width - max(0, $left)), min($cell[1], $this->height - max(0, $y)));
+    $this->renderTexts($id, [['text' => $text, 'x' => max(0, $left), 'y' => max(0, $y), 'color' => $color]], $bounds, $cell, $layer);
+  }
+
   /** @return list<string> */
   public static function wrap(string $text, int $cells): array
   {
@@ -365,14 +439,15 @@ final class MenuCanvas
   }
 
   /** @param list<\Ichiloto\Engine\IO\ActionHint> $hints */
-  public function hints(string $id, array $hints, CanvasRectangle $bounds, bool $required = false): int
+  /** @param array{int, int}|null $cell A text cell for hints a screen sizes itself; the theme's otherwise. */
+  public function hints(string $id, array $hints, CanvasRectangle $bounds, bool $required = false, ?array $cell = null): int
   {
-    $canvas = MenuActionHints::compose($this->width, $this->height, $id, $hints, $this->theme, $bounds, $required);
+    $canvas = MenuActionHints::compose($this->width, $this->height, $id, $hints, $this->theme, $bounds, $required, $cell);
     array_push($this->images, ...$canvas->images);
     array_push($this->text, ...$canvas->textLayers);
     foreach ($canvas->textLayers as $layer) { $this->protectText($layer); }
     foreach ($canvas->images as $image) { $this->protect($image->destination); }
-    return MenuActionHints::height($hints, $this->theme, $bounds->width, $required);
+    return MenuActionHints::height($hints, $this->theme, $bounds->width, $required, $cell);
   }
 
   public function finish(): PresentationCanvas

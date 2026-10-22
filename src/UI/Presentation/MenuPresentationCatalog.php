@@ -42,10 +42,11 @@ final readonly class MenuPresentationCatalog
   public bool $showInputHints;
   public NotificationTheme $notifications;
   public MapAtlasTheme $atlas;
+  public MasteryTheme $mastery;
 
   public function __construct(public string $assetRoot, array $data)
   {
-    self::keys($data, ['schema', 'colors', 'metrics', 'rowMetrics', 'rowArtwork', 'frames', 'icons', 'cursor', 'portraits', 'showInputHints', 'notifications', 'atlas', 'details']);
+    self::keys($data, ['schema', 'colors', 'metrics', 'rowMetrics', 'rowArtwork', 'frames', 'icons', 'cursor', 'portraits', 'showInputHints', 'notifications', 'atlas', 'details', 'mastery']);
     if (($data['schema'] ?? null) !== 'ichiloto.menu/1') {
       throw new InvalidArgumentException('Menu catalog requires schema ichiloto.menu/1.');
     }
@@ -56,6 +57,7 @@ final readonly class MenuPresentationCatalog
     self::keys($notificationData, ['width', 'maxWidth', 'margin', 'padding', 'iconSize', 'iconGap', 'textGap', 'maxHeightRatio', 'colors']);
     $this->notifications = new NotificationTheme(...$notificationData);
     $this->atlas = MapAtlasTheme::fromArray(self::map($data, 'atlas'));
+    $this->mastery = MasteryTheme::fromArray(self::map($data, 'mastery'));
     $colors = self::map($data, 'colors');
     self::keys($colors, array_keys(self::DEFAULT_COLORS));
     $palette = [];

@@ -34,6 +34,8 @@ use Ichiloto\Engine\Util\Debug;
  *   'skillsToLearn' => [
  *     ['level' => 4, 'skill' => 'Dual Slash', 'note' => ''],
  *   ],
+ *   // The Mastery nodes the role recommends, by node id; a guide, never a limit.
+ *   'curriculum' => ['burn-i', 'rend'],
  * ]
  * ```
  *
@@ -153,7 +155,34 @@ class ClassStore
       $generators['evasion'],
       self::resolveEquipmentTypes($definition['equipment']['weapons'] ?? [], isWeapon: true),
       self::resolveEquipmentTypes($definition['equipment']['armor'] ?? [], isWeapon: false),
+      self::resolveCurriculum($definition['curriculum'] ?? [], strval($definition['name'])),
     );
+  }
+
+  /**
+   * Reads a role's curriculum: the Mastery node ids it recommends. Entries that
+   * are not node ids are reported and left out; whether each names a node of
+   * the project's tree is checked where the tree is read (MasteryCatalog).
+   *
+   * @return list<string>
+   */
+  protected static function resolveCurriculum(mixed $entries, string $className): array
+  {
+    if (! is_array($entries) || ! array_is_list($entries)) {
+      Debug::warn(sprintf('Class %s: curriculum must list Mastery node ids.', $className));
+
+      return [];
+    }
+    $curriculum = [];
+    foreach ($entries as $entry) {
+      if (! is_string($entry) || trim($entry) === '' || $entry !== trim($entry)) {
+        Debug::warn(sprintf('Class %s: curriculum entry %s is not a Mastery node id.', $className, json_encode($entry)));
+        continue;
+      }
+      $curriculum[] = $entry;
+    }
+
+    return array_values(array_unique($curriculum));
   }
 
   /**
