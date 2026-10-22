@@ -58,11 +58,18 @@ enum SystemSound: string
    */
   case LEVEL_UP = 'level_up';
   /**
-   * Loops while an on-screen number counts up or down (battle results EXP,
-   * a points countdown). The track should be a seamless loop; it plays once
-   * however many counts run together and stops when the last one ends.
+   * Loops while an on-screen number counts up or down (a points countdown),
+   * and for any kind of count whose own loop the game leaves unbound. The
+   * track should be a seamless loop; one counting loop plays however many
+   * counts run together and stops when the last one ends.
    */
   case COUNTER = 'counter';
+  /**
+   * Loops while battle results dispense experience points (the EXP gauges
+   * and level fills), in place of the counter. A game that binds no track
+   * for it hears the counter instead. The track should be a seamless loop.
+   */
+  case EXP_TALLY = 'exp_tally';
 
   /** The authored volume a sound plays at when its project leaves it out. */
   public const int DEFAULT_VOLUME = 100;

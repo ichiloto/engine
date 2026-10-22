@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Audio\Enumerations\CountKind;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Audio\AudioPlayback;
 use Ichiloto\Engine\Audio\CinematicMusicRequest;
@@ -700,6 +701,99 @@ it('lapses a counter tick hold that is not renewed, so a frozen or discarded cou
   unset($count);
   $manager->update();
   expect($tick->isHeld)->toBeFalse()->and($tick->isPlaying)->toBeFalse();
+});
+
+it('loops each kind of count on its own system sound', function (CountKind $kind, string $file) {
+  $manager = makeCounterTickManager(bindsExpTally: true);
+  $count = new stdClass();
+
+  $manager->counterSound->holdTick($count, $kind);
+  $manager->update();
+  $manager->counterSound->holdTick($count, $kind);
+  $manager->update();
+
+  expect(listSpawnedSoundFiles($manager))->toBe([$file]);
+  $manager->counterSound->releaseTick($count);
+  expect($manager->counterSound->isPlaying)->toBeFalse()->and($manager->spawnedPlaybacks[0]->isRunning)->toBeFalse();
+  $manager->shutdown();
+})->with([
+  'EXP dispensing plays the EXP tally' => [CountKind::EXPERIENCE, 'tally.wav'],
+  'any other count plays the counter' => [CountKind::GENERAL, 'tick.wav'],
+]);
+
+it('counts EXP on the generic counter when the game binds no EXP tally, but never hides a bound tally that cannot play', function () {
+  $manager = makeCounterTickManager();
+  $count = new stdClass();
+  $manager->counterSound->holdTick($count, CountKind::EXPERIENCE);
+  expect(listSpawnedSoundFiles($manager))->toBe(['tick.wav']);
+  $manager->shutdown();
+
+  $root = makeAudioAssetsRoot(['tick.wav']);
+  putAudioProjectConfig(['audio' => ['sfx' => true, 'master_volume' => 100,
+    'sounds' => ['counter' => "$root/tick.wav", 'exp_tally' => "$root/missing-tally.wav"]]]);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+  $manager->counterSound->holdTick($count, CountKind::EXPERIENCE);
+  expect($manager->spawnedCommands)->toBe([])->and($manager->counterSound->isPlaying)->toBeFalse();
+  $manager->shutdown();
+});
+
+it('keeps one loop for overlapping kinds: the sounding count keeps it, then the earliest remaining holder takes over', function () {
+  $manager = makeCounterTickManager(bindsExpTally: true);
+  $tick = $manager->counterSound;
+  [$experience, $points] = [new stdClass(), new stdClass()];
+
+  $tick->holdTick($experience, CountKind::EXPERIENCE);
+  $tick->holdTick($points);
+  $manager->update();
+  $tick->holdTick($points);
+  $tick->holdTick($experience, CountKind::EXPERIENCE);
+  $manager->update();
+  expect(listSpawnedSoundFiles($manager))->toBe(['tally.wav']);
+
+  // The EXP count ends; the points count still moves, so the counter takes over.
+  $tick->releaseTick($experience);
+  expect(listSpawnedSoundFiles($manager))->toBe(['tally.wav', 'tick.wav'])
+    ->and($manager->spawnedPlaybacks[0]->isRunning)->toBeFalse()->and($tick->isPlaying)->toBeTrue();
+
+  // An EXP count joining a sounding counter does not interrupt it.
+  $tick->holdTick($experience, CountKind::EXPERIENCE);
+  $tick->holdTick($points);
+  $manager->update();
+  expect(listSpawnedSoundFiles($manager))->toBe(['tally.wav', 'tick.wav']);
+  $tick->releaseTick($points);
+  expect(listSpawnedSoundFiles($manager))->toBe(['tally.wav', 'tick.wav', 'tally.wav'])
+    ->and(array_filter($manager->spawnedPlaybacks, static fn($player) => $player->isRunning))->toHaveCount(1);
+  $tick->releaseTick($experience);
+  expect($tick->isPlaying)->toBeFalse()
+    ->and(array_filter($manager->spawnedPlaybacks, static fn($player) => $player->isRunning))->toBe([]);
+  $manager->shutdown();
+});
+
+it('shares one uninterrupted counter loop between kinds that fall back to it', function () {
+  $manager = makeCounterTickManager();
+  $tick = $manager->counterSound;
+  [$experience, $points] = [new stdClass(), new stdClass()];
+
+  $tick->holdTick($experience, CountKind::EXPERIENCE);
+  $tick->holdTick($points);
+  $tick->releaseTick($experience);
+  $tick->holdTick($experience, CountKind::EXPERIENCE);
+
+  expect(listSpawnedSoundFiles($manager))->toBe(['tick.wav'])->and($manager->spawnedPlaybacks[0]->isRunning)->toBeTrue();
+  $manager->shutdown();
+});
+
+it('plays no EXP tally while sound effects are muted', function () {
+  $manager = makeCounterTickManager(['sfx' => false, 'master_volume' => 100], bindsExpTally: true);
+  $count = new stdClass();
+
+  foreach ([1, 2] as $_) {
+    $manager->counterSound->holdTick($count, CountKind::EXPERIENCE);
+    $manager->update();
+  }
+
+  expect($manager->spawnedCommands)->toBe([]);
+  $manager->shutdown();
 });
 
 it('plays no counter tick while sound effects are muted', function () {

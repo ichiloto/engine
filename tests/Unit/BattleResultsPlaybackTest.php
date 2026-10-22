@@ -188,8 +188,8 @@ it('does not count where nothing visible animates', function (BattleRewards $rew
     playbackAward('c', 500, 600), playbackAward('d', 500, 600), playbackAward('e')]), false, true],
 ]);
 
-it('holds one counter tick while results count and releases it on finish, early completion and close', function () {
-  $manager = makeCounterTickManager();
+it('holds one EXP tally while results count and releases it on finish, early completion and close', function () {
+  $manager = makeCounterTickManager(bindsExpTally: true);
   $rewards = new BattleRewards(260, 0, [playbackAward()]);
   $finishing = new BattleResultsPlayback($rewards, counterSound: $manager->counterSound);
   $other = new BattleResultsPlayback($rewards, counterSound: $manager->counterSound);
@@ -202,7 +202,7 @@ it('holds one counter tick while results count and releases it on finish, early 
   expect($manager->counterSound->isPlaying)->toBeFalse();
   $frame(0.5, $finishing, $other);
   $frame(0.5, $finishing, $other);
-  expect($manager->counterSound->isPlaying)->toBeTrue()->and($manager->spawnedCommands)->toHaveCount(1);
+  expect($manager->counterSound->isPlaying)->toBeTrue()->and(listSpawnedSoundFiles($manager))->toBe(['tally.wav']);
 
   // Completing one count early leaves the other one ticking.
   $other->confirm();
@@ -215,12 +215,12 @@ it('holds one counter tick while results count and releases it on finish, early 
   $frame(1.2, $closing);
   expect($manager->counterSound->isPlaying)->toBeTrue();
   $closing->releaseCounterTick();
-  expect($manager->counterSound->isPlaying)->toBeFalse()->and($manager->spawnedCommands)->toHaveCount(2);
+  expect($manager->counterSound->isPlaying)->toBeFalse()->and(listSpawnedSoundFiles($manager))->toBe(['tally.wav', 'tally.wav']);
   $manager->shutdown();
 });
 
-it('plays no counter tick for results while sound effects are muted', function () {
-  $manager = makeCounterTickManager(['sfx' => false, 'master_volume' => 100]);
+it('plays no EXP tally for results while sound effects are muted', function () {
+  $manager = makeCounterTickManager(['sfx' => false, 'master_volume' => 100], bindsExpTally: true);
   $playback = new BattleResultsPlayback(new BattleRewards(260, 0, [playbackAward()]), counterSound: $manager->counterSound);
   foreach ([1.0, 0.3, 0.3] as $delta) {
     $playback->update($delta);

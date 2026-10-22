@@ -197,10 +197,12 @@ Games opt in per sound by declaring a track under `audio.sounds`:
     'item_get' => 'item-get',
     'shop' => 'coin',
     'counter' => 'counter-tick-loop',
+    'exp_tally' => 'exp-tally-loop',
   ],
   // Optional: each sound's own volume, 0 to 100, under the master volume.
   'sound_volumes' => [
     'counter' => 35,
+    'exp_tally' => 30,
   ],
 ],
 ```
@@ -227,25 +229,50 @@ silent when advancing text.
 
 `counter` is a looping sound for numbers that count on screen. Its track
 should be a seamless loop. It is shared through `$audioManager->counterSound`
-(`CounterSound`): a count calls `holdTick($owner)` on each frame its displayed
-value moves and `releaseTick($owner)` when the count finishes, is completed
-early, or its screen closes. However many counts run together, one loop plays,
-and it stops when the last holder releases it. A hold that is not renewed
+(`CounterSound`): a count calls `holdTick($owner, $kind)` on each frame its
+displayed value moves and `releaseTick($owner)` when the count finishes, is
+completed early, or its screen closes. However many counts run together, one
+loop plays, and it stops when the last holder releases it.
+
+Each count names its kind with `Ichiloto\Engine\Audio\Enumerations\CountKind`,
+and each kind loops its own system sound, so a game can give each kind of
+count its own loop:
+
+| Kind | System sound | Counts |
+| --- | --- | --- |
+| `CountKind::GENERAL` (the default) | `counter` | The Mastery SP total, gold, any other count |
+| `CountKind::EXPERIENCE` | `exp_tally` | Battle results EXP gauges and level fills |
+
+A kind whose sound the game binds no track to plays `counter` instead.
+`CounterSound` owns that fallback; a count never chooses a sound itself. A
+bound track that cannot play (a missing file, an unsupported format) stays
+silent with a warning in the log, rather than hiding behind the counter.
+
+One loop plays even when counts of different kinds overlap. The sounding count
+keeps it: the kind already playing goes on while any count of that kind still
+holds the tick. When the last count of that kind lets go and others still
+hold it, the loop changes to the kind of the earliest remaining holder. Kinds
+that resolve to the same sound (an EXP count in a game without an EXP tally,
+beside a general count) share one uninterrupted loop. A hold that is not renewed
 before the next audio update lapses there, so a screen torn down without a
 release, or a count frozen under a blocking modal, cannot leave the tick
 playing. Counts that do not animate (the terminal projection, reduced motion)
 show their final value and never hold the tick.
 
-Battle results hold it while their EXP gauges visibly count
-(`BattleResultsPlayback::$isCounting`). The Mastery menu holds it while its drawn SP total moves on its graphical
+Battle results hold it as an EXP count while their EXP gauges visibly count,
+level fills included (`BattleResultsPlayback::$isCounting`). The Mastery menu
+holds it as a general count while its drawn SP total moves on its graphical
 canvas: draining while Learn is held (`MasteryLearnHold::isDrainingAt()`) and
 counting down after a two-press learn (`MasteryPointsCount::isCountingAt()`),
 checked from the menu's own update and only on frames where
 `MenuCanvasState::$isMenuCanvasShown` and motion is not reduced. It releases it
 when the total stops, the hold is let go, the character changes or the menu
-closes. A new counting
-presentation adopts the same two calls rather than playing or stopping the
-sound itself.
+closes. Battle results show gold at its final value, so gold holds nothing
+today; a gold count that animates would hold the tick as a general count. A
+new counting presentation adopts the same two calls with its own kind rather
+than playing or stopping the sound itself. A new kind of count adds a
+`CountKind` case and its `SystemSound`, which the Editor's Configuration then
+offers with its own track and volume rows.
 
 ## Direct playback (custom systems)
 

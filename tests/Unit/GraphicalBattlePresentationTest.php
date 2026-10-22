@@ -1500,12 +1500,12 @@ it('composes Results over the frozen real battlefield without changing awarded g
     ->and($hero->currentExp)->toBe($awardedExperience);
 });
 
-it('ticks the counter while graphical Results count EXP, never for the terminal projection, and stops on close', function (bool $graphical) {
+it('plays the EXP tally while graphical Results count EXP, never for the terminal projection, and stops on close', function (bool $graphical) {
   [$battle, $catalog, $hero] = graphicalBattleFixture(true);
   $scene = graphicalBattleScene($battle, GraphicalBattlePresentation::prepare($battle, $catalog, $this->root));
   if ($graphical) { new ReflectionProperty(BattleScene::class, 'resultsSkin')->setValue($scene, graphicalResultsFixtureSkin()); }
   $scene->result = new BattleResult('Victory', rewards: new BattleRewards(10000, 42, [ExperienceAwarder::award($hero, 10000)]));
-  $manager = makeCounterTickManager();
+  $manager = makeCounterTickManager(bindsExpTally: true);
   $instance = new ReflectionProperty(Ichiloto\Engine\Audio\AudioManager::class, 'instance');
   $previous = $instance->getValue();
   $instance->setValue(null, $manager);
@@ -1514,7 +1514,8 @@ it('ticks the counter while graphical Results count EXP, never for the terminal 
     $scene->resultsPlayback->update(1.2);
     $manager->update();
     expect($scene->resultsPlayback->animatesCounts)->toBe($graphical)
-      ->and($manager->counterSound->isPlaying)->toBe($graphical);
+      ->and($manager->counterSound->isPlaying)->toBe($graphical)
+      ->and(listSpawnedSoundFiles($manager))->toBe($graphical ? ['tally.wav'] : []);
     $scene->endResults();
     expect($manager->counterSound->isPlaying)->toBeFalse()
       ->and(array_filter($manager->spawnedPlaybacks, static fn($player) => $player->isRunning))->toBe([]);

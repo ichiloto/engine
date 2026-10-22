@@ -227,12 +227,24 @@ function putAudioProjectConfig(array $values): void
 }
 
 /**
- * A manager whose project binds a synthetic counter tick, with the given
- * audio settings.
+ * A manager whose project binds a synthetic counter tick (`tick.wav`) and,
+ * when asked, a synthetic EXP tally (`tally.wav`), with the given audio
+ * settings.
  */
-function makeCounterTickManager(array $audio = ['sfx' => true, 'master_volume' => 100]): TestableAudioManager
+function makeCounterTickManager(array $audio = ['sfx' => true, 'master_volume' => 100], bool $bindsExpTally = false): TestableAudioManager
 {
-  $root = makeAudioAssetsRoot(['tick.wav']);
-  putAudioProjectConfig(['audio' => [...$audio, 'sounds' => ['counter' => "$root/tick.wav"]]]);
+  $root = makeAudioAssetsRoot(['tick.wav', 'tally.wav']);
+  $sounds = ['counter' => "$root/tick.wav", ...($bindsExpTally ? ['exp_tally' => "$root/tally.wav"] : [])];
+  putAudioProjectConfig(['audio' => [...$audio, 'sounds' => $sounds]]);
   return new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+}
+
+/**
+ * The file names each spawned player was asked to play, in spawn order.
+ *
+ * @return list<string>
+ */
+function listSpawnedSoundFiles(TestableAudioManager $manager): array
+{
+  return array_map(static fn(array $command): string => basename((string)end($command)), $manager->spawnedCommands);
 }
