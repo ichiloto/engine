@@ -79,6 +79,11 @@ final class SkillRecord
    */
   public static function readSkill(array $data): Skill
   {
+    if (SkillDraft::isDraft($data)) {
+      throw new InvalidArgumentException(sprintf('This record still awaits author values (%s); it is a draft, not a skill.',
+        implode(', ', array_map('strval', (array) $data[SkillDraft::KEY]))));
+    }
+
     foreach (array_keys($data) as $key) {
       if (! in_array($key, self::KEYS, true)) {
         throw new InvalidArgumentException(sprintf('Unknown skill record key "%s".', $key));

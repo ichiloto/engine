@@ -4,9 +4,14 @@ use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
+use Ichiloto\Engine\Entities\Skills\SkillDraft;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Entities\Skills\SkillRecord;
+use Ichiloto\Engine\Progression\Mastery\MasteryCatalog;
 use Ichiloto\Engine\Progression\Mastery\MasteryMap;
+use Ichiloto\Engine\Progression\Mastery\MasteryTree;
+use Ichiloto\Engine\Progression\Mastery\MasteryUnavailability;
 use Ichiloto\Engine\Progression\Mastery\MasteryNodeState;
 use Ichiloto\Engine\Progression\Mastery\MasteryProgress;
 use Ichiloto\Engine\Progression\Mastery\MasteryProgression;
@@ -14,6 +19,14 @@ use Ichiloto\Engine\Progression\Mastery\MasteryRefusal;
 use Ichiloto\Engine\Progression\Mastery\MasteryRefusalReason;
 use Ichiloto\Engine\Progression\ExperienceAwarder;
 use Ichiloto\Engine\Entities\Party;
+
+/** A synthetic tree: two regions whose trunks hold the given skills as ungraded applications. */
+function masteryTrunkTree(array $trunks, array $branches = []): MasteryTree
+{
+  return MasteryTree::fromArray(['regions' => array_map(static fn(string $region): array => ['id' => $region, 'name' => ucfirst($region),
+    'nodes' => array_map(static fn(string $skill, string $id): array => ['id' => $id, 'kind' => 'application', 'skill' => $skill],
+      $trunks[$region], array_keys($trunks[$region]))], array_keys($trunks)), 'branches' => $branches]);
+}
 
 /** A synthetic map: a free starting skill, two level-2 skills, and one that builds on the first of them and stays a secret. */
 function masteryFixture(): array
@@ -24,14 +37,46 @@ function masteryFixture(): array
     'Skills/guard.php' => new SpecialSkill('Guard Up', '', '', 3, 0),
     'Skills/storm.php' => new MagicSkill('Storm', '', '', 9, 0),
   ]);
+  $tree = masteryTrunkTree(['blades' => ['start' => 'Start Cut', 'guard' => 'Guard Up'], 'storms' => ['spark' => 'Spark', 'storm' => 'Storm']]);
   $map = MasteryMap::fromArray(['actor' => 'Hero', 'nodes' => [
-    ['id' => 'start', 'skill' => 'Start Cut', 'region' => 'blades', 'cost' => 0],
-    ['id' => 'spark', 'skill' => 'Spark', 'region' => 'storms', 'cost' => 50, 'opensAtLevel' => 2],
-    ['id' => 'guard', 'skill' => 'Guard Up', 'region' => 'blades', 'cost' => 40, 'opensAtLevel' => 2],
-    ['id' => 'storm', 'skill' => 'Storm', 'region' => 'storms', 'cost' => 80, 'opensAtLevel' => 2, 'requires' => ['spark'], 'hidden' => true],
-  ]], ['blades', 'storms']);
+    ['id' => 'start', 'cost' => 0],
+    ['id' => 'spark', 'cost' => 50, 'opensAtLevel' => 2],
+    ['id' => 'guard', 'cost' => 40, 'opensAtLevel' => 2],
+    ['id' => 'storm', 'cost' => 80, 'opensAtLevel' => 2, 'requires' => ['spark'], 'hidden' => true],
+  ]], $tree);
 
   return [new MasteryProgression($map, $skills), new Character('Hero', 0, new Stats())];
+}
+
+/**
+ * A synthetic element branch on the tree's own terms: a foundation that
+ * grants nothing yet, two grades, an advanced application whose record
+ * awaits its author's values, and a demi and full special grade.
+ */
+function masteryBranchFixture(): array
+{
+  $draft = SkillDraft::fromArray(['kind' => 'magic', 'name' => 'Inferno', 'description' => '', 'icon' => '', 'cooldown' => 0,
+    'occasion' => 'Battle Screen', 'scope' => ['side' => 'Enemy', 'number' => 'All', 'status' => 'Alive'],
+    'invocation' => ['speed' => 0, 'accuracy' => 0, 'repeat' => 1, 'apGain' => 0],
+    'effects' => [['type' => 'hp_damage', 'element' => 'Flame']], 'unassigned' => ['cost', 'effects.0.formula']]);
+  $skills = SkillCatalog::fromSkills([
+    'Skills/a.php' => new MagicSkill('Singe I', '', '', 3, 0),
+    'Skills/b.php' => new MagicSkill('Singe II', '', '', 6, 0),
+    'Skills/c.php' => new MagicSkill('Half Shield', '', '', 4, 0),
+    'Skills/d.php' => new MagicSkill('Shield', '', '', 8, 0),
+  ], drafts: ['Skills/e.php' => $draft]);
+  $tree = MasteryTree::fromArray(['regions' => [['id' => 'arts', 'name' => 'Arts']], 'branches' => [
+    ['id' => 'flame', 'region' => 'arts', 'name' => 'Flame', 'kind' => 'element', 'element' => 'Flame', 'nodes' => [
+      ['id' => 'flame', 'kind' => 'foundation', 'name' => 'Flame', 'cost' => 10],
+      ['id' => 'singe-i', 'kind' => 'application', 'grade' => 1, 'skill' => 'Singe I', 'cost' => 20],
+      ['id' => 'singe-ii', 'kind' => 'application', 'grade' => 2, 'skill' => 'Singe II'],
+      ['id' => 'inferno', 'kind' => 'advanced', 'skill' => 'Inferno', 'cost' => 90],
+      ['id' => 'half-shield', 'kind' => 'special', 'phase' => 'demi', 'skill' => 'Half Shield', 'cost' => 30],
+      ['id' => 'shield', 'kind' => 'special', 'phase' => 'full', 'extends' => 'half-shield', 'skill' => 'Shield', 'cost' => 60],
+    ]],
+  ]]);
+
+  return [$tree, $skills];
 }
 
 /** The EXP the character needs, from where they are, to reach a level. */
@@ -72,7 +117,7 @@ it('learns a free node as soon as it opens, without spending points', function (
   expect(array_map(static fn($skill): string => $skill->name, $first->learned))->toBe(['Start Cut'])
     ->and($hero->abilityBook->getLearnedAbilities()[0]->name)->toBe('Start Cut')
     ->and($hero->mastery->points)->toBe(30)
-    ->and(masteryStates($mastery, $hero))->toBe(['start' => 'learned', 'spark' => 'locked', 'guard' => 'locked', 'storm' => 'locked']);
+    ->and(masteryStates($mastery, $hero))->toBe(['start' => 'learned', 'guard' => 'locked', 'spark' => 'locked', 'storm' => 'locked']);
 });
 
 it('spends a node\'s price from the total and learns it at once, in any order the player picks', function () {
@@ -88,7 +133,7 @@ it('spends a node\'s price from the total and learns it at once, in any order th
     ->and(array_map(static fn($skill): string => $skill->name, $spark->learned))->toBe(['Spark'])
     ->and($hero->mastery->points)->toBe(10)
     ->and($hero->spellbook->getLearnedSpells()[0]->name)->toBe('Spark')
-    ->and(masteryStates($mastery, $hero))->toBe(['start' => 'learned', 'spark' => 'learned', 'guard' => 'learned', 'storm' => 'open']);
+    ->and(masteryStates($mastery, $hero))->toBe(['start' => 'learned', 'guard' => 'learned', 'spark' => 'learned', 'storm' => 'open']);
 });
 
 it('refuses a node that costs more than the total, is locked, or is already learned, spending nothing', function () {
@@ -104,8 +149,8 @@ it('refuses a node that costs more than the total, is locked, or is already lear
     ->and(masteryRefusal($mastery, $hero, 'storm'))->toBe(MasteryRefusalReason::LOCKED)
     ->and(masteryRefusal($mastery, $hero, 'nowhere'))->toBe(MasteryRefusalReason::UNKNOWN)
     ->and($hero->mastery->points)->toBe(45)
-    ->and($mastery->describe($hero)[1]->affordable)->toBeFalse()
-    ->and($mastery->describe($hero)[2]->learnable)->toBeTrue();
+    ->and($mastery->describe($hero)[2]->affordable)->toBeFalse()
+    ->and($mastery->describe($hero)[1]->learnable)->toBeTrue();
 });
 
 it('says why a node is locked, and keeps a hidden one a secret only while it is locked', function () {
@@ -159,23 +204,116 @@ it('refuses EXP progress saved before Mastery spent points, so no content migrat
     ->toThrow(InvalidArgumentException::class, 'content migration');
 });
 
-it('refuses a map whose requirements loop, repeat a skill, or name an unknown region or node', function (array $nodes, string $message) {
-  expect(fn() => MasteryMap::fromArray(['actor' => 'Hero', 'nodes' => $nodes], ['blades']))->toThrow(InvalidArgumentException::class, $message);
+it('refuses a map whose terms repeat, name a node the tree lacks, require an unknown node, or loop', function (array $nodes, string $message) {
+  $tree = masteryTrunkTree(['blades' => ['a' => 'A', 'b' => 'B']]);
+
+  expect(fn() => MasteryMap::fromArray(['actor' => 'Hero', 'nodes' => $nodes], $tree))->toThrow(InvalidArgumentException::class, $message);
 })->with([
-  'loop' => [[['id' => 'a', 'skill' => 'A', 'region' => 'blades', 'requires' => ['b']], ['id' => 'b', 'skill' => 'B', 'region' => 'blades', 'requires' => ['a']]], 'in a loop'],
-  'same skill twice' => [[['id' => 'a', 'skill' => 'A', 'region' => 'blades'], ['id' => 'b', 'skill' => 'A', 'region' => 'blades']], 'more than one node'],
-  'unknown region' => [[['id' => 'a', 'skill' => 'A', 'region' => 'storms']], 'unknown region'],
-  'unknown requirement' => [[['id' => 'a', 'skill' => 'A', 'region' => 'blades', 'requires' => ['z']]], 'unknown node z'],
-  'negative cost' => [[['id' => 'a', 'skill' => 'A', 'region' => 'blades', 'cost' => -1]], 'less than 0 points'],
-  'study order from before Mastery spent points' => [[['id' => 'a', 'skill' => 'A', 'region' => 'blades', 'order' => 1]], 'unknown key "order"'],
+  'loop' => [[['id' => 'a', 'requires' => ['b']], ['id' => 'b', 'requires' => ['a']]], 'in a loop'],
+  'same node twice' => [[['id' => 'a'], ['id' => 'a']], 'node a twice'],
+  'node outside the tree' => [[['id' => 'z']], 'does not have'],
+  'unknown requirement' => [[['id' => 'a', 'requires' => ['z']]], 'unknown node z'],
+  'negative cost' => [[['id' => 'a', 'cost' => -1]], 'less than 0 points'],
+  'skill named by the map, from before the tree owned it' => [[['id' => 'a', 'skill' => 'A']], 'ichiloto upgrade'],
+  'study order from before Mastery spent points' => [[['id' => 'a', 'order' => 1]], 'unknown key "order"'],
 ]);
 
-it('places unplaced nodes down the middle of their region in the order the map lists them, and authored ones where the author put them', function () {
-  $map = MasteryMap::fromArray(['actor' => 'Hero', 'nodes' => [
-    ['id' => 'a', 'skill' => 'A', 'region' => 'blades'],
-    ['id' => 'b', 'skill' => 'B', 'region' => 'blades'],
-    ['id' => 'c', 'skill' => 'C', 'region' => 'storms', 'position' => ['x' => 0.9, 'y' => 0.1]],
-  ]], ['blades', 'storms', 'wards', 'guards']);
+it('refuses a tree that teaches a skill twice, repeats a node, grows a branch from an unknown region, or breaks its ladder', function (array $data, string $message) {
+  expect(fn() => MasteryTree::fromArray($data))->toThrow(InvalidArgumentException::class, $message);
+})->with([
+  'skill twice' => [['regions' => [['id' => 'r', 'nodes' => [['id' => 'a', 'kind' => 'application', 'skill' => 'A'],
+    ['id' => 'b', 'kind' => 'application', 'skill' => 'A']]]]], 'teaches A on both'],
+  'node twice' => [['regions' => [['id' => 'r', 'nodes' => [['id' => 'a', 'kind' => 'application', 'skill' => 'A'],
+    ['id' => 'a', 'kind' => 'application', 'skill' => 'B']]]]], 'node a twice'],
+  'unknown region' => [['regions' => [['id' => 'r']], 'branches' => [['id' => 'x', 'region' => 's', 'kind' => 'aspect']]], 'unknown region'],
+  'graded node on a trunk' => [['regions' => [['id' => 'r', 'nodes' => [['id' => 'a', 'kind' => 'application', 'grade' => 1, 'skill' => 'A']]]]], 'trunk'],
+  'grade gap' => [['regions' => [['id' => 'r']], 'branches' => [['id' => 'x', 'region' => 'r', 'kind' => 'aspect', 'nodes' => [
+    ['id' => 'a', 'kind' => 'application', 'grade' => 1, 'skill' => 'A'], ['id' => 'c', 'kind' => 'application', 'grade' => 3, 'skill' => 'C']]]]], 'without a gap'],
+  'foundation not first' => [['regions' => [['id' => 'r']], 'branches' => [['id' => 'x', 'region' => 'r', 'kind' => 'aspect', 'nodes' => [
+    ['id' => 'a', 'kind' => 'application', 'skill' => 'A'], ['id' => 'f', 'kind' => 'foundation', 'name' => 'F']]]]], 'must come first'],
+  'full phase without its demi phase' => [['regions' => [['id' => 'r']], 'branches' => [['id' => 'x', 'region' => 'r', 'kind' => 'aspect', 'nodes' => [
+    ['id' => 'a', 'kind' => 'special', 'phase' => 'full', 'skill' => 'A']]]]], 'extends its demi phase'],
+  'element branch without its element' => [['regions' => [['id' => 'r']], 'branches' => [['id' => 'x', 'region' => 'r', 'kind' => 'element']]], 'names its element'],
+  'unnamed foundation' => [['regions' => [['id' => 'r']], 'branches' => [['id' => 'x', 'region' => 'r', 'kind' => 'aspect', 'nodes' => [
+    ['id' => 'f', 'kind' => 'foundation']]]]], 'needs a name'],
+]);
+
+it('chains a branch from its foundation up its grades to its advanced applications, and a full phase from its demi phase', function () {
+  [$tree] = masteryBranchFixture();
+  $requirements = array_map(static fn($node): array => $tree->getRequirements($node), $tree->nodes);
+
+  expect($requirements)->toBe(['flame' => [], 'singe-i' => ['flame'], 'singe-ii' => ['singe-i'], 'inferno' => ['singe-ii'],
+    'half-shield' => ['flame'], 'shield' => ['half-shield']]);
+});
+
+it('lets every character reach the whole tree on its terms, and keeps unfinished or unpriced nodes unavailable without taking points', function () {
+  [$tree, $skills] = masteryBranchFixture();
+  $catalog = new MasteryCatalog($tree);
+  $stranger = new Character('Stranger', 0, new Stats());
+  $mastery = new MasteryProgression($catalog->findMap('stranger'), $skills);
+  $stranger->mastery->points = 200;
+  $statuses = array_column(array_map(static fn($status): array => [$status->node->id, $status], $mastery->describe($stranger)), 1, 0);
+
+  expect($statuses['flame']->state)->toBe(MasteryNodeState::OPEN)
+    ->and($statuses['singe-i']->missing)->toBe(['flame'])
+    ->and($statuses['singe-ii']->unavailability)->toBe(MasteryUnavailability::UNPRICED)
+    ->and($statuses['inferno']->unavailability)->toBe(MasteryUnavailability::AWAITING_VALUES)
+    ->and(array_keys(array_filter($statuses, static fn($status): bool => $status->offered)))->toBe(['flame', 'singe-i', 'half-shield', 'shield'])
+    ->and(masteryRefusal($mastery, $stranger, 'inferno'))->toBe(MasteryRefusalReason::UNAVAILABLE)
+    ->and($stranger->mastery->points)->toBe(200);
+
+  // A foundation that grants no skill yet is learned for its place in the chain alone.
+  $foundation = $mastery->learn($stranger, 'flame');
+  $singe = $mastery->learn($stranger, 'singe-i');
+
+  expect($foundation->learned)->toBe([])
+    ->and($stranger->mastery->hasLearned('flame'))->toBeTrue()
+    ->and(array_map(static fn($skill): string => $skill->name, $singe->learned))->toBe(['Singe I'])
+    ->and($stranger->mastery->points)->toBe(170);
+});
+
+it('never learns an unavailable node for free, but counts a skill the character already knows as learned', function () {
+  [$tree, $skills] = masteryBranchFixture();
+  $hero = new Character('Hero', 0, new Stats());
+  $map = MasteryMap::fromArray(['actor' => 'Hero', 'nodes' => [['id' => 'singe-ii', 'cost' => 0], ['id' => 'inferno', 'cost' => 0]]], $tree);
+  $mastery = new MasteryProgression($map, $skills);
+  $hero->learnSkill(new MagicSkill('Half Shield', '', '', 4, 0));
+
+  $advance = $mastery->reconcile($hero);
+
+  expect(array_map(static fn($skill): string => $skill->name, $advance->learned))->toBe(['Singe II'])
+    ->and($hero->mastery->hasLearned('inferno'))->toBeFalse()
+    ->and($hero->mastery->hasLearned('half-shield'))->toBeTrue();
+});
+
+it('gives a character\'s own terms in full, and reports the chain step those terms leave out', function () {
+  [$tree, $skills] = masteryBranchFixture();
+  $map = MasteryMap::fromArray(['actor' => 'Hero', 'nodes' => [['id' => 'singe-i', 'cost' => 0], ['id' => 'singe-ii', 'cost' => 15, 'requires' => ['singe-i']]]], $tree);
+
+  expect($map->findNode('singe-i')->requires)->toBe([])
+    ->and($map->findNode('singe-i')->mapped)->toBeTrue()
+    ->and($map->findNode('flame')->mapped)->toBeFalse()
+    ->and($map->findUnchainedTerms())->toBe(['singe-i' => 'flame']);
+});
+
+it('reads a draft skill record without guessing what awaits its author, and refuses one that still gives a listed value', function () {
+  $data = ['kind' => 'magic', 'name' => 'Inferno', 'description' => '', 'icon' => '', 'cooldown' => 0, 'occasion' => 'Battle Screen',
+    'scope' => ['side' => 'Enemy', 'number' => 'All', 'status' => 'Alive'], 'invocation' => ['speed' => 0, 'accuracy' => 0, 'repeat' => 1, 'apGain' => 0],
+    'effects' => [['type' => 'hp_damage', 'element' => 'Flame']], 'unassigned' => ['cost', 'effects.0.formula']];
+  $draft = SkillDraft::fromArray($data);
+  $catalog = SkillCatalog::fromSkills([], drafts: ['Skills/inferno.php' => $draft]);
+
+  expect($draft->unassigned)->toBe(['cost', 'effects.0.formula'])
+    ->and($catalog->findSkill('Inferno'))->toBeNull()
+    ->and($catalog->findDraft('Inferno'))->toBe($draft)
+    ->and(fn() => SkillRecord::readSkill($data))->toThrow(InvalidArgumentException::class, 'draft')
+    ->and(fn() => SkillDraft::fromArray([...$data, 'cost' => 9]))->toThrow(InvalidArgumentException::class, 'leave it out')
+    ->and(fn() => SkillDraft::fromArray([...$data, 'unassigned' => ['icon']]))->toThrow(InvalidArgumentException::class, 'cannot await');
+});
+
+it('places unplaced nodes down the middle of their region in the tree\'s order, and authored ones where the author put them', function () {
+  $tree = masteryTrunkTree(['blades' => ['a' => 'A', 'b' => 'B'], 'storms' => ['c' => 'C'], 'wards' => [], 'guards' => []]);
+  $map = MasteryMap::fromArray(['actor' => 'Hero', 'nodes' => [['id' => 'c', 'position' => ['x' => 0.9, 'y' => 0.1]]]], $tree);
   $places = \Ichiloto\Engine\Progression\Mastery\MasteryLayout::place($map, ['blades', 'storms', 'wards', 'guards']);
 
   expect($places['a'])->toBe(['x' => 0.25, 'y' => 1 / 6, 'placed' => false])

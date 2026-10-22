@@ -15,4 +15,6 @@ enum MasteryNodeState: string
   case OPEN = 'open';
   /** Its level or a node it requires is still ahead. */
   case LOCKED = 'locked';
+  /** Nobody can learn it yet: the project has not finished it, or the Engine cannot yet grant it (see MasteryUnavailability). */
+  case UNAVAILABLE = 'unavailable';
 }

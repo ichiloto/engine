@@ -9,10 +9,12 @@ use InvalidArgumentException;
 use Throwable;
 
 /**
- * A project's Mastery Maps: the regions every map shares, declared in
- * `assets/Data/mastery.php`, and one map per character in
- * `assets/Data/Mastery/*.php`. A project with neither has no maps, and its
- * characters learn only through their roles and books.
+ * A project's Mastery Maps: the mastery tree every character shares (its
+ * regions, branches and nodes), declared in `assets/Data/mastery.php`, and
+ * the terms each character's own map states in `assets/Data/Mastery/*.php`.
+ * Every character reaches the whole tree; a character without a map meets it
+ * on the tree's terms. A project with no tree nodes has no Mastery Maps, and
+ * its characters learn only through their roles and books.
  *
  * @package Ichiloto\Engine\Progression\Mastery
  */
@@ -24,13 +26,18 @@ final class MasteryCatalog
   /** @var array<string, self> */
   private static array $projectCatalogs = [];
 
+  /** The regions, in the order maps show them. */
+  public array $regions {
+    get => $this->tree->regions;
+  }
+
   /**
-   * @param list<MasteryRegion> $regions The regions, in the order maps show them.
-   * @param array<string, MasteryMap> $maps Each character's map, by actor id.
+   * @param MasteryTree $tree The mastery tree every character shares.
+   * @param array<string, MasteryMap> $maps The characters whose map files state their own terms, by actor id.
    * @param list<string> $problems What could not be read, in words.
    */
   public function __construct(
-    public readonly array $regions = [],
+    public readonly MasteryTree $tree = new MasteryTree(),
     private readonly array $maps = [],
     public readonly array $problems = [],
   )
@@ -59,35 +66,36 @@ final class MasteryCatalog
   }
 
   /**
-   * Reads a project's regions and maps. A map that cannot be read, or that
-   * teaches a skill the project does not have, is left out and reported.
+   * Reads a project's tree and maps. A tree that cannot be read, or that
+   * teaches a skill the project has neither as a skill nor as a draft,
+   * leaves the project without Mastery Maps and is reported; a map that
+   * cannot be read is left out and reported, and its character meets the
+   * tree on its terms.
    */
   public static function load(string $assetRoot, ?SkillCatalog $skills = null): self
   {
     $problems = [];
-    $regions = [];
+    $tree = new MasteryTree();
     $settings = Path::join($assetRoot, self::SETTINGS);
     if (is_file($settings)) {
       try {
         $data = require $settings;
-        foreach (is_array($data['regions'] ?? null) ? $data['regions'] : [] as $region) {
-          $regions[] = MasteryRegion::fromArray(is_array($region) ? $region : []);
+        $read = MasteryTree::fromArray(is_array($data) ? $data : []);
+        foreach ($read->nodes as $node) {
+          if ($skills !== null && $node->skill !== null && $skills->findSkill($node->skill) === null && $skills->findDraft($node->skill) === null) {
+            throw new InvalidArgumentException(sprintf('node %s teaches unknown skill %s', $node->id, $node->skill));
+          }
         }
+        $tree = $read;
       } catch (Throwable $error) {
         $problems[] = sprintf('%s: %s', self::SETTINGS, $error->getMessage());
       }
     }
-    $regionIds = array_map(static fn(MasteryRegion $region): string => $region->id, $regions);
     $maps = [];
     foreach (glob(Path::join($assetRoot, self::DIRECTORY, '*.php')) ?: [] as $file) {
       try {
         $data = require $file;
-        $map = MasteryMap::fromArray(is_array($data) ? $data : [], $regionIds);
-        foreach ($map->nodes as $node) {
-          if ($skills !== null && $skills->findSkill($node->skill) === null) {
-            throw new InvalidArgumentException(sprintf('node %s teaches unknown skill %s', $node->id, $node->skill));
-          }
-        }
+        $map = MasteryMap::fromArray(is_array($data) ? $data : [], $tree);
         if (isset($maps[$map->actorId])) {
           throw new InvalidArgumentException(sprintf('%s already has a mastery map', $map->actorId));
         }
@@ -97,15 +105,30 @@ final class MasteryCatalog
       }
     }
 
-    return new self($regions, $maps, $problems);
+    return new self($tree, $maps, $problems);
   }
 
+  /** Whether the project has a tree to learn from. */
+  public function hasNodes(): bool
+  {
+    return $this->tree->nodes !== [];
+  }
+
+  /**
+   * A character's map: the tree on their own terms where their map file
+   * states any, and on the tree's terms otherwise. Null when the project has
+   * no tree.
+   */
   public function findMap(string $actorId): ?MasteryMap
   {
-    return $this->maps[$actorId] ?? null;
+    if (! $this->hasNodes() || trim($actorId) === '') {
+      return null;
+    }
+
+    return $this->maps[$actorId] ?? new MasteryMap($actorId, [], $this->tree);
   }
 
-  /** @return array<string, MasteryMap> */
+  /** @return array<string, MasteryMap> The maps whose files state a character's own terms, by actor id. */
   public function getMaps(): array
   {
     return $this->maps;

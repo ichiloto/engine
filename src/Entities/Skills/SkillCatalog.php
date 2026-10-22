@@ -42,12 +42,14 @@ final class SkillCatalog
    * @param array<string, string> $sourceFiles The data file each skill is authored in, keyed by name.
    * @param list<string> $problems The authoring problems found while reading the catalogue.
    * @param array<string, true> $summonActions Linked action identities from this project's summon definitions.
+   * @param array<string, SkillDraft> $drafts The records still awaiting author values, keyed by name.
    */
   private function __construct(
     private readonly array $skills,
     private readonly array $sourceFiles,
     private readonly array $problems,
     private readonly array $summonActions,
+    private readonly array $drafts = [],
   )
   {
   }
@@ -100,7 +102,8 @@ final class SkillCatalog
    * `Data/Skills`, in file name order, which is the order menus list skills
    * in (record files are numbered for it, as `0001-attack.php`). A file that
    * cannot be read is reported against that file and leaves the other skills
-   * loaded.
+   * loaded. A record that still awaits author values is kept as a draft: its
+   * name is taken, but it is not a skill anyone can use (see SkillDraft).
    *
    * @param string $assetRoot The project's `assets` directory.
    * @return self The catalogue.
@@ -108,6 +111,7 @@ final class SkillCatalog
   public static function load(string $assetRoot): self
   {
     $skills = [];
+    $drafts = [];
     $problems = [];
     $filenames = glob(Path::join($assetRoot, 'Data', self::DIRECTORY, '*.php')) ?: [];
     sort($filenames, SORT_STRING);
@@ -116,14 +120,19 @@ final class SkillCatalog
       $file = self::DIRECTORY . '/' . basename($filename);
 
       try {
-        $skills[$file] = self::readRecord($filename);
+        $record = self::readRecord($filename);
+        if ($record instanceof SkillDraft) {
+          $drafts[$file] = $record;
+        } else {
+          $skills[$file] = $record;
+        }
       } catch (Throwable $exception) {
         $problems[] = sprintf('%s: %s', $file, $exception->getMessage());
       }
     }
 
     return self::fromSkills($skills, $problems,
-      new SummonCutsceneLibrary(Path::join($assetRoot, 'Cutscenes', 'Summons'))->load());
+      new SummonCutsceneLibrary(Path::join($assetRoot, 'Cutscenes', 'Summons'))->load(), $drafts);
   }
 
   /**
@@ -134,9 +143,10 @@ final class SkillCatalog
    * @param array<string, Skill> $skills The skills, keyed by their file relative to `assets/Data`.
    * @param list<string> $problems Problems already found while reading the files.
    * @param list<SummonCutsceneDefinition> $summons Definitions in the same project, not an active battle's global registry.
+   * @param array<string, SkillDraft> $drafts Records still awaiting author values, keyed by their file; their names are taken too.
    * @return self The catalogue.
    */
-  public static function fromSkills(array $skills, array $problems = [], array $summons = []): self
+  public static function fromSkills(array $skills, array $problems = [], array $summons = [], array $drafts = []): self
   {
     $byName = [];
     $sourceFiles = [];
@@ -156,11 +166,27 @@ final class SkillCatalog
       $sourceFiles[$skill->name] = $file;
     }
 
+    $draftsByName = [];
+    foreach ($drafts as $file => $draft) {
+      if (isset($sourceFiles[$draft->name])) {
+        $problems[] = sprintf(
+          '%s: "%s" is already defined by %s; skill names must be unique, so this file is skipped.',
+          $file,
+          $draft->name,
+          $sourceFiles[$draft->name],
+        );
+        continue;
+      }
+
+      $draftsByName[$draft->name] = $draft;
+      $sourceFiles[$draft->name] = $file;
+    }
+
     $summonActions = [];
     foreach ($summons as $summon) {
       if ($summon->linkedActionId !== null) { $summonActions[$summon->linkedActionId] = true; }
     }
-    return new self($byName, $sourceFiles, $problems, $summonActions);
+    return new self($byName, $sourceFiles, $problems, $summonActions, $draftsByName);
   }
 
   /** Classifies authored action identity independently of process working directory and battle lifetime. */
@@ -210,7 +236,28 @@ final class SkillCatalog
   }
 
   /**
-   * Returns the record file a skill is authored in.
+   * Finds a record still awaiting author values, by name.
+   *
+   * @param string $name The skill name.
+   * @return SkillDraft|null The draft, if a record by that name awaits values.
+   */
+  public function findDraft(string $name): ?SkillDraft
+  {
+    return $this->drafts[$name] ?? null;
+  }
+
+  /**
+   * Returns the records still awaiting author values, keyed by name, in file order.
+   *
+   * @return array<string, SkillDraft> The drafts.
+   */
+  public function getDrafts(): array
+  {
+    return $this->drafts;
+  }
+
+  /**
+   * Returns the record file a skill or draft is authored in.
    *
    * @param string $name The skill name.
    * @return string|null The file name, relative to `assets/Data`.
@@ -221,11 +268,23 @@ final class SkillCatalog
   }
 
   /**
+   * Reads one record's data: a skill, or a draft when it still lists values
+   * awaiting its author.
+   *
+   * @param array<string, mixed> $data The record's data.
+   * @throws InvalidArgumentException When the data is neither.
+   */
+  public static function readRecordData(array $data): Skill|SkillDraft
+  {
+    return SkillDraft::isDraft($data) ? SkillDraft::fromArray($data) : SkillRecord::readSkill($data);
+  }
+
+  /**
    * Reads one record file.
    *
    * @throws InvalidArgumentException When the file is not a skill record.
    */
-  private static function readRecord(string $filename): Skill
+  private static function readRecord(string $filename): Skill|SkillDraft
   {
     $payload = require $filename;
 
@@ -233,7 +292,7 @@ final class SkillCatalog
       throw new InvalidArgumentException("a skill record returns ['class' => Skill::class, 'data' => [...]].");
     }
 
-    return SkillRecord::readSkill($payload['data']);
+    return self::readRecordData($payload['data']);
   }
 
   /**

@@ -112,14 +112,18 @@ function writeMasteryMenuProject(string $root): void
     file_put_contents(sprintf('%s/assets/Data/Skills/%04d.php', $root, $n + 1),
       '<?php return ' . var_export(['class' => \Ichiloto\Engine\Entities\Skills\Skill::class, 'data' => SkillRecord::writeSkill($skill)], true) . ';');
   }
+  $trunk = static fn(array $nodes): array => array_map(static fn(string $skill, string $id): array => ['id' => $id, 'kind' => 'application', 'skill' => $skill],
+    $nodes, array_keys($nodes));
   file_put_contents($root . '/assets/Data/mastery.php', '<?php return ' . var_export(['regions' => [
-    ['id' => 'blades', 'name' => 'Blades'], ['id' => 'storms', 'name' => 'Storms']]], true) . ';');
+    ['id' => 'blades', 'name' => 'Blades', 'nodes' => $trunk(['cut' => 'Start Cut'])],
+    ['id' => 'storms', 'name' => 'Storms', 'nodes' => $trunk(['spark' => 'Spark', 'storm' => 'Storm', 'tempest' => 'Tempest', 'veil' => 'Veil'])],
+  ]], true) . ';');
   file_put_contents($root . '/assets/Data/Mastery/hero.php', '<?php return ' . var_export(['actor' => 'hero', 'nodes' => [
-    ['id' => 'cut', 'skill' => 'Start Cut', 'region' => 'blades', 'cost' => 0],
-    ['id' => 'spark', 'skill' => 'Spark', 'region' => 'storms', 'cost' => 50],
-    ['id' => 'storm', 'skill' => 'Storm', 'region' => 'storms', 'cost' => 80],
-    ['id' => 'tempest', 'skill' => 'Tempest', 'region' => 'storms', 'cost' => 120, 'opensAtLevel' => 5, 'requires' => ['storm']],
-    ['id' => 'veil', 'skill' => 'Veil', 'region' => 'storms', 'cost' => 200, 'requires' => ['tempest'], 'hidden' => true],
+    ['id' => 'cut', 'cost' => 0],
+    ['id' => 'spark', 'cost' => 50],
+    ['id' => 'storm', 'cost' => 80],
+    ['id' => 'tempest', 'cost' => 120, 'opensAtLevel' => 5, 'requires' => ['storm']],
+    ['id' => 'veil', 'cost' => 200, 'requires' => ['tempest'], 'hidden' => true],
   ]], true) . ';');
 }
 
