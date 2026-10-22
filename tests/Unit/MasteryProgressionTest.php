@@ -286,6 +286,60 @@ it('never learns an unavailable node for free, but counts a skill the character 
     ->and($hero->mastery->hasLearned('half-shield'))->toBeTrue();
 });
 
+it('keeps a foundation unavailable while nothing built on it can be learned, so it never takes points for nothing', function () {
+  $chill = static fn(bool $finished): SkillCatalog => $finished
+    ? SkillCatalog::fromSkills(['Skills/chill.php' => new MagicSkill('Chill I', '', '', 5, 0)])
+    : SkillCatalog::fromSkills([], drafts: ['Skills/chill.php' => SkillDraft::fromArray(['kind' => 'magic', 'name' => 'Chill I', 'description' => '',
+      'icon' => '', 'cooldown' => 0, 'occasion' => 'Battle Screen', 'scope' => ['side' => 'Enemy', 'number' => 'One', 'status' => 'Alive'],
+      'invocation' => ['speed' => 0, 'accuracy' => 0, 'repeat' => 1, 'apGain' => 0], 'cost' => 5,
+      'effects' => [['type' => 'hp_damage', 'formula' => '1', 'element' => 'Frost']], 'unassigned' => ['effects.0.variance']])]);
+  $tree = MasteryTree::fromArray(['regions' => [['id' => 'arts', 'name' => 'Arts']], 'branches' => [
+    ['id' => 'frost', 'region' => 'arts', 'name' => 'Frost', 'kind' => 'element', 'element' => 'Frost', 'nodes' => [
+      ['id' => 'frost', 'kind' => 'foundation', 'name' => 'Frost', 'cost' => 10, 'opensAtLevel' => 2],
+      ['id' => 'chill-i', 'kind' => 'application', 'grade' => 1, 'skill' => 'Chill I', 'cost' => 20, 'opensAtLevel' => 3],
+    ]],
+  ]]);
+  $stranger = new Character('Stranger', 0, new Stats());
+  $stranger->mastery->points = 100;
+  $waiting = new MasteryProgression(new MasteryCatalog($tree)->findMap('Stranger'), $chill(false));
+  $foundation = static fn(MasteryProgression $mastery) => array_find($mastery->describe($stranger), static fn($status): bool => $status->node->id === 'frost');
+
+  expect($foundation($waiting)->unavailability)->toBe(MasteryUnavailability::NOTHING_TO_OPEN)
+    ->and($foundation($waiting)->offered)->toBeFalse()
+    ->and(masteryRefusal($waiting, $stranger, 'frost'))->toBe(MasteryRefusalReason::UNAVAILABLE)
+    ->and($stranger->mastery->points)->toBe(100)
+    // Once the application it opens is finished, the foundation is offered on the tree's terms.
+    ->and($foundation(new MasteryProgression(new MasteryCatalog($tree)->findMap('Stranger'), $chill(true)))->unavailability)->toBeNull();
+});
+
+it('counts a foundation as learned once the character knows a node built on it, without spending points', function () {
+  [$tree, $skills] = masteryBranchFixture();
+  // The character's own terms start partway along the branch: Singe I with no foundation.
+  $map = MasteryMap::fromArray(['actor' => 'Hero', 'nodes' => [['id' => 'singe-i', 'cost' => 0]]], $tree);
+  $mastery = new MasteryProgression($map, $skills);
+  $hero = new Character('Hero', 0, new Stats());
+  $hero->mastery->points = 50;
+
+  $mastery->reconcile($hero);
+
+  expect($hero->mastery->hasLearned('singe-i'))->toBeTrue()
+    ->and($hero->mastery->hasLearned('flame'))->toBeTrue()
+    ->and($hero->mastery->points)->toBe(50);
+});
+
+it('gives each node the tree\'s price and opening level unless the character\'s own terms state theirs', function () {
+  [$tree, $skills] = masteryBranchFixture();
+  $map = MasteryMap::fromArray(['actor' => 'Hero', 'nodes' => [['id' => 'singe-i', 'cost' => 0, 'opensAtLevel' => 1], ['id' => 'half-shield', 'cost' => 45, 'opensAtLevel' => 6]]], $tree);
+  $stranger = new MasteryCatalog($tree)->findMap('Stranger');
+  $terms = static fn(MasteryMap $map, string $id): array => [$map->findNode($id)->cost, $map->findNode($id)->opensAtLevel];
+
+  expect($terms($map, 'singe-i'))->toBe([0, 1])
+    ->and($terms($map, 'half-shield'))->toBe([45, 6])
+    ->and($terms($map, 'shield'))->toBe([60, 1])
+    ->and($terms($stranger, 'singe-i'))->toBe([20, 1])
+    ->and($terms($stranger, 'half-shield'))->toBe([30, 1]);
+});
+
 it('gives a character\'s own terms in full, and reports the chain step those terms leave out', function () {
   [$tree, $skills] = masteryBranchFixture();
   $map = MasteryMap::fromArray(['actor' => 'Hero', 'nodes' => [['id' => 'singe-i', 'cost' => 0], ['id' => 'singe-ii', 'cost' => 15, 'requires' => ['singe-i']]]], $tree);

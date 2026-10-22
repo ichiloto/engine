@@ -14,10 +14,12 @@ use Ichiloto\Engine\Util\Debug;
  * spellbook. Every menu, reward and save path uses it.
  *
  * Every character can reach every node of the tree. A node nobody can learn
- * yet (its skill still awaits author values, or nothing prices it for this
- * character) is unavailable: it never takes points and is never learned for
+ * yet (its skill still awaits author values, nothing prices it for this
+ * character, or it is a foundation granting no skill that opens nothing
+ * learnable) is unavailable: it never takes points and is never learned for
  * free. A foundation that grants no skill yet is learned for its place in
- * the chain alone.
+ * the chain alone, and counts as learned once the character has learned a
+ * node that builds on it, since its branch's ladder starts there.
  *
  * Battles and quests add points to the character's total through
  * ExperienceAwarder. The player
@@ -98,7 +100,7 @@ final readonly class MasteryProgression
     }
     $learned = [];
     do {
-      $opened = false;
+      $opened = $this->markKnownFoundations($character);
       foreach ($this->map->nodes as $node) {
         if ($node->cost === 0 && ! $mastery->hasLearned($node->id) && $this->findUnavailability($node) === null && $this->isOpen($character, $node)) {
           $skill = $node->skill === null ? null : $this->skills->findSkill($node->skill);
@@ -117,6 +119,27 @@ final readonly class MasteryProgression
     } while ($opened);
 
     return new MasteryAdvance($learned);
+  }
+
+  /**
+   * Counts as learned each foundation granting no skill that a learned node
+   * builds on: no branch's ladder climbs from nothing.
+   *
+   * @return bool Whether any foundation was newly counted.
+   */
+  private function markKnownFoundations(Character $character): bool
+  {
+    $marked = false;
+    foreach ($this->map->nodes as $node) {
+      $step = $this->map->tree->findChainPredecessor($node->definition);
+      if ($step !== null && $step->kind === MasteryNodeKind::FOUNDATION && $step->skill === null
+        && $character->mastery->hasLearned($node->id) && ! $character->mastery->hasLearned($step->id)) {
+        $character->mastery->markLearned($step->id);
+        $marked = true;
+      }
+    }
+
+    return $marked;
   }
 
   private function getStatus(Character $character, MasteryNode $node): MasteryNodeStatus
@@ -145,8 +168,16 @@ final readonly class MasteryProgression
       $node->skill !== null && $this->skills->findSkill($node->skill) === null && $this->skills->findDraft($node->skill) !== null
         => MasteryUnavailability::AWAITING_VALUES,
       $node->cost === null => MasteryUnavailability::UNPRICED,
+      $node->kind === MasteryNodeKind::FOUNDATION && $node->skill === null && ! $this->opensLearnableNode($node) => MasteryUnavailability::NOTHING_TO_OPEN,
       default => null,
     };
+  }
+
+  /** Whether a node that builds on a foundation, on this character's terms, can be learned. */
+  private function opensLearnableNode(MasteryNode $foundation): bool
+  {
+    return array_any($this->map->nodes, fn(MasteryNode $node): bool => $node->kind !== MasteryNodeKind::FOUNDATION
+      && in_array($foundation->id, $node->requires, true) && $this->findUnavailability($node) === null);
   }
 
   private function isOpen(Character $character, MasteryNode $node): bool
