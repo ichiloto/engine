@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Audio;
 
+use Ichiloto\Engine\Audio\Enumerations\CountKind;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use WeakMap;
 
@@ -15,6 +16,17 @@ use WeakMap;
  * and releases it when the count finishes, is skipped, or its screen closes.
  * However many counts run together, exactly one loop plays; it stops as soon
  * as the last holder releases it.
+ *
+ * Each hold names its kind of count ({@see CountKind}), and each kind loops
+ * its own system sound, so a game can give dispensed EXP its own tally. A
+ * kind whose sound the game leaves unbound loops the generic counter: that
+ * fallback lives here, never at a call site.
+ *
+ * When counts of different kinds overlap, the sounding count keeps the loop:
+ * the kind already playing goes on while any count of that kind still holds
+ * it. Once the last count of that kind lets go, the loop changes to the kind
+ * of the earliest remaining holder. Kinds that resolve to the same sound
+ * share one uninterrupted loop.
  *
  * A hold lasts until the next audio update. A holder that stops renewing it
  * (its screen was torn down, or a blocking modal froze its clock) lapses
@@ -28,10 +40,11 @@ use WeakMap;
 final class CounterSound
 {
   /**
-   * The counts holding the tick, each with whether it renewed its hold since
-   * the last audio update. Weak, so a discarded count holds nothing.
+   * The counts holding the tick, in the order they began holding it, each
+   * with its kind and whether it renewed its hold since the last audio
+   * update. Weak, so a discarded count holds nothing.
    *
-   * @var WeakMap<object, bool>
+   * @var WeakMap<object, array{kind: CountKind, isRenewed: bool}>
    */
   private WeakMap $holders;
 
@@ -41,6 +54,20 @@ final class CounterSound
    * @var SoundEffectLoop|null
    */
   private ?SoundEffectLoop $loop = null;
+
+  /**
+   * The kind of count the loop sounds for, while it sounds.
+   *
+   * @var CountKind|null
+   */
+  private ?CountKind $loopKind = null;
+
+  /**
+   * The system sound the loop plays, while it sounds.
+   *
+   * @var SystemSound|null
+   */
+  private ?SystemSound $loopSound = null;
 
   /**
    * Whether any count currently holds the tick.
@@ -74,15 +101,13 @@ final class CounterSound
    * loop when it is the first holder; further holders share that loop.
    *
    * @param object $counter The count's owner, used only as its identity.
+   * @param CountKind $kind What the count is counting, which selects its loop.
    * @return void
    */
-  public function holdTick(object $counter): void
+  public function holdTick(object $counter, CountKind $kind = CountKind::GENERAL): void
   {
-    $this->holders[$counter] = true;
-
-    if (! $this->isPlaying) {
-      $this->loop = $this->audio->startSystemSoundLoop(SystemSound::COUNTER);
-    }
+    $this->holders[$counter] = ['kind' => $kind, 'isRenewed' => true];
+    $this->syncLoop();
   }
 
   /**
@@ -95,10 +120,7 @@ final class CounterSound
   public function releaseTick(object $counter): void
   {
     unset($this->holders[$counter]);
-
-    if (! $this->isHeld) {
-      $this->stopTick();
-    }
+    $this->syncLoop();
   }
 
   /**
@@ -112,21 +134,19 @@ final class CounterSound
   {
     // Read every hold first: the map itself changes below.
     $holds = [];
-    foreach ($this->holders as $counter => $isRenewed) {
-      $holds[] = [$counter, $isRenewed];
+    foreach ($this->holders as $counter => $hold) {
+      $holds[] = [$counter, $hold];
     }
 
-    foreach ($holds as [$counter, $isRenewed]) {
-      if ($isRenewed) {
-        $this->holders[$counter] = false;
+    foreach ($holds as [$counter, $hold]) {
+      if ($hold['isRenewed']) {
+        $this->holders[$counter] = ['kind' => $hold['kind'], 'isRenewed' => false];
       } else {
         unset($this->holders[$counter]);
       }
     }
 
-    if (! $this->isHeld) {
-      $this->stopTick();
-    }
+    $this->syncLoop();
   }
 
   /**
@@ -138,7 +158,85 @@ final class CounterSound
   public function stopTick(): void
   {
     $this->holders = new WeakMap();
+    $this->stopLoop();
+  }
+
+  /**
+   * Makes the loop match the holds: none without a holder, else the loop of
+   * the kind that sounds ({@see selectSoundingKind()}).
+   *
+   * @return void
+   */
+  private function syncLoop(): void
+  {
+    $kind = $this->selectSoundingKind();
+
+    if ($kind === null) {
+      $this->stopLoop();
+      return;
+    }
+
+    if ($this->isPlaying && $kind === $this->loopKind) {
+      return;
+    }
+
+    $sound = $this->resolveSound($kind);
+    $this->loopKind = $kind;
+
+    if ($this->isPlaying && $sound === $this->loopSound) {
+      return;
+    }
+
+    $this->loop?->stop();
+    $this->loop = $this->audio->startSystemSoundLoop($sound);
+    $this->loopSound = $sound;
+  }
+
+  /**
+   * The kind the loop sounds for: the one already sounding while a count of
+   * that kind still holds it, else the earliest remaining holder's.
+   *
+   * @return CountKind|null The kind, or null when nothing holds the tick.
+   */
+  private function selectSoundingKind(): ?CountKind
+  {
+    $earliest = null;
+
+    foreach ($this->holders as $hold) {
+      if ($hold['kind'] === $this->loopKind) {
+        return $hold['kind'];
+      }
+
+      $earliest ??= $hold['kind'];
+    }
+
+    return $earliest;
+  }
+
+  /**
+   * The system sound a kind of count loops: its own when the game binds a
+   * track to it, else the generic counter.
+   *
+   * @param CountKind $kind The kind of count.
+   * @return SystemSound The sound to loop.
+   */
+  private function resolveSound(CountKind $kind): SystemSound
+  {
+    $sound = $kind->getSystemSound();
+
+    return $this->audio->hasSystemSoundTrack($sound) ? $sound : SystemSound::COUNTER;
+  }
+
+  /**
+   * Stops the loop, whichever kind it sounds for.
+   *
+   * @return void
+   */
+  private function stopLoop(): void
+  {
     $this->loop?->stop();
     $this->loop = null;
+    $this->loopKind = null;
+    $this->loopSound = null;
   }
 }

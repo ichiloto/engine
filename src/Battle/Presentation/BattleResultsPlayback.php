@@ -6,12 +6,14 @@ namespace Ichiloto\Engine\Battle\Presentation;
 
 use InvalidArgumentException;
 use Ichiloto\Engine\Audio\CounterSound;
+use Ichiloto\Engine\Audio\Enumerations\CountKind;
 use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
  * Presentation clock only. Outcomes are already committed; no character is read or written.
- * While the EXP gauges visibly count, it holds the shared counter tick; it releases it when
- * the count finishes, is completed early, or the results close.
+ * While the EXP gauges visibly count (level fills included), it holds the shared counter tick
+ * as an EXP count, so the game's EXP tally plays; it releases it when the count finishes, is
+ * completed early, or the results close.
  */
 final class BattleResultsPlayback
 {
@@ -129,7 +131,7 @@ final class BattleResultsPlayback
   private function syncCounterTick(): void
   {
     if ($this->isCounting) {
-      $this->counterSound?->holdTick($this);
+      $this->counterSound?->holdTick($this, CountKind::EXPERIENCE);
     } else {
       $this->releaseCounterTick();
     }

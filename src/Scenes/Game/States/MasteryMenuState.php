@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Audio\Enumerations\CountKind;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\MagicMenu\Windows\MagicListPanel;
 use Ichiloto\Engine\Core\Menu\MasteryMenu\Modes\MasteryDisciplineSelectionMode;
@@ -277,7 +278,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     }
 
     /**
-     * Holds the shared counter tick on each frame a drawn SP total moves (draining while Learn is
+     * Holds the shared counter tick, as a general count, on each frame a drawn SP total moves (draining while Learn is
      * held, or counting down after a spend), and releases it once it stops or nothing draws it (the
      * Terminal and reduced motion change the total at once). See docs/audio.md.
      */
@@ -288,7 +289,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $moving = ! Accessibility::prefersReducedMotion()
             && ($this->hold?->isDrainingAt($time) === true || $this->pointsCount?->isCountingAt($time) === true);
         if ($this->isMenuCanvasShown && $moving) {
-            $counter?->holdTick($this);
+            $counter?->holdTick($this, CountKind::GENERAL);
         } else {
             $counter?->releaseTick($this);
         }

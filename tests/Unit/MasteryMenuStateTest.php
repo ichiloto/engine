@@ -504,7 +504,8 @@ it('takes as long to hold under reduced motion, without the drain, and changes t
 });
 
 it('ticks the shared counter only while a drawn total moves, and stops when it lands, is not drawn or closes', function () {
-  $manager = makeCounterTickManager();
+  // The game's EXP tally is bound too: an SP count still plays the generic counter.
+  $manager = makeCounterTickManager(bindsExpTally: true);
   new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, $manager);
   $drawn = new ReflectionProperty($this->state, 'isMenuCanvasShown');
   masteryMenuHero($this->hero, 300);
@@ -541,7 +542,8 @@ it('ticks the shared counter only while a drawn total moves, and stops when it l
   masteryMenuAdvance($this->state, MasteryPointsCount::DURATION);
   $this->state->execute();
   $manager->update();
-  expect($manager->counterSound->isPlaying)->toBeFalse();
+  expect($manager->counterSound->isPlaying)->toBeFalse()
+    ->and(array_unique(listSpawnedSoundFiles($manager)))->toBe(['tick.wav']);
   $this->state->exit();
   $manager->shutdown();
 });

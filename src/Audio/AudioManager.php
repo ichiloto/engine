@@ -640,6 +640,17 @@ class AudioManager implements CanUpdate
   }
 
   /**
+   * Whether the project binds a track to a system sound.
+   *
+   * @param SystemSound $sound The system sound.
+   * @return bool True when `audio.sounds.<sound>` names a track.
+   */
+  public function hasSystemSoundTrack(SystemSound $sound): bool
+  {
+    return $this->getSystemSoundTrack($sound) !== null;
+  }
+
+  /**
    * Stops a sound effect loop and ends its player process. Safe to call more
    * than once.
    *
