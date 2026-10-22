@@ -119,7 +119,10 @@ class QuestManager
   }
 
   /**
-   * Restores the quest log from persisted state.
+   * Restores the quest log from persisted state. An active quest whose
+   * objectives are all met completes, quietly, as it would have when the
+   * last one was met: a save can hold one when the content now asks less of
+   * the quest than when it was saved (an objective removed or lowered).
    *
    * @param array<string, mixed> $data The persisted log data.
    * @return void
@@ -128,6 +131,12 @@ class QuestManager
   {
     $this->log = QuestLog::fromArray($data);
     $this->refreshStatefulObjectives(quiet: true);
+
+    foreach ($this->activeQuests() as $quest) {
+      if ($this->isQuestSatisfied($quest)) {
+        $this->completeQuest($quest, quiet: true);
+      }
+    }
   }
 
   /**

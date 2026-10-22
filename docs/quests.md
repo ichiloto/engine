@@ -65,7 +65,12 @@ optional `description` for the journal (derived from the type when omitted:
 
 Objectives that mirror world state (`collect`, `reach_map`, `flag`) are
 re-evaluated when the quest is accepted, so a quest the player has already
-partly satisfied starts with honest progress.
+partly satisfied starts with honest progress. They are re-evaluated when a
+save loads too, and an active quest whose objectives are then all met
+completes, quietly, with its rewards: a save can hold one when the content
+now asks less of the quest than when it was saved (an objective removed or
+lowered). Progress is kept per objective by position, so a content change
+that inserts or reorders objectives needs a save migration.
 
 ## Waymarks: where an objective sends the player
 
@@ -167,10 +172,16 @@ main quest, or nothing leads to what does: an objective of a main quest active
 before it, or the quest's own start waymark. A start waymark shows only until
 its quest starts, so it leads to a step through what starts its quest: it
 counts when it points at something that both starts its quest and takes the
-step (a gate's flag set where the quest is handed over, say). Guidance only
-counts when it can show before the step: its quest cannot need the step, an
-objective cannot belong to a quest that starts only where the step is taken,
-and a waymark cannot wait for the step.
+step (a gate's flag set where the quest is handed over, say). When everything
+that starts its quest waits for the step (its giver speaks only once a flag
+is set, by its page's or its presence conditions), the quest cannot start
+before the step, so its start waymarks lead to whatever takes the step. That
+is how the way to a quest's start passes through the step that opens it:
+start waymarks with conditions on the step's flag, one leading to the step
+while it is not taken and one to the giver once it is. Guidance only counts
+when it can show before the step: its quest cannot need the step, an
+objective cannot belong to a quest that starts only where the step is taken
+or only after it, and a waymark cannot wait for the step.
 
 ### On the field, the local map and the world map
 

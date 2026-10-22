@@ -192,6 +192,24 @@ it('refreshes collect progress through a declared alias after an item label chan
   }
 });
 
+it('completes on load an active quest whose objectives are all met, as when the last one was met', function () {
+  // Saved when the quest had a second objective, which the content no longer has.
+  $quest = Quest::fromArray(['id' => 'errand', 'name' => 'Errand', 'rewards' => ['gold' => 200],
+    'objectives' => [['type' => 'talk_to', 'target' => 'Keeper']]]);
+  $party = new Party();
+  $manager = new CollectIdentityQuestManager($quest, $party, []);
+  $manager->hydrate(['active' => ['errand' => [1, 0]], 'completed' => []]);
+
+  expect($manager->log->isCompleted('errand'))->toBeTrue()
+    ->and($party->accountBalance)->toBe(200);
+
+  // A quest still short of an objective stays active.
+  $waiting = new CollectIdentityQuestManager($quest, new Party(), []);
+  $waiting->hydrate(['active' => ['errand' => [0]], 'completed' => []]);
+
+  expect($waiting->log->isActive('errand'))->toBeTrue();
+});
+
 it('ignores malformed persisted entries', function () {
   $restored = QuestLog::fromArray([
     'active' => ['' => [0], 'ok' => [2, '3'], 'bad' => 'nope'],
