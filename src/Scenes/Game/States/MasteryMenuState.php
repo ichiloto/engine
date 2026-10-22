@@ -152,7 +152,8 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         }
         $content = $this->getPresentationContent();
 
-        return $content === null ? null : MasteryMenuPresentation::compose($content, $theme, $time);
+        return $content === null ? null : MasteryMenuPresentation::compose($content, $theme, $time,
+            dashedStrokes: $runtime?->supports(RendererSessionConfig::CANVAS_STROKE_DASHES) ?? false);
     }
 
     public function getPresentationContent(): ?MasteryMenuContent
@@ -574,14 +575,19 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     {
         $board = $this->getBoard();
         $place = $board->places[$from];
+        // Up and down go to the nearest place of the row drawn above or below: a wrapped row of siblings
+        // before reaching what they hang from, and the first row of what hangs from a place.
+        $nearest = static fn(array $ids): ?string => array_reduce($ids, static fn(?string $best, string $id): string => $best === null
+            || abs($board->places[$id]['lane'] - $place['lane']) < abs($board->places[$best]['lane'] - $place['lane']) ? $id : $best);
+        $siblings = static fn(int $row): array => array_values(array_filter($place['parent'] === null ? [] : $board->children[$place['parent']],
+            static fn(string $id): bool => $board->places[$id]['row'] === $row));
         if ($down < 0) {
-            return $place['parent'];
+            return $place['row'] > 0 ? $nearest($siblings($place['row'] - 1)) : $place['parent'];
         }
         if ($down > 0) {
-            $children = $board->children[$from] ?? [];
+            $children = array_values(array_filter($board->children[$from] ?? [], static fn(string $id): bool => $board->places[$id]['row'] === 0));
 
-            return array_reduce($children, static fn(?string $best, string $child): string => $best === null
-                || abs($board->places[$child]['lane'] - $place['lane']) < abs($board->places[$best]['lane'] - $place['lane']) ? $child : $best);
+            return $nearest($children !== [] ? $children : $siblings($place['row'] + 1));
         }
         $best = null;
         $bestScore = INF;
@@ -620,17 +626,25 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             return;
         }
         $this->focus[$region] = $placeId;
-        [$lane, $stage] = $this->findPlaceCentre($placeId);
-        $this->camera = ($this->camera ?? MasteryCamera::createAt($lane, $stage))
-            ->createMove($lane, $stage, $this->getPresentationTime(), Accessibility::prefersReducedMotion() || ! $this->isMenuCanvasShown);
+        [$lane, $stage, $above] = $this->findPlaceCentre($placeId);
+        $this->camera = ($this->camera ?? MasteryCamera::createAt($lane, $stage, $above))
+            ->createMove($lane, $stage, $this->getPresentationTime(), Accessibility::prefersReducedMotion() || ! $this->isMenuCanvasShown, $above);
     }
 
-    /** @return array{float, float} A place's lane middle and stage, or the board's corner when nothing is focused. */
+    /**
+     * @return array{float, float, float} A place's lane middle and stage, and how many stages above it what it hangs from stands
+     *   (one at a family's top), or the board's corner when nothing is focused.
+     */
     protected function findPlaceCentre(?string $placeId): array
     {
-        $place = $placeId === null ? null : $this->getBoard()?->places[$placeId] ?? null;
+        $board = $this->getBoard();
+        $place = $placeId === null ? null : $board?->places[$placeId] ?? null;
+        if ($place === null) {
+            return [0.5, 0.0, 1.0];
+        }
+        $parent = $place['parent'] === null ? null : $board->places[$place['parent']];
 
-        return $place === null ? [0.5, 0.0] : [$place['lane'], (float)$place['stage']];
+        return [$place['lane'], (float)$place['stage'], $parent === null ? 1.0 : (float)($place['stage'] - $parent['stage'])];
     }
 
     protected function initializeUI(): void

@@ -23,7 +23,7 @@ final readonly class CanvasCompositeOperation
       default => throw new InvalidArgumentException('Unsupported composite operation.'),
     };
     CanvasCompositeValues::validateKeys($data, ['type', ...$required],
-      ['opacity', 'blend', 'masks', ...($type === 'image' ? ['source', 'displacement'] : ($type === 'world' ? ['source'] : []))]);
+      ['opacity', 'blend', 'masks', ...match ($type) { 'image' => ['source', 'displacement'], 'world' => ['source'], 'stroke' => ['dash'], default => [] }]);
     $blend = $data['blend'] ?? 'source_over';
     if (!in_array($blend, ['source_over', 'screen'], true)) { throw new InvalidArgumentException('Unsupported composite blend.'); }
     $result = ['type' => $type, 'opacity' => CanvasCompositeValues::getNumber($data['opacity'] ?? 1, 0, 1),
@@ -33,6 +33,13 @@ final readonly class CanvasCompositeOperation
       $result['points'] = array_map(CanvasCompositeValues::getPoint(...), CanvasCompositeValues::getList($data['points'], 2, 256));
       $result['width'] = CanvasCompositeValues::getNumber($data['width'], 0, 256);
       if ($result['width'] <= 0) { throw new InvalidArgumentException('Composite strokes require positive width.'); }
+      if (isset($data['dash'])) {
+        // Dashes of a length with gaps between, measured along the whole line from its first point.
+        CanvasCompositeValues::validateKeys($data['dash'], ['length', 'gap']);
+        $result['dash'] = ['length' => CanvasCompositeValues::getNumber($data['dash']['length'], 0, 4096),
+          'gap' => CanvasCompositeValues::getNumber($data['dash']['gap'], 0, 4096)];
+        if (min($result['dash']) <= 0) { throw new InvalidArgumentException('Composite stroke dashes and gaps must be positive.'); }
+      }
     }
     if ($type === 'world') {
       if (!is_string($data['worldId'])) { throw new InvalidArgumentException('A world overview requires a retained world id.'); }

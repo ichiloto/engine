@@ -114,3 +114,72 @@ it('sets a sub-family inside the tree of the family it grows within, under that 
     ->and($board->places['glow']['parent'])->toBe('ember')
     ->and($board->widths['stars'])->toBe(6);
 });
+
+/** A synthetic discipline whose own nodes hang from its heading as a row of $count, and a family whose top carries wide subtrees. */
+function masteryWideTree(int $count): MasteryTree
+{
+  $node = static fn(string $id, string $kind, array $extra = []): array => ['id' => $id, 'kind' => $kind, ...($kind === 'foundation' ? ['name' => ucfirst($id)] : ['skill' => ucfirst($id)]), ...$extra];
+  $chain = static fn(string $prefix): array => [$node("{$prefix}-1", 'application', ['grade' => 1]), $node("{$prefix}-2", 'application', ['grade' => 2])];
+
+  return MasteryTree::fromArray([
+    'regions' => [['id' => 'stones', 'name' => 'Stones', 'nodes' => array_map(static fn(int $n): array => $node("stone-{$n}", 'application'), range(1, $count))]],
+    'branches' => [
+      ['id' => 'tide', 'region' => 'stones', 'name' => 'Tide', 'kind' => 'aspect', 'nodes' => [$node('tide', 'foundation'), ...$chain('wave')]],
+      ...array_map(static fn(string $id): array => ['id' => $id, 'region' => 'stones', 'name' => ucfirst($id), 'kind' => 'aspect', 'within' => 'tide',
+        'nodes' => [$node($id, 'foundation'), $node("{$id}-a", 'application'), $node("{$id}-b", 'application'), $node("{$id}-c", 'application')]],
+        ['shoal', 'reef', 'cove']),
+    ],
+  ]);
+}
+
+it('wraps a row of siblings wider than four lanes onto rows below, each within reach of what it hangs from and joined by straight lines', function (int $count) {
+  $board = new MasteryBoard(masteryWideTree($count));
+  $subtree = static function (string $id) use (&$subtree, $board): array {
+    return [$id, ...array_merge([], ...array_map($subtree, $board->children[$id] ?? []))];
+  };
+  foreach ($board->places as $id => $place) {
+    $children = $board->children[$id] ?? [];
+    if ($children === []) {
+      continue;
+    }
+    $rows = [];
+    foreach ($children as $child) {
+      $rows[$board->places[$child]['row']][] = $child;
+    }
+    ksort($rows);
+    foreach ($rows as $row => $members) {
+      $lanes = array_map(static fn(string $child): float => $board->places[$child]['lane'], $members);
+      $stages = array_unique(array_map(static fn(string $child): int => $board->places[$child]['stage'], $members));
+      // A row is one stage, below everything of the rows before it, and no wider than four lanes of single places.
+      expect($stages)->toHaveCount(1);
+      $below = max(array_map(static fn(string $member): int => max(array_map(static fn(string $place): int => $board->places[$place]['stage'],
+        $subtree($member))), $rows[$row - 1] ?? [$id]));
+      expect(reset($stages))->toBe($row === 0 ? $place['stage'] + 1 : $below + 1)
+        // Every sibling stands within one and a half lanes of what it hangs from.
+        ->and(max(array_map(static fn(float $lane): float => abs($lane - $place['lane']), $lanes)))->toBeLessThanOrEqual(1.5);
+      if ($row === array_key_last($rows)) {
+        // The last row is centred under it.
+        expect($place['lane'])->toBe((min($lanes) + max($lanes)) / 2);
+      } else {
+        // Its line runs down through a gap: nothing of an earlier row's subtrees stands within half a lane of it.
+        foreach ($members as $member) {
+          foreach ($subtree($member) as $inside) {
+            expect(abs($board->places[$inside]['lane'] - $place['lane']))->toBeGreaterThanOrEqual(0.5);
+          }
+        }
+      }
+    }
+  }
+  // Wrapping changes where places stand, never the order a list shows them in.
+  $trunk = $board->getFamilies('stones')[1];
+  expect($board->getFamilyPlaceIds($trunk))->toBe([MasteryFamily::getHeadingId(MasteryFamily::getTrunkId('stones')),
+    ...array_map(static fn(int $n): string => "stone-{$n}", range(1, $count))])
+    ->and(max(array_column(array_intersect_key($board->places, array_flip($board->getFamilyPlaceIds($trunk))), 'row')))->toBe(intdiv($count - 1, 4));
+  // Siblings and cousins never share a place.
+  $taken = [];
+  foreach ($board->places as $id => $place) {
+    $key = $place['stage'] . ':' . $place['lane'];
+    expect($taken)->not->toHaveKey($key);
+    $taken[$key] = $id;
+  }
+})->with([5, 8, 9, 12]);

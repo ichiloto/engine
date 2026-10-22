@@ -29,6 +29,8 @@ final readonly class RendererSessionConfig
   public const string MAP_OVERVIEW = 'map_overview';
   public const string MAP_OVERVIEW_VIEWPORT = 'map_overview_viewport';
   public const string CANVAS_COMPOSITE_INDICATORS = 'canvas_composite_indicators';
+  /** A composite stroke may be dashed: one operation draws every dash of a line. */
+  public const string CANVAS_STROKE_DASHES = 'canvas_stroke_dashes';
   public const string WINDOW_ACTIVATION = 'window_activation';
   public const string FRAME_VIEWPORT = 'frame_viewport';
   /** Retained field sprites may slide between cells and the camera may follow one of them. */
@@ -50,7 +52,7 @@ final readonly class RendererSessionConfig
   {
     return $this->protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY,
-        self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
+        self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
         self::SPRITE_LIFT, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
         self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT,
         ...array_values(array_intersect(self::EVENT_SUBSCRIPTIONS, $this->requiredCapabilities))]
@@ -73,7 +75,7 @@ final readonly class RendererSessionConfig
     if ($icon !== null) { ApplicationIcon::assertAssetPath($icon); }
     $allowed = $protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
-        self::CANVAS_COMPOSITING, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
+        self::CANVAS_COMPOSITING, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
         self::SPRITE_LIFT, self::KEY_TRANSITIONS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
         self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT]
       : [self::SPRITE_SOURCE_RECT];
@@ -86,9 +88,10 @@ final readonly class RendererSessionConfig
       && !in_array(self::MAP_OVERVIEW,$requiredCapabilities,true)) {
       throw new InvalidArgumentException('Map overview viewports require map_overview.');
     }
-    if (array_intersect([self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS], $requiredCapabilities) !== []
+    if (array_intersect([self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES],
+        $requiredCapabilities) !== []
       && array_diff([self::GRAPHICAL_CANVAS, self::CANVAS_COMPOSITING], $requiredCapabilities) !== []) {
-      throw new InvalidArgumentException('Map overviews and composite indicators require graphical_canvas and canvas_compositing.');
+      throw new InvalidArgumentException('Map overviews, composite indicators and stroke dashes require graphical_canvas and canvas_compositing.');
     }
     if ((in_array(self::CANVAS_CLIP_OPACITY, $requiredCapabilities, true) || in_array(self::CANVAS_GLYPH_EFFECTS, $requiredCapabilities, true)
       || in_array(self::CANVAS_COMPOSITING, $requiredCapabilities, true) || in_array(self::CANVAS_OVERLAY, $requiredCapabilities, true)

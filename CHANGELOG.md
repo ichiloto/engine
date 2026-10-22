@@ -4,6 +4,12 @@
 
 ### Added
 
+- The optional v2 renderer capability `canvas_stroke_dashes`: a composite
+  stroke may carry `dash` (`length`, `gap`) and is drawn dashed as one
+  operation. The Engine offers it to every v2 renderer and sends dashes only
+  once negotiated; requiring it needs `graphical_canvas` and
+  `canvas_compositing`. Install the updated renderer to use it; older
+  renderers keep a masked, budgeted dashed style.
 - A mastery branch may grow `within` another branch of its region
   (`['id' => 'time', 'within' => 'diamonds-non-elemental', ...]`) as a
   sub-family of that branch's family. The Magi Arts board sets it inside the
@@ -77,21 +83,44 @@
 
 ### Changed
 
-- The drawn Magi Arts (Mastery) board keeps the open Info sheet in a band at
-  the top of the board's area and draws the tree or the family cards in the
-  rest, so the sheet no longer covers the focus, what it hangs from or the
-  line between them. The camera frames whole rows measured with each place's
-  focus rings, badge and name: the focus with what it hangs from and what
-  hangs from it, else the focus and what it hangs from, else the focus alone.
-  Lines leaving a row run across below its names. `MasteryBoardView` owns this
-  layout and `MasteryMenuPresentation::layoutBoard()` returns it. The default
+- The drawn Magi Arts (Mastery) board is laid out the same whether Info is
+  open or not: the Info sheet lies over the board as meta text and never
+  moves, reframes or rescales the tree, the family cards or the camera. It
+  stands at the top of the board's area, or at the bottom while the view is
+  scrolled all the way up (the families' tops whole in view), so it does not
+  cover the tops and headings; on its side it stops short of the focus, and
+  takes the other side when the focus leaves less than a line there. The
+  camera frames whole rows measured with each place's focus rings, badge and
+  name: the focus with what it hangs from (and any wrapped rows of siblings
+  between them) and what hangs from it, else the focus and what it hangs
+  from, else the focus alone. A line leaves a node under its name and runs
+  across just above the row it leads to, so no line runs behind a name.
+  Focus rings part around the rim badge and the learned or locked mark
+  instead of being bitten into by them. `MasteryBoardView` owns this layout
+  and `MasteryMenuPresentation::layoutBoard()` returns it. The default
   `stageSpacing` is 132 (was 150), so three stages of named places fit.
+- `MasteryBoard` wraps a row of siblings wider than `MasteryBoard::ROW_LANES`
+  (four) onto rows below, evened out, so every sibling stands within one and
+  a half lanes of what it hangs from and shares the board's view with it.
+  What they hang from stands on a straight line down through a gap in each
+  earlier row; the last row is centred under it. Board places carry the
+  `row` they stand in; Up and Down on the drawn board step between those rows
+  before reaching what they hang from. List order is unchanged, so the
+  Terminal and saves are unaffected. `MasteryCamera` carries how many stages
+  above the focus to keep in frame.
+- `MenuShapes::strokeDashedLine()` takes a line's points (was two end points)
+  and draws the whole line as one operation through negotiated
+  `canvas_stroke_dashes`, or one per straight piece masked to its dashes for
+  a renderer without it, so long dashed lines no longer exceed the frame's
+  256 composite operations and send the menu back to the Terminal
+  presentation. `MenuShapes::strokeCircle()`, `strokeArc()` and `strokeLine()`
+  take areas to part around.
 - Removed: places that do not fit wholly in the board's view are no longer
-  drawn cut at its edges; the lines to them run off the edge. With Info open,
-  the discipline's name above the family cards is not drawn (the sheet stands
-  there), the cards follow the focused card's row when fewer rows fit, and an
-  Info text too long to leave the focus and what it hangs from in view ends
-  its last shown line with an ellipsis.
+  drawn cut at its edges; the lines to them run off the edge. An Info text too
+  long for the room beside the focus ends its last shown line with an
+  ellipsis. The earlier unreleased behaviour that gave the open Info sheet a
+  band of its own and drew the tree or cards below it (hiding the discipline's
+  name above the cards) is removed.
 - The terminal battle's troop zone starts at column 3, so the focus marker
   two cells left of a troop sprite stays inside the border.
   `TerminalBattleEffects::getTroopPlaceProblems()` names what an authored troop

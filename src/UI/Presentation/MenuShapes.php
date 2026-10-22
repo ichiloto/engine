@@ -12,11 +12,15 @@ use RuntimeException;
 
 /**
  * Live vector shapes for a menu, drawn in theme colours into one bounded
- * composite: discs, rings (solid or dashed), rounded pills, lines and arcs,
- * and soft radial light. Callers give canvas coordinates; the composite owns
- * its area and clips everything to it, and shapes wholly outside it are
- * left out so a scrolled view costs only what it shows. No artwork, text or
- * input: those stay with MenuCanvas and the menu state.
+ * composite: discs, rings (solid or dashed), rounded pills, lines (solid or
+ * dashed) and arcs, and soft radial light. Callers give canvas coordinates;
+ * the composite owns its area and clips everything to it, and shapes wholly
+ * outside it are left out so a scrolled view costs only what it shows. Every
+ * shape is one operation of the frame's shared budget, however long: a
+ * dashed line is one stroke the renderer dashes where it negotiated
+ * canvas_stroke_dashes, else one stroke per straight piece, masked to its
+ * dashes. No artwork, text or input: those stay with MenuCanvas and the menu
+ * state.
  */
 final class MenuShapes
 {
@@ -24,11 +28,20 @@ final class MenuShapes
   private const int PILL_ARC_POINTS = 8;
   /** Points per full turn of an arc or circle stroke. */
   private const int ARC_POINTS = 64;
+  /** Dashes one mask contour holds (four points each) and contours one mask holds, for a renderer without stroke dashes. */
+  private const int MASK_DASHES = 32;
+  private const int MASK_CONTOURS = 8;
+  /** The most raster work one masked dash piece may ask for: pixels it covers times its mask's points. */
+  private const int MASK_DASH_WORK = 4194304;
 
   /** @var list<CanvasCompositeOperation> */
   private array $operations = [];
 
-  public function __construct(private readonly MenuPresentationCatalog $theme, public readonly CanvasRectangle $bounds)
+  /**
+   * @param bool $strokeDashes Whether the renderer negotiated canvas_stroke_dashes and so dashes a stroke itself.
+   */
+  public function __construct(private readonly MenuPresentationCatalog $theme, public readonly CanvasRectangle $bounds,
+    private readonly bool $strokeDashes = false)
   {
     if ($bounds->width < 1 || $bounds->height < 1) {
       throw new RuntimeException('Menu shapes need an area to draw in.');
@@ -67,9 +80,11 @@ final class MenuShapes
 
   /**
    * A ring of a width centred on a radius; dashed when given how many dashes go round it.
+   *
+   * @param list<CanvasRectangle> $clear Rounded areas (pills; a square one is a disc) the ring parts around, at most four.
    */
   public function strokeCircle(float $x, float $y, float $radius, float $width, string|PresentationColor $color, float $opacity = 1.0,
-    int $dashes = 0): void
+    int $dashes = 0, array $clear = []): void
   {
     $outer = $radius + $width / 2;
     $inner = max(0.5, $radius - $width / 2);
@@ -77,7 +92,7 @@ final class MenuShapes
     if ($dashes > 0) {
       $masks[] = $this->createDashMask($x, $y, $inner - 2, $outer + 2, min(31, $dashes));
     }
-    $this->fill(self::around($x, $y, $outer), $color, $opacity, $masks);
+    $this->fill(self::around($x, $y, $outer), $color, $opacity, [...$masks, ...$this->createClearMasks($clear)]);
   }
 
   /** A pill (a rectangle with round ends) centred on a point. */
@@ -111,42 +126,52 @@ final class MenuShapes
    * A line through points, with round ends.
    *
    * @param list<array{float, float}> $points Canvas points, at least two.
+   * @param list<CanvasRectangle> $clear Rounded areas the line parts around, at most four.
    */
-  public function strokeLine(array $points, float $width, string|PresentationColor $color, float $opacity = 1.0): void
+  public function strokeLine(array $points, float $width, string|PresentationColor $color, float $opacity = 1.0, array $clear = []): void
   {
-    $half = $width / 2;
-    $xs = array_column($points, 0);
-    $ys = array_column($points, 1);
-    if (max($xs) + $half < $this->bounds->x || min($xs) - $half > $this->bounds->x + $this->bounds->width
-      || max($ys) + $half < $this->bounds->y || min($ys) - $half > $this->bounds->y + $this->bounds->height) {
-      return;
-    }
-    $local = array_map(fn(array $point): array => [$point[0] - $this->bounds->x, $point[1] - $this->bounds->y], $points);
-    $this->add(['type' => 'stroke', 'points' => $local, 'width' => $width, 'brush' => $this->createBrush($color), 'opacity' => $opacity]);
+    $this->addStroke($points, $width, $color, $opacity, $this->createClearMasks($clear));
   }
 
   /**
-   * A dashed line between two points.
+   * A dashed line through points: dashes of a length with gaps between, measured along the whole line so its
+   * corners keep the rhythm, and always one operation of the frame's budget per straight piece at most.
+   *
+   * @param list<array{float, float}> $points Canvas points, at least two.
    */
-  public function strokeDashedLine(float $x1, float $y1, float $x2, float $y2, float $width, float $dash, float $gap,
-    string|PresentationColor $color, float $opacity = 1.0): void
+  public function strokeDashedLine(array $points, float $width, float $dash, float $gap, string|PresentationColor $color,
+    float $opacity = 1.0): void
   {
-    $length = hypot($x2 - $x1, $y2 - $y1);
-    if ($length <= 0) {
+    if ($dash <= 0 || $gap <= 0) {
+      throw new RuntimeException('Dashed menu lines need positive dashes and gaps.');
+    }
+    if ($this->strokeDashes) {
+      $this->addStroke($points, $width, $color, $opacity, [], ['length' => $dash, 'gap' => $gap]);
       return;
     }
-    for ($at = 0.0; $at < $length; $at += $dash + $gap) {
-      $end = min($length, $at + $dash);
-      $this->strokeLine([[$x1 + ($x2 - $x1) * $at / $length, $y1 + ($y2 - $y1) * $at / $length],
-        [$x1 + ($x2 - $x1) * $end / $length, $y1 + ($y2 - $y1) * $end / $length]], $width, $color, $opacity);
+    // Without the renderer's dashes each straight piece is one stroke masked to its dashes, the rhythm running on
+    // across corners from where the piece before left it.
+    $along = 0.0;
+    for ($piece = 0; $piece < count($points) - 1; $piece++) {
+      [$from, $to] = [$points[$piece], $points[$piece + 1]];
+      $length = hypot($to[0] - $from[0], $to[1] - $from[1]);
+      if ($length > 0) {
+        $mask = $this->createLineDashMask($from, $to, $length, $width, $dash, $gap, $along, $piece === 0, $piece === count($points) - 2);
+        if ($mask !== null) {
+          $this->addStroke([$from, $to], $width, $color, $opacity, [$mask]);
+        }
+      }
+      $along += $length;
     }
   }
 
   /**
    * An arc clockwise from the top of a circle through a share of a full turn, such as a hold's progress.
+   *
+   * @param list<CanvasRectangle> $clear Rounded areas the arc parts around, at most four.
    */
   public function strokeArc(float $x, float $y, float $radius, float $share, float $width, string|PresentationColor $color,
-    float $opacity = 1.0): void
+    float $opacity = 1.0, array $clear = []): void
   {
     $share = min(1.0, max(0.0, $share));
     if ($share <= 0.0) {
@@ -158,7 +183,7 @@ final class MenuShapes
       $angle = -M_PI / 2 + 2 * M_PI * $share * $step / $steps;
       $points[] = [$x + $radius * cos($angle), $y + $radius * sin($angle)];
     }
-    $this->strokeLine($points, $width, $color, $opacity);
+    $this->strokeLine($points, $width, $color, $opacity, $clear);
   }
 
   /**
@@ -205,6 +230,26 @@ final class MenuShapes
       'masks' => $masks]);
   }
 
+  /**
+   * @param list<array{float, float}> $points Canvas points, at least two.
+   * @param list<array<string, mixed>> $masks
+   * @param array{length: float, gap: float}|null $dash
+   */
+  private function addStroke(array $points, float $width, string|PresentationColor $color, float $opacity, array $masks = [],
+    ?array $dash = null): void
+  {
+    $half = $width / 2;
+    $xs = array_column($points, 0);
+    $ys = array_column($points, 1);
+    if (max($xs) + $half < $this->bounds->x || min($xs) - $half > $this->bounds->x + $this->bounds->width
+      || max($ys) + $half < $this->bounds->y || min($ys) - $half > $this->bounds->y + $this->bounds->height) {
+      return;
+    }
+    $local = array_map(fn(array $point): array => [$point[0] - $this->bounds->x, $point[1] - $this->bounds->y], $points);
+    $this->add(['type' => 'stroke', 'points' => $local, 'width' => $width, 'brush' => $this->createBrush($color), 'opacity' => $opacity,
+      ...($masks === [] ? [] : ['masks' => $masks]), ...($dash === null ? [] : ['dash' => $dash])]);
+  }
+
   /** @param array<string, mixed> $data */
   private function add(array $data): void
   {
@@ -244,14 +289,77 @@ final class MenuShapes
     $right = $x + $width - $radius - $this->bounds->x;
     $middle = $y + $height / 2 - $this->bounds->y;
     $points = [];
+    // A pill as tall as it is wide is a disc: its two ends meet, so their shared points are given once.
+    $round = $right - $left < 0.01;
     foreach ([[$right, -M_PI / 2], [$left, M_PI / 2]] as [$x, $start]) {
-      for ($step = 0; $step <= self::PILL_ARC_POINTS; $step++) {
+      for ($step = 0; $step <= self::PILL_ARC_POINTS - ($round ? 1 : 0); $step++) {
         $angle = $start + M_PI * $step / self::PILL_ARC_POINTS;
         $points[] = [$x + $radius * cos($angle), $middle + $radius * sin($angle)];
       }
     }
 
     return ['type' => 'polygon', 'contours' => [$points], 'invert' => $invert];
+  }
+
+  /**
+   * @param list<CanvasRectangle> $areas
+   * @return list<array<string, mixed>>
+   */
+  private function createClearMasks(array $areas): array
+  {
+    if (count($areas) > 4) {
+      throw new RuntimeException('A menu stroke parts around at most four areas.');
+    }
+
+    return array_map(fn(CanvasRectangle $area): array => $this->createPillMask([$area->x, $area->y, $area->width, $area->height], true), $areas);
+  }
+
+  /**
+   * Teeth reaching across one straight piece of a dashed line, so a stroke drawn through them shows only its dashes:
+   * one tooth per dash, butt-ended, a stroke's round end kept only where the whole line starts or ends on a dash and
+   * where a dash runs on round a corner. A piece with more dashes than a mask holds, or whose teeth would cost more than
+   * MASK_DASH_WORK, takes longer dashes and gaps in the same proportion. Null when no dash falls on the piece.
+   *
+   * @param array{float, float} $from
+   * @param array{float, float} $to
+   * @param float $along How far along the whole line the piece starts.
+   * @return array<string, mixed>|null
+   */
+  private function createLineDashMask(array $from, array $to, float $length, float $width, float $dash, float $gap, float $along,
+    bool $first, bool $last): ?array
+  {
+    $half = $width / 2;
+    $box = (abs($to[0] - $from[0]) + $width + 2) * (abs($to[1] - $from[1]) + $width + 2);
+    $limit = min(self::MASK_DASHES * self::MASK_CONTOURS, max(1, intdiv((int)(self::MASK_DASH_WORK / $box), 4)));
+    $scale = max(1.0, ceil(($length / ($dash + $gap) + 2) / $limit));
+    [$dash, $gap] = [$dash * $scale, $gap * $scale];
+    $period = $dash + $gap;
+    $teeth = [];
+    for ($start = floor($along / $period) * $period - $along; $start < $length; $start += $period) {
+      $end = $start + $dash;
+      if ($end <= 0) {
+        continue;
+      }
+      // A dash running on past either end of the piece keeps the stroke's round join there; the line's own ends stay butt.
+      $teeth[] = [$start <= 0 && ! $first ? -$half - 1 : max(0.0, $start), $end >= $length && ! $last ? $length + $half + 1 : min($length, $end)];
+    }
+    if ($teeth === []) {
+      return null;
+    }
+    [$ux, $uy] = [($to[0] - $from[0]) / $length, ($to[1] - $from[1]) / $length];
+    $reach = $half + 2;
+    $point = fn(float $at, float $side): array => [$from[0] + $ux * $at - $uy * $side - $this->bounds->x,
+      $from[1] + $uy * $at + $ux * $side - $this->bounds->y];
+    $contours = [];
+    foreach (array_chunk($teeth, self::MASK_DASHES) as $chunk) {
+      $contour = [];
+      foreach ($chunk as [$start, $end]) {
+        array_push($contour, $point($start, -$reach), $point($start, $reach), $point($end, $reach), $point($end, -$reach));
+      }
+      $contours[] = $contour;
+    }
+
+    return ['type' => 'polygon', 'contours' => $contours];
   }
 
   /**

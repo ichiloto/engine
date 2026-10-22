@@ -606,6 +606,50 @@ it('moves along the drawn tree into the next family, and steps back to that fami
     ->and($this->hero->mastery->points)->toBe(500);
 });
 
+it('steps between the wrapped rows of a wide family on the drawn tree, and frames what they hang from', function () {
+  // Blades' own row holds six skills: wider than a row, it wraps onto two.
+  $extra = ['Second Cut', 'Third Cut', 'Fourth Cut', 'Fifth Cut', 'Sixth Cut'];
+  foreach ($extra as $n => $name) {
+    file_put_contents(sprintf('%s/assets/Data/Skills/%04d.php', $this->root, $n + 7), '<?php return ' . var_export(['class' => \Ichiloto\Engine\Entities\Skills\Skill::class,
+      'data' => SkillRecord::writeSkill(new SpecialSkill($name, 'Another cut.', '', 2, 0, effects: [new HPDamageSkillEffect('1')]))], true) . ';');
+  }
+  $tree = require $this->root . '/assets/Data/mastery.php';
+  $ids = array_map(static fn(string $name): string => strtolower(str_replace(' ', '-', $name)), $extra);
+  foreach ($extra as $n => $name) { $tree['regions'][0]['nodes'][] = ['id' => $ids[$n], 'kind' => 'application', 'skill' => $name]; }
+  file_put_contents($this->root . '/assets/Data/mastery.php', '<?php return ' . var_export($tree, true) . ';');
+  $map = require $this->root . '/assets/Data/Mastery/hero.php';
+  foreach ($ids as $id) { $map['nodes'][] = ['id' => $id, 'cost' => 10]; }
+  file_put_contents($this->root . '/assets/Data/Mastery/hero.php', '<?php return ' . var_export($map, true) . ';');
+  MasteryCatalog::forgetProjectCatalogs();
+  masteryMenuHero($this->hero, 500);
+  $this->state->enter();
+  new ReflectionProperty($this->state, 'isMenuCanvasShown')->setValue($this->state, true);
+  $content = fn() => $this->state->getPresentationContent();
+  // It opens on Blades, the first skill to learn there in focus; Up climbs to the family's heading.
+  masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::ENTER, KeyCode::UP, KeyCode::UP, KeyCode::UP);
+  expect($content()->regionIndex)->toBe(0);
+  $heading = MasteryFamily::getHeadingId(MasteryFamily::getTrunkId('blades'));
+  expect($content()->focus)->toBe($heading);
+
+  // Down steps into the first row, then from a skill without its own row to the wrapped row below; Up steps back the same way.
+  masteryMenuKey($this->state, KeyCode::DOWN);
+  expect($content()->focus)->toBe('cut');
+  masteryMenuKey($this->state, KeyCode::DOWN);
+  $wrapped = $content()->focus;
+  $node = array_find($content()->nodes, static fn(MasteryMenuNode $node): bool => $node->id === $wrapped);
+  expect(array_slice($ids, 2))->toContain($wrapped)
+    ->and($node->stage)->toBe(2)
+    ->and($node->parent)->toBe($heading)
+    // The view keeps what it hangs from, two stages up, in frame.
+    ->and($content()->camera->toAbove)->toBe(2.0)
+    ->and(array_keys(\Ichiloto\Engine\UI\Presentation\MasteryMenuPresentation::layoutBoard($content(),
+      new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']))->places))->toContain($heading, $wrapped);
+  masteryMenuKey($this->state, KeyCode::UP);
+  expect($content()->focus)->toBe('cut');
+  masteryMenuKey($this->state, KeyCode::UP);
+  expect($content()->focus)->toBe($heading);
+});
+
 it('steps one family per arrow in the Terminal\'s list and moves across families on its tree', function () {
   masteryMenuHero($this->hero, 500);
   $this->state->enter();

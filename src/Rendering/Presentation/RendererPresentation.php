@@ -186,6 +186,11 @@ final class RendererPresentation
       && !$this->client->supports(RendererSessionConfig::MAP_OVERVIEW_VIEWPORT)) {
       throw new RendererProtocolException('World map source windows require negotiated map_overview_viewport support.');
     }
+    if (array_any($canvas->composites, static fn($composite) => array_any($composite->operations,
+        static fn($operation) => isset($operation->data['dash'])))
+      && !$this->client->supports(RendererSessionConfig::CANVAS_STROKE_DASHES)) {
+      throw new RendererProtocolException('Dashed composite strokes require negotiated canvas_stroke_dashes support.');
+    }
     if ($canvas->labels !== [] && (!$this->client->supports(RendererSessionConfig::CANVAS_LABELS)
       || !$this->client->supports(RendererSessionConfig::TEXT_LAYOUT))) {
       throw new RendererProtocolException('Canvas labels require negotiated canvas_labels and text_layout support.');

@@ -37,7 +37,7 @@ final class CanvasCompositeBudget
           * max(0, min($composite->height, ceil($bottom)) - max(0, floor($top))));
         $cost = match ($data['type']) {
           'image', 'world' => 16 + (isset($data['displacement']) ? 8 : 0),
-          'fill' => 4, 'stroke' => 4 + count($data['points']),
+          'fill' => 4, 'stroke' => 4 + count($data['points']) + (isset($data['dash']) ? 4 : 0),
         };
         foreach ([$data['masks'], $data['displacement']['masks'] ?? []] as $masks) {
           if ($masks === []) { continue; }
