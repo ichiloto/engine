@@ -532,3 +532,33 @@ it('re-sends only an inserted or removed record, never the unchanged records pai
     $peer->acknowledgeLatestFrame($field);
     expect($field->present($text(true), $sprites(true), null))->toBeFalse();
 });
+
+it('never stages both screens\' text at once while a replacement is split across packets', function () {
+    $transport = new FakeRendererTransport();
+    $sender = new RetainedPresentation(new RendererClient($transport));
+    // Two screens of 40 text layers each: either fits the receiver's 64, both together do not.
+    $screen = static fn(string $name): PresentationCanvas => new PresentationCanvas(1350, 720, textLayers: array_map(
+        static fn(int $n): CanvasTextLayer => new CanvasTextLayer("{$name}-{$n}", 30, 0, ($n % 40) * 16, new RendererGridConfig(100, 4, 8, 16),
+            array_map(static fn(int $row): PresentationTextRun => new PresentationTextRun($row, 0, str_repeat(chr(97 + $n % 26), 100),
+                PresentationColor::rgb(200, 200, 200)), range(0, 3))), range(0, 39)));
+    $sender->presentCanvas($screen('menu'));
+    finishRetainedTestUpload($sender, $transport, fn() => $sender->presentCanvas($screen('menu')));
+    $staged = [];
+    $apply = static function (array $packet) use (&$staged): int {
+        foreach ($packet['operations'] as $operation) {
+            if (($operation['kind'] ?? null) !== 'canvas_text') { continue; }
+            if ($operation['op'] === 'put') { $staged[$operation['id']] = true; } else { unset($staged[$operation['id']]); }
+        }
+        return count($staged);
+    };
+    foreach ($transport->sent as $message) { $apply($message->payload); }
+    $transport->sent = [];
+
+    $sender->presentCanvas($screen('mastery'));
+    finishRetainedTestUpload($sender, $transport, fn() => $sender->presentCanvas($screen('mastery')));
+    $packets = array_map(static fn($message) => $message->payload, $transport->sent);
+
+    expect(count($packets))->toBeGreaterThan(1)
+        ->and(max(array_map($apply, $packets)))->toBeLessThanOrEqual(40)
+        ->and(array_keys($staged))->toBe(array_map(static fn(int $n): string => "mastery-{$n}", range(0, 39)));
+});

@@ -247,7 +247,10 @@ them to `RendererPresentation::acknowledge()`; keys remain in the input queue.
 
 Uploads target 32 KiB chunks and remain within the 4 MiB line limit. Intermediate
 packets use `present: false`; only the final `present: true` publishes the complete
-candidate. Native validation failures keep the prior visible state and request
+candidate. The receiver checks its text-layer and label limits on every staged
+packet, so a transaction sends its removals before its additions: no staged packet
+holds both the old screen's layers and the new one's, which together could exceed
+a limit neither screen does. Native validation failures keep the prior visible state and request
 resynchronization. Non-reset packets require the current `baseGeneration`;
 reset packets ignore a mismatched base but still require a newer generation.
 See [atomic staging and limits](presentation.md#retained-operations-and-generations).

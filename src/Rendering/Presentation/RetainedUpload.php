@@ -23,6 +23,12 @@ final class RetainedUpload
         public readonly array $textRows,
         public readonly ?PresentationWorld $world,
     ) {
+        // Removals go first, in their order, then everything else in its order. A receiver checks its
+        // limits (text layers, labels) on every staged packet, so a transaction split across packets must
+        // never hold what it removes and what it adds at once: each side fits, but both together may not.
+        $isRemoval = static fn(array $operation): bool => ($operation['op'] ?? null) === 'remove';
+        $operations = [...array_values(array_filter($operations, $isRemoval)),
+            ...array_values(array_filter($operations, static fn(array $operation): bool => ! $isRemoval($operation)))];
         $chunk = [];
         $bytes = 0;
         foreach ($operations as $operation) {
