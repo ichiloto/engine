@@ -14,6 +14,7 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Events\Enumerations\EventEngagement;
 use Ichiloto\Engine\Field\MapGraphics;
 use Ichiloto\Engine\Field\MapLayerSet;
+use Ichiloto\Engine\Field\MapPhysicalOccupancy;
 use Ichiloto\Engine\Field\NpcPlacement;
 use Ichiloto\Engine\Field\WorldObjectDefinition;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
@@ -93,6 +94,26 @@ final class MapCompletenessValidator
         }
         return MapDoorwayRule::inspect($mapId, $data, MapEventResolver::inspect($data, $eventLayer, $mapId)->events,
             $layers->getComposedGrid(), $fieldCatalog);
+    }
+
+    /**
+     * Warnings where what the map shows disagrees with what its collision lets the player do ({@see MapPassageAgreementRule}).
+     * A map without graphics shows its terminal glyphs, which are its collision, so nothing is judged.
+     * @return list<MapValidationIssue>
+     */
+    public static function validatePassageAgreement(string $mapId, array $data, array $eventLayer, MapLayerSet $layers,
+        MapPhysicalOccupancy $occupancy, ?MapGraphics $graphics, string $assetRoot, ?FieldPresentationCatalog $fieldCatalog = null): array
+    {
+        if ($graphics === null) { return []; }
+        $objects = is_array($data['worldObjects'] ?? null) ? $data['worldObjects'] : [];
+        try {
+            $fieldCatalog ??= array_any($objects, static fn($entry): bool => is_array($entry) && array_key_exists('resource', $entry))
+                ? FieldPresentationCatalog::load($assetRoot) : null;
+        } catch (InvalidArgumentException|RuntimeException) {
+            $fieldCatalog = null;
+        }
+        return MapPassageAgreementRule::inspect($mapId, $data, $layers, $occupancy, $graphics, $assetRoot,
+            MapEventResolver::inspect($data, $eventLayer, $mapId)->events, $fieldCatalog);
     }
 
     /** @return list<MapValidationIssue> */
