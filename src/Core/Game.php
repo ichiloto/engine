@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Core;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Ichiloto\Engine\Income\IncomeCatalog;
+use Ichiloto\Engine\Localization\WordForms;
 use Assegai\Collections\ItemList;
 use Assegai\Util\Path;
 use Error;
@@ -552,6 +553,8 @@ class Game implements CanRun, SubjectInterface
         ProjectFormat::assertSupported(config(AppConfig::class, ProjectFormat::KEY));
         ConfigStore::put(PlayerSettings::class, new PlayerSettings(dataRoot: $this->launchDataRoot));
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
+        // The project's word forms reach the inflector before any name is inflected.
+        WordForms::fromProject()->registerExceptions();
         ConfigStore::put(FieldMusicCatalog::class, FieldMusicCatalog::fromProject());
         ConfigStore::put(IncomeCatalog::class, IncomeCatalog::fromProject());
 
