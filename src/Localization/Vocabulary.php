@@ -24,7 +24,7 @@ final class Vocabulary
     'stats.exp' => 'EXP',
     'mastery.points' => 'SP',
     'mastery.points_name' => 'Skill Points',
-    // The growth screen's name, on the main menu and as its own title; a game names it ("Mastery").
+    // The growth screen's name, on the main menu and as its own title; each game names it in its Terms.
     'menu.mastery' => 'Skills',
     'mastery.learn' => 'Learn',
     'mastery.learned' => 'Learned',
