@@ -92,7 +92,8 @@ final class StoryContentReader
     foreach (is_array($map['events'] ?? null) ? $map['events'] : [] as $key => $event) {
       if (!is_array($event)) { continue; }
       $marker = is_string($event['marker'] ?? null) ? $event['marker'] : strval($key);
-      $sources[] = new StorySource($mapId, QuestWaymarkSubject::EVENT, $marker, $this->collectEffects($event));
+      $sources[] = new StorySource($mapId, QuestWaymarkSubject::EVENT, $marker, $this->collectEffects($event),
+        conditions: self::readConditions($event['conditions'] ?? []));
     }
     foreach (is_array($map['npcs'] ?? null) ? $map['npcs'] : [] as $npc) {
       $id = is_array($npc) && is_string($npc['id'] ?? null) ? trim($npc['id']) : '';
@@ -103,13 +104,14 @@ final class StoryContentReader
         // A malformed NPC is reported by the checks that read NPCs; it leads nowhere here.
         continue;
       }
-      // Sets on the NPC itself follow every conversation, so they belong to each page.
+      // Sets on the NPC itself follow every conversation, so they belong to each page, as its presence gates each.
       $shared = $this->collectEffects(['sets' => $npc['sets'] ?? []]);
+      $presence = self::readConditions($npc['conditions'] ?? []);
       foreach ($pages as $page) {
         $effects = $this->collectEffects(['lines' => $page->lines, 'script' => $page->script, 'scriptId' => $page->scriptId,
           'cinematicId' => $page->cinematicId, 'sets' => $page->sets]);
         $sources[] = new StorySource($mapId, QuestWaymarkSubject::NPC, $id, $effects->withEffects($shared), $page->index,
-          trim(strval($npc['name'] ?? '')));
+          trim(strval($npc['name'] ?? '')), [...$presence, ...$page->conditions]);
       }
     }
     $encounters = new StoryEffects();
@@ -229,6 +231,12 @@ final class StoryContentReader
     }
 
     return new StoryEffects($flags, $quests);
+  }
+
+  /** @return list<array<string, mixed>> */
+  private static function readConditions(mixed $conditions): array
+  {
+    return is_array($conditions) ? array_values(array_filter($conditions, is_array(...))) : [];
   }
 
   private static function readFile(string $filename, string $what): mixed

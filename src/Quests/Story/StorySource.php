@@ -21,6 +21,9 @@ final readonly class StorySource
    * @param int|null $page The NPC page index, as {@see \Ichiloto\Engine\Field\NpcPages} numbers it.
    * @param string $name The NPC's name, which `talk_to` objectives match.
    * @param StoryEffects $effects What setting it off can do.
+   * @param list<array<string, mixed>> $conditions What must hold before it can be set off, as authored: an event's
+   *   conditions, or an NPC's presence conditions with its page's own. Read, never run; a page that an earlier
+   *   page takes precedence over is not reflected, so these say when it can run at the earliest.
    */
   public function __construct(
     public string $map,
@@ -29,6 +32,7 @@ final readonly class StorySource
     public StoryEffects $effects,
     public ?int $page = null,
     public string $name = '',
+    public array $conditions = [],
   )
   {
   }

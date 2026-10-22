@@ -323,3 +323,68 @@ it('leaves the opening to the first quest\'s start waymark, with nothing filled 
     ->and(describeStoryWaymarks($wayfinder->findGapWaymarks([], [storyStartQuest('errand')], $log, $state)))->toBe(['home npc keeper'])
     ->and($reports)->toHaveCount(1);
 });
+
+/** The errand is done: the keeper opens the gate, and only then the scout behind it hands over the next quest. */
+function storyGateBeforeStart(array $scoutPages = []): StoryIndex
+{
+  $reader = new StoryContentReader(static fn(): mixed => null, static fn(): mixed => null);
+
+  return StoryIndex::read($reader, ['home' => ['events' => [
+    ['marker' => 'D', 'class' => 'Ichiloto\\Engine\\Events\\Triggers\\TransferPlayerTrigger', 'whenBlocked' => 'Shut.',
+      'conditions' => [['type' => 'event', 'name' => 'gate_opened']], 'data' => ['destinationMap' => 'yard']],
+  ], 'npcs' => [
+    ['id' => 'keeper', 'name' => 'Keeper', 'x' => 1, 'y' => 1, 'dialogue' => [
+      ['conditions' => [['type' => 'quest', 'name' => 'errand', 'status' => 'completed']], 'lines' => [['text' => 'Go on.']],
+        'sets' => [['type' => 'event', 'name' => 'gate_opened']]],
+      storyStarter('errand'),
+    ]],
+    ['id' => 'scout', 'name' => 'Scout', 'x' => 2, 'y' => 1, 'conditions' => [['type' => 'event', 'name' => 'gate_opened']],
+      'dialogue' => $scoutPages ?: [storyStarter('next')]],
+  ]]]);
+}
+
+/** The next quest, startable once the errand is done, leading first to the keeper and then to the scout. */
+function storyNextAfterGate(array $extra = []): Quest
+{
+  return storyStartQuest('next', ['prerequisites' => [['type' => 'quest', 'name' => 'errand', 'status' => 'completed']],
+    'startWaymarks' => [
+      ['map' => 'home', 'npc' => 'keeper', 'conditions' => [['type' => 'event', 'name' => 'gate_opened', 'negate' => true]]],
+      ['map' => 'home', 'npc' => 'scout', 'conditions' => [['type' => 'event', 'name' => 'gate_opened']]],
+    ], ...$extra]);
+}
+
+it('counts a start waymark toward a step everything that starts its quest waits for', function () {
+  $errand = storyStartQuest('errand', ['startWaymarks' => [['map' => 'home', 'npc' => 'keeper']]]);
+  $index = storyGateBeforeStart();
+
+  // The scout is there only once the gate is open, so the next quest's start waymarks show until then.
+  expect(StoryGuidance::findUnguidedGates([$errand, storyNextAfterGate()], $index))->toBe([])
+    ->and(describeUnguidedStarts([$errand, storyNextAfterGate()], $index))->toBe([])
+    ->and(array_map(static fn($gate): string => "{$gate->map} {$gate->marker}",
+      StoryGuidance::findUnguidedGates([$errand, storyNextAfterGate(['startWaymarks' => []])], $index)))->toBe(['home D']);
+});
+
+it('does not count that start waymark when something can start its quest before the step', function () {
+  $errand = storyStartQuest('errand', ['startWaymarks' => [['map' => 'home', 'npc' => 'keeper']]]);
+  // A crier hands over the next quest on the near side of the gate.
+  $reader = new StoryContentReader(static fn(): mixed => null, static fn(): mixed => null);
+  $index = StoryIndex::read($reader, ['home' => ['events' => [
+    ['marker' => 'D', 'class' => 'Ichiloto\\Engine\\Events\\Triggers\\TransferPlayerTrigger', 'whenBlocked' => 'Shut.',
+      'conditions' => [['type' => 'event', 'name' => 'gate_opened']], 'data' => ['destinationMap' => 'yard']],
+    ['marker' => 'C', 'class' => 'Ichiloto\\Engine\\Events\\Triggers\\ScriptEventTrigger', 'sets' => [['type' => 'quest', 'name' => 'next']]],
+  ], 'npcs' => [['id' => 'keeper', 'name' => 'Keeper', 'x' => 1, 'y' => 1, 'dialogue' => [
+    ['conditions' => [['type' => 'quest', 'name' => 'errand', 'status' => 'completed']], 'lines' => [['text' => 'Go on.']],
+      'sets' => [['type' => 'event', 'name' => 'gate_opened']]],
+    storyStarter('errand'),
+  ]]]]]);
+
+  expect(StoryGuidance::findUnguidedGates([$errand, storyNextAfterGate()], $index))->toHaveCount(1);
+});
+
+it('does not count the objectives of a quest that can start only after the step they lead to', function () {
+  $errand = storyStartQuest('errand', ['startWaymarks' => [['map' => 'home', 'npc' => 'keeper']]]);
+  $next = storyNextAfterGate(['startWaymarks' => [],
+    'objectives' => [['type' => 'flag', 'target' => 'next_done', 'waymarks' => [['map' => 'home', 'npc' => 'keeper']]]]]);
+
+  expect(StoryGuidance::findUnguidedGates([$errand, $next], storyGateBeforeStart()))->toHaveCount(1);
+});

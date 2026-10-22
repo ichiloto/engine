@@ -31,13 +31,16 @@ use Ichiloto\Engine\Quests\QuestWaymark;
  * step through what starts its quest: it counts when it points at something
  * that both starts its quest and takes the step. The quest's own start is
  * the plain case; a gate's flag set where the quest is handed over is the
- * other.
+ * other. When everything that starts its quest waits for the step (the
+ * quest's giver speaks only once a flag is set, say), the quest cannot start
+ * before the step, so its start waymarks lead to whatever takes the step:
+ * the way to a quest's start can pass through the step that opens it.
  *
  * Guidance must be able to show before the step is taken: its quest cannot
  * need the step to start, its objectives cannot belong to a quest that
- * starts only where the step is taken, and its waymark cannot wait for the
- * step. Optional quests guide nothing on the story path and gate nothing on
- * it.
+ * starts only where the step is taken or only after it, and its waymark
+ * cannot wait for the step. Optional quests guide nothing on the story path
+ * and gate nothing on it.
  */
 final class StoryGuidance
 {
@@ -130,15 +133,18 @@ final class StoryGuidance
       if ($waitsForStep($quest->prerequisites)) {
         continue;
       }
-      // Start waymarks show until the quest starts, so they lead through what starts it.
+      // Start waymarks show until the quest starts, so they lead through what starts it, and to anything that
+      // takes the step when everything that starts the quest waits for the step.
       $id = $quest->id;
-      $startsHere = array_values(array_filter($targets, static fn(StorySource $source): bool => isset($source->effects->quests[$id])));
-      if (array_any($quest->startWaymarks, static fn(QuestWaymark $waymark): bool => $leads($waymark, false, $startsHere))) {
+      $starts = $index->findStarters($id);
+      $startsAfterStep = $starts !== [] && array_all($starts, static fn(StorySource $source): bool => $waitsForStep($source->conditions));
+      $through = $startsAfterStep ? $targets
+        : array_values(array_filter($targets, static fn(StorySource $source): bool => isset($source->effects->quests[$id])));
+      if (array_any($quest->startWaymarks, static fn(QuestWaymark $waymark): bool => $leads($waymark, false, $through))) {
         return true;
       }
-      // Objectives show once the quest is active, which is never before the step where it starts only there.
-      $starts = $index->findStarters($quest->id);
-      if ($starts !== [] && array_all($starts, $takesStep)) {
+      // Objectives show once the quest is active, which is never before the step where it starts only there or only after it.
+      if ($starts !== [] && ($startsAfterStep || array_all($starts, $takesStep))) {
         continue;
       }
       foreach ($quest->objectives as $objective) {
