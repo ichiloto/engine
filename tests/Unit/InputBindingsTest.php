@@ -99,7 +99,7 @@ it('lists the rebindable actions with their keys', function () {
 
   // Back is deliberately absent: escape is how every screen is left,
   // including the rebinding screen.
-  expect($actions)->toBe(['action', 'up', 'info', 'menu_page_previous', 'menu_page_next', 'map_view', 'map_size', 'map_zoom', 'map_recenter', 'dialogue_auto', 'secondary_action', 'quick_save'])
+  expect($actions)->toBe(['action', 'up', 'info', 'menu_page_previous', 'menu_page_next', 'menu_tab_previous', 'menu_tab_next', 'curriculum', 'map_view', 'map_size', 'map_zoom', 'map_recenter', 'dialogue_auto', 'secondary_action', 'quick_save'])
     ->and($bindings->describeKeys('action'))->toBe('SPACE, ENTER')
     ->and($bindings->describeKeys('up'))->toBe('UP, W')
     ->and($bindings->describeKeys('info'))->toBe('i, I');
@@ -207,7 +207,7 @@ it('discovers a fully conflicted Info default as unbound and permits an explicit
   $authored = ['custom' => ['description' => 'Custom action.', 'keys' => [KeyCode::i, KeyCode::I]]];
   $config = installBindings($authored);
   $bindings = new InputBindings();
-  expect(array_column($bindings->all(), 'action'))->toBe(['custom', 'info', 'menu_page_previous', 'menu_page_next', 'map_view', 'map_size', 'map_zoom', 'map_recenter', 'dialogue_auto', 'secondary_action', 'quick_save'])
+  expect(array_column($bindings->all(), 'action'))->toBe(['custom', 'info', 'menu_page_previous', 'menu_page_next', 'menu_tab_previous', 'menu_tab_next', 'curriculum', 'map_view', 'map_size', 'map_zoom', 'map_recenter', 'dialogue_auto', 'secondary_action', 'quick_save'])
     ->and($bindings->describeKeys('info'))->toBe('Unbound')
     ->and($bindings->controlForAction('info'))->toBeNull()
     ->and($config->all())->toBe($authored)->and($config->written)->toBeEmpty();

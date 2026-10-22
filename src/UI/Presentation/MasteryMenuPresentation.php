@@ -4,201 +4,508 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Presentation;
 
-use Ichiloto\Engine\IO\ActionHints;
-use Ichiloto\Engine\IO\Enumerations\KeyCode;
-use Ichiloto\Engine\Localization\Vocabulary;
-use Ichiloto\Engine\Progression\Mastery\MasteryLayout;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Progression\Mastery\MasteryNodeState;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
-use Ichiloto\Engine\UI\Text\TextViewport;
+use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
-use RuntimeException;
 
 /**
- * Draws one character's Mastery Map: the project's regions laid out around
- * the character, each node as a card in its region, the links from the
- * nodes it builds on, and the focused node's details. Choosing what to
- * learn stays with the menu state; the Terminal list shows the same
- * projection and focus.
+ * Draws one character's Mastery board: a corner block (title, portrait,
+ * name, role, level and points), the disciplines as tabs with their counts,
+ * a strip of the shown discipline's families, the board itself (or, zoomed
+ * out, a summary of each family), the focused place's name, price and Learn
+ * button, and a footer with what the focus does and the bindings.
+ *
+ * Nodes, lines, badges and tabs are live shapes in the theme's colours;
+ * pictures come from the theme's icon roles and portraits, so another game
+ * re-themes the screen without drawing code. Choosing and learning stay with
+ * the menu state; the Terminal shows the same projection.
  */
 final class MasteryMenuPresentation
 {
-  /** The map takes this share of the body; the details take the rest. */
-  private const float MAP_WIDTH_SHARE = 0.64;
-  /** A node card is this many cells wide at most. */
-  private const int CARD_CELLS = 16;
-  /** Link lines are this many pixels thick. */
-  private const int LINK_THICKNESS = 2;
+  /** How far the board may scroll past its outer lanes, as a share of a lane. */
+  private const float LANE_MARGIN = 0.4;
+  private const int ICON_SIZE = 32;
+  private const int BADGE_HEIGHT = 17;
+  private const int BUTTON_WIDTH = 180;
+  private const int BUTTON_HEIGHT = 40;
+  private const int CARD_HEIGHT = 84;
+  private const int CARD_GAP = 12;
+  private const int CARD_PADDING = 20;
 
   public static function compose(MasteryMenuContent $content, MenuPresentationCatalog $theme, float $time = 0,
     int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): PresentationCanvas
   {
-    $m = $theme->metrics;
-    $p = $m->panelPadding;
-    $gap = $m->sectionGap;
-    $host = MenuLayout::getBounds($width, $height);
-    $innerWidth = $host->width - 2 * $p;
-    $actor = $content->character;
     $view = new MenuCanvas($theme, $width, $height, $time);
-
-    // Summary: portrait, name, level and SP together in one corner block, then how much is learned.
-    $portrait = isset($theme->portraits[$actor->actorId]) ? $m->portraitSize : 0;
-    $identity = $content->title . "\n" . $actor->name . "\n" . Vocabulary::getTerm('stats.level_short') . ' ' . $actor->level
-      . "\n" . $content->getPointsText($time);
-    $summaryText = implode("\n", array_map(static fn(string $label, string $value): string => "{$label}: {$value}",
-      array_keys($content->summary), $content->summary));
-    $identityWidth = (int)floor($innerWidth * 0.35);
-    $textHeight = max(self::textHeight($identity, $identityWidth - ($portrait > 0 ? $portrait + $gap : 0), $theme),
-      self::textHeight($summaryText, $innerWidth - $identityWidth - $gap, $theme));
-    $summaryHeight = 2 * $p + max($portrait, $textHeight);
-    $summary = new CanvasRectangle($host->x, $host->y, $host->width, $summaryHeight);
-    $view->frame('mastery-summary', $summary);
-    $x = $host->x + $p;
-    if ($portrait > 0) { $view->portrait($actor->actorId, new CanvasRectangle($x, $host->y + $p, $portrait, $portrait), 'mastery-portrait'); }
-    $view->prose('mastery-identity', $identity, new CanvasRectangle($x + ($portrait > 0 ? $portrait + $gap : 0), $host->y + $p,
-      $identityWidth - ($portrait > 0 ? $portrait + $gap : 0), $textHeight));
-    $view->prose('mastery-learned', $summaryText, new CanvasRectangle($x + $identityWidth + $gap, $host->y + $p,
-      $innerWidth - $identityWidth - $gap, $textHeight));
-
-    // Footer: description, status and hints.
-    $hints = [ActionHints::resolve('confirm', 'Learn'), ActionHints::resolve('cancel', 'Back'),
-      ActionHints::resolve('character_next', 'Next', KeyCode::TAB), ActionHints::resolve('character_previous', 'Prev', KeyCode::SHIFT_TAB)];
-    $hintHeight = MenuActionHints::height($hints, $theme, $innerWidth);
-    $infoHeight = MenuInfoPanel::getHeight($theme, $hints, $host->width);
-    $bodyHeight = $host->height - $summaryHeight - $infoHeight;
-    $mapWidth = (int)floor($host->width * self::MAP_WIDTH_SHARE);
-    $mapFrame = new CanvasRectangle($host->x, $host->y + $summaryHeight, $mapWidth, $bodyHeight);
-    $detailFrame = new CanvasRectangle($host->x + $mapWidth, $mapFrame->y, $host->width - $mapWidth, $bodyHeight);
-    $view->frame('mastery-map', $mapFrame);
-    $view->frame('mastery-details', $detailFrame);
-
-    $map = new CanvasRectangle($mapFrame->x + $p, $mapFrame->y + $p, $mapFrame->width - 2 * $p, $mapFrame->height - 2 * $p);
-    if ($content->nodes === []) {
-      $view->prose('mastery-empty', $content->emptyText, $map, 'disabled');
+    $host = MenuLayout::getBounds($width, $height);
+    $m = $theme->mastery;
+    $left = $host->x + $theme->metrics->panelPadding;
+    $right = $host->x + $host->width - $theme->metrics->panelPadding - 5;
+    $column = $left + $m->portraitWidth + 35;
+    $areas = [
+      'suits' => new CanvasRectangle($column, $host->y + 25, $right - $column, 60),
+      'families' => new CanvasRectangle($column, $host->y + 95, $right - $column, 32),
+      'board' => new CanvasRectangle($column, $host->y + 140, $right - $column, 390),
+      'selection' => new CanvasRectangle($column, $host->y + 550, $right - $column, 67),
+      'footer' => new CanvasRectangle($left, $host->y + $host->height - 59, $right - $left, 50),
+    ];
+    $chrome = new MenuShapes($theme, new CanvasRectangle(0, 0, $width, $height));
+    self::renderCorner($view, $chrome, $content, $theme, $time, $left, $host);
+    self::renderDisciplines($view, $chrome, $content, $theme, $areas['suits']);
+    self::renderFamilies($view, $chrome, $content, $theme, $areas['families']);
+    $board = new MenuShapes($theme, $areas['board']);
+    if ($content->overview) {
+      self::renderOverview($view, $chrome, $content, $theme, $areas['board']);
+    } elseif ($content->nodes === []) {
+      $view->renderText('mastery-empty', $content->emptyText, $areas['board']->x + $areas['board']->width / 2,
+        $areas['board']->y + $areas['board']->height / 2 - 9, $m->bodyCell, 'disabled', HorizontalAlignment::CENTER);
     } else {
-      self::renderMap($view, $content, $map);
+      self::renderBoard($view, $board, $content, $theme, $time, $areas['board']);
     }
-
-    // Details of the focused node: the same sheet, columns and words the Terminal panel shows.
-    $detail = new CanvasRectangle($detailFrame->x + $p, $detailFrame->y + $p, $detailFrame->width - 2 * $p, $detailFrame->height - 2 * $p);
-    if ($content->details === null) {
-      $view->prose('mastery-detail-empty', $content->emptyText, $detail, 'disabled');
-    } else {
-      $style = $theme->createDetailStyle();
-      $area = new MenuDetailViewport(max(1, (int)floor($detail->width / $m->cellWidth)), max(1, (int)floor($detail->height)), $m->cellHeight);
-      $page = $content->details->createPage(new TextViewport(), $area, $style);
-      if ($page->total > count($page->lines)) {
-        throw new RuntimeException('Mastery details exceed their finite viewport; terminal presentation retained.');
-      }
-      $view->details('mastery-detail', $content->details->layout($area->columns, $style, $area), $page, $detail);
+    self::renderSelection($view, $chrome, $content, $theme, $areas['selection']);
+    self::renderFooter($view, $chrome, $content, $theme, $areas['footer']);
+    if ($content->info !== null) {
+      self::renderInfo($view, $content, $theme, new CanvasRectangle($column, $areas['families']->y + 15, $right - $column, 115));
     }
-
-    $info = new CanvasRectangle($host->x, $host->y + $host->height - $infoHeight, $host->width, $infoHeight);
-    $view->frame('mastery-info', $info, 'quiet');
-    $infoY = $info->y + $p;
-    MenuInfoPanel::renderContent($view, 'mastery', new CanvasRectangle($x, $infoY, $innerWidth, 2 * $m->cellHeight),
-      $content->description, $content->status, infoModel: $content->infoModel,
-      rangeBounds: new CanvasRectangle($x, $info->y + $info->height - $p, $innerWidth, $p));
-    if ($hintHeight > 0) {
-      $view->hints('mastery-hints', $hints, new CanvasRectangle($x, $infoY + 2 * $m->cellHeight + $gap, $innerWidth, $hintHeight));
-    }
+    $view->picture(new CanvasRectangle(0, 0, $width, $height), [], array_values(array_filter([
+      $chrome->compose('mastery-chrome', 5), $board->compose('mastery-board', 12)])));
 
     return $view->finish();
   }
 
-  /** Lays out the regions, links and node cards inside the map area. */
-  private static function renderMap(MenuCanvas $view, MasteryMenuContent $content, CanvasRectangle $map): void
+  /** Title, portrait, name, role, and level and points together in one corner block. */
+  private static function renderCorner(MenuCanvas $view, MenuShapes $shapes, MasteryMenuContent $content, MenuPresentationCatalog $theme,
+    float $time, float $left, CanvasRectangle $host): void
   {
-    $m = $view->theme->metrics;
-    $gap = $m->sectionGap;
-    ['columns' => $columns, 'rows' => $rows] = MasteryLayout::getGrid(count($content->regions));
-    $cellWidth = $map->width / $columns;
-    $cellHeight = $map->height / $rows;
-    // Cards fit the columns a region's nodes may share.
-    $cardWidth = (int)min($cellWidth / MasteryLayout::REGION_COLUMNS - $gap, self::CARD_CELLS * $m->cellWidth);
-    $cardHeight = 2 * $m->cellHeight + 2 * max(2, (int)floor($gap / 2));
-    $labelHeight = $m->cellHeight;
-    if ($cardWidth < 6 * $m->cellWidth) {
-      throw new RuntimeException('Mastery map regions are too narrow for their nodes; terminal presentation retained.');
-    }
+    $m = $theme->mastery;
+    $view->renderText('mastery-title', $content->title, $left, $host->y + 22, $m->titleCell, 'focus');
+    $portrait = new CanvasRectangle($left, $host->y + 95, $m->portraitWidth, $m->portraitHeight);
+    $view->portrait($content->character->actorId, $portrait, 'mastery-portrait');
+    $rule = $portrait->y + $portrait->height;
+    $shapes->fillRectangle(new CanvasRectangle($left, $rule, $m->portraitWidth, 1), 'edge', 0.8);
+    $view->renderText('mastery-name', $content->character->name, $left, $rule + 23, $m->nameCell);
+    $view->renderText('mastery-role', $content->role, $left, $rule + 66, $m->smallCell, 'muted');
+    $valueRight = $left + $m->portraitWidth - 80;
+    $view->renderTexts('mastery-level', [
+      ['text' => $content->levelLabel, 'x' => $left, 'y' => $rule + 97, 'color' => 'muted'],
+      ['text' => (string)$content->character->level, 'x' => $valueRight, 'y' => $rule + 97, 'color' => 'text', 'alignment' => HorizontalAlignment::RIGHT],
+      ['text' => $content->pointsLabel, 'x' => $left, 'y' => $rule + 137, 'color' => 'muted'],
+    ], new CanvasRectangle($left, $rule + 97, $m->portraitWidth, 3 * $m->bodyCell[1]), $m->bodyCell);
+    $points = $content->getPointsAt($time);
+    $moving = $points !== $content->points;
+    $view->renderText('mastery-points', (string)$points, $valueRight, $rule + 124, $m->numberCell, $moving ? 'focus' : 'text',
+      HorizontalAlignment::RIGHT);
+  }
 
-    foreach ($content->regions as $index => $name) {
-      $column = $index % $columns;
-      $row = intdiv($index, $columns);
-      $cell = new CanvasRectangle($map->x + $column * $cellWidth, $map->y + $row * $cellHeight, $cellWidth, $cellHeight);
+  /** The disciplines as tabs: picture, name and Learned/Total count, the shown one underlined in its accent. */
+  private static function renderDisciplines(MenuCanvas $view, MenuShapes $shapes, MasteryMenuContent $content,
+    MenuPresentationCatalog $theme, CanvasRectangle $area): void
+  {
+    $m = $theme->mastery;
+    $count = count($content->regions);
+    if ($count === 0) {
+      return;
+    }
+    $gap = 6;
+    $tabWidth = ($area->width - $gap * ($count - 1)) / $count;
+    $names = $counts = [];
+    foreach ($content->regions as $index => $tab) {
+      $x = $area->x + $index * ($tabWidth + $gap);
       $active = $index === $content->regionIndex;
-      // A region names itself at the top of its share of the map, toward the outer edge.
-      $alignment = $column < $columns / 2 ? HorizontalAlignment::LEFT : HorizontalAlignment::RIGHT;
-      $labelY = $cell->y;
-      $view->prose("mastery-region-{$index}", $name, new CanvasRectangle($cell->x + $gap, $labelY, $cell->width - 2 * $gap, $labelHeight),
-        $active ? 'accent' : 'edge', $alignment);
+      $accent = self::getRegionColor($theme, $tab->id);
+      $shapes->fillRectangle(new CanvasRectangle($x, $area->y, $tabWidth, $area->height), 'panel', $active ? 0.95 : 0.6);
+      $shapes->fillRectangle(new CanvasRectangle($x, $area->y + $area->height - ($active ? 2 : 1), $tabWidth, $active ? 2 : 1),
+        $active ? 'focus' : 'edge', $active ? 1.0 : 0.7);
+      $countText = $tab->describeCount();
+      $nameWidth = TerminalText::displayWidth($tab->name) * $m->tabCell[0];
+      $countWidth = TerminalText::displayWidth($countText) * $m->smallCell[0];
+      $icon = self::findIcon($theme, $tab->iconRoles) !== null ? 16 + 8 : 0;
+      $start = $x + ($tabWidth - $icon - $nameWidth - 8 - $countWidth) / 2;
+      $middle = $area->y + $area->height / 2;
+      if ($icon > 0) {
+        self::renderIcon($view, "mastery-suit-{$index}-icon", $theme, $tab->iconRoles, $start + 8, $middle, 16, $area, $active ? 1.0 : 0.75);
+      }
+      $names[] = ['text' => $tab->name, 'x' => $start + $icon, 'y' => $middle - $m->tabCell[1] / 2, 'color' => $active ? $accent : 'text'];
+      $counts[] = ['text' => $countText, 'x' => $start + $icon + $nameWidth + 8, 'y' => $middle - $m->smallCell[1] / 2 + 1,
+        'color' => $active ? $accent : 'muted'];
     }
+    $view->renderTexts('mastery-suits', $names, $area, $m->tabCell);
+    $view->renderTexts('mastery-suit-counts', $counts, $area, $m->smallCell);
+  }
 
-    // Each node's card, centred on its place on the map (MasteryLayout): authored, or in its region's column.
-    $cards = [];
+  /** The shown discipline's families as a strip of three, the focused one underlined, with arrows for the rest. */
+  private static function renderFamilies(MenuCanvas $view, MenuShapes $shapes, MasteryMenuContent $content,
+    MenuPresentationCatalog $theme, CanvasRectangle $area): void
+  {
+    $m = $theme->mastery;
+    $families = $content->families;
+    if ($families === []) {
+      return;
+    }
+    $arrow = 28;
+    $gap = 8;
+    $slots = min(3, count($families));
+    $first = max(0, min($content->familyIndex - 1, count($families) - $slots));
+    $slotWidth = ($area->width - 2 * ($arrow + $gap) - ($slots - 1) * $gap) / $slots;
+    $texts = [];
+    foreach (['previous' => $area->x, 'next' => $area->x + $area->width - $arrow] as $direction => $x) {
+      $shapes->fillRectangle(new CanvasRectangle($x, $area->y + $area->height - 1, $arrow, 1), 'edge', 0.6);
+      if (! self::renderIcon($view, "mastery-family-{$direction}", $theme, ["navigation.{$direction}"], $x + $arrow / 2,
+        $area->y + $area->height / 2, 14, $area, 0.85)) {
+        $texts[] = ['text' => $direction === 'previous' ? '<' : '>', 'x' => $x + $arrow / 2, 'y' => $area->y + ($area->height - $m->tabCell[1]) / 2,
+          'color' => 'muted', 'alignment' => HorizontalAlignment::CENTER];
+      }
+    }
+    for ($slot = 0; $slot < $slots; $slot++) {
+      $index = $first + $slot;
+      $active = $index === $content->familyIndex;
+      $x = $area->x + $arrow + $gap + $slot * ($slotWidth + $gap);
+      if ($active) {
+        $shapes->fillRectangle(new CanvasRectangle($x, $area->y, $slotWidth, $area->height), 'panel', 0.9);
+      }
+      $shapes->fillRectangle(new CanvasRectangle($x, $area->y + $area->height - ($active ? 2 : 1), $slotWidth, $active ? 2 : 1),
+        $active ? 'focus' : 'edge', $active ? 1.0 : 0.6);
+      $texts[] = ['text' => $families[$index]->name, 'x' => $x + $slotWidth / 2, 'y' => $area->y + ($area->height - $m->tabCell[1]) / 2,
+        'color' => $active ? 'focus' : 'muted', 'alignment' => HorizontalAlignment::CENTER];
+    }
+    $view->renderTexts('mastery-families', $texts, $area, $m->tabCell);
+  }
+
+  /**
+   * The board: families side by side, each a tree of straight lines down and across, every node a
+   * disc with its picture, its rim badge and its name; learned lit in the discipline's accent,
+   * reachable plain, locked dark with a padlock. The view follows the focus.
+   */
+  private static function renderBoard(MenuCanvas $view, MenuShapes $shapes, MasteryMenuContent $content, MenuPresentationCatalog $theme,
+    float $time, CanvasRectangle $area): void
+  {
+    $m = $theme->mastery;
+    $region = $content->findRegion()?->id ?? '';
+    $accent = self::getRegionColor($theme, $region);
+    $radius = $m->nodeDiameter / 2;
+    $centreX = $area->x + $area->width / 2;
+    $centreY = $area->y + $area->height / 2;
+    [$lane, $stage] = $content->reducedMotion ? [$content->camera->toLane, $content->camera->toStage] : $content->camera->getCentreAt($time);
+    $worldWidth = $content->lanes * $m->laneWidth;
+    $margin = $m->laneWidth * self::LANE_MARGIN;
+    $camera = $worldWidth + 2 * $margin <= $area->width ? $worldWidth / 2
+      : min(max($lane * $m->laneWidth, $area->width / 2 - $margin), $worldWidth + $margin - $area->width / 2);
+    $toX = static fn(float $lane): float => $centreX + $lane * $m->laneWidth - $camera;
+    $toY = static fn(float $at): float => $centreY + ($at - $stage) * $m->stageSpacing;
+    $shapes->fillGlow($area, $centreX, $centreY, $area->width * 0.6, $area->height * 0.7, 'panel', 0.9);
+    $shapes->fillRectangle(new CanvasRectangle($area->x, $area->y, $area->width, 1), 'edge', 0.6);
+    $shapes->fillRectangle(new CanvasRectangle($area->x, $area->y + $area->height - 1, $area->width, 1), 'edge', 0.6);
+    $byId = [];
     foreach ($content->nodes as $node) {
-      $place = $node->position ?? ['x' => 0.5, 'y' => 0.5];
-      $card = new CanvasRectangle(
-        max($map->x, min($map->x + $map->width - $cardWidth, $map->x + $place['x'] * $map->width - $cardWidth / 2)),
-        max($map->y + $labelHeight, min($map->y + $map->height - $cardHeight, $map->y + $place['y'] * $map->height - $cardHeight / 2)),
-        $cardWidth, $cardHeight);
-      foreach ($cards as $other) {
-        if ($card->x < $other->x + $other->width && $other->x < $card->x + $card->width
-          && $card->y < $other->y + $other->height && $other->y < $card->y + $card->height) {
-          throw new RuntimeException('Mastery map nodes overlap at this size; terminal presentation retained.');
+      $byId[$node->id] = $node;
+    }
+    $dim = self::mix($theme->colors['edge'], $theme->colors['background'], 0.75);
+
+    // The discipline's bar joins its families' tops; each top hangs from it.
+    $tops = array_values(array_filter($content->nodes, static fn(MasteryMenuNode $node): bool => $node->parent === null));
+    if ($tops !== []) {
+      $bar = $toY(-0.5);
+      $xs = array_map(static fn(MasteryMenuNode $node): float => $toX($node->lane), $tops);
+      $shapes->strokeLine([[min($xs), $bar], [max($xs), $bar]], 1.5, $dim);
+      foreach ($tops as $top) {
+        $shapes->strokeLine([[$toX($top->lane), $bar], [$toX($top->lane), $toY($top->stage) - $radius]], 1.5, $top->isLit() ? $accent : $dim);
+      }
+    }
+    // Lines down and across from each node to what hangs from it, lit once that is learned.
+    foreach ($content->nodes as $node) {
+      $parent = $node->parent === null ? null : $byId[$node->parent] ?? null;
+      if ($parent === null) {
+        continue;
+      }
+      $points = [[$toX($parent->lane), $toY($parent->stage) + $radius], [$toX($parent->lane), $toY($parent->stage + 0.5)],
+        [$toX($node->lane), $toY($parent->stage + 0.5)], [$toX($node->lane), $toY($node->stage) - $radius]];
+      $points = array_values(array_unique($points, SORT_REGULAR));
+      $shapes->strokeLine($points, $node->isLit() ? 2.0 : 1.5, $node->isLit() ? $accent : $dim);
+      if ($content->curriculum && $node->curriculum) {
+        for ($segment = 0; $segment < count($points) - 1; $segment++) {
+          $shapes->strokeDashedLine($points[$segment][0], $points[$segment][1], $points[$segment + 1][0], $points[$segment + 1][1], 1.5, 4, 4,
+            'focus', 0.85);
         }
       }
-      $cards[$node->id] = $card;
     }
-
-    // Links under the cards: across from the node built on, then down or up to the node that needs it.
-    $states = array_column(array_map(static fn(MasteryMenuNode $node): array => [$node->id, $node->state], $content->nodes), 1, 0);
+    $labels = $tops = $badges = [];
     foreach ($content->nodes as $node) {
-      foreach ($node->requires as $required) {
-        if (! isset($cards[$required])) { continue; }
-        $from = $cards[$required];
-        $to = $cards[$node->id];
-        $color = ($states[$required] ?? null) === MasteryNodeState::LEARNED ? 'accent' : 'edge';
-        $ax = $from->x + $from->width / 2;
-        $ay = $from->y + $from->height / 2;
-        $bx = $to->x + $to->width / 2;
-        $by = $to->y + $to->height / 2;
-        $t = self::LINK_THICKNESS;
-        $view->surface("mastery-link-{$required}-{$node->id}-across",
-          new CanvasRectangle(min($ax, $bx), $ay - $t / 2, max($t, abs($bx - $ax)), $t), $color, 14);
-        $view->surface("mastery-link-{$required}-{$node->id}-down",
-          new CanvasRectangle($bx - $t / 2, min($ay, $by), $t, max($t, abs($by - $ay))), $color, 14);
+      $x = $toX($node->lane);
+      $y = $toY($node->stage);
+      if ($x + $m->laneWidth / 2 < $area->x || $x - $m->laneWidth / 2 > $area->x + $area->width
+        || $y + $radius + 40 < $area->y || $y - $radius - 20 > $area->y + $area->height) {
+        continue;
+      }
+      self::renderNode($view, $shapes, $content, $theme, $time, $node, $x, $y, $radius, $accent, $dim, $area, $badges);
+      // A name sits under the badge, or clear of the focus rings at a family's top.
+      $labelY = $y + $radius + ($node->badge !== null ? 12 : ($node->parent === null ? 15 : 6));
+      if ($node->parent === null) {
+        $tops[] = ['text' => $node->label, 'x' => $x, 'y' => $labelY, 'color' => self::getLabelColor($node), 'alignment' => HorizontalAlignment::CENTER];
+      } else {
+        $labels[] = ['text' => $node->label, 'x' => $x, 'y' => $labelY, 'color' => self::getLabelColor($node), 'alignment' => HorizontalAlignment::CENTER];
       }
     }
+    $view->renderTexts('mastery-node-names', $labels, $area, $m->bodyCell);
+    $view->renderTexts('mastery-family-names', $tops, $area, $m->tabCell);
+    $view->renderTexts('mastery-badges', $badges, $area, $m->smallCell, 31);
+  }
 
-    foreach ($content->nodes as $node) {
-      $card = $cards[$node->id];
-      $focused = $node->id === $content->focusedNode;
-      $view->surface("mastery-node-{$node->id}", $card, 'panel', 20);
-      if ($focused) {
-        $view->renderOutline("mastery-node-{$node->id}-focus", $card, 'focus', 2, 24);
+  /**
+   * One node: its disc and ring by state, Learn's fill while held, the focus rings, the curriculum's
+   * dashed ring, its rim badge, its learned or locked mark beside the badge, and its picture.
+   *
+   * @param list<array{text: string, x: float, y: float, color: string, alignment?: HorizontalAlignment}> $badges
+   */
+  private static function renderNode(MenuCanvas $view, MenuShapes $shapes, MasteryMenuContent $content, MenuPresentationCatalog $theme,
+    float $time, MasteryMenuNode $node, float $x, float $y, float $radius, PresentationColor $accent, PresentationColor $dim,
+    CanvasRectangle $area, array &$badges): void
+  {
+    $m = $theme->mastery;
+    $state = $node->state;
+    $focused = $node->id === $content->focus;
+    $flare = $content->flare !== null && $content->flare['node'] === $node->id && ! $content->reducedMotion
+      ? ($time - $content->flare['at']) / 0.36 : null;
+    if ($flare !== null && $flare >= 0 && $flare < 1) {
+      $shapes->strokeCircle($x, $y, $radius + 6 + 18 * $flare, 3, $accent, 1 - $flare);
+    }
+    $learned = $state === MasteryNodeState::LEARNED;
+    $shapes->fillCircle($x, $y, $radius, $learned ? self::mix($accent, $theme->colors['background'], 0.24) : 'background');
+    $hold = $content->hold !== null && $content->hold->node === $node->id ? $content->hold->getProgressAt($time) : null;
+    if ($hold !== null && ! $content->reducedMotion) {
+      $shapes->fillCircleFrom($x, $y, $radius, $hold, $accent, 0.45);
+    }
+    match (true) {
+      $learned => $shapes->strokeCircle($x, $y, $radius - 1, 2, $accent),
+      $state === MasteryNodeState::OPEN || $node->isHeading() => $shapes->strokeCircle($x, $y, $radius - 0.75, 1.5,
+        self::mix($theme->colors['text'], $theme->colors['background'], 0.55)),
+      $state === MasteryNodeState::UNAVAILABLE => $shapes->strokeCircle($x, $y, $radius - 0.75, 1.5, $dim, 1.0, 24),
+      default => $shapes->strokeCircle($x, $y, $radius - 0.5, 1, $dim),
+    };
+    if ($content->curriculum && $node->curriculum) {
+      $shapes->strokeCircle($x, $y, $radius - 7, 1.2, 'focus', 0.85, 20);
+    }
+    if ($focused) {
+      $shapes->strokeCircle($x, $y, $radius + 6, 2, 'focus', $hold === null ? 1.0 : 0.35);
+      $shapes->strokeCircle($x, $y, $radius + 13, 2, 'focus', 0.22);
+      if ($hold !== null && ! $content->reducedMotion) {
+        $shapes->strokeArc($x, $y, $radius + 6, $hold, 4, 'focus');
       }
-      $cells = max(1, (int)floor(($card->width - 2 * $gap) / $m->cellWidth));
-      $text = new CanvasRectangle($card->x + $gap, $card->y + max(2, (int)floor($gap / 2)), $card->width - 2 * $gap, 2 * $m->cellHeight);
-      $view->prose("mastery-node-{$node->id}-label",
-        mb_strimwidth($node->label, 0, $cells, '…') . "\n" . mb_strimwidth($node->value, 0, $cells, '…'), $text,
-        self::getNodeColor($node));
+    }
+    $badgeRight = $x + $radius * 0.45;
+    if ($node->badge !== null) {
+      $cells = TerminalText::displayWidth($node->badge);
+      $badgeWidth = $cells * $m->smallCell[0] + 12;
+      $badgeY = $y + $radius - 1;
+      $shapes->fillPill($x, $badgeY, $badgeWidth, self::BADGE_HEIGHT, 'background');
+      $shapes->strokePill($x, $badgeY, $badgeWidth, self::BADGE_HEIGHT, 1, $learned ? $accent : self::mix($theme->colors['text'],
+        $theme->colors['background'], 0.5));
+      $badges[] = ['text' => $node->badge, 'x' => $x, 'y' => $badgeY - $m->smallCell[1] / 2, 'color' => $learned ? 'text' : 'muted',
+        'alignment' => HorizontalAlignment::CENTER];
+      $badgeRight = $x + $badgeWidth / 2;
+    }
+    // The learned or locked mark sits just past the badge, so a wide badge never covers it.
+    $markX = max($x + $radius * 0.62, $badgeRight + 10);
+    $markY = $y + $radius - 1;
+    if ($learned) {
+      $shapes->fillCircle($markX, $markY, 8, 'background');
+      $shapes->strokeLine([[$markX - 4, $markY], [$markX - 1, $markY + 3], [$markX + 4.5, $markY - 4]], 2, 'text');
+    } elseif ($state === MasteryNodeState::LOCKED) {
+      $shapes->fillCircle($markX, $markY, 8, 'background');
+      $shapes->strokeArc($markX, $markY - 2, 3, 0.5, 1.4, 'muted');
+      $shapes->strokeLine([[$markX - 3, $markY - 2], [$markX - 3, $markY - 1]], 1.4, 'muted');
+      $shapes->strokeLine([[$markX + 3, $markY - 2], [$markX + 3, $markY - 1]], 1.4, 'muted');
+      $shapes->fillRectangle(new CanvasRectangle(max(0, $markX - 4.5), max(0, $markY - 1), 9, 7), 'muted');
+    }
+    $opacity = match (true) {
+      $learned, $node->isHeading() => 1.0,
+      $state === MasteryNodeState::OPEN => 0.95,
+      $state === MasteryNodeState::LOCKED => 0.45,
+      default => 0.3,
+    };
+    self::renderIcon($view, "mastery-node-{$node->id}-icon", $theme, $node->iconRoles, $x, $y, self::ICON_SIZE, $area, $opacity);
+  }
+
+  /** Zoomed out: the discipline's name, then a framed summary of each family, nine to a page, the focused one lit. */
+  private static function renderOverview(MenuCanvas $view, MenuShapes $shapes, MasteryMenuContent $content, MenuPresentationCatalog $theme,
+    CanvasRectangle $area): void
+  {
+    $m = $theme->mastery;
+    $region = $content->findRegion();
+    $shapes->fillGlow($area, $area->x + $area->width / 2, $area->y + $area->height / 2, $area->width * 0.6, $area->height * 0.7, 'panel', 0.9);
+    $shapes->fillRectangle(new CanvasRectangle($area->x, $area->y, $area->width, 1), 'edge', 0.6);
+    $shapes->fillRectangle(new CanvasRectangle($area->x, $area->y + $area->height - 1, $area->width, 1), 'edge', 0.6);
+    if ($region !== null) {
+      $nameWidth = TerminalText::displayWidth($region->name) * $m->nameCell[0];
+      $icon = self::findIcon($theme, $region->iconRoles) !== null ? 28 : 0;
+      $start = $area->x + ($area->width - $nameWidth - $icon) / 2;
+      if ($icon > 0) {
+        self::renderIcon($view, 'mastery-overview-icon', $theme, $region->iconRoles, $start + 10, $area->y + 41, 20, $area, 1.0);
+      }
+      $view->renderText('mastery-overview-title', $region->name, $start + $icon, $area->y + 41 - $m->nameCell[1] / 2, $m->nameCell);
+    }
+    $columns = 3;
+    $cardWidth = ($area->width - 2 * self::CARD_PADDING - ($columns - 1) * self::CARD_GAP) / $columns;
+    $first = intdiv($content->familyIndex, 9) * 9;
+    $names = $counts = [];
+    foreach (array_slice($content->families, $first, 9) as $offset => $family) {
+      $index = $first + $offset;
+      $x = $area->x + self::CARD_PADDING + ($offset % $columns) * ($cardWidth + self::CARD_GAP);
+      $y = $area->y + 78 + intdiv($offset, $columns) * (self::CARD_HEIGHT + self::CARD_GAP);
+      $card = new CanvasRectangle($x, $y, $cardWidth, self::CARD_HEIGHT);
+      $focused = $index === $content->familyIndex;
+      $shapes->fillRectangle($card, 'panel', $focused ? 1.0 : 0.65);
+      $shapes->strokeRectangle($card, 1, $focused ? 'focus' : 'edge', $focused ? 1.0 : 0.8);
+      self::renderIcon($view, "mastery-card-{$offset}-icon", $theme, $family->iconRoles, $x + 70, $y + self::CARD_HEIGHT / 2, self::ICON_SIZE,
+        $area, 1.0);
+      $textX = $x + 70 + ($cardWidth - 70) / 2;
+      $names[] = ['text' => $family->name, 'x' => $textX, 'y' => $y + 18, 'color' => 'text', 'alignment' => HorizontalAlignment::CENTER];
+      $counts[] = ['text' => \Ichiloto\Engine\Localization\MessageCatalog::getTerm('mastery.learned_count', $family->learned, $family->total),
+        'x' => $textX, 'y' => $y + 48, 'color' => 'muted', 'alignment' => HorizontalAlignment::CENTER];
+    }
+    $view->renderTexts('mastery-card-names', $names, $area, $m->tabCell);
+    $view->renderTexts('mastery-card-counts', $counts, $area, $m->smallCell);
+  }
+
+  /** The focused place's name and status on the left; its price, shown once, and the centred Learn button on the right. */
+  private static function renderSelection(MenuCanvas $view, MenuShapes $shapes, MasteryMenuContent $content, MenuPresentationCatalog $theme,
+    CanvasRectangle $area): void
+  {
+    $m = $theme->mastery;
+    $selection = $content->selection;
+    $hasSubtitle = $selection->subtitle !== null && $selection->subtitle !== '';
+    $view->renderText('mastery-selection-name', $selection->name, $area->x, $area->y + ($hasSubtitle ? 10 : 19), $m->nameCell);
+    if ($hasSubtitle) {
+      $view->renderText('mastery-selection-subtitle', $selection->subtitle, $area->x, $area->y + 45, $m->smallCell, 'muted');
+    }
+    $right = $area->x + $area->width;
+    $middle = $area->y + 34;
+    if ($selection->action !== null) {
+      $button = new CanvasRectangle($right - self::BUTTON_WIDTH, $middle - self::BUTTON_HEIGHT / 2, self::BUTTON_WIDTH, self::BUTTON_HEIGHT);
+      $shapes->fillRectangle($button, 'panel', $selection->enabled ? 0.9 : 0.5);
+      $shapes->strokeRectangle($button, 1, $selection->enabled ? 'muted' : 'edge', $selection->enabled ? 0.9 : 0.7);
+      // A button's label is centred in the button itself.
+      $view->renderText('mastery-learn', $selection->action, $button->x + $button->width / 2, $middle - $m->tabCell[1] / 2, $m->tabCell,
+        $selection->enabled ? 'text' : 'disabled', HorizontalAlignment::CENTER);
+      $right = $button->x - 20;
+    }
+    if ($selection->price !== null) {
+      $view->renderText('mastery-price', $selection->price, $right, $middle - $m->tabCell[1] / 2, $m->tabCell, 'focus',
+        HorizontalAlignment::RIGHT);
     }
   }
 
-  /** Learned reads bright, what can be learned now plain, what costs more than the character holds dim, and locked grey. */
-  private static function getNodeColor(MasteryMenuNode $node): string
+  /** What the focus does (its MP and reach, or counts) on the left; the bindings right-aligned. */
+  private static function renderFooter(MenuCanvas $view, MenuShapes $shapes, MasteryMenuContent $content, MenuPresentationCatalog $theme,
+    CanvasRectangle $area): void
+  {
+    $m = $theme->mastery;
+    $shapes->fillRectangle(new CanvasRectangle($area->x, $area->y, $area->width, 1), 'edge', 0.8);
+    $facts = [];
+    $x = $area->x;
+    foreach ($content->footer as $fact) {
+      $facts[] = ['text' => $fact['text'], 'x' => $x, 'y' => $area->y + 16, 'color' => $fact['color']];
+      $x += (TerminalText::displayWidth($fact['text']) + 3) * $m->bodyCell[0];
+    }
+    $view->renderTexts('mastery-footer', $facts, new CanvasRectangle($area->x, $area->y + 16, $area->width, $m->bodyCell[1]), $m->bodyCell);
+    if ($content->hints === []) {
+      return;
+    }
+    $cell = $m->bodyCell;
+    $available = $area->x + $area->width - $x - 2 * $cell[0];
+    $cells = MenuActionHints::measureCells($content->hints, $theme, $cell);
+    $width = min($cells * $cell[0], max($cell[0], $available));
+    $rows = MenuActionHints::height($content->hints, $theme, $width, true, $cell);
+    $bounds = new CanvasRectangle($area->x + $area->width - $width, $area->y + max(4, (50 - $rows) / 2), $width, $rows);
+    $view->hints('mastery-hints', $content->hints, $bounds, true, $cell);
+  }
+
+  /** The compact Info sheet laid over the top of the board: the description, then what the focus builds on. */
+  private static function renderInfo(MenuCanvas $view, MasteryMenuContent $content, MenuPresentationCatalog $theme, CanvasRectangle $area): void
+  {
+    $m = $theme->mastery;
+    $view->surface('mastery-info', $area, 'panel', 40);
+    $view->renderOutline('mastery-info-edge', $area, 'edge', 1, 41);
+    $view->surface('mastery-info-accent', new CanvasRectangle($area->x, $area->y, $area->width, 2), 'focus', 42);
+    $inner = $area->width - 60;
+    $lines = [];
+    $y = $area->y + 26;
+    foreach ($content->info as $index => $text) {
+      $cell = $index === 0 ? $m->tabCell : $m->smallCell;
+      foreach (MenuCanvas::wrap($text, max(1, (int)floor($inner / $cell[0]))) as $line) {
+        $lines[] = ['text' => $line, 'cell' => $cell, 'y' => $y, 'color' => $index === 0 ? 'text' : 'muted'];
+        $y += $cell[1] + 2;
+      }
+      $y += 8;
+    }
+    foreach ([$m->tabCell, $m->smallCell] as $size => $cell) {
+      $items = array_values(array_map(static fn(array $line): array => ['text' => $line['text'], 'x' => $area->x + 30, 'y' => $line['y'],
+        'color' => $line['color']], array_filter($lines, static fn(array $line): bool => $line['cell'] === $cell)));
+      $view->renderTexts("mastery-info-text-{$size}", $items, new CanvasRectangle($area->x + 30, $area->y + 20, $inner, $area->height - 24), $cell, 43);
+    }
+  }
+
+  /**
+   * Draws the first picture a theme binds among roles, contained in a square centred on a point and
+   * cut to an area.
+   *
+   * @param list<string> $roles
+   */
+  private static function renderIcon(MenuCanvas $view, string $id, MenuPresentationCatalog $theme, array $roles, float $x, float $y, int $size,
+    CanvasRectangle $clip, float $opacity): bool
+  {
+    $asset = self::findIcon($theme, $roles);
+    if ($asset === null || $x - $size / 2 < 0 || $y - $size / 2 < 0 || $x + $size / 2 > $view->width || $y + $size / 2 > $view->height) {
+      return false;
+    }
+    $images = MenuIconRegistry::containAsset($theme->assetRoot, $id, $asset, new CanvasRectangle($x - $size / 2, $y - $size / 2, $size, $size), 31,
+      $clip);
+    $view->picture($clip, array_map(static fn(CanvasImage $image): CanvasImage => new CanvasImage($image->id, $image->asset, $image->destination,
+      $image->layer, $image->sourceRect, $opacity * $image->opacity, $image->clipRect, $image->brightness, $image->flipX, $image->flipY), $images));
+
+    return $images !== [];
+  }
+
+  /** @param list<string> $roles */
+  private static function findIcon(MenuPresentationCatalog $theme, array $roles): ?string
+  {
+    foreach ($roles as $role) {
+      $asset = $theme->icons?->icons[$role] ?? null;
+      if ($asset !== null && PngAssetPreflight::getAvailableSize($theme->assetRoot, $asset) !== null) {
+        return $asset;
+      }
+    }
+
+    return null;
+  }
+
+  private static function getRegionColor(MenuPresentationCatalog $theme, string $region): PresentationColor
+  {
+    return $theme->mastery->regionColors[$region] ?? $theme->colors['accent'];
+  }
+
+  private static function getLabelColor(MasteryMenuNode $node): string
   {
     return match ($node->state) {
-      MasteryNodeState::LEARNED => 'increase',
-      MasteryNodeState::OPEN => $node->affordable ? 'text' : 'muted',
-      MasteryNodeState::LOCKED => 'disabled',
+      MasteryNodeState::LEARNED, MasteryNodeState::OPEN, null => 'text',
+      MasteryNodeState::LOCKED => 'muted',
+      MasteryNodeState::UNAVAILABLE => 'disabled',
     };
   }
 
-  private static function textHeight(string $text, float $width, MenuPresentationCatalog $theme): int
+  /** Blends one colour into another, keeping a share of the first. */
+  private static function mix(PresentationColor $from, PresentationColor $to, float $share): PresentationColor
   {
-    return $text === '' ? 0 : count(MenuCanvas::wrap($text, (int)floor($width / $theme->metrics->cellWidth))) * $theme->metrics->cellHeight;
+    $a = $from->toArray();
+    $b = $to->toArray();
+    if (! isset($a['r'], $b['r'])) {
+      return $from;
+    }
+
+    return PresentationColor::rgb((int)round($a['r'] * $share + $b['r'] * (1 - $share)), (int)round($a['g'] * $share + $b['g'] * (1 - $share)),
+      (int)round($a['b'] * $share + $b['b'] * (1 - $share)));
   }
 }

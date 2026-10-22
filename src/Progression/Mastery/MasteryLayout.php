@@ -7,9 +7,9 @@ namespace Ichiloto\Engine\Progression\Mastery;
  * width and height: the node's authored position, or else a place in its
  * region. Regions share the map as a grid in the project's order; a region's
  * unplaced nodes stand in the order the map lists them, in one column, or two once there are
- * three or more, spread down the region. Every renderer and editor that draws
- * a map reads these places, so the map an author arranges is the map the
- * player sees.
+ * three or more, spread down the region. The GUI editor's Mastery page reads
+ * these places; the menu's board lays the tree out by lanes and stages
+ * instead (MasteryBoard).
  *
  * @package Ichiloto\Engine\Progression\Mastery
  */

@@ -316,6 +316,28 @@ it('reads a draft skill record without guessing what awaits its author, and refu
       'unassigned' => ['effects.0.variance']]))->toThrow(InvalidArgumentException::class, 'leave it out');
 });
 
+it('shows a draft\'s values its author has given, and nothing for a value still awaiting the author', function () {
+  $data = ['kind' => 'magic', 'name' => 'Inferno', 'description' => 'Flames everywhere.', 'icon' => '', 'cooldown' => 0, 'occasion' => 'Battle Screen',
+    'scope' => ['side' => 'Enemy', 'number' => 'All', 'status' => 'Alive'], 'invocation' => ['speed' => 0, 'accuracy' => 0, 'repeat' => 1, 'apGain' => 0],
+    'cost' => 32, 'effects' => [['type' => 'hp_damage', 'formula' => '1', 'element' => 'Flame']], 'unassigned' => ['effects.0.variance']];
+  $given = SkillDraft::fromArray($data);
+  $awaiting = SkillDraft::fromArray([...array_diff_key($data, ['cost' => 1, 'scope' => 1]), 'unassigned' => ['cost', 'scope']]);
+
+  expect($given->getCost())->toBe(32)
+    ->and(\Ichiloto\Engine\Localization\TargetWords::describeScope($given->getScope()))->toBe('All foes')
+    ->and($given->getDescription())->toBe('Flames everywhere.')
+    // A stand-in that only checks the rest of the record is never shown.
+    ->and($awaiting->getCost())->toBeNull()
+    ->and($awaiting->getScope())->toBeNull();
+});
+
+it('reports a role curriculum that names a node the tree does not have', function () {
+  $catalog = new \Ichiloto\Engine\Progression\Mastery\MasteryCatalog(masteryTrunkTree(['blades' => ['a' => 'A']]));
+
+  expect($catalog->findCurriculumProblems([['name' => 'Scholar', 'curriculum' => ['a', 'z']], ['name' => 'Squire']]))
+    ->toBe(["classes.php: Scholar's curriculum names node z, which the mastery tree does not have"]);
+});
+
 it('places unplaced nodes down the middle of their region in the tree\'s order, and authored ones where the author put them', function () {
   $tree = masteryTrunkTree(['blades' => ['a' => 'A', 'b' => 'B'], 'storms' => ['c' => 'C'], 'wards' => [], 'guards' => []]);
   $map = MasteryMap::fromArray(['actor' => 'Hero', 'nodes' => [['id' => 'c', 'position' => ['x' => 0.9, 'y' => 0.1]]]], $tree);

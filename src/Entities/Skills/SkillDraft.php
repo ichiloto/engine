@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Entities\Skills;
 
+use Ichiloto\Engine\Entities\ItemScope;
 use InvalidArgumentException;
 
 /**
@@ -31,7 +32,7 @@ final readonly class SkillDraft
   /** The values that can await an author; `<n>` is an effect's place in the list. */
   public const array UNASSIGNABLE = ['cost', 'occasion', 'scope', 'effects', 'effects.<n>.formula', 'effects.<n>.variance'];
 
-  /** What reading the rest of a draft stands each unassigned value in with, only to check the rest; never kept. */
+  /** What reading the rest of a draft stands each unassigned value in with, to check the rest; a stand-in is never shown or used. */
   private const array STAND_INS = ['cost' => 0, 'occasion' => 'Never', 'scope' => ['side' => 'User', 'number' => 'One', 'status' => 'Alive'],
     'effects' => [], 'formula' => '0'];
 
@@ -40,14 +41,41 @@ final readonly class SkillDraft
    * @param string $kind The record's kind (basic, special or magic).
    * @param list<string> $unassigned The values awaiting the author, as record paths.
    * @param array<string, mixed> $data The record's data as authored.
+   * @param Skill $reading The record read with each unassigned value stood in, kept only to read the values the author
+   *   has given; never learned, cast or given.
    */
   private function __construct(
     public string $name,
     public string $kind,
     public array $unassigned,
     public array $data,
+    private Skill $reading,
   )
   {
+  }
+
+  /** Its MP cost as the author gives it, or null while the cost awaits the author. */
+  public function getCost(): ?int
+  {
+    return $this->isAssigned('cost') ? $this->reading->cost : null;
+  }
+
+  /** Whom it reaches as the author gives it, or null while that awaits the author. */
+  public function getScope(): ?ItemScope
+  {
+    return $this->isAssigned('scope') ? $this->reading->scope : null;
+  }
+
+  /** Its description as the author gives it. */
+  public function getDescription(): string
+  {
+    return $this->reading->description;
+  }
+
+  /** Whether the author has given a value (a record path such as `cost`), so menus may show it. */
+  public function isAssigned(string $path): bool
+  {
+    return ! in_array($path, $this->unassigned, true);
   }
 
   /** Whether a record's data is a draft. */
@@ -76,9 +104,9 @@ final readonly class SkillDraft
     foreach ($unassigned as $path) {
       $complete = self::standIn($complete, $path);
     }
-    SkillRecord::readSkill($complete);
+    $reading = SkillRecord::readSkill($complete);
 
-    return new self(strval($data['name']), strval($data['kind']), array_values(array_unique($unassigned)), $data);
+    return new self(strval($data['name']), strval($data['kind']), array_values(array_unique($unassigned)), $data, $reading);
   }
 
   /**

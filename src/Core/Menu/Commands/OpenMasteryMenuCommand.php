@@ -25,7 +25,7 @@ class OpenMasteryMenuCommand extends MenuItem
    */
   public function __construct(MenuInterface $menu)
   {
-    parent::__construct($menu, Vocabulary::getTerm('menu.mastery', 'Mastery'), "Choose the next skill each character learns.");
+    parent::__construct($menu, Vocabulary::getTerm('menu.mastery'), "Choose the next skill each character learns.");
   }
 
   /**

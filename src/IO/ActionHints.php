@@ -31,4 +31,13 @@ final class ActionHints
     }
     return new ActionHint($action, $label, $control);
   }
+
+  /**
+   * One hint for a previous/next pair of actions that share a label ("Q / E Suits").
+   * A side whose action has no control reads as unbound.
+   */
+  public static function resolvePair(string $previous, string $next, string $label): ActionHint
+  {
+    return new ActionHint($previous, $label, self::resolve($previous, $label)->control, self::resolve($next, $label)->control, $next);
+  }
 }

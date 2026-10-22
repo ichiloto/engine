@@ -24,6 +24,36 @@ final class Vocabulary
     'stats.exp' => 'EXP',
     'mastery.points' => 'SP',
     'mastery.points_name' => 'Skill Points',
+    // The growth screen's name, on the main menu and as its own title; a game names it ("Mastery").
+    'menu.mastery' => 'Skills',
+    'mastery.learn' => 'Learn',
+    'mastery.learned' => 'Learned',
+    'mastery.unavailable' => 'Unavailable',
+    'mastery.discipline' => 'Discipline',
+    'mastery.suits' => 'Suits',
+    'mastery.family' => 'Family',
+    'mastery.curriculum' => 'Curriculum',
+    'mastery.overview' => 'Overview',
+    'mastery.detail' => 'Detail',
+    'mastery.hold_learn' => 'Hold · Learn',
+    'mastery.info' => 'Info',
+    'mastery.close' => 'Close',
+    'mastery.cancel' => 'Cancel',
+    // A special grade's two phases, on its node.
+    'mastery.demi' => 'Demi',
+    'mastery.full' => 'Full',
+    // Whom a skill reaches, in the player's words; one word set for every screen that says it.
+    'targets.self' => 'Self',
+    'targets.one_ally' => 'One ally',
+    'targets.all_allies' => 'All allies',
+    'targets.multiple_allies' => 'Multiple allies',
+    'targets.one_fallen_ally' => 'One fallen ally',
+    'targets.all_fallen_allies' => 'All fallen allies',
+    'targets.one_foe' => 'One foe',
+    'targets.all_foes' => 'All foes',
+    'targets.multiple_foes' => 'Multiple foes',
+    'targets.one_target' => 'One target',
+    'targets.all_targets' => 'All targets',
   ];
 
   /** A term as the game words it, else the default given, else the Engine's own ({@see DEFAULTS}), else nothing. */
