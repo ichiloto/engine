@@ -12,6 +12,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\UI\Presentation\MasteryCamera;
 use Ichiloto\Engine\UI\Presentation\MasteryLearnHold;
 use Ichiloto\Engine\UI\Presentation\MasteryMenuContent;
+use Ichiloto\Engine\UI\Presentation\MasteryMenuLevel;
 use Ichiloto\Engine\UI\Presentation\MasteryMenuNode;
 use Ichiloto\Engine\UI\Presentation\MasteryMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MasteryMenuSelection;
@@ -35,16 +36,17 @@ function masteryCanvasRuns(PresentationCanvas $canvas): array
   return $runs;
 }
 
-/** The fills the board composite draws, as canvas rectangles. */
-function masteryBoardFills(PresentationCanvas $canvas): array
+/** The fills a composite draws, as canvas rectangles: by default every picture of the tree (what stays, what moves, the marks over both). */
+function masteryBoardFills(PresentationCanvas $canvas, array $ids = ['mastery-board', 'mastery-board-motion', 'mastery-board-marks']): array
 {
-  $board = array_find($canvas->composites, static fn($composite) => $composite->id === 'mastery-board');
   $fills = [];
-  foreach ($board?->operations ?? [] as $operation) {
-    if ($operation->data['type'] === 'fill') {
-      $d = $operation->data['destination'];
-      $fills[] = ['x' => $board->destination->x + $d['x'], 'y' => $board->destination->y + $d['y'], 'width' => $d['width'],
-        'height' => $d['height'], 'masks' => count($operation->data['masks']), 'color' => $operation->data['brush']['color'] ?? null];
+  foreach (array_filter($canvas->composites, static fn($composite) => in_array($composite->id, $ids, true)) as $board) {
+    foreach ($board->operations as $operation) {
+      if ($operation->data['type'] === 'fill') {
+        $d = $operation->data['destination'];
+        $fills[] = ['x' => $board->destination->x + $d['x'], 'y' => $board->destination->y + $d['y'], 'width' => $d['width'],
+          'height' => $d['height'], 'masks' => count($operation->data['masks']), 'color' => $operation->data['brush']['color'] ?? null];
+      }
     }
   }
 
@@ -67,11 +69,11 @@ function masteryPresentationContent(array $overrides = []): MasteryMenuContent
     'character' => new Character('Hero', 0, new Stats(), actorId: 'hero'), 'title' => 'Mastery', 'role' => 'Stormcaller', 'levelLabel' => 'Lv',
     'pointsLabel' => 'SP', 'points' => 60,
     'regions' => [new MasteryMenuTab('blades', 'Blades', 1, 1), new MasteryMenuTab('storms', 'Storms', 1, 4)], 'regionIndex' => 1,
-    'families' => [new MasteryMenuTab('sky', 'Sky', 1, 4)], 'familyIndex' => 0, 'overview' => false, 'nodes' => $nodes, 'lanes' => 1, 'stages' => 4,
+    'families' => [new MasteryMenuTab('sky', 'Sky', 1, 4)], 'familyIndex' => 0, 'level' => MasteryMenuLevel::TREE, 'nodes' => $nodes, 'lanes' => 1, 'stages' => 4,
     'focus' => 'spark-2', 'camera' => MasteryCamera::createAt(0.5, 2), 'selection' => new MasteryMenuSelection('Spark II', null, '50 SP', 'Learn', true),
     'footer' => [['text' => 'MP', 'color' => 'muted'], ['text' => '9', 'color' => 'text'], ['text' => 'One foe', 'color' => 'text']],
-    'hints' => [new ActionHint('menu_tab_previous', 'Suits', ControlHint::keyboard(KeyCode::Q), ControlHint::keyboard(KeyCode::E), 'menu_tab_next'),
-      new ActionHint('confirm', 'Hold · Learn', ControlHint::keyboard(KeyCode::ENTER))],
+    'hints' => [new ActionHint('confirm', 'Hold · Learn', ControlHint::keyboard(KeyCode::ENTER)),
+      new ActionHint('cancel', 'Back', ControlHint::keyboard(KeyCode::ESCAPE))],
   ];
 
   return new MasteryMenuContent(...array_replace($values, $overrides));
@@ -98,8 +100,8 @@ it('draws the corner block, the discipline tabs with counts, the family strip an
     ->and(count(array_filter($texts, static fn(string $text): bool => str_contains($text, '50 SP'))))->toBe(1)
     // The shown discipline's name takes its accent.
     ->and(array_find($runs, static fn(array $run): bool => $run['text'] === 'Storms')['color'])->toBe(['kind' => 'rgb', 'r' => 151, 'g' => 205, 'b' => 234])
-    // Hints pair the previous and next keys under one label.
-    ->and(implode('', $texts))->toContain('Q / E');
+    // The footer names only this level's few bindings.
+    ->and(implode(' ', $texts))->toContain('Hold · Learn', 'Back');
 });
 
 it('centres Learn in its button', function () {
@@ -144,9 +146,9 @@ it('fills the held node and drains the drawn total, and draws neither under redu
     ->and(array_filter(masteryBoardFills($still), $isFill))->toBeEmpty();
 });
 
-it('zooms out to one framed summary per family, nine to a page, with the focused one picked out', function () {
+it('shows one framed summary per family above the tree, nine to a page, with the focused one picked out', function () {
   $families = array_map(static fn(int $n): MasteryMenuTab => new MasteryMenuTab("f{$n}", "Family {$n}", $n % 3, 5), range(1, 11));
-  $canvas = MasteryMenuPresentation::compose(masteryPresentationContent(['overview' => true, 'families' => $families, 'familyIndex' => 10,
+  $canvas = MasteryMenuPresentation::compose(masteryPresentationContent(['level' => MasteryMenuLevel::FAMILY, 'families' => $families, 'familyIndex' => 10,
     'focus' => null, 'selection' => new MasteryMenuSelection('Family 11', 'Storms')]), $this->theme);
   $texts = array_column(masteryCanvasRuns($canvas), 'text');
 
@@ -165,4 +167,75 @@ it('takes another theme\'s colours and composes without pictures where a theme b
   expect(array_find($runs, static fn(array $run): bool => $run['text'] === 'Storms')['color'])->toBe(['kind' => 'rgb', 'r' => 200, 'g' => 40, 'b' => 40])
     ->and($default->images)->toBe([])
     ->and(array_column(masteryCanvasRuns($default), 'text'))->toContain('Spark II', 'Learn');
+});
+
+/** A text layer's drawn extent: its clip where it has one, else its grid. */
+function masteryLayerExtent(object $layer): array
+{
+  $clip = $layer->clipRect;
+
+  return $clip !== null ? [$clip->y, $clip->y + $clip->height] : [$layer->y, $layer->y + $layer->grid->rows * $layer->grid->cellHeight];
+}
+
+it('lays the Info sheet over the board\'s own area on every level, clear of the tabs, the family strip and the selection', function (MasteryMenuLevel $level) {
+  foreach ([['One line.'], [str_repeat('A summary that runs on and on. ', 14), 'After Spark I']] as $info) {
+    $canvas = MasteryMenuPresentation::compose(masteryPresentationContent(['level' => $level, 'info' => $info,
+      'focus' => $level === MasteryMenuLevel::TREE ? 'spark-2' : null]), $this->theme);
+    $layers = $canvas->textLayers;
+    $extents = static fn(string $prefix): array => array_map(masteryLayerExtent(...),
+      array_values(array_filter($layers, static fn($layer): bool => str_starts_with($layer->id, $prefix))));
+    $sheet = $extents('mastery-info');
+    $chrome = [...$extents('mastery-suit'), ...$extents('mastery-families')];
+
+    expect($sheet)->not->toBeEmpty()
+      ->and(min(array_column($sheet, 0)))->toBeGreaterThanOrEqual(max(array_column($chrome, 1)))
+      ->and(max(array_column($sheet, 1)))->toBeLessThanOrEqual(min(array_column($extents('mastery-selection-name'), 0)))
+      ->and(implode(' ', array_column(masteryCanvasRuns($canvas), 'text')))->toContain(trim(substr($info[0], 0, 20)));
+  }
+})->with([MasteryMenuLevel::DISCIPLINE, MasteryMenuLevel::FAMILY, MasteryMenuLevel::TREE]);
+
+it('puts the focus colour only on the level the focus is on: the tab, then the family, then the node', function () {
+  $focus = $this->theme->colors['focus']->toArray();
+  $focusFills = static fn(PresentationCanvas $canvas, array $ids): int => count(array_filter(masteryBoardFills($canvas, $ids),
+    static fn(array $fill): bool => $fill['color'] === $focus));
+  $above = ['focus' => null, 'families' => [new MasteryMenuTab('sky', 'Sky', 1, 4), new MasteryMenuTab('rain', 'Rain', 0, 2)]];
+  $discipline = MasteryMenuPresentation::compose(masteryPresentationContent(['level' => MasteryMenuLevel::DISCIPLINE, ...$above]), $this->theme);
+  $family = MasteryMenuPresentation::compose(masteryPresentationContent(['level' => MasteryMenuLevel::FAMILY, ...$above]), $this->theme);
+  $tree = MasteryMenuPresentation::compose(masteryPresentationContent(), $this->theme);
+  $treeIds = ['mastery-board', 'mastery-board-motion', 'mastery-board-marks'];
+
+  // On the disciplines the shown tab is framed in the focus colour and no family card is; on the families
+  // a card is framed and the tab keeps its own accent; on the tree only the node's rings are.
+  expect($focusFills($discipline, ['mastery-chrome']))->toBeGreaterThan($focusFills($family, ['mastery-chrome']))
+    ->and($focusFills($family, ['mastery-chrome']))->toBeGreaterThan(0)
+    ->and($focusFills($tree, ['mastery-chrome']))->toBe(0)
+    ->and($focusFills($tree, ['mastery-board-motion']))->toBeGreaterThan(0)
+    ->and($focusFills($tree, ['mastery-board', 'mastery-board-marks']))->toBe(0)
+    ->and($focusFills($discipline, $treeIds) + $focusFills($family, $treeIds))->toBe(0);
+});
+
+it('redraws only the small moving picture while Learn is held, never the tree beneath it', function () {
+  $hold = new MasteryLearnHold('spark-2', 60, 50, 1.0);
+  $content = masteryPresentationContent(['hold' => $hold]);
+  $early = MasteryMenuPresentation::compose($content, $this->theme, 1.2);
+  $late = MasteryMenuPresentation::compose($content, $this->theme, 1.7);
+  $picture = static fn(PresentationCanvas $canvas, string $id) => array_find($canvas->composites, static fn($composite) => $composite->id === $id);
+
+  expect($picture($early, 'mastery-board'))->toEqual($picture($late, 'mastery-board'))
+    ->and($picture($early, 'mastery-board-marks'))->toEqual($picture($late, 'mastery-board-marks'))
+    ->and($picture($early, 'mastery-board-motion'))->not->toEqual($picture($late, 'mastery-board-motion'))
+    ->and(count($picture($late, 'mastery-board-motion')->operations))->toBeLessThan(count($picture($late, 'mastery-board')->operations));
+});
+
+it('marks the curriculum with quiet dashes, never in the focus colour', function () {
+  $nodes = masteryPresentationContent()->nodes;
+  $nodes[2] = new MasteryMenuNode('spark-2', 'Spark II', MasteryNodeState::OPEN, 0.5, 2, 'spark-1', 'sky', 'II', affordable: true, curriculum: true,
+    price: '50 SP');
+  $with = MasteryMenuPresentation::compose(masteryPresentationContent(['nodes' => $nodes, 'curriculum' => true, 'focus' => 'sky']), $this->theme);
+  $without = MasteryMenuPresentation::compose(masteryPresentationContent(['nodes' => $nodes, 'curriculum' => false, 'focus' => 'sky']), $this->theme);
+  $focus = $this->theme->colors['focus']->toArray();
+  $quiet = static fn(PresentationCanvas $canvas): array => masteryBoardFills($canvas, ['mastery-board', 'mastery-board-marks']);
+
+  expect(count($quiet($with)))->toBeGreaterThan(count($quiet($without)))
+    ->and(array_filter($quiet($with), static fn(array $fill): bool => $fill['color'] === $focus))->toBe([]);
 });

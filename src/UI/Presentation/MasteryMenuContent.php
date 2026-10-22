@@ -18,15 +18,15 @@ final readonly class MasteryMenuContent
    * @param string $role The character's role, which sets the curriculum.
    * @param list<MasteryMenuTab> $regions Every discipline, in board order.
    * @param list<MasteryMenuTab> $families The shown discipline's families, in board order.
-   * @param bool $overview Whether the board is zoomed out to its family summaries.
+   * @param MasteryMenuLevel $level The level the focus is on: a discipline, a family or a node of the tree.
    * @param list<MasteryMenuNode> $nodes The shown discipline's nodes and headings, in list order.
    * @param int $lanes How many lanes the shown discipline takes.
    * @param int $stages How many stages its deepest family takes.
-   * @param string|null $focus The focused node or heading on the board.
+   * @param string|null $focus The focused node or heading on the tree; null above the tree.
    * @param list<array{text: string, color: string}> $footer What the footer says about the focus, in order, with colour roles.
    * @param list<ActionHint> $hints The bindings the footer shows.
-   * @param bool $curriculum Whether the role's curriculum is shown.
-   * @param list<string>|null $info The open Info sheet's lines, or null while it is closed.
+   * @param bool $curriculum Whether the role recommends a curriculum, which the board marks quietly.
+   * @param list<string>|null $info The open Info sheet's lines, or null while it is closed; never an empty list.
    * @param MasteryLearnHold|null $hold Learn held down on the focus.
    * @param MasteryPointsCount|null $pointsCount A spend still counting down, for renderers that animate it.
    * @param bool $reducedMotion Whether the player asked for reduced motion: no pan, fill, drain or count.
@@ -43,7 +43,7 @@ final readonly class MasteryMenuContent
     public int $regionIndex,
     public array $families,
     public int $familyIndex,
-    public bool $overview,
+    public MasteryMenuLevel $level,
     public array $nodes,
     public int $lanes,
     public int $stages,

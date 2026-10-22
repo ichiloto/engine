@@ -30,15 +30,15 @@ final class Vocabulary
     'mastery.learned' => 'Learned',
     'mastery.unavailable' => 'Unavailable',
     'mastery.discipline' => 'Discipline',
-    'mastery.suits' => 'Suits',
-    'mastery.family' => 'Family',
-    'mastery.curriculum' => 'Curriculum',
-    'mastery.overview' => 'Overview',
-    'mastery.detail' => 'Detail',
+    // The growth screen's few controls: Confirm selects and goes a level deeper, Cancel goes back (or closes from the top).
+    'mastery.select' => 'Select',
+    'mastery.back' => 'Back',
     'mastery.hold_learn' => 'Hold · Learn',
     'mastery.info' => 'Info',
     'mastery.close' => 'Close',
     'mastery.cancel' => 'Cancel',
+    // A node the character's role recommends, beside what it is or why it waits.
+    'mastery.recommended' => 'Recommended',
     // A special grade's two phases, on its node.
     'mastery.demi' => 'Demi',
     'mastery.full' => 'Full',
