@@ -17,7 +17,9 @@ use InvalidArgumentException;
  *
  * Only these values can await an author: the MP cost (`cost`), when the
  * skill can be used (`occasion`), whom it reaches (`scope`), all of its
- * effects (`effects`), and one effect's amount (`effects.<n>.formula`).
+ * effects (`effects`), and one effect's amount (`effects.<n>.formula`) or
+ * spread (`effects.<n>.variance`). An unassigned spread is never read as the
+ * Engine's default spread.
  *
  * @package Ichiloto\Engine\Entities\Skills
  */
@@ -27,7 +29,7 @@ final readonly class SkillDraft
   public const string KEY = 'unassigned';
 
   /** The values that can await an author; `<n>` is an effect's place in the list. */
-  public const array UNASSIGNABLE = ['cost', 'occasion', 'scope', 'effects', 'effects.<n>.formula'];
+  public const array UNASSIGNABLE = ['cost', 'occasion', 'scope', 'effects', 'effects.<n>.formula', 'effects.<n>.variance'];
 
   /** What reading the rest of a draft stands each unassigned value in with, only to check the rest; never kept. */
   private const array STAND_INS = ['cost' => 0, 'occasion' => 'Never', 'scope' => ['side' => 'User', 'number' => 'One', 'status' => 'Alive'],
@@ -93,15 +95,18 @@ final readonly class SkillDraft
 
       return $data;
     }
-    if (preg_match('/^effects\.(\d+)\.formula$/', $path, $match) === 1) {
-      $index = intval($match[1]);
+    if (preg_match('/^effects\.(\d+)\.(formula|variance)$/', $path, $match) === 1) {
+      [, $index, $key] = $match;
+      $index = intval($index);
       if (! is_array($data['effects'][$index] ?? null)) {
         throw new InvalidArgumentException(sprintf('%s names an effect the record does not have.', $path));
       }
-      if (array_key_exists('formula', $data['effects'][$index])) {
+      if (array_key_exists($key, $data['effects'][$index])) {
         throw new InvalidArgumentException(sprintf('%s is listed as awaiting the author, so the effect must leave it out.', $path));
       }
-      $data['effects'][$index]['formula'] = self::STAND_INS['formula'];
+      if ($key === 'formula') {
+        $data['effects'][$index]['formula'] = self::STAND_INS['formula'];
+      }
 
       return $data;
     }
