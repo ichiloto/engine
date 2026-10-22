@@ -22,6 +22,10 @@ class MagicListPanel extends Window
    */
   protected int $activeIndex = -1;
   /**
+   * @var bool Whether the active entry is where the focus is, and so drawn highlighted.
+   */
+  protected bool $focused = true;
+  /**
    * @var int The current top-of-window scroll offset.
    */
   protected int $scrollOffset = 0;
@@ -31,11 +35,13 @@ class MagicListPanel extends Window
    *
    * @param string[] $entries The list entries to render.
    * @param int $activeIndex The selected entry index.
+   * @param bool $focused Whether the focus is on the list; a list the focus is above keeps its place unlit.
    * @return void
    */
-  public function setEntries(array $entries, int $activeIndex = -1): void
+  public function setEntries(array $entries, int $activeIndex = -1, bool $focused = true): void
   {
     $this->entries = array_values(array_map('strval', $entries));
+    $this->focused = $focused;
     $this->activeIndex = empty($this->entries)
       ? -1
       : clamp($activeIndex, 0, count($this->entries) - 1);
@@ -63,7 +69,7 @@ class MagicListPanel extends Window
         $availableWidth
       );
 
-      if ($actualIndex === $this->activeIndex) {
+      if ($this->focused && $actualIndex === $this->activeIndex) {
         $line = SelectionStyle::apply($line);
       }
 

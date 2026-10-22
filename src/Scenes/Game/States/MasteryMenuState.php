@@ -5,6 +5,8 @@ namespace Ichiloto\Engine\Scenes\Game\States;
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\MagicMenu\Windows\MagicListPanel;
+use Ichiloto\Engine\Core\Menu\MasteryMenu\Modes\MasteryDisciplineSelectionMode;
+use Ichiloto\Engine\Core\Menu\MasteryMenu\Modes\MasteryMenuMode;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
@@ -14,9 +16,7 @@ use Ichiloto\Engine\IO\ActionHint;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
-use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
-use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Localization\MessageCatalog;
 use Ichiloto\Engine\Localization\TargetWords;
 use Ichiloto\Engine\Localization\Vocabulary;
@@ -39,6 +39,7 @@ use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\UI\Presentation\MasteryCamera;
 use Ichiloto\Engine\UI\Presentation\MasteryLearnHold;
 use Ichiloto\Engine\UI\Presentation\MasteryMenuContent;
+use Ichiloto\Engine\UI\Presentation\MasteryMenuLevel;
 use Ichiloto\Engine\UI\Presentation\MasteryMenuNode;
 use Ichiloto\Engine\UI\Presentation\MasteryMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MasteryMenuSelection;
@@ -48,6 +49,7 @@ use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\MenuRowColumn;
 use Ichiloto\Engine\UI\Presentation\MenuTableText;
+use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Debug;
@@ -55,10 +57,17 @@ use RuntimeException;
 
 /**
  * One character's Mastery board: the project's disciplines as tabs, each
- * discipline's families side by side, and each family as a tree of the
- * skills it teaches, with what each costs in Mastery points (SP) and the
- * points the character holds. Every character can learn anything on the
- * board; their role's curriculum only guides.
+ * discipline's families, and each family as a tree of the skills it teaches,
+ * with what each costs in Mastery points (SP) and the points the character
+ * holds. Every character can learn anything on the board; their role's
+ * curriculum guides, shown quietly on the board at all times.
+ *
+ * The focus moves down three levels, as the other menus' modes do: a
+ * discipline, then one of its families, then that family's tree (see
+ * MasteryMenuLevel and the MasteryMenu modes). Confirm opens the next level,
+ * Cancel returns one level and leaves the menu from the top, and Info shows
+ * the focus's summary or description where it has one. The arrows, Confirm,
+ * Cancel and Info are all the controls the screen needs.
  *
  * Learn is held where the input reports held keys: the focused node fills
  * and the shown total drains while Learn is down, letting go, moving or
@@ -85,9 +94,10 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     protected const int LIST_HEIGHT = 18;
     protected const int DETAIL_HEIGHT = 4;
     protected const int FOOTER_HEIGHT = 4;
-    /** How many family summaries an overview page holds: three rows of three. */
+    /** How many cells wide the Terminal's Info lines are. */
+    protected const int INFO_COLUMNS = self::MENU_WIDTH - 6;
+    /** How many family summaries a drawn row of the family level holds. */
     public const int OVERVIEW_COLUMNS = 3;
-    public const int OVERVIEW_PAGE = 9;
     /** How long the accent on a node just learned lasts, in seconds. */
     public const float FLARE_DURATION = 0.36;
 
@@ -95,12 +105,11 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     public ?Character $character = null;
     /** @var int The shown discipline. */
     protected int $regionIndex = 0;
-    /** @var array<string, string> The focused node or heading in each discipline, by region id. */
+    /** @var array<string, string> The focused node or heading on each discipline's tree, by region id. */
     protected array $focus = [];
-    /** @var array<string, string> The focused family summary in each discipline's overview, by region id. */
-    protected array $overviewFocus = [];
-    protected bool $overview = false;
-    protected bool $curriculumShown = false;
+    /** @var array<string, string> The focused family of each discipline, by region id. */
+    protected array $familyFocus = [];
+    protected ?MasteryMenuMode $mode = null;
     protected bool $infoShown = false;
     /** @var string|null The node a first Learn press asks about, on input without held keys. */
     protected ?string $pending = null;
@@ -118,6 +127,16 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     protected ?MagicListPanel $listPanel = null;
     protected ?Window $detailPanel = null;
     protected ?Window $footerPanel = null;
+
+    /** The level the focus is on: a discipline, a family or a node of a family's tree. */
+    public MasteryMenuLevel $level {
+        get => $this->mode?->level ?? MasteryMenuLevel::DISCIPLINE;
+    }
+
+    /** Whether the shown discipline has a family to open. */
+    public bool $hasFamilies {
+        get => ($region = $this->getRegionId()) !== null && ($this->getBoard()?->getFamilies($region) ?? []) !== [];
+    }
 
     /** Whether the running project gives any character a Mastery Map. */
     public static function projectHasMaps(): bool
@@ -146,13 +165,13 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         }
         $statuses = $this->describeNodes();
         $families = $board->getFamilies($region);
+        $tree = $this->level === MasteryMenuLevel::TREE;
         $focus = $this->focus[$region] ?? null;
-        $familyIndex = $this->overview
-            ? max(0, (int)array_search($this->overviewFocus[$region] ?? '', array_map(static fn(MasteryFamily $family): string => $family->id, $families), true))
-            : max(0, (int)array_search($focus === null ? null : $board->places[$focus]['family'] ?? null,
-                array_map(static fn(MasteryFamily $family): string => $family->id, $families), true));
+        $family = $tree ? ($focus === null ? null : $board->places[$focus]['family'] ?? null) : $this->familyFocus[$region] ?? null;
+        $familyIndex = max(0, (int)array_search($family, array_map(static fn(MasteryFamily $family): string => $family->id, $families), true));
         $curriculum = array_flip($actor->role->curriculum);
         $nodes = array_map(fn(string $id): MasteryMenuNode => $this->createMenuNode($id, $statuses, $curriculum), $board->getPlaceIds($region));
+        $info = $this->infoShown ? $this->describeInfo($statuses) : [];
 
         return new MasteryMenuContent(
             $actor,
@@ -165,17 +184,17 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             $this->regionIndex,
             array_map(fn(MasteryFamily $family): MasteryMenuTab => $this->createFamilyTab($family, $statuses), $families),
             $familyIndex,
-            $this->overview,
+            $this->level,
             $nodes,
             $board->widths[$region] ?? 0,
             $board->depths[$region] ?? 0,
-            $this->overview ? null : $focus,
+            $tree ? $focus : null,
             $this->camera ?? MasteryCamera::createAt(...$this->findPlaceCentre($focus)),
             $this->describeSelection($statuses),
             $this->describeFooter($statuses),
             $this->getHints($statuses),
-            $this->curriculumShown,
-            $this->infoShown ? $this->describeInfo($statuses) : null,
+            $curriculum !== [],
+            $info === [] ? null : $info,
             $this->hold,
             $this->pointsCount,
             Accessibility::prefersReducedMotion(),
@@ -194,11 +213,10 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $this->resetTransaction();
         $this->pointsCount = null;
         $this->flare = null;
-        $this->overview = false;
-        $this->infoShown = false;
+        $this->mode = null;
         $this->initializeUI();
         $this->normalizeFocus();
-        $this->refreshUI();
+        $this->setMode(new MasteryDisciplineSelectionMode($this));
     }
 
     public function execute(?SceneStateContext $context = null): void
@@ -209,43 +227,14 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             $this->selectCharacterByOffset($this->isNextCharacterRequested() ? 1 : -1);
             return;
         }
-        if (Input::isButtonDown('info')) {
-            play_sound(SystemSound::CURSOR);
-            $this->infoShown = ! $this->infoShown;
-            $this->refreshUI();
+        if (Input::isButtonPressed('info')) {
+            $this->toggleInfo();
             return;
         }
-        if (Input::isButtonDown('curriculum')) {
-            play_sound(SystemSound::CURSOR);
-            $this->curriculumShown = ! $this->curriculumShown;
-            $this->refreshUI();
+        if ((Input::isButtonPressed('cancel') || Input::isButtonPressed('back')) && $this->dismissPrompt()) {
             return;
         }
-        if (Input::isButtonDown('menu_tab_previous') || Input::isButtonDown('menu_tab_next')) {
-            $this->selectRegionByOffset(Input::isButtonDown('menu_tab_next') ? 1 : -1);
-            return;
-        }
-        if (Input::isButtonDown('menu_page_previous') || Input::isButtonDown('menu_page_next')) {
-            $this->selectFamilyByOffset(Input::isButtonDown('menu_page_next') ? 1 : -1);
-            return;
-        }
-        if (Input::isButtonDown('map_zoom')) {
-            $this->toggleOverview();
-            return;
-        }
-        $horizontal = Input::getAxis(AxisName::HORIZONTAL);
-        $vertical = Input::getAxis(AxisName::VERTICAL);
-        if ($horizontal !== 0.0 || $vertical !== 0.0) {
-            $this->moveFocus($horizontal <=> 0.0, $vertical <=> 0.0);
-            return;
-        }
-        if (Input::isButtonDown('cancel') || Input::isButtonDown('back')) {
-            $this->cancel();
-            return;
-        }
-        if (Input::isButtonPressed('confirm')) {
-            $this->confirm();
-        }
+        $this->mode?->update();
     }
 
     public function resume(): void
@@ -263,6 +252,27 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         // A closed menu shows no count and holds nothing.
         $this->resetTransaction();
         AudioManager::getCurrentInstance()?->counterSound->releaseTick($this);
+    }
+
+    /**
+     * Moves the focus to another level: the next one down when a mode opens it, the one above on
+     * Cancel. A question or hold stays with the level it was asked on, and Info closes.
+     */
+    public function setMode(MasteryMenuMode $mode): void
+    {
+        $this->mode?->exit();
+        $this->mode = $mode;
+        $mode->enter();
+        $this->resetTransaction();
+        $this->infoShown = false;
+        $this->menuInfoText->reset();
+        $this->refreshUI();
+    }
+
+    /** Leaves the menu for the main menu. */
+    public function leave(): void
+    {
+        $this->setState($this->getGameScene()->mainMenuState);
     }
 
     /**
@@ -308,13 +318,9 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         }
     }
 
-    /** Learn on the focus: opens a family from the overview, or holds, asks or learns on the board. */
-    protected function confirm(): void
+    /** Learn on the focused node: holds, asks or learns; refuses what cannot be learned now. */
+    public function confirmLearn(): void
     {
-        if ($this->overview) {
-            $this->openFamily();
-            return;
-        }
         $status = $this->getFocusedStatus();
         if ($status === null || ! $status->learnable || $status->secret) {
             play_sound(SystemSound::BUZZER);
@@ -340,21 +346,55 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $this->learnNode($status->node->id, counted: true);
     }
 
-    /** Cancel dismisses a question, then closes Info, then leaves the menu. */
-    protected function cancel(): void
+    /** Cancel first dismisses a question or hold, then closes Info; true when it did either. */
+    protected function dismissPrompt(): bool
     {
-        play_sound(SystemSound::CANCEL);
         if ($this->pending !== null || $this->hold !== null) {
+            play_sound(SystemSound::CANCEL);
             $this->resetTransaction();
             $this->refreshUI();
-            return;
+            return true;
         }
-        if ($this->infoShown) {
+        if ($this->isInfoOpen()) {
+            play_sound(SystemSound::CANCEL);
             $this->infoShown = false;
+            $this->refreshUI();
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Info opens the focus's summary or description, where it has one; never an empty sheet. The
+     * Terminal shows two lines at a time, so there Info reads the next lines before it closes.
+     */
+    protected function toggleInfo(): void
+    {
+        if ($this->isInfoOpen()) {
+            $page = $this->menuInfoText->lastPage;
+            if (! $this->isMenuCanvasShown && $page !== null && $page->first + $page->rows < $page->total) {
+                $this->menuInfoText->advance();
+            } else {
+                $this->infoShown = false;
+            }
+            play_sound(SystemSound::CURSOR);
             $this->refreshUI();
             return;
         }
-        $this->setState($this->getGameScene()->mainMenuState);
+        if ($this->describeInfo($this->describeNodes()) === []) {
+            return;
+        }
+        play_sound(SystemSound::CURSOR);
+        $this->infoShown = true;
+        $this->menuInfoText->reset();
+        $this->refreshUI();
+    }
+
+    /** Whether Info is open on a focus that has something to say. */
+    protected function isInfoOpen(): bool
+    {
+        return $this->infoShown && $this->describeInfo($this->describeNodes()) !== [];
     }
 
     /**
@@ -404,6 +444,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         return max(0, hrtime(true) / 1e9 - $this->menuPresentationStart);
     }
 
+    /** Shows the next or previous party member's board at the same place, on the same level. */
     protected function selectCharacterByOffset(int $offset): void
     {
         $characters = $this->getGameScene()->party->members->toArray();
@@ -416,14 +457,12 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $this->pointsCount = null;
         $this->flare = null;
         $this->syncCounterTick();
-        $this->focus = [];
-        $this->overviewFocus = [];
-        $this->camera = null;
         $this->normalizeFocus();
         $this->refreshUI();
     }
 
-    protected function selectRegionByOffset(int $offset): void
+    /** The previous or next discipline, keeping the focus each one had. */
+    public function selectRegionByOffset(int $offset): void
     {
         $board = $this->getBoard();
         $count = count($board?->tree->regions ?? []);
@@ -438,88 +477,73 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $this->refreshUI();
     }
 
-    /** The previous or next family: its summary in the overview, its top on the board. */
-    protected function selectFamilyByOffset(int $offset): void
-    {
-        $board = $this->getBoard();
-        $region = $this->getRegionId();
-        $families = $region === null ? [] : $board?->getFamilies($region) ?? [];
-        if ($families === []) {
-            return;
-        }
-        play_sound(SystemSound::CURSOR);
-        $this->resetTransaction();
-        $ids = array_map(static fn(MasteryFamily $family): string => $family->id, $families);
-        $current = $this->overview ? ($this->overviewFocus[$region] ?? $ids[0]) : $board->places[$this->focus[$region]]['family'];
-        $family = $families[wrap((int)array_search($current, $ids, true) + $offset, 0, count($families) - 1)];
-        if ($this->overview) {
-            $this->overviewFocus[$region] = $family->id;
-        } else {
-            $this->setFocus(MasteryBoard::getRootId($family));
-        }
-        $this->refreshUI();
-    }
-
-    /** Zooms out to the discipline's family summaries, or back in to the board at the summary in focus. */
-    protected function toggleOverview(): void
+    /**
+     * Moves the family focus one step: across and down the drawn summaries, three to a row, or up and
+     * down the Terminal's list, where either arrow pair steps one family. It stops at either end.
+     */
+    public function moveFamilyFocus(int $across, int $down): void
     {
         $board = $this->getBoard();
         $region = $this->getRegionId();
         if ($board === null || $region === null) {
             return;
         }
-        play_sound(SystemSound::CURSOR);
-        $this->resetTransaction();
-        if (! $this->overview) {
-            $this->overviewFocus[$region] = $board->places[$this->focus[$region]]['family'];
-            $this->overview = true;
-            $this->refreshUI();
-            return;
+        $ids = array_map(static fn(MasteryFamily $family): string => $family->id, $board->getFamilies($region));
+        $index = (int)array_search($this->familyFocus[$region] ?? $ids[0] ?? null, $ids, true);
+        $next = $index + $across + $down * ($this->isMenuCanvasShown ? self::OVERVIEW_COLUMNS : 1);
+        if ($next >= 0 && $next < count($ids) && $next !== $index) {
+            play_sound(SystemSound::CURSOR);
+            $this->familyFocus[$region] = $ids[$next];
         }
-        $this->openFamily();
-    }
-
-    /** Opens the summary in focus on the board at full size, at its top or where the board was focused in it; never learns. */
-    protected function openFamily(): void
-    {
-        $board = $this->getBoard();
-        $region = $this->getRegionId();
-        $family = $board?->findFamily($this->overviewFocus[$region] ?? '');
-        $this->overview = false;
-        if ($family !== null && $board->places[$this->focus[$region]]['family'] !== $family->id) {
-            $this->setFocus(MasteryBoard::getRootId($family));
-        }
-        $this->camera = null;
-        play_sound(SystemSound::CONFIRM);
         $this->refreshUI();
     }
 
     /**
-     * Moves the focus one step. The overview moves across its grid of summaries. A drawn board moves
-     * along the tree: up to what a node hangs from, down to what hangs from it, across to the nearest
-     * place in the next lane. The Terminal list moves up and down its rows and across families.
+     * Opens the focused family's tree at full size: where the tree's focus already is when it is in
+     * that family, else at the family's top. Never learns. False when there is no family to open.
      */
-    protected function moveFocus(int $across, int $down): void
+    public function openFamily(): bool
     {
         $board = $this->getBoard();
         $region = $this->getRegionId();
-        if ($board === null || $region === null) {
+        $family = $region === null ? null : $board?->findFamily($this->familyFocus[$region] ?? '');
+        if ($family === null) {
+            play_sound(SystemSound::BUZZER);
+            return false;
+        }
+        if (($board->places[$this->focus[$region] ?? '']['family'] ?? null) !== $family->id) {
+            $this->setFocus(MasteryBoard::getRootId($family));
+        }
+        $this->camera = null;
+
+        return true;
+    }
+
+    /** Focuses the family the tree's focus is in, so stepping back lands where the player was. */
+    public function focusNodeFamily(): void
+    {
+        $region = $this->getRegionId();
+        $family = $region === null ? null : $this->getBoard()?->places[$this->focus[$region] ?? '']['family'] ?? null;
+        if ($family !== null) {
+            $this->familyFocus[$region] = $family;
+        }
+    }
+
+    /**
+     * Moves the tree's focus one step. A drawn board moves along the tree: up to what a node hangs
+     * from, down to what hangs from it, across to the nearest place in the next lane, which may be in
+     * the next family. The Terminal list moves up and down its rows and across to the next family.
+     */
+    public function moveFocus(int $across, int $down): void
+    {
+        $board = $this->getBoard();
+        $region = $this->getRegionId();
+        if ($board === null || $region === null || ! isset($this->focus[$region])) {
             return;
         }
         $this->resetTransaction();
-        if ($this->overview) {
-            $ids = array_map(static fn(MasteryFamily $family): string => $family->id, $board->getFamilies($region));
-            $index = (int)array_search($this->overviewFocus[$region] ?? $ids[0], $ids, true);
-            $next = $index + $across + $down * self::OVERVIEW_COLUMNS;
-            if ($next >= 0 && $next < count($ids)) {
-                play_sound(SystemSound::CURSOR);
-                $this->overviewFocus[$region] = $ids[$next];
-            }
-            $this->refreshUI();
-            return;
-        }
         if (! $this->isMenuCanvasShown && $across !== 0) {
-            $this->selectFamilyByOffset($across);
+            $this->moveToNeighbourFamily($across);
             return;
         }
         $target = $this->isMenuCanvasShown ? $this->findBoardNeighbour($this->focus[$region], $across, $down)
@@ -528,6 +552,20 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             play_sound(SystemSound::CURSOR);
             $this->setFocus($target);
         }
+        $this->refreshUI();
+    }
+
+    /** The Terminal's tree: across to the top of the previous or next family, wrapping. */
+    protected function moveToNeighbourFamily(int $offset): void
+    {
+        $board = $this->getBoard();
+        $region = $this->getRegionId();
+        $families = $board->getFamilies($region);
+        $ids = array_map(static fn(MasteryFamily $family): string => $family->id, $families);
+        $current = (int)array_search($board->places[$this->focus[$region]]['family'], $ids, true);
+        $family = $families[wrap($current + $offset, 0, count($families) - 1)];
+        play_sound(SystemSound::CURSOR);
+        $this->setFocus(MasteryBoard::getRootId($family));
         $this->refreshUI();
     }
 
@@ -617,7 +655,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     {
         $content = $this->getPresentationContent();
         if ($content === null) {
-            $this->listPanel?->setEntries([' ' . $this->getEmptyText()]);
+            $this->listPanel?->setEntries([' ' . $this->getEmptyText()], focused: false);
             return;
         }
         $this->summaryPanel?->setContent($this->buildSummaryLines($content));
@@ -625,7 +663,8 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $this->tabPanel?->setContent($this->buildTabLines($content));
         $this->tabPanel?->render();
         [$rows, $active] = $this->buildListRows($content);
-        $this->listPanel?->setEntries($rows, $active);
+        // The list's row is the focus once the focus is below the disciplines.
+        $this->listPanel?->setEntries($rows, $active, $content->level !== MasteryMenuLevel::DISCIPLINE);
         $this->detailPanel?->setContent($this->buildDetailLines($content));
         $this->detailPanel?->render();
         $this->footerPanel?->setContent($this->buildFooterLines($content));
@@ -639,27 +678,33 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             sprintf(' %s %d   %s %d', $content->levelLabel, $content->character->level, $content->pointsLabel, $content->points)];
     }
 
-    /** @return list<string> The disciplines, the shown one in brackets, then where the list is. */
+    /**
+     * @return list<string> The disciplines, the shown one in brackets and lit while the focus is on the
+     * disciplines, then where the list is.
+     */
     protected function buildTabLines(MasteryMenuContent $content): array
     {
-        $tabs = implode('   ', array_map(static fn(MasteryMenuTab $tab, int $index): string => $index === $content->regionIndex
-            ? "[{$tab->name}]" : " {$tab->name} ", $content->regions, array_keys($content->regions)));
+        $tabs = implode('   ', array_map(static fn(MasteryMenuTab $tab, int $index): string => match (true) {
+            $index !== $content->regionIndex => " {$tab->name} ",
+            $content->level === MasteryMenuLevel::DISCIPLINE => SelectionStyle::apply("[{$tab->name}]"),
+            default => "[{$tab->name}]",
+        }, $content->regions, array_keys($content->regions)));
         $region = $content->findRegion()?->name ?? '';
         $family = $content->families[$content->familyIndex]->name ?? '';
 
-        return [' ' . $tabs, ' ' . ($content->overview || $family === '' ? $region : "{$region} / {$family}")];
+        return [' ' . $tabs, ' ' . ($content->level === MasteryMenuLevel::DISCIPLINE || $family === '' ? $region : "{$region} / {$family}")];
     }
 
     /**
      * The list rows, each a name with its status or price right-aligned in one shared column: the
-     * shown discipline's family summaries in the overview, the focused family on the board.
+     * shown discipline's family summaries above the tree, the focused family on the tree.
      *
      * @return array{list<string>, int} The rows and the focused row.
      */
     protected function buildListRows(MasteryMenuContent $content): array
     {
         $width = self::MENU_WIDTH - 6;
-        if ($content->overview) {
+        if ($content->level !== MasteryMenuLevel::TREE) {
             $labels = array_map(static fn(MasteryMenuTab $tab): string => $tab->name, $content->families);
             $values = array_map(fn(MasteryMenuTab $tab): string => $this->describeCount($tab->learned, $tab->total), $content->families);
             $active = $content->familyIndex;
@@ -678,11 +723,16 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             $labels, $values), $active];
     }
 
-    /** @return list<string> What the focus is: its casting values or counts, or its Info sheet while that is open. */
+    /**
+     * @return list<string> What the focus is: its casting values or counts, or two lines of its Info while
+     * that is open (Info reads on through longer text).
+     */
     protected function buildDetailLines(MasteryMenuContent $content): array
     {
         if ($content->info !== null) {
-            return array_map(static fn(string $line): string => ' ' . $line, array_slice($content->info, 0, self::DETAIL_HEIGHT - 2));
+            $page = $this->menuInfoText->getPage(implode("\n", $content->info), null, self::INFO_COLUMNS);
+
+            return array_map(static fn(string $line): string => ' ' . $line, array_pad($page->lines, self::DETAIL_HEIGHT - 2, ''));
         }
         if ($this->pending !== null) {
             return ['', ''];
@@ -690,7 +740,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $facts = implode('   ', array_map(static fn(array $fact): string => $fact['text'], $content->footer));
         // A node's status follows its casting values; a family's or discipline's name is already on the tab line.
         $focus = $content->findFocusedNode();
-        $status = $content->overview || $focus === null || $focus->isHeading() ? '' : $content->selection->subtitle ?? '';
+        $status = $content->level !== MasteryMenuLevel::TREE || $focus === null || $focus->isHeading() ? '' : $content->selection->subtitle ?? '';
 
         return [' ' . $facts, ' ' . $status];
     }
@@ -717,7 +767,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         return array_slice($lines, 0, self::FOOTER_HEIGHT - 2);
     }
 
-    /** A binding as the Terminal shows it: its keys, then what it does ("Q/E Suits"). */
+    /** A binding as the Terminal shows it: its keys, then what it does ("Enter Select"). */
     protected static function describeTerminalHint(ActionHint $hint): string
     {
         return str_replace(' / ', '/', $hint->describeControls()) . ' ' . $hint->label;
@@ -750,14 +800,22 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         };
     }
 
-    /** The place under the board: the focused node's name, status, price and Learn button, or a family summary's name. */
+    /**
+     * The place under the board: the focused discipline's or family's name, or the focused node's
+     * name, status, price and Learn button.
+     *
+     * @param array<string, MasteryNodeStatus> $statuses
+     */
     protected function describeSelection(array $statuses): MasteryMenuSelection
     {
         $board = $this->getBoard();
         $region = $this->getRegionId();
         $regionName = $board?->tree->regions[$this->regionIndex]->name ?? '';
-        if ($this->overview) {
-            $family = $board?->findFamily($this->overviewFocus[$region] ?? '');
+        if ($this->level === MasteryMenuLevel::DISCIPLINE) {
+            return new MasteryMenuSelection($regionName, Vocabulary::getTerm('mastery.discipline'));
+        }
+        if ($this->level === MasteryMenuLevel::FAMILY) {
+            $family = $board?->findFamily($this->familyFocus[$region] ?? '');
 
             return new MasteryMenuSelection($family?->name ?? $regionName, $family === null ? Vocabulary::getTerm('mastery.discipline') : $regionName);
         }
@@ -777,22 +835,27 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         }
         $learn = Vocabulary::getTerm('mastery.learn');
         $price = $this->describePrice($status);
+        $curriculum = in_array($status->node->id, $this->character?->role->curriculum ?? [], true);
+        // The role's curriculum is named once, after what the node is or why it waits, until it is learned.
+        $describe = static fn(?string $subtitle): ?string => ! $curriculum ? $subtitle
+            : implode(' · ', array_filter([$subtitle, Vocabulary::getTerm('mastery.recommended')], static fn(?string $part): bool => $part !== null && $part !== ''));
 
         return match (true) {
             $status->state === MasteryNodeState::LEARNED => new MasteryMenuSelection($status->node->name, Vocabulary::getTerm('mastery.learned')),
             $status->state === MasteryNodeState::UNAVAILABLE => new MasteryMenuSelection($status->node->name, Vocabulary::getTerm('mastery.unavailable')),
-            $status->state === MasteryNodeState::LOCKED => new MasteryMenuSelection($status->node->name, implode(' · ', $this->describeLock($status)),
+            $status->state === MasteryNodeState::LOCKED => new MasteryMenuSelection($status->node->name, $describe(implode(' · ', $this->describeLock($status))),
                 $price, $learn, false),
             ! $status->affordable => new MasteryMenuSelection($status->node->name,
-                MessageCatalog::getTerm('mastery.not_enough', MasteryVocabulary::getPointsLabel()), $price, $learn, false),
+                $describe(MessageCatalog::getTerm('mastery.not_enough', MasteryVocabulary::getPointsLabel())), $price, $learn, false),
             default => new MasteryMenuSelection($status->node->name,
-                $status->node->kind === MasteryNodeKind::FOUNDATION ? $regionName : null, $price, $learn, true),
+                $describe($status->node->kind === MasteryNodeKind::FOUNDATION ? $regionName : null), $price, $learn, true),
         };
     }
 
     /**
-     * What the footer says about the focus: a skill's MP and, unless its badge already names it,
-     * whom it reaches; a family's or discipline's counts; or the question a first Learn press asks.
+     * What the footer says about the focus: a discipline's families and counts, a family's counts, a
+     * skill's MP and, unless its badge already names it, whom it reaches; or the question a first
+     * Learn press asks.
      *
      * @param array<string, MasteryNodeStatus> $statuses
      * @return list<array{text: string, color: string}>
@@ -810,17 +873,17 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             return [['text' => MessageCatalog::getTerm('mastery.learn_skill', $status->node->name), 'color' => 'text'],
                 ['text' => (string)$this->describePrice($status), 'color' => 'focus']];
         }
-        if ($this->overview) {
+        if ($this->level === MasteryMenuLevel::DISCIPLINE) {
             $families = $board->getFamilies($region);
             $here = array_filter($statuses, static fn(MasteryNodeStatus $status): bool => $status->node->region === $region);
 
             return [['text' => MessageCatalog::getTerm('mastery.family_count', count($families)), 'color' => 'muted'],
                 ['text' => $this->describeCount(self::countLearned($here), count($here)), 'color' => 'text']];
         }
-        $focus = $this->focus[$region] ?? null;
+        $focus = $this->level === MasteryMenuLevel::TREE ? $this->focus[$region] ?? null : null;
         $status = $focus === null ? null : $statuses[$focus] ?? null;
         if ($focus === null || $board->isHeading($focus) || $status?->node->kind === MasteryNodeKind::FOUNDATION) {
-            $family = $focus === null ? null : $board->findPlaceFamily($focus);
+            $family = $focus === null ? $board->findFamily($this->familyFocus[$region] ?? '') : $board->findPlaceFamily($focus);
             $here = $family === null ? [] : array_intersect_key($statuses, array_flip($family->nodes));
 
             return [['text' => $this->describeCount(self::countLearned($here), count($here)), 'color' => 'text']];
@@ -842,25 +905,54 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         return $facts;
     }
 
-    /** @return list<ActionHint> The footer's bindings: what the player can do here, in the approved order. */
+    /**
+     * The footer's bindings: only what the player can do on this level, from one small set every level
+     * shares. Confirm opens the next level or learns, Cancel goes back or closes, and Info appears where
+     * the focus has a summary or description.
+     *
+     * @param array<string, MasteryNodeStatus> $statuses
+     * @return list<ActionHint>
+     */
     protected function getHints(array $statuses): array
     {
-        $hints = [ActionHints::resolvePair('menu_tab_previous', 'menu_tab_next', Vocabulary::getTerm('mastery.suits')),
-            ActionHints::resolvePair('menu_page_previous', 'menu_page_next', Vocabulary::getTerm('mastery.family')),
-            ActionHints::resolve('curriculum', Vocabulary::getTerm('mastery.curriculum')),
-            ActionHints::resolve('map_zoom', Vocabulary::getTerm($this->overview ? 'mastery.detail' : 'mastery.overview'))];
-        $focus = $this->focus[$this->getRegionId() ?? ''] ?? null;
-        $status = $focus === null ? null : $statuses[$focus] ?? null;
-        if (! $this->overview && $status?->learnable === true && ! $status->secret) {
-            $hints[] = ActionHints::resolve('confirm', Vocabulary::getTerm(Input::isHeldInputAvailable() ? 'mastery.hold_learn' : 'mastery.learn'));
+        $hints = [];
+        if ($this->level === MasteryMenuLevel::TREE) {
+            $focus = $this->focus[$this->getRegionId() ?? ''] ?? null;
+            $status = $focus === null ? null : $statuses[$focus] ?? null;
+            if ($status?->learnable === true && ! $status->secret) {
+                $hints[] = ActionHints::resolve('confirm', Vocabulary::getTerm(Input::isHeldInputAvailable() ? 'mastery.hold_learn' : 'mastery.learn'));
+            }
+        } elseif ($this->hasFamilies) {
+            $hints[] = ActionHints::resolve('confirm', Vocabulary::getTerm('mastery.select'));
         }
-        $hints[] = ActionHints::resolve('info', Vocabulary::getTerm($this->infoShown ? 'mastery.close' : 'mastery.info'));
+        $info = $this->describeInfo($statuses);
+        $open = $this->infoShown && $info !== [];
+        // While Info is open, Cancel closes it; otherwise it goes back a level, or closes the menu from the top.
+        $hints[] = ActionHints::resolve('cancel', Vocabulary::getTerm($open || $this->level === MasteryMenuLevel::DISCIPLINE ? 'mastery.close' : 'mastery.back'));
+        // Info opens where the focus has something to say; once open, it is offered again only to read on in the Terminal.
+        if ($info !== [] && (! $open || (! $this->isMenuCanvasShown && $this->hasMoreInfoLines($info)))) {
+            $hints[] = ActionHints::resolve('info', Vocabulary::getTerm('mastery.info'));
+        }
 
         return $hints;
     }
 
     /**
-     * The Info sheet: the focus's description, then what it builds on.
+     * Whether the Terminal's two Info lines have more of the text after them.
+     *
+     * @param list<string> $info
+     */
+    protected function hasMoreInfoLines(array $info): bool
+    {
+        $page = $this->menuInfoText->getPage(implode("\n", $info), null, self::INFO_COLUMNS);
+
+        return $page->first + $page->rows < $page->total;
+    }
+
+    /**
+     * The Info sheet's lines for the focus: a discipline's or family's summary, the family's summary at
+     * its heading or foundation, or a skill's description and what it builds on. Nothing when the
+     * focus has nothing to say, so Info never opens an empty sheet.
      *
      * @param array<string, MasteryNodeStatus> $statuses
      * @return list<string>
@@ -872,19 +964,18 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         if ($board === null || $region === null) {
             return [];
         }
-        if ($this->overview) {
-            $family = $board->findFamily($this->overviewFocus[$region] ?? '');
-
-            return array_values(array_filter([trim($family?->branch?->description ?? $board->tree->regions[$this->regionIndex]->description)]));
+        if ($this->level === MasteryMenuLevel::DISCIPLINE) {
+            return array_values(array_filter([trim($board->tree->regions[$this->regionIndex]->description ?? '')]));
+        }
+        if ($this->level === MasteryMenuLevel::FAMILY) {
+            return array_values(array_filter([$this->getFamilySummary($board->findFamily($this->familyFocus[$region] ?? ''))]));
         }
         $focus = $this->focus[$region] ?? null;
         if ($focus === null) {
             return [];
         }
         if ($board->isHeading($focus)) {
-            $family = $board->findPlaceFamily($focus);
-
-            return array_values(array_filter([trim($family?->branch?->description ?? $board->tree->regions[$this->regionIndex]->description)]));
+            return array_values(array_filter([$this->getFamilySummary($board->findPlaceFamily($focus))]));
         }
         $status = $statuses[$focus] ?? null;
         if ($status === null || $status->secret) {
@@ -895,8 +986,26 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $description = $skill === null ? '' : trim($skills->findSkill($skill)?->description ?? $skills->findDraft($skill)?->getDescription() ?? '');
         $after = array_map(fn(string $id): string => $this->getMap()?->findNode($id)?->name ?? $id, $status->node->requires);
 
-        return array_values(array_filter([$description,
-            $after === [] ? '' : MessageCatalog::getTerm('mastery.after', implode(', ', $after))]));
+        // A foundation is its family's first step, so its family's summary says what it opens.
+        return array_values(array_filter([
+            $status->node->kind === MasteryNodeKind::FOUNDATION ? $this->getFamilySummary($board->findPlaceFamily($focus)) : '',
+            $description,
+            $after === [] ? '' : MessageCatalog::getTerm('mastery.after', implode(', ', $after)),
+        ]));
+    }
+
+    /** A family's summary as its author wrote it: its branch's, or, for a discipline's own nodes, the discipline's trunk summary. */
+    protected function getFamilySummary(?MasteryFamily $family): string
+    {
+        if ($family === null) {
+            return '';
+        }
+        if ($family->branch !== null) {
+            return trim($family->branch->description);
+        }
+        $region = array_find($this->getBoard()?->tree->regions ?? [], static fn($region): bool => $region->id === $family->region);
+
+        return trim($region?->trunkDescription ?? '');
     }
 
     /**
@@ -1092,8 +1201,9 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     }
 
     /**
-     * Keeps a focus in every discipline shown. A character's board opens on the first node they can
-     * learn now, so the player sees what is ready; otherwise on the first family's top.
+     * Keeps a focus in every discipline shown. A character's board opens on the discipline and family
+     * of the first node they can learn now, so the player is led to what is ready; otherwise on the
+     * first family's top.
      */
     protected function normalizeFocus(): void
     {
@@ -1114,12 +1224,14 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         if (! isset($this->focus[$region], $board->places[$this->focus[$region]])) {
             $first = $board->getFamilies($region)[0] ?? null;
             if ($first === null) {
-                unset($this->focus[$region]);
+                unset($this->focus[$region], $this->familyFocus[$region]);
                 return;
             }
             $this->focus[$region] = MasteryBoard::getRootId($first);
         }
-        $this->overviewFocus[$region] ??= $board->places[$this->focus[$region]]['family'];
+        if ($board->findFamily($this->familyFocus[$region] ?? '') === null) {
+            $this->familyFocus[$region] = $board->places[$this->focus[$region]]['family'];
+        }
         $this->camera ??= MasteryCamera::createAt(...$this->findPlaceCentre($this->focus[$region]));
     }
 

@@ -22,9 +22,14 @@ use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Progression\Mastery\MasteryCatalog;
 use Ichiloto\Engine\Progression\Mastery\MasteryFamily;
 use Ichiloto\Engine\Progression\Mastery\MasteryNodeState;
+use Ichiloto\Engine\Rendering\RendererClient;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
+use Ichiloto\Engine\Rendering\Transport\RendererEvent;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
 use Ichiloto\Engine\Scenes\Game\States\MasteryMenuState;
@@ -34,6 +39,7 @@ use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Presentation\MasteryLearnHold;
+use Ichiloto\Engine\UI\Presentation\MasteryMenuLevel;
 use Ichiloto\Engine\UI\Presentation\MasteryMenuNode;
 use Ichiloto\Engine\UI\Presentation\MasteryPointsCount;
 use Ichiloto\Engine\UI\UIManager;
@@ -43,9 +49,11 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeHeldInputSource;
 use Tests\Support\Input\FakeInputSource;
+use Tests\Support\Input\FakeRendererTransport;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 require_once __DIR__ . '/../Support/Input/FakeHeldInputSource.php';
+require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 
 class MasteryMenuTestGame extends Game
 {
@@ -109,9 +117,10 @@ function masteryMenuAdvance(MasteryMenuState $state, float $seconds): void
 }
 
 /**
- * Writes a synthetic project. Blades holds a trunk skill; Storms holds a Sky element branch (a
- * foundation, two grades and an advanced skill for all foes) and a Veils aspect without a foundation
- * (a hidden skill and a draft whose spread awaits its author).
+ * Writes a synthetic project. Blades holds a trunk skill, summarised as a family but not as a discipline; Storms has a summary and holds
+ * a Sky element branch with its own summary (a foundation, two grades and an advanced skill for all
+ * foes) and a Veils aspect without a summary or a foundation (a hidden skill and a draft whose spread
+ * awaits its author).
  */
 function writeMasteryMenuProject(string $root): void
 {
@@ -131,8 +140,9 @@ function writeMasteryMenuProject(string $root): void
   file_put_contents($root . '/assets/Data/Skills/0006.php', '<?php return ' . var_export(['class' => \Ichiloto\Engine\Entities\Skills\Skill::class, 'data' => $gale], true) . ';');
   file_put_contents($root . '/assets/Data/mastery.php', '<?php return ' . var_export([
     'regions' => [
-      ['id' => 'blades', 'name' => 'Blades', 'nodes' => [['id' => 'cut', 'kind' => 'application', 'skill' => 'Start Cut']]],
-      ['id' => 'storms', 'name' => 'Storms'],
+      ['id' => 'blades', 'name' => 'Blades', 'trunkDescription' => 'Cuts and thrusts.',
+        'nodes' => [['id' => 'cut', 'kind' => 'application', 'skill' => 'Start Cut']]],
+      ['id' => 'storms', 'name' => 'Storms', 'description' => 'Weather called to hand.'],
     ],
     'branches' => [
       ['id' => 'sky', 'region' => 'storms', 'name' => 'Sky', 'kind' => 'element', 'element' => 'Wind', 'description' => 'The open sky.', 'nodes' => [
@@ -206,9 +216,7 @@ beforeEach(function () {
   new ReflectionProperty($this->game, 'modalManager')->setValue($this->game, $modals);
   InputManager::setBindings(array_map(fn($key) => ['keys' => [$key]], ['confirm' => KeyCode::ENTER, 'cancel' => KeyCode::ESCAPE,
     'up' => KeyCode::UP, 'down' => KeyCode::DOWN, 'left' => KeyCode::LEFT, 'right' => KeyCode::RIGHT,
-    'character_next' => KeyCode::TAB, 'character_previous' => KeyCode::SHIFT_TAB, 'menu_tab_previous' => KeyCode::q, 'menu_tab_next' => KeyCode::e,
-    'menu_page_previous' => KeyCode::PAGE_UP, 'menu_page_next' => KeyCode::PAGE_DOWN, 'map_zoom' => KeyCode::z, 'curriculum' => KeyCode::c,
-    'info' => KeyCode::i]));
+    'character_next' => KeyCode::TAB, 'character_previous' => KeyCode::SHIFT_TAB, 'info' => KeyCode::i]));
   $this->state = new MasteryMenuState(new SceneStateContext($this->scene));
   new ReflectionProperty($this->scene, 'state')->setValue($this->scene, $this->state);
   ob_start();
@@ -226,36 +234,117 @@ afterEach(function () {
   rmdir($this->root);
 });
 
-it('opens on the first skill the character can learn and shows the whole board, unavailable places included, to both renderers', function () {
+/** The footer's binding labels, in order. */
+function masteryMenuHintLabels(MasteryMenuState $state): array
+{
+  return array_map(static fn($hint) => $hint->label, $state->getPresentationContent()->hints);
+}
+
+/** A Terminal panel's lines as drawn, styling kept, so a lit line can be told from a plain one. */
+function masteryMenuRawTerminal(MasteryMenuState $state, string $panel): array
+{
+  return new ReflectionProperty($state, $panel)->getValue($state)->getContent();
+}
+
+/** A renderer session that reports key transitions, as the native game's is, feeding the menu one frame at a time. */
+function masteryMenuNativeSession(MasteryMenuState $state): Closure
+{
+  $transport = new FakeRendererTransport();
+  $client = new RendererClient($transport);
+  $client->start(new RendererSessionConfig('Mastery', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+    requiredCapabilities: [RendererSessionConfig::KEY_TRANSITIONS]));
+  $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
+    'capabilities' => ['sprite_source_rect', RendererSessionConfig::KEY_TRANSITIONS]]))];
+  $client->pump();
+  $client->drainEvents();
+  InputManager::setInputSource(new RendererInputSource($client));
+
+  // One 60 Hz frame carrying the renderer's events for it: 'press', 'repeat' (an OS auto-repeat) or 'release' of Enter.
+  return static function (string ...$events) use ($state, $transport, $client): void {
+    $transport->batches[] = array_map(static fn(string $event): RendererEvent => RendererEvent::fromJson(json_encode($event === 'release'
+      ? ['protocol' => 2, 'type' => 'key_release', 'control' => 'enter']
+      : ['protocol' => 2, 'type' => 'key', 'key' => 'enter', 'control' => 'enter', 'repeat' => $event === 'repeat'])), $events);
+    $client->pump();
+    InputManager::handleInput();
+    $state->execute();
+    masteryMenuAdvance($state, 1 / 60);
+  };
+}
+
+it('opens on the discipline of the first skill the character can learn, with the whole board for both renderers', function () {
   masteryMenuHero($this->hero, 60);
   $this->state->enter();
   $content = $this->state->getPresentationContent();
   $states = array_column(array_map(static fn(MasteryMenuNode $node): array => [$node->id, $node->state?->value ?? 'heading'], $content->nodes), 1, 0);
-  $list = masteryMenuTerminal($this->state, 'listPanel');
+  $tabs = masteryMenuRawTerminal($this->state, 'tabPanel');
+  $list = masteryMenuRawTerminal($this->state, 'listPanel');
 
   expect(MasteryMenuState::projectHasMaps())->toBeTrue()
     ->and(array_map(static fn($tab) => [$tab->name, $tab->describeCount()], $content->regions))->toBe([['Blades', '1/1'], ['Storms', '0/6']])
+    ->and($content->level)->toBe(MasteryMenuLevel::DISCIPLINE)
     ->and($content->regionIndex)->toBe(1)
-    ->and($content->focus)->toBe('spark-1')
+    ->and($content->focus)->toBeNull()
     ->and(array_map(static fn($tab) => $tab->name, $content->families))->toBe(['Sky', 'Veils'])
     // Nothing prices the foundation and the draft awaits its author: both are on the board, and unavailable.
     ->and($states)->toBe(['sky' => 'unavailable', 'spark-1' => 'open', 'spark-2' => 'locked', 'storm' => 'locked',
       MasteryFamily::getHeadingId('veils') => 'heading', 'veil' => 'locked', 'gale' => 'unavailable'])
-    ->and($content->selection->name)->toBe('Spark I')
-    ->and($content->selection->price)->toBe('50 SP')
-    ->and($content->selection->action)->toBe('Learn')
-    ->and($content->selection->enabled)->toBeTrue()
-    // The Terminal lists the focused family: its count on the top row, each value in one aligned column.
-    ->and($list[0])->toMatch('/^\s+Sky\s+0 \/ 4 learned$/')
-    ->and($list[1])->toMatch('/^\s+Spark I\s+50 SP$/')
-    ->and($list[2])->toContain('Unlocks at Lv 5')->toContain('Learn Spark I first')
-    ->and(strpos($list[1], '50 SP'))->toBe(strpos($list[0], '0 / 4'))
-    ->and(masteryMenuTerminal($this->state, 'tabPanel')[1])->toContain('Storms / Sky');
+    ->and([$content->selection->name, $content->selection->subtitle, $content->selection->action])->toBe(['Storms', 'Discipline', null])
+    ->and(array_column($content->footer, 'text'))->toBe(['2 families', '0 / 6 learned'])
+    ->and(masteryMenuHintLabels($this->state))->toBe(['Select', 'Close', 'Info'])
+    // The Terminal lights the discipline in focus and lists its families, none lit yet.
+    ->and($tabs[0])->toContain("\e[")->and(masteryMenuTerminal($this->state, 'tabPanel')[0])->toContain('[Storms]')
+    ->and(masteryMenuTerminal($this->state, 'tabPanel')[1])->toBe(' Storms')
+    ->and(implode('', $list))->not->toContain("\e[")
+    ->and(masteryMenuTerminal($this->state, 'listPanel')[0])->toMatch('/^\s+Sky\s+0 \/ 4 learned$/');
+});
+
+it('goes down a level on Confirm and back one on Cancel, leaving from the disciplines, with only that level\'s bindings', function () {
+  masteryMenuHero($this->hero, 60);
+  $this->state->enter();
+  $level = fn(): MasteryMenuLevel => $this->state->getPresentationContent()->level;
+
+  masteryMenuKey($this->state, KeyCode::ENTER);
+  $content = $this->state->getPresentationContent();
+  expect($level())->toBe(MasteryMenuLevel::FAMILY)
+    ->and([$content->selection->name, $content->selection->subtitle])->toBe(['Sky', 'Storms'])
+    ->and(array_column($content->footer, 'text'))->toBe(['0 / 4 learned'])
+    ->and(masteryMenuHintLabels($this->state))->toBe(['Select', 'Back', 'Info'])
+    // The focus has left the tabs for the family list.
+    ->and(masteryMenuRawTerminal($this->state, 'tabPanel')[0])->not->toContain("\e[")
+    ->and(masteryMenuRawTerminal($this->state, 'listPanel')[0])->toContain("\e[")
+    ->and(masteryMenuTerminal($this->state, 'tabPanel')[1])->toBe(' Storms / Sky');
+
+  // A family without a summary offers no Info.
+  masteryMenuKey($this->state, KeyCode::RIGHT);
+  expect($this->state->getPresentationContent()->selection->name)->toBe('Veils')
+    ->and(masteryMenuHintLabels($this->state))->toBe(['Select', 'Back']);
+
+  masteryMenuKey($this->state, KeyCode::LEFT, KeyCode::ENTER);
+  $content = $this->state->getPresentationContent();
+  expect($level())->toBe(MasteryMenuLevel::TREE)
+    ->and($content->focus)->toBe('spark-1')
+    ->and(masteryMenuHintLabels($this->state))->toBe(['Learn', 'Back', 'Info'])
+    ->and(masteryMenuTerminal($this->state, 'tabPanel')[1])->toBe(' Storms / Sky');
+
+  masteryMenuKey($this->state, KeyCode::ESCAPE);
+  expect($level())->toBe(MasteryMenuLevel::FAMILY)
+    ->and($this->state->getPresentationContent()->selection->name)->toBe('Sky');
+  masteryMenuKey($this->state, KeyCode::ESCAPE);
+  expect($level())->toBe(MasteryMenuLevel::DISCIPLINE)
+    ->and($this->returnState->entries)->toBe(0);
+
+  // Left and Right choose the discipline; one without a summary offers no Info.
+  masteryMenuKey($this->state, KeyCode::RIGHT);
+  expect($this->state->getPresentationContent()->regionIndex)->toBe(0)
+    ->and(masteryMenuHintLabels($this->state))->toBe(['Select', 'Close']);
+  masteryMenuKey($this->state, KeyCode::ESCAPE);
+  expect($this->returnState->entries)->toBe(1);
 });
 
 it('asks on the footer line at the first Learn press without held keys, learns at the second, and says the price once', function () {
   masteryMenuHero($this->hero, 60);
   $this->state->enter();
+  masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::ENTER);
 
   masteryMenuKey($this->state, KeyCode::ENTER);
   $content = $this->state->getPresentationContent();
@@ -265,11 +354,11 @@ it('asks on the footer line at the first Learn press without held keys, learns a
     // While the footer asks, the row leaves the price to it.
     ->and(masteryMenuTerminal($this->state, 'listPanel')[1])->toMatch('/^\s+Spark I$/');
 
-  // Cancel dismisses the question without spending, and the menu stays open.
+  // Cancel dismisses the question without spending, and the focus stays on the tree.
   masteryMenuKey($this->state, KeyCode::ESCAPE);
   expect($this->hero->mastery->points)->toBe(60)
     ->and($this->state->getPresentationContent()->footer[0]['text'])->not->toBe('Learn Spark I')
-    ->and($this->returnState->entries)->toBe(0);
+    ->and($this->state->getPresentationContent()->level)->toBe(MasteryMenuLevel::TREE);
 
   // Moving dismisses it too.
   masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::DOWN, KeyCode::UP, KeyCode::ENTER);
@@ -287,7 +376,7 @@ it('asks on the footer line at the first Learn press without held keys, learns a
     ->and($content->pointsCount)->toBeNull()
     ->and(masteryMenuTerminal($this->state, 'summaryPanel')[2])->toContain('SP 10');
 
-  masteryMenuKey($this->state, KeyCode::ESCAPE);
+  masteryMenuKey($this->state, KeyCode::ESCAPE, KeyCode::ESCAPE, KeyCode::ESCAPE);
   expect($this->returnState->entries)->toBe(1);
 });
 
@@ -296,6 +385,10 @@ it('learns once a held Learn completes, fills and drains only as a preview, and 
   $this->state->enter();
   new ReflectionProperty($this->state, 'isMenuCanvasShown')->setValue($this->state, true);
   $source = new FakeHeldInputSource();
+  foreach ([1, 2] as $_) {
+    $source->press('enter', KeyCode::ENTER)->release('enter');
+    masteryMenuFrame($this->state, $source);
+  }
 
   // Held halfway: nothing is spent; the drawn total drains as a preview.
   $source->press('enter', KeyCode::ENTER);
@@ -307,7 +400,7 @@ it('learns once a held Learn completes, fills and drains only as a preview, and 
   expect($content->hold?->node)->toBe('spark-1')
     ->and($this->hero->mastery->points)->toBe(60)
     ->and($content->getPointsAt($time))->toBe(35)
-    ->and($content->hints[4]->label)->toBe('Hold · Learn');
+    ->and($content->hints[0]->label)->toBe('Hold · Learn');
 
   // Letting go cancels: the total returns and nothing is learned.
   $source->release('enter');
@@ -341,11 +434,59 @@ it('learns once a held Learn completes, fills and drains only as a preview, and 
     ->and($this->state->getPresentationContent()->pointsCount)->toBeNull();
 });
 
+it('fills once and learns once through a native held Enter with OS auto-repeats, and repeats never step through levels', function () {
+  masteryMenuHero($this->hero, 60);
+  $this->state->enter();
+  new ReflectionProperty($this->state, 'isMenuCanvasShown')->setValue($this->state, true);
+  $frame = masteryMenuNativeSession($this->state);
+  $level = fn(): MasteryMenuLevel => $this->state->getPresentationContent()->level;
+
+  // A tap opens the families; a second press opens the tree and stays down, auto-repeating for half a
+  // second: repeats are not presses, so they neither go deeper nor start a hold.
+  $frame('press');
+  $frame('release');
+  expect($level())->toBe(MasteryMenuLevel::FAMILY);
+  $frame('press');
+  for ($n = 1; $n <= 30; $n++) { $frame(...($n >= 15 && $n % 2 === 0 ? ['repeat'] : [])); }
+  expect($level())->toBe(MasteryMenuLevel::TREE)
+    ->and($this->state->getPresentationContent()->hold)->toBeNull();
+  $frame('release');
+
+  // Held for 1.2 seconds as macOS sends it: one press, then a repeat about every 33 ms after 250 ms.
+  $frame('press');
+  $starts = $progress = [];
+  for ($n = 1; $n <= 72; $n++) {
+    $frame(...($n >= 15 && $n % 2 === 0 ? ['repeat'] : []));
+    $content = $this->state->getPresentationContent();
+    if ($content->hold !== null) {
+      $starts[(string)$content->hold->startedAt] = true;
+      $progress[] = $content->hold->getProgressAt(new ReflectionMethod($this->state, 'getPresentationTime')->invoke($this->state));
+    }
+  }
+  $frame('release');
+
+  // One hold, filling steadily (never restarting) until it learns, and one spend.
+  expect($starts)->toHaveCount(1)
+    ->and($progress)->toBe(array_values(array_unique($progress)))
+    ->and(array_slice($progress, 1))->each->toBeGreaterThan(0.0)
+    ->and($progress === [] ? null : max($progress))->toBeGreaterThan(0.9)
+    ->and($this->hero->mastery->hasLearned('spark-1'))->toBeTrue()
+    ->and($this->hero->mastery->points)->toBe(10)
+    ->and($this->state->getPresentationContent()->hold)->toBeNull();
+  $sorted = $progress;
+  sort($sorted);
+  expect($progress)->toBe($sorted);
+});
+
 it('takes as long to hold under reduced motion, without the drain, and changes the total when it completes', function () {
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['accessibility' => ['reducedMotion' => true]]));
   masteryMenuHero($this->hero, 60);
   $this->state->enter();
   $source = new FakeHeldInputSource();
+  foreach ([1, 2] as $_) {
+    $source->press('enter', KeyCode::ENTER)->release('enter');
+    masteryMenuFrame($this->state, $source);
+  }
   $source->press('enter', KeyCode::ENTER);
   masteryMenuFrame($this->state, $source);
   masteryMenuAdvance($this->state, MasteryLearnHold::DURATION / 2);
@@ -370,6 +511,10 @@ it('ticks the shared counter only while a drawn total moves, and stops when it l
   $this->state->enter();
   $drawn->setValue($this->state, true);
   $source = new FakeHeldInputSource();
+  foreach ([1, 2] as $_) {
+    $source->press('enter', KeyCode::ENTER)->release('enter');
+    masteryMenuFrame($this->state, $source);
+  }
 
   // The tick sounds while a held Learn drains the drawn total, and stops when the hold lets go.
   $source->press('enter', KeyCode::ENTER);
@@ -404,6 +549,7 @@ it('ticks the shared counter only while a drawn total moves, and stops when it l
 it('names a reach once: on the badge of a skill without a grade, otherwise in the footer, with its MP from the record', function () {
   masteryMenuHero($this->hero, 500);
   $this->state->enter();
+  masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::ENTER);
   $nodes = array_column(array_map(static fn(MasteryMenuNode $node): array => [$node->id, $node], $this->state->getPresentationContent()->nodes), 1, 0);
 
   expect($nodes['spark-1']->badge)->toBe('I')
@@ -430,67 +576,101 @@ it('names a reach once: on the badge of a skill without a grade, otherwise in th
   expect(array_column($this->state->getPresentationContent()->footer, 'text'))->toBe(['0 / 2 learned']);
 });
 
-it('moves along the drawn tree, pages families and disciplines, and zooms out to family summaries without learning', function () {
+it('moves along the drawn tree into the next family, and steps back to that family and its discipline', function () {
   masteryMenuHero($this->hero, 500);
   $this->state->enter();
   new ReflectionProperty($this->state, 'isMenuCanvasShown')->setValue($this->state, true);
-  $focus = fn(): ?string => $this->state->getPresentationContent()->focus;
+  $content = fn() => $this->state->getPresentationContent();
+  masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::ENTER);
 
   masteryMenuKey($this->state, KeyCode::DOWN);
-  expect($focus())->toBe('spark-2');
+  expect($content()->focus)->toBe('spark-2');
   masteryMenuKey($this->state, KeyCode::UP, KeyCode::UP);
-  expect($focus())->toBe('sky');
+  expect($content()->focus)->toBe('sky');
   masteryMenuKey($this->state, KeyCode::RIGHT);
-  expect($focus())->toBe(MasteryFamily::getHeadingId('veils'))
-    ->and($this->state->getPresentationContent()->familyIndex)->toBe(1);
-  masteryMenuKey($this->state, KeyCode::PAGE_DOWN);
-  expect($focus())->toBe('sky');
-  masteryMenuKey($this->state, KeyCode::e);
-  expect($this->state->getPresentationContent()->regionIndex)->toBe(0)
-    ->and($focus())->toBe(MasteryFamily::getHeadingId(MasteryFamily::getTrunkId('blades')));
-  masteryMenuKey($this->state, KeyCode::q);
+  expect($content()->focus)->toBe(MasteryFamily::getHeadingId('veils'))
+    ->and($content()->familyIndex)->toBe(1);
 
-  masteryMenuKey($this->state, KeyCode::z);
-  $content = $this->state->getPresentationContent();
-  expect($content->overview)->toBeTrue()
-    ->and($content->focus)->toBeNull()
-    ->and($content->selection->name)->toBe('Sky')
-    ->and(array_column($content->footer, 'text'))->toBe(['2 families', '0 / 6 learned'])
-    ->and($content->hints[3]->label)->toBe('Detail');
-  masteryMenuKey($this->state, KeyCode::RIGHT, KeyCode::ENTER);
-  expect($this->state->getPresentationContent()->overview)->toBeFalse()
-    ->and($focus())->toBe(MasteryFamily::getHeadingId('veils'))
+  // Back on the families, the focus is on the family the tree's focus was in; then back to the disciplines.
+  masteryMenuKey($this->state, KeyCode::ESCAPE);
+  expect([$content()->level, $content()->familyIndex, $content()->focus])->toBe([MasteryMenuLevel::FAMILY, 1, null]);
+  // Drawn summaries sit three to a row: Down steps a row, and there is none below.
+  masteryMenuKey($this->state, KeyCode::DOWN);
+  expect($content()->familyIndex)->toBe(1);
+  masteryMenuKey($this->state, KeyCode::LEFT, KeyCode::ESCAPE, KeyCode::RIGHT);
+  expect([$content()->level, $content()->regionIndex])->toBe([MasteryMenuLevel::DISCIPLINE, 0]);
+
+  // A discipline's own nodes are one family under its name.
+  masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::ENTER);
+  expect($content()->focus)->toBe(MasteryFamily::getHeadingId(MasteryFamily::getTrunkId('blades')))
     ->and($this->hero->mastery->points)->toBe(500);
 });
 
-it('marks the role\'s curriculum as a guide, and opens and closes Info with what a skill builds on', function () {
+it('steps one family per arrow in the Terminal\'s list and moves across families on its tree', function () {
   masteryMenuHero($this->hero, 500);
   $this->state->enter();
-  masteryMenuKey($this->state, KeyCode::c, KeyCode::DOWN);
-  $content = $this->state->getPresentationContent();
-  $curriculum = array_values(array_map(static fn(MasteryMenuNode $node): string => $node->id,
-    array_filter($content->nodes, static fn(MasteryMenuNode $node): bool => $node->curriculum)));
+  masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::DOWN);
+  expect($this->state->getPresentationContent()->familyIndex)->toBe(1);
+  masteryMenuKey($this->state, KeyCode::UP, KeyCode::ENTER, KeyCode::RIGHT);
+  expect($this->state->getPresentationContent()->focus)->toBe(MasteryFamily::getHeadingId('veils'))
+    ->and(masteryMenuTerminal($this->state, 'tabPanel')[1])->toBe(' Storms / Veils');
+});
 
-  expect($content->curriculum)->toBeTrue()
-    ->and($content->role)->toBe('Stormcaller')
+it('marks the role\'s curriculum quietly without a key, and opens Info only where there is a summary or description', function () {
+  masteryMenuHero($this->hero, 500);
+  $this->state->enter();
+  $content = fn() => $this->state->getPresentationContent();
+  $curriculum = array_values(array_map(static fn(MasteryMenuNode $node): string => $node->id,
+    array_filter($content()->nodes, static fn(MasteryMenuNode $node): bool => $node->curriculum)));
+
+  expect($content()->curriculum)->toBeTrue()
+    ->and($content()->role)->toBe('Stormcaller')
     ->and($curriculum)->toBe(['spark-1', 'storm'])
     // A curriculum never locks or opens anything.
-    ->and(array_find($content->nodes, static fn(MasteryMenuNode $node): bool => $node->id === 'spark-2')->state)->toBe(MasteryNodeState::LOCKED);
+    ->and(array_find($content()->nodes, static fn(MasteryMenuNode $node): bool => $node->id === 'spark-2')->state)->toBe(MasteryNodeState::LOCKED);
 
+  // A discipline's summary; Cancel closes Info before it goes back.
   masteryMenuKey($this->state, KeyCode::i);
-  expect($this->state->getPresentationContent()->info)->toBe(['A brighter spark.', 'After Spark I'])
-    ->and($this->state->getPresentationContent()->hints[array_key_last($this->state->getPresentationContent()->hints)]->label)->toBe('Close')
-    ->and(masteryMenuTerminal($this->state, 'detailPanel')[0])->toContain('A brighter spark.');
-  // Cancel closes Info before it leaves the menu.
+  expect($content()->info)->toBe(['Weather called to hand.'])
+    ->and(masteryMenuHintLabels($this->state))->toBe(['Select', 'Close'])
+    ->and(masteryMenuTerminal($this->state, 'detailPanel')[0])->toContain('Weather called to hand.');
   masteryMenuKey($this->state, KeyCode::ESCAPE);
-  expect($this->state->getPresentationContent()->info)->toBeNull()
+  expect($content()->info)->toBeNull()
+    ->and($content()->level)->toBe(MasteryMenuLevel::DISCIPLINE)
     ->and($this->returnState->entries)->toBe(0);
+
+  // A family's summary; a family without one never opens an empty sheet.
+  masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::i);
+  expect($content()->info)->toBe(['The open sky.']);
+  masteryMenuKey($this->state, KeyCode::ESCAPE, KeyCode::RIGHT, KeyCode::i);
+  expect($content()->info)->toBeNull()
+    ->and(masteryMenuHintLabels($this->state))->not->toContain('Info');
+
+  // On the tree: the foundation carries its family's summary, a skill its description and what it builds on.
+  masteryMenuKey($this->state, KeyCode::LEFT, KeyCode::ENTER);
+  new ReflectionMethod($this->state, 'setFocus')->invoke($this->state, 'sky');
+  masteryMenuKey($this->state, KeyCode::i);
+  expect($content()->info)->toBe(['The open sky.']);
+  masteryMenuKey($this->state, KeyCode::DOWN, KeyCode::DOWN);
+  expect($content()->info)->toBe(['A brighter spark.', 'After Spark I']);
+  // A curriculum skill says so beside what it is.
+  masteryMenuKey($this->state, KeyCode::UP);
+  expect($content()->selection->subtitle)->toBe('Recommended');
+  new ReflectionMethod($this->state, 'setFocus')->invoke($this->state, MasteryFamily::getHeadingId('veils'));
+  expect($content()->info)->toBeNull();
+
+  // A discipline's own nodes carry their trunk summary as a family, apart from the discipline's.
+  masteryMenuKey($this->state, KeyCode::ESCAPE, KeyCode::ESCAPE, KeyCode::RIGHT, KeyCode::i);
+  expect($content()->info)->toBeNull()
+    ->and($this->returnState->entries)->toBe(0);
+  masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::i);
+  expect($content()->info)->toBe(['Cuts and thrusts.']);
 });
 
 it('says why a skill waits, refuses it without asking, and keeps a hidden one a secret', function () {
   masteryMenuHero($this->hero, 60);
   $this->state->enter();
-  masteryMenuKey($this->state, KeyCode::DOWN);
+  masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::ENTER, KeyCode::DOWN);
   $content = $this->state->getPresentationContent();
   expect($content->selection->subtitle)->toBe('Unlocks at Lv 5 · Learn Spark I first')
     ->and($content->selection->enabled)->toBeFalse();
@@ -505,17 +685,31 @@ it('says why a skill waits, refuses it without asking, and keeps a hidden one a 
     ->and(implode(' ', [$content->selection->subtitle, ...array_column($content->footer, 'text')]))->not->toContain('Veil')->not->toContain('200');
 });
 
+it('keeps its place when the character changes, on the same level', function () {
+  $partner = new Character('Partner', 0, new Stats(), actorId: 'partner');
+  new ReflectionProperty($this->scene, 'party')->getValue($this->scene)->addMember($partner);
+  masteryMenuHero($this->hero, 500);
+  $this->state->enter();
+  masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::ENTER, KeyCode::DOWN, KeyCode::TAB);
+  $content = $this->state->getPresentationContent();
+
+  expect($content->character)->toBe($partner)
+    ->and([$content->level, $content->focus])->toBe([MasteryMenuLevel::TREE, 'spark-2']);
+});
+
 it('uses the project\'s own words and never engineering words', function () {
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['vocab' => ['menu' => ['mastery' => 'Mastery'],
     'mastery' => ['points' => 'JP', 'points_name' => 'Job Points', 'learn' => 'Study']]]));
   masteryMenuHero($this->hero, 30);
   $this->state->enter();
   // Nothing is affordable, so the board opens on the first discipline; the storms are the next tab.
-  masteryMenuKey($this->state, KeyCode::e, KeyCode::DOWN);
+  masteryMenuKey($this->state, KeyCode::RIGHT);
   $words = masteryMenuWords($this->state);
-  masteryMenuKey($this->state, KeyCode::z);
+  masteryMenuKey($this->state, KeyCode::ENTER);
   $words .= masteryMenuWords($this->state);
-  masteryMenuKey($this->state, KeyCode::z, KeyCode::i);
+  masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::DOWN);
+  $words .= masteryMenuWords($this->state);
+  masteryMenuKey($this->state, KeyCode::i);
   $words .= masteryMenuWords($this->state);
   $content = $this->state->getPresentationContent();
 
