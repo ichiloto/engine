@@ -290,6 +290,22 @@ it('counts a start waymark that leads to what sets a gate\'s flag', function () 
       $index))->toBe([]);
 });
 
+it('does not count a start waymark toward a flag set by something that does not start its quest', function () {
+  // The keeper's first page opens the gate; only the second hands over the errand, which ends the start waymark.
+  $reader = new StoryContentReader(static fn(): mixed => null, static fn(): mixed => null);
+  $index = StoryIndex::read($reader, ['home' => ['events' => [
+    ['marker' => 'D', 'class' => 'Ichiloto\\Engine\\Events\\Triggers\\TransferPlayerTrigger', 'whenBlocked' => 'Shut.',
+      'conditions' => [['type' => 'event', 'name' => 'gate_opened']], 'data' => ['destinationMap' => 'yard']],
+  ], 'npcs' => [['id' => 'keeper', 'name' => 'Keeper', 'x' => 1, 'y' => 1, 'dialogue' => [
+    ['conditions' => [['type' => 'quest', 'name' => 'errand', 'status' => 'active']], 'lines' => [['text' => 'Open it.']],
+      'sets' => [['type' => 'event', 'name' => 'gate_opened']]],
+    storyStarter('errand'),
+  ]]]]]);
+
+  expect(StoryGuidance::findUnguidedGates([storyStartQuest('errand', ['startWaymarks' => [['map' => 'home', 'npc' => 'keeper']]])],
+    $index))->toHaveCount(1);
+});
+
 it('leaves the opening to the first quest\'s start waymark, with nothing filled or reported', function () {
   $reports = [];
   $maps = ['home' => ['events' => [], 'npcs' => [['id' => 'keeper', 'name' => 'Keeper', 'x' => 1, 'y' => 1,

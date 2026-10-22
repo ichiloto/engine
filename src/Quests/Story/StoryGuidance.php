@@ -20,14 +20,18 @@ use Ichiloto\Engine\Quests\QuestWaymark;
  * take to go on needs guidance of a main quest that leads to it:
  *
  * - A gate: a story flag a main quest needs to start, or a door waits for.
- *   An objective leads to it when it tracks the flag with a waymark, and an
- *   objective or a start waymark leads to it when its waymark points at what
- *   sets the flag (an event or NPC page, or the event or map where the
- *   battle that sets it is fought).
+ *   An objective leads to it when it tracks the flag with a waymark, or when
+ *   its waymark points at what sets the flag (an event or NPC page, or the
+ *   event or map where the battle that sets it is fought).
  * - A main quest's start: what starts it (an event or NPC page, or where a
  *   battle that starts it is fought). An objective of a main quest active
- *   before it, or a start waymark (its own, or another quest's), leads to it
- *   when its waymark points there.
+ *   before it leads to it when its waymark points there.
+ *
+ * A start waymark shows only until its own quest starts, so it leads to a
+ * step through what starts its quest: it counts when it points at something
+ * that both starts its quest and takes the step. The quest's own start is
+ * the plain case; a gate's flag set where the quest is handed over is the
+ * other.
  *
  * Guidance must be able to show before the step is taken: its quest cannot
  * need the step to start, its objectives cannot belong to a quest that
@@ -119,15 +123,17 @@ final class StoryGuidance
   private static function isGuided(array $targets, Closure $waitsForStep, Closure $takesStep, Closure $tracksStep,
     array $mainQuests, StoryIndex $index): bool
   {
-    $leads = static fn(QuestWaymark $waymark, bool $tracks): bool => !$waitsForStep($waymark->conditions)
-      && ($tracks || array_any($targets, static fn(StorySource $source): bool => $source->isMarkedBy($waymark)));
+    $leads = static fn(QuestWaymark $waymark, bool $tracks, array $through): bool => !$waitsForStep($waymark->conditions)
+      && ($tracks || array_any($through, static fn(StorySource $source): bool => $source->isMarkedBy($waymark)));
     foreach ($mainQuests as $quest) {
       // A quest that needs the step shows neither its start waymarks nor its objectives before it.
       if ($waitsForStep($quest->prerequisites)) {
         continue;
       }
-      // Start waymarks show while the quest can start, so before the step even where starting it takes the step.
-      if (array_any($quest->startWaymarks, static fn(QuestWaymark $waymark): bool => $leads($waymark, false))) {
+      // Start waymarks show until the quest starts, so they lead through what starts it.
+      $id = $quest->id;
+      $startsHere = array_values(array_filter($targets, static fn(StorySource $source): bool => isset($source->effects->quests[$id])));
+      if (array_any($quest->startWaymarks, static fn(QuestWaymark $waymark): bool => $leads($waymark, false, $startsHere))) {
         return true;
       }
       // Objectives show once the quest is active, which is never before the step where it starts only there.
@@ -137,7 +143,7 @@ final class StoryGuidance
       }
       foreach ($quest->objectives as $objective) {
         $tracks = $tracksStep($objective);
-        if (array_any($objective->waymarks, static fn(QuestWaymark $waymark): bool => $leads($waymark, $tracks))) {
+        if (array_any($objective->waymarks, static fn(QuestWaymark $waymark): bool => $leads($waymark, $tracks, $targets))) {
           return true;
         }
       }

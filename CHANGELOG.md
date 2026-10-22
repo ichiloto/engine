@@ -10,7 +10,8 @@
   wayfinder from filling that step; the first main quest's leads the opening
   of a new game. `StoryGuidance::findUnguidedStarts` reports main quests
   nothing starts or nothing leads to, read from the same story index as the
-  runtime; start waymarks also count as leading to a story gate.
+  runtime. A start waymark also leads to a story gate whose flag is set by
+  what starts its quest.
 - The optional v2 renderer capability `canvas_stroke_dashes`: a composite
   stroke may carry `dash` (`length`, `gap`) and is drawn dashed as one
   operation. The Engine offers it to every v2 renderer and sends dashes only

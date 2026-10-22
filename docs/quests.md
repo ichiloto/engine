@@ -161,14 +161,16 @@ and through battles: a `start_battle` command, or a map's encounters, can do
 whatever that troop's event pages do. The Editor's story guidance check reads
 the same index (`Quests\Story\StoryGuidance`). It warns where a main quest's
 flag prerequisite, or a `whenBlocked` door's flag, has nothing that sets it,
-or no guidance of a main quest leading to what does: an objective tracking the
-flag, or an objective's or a start waymark's waymark on what sets it. It also
-warns where nothing starts a main quest, or nothing leads to what does: an
-objective of a main quest active before it, or a start waymark (the quest's
-own, or another main quest's that can start then). Guidance only counts when
-it can show before the step: its quest cannot need the step, an objective
-cannot belong to a quest that starts only where the step is taken, and a
-waymark cannot wait for the step.
+or no objective of a main quest leading to it: one tracking the flag, or one
+whose waymark points at what sets it. It also warns where nothing starts a
+main quest, or nothing leads to what does: an objective of a main quest active
+before it, or the quest's own start waymark. A start waymark shows only until
+its quest starts, so it leads to a step through what starts its quest: it
+counts when it points at something that both starts its quest and takes the
+step (a gate's flag set where the quest is handed over, say). Guidance only
+counts when it can show before the step: its quest cannot need the step, an
+objective cannot belong to a quest that starts only where the step is taken,
+and a waymark cannot wait for the step.
 
 ### On the field, the local map and the world map
 
