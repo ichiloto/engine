@@ -26,7 +26,8 @@ final readonly class MasteryTheme
    * @param array<string, list<int>> $regionColors RGB triples by region id.
    * @param int $nodeDiameter A node's disc, in pixels.
    * @param int $laneWidth The width of one board lane, in pixels.
-   * @param int $stageSpacing The height of one board stage, in pixels.
+   * @param int $stageSpacing The height of one board stage, in pixels. The default lets the board frame three stages of named
+   *   places whole: the focus, what it hangs from and what hangs from it (MasteryBoardView).
    * @param int $portraitWidth The corner block's portrait width.
    * @param int $portraitHeight The corner block's portrait height.
    * @param list<int> $titleCell Text cell width and height of the screen title.
@@ -40,7 +41,7 @@ final readonly class MasteryTheme
     array $regionColors = [],
     public int $nodeDiameter = 68,
     public int $laneWidth = 200,
-    public int $stageSpacing = 150,
+    public int $stageSpacing = 132,
     public int $portraitWidth = 270,
     public int $portraitHeight = 330,
     public array $titleCell = [16, 34],

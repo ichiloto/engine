@@ -77,6 +77,21 @@
 
 ### Changed
 
+- The drawn Magi Arts (Mastery) board keeps the open Info sheet in a band at
+  the top of the board's area and draws the tree or the family cards in the
+  rest, so the sheet no longer covers the focus, what it hangs from or the
+  line between them. The camera frames whole rows measured with each place's
+  focus rings, badge and name: the focus with what it hangs from and what
+  hangs from it, else the focus and what it hangs from, else the focus alone.
+  Lines leaving a row run across below its names. `MasteryBoardView` owns this
+  layout and `MasteryMenuPresentation::layoutBoard()` returns it. The default
+  `stageSpacing` is 132 (was 150), so three stages of named places fit.
+- Removed: places that do not fit wholly in the board's view are no longer
+  drawn cut at its edges; the lines to them run off the edge. With Info open,
+  the discipline's name above the family cards is not drawn (the sheet stands
+  there), the cards follow the focused card's row when fewer rows fit, and an
+  Info text too long to leave the focus and what it hangs from in view ends
+  its last shown line with an ellipsis.
 - The terminal battle's troop zone starts at column 3, so the focus marker
   two cells left of a troop sprite stays inside the border.
   `TerminalBattleEffects::getTroopPlaceProblems()` names what an authored troop
