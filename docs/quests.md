@@ -106,6 +106,38 @@ Every active quest contributes, side quests included. Waymarks are derived
 from the quest log and world state each time they are drawn, so they are
 right straight after a load or a long break and add nothing to saves.
 
+### When no objective leads: the story wayfinder
+
+The player must never be left without a waymark on the story path. Authored
+objectives are the guidance; `Quests\Story\StoryWayfinder` only fills a gap.
+While any objective of an active main quest shows a waymark it adds nothing.
+When none does, it leads to what takes the next step:
+
+- With a main quest active, each unfinished objective: what sets its `flag`,
+  the map of a `reach_map`, the NPC of a `talk_to`, or what starts a battle
+  with the enemy of a `defeat`. A `collect` objective is not resolved.
+- With none active, each main quest one step away: what starts it once its
+  prerequisites hold, or what sets the story flags it still needs. A quest
+  still waiting on another quest, or on anything but story flags, is further
+  on.
+
+Only what the player can set off now counts: an event or the NPC page talking
+would run, as its map authors it, never a finished one-shot. When nothing
+resolves it shows nothing rather than guess. Every fill, and every gap it
+cannot fill, is written once per session to `logs/warning.log`, so the gap is
+closed with an authored objective rather than relied on. A filled waymark's
+text is the `quest.story_waymark` message ("Continue the story") when it leads
+to a quest's start, and the objective's text otherwise.
+
+What leads where comes from `Quests\Story\StoryIndex`: every map's events,
+NPC pages and random encounters, with what each can do (story flags set and
+quests started) through its commands, `sets`, event scripts and cinematics,
+and through battles: a `start_battle` command, or a map's encounters, can do
+whatever that troop's event pages do. The Editor's story guidance check reads
+the same index (`Quests\Story\StoryGuidance`): it warns where a main quest's
+flag prerequisite, or a `whenBlocked` door's flag, has no objective of a main
+quest leading to it, or nothing that sets it.
+
 ### On the field, the local map and the world map
 
 `GameScene::getFieldWaymarks()` resolves the current waymarks for the active

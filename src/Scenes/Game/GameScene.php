@@ -63,11 +63,14 @@ use Ichiloto\Engine\Progress\AchievementManager;
 use Ichiloto\Engine\Progress\Bestiary;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Field\MapRoute;
+use Ichiloto\Engine\Field\MapSubjectGates;
 use Ichiloto\Engine\Field\Waymarks\FieldWaymark;
 use Ichiloto\Engine\Field\Waymarks\FieldWaymarkResolver;
 use Ichiloto\Engine\Field\Waymarks\FieldWaymarkTerminalPresenter;
 use Ichiloto\Engine\Field\Waymarks\LiveFieldWaymarkLocator;
 use Ichiloto\Engine\Quests\ActiveQuestWaymark;
+use Ichiloto\Engine\Quests\Story\StoryIndex;
+use Ichiloto\Engine\Quests\Story\StoryWayfinder;
 use Ichiloto\Engine\Quests\QuestWaymarkSubject;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgress;
@@ -132,6 +135,8 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     /** @var list<string> Sprite identities fixed to the screen, not camera follow. */
     private array $fieldEdgeSpriteIds = [];
     private ?FieldWaymarkTerminalPresenter $waymarkPresenter = null;
+    /** Leads on the story path where no authored objective does. */
+    private ?StoryWayfinder $storyWayfinder = null;
 
     /** Attach an isolated host's presentation selection without acquiring runtime input, UI or a renderer process. */
     public function setPresentationContext(?ScenePresentationContext $context): void
@@ -450,22 +455,30 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
      * The quest waymarks to follow now: those of incomplete objectives whose
      * own conditions hold, and whose event or NPC is there to be used as its
      * map authors it (an event's conditions and cue, an NPC's presence).
+     * Where none of them leads on the story path, the story wayfinder adds
+     * what takes the next step ({@see StoryWayfinder}).
      *
      * @return list<ActiveQuestWaymark>
      */
     public function getActiveWaymarks(): array
     {
         $active = $this->questManager?->getActiveWaymarks() ?? [];
-        if ($this->mapManager === null || !array_any($active, static fn(ActiveQuestWaymark $entry): bool
-            => in_array($entry->waymark->subject, [QuestWaymarkSubject::EVENT, QuestWaymarkSubject::NPC], true))) {
+        if ($this->mapManager === null || $this->questManager === null) {
             return $active;
         }
-        $gates = $this->mapManager->getProjectMapIndex()->gates;
-        return array_values(array_filter($active, fn(ActiveQuestWaymark $entry): bool => match ($entry->waymark->subject) {
-            QuestWaymarkSubject::EVENT => $gates->allowsEvent($entry->waymark->map, $entry->waymark->subjectId, $this->gameState, $this->party),
-            QuestWaymarkSubject::NPC => $gates->allowsNpc($entry->waymark->map, $entry->waymark->subjectId, $this->gameState, $this->party),
-            default => true,
-        }));
+        if (array_any($active, static fn(ActiveQuestWaymark $entry): bool
+            => in_array($entry->waymark->subject, [QuestWaymarkSubject::EVENT, QuestWaymarkSubject::NPC], true))) {
+            $gates = $this->mapManager->getProjectMapIndex()->gates;
+            $active = array_values(array_filter($active, fn(ActiveQuestWaymark $entry): bool => match ($entry->waymark->subject) {
+                QuestWaymarkSubject::EVENT => $gates->allowsEvent($entry->waymark->map, $entry->waymark->subjectId, $this->gameState, $this->party),
+                QuestWaymarkSubject::NPC => $gates->allowsNpc($entry->waymark->map, $entry->waymark->subjectId, $this->gameState, $this->party),
+                default => true,
+            }));
+        }
+        $this->storyWayfinder ??= new StoryWayfinder(fn(): StoryIndex => $this->mapManager->getStoryIndex(),
+            fn(): MapSubjectGates => $this->mapManager->getProjectMapIndex()->gates);
+        return [...$active, ...$this->storyWayfinder->findGapWaymarks($active, $this->questManager->quests,
+            $this->questManager->log, $this->gameState, $this->party)];
     }
 
     /**

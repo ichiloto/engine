@@ -24,6 +24,7 @@ use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
+use Ichiloto\Engine\Quests\Story\StoryIndex;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
@@ -51,6 +52,7 @@ class MapManager implements CanRenderAt
   public private(set) ?MapAtlasDefinition $atlasDefinition = null;
   private ?array $lastKnowledgePosition = null;
   private ?ProjectMapIndex $projectMapIndex = null;
+  private ?StoryIndex $storyIndex = null;
   private ?PresentationWorld $presentationWorld = null;
   private ?bool $presentationWorldPolicy = null;
   /** @var array<string, WorldObject> Installed subjects, never saved or used for collision. */
@@ -996,6 +998,12 @@ class MapManager implements CanRenderAt
   public function getProjectMapIndex(): ProjectMapIndex
   {
     return $this->projectMapIndex ??= ProjectMapIndex::scan($this->getAssetRoot());
+  }
+
+  /** What leads to each step of the story, read once from the project when the wayfinder first needs it. */
+  public function getStoryIndex(): StoryIndex
+  {
+    return $this->storyIndex ??= StoryIndex::scan($this->getAssetRoot());
   }
 
   /** The project's asset root, where tilesets and their sheets live. */
