@@ -21,8 +21,12 @@ use InvalidArgumentException;
  * - a full phase builds on the demi phase it extends.
  *
  * A step the branch does not have is skipped (a branch without a foundation
- * starts at its first grade). Nodes on a region's trunk build on nothing.
- * A node's own `requires` add to its chain step.
+ * starts at its first grade). A branch that grows within another continues
+ * that branch's chain: where it has no foundation of its own to build on,
+ * its nodes build on the foundation of the branch it grows within (or of
+ * that branch's own outer branch), and its own foundation builds on that
+ * foundation too. Nodes on a region's trunk build on nothing. A node's own
+ * `requires` add to its chain step.
  *
  * @package Ichiloto\Engine\Progression\Mastery
  */
@@ -36,7 +40,8 @@ final readonly class MasteryTree
   /**
    * @param list<MasteryRegion> $regions The regions, in the order maps show them.
    * @param list<MasteryBranch> $branches The branches, in the order their regions list them.
-   * @throws InvalidArgumentException When ids repeat, a branch's region or a required node is unknown, a skill is taught twice, or requirements loop.
+   * @throws InvalidArgumentException When ids repeat, a branch's region, outer branch or a required node is unknown, a branch grows within
+   *   one of another region or within itself through others, a skill is taught twice, or requirements loop.
    */
   public function __construct(public array $regions = [], array $branches = [])
   {
@@ -56,6 +61,19 @@ final readonly class MasteryTree
         throw new InvalidArgumentException(sprintf('Mastery branch %s is declared twice.', $branch->id));
       }
       $byBranch[$branch->id] = $branch;
+    }
+    foreach ($byBranch as $branch) {
+      $seen = [$branch->id];
+      for ($outer = $branch; $outer->within !== null; $outer = $byBranch[$outer->within]) {
+        $next = $byBranch[$outer->within] ?? throw new InvalidArgumentException(sprintf('Mastery branch %s grows within unknown branch "%s".', $outer->id, $outer->within));
+        if ($next->region !== $outer->region) {
+          throw new InvalidArgumentException(sprintf('Mastery branch %s grows within %s, which is in another region.', $outer->id, $next->id));
+        }
+        if (in_array($next->id, $seen, true)) {
+          throw new InvalidArgumentException(sprintf('Mastery branches grow within each other in a loop: %s.', implode(' -> ', [...$seen, $next->id])));
+        }
+        $seen[] = $next->id;
+      }
     }
     $nodes = [];
     $skills = [];
@@ -128,6 +146,12 @@ final readonly class MasteryTree
     return null;
   }
 
+  /** The branch a branch grows within, if it grows within one. */
+  public function findOuterBranch(MasteryBranch $branch): ?MasteryBranch
+  {
+    return $branch->within === null ? null : $this->branches[$branch->within] ?? null;
+  }
+
   /** The step before a node in its branch's chain, if it has one. */
   public function findChainPredecessor(MasteryNodeDefinition $node): ?MasteryNodeDefinition
   {
@@ -135,15 +159,22 @@ final readonly class MasteryTree
     if ($branch === null) {
       return null;
     }
-    $foundation = $branch->findFoundation();
+    $outer = $this->findOuterBranch($branch);
+    $foundation = $branch->findFoundation() ?? $this->findGrowingFoundation($outer);
 
     return match (true) {
-      $node->kind === MasteryNodeKind::FOUNDATION => null,
+      $node->kind === MasteryNodeKind::FOUNDATION => $this->findGrowingFoundation($outer),
       $node->extends !== null => $this->nodes[$node->extends] ?? null,
       $node->grade !== null && $node->grade > 1 => $branch->findGrade($node->grade - 1),
       $node->kind === MasteryNodeKind::ADVANCED => $branch->findHighestGrade() ?? $foundation,
       default => $foundation,
     };
+  }
+
+  /** The foundation a branch's chain grows from: its own, or else that of the branch it grows within. */
+  private function findGrowingFoundation(?MasteryBranch $branch): ?MasteryNodeDefinition
+  {
+    return $branch === null ? null : $branch->findFoundation() ?? $this->findGrowingFoundation($this->findOuterBranch($branch));
   }
 
   /**

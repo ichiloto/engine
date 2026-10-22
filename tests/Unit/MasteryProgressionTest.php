@@ -236,7 +236,36 @@ it('refuses a tree that teaches a skill twice, repeats a node, grows a branch fr
   'element branch without its element' => [['regions' => [['id' => 'r']], 'branches' => [['id' => 'x', 'region' => 'r', 'kind' => 'element']]], 'names its element'],
   'unnamed foundation' => [['regions' => [['id' => 'r']], 'branches' => [['id' => 'x', 'region' => 'r', 'kind' => 'aspect', 'nodes' => [
     ['id' => 'f', 'kind' => 'foundation']]]]], 'needs a name'],
+  'branch within an unknown branch' => [['regions' => [['id' => 'r']], 'branches' => [['id' => 'x', 'region' => 'r', 'kind' => 'aspect', 'within' => 'y']]],
+    'grows within unknown branch "y"'],
+  'branch within itself' => [['regions' => [['id' => 'r']], 'branches' => [['id' => 'x', 'region' => 'r', 'kind' => 'aspect', 'within' => 'x']]],
+    'must grow within another branch'],
+  'branches within each other' => [['regions' => [['id' => 'r']], 'branches' => [['id' => 'x', 'region' => 'r', 'kind' => 'aspect', 'within' => 'y'],
+    ['id' => 'y', 'region' => 'r', 'kind' => 'aspect', 'within' => 'x']]], 'in a loop'],
+  'branch within another region\'s branch' => [['regions' => [['id' => 'r'], ['id' => 's']], 'branches' => [
+    ['id' => 'x', 'region' => 'r', 'kind' => 'aspect', 'within' => 'y'], ['id' => 'y', 'region' => 's', 'kind' => 'aspect']]], 'in another region'],
 ]);
+
+it('continues the chain of the branch a branch grows within, and leaves the chain alone where that branch has no foundation', function () {
+  $tree = MasteryTree::fromArray(['regions' => [['id' => 'arts', 'name' => 'Arts']], 'branches' => [
+    ['id' => 'flame', 'region' => 'arts', 'name' => 'Flame', 'kind' => 'element', 'element' => 'Flame', 'nodes' => [
+      ['id' => 'flame', 'kind' => 'foundation', 'name' => 'Flame'], ['id' => 'singe', 'kind' => 'application', 'grade' => 1, 'skill' => 'Singe']]],
+    // Within a branch with a foundation: its own foundation, and the steps of a sub-branch without one, grow from it.
+    ['id' => 'ember', 'region' => 'arts', 'name' => 'Ember', 'kind' => 'aspect', 'within' => 'flame', 'nodes' => [
+      ['id' => 'ember', 'kind' => 'foundation', 'name' => 'Ember'], ['id' => 'glow', 'kind' => 'application', 'skill' => 'Glow']]],
+    ['id' => 'ash', 'region' => 'arts', 'name' => 'Ash', 'kind' => 'aspect', 'within' => 'ember', 'nodes' => [
+      ['id' => 'soot', 'kind' => 'application', 'skill' => 'Soot'], ['id' => 'cinder', 'kind' => 'advanced', 'skill' => 'Cinder']]],
+    // Within a branch without a foundation, nothing changes: its steps build on nothing, as they would on their own.
+    ['id' => 'odd', 'region' => 'arts', 'name' => 'Odd', 'kind' => 'non-elemental', 'nodes' => [['id' => 'quirk', 'kind' => 'application', 'skill' => 'Quirk']]],
+    ['id' => 'hours', 'region' => 'arts', 'name' => 'Hours', 'kind' => 'non-elemental', 'within' => 'odd', 'nodes' => [
+      ['id' => 'hasten', 'kind' => 'application', 'skill' => 'Hasten'], ['id' => 'skip', 'kind' => 'advanced', 'skill' => 'Skip']]],
+  ]]);
+
+  expect(array_map(static fn($node): array => $tree->getRequirements($node), $tree->nodes))->toBe(['flame' => [], 'singe' => ['flame'],
+    'ember' => ['flame'], 'glow' => ['ember'], 'soot' => ['ember'], 'cinder' => ['ember'], 'quirk' => [], 'hasten' => [], 'skip' => []])
+    ->and($tree->branches['hours']->within)->toBe('odd')
+    ->and($tree->findOuterBranch($tree->branches['ash']))->toBe($tree->branches['ember']);
+});
 
 it('chains a branch from its foundation up its grades to its advanced applications, and a full phase from its demi phase', function () {
   [$tree] = masteryBranchFixture();

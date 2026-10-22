@@ -10,16 +10,22 @@ use InvalidArgumentException;
  * kinds of its nodes make its chain (see MasteryTree::findChainPredecessor);
  * the list's order is the order menus and editors show them in.
  *
+ * A branch may grow within another branch of its region, as a sub-family of
+ * that branch's family (a game might hold Time within Non-elemental). Its
+ * nodes keep their own ids, so moving a branch in or out of another never
+ * changes what a save records.
+ *
  * @package Ichiloto\Engine\Progression\Mastery
  */
 final readonly class MasteryBranch
 {
   /** The keys a branch's data may hold. */
-  public const array KEYS = ['id', 'region', 'name', 'kind', 'element', 'description', 'nodes'];
+  public const array KEYS = ['id', 'region', 'name', 'kind', 'element', 'description', 'within', 'nodes'];
 
   /**
    * @param list<MasteryNodeDefinition> $nodes Its nodes, in the order they progress.
    * @param string|null $element The project element an element branch practises.
+   * @param string|null $within The branch of the same region it grows within, by id; null when it grows from the region itself.
    * @throws InvalidArgumentException When its ladder or chain cannot be read.
    */
   public function __construct(
@@ -30,10 +36,14 @@ final readonly class MasteryBranch
     public array $nodes = [],
     public ?string $element = null,
     public string $description = '',
+    public ?string $within = null,
   )
   {
     if (trim($id) === '' || $id !== trim($id)) {
       throw new InvalidArgumentException('A mastery branch needs an id without surrounding spaces.');
+    }
+    if ($within !== null && (trim($within) === '' || $within !== trim($within) || $within === $id)) {
+      throw new InvalidArgumentException(sprintf('Mastery branch %s must grow within another branch, named by its id.', $id));
     }
     if (($kind === MasteryBranchKind::ELEMENT) !== ($element !== null && trim($element) !== '')) {
       throw new InvalidArgumentException(sprintf('Mastery branch %s: an element branch names its element, and no other branch does.', $id));
@@ -84,6 +94,9 @@ final readonly class MasteryBranch
         throw new InvalidArgumentException(sprintf('Mastery branch %s has unknown key "%s".', $id, $key));
       }
     }
+    if (array_key_exists('within', $data) && ! is_string($data['within'])) {
+      throw new InvalidArgumentException(sprintf('Mastery branch %s within must name a branch by its id.', $id));
+    }
     $kind = MasteryBranchKind::tryFrom(strval($data['kind'] ?? '')) ?? throw new InvalidArgumentException(sprintf(
       'Mastery branch %s kind must be one of %s.', $id, implode(', ', array_column(MasteryBranchKind::cases(), 'value'))));
     $region = strval($data['region'] ?? '');
@@ -100,6 +113,7 @@ final readonly class MasteryBranch
       array_map(static fn(mixed $node): MasteryNodeDefinition => MasteryNodeDefinition::fromArray(is_array($node) ? $node : [], $region, $id), $nodes),
       isset($data['element']) ? strval($data['element']) : null,
       strval($data['description'] ?? ''),
+      $data['within'] ?? null,
     );
   }
 

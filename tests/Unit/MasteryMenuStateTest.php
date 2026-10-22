@@ -667,6 +667,43 @@ it('marks the role\'s curriculum quietly without a key, and opens Info only wher
   expect($content()->info)->toBe(['Cuts and thrusts.']);
 });
 
+it('shows a sub-family inside its family\'s tree, under its own name, summary, count and picture, in both renderers', function () {
+  // Hours grows within Veils: its own heading and skill sit in the Veils tree, and Storms still lists two families.
+  file_put_contents($this->root . '/assets/Data/Skills/0007.php', '<?php return ' . var_export(['class' => \Ichiloto\Engine\Entities\Skills\Skill::class,
+    'data' => SkillRecord::writeSkill(new MagicSkill('Hasten', 'Hurries one ally.', '', 6, 0, effects: [new HPDamageSkillEffect('1')]))], true) . ';');
+  $tree = require $this->root . '/assets/Data/mastery.php';
+  $tree['branches'][] = ['id' => 'hours', 'region' => 'storms', 'name' => 'Hours', 'kind' => 'non-elemental', 'within' => 'veils',
+    'description' => 'Time hurried or held.', 'nodes' => [['id' => 'hasten', 'kind' => 'application', 'skill' => 'Hasten', 'cost' => 40]]];
+  file_put_contents($this->root . '/assets/Data/mastery.php', '<?php return ' . var_export($tree, true) . ';');
+  MasteryCatalog::forgetProjectCatalogs();
+  masteryMenuHero($this->hero, 500);
+  $this->state->enter();
+  $content = fn() => $this->state->getPresentationContent();
+  $heading = MasteryFamily::getHeadingId('hours');
+  $node = static fn(string $id): MasteryMenuNode => array_find($content()->nodes, static fn(MasteryMenuNode $node): bool => $node->id === $id);
+
+  expect(array_map(static fn($tab) => [$tab->name, $tab->describeCount()], $content()->families))->toBe([['Sky', '0/4'], ['Veils', '0/3']])
+    ->and([$node($heading)->label, $node($heading)->family, $node($heading)->parent])->toBe(['Hours', 'veils', MasteryFamily::getHeadingId('veils')])
+    ->and([$node($heading)->heads?->name, $node($heading)->isFamilyTop(), $node('veil')->isFamilyTop()])->toBe(['Hours', true, false])
+    ->and($node('hasten')->iconRoles)->toBe(['mastery.node.hasten', 'mastery.family.hours', 'mastery.family.veils', 'mastery.node']);
+
+  // On the tree, its heading names the family it grows within, counts and summarises only itself.
+  masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::RIGHT, KeyCode::ENTER);
+  new ReflectionMethod($this->state, 'setFocus')->invoke($this->state, $heading);
+  masteryMenuKey($this->state, KeyCode::i);
+  expect([$content()->selection->name, $content()->selection->subtitle])->toBe(['Hours', 'Veils'])
+    ->and(array_column($content()->footer, 'text'))->toBe(['0 / 1 learned'])
+    ->and($content()->info)->toBe(['Time hurried or held.'])
+    ->and($content()->familyIndex)->toBe(1);
+  masteryMenuKey($this->state, KeyCode::ESCAPE);
+
+  // The Terminal lists it in its family's list, its top row carrying its own count.
+  $rows = array_values(array_filter(masteryMenuTerminal($this->state, 'listPanel'), static fn(string $line): bool => trim($line) !== ''));
+  expect(array_map(static fn(string $row): string => preg_replace('/\s+/', ' ', trim($row)), array_slice($rows, 0, 5)))
+    ->toBe(['Veils 0 / 3 learned', '??? ???', 'Gale Unavailable', 'Hours 0 / 1 learned', 'Hasten 40 SP'])
+    ->and(masteryMenuTerminal($this->state, 'tabPanel')[1])->toBe(' Storms / Veils');
+});
+
 it('says why a skill waits, refuses it without asking, and keeps a hidden one a secret', function () {
   masteryMenuHero($this->hero, 60);
   $this->state->enter();
