@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\MagicMenu\Windows\MagicListPanel;
 use Ichiloto\Engine\Core\Menu\MagicMenu\Windows\MagicTabPanel;
@@ -136,6 +137,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
 
     public function execute(?SceneStateContext $context = null): void
     {
+        $this->syncCounterTick();
         $this->syncInfoSelection();
         if ($this->handleMenuInfoInput($this->getDescription(), $this->statusMessage,
             max(1, ($this->infoPanel?->getContentWidth() ?? self::MENU_WIDTH - 2) - 2))) {
@@ -189,6 +191,27 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $this->exit();
     }
 
+    public function exit(): void
+    {
+        // A closed menu shows no count, so it holds no tick.
+        AudioManager::getCurrentInstance()?->counterSound->releaseTick($this);
+    }
+
+    /**
+     * Holds the shared counter tick on each frame a drawn SP total is counting down,
+     * and releases it once the count ends or nothing draws it (the Terminal and reduced
+     * motion show the new total at once). See docs/audio.md.
+     */
+    protected function syncCounterTick(): void
+    {
+        $counter = AudioManager::getCurrentInstance()?->counterSound;
+        if ($this->isMenuCanvasShown && $this->pointsCount?->isCountingAt($this->getPresentationTime()) === true) {
+            $counter?->holdTick($this);
+        } else {
+            $counter?->releaseTick($this);
+        }
+    }
+
     /**
      * Asks the player to confirm spending the focused skill's price, then
      * learns it at once; says why not when it cannot be learned.
@@ -219,6 +242,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             // The total counts down where motion is shown; the Terminal and reduced motion show the new total at once.
             $this->pointsCount = Accessibility::prefersReducedMotion() ? null
                 : new MasteryPointsCount($before, $character->mastery->points, $this->getPresentationTime());
+            $this->syncCounterTick();
             $this->statusMessage = sprintf('%s learned %s!', $character->name,
                 implode(', ', array_map(static fn(Skill $skill): string => $skill->name, $advance->learned)));
         } catch (MasteryRefusal $refusal) {
@@ -262,6 +286,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $this->character = $characters[wrap(($current === false ? 0 : $current) + $offset, 0, count($characters) - 1)];
         $this->statusMessage = null;
         $this->pointsCount = null;
+        $this->syncCounterTick();
         $this->nodeIndexes = [];
         $this->normalizeFocus();
         $this->refreshUI();

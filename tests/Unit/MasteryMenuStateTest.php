@@ -28,6 +28,7 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Modal\ModalManager;
+use Ichiloto\Engine\UI\Presentation\MasteryPointsCount;
 use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
@@ -255,6 +256,55 @@ it('shows the new total at once under reduced motion', function () {
   expect($this->hero->mastery->points)->toBe(10)
     ->and($content->pointsCount)->toBeNull()
     ->and($content->getPointsText(0))->toBe('SP 10');
+});
+
+it('ticks the shared counter only while a drawn SP total counts down, and stops when it lands, is not drawn or closes', function () {
+  $manager = makeCounterTickManager();
+  new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, $manager);
+  $drawn = new ReflectionProperty($this->state, 'isMenuCanvasShown');
+  $clock = new ReflectionProperty($this->state, 'menuPresentationStart');
+  // Moves the menu's presentation clock on by some seconds, as frames passing would.
+  $advance = fn(float $seconds) => $clock->setValue($this->state, $clock->getValue($this->state) - $seconds);
+  $frame = function () use ($manager): void {
+    $this->state->execute();
+    $manager->update();
+  };
+  masteryMenuHero($this->hero, 300);
+  masteryMenuAnswers(true);
+  $this->state->enter();
+  $drawn->setValue($this->state, true);
+
+  // On a graphical canvas the tick sounds while the total counts down, and stops once it lands.
+  masteryMenuKey($this->state, KeyCode::ENTER);
+  $manager->update();
+  expect($this->hero->mastery->points)->toBe(250)
+    ->and($manager->counterSound->isPlaying)->toBeTrue()
+    ->and($manager->spawnedCommands)->toHaveCount(1);
+  $advance(0.2);
+  $frame();
+  expect($manager->counterSound->isPlaying)->toBeTrue();
+  $advance(MasteryPointsCount::DURATION);
+  $frame();
+  expect($manager->counterSound->isPlaying)->toBeFalse()
+    ->and($manager->spawnedPlaybacks[0]->isRunning)->toBeFalse();
+
+  // A frame that draws no count (the Terminal, or a canvas that degraded to it) plays no tick.
+  masteryMenuKey($this->state, KeyCode::DOWN);
+  masteryMenuKey($this->state, KeyCode::ENTER);
+  expect($this->hero->mastery->points)->toBe(170)
+    ->and($manager->counterSound->isPlaying)->toBeTrue();
+  $drawn->setValue($this->state, false);
+  $frame();
+  expect($manager->counterSound->isPlaying)->toBeFalse();
+
+  // Closing the menu mid-count stops the tick at once.
+  $drawn->setValue($this->state, true);
+  $frame();
+  expect($manager->counterSound->isPlaying)->toBeTrue();
+  $this->state->exit();
+  expect($manager->counterSound->isPlaying)->toBeFalse()
+    ->and($manager->spawnedCommands)->toHaveCount(3);
+  $manager->shutdown();
 });
 
 it('says Not enough SP for a skill that costs more than the total, and refuses it without asking', function () {

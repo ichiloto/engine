@@ -29,4 +29,10 @@ final readonly class MasteryPointsCount
 
     return (int)round($this->from + ($this->to - $this->from) * $progress);
   }
+
+  /** Whether the shown total is still moving at a moment on the presentation clock. */
+  public function isCountingAt(float $time): bool
+  {
+    return $this->from !== $this->to && $time >= $this->startedAt && $time < $this->startedAt + self::DURATION;
+  }
 }

@@ -237,8 +237,13 @@ playing. Counts that do not animate (the terminal projection, reduced motion)
 show their final value and never hold the tick.
 
 Battle results hold it while their EXP gauges visibly count
-(`BattleResultsPlayback::$isCounting`). A new counting presentation adopts the
-same two calls rather than playing or stopping the sound itself.
+(`BattleResultsPlayback::$isCounting`). The Mastery menu holds it while a
+spend's SP total counts down on its graphical canvas
+(`MasteryPointsCount::isCountingAt()`, checked from the menu's own update and
+only on frames where `MenuCanvasState::$isMenuCanvasShown`), and releases it
+when the count ends, the character changes or the menu closes. A new counting
+presentation adopts the same two calls rather than playing or stopping the
+sound itself.
 
 ## Direct playback (custom systems)
 

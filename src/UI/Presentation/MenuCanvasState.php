@@ -21,6 +21,13 @@ trait MenuCanvasState
   private ?string $menuPresentationError = null;
   private ?MenuInfoText $infoText = null;
 
+  /**
+   * Whether the latest frame drew this menu on a graphical canvas. The Terminal, and a
+   * presentation that degraded to it, never does, so motion only that canvas shows (a
+   * count moving, and its sound) belongs to frames where this is true.
+   */
+  public private(set) bool $isMenuCanvasShown = false;
+
   public MenuInfoText $menuInfoText
   {
     get => $this->infoText ??= new MenuInfoText();
@@ -41,10 +48,18 @@ trait MenuCanvasState
     $this->menuThemeLoaded = false;
     $this->menuPresentationStart = hrtime(true) / 1e9;
     $this->menuPresentationError = null;
+    $this->isMenuCanvasShown = false;
     $this->infoText?->reset();
   }
 
   public function getPresentationCanvas(): ?PresentationCanvas
+  {
+    $canvas = $this->composePresentationCanvas();
+    $this->isMenuCanvasShown = $canvas !== null;
+    return $canvas;
+  }
+
+  private function composePresentationCanvas(): ?PresentationCanvas
   {
     $game = $this->getGameScene()->getGame();
     $runtime = $game->getRendererRuntime();
