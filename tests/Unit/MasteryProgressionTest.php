@@ -308,7 +308,12 @@ it('reads a draft skill record without guessing what awaits its author, and refu
     ->and($catalog->findDraft('Inferno'))->toBe($draft)
     ->and(fn() => SkillRecord::readSkill($data))->toThrow(InvalidArgumentException::class, 'draft')
     ->and(fn() => SkillDraft::fromArray([...$data, 'cost' => 9]))->toThrow(InvalidArgumentException::class, 'leave it out')
-    ->and(fn() => SkillDraft::fromArray([...$data, 'unassigned' => ['icon']]))->toThrow(InvalidArgumentException::class, 'cannot await');
+    ->and(fn() => SkillDraft::fromArray([...$data, 'unassigned' => ['icon']]))->toThrow(InvalidArgumentException::class, 'cannot await')
+    // Only the spread awaiting its author: the record stays a draft rather than taking the Engine's default spread.
+    ->and(SkillDraft::fromArray([...$data, 'cost' => 9, 'effects' => [['type' => 'hp_damage', 'formula' => '1', 'element' => 'Flame']],
+      'unassigned' => ['effects.0.variance']])->unassigned)->toBe(['effects.0.variance'])
+    ->and(fn() => SkillDraft::fromArray([...$data, 'cost' => 9, 'effects' => [['type' => 'hp_damage', 'formula' => '1', 'variance' => 0.1]],
+      'unassigned' => ['effects.0.variance']]))->toThrow(InvalidArgumentException::class, 'leave it out');
 });
 
 it('places unplaced nodes down the middle of their region in the tree\'s order, and authored ones where the author put them', function () {
