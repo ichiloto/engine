@@ -4,6 +4,13 @@
 
 ### Added
 
+- Knowledge record types may carry an authored `label`
+  (`['id' => 'summon', 'label' => '...']`); Records shows a type by its label,
+  or its id while it has none. A subject may name the `summon` it is a record
+  of: a summon met in battle is discovered and counted like any other record,
+  and its Records detail reads that summon's Summon Info (lore, Move, Profile,
+  Resistances) through the shared `SummonInfoSheet`. A subject's `quickCard`
+  may be left empty until it is written.
 - Battle events: troops author `events` pages (conditions on turn, enemy HP,
   party member HP and world state; a `battle`, `turn` or `moment` span) that
   run the shared event interpreter over the paused battle. Battle commands

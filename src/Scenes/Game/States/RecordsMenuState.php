@@ -4,6 +4,8 @@ namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Ichiloto\Engine\Core\Menu\MagicMenu\Windows\MagicTabPanel;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
@@ -23,6 +25,7 @@ use Ichiloto\Engine\UI\Presentation\MenuDetailViewport;
 use Ichiloto\Engine\UI\Presentation\MenuDetailEntry;
 use Ichiloto\Engine\UI\Presentation\MenuDetailSheet;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\SummonInfoSheet;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Text\TextPage;
 use Ichiloto\Engine\UI\Text\TextViewport;
@@ -53,6 +56,8 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
   private TextViewport $reading;
   private string $readingKey = '';
   private ?TextPage $displayedPage = null;
+  /** @var array<string, SummonCutsceneDefinition>|null The project's summons by id, read once the menu shows a record of one. */
+  private ?array $summons = null;
 
   public static function projectHasRecords(): bool
   {
@@ -69,6 +74,7 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
     $this->reading = new TextViewport();
     $this->readingKey = '';
     $this->displayedPage = null;
+    $this->summons = null;
     $this->viewingDetail = false;
     $this->tab = AchievementManager::projectHasAchievements() ? self::TAB_ACHIEVEMENTS : self::TAB_FIELD_INDEX;
     $this->activeIndex = 0;
@@ -136,7 +142,7 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
         $rows[] = ['label' => $hidden ? '???' : trim($row->icon . ' ' . $row->name),
           'values' => [$unlocked ? 'Unlocked' : 'Locked', $hidden ? 'Secret achievement' : $row->description]];
       } else {
-        $rows[] = ['label' => $row->displayName, 'values' => [$row->family ?? $row->species ?? $row->recordType,
+        $rows[] = ['label' => $row->displayName, 'values' => [$row->family ?? $row->species ?? $this->getRecordTypeName($row),
           strtolower($knowledge->progress->depth($row->id)->name)]];
       }
     }
@@ -151,11 +157,14 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
           MenuDetailEntry::createProse($unlocked ? 'Unlocked' : 'Locked'), MenuDetailEntry::createField('Points', (string)$row->points)];
     } elseif ($row instanceof KnowledgeSubject) {
       $depth = $knowledge->progress->depth($row->id);
-      $sections = [[...self::createProse($row->displayName), ...self::createField('Type', $row->recordType),
+      $sections = [[...self::createProse($row->displayName), ...self::createField('Type', $this->getRecordTypeName($row)),
         ...self::createField('Family', $row->family ?? ''), ...self::createField('Species', $row->species ?? ''),
         MenuDetailEntry::createField('Depth', strtolower($depth->name))],
         self::createProse($depth->value >= KnowledgeDepth::OBSERVED->value && $row->deepCard !== null
           ? $row->deepCard : $row->quickCard)];
+      // A record of a summon reads that summon's own information rather than a copy of it.
+      $summon = $row->summonId === null ? null : $this->findSummon($row->summonId);
+      if ($summon !== null) { array_push($sections, ...SummonInfoSheet::createSections($summon)); }
       // Retain the owner's first earned report, including amended/withdrawn status.
       foreach ($knowledge->catalog->reportsFor($row->id) as $report) {
         $state = $knowledge->progress->reportState($row->id, $report->id);
@@ -237,6 +246,18 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
     $this->summaryPanel->render();
     $this->listPanel->render();
     $this->infoPanel->render();
+  }
+
+  /** What players see a record's type called: the project's label for it. */
+  private function getRecordTypeName(KnowledgeSubject $subject): string
+  {
+    return $this->getGameScene()->knowledge->catalog->getRecordType($subject->recordType)?->name ?? $subject->recordType;
+  }
+
+  private function findSummon(string $id): ?SummonCutsceneDefinition
+  {
+    $this->summons ??= array_column((new SummonCutsceneLibrary())->load(), null, 'id');
+    return $this->summons[$id] ?? null;
   }
 
   /** @return list<MenuDetailEntry> Authored prose may be absent. */

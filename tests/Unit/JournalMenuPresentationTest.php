@@ -493,3 +493,40 @@ it('keeps journal text and healthy artwork when a panel frame is unavailable', f
   expect($state->getPresentationContent()->detailsOpen)->toBeTrue()
     ->and($this->scene->getPresentationCanvas())->toBeInstanceOf(PresentationCanvas::class);
 })->with([false, true]);
+
+it('names record types by their authored label and reads a summon record from its Summon Info', function () {
+  $cwd = getcwd();
+  mkdir($this->root . '/assets/Cutscenes/Summons/wisp', 0777, true);
+  file_put_contents($this->root . '/assets/Cutscenes/Summons/wisp/wisp.data.php', '<?php return ' . var_export([
+    'id' => 'wisp', 'name' => 'Synthetic Wisp', 'lore' => 'Synthetic summon lore.', 'moveName' => 'Synthetic Flare',
+    'description' => 'Synthetic move description.', 'element' => 'Fire',
+  ], true) . ';');
+  file_put_contents($this->root . '/assets/Cutscenes/Summons/wisp/wisp.timeline.php', '<?php return ' . var_export([
+    'fps' => 10, 'lengthFrames' => 1, 'tracks' => [['id' => 'mark', 'type' => 'glyph', 'keyframes' => [['frame' => 0, 'duration' => 1, 'content' => '*']]]],
+  ], true) . ';');
+  $this->knowledge = new KnowledgeProgressService(new KnowledgeCatalog([
+    'recordTypes' => ['place', ['id' => 'summon', 'label' => 'Synthetic Spirits']],
+    'subjects' => [
+      ['id' => 'place.known', 'recordType' => 'place', 'displayName' => 'Known Place', 'quickCard' => 'Quick source card.'],
+      // Its card waits for its writer; the summon's own information is its body.
+      ['id' => 'summon.wisp', 'recordType' => 'summon', 'displayName' => 'Wisp', 'summon' => 'wisp', 'displayOrder' => 10],
+    ],
+  ]));
+  foreach (['place.known', 'summon.wisp'] as $id) { $this->knowledge->discoverSubject($id); }
+  new ReflectionProperty($this->scene, 'knowledge')->setValue($this->scene, $this->knowledge);
+  try {
+    chdir($this->root);
+    $state = journalMenuOwner($this, true);
+    $content = $state->getPresentationContent();
+    expect(array_column($content->rows, 'label'))->toBe(['Known Place', 'Wisp'])
+      ->and($content->rows[0]['values'][0])->toBe('place')
+      ->and($content->rows[1]['values'][0])->toBe('Synthetic Spirits');
+    journalMenuKey($state, KeyCode::DOWN);
+    $details = $state->getPresentationContent()->details;
+    expect(array_find($details->getEntries(), fn($entry) => $entry->label === 'Type')?->text)->toBe('Synthetic Spirits')
+      ->and($details->text)->toContain('Synthetic summon lore.', 'Synthetic Flare', 'Synthetic move description.')
+      ->and($details->text)->not->toContain('Quick source card.');
+  } finally {
+    chdir($cwd);
+  }
+});

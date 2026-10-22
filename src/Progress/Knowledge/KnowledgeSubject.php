@@ -10,6 +10,7 @@ final readonly class KnowledgeSubject
    * @param string[] $habitats
    * @param array<int, array{type: string, subject: string}> $relationships
    * @param string[] $observationIds
+   * @param string|null $summonId The summon this is a record of, met in battle; its Summon Info is the record's body.
    */
   public function __construct(
     public string $id,
@@ -25,6 +26,7 @@ final readonly class KnowledgeSubject
     public array $observationIds = [],
     public int $displayOrder = 0,
     public bool $hidden = false,
+    public ?string $summonId = null,
   )
   {
   }
