@@ -9,6 +9,9 @@ namespace Ichiloto\Engine\Audio\Enumerations;
  * Games opt in per sound by declaring a track for the corresponding
  * `audio.sounds.<value>` key in their project config; sounds without a
  * configured track are silent. The enum value doubles as the config key.
+ * Each sound also has its own authored volume, `audio.sound_volumes.<value>`
+ * (0 to 100, scaled by the master volume), so a dense sound can sit under
+ * the music without the game editing the file.
  *
  * @package Ichiloto\Engine\Audio\Enumerations
  */
@@ -54,6 +57,19 @@ enum SystemSound: string
    * Played when a party member gains a level.
    */
   case LEVEL_UP = 'level_up';
+  /**
+   * Loops while an on-screen number counts up or down (battle results EXP,
+   * a points countdown). The track should be a seamless loop; it plays once
+   * however many counts run together and stops when the last one ends.
+   */
+  case COUNTER = 'counter';
+
+  /** The authored volume a sound plays at when its project leaves it out. */
+  public const int DEFAULT_VOLUME = 100;
+  /** The quietest authored volume: the sound is silent. */
+  public const int MIN_VOLUME = 0;
+  /** The loudest authored volume: the sound plays at the master volume. */
+  public const int MAX_VOLUME = 100;
 
   /**
    * Returns the project config path holding this sound's track.
@@ -63,5 +79,15 @@ enum SystemSound: string
   public function getConfigPath(): string
   {
     return "audio.sounds.$this->value";
+  }
+
+  /**
+   * Returns the project config path holding this sound's authored volume.
+   *
+   * @return string The config path, e.g. "audio.sound_volumes.counter".
+   */
+  public function getVolumeConfigPath(): string
+  {
+    return "audio.sound_volumes.$this->value";
   }
 }

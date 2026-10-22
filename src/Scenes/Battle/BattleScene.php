@@ -19,6 +19,7 @@ use Ichiloto\Engine\Battle\Presentation\GraphicalBattlePresentation;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattleHud;
 use Ichiloto\Engine\Battle\Presentation\BattleHudSnapshot;
 use Ichiloto\Engine\Battle\Presentation\BattleResultsSkin;
+use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Battle\Presentation\BattleResultsPlayback;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattleResults;
 use Ichiloto\Engine\Battle\Presentation\BattlePauseSkin;
@@ -81,7 +82,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
   {
     $rewards = $this->result?->rewards;
     if ($rewards === null) { return; }
-    $this->resultsPlayback = new BattleResultsPlayback($rewards, Accessibility::prefersReducedMotion());
+    $this->resultsPlayback?->releaseCounterTick();
     $layout = $this->graphicalPresentation?->layout ?? $this->battleUiLayout;
     if ($this->resultsSkin !== null && $layout !== null) {
       $field = array_values(array_filter(BattleCanvasUiAdapter::collect($this, $layout, true),
@@ -89,6 +90,10 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
       $this->resultsBattlefield = $this->graphicalPresentation?->frame()
         ?? new PresentationCanvas($layout->width, $layout->height, textLayers: $field);
     }
+    // Only the graphical results animate their counts; the terminal projection shows final values.
+    $this->resultsPlayback = new BattleResultsPlayback($rewards, Accessibility::prefersReducedMotion(),
+      animatesCounts: $this->resultsBattlefield !== null,
+      counterSound: AudioManager::getCurrentInstance()?->counterSound);
   }
 
   /** Commands are play; openings and results are presentation; the pause menu is not play. */
@@ -103,6 +108,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
 
   public function endResults(): void
   {
+    $this->resultsPlayback?->releaseCounterTick();
     $this->resultsPlayback = null;
     $this->resultsBattlefield = null;
   }

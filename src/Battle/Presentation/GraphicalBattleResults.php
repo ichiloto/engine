@@ -136,7 +136,7 @@ final class GraphicalBattleResults
     $this->line('rewards-title', Vocabulary::getTerm('battle.rewards', 'REWARDS'), 856, 168, 414, 11, 22, 'accent');
     $this->line('summary-title', Vocabulary::getTerm('battle.summary', 'BATTLE SUMMARY'), 856, 508, 414, 11, 22, 'accent');
     $rewards = $this->playback->rewards;
-    $rows = $this->page(BattleResultsContent::partyRows($rewards), 4);
+    $rows = BattleResultsContent::getVisiblePartyRows($this->playback);
     foreach ($rows as $slot => $row) {
       $actor = $row['actor'];
       $award = $rewards->progression[$actor];

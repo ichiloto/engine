@@ -5,11 +5,21 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use InvalidArgumentException;
+use Ichiloto\Engine\Audio\CounterSound;
 use Ichiloto\Engine\Localization\Vocabulary;
 
-/** Presentation clock only. Outcomes are already committed; no character is read or written. */
+/**
+ * Presentation clock only. Outcomes are already committed; no character is read or written.
+ * While the EXP gauges visibly count, it holds the shared counter tick; it releases it when
+ * the count finishes, is completed early, or the results close.
+ */
 final class BattleResultsPlayback
 {
+  /** When the EXP gauges begin counting on the primary page, and how long the count spans. */
+  private const COUNT_DELAY = 0.9;
+  private const COUNT_DURATION = 1.3;
+  /** The share of each threshold segment spent moving; the rest holds a full gauge. */
+  private const COUNT_SEGMENT_MOTION = 0.85;
   private const REARM = 0.08;
   private const TRANSITION = 0.32;
   private const EXIT = 0.42;
@@ -28,7 +38,39 @@ final class BattleResultsPlayback
   private ?int $scrollLimit = null;
   public private(set) int $scrollOffset = 0;
 
-  public function __construct(public readonly BattleRewards $rewards, public readonly bool $reducedMotion = false)
+  /**
+   * Whether a visible EXP gauge is counting right now. The count only moves where the
+   * presentation animates counts: never with reduced motion or in the terminal projection,
+   * which show final values at once.
+   */
+  public bool $isCounting {
+    get {
+      if (!$this->animatesCounts || $this->reducedMotion || $this->currentStage()['kind'] !== 'primary'
+        || $this->exitRemaining !== null || $this->isComplete() || $this->elapsed <= self::COUNT_DELAY) {
+        return false;
+      }
+      $reveal = $this->reveal(self::COUNT_DELAY, self::COUNT_DURATION);
+      foreach (array_unique(array_column(BattleResultsContent::getVisiblePartyRows($this), 'actor')) as $actor) {
+        $award = $this->rewards->progression[$actor];
+        if ($award->before === null || $award->after === null || $award->after->experience <= $award->before->experience
+          || $award->after->progressAt($award->before->experience)['maximum']) {
+          continue;
+        }
+        $segments = count($this->getCountPoints($actor)) - 1;
+        // The displayed value stops at its final EXP once the last segment's motion ends.
+        if ($reveal < ($segments - 1 + self::COUNT_SEGMENT_MOTION) / $segments) { return true; }
+      }
+      return false;
+    }
+  }
+
+  /**
+   * @param bool $animatesCounts Whether this presentation shows the EXP count moving; a
+   *   projection that shows final values at once (the terminal) passes false.
+   * @param CounterSound|null $counterSound The shared counter tick, when audio is running.
+   */
+  public function __construct(public readonly BattleRewards $rewards, public readonly bool $reducedMotion = false,
+    public readonly bool $animatesCounts = true, private readonly ?CounterSound $counterSound = null)
   {
     foreach ($rewards->progression as $index => $award) {
       if ($award->after->actorId !== $award->before->actorId) {
@@ -66,10 +108,34 @@ final class BattleResultsPlayback
       // Preserve the actual completion boundary even when a frame crosses it.
       $this->confirmationChangedAt = $this->clock - ($activeDelta - $remaining);
     }
+    $this->syncCounterTick();
   }
 
   /** A semantic press: callers must reject native repeats where that information exists. */
   public function confirm(): bool
+  {
+    $isFinished = $this->applyConfirmation();
+    // Completing the page early ends its count, and with it the tick.
+    $this->syncCounterTick();
+    return $isFinished;
+  }
+
+  /** The results are closing: their count, finished or not, no longer holds the tick. */
+  public function releaseCounterTick(): void
+  {
+    $this->counterSound?->releaseTick($this);
+  }
+
+  private function syncCounterTick(): void
+  {
+    if ($this->isCounting) {
+      $this->counterSound?->holdTick($this);
+    } else {
+      $this->releaseCounterTick();
+    }
+  }
+
+  private function applyConfirmation(): bool
   {
     if ($this->isFinished()) { return true; }
     if ($this->exitRemaining !== null) { return false; }
@@ -180,26 +246,39 @@ final class BattleResultsPlayback
     $before = $award->before;
     $after = $award->after;
     assert($before !== null && $after !== null);
-    if ($this->currentStage()['kind'] !== 'primary' || $this->reducedMotion || $this->isComplete()) {
+    if ($this->currentStage()['kind'] !== 'primary' || !$this->animatesCounts || $this->reducedMotion || $this->isComplete()) {
       return [...$after->progressAt($after->experience), 'experience' => $after->experience];
     }
-    $thresholds = array_values(array_filter($after->thresholds,
-      static fn(int $value, int $level): bool => $level <= $after->maxLevel
-        && $value > $before->experience && $value <= $after->experience, ARRAY_FILTER_USE_BOTH));
-    $points = [$before->experience, ...$thresholds, $after->experience];
+    $points = $this->getCountPoints($actor);
     $segments = count($points) - 1;
-    $position = $this->reveal(0.9, 1.3) * $segments;
+    $position = $this->reveal(self::COUNT_DELAY, self::COUNT_DURATION) * $segments;
     $segment = min($segments - 1, (int)$position);
-    $fraction = min(1.0, ($position - $segment) / 0.85);
+    $fraction = min(1.0, ($position - $segment) / self::COUNT_SEGMENT_MOTION);
     $experience = (int)floor($points[$segment] + ($points[$segment + 1] - $points[$segment]) * $fraction);
     $progress = $after->progressAt($experience);
     // Hold a full gauge at each crossed threshold before the next segment resets it.
-    if ($segment < count($thresholds) && $fraction === 1.0) {
+    if ($segment < $segments - 1 && $fraction === 1.0) {
       $progress = $after->progressAt(max(0, $points[$segment + 1] - 1));
       $progress['current'] = $progress['needed'];
       $progress['ratio'] = 1.0;
     }
     return [...$progress, 'experience' => $experience];
+  }
+
+  /**
+   * The EXP an actor's count passes through: its starting EXP, every level threshold it
+   * crosses, then its final EXP.
+   * @return list<int>
+   */
+  private function getCountPoints(int $actor): array
+  {
+    $before = $this->rewards->progression[$actor]->before;
+    $after = $this->rewards->progression[$actor]->after;
+    assert($before !== null && $after !== null);
+    $thresholds = array_values(array_filter($after->thresholds,
+      static fn(int $value, int $level): bool => $level <= $after->maxLevel
+        && $value > $before->experience && $value <= $after->experience, ARRAY_FILTER_USE_BOTH));
+    return [$before->experience, ...$thresholds, $after->experience];
   }
 
   private function duration(): float { return $this->currentStage()['kind'] === 'primary' ? 2.25 : 1.0; }

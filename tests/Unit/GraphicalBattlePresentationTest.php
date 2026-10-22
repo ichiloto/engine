@@ -1500,6 +1500,30 @@ it('composes Results over the frozen real battlefield without changing awarded g
     ->and($hero->currentExp)->toBe($awardedExperience);
 });
 
+it('ticks the counter while graphical Results count EXP, never for the terminal projection, and stops on close', function (bool $graphical) {
+  [$battle, $catalog, $hero] = graphicalBattleFixture(true);
+  $scene = graphicalBattleScene($battle, GraphicalBattlePresentation::prepare($battle, $catalog, $this->root));
+  if ($graphical) { new ReflectionProperty(BattleScene::class, 'resultsSkin')->setValue($scene, graphicalResultsFixtureSkin()); }
+  $scene->result = new BattleResult('Victory', rewards: new BattleRewards(10000, 42, [ExperienceAwarder::award($hero, 10000)]));
+  $manager = makeCounterTickManager();
+  $instance = new ReflectionProperty(Ichiloto\Engine\Audio\AudioManager::class, 'instance');
+  $previous = $instance->getValue();
+  $instance->setValue(null, $manager);
+  try {
+    $scene->beginResults();
+    $scene->resultsPlayback->update(1.2);
+    $manager->update();
+    expect($scene->resultsPlayback->animatesCounts)->toBe($graphical)
+      ->and($manager->counterSound->isPlaying)->toBe($graphical);
+    $scene->endResults();
+    expect($manager->counterSound->isPlaying)->toBeFalse()
+      ->and(array_filter($manager->spawnedPlaybacks, static fn($player) => $player->isRunning))->toBe([]);
+  } finally {
+    $instance->setValue(null, $previous);
+    $manager->shutdown();
+  }
+})->with(['graphical' => true, 'terminal' => false]);
+
 it('keeps victory input presentation-only and finishes the exit without an extra confirmation', function () {
   [$battle, $catalog, $hero] = graphicalBattleFixture(true);
   $scene = graphicalBattleScene($battle, GraphicalBattlePresentation::prepare($battle, $catalog, $this->root));
