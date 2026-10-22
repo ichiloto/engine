@@ -173,7 +173,12 @@ beforeEach(function () {
   $this->transport = new FakeRendererTransport();
   $this->presenter = new RendererPresentation(new RendererClient($this->transport), new RendererGridConfig(80, 24));
   Timers::clear();
-  Timers::setFrameTick(null, fn() => $this->presenter->present(Console::presentationSnapshot()));
+  // A responsive renderer acknowledges each frame it is sent, so none is held behind it.
+  Timers::setFrameTick(null, function () {
+    $sent = $this->presenter->present(Console::presentationSnapshot());
+    if ($sent) { $this->transport->acknowledgeLatestFrame($this->presenter); }
+    return $sent;
+  });
   ob_start();
 });
 

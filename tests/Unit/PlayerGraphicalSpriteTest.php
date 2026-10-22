@@ -221,10 +221,13 @@ it('presents a real Player through the shared client with immutable frames and d
   expect(Console::charAt(7, 4))->toBe('v');
   $south = $this->projector->project($this->player, $this->camera);
   expect($presentation->present($snapshot, [$south]))->toBeTrue();
+  // A responsive renderer acknowledges each frame; delivery holds a third unacknowledged one.
+  $transport->acknowledgeLatestFrame($presentation);
   $this->player->updatePlayerSprite(Vector2::up());
   $north = $this->projector->project($this->player, $this->camera);
   expect($presentation->present($snapshot, [$north]))->toBeTrue()
     ->and($north->toArray())->toBe([...$south->toArray(), 'sourceRect' => getPlayerStandingFrame('north')]);
+  $transport->acknowledgeLatestFrame($presentation);
 
   $this->player->position->x = 11;
   $this->player->position->y = 8;

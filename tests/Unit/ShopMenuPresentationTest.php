@@ -362,6 +362,8 @@ it('removes content avoidance and overlays achievements above the unchanged live
   ], true) . ';');
   $caps = [...MenuPresentationCatalog::CAPABILITIES, RendererSessionConfig::CANVAS_OVERLAY];
   $transport = new FakeRendererTransport();
+  // A responsive renderer acknowledges each frame, so dismissal is delivered rather than held.
+  $transport->acknowledgeFrames = true;
   $transport->batches = [[RendererEvent::fromJson(json_encode(['type' => 'ready', 'protocol' => 2, 'capabilities' => $caps]))]];
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['not-launched']), $this->root,
     cellWidth: 10, cellHeight: 20, requiredCapabilities: $caps), $transport);
