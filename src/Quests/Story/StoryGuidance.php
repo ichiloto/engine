@@ -4,23 +4,36 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Quests\Story;
 
+use Closure;
 use Ichiloto\Engine\Quests\Quest;
+use Ichiloto\Engine\Quests\QuestObjective;
 use Ichiloto\Engine\Quests\QuestObjectiveType;
+use Ichiloto\Engine\Quests\QuestWaymark;
 
 /**
  * Checks, from authored data alone, that the wayfinder always has an
- * objective to lead with along the story.
+ * authored waymark to lead with along the story.
  *
  * Waymarks, and the edge arrows and objective marks drawn from them, come
- * from the objectives of active quests. So every gate the player must open
- * to go on (a story flag a main quest needs to start, or a door waits for)
- * needs an objective of a main quest that leads to it: one that tracks the
- * flag with a waymark, or whose waymark leads to what sets the flag (an
- * event or NPC page, or the event or map where the battle that sets it is
- * fought). It must be able to lead before the flag is set: its quest cannot
- * need the flag to start, nor start only where the flag is set, and its
- * waymark cannot wait for the flag. Optional quests guide nothing on the
- * story path and gate nothing on it.
+ * from the objectives of active quests and the start waymarks of quests that
+ * can start ({@see Quest::$startWaymarks}). So every step the player must
+ * take to go on needs guidance of a main quest that leads to it:
+ *
+ * - A gate: a story flag a main quest needs to start, or a door waits for.
+ *   An objective leads to it when it tracks the flag with a waymark, and an
+ *   objective or a start waymark leads to it when its waymark points at what
+ *   sets the flag (an event or NPC page, or the event or map where the
+ *   battle that sets it is fought).
+ * - A main quest's start: what starts it (an event or NPC page, or where a
+ *   battle that starts it is fought). An objective of a main quest active
+ *   before it, or a start waymark (its own, or another quest's), leads to it
+ *   when its waymark points there.
+ *
+ * Guidance must be able to show before the step is taken: its quest cannot
+ * need the step to start, its objectives cannot belong to a quest that
+ * starts only where the step is taken, and its waymark cannot wait for the
+ * step. Optional quests guide nothing on the story path and gate nothing on
+ * it.
  */
 final class StoryGuidance
 {
@@ -29,14 +42,14 @@ final class StoryGuidance
   }
 
   /**
-   * The gates no objective of a main quest leads to.
+   * The gates no guidance of a main quest leads to.
    *
    * @param array<int|string, Quest> $quests The project's quests.
    * @return list<StoryGate>
    */
   public static function findUnguidedGates(array $quests, StoryIndex $index): array
   {
-    $main = array_values(array_filter($quests, static fn(Quest $quest): bool => !$quest->isOptional));
+    $main = self::filterMainQuests($quests);
     $gates = [];
     foreach ($main as $quest) {
       foreach (StoryIndex::readRequiredFlags($quest->prerequisites) as $flag) {
@@ -49,33 +62,104 @@ final class StoryGuidance
   }
 
   /**
-   * Whether an objective of a main quest leads to a flag before it is set.
+   * The main quests whose start no guidance of a main quest leads to,
+   * including those nothing in the project starts.
+   *
+   * @param array<int|string, Quest> $quests The project's quests.
+   * @return list<Quest>
+   */
+  public static function findUnguidedStarts(array $quests, StoryIndex $index): array
+  {
+    $main = self::filterMainQuests($quests);
+
+    return array_values(array_filter($main, static fn(Quest $quest): bool => !self::isStartLedTo($quest, $main, $index)));
+  }
+
+  /**
+   * Whether guidance of a main quest leads to a story flag before it is set.
    *
    * @param list<Quest> $mainQuests
    */
   public static function isLedTo(string $flag, array $mainQuests, StoryIndex $index): bool
   {
-    $setters = $index->findSetters($flag);
+    return self::isGuided($index->findSetters($flag),
+      static fn(mixed $conditions): bool => in_array($flag, StoryIndex::readRequiredFlags($conditions), true),
+      static fn(StorySource $source): bool => isset($source->effects->flags[$flag]),
+      static fn(QuestObjective $objective): bool => $objective->type === QuestObjectiveType::FLAG && $objective->matches($flag),
+      $mainQuests, $index);
+  }
+
+  /**
+   * Whether guidance of a main quest leads to what starts a quest before it
+   * starts.
+   *
+   * @param list<Quest> $mainQuests
+   */
+  public static function isStartLedTo(Quest $quest, array $mainQuests, StoryIndex $index): bool
+  {
+    $id = $quest->id;
+
+    return self::isGuided($index->findStarters($id),
+      static fn(mixed $conditions): bool => self::needsQuestStarted($id, $conditions),
+      static fn(StorySource $source): bool => isset($source->effects->quests[$id]),
+      static fn(): bool => false,
+      $mainQuests, $index);
+  }
+
+  /**
+   * Whether a start waymark or an objective waymark of a main quest leads
+   * to a step before it is taken.
+   *
+   * @param list<StorySource> $targets What takes the step.
+   * @param Closure(mixed): bool $waitsForStep Whether conditions hold only once the step is taken.
+   * @param Closure(StorySource): bool $takesStep Whether setting a source off takes the step.
+   * @param Closure(QuestObjective): bool $tracksStep Whether an objective tracks the step itself.
+   * @param list<Quest> $mainQuests
+   */
+  private static function isGuided(array $targets, Closure $waitsForStep, Closure $takesStep, Closure $tracksStep,
+    array $mainQuests, StoryIndex $index): bool
+  {
+    $leads = static fn(QuestWaymark $waymark, bool $tracks): bool => !$waitsForStep($waymark->conditions)
+      && ($tracks || array_any($targets, static fn(StorySource $source): bool => $source->isMarkedBy($waymark)));
     foreach ($mainQuests as $quest) {
-      // A quest that needs the flag, or starts only where the flag is set, is never active before it.
+      // A quest that needs the step shows neither its start waymarks nor its objectives before it.
+      if ($waitsForStep($quest->prerequisites)) {
+        continue;
+      }
+      // Start waymarks show while the quest can start, so before the step even where starting it takes the step.
+      if (array_any($quest->startWaymarks, static fn(QuestWaymark $waymark): bool => $leads($waymark, false))) {
+        return true;
+      }
+      // Objectives show once the quest is active, which is never before the step where it starts only there.
       $starts = $index->findStarters($quest->id);
-      if (in_array($flag, StoryIndex::readRequiredFlags($quest->prerequisites), true)
-        || ($starts !== [] && array_all($starts, static fn(StorySource $source): bool => isset($source->effects->flags[$flag])))) {
+      if ($starts !== [] && array_all($starts, $takesStep)) {
         continue;
       }
       foreach ($quest->objectives as $objective) {
-        $tracksFlag = $objective->type === QuestObjectiveType::FLAG && $objective->matches($flag);
-        foreach ($objective->waymarks as $waymark) {
-          if (in_array($flag, StoryIndex::readRequiredFlags($waymark->conditions), true)) {
-            continue;
-          }
-          if ($tracksFlag || array_any($setters, static fn(StorySource $source): bool => $source->isMarkedBy($waymark))) {
-            return true;
-          }
+        $tracks = $tracksStep($objective);
+        if (array_any($objective->waymarks, static fn(QuestWaymark $waymark): bool => $leads($waymark, $tracks))) {
+          return true;
         }
       }
     }
 
     return false;
+  }
+
+  /** Whether conditions need a quest active or completed, so hold only once it has started. */
+  private static function needsQuestStarted(string $questId, mixed $conditions): bool
+  {
+    return array_any(is_array($conditions) ? $conditions : [], static fn(mixed $condition): bool => is_array($condition)
+      && ($condition['type'] ?? null) === 'quest' && !($condition['negate'] ?? false)
+      && is_string($condition['name'] ?? null) && trim($condition['name']) === $questId);
+  }
+
+  /**
+   * @param array<int|string, Quest> $quests
+   * @return list<Quest>
+   */
+  private static function filterMainQuests(array $quests): array
+  {
+    return array_values(array_filter($quests, static fn(Quest $quest): bool => !$quest->isOptional));
   }
 }

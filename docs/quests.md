@@ -46,6 +46,8 @@ return [
   description, which stays in the journal. No second progression model is used.
 - `optional` marks a side quest, which is offered rather than granted. See
   [Side quests the player can turn down](#side-quests-the-player-can-turn-down).
+- `startWaymarks` lead the player to where the quest starts, before it is in
+  the journal. See [Leading to a quest's start](#leading-to-a-quests-start).
 
 ## Objectives
 
@@ -106,12 +108,35 @@ Every active quest contributes, side quests included. Waymarks are derived
 from the quest log and world state each time they are drawn, so they are
 right straight after a load or a long break and add nothing to saves.
 
-### When no objective leads: the story wayfinder
+### Leading to a quest's start
+
+Objectives only lead once their quest is in the journal. To lead the player
+to where a quest starts (its giver, or the event that hands it over), give the
+quest `startWaymarks`, in the same shape as an objective's waymarks:
+
+```php
+[
+  'id' => 'breakfast-duty',
+  // ...
+  'startWaymarks' => [['map' => 'happyville/home', 'npc' => 'mother']],
+],
+```
+
+A start waymark shows while its quest can start (not yet accepted or
+finished, every prerequisite holding) and its own `conditions` hold. Once the
+quest is accepted its objectives lead instead. Its text is spoiler-safe, since
+the quest is not in the journal yet: the `quest.story_waymark` message
+("Continue the story") for a main quest, `quest.side_quest_waymark` ("Side
+Quest") for a side quest. The story's opening is the first main quest's start
+waymark: a new game, before any quest is given, leads to its giver.
+
+### When nothing authored leads: the story wayfinder
 
 The player must never be left without a waymark on the story path. Authored
-objectives are the guidance; `Quests\Story\StoryWayfinder` only fills a gap.
-While any objective of an active main quest shows a waymark it adds nothing.
-When none does, it leads to what takes the next step:
+waymarks are the guidance; `Quests\Story\StoryWayfinder` only fills a gap.
+While a main quest shows a waymark (an objective of an active one, or a start
+waymark of one that can start) it adds nothing. When none does, it leads to
+what takes the next step:
 
 - With a main quest active, each unfinished objective: what sets its `flag`,
   the map of a `reach_map`, the NPC of a `talk_to`, or what starts a battle
@@ -125,7 +150,7 @@ Only what the player can set off now counts: an event or the NPC page talking
 would run, as its map authors it, never a finished one-shot. When nothing
 resolves it shows nothing rather than guess. Every fill, and every gap it
 cannot fill, is written once per session to `logs/warning.log`, so the gap is
-closed with an authored objective rather than relied on. A filled waymark's
+closed with an authored waymark rather than relied on. A filled waymark's
 text is the `quest.story_waymark` message ("Continue the story") when it leads
 to a quest's start, and the objective's text otherwise.
 
@@ -134,9 +159,16 @@ NPC pages and random encounters, with what each can do (story flags set and
 quests started) through its commands, `sets`, event scripts and cinematics,
 and through battles: a `start_battle` command, or a map's encounters, can do
 whatever that troop's event pages do. The Editor's story guidance check reads
-the same index (`Quests\Story\StoryGuidance`): it warns where a main quest's
-flag prerequisite, or a `whenBlocked` door's flag, has no objective of a main
-quest leading to it, or nothing that sets it.
+the same index (`Quests\Story\StoryGuidance`). It warns where a main quest's
+flag prerequisite, or a `whenBlocked` door's flag, has nothing that sets it,
+or no guidance of a main quest leading to what does: an objective tracking the
+flag, or an objective's or a start waymark's waymark on what sets it. It also
+warns where nothing starts a main quest, or nothing leads to what does: an
+objective of a main quest active before it, or a start waymark (the quest's
+own, or another main quest's that can start then). Guidance only counts when
+it can show before the step: its quest cannot need the step, an objective
+cannot belong to a quest that starts only where the step is taken, and a
+waymark cannot wait for the step.
 
 ### On the field, the local map and the world map
 

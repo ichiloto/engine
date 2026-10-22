@@ -291,16 +291,55 @@ class QuestManager
   }
 
   /**
-   * Lists the waymarks the player should follow now, across every active
-   * quest, in journal order. Derived from the quest log and world state on
-   * each call, so it is correct straight after a load or a long break.
+   * Lists the waymarks the player should follow now: those of every active
+   * quest, in journal order, then those leading to where a quest that can
+   * start now starts, in authored order. Derived from the quest log and
+   * world state on each call, so it is correct straight after a load or a
+   * long break.
    *
    * @return list<ActiveQuestWaymark>
    */
   public function getActiveWaymarks(): array
   {
-    return self::selectActiveWaymarks($this->activeQuests(), $this->log, $this->gameScene->gameState,
-      $this->gameScene->party);
+    $gameState = $this->gameScene->gameState;
+    $party = $this->gameScene->party;
+
+    return [
+      ...self::selectActiveWaymarks($this->activeQuests(), $this->log, $gameState, $party),
+      ...self::selectStartWaymarks($this->quests, $this->log, $gameState, $party),
+    ];
+  }
+
+  /**
+   * Selects the start waymarks of quests that can start now: not yet
+   * accepted, or finished, with every prerequisite holding. Each shows
+   * while its own conditions hold. Its objective index is -1, since it
+   * leads to the quest's start rather than one of its objectives.
+   *
+   * @param array<int|string, Quest> $quests Every quest, in authored order.
+   * @return list<ActiveQuestWaymark>
+   */
+  public static function selectStartWaymarks(array $quests, QuestLog $log, GameState $gameState, ?Party $party = null): array
+  {
+    $selected = [];
+
+    foreach ($quests as $quest) {
+      if ($quest->startWaymarks === [] || $log->isActive($quest->id) || $log->isCompleted($quest->id)
+        || ! WorldConditionEvaluator::allHold($quest->prerequisites, $gameState, $party, $log)) {
+        continue;
+      }
+
+      // Spoiler-safe: the quest is not in the journal yet, so its name and objectives stay unsaid.
+      $label = get_engine_message($quest->isOptional ? 'quest.side_quest_waymark' : 'quest.story_waymark');
+
+      foreach ($quest->startWaymarks as $waymarkIndex => $waymark) {
+        if ($waymark->holds($gameState, $party, $log)) {
+          $selected[] = new ActiveQuestWaymark($quest->id, -1, $waymarkIndex, $waymark, $label, $quest->isOptional);
+        }
+      }
+    }
+
+    return $selected;
   }
 
   /**

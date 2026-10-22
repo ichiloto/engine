@@ -8,9 +8,10 @@ namespace Ichiloto\Engine\Quests;
  * One waymark the player should currently follow: its quest, objective and
  * the spoiler-safe objective text that explains it.
  *
- * A waymark that fills a gap ({@see Story\StoryWayfinder}) leads where no
- * authored objective does; its objective index is -1 when it leads to a
- * quest's start rather than one of its objectives.
+ * Its objective index is -1 when it leads to a quest's start rather than
+ * one of its objectives: an authored start waymark ({@see Quest::$startWaymarks}),
+ * or a waymark that fills a gap ({@see Story\StoryWayfinder}), leading where
+ * nothing authored does.
  */
 final readonly class ActiveQuestWaymark
 {

@@ -4,6 +4,13 @@
 
 ### Added
 
+- Quests may author `startWaymarks`, in the objective waymark shape, leading
+  to where the quest starts while it can start (not yet accepted or finished,
+  prerequisites holding). A main quest's start waymark keeps the story
+  wayfinder from filling that step; the first main quest's leads the opening
+  of a new game. `StoryGuidance::findUnguidedStarts` reports main quests
+  nothing starts or nothing leads to, read from the same story index as the
+  runtime; start waymarks also count as leading to a story gate.
 - The optional v2 renderer capability `canvas_stroke_dashes`: a composite
   stroke may carry `dash` (`length`, `gap`) and is drawn dashed as one
   operation. The Engine offers it to every v2 renderer and sends dashes only

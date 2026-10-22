@@ -19,11 +19,12 @@ use Ichiloto\Engine\Quests\QuestWaymarkSubject;
 use Ichiloto\Engine\Util\Debug;
 
 /**
- * Keeps the wayfinder leading on the story path when no authored objective
+ * Keeps the wayfinder leading on the story path when no authored waymark
  * does.
  *
- * Authored objectives always win: while any objective of an active main
- * quest shows a waymark, this adds nothing. When none does and the story has
+ * Authored waymarks always win: while a main quest shows one (an objective
+ * of an active quest, or a start waymark of one that can start), this adds
+ * nothing. When none does and the story has
  * a next step, it leads to what takes that step, read from the same
  * {@see StoryIndex} the Editor's guidance check uses:
  *
@@ -37,7 +38,7 @@ use Ichiloto\Engine\Util\Debug;
  *
  * Only what the player can set off now leads: an event or NPC page as its
  * map authors it ({@see MapSubjectGates}), never a finished one-shot. Every
- * fill is reported as a content gap to close with an authored objective.
+ * fill is reported as a content gap to close with an authored waymark.
  * When nothing resolves, it shows nothing rather than guess, and reports
  * that too.
  */
@@ -89,10 +90,10 @@ final class StoryWayfinder
       ? self::findObjectiveSteps($index, $active, $log, $state, $party, $isUsable)
       : self::findStartSteps($index, $unfinished, $log, $state, $party, $isUsable);
 
-    // Where the author closes the gap: the active quest's objectives, or, between quests, the quest before the step.
+    // Where the author closes the gap: the active quest's objectives, or, between quests, the quest before the step or a start waymark.
     $fix = $active !== []
       ? 'Give the active main quest an objective with a waymark there'
-      : 'Lead there with an objective of the main quest before this step, or start this step\'s quest where that one ends';
+      : 'Lead there with an objective of the main quest before this step, or a start waymark of a main quest that can start then';
     if ($steps === []) {
       $this->reportOnce(sprintf('The wayfinder has nothing to lead with on the story path: %s. It shows nothing rather '
         . 'than guess. %s.', $active !== [] ? self::describeObjectives($active, $log)
@@ -114,7 +115,8 @@ final class StoryWayfinder
       }
     }
     $this->reportOnce(sprintf('The wayfinder filled a gap on the story path: %s, so it leads to %s. %s, so the wayfinder '
-      . 'does not rely on this.', $active !== [] ? 'no objective of an active main quest shows a waymark' : 'no main quest is active',
+      . 'does not rely on this.', $active !== [] ? 'no objective of an active main quest shows a waymark'
+      : 'no main quest is active and no start waymark of one leads',
       implode('; ', $reasons), $fix));
 
     return $waymarks;
