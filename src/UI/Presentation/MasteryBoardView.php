@@ -8,15 +8,21 @@ use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 
 /**
- * Where the drawn Mastery board puts things inside its area. An open Info
- * sheet takes a band at the top of the area and the board's viewport is what
- * remains below it, so the sheet never lies over the tree or the family cards.
+ * Where the drawn Mastery board puts things inside its area. The tree and the
+ * family cards are laid out the same whether Info is open or not: Info is
+ * meta text, a sheet over the board that never moves, reframes or rescales
+ * what is under it. It stands at the top of the area, or at the bottom while
+ * the view is scrolled all the way up, so it does not lie over the tree's
+ * tops and headings or the discipline's name; on the side it takes it stops
+ * short of the focus. It stays inside the board's area, clear of the tabs,
+ * the family strip and the selection below.
  *
  * On the tree the camera frames whole rows, measured with each place's focus
- * rings, badge and name: the focus with what it hangs from above and what
- * hangs from it below when all three fit, else the focus and what it hangs
- * from, else the focus alone. Only places that lie wholly inside the viewport
- * are drawn; the lines to the rest run off its edge. While the view pans, a
+ * rings, badge and name: the focus with what it hangs from above (with the
+ * wrapped rows of siblings between them) and what hangs from it below when
+ * all fit, else the focus and what it hangs from, else the focus alone. Only
+ * places that lie wholly inside the viewport are drawn; the lines to the rest
+ * run off its edge. While the view pans, a
  * place whole where the pan starts or ends slides through the viewport's edge.
  * Above the tree the family cards follow the focused card's row the same way.
  */
@@ -36,9 +42,9 @@ final readonly class MasteryBoardView
 
   /**
    * @param CanvasRectangle $area The board's whole area.
-   * @param CanvasRectangle|null $sheet The open Info sheet, or null while it is closed.
+   * @param CanvasRectangle|null $sheet The open Info sheet over the board, or null while it is closed.
    * @param list<array{text: string, cell: list<int>, y: float, color: string}> $sheetLines The sheet's lines, each from the top of its text.
-   * @param CanvasRectangle $viewport What the area leaves the tree or the cards.
+   * @param CanvasRectangle $viewport Where the tree or the cards are drawn: the area between its hairlines.
    * @param float $rowBelow How far any place may reach below its disc's centre (MasteryBoardPlace::getRowReach).
    * @param float $originX Where lane 0 stands across the canvas at this moment.
    * @param float $originY Where stage 0 stands down the canvas at this moment.
@@ -66,17 +72,17 @@ final readonly class MasteryBoardView
   public static function create(MasteryMenuContent $content, MenuPresentationCatalog $theme, CanvasRectangle $area, float $time = 0): self
   {
     $m = $theme->mastery;
-    $gap = $theme->metrics->sectionGap;
-    [$sheet, $lines] = self::layoutSheet($content, $theme, $area);
-    // The area's edges are hairlines; the viewport lies between them, under the sheet when one is open.
-    $top = $sheet === null ? $area->y + 1 : $sheet->y + $sheet->height + $gap;
-    $viewport = new CanvasRectangle($area->x, $top, $area->width, max(1, $area->y + $area->height - 1 - $top));
+    // The area's edges are hairlines; the viewport lies between them, whether Info is open or not.
+    $viewport = new CanvasRectangle($area->x, $area->y + 1, $area->width, max(1, $area->height - 2));
     [$above, $below] = MasteryBoardPlace::getRowReach($m);
     if ($content->level !== MasteryMenuLevel::TREE) {
-      [$cards, $showsTitle] = self::layoutCards($content, $area, $viewport, $sheet === null);
+      [$cards, $scrolledUp] = self::layoutCards($content, $area, $viewport);
+      $focus = $content->level === MasteryMenuLevel::FAMILY ? $cards[$content->familyIndex] ?? null : null;
+      [$sheet, $lines] = self::layoutSheet($content, $theme, $area, $scrolledUp,
+        $focus === null ? null : [$focus->y, $focus->y + $focus->height]);
 
       return new self($area, $sheet, $lines, $viewport, $m->laneWidth, $m->stageSpacing, $below, $viewport->x, $viewport->y, 0, [], $cards,
-        $showsTitle);
+        true);
     }
 
     $spacing = $m->stageSpacing;
@@ -85,31 +91,41 @@ final readonly class MasteryBoardView
       $spacing + $above + $below <= $viewport->height => 2,
       default => 1,
     };
-    // How far below the focus's centre the framed rows' middle lies: the viewport's middle goes there.
-    $offset = $rows === 2 ? ($below - $above - $spacing) / 2 : ($below - $above) / 2;
     $worldWidth = $content->lanes * $m->laneWidth;
     $margin = $m->laneWidth * self::LANE_MARGIN;
-    $getOrigin = static function (float $lane, float $stage) use ($viewport, $worldWidth, $margin, $m, $offset, $spacing): array {
+    // The framed rows run from the stages kept above the focus (up to what it hangs from, as many as fit with it)
+    // down to the rows below; the viewport's middle goes to their middle.
+    $getOrigin = static function (float $lane, float $stage, float $kept) use ($viewport, $worldWidth, $margin, $m, $spacing, $rows, $above,
+      $below): array {
       $camera = $worldWidth + 2 * $margin <= $viewport->width ? $worldWidth / 2
         : min(max($lane * $m->laneWidth, $viewport->width / 2 - $margin), $worldWidth + $margin - $viewport->width / 2);
+      $first = $stage - min($kept, $rows - 1);
+      $middle = ($first * $spacing - $above + ($first + $rows - 1) * $spacing + $below) / 2;
 
-      return [$viewport->x + $viewport->width / 2 - $camera, $viewport->y + $viewport->height / 2 - $offset - $stage * $spacing];
+      return [$viewport->x + $viewport->width / 2 - $camera, $viewport->y + $viewport->height / 2 - $middle];
     };
     $camera = $content->camera;
-    $rest = $getOrigin($camera->toLane, $camera->toStage);
+    $rest = $getOrigin($camera->toLane, $camera->toStage, $camera->toAbove);
     $panning = ! $content->reducedMotion && $time < $camera->startedAt + MasteryCamera::PAN_DURATION
-      && ($camera->fromLane !== $camera->toLane || $camera->fromStage !== $camera->toStage);
+      && ($camera->fromLane !== $camera->toLane || $camera->fromStage !== $camera->toStage || $camera->fromAbove !== $camera->toAbove);
     $now = $panning ? $getOrigin(...$camera->getCentreAt($time)) : $rest;
-    $start = $panning ? $getOrigin($camera->fromLane, $camera->fromStage) : $rest;
+    $start = $panning ? $getOrigin($camera->fromLane, $camera->fromStage, $camera->fromAbove) : $rest;
     $places = [];
+    $focus = null;
     foreach ($content->nodes as $node) {
       $place = MasteryBoardPlace::measure($node, $now[0] + $node->lane * $m->laneWidth, $now[1] + $node->stage * $spacing,
         $node->id === $content->focus, $m);
+      if ($node->id === $content->focus) {
+        $focus = $place->moveBy($rest[0] - $now[0], $rest[1] - $now[1]);
+      }
       if (self::isWholeAt($place, $rest[0] - $now[0], $rest[1] - $now[1], $viewport)
         || ($panning && self::isWholeAt($place, $start[0] - $now[0], $start[1] - $now[1], $viewport))) {
         $places[$node->id] = $place;
       }
     }
+    // Scrolled all the way up, the tops of the families (stage 0) rest whole in view.
+    [$sheet, $lines] = self::layoutSheet($content, $theme, $area, $rest[1] - $above >= $viewport->y,
+      $focus === null ? null : [$focus->top, $focus->bottom]);
 
     return new self($area, $sheet, $lines, $viewport, $m->laneWidth, $spacing, $below, $now[0], $now[1], $rows, $places, [], false);
   }
@@ -141,13 +157,17 @@ final readonly class MasteryBoardView
   }
 
   /**
-   * The open Info sheet at the top of the area, inset by the theme's gap and as tall as its text: the summary or
-   * description in the tab size, then the rest smaller. It leaves the viewport room for the focus and what it
-   * hangs from, or for a row of cards; text past that ends its last line with an ellipsis.
+   * The open Info sheet over the board, inset by the theme's gap and as tall as its text: the summary or description in
+   * the tab size, then the rest smaller. It stands at the top of the area, or at its bottom while the view is scrolled all
+   * the way up; when the focus leaves that side less room than one line, it takes the other. On its side it stops short of
+   * the focus (a node or a family card), else it leaves a row of the board in view; text past that ends its last shown
+   * line with an ellipsis.
    *
+   * @param array{float, float}|null $focus The focus's top and bottom where the view rests, when there is one to keep clear.
    * @return array{?CanvasRectangle, list<array{text: string, cell: list<int>, y: float, color: string}>}
    */
-  private static function layoutSheet(MasteryMenuContent $content, MenuPresentationCatalog $theme, CanvasRectangle $area): array
+  private static function layoutSheet(MasteryMenuContent $content, MenuPresentationCatalog $theme, CanvasRectangle $area, bool $scrolledUp,
+    ?array $focus): array
   {
     if ($content->info === null) {
       return [null, []];
@@ -157,42 +177,50 @@ final readonly class MasteryBoardView
     $gap = $theme->metrics->sectionGap;
     $inner = $area->width - 2 * $padding;
     [$above, $below] = MasteryBoardPlace::getRowReach($m);
+    // The room inside the area's hairlines each side leaves the sheet: short of the focus, or of a row the board keeps.
     $kept = $content->level === MasteryMenuLevel::TREE ? $m->stageSpacing + $above + $below : self::CARD_HEIGHT + self::CARD_GAP;
-    $room = $area->height - 2 - 2 * $gap - $kept - 2 * $padding;
+    [$top, $bottom] = [$area->y + 1 + $gap, $area->y + $area->height - 1 - $gap];
+    $rooms = ['top' => ($focus[0] ?? $bottom - $kept) - $gap - $top, 'bottom' => $bottom - ($focus[1] ?? $top + $kept) - $gap];
+    $side = $scrolledUp ? 'bottom' : 'top';
+    $line = $m->tabCell[1] + 2 * $padding;
+    if ($rooms[$side] < $line && $rooms[$side === 'top' ? 'bottom' : 'top'] > $rooms[$side]) {
+      $side = $side === 'top' ? 'bottom' : 'top';
+    }
+    $room = $rooms[$side] - 2 * $padding;
     $lines = [];
     $height = 0.0;
     foreach ($content->info as $index => $text) {
       $cell = $index === 0 ? $m->tabCell : $m->smallCell;
       $columns = max(1, (int)floor($inner / $cell[0]));
-      foreach (MenuCanvas::wrap($text, $columns) as $line) {
+      foreach (MenuCanvas::wrap($text, $columns) as $wrapped) {
         if ($lines !== [] && $height + $cell[1] > $room) {
           $last = array_key_last($lines);
           $lastColumns = max(1, (int)floor($inner / $lines[$last]['cell'][0]));
           $lines[$last]['text'] = TerminalText::truncateToWidth($lines[$last]['text'], $lastColumns - 1) . '…';
           break 2;
         }
-        $lines[] = ['text' => $line, 'cell' => $cell, 'y' => $height, 'color' => $index === 0 ? 'text' : 'muted'];
+        $lines[] = ['text' => $wrapped, 'cell' => $cell, 'y' => $height, 'color' => $index === 0 ? 'text' : 'muted'];
         $height += $cell[1] + 2;
       }
       $height += $gap;
     }
-    $textHeight = max(array_map(static fn(array $line): float => $line['y'] + $line['cell'][1], $lines));
+    $sheetHeight = max(array_map(static fn(array $line): float => $line['y'] + $line['cell'][1], $lines)) + 2 * $padding;
 
-    return [new CanvasRectangle($area->x, $area->y + $gap, $area->width, $textHeight + 2 * $padding), $lines];
+    return [new CanvasRectangle($area->x, $side === 'top' ? $top : $bottom - $sheetHeight, $area->width, $sheetHeight), $lines];
   }
 
   /**
-   * The family cards of the focused card's page, three to a row, under the discipline's name while Info is
-   * closed. When the viewport holds fewer rows than the page, the rows shown follow the focused card.
+   * The family cards of the focused card's page, three to a row, under the discipline's name. When the viewport holds
+   * fewer rows than the page, the rows shown follow the focused card.
    *
-   * @return array{array<int, CanvasRectangle>, bool}
+   * @return array{array<int, CanvasRectangle>, bool} The cards, and whether the view is scrolled all the way up (its first row shown).
    */
-  private static function layoutCards(MasteryMenuContent $content, CanvasRectangle $area, CanvasRectangle $viewport, bool $showsTitle): array
+  private static function layoutCards(MasteryMenuContent $content, CanvasRectangle $area, CanvasRectangle $viewport): array
   {
     $first = intdiv($content->familyIndex, self::CARDS_PER_PAGE) * self::CARDS_PER_PAGE;
     $count = min(self::CARDS_PER_PAGE, max(0, count($content->families) - $first));
     $pageRows = intdiv($count + self::CARD_COLUMNS - 1, self::CARD_COLUMNS);
-    $top = $showsTitle ? $area->y + self::OVERVIEW_TITLE_HEIGHT : $viewport->y;
+    $top = $area->y + self::OVERVIEW_TITLE_HEIGHT;
     $step = self::CARD_HEIGHT + self::CARD_GAP;
     $capacity = max(1, (int)floor(($viewport->y + $viewport->height - $top + self::CARD_GAP) / $step));
     $focusRow = intdiv($content->familyIndex - $first, self::CARD_COLUMNS);
@@ -204,6 +232,6 @@ final readonly class MasteryBoardView
         $top + (intdiv($offset, self::CARD_COLUMNS) - $firstRow) * $step, $width, self::CARD_HEIGHT);
     }
 
-    return [$cards, $showsTitle];
+    return [$cards, $firstRow === 0];
   }
 }

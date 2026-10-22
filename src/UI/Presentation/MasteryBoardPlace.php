@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Progression\Mastery\MasteryNodeState;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 
 /**
  * Where one place of the drawn Mastery board stands, with everything drawn
@@ -83,6 +84,35 @@ final readonly class MasteryBoardPlace
     $name = max(self::LABEL_GAP_BADGE, self::LABEL_GAP_FAMILY_TOP, self::LABEL_GAP_BARE) + max($theme->tabCell[1], $theme->bodyCell[1]);
 
     return [$radius + self::FOCUS_REACH, max($radius + self::FOCUS_REACH, $radius + $name, $radius - 1 + self::BADGE_HEIGHT / 2)];
+  }
+
+  /** Where the lines to what hangs from the place leave it: under its name, so no line runs behind the name. */
+  public function getStemY(): float
+  {
+    return $this->labelY + $this->labelCell[1];
+  }
+
+  /**
+   * The rounded areas the focus rings part around: the rim badge and the learned or locked mark, each with a little room,
+   * so a ring passing under them ends cleanly instead of being bitten into.
+   *
+   * @return list<CanvasRectangle>
+   */
+  public function getRimMarks(): array
+  {
+    $rim = $this->y + $this->radius - 1;
+    $room = 2;
+    $marks = [];
+    if ($this->badgeWidth !== null) {
+      $marks[] = new CanvasRectangle($this->x - $this->badgeWidth / 2 - $room, $rim - self::BADGE_HEIGHT / 2 - $room, $this->badgeWidth + 2 * $room,
+        self::BADGE_HEIGHT + 2 * $room);
+    }
+    if ($this->markX !== null) {
+      $marks[] = new CanvasRectangle($this->markX - self::MARK_RADIUS - $room, $rim - self::MARK_RADIUS - $room, 2 * (self::MARK_RADIUS + $room),
+        2 * (self::MARK_RADIUS + $room));
+    }
+
+    return $marks;
   }
 
   /** Whether the place, with its rings, badge, mark and name, lies wholly within an area. */

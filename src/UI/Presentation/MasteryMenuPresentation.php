@@ -32,8 +32,11 @@ final class MasteryMenuPresentation
   private const int BUTTON_WIDTH = 180;
   private const int BUTTON_HEIGHT = 40;
 
+  /**
+   * @param bool $dashedStrokes Whether the renderer negotiated canvas_stroke_dashes (MenuShapes).
+   */
   public static function compose(MasteryMenuContent $content, MenuPresentationCatalog $theme, float $time = 0,
-    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): PresentationCanvas
+    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT, bool $dashedStrokes = false): PresentationCanvas
   {
     $view = new MenuCanvas($theme, $width, $height, $time);
     $host = MenuLayout::getBounds($width, $height);
@@ -51,9 +54,9 @@ final class MasteryMenuPresentation
     // The tree is drawn in three retained pictures: what stays put, what moves while Learn is held or a
     // node is focused or learned, and the rings and badges over both. A hold then redraws only the
     // small middle picture each frame, never the whole tree.
-    $board = new MenuShapes($theme, $frame->viewport);
-    $motion = new MenuShapes($theme, $frame->viewport);
-    $marks = new MenuShapes($theme, $frame->viewport);
+    $board = new MenuShapes($theme, $frame->viewport, $dashedStrokes);
+    $motion = new MenuShapes($theme, $frame->viewport, $dashedStrokes);
+    $marks = new MenuShapes($theme, $frame->viewport, $dashedStrokes);
     if ($content->level !== MasteryMenuLevel::TREE) {
       self::renderOverview($view, $chrome, $content, $theme, $frame);
     } elseif ($content->nodes === []) {
@@ -75,9 +78,8 @@ final class MasteryMenuPresentation
   }
 
   /**
-   * Where the board's area puts the tree or the family cards and the Info sheet at a moment. An open sheet
-   * takes the top of the area and the tree or the cards keep the rest, so it never covers them, the tabs or
-   * the family strip.
+   * Where the board's area puts the tree or the family cards and the Info sheet at a moment. The tree and the cards
+   * stand the same with Info open or closed; the sheet lies over them (MasteryBoardView).
    */
   public static function layoutBoard(MasteryMenuContent $content, MenuPresentationCatalog $theme, float $time = 0,
     int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): MasteryBoardView
@@ -212,7 +214,8 @@ final class MasteryMenuPresentation
 
   /**
    * The board: families side by side, each a tree of straight lines down and across, every node a
-   * disc with its picture, its rim badge and its name; learned lit in the discipline's accent,
+   * disc with its picture, its rim badge and its name; a line leaves a node under its name and runs
+   * across just above the row it leads to, wrapped rows included; learned lit in the discipline's accent,
    * reachable plain, locked dark with a padlock. The view follows the focus and frames whole places
    * (MasteryBoardView); lines to places out of view run off its edge. The role's curriculum is
    * marked quietly with dashes, never in the focus colour, so the focus stays the one bright mark.
@@ -246,22 +249,25 @@ final class MasteryMenuPresentation
         $shapes->strokeLine([[$toX($top->lane), $bar], [$toX($top->lane), $toY($top->stage) - $radius]], 1.5, $top->isLit() ? $accent : $dim);
       }
     }
-    // Lines down and across from each node to what hangs from it, lit once that is learned.
-    foreach ($content->nodes as $node) {
+    // Lines down and across from each node to what hangs from it, lit once that is learned. A line leaves under the
+    // node's name and runs across just above the row it leads to: the next stage, or a wrapped row further down,
+    // which the line reaches straight down past the rows above it. Siblings share the line down from what they hang
+    // from, so lit lines are drawn after the rest and stay lit where they share it.
+    $lines = [...array_filter($content->nodes, static fn(MasteryMenuNode $node): bool => ! $node->isLit()),
+      ...array_filter($content->nodes, static fn(MasteryMenuNode $node): bool => $node->isLit())];
+    foreach ($lines as $node) {
       $parent = $node->parent === null ? null : $byId[$node->parent] ?? null;
       if ($parent === null) {
         continue;
       }
-      $across = $frame->getJunctionY($parent->stage);
-      $points = [[$toX($parent->lane), $toY($parent->stage) + $radius], [$toX($parent->lane), $across], [$toX($node->lane), $across],
-        [$toX($node->lane), $toY($node->stage) - $radius]];
+      $from = $frame->places[$parent->id] ?? MasteryBoardPlace::measure($parent, $toX($parent->lane), $toY($parent->stage),
+        $parent->id === $content->focus, $m);
+      $across = $frame->getJunctionY($node->stage - 1);
+      $points = [[$from->x, $from->getStemY()], [$from->x, $across], [$toX($node->lane), $across], [$toX($node->lane), $toY($node->stage) - $radius]];
       $points = array_values(array_unique($points, SORT_REGULAR));
       $shapes->strokeLine($points, $node->isLit() ? 2.0 : 1.5, $node->isLit() ? $accent : $dim);
       if ($content->curriculum && $node->curriculum) {
-        for ($segment = 0; $segment < count($points) - 1; $segment++) {
-          $shapes->strokeDashedLine($points[$segment][0], $points[$segment][1], $points[$segment + 1][0], $points[$segment + 1][1], 1.5, 4, 4,
-            'muted', 0.7);
-        }
+        $shapes->strokeDashedLine($points, 1.5, 4, 4, 'muted', 0.7);
       }
     }
     $labels = $tops = $badges = [];
@@ -316,10 +322,12 @@ final class MasteryMenuPresentation
       $marks->strokeCircle($x, $y, $radius - 7, 1.2, 'muted', 0.7, 20);
     }
     if ($focused) {
-      $motion->strokeCircle($x, $y, $radius + 6, 2, 'focus', $hold === null ? 1.0 : 0.35);
-      $motion->strokeCircle($x, $y, $radius + 13, 2, 'focus', 0.22);
+      // The rings part around the rim badge and mark, which sit over them.
+      $rim = $place->getRimMarks();
+      $motion->strokeCircle($x, $y, $radius + 6, 2, 'focus', $hold === null ? 1.0 : 0.35, clear: $rim);
+      $motion->strokeCircle($x, $y, $radius + 13, 2, 'focus', 0.22, clear: $rim);
       if ($hold !== null && ! $content->reducedMotion) {
-        $motion->strokeArc($x, $y, $radius + 6, $hold, 4, 'focus');
+        $motion->strokeArc($x, $y, $radius + 6, $hold, 4, 'focus', clear: $rim);
       }
     }
     if ($place->badgeWidth !== null) {
@@ -354,7 +362,7 @@ final class MasteryMenuPresentation
 
   /**
    * Above the tree: the discipline's name, then a framed summary of each family, nine to a page, the focused
-   * one lit. With Info open the sheet stands where the name was and the cards keep the rows below it.
+   * one lit. An open Info sheet lies over them without moving them.
    */
   private static function renderOverview(MenuCanvas $view, MenuShapes $shapes, MasteryMenuContent $content, MenuPresentationCatalog $theme,
     MasteryBoardView $frame): void
@@ -443,7 +451,7 @@ final class MasteryMenuPresentation
     $view->hints('mastery-hints', $content->hints, $bounds, true, $cell);
   }
 
-  /** The compact Info sheet in the band MasteryBoardView keeps for it at the top of the board's area. */
+  /** The compact Info sheet where MasteryBoardView puts it over the board, above the tree's pictures and names. */
   private static function renderInfo(MenuCanvas $view, MenuPresentationCatalog $theme, MasteryBoardView $frame): void
   {
     $m = $theme->mastery;

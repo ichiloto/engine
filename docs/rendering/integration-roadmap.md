@@ -4196,7 +4196,13 @@ V2 `canvas_compositing` provides bounded image/fill/stroke operations, blending,
 gradients, polygon/ellipse/image-alpha masks and displacement grids. PHP owns
 time and resolved drawing data; native rendering has no game paths or clocks.
 Generic source/raster/cache/cold-work limits apply. See Renderer documentation
-for exact wire limits. `window_activation` reports native focus, not visibility
+for exact wire limits. The optional `canvas_stroke_dashes` capability adds a
+`dash` (`length`, `gap`) to a stroke, so a dashed line of any length is one
+operation of the frame's 256; the Engine offers it to every v2 renderer and
+uses it only once negotiated. `MenuShapes` draws dashed lines through it, or,
+for a renderer without it, as one stroke per straight piece masked to its
+dashes, lengthening dashes where a mask would exceed its point or work limits.
+`window_activation` reports native focus, not visibility
 or occlusion. OS-hide/occlusion handling, hover/pressed states, broad native
 input/visual coverage and Editor title authoring remain incomplete. Capability
 shortfalls degrade the presentation, not game startup. CPU preparation timings

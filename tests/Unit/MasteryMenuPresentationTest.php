@@ -294,29 +294,70 @@ function masteryRectangleBox(\Ichiloto\Engine\Rendering\Presentation\Canvas\Canv
   return [$area->x, $area->y, $area->x + $area->width, $area->y + $area->height];
 }
 
-it('keeps the Info sheet clear of the focus, what it hangs from and the line between them, everywhere on the tree', function () {
-  $infos = [['One line.'], [str_repeat('A summary that runs on and on. ', 14), 'After Spark I'], ['First.', 'Second line.', 'After Spark II']];
+/** Everything that places the board: the view, its origin, the places drawn and the cards. */
+function masteryBoardGeometry(\Ichiloto\Engine\UI\Presentation\MasteryBoardView $view): array
+{
+  return [masteryRectangleBox($view->viewport), $view->originX, $view->originY, $view->rows, array_map(masteryRectangleBox(...), $view->cards),
+    array_map(masteryPlaceBox(...), $view->places)];
+}
+
+it('never moves the board for Info: the tree, its view and the family cards stand the same open or closed, on every level', function () {
+  $infos = [['One line.'], [str_repeat('A summary that runs on and on. ', 14), 'After Spark I']];
   foreach (masteryDeepBoard()->nodes as $node) {
+    $closed = masteryBoardGeometry(MasteryMenuPresentation::layoutBoard(masteryFocusOn(masteryDeepBoard(), $node->id), $this->theme));
     foreach ($infos as $info) {
-      $content = masteryFocusOn(masteryDeepBoard(), $node->id, $info);
-      $view = MasteryMenuPresentation::layoutBoard($content, $this->theme);
-      $sheet = masteryRectangleBox($view->sheet);
-      $focus = $view->places[$node->id] ?? null;
+      $open = MasteryMenuPresentation::layoutBoard(masteryFocusOn(masteryDeepBoard(), $node->id, $info), $this->theme);
 
-      expect($focus)->not->toBeNull()
-        ->and(masteryBoxesMeet(masteryPlaceBox($focus), $sheet))->toBeFalse()
-        ->and($view->viewport->y)->toBeGreaterThanOrEqual($sheet[3])
-        ->and($sheet[3])->toBeLessThanOrEqual($view->area->y + $view->area->height);
-      if ($node->parent !== null) {
-        $parent = $view->places[$node->parent] ?? null;
-        $line = [min($parent?->x ?? 0, $focus->x) - 1, ($parent?->y ?? 0) + $parent?->radius, max($parent?->x ?? 0, $focus->x) + 1, $focus->y - $focus->radius];
+      expect($open->sheet)->not->toBeNull()->and(masteryBoardGeometry($open))->toBe($closed);
+    }
+  }
+  $families = array_map(static fn(int $n): MasteryMenuTab => new MasteryMenuTab("f{$n}", "Family {$n}", 0, 5), range(1, 11));
+  foreach ([MasteryMenuLevel::DISCIPLINE, MasteryMenuLevel::FAMILY] as $level) {
+    foreach (range(0, 10) as $index) {
+      $content = static fn(?array $info): MasteryMenuContent => masteryPresentationContent(['level' => $level, 'families' => $families,
+        'familyIndex' => $index, 'focus' => null, 'info' => $info]);
+      $closed = MasteryMenuPresentation::layoutBoard($content(null), $this->theme);
+      foreach ($infos as $info) {
+        $open = MasteryMenuPresentation::layoutBoard($content($info), $this->theme);
 
-        expect($parent)->not->toBeNull()
-          ->and(masteryBoxesMeet(masteryPlaceBox($parent), $sheet))->toBeFalse()
-          ->and(masteryBoxesMeet($line, $sheet))->toBeFalse()
-          ->and($line[1])->toBeGreaterThanOrEqual($view->viewport->y);
+        expect(masteryBoardGeometry($open))->toBe(masteryBoardGeometry($closed))->and($open->showsTitle)->toBe($closed->showsTitle);
       }
     }
+  }
+});
+
+it('lays Info over the board at the top, or at the bottom while the view is scrolled all the way up, never over the focus', function () {
+  $infos = [['One line.'], [str_repeat('A summary that runs on and on. ', 14), 'After Spark I'], ['First.', 'Second line.', 'After Spark II']];
+  $sides = [];
+  foreach (masteryDeepBoard()->nodes as $node) {
+    foreach ($infos as $info) {
+      $view = MasteryMenuPresentation::layoutBoard(masteryFocusOn(masteryDeepBoard(), $node->id, $info), $this->theme);
+      $sheet = masteryRectangleBox($view->sheet);
+      $area = masteryRectangleBox($view->area);
+      $focus = $view->places[$node->id];
+      // Scrolled all the way up, the families' tops rest whole in view.
+      $scrolledUp = array_any($view->places, static fn($place): bool => $place->node->stage === 0);
+      $bottom = $sheet[3] === $area[3] - 1 - $this->theme->metrics->sectionGap;
+      $sides[$node->id] = $bottom;
+
+      expect(masteryBoxesMeet(masteryPlaceBox($focus), $sheet))->toBeFalse()
+        ->and($sheet[1])->toBeGreaterThan($area[1])->and($sheet[3])->toBeLessThan($area[3])
+        ->and($bottom || $sheet[1] === $area[1] + 1 + $this->theme->metrics->sectionGap)->toBeTrue();
+      if (! $scrolledUp) {
+        expect($bottom)->toBeFalse();
+      }
+    }
+  }
+  // At a family's top the sheet stands below the tree; deep in it, above.
+  expect($sides['sky'])->toBeTrue()->and($sides['spark-IV'])->toBeFalse();
+
+  $families = array_map(static fn(int $n): MasteryMenuTab => new MasteryMenuTab("f{$n}", "Family {$n}", 0, 5), range(1, 9));
+  foreach (range(0, 8) as $index) {
+    $view = MasteryMenuPresentation::layoutBoard(masteryPresentationContent(['level' => MasteryMenuLevel::FAMILY, 'families' => $families,
+      'familyIndex' => $index, 'focus' => null, 'info' => [str_repeat('A family summary that runs long. ', 8), 'After Family 1']]), $this->theme);
+
+    expect($view->cards)->toHaveKey($index)
+      ->and(masteryBoxesMeet(masteryRectangleBox($view->cards[$index]), masteryRectangleBox($view->sheet)))->toBeFalse();
   }
 });
 
@@ -338,9 +379,9 @@ it('draws only whole places, each with its name and badge inside the board\'s vi
         expect($run['x'])->toBeGreaterThanOrEqual($viewport[0])->and($run['x'] + $run['width'])->toBeLessThanOrEqual($viewport[2])
           ->and($run['y'])->toBeGreaterThanOrEqual($viewport[1]);
       }
-      // The default theme frames the focus, what it hangs from and, with Info closed, what hangs from it.
+      // The default theme frames the focus, what it hangs from and what hangs from it, Info open or not.
       $children = array_column(array_filter($board->nodes, static fn(MasteryMenuNode $child): bool => $child->parent === $node->id), 'id');
-      expect(array_keys($view->places))->toContain($node->id, ...array_filter([$node->parent, ...($info === null ? $children : [])]));
+      expect(array_keys($view->places))->toContain($node->id, ...array_filter([$node->parent, ...$children]));
     }
   }
 });
@@ -376,22 +417,58 @@ it('starts a pan where the view rested and ends it where the focus rests', funct
     ->toEqual($origin(MasteryMenuPresentation::layoutBoard($to, $this->theme)));
 });
 
-it('keeps the focused family card clear of the Info sheet, following its row when the sheet leaves fewer rows', function () {
-  $families = array_map(static fn(int $n): MasteryMenuTab => new MasteryMenuTab("f{$n}", "Family {$n}", 0, 5), range(1, 9));
-  foreach ([MasteryMenuLevel::DISCIPLINE, MasteryMenuLevel::FAMILY] as $level) {
-    foreach (range(0, 8) as $index) {
-      foreach ([['One line.'], [str_repeat('A family summary that runs long. ', 8), 'After Family 1']] as $info) {
-        $view = MasteryMenuPresentation::layoutBoard(masteryPresentationContent(['level' => $level, 'families' => $families, 'familyIndex' => $index,
-          'focus' => null, 'info' => $info]), $this->theme);
-        $viewport = masteryRectangleBox($view->viewport);
-
-        expect($view->cards)->toHaveKey($index);
-        foreach ($view->cards as $card) {
-          $box = masteryRectangleBox($card);
-          expect(masteryBoxesMeet($box, masteryRectangleBox($view->sheet)))->toBeFalse()
-            ->and($box[1])->toBeGreaterThanOrEqual($viewport[1])->and($box[3])->toBeLessThanOrEqual($viewport[3]);
+/** Every straight piece of every line the tree draws, in canvas coordinates. */
+function masteryBoardStrokes(PresentationCanvas $canvas): array
+{
+  $pieces = [];
+  foreach (array_filter($canvas->composites, static fn($composite) => $composite->id === 'mastery-board') as $board) {
+    foreach ($board->operations as $operation) {
+      if ($operation->data['type'] === 'stroke') {
+        $points = array_map(static fn(array $point): array => [$point[0] + $board->destination->x, $point[1] + $board->destination->y],
+          $operation->data['points']);
+        for ($piece = 0; $piece < count($points) - 1; $piece++) {
+          $pieces[] = [$points[$piece], $points[$piece + 1]];
         }
       }
     }
+  }
+
+  return $pieces;
+}
+
+it('starts the lines to what hangs from a node under its name, so no line runs behind a name', function () {
+  $board = masteryDeepBoard();
+  foreach ($board->nodes as $node) {
+    $content = masteryFocusOn($board, $node->id, overrides: ['curriculum' => true]);
+    $view = MasteryMenuPresentation::layoutBoard($content, $this->theme);
+    $pieces = masteryBoardStrokes(MasteryMenuPresentation::compose($content, $this->theme));
+    expect($pieces)->not->toBeEmpty();
+    foreach ($view->places as $place) {
+      $half = mb_strlen($place->node->label) * $place->labelCell[0] / 2;
+      $name = [$place->x - $half, $place->labelY, $place->x + $half, $place->getStemY()];
+      foreach ($pieces as [$from, $to]) {
+        $box = [min($from[0], $to[0]) - 0.5, min($from[1], $to[1]), max($from[0], $to[0]) + 0.5, max($from[1], $to[1])];
+        expect(masteryBoxesMeet($box, $name))->toBeFalse();
+      }
+    }
+  }
+});
+
+it('parts the focus rings around the rim badge and the padlock, so neither bites into a ring', function () {
+  $content = masteryPresentationContent(['focus' => 'tempest', 'camera' => MasteryCamera::createAt(0.5, 3)]);
+  $place = MasteryMenuPresentation::layoutBoard($content, $this->theme)->places['tempest'];
+  $canvas = MasteryMenuPresentation::compose($content, $this->theme);
+  $motion = array_find($canvas->composites, static fn($composite) => $composite->id === 'mastery-board-motion');
+  $focus = $this->theme->colors['focus']->toArray();
+  $rings = array_filter($motion->operations, static fn($operation): bool => ($operation->data['brush']['color'] ?? null) === $focus);
+  $marks = $place->getRimMarks();
+  $markRadius = \Ichiloto\Engine\UI\Presentation\MasteryBoardPlace::MARK_RADIUS;
+
+  expect($rings)->toHaveCount(2)->and($marks)->toHaveCount(2)
+    // The padlock's backing disc lies inside the area the rings leave clear.
+    ->and($marks[1]->x)->toBeLessThan($place->markX - $markRadius)->and($marks[1]->x + $marks[1]->width)->toBeGreaterThan($place->markX + $markRadius);
+  foreach ($rings as $ring) {
+    $cleared = array_filter($ring->data['masks'], static fn(array $mask): bool => $mask['type'] === 'polygon' && $mask['invert']);
+    expect($cleared)->toHaveCount(2);
   }
 });
