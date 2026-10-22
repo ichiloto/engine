@@ -7,6 +7,10 @@ namespace Ichiloto\Engine\Quests;
 /**
  * One waymark the player should currently follow: its quest, objective and
  * the spoiler-safe objective text that explains it.
+ *
+ * A waymark that fills a gap ({@see Story\StoryWayfinder}) leads where no
+ * authored objective does; its objective index is -1 when it leads to a
+ * quest's start rather than one of its objectives.
  */
 final readonly class ActiveQuestWaymark
 {
@@ -17,6 +21,7 @@ final readonly class ActiveQuestWaymark
     public QuestWaymark $waymark,
     public string $label,
     public bool $isOptionalQuest = false,
+    public bool $fillsGap = false,
   )
   {
   }
@@ -24,6 +29,6 @@ final readonly class ActiveQuestWaymark
   /** Stable within a session; presentation identities derive from it. */
   public function getId(): string
   {
-    return sprintf('%s:%d:%d', $this->questId, $this->objectiveIndex, $this->waymarkIndex);
+    return sprintf('%s%s:%d:%d', $this->fillsGap ? 'gap:' : '', $this->questId, $this->objectiveIndex, $this->waymarkIndex);
   }
 }
