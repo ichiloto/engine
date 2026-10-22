@@ -89,7 +89,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     /** Whether the running project gives any character a Mastery Map. */
     public static function projectHasMaps(): bool
     {
-        return MasteryCatalog::getProjectCatalog()->getMaps() !== [];
+        return MasteryCatalog::getProjectCatalog()->hasNodes();
     }
 
     protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
@@ -109,7 +109,8 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $regionIds = $this->getRegionIds();
         $focused = $this->getFocusedStatus();
         $map = $this->getMap();
-        $places = $map === null ? [] : MasteryLayout::place($map, $regionIds);
+        $places = $map === null ? [] : MasteryLayout::place($map, $regionIds,
+            array_map(static fn(MasteryNodeStatus $status): string => $status->node->id, $statuses));
         $nodes = array_map(fn(MasteryNodeStatus $status): MasteryMenuNode => new MasteryMenuNode(
             $status->node->id, $this->getNodeLabel($status), max(0, (int)array_search($status->node->region, $regionIds, true)),
             $status->state, $this->describeCardState($status), $status->node->requires,
@@ -232,7 +233,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             return;
         }
         try {
-            if (! confirm(sprintf('Learn %s for %d %s?', $focused->node->skill, $focused->node->cost, MasteryVocabulary::getPointsLabel()),
+            if (! confirm(sprintf('Learn %s for %d %s?', $focused->node->name, $focused->node->cost, MasteryVocabulary::getPointsLabel()),
                 $this->getTitle(), confirmLabel: 'Yes', cancelLabel: 'No')) {
                 return;
             }
@@ -243,8 +244,9 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             $this->pointsCount = Accessibility::prefersReducedMotion() ? null
                 : new MasteryPointsCount($before, $character->mastery->points, $this->getPresentationTime());
             $this->syncCounterTick();
-            $this->statusMessage = sprintf('%s learned %s!', $character->name,
-                implode(', ', array_map(static fn(Skill $skill): string => $skill->name, $advance->learned)));
+            // A foundation that grants no skill yet is still learned, under its own name.
+            $this->statusMessage = sprintf('%s learned %s!', $character->name, implode(', ', $advance->learned === []
+                ? [$focused->node->name] : array_map(static fn(Skill $skill): string => $skill->name, $advance->learned)));
         } catch (MasteryRefusal $refusal) {
             // The menu refuses what cannot be learned itself, so this is the map changing underneath it.
             play_sound(SystemSound::BUZZER);
@@ -263,7 +265,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     {
         return match (true) {
             $status->secret => null,
-            $status->state === MasteryNodeState::LEARNED => sprintf('%s has already learned %s.', $character->name, $status->node->skill),
+            $status->state === MasteryNodeState::LEARNED => sprintf('%s has already learned %s.', $character->name, $status->node->name),
             $status->state === MasteryNodeState::LOCKED => implode(' ', array_map(static fn(string $condition): string => "{$condition}.",
                 $this->describeLock($status))),
             default => sprintf('Not enough %s.', MasteryVocabulary::getPointsLabel()),
@@ -396,7 +398,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         if ($status->secret) {
             return new MenuDetailSheet([[MenuDetailEntry::createProse('???', 'accent'), MenuDetailEntry::createProse('???', 'muted')]]);
         }
-        $heading = [MenuDetailEntry::createProse($status->node->skill, 'accent')];
+        $heading = [MenuDetailEntry::createProse($status->node->name, 'accent')];
         foreach ($this->describeDetailStatus($status) as $line) {
             $heading[] = MenuDetailEntry::createProse($line, $status->state === MasteryNodeState::LEARNED ? 'increase' : 'muted');
         }
@@ -454,7 +456,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     /** The node's name as menus show it: its skill, or "???" while it is a secret. */
     protected function getNodeLabel(MasteryNodeStatus $status): string
     {
-        return $status->secret ? '???' : $status->node->skill;
+        return $status->secret ? '???' : $status->node->name;
     }
 
     /** @return list<string> What still unlocks a locked node, one condition each ("Unlocks at Lv 12"). */
@@ -470,7 +472,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         if ($status->missing !== []) {
             $map = $this->getMap();
             $conditions[] = sprintf('Unlocked after learning %s', implode(', ',
-                array_map(static fn(string $required): string => $map?->findNode($required)?->skill ?? $required, $status->missing)));
+                array_map(static fn(string $required): string => $map?->findNode($required)?->name ?? $required, $status->missing)));
         }
 
         return $conditions;
@@ -494,10 +496,18 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         return Vocabulary::getTerm('menu.mastery', 'Mastery');
     }
 
-    /** @return list<MasteryNodeStatus> */
+    /**
+     * The nodes this menu lists: the ones the character is offered, by their
+     * own map or the tree's prices, learned or not. Nodes nobody can learn yet
+     * (their skill awaits author values, or nothing prices them) stay off this
+     * menu until the project finishes them; the tree keeps them.
+     *
+     * @return list<MasteryNodeStatus>
+     */
     protected function describeNodes(): array
     {
-        return $this->character === null ? [] : ($this->getProgression()?->describe($this->character) ?? []);
+        return $this->character === null ? [] : array_values(array_filter($this->getProgression()?->describe($this->character) ?? [],
+            static fn(MasteryNodeStatus $status): bool => $status->offered));
     }
 
     /** @return list<MasteryNodeStatus> The focused region's nodes. */
@@ -565,7 +575,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
 
     protected function findSkill(?MasteryNodeStatus $status): ?Skill
     {
-        return $status === null ? null : SkillCatalog::getProjectCatalog()->findSkill($status->node->skill);
+        return $status?->node->skill === null ? null : SkillCatalog::getProjectCatalog()->findSkill($status->node->skill);
     }
 
     private function syncInfoSelection(): void

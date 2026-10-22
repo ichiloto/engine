@@ -24,19 +24,21 @@ final class MasteryLayout
 
   /**
    * @param list<string> $regionIds The project's regions, in map order.
-   * @return array<string, array{x: float, y: float, placed: bool}> Each node's place, by node id.
+   * @param list<string>|null $nodeIds The nodes drawn, when a view draws only some of the map; all of them otherwise.
+   * @return array<string, array{x: float, y: float, placed: bool}> Each drawn node's place, by node id.
    */
-  public static function place(MasteryMap $map, array $regionIds): array
+  public static function place(MasteryMap $map, array $regionIds, ?array $nodeIds = null): array
   {
     $grid = self::getGrid(count($regionIds));
+    $nodes = $nodeIds === null ? $map->nodes : array_intersect_key($map->nodes, array_flip($nodeIds));
     $byRegion = [];
-    foreach ($map->nodes as $node) {
+    foreach ($nodes as $node) {
       if ($node->position === null) {
         $byRegion[$node->region][] = $node->id;
       }
     }
     $places = [];
-    foreach ($map->nodes as $node) {
+    foreach ($nodes as $node) {
       if ($node->position !== null) {
         $places[$node->id] = [...$node->position, 'placed' => true];
         continue;

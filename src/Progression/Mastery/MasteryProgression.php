@@ -13,6 +13,12 @@ use Ichiloto\Engine\Util\Debug;
  * are learned so their skills join the character's ability book or
  * spellbook. Every menu, reward and save path uses it.
  *
+ * Every character can reach every node of the tree. A node nobody can learn
+ * yet (its skill still awaits author values, or nothing prices it for this
+ * character) is unavailable: it never takes points and is never learned for
+ * free. A foundation that grants no skill yet is learned for its place in
+ * the chain alone.
+ *
  * Battles and quests add points to the character's total through
  * ExperienceAwarder. The player
  * spends them on any open node whose price the total covers, and the node
@@ -26,7 +32,7 @@ final readonly class MasteryProgression
   {
   }
 
-  /** The progression for a character's map in the running project, or null when they have none. */
+  /** The progression for a character's map in the running project, or null when the project has no mastery tree. */
   public static function forCharacter(Character $character): ?self
   {
     $map = MasteryCatalog::getProjectCatalog()->findMap($character->actorId);
@@ -53,20 +59,27 @@ final readonly class MasteryProgression
     match (true) {
       $status->state === MasteryNodeState::LEARNED => throw new MasteryRefusal(MasteryRefusalReason::LEARNED,
         sprintf('%s already knows %s.', $character->name, $node->skill)),
+      $status->state === MasteryNodeState::UNAVAILABLE => throw new MasteryRefusal(MasteryRefusalReason::UNAVAILABLE,
+        sprintf('Nobody can learn %s yet (%s).', $node->name, $status->unavailability?->value)),
       $status->state === MasteryNodeState::LOCKED => throw new MasteryRefusal(MasteryRefusalReason::LOCKED,
-        sprintf('%s cannot learn %s yet.', $character->name, $node->skill)),
+        sprintf('%s cannot learn %s yet.', $character->name, $node->name)),
       ! $status->affordable => throw new MasteryRefusal(MasteryRefusalReason::SHORT,
-        sprintf('%s holds %d of the %d points %s costs.', $character->name, $character->mastery->points, $node->cost, $node->skill)),
+        sprintf('%s holds %d of the %d points %s costs.', $character->name, $character->mastery->points, $node->cost, $node->name)),
       default => null,
     };
-    $skill = $this->skills->findSkill($node->skill) ?? throw new MasteryRefusal(MasteryRefusalReason::UNKNOWN,
-      sprintf('%s\'s mastery node %s teaches unknown skill %s.', $character->name, $node->id, $node->skill));
-    $character->mastery->points -= $node->cost;
-    $character->learnSkill($skill);
+    $skill = null;
+    if ($node->skill !== null) {
+      $skill = $this->skills->findSkill($node->skill) ?? throw new MasteryRefusal(MasteryRefusalReason::UNKNOWN,
+        sprintf('%s\'s mastery node %s teaches unknown skill %s.', $character->name, $node->id, $node->skill));
+    }
+    $character->mastery->points -= (int)$node->cost;
+    if ($skill !== null) {
+      $character->learnSkill($skill);
+    }
     $character->mastery->markLearned($node->id);
 
     // Learning a node may open free nodes that build on it.
-    return new MasteryAdvance([$skill, ...$this->reconcile($character)->learned]);
+    return new MasteryAdvance([...($skill === null ? [] : [$skill]), ...$this->reconcile($character)->learned]);
   }
 
   /**
@@ -79,7 +92,7 @@ final readonly class MasteryProgression
   {
     $mastery = $character->mastery;
     foreach ($this->map->nodes as $node) {
-      if (! $mastery->hasLearned($node->id) && $this->knows($character, $node->skill)) {
+      if (! $mastery->hasLearned($node->id) && $node->skill !== null && $this->knows($character, $node->skill)) {
         $mastery->markLearned($node->id);
       }
     }
@@ -87,15 +100,17 @@ final readonly class MasteryProgression
     do {
       $opened = false;
       foreach ($this->map->nodes as $node) {
-        if ($node->cost === 0 && ! $mastery->hasLearned($node->id) && $this->isOpen($character, $node)) {
-          $skill = $this->skills->findSkill($node->skill);
-          if ($skill === null) {
+        if ($node->cost === 0 && ! $mastery->hasLearned($node->id) && $this->findUnavailability($node) === null && $this->isOpen($character, $node)) {
+          $skill = $node->skill === null ? null : $this->skills->findSkill($node->skill);
+          if ($node->skill !== null && $skill === null) {
             Debug::warn(sprintf('%s\'s mastery node %s teaches unknown skill %s.', $character->name, $node->id, $node->skill));
             continue;
           }
-          $character->learnSkill($skill);
+          if ($skill !== null) {
+            $character->learnSkill($skill);
+            $learned[] = $skill;
+          }
           $mastery->markLearned($node->id);
-          $learned[] = $skill;
           $opened = true;
         }
       }
@@ -106,9 +121,13 @@ final readonly class MasteryProgression
 
   private function getStatus(Character $character, MasteryNode $node): MasteryNodeStatus
   {
-    $affordable = $character->mastery->points >= $node->cost;
+    $affordable = $node->cost !== null && $character->mastery->points >= $node->cost;
     if ($character->mastery->hasLearned($node->id)) {
       return new MasteryNodeStatus($node, MasteryNodeState::LEARNED, $affordable);
+    }
+    $unavailability = $this->findUnavailability($node);
+    if ($unavailability !== null) {
+      return new MasteryNodeStatus($node, MasteryNodeState::UNAVAILABLE, false, unavailability: $unavailability);
     }
     $missing = array_values(array_filter($node->requires, static fn(string $required): bool => ! $character->mastery->hasLearned($required)));
     if ($character->level < $node->opensAtLevel || $missing !== []) {
@@ -117,6 +136,17 @@ final readonly class MasteryProgression
     }
 
     return new MasteryNodeStatus($node, MasteryNodeState::OPEN, $affordable);
+  }
+
+  /** Why nobody can learn a node yet, or null when it can be learned on its terms. */
+  private function findUnavailability(MasteryNode $node): ?MasteryUnavailability
+  {
+    return match (true) {
+      $node->skill !== null && $this->skills->findSkill($node->skill) === null && $this->skills->findDraft($node->skill) !== null
+        => MasteryUnavailability::AWAITING_VALUES,
+      $node->cost === null => MasteryUnavailability::UNPRICED,
+      default => null,
+    };
   }
 
   private function isOpen(Character $character, MasteryNode $node): bool

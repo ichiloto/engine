@@ -17,4 +17,6 @@ enum MasteryRefusalReason
   case LOCKED;
   /** The character holds fewer points than its price. */
   case SHORT;
+  /** Nobody can learn it yet (see MasteryUnavailability). */
+  case UNAVAILABLE;
 }
