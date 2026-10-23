@@ -8,6 +8,7 @@ use Ichiloto\Engine\IO\Console\SgrColorParser;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Tilesets\AutotileShape;
+use Ichiloto\Engine\Rendering\Tilesets\CornerShape;
 use Ichiloto\Engine\Rendering\Tilesets\TileComposer;
 use Ichiloto\Engine\Rendering\Tilesets\TileId;
 use Ichiloto\Engine\Rendering\Tilesets\TilePiece;
@@ -38,6 +39,7 @@ final readonly class PresentationWorld
     public const int PIECE_SOURCE_BYTES = 32;
     public const int TILE_CELL_SOURCE_BYTES = 16;
     public const int MAX_CATALOG_TILES = 8192;
+    public const int MAX_SHEETS = 16;
     public const int BELOW_TILES = -100;
     public const int ABOVE_TILES = 900;
 
@@ -172,6 +174,14 @@ final readonly class PresentationWorld
      * unusable are left out, and their cells show glyphs. Both draw bands of
      * a tile layer cover the glyphs of the gameplay layer it belongs to.
      *
+     * A corner-edged kind's cells are left out of their tile layer's rows and
+     * drawn instead, with the cells beside them, in a layer of their own per
+     * kind (`tiles:<layer>:corners:<kind>`, after `:above` in the above band)
+     * that paints right after its tile layer's band, kinds in the tileset's
+     * kind order. Its corner sheet follows the tileset's sheets, and only
+     * when the map shows the kind, so a map without corner-edged kinds is
+     * uploaded exactly as before.
+     *
      * @return array{tileset: array<string, mixed>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>, bytes: int, animated: bool, covers: array<string, string>, shadows: array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>}|null}|null
      */
     private static function getTilePresentation(MapGraphics $graphics, MapLayerSet $mapLayers, string $assetRoot, string $id,
@@ -185,77 +195,137 @@ final readonly class PresentationWorld
         if ($usable === null) {
             return null;
         }
-        $sheetNames = array_keys($usable['sheets']);
-        $sheetIndices = array_flip($sheetNames);
+        $wireSheets = array_values($usable['sheets']);
+        $sheetIndices = array_flip(array_keys($usable['sheets']));
         $size = $usable['tileSize'];
         $catalog = $tiles = [];
-        $bytes = array_sum(array_map(strlen(...), $usable['sheets']));
+        $bytes = array_sum(array_map(strlen(...), $wireSheets));
         $animated = false;
         $layers = $operations = $covers = [];
-        $resolved = array_map(static function ($layer) use ($coveredCells): array {
+        $shown = array_map(static function ($layer) use ($coveredCells): array {
             $tiles = $layer->tiles;
             foreach ($coveredCells[$layer->name] ?? [] as $y => $cells) {
                 foreach ($cells as $x => $_) { $tiles[$y][$x] = TileId::EMPTY; }
             }
-            return AutotileShape::resolveLayer($tiles);
+            return $tiles;
         }, $graphics->layers);
+        $resolved = array_map(AutotileShape::resolveLayer(...), $shown);
+        $cornerTiles = $graphics->tileset->getCornerTiles();
+        $cornerSheets = $cornerTiles === [] ? [] : $graphics->tileset->getUsableCornerSheets($assetRoot, $size,
+            self::getShownCornerTiles($shown, $cornerTiles));
+        $addTile = static function (string $key, int $shiftX, int $shiftY, callable $compose)
+            use (&$catalog, &$tiles, &$bytes, &$animated, &$sheetIndices): int {
+            if (isset($catalog[$key])) {
+                return $catalog[$key];
+            }
+            if (count($catalog) >= self::MAX_CATALOG_TILES) {
+                throw new InvalidArgumentException('Retained world exceeds the ' . self::MAX_CATALOG_TILES . '-tile catalog.');
+            }
+            $frames = $compose();
+            $animated = $animated || count($frames) > 1;
+            $catalog[$key] = count($tiles);
+            $tiles[] = [
+                ...($shiftX === 0 ? [] : ['left' => $shiftX]),
+                ...($shiftY === 0 ? [] : ['top' => $shiftY]),
+                'frames' => array_map(static fn(array $pieces): array => array_map(
+                    static function (TilePiece $piece) use ($sheetIndices, &$bytes): array {
+                        $bytes += self::PIECE_SOURCE_BYTES;
+                        return ['sheet' => $sheetIndices[$piece->sheet], 'x' => $piece->x, 'y' => $piece->y,
+                            'width' => $piece->width, 'height' => $piece->height, 'left' => $piece->left, 'top' => $piece->top];
+                    }, $pieces), $frames),
+            ];
+            return $catalog[$key];
+        };
         foreach ($graphics->layers as $index => $layer) {
             $covered = $gameplayIds[$graphics->owners[$layer->name] ?? ''] ?? null;
-            $bands = [];
+            $bands = $cornerBands = [];
             // A layer offset in field cells, each one tile.
             [$offsetX, $offsetY] = $graphics->offsets[$layer->name] ?? [0.0, 0.0];
             $shiftX = (int)round($offsetX * $size);
             $shiftY = (int)round($offsetY * $size);
             foreach ($resolved[$index] as $y => $cells) {
                 foreach ($cells as $x => $tileId) {
-                    if ($tileId === TileId::EMPTY || !isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
+                    if ($tileId === TileId::EMPTY || CornerShape::isCornerTile($tileId, $cornerTiles)
+                        || !isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
                         continue;
                     }
-                    $key = "{$tileId}:{$shiftX}:{$shiftY}";
-                    if (!isset($catalog[$key])) {
-                        if (count($catalog) >= self::MAX_CATALOG_TILES) {
-                            throw new InvalidArgumentException('Retained world exceeds the ' . self::MAX_CATALOG_TILES . '-tile catalog.');
-                        }
-                        $frames = TileComposer::compose($tileId, $size, $graphics->tileset->isTable($tileId));
-                        $animated = $animated || count($frames) > 1;
-                        $catalog[$key] = count($tiles);
-                        $tiles[] = [
-                            ...($shiftX === 0 ? [] : ['left' => $shiftX]),
-                            ...($shiftY === 0 ? [] : ['top' => $shiftY]),
-                            'frames' => array_map(static fn(array $pieces): array => array_map(
-                                static function (TilePiece $piece) use ($sheetIndices, &$bytes): array {
-                                    $bytes += self::PIECE_SOURCE_BYTES;
-                                    return ['sheet' => $sheetIndices[$piece->sheet->value], 'x' => $piece->x, 'y' => $piece->y,
-                                        'width' => $piece->width, 'height' => $piece->height, 'left' => $piece->left, 'top' => $piece->top];
-                                }, $pieces), $frames),
-                        ];
-                    }
+                    $tile = $addTile("{$tileId}:{$shiftX}:{$shiftY}", $shiftX, $shiftY,
+                        static fn(): array => TileComposer::compose($tileId, $size, $graphics->tileset->isTable($tileId)));
                     $band = $graphics->tileset->isAbove($tileId) ? 'above' : 'below';
-                    $bands[$band][$y][] = ['column' => $x, 'tile' => $catalog[$key]];
+                    $bands[$band][$y][] = ['column' => $x, 'tile' => $tile];
                     $bytes += self::TILE_CELL_SOURCE_BYTES;
                 }
             }
+            foreach ($cornerSheets === [] ? [] : CornerShape::resolveLayer($shown[$index], array_keys($cornerSheets)) as $y => $cells) {
+                foreach ($cells as $x => $kinds) {
+                    foreach ($kinds as $flag => $cases) {
+                        $sheet = $cornerSheets[$flag];
+                        if (!isset($sheetIndices[$sheet->key])) {
+                            $sheetIndices[$sheet->key] = count($wireSheets);
+                            $wireSheets[] = $sheet->asset;
+                            $bytes += strlen($sheet->asset);
+                        }
+                        $tile = $addTile("corners:{$flag}:{$cases}:{$shiftX}:{$shiftY}", $shiftX, $shiftY,
+                            static fn(): array => TileComposer::composeCorners($sheet, $cases, $size));
+                        $band = $graphics->tileset->isAbove($flag) ? 'above' : 'below';
+                        $cornerBands[$band][$sheet->kind][$y][] = ['column' => $x, 'tile' => $tile];
+                        $bytes += self::TILE_CELL_SOURCE_BYTES;
+                    }
+                }
+            }
             foreach (['below' => self::BELOW_TILES, 'above' => self::ABOVE_TILES] as $band => $base) {
-                if (!isset($bands[$band])) { continue; }
-                $layerId = 'tiles:' . $layer->name . ($band === 'above' ? ':above' : '');
-                $layers[] = ['id' => $layerId, 'layer' => $base + $layer->order, 'kind' => 'tiles'];
-                if ($covered !== null) { $covers[$layerId] = $covered; }
-                foreach ($bands[$band] as $y => $cells) {
-                    $operations[] = ['op' => 'worldTiles', 'id' => $id, 'layerId' => $layerId,
-                        'rows' => [['row' => $y, 'cells' => $cells]]];
+                $bandId = 'tiles:' . $layer->name . ($band === 'above' ? ':above' : '');
+                $drawn = isset($bands[$band]) ? [$bandId => $bands[$band]] : [];
+                foreach ($cornerSheets as $sheet) {
+                    if (isset($cornerBands[$band][$sheet->kind])) {
+                        $drawn[$bandId . ':corners:' . $sheet->kind] = $cornerBands[$band][$sheet->kind];
+                    }
+                }
+                foreach ($drawn as $layerId => $rows) {
+                    $layers[] = ['id' => $layerId, 'layer' => $base + $layer->order, 'kind' => 'tiles'];
+                    if ($covered !== null) { $covers[$layerId] = $covered; }
+                    foreach ($rows as $y => $cells) {
+                        $operations[] = ['op' => 'worldTiles', 'id' => $id, 'layerId' => $layerId,
+                            'rows' => [['row' => $y, 'cells' => $cells]]];
+                    }
                 }
             }
         }
         if ($tiles === []) {
             return null;
         }
+        if (count($wireSheets) > self::MAX_SHEETS) {
+            throw new InvalidArgumentException('Retained world exceeds the ' . self::MAX_SHEETS . '-sheet tileset budget with its corner sheets.');
+        }
         $shadows = self::getTileShadows($graphics, $resolved, $sheetIndices, $size, count($tiles), $id, $bytes);
         if (count($tiles) + count($shadows['tiles'] ?? []) > self::MAX_CATALOG_TILES) {
             throw new InvalidArgumentException('Retained world exceeds the ' . self::MAX_CATALOG_TILES . '-tile catalog.');
         }
-        return ['tileset' => ['tileSize' => $usable['tileSize'], 'sheets' => array_values($usable['sheets']), 'tiles' => $tiles],
+        return ['tileset' => ['tileSize' => $usable['tileSize'], 'sheets' => $wireSheets, 'tiles' => $tiles],
             'layers' => $layers, 'operations' => $operations, 'bytes' => $bytes, 'animated' => $animated, 'covers' => $covers,
             'shadows' => $shadows];
+    }
+
+    /**
+     * The corner-edged kinds' autotiles the map shows, so only their sheets are read and sent.
+     *
+     * @param list<array<int, array<int, int>>> $shown Each tile layer's cells.
+     * @param list<int> $cornerTiles
+     * @return list<int>
+     */
+    private static function getShownCornerTiles(array $shown, array $cornerTiles): array
+    {
+        $found = [];
+        foreach ($shown as $rows) {
+            foreach ($rows as $row) {
+                foreach ($row as $tileId) {
+                    if (CornerShape::isCornerTile($tileId, $cornerTiles)) {
+                        $found[TileId::getFlagId($tileId)] = true;
+                    }
+                }
+            }
+        }
+        return array_keys($found);
     }
 
     /**

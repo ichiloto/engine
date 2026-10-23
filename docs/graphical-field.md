@@ -110,6 +110,11 @@ editing surface is owned by the GUI Editor plan. Related docs:
 - Autotiles (A1 to A4) compose each tile from 24 x 24 quarter pieces
   according to its neighbours, exactly as RPG Maker does, so edges,
   corners, ends and junctions need no hand-placed variants.
+- A terrain kind may draw its edges on the corners between cells from a
+  corner sheet of its own instead, so diagonals and bends are smooth
+  ([corner-edged kinds](layered-tilemaps.md#corner-edged-kinds),
+  [corner sheet layout](corner-sheets.md)). Its autotile stays the cell's
+  identity.
 - Tile identities follow RPG Maker MZ's numbering (B from 0, C from 256,
   D from 512, E from 768, A5 from 1536, A1 from 2048, A2 from 2816, A3 from
   4352, A4 from 5888), with the autotile shape carried in the identity.

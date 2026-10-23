@@ -193,6 +193,44 @@ final readonly class Tileset
   }
 
   /**
+   * The flag identities of the corner-edged kinds' autotiles, in kind order,
+   * which is also the order they draw in where they share a tile layer: each
+   * over those before it.
+   *
+   * @return list<int>
+   */
+  public function getCornerTiles(): array
+  {
+    return array_values(array_map(static fn(TerrainKind $kind): int => $kind->art['tile'],
+      array_filter($this->kinds, static fn(TerrainKind $kind): bool => $kind->cornerEdged)));
+  }
+
+  /**
+   * The corner sheets of the corner-edged kinds whose autotiles are listed,
+   * read from the current files at the tileset's tile size. An unusable
+   * sheet is reported and left out: its kind's cells show their terminal
+   * glyphs, as a tile from an unusable sheet does.
+   *
+   * @param list<int> $tiles Flag identities of corner-edged kinds' autotiles.
+   * @return array<int, CornerSheet> By flag identity, in kind order.
+   */
+  public function getUsableCornerSheets(string $assetRoot, int $tileSize, array $tiles): array
+  {
+    $usable = [];
+    foreach ($this->kinds as $kind) {
+      if (!$kind->cornerEdged || !in_array($kind->art['tile'], $tiles, true)) {
+        continue;
+      }
+      try {
+        $usable[$kind->art['tile']] = CornerSheet::read($kind, $assetRoot, $tileSize);
+      } catch (RuntimeException | InvalidArgumentException $error) {
+        Debug::warn("Tileset {$this->id} kind {$kind->id} corner sheet is unusable; its cells show terminal glyphs: " . $error->getMessage());
+      }
+    }
+    return $usable;
+  }
+
+  /**
    * The sheets whose images fit their RPG Maker layout at one shared tile
    * size, read from the current files. An unusable sheet is reported and
    * left out; tiles that need it show their terminal glyphs instead.

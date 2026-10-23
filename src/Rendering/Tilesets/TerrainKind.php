@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Rendering\Tilesets;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Field\MapAtlasTerrain;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use InvalidArgumentException;
 
 /**
@@ -31,6 +32,13 @@ use InvalidArgumentException;
  *   'art' => ['layer' => 'ground', 'tile' => 3008], 'passage' => 'walk', 'atlas' => 'road'],
  * ```
  *
+ * A kind may draw its edges on the corners between cells instead of in each
+ * cell, so diagonals and bends are smooth curves rather than stair steps: its
+ * art names a corner sheet (`'corners' => 'Graphics/Tilesets/World/Water.corners.png'`,
+ * {@see CornerSheet}, {@see CornerShape}). Its autotile stays the identity a
+ * tile layer holds where the kind is, so maps, the terminal, collision and
+ * saves are unchanged; only how those cells are drawn changes.
+ *
  * A kind is placed through its {@see TilesetPiece}: one cell whose glyph goes
  * on the kind's gameplay layer and whose tiles are its autotile and, for a
  * feature, its ground kind's autotile. Painting a kind therefore writes both
@@ -46,6 +54,9 @@ final readonly class TerrainKind
   public const array FIELDS = ['name', 'layer', 'glyph', 'art', 'passage', 'encounters', 'atlas', 'ground', 'keeps'];
   /** The art key that marks a kind whose autotile is still to be drawn: `'art' => ['awaiting' => true]`. */
   public const string AWAITING_ART = 'awaiting';
+  /** The art key naming a corner-edged kind's corner sheet ({@see CornerSheet}). */
+  public const string CORNERS = 'corners';
+  private const array ART_FIELDS = ['layer', 'tile', self::CORNERS];
   /** Encounter terrain ids, shared by the kinds whose troops they share. */
   public const string ENCOUNTER_PATTERN = '/\A[a-z][a-z0-9_-]{0,63}\z/';
   private const string NAME_PATTERN = '/\A[A-Za-z][A-Za-z0-9_-]*\z/';
@@ -56,10 +67,13 @@ final readonly class TerrainKind
   public CollisionType $collision;
   /** Whether the kind's autotile is still to be drawn: it is placed with its glyph alone, and validation lists it. */
   public bool $awaitingArt;
+  /** Whether its edges are drawn on the corners between cells from its corner sheet ({@see CornerShape}). */
+  public bool $cornerEdged;
 
   /**
    * @param string $glyph The authored glyph cell, in its style markup.
-   * @param array{layer: string, tile: int}|null $art The autotile and the tile layer it is painted on; null while awaiting art.
+   * @param array{layer: string, tile: int, corners?: string}|null $art The autotile and the tile layer it is painted on, and
+   *   for a corner-edged kind its corner sheet; null while awaiting art.
    * @param string|null $encounters The encounter terrain whose troops it meets; null (absent) meets none.
    * @param string $atlas The atlas role it shows as on a map screen ({@see MapAtlasTerrain::ROLES}).
    * @param string|null $ground The kind a feature stands on, painted beneath it; null for a ground kind.
@@ -81,6 +95,7 @@ final readonly class TerrainKind
   ) {
     $this->symbol = TerminalText::stripAnsi(TerminalText::visibleSymbols($glyph)[0] ?? '');
     $this->awaitingArt = $art === null;
+    $this->cornerEdged = isset($art[self::CORNERS]);
     $this->collision = match (true) {
       $passage === TerrainPassage::SOLID => CollisionType::SOLID,
       $encounters !== null => CollisionType::ENCOUNTER,
@@ -159,7 +174,7 @@ final readonly class TerrainKind
     $art = $data['art'] ?? null;
     if ($art === [self::AWAITING_ART => true]) {
       $art = null;
-    } elseif (is_array($art) && count($art) === 2 && is_string($art['layer'] ?? null)
+    } elseif (is_array($art) && array_diff(array_keys($art), self::ART_FIELDS) === [] && is_string($art['layer'] ?? null)
       && preg_match(self::NAME_PATTERN, $art['layer']) === 1 && is_int($art['tile'] ?? null)) {
       if (!TileId::isValid($art['tile']) || !TileId::isAutotile($art['tile'])) {
         throw new InvalidArgumentException("{$context} art tile must be an autotile (A1 to A4), so its edges come from its neighbours; place a whole-cell object as a piece.");
@@ -168,10 +183,17 @@ final readonly class TerrainKind
         throw new InvalidArgumentException(sprintf('%s art tile %d is on sheet %s, which this tileset does not have.', $context, $art['tile'],
           TileId::getSheet($art['tile'])->value));
       }
-      $art = ['layer' => $art['layer'], 'tile' => TileId::getFlagId($art['tile'])];
+      $corners = $art[self::CORNERS] ?? null;
+      if (array_key_exists(self::CORNERS, $art)) {
+        if (!is_string($corners) || strtolower(pathinfo($corners, PATHINFO_EXTENSION)) !== 'png') {
+          throw new InvalidArgumentException("{$context} art corners must be the asset-relative PNG of its corner sheet.");
+        }
+        SpriteValidation::validateAssetPath($corners);
+      }
+      $art = ['layer' => $art['layer'], 'tile' => TileId::getFlagId($art['tile']), ...($corners === null ? [] : [self::CORNERS => $corners])];
     } else {
-      throw new InvalidArgumentException("{$context} art must be ['layer' => tile layer, 'tile' => autotile], or ['" . self::AWAITING_ART
-        . "' => true] while its autotile is still to be drawn.");
+      throw new InvalidArgumentException("{$context} art must be ['layer' => tile layer, 'tile' => autotile] with an optional '" . self::CORNERS
+        . "' => corner sheet PNG, or ['" . self::AWAITING_ART . "' => true] while its autotile is still to be drawn.");
     }
     $ground = $data['ground'] ?? null;
     if (array_key_exists('ground', $data) && !is_string($ground)) {
