@@ -193,7 +193,7 @@ it('chooses each corner tile from the four cells around the corner, for all 16 c
   foreach ([[0, 0], [1, 0], [0, 1], [1, 1]] as $bit => [$x, $y]) {
     if (($case >> $bit) & 1) { $layer[$y][$x] = TileId::getAutotileId(TileId::getKind(CornerEdgesFixture::WATER), 7); }
   }
-  $resolved = CornerShape::resolveLayer($layer, [CornerEdgesFixture::WATER]);
+  $resolved = CornerShape::resolveLayer($layer, [CornerEdgesFixture::WATER], []);
   // The corner between the four cells: each cell's quarter that faces it.
   $facing = [[0, 0, 3], [1, 0, 2], [0, 1, 1], [1, 1, 0]];
   $sheet = new CornerSheet('water', CornerEdgesFixture::WATER, CornerEdgesFixture::WATER_SHEET, 1);
@@ -224,8 +224,8 @@ it('chooses each corner tile from the four cells around the corner, for all 16 c
 
 it('continues each edge cell beyond the map, so no edge closes along its border', function () {
   $water = CornerEdgesFixture::WATER;
-  $full = CornerShape::resolveLayer([[$water, $water], [$water, $water]], [$water]);
-  $border = CornerShape::resolveLayer([[$water, 0, 0], [0, 0, 0]], [$water]);
+  $full = CornerShape::resolveLayer([[$water, $water], [$water, $water]], [$water], []);
+  $border = CornerShape::resolveLayer([[$water, 0, 0], [0, 0, 0]], [$water], []);
   expect($full)->toBe(array_fill(0, 2, array_fill(0, 2, [$water => 0xFFFF])))
     // The corner cell's outer corners hold only water, as its row and column continue.
     ->and($border[0][0][$water])->toBe(15 | (1 | 4) << 4 | (1 | 2) << 8 | 1 << 12)
@@ -409,4 +409,130 @@ it('inspects a corner-edged cell by its corner tiles, never by its autotile', fu
     ->and($coverage->findUncovered([CornerEdgesFixture::GRASS], [[CornerEdgesFixture::WATER, 1]]))
     ->toBe(['tileSize' => 8, 'uncoveredPixels' => 0, 'diagnostic' => null])
     ->and(fn() => $coverage->findUncovered([], [[CornerEdgesFixture::GRASS, 1]]))->toThrow(InvalidArgumentException::class);
+});
+
+/**
+ * A lake and a river, both corner-edged on the water layer, joined into one
+ * group or not; '~' is lake, '=' river, anything else grass.
+ */
+function createJoinedWaters(bool $joined, string $root): array
+{
+  $river = TileId::getAutotileId(4, 0);
+  CornerEdgesFixture::writePng("{$root}/Graphics/River.corners.png", 3 * 4 * CornerEdgesFixture::SIZE, 4 * CornerEdgesFixture::SIZE,
+    CornerEdgesFixture::getCornerPixel(...));
+  $join = $joined ? ['joins' => 'water'] : [];
+  $tileset = Tileset::fromArray('joins', [
+    'name' => 'Joins',
+    'sheets' => ['A1' => 'Graphics/A1.png', 'A2' => 'Graphics/A2.png'],
+    'kinds' => [
+      'grass' => ['name' => 'Grass', 'layer' => 'terrain', 'glyph' => '<fg=green>.</>', 'art' => ['layer' => 'ground', 'tile' => CornerEdgesFixture::GRASS],
+        'passage' => 'walk', 'atlas' => 'ground'],
+      'lake' => ['name' => 'Lake', 'layer' => 'terrain', 'glyph' => '<fg=blue>~</>', 'passage' => 'solid', 'atlas' => 'water',
+        'art' => ['layer' => 'water', 'tile' => CornerEdgesFixture::WATER, 'corners' => CornerEdgesFixture::WATER_SHEET, ...$join]],
+      'river' => ['name' => 'River', 'layer' => 'terrain', 'glyph' => '<fg=blue>~</>', 'passage' => 'solid', 'atlas' => 'water',
+        'art' => ['layer' => 'water', 'tile' => $river, 'corners' => 'Graphics/River.corners.png', ...$join]],
+    ],
+  ]);
+  return [$tileset, $river];
+}
+
+/** @param list<string> $rows */
+function createJoinedWorld(string $root, Tileset $tileset, int $river, array $rows): PresentationWorld
+{
+  $grid = static fn(callable $cell): string => implode("\n", array_map(static fn(string $row): string
+    => implode(' ', array_map($cell, str_split($row))), $rows));
+  $layers = [new MapTileLayer('ground', 1, 'joins/ground', $grid(static fn(): int => CornerEdgesFixture::GRASS)),
+    new MapTileLayer('water', 2, 'joins/water', $grid(static fn(string $c): int => match ($c) {
+      '~' => CornerEdgesFixture::WATER, '=' => $river, default => 0 }))];
+  return PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('terrain', 1, false, 'joins',
+    implode("\n", array_map(static fn(string $row): string => strtr($row, '=', '~'), $rows)))]), 'joins', new MapGraphics($tileset, $layers), $root);
+}
+
+it('lets joined kinds share one edge, each counting the others\' cells, each drawing only its own cells', function () {
+  $root = CornerEdgesFixture::createRoot();
+  [$joined, $river] = createJoinedWaters(true, $root);
+  [$apart] = createJoinedWaters(false, $root);
+  $lake = CornerEdgesFixture::WATER;
+  // A river two cells wide running into the lake from the left, grass around both.
+  $layer = [
+    [0, 0, 0, 0, 0, 0],
+    [$river, $river, $lake, $lake, $lake, 0],
+    [$river, $river, $lake, $lake, $lake, 0],
+    [0, 0, 0, 0, 0, 0],
+  ];
+  $together = CornerShape::resolveLayer($layer, $joined->getCornerTiles(), $joined->getCornerJoins());
+  $separate = CornerShape::resolveLayer($layer, $apart->getCornerTiles(), $apart->getCornerJoins());
+  // Top left, top right, bottom left, bottom right of the corner between rows 1 and 2 on the river's last column: all water.
+  expect($joined->getCornerJoins())->toBe([$lake => [$lake, $river], $river => [$lake, $river]])
+    ->and($apart->getCornerJoins())->toBe([])
+    // The river's mouth cell sees the lake beside it as water, so no bank divides them; apart, it closes its edge there.
+    ->and(($together[1][1][$river] >> 12) & 0xF)->toBe(15)
+    ->and(($separate[1][1][$river] >> 12) & 0xF)->toBe(1 | 4)
+    // Each kind draws its own cells only: the lake never draws on the river's cells, nor the river on the lake's.
+    ->and(isset($together[1][1][$lake]))->toBeFalse()
+    ->and(isset($together[1][2][$river]))->toBeFalse()
+    ->and(isset($separate[1][1][$lake]))->toBeTrue()
+    // On the grass above the junction both draw the one shared edge at the corner they both touch, the later kind
+    // over the earlier: water below the whole corner, no bank between river and lake.
+    ->and(array_keys($together[0][1]))->toBe([$lake, $river])
+    ->and(($together[0][1][$river] >> 12) & 0xF)->toBe(CornerShape::BOTTOM_LEFT | CornerShape::BOTTOM_RIGHT)
+    ->and(($together[0][1][$lake] >> 12) & 0xF)->toBe(CornerShape::BOTTOM_LEFT | CornerShape::BOTTOM_RIGHT)
+    // Away from the river the lake's edge is its own, exactly as without joins.
+    ->and($together[0][4])->toBe([$lake => $separate[0][4][$lake]])
+    ->and($together[1][4])->toBe([$lake => $separate[1][4][$lake]]);
+});
+
+it('keeps a river touching a lake only at a corner flowing into it when they join', function () {
+  $root = CornerEdgesFixture::createRoot();
+  $rows = ['......', '.=....', '..=...', '...~~.', '...~~.', '......'];
+  $connected = static function (bool $joined) use ($root, $rows): bool {
+    [$tileset, $river] = createJoinedWaters($joined, $root);
+    $world = createJoinedWorld($root, $tileset, $river, $rows);
+    $pixels = CornerEdgesFixture::rasterize($world, ['tiles:water:corners:lake', 'tiles:water:corners:river'], 6, 6);
+    $half = CornerEdgesFixture::SIZE / 2;
+    return isset(CornerEdgesFixture::fill($pixels, 1 * 8 + $half, 1 * 8 + $half)[3 * 8 + $half][3 * 8 + $half]);
+  };
+  expect($connected(true))->toBeTrue()
+    ->and($connected(false))->toBeFalse();
+});
+
+it('draws each joined cell from its own kind\'s corner sheet', function () {
+  $root = CornerEdgesFixture::createRoot();
+  [$tileset, $river] = createJoinedWaters(true, $root);
+  $world = createJoinedWorld($root, $tileset, $river, ['.....', '==~~.', '==~~.', '.....']);
+  $value = $world->operations[0]['value'];
+  $sheetOf = static fn(string $layerId, int $x, int $y): array => array_values(array_unique(array_map(
+    static fn(array $piece): string => $value['tileset']['sheets'][$piece['sheet']],
+    array_merge(...$value['tileset']['tiles'][CornerEdgesFixture::getLayerCells($world, $layerId)[$y][$x]]['frames']))));
+  expect($sheetOf('tiles:water:corners:river', 1, 1))->toBe(['Graphics/River.corners.png'])
+    ->and($sheetOf('tiles:water:corners:lake', 2, 1))->toBe([CornerEdgesFixture::WATER_SHEET])
+    ->and(CornerEdgesFixture::getLayerCells($world, 'tiles:water:corners:lake')[1][1] ?? null)->toBeNull()
+    ->and(CornerEdgesFixture::getLayerCells($world, 'tiles:water:corners:river')[1][2] ?? null)->toBeNull();
+});
+
+it('refuses a join group without corner edges or across tile layers, and reads one otherwise', function (array $art, ?string $message) {
+  $read = static fn() => Tileset::fromArray('kinds', ['name' => 'Kinds', 'sheets' => ['A1' => 'Graphics/A1.png'], 'kinds' => [
+    'lake' => ['name' => 'Lake', 'layer' => 'terrain', 'glyph' => '<fg=blue>~</>', 'passage' => 'solid', 'atlas' => 'water',
+      'art' => ['layer' => 'water', 'tile' => CornerEdgesFixture::WATER, 'corners' => 'Graphics/Lake.png', 'joins' => 'water']],
+    'river' => ['name' => 'River', 'layer' => 'terrain', 'glyph' => '<fg=cyan>~</>', 'passage' => 'solid', 'atlas' => 'water',
+      'art' => ['tile' => TileId::getAutotileId(4, 0), ...$art]]]]);
+  if ($message === null) {
+    expect($read()->kinds['river']->joins)->toBe('water');
+    return;
+  }
+  expect($read)->toThrow(InvalidArgumentException::class, $message);
+})->with([
+  'joined' => [['layer' => 'water', 'corners' => 'Graphics/River.png', 'joins' => 'water'], null],
+  'no corner sheet' => [['layer' => 'water', 'joins' => 'water'], 'no corner sheet'],
+  'another tile layer' => [['layer' => 'shore', 'corners' => 'Graphics/River.png', 'joins' => 'water'], 'paint one tile layer'],
+  'not a group name' => [['layer' => 'water', 'corners' => 'Graphics/River.png', 'joins' => 'Open Water'], 'join group'],
+]);
+
+it('still draws a kind outside the join group with its own edge against the group', function () {
+  $root = CornerEdgesFixture::createRoot();
+  $tileset = CornerEdgesFixture::createTileset(sandCorners: true);
+  $layer = [[CornerEdgesFixture::SAND, CornerEdgesFixture::WATER]];
+  $joins = [CornerEdgesFixture::WATER => [CornerEdgesFixture::WATER]];
+  expect(CornerShape::resolveLayer($layer, $tileset->getCornerTiles(), $joins))
+    ->toBe(CornerShape::resolveLayer($layer, $tileset->getCornerTiles(), []));
 });

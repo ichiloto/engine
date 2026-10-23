@@ -4,6 +4,14 @@
 
 ### Added
 
+- Joined corner-edged kinds: corner-edged kinds on one tile layer whose art
+  names the same join group (`'joins' => 'water'`) share one edge
+  (`CornerShape::resolveLayer` takes `Tileset::getCornerJoins()`). Each counts
+  the others' cells when it chooses a corner's case and draws only its own
+  cells and the ground beside them, so a river runs into a lake or the sea
+  without a bank or strip of ground between them. A join without a corner
+  sheet, or across tile layers, is refused. Kinds in no group draw exactly as
+  before.
 - Corner-edged terrain kinds (the dual-grid technique): a kind whose art
   names a corner sheet (`'art' => ['layer' => 'water', 'tile' => 2096,
   'corners' => 'Graphics/Tilesets/World/Water.corners.png']`) draws its edges

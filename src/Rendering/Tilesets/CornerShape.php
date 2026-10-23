@@ -16,7 +16,8 @@ namespace Ichiloto\Engine\Rendering\Tilesets;
  * facing quarters of the corner tiles on its four corners. A cell beside the
  * kind, not only a cell of it, can show part of its edge. Beyond the map
  * edge each row and column continues its edge cell, so an edge never closes
- * along the map's border.
+ * along the map's border. Kinds that join, such as a river and the lake it
+ * runs into, share one edge instead of each drawing a bank against the other.
  */
 final class CornerShape
 {
@@ -45,30 +46,49 @@ final class CornerShape
    * packed as top left | top right << 4 | bottom left << 8 | bottom right
    * << 12, the corners its four quarters come from.
    *
+   * Kinds that join ({@see TerrainKind::JOINS}) share one edge: each counts
+   * the others' cells as its own when it chooses a corner's case, so where a
+   * river meets a lake no bank divides them. Each still draws only its own
+   * cells and the cells beside them that hold none of the joined kinds, so
+   * every water cell shows its own kind's water, and on the land beside a
+   * junction the kinds draw the same edge, the later kind over the earlier.
+   * A corner none of a kind's own cells touches is left to the kinds whose
+   * cells it touches.
+   *
    * @param list<list<int>> $layer Tile identities by row and cell.
-   * @param list<int> $tiles The flag identities of the corner-edged kinds, in draw order.
+   * @param list<int> $tiles The flag identities of the corner-edged kinds to draw, in draw order.
+   * @param array<int, list<int>> $joins For each kind that joins others, by flag identity, the flag identities of every
+   *   kind it joins, itself included ({@see Tileset::getCornerJoins()}); a kind absent here joins none.
    * @return array<int, array<int, array<int, int>>> By row, cell, then flag identity in draw order; cells no kind reaches are absent.
    */
-  public static function resolveLayer(array $layer, array $tiles): array
+  public static function resolveLayer(array $layer, array $tiles, array $joins): array
   {
     $height = count($layer);
     $width = max(array_map(count(...), $layer) ?: [0]);
-    $members = [];
+    $flags = [];
     foreach ($layer as $y => $row) {
       foreach ($row as $x => $id) {
-        if (self::isCornerTile($id, $tiles)) {
-          $members[TileId::getFlagId($id)][$y][$x] = true;
+        if ($id !== TileId::EMPTY && TileId::isAutotile($id)) {
+          $flags[$y][$x] = TileId::getFlagId($id);
         }
       }
     }
+    $flagAt = static fn(int $x, int $y): ?int => $flags[min(max($y, 0), $height - 1)][min(max($x, 0), $width - 1)] ?? null;
     $resolved = [];
     foreach ($tiles as $tile) {
-      $cells = $members[$tile] ?? [];
-      $holds = static fn(int $x, int $y): int => (int)isset($cells[min(max($y, 0), $height - 1)][min(max($x, 0), $width - 1)]);
-      $case = static fn(int $x, int $y): int => $holds($x - 1, $y - 1) | $holds($x, $y - 1) << 1 | $holds($x - 1, $y) << 2 | $holds($x, $y) << 3;
+      $group = array_fill_keys($joins[$tile] ?? [$tile], true);
+      $group[$tile] = true;
+      $holds = static fn(int $x, int $y): int => (int)isset($group[$flagAt($x, $y) ?? -1]);
+      $owns = static fn(int $x, int $y): bool => $flagAt($x, $y) === $tile;
+      // A corner's case among the joined kinds, or none when none of this kind's own cells touch it.
+      $case = static fn(int $x, int $y): int => $owns($x - 1, $y - 1) || $owns($x, $y - 1) || $owns($x - 1, $y) || $owns($x, $y)
+        ? $holds($x - 1, $y - 1) | $holds($x, $y - 1) << 1 | $holds($x - 1, $y) << 2 | $holds($x, $y) << 3 : 0;
       $reached = [];
-      foreach ($cells as $y => $row) {
-        foreach ($row as $x => $_) {
+      foreach ($flags as $y => $row) {
+        foreach ($row as $x => $flag) {
+          if ($flag !== $tile) {
+            continue;
+          }
           for ($dy = -1; $dy <= 1; $dy++) {
             for ($dx = -1; $dx <= 1; $dx++) {
               if ($y + $dy >= 0 && $y + $dy < $height && $x + $dx >= 0 && $x + $dx < $width) {
@@ -82,6 +102,11 @@ final class CornerShape
       foreach ($reached as $y => $row) {
         ksort($row);
         foreach ($row as $x => $_) {
+          $flag = $flags[$y][$x] ?? null;
+          if ($flag !== null && $flag !== $tile && isset($group[$flag])) {
+            // A joined kind's own cell: that kind draws it.
+            continue;
+          }
           $cases = $case($x, $y) | $case($x + 1, $y) << 4 | $case($x, $y + 1) << 8 | $case($x + 1, $y + 1) << 12;
           if ($cases !== 0) {
             $resolved[$y][$x][$tile] = $cases;

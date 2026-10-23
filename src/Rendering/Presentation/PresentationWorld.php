@@ -178,9 +178,10 @@ final readonly class PresentationWorld
      * drawn instead, with the cells beside them, in a layer of their own per
      * kind (`tiles:<layer>:corners:<kind>`, after `:above` in the above band)
      * that paints right after its tile layer's band, kinds in the tileset's
-     * kind order. Its corner sheet follows the tileset's sheets, and only
-     * when the map shows the kind, so a map without corner-edged kinds is
-     * uploaded exactly as before.
+     * kind order; kinds in one join group share one edge where they meet.
+     * Its corner sheet follows the tileset's sheets, and only when the map
+     * shows the kind, so a map without corner-edged kinds is uploaded
+     * exactly as before.
      *
      * @return array{tileset: array<string, mixed>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>, bytes: int, animated: bool, covers: array<string, string>, shadows: array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>}|null}|null
      */
@@ -211,6 +212,7 @@ final readonly class PresentationWorld
         }, $graphics->layers);
         $resolved = array_map(AutotileShape::resolveLayer(...), $shown);
         $cornerTiles = $graphics->tileset->getCornerTiles();
+        $cornerJoins = $graphics->tileset->getCornerJoins();
         $cornerSheets = $cornerTiles === [] ? [] : $graphics->tileset->getUsableCornerSheets($assetRoot, $size,
             self::getShownCornerTiles($shown, $cornerTiles));
         $addTile = static function (string $key, int $shiftX, int $shiftY, callable $compose)
@@ -256,7 +258,7 @@ final readonly class PresentationWorld
                     $bytes += self::TILE_CELL_SOURCE_BYTES;
                 }
             }
-            foreach ($cornerSheets === [] ? [] : CornerShape::resolveLayer($shown[$index], array_keys($cornerSheets)) as $y => $cells) {
+            foreach ($cornerSheets === [] ? [] : CornerShape::resolveLayer($shown[$index], array_keys($cornerSheets), $cornerJoins) as $y => $cells) {
                 foreach ($cells as $x => $kinds) {
                     foreach ($kinds as $flag => $cases) {
                         $sheet = $cornerSheets[$flag];

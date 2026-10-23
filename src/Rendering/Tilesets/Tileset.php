@@ -206,6 +206,31 @@ final readonly class Tileset
   }
 
   /**
+   * For each corner-edged kind in a join group, by its autotile's flag
+   * identity, the flag identities of every kind in that group, itself
+   * included, in kind order ({@see CornerShape::resolveLayer()}). Kinds in no
+   * group are absent.
+   *
+   * @return array<int, list<int>>
+   */
+  public function getCornerJoins(): array
+  {
+    $groups = [];
+    foreach ($this->kinds as $kind) {
+      if ($kind->cornerEdged && $kind->joins !== null) {
+        $groups[$kind->joins][] = $kind->art['tile'];
+      }
+    }
+    $joins = [];
+    foreach ($groups as $members) {
+      foreach ($members as $tile) {
+        $joins[$tile] = $members;
+      }
+    }
+    return $joins;
+  }
+
+  /**
    * The corner sheets of the corner-edged kinds whose autotiles are listed,
    * read from the current files at the tileset's tile size. An unusable
    * sheet is reported and left out: its kind's cells show their terminal
