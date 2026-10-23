@@ -83,7 +83,7 @@ it('copies plain tiles from the two eight-column halves of their sheet', functio
   expect(getPieceRects(TileComposer::compose(1, 48)[0]))->toBe([[48, 0, 48, 48, 0, 0]])
     ->and(getPieceRects(TileComposer::compose(9, 48)[0]))->toBe([[48, 48, 48, 48, 0, 0]])
     ->and(getPieceRects(TileComposer::compose(130, 48)[0]))->toBe([[480, 0, 48, 48, 0, 0]])
-    ->and(TileComposer::compose(1536 + 3, 48)[0][0]->sheet)->toBe(TilesetSheet::A5)
+    ->and(TileComposer::compose(1536 + 3, 48)[0][0]->sheet)->toBe(TilesetSheet::A5->value)
     ->and(fn() => TileComposer::compose(0, 48))->toThrow(InvalidArgumentException::class)
     ->and(fn() => TileComposer::compose(1, 47))->toThrow(InvalidArgumentException::class);
 });

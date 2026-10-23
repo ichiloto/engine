@@ -638,6 +638,79 @@ so the kind stays the passage authority. Last Legend's overworld and Garden of
 Roads are painted in kinds with its approved World A2 and relief art; its
 overworld decision records the conversion.
 
+#### Corner-edged kinds
+
+RPG Maker's autotiles draw each cell's own edge from its neighbours, in 24 px
+quarters. A diagonal run of cells can therefore only be a staircase, however
+the art is drawn: no quarter knows the edge continues diagonally. A kind may
+instead draw its edges on the corners between cells, the dual-grid
+technique: one tile sits on each corner where four cells meet and is chosen
+from which of those four cells hold the kind (16 cases). Diagonals, bends
+and one-cell streams then draw as continuous edges.
+
+- **Opt-in, per kind.** A kind's `art` names a corner sheet:
+  `'art' => ['layer' => 'water', 'tile' => 2096, 'corners' => 'Graphics/Tilesets/World/Water.corners.png']`.
+  Database > Tilesets > Terrain Kinds > `Corner Sheet` chooses it among the
+  project's PNG assets; choosing none returns the kind to edges in each cell.
+  The data is renderer-neutral tileset data, read by every consumer.
+- **Identity unchanged.** The kind's autotile stays the identity a tile layer
+  holds where the kind is, and painting writes the same glyph and autotile.
+  Maps, the terminal, collision, encounters, atlas roles and saves are
+  unchanged; the kind remains the passage authority. Opting in changes how
+  cells holding that autotile are drawn, on any map that shows it, and
+  nothing else.
+- **Composition (`CornerShape`, `TileComposer::composeCorners`).** Every
+  field cell still shows one whole tile: its four quarters are the facing
+  quarters of the corner tiles on its four corners. A cell beside the kind,
+  not only a cell of it, can show part of its edge. Beyond the map edge each
+  row and column continues its edge cell, so no edge closes along the border.
+  Composition stays in PHP; the renderer receives pieces as for any tile, so
+  the protocol is unchanged and needs no negotiation.
+- **Sheet layout ([corner sheets](corner-sheets.md)).** One PNG per kind: a
+  block of 4 x 4 tiles per phase, one still phase or three side by side
+  cycled 0, 1, 2, 1 as A1 water. The 16 cases are laid out as one seamless
+  picture an artist paints whole. Phases and tile size are read from the
+  current image. Every edge crosses a tile side at its midpoint and at a right
+  angle, so tiles that meet continue each other.
+- **Layering.** A corner-edged kind draws over its substrate: its cells leave
+  their tile layer's rows and are uploaded, with the cells beside them, in a
+  layer of their own (`tiles:<layer>:corners:<kind>`, or
+  `tiles:<layer>:above:corners:<kind>` for an `above` autotile) painted right
+  after that tile layer's band. Kinds on different tile layers meet by tile
+  layer order (water over sand over grass). Corner-edged kinds sharing one
+  tile layer draw in the tileset's kind order, each over those before it,
+  over the layer's per-cell autotiles. Each kind's region ends at its own
+  cells, so where two kinds meet the later kind's edge covers the earlier
+  one's.
+- **Kinds without a corner sheet** keep RPG Maker's quarter autotiles, and a
+  map showing no corner-edged kind uploads byte for byte as before: the
+  corner sheet is sent only to a map that shows its kind, after the
+  tileset's sheets.
+- **Unusable art.** A corner sheet that is missing or not in the layout is
+  reported (Engine log; Editor validation for each map showing the kind) and
+  its kind's cells show their terminal glyphs, as tiles from an unusable
+  sheet do. The kind never falls back to its quarter autotile.
+- **Validation.** `TileCoverage::findUncovered` takes a cell's corner shares,
+  so the Editor's see-through ground check judges what a corner-edged kind
+  draws on its cells and the cells beside them.
+- **Bounds.** A world sends at most 16 sheets (the renderer's bound), corner
+  sheets included; a map past it is refused naming the budget. Like every
+  tile, a corner tile on a cell beside the kind hides that cell's glyph for a
+  renderer without `tile_covers`.
+
+Proof and tests: `tools/corner-sheet-placeholder.php` writes a placeholder
+water (three phases, sand shore) or sand corner sheet; synthetic tests cover
+the 16 cases, the seamless layout, border continuation, diagonal continuity
+through the uploaded pieces, layer order, animation, unusable sheets, the
+sheet budget, unchanged terminal cells and collision, and byte-for-byte
+uploads for kinds without a corner sheet.
+
+Remaining work, recorded here rather than claimed: final water corner art
+drawn to the layout, then each game's maps showing water; offering corner
+sheets to the other ground kinds (grass, road, desert) once their art exists;
+a GUI preview of a corner sheet's 16 cases beside the picker; native GPUI
+acceptance of a map with corner-edged kinds.
+
 ## Open compatibility item
 
 1. **Legacy path retirement.** Once Last Legend is fully migrated, does the

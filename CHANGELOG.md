@@ -4,6 +4,23 @@
 
 ### Added
 
+- Corner-edged terrain kinds (the dual-grid technique): a kind whose art
+  names a corner sheet (`'art' => ['layer' => 'water', 'tile' => 2096,
+  'corners' => 'Graphics/Tilesets/World/Water.corners.png']`) draws its edges
+  on the corners between cells, one tile per corner chosen from which of the
+  four cells around it hold the kind (`CornerShape`, 16 cases laid out as one
+  seamless 4 x 4 picture per phase; one still phase or three cycled 0, 1, 2, 1
+  as A1 water). Diagonals, bends and one-cell diagonal streams draw as
+  continuous edges instead of stair steps. The kind's autotile stays the
+  identity tile layers hold, so maps, the terminal, collision, encounters and
+  saves are unchanged. Each cell's quarters are the facing quarters of its
+  corner tiles, uploaded in a layer per kind after the kind's tile layer
+  (`tiles:<layer>:corners:<kind>`), kinds sharing a tile layer in kind order;
+  the corner sheet is sent only to maps that show the kind, so other maps
+  upload byte for byte as before. An unusable corner sheet is reported and
+  its kind's cells show their glyphs. `TileCoverage::findUncovered` takes a
+  cell's corner shares. `tools/corner-sheet-placeholder.php` writes a
+  placeholder water or sand corner sheet.
 - Tileset stacks: `'stacks' => ['relief' => ['layers' => ['relief-1', ...]]]`
   names tile layers whose tiles overlap. A piece whose tiles go on a stack's
   first layer is decoration only (space glyphs, no occupancy, effect or kept
@@ -107,6 +124,11 @@
   `motion` and viewport `follow`).
 
 ### Changed
+
+- `TilePiece::$sheet` is the sheet's key as a string (an RPG Maker sheet name
+  such as `'A2'`, or a corner sheet's key) instead of a `TilesetSheet` case,
+  so a piece can be copied from a corner sheet. Compare with
+  `TilesetSheet::A2->value`.
 
 - Collision dictionaries read a glyph's own entry before its ASCII
   transliteration, so entries beyond ASCII (`▲`, `♣`) apply as authored; every
