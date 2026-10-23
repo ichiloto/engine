@@ -655,7 +655,17 @@ return [
 ```
 
 A named section overrides the flat dictionary for that layer; otherwise the
-flat entry applies. Unknown glyphs remain solid. Resolution walks gameplay
+flat entry applies. Unknown glyphs remain solid. A glyph is looked up by its
+own entry first and then by its ASCII transliteration, so entries beyond
+ASCII such as `▲` or `♣` apply as authored.
+
+A map painted in its tileset's terrain kinds (`'terrainKinds' => true`)
+reads each kind layer through a section composed from the kinds: every kind's
+glyph gets the collision its passage and encounters give (`SOLID`,
+`ENCOUNTER` or `NONE`). The dictionary's own section for that layer may repeat
+a kind's glyph only with the same collision; a different one refuses the map,
+naming both, since a kind owns its glyph's passage on its layer. See the
+layered tilemaps plan, Stage 7. Resolution walks gameplay
 layers from top to bottom, skipping upper spaces and `PASS_THROUGH` symbols.
 The first remaining glyph supplies the collision result. If no layer supplies
 a result, the cell is solid; `PASS_THROUGH` is never a final collision value.
@@ -982,6 +992,17 @@ that counts the player's walking (`Field\Enumerations\StepOrigin`).
 
 The engine warns when a map declares `encounters` in a shape it cannot read,
 because a silent no-op is indistinguishable from a design decision.
+
+### Encounters limited to terrain
+
+On a map painted in terrain kinds, a troop can live on some terrain: its
+entry names the encounter terrains of the map's kinds it is met on, such as
+`'Bog Toads' => ['weight' => 3, 'terrains' => ['wetland']]`. A cell's terrain
+comes from the kind its glyph names, by the same top-down walk as collision
+(`MapEncounterTerrain`); whether a step counts stays the cell's collision. A
+troop naming a terrain no kind of the map meets is never met (the engine
+warns, and Editor validation reports it). Terrains combine with `areas`: a
+troop limited to both is met only on its terrains inside its areas.
 
 ### Encounters limited to named areas
 

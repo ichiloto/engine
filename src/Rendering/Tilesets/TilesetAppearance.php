@@ -72,6 +72,38 @@ final readonly class TilesetAppearance
   }
 
   /**
+   * This appearance with each terrain kind's own autotile classified by the
+   * kind's passage, so a map painted in kinds shows what it lets the player
+   * do by construction: a walkable kind shows ground; a solid kind shows
+   * water on the water sheet (A1) and a barrier elsewhere. An authored entry
+   * for a kind's autotile that says otherwise is refused, as two kinds
+   * drawing one autotile are ({@see TerrainKind::readAll()}).
+   *
+   * @param array<string, TerrainKind> $kinds
+   */
+  public function withKinds(array $kinds, string $context): self
+  {
+    $tiles = $this->tiles;
+    foreach ($kinds as $kind) {
+      if ($kind->art === null) {
+        continue;
+      }
+      $tile = $kind->art['tile'];
+      $shown = match (true) {
+        $kind->passage === TerrainPassage::WALK => TileAppearance::GROUND,
+        TileId::getSheet($tile) === TilesetSheet::A1 => TileAppearance::WATER,
+        default => TileAppearance::BARRIER,
+      };
+      if (isset($this->tiles[$tile]) && $this->tiles[$tile] !== $shown) {
+        throw new InvalidArgumentException(sprintf('%s appearance names tile %d as %s, but terrain kind %s draws it and is %s, so it shows %s. Remove the appearance entry; the kind decides.',
+          $context, $tile, $this->tiles[$tile]->value, $kind->id, $kind->passage->value, $shown->value));
+      }
+      $tiles[$tile] = $shown;
+    }
+    return new self($this->sheets, $tiles);
+  }
+
+  /**
    * The class a tile shows, or null when it is unknown: the empty tile, or a
    * tile of A5 or an upper sheet that neither it nor its sheet names.
    */

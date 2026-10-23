@@ -12,16 +12,19 @@ use RuntimeException;
 
 /**
  * A project tileset: RPG Maker sheets by name, the graphical flags RPG Maker
- * keeps per tile, and the pieces maps are built from with it. Passage
- * settings do not exist here: collision always comes from the terminal
- * layers. What each tile shows at ground level ({@see TilesetAppearance}) is
- * for validation alone and never changes passage. Loaded from
- * `Data/Tilesets/<id>.php`.
+ * keeps per tile, the pieces maps are built from with it and the terrain
+ * kinds world maps are painted in ({@see TerrainKind}). Tiles carry no
+ * passage settings: collision comes from the map's occupancy or terminal
+ * layers, and on a map painted in terrain kinds from its kinds
+ * ({@see \Ichiloto\Engine\Field\MapTerrainKinds}). What each tile shows at
+ * ground level ({@see TilesetAppearance}) is for validation alone and never
+ * changes passage; a kind's own autotile shows what its passage says.
+ * Loaded from `Data/Tilesets/<id>.php`.
  */
 final readonly class Tileset
 {
   public const string DIRECTORY = 'Data/Tilesets';
-  private const array FIELDS = ['name', 'sheets', 'above', 'tables', 'pieces', 'missingArt', 'shadows', TilesetAppearance::DATA_KEY];
+  private const array FIELDS = ['name', 'sheets', 'above', 'tables', 'pieces', 'kinds', 'missingArt', 'shadows', TilesetAppearance::DATA_KEY];
 
   /**
    * @param array<string, string> $sheets Asset-relative PNG paths keyed by sheet name.
@@ -31,6 +34,7 @@ final readonly class Tileset
    * @param int|null $missingArt The plain tile that marks a cell whose art is still to do, or null.
    * @param TilesetShadows|null $shadows The shadow its raised tiles cast, or null when none do.
    * @param TilesetAppearance $appearance What its tiles show at ground level, read by validation only.
+   * @param array<string, TerrainKind> $kinds Terrain kinds, keyed by kind id, in authored order.
    */
   public function __construct(
     public string $id,
@@ -42,7 +46,24 @@ final readonly class Tileset
     public ?int $missingArt = null,
     public ?TilesetShadows $shadows = null,
     public TilesetAppearance $appearance = new TilesetAppearance(),
+    public array $kinds = [],
   ) {}
+
+  /**
+   * Everything an editor places on a map, by id: the authored pieces, then,
+   * on a map painted in terrain kinds, each kind's piece. A map that has not
+   * opted into kinds never binds their glyphs and tiles.
+   *
+   * @return array<string, TilesetPiece>
+   */
+  public function getPlacements(bool $includeKinds): array
+  {
+    $placements = $this->pieces;
+    foreach ($includeKinds ? $this->kinds : [] as $id => $kind) {
+      $placements[$id] = $kind->piece;
+    }
+    return $placements;
+  }
 
   public static function load(string $assetRoot, string $id): self
   {
@@ -101,8 +122,10 @@ final readonly class Tileset
     }
     $shadows = array_key_exists('shadows', $data)
       ? TilesetShadows::fromArray($data['shadows'], $context, self::getIdentityList(...)) : null;
-    $appearance = TilesetAppearance::fromArray($data[TilesetAppearance::DATA_KEY] ?? [], $context, self::getIdentityList(...));
-    return new self($id, $data['name'], $sheets, $above, $tables, $pieces, $missingArt, $shadows, $appearance);
+    $kinds = TerrainKind::readAll($data['kinds'] ?? [], $sheets, array_map(strval(...), array_keys($pieces)), $context);
+    $appearance = TilesetAppearance::fromArray($data[TilesetAppearance::DATA_KEY] ?? [], $context, self::getIdentityList(...))
+      ->withKinds($kinds, $context);
+    return new self($id, $data['name'], $sheets, $above, $tables, $pieces, $missingArt, $shadows, $appearance, $kinds);
   }
 
   /** @return list<int> Flag identities, one per autotile kind. */

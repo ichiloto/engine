@@ -20,8 +20,10 @@ use Throwable;
  *     'Bat x 2' => 5,
  *     'Rat + Bat' => ['weight' => 3, 'battleArena' => 'arena.cave'],
  *     'Roost Bats' => ['weight' => 2, 'areas' => ['east-roost']],
- *   ], // name => weight or encounter entry; entry arena outranks the map arena
- *      // and entry areas (the map's named `areas`) limit where a troop is met
+ *     'Marsh Toads' => ['weight' => 3, 'terrains' => ['wetland']],
+ *   ], // name => weight or encounter entry; entry arena outranks the map arena,
+ *      // entry areas (the map's named `areas`) and entry terrains (the encounter
+ *      // terrains of the map's terrain kinds) limit where a troop is met
  *   'rate' => 12,          // average steps between encounters
  *   'battleArena' => 'arena.forest', // optional graphical arena catalog key
  *   'tiles' => 'encounter' // 'encounter' (default): only danger tiles count; 'any': every step counts
@@ -33,7 +35,8 @@ use Throwable;
  * preemptive strike or an ambush. A troop limited to named areas is met only
  * while the player stands in one of them, and a step where no troop can be
  * met does not count, so a map whose troops all live in pockets is quiet
- * between them. `encounterRateMultiplier` is the
+ * between them. A troop limited to encounter terrains is met only on cells
+ * whose terrain kind meets one of them ({@see MapEncounterTerrain}). `encounterRateMultiplier` is the
  * repel/lure hook: below 1 stretches the counter (repel), above 1 burns it
  * faster (lure), 0 suppresses encounters entirely.
  *
@@ -49,6 +52,10 @@ class EncounterManager
   private array $entries = [];
   /** @var array<string, list<CellArea>> The cells each area-limited troop is met in, keyed by troop name. */
   private array $troopAreas = [];
+  /** @var array<string, list<string>> The encounter terrains each terrain-limited troop is met on, keyed by troop name. */
+  private array $troopTerrains = [];
+  /** The encounter terrain of each cell, on a map painted in terrain kinds. */
+  private ?MapEncounterTerrain $terrain = null;
   /** @var array<string, mixed> Optional presentation selection, validated only by the graphical renderer path. */
   private array $presentationSettings = [];
   /**
@@ -82,13 +89,16 @@ class EncounterManager
    *
    * @param array<string, mixed>|null $encounters The map's `encounters` entry.
    * @param MapAreaCatalog|null $areas The map's named areas, which area-limited troops are met in.
+   * @param MapEncounterTerrain|null $terrain The encounter terrain of each cell, which terrain-limited troops are met on.
    * @return void
    */
-  public function configure(?array $encounters, ?MapAreaCatalog $areas = null): void
+  public function configure(?array $encounters, ?MapAreaCatalog $areas = null, ?MapEncounterTerrain $terrain = null): void
   {
     $this->troopWeights = [];
     $this->entries = [];
     $this->troopAreas = [];
+    $this->troopTerrains = [];
+    $this->terrain = $terrain;
     $this->presentationSettings = array_intersect_key($encounters ?? [], ['battleArena' => true]);
     $this->averageStepsBetween = 0;
     $this->countsEveryTile = strval($encounters['tiles'] ?? 'encounter') === 'any';
@@ -110,10 +120,20 @@ class EncounterManager
         Debug::warn(sprintf('Encounter "%s" names a map area the map does not declare; it is never met.', $troopName));
         continue;
       }
+      $unknown = array_diff($entry->terrains, $terrain?->terrains ?? []);
+      if ($unknown !== []) {
+        // Meeting the troop on any terrain would put it where its author kept it out.
+        Debug::warn(sprintf('Encounter "%s" names encounter terrain %s, which no terrain kind of the map meets; it is never met.',
+          $troopName, implode(', ', $unknown)));
+        continue;
+      }
       $this->entries[$troopName] = $entry;
       $this->troopWeights[$troopName] = $entry->weight;
       if ($cells !== []) {
         $this->troopAreas[$troopName] = $cells;
+      }
+      if ($entry->terrains !== []) {
+        $this->troopTerrains[$troopName] = $entry->terrains;
       }
     }
 
@@ -174,8 +194,10 @@ class EncounterManager
    */
   public function getTroopWeightsAt(?Vector2 $position): array
   {
-    return array_filter($this->troopWeights, fn(int $weight, string $troopName): bool => ! isset($this->troopAreas[$troopName])
-      || ($position !== null && array_any($this->troopAreas[$troopName], static fn(CellArea $area): bool => $area->contains($position))),
+    $terrain = $position === null ? null : $this->terrain?->getTerrainAt((int) floor($position->x), (int) floor($position->y));
+    return array_filter($this->troopWeights, fn(int $weight, string $troopName): bool => (! isset($this->troopAreas[$troopName])
+      || ($position !== null && array_any($this->troopAreas[$troopName], static fn(CellArea $area): bool => $area->contains($position))))
+      && (! isset($this->troopTerrains[$troopName]) || in_array($terrain, $this->troopTerrains[$troopName], true)),
       ARRAY_FILTER_USE_BOTH);
   }
 

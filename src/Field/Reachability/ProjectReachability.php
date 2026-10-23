@@ -12,6 +12,7 @@ use Ichiloto\Engine\Events\Triggers\EventTriggerFactory;
 use Ichiloto\Engine\Events\Triggers\SleepEventTrigger;
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
 use Ichiloto\Engine\Field\MapCollisionResolver;
+use Ichiloto\Engine\Field\MapTerrainKinds;
 use Ichiloto\Engine\Field\MapPhysicalOccupancy;
 use Ichiloto\Engine\Field\MapSourceReader;
 use Ichiloto\Engine\Field\MapLayerSet;
@@ -113,7 +114,8 @@ final class ProjectReachability
           'data' => $source['data'],
           'map' => new MapReachability(
             $mapId,
-            MapCollisionResolver::resolveMap($source['layers'], $source['data'], $dictionary ?? [])->collisionGrid,
+            MapCollisionResolver::resolveMap($source['layers'], $source['data'], $dictionary ?? [],
+              MapTerrainKinds::loadForMap($assetRoot, $source['data']))->collisionGrid,
             $events,
             $edgeTriggers,
             array_values(array_filter(array_map(NpcPlacement::fromArray(...), (array) ($source['data']['npcs'] ?? [])))),

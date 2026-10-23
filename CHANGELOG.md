@@ -4,6 +4,15 @@
 
 ### Added
 
+- Terrain kinds for classic world maps: a tileset's `kinds` give each kind a
+  coloured terminal glyph, an autotile (or an explicit awaiting-art state),
+  passage on foot, an encounter terrain, an atlas role and, for a feature, the
+  ground kind it stands on. Each kind is placed through a one-cell piece. A
+  map opts in with `'terrainKinds' => true`; its kinds then feed the existing
+  collision dictionary (or, under declared occupancy, are written into it by
+  editors), its encounter terrain (`MapEncounterTerrain`, troops limited with
+  `terrains`) and its atlas roles. `MapTerrainKindRule` reports cells whose
+  glyph and tiles show different kinds, and cells of kinds awaiting art.
 - Quests may author `startWaymarks`, in the objective waymark shape, leading
   to where the quest starts while it can start (not yet accepted or finished,
   prerequisites holding). A main quest's start waymark keeps the story
@@ -90,6 +99,15 @@
   `motion` and viewport `follow`).
 
 ### Changed
+
+- Collision dictionaries read a glyph's own entry before its ASCII
+  transliteration, so entries beyond ASCII (`▲`, `♣`) apply as authored; every
+  existing example map resolves to the same collision. `resolveMap` and
+  `resolveLegacyOccupancy` take the map's terrain kinds, and a map painted in
+  kinds whose tileset cannot be read is refused rather than played with
+  unknown passage. `EncounterManager::configure` takes the map's encounter
+  terrain. `MapGraphics` loaders and `resolveLayerOwners` count kinds' tile
+  layers only on maps painted in kinds.
 
 - The drawn Magi Arts (Mastery) board is laid out the same whether Info is
   open or not: the Info sheet lies over the board as meta text and never

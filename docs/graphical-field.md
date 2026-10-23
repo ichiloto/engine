@@ -116,7 +116,9 @@ editing surface is owned by the GUI Editor plan. Related docs:
 - RPG Maker's per-tile passage settings do not apply: passage comes from
   the map's shared [physical occupancy](maps.md#physical-occupancy). Only an
   undeclared map uses glyph-keyed compatibility; neither tile selection nor
-  drawing priority changes physical cells. Its "above characters" priority
+  drawing priority changes physical cells. On a map painted in terrain kinds
+  the kind, never its tile, decides: its glyph's collision feeds that same
+  compatibility path. Its "above characters" priority
   is kept as a purely graphical draw band.
 - A tileset may name its missing-art tile (`missingArt`), a plain tile on
   one of its sheets that marks a cell whose art nobody can yet infer. It
@@ -180,6 +182,19 @@ editing surface is owned by the GUI Editor plan. Related docs:
   saves the tileset before selecting it in the Collision tool. An explicit
   footprint stamp changes only declared map occupancy as one undo step;
   every non-null cell must fit, including on ragged maps, or nothing changes.
+- **Terrain kinds.** A tileset may declare `kinds`, the terrain a classic
+  world map is painted in (grassland, woodland, mountains, water), keyed by
+  kind id: a `name`, the gameplay `layer` its `glyph` (one coloured cell) goes
+  on, its autotile `art` (`['layer' => 'ground', 'tile' => 2816]`, or
+  `['awaiting' => true]` while its art is still to be drawn), its `passage`
+  (`walk` or `solid`), its `encounters` terrain, its `atlas` role, for a
+  feature the `ground` kind it stands on, and `keeps`. Each kind is placed
+  through a one-cell piece that writes its glyph and its autotile with its
+  ground's, so it shares every piece behaviour. Only a map that opts in with
+  `'terrainKinds' => true` uses them; there, passage and encounters come from
+  the kinds through the existing collision dictionary or declared occupancy,
+  and a kind's autotile shows what its passage says. The contract, refusals
+  and the collision decision are in the layered tilemaps plan, Stage 7.
 - **Independent underlays.** A stamped piece may declare `keeps`, a list of
   tile layers whose existing tiles remain beneath it, for example
   `'keeps' => ['walls']` for a window that can sit on any wall material.

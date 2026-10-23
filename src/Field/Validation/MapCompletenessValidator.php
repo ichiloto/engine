@@ -15,6 +15,7 @@ use Ichiloto\Engine\Events\Enumerations\EventEngagement;
 use Ichiloto\Engine\Field\MapGraphics;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\MapPhysicalOccupancy;
+use Ichiloto\Engine\Field\MapTerrainKinds;
 use Ichiloto\Engine\Field\NpcPlacement;
 use Ichiloto\Engine\Field\WorldObjectDefinition;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
@@ -49,7 +50,55 @@ final class MapCompletenessValidator
         catch (InvalidArgumentException $error) {
             $issues[] = new MapValidationIssue($mapId, 'event.grid', $error->getMessage());
         }
-        return [...$issues, ...self::validateCoverage($mapId, $data, $layers, $graphics, $assetRoot, $fieldCatalog, $requiresGraphics)];
+        return [...$issues, ...self::validateCoverage($mapId, $data, $layers, $graphics, $assetRoot, $fieldCatalog, $requiresGraphics),
+            ...self::validateTerrainKinds($mapId, $data, $layers, $graphics)];
+    }
+
+    /**
+     * The cells of a map painted in terrain kinds that show a kind awaiting
+     * its art in both presentations, by gameplay layer name, row and column.
+     *
+     * @return array<string, array<int, array<int, true>>>
+     */
+    private static function findAwaitingArtCells(array $data, MapLayerSet $layers, MapGraphics $graphics): array
+    {
+        try {
+            if (!MapTerrainKinds::isDeclared($data)) { return []; }
+            $kinds = new MapTerrainKinds($graphics->tileset);
+        } catch (InvalidArgumentException) {
+            return []; // terrain.kinds reports why.
+        }
+        $tiles = [];
+        foreach ($graphics->layers as $layer) { $tiles[$layer->name] = $layer->tiles; }
+        $cells = [];
+        foreach ($layers->layers as $layer) {
+            if ($layer->decoration || !in_array($layer->name, $kinds->getLayers(), true)) { continue; }
+            foreach ($layer->glyphs as $y => $row) {
+                foreach ($row as $x => $glyph) {
+                    $kind = $kinds->findKindAt($layer->name, $glyph, static fn(string $name): int => $tiles[$name][$y][$x] ?? 0);
+                    if ($kind?->awaitingArt === true) { $cells[$layer->name][$y][$x] = true; }
+                }
+            }
+        }
+        return $cells;
+    }
+
+    /**
+     * A map painted in terrain kinds shows one kind in each cell's glyph and
+     * tiles ({@see MapTerrainKindRule}). A map that opts in with a tileset
+     * declaring no kinds is reported, as it cannot be painted or played as one.
+     *
+     * @return list<MapValidationIssue>
+     */
+    public static function validateTerrainKinds(string $mapId, array $data, MapLayerSet $layers, ?MapGraphics $graphics): array
+    {
+        try {
+            if (!MapTerrainKinds::isDeclared($data) || $graphics === null) { return []; }
+            return MapTerrainKindRule::inspect($mapId, $layers, $graphics, new MapTerrainKinds($graphics->tileset));
+        } catch (InvalidArgumentException $error) {
+            return [new MapValidationIssue($mapId, 'terrain.kinds', $error->getMessage(), path: [MapTerrainKinds::DATA_KEY],
+                hint: "Declare the kinds in the map's tileset, or remove terrainKinds from the map.")];
+        }
     }
 
     /** @return list<MapValidationIssue> */
@@ -206,8 +255,11 @@ final class MapCompletenessValidator
             // Conditional presence must not conceal an unpresented base glyph while the object is absent.
             if ($usable && $object->conditions === []) { $covered = array_replace_recursive($covered, $object->coverage['glyphs'] ?? []); }
         }
+        $awaiting = self::findAwaitingArtCells($data, $layers, $graphics);
         foreach ($graphics->getShownGlyphCells($layers, $assetRoot) as $cell) {
             if (isset($covered[$cell['layer']][$cell['y']][$cell['x']])) { continue; }
+            // A terrain kind awaiting its art shows its glyph by an authored state; terrain.awaiting-art lists those cells.
+            if (isset($awaiting[$cell['layer']][$cell['y']][$cell['x']])) { continue; }
             $issues[] = new MapValidationIssue($mapId, 'graphics.glyph', "Gameplay glyph '{$cell['glyph']}' on {$cell['layer']} has no graphical presentation.",
                 cells: [[$cell['x'], $cell['y']]], path: ['layers', $cell['layer']],
                 hint: 'Give its stable subject artwork or remove an obsolete fixture glyph through the Editor session.');

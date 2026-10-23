@@ -312,8 +312,7 @@ class MapManager implements CanRenderAt
     $source = $this->prepareSplitMapDataFromFiles($this->resolveMapPaths($filename));
     $map = $source['data'];
     MapAtlasDefinition::readMap($map);
-    $collisions = $source['occupancy']?->collisionGrid
-      ?? $this->generateLayerCollisionMap($source['layers'], $this->getCollisionDictionary());
+    [$collisions, $dictionary] = $this->resolveSourceCollisions($source);
     $mapTriggers = [];
     foreach ($map['triggers'] ?? [] as $trigger) {
       $mapTriggers[] = MapTrigger::tryFromArray($trigger);
@@ -330,8 +329,27 @@ class MapManager implements CanRenderAt
 
     return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers'],
       $source['graphics'], $source['worldObjects'], MapLandmarkCatalog::readMap($map, $source['tiles'], MapCategoryCatalog::load($this->getAssetRoot())),
-      new MapOverview($source['tiles'], $collisions, MapAtlasTerrain::readMap($map,$source['layers'])),
-      MapAreaCatalog::readMap($map, $source['tiles']));
+      new MapOverview($source['tiles'], $collisions, MapAtlasTerrain::readMap($map,$source['layers'],$source['kinds'])),
+      MapAreaCatalog::readMap($map, $source['tiles']), $source['kinds']?->resolveEncounterTerrain($source['layers'], $dictionary));
+  }
+
+  /**
+   * A map source's collision grid: its declared occupancy, or its glyphs read
+   * through the collision dictionary, composed with the terrain kinds it is
+   * painted in. Also the dictionary those glyphs were read with, which is
+   * empty under declared occupancy.
+   *
+   * @param array{layers: MapLayerSet, occupancy: ?MapPhysicalOccupancy, kinds: ?MapTerrainKinds} $source
+   * @return array{0: int[][], 1: array<int|string, CollisionType|array<int|string, CollisionType>>}
+   */
+  private function resolveSourceCollisions(array $source): array
+  {
+    if ($source['occupancy'] !== null) {
+      return [$source['occupancy']->collisionGrid, []];
+    }
+    $dictionary = $this->getCollisionDictionary() ?: $this->defaultCollisionDictionary;
+    $dictionary = $source['kinds']?->composeDictionary($dictionary) ?? $dictionary;
+    return [$this->generateLayerCollisionMap($source['layers'], $dictionary), $dictionary];
   }
 
   /** Resolve current authored hierarchy without activating a destination or observing it for discovery. */
@@ -352,10 +370,9 @@ class MapManager implements CanRenderAt
   public function createAtlasDocument(string $mapId): MapAtlasDocument
   {
     $source=$this->prepareSplitMapDataFromFiles($this->resolveMapPaths($mapId));
-    $collisions=$source['occupancy']?->collisionGrid
-      ?? $this->generateLayerCollisionMap($source['layers'],$this->getCollisionDictionary());
+    [$collisions]=$this->resolveSourceCollisions($source);
     return new MapAtlasDocument($mapId,$source,new MapOverview($source['tiles'],$collisions,
-      MapAtlasTerrain::readMap($source['data'],$source['layers'])),
+      MapAtlasTerrain::readMap($source['data'],$source['layers'],$source['kinds'])),
       MapLandmarkCatalog::readMap($source['data'],$source['tiles'],MapCategoryCatalog::load($this->getAssetRoot())),
       $this->getAssetRoot());
   }
@@ -392,7 +409,8 @@ class MapManager implements CanRenderAt
 
     $this->gameScene->encounterManager?->configure(
       is_array($map['encounters'] ?? null) ? $map['encounters'] : null,
-      $prepared->areas
+      $prepared->areas,
+      $prepared->encounterTerrain,
     );
     $this->gameScene->npcManager?->applyPreparedNpcs($prepared->npcs ?? []);
 
@@ -906,7 +924,7 @@ class MapManager implements CanRenderAt
     $prepared = $this->prepareSplitMapDataFromFiles($paths);
     $landmarks = MapLandmarkCatalog::readMap($prepared['data'], $prepared['tiles'], MapCategoryCatalog::load($this->getAssetRoot()));
     $overview = new MapOverview($prepared['tiles'], $prepared['occupancy']?->collisionGrid,
-      MapAtlasTerrain::readMap($prepared['data'],$prepared['layers']));
+      MapAtlasTerrain::readMap($prepared['data'],$prepared['layers'],$prepared['kinds']));
     $this->gameScene->fieldEffects?->clear();
     $this->tileMap = $prepared['tiles'];
     $this->layers = $prepared['layers'];
@@ -942,7 +960,7 @@ class MapManager implements CanRenderAt
 
   /**
    * @param array{id: string, data: string, map: string, event: string} $paths
-   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>}
+   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>, kinds: ?MapTerrainKinds}
    */
   protected function prepareSplitMapDataFromFiles(array $paths): array
   {
@@ -950,8 +968,9 @@ class MapManager implements CanRenderAt
     $map = $source['data'];
     // Validate declared physical data before either loading path can mutate a scene.
     // Legacy read-only/preview loading still needs no collision dictionary here.
+    $kinds = MapTerrainKinds::loadForMap($this->getAssetRoot(), $map);
     $occupancy = array_key_exists(MapPhysicalOccupancy::DATA_KEY, $map)
-      ? MapCollisionResolver::resolveMap($source['layers'], $map)
+      ? MapCollisionResolver::resolveMap($source['layers'], $map, kinds: $kinds)
       : null;
 
     if (array_key_exists('tiles2d', $map)) {
@@ -962,7 +981,7 @@ class MapManager implements CanRenderAt
     $graphics = null;
     try {
       $graphics = MapGraphics::loadFromDirectory(dirname($paths['data']), $paths['id'], $map['tileset'] ?? null,
-        $source['layers'], $this->getAssetRoot(), $map[MapGraphics::SETTINGS_KEY] ?? null);
+        $source['layers'], $this->getAssetRoot(), $map[MapGraphics::SETTINGS_KEY] ?? null, $kinds?->tileset, $kinds !== null);
     } catch (\Throwable $error) {
       // Graphics never decide whether a map loads: it shows its terminal glyphs instead.
       Debug::warn("Map {$paths['id']} graphics are unusable; showing terminal glyphs: " . $error->getMessage());
@@ -991,7 +1010,7 @@ class MapManager implements CanRenderAt
       && array_key_exists('resource', $object))
       ? FieldPresentationCatalog::load($this->getAssetRoot(), EffectPresentation::TERMINAL) : null;
     $worldObjects = WorldObjectDefinition::readMap($map, $source['layers'], $graphics, $tileOwners, $catalog);
-    return [...$source, 'graphics' => $graphics, 'occupancy' => $occupancy, 'worldObjects' => $worldObjects];
+    return [...$source, 'graphics' => $graphics, 'occupancy' => $occupancy, 'worldObjects' => $worldObjects, 'kinds' => $kinds];
   }
 
   /** Every map's routes and subject gates, read once from map sources; they do not change during a session. */

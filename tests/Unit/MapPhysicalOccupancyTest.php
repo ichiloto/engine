@@ -30,7 +30,7 @@ it('captures legacy layer precedence exactly for an explicit migration without w
         'buildings' => ['x' => CollisionType::NONE], 'fixtures' => ['i' => CollisionType::PASS_THROUGH]];
     $expected = [[7, 1, 0, 0, 6, 1], [0, 0, 0, 0, 0, 10]];
     $data = ['name' => 'Synthetic'];
-    $snapshot = MapCollisionResolver::resolveLegacyOccupancy($layers, $dictionary);
+    $snapshot = MapCollisionResolver::resolveLegacyOccupancy($layers, $dictionary, null);
     expect($snapshot->collisionGrid)->toBe($expected)
         ->and(MapCollisionResolver::resolveMap($layers, $data, $dictionary)->collisionGrid)->toBe($expected)
         ->and(MapCollisionResolver::resolveLayers($layers, $dictionary))->toBe($expected)
@@ -51,7 +51,7 @@ it('preserves flat legacy ANSI numeric and transliterated glyph passage on ragge
         '?' => CollisionType::SAVE_POINT, 'x' => CollisionType::PASS_THROUGH];
     $expected = [[], [4, 0, 7], [6, 1]];
     $manager = new ReflectionClass(MapManager::class)->newInstanceWithoutConstructor();
-    $snapshot = MapCollisionResolver::resolveLegacyOccupancy($layers, $dictionary);
+    $snapshot = MapCollisionResolver::resolveLegacyOccupancy($layers, $dictionary, null);
     expect($snapshot->collisionGrid)->toBe($expected)
         ->and($manager->generateCollisionMap(explode("\n", $text), $dictionary))->toBe($expected)
         ->and($manager->generateCollisionMap($layers->getComposedGrid(), $dictionary))->toBe($expected)

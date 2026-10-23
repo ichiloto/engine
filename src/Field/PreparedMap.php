@@ -31,6 +31,7 @@ final readonly class PreparedMap
         public ?MapLandmarkCatalog $landmarks = null,
         public ?MapOverview $overview = null,
         public ?MapAreaCatalog $areas = null,
+        public ?MapEncounterTerrain $encounterTerrain = null,
     ) {
     }
 }
