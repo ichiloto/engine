@@ -18,6 +18,7 @@ use InvalidArgumentException;
  * - each further grade builds on the grade below it;
  * - an advanced application builds on the branch's highest grade (or its
  *   foundation, when the branch has no grades);
+ * - an evolution builds on the advanced application it extends;
  * - a full phase builds on the demi phase it extends.
  *
  * A step the branch does not have is skipped (a branch without a foundation

@@ -30,7 +30,8 @@ final class MasteryNodeDefinition
    * @param string|null $name Its name where the skill does not give one (a foundation).
    * @param int|null $grade Its rung on the branch's ladder of basic applications (1 for I).
    * @param MasteryPhase|null $phase A special grade's phase.
-   * @param string|null $extends The node it builds on: a full phase's demi phase.
+   * @param string|null $extends The node it is a stronger form of, and builds on: a full phase's demi phase, or the advanced
+   *   application an evolution carries further (a single-target spell's multi-target evolution).
    * @param int|null $cost Its price in Mastery points (SP), or null when the tree prices it for nobody.
    * @param int|null $opensAtLevel The character level it opens at, or null when no level holds it back.
    * @param list<string> $requires Nodes that must be learned first besides its place in the chain.
@@ -68,8 +69,11 @@ final class MasteryNodeDefinition
     if (($phase !== null) !== ($kind === MasteryNodeKind::SPECIAL)) {
       throw new InvalidArgumentException(sprintf('Mastery node %s: a special grade has a phase (demi or full), and no other node does.', $id));
     }
-    if (($phase === MasteryPhase::FULL) !== ($extends !== null)) {
-      throw new InvalidArgumentException(sprintf('Mastery node %s: a full phase extends its demi phase, and no other node extends one.', $id));
+    if ($phase === MasteryPhase::FULL && $extends === null) {
+      throw new InvalidArgumentException(sprintf('Mastery node %s: a full phase extends its demi phase.', $id));
+    }
+    if ($extends !== null && $phase !== MasteryPhase::FULL && $kind !== MasteryNodeKind::ADVANCED) {
+      throw new InvalidArgumentException(sprintf('Mastery node %s: only a full phase or an advanced evolution extends another node.', $id));
     }
     if ($branch === null && ($kind !== MasteryNodeKind::APPLICATION || $grade !== null)) {
       throw new InvalidArgumentException(sprintf('Mastery node %s sits on its region\'s trunk, which holds only ungraded applications; place it on a branch.', $id));

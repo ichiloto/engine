@@ -52,6 +52,19 @@ it('gives every node one regular place: each hangs one stage below the step it b
     ->and($board->children['soothe-1'])->toBe(['lull', 'hush']);
 });
 
+it('hangs an evolution below the advanced application it extends, not beside it', function () {
+  $node = static fn(string $id, string $kind, array $extra = []): array => ['id' => $id, 'kind' => $kind, ...($kind === 'foundation' ? ['name' => ucfirst($id)] : ['skill' => ucfirst($id)]), ...$extra];
+  $board = new MasteryBoard(MasteryTree::fromArray(['regions' => [['id' => 'stars', 'name' => 'Stars']], 'branches' => [
+    ['id' => 'flame', 'region' => 'stars', 'name' => 'Flame', 'kind' => 'element', 'element' => 'Fire', 'nodes' => [
+      $node('flame', 'foundation'), $node('spark-1', 'application', ['grade' => 1]), $node('blaze', 'advanced'),
+      $node('wildfire', 'advanced', ['extends' => 'blaze']), $node('ember', 'advanced')]]]]));
+
+  expect($board->children['spark-1'])->toBe(['blaze', 'ember'])
+    ->and($board->children['blaze'])->toBe(['wildfire'])
+    ->and($board->places['wildfire']['stage'])->toBe($board->places['blaze']['stage'] + 1)
+    ->and($board->getFamilyPlaceIds($board->getFamilies('stars')[0]))->toBe(['flame', 'spark-1', 'blaze', 'wildfire', 'ember']);
+});
+
 it('sets families side by side, each topped by its foundation or a heading, and lists them top first', function () {
   $board = new MasteryBoard(masteryBoardTree());
   $families = $board->getFamilies('stars');
