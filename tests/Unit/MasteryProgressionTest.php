@@ -275,6 +275,31 @@ it('chains a branch from its foundation up its grades to its advanced applicatio
     'half-shield' => ['flame'], 'shield' => ['half-shield']]);
 });
 
+it('chains an evolution from the advanced application it extends, and refuses an evolution of anything else', function () {
+  $branch = static fn(array $nodes): array => ['regions' => [['id' => 'arts', 'name' => 'Arts']], 'branches' => [
+    ['id' => 'flame', 'region' => 'arts', 'name' => 'Flame', 'kind' => 'element', 'element' => 'Flame', 'nodes' => [
+      ['id' => 'flame', 'kind' => 'foundation', 'name' => 'Flame'], ['id' => 'singe-i', 'kind' => 'application', 'grade' => 1, 'skill' => 'Singe I'],
+      ...$nodes]]]];
+  // Two single-target applications, each carried further by its own evolution.
+  $tree = MasteryTree::fromArray($branch([
+    ['id' => 'furnace', 'kind' => 'advanced', 'skill' => 'Furnace'], ['id' => 'inferno', 'kind' => 'advanced', 'skill' => 'Inferno', 'extends' => 'furnace'],
+    ['id' => 'kiln', 'kind' => 'advanced', 'skill' => 'Kiln'], ['id' => 'pyre', 'kind' => 'advanced', 'skill' => 'Pyre', 'extends' => 'kiln'],
+  ]));
+
+  expect($tree->getRequirements($tree->nodes['furnace']))->toBe(['singe-i'])
+    ->and($tree->getRequirements($tree->nodes['inferno']))->toBe(['furnace'])
+    ->and($tree->getRequirements($tree->nodes['kiln']))->toBe(['singe-i'])
+    ->and($tree->getRequirements($tree->nodes['pyre']))->toBe(['kiln'])
+    ->and(fn() => MasteryTree::fromArray($branch([['id' => 'inferno', 'kind' => 'advanced', 'skill' => 'Inferno', 'extends' => 'singe-i']])))
+    ->toThrow(InvalidArgumentException::class, 'an evolution extends an advanced application')
+    ->and(fn() => MasteryTree::fromArray($branch([['id' => 'singe-ii', 'kind' => 'application', 'skill' => 'Singe II', 'extends' => 'singe-i']])))
+    ->toThrow(InvalidArgumentException::class, 'only a full phase or an advanced evolution extends another node')
+    ->and(fn() => MasteryTree::fromArray($branch([['id' => 'furnace', 'kind' => 'advanced', 'skill' => 'Furnace'],
+      ['id' => 'inferno', 'kind' => 'advanced', 'skill' => 'Inferno', 'extends' => 'furnace'],
+      ['id' => 'pyre', 'kind' => 'advanced', 'skill' => 'Pyre', 'extends' => 'furnace']])))
+    ->toThrow(InvalidArgumentException::class, 'extended by both inferno and pyre');
+});
+
 it('lets every character reach the whole tree on its terms, and keeps unfinished or unpriced nodes unavailable without taking points', function () {
   [$tree, $skills] = masteryBranchFixture();
   $catalog = new MasteryCatalog($tree);

@@ -72,8 +72,11 @@ final readonly class MasteryBranch
       }
       $base = $byId[$node->extends] ?? throw new InvalidArgumentException(sprintf(
         'Mastery node %s extends %s, which is not on branch %s.', $node->id, $node->extends, $id));
-      if ($base->kind !== MasteryNodeKind::SPECIAL || $base->phase !== MasteryPhase::DEMI) {
+      if ($node->kind === MasteryNodeKind::SPECIAL && ($base->kind !== MasteryNodeKind::SPECIAL || $base->phase !== MasteryPhase::DEMI)) {
         throw new InvalidArgumentException(sprintf('Mastery node %s cannot extend %s: a full phase extends a demi phase.', $node->id, $base->id));
+      }
+      if ($node->kind === MasteryNodeKind::ADVANCED && $base->kind !== MasteryNodeKind::ADVANCED) {
+        throw new InvalidArgumentException(sprintf('Mastery node %s cannot extend %s: an evolution extends an advanced application.', $node->id, $base->id));
       }
       if (isset($extended[$base->id])) {
         throw new InvalidArgumentException(sprintf('Mastery node %s is extended by both %s and %s.', $base->id, $extended[$base->id], $node->id));
