@@ -37,7 +37,10 @@ use InvalidArgumentException;
  * art names a corner sheet (`'corners' => 'Graphics/Tilesets/World/Water.corners.png'`,
  * {@see CornerSheet}, {@see CornerShape}). Its autotile stays the identity a
  * tile layer holds where the kind is, so maps, the terminal, collision and
- * saves are unchanged; only how those cells are drawn changes.
+ * saves are unchanged; only how those cells are drawn changes. Corner-edged
+ * kinds on one tile layer that name the same join group (`'joins' => 'water'`)
+ * share one edge where they meet, so a river runs into a lake or the sea
+ * without a bank between them.
  *
  * A kind is placed through its {@see TilesetPiece}: one cell whose glyph goes
  * on the kind's gameplay layer and whose tiles are its autotile and, for a
@@ -56,7 +59,13 @@ final readonly class TerrainKind
   public const string AWAITING_ART = 'awaiting';
   /** The art key naming a corner-edged kind's corner sheet ({@see CornerSheet}). */
   public const string CORNERS = 'corners';
-  private const array ART_FIELDS = ['layer', 'tile', self::CORNERS];
+  /**
+   * The art key naming a corner-edged kind's join group: corner-edged kinds on
+   * one tile layer naming the same group share one edge where they meet
+   * ({@see CornerShape::resolveLayer()}).
+   */
+  public const string JOINS = 'joins';
+  private const array ART_FIELDS = ['layer', 'tile', self::CORNERS, self::JOINS];
   /** Encounter terrain ids, shared by the kinds whose troops they share. */
   public const string ENCOUNTER_PATTERN = '/\A[a-z][a-z0-9_-]{0,63}\z/';
   private const string NAME_PATTERN = '/\A[A-Za-z][A-Za-z0-9_-]*\z/';
@@ -69,11 +78,13 @@ final readonly class TerrainKind
   public bool $awaitingArt;
   /** Whether its edges are drawn on the corners between cells from its corner sheet ({@see CornerShape}). */
   public bool $cornerEdged;
+  /** The join group whose corner-edged kinds share one edge with it, or null when it draws its edge against every other kind. */
+  public ?string $joins;
 
   /**
    * @param string $glyph The authored glyph cell, in its style markup.
-   * @param array{layer: string, tile: int, corners?: string}|null $art The autotile and the tile layer it is painted on, and
-   *   for a corner-edged kind its corner sheet; null while awaiting art.
+   * @param array{layer: string, tile: int, corners?: string, joins?: string}|null $art The autotile and the tile layer it is
+   *   painted on, and for a corner-edged kind its corner sheet and any join group; null while awaiting art.
    * @param string|null $encounters The encounter terrain whose troops it meets; null (absent) meets none.
    * @param string $atlas The atlas role it shows as on a map screen ({@see MapAtlasTerrain::ROLES}).
    * @param string|null $ground The kind a feature stands on, painted beneath it; null for a ground kind.
@@ -96,6 +107,7 @@ final readonly class TerrainKind
     $this->symbol = TerminalText::stripAnsi(TerminalText::visibleSymbols($glyph)[0] ?? '');
     $this->awaitingArt = $art === null;
     $this->cornerEdged = isset($art[self::CORNERS]);
+    $this->joins = $art[self::JOINS] ?? null;
     $this->collision = match (true) {
       $passage === TerrainPassage::SOLID => CollisionType::SOLID,
       $encounters !== null => CollisionType::ENCOUNTER,
@@ -133,6 +145,7 @@ final readonly class TerrainKind
       $kinds[$id] = self::build($id, $definition, $definitions, "{$context} kind {$id}");
     }
     self::assertDistinguishable($kinds, $context);
+    self::assertJoinsShareLayers($kinds, $context);
     return $kinds;
   }
 
@@ -190,10 +203,20 @@ final readonly class TerrainKind
         }
         SpriteValidation::validateAssetPath($corners);
       }
-      $art = ['layer' => $art['layer'], 'tile' => TileId::getFlagId($art['tile']), ...($corners === null ? [] : [self::CORNERS => $corners])];
+      $joins = $art[self::JOINS] ?? null;
+      if (array_key_exists(self::JOINS, $art)) {
+        if (!is_string($joins) || preg_match(self::ENCOUNTER_PATTERN, $joins) !== 1) {
+          throw new InvalidArgumentException("{$context} art joins must name a join group, such as 'water'.");
+        }
+        if ($corners === null) {
+          throw new InvalidArgumentException("{$context} joins {$joins} but has no corner sheet; only corner-edged kinds share their edges.");
+        }
+      }
+      $art = ['layer' => $art['layer'], 'tile' => TileId::getFlagId($art['tile']), ...($corners === null ? [] : [self::CORNERS => $corners]),
+        ...($joins === null ? [] : [self::JOINS => $joins])];
     } else {
       throw new InvalidArgumentException("{$context} art must be ['layer' => tile layer, 'tile' => autotile] with an optional '" . self::CORNERS
-        . "' => corner sheet PNG, or ['" . self::AWAITING_ART . "' => true] while its autotile is still to be drawn.");
+        . "' => corner sheet PNG and '" . self::JOINS . "' => join group, or ['" . self::AWAITING_ART . "' => true] while its autotile is still to be drawn.");
     }
     $ground = $data['ground'] ?? null;
     if (array_key_exists('ground', $data) && !is_string($ground)) {
@@ -276,6 +299,26 @@ final readonly class TerrainKind
           throw new InvalidArgumentException("{$context} kinds {$byTile[$key]} and {$kind->id} draw the same autotile {$key}; each kind draws its own.");
         }
         $byTile[$key] = $kind->id;
+      }
+    }
+  }
+
+  /**
+   * Kinds that join share one edge on one tile layer, so every kind of a
+   * join group paints the same tile layer.
+   *
+   * @param array<string, self> $kinds
+   */
+  private static function assertJoinsShareLayers(array $kinds, string $context): void
+  {
+    $layers = [];
+    foreach ($kinds as $kind) {
+      if ($kind->joins === null) {
+        continue;
+      }
+      $first = $layers[$kind->joins] ??= [$kind->id, $kind->art['layer']];
+      if ($first[1] !== $kind->art['layer']) {
+        throw new InvalidArgumentException("{$context} kinds {$first[0]} and {$kind->id} join {$kind->joins} but paint the {$first[1]} and {$kind->art['layer']} tile layers; kinds that share an edge paint one tile layer.");
       }
     }
   }

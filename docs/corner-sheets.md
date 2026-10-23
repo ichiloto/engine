@@ -18,7 +18,9 @@ stair-stepped. The contract and its reasons are in
 
 The Engine reads the phases and tile size from the image, so replacing the
 file needs nothing else. Bind it in Database > Tilesets > Terrain Kinds >
-Corner Sheet.
+Corner Sheet. Kinds that should flow into each other, such as a river, a
+lake and the sea, name one group in Joins on the same row: where they meet
+there is no bank, so draw each sheet's banks only for meeting land.
 
 ## What a tile is
 

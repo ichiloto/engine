@@ -681,7 +681,24 @@ and one-cell streams then draw as continuous edges.
   tile layer draw in the tileset's kind order, each over those before it,
   over the layer's per-cell autotiles. Each kind's region ends at its own
   cells, so where two kinds meet the later kind's edge covers the earlier
-  one's.
+  one's, unless they join.
+- **Joins.** Corner-edged kinds on one tile layer that name the same join
+  group share one edge: `'art' => [..., 'corners' => '...', 'joins' => 'water']`,
+  chosen in Database > Tilesets > Terrain Kinds > `Joins`. Each counts the
+  others' cells as its own when it chooses a corner's case, so a river runs
+  into a lake or the sea with no bank and no strip of ground between them,
+  and a river touching a lake only at a corner flows into it. Each kind still
+  draws only its own cells and the cells beside them that hold none of the
+  group, so every water cell shows its own kind's water and the kinds meet
+  along the cell edge between them. On ground beside a junction the kinds
+  draw the same edge, the later kind over the earlier; a corner none of a
+  kind's own cells touches is drawn by the kinds whose cells it touches. A
+  kind in no group draws its edge against every other kind, as before. The
+  join is authored per tileset, so each game chooses which of its kinds flow
+  into each other; the Engine joins none by itself. Refused: a join without a
+  corner sheet, a group name that is not lowercase letters, digits, hyphens or
+  underscores, and kinds of one group painting different tile layers (a
+  sand beach under water meets it by tile layer order instead).
 - **Kinds without a corner sheet** keep RPG Maker's quarter autotiles, and a
   map showing no corner-edged kind uploads byte for byte as before: the
   corner sheet is sent only to a map that shows its kind, after the
@@ -701,15 +718,19 @@ and one-cell streams then draw as continuous edges.
 Proof and tests: `tools/corner-sheet-placeholder.php` writes a placeholder
 water (three phases, sand shore) or sand corner sheet; synthetic tests cover
 the 16 cases, the seamless layout, border continuation, diagonal continuity
-through the uploaded pieces, layer order, animation, unusable sheets, the
+through the uploaded pieces, joined kinds sharing one edge (a river mouth and
+a corner-touching river), each joined cell drawn from its own sheet, layer
+order, animation, unusable sheets, the
 sheet budget, unchanged terminal cells and collision, and byte-for-byte
 uploads for kinds without a corner sheet.
 
-Remaining work, recorded here rather than claimed: final water corner art
-drawn to the layout, then each game's maps showing water; offering corner
+Remaining work, recorded here rather than claimed: offering corner
 sheets to the other ground kinds (grass, road, desert) once their art exists;
 a GUI preview of a corner sheet's 16 cases beside the picker; native GPUI
-acceptance of a map with corner-edged kinds.
+acceptance of a map with corner-edged kinds; a soft blend where joined kinds
+meet, which needs mouth tiles in the sheet layout (today two joined waters
+meet along the cell edge between them, so their colours change there in a
+straight line).
 
 ## Open compatibility item
 
