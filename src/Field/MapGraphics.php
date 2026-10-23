@@ -136,7 +136,7 @@ final readonly class MapGraphics
         $named = self::readLayersMovingWith($settings, $names, $gameplayNames, $displayDirectory);
         $writers = [];
         foreach ($tileset?->getPlacements($paintedInKinds) ?? [] as $piece) {
-            foreach (array_keys($piece->connects === null ? $piece->tiles : $piece->shapeTiles) as $name) {
+            foreach ($tileset->getPieceTileLayers($piece) as $name) {
                 $writers[$name][$piece->layer] = true;
             }
         }

@@ -31,6 +31,20 @@ final class MapCollisionResolver
     }
 
     /**
+     * A project map's collision as the game resolves it: with the terrain
+     * kinds of the tileset it names when it is painted in them, read from the
+     * project's assets, so a caller never resolves a kind map without them.
+     *
+     * @param array<string, mixed> $data
+     * @param array<int|string, CollisionType|array<int|string, CollisionType>> $dictionary
+     * @throws InvalidArgumentException When the map is painted in kinds whose tileset cannot be read.
+     */
+    public static function resolveFromAssets(string $assetRoot, MapLayerSet $layers, array $data, array $dictionary = []): MapPhysicalOccupancy
+    {
+        return self::resolveMap($layers, $data, $dictionary, MapTerrainKinds::loadForMap($assetRoot, $data));
+    }
+
+    /**
      * Capture the exact legacy result for an explicitly requested authoring migration.
      * This does not change sources or install the declaration in the map data.
      * Pass the map's terrain kinds when it is painted in them, null otherwise.

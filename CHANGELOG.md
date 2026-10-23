@@ -4,6 +4,14 @@
 
 ### Added
 
+- Tileset stacks: `'stacks' => ['relief' => ['layers' => ['relief-1', ...]]]`
+  names tile layers whose tiles overlap. A piece whose tiles go on a stack's
+  first layer is decoration only (space glyphs, no occupancy, effect or kept
+  layers), each of its tiles draws one piece cell, and `TilesetStack::layTile`
+  orders a cell's tiles by the pieces' ground rows, then columns, so editors
+  lay overlapping objects such as world map peaks as the field orders
+  characters. A stacked piece's tile layers are all of its stack's
+  (`Tileset::getPieceTileLayers`), owned by the piece's gameplay layer.
 - Terrain kinds for classic world maps: a tileset's `kinds` give each kind a
   coloured terminal glyph, an autotile (or an explicit awaiting-art state),
   passage on foot, an encounter terrain, an atlas role and, for a feature, the

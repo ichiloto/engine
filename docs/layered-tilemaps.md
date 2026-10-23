@@ -629,8 +629,14 @@ Legend and Epic Quest map resolves to the same collision as before.
 Remaining GUI capability, recorded here rather than claimed: choosing a kind's
 autotile by clicking the A1/A2 sheet in the GUI tileset view (today the GUI and
 TUI Database rows take the tile identity), and a GUI conversion dialog over the
-same session requests the Console uses. Last Legend's overworld is not
-converted yet: its World A2 art and the dry-scrub and lake decisions come first.
+same session requests the Console uses.
+
+Peaks and hill crests stand over the mountain and hill kinds as stacked
+pieces ([graphical field](graphical-field.md), Stacks): World B to E stamps of
+whole objects that overlap in depth order on a tileset stack, decoration only,
+so the kind stays the passage authority. Last Legend's overworld and Garden of
+Roads are painted in kinds with its approved World A2 and relief art; its
+overworld decision records the conversion.
 
 ## Open compatibility item
 

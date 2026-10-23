@@ -195,6 +195,20 @@ editing surface is owned by the GUI Editor plan. Related docs:
   the kinds through the existing collision dictionary or declared occupancy,
   and a kind's autotile shows what its passage says. The contract, refusals
   and the collision decision are in the layered tilemaps plan, Stage 7.
+- **Stacks.** A tileset may declare `stacks`, tile layers whose tiles
+  overlap, keyed by stack id: `'stacks' => ['relief' => ['layers' =>
+  ['relief-1', 'relief-2', 'relief-3', 'relief-4']]]`, bottom to top. A piece
+  whose tiles go on a stack's first layer stacks: it is decoration alone
+  (space glyphs, no `occupancy`, `effect` or `keeps`), so it never changes
+  passage, encounters or atlas roles, and each of its tiles draws one piece
+  cell, so the objects a cell holds are read back from its tiles. Editors lay
+  each of its tiles into the cell's stack in depth order
+  (`TilesetStack::layTile`): further south by the piece's bottom row, then
+  further east by its centre column, draws in front, as the field orders
+  characters, and a cell holds at most one tile per stack layer. Peaks and
+  hill crests over a world map's mountain and hill kinds are stacked pieces,
+  their art overhanging the footprint into one flank column each side. The
+  stack's layers are owned by the gameplay layer its pieces name.
 - **Independent underlays.** A stamped piece may declare `keeps`, a list of
   tile layers whose existing tiles remain beneath it, for example
   `'keeps' => ['walls']` for a window that can sit on any wall material.
