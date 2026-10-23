@@ -522,6 +522,116 @@ Last Legend's kind table and conversion are recorded in its overworld decision.
 Art supplies complete World A2 and B sheets in the game's own style, in the
 RPG Maker layout and sizes; the Engine owns only the generic kind contract.
 
+#### Implemented contract
+
+A tileset declares `kinds` beside its `pieces`, keyed by kind id (ids share
+one namespace with piece ids, since editors place both by id):
+
+```php
+'kinds' => [
+  'grassland' => ['name' => 'Grassland', 'layer' => 'terrain', 'glyph' => '<fg=green>.</>',
+    'art' => ['layer' => 'ground', 'tile' => 2816], 'passage' => 'walk', 'encounters' => 'grassland',
+    'atlas' => 'ground', 'keeps' => ['substrate']],
+  'woodland' => ['name' => 'Woodland', 'layer' => 'terrain', 'glyph' => '<fg=green>♣</>',
+    'ground' => 'grassland', 'art' => ['awaiting' => true], 'passage' => 'walk',
+    'encounters' => 'woodland', 'atlas' => 'vegetation'],
+],
+```
+
+- `glyph` is one visible one-cell character in its terminal colour; the colour
+  is required because painting writes it. `art` is one autotile (A1 to A4) and
+  the tile layer it is painted on, or `['awaiting' => true]`, the explicit
+  state of a kind whose autotile is still to be drawn. A kind awaiting art
+  draws no tiles at all, its ground's and kept layers included, so its glyph
+  shows in the graphical field until the autotile is bound; validation lists
+  it (`terrain.awaiting-art`, and per tileset in the Editor) instead of
+  reporting a missing presentation.
+- `passage` is `walk` or `solid` on foot. Vehicle passage is not authored yet;
+  it will be a separate per-vehicle entry, leaving `passage` the passage on
+  foot. `encounters` names an encounter terrain, shared by the kinds whose
+  troops it shares (two kinds of trees can both meet `woodland` troops); absent means none,
+  and a solid kind has none. `atlas` is the map-screen role. `ground` names
+  the ground kind a feature stands on, on the same gameplay layer and painted
+  on a tile layer below the feature's; `keeps` lists tile layers left beneath.
+- Each kind compiles to a one-cell `TilesetPiece` (its glyph; its autotile and
+  its ground's), so the existing piece mechanism paints it, binds glyph and
+  tiles, moves them together and undoes them.
+- Refused: unknown keys, a glyph that is not one coloured cell, an id shared
+  with a piece, a plain or missing-sheet tile, a feature standing on a feature
+  or on another layer, two kinds drawing one autotile, two kinds looking the
+  same in both presentations, and kinds sharing a glyph on one layer that play
+  differently (the terminal names a kind by its glyph's shape, never colour;
+  Last Legend's brown mountains and white snowy peaks share `^` because both
+  are solid highland). A tileset's `appearance` entry for a kind's autotile
+  that contradicts its passage is refused; the kind classifies its own
+  autotile (walk shows ground; solid shows water on A1 and a barrier elsewhere),
+  so passage agreement holds by construction.
+
+#### Decision: kinds feed the existing collision authority
+
+Kinds never become a third passage authority beside declared occupancy and the
+glyph dictionary. Decided 23 October 2026 from the existing architecture:
+
+1. A map opts in explicitly with `'terrainKinds' => true` in its data file.
+   A map without it is never reinterpreted, so authoring a tileset's kinds
+   changes no existing map (Last Legend's undeclared overworld keeps its
+   `:` dry scrub solid while the tileset's desert kind is walkable).
+2. On an opted-in map without declared occupancy, the kinds feed the glyph
+   dictionary: each kind layer gets a section holding its kinds' glyphs and
+   the collision their passage and encounters give (`SOLID`, `ENCOUNTER` or
+   `NONE`), resolved by the same topmost-wins, pass-through walk as every
+   glyph. A named section already overrides the flat dictionary for its
+   layer, so the kind decides its glyph there. A `collisions.php` section for
+   that layer may repeat a kind's glyph only with the same collision;
+   otherwise the map refuses to load, naming both.
+3. On an opted-in map with declared occupancy, occupancy stays the only
+   passage source. Painting a kind writes its collision into the occupancy
+   cells where its layer is the top gameplay layer, in the same undo step, so
+   collision and art still come from one decision.
+4. Encounter terrain and atlas roles come from the same kinds through the same
+   glyph walk. Whether a step counts stays the cell's collision (an encounter
+   tile); its terrain chooses among troops limited to `terrains`.
+5. `MapCollisionResolver::resolveMap` refuses (as a programming error) to
+   resolve an opted-in map without its kinds, or an undeclared map with them,
+   and the runtime, reachability, save relocation, cutscene previews and the
+   Editor all pass them. An opted-in map whose tileset cannot be read is
+   refused rather than played with unknown passage.
+
+Glyph lookup now reads a glyph's own dictionary entry before its ASCII
+transliteration, so entries such as `♣`, `·`, `▲` and `┃` are read as authored
+instead of as the empty transliteration they all shared. Every existing Last
+Legend and Epic Quest map resolves to the same collision as before.
+
+#### Editors and conversion
+
+- TUI: `K` on the canvas opens the kind picker for the layer being edited,
+  showing glyph, passage, encounters, ground and awaiting art, and opening on
+  the kind under the cursor. A chosen kind paints like an item piece (`Enter`
+  paints and anchors, `Enter` again fills to the cursor, drag fills).
+- GUI: the tile palette's Kinds tab lists the same kinds; a drag paints the
+  area through `kinds.paint`, right-click picks up the kind under the pointer.
+- Painting a kind makes the cell's terrain the kind's alone: it clears the
+  tile layers the kind's gameplay layer owns, except kept layers, then writes
+  its glyph in its colour and its tiles, source-preserving, as one undo step.
+- Kinds are authored in Database > Tilesets (Terrain Kinds), with the ground
+  chosen among the tileset's ground kinds.
+- `MapTerrainKindRule` reports cells whose glyph and tiles show different
+  kinds (`terrain.disagreement`) and cells of kinds awaiting art, as warnings.
+- Conversion: `ichiloto map:convert-kinds <map> --kind ';=grassland' ...`
+  (session `kinds.previewConversion` / `kinds.convert`) lists the map's
+  glyphs, previews each mapping's cell count and the collision it changes,
+  refuses to leave a glyph that already names a kind unmapped, then opts the
+  map in and paints every mapped cell through the Editor's validated change
+  set: reachability and every map rule are checked, and saves standing where
+  the map becomes solid move only with `--relocate-saves`, through the
+  existing save-relocation manifest step. `--check` writes nothing.
+
+Remaining GUI capability, recorded here rather than claimed: choosing a kind's
+autotile by clicking the A1/A2 sheet in the GUI tileset view (today the GUI and
+TUI Database rows take the tile identity), and a GUI conversion dialog over the
+same session requests the Console uses. Last Legend's overworld is not
+converted yet: its World A2 art and the dry-scrub and lake decisions come first.
+
 ## Open compatibility item
 
 1. **Legacy path retirement.** Once Last Legend is fully migrated, does the

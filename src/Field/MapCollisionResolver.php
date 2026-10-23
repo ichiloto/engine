@@ -14,29 +14,48 @@ final class MapCollisionResolver
     /**
      * A declared occupancy grid replaces glyph-derived passage, never supplements it.
      * Only an absent key selects compatibility; malformed declarations must refuse.
+     * A map painted in terrain kinds ({@see MapTerrainKinds}) is resolved with
+     * its kinds' dictionary sections, and only with them.
      *
      * @param array<string, mixed> $data
      * @param array<int|string, CollisionType|array<int|string, CollisionType>> $dictionary
+     * @throws \LogicException When the kinds supplied are not the ones the map is painted in.
      */
-    public static function resolveMap(MapLayerSet $layers, array $data, array $dictionary = []): MapPhysicalOccupancy
+    public static function resolveMap(MapLayerSet $layers, array $data, array $dictionary = [], ?MapTerrainKinds $kinds = null): MapPhysicalOccupancy
     {
+        MapTerrainKinds::assertSupplied($data, $kinds, 'Collision');
         if (array_key_exists(MapPhysicalOccupancy::DATA_KEY, $data)) {
             return new MapPhysicalOccupancy($data[MapPhysicalOccupancy::DATA_KEY], $layers);
         }
-        return self::resolveLegacyOccupancy($layers, $dictionary);
+        return self::resolveLegacyOccupancy($layers, $dictionary, $kinds);
     }
 
     /**
      * Capture the exact legacy result for an explicitly requested authoring migration.
      * This does not change sources or install the declaration in the map data.
+     * Pass the map's terrain kinds when it is painted in them, null otherwise.
      *
      * @param array<int|string, CollisionType|array<int|string, CollisionType>> $dictionary
      */
-    public static function resolveLegacyOccupancy(MapLayerSet $layers, array $dictionary): MapPhysicalOccupancy
+    public static function resolveLegacyOccupancy(MapLayerSet $layers, array $dictionary, ?MapTerrainKinds $kinds): MapPhysicalOccupancy
     {
         $rows = array_map(static fn(array $row): array => array_map(CollisionType::from(...), $row),
-            self::resolveLayers($layers, $dictionary));
+            self::resolveLayers($layers, $kinds?->composeDictionary($dictionary) ?? $dictionary));
         return new MapPhysicalOccupancy($rows, $layers);
+    }
+
+    /**
+     * The collision a dictionary gives a plain glyph: its own entry, then the
+     * entry of its ASCII transliteration, then solid. Exact entries come first
+     * so glyphs beyond ASCII, such as a tree's `▲` or a kind's `♣`, are read
+     * as authored instead of as the empty transliteration they share.
+     *
+     * @param array<int|string, mixed> $types Glyph entries.
+     */
+    public static function lookUp(array $types, string $glyph): CollisionType
+    {
+        $type = $types[$glyph] ?? $types[ASCII::to_ascii($glyph)] ?? null;
+        return $type instanceof CollisionType ? $type : CollisionType::SOLID;
     }
 
     /**
@@ -52,10 +71,8 @@ final class MapCollisionResolver
         foreach ($tiles as $row) {
             $result = [];
             foreach (is_array($row) ? $row : TerminalText::visibleSymbols($row) as $tile) {
-                $glyph = ASCII::to_ascii(TerminalText::stripAnsi($tile));
-                $type = $dictionary[$glyph] ?? CollisionType::SOLID;
-                $result[] = $type instanceof CollisionType && $type !== CollisionType::PASS_THROUGH
-                    ? $type->value : CollisionType::SOLID->value;
+                $type = self::lookUp($dictionary, TerminalText::stripAnsi($tile));
+                $result[] = $type !== CollisionType::PASS_THROUGH ? $type->value : CollisionType::SOLID->value;
             }
             $grid[] = $result;
         }
@@ -119,7 +136,7 @@ final class MapCollisionResolver
                     if ($index !== 0 && $glyph === ' ') {
                         continue;
                     }
-                    $type = $types[ASCII::to_ascii($glyph)] ?? CollisionType::SOLID;
+                    $type = self::lookUp($types, $glyph);
                     if ($type !== CollisionType::PASS_THROUGH) {
                         $result[$y][$x] = $type->value;
                         break;

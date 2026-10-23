@@ -118,7 +118,7 @@ final readonly class MapGraphics
     /**
      * Resolves the gameplay layer each tile layer belongs to: the one its
      * settings name it `movesWith`, and otherwise the gameplay layer whose
-     * tileset pieces write it, when exactly one piece layer does. A tile layer
+     * tileset pieces and terrain kinds write it, when exactly one such layer does. A tile layer
      * no piece writes, or that pieces of several layers write, belongs to
      * none. Authoring tools move a layer's tiles with its glyphs, and the
      * graphical field hides a glyph only under tiles of its own layer.
@@ -126,15 +126,16 @@ final readonly class MapGraphics
      * @param list<string> $names The map's tile layer names.
      * @param list<string> $gameplayNames The map's gameplay layer names.
      * @param Tileset|null $tileset The map's tileset, or null when its pieces are unknown.
+     * @param bool $paintedInKinds Whether the map is painted in the tileset's terrain kinds, whose pieces then write too.
      * @return array<string, ?string> Gameplay layer names, or null, by tile layer name in the order given.
      * @throws InvalidArgumentException When the settings are invalid.
      */
     public static function resolveLayerOwners(mixed $settings, array $names, array $gameplayNames, ?Tileset $tileset,
-        string $displayDirectory): array
+        string $displayDirectory, bool $paintedInKinds = false): array
     {
         $named = self::readLayersMovingWith($settings, $names, $gameplayNames, $displayDirectory);
         $writers = [];
-        foreach ($tileset?->pieces ?? [] as $piece) {
+        foreach ($tileset?->getPlacements($paintedInKinds) ?? [] as $piece) {
             foreach (array_keys($piece->connects === null ? $piece->tiles : $piece->shapeTiles) as $name) {
                 $writers[$name][$piece->layer] = true;
             }
@@ -195,7 +196,7 @@ final readonly class MapGraphics
      * identity must match the map's declared tileset.
      */
     public static function loadFromDirectory(string $mapDirectory, string $displayDirectory, mixed $tilesetId,
-        MapLayerSet $layers, string $assetRoot, mixed $settings = null, ?Tileset $tileset = null): ?self
+        MapLayerSet $layers, string $assetRoot, mixed $settings = null, ?Tileset $tileset = null, bool $paintedInKinds = false): ?self
     {
         $directory = $mapDirectory . DIRECTORY_SEPARATOR . self::DIRECTORY;
         if ($tilesetId === null && !is_dir($directory) && $tileset === null) {
@@ -203,7 +204,7 @@ final readonly class MapGraphics
         }
         self::assertTilesetNamed($tilesetId, $displayDirectory);
         return self::fromSources(self::readLayerSources($directory, $displayDirectory), $displayDirectory,
-            $tilesetId, $layers, $assetRoot, $settings, $tileset);
+            $tilesetId, $layers, $assetRoot, $settings, $tileset, $paintedInKinds);
     }
 
     /**
@@ -250,7 +251,7 @@ final readonly class MapGraphics
      * @param array<string, string> $sources Source bytes keyed by the layer file's path; only its file name is read.
      */
     public static function fromSources(array $sources, string $displayDirectory, mixed $tilesetId, MapLayerSet $layers,
-        string $assetRoot, mixed $settings = null, ?Tileset $tileset = null): ?self
+        string $assetRoot, mixed $settings = null, ?Tileset $tileset = null, bool $paintedInKinds = false): ?self
     {
         if ($tileset !== null && $tileset->id !== $tilesetId) {
             throw new InvalidArgumentException("Map {$displayDirectory} declares tileset " . var_export($tilesetId, true)
@@ -265,7 +266,8 @@ final readonly class MapGraphics
         $names = array_map(static fn(MapTileLayer $layer): string => $layer->name, $tileLayers);
         $offsets = self::readLayerOffsets($settings, $names, $displayDirectory);
         $owners = self::resolveLayerOwners($settings, $names, array_values(array_map(static fn(MapLayer $layer): string => $layer->name,
-            array_filter($layers->layers, static fn(MapLayer $layer): bool => !$layer->decoration))), $tileset, $displayDirectory);
+            array_filter($layers->layers, static fn(MapLayer $layer): bool => !$layer->decoration))), $tileset, $displayDirectory,
+            $paintedInKinds);
         return new self($tileset, $tileLayers, $offsets, $owners);
     }
 

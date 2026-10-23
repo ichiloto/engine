@@ -244,3 +244,35 @@ it('keeps real graphical layer sheet and offset changes independent of resolved 
         chdir($workingDirectory);
     }
 })->with([false, true]);
+
+it('loads a map painted in terrain kinds with its kinds\' passage and encounter terrain, and leaves other maps alone', function () {
+    [$root, $paths, $grid, $manager, $scene, $camera, $player] = createOccupancyLoadingFixture(true, ".^\n~.");
+    mkdir($root . '/assets/Data/Tilesets', 0700, true);
+    file_put_contents($root . '/assets/Data/Tilesets/kinds.php', '<?php return ' . var_export(['name' => 'Kinds',
+        'sheets' => ['A1' => 'Graphics/A1.png', 'A2' => 'Graphics/A2.png'], 'kinds' => [
+            'meadow' => ['name' => 'Meadow', 'layer' => 'terrain', 'glyph' => '<fg=green>.</>', 'art' => ['layer' => 'ground', 'tile' => 2816],
+                'passage' => 'walk', 'encounters' => 'meadow', 'atlas' => 'ground'],
+            'peaks' => ['name' => 'Peaks', 'layer' => 'terrain', 'glyph' => '<fg=white>^</>', 'art' => ['awaiting' => true], 'passage' => 'solid', 'atlas' => 'highland'],
+        ]], true) . ';');
+    // The game's dictionary says otherwise for both glyphs; the kinds decide them on the map that opts in.
+    $manager->dictionary = ['.' => CollisionType::SOLID, '^' => CollisionType::NONE, '~' => CollisionType::SOLID];
+    $workingDirectory = getcwd();
+    chdir($root);
+    try {
+        file_put_contents($paths['data'], '<?php return ' . var_export(['tileset' => 'kinds'], true) . ';');
+        expect($manager->prepareMap('test/physical')->collisions)->toBe([[1, 0], [1, 1]]);
+
+        file_put_contents($paths['data'], '<?php return ' . var_export(['tileset' => 'kinds', 'terrainKinds' => true], true) . ';');
+        $prepared = $manager->prepareMap('test/physical');
+        expect($prepared->collisions)->toBe([[7, 1], [1, 7]])
+            ->and($prepared->encounterTerrain?->getTerrainAt(0, 0))->toBe('meadow')
+            ->and($prepared->encounterTerrain?->getTerrainAt(1, 0))->toBeNull()
+            ->and($prepared->overview?->terrain?->getRole(1, 0))->toBe('highland');
+
+        file_put_contents($paths['data'], '<?php return ' . var_export(['tileset' => 'missing', 'terrainKinds' => true], true) . ';');
+        expect(fn() => $manager->prepareMap('test/physical'))
+            ->toThrow(InvalidArgumentException::class, 'tileset missing cannot be read, so its passage is unknown');
+    } finally {
+        chdir($workingDirectory);
+    }
+});
