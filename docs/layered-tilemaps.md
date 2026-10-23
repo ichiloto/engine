@@ -478,6 +478,50 @@ dated full-suite results. Native save-loading, all brush/input gestures,
 InnStay payment/recovery, frame-perfect smoothness and other-platform testing
 are not claimed. Unchanged testing limits are not new implementation scope.
 
+### Stage 7 - Terrain kinds for classic world maps
+
+Target: world maps that read like classic JRPG and RPG Maker world maps, built
+the way those maps are built, with a terminal language that maps onto them one
+to one. Andrew, 23 October 2026: "The trick is establishing a visual language
+for terminal that can translate into these tiles. So we need pieces that span
+the same tilesizes... we have the target being RPGMaker and Classic JRPG
+overworld maps... so how can we represent that consistently in the terminal?"
+
+How the target is built: one 48 px grid; layer one paints terrain kinds as A2
+autotiles (ground kinds such as grass, desert, snow, dirt, and terrain features
+such as forests, conifers, hills, mountains, snowy peaks, rocky ground, marsh),
+and the autotile derives edges, ridges and overlaps from same-kind neighbours;
+layer two places B objects (towns, castles, towers, shrines, bridges, cave
+mouths) as stamps of whole cells. A cave or mine is a cave tile on the edge cell
+of a mountain range.
+
+The Ichiloto contract:
+
+1. One terminal cell is one graphical tile, as already established, so every
+   piece spans the same cells in both presentations.
+2. A terrain kind is a shared, Editor-authored tileset concept with a stable id:
+   its terminal glyph and colour, its graphical autotile, its passability, its
+   encounter terrain, and the ground kind it sits on when it is a feature (trees
+   on grass or on snow). The kind is the identity; the glyph and the autotile are
+   its two independent presentations. Painting a kind writes both, through the
+   existing piece mechanism. Neither the glyph nor the colour becomes a graphical
+   tile identity.
+3. Passability and encounters come from the kind, so a cell's collision and its
+   art come from one authored decision and cannot disagree. The passage
+   agreement validator confirms it for every map.
+4. Objects are stamps whose terminal pattern covers exactly the cells their art
+   covers, with a marked entrance cell; the passage agreement validator checks
+   coverage.
+5. The terminal glyph names the kind by shape, not by drawing edges: the
+   terminal never renders transitions, the graphical autotile does.
+6. Existing glyph-keyed maps convert through an explicit, source-preserving
+   migration with reachability and save checks, never by silent
+   reinterpretation.
+
+Last Legend's kind table and conversion are recorded in its overworld decision.
+Art supplies complete World A2 and B sheets in the game's own style, in the
+RPG Maker layout and sizes; the Engine owns only the generic kind contract.
+
 ## Open compatibility item
 
 1. **Legacy path retirement.** Once Last Legend is fully migrated, does the
