@@ -727,7 +727,10 @@ uploads for kinds without a corner sheet.
 Remaining work, recorded here rather than claimed: offering corner
 sheets to the other ground kinds (grass, road, desert) once their art exists;
 a GUI preview of a corner sheet's 16 cases beside the picker; native GPUI
-acceptance of a map with corner-edged kinds.
+acceptance of a map with corner-edged kinds; a soft blend where joined kinds
+meet, which needs mouth tiles in the sheet layout (today two joined waters
+meet along the cell edge between them, so their colours change there in a
+straight line).
 
 ## Open compatibility item
 
