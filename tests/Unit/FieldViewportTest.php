@@ -61,7 +61,7 @@ it('centers a whole-cell field view without changing UI grid dimensions', functi
     $grid = new RendererGridConfig(135, 36, 10, 20);
     $layout = new FieldViewport($grid, 2);
     $viewport = $layout->createViewport([new PresentationTextLayer('world', 0, []),
-        new PresentationTextLayer('dialogue', 1000, [])], [], []);
+        new PresentationTextLayer('dialogue', PresentationLayerPolicy::UI, [])], [], []);
     // 1350 x 720 pixels hold 14 x 7 terminal cells of 48 x 48 pixels at 2x (96 x 96); the remainder is split evenly.
     expect([$layout->columns, $layout->rows])->toBe([14, 7])
         ->and([$viewport->x, $viewport->y])->toBe([3.0, 24.0])
@@ -90,8 +90,9 @@ it('refuses invalid field zoom without inventing extra source cells', function (
 it('scales the above-sprite field prompt by identity without scaling HUD text at the same priority', function () {
     $layout = new FieldViewport(new RendererGridConfig(80, 40, 10, 20), 2);
     $text = [new PresentationTextLayer('player', 0, []),
-        new PresentationTextLayer(PresentationLayerPolicy::FIELD_PROMPT_ID, 1010, []),
-        new PresentationTextLayer('location-hud', 1010, []), new PresentationTextLayer('modal', 1020, [])];
+        new PresentationTextLayer(PresentationLayerPolicy::FIELD_PROMPT_ID, PresentationLayerPolicy::UI + 10, []),
+        new PresentationTextLayer('location-hud', PresentationLayerPolicy::UI + 10, []),
+        new PresentationTextLayer('modal', PresentationLayerPolicy::UI + 20, [])];
     expect($layout->createViewport($text, [])->textLayerIds)->toBe(['player', 'field-prompt']);
     $changes = new \Ichiloto\Engine\IO\Console\ConsolePresentationChanges(80, 40, false,
         array_map(static fn($layer) => ['id' => $layer->id, 'layer' => $layer->layer, 'rows' => []], $text));
@@ -182,7 +183,7 @@ it('uses the reduced camera for real field projection while UI and menu frames s
     expect($camera->getWorldSpacePosition($screen))->toEqual($player->position);
     Console::recomposeFrame(function () use ($camera) {
         $camera->renderMap();
-        Console::withLayer('dialogue', fn() => Console::write('Still normal size', 10, 30), 1000);
+        Console::withLayer('dialogue', fn() => Console::write('Still normal size', 10, 30), PresentationLayerPolicy::UI);
     });
     $this->runtime->present($scene);
     $frames = RetainedFrameState::replay($transport->sent);

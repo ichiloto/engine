@@ -18,7 +18,14 @@
   and `Window::setControlHints()` keeps a help line and its semantic hints
   together so graphical owners draw the same hints as keycaps (battle panels
   do).
-
+- Declared guidance motion: a renderer advertising `sprite_bob` is told a
+  cue mark's bob once (`PresentationSpriteBob`, height and seconds, from
+  `cueStyle.bob`) and draws its rise and fall at display rate on its field
+  clock; reduced motion leaves it off. A renderer advertising
+  `pinned_sprite_motion` slides screen-pinned edge markers from where they
+  are drawn to their new place with the motion of the camera's step (or of
+  their moving subject), on the camera's clock. Other renderers receive the
+  whole-pixel rise each frame and pinned markers as before.
 - Joined corner-edged kinds: corner-edged kinds on one tile layer whose art
   names the same join group (`'joins' => 'water'`) share one edge
   (`CornerShape::resolveLayer` takes `Tileset::getCornerJoins()`). Each counts
@@ -162,7 +169,20 @@
   Options, item paging) now comes from semantic hints, so a rebound key shows
   everywhere. Fixed-key controls (battle Info and Back, Controls' Restore
   Defaults, cancelling a rebind) name their fixed keys through the same owner.
-
+- Field guidance draws above every map layer: `PresentationLayerPolicy` now
+  owns all field bands, with a guidance band (`FIELD_GUIDANCE`, 1000) above
+  the field world and below the interface. The action prompt, event and NPC
+  cues, quest waymarks and their edge markers draw there in the graphical
+  field (plates at 1000, marks and pointers at 1001), and Terminal waymark
+  glyphs too, so an above-character tile (a roof) on any map layer no longer
+  hides them. Map tile bands come from
+  `PresentationLayerPolicy::getTileLayerOrder()` and stay within 0..99 orders
+  (`-100 + NN` and `900 + NN`). The interface band moves from 1000 to 1100
+  (`PresentationLayerPolicy::UI`); cinematics, transitions and notifications
+  keep their bands. Characters, world objects, signs and world canvases are
+  refused at 1000 and above, as before; `FIELD_CUE_PLATE` and
+  `PresentationWorld::BELOW_TILES`/`ABOVE_TILES` are removed in favour of the
+  policy's bands.
 - `TilePiece::$sheet` is the sheet's key as a string (an RPG Maker sheet name
   such as `'A2'`, or a corner sheet's key) instead of a `TilesetSheet` case,
   so a piece can be copied from a corner sheet. Compare with

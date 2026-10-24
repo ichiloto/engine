@@ -34,8 +34,8 @@ final class FieldSpriteRole
     {
         $sprites = array_key_exists('sheet', $data) ? CharacterSheet::fromArray($data)
             : (array_key_exists('animation', $data) ? FieldPoseAnimation::fromArray($data) : GraphicalSpriteDefinition::fromArray($data));
-        if ($sprites->layer < PresentationLayerPolicy::WORLD || $sprites->layer >= PresentationLayerPolicy::UI) {
-            throw new InvalidArgumentException('Field world sprites require layers 0..999; UI layers are reserved.');
+        if ($sprites->layer < PresentationLayerPolicy::WORLD || $sprites->layer >= PresentationLayerPolicy::FIELD_GUIDANCE) {
+            throw new InvalidArgumentException('Field world sprites require layers 0..999; guidance and UI layers are reserved.');
         }
         return $sprites;
     }

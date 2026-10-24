@@ -157,7 +157,7 @@ final class ActorDefinition
         throw new InvalidArgumentException('A graphical field role requires images.field2d with a character sheet definition.');
       }
       $sheet = CharacterSheet::fromArray($role);
-      if ($sheet->layer < PresentationLayerPolicy::WORLD || $sheet->layer >= PresentationLayerPolicy::UI) {
+      if ($sheet->layer < PresentationLayerPolicy::WORLD || $sheet->layer >= PresentationLayerPolicy::FIELD_GUIDANCE) {
         throw new InvalidArgumentException('A graphical field role requires a world layer (0..999).');
       }
       $this->fieldArtwork = $sheet;

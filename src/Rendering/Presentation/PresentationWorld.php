@@ -21,9 +21,11 @@ use InvalidArgumentException;
  * tileset: the sheets, and a catalog of the tile identities it uses composed
  * into generic pieces, so the renderer needs no RPG Maker knowledge. Each
  * cell shows one whole tile: an autotile composed for the cell from its
- * neighbours, or a plain tile. Tile layers draw at -100 + NN, their `above`
- * tiles at 900 + NN. A tile layer that belongs to a gameplay layer covers
- * only that layer's glyphs ({@see getOperations()}). A tileset with shadows
+ * neighbours, or a plain tile. Tile layers draw in the policy's map bands
+ * ({@see PresentationLayerPolicy::getTileLayerOrder()}): below characters at
+ * -100 + NN, their `above` tiles at 900 + NN, all below field guidance. A
+ * tile layer that belongs to a gameplay layer covers only that layer's
+ * glyphs ({@see getOperations()}). A tileset with shadows
  * adds, for a renderer that negotiated them, the bands its raised tiles cast
  * on the cells to their right: derived from the tiles here on every upload,
  * never authored or stored.
@@ -40,8 +42,6 @@ final readonly class PresentationWorld
     public const int TILE_CELL_SOURCE_BYTES = 16;
     public const int MAX_CATALOG_TILES = 8192;
     public const int MAX_SHEETS = 16;
-    public const int BELOW_TILES = -100;
-    public const int ABOVE_TILES = 900;
 
     /**
      * @param list<array<string, mixed>> $operations The upload every renderer accepts, without tile covers.
@@ -275,7 +275,7 @@ final readonly class PresentationWorld
                     }
                 }
             }
-            foreach (['below' => self::BELOW_TILES, 'above' => self::ABOVE_TILES] as $band => $base) {
+            foreach (['below' => false, 'above' => true] as $band => $above) {
                 $bandId = 'tiles:' . $layer->name . ($band === 'above' ? ':above' : '');
                 $drawn = isset($bands[$band]) ? [$bandId => $bands[$band]] : [];
                 foreach ($cornerSheets as $sheet) {
@@ -284,7 +284,8 @@ final readonly class PresentationWorld
                     }
                 }
                 foreach ($drawn as $layerId => $rows) {
-                    $layers[] = ['id' => $layerId, 'layer' => $base + $layer->order, 'kind' => 'tiles'];
+                    $layers[] = ['id' => $layerId, 'layer' => PresentationLayerPolicy::getTileLayerOrder($layer->order, $above),
+                        'kind' => 'tiles'];
                     if ($covered !== null) { $covers[$layerId] = $covered; }
                     foreach ($rows as $y => $cells) {
                         $operations[] = ['op' => 'worldTiles', 'id' => $id, 'layerId' => $layerId,
@@ -396,7 +397,7 @@ final readonly class PresentationWorld
                 $bytes += self::PIECE_SOURCE_BYTES;
             }
             $layerId = 'tiles:' . $layer->name . ':shadows';
-            $layers[] = ['id' => $layerId, 'layer' => self::BELOW_TILES + $layer->order, 'kind' => 'shadows'];
+            $layers[] = ['id' => $layerId, 'layer' => PresentationLayerPolicy::getTileLayerOrder($layer->order, false), 'kind' => 'shadows'];
             $bytes += self::LAYER_SOURCE_BYTES;
             ksort($rows);
             foreach ($rows as $y => $columns) {

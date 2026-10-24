@@ -148,12 +148,12 @@ it('emits opaque cinematic overlays and covers above world sprites and clears th
   $render();
   $frame = Tests\Support\Rendering\RetainedFrameState::replay($transport->sent)[0];
   expect($frame['sprites'])->toHaveCount(1)
-    ->and(array_column($frame['textLayers'], 'layer'))->toContain(1020, 3000)
+    ->and(array_column($frame['textLayers'], 'layer'))->toContain(\Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI + 20, 3000)
     ->and(Console::charAt(7, 4))->toBe('#');
   $this->presentation->clear();
   $render();
   $restored = Tests\Support\Rendering\RetainedFrameState::replay($transport->sent)[1];
-  expect(array_column($restored['textLayers'], 'layer'))->not->toContain(1020, 3000)
+  expect(array_column($restored['textLayers'], 'layer'))->not->toContain(\Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI + 20, 3000)
     ->and($restored['sprites'])->toBe($frame['sprites'])
     ->and(array_column($transport->sent[1]->payload['operations'], 'kind'))->not->toContain('sprite');
 });
@@ -204,7 +204,7 @@ it('rejects malformed staged graphics with an actionable cast path', function ($
   'authored pixel size' => [['asset' => 'pose.png', 'width' => 56, 'height' => 56]],
   'authored anchor' => [['asset' => 'pose.png', 'anchor' => 'bottom_center']],
   'bad path' => [['asset' => '../pose.png']],
-  'reserved UI layer' => [['asset' => 'pose.png', 'layer' => 1000]],
+  'reserved field guidance layer' => [['asset' => 'pose.png', 'layer' => 1000]],
   'bad crop' => [['asset' => 'pose.png', 'sourceRect' => ['x' => -1, 'y' => 0, 'width' => 256, 'height' => 256]]],
   'empty footprint' => [['asset' => 'pose.png', 'cells' => ['width' => 0, 'height' => 1]]],
   'per-direction images' => [['north' => ['asset' => 'north.png'], 'east' => ['asset' => 'east.png'],
@@ -212,7 +212,7 @@ it('rejects malformed staged graphics with an actionable cast path', function ($
   'sheet with authored size' => [['sheet' => 'Graphics/Characters/Heroes.png', 'width' => 48]],
   'sheet index out of range' => [['sheet' => 'Graphics/Characters/Heroes.png', 'index' => 8]],
   'sheet unsafe path' => [['sheet' => '../Heroes.png']],
-  'sheet reserved UI layer' => [['sheet' => 'Graphics/Characters/Heroes.png', 'layer' => 1000]],
+  'sheet reserved field guidance layer' => [['sheet' => 'Graphics/Characters/Heroes.png', 'layer' => 1000]],
 ]);
 
 it('slides staged steps at the pace that moves them and a pose image as well as a sheet', function () {

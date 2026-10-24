@@ -65,8 +65,8 @@ it('describes a slide and a camera follow only as optional presentation fields',
     ->and(fn() => new PresentationSpriteMotion(61.0))->toThrow(InvalidArgumentException::class);
 
   $field = new FieldViewport(new RendererGridConfig(20, 10));
-  $text = [new PresentationTextLayer('npc', 100, []), new PresentationTextLayer(PresentationLayerPolicy::FIELD_PROMPT_ID, 1100, []),
-    new PresentationTextLayer('ui:menu', 1000, [])];
+  $text = [new PresentationTextLayer('npc', 100, []), new PresentationTextLayer(PresentationLayerPolicy::FIELD_PROMPT_ID,
+    PresentationLayerPolicy::UI + 10, []), new PresentationTextLayer('ui:menu', PresentationLayerPolicy::UI, [])];
   $followed = $field->createViewport($text, [$moving], [], 'map', ['x' => 3, 'y' => 2], 0, 'player');
   expect($followed->toArray()['follow'])->toBe(['spriteId' => 'player', 'textLayerIds' => [PresentationLayerPolicy::FIELD_PROMPT_ID]])
     ->and($followed->withoutFollow()->toArray())->not->toHaveKey('follow')

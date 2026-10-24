@@ -578,12 +578,12 @@ it('draws the action prompt over the object that can act, opening once however o
   $manager->showActionPrompt('player');
   $manager->update(0.2, false, [$player]);
   $sprites = $manager->getSprites([$player], null, ['x' => 0, 'y' => 0], false);
-  // Redrawn while it lasts, it keeps playing: frame 3, a cell above the player, in front of characters.
+  // Redrawn while it lasts, it keeps playing: frame 3, a cell above the player, as field guidance over everything in the field.
   expect($sprites)->toHaveCount(1)
     ->and($sprites[0]->getGraphicalSpriteId())->toBe('field-effect::' . FieldEffectManager::ACTION_PROMPT_ID . ':balloon')
     ->and($sprites[0]->getGraphicalSpriteWorldPosition())->toEqual(new Vector2(4, 5))
     ->and($sprites[0]->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(6)
-    ->and($sprites[0]->getGraphicalSpriteDefinition()->layer)->toBe(PresentationLayerPolicy::FIELD_EFFECT_FRONT)
+    ->and($sprites[0]->getGraphicalSpriteDefinition()->layer)->toBe(PresentationLayerPolicy::FIELD_GUIDANCE_FRONT)
     // Reduced motion shows the open balloon at rest.
     ->and($manager->getSprites([$player], null, ['x' => 0, 'y' => 0], true)[0]->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(6);
 

@@ -174,7 +174,7 @@ it('retains graphical terrain and player provenance without normalizing the map 
   $this->records = [];
   Console::withLayer('terrain', $camera->renderMap(...), 0);
   Console::withLayer('player', fn() => Console::writeNormalizedRow($player, 2, 1), 100);
-  Console::withLayer('ui', fn() => Console::writeNormalizedRow($blank, 2, 1), 1000);
+  Console::withLayer('ui', fn() => Console::writeNormalizedRow($blank, 2, 1), \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
   $before = Console::presentationSnapshot();
   $filtered = Console::presentationSnapshot(['terrain', 'player']);
   expect(array_column($filtered->textLayers, 'id'))->toContain('ui')->not->toContain('terrain', 'player');

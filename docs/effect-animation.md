@@ -169,6 +169,10 @@ the declaration is refused; legacy glyph-only sites use explicit map effects.
 
 Behind tracks use the shared ground-effect band, characters keep their
 existing row order, and front tracks remain below above-character tile layers.
+Guidance effects (the action prompt, event and NPC cues and waymarks) draw in
+the field guidance band instead, over every map layer and character: what they
+draw behind their marks with the cue plates, the rest over them
+(`PresentationLayerPolicy::FIELD_GUIDANCE`).
 Reduced-motion field playback holds the authored rest frame. Loops stay still;
 once effects retire after their authored lifetime. This follows Andrew's
 October field brief and does not change summons' final-frame policy.
@@ -201,7 +205,7 @@ rotate them) leaves waymarks as terminal glyphs and logs a note once.
 
 ```php
 'cueStyle' => [
-  'bob' => ['height' => 3, 'seconds' => 1.2],     // logical pixels and seconds; held still under reduced motion
+  'bob' => ['height' => 3, 'seconds' => 1.2],     // logical pixels and seconds; held still under reduced motion; drawn at display rate by a sprite_bob renderer
   'pointerSpacing' => ['x' => 24, 'y' => 30],     // logical pixels from an edge mark's centre to its pointer
   'terminal' => ['background' => 'black', 'bold' => true],
 ],
