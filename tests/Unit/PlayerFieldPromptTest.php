@@ -137,7 +137,7 @@ beforeEach(function () {
     new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene, new GameState());
     $ui = $this->getStubBuilder(UIManager::class)->disableOriginalConstructor()->onlyMethods(['render'])->getStub();
     $ui->method('render')->willReturnCallback(static function (): void {
-        Console::withLayer('location-hud', fn() => Console::write('HUD', 75, 38), 1010);
+        Console::withLayer('location-hud', fn() => Console::write('HUD', 75, 38), PresentationLayerPolicy::UI + 10);
     });
     $hud = $this->getStubBuilder(LocationHUDWindow::class)->disableOriginalConstructor()
         ->onlyMethods(['updateDetails'])->getStub();
@@ -195,7 +195,7 @@ it('keeps exactly one above-art prompt aligned with the player through real 2x m
             ->and($frame['viewport']['spriteIds'])->toBe(['player'])
             ->and(array_column($frame['textLayers'], 'id'))->not->toContain('player');
         $text = array_column($frame['textLayers'], null, 'id');
-        expect($text['field-prompt']['layer'])->toBe(1010)->toBeGreaterThan($sprite['layer'])
+        expect($text['field-prompt']['layer'])->toBe(PresentationLayerPolicy::UI + 10)->toBeGreaterThan($sprite['layer'])
             ->and($text['location-hud']['runs'][0]['row'])->toBe(38);
         $scale = $frame['viewport']['scale'];
         // Both anchors use the same field row pitch; the prompt's bottom is at or above the artwork's top.
@@ -226,7 +226,7 @@ it('replaces old prompt rows through either player draw entry point and removes 
     // The camera centres the start row, so world (8, 9) is screen (8, 8) and the prompt is one cell above.
     expect(getPlayerPromptRuns($frame))->toBe([['row' => 7, 'column' => 8, 'text' => '!']])
         ->and(array_column($frame['textLayers'], 'id'))->not->toContain('player');
-    Console::withLayer('modal', fn() => Console::write('   ', 8, 7), 1020);
+    Console::withLayer('modal', fn() => Console::write('   ', 8, 7), PresentationLayerPolicy::UI + 20);
     presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
     $this->player->availableAction = null;
     expect($this->player->canAct)->toBeFalse();
@@ -244,7 +244,7 @@ it('removes the prompt on either erase path even while staged presentation suppr
     $this->field->renderTheField();
     presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
     expect(Console::charAt(6, 6))->toBe('!');
-    Console::withLayer('modal', fn() => Console::write(' ', 6, 6), 1020);
+    Console::withLayer('modal', fn() => Console::write(' ', 6, 6), PresentationLayerPolicy::UI + 20);
     expect(new ReflectionProperty(Console::class, 'layerCells')->getValue()[6][6]['layers'])
         ->toHaveKeys(['field-prompt', 'modal']);
     if ($suppressed) {

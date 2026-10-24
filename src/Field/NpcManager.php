@@ -146,8 +146,8 @@ class NpcManager
         throw new InvalidArgumentException('sprites2d must be a character sheet definition array.');
       }
       $sprites = CharacterSheet::fromArray($entry['sprites2d']);
-      if ($sprites->layer < PresentationLayerPolicy::WORLD || $sprites->layer >= PresentationLayerPolicy::UI) {
-        throw new InvalidArgumentException('Automatic Game world sprites require layers 0..999; UI layers are reserved.');
+      if ($sprites->layer < PresentationLayerPolicy::WORLD || $sprites->layer >= PresentationLayerPolicy::FIELD_GUIDANCE) {
+        throw new InvalidArgumentException('Automatic Game world sprites require layers 0..999; guidance and UI layers are reserved.');
       }
       return $sprites;
     } catch (InvalidArgumentException $error) {

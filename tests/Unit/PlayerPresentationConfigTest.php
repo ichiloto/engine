@@ -287,14 +287,14 @@ it('defaults to v2 world sprite and opaque above-sprite prompt composition', fun
   $this->runtime->start('Field v2', 20, 10);
   Console::write('.', 7, 4);
   $player->render();
-  Console::withLayer('modal', fn() => Console::write('   ', 7, 4), 1020);
+  Console::withLayer('modal', fn() => Console::write('   ', 7, 4), \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI + 20);
   $this->runtime->present($this->scene);
   expect($transport->session->protocol)->toBe(RendererProtocolVersion::V2)
     ->and($transport->sent[0]->protocol)->toBe(RendererProtocolVersion::V2)
     ->and($transport->sent[0]->payload)->not->toHaveKey('text');
   $frame = RetainedFrameState::replay($transport->sent)[0];
   expect(array_column($frame['textLayers'], 'id'))->toBe(['world', 'field-prompt', 'modal'])
-    ->and(array_column($frame['textLayers'], 'layer'))->toBe([0, 1010, 1020])
+    ->and(array_column($frame['textLayers'], 'layer'))->toBe([0, \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI + 10, \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI + 20])
     ->and($frame['sprites'])->toHaveCount(1)
     ->and(mb_substr(RetainedFrameState::getTextRows(['textLayers' => [$frame['textLayers'][0]]], 20, 10)[4], 7, 1))->toBe('.')
     ->and($frame['textLayers'][2]['runs'][0]['text'])->toBe('   ')
@@ -378,7 +378,7 @@ it('keeps the graphical Player during an ordinary dialogue event without admitti
 
 it('flattens retained scalar cells by priority without treating opaque UI spaces as transparent', function () {
   $frame = ['textLayers' => [
-    ['id' => 'modal', 'layer' => 1000, 'runs' => [['row' => 0, 'column' => 2, 'text' => ' ']]],
+    ['id' => 'modal', 'layer' => \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI, 'runs' => [['row' => 0, 'column' => 2, 'text' => ' ']]],
     ['id' => 'world', 'layer' => 0, 'runs' => [['row' => 0, 'column' => 0, 'text' => "\u{00e9}\u{00a3}C"]]],
     ['id' => 'actor', 'layer' => 10, 'runs' => [['row' => 0, 'column' => 3, 'text' => "\u{03a9}"]]],
   ]];

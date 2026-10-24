@@ -520,8 +520,8 @@ it('protects transformed actors prompts and screen HUD without treating terrain 
   $sprite = new PresentationSprite('actor', 'Icon.png', 10, 1, 48, 48, lift: 6);
   $text = new ConsolePresentationSnapshot(80, 30, [
     new PresentationTextLayer('world', 0, [new PresentationTextRun(0, 0, 'terrain')]),
-    new PresentationTextLayer('hud', 1000, [new PresentationTextRun(0, 0, 'Location')]),
-    new PresentationTextLayer(PresentationLayerPolicy::FIELD_PROMPT_ID, 1000, [new PresentationTextRun(0, 10, '!')]),
+    new PresentationTextLayer('hud', PresentationLayerPolicy::UI, [new PresentationTextRun(0, 0, 'Location')]),
+    new PresentationTextLayer(PresentationLayerPolicy::FIELD_PROMPT_ID, PresentationLayerPolicy::UI, [new PresentationTextRun(0, 10, '!')]),
   ]);
   $areas = NotificationPlacement::getProtectedAreas(null, $text, [$sprite], $grid, $viewport);
   expect($areas)->toHaveCount(3)->and(NotificationPlacement::isClear(new CanvasRectangle(960, 24, 40, 60), $areas))->toBeFalse()

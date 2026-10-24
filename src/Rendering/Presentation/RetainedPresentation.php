@@ -231,6 +231,7 @@ final class RetainedPresentation
         $lift = $this->client->supports(RendererSessionConfig::SPRITE_LIFT);
         $turns = $this->client->supports(RendererSessionConfig::SPRITE_QUARTER_TURNS);
         $pivot = $this->client->supports(RendererSessionConfig::SPRITE_PIVOT);
+        $bob = $this->client->supports(RendererSessionConfig::SPRITE_BOB);
         if (!$pivot && !$this->warnedUnsupportedPivot && array_any($sprites, static fn($sprite): bool =>
             $sprite->pivot !== null && ($sprite->pivot->x !== .5 || $sprite->pivot->y !== 1.0))) {
             Debug::warn('Renderer lacks sprite_pivot; field images retain bottom-center placement.');
@@ -246,7 +247,7 @@ final class RetainedPresentation
         $orders = RetainedOrder::getStableOrders($keys, $previous);
         $spriteValues = $groupValues = [];
         foreach ($subjects as $index => $subject) {
-            $value = [...($subject instanceof PresentationSprite ? $subject->toArray($lift, $turns, $pivot)
+            $value = [...($subject instanceof PresentationSprite ? $subject->toArray($lift, $turns, $pivot, $bob)
                 : $subject->toArray()), 'order' => $orders[$keys[$index]]];
             if ($subject instanceof PresentationSprite) { $spriteValues[] = $value; }
             else { $groupValues[] = $value; }

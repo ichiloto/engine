@@ -41,6 +41,13 @@ final readonly class RendererSessionConfig
   public const string TILE_SHADOWS = 'tile_shadows';
   /** Retained field sprites may be drawn a lift above the cell that places and orders them. */
   public const string SPRITE_LIFT = 'sprite_lift';
+  /** Retained field sprites may declare a bob the renderer draws at display rate on its field clock. */
+  public const string SPRITE_BOB = 'sprite_bob';
+  /**
+   * Retained screen-pinned field sprites with a motion slide on screen from where they are drawn to their new
+   * placement, on the field clock and together with the camera slide that starts in the same frame.
+   */
+  public const string PINNED_SPRITE_MOTION = 'pinned_sprite_motion';
   /** Event subscription: key press, release and reset transitions with a stable control identity. */
   public const string KEY_TRANSITIONS = 'key_transitions';
   /** Event extensions change the event stream, so a session receives them only by requiring them. */
@@ -53,7 +60,7 @@ final readonly class RendererSessionConfig
     return $this->protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY,
         self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
-        self::SPRITE_LIFT, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
+        self::SPRITE_LIFT, self::SPRITE_BOB, self::PINNED_SPRITE_MOTION, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
         self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT,
         ...array_values(array_intersect(self::EVENT_SUBSCRIPTIONS, $this->requiredCapabilities))]
       : $this->requiredCapabilities;
@@ -76,7 +83,7 @@ final readonly class RendererSessionConfig
     $allowed = $protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
         self::CANVAS_COMPOSITING, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
-        self::SPRITE_LIFT, self::KEY_TRANSITIONS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
+        self::SPRITE_LIFT, self::SPRITE_BOB, self::PINNED_SPRITE_MOTION, self::KEY_TRANSITIONS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
         self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT]
       : [self::SPRITE_SOURCE_RECT];
     foreach ($requiredCapabilities as $capability) {

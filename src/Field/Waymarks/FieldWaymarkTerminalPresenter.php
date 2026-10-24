@@ -18,8 +18,9 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
  * is on screen, or an arrow at the view edge pointing toward it.
  *
  * Arrows sit on the line from the view centre toward the subject, kept the
- * style's inset from the edge and off the player's cell. The layer sits
- * below UI, so dialogue and menus always cover it.
+ * style's inset from the edge and off the player's cell. The layer is
+ * field guidance: over the map and every character, below UI, so dialogue
+ * and menus always cover it.
  */
 final class FieldWaymarkTerminalPresenter
 {
@@ -133,7 +134,7 @@ final class FieldWaymarkTerminalPresenter
       foreach ($placements as $placement) {
         $camera->renderAtScreenPosition($placement['text'], new Vector2($placement['x'], $placement['y']));
       }
-    }, PresentationLayerPolicy::FIELD_EFFECT_FRONT);
+    }, PresentationLayerPolicy::FIELD_GUIDANCE);
   }
 
   public function clear(): void

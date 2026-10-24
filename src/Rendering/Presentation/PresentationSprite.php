@@ -28,6 +28,8 @@ final readonly class PresentationSprite
     public int $quarterTurns = 0,
     /** Optional image point at the unchanged cell anchor; negotiated sprite_pivot only. */
     public ?PresentationSpritePivot $pivot = null,
+    /** Field sprites only: a rise and fall above the lift, drawn at display rate. Negotiated sprite_bob only. */
+    public ?PresentationSpriteBob $bob = null,
   )
   {
     if ($id === '' || str_contains($id, "\0") || preg_match('//u', $id) !== 1) {
@@ -36,7 +38,7 @@ final readonly class PresentationSprite
     SpriteValidation::validateDefinition($asset, $width, $height, $layer);
     SpriteValidation::validateSigned32BitRange($x);
     SpriteValidation::validateSigned32BitRange($y);
-    SpriteValidation::validateLift($lift, $height);
+    SpriteValidation::validateLift($lift + ($bob?->height ?? 0), $height);
     if ($quarterTurns < 0 || $quarterTurns > 3) {
       throw new InvalidArgumentException('Sprite quarterTurns must be an integer from 0 to 3.');
     }
@@ -45,11 +47,13 @@ final readonly class PresentationSprite
   /**
    * The sprite's protocol value. With `$lift`, for a renderer that negotiated
    * sprite_lift, a lifted sprite names its `lift`; without, the value is the
-   * unlifted placement every renderer accepts.
+   * unlifted placement every renderer accepts. With `$bob`, for a renderer
+   * that negotiated sprite_bob, a bobbing sprite names its `bob`; without, it
+   * holds still at its lift.
    *
-   * @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int, sourceRect?: array{x: int, y: int, width: int, height: int}, motion?: array{duration: float}, lift?: int, quarterTurns?: int, pivot?: array{x: float, y: float}}
+   * @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int, sourceRect?: array{x: int, y: int, width: int, height: int}, motion?: array{duration: float}, lift?: int, quarterTurns?: int, pivot?: array{x: float, y: float}, bob?: array{height: int, seconds: float}}
    */
-  public function toArray(bool $lift = false, bool $quarterTurns = false, bool $pivot = false): array
+  public function toArray(bool $lift = false, bool $quarterTurns = false, bool $pivot = false, bool $bob = false): array
   {
     $data = ['id' => $this->id, 'asset' => $this->asset, 'x' => $this->x, 'y' => $this->y,
       'width' => $this->width, 'height' => $this->height, 'anchor' => $this->anchor->value, 'layer' => $this->layer];
@@ -58,6 +62,7 @@ final readonly class PresentationSprite
     if ($lift && $this->lift > 0) { $data['lift'] = $this->lift; }
     if ($quarterTurns && $this->quarterTurns > 0) { $data['quarterTurns'] = $this->quarterTurns; }
     if ($pivot && $this->pivot !== null) { $data['pivot'] = $this->pivot->toArray(); }
+    if ($bob && $this->bob !== null) { $data['bob'] = $this->bob->toArray(); }
     return $data;
   }
 
@@ -66,7 +71,7 @@ final readonly class PresentationSprite
   {
     return $this->motion === null ? $this : new self($this->id, $this->asset, $this->x, $this->y, $this->width,
       $this->height, $this->anchor, $this->layer, $this->sourceRect, lift: $this->lift, quarterTurns: $this->quarterTurns,
-      pivot: $this->pivot);
+      pivot: $this->pivot, bob: $this->bob);
   }
 
   /** @param list<PresentationSprite> $sprites @return list<PresentationSprite> */

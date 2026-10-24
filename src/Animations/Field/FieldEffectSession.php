@@ -88,9 +88,21 @@ final class FieldEffectSession
     }
   }
 
-  /** @return list<FieldEffectSprite> */
-  public function getSprites(Vector2 $position, bool $reducedMotion = false, ?PresentationSpriteMotion $motion = null): array
+  /**
+   * The images this effect shows now at a field position. A guidance effect
+   * (the action prompt, a cue or a waymark) draws in the field guidance band,
+   * over the whole field world: what it draws behind its marks with the
+   * plates, the rest over them. Any other effect draws behind or in front of
+   * the field's characters, as its tracks say.
+   *
+   * @return list<FieldEffectSprite>
+   */
+  public function getSprites(Vector2 $position, bool $reducedMotion = false, ?PresentationSpriteMotion $motion = null,
+    bool $guidance = false): array
   {
+    [$behind, $front] = $guidance
+      ? [PresentationLayerPolicy::FIELD_GUIDANCE, PresentationLayerPolicy::FIELD_GUIDANCE_FRONT]
+      : [PresentationLayerPolicy::FIELD_EFFECT_BEHIND, PresentationLayerPolicy::FIELD_EFFECT_FRONT];
     if ($this->playback->isCompleted) { return []; }
     $sprites = [];
     foreach ($this->getActiveSegments($reducedMotion, EffectPresentation::GRAPHICAL) as $segment) {
@@ -103,7 +115,7 @@ final class FieldEffectSession
         $definition = new GraphicalSpriteDefinition($command['assetId'],
           max(1, (int)round($size['width'])), max(1, (int)round($size['height'])),
           PresentationSpriteAnchor::BOTTOM_CENTER,
-          $data['depth'] === 'behind' ? PresentationLayerPolicy::FIELD_EFFECT_BEHIND : PresentationLayerPolicy::FIELD_EFFECT_FRONT,
+          $data['depth'] === 'behind' ? $behind : $front,
           new SpriteSourceRect(($source % $data['columns']) * $data['frameWidth'],
             intdiv($source, $data['columns']) * $data['frameHeight'], $data['frameWidth'], $data['frameHeight']),
           pivot: isset($data['pivot']) ? PresentationSpritePivot::fromArray($data['pivot']) : null);

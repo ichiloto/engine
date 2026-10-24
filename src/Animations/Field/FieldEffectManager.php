@@ -16,6 +16,9 @@ use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteAnchor;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteBob;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
 use Ichiloto\Engine\Util\Debug;
@@ -45,6 +48,10 @@ final class FieldEffectManager
   private string $mapId = '';
   private ?bool $supported = null;
   private bool $turnsSupported = false;
+  /** Whether the renderer draws a declared bob at display rate; otherwise the bob is a lift sent each frame. */
+  private bool $bobsDeclared = false;
+  /** Whether the renderer slides screen-pinned sprites, so edge markers carry the camera's motion. */
+  private bool $pinnedMotion = false;
   private ?bool $actionPromptUsable = null;
 
   public function __construct(string $assetRoot, private readonly EffectPresentation $presentation = EffectPresentation::GRAPHICAL)
@@ -57,10 +64,16 @@ final class FieldEffectManager
     }
   }
 
-  public function setCapabilities(bool $images, bool $quarterTurns): void
+  /**
+   * @param bool $bob The renderer draws a declared bob ({@see PresentationSpriteBob}).
+   * @param bool $pinnedMotion The renderer slides screen-pinned sprites with a motion.
+   */
+  public function setCapabilities(bool $images, bool $quarterTurns, bool $bob = false, bool $pinnedMotion = false): void
   {
     $this->supported = $images;
     $this->turnsSupported = $quarterTurns;
+    $this->bobsDeclared = $bob;
+    $this->pinnedMotion = $pinnedMotion;
     $this->waymarksUsable = null;
     if (!$images && $this->sessions !== []) {
       $this->note('capability', 'This renderer cannot draw field effects; the original glyphs and tiles remain.');
@@ -367,10 +380,12 @@ final class FieldEffectManager
    * @param iterable<GraphicalSpriteProviderInterface> $objects
    * @param array{x: int, y: int} $origin
    * @param Vector2|null $player The player's world position, which edge images never cover.
+   * @param PresentationSpriteMotion|null $cameraMotion The step the camera scrolls with now, when it follows a
+   *   stepping character: edge markers slide with it to their new places, for a renderer that slides pinned sprites.
    * @return list<FieldEffectSprite>
    */
   public function getSprites(iterable $objects, ?FieldViewport $viewport, array $origin, bool $reducedMotion,
-    bool $showGuidance = true, ?Vector2 $player = null): array
+    bool $showGuidance = true, ?Vector2 $player = null, ?PresentationSpriteMotion $cameraMotion = null): array
   {
     $indexed = $this->reconcileObjects($objects);
     $sprites = [];
@@ -387,7 +402,9 @@ final class FieldEffectManager
       $npcCue = isset($this->npcCues[$id]);
       // Waymark art draws all or nothing; otherwise the terminal glyphs are the waymarks.
       if ($waymark !== null && !$this->canPresentWaymarks()) { continue; }
-      $bob = $cue === null && $waymark === null && !$npcCue ? 0 : $this->catalog->cueStyle->getBobLift($this->clock, $reducedMotion);
+      $cueMark = $cue !== null || $waymark !== null || $npcCue;
+      // A renderer that draws the bob is told it once; any other is sent this frame's whole-pixel rise.
+      $lift = $cueMark && !$this->bobsDeclared ? $this->catalog->cueStyle->getBobLift($this->clock, $reducedMotion) : 0;
       // An NPC occupies its cell, so its cue floats above it.
       if ($npcCue) { $position = new Vector2($position->x, $position->y - 1); }
       if ($waymark !== null) {
@@ -396,17 +413,20 @@ final class FieldEffectManager
         $edge = $viewport === null ? null
           : FieldCueEdgePlacement::locatePixels($position, $origin, $viewport, $this->catalog->waymarks->inset, $player);
         if ($edge !== null) {
-          array_push($sprites, ...$this->composeEdgeMarker($session, $edge, $viewport, $bob, $reducedMotion));
+          array_push($sprites, ...$this->composeEdgeMarker($session, $edge, $viewport, $lift, $reducedMotion,
+            $this->pinnedMotion ? $cameraMotion ?? $object?->getGraphicalSpriteMotion() : null));
           continue;
         }
         if ($this->isCuePresented($waymark->anchor->eventMarker)
           || ($waymark->anchor->objectId !== null && $this->isNpcCuePresented($waymark->anchor->objectId))) { continue; }
       }
-      $marks = $session->getSprites($position, $reducedMotion, $object?->getGraphicalSpriteMotion());
-      if ($cue !== null || $waymark !== null || $npcCue) {
+      $marks = $session->getSprites($position, $reducedMotion, $object?->getGraphicalSpriteMotion(), $this->isGuidance($id));
+      if ($cueMark) {
+        $bob = $this->bobsDeclared ? $this->catalog->cueStyle->getBob($reducedMotion) : null;
         $color = $cue?->cue?->color ?? ($npcCue ? $this->npcCues[$id]->cue?->color : $this->catalog->waymarks->color);
-        $marks = [...$this->createPlate($session->id . ':plate', (string)$color, $position, $bob, $object?->getGraphicalSpriteMotion()),
-          ...array_map(fn(FieldEffectSprite $mark): FieldEffectSprite => self::raise($mark, $bob), $marks)];
+        $marks = [...$this->createPlate($session->id . ':plate', (string)$color, $position, $lift, $bob,
+          $object?->getGraphicalSpriteMotion()),
+          ...array_map(static fn(FieldEffectSprite $mark): FieldEffectSprite => self::raise($mark, $lift, $bob), $marks)];
       }
       array_push($sprites, ...$marks);
     }
@@ -416,67 +436,91 @@ final class FieldEffectManager
   /**
    * An off-screen waymark at the view edge: its upright mark on its colour's
    * plate, inside, and a pointer on the outward side. Only the pointer turns.
+   * Each is pinned to the screen at its exact pixel: the grid cell, the lift
+   * for the rest of the row, the pivot for the rest of the column. Given the
+   * motion the view or its subject moved with, each slides there with it.
    *
    * @param array{direction: string, x: float, y: float, outward: array{x: float, y: float}} $edge
+   * @param int $rise This frame's whole-pixel bob, for a renderer that cannot draw a declared one.
    * @return list<FieldEffectSprite>
    */
-  private function composeEdgeMarker(FieldEffectSession $session, array $edge, FieldViewport $view, int $bob,
-    bool $reducedMotion): array
+  private function composeEdgeMarker(FieldEffectSession $session, array $edge, FieldViewport $view, int $rise,
+    bool $reducedMotion, ?PresentationSpriteMotion $motion): array
   {
     $zoom = $view->zoom;
     $size = (int)round(FieldViewport::TILE_SIZE * $zoom);
+    $bob = $this->bobsDeclared ? $this->catalog->cueStyle->getBob($reducedMotion, $zoom) : null;
     $markX = $edge['x'] - $edge['outward']['x'] * $this->catalog->cueStyle->pointerSpacingX * $zoom;
     $markY = $edge['y'] - $edge['outward']['y'] * $this->catalog->cueStyle->pointerSpacingY * $zoom;
     $place = static fn(int $width): array => FieldCueEdgePlacement::findCell($markX, $markY, $view, $width);
     $pointer = FieldCueEdgePlacement::findCell($edge['x'], $edge['y'], $view, $size);
-    $lift = static fn(array $cell, int $height, int $extra): int => max(0, min($height, $cell['lift'] + $extra));
+    $extra = (int)round($rise * $zoom);
     $sprites = [];
     $plate = $this->catalog->cues[$this->catalog->waymarks->color]['plate'] ?? null;
     if ($plate !== null) {
       $cell = $place($size);
+      $plateBob = self::fitBob($bob, $size);
       $sprites[] = new FieldScreenSprite($session->id . ':edge-plate', new GraphicalSpriteDefinition($plate, $size, $size,
-        PresentationSpriteAnchor::BOTTOM_CENTER, PresentationLayerPolicy::FIELD_CUE_PLATE,
-        lift: $lift($cell, $size, (int)round($bob * $zoom)), pivot: $cell['pivot']), $cell['position']);
+        PresentationSpriteAnchor::BOTTOM_CENTER, PresentationLayerPolicy::FIELD_GUIDANCE,
+        lift: self::fitLift($cell['lift'] + $extra, $size, $plateBob), pivot: $cell['pivot'], bob: $plateBob),
+        $cell['position'], $motion);
     }
-    foreach ($session->getSprites(new Vector2(0, 0), $reducedMotion) as $index => $frame) {
+    foreach ($session->getSprites(new Vector2(0, 0), $reducedMotion, guidance: true) as $index => $frame) {
       $definition = $frame->getGraphicalSpriteDefinition();
       $width = max(1, (int)round($definition->width * $zoom));
       $height = max(1, (int)round($definition->height * $zoom));
       $cell = $place($width);
       $pivot = $definition->pivot === null ? $cell['pivot']
-        : new \Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot(
-          max(0.0, min(1.0, $definition->pivot->x + $cell['pivot']->x - 0.5)), $definition->pivot->y);
+        : new PresentationSpritePivot(max(0.0, min(1.0, $definition->pivot->x + $cell['pivot']->x - 0.5)), $definition->pivot->y);
+      $markBob = self::fitBob($bob, $height);
       $sprites[] = new FieldScreenSprite($session->id . ':edge-mark-' . $index, new GraphicalSpriteDefinition($definition->asset,
         $width, $height, $definition->anchor, $definition->layer, $definition->sourceRect,
-        $lift($cell, $height, (int)round(($definition->lift + $bob) * $zoom)), 0, $pivot), $cell['position']);
+        self::fitLift($cell['lift'] + (int)round($definition->lift * $zoom) + $extra, $height, $markBob), 0, $pivot, $markBob),
+        $cell['position'], $motion);
     }
     $image = $this->catalog->cues[$this->catalog->waymarks->color]['pointer'][$edge['direction']];
+    $pointerBob = self::fitBob($bob, $size);
     $sprites[] = new FieldEdgeSprite($session->id . ':edge', new GraphicalSpriteDefinition($image['asset'], $size, $size,
-      PresentationSpriteAnchor::BOTTOM_CENTER, PresentationLayerPolicy::FIELD_EFFECT_FRONT,
-      lift: $lift($pointer, $size, (int)round($bob * $zoom)), quarterTurns: $image['quarterTurns'] ?? 0, pivot: $pointer['pivot']),
-      $pointer['position']);
+      PresentationSpriteAnchor::BOTTOM_CENTER, PresentationLayerPolicy::FIELD_GUIDANCE_FRONT,
+      lift: self::fitLift($pointer['lift'] + $extra, $size, $pointerBob), quarterTurns: $image['quarterTurns'] ?? 0,
+      pivot: $pointer['pivot'], bob: $pointerBob), $pointer['position'], $motion);
     return $sprites;
   }
 
   /** The plate a cue colour draws behind its mark at a world cell, when it has one. @return list<FieldEffectSprite> */
-  private function createPlate(string $id, string $color, Vector2 $position, int $bob,
-    ?\Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion $motion): array
+  private function createPlate(string $id, string $color, Vector2 $position, int $lift, ?PresentationSpriteBob $bob,
+    ?PresentationSpriteMotion $motion): array
   {
     $plate = $this->catalog->cues[$color]['plate'] ?? null;
     if ($plate === null) { return []; }
+    $bob = self::fitBob($bob, FieldViewport::TILE_SIZE);
     return [new FieldEffectSprite($id, new GraphicalSpriteDefinition($plate, FieldViewport::TILE_SIZE, FieldViewport::TILE_SIZE,
-      PresentationSpriteAnchor::BOTTOM_CENTER, PresentationLayerPolicy::FIELD_CUE_PLATE, lift: $bob), $position, $motion)];
+      PresentationSpriteAnchor::BOTTOM_CENTER, PresentationLayerPolicy::FIELD_GUIDANCE,
+      lift: self::fitLift($lift, FieldViewport::TILE_SIZE, $bob), bob: $bob), $position, $motion)];
   }
 
-  /** The same mark drawn higher by the bob. */
-  private static function raise(FieldEffectSprite $mark, int $bob): FieldEffectSprite
+  /** The same mark drawn higher by this frame's rise, or bobbing on its own. */
+  private static function raise(FieldEffectSprite $mark, int $lift, ?PresentationSpriteBob $bob): FieldEffectSprite
   {
-    if ($bob === 0) { return $mark; }
+    if ($lift === 0 && $bob === null) { return $mark; }
     $definition = $mark->getGraphicalSpriteDefinition();
+    $bob = self::fitBob($bob, $definition->height);
     return new FieldEffectSprite($mark->getGraphicalSpriteId(), new GraphicalSpriteDefinition($definition->asset, $definition->width,
       $definition->height, $definition->anchor, $definition->layer, $definition->sourceRect,
-      min($definition->height, $definition->lift + $bob), $definition->quarterTurns, $definition->pivot),
+      self::fitLift($definition->lift + $lift, $definition->height, $bob), $definition->quarterTurns, $definition->pivot, $bob),
       $mark->getGraphicalSpriteWorldPosition(), $mark->getGraphicalSpriteMotion());
+  }
+
+  /** A bob no taller than the image that rises by it. */
+  private static function fitBob(?PresentationSpriteBob $bob, int $height): ?PresentationSpriteBob
+  {
+    return $bob === null || $bob->height <= $height ? $bob : new PresentationSpriteBob($height, $bob->seconds);
+  }
+
+  /** A lift that leaves room for the bob above it, within the image's own height. */
+  private static function fitLift(int $lift, int $height, ?PresentationSpriteBob $bob): int
+  {
+    return max(0, min($height - ($bob?->height ?? 0), $lift));
   }
 
   /** Guidance hides while a cinematic owns the field: the action prompt, cues and waymarks. */

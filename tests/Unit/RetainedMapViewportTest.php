@@ -200,7 +200,7 @@ it('erases complete actor glyphs without map spaces while preserving UI and term
     $this->manager->readSource(createRetainedMapSource($this->root, 'first'));
     $this->manager->getPresentationWorld();
     Console::withLayer('npc:a', fn() => Console::write('界', 2, 1), 10);
-    Console::withLayer('ui:dialogue', fn() => Console::write('U', 3, 1), 1000);
+    Console::withLayer('ui:dialogue', fn() => Console::write('U', 3, 1), \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
     Console::getRetainedPresentationChanges();
     $this->manager->renderBackgroundTile(1, 0);
     $changes = Console::getRetainedPresentationChanges();
@@ -234,7 +234,7 @@ it('reports signed logical origins and keeps scale-one world viewports through u
         ->and($this->camera->getWorldOrigin())->toBe(['x' => -2, 'y' => -1]);
     $world = $this->scene->getPresentationWorld();
     $first = new ConsolePresentationChanges(8, 4, true, [
-        ['id' => 'npc:text', 'layer' => 10, 'rows' => []], ['id' => 'dialogue', 'layer' => 1000, 'rows' => []],
+        ['id' => 'npc:text', 'layer' => 10, 'rows' => []], ['id' => 'dialogue', 'layer' => \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI, 'rows' => []],
     ]);
     $viewport = $this->scene->getPresentationViewport($first, []);
     expect($viewport?->scale)->toBe(1.0)->and($viewport->worldId)->toBe('map')
