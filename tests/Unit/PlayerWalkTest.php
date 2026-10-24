@@ -100,8 +100,24 @@ final class PlayerWalkDriver
     }, $this->steps);
   }
 
-  /** @return list<int> Frame numbers (at 60 per second) of committed steps. */
+  /**
+   * @return list<int> Frame numbers (at 60 per second) at which committed
+   *     steps begin: when decided, or when the step before them ends.
+   */
   public function getFrames(): array
+  {
+    $frames = [];
+    $free = -INF;
+    foreach ($this->steps as [$time, , , $seconds]) {
+      $begin = max($time, $free);
+      $frames[] = (int)round($begin * 60);
+      $free = $begin + $seconds;
+    }
+    return $frames;
+  }
+
+  /** @return list<int> Frame numbers (at 60 per second) of the updates that committed steps. */
+  public function getDecisionFrames(): array
   {
     return array_map(static fn(array $step): int => (int)round($step[0] * 60), $this->steps);
   }
@@ -168,7 +184,9 @@ it('counts OS repeats as neither presses nor extra movement', function () {
     $this->source->keys[] = KeyCode::DOWN;
     $this->driver->frame();
   }
-  expect($this->driver->getFrames())->toBe([0, 16]);
+  // The third step is decided on the update before the second ends.
+  expect($this->driver->getFrames())->toBe([0, 16, 32])
+    ->and($this->driver->getDecisionFrames())->toBe([0, 15, 31]);
 });
 
 it('keeps quick taps without letting them outrun walking', function () {
@@ -224,7 +242,7 @@ it('accepts a fresh press after a reset in the same update without reviving an e
   $this->source->press('left', KeyCode::LEFT);
   $this->driver->frame();
   expect($this->driver->getDirections())->toBe(['down', 'left'])
-    ->and($this->driver->getFrames())->toBe([0, 2]);
+    ->and($this->driver->getDecisionFrames())->toBe([0, 2]);
   $this->source->release('left');
   $this->driver->run(1.0);
   expect($this->driver->getDirections())->toBe(['down', 'left']);
@@ -286,6 +304,25 @@ it('walks equal distances in equal time at any update rate within one step', fun
   'irregular' => [[0.004, 0.021, 0.017, 0.033, 0.009, 0.016]],
 ]);
 
+it('decides each held step on the update before the one in progress ends, so it begins exactly as that one ends', function (float $frame) {
+  $this->source->press('down', KeyCode::DOWN);
+  $this->driver->run(3.0, $frame);
+  $steps = $this->driver->steps;
+  expect(count($steps))->toBeGreaterThan(10);
+  // The renderer draws each slide after the one before it, so the next step
+  // must reach it before the slide in progress ends: never at or after that
+  // end, never more than one update ahead of it.
+  foreach (array_slice(array_keys($steps), 1) as $index) {
+    $lead = $index * WALK_STEP - $steps[$index][0];
+    expect($lead)->toBeGreaterThan(1e-9)->toBeLessThanOrEqual($frame + 1e-9);
+  }
+})->with([
+  '60 per second' => [1 / 60],
+  '30 per second' => [1 / 30],
+  '144 per second' => [1 / 144],
+  '50 per second' => [1 / 50],
+]);
+
 it('walks both axes at one cell rate on the square field, from the metric alone', function () {
   $walked = static function (FieldMetric $metric, string $control, KeyCode $key, float $seconds): int {
     $source = new FakeHeldInputSource();
@@ -322,8 +359,9 @@ it('banks no burst while blocked and catches up at most one step after a stall',
   $this->driver->frame(2.0);
   $this->driver->run(20 / 60);
   // Two seconds of stall owe seven steps: the late update takes one, the next
-  // catches up one more, and walking then keeps its pace.
-  expect($this->driver->getFrames())->toBe([0, 1, 121, 137]);
+  // catches up one more, and walking then keeps its pace, deciding each step
+  // on the update before the one in progress ends.
+  expect($this->driver->getDecisionFrames())->toBe([0, 1, 121, 136]);
 });
 
 it('cancels walking whenever the field missed an update and treats earlier presses as stale', function () {

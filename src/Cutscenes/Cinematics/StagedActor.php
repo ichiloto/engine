@@ -200,9 +200,10 @@ final class StagedActor implements GraphicalSpriteProviderInterface
       ? $this->subject->subject->getGraphicalSpriteDefinition() : $this->subject?->subject->getGraphicalCharacterSheet());
   }
 
-  public function stopGraphicalAnimation(): void
+  /** Stand: at once, or once the steps taken have shown. */
+  public function stopGraphicalAnimation(bool $afterSlide = false): void
   {
-    $this->walkAnimation->stop();
+    $afterSlide ? $this->walkAnimation->stopAfterSlide() : $this->walkAnimation->stop();
   }
 
   public function pauseGraphicalAnimation(): void

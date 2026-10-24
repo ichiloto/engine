@@ -138,6 +138,72 @@ it('walks RPG Maker strides by distance so both axes animate at one pace and con
     ->and(fn() => $animation->advance(-1))->toThrow(InvalidArgumentException::class);
 });
 
+it('begins a step taken while the one before still slides when that slide ends, as the renderer draws it', function () {
+  putSceneAudioConfig([]);
+  $metric = new FieldMetric();
+  $seconds = $metric->getWalkSeconds(Vector2::right());
+  // The same walk decided on the update each step ends, and on the update before.
+  $walk = static function (float $lead) use ($metric, $seconds): array {
+    $animation = new CharacterWalkAnimation($metric);
+    $position = new Vector2(0, 0);
+    $patterns = [];
+    $sliding = [];
+    $untilNext = 0.0;
+    for ($frame = 0; $frame < 60; $frame++) {
+      if ($frame < 40 && $untilNext <= $lead + 1e-9) {
+        $from = clone $position;
+        $position = Vector2::sum($position, Vector2::right());
+        $animation->step(new CharacterStep($from, $position, $seconds));
+        $untilNext += $seconds;
+      }
+      $patterns[] = $animation->getPattern();
+      $sliding[] = $animation->isSliding;
+      $animation->advance(1 / 60);
+      $untilNext -= 1 / 60;
+    }
+    return [$patterns, $sliding];
+  };
+  [$onTime, $onTimeSliding] = $walk(0.0);
+  [$ahead, $aheadSliding] = $walk(1 / 60);
+  // Deciding ahead changes nothing on screen: the same strides at the same pace,
+  // sliding until the last step has shown.
+  expect($ahead)->toBe($onTime)->and($aheadSliding)->toBe($onTimeSliding)
+    ->and(array_search(false, $aheadSliding, true))->toBe(48);
+
+  // At most one step waits: another completes the slides before it.
+  $animation = new CharacterWalkAnimation($metric);
+  $animation->step(new CharacterStep(new Vector2(0, 0), new Vector2(1, 0), $seconds));
+  $animation->step(new CharacterStep(new Vector2(1, 0), new Vector2(2, 0), $seconds));
+  $animation->step(new CharacterStep(new Vector2(2, 0), new Vector2(3, 0), $seconds));
+  $animation->advance($seconds - 1e-6);
+  expect($animation->isSliding)->toBeTrue();
+  $animation->advance(2e-6);
+  expect($animation->isSliding)->toBeFalse();
+});
+
+it('stands once the steps taken have shown when movement is refused mid-slide', function () {
+  putSceneAudioConfig([]);
+  $animation = new CharacterWalkAnimation();
+  $animation->stopAfterSlide();
+  expect($animation->getPattern())->toBe(1);
+  $animation->step(new CharacterStep(new Vector2(0, 0), new Vector2(1, 0), 16 / 60));
+  $animation->advance(4 / 60);
+  $animation->stopAfterSlide();
+  // Still walking into its cell, then standing the moment it arrives.
+  expect($animation->getPattern())->toBe(2)->and($animation->isSliding)->toBeTrue();
+  $animation->advance(12 / 60);
+  expect($animation->getPattern())->toBe(1)->and($animation->isSliding)->toBeFalse()
+    ->and($animation->getMotion(new Vector2(1, 0)))->toBeNull();
+  // A step taken after the refusal walks on as usual.
+  $animation->step(new CharacterStep(new Vector2(1, 0), new Vector2(1, 1), 16 / 60));
+  $animation->advance(4 / 60);
+  $animation->stopAfterSlide();
+  $animation->step(new CharacterStep(new Vector2(1, 1), new Vector2(1, 2), 16 / 60));
+  $animation->advance(16 / 60);
+  // Still walking: 30 + 48 + 12 field pixels along the cycle show pattern 0.
+  expect($animation->isSliding)->toBeTrue()->and($animation->getPattern())->toBe(0);
+});
+
 it('keeps one stride per call for steps without known cells', function () {
   putSceneAudioConfig([]);
   $animation = new CharacterWalkAnimation();

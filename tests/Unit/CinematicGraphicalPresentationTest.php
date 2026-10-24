@@ -84,6 +84,8 @@ it('projects staged sheets with independent identities and PHP-owned route anima
   $this->stage->advanceGraphicalAnimation(0.08);
   expect($one->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(['x' => 96, 'y' => 96, 'width' => 48, 'height' => 48])
     ->and($two->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(['x' => 48, 'y' => 0, 'width' => 48, 'height' => 48]);
+  // The next step begins once this one has shown.
+  $this->stage->advanceGraphicalAnimation(16 / 60 - 0.08);
   $this->stage->move('one', Vector2::right());
   $this->stage->advanceGraphicalAnimation(0.08);
   expect($one->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);

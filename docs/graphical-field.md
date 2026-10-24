@@ -80,7 +80,9 @@ editing surface is owned by the GUI Editor plan. Related docs:
   every step, across or down, covers one 48-pixel cell in 16/60 s. While a direction is held the
   player keeps walking one committed cell at a time, and the renderer slides
   each character between cells over its step, with the camera following the
-  player. The terminal keeps stepping once per key event, unchanged.
+  player. Each slide follows the one before it at the step's own pace, drawn
+  on whole device pixels. The terminal keeps stepping once per key event,
+  unchanged.
 - As in RPG Maker, what reaching a cell does happens once the player is seen
   to arrive: its touch events, encounter step, save point notice and movement
   observers wait for the slide, so a dialogue, battle or transfer never cuts

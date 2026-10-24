@@ -231,7 +231,11 @@ it('animates only successful player steps and rests on blocked movement or facin
   expect($walking->asset)->toBe($this->sheet)->and($walking->sourceRect->toArray())->toBe(getPlayerSheetFrame('east', 2))
     ->and($player->position->x)->toBe(8.0)->and($player->sprite)->toBe(['>']);
   expect($player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeFalse();
+  // Refused while the step still slides, it faces the wall and walks into its
+  // cell, then stands the moment that step has shown.
   $player->advanceGraphicalAnimation(0.08);
+  expect($player->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(getPlayerSheetFrame('north', 2));
+  $player->advanceGraphicalAnimation(16 / 60 - 0.16);
   $idle = $player->getGraphicalSpriteDefinition();
   expect($idle->sourceRect->toArray())->toBe(getPlayerSheetFrame('north'))
     ->and($player->position->x)->toBe(8.0)->and($player->position->y)->toBe(4.0);

@@ -23,6 +23,12 @@ use Ichiloto\Engine\Rendering\FieldMetric;
  * - From standing, a press faces and steps at once. While a step is still
  *   in progress a new direction waits for it to finish: a direction change
  *   grants no free step.
+ * - The next step is decided on the last update before the step in progress
+ *   ends, and begins when that step ends: the clock keeps its time. The
+ *   renderer draws each slide after the one before it, so it must receive
+ *   the next step before the slide in progress ends; deciding on the update
+ *   after the end would leave the character standing for part of a frame
+ *   whenever update timing or transport delay varied.
  * - A tap (pressed and released between updates, or during a step) is kept
  *   until the next step, so it is never lost; it cannot outrun walking.
  * - Blocked movement faces the direction and banks no time. After a stall at
@@ -84,7 +90,9 @@ final class PlayerWalk
       $this->remaining = max(0.0, $this->remaining);
       return;
     }
-    if ($this->remaining > self::CLOCK_TOLERANCE_SECONDS) {
+    // The next update is expected after as long as this one took.
+    $lead = is_finite($deltaSeconds) ? max(0.0, $deltaSeconds) : 0.0;
+    if ($this->remaining > $lead + self::CLOCK_TOLERANCE_SECONDS) {
       return;
     }
 
@@ -98,8 +106,9 @@ final class PlayerWalk
       // The step handed control elsewhere (a transfer, a battle): it already cancelled walking.
       return;
     }
-    // Carry the overshoot so equal time walks equal distance at any update
-    // rate; never carry more than one step's debt.
+    // Carry the overshoot, or the time left of the step in progress, so equal
+    // time walks equal distance at any update rate; never carry more than one
+    // step's debt.
     $this->remaining = $moved ? max(0.0, $this->remaining + $seconds) : 0.0;
   }
 
