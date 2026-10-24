@@ -381,8 +381,14 @@ second) over square 48-pixel cells, so every step, across or down, takes
 before field zoom, device scale and window fit, so none of those change
 gameplay speed. From standing, a press faces and steps at once. While a step
 is in progress a new direction waits for it: a direction change grants no free
-step. A tap is kept for the next step and cannot outrun walking. Blocked
-movement faces the wall each update and banks no time. The step clock carries
+step. The next step is decided on the last update before the step in progress
+ends and begins when that step ends: the renderer draws each slide after the
+one before it, so it must receive the next step while the slide in progress is
+still drawn, whatever the update timing and transport delay. The previous
+step's arrival runs when the next is decided, at most one update before its
+slide ends. A tap is kept for the next step and cannot outrun walking. Blocked
+movement faces the wall each update and banks no time; refused while a step
+still slides, the player walks into that cell and stands once it has shown. The step clock carries
 its overshoot, so equal time walks equal distance at any update interval up to
 one step: the count differs by at most one step. After a stall at most one step
 catches up. Any update the field did not control (a menu, dialogue, cinematic,

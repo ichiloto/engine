@@ -544,14 +544,17 @@ it('runs NPC event routes with independent step timing facing collision and idle
   $route = new MovementRouteRunner($this->scene, ['subject' => 'npc', 'npcId' => 'guide',
     'steps' => [['direction' => 'right', 'count' => 3]], 'secondsPerStep' => 0.08]);
   // On the east row (row 2), each 48-pixel step carries the cycle 1.6 patterns on (one per 30
-  // pixels): halfway through each step it shows patterns 2, 0, then 2.
+  // pixels): halfway through each step it shows patterns 2, 0, then 2. Each step begins
+  // once the one before it has shown.
   expect($route->update(0))->toBeFalse()->and($npc->position->x)->toBe(8.0);
   $this->manager->advanceGraphicalAnimation(0.04);
   expect($npc->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(['x' => 8, 'y' => 12, 'width' => 4, 'height' => 6])
     ->and($this->manager->findById('other')->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(4);
+  $this->manager->advanceGraphicalAnimation(0.04);
   expect($route->update(0.08))->toBeFalse()->and($npc->position->x)->toBe(9.0);
   $this->manager->advanceGraphicalAnimation(0.04);
   expect($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
+  $this->manager->advanceGraphicalAnimation(0.04);
   expect($route->update(0.08))->toBeTrue()->and($npc->position->x)->toBe(10.0);
   $this->manager->advanceGraphicalAnimation(0.04);
   expect($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(8);

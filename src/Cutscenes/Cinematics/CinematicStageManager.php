@@ -224,11 +224,12 @@ final class CinematicStageManager
     }
   }
 
-  public function subjectStopped(Player|Npc|WorldObject $subject): void
+  /** The subject stands: at once, or once the steps it took have shown. */
+  public function subjectStopped(Player|Npc|WorldObject $subject, bool $afterSlide = false): void
   {
     foreach ($this->actors as $actor) {
       if ($actor->subject?->subject === $subject) {
-        $actor->stopGraphicalAnimation();
+        $actor->stopGraphicalAnimation($afterSlide);
       }
     }
   }
