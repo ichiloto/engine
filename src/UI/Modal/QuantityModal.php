@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Modal;
 
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Menu\QuantitySelector;
@@ -57,9 +58,9 @@ class QuantityModal extends Modal
     $hints = [];
     foreach (['up' => '+1', 'down' => '-1', 'right' => '+10', 'left' => '-10', 'confirm' => 'Continue', 'cancel' => 'Cancel'] as $action => $label) {
       $hint = ActionHints::resolve($action, $label);
-      if ($hint->control !== null) { $hints[] = $hint->control->label . ': ' . $label; }
+      if ($hint->control !== null) { $hints[] = $hint; }
     }
-    $this->help = implode('  ', $hints);
+    $this->help = TerminalControlText::formatHints($hints);
     parent::render();
   }
 

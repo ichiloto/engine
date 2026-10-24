@@ -694,7 +694,7 @@ it('presents layered field ownership through the real field runtime and clears i
     ->and($world['glyphRows']['map:fixtures'][0][4]['glyph'])->toBe('i')
     ->and($world['glyphRows']['map:floor'][0][2]['glyph'])->toBe(' ')
     ->and(Console::snapshot())->toEqual($terminal);
-  Console::withLayer('dialogue', fn() => Console::write('Talk', 0, 3), 1020);
+  Console::withLayer('dialogue', fn() => Console::write('Talk', 0, 3), \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI + 20);
   $this->runtime->present($scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames)['worlds']['map'])->toBe($world)
@@ -758,7 +758,7 @@ it('uses the same field eligibility for the terrain world and Player and clears 
     ->and($frames[0]['sprites'][0]['id'])->toBe('staged:runner')
     ->and($frames[0]['sprites'][0]['sourceRect']['x'])->toBe(256)
     ->and(Console::snapshot())->toEqual($terminal);
-  Console::withLayer('dialogue',fn()=>Console::write('Talk',0,3),1020);
+  Console::withLayer('dialogue',fn()=>Console::write('Talk',0,3),\Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI + 20);
   expect($this->runtime->present($scene))->toBeTrue();
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames)['worlds']['map'])->toBe($world)

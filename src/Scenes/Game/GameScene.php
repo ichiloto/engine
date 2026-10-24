@@ -182,7 +182,10 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $this->fieldEffects?->setCapabilities(
             $this->supportsScenePresentation(RendererSessionConfig::SPRITE_SOURCE_RECT)
                 && $this->supportsScenePresentation(RendererSessionConfig::FRAME_VIEWPORT),
-            $this->supportsScenePresentation(RendererSessionConfig::SPRITE_QUARTER_TURNS));
+            $this->supportsScenePresentation(RendererSessionConfig::SPRITE_QUARTER_TURNS),
+            $this->supportsScenePresentation(RendererSessionConfig::SPRITE_BOB),
+            $this->supportsScenePresentation(RendererSessionConfig::FIELD_MOTION)
+                && $this->supportsScenePresentation(RendererSessionConfig::PINNED_SPRITE_MOTION));
         $requested = ConfigStore::has(ProjectConfig::class)
             ? config(ProjectConfig::class, 'graphics.field.zoom', FieldViewport::DEFAULT_ZOOM) : FieldViewport::DEFAULT_ZOOM;
         $zoom = FieldViewport::DEFAULT_ZOOM;
@@ -422,7 +425,8 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
             }
             foreach ([...($this->fieldEffects?->getSprites($this->getFieldObjectSpriteProviders(), $this->fieldViewport,
                 $this->camera->getWorldOrigin(), Accessibility::prefersReducedMotion(), $this->canPresentFieldGuidance(),
-                $this->player?->getGraphicalSpriteWorldPosition()) ?? []),
+                $this->player?->getGraphicalSpriteWorldPosition(),
+                $this->camera->followsPlayer ? $this->player?->getGraphicalSpriteMotion() : null) ?? []),
                 ...($this->cinematicPresentation?->getEffectSprites($this->fieldViewport) ?? [])] as $effect) {
                 if ($effect instanceof ScreenSpaceSpriteProviderInterface) {
                     $this->fieldEdgeSpriteIds[] = $effect->getGraphicalSpriteId();

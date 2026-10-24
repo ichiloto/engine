@@ -720,7 +720,7 @@ it('refreshes both menu footers from live semantic rebindings without consuming 
     foreach (['equipment' => $this->state->canvas($theme),
       'status' => CharacterMenuPresentation::status($this->actor, $theme)] as $id => $canvas) {
       $hint = array_column($canvas->textLayers, null, 'id')[$id . '-hints'];
-      expect(implode('', array_column($hint->runs, 'text')))->toBe(' ' . ControlHint::keyboard($next)->label . ' : Next   Page Up : Prev   End : Back');
+      expect(implode('', array_column($hint->runs, 'text')))->toBe(ControlHint::keyboard($next)->label . ' NextPgUp PrevEnd Back');
     }
     expect(InputManager::getBindings())->toBe($effective)->and($source->keys)->toBe([KeyCode::TAB])
       ->and($this->state->currentMode())->toBe($mode)->and($this->state->character)->toBe($this->actor);
@@ -743,7 +743,7 @@ it('consults the shared display provider for each Equipment and Status redraw wi
     foreach (['equipment' => $this->state->canvas($theme),
       'status' => CharacterMenuPresentation::status($this->actor, $theme)] as $id => $frame) {
       $hint = array_column($frame->textLayers, null, 'id')[$id . '-hints'];
-      expect(implode('', array_column($hint->runs, 'text')))->toBe(" $family : Next   $family : Prev   $family : Back");
+      expect(implode('', array_column($hint->runs, 'text')))->toBe("$family Next$family Prev$family Back");
     }
     expect($this->state->currentMode())->toBe($mode)->and($this->state->character)->toBe($this->actor)
       ->and(InputManager::getBindings())->toBe($bindings)->and($source->keys)->toBe([KeyCode::TAB]);
@@ -759,7 +759,7 @@ it('shows the existing cycling aliases for missing or empty bindings without inv
   foreach (['equipment' => $this->state->canvas($theme),
     'status' => CharacterMenuPresentation::status($this->actor, $theme)] as $id => $canvas) {
     $hint = array_column($canvas->textLayers, null, 'id')[$id . '-hints'];
-    expect(implode('', array_column($hint->runs, 'text')))->toBe(' Tab : Next   Shift+Tab : Prev  Unbound: Back');
+    expect(implode('', array_column($hint->runs, 'text')))->toBe('Tab NextShift+Tab PrevUnbound Back');
   }
   foreach ([KeyCode::TAB, KeyCode::SHIFT_TAB] as $index => $key) {
     InputManager::setInputSource(new FakeInputSource($key));
@@ -789,7 +789,7 @@ it('reserves wrapped footer height separately from descriptions and body records
         fn($layer) => $layer->id === $id . '-info' || str_starts_with($layer->id, $id . '-info-')));
       $footerTop = min(array_map(fn($layer) => $layer->clipRect->y, $footer));
       expect($hint->grid->rows)->toBeGreaterThan(1)
-        ->and(implode('', array_column($hint->runs, 'text')))->toContain(' ' . $labels . ' : Next', ' ' . $labels . ' : Prev', ' ' . $labels . ' : Back')
+        ->and(implode('', array_column($hint->runs, 'text')))->toContain($labels . ' Next', $labels . ' Prev', $labels . ' Back')
         ->and($hint->y)->toBeGreaterThanOrEqual($footerTop + $theme->metrics->panelPadding)
         ->and($hint->y + $hint->grid->rows * $hint->grid->cellHeight)->toBeLessThanOrEqual(710 - $theme->metrics->panelPadding);
       foreach ($layers as $layer) {

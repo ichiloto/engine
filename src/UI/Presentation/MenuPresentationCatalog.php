@@ -33,6 +33,8 @@ final readonly class MenuPresentationCatalog
   public MenuDetailStyle $details;
   public MenuThemeMetrics $metrics;
   public ?MenuIconRegistry $icons;
+  /** @var array<string, ControlIconSet> Input device families (keyboard, a controller family) to how their controls look. */
+  public array $controls;
   /** @var array<string, PresentationColor> */
   public array $colors;
   /** @var array<string, MenuRowArtwork> */
@@ -46,7 +48,7 @@ final readonly class MenuPresentationCatalog
 
   public function __construct(public string $assetRoot, array $data)
   {
-    self::keys($data, ['schema', 'colors', 'metrics', 'rowMetrics', 'rowArtwork', 'frames', 'icons', 'cursor', 'portraits', 'showInputHints', 'notifications', 'atlas', 'details', 'mastery']);
+    self::keys($data, ['schema', 'colors', 'metrics', 'rowMetrics', 'rowArtwork', 'frames', 'icons', 'cursor', 'portraits', 'showInputHints', 'notifications', 'atlas', 'details', 'mastery', 'controls']);
     if (($data['schema'] ?? null) !== 'ichiloto.menu/1') {
       throw new InvalidArgumentException('Menu catalog requires schema ichiloto.menu/1.');
     }
@@ -75,6 +77,20 @@ final readonly class MenuPresentationCatalog
     $this->frames = self::artwork(self::map($data, 'frames'), ['panel', 'quiet', 'portrait', 'dialogue', 'nameplate',
       'slider.track', 'slider.thumb', 'scroll.track', 'scroll.thumb', 'details.header']);
     $bindings = self::map($data, 'icons');
+    if (array_any(array_keys($bindings), static fn($role): bool => is_string($role) && str_starts_with($role, 'input.'))) {
+      throw new InvalidArgumentException('Control glyphs belong to the theme\'s controls sets, not its icons.');
+    }
+    $controls = [];
+    foreach (self::map($data, 'controls') as $family => $set) {
+      if (!is_string($family) || preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,47}$/D', $family) !== 1 || !is_array($set)) {
+        throw new InvalidArgumentException('Theme controls map input device families to control sets.');
+      }
+      $controls[$family] = ControlIconSet::createFromArray($set);
+      foreach ($controls[$family]->colors as $role) {
+        if (!isset($palette[$role])) { throw new InvalidArgumentException("Keycap colour role {$role} is not a theme colour."); }
+      }
+    }
+    $this->controls = $controls;
     $cursor = $data['cursor'] ?? null;
     if ($cursor !== null && !is_string($cursor)) { throw new InvalidArgumentException('Menu cursor must be a PNG path.'); }
     $this->icons = $bindings !== [] || $cursor !== null ? new MenuIconRegistry($assetRoot, $bindings, $cursor) : null;
@@ -92,6 +108,12 @@ final readonly class MenuPresentationCatalog
       SpriteValidation::validateAssetPath($asset);
     }
     $this->portraits = $portraits;
+  }
+
+  /** How a family's controls look: the theme's set for it, or plain keycaps in the theme's colours. */
+  public function getControlSet(string $family): ControlIconSet
+  {
+    return $this->controls[$family] ?? new ControlIconSet();
   }
 
   /** The authored detail style with the icon roles whose artwork is available now; checked when composing, never at load. */

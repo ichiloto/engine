@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Battle\UI;
 
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Battle\Presentation\BattleResultsPlayback;
 use Ichiloto\Engine\Battle\Presentation\BattleResultsText;
@@ -57,11 +59,12 @@ class BattleResultWindow extends Window
       'battle.' . match ($stage) { 'primary' => 'rewards', 'level' => 'level_up', 'ability' => 'new_ability', 'special' => 'special_reward' },
       ucfirst($stage));
     $prompt = $playback->confirmation();
-    $help = ($prompt['enabled'] ? 'enter:' . $prompt['label'] : '')
-      . ($pages > 1 ? sprintf(' up/down:Page %d/%d', $page + 1, $pages) : '');
-    if ($this->getContent() === $content && $this->getHelp() === $help && $this->getTitle() === $title) { return; }
+    $hints = [...($prompt['enabled'] ? [ActionHints::resolve('action', $prompt['label'])] : []),
+      ...($pages > 1 ? [ActionHints::resolvePair('up', 'down', sprintf('Page %d/%d', $page + 1, $pages))] : [])];
+    if ($this->getContent() === $content && $this->getHelp() === TerminalControlText::formatHints($hints)
+      && $this->getTitle() === $title) { return; }
     $this->setTitle($title);
-    $this->setHelp($help);
+    $this->setControlHints($hints);
     $this->setContent($content);
     $this->render();
   }
@@ -70,7 +73,7 @@ class BattleResultWindow extends Window
   {
     parent::__construct(
       '',
-      'enter:Continue',
+      '',
       new Vector2(),
       self::WIDTH,
       self::HEIGHT,
@@ -79,7 +82,14 @@ class BattleResultWindow extends Window
       heightPolicy: WindowHeightPolicy::FIXED,
     );
 
+    $this->showAdvanceHint('Continue');
     $this->refreshLayout();
+  }
+
+  /** What the action key does now: it fast-forwards the reveal, then continues. */
+  private function showAdvanceHint(string $label): void
+  {
+    $this->setControlHints([ActionHints::resolve('action', $label)]);
   }
 
   /**
@@ -97,13 +107,13 @@ class BattleResultWindow extends Window
     if (! empty($result->entries)) {
       $this->isRevealComplete = false;
       $this->nextRevealAt = Time::getTime() + $this->revealDelay;
-      $this->setHelp('enter:Fast Forward');
+      $this->showAdvanceHint('Fast Forward');
       $this->refreshContent();
       return;
     }
 
     $this->isRevealComplete = true;
-    $this->setHelp('enter:Continue');
+    $this->showAdvanceHint('Continue');
     $this->setContent($this->buildWrappedLines($result->lines));
     $this->render();
   }
@@ -181,14 +191,14 @@ class BattleResultWindow extends Window
 
     if ($entryCount < 1) {
       $this->isRevealComplete = true;
-      $this->setHelp('enter:Continue');
+      $this->showAdvanceHint('Continue');
       return false;
     }
 
     $this->revealedEntryCount = min($entryCount, $this->revealedEntryCount + 1);
     $this->isRevealComplete = $this->revealedEntryCount >= $entryCount;
     $this->nextRevealAt = Time::getTime() + $this->revealDelay;
-    $this->setHelp($this->isRevealComplete ? 'enter:Continue' : 'enter:Fast Forward');
+    $this->showAdvanceHint($this->isRevealComplete ? 'Continue' : 'Fast Forward');
     $this->refreshContent();
 
     return true;

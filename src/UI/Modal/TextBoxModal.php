@@ -10,13 +10,14 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\IO\Input;
-use Ichiloto\Engine\IO\InputBindings;
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePaginationBuilder;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueSnapshot;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationProviderInterface;
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
@@ -188,9 +189,10 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
   private function refreshPlaybackHelp(): void
   {
     if ($this->playback !== null) {
-      $bindings = new InputBindings();
-      $hints = sprintf('%s:continue %s:Auto %s', $bindings->describeKeys('confirm'),
-        $bindings->describeKeys('dialogue_auto'), $this->playback->auto ? 'on' : 'off');
+      // The advance key shows alone, the same while typing and waiting, as the graphical footer does.
+      $hints = TerminalControlText::formatControl(ActionHints::resolveControl('dialogue_auto'))
+        . ' Auto ' . ($this->playback->auto ? 'On' : 'Off') . TerminalControlText::SEPARATOR
+        . TerminalControlText::formatControl(ActionHints::resolveControl('confirm'));
       $this->help = $this->authoredHelp === '' ? $hints : $this->authoredHelp . ' ' . $hints;
     }
   }

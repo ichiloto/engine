@@ -7,7 +7,10 @@ namespace Ichiloto\Engine\IO;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use InvalidArgumentException;
 
-/** Display identity supplied by an input context, not an input event or a detected device. */
+/**
+ * Display identity supplied by an input context, not an input event or a detected device. The family
+ * selects the theme's control set (`controls.<family>`), and the control its glyph within that set.
+ */
 final readonly class ControlHint
 {
   public function __construct(public string $family, public string $control, public string $label)
@@ -22,15 +25,23 @@ final readonly class ControlHint
     }
   }
 
-  public function iconRole(): string
-  {
-    return 'input.' . $this->family . '.' . $this->control;
-  }
-
+  /**
+   * The keyboard control for a key, named as its keycap reads. This is the one mapping from keys to
+   * their displayed names: arrows show their symbol, and every hint, keycap and Controls list uses it.
+   */
   public static function keyboard(KeyCode $key): self
   {
-    $label = $key === KeyCode::SHIFT_TAB ? 'Shift+Tab'
-      : (strlen($key->name) === 1 ? $key->name : str_replace('_', ' ', ucwords(strtolower($key->name), '_')));
+    $label = match ($key) {
+      KeyCode::SHIFT_TAB => 'Shift+Tab',
+      KeyCode::ESCAPE => 'Esc',
+      KeyCode::PAGE_UP => 'PgUp',
+      KeyCode::PAGE_DOWN => 'PgDn',
+      KeyCode::UP => '↑',
+      KeyCode::DOWN => '↓',
+      KeyCode::LEFT => '←',
+      KeyCode::RIGHT => '→',
+      default => strlen($key->name) === 1 ? $key->name : str_replace('_', ' ', ucwords(strtolower($key->name), '_')),
+    };
     return new self('keyboard', $key->name, $label);
   }
 }

@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\MainMenu\Windows;
 
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Localization\Vocabulary;
 
 use Ichiloto\Engine\Core\Interfaces\CanChangeSelection;
@@ -49,12 +50,13 @@ class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelecti
   {
     parent::__construct(
       Vocabulary::getTerm('game.options', Vocabulary::getTerm('command.options', 'Config')),
-      'enter:Next  c:Cancel',
+      '',
       new Vector2($rect->getX(), $rect->getY()),
       $rect->getWidth(),
       $rect->getHeight(),
       $borderPack
     );
+    $this->setControlHints([ActionHints::resolve('confirm', 'Next'), ActionHints::resolve('cancel', 'Cancel')]);
   }
 
   /**

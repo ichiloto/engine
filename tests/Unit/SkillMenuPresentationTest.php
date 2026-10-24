@@ -562,7 +562,7 @@ it('retains the neutral canvas without optional artwork and semantic hints remai
   $state = skillMenuOwner($this, $magic);
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']);
   $canvas = SkillMenuPresentation::compose($state->getPresentationContent(), $theme);
-  expect($canvas->images)->toBeEmpty()->and(implode('', skillMenuText($canvas)))->toContain('Enter')->toContain('Escape');
+  expect($canvas->images)->toBeEmpty()->and(implode('', skillMenuText($canvas)))->toContain('Enter')->toContain('Esc');
   for ($tab = 0; $tab < 3; $tab++) {
     skillMenuKey($state, KeyCode::RIGHT);
     expect(SkillMenuPresentation::compose($state->getPresentationContent(), $theme))->toBeInstanceOf(PresentationCanvas::class);

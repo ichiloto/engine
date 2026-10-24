@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Enemies\EnemyHabitat;
@@ -45,6 +46,9 @@ final class GraphicalBattlePresentation
   private BattleStaging $staging;
   /** @var array<int, BattlerSlot> Troop member instance => its slot; defeat never renumbers survivors. */
   private array $enemySlots = [];
+  /** The menu theme whose control sets draw HUD hints, read once; null when the project has none or it cannot load. */
+  private ?MenuPresentationCatalog $controls = null;
+  private bool $controlsRead = false;
 
   private function __construct(public readonly BattleArenaDefinition $arena, public readonly BattleCanvasLayout $layout,
     private readonly BattleConfig $battle,
@@ -54,6 +58,16 @@ final class GraphicalBattlePresentation
     $this->defeatStyle = EnemyDefeatStyle::createFromConfig();
     $this->conditionEffects = BattleConditionEffects::createFromConfig(
       new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($assetRoot));
+  }
+
+  private function findControlsTheme(): ?MenuPresentationCatalog
+  {
+    if (!$this->controlsRead) {
+      $this->controlsRead = true;
+      try { $this->controls = MenuPresentationCatalog::load($this->assetRoot); }
+      catch (\Throwable $error) { Debug::warn('Battle hints keep their text: ' . $error->getMessage()); }
+    }
+    return $this->controls;
   }
 
   private function placeBaseArtwork(BattlerSlot $slot, ?BattlerArtwork $art, ?BattlePoseSet $poses, int $identity,
@@ -255,7 +269,7 @@ final class GraphicalBattlePresentation
     $selected = $field?->getSelectedBattlers() ?? [];
     $skin = $this->layout->skin;
     $composition = $skin !== null && $hud !== null
-      ? GraphicalBattleHud::compose($this->layout, $hud, $focus, $now, $this->assetRoot) : null;
+      ? GraphicalBattleHud::compose($this->layout, $hud, $focus, $now, $this->assetRoot, $this->findControlsTheme()) : null;
     $hudBounds = array_map(static fn(CanvasImage $image) => $image->destination, $composition?->images ?? []);
     $focused = $field?->getFocusedBattlers() ?? [];
     $queued = $field?->getQueuedBattlers() ?? [];

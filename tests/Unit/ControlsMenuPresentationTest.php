@@ -55,12 +55,35 @@ class ControlsPresentationOwner extends ControlsMenuState
   }
   public function select(int $index): void { $this->activeIndex = $index; }
   public function terminalRows(): array { return $this->listPanel->getContent(); }
+  public function terminalHelp(): string { return $this->listPanel->getHelp(); }
 }
 
 function controlsPresentationText(PresentationCanvas $canvas): string
 {
   return implode("\n", array_map(fn($layer) => implode('', array_column(
     array_filter($layer->runs, fn($run) => $run->foreground !== null), 'text')), $canvas->textLayers));
+}
+
+/** The lookup line as read: its label, then each bound key's name on its keycap. */
+function controlsLookupLine(PresentationCanvas $canvas): string
+{
+  $lookup = array_find($canvas->textLayers, fn($layer) => $layer->id === 'controls-lookup');
+  $parts = [];
+  foreach ($canvas->textLayers as $layer) {
+    foreach ($layer->runs as $run) {
+      $y = $layer->y + $run->row * $layer->grid->cellHeight;
+      $x = $layer->x + $run->column * $layer->grid->cellWidth;
+      if ($run->foreground !== null && abs($y - $lookup->y) < 0.01) { $parts[(string)$x] = $run->text; }
+    }
+  }
+  ksort($parts, SORT_NUMERIC);
+  return implode(' ', $parts);
+}
+
+/** @param list<ControlHint> $keys */
+function controlsKeyNames(array $keys): string
+{
+  return implode(' ', array_map(fn(ControlHint $key) => $key->label, $keys));
 }
 
 function controlsPresentationKey(ControlsMenuState $state, KeyCode $key): void
@@ -122,7 +145,8 @@ it('keeps every binding reachable in both themed sizes without helper strips', f
     $this->owner->select($index);
     $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme, width: $width, height: $height);
     $text = controlsPresentationText($frame);
-    expect($text)->toContain(ucfirst(str_replace('_', ' ', $row['action'])), $row['description'], 'Keyboard bindings: ' . $row['keys']);
+    expect($text)->toContain(ucfirst(str_replace('_', ' ', $row['action'])), $row['description'])
+      ->and(controlsLookupLine($frame))->toBe('Keyboard bindings: ' . ($row['keys'] === [] ? 'Unbound' : controlsKeyNames($row['keys'])));
     expect(count($frame->textLayers))->toBeLessThanOrEqual(64);
     foreach ($frame->textLayers as $layer) { $layer->bounds->assertWithin($width, $height); }
   }
@@ -133,28 +157,30 @@ it('keeps every binding reachable in both themed sizes without helper strips', f
 it('uses provider identity live while preserving all keyboard aliases', function () {
   $this->owner->select(1);
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false,
-    'icons' => ['input.gamepad.xbox.face_east' => 'glyph.png']]);
+    'controls' => ['gamepad.xbox' => ['glyphs' => ['face_east' => 'glyph.png']]]]);
   $keyboard = $this->owner->getPresentationContent();
-  expect($keyboard->rows[1]['control']->label)->toBe('Escape')->and($keyboard->rows[1]['keys'])->toBe('C, c, ESCAPE');
+  expect($keyboard->rows[1]['control']->label)->toBe('Esc')->and(controlsKeyNames($keyboard->rows[1]['keys']))->toBe('C c Esc');
   ActionHints::useProvider(new class implements ActionHintProvider {
     public function controlForAction(string $action): ?ControlHint
     { return $action === 'cancel' ? new ControlHint('gamepad.xbox', 'face_east', 'B') : null; }
   });
   $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
   expect(array_column($frame->images, 'asset'))->toContain('glyph.png')
-    ->and(controlsPresentationText($frame))->toContain('Keyboard bindings: C, c, ESCAPE', 'Unbound');
+    ->and(controlsLookupLine($frame))->toBe('Keyboard bindings: C c Esc')->and(controlsPresentationText($frame))->toContain('Unbound');
   ActionHints::useProvider(null);
   expect($this->owner->getPresentationContent()->rows[1]['control']->family)->toBe('keyboard')
-    ->and($keyboard->rows[1]['control']->label)->toBe('Escape');
+    ->and($keyboard->rows[1]['control']->label)->toBe('Esc');
 });
 
-it('keeps readable controls without corresponding artwork and rejects insufficient glyph space', function () {
+it('keeps readable keycaps for a family without artwork and rejects insufficient glyph space', function () {
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false, 'icons' => ['unknown' => 'glyph.png']]);
   $control = new ControlHint('device.alternate', 'primary', 'Primary');
-  $frame = ControlGlyphPresentation::compose(300, 100, 'control', $control, $theme, new CanvasRectangle(0, 0, 200, 40));
-  expect($frame->images)->toBeEmpty()->and(controlsPresentationText($frame))->toBe(' Primary ')
-    ->and($frame->textLayers[0]->runs[0]->background)->not->toBeNull();
-  expect(fn() => ControlGlyphPresentation::compose(300, 100, 'control', $control, $theme, new CanvasRectangle(0, 0, 10, 40)))
+  $controls = new ControlGlyphPresentation($theme, 'control');
+  $controls->renderControl('control', $control, new CanvasRectangle(0, 0, 200, 40));
+  $frame = $controls->compose(300, 100);
+  expect($frame->images)->toBeEmpty()->and(controlsPresentationText($frame))->toContain('Primary')
+    ->and(array_filter($frame->textLayers, fn($layer) => $layer->grid->cellWidth === 1))->not->toBeEmpty();
+  expect(fn() => new ControlGlyphPresentation($theme, 'control')->renderControl('control', $control, new CanvasRectangle(0, 0, 10, 40)))
     ->toThrow(RuntimeException::class);
 });
 
@@ -221,20 +247,24 @@ it('discovers fallback Info without inventing a confirmation binding for an empt
   controlsPresentationKey($this->owner, KeyCode::ENTER);
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']);
   $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
-  expect(controlsPresentationText($frame))->toContain('Info', 'Read the next Info page; wrap to the first.', 'Keyboard bindings: i, I')
+  expect(controlsPresentationText($frame))->toContain('Info', 'Read the next Info page; wrap to the first.')
+    ->and(controlsLookupLine($frame))->toBe('Keyboard bindings: i I')
     ->and($this->owner->getPresentationContent()->listening)->toBeFalse()
     ->and(array_column($this->owner->getPresentationContent()->rows, 'action'))
     ->toContain('info', 'menu_page_previous', 'menu_page_next', 'dialogue_auto', 'secondary_action', 'quick_save')
     ->not->toContain('confirm');
   $this->owner->select(1);
   $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
-  expect(controlsPresentationText($frame))->toContain('Menu page previous', 'Show the previous menu page.', 'Keyboard bindings: PAGE_UP');
+  expect(controlsPresentationText($frame))->toContain('Menu page previous', 'Show the previous menu page.')
+    ->and(controlsLookupLine($frame))->toBe('Keyboard bindings: PgUp');
   $this->owner->select(2);
   $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
-  expect(controlsPresentationText($frame))->toContain('Menu page next', 'Show the next menu page.', 'Keyboard bindings: PAGE_DOWN');
+  expect(controlsPresentationText($frame))->toContain('Menu page next', 'Show the next menu page.')
+    ->and(controlsLookupLine($frame))->toBe('Keyboard bindings: PgDn');
   $this->owner->select(array_search('dialogue_auto', array_column($this->owner->getPresentationContent()->rows, 'action'), true));
   $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
-  expect(controlsPresentationText($frame))->toContain('Dialogue auto', 'Toggle automatic dialogue advance.', 'Keyboard bindings: SPACE');
+  expect(controlsPresentationText($frame))->toContain('Dialogue auto', 'Toggle automatic dialogue advance.')
+    ->and(controlsLookupLine($frame))->toBe('Keyboard bindings: Space');
 });
 
 it('scrolls the full owner list in terminal and native without losing the active action', function () {
@@ -258,13 +288,13 @@ it('scrolls the full owner list in terminal and native without losing the active
     expect($content->index)->toBe(54 + $offset)
       ->and($content->rows[$content->index]['action'])->toBe($action);
     if ($action === 'dialogue_auto') {
-      expect(implode('', $this->owner->terminalRows()))->toContain('Dialogue auto', 'x, X');
+      expect(implode('', $this->owner->terminalRows()))->toContain('Dialogue auto', '[x] [X]');
       $frame = ControlsMenuPresentation::compose($content, $theme);
-      expect(controlsPresentationText($frame))->toContain('Dialogue auto', 'Toggle automatic dialogue advance.',
-        'Keyboard bindings: x, X', '/ ' . $total);
+      expect(controlsPresentationText($frame))->toContain('Dialogue auto', 'Toggle automatic dialogue advance.', '/ ' . $total)
+        ->and(controlsLookupLine($frame))->toBe('Keyboard bindings: x X');
     }
     if ($action === 'secondary_action') {
-      expect(implode('', $this->owner->terminalRows()))->toContain('Secondary action', 'g, G');
+      expect(implode('', $this->owner->terminalRows()))->toContain('Secondary action', '[g] [G]');
     }
   }
   controlsPresentationKey($this->owner, KeyCode::DOWN);
@@ -284,14 +314,14 @@ it('exposes the missing Info action in both Controls views and rebinds it throug
   $this->owner->select($index);
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false]);
   $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
-  expect(controlsPresentationText($frame))->toContain('Info', 'Read the next Info page; wrap to the first.',
-    'Keyboard bindings: ' . ($conflict ? 'Unbound' : 'i, I'))
-    ->and(implode('', $this->owner->terminalRows()))->toContain('Info', $conflict ? 'Unbound' : 'i, I')
+  expect(controlsPresentationText($frame))->toContain('Info', 'Read the next Info page; wrap to the first.')
+    ->and(controlsLookupLine($frame))->toBe('Keyboard bindings: ' . ($conflict ? 'Unbound' : 'i I'))
+    ->and(implode('', $this->owner->terminalRows()))->toContain('Info', $conflict ? 'Unbound' : '[i] [I]')
     ->and($this->config->written)->toBeEmpty()->and($this->config->all())->not->toHaveKey('info');
   controlsPresentationKey($this->owner, KeyCode::ENTER);
   controlsPresentationKey($this->owner, KeyCode::F2);
-  expect($this->owner->getPresentationContent()->rows[$index]['keys'])->toBe('F2')
-    ->and(implode('', $this->owner->terminalRows()))->toContain('F2')
+  expect(controlsKeyNames($this->owner->getPresentationContent()->rows[$index]['keys']))->toBe('F2')
+    ->and(implode('', $this->owner->terminalRows()))->toContain('[F2]')
     ->and($this->config->written)->toBeEmpty()
     ->and(controlsSavedBinding($this->root, 'info'))->toBe([KeyCode::F2->value])
     ->and(InputManager::getBindings()['command_0']['keys'])->toBe($conflict ? [KeyCode::i, KeyCode::I] : []);
@@ -309,4 +339,15 @@ it('keeps the list cursor decorative and respects reduced motion', function () {
   ConfigStore::put(ProjectConfig::class, $settings);
   $c = ControlsMenuPresentation::compose($snapshot, $theme, 0.6);
   expect($cursor($c)->destination)->toEqual($cursor($a)->destination);
+});
+
+it('names its fixed and semantic controls as keycaps in both views and keeps keys out of its status', function () {
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false]);
+  $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
+  $hints = array_find($frame->textLayers, fn($layer) => $layer->id === 'controls-hints');
+  expect($this->owner->terminalHelp())->toBe('[Enter] Rebind  [R] Defaults  [Esc] Back')
+    ->and(array_column($hints->runs, 'text'))->toBe(['Enter', ' Rebind', 'R', ' Defaults', 'Esc', ' Back']);
+  controlsPresentationKey($this->owner, KeyCode::ENTER);
+  expect($this->owner->terminalHelp())->toBe('[Esc] Cancel')
+    ->and($this->owner->getPresentationContent()->status)->toBe('Press a key for "confirm".');
 });

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Vector2;
@@ -223,7 +224,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $this->summaryPanel->render();
         if ($content->details !== null) { $this->refreshDetailPanel($content->details); }
         else { $this->refreshListPanel(); }
-        $this->infoPanel->setHelp(implode('  ', array_map(static fn($hint): string => ($hint->control?->label ?? 'Unbound') . ':' . $hint->label, $content->hints)));
+        $this->infoPanel->setHelp(TerminalControlText::formatHints($content->hints));
         $this->refreshInfoPanel($content->description);
     }
 

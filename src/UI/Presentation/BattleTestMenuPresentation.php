@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Battle\Presentation\BattleFormationLayout;
-use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Scenes\Arena\ArenaScene;
@@ -72,7 +71,7 @@ final class BattleTestMenuPresentation
       $y += $view->prose('battle-test-arena', sprintf('Arena  < %s >', $arena), new CanvasRectangle($inner->x, $y, $inner->width, $m->cellHeight));
     }
     $y += $m->sectionGap / 2;
-    $hints = array_map(static fn(array $hint) => ActionHints::resolve($hint[0], $hint[1]), $list->hints);
+    $hints = $list->resolveHints();
     $hintHeight = $hints === [] ? 0 : MenuActionHints::height($hints, $theme, $inner->width);
     $noteHeight = $list->note === null ? 0 : count(MenuCanvas::wrap($list->note, max(1, (int) floor($inner->width / $m->cellWidth)))) * $m->cellHeight;
     $bottom = $inner->y + $inner->height - $hintHeight - ($hintHeight > 0 ? $m->sectionGap / 2 : 0);

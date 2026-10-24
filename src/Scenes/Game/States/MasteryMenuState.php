@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Audio\Enumerations\CountKind;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
@@ -782,10 +783,10 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         return array_slice($lines, 0, self::FOOTER_HEIGHT - 2);
     }
 
-    /** A binding as the Terminal shows it: its keys, then what it does ("Enter Select"). */
+    /** A binding as the Terminal shows it: its keycaps, then what it does ("[Enter] Select"). */
     protected static function describeTerminalHint(ActionHint $hint): string
     {
-        return str_replace(' / ', '/', $hint->describeControls()) . ' ' . $hint->label;
+        return TerminalControlText::formatHint($hint);
     }
 
     /**

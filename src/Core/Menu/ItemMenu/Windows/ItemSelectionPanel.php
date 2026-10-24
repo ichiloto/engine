@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\ItemMenu\Windows;
 
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Core\Interfaces\CanFocus;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
@@ -89,12 +90,13 @@ class ItemSelectionPanel extends Window implements CanFocus
   {
     parent::__construct(
       "Page 1/1",
-      'Left/Right: Change page',
+      '',
       $area->position,
       $area->size->width,
       $area->size->height,
       $borderPack
     );
+    $this->setControlHints([ActionHints::resolvePair('left', 'right', 'Change page')]);
 
     $this->activeIndex = -1;
     $this->updateContent();

@@ -240,11 +240,15 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     $arrival?->__invoke();
   }
 
-  public function stopGraphicalAnimation(): void
+  /**
+   * Stand: at once, or once the steps taken have shown (movement refused
+   * while the step before it still slides).
+   */
+  public function stopGraphicalAnimation(bool $afterSlide = false): void
   {
-    $this->walkAnimation?->stop();
+    $afterSlide ? $this->walkAnimation?->stopAfterSlide() : $this->walkAnimation?->stop();
     if (($this->scene ?? null) instanceof GameScene) {
-      $this->scene->cinematicStage?->subjectStopped($this);
+      $this->scene->cinematicStage?->subjectStopped($this, $afterSlide);
     }
   }
 
@@ -359,8 +363,10 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     $previousHeading = $this->heading;
     $this->updatePlayerSprite($direction);
 
+    // Refused movement stands once the step in progress has shown: walking
+    // decides each step just before the one in progress ends.
     if (! $this->getGameScene()->mapManager->canMoveTo(intval($destination->x), intval($destination->y), $collisionType) ) {
-      $this->stopGraphicalAnimation();
+      $this->stopGraphicalAnimation(afterSlide: true);
       if ($previousHeading !== $this->heading) { $this->reconcileFacingEvents(); }
       $this->render();
       return false;
@@ -372,7 +378,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     // not merely an advisory notification. Reject entry before mutating the
     // player position, advancing encounters, or notifying movement observers.
     if ($this->isMovementBlockedByUnavailableEvent($event)) {
-      $this->stopGraphicalAnimation();
+      $this->stopGraphicalAnimation(afterSlide: true);
       if ($previousHeading !== $this->heading) { $this->reconcileFacingEvents(); }
       $this->render();
       return false;

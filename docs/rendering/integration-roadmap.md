@@ -4232,6 +4232,16 @@ diagonal movement (four-directional movement is the current
 rule); physical controllers and analog magnitude; enhanced terminal reporting;
 and whole-game input/platform qualification.
 
+Control display is ready for controllers: every screen draws its controls
+through one owner (`ControlGlyphPresentation`, `TerminalControlText`), and the
+theme's `controls` sets give each input device family its look, keyboard
+keycaps by default ([action hint presentation](input-sources.md#action-hint-presentation)).
+A controller needs a display provider that reports its family from the active
+device and a `controls` entry with its button glyphs; no screen changes.
+Remaining here: that provider, chosen from meaningful active-device input, and
+each controller family's glyph artwork. Last Legend's keyboard keycap frame
+artwork is queued with Art; until it lands the Engine draws its keys.
+
 ## Battle presentation direction
 
 Stable combat identity, targeting and outcomes must be independent of pose,

@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
+use Ichiloto\Engine\Battle\UI\BattleControlHints;
 use Ichiloto\Engine\Battle\BattleConclusion;
 use Assegai\Collections\Stack;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
@@ -25,7 +26,6 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Battle\BattleTargetPolicy;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
-use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Localization\Vocabulary;
 
@@ -187,7 +187,7 @@ class PlayerActionState extends TurnState
    */
   protected function handleActions(TurnStateExecutionContext $context): void
   {
-    if (Input::isAnyKeyPressed([KeyCode::I, KeyCode::i])) {
+    if (Input::isAnyKeyPressed(BattleControlHints::INFO_KEYS)) {
       $this->showFocusedInfo($context);
     }
 
@@ -202,7 +202,7 @@ class PlayerActionState extends TurnState
       };
     }
 
-    if (! Input::isAnyKeyPressed([KeyCode::C, KeyCode::c])) {
+    if (! Input::isAnyKeyPressed(BattleControlHints::BACK_KEYS)) {
       return;
     }
 

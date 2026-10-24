@@ -73,23 +73,72 @@ an A release; `isKeyUp()` still requires a following no-input sample.
 ## Action hint presentation
 
 `ActionHints` resolves semantic actions to display-only `ActionHint` and
-`ControlHint` values. By default it reads the live `InputBindings` on every
-redraw. Compact hints show one bound control: Enter for confirm and Escape for
-cancel/back when those keys are actually bound, otherwise the first bound key.
-This does not remove aliases or change input handling. The Controls screen keeps
-the complete binding list through `describeKeys()`.
+`ControlHint` values. `ActionHints::resolveControl()` resolves an action's
+control alone, for a key that shows without a label (dialogue's advance key);
+`resolve()` uses it, so every hint reads the active display provider. By
+default it reads the live `InputBindings` on every redraw. Compact hints show
+one bound control: Enter for confirm and Escape for cancel/back when those keys
+are actually bound, otherwise the first bound key. This does not remove aliases
+or change input handling. The Controls screen keeps the complete binding list
+through `InputBindings::getControlsForAction()`.
 
-The shared menu hint painter uses optional theme icon roles such as
-`input.keyboard.ENTER`, with readable keycap labels when no matching image is
-supplied. Action labels, control identity and artwork remain separate. Main Menu,
-Equipment and Status consume the same mechanism; legacy window help strings
-elsewhere have not all been migrated.
+`ControlHint::keyboard()` is the one mapping from keys to their displayed names,
+as a keycap reads: Enter, Esc, Space, PgUp, Shift+Tab, and arrow symbols (↑ ↓ ←
+→). `describeKeys()` and every hint use it.
 
-Themes may set `showInputHints` to false to omit persistent graphical helper
-strips and their reserved layout space without changing actions or bindings.
-The default remains true for compatibility. Themes can use the dedicated
-Controls lookup while retaining useful action descriptions in menus and dialogs.
-Controls exposes all aliases, not only the compact primary key.
+### One owner draws every control
+
+`UI\Presentation\ControlGlyphPresentation` is the graphical owner of how a
+control looks; `UI\Presentation\TerminalControlText` is the Terminal owner.
+Hint strips (`MenuActionHints`), the Controls lookup, the dialogue footer and
+every other screen draw controls through them and never print a key's name
+themselves. A screen that shows a single control uses
+`MenuCanvas::renderControl()`, which centres the control vertically in its
+bounds, on the same centre line as a button label in the same row.
+
+- Graphical: a control shows its family's glyph image when the theme's control
+  set has one; otherwise a keycap one text cell tall, with the control's name
+  centred on it. An action without a control reads "Unbound", with no keycap.
+- Terminal: a keycap is the name in brackets ("[Enter]"); a hint is its keycap
+  and label ("[Enter] Select", "[Q]/[E] Suits"); hints on a help line are
+  separated by two spaces.
+
+### Control icon sets in the theme
+
+A menu theme (`Data/Presentation/menus.php`) supplies one control set per input
+device family under `controls`. The family is the `ControlHint` family the
+active display provider reports (`keyboard` for the keyboard), so the active
+device chooses the set and no screen changes when it does.
+
+```php
+'controls' => [
+  'keyboard' => [
+    // Optional key frame artwork, nine-sliced so its width follows the key's name.
+    'keycap' => ['asset' => 'Graphics/UI/Controls/Keycap.png', 'cuts' => [8, 8, 8, 10]],
+    // Optional theme colour roles for the Engine-drawn key and the name.
+    'colors' => ['face' => 'selected', 'edge' => 'edge', 'highlight' => 'edge', 'lip' => 'panel', 'label' => 'text'],
+    // Optional whole-glyph images for particular keys.
+    'glyphs' => ['UP' => 'Graphics/UI/Controls/Up.png'],
+  ],
+  // A controller family supplies a glyph per button; a button without one shows a keycap.
+  'gamepad.example' => ['glyphs' => ['face-south' => 'Graphics/UI/Controls/Example/A.png']],
+],
+```
+
+Every field is optional. A family without a set, and a keyboard set without
+`keycap` artwork, draws keys with the Engine: a rounded key with a one-pixel
+highlight along the top and a darker lip along the bottom (`lip`, 2 pixels by
+default), in the theme's colours. Engine-drawn keys share sparse pixel layers,
+so a strip of hints costs one or two layers. Glyph and keycap images are read
+from the current PNG; a missing or unreadable one is reported once and the
+control falls back to its keycap. Control artwork belongs in `controls`; the
+general `icons` map rejects `input.*` roles.
+
+Adding a controller later needs only a display provider that reports its family
+and a `controls` entry with its glyphs. Themes may set `showInputHints` to false
+to omit persistent graphical helper strips and their reserved layout space
+without changing actions or bindings; screens that need a hint (the dialogue
+footer, Controls, skit prompts) still draw it.
 
 A PHP input context can supply an `ActionHintProvider` and replace its display
 profile without changing menu composition or dispatching input. That is a
@@ -101,12 +150,11 @@ input, handle focus/disconnection and keyboard/controller coexistence, and keep
 device glyph changes independent of actions, focus and selection. Merely having
 a controller connected must not make hints unusable for a keyboard player.
 
-Remaining rollout belongs with semantic input migration: audit each legacy help
-owner against the keys/actions its controller actually accepts, then reuse these
-descriptors for terminal text and native glyphs. Do not globally replace strings
-with misleading remappable hints for a controller that still reads fixed keys.
-Editor authoring of icon-role paths must use the same project asset selection and
-safe round-trip contract as other presentation artwork.
+A help line for a screen that reads fixed keys names those keys through the same
+owners (`ControlHint::keyboard(KeyCode::R)`), so it never shows a remappable
+hint for a key its controller does not remap.
+Editor authoring of control set paths must use the same project asset selection
+and safe round-trip contract as other presentation artwork.
 
 ## TerminalInputSource
 
@@ -333,8 +381,14 @@ second) over square 48-pixel cells, so every step, across or down, takes
 before field zoom, device scale and window fit, so none of those change
 gameplay speed. From standing, a press faces and steps at once. While a step
 is in progress a new direction waits for it: a direction change grants no free
-step. A tap is kept for the next step and cannot outrun walking. Blocked
-movement faces the wall each update and banks no time. The step clock carries
+step. The next step is decided on the last update before the step in progress
+ends and begins when that step ends: the renderer draws each slide after the
+one before it, so it must receive the next step while the slide in progress is
+still drawn, whatever the update timing and transport delay. The previous
+step's arrival runs when the next is decided, at most one update before its
+slide ends. A tap is kept for the next step and cannot outrun walking. Blocked
+movement faces the wall each update and banks no time; refused while a step
+still slides, the player walks into that cell and stands once it has shown. The step clock carries
 its overshoot, so equal time walks equal distance at any update interval up to
 one step: the count differs by at most one step. After a stall at most one step
 catches up. Any update the field did not control (a menu, dialogue, cinematic,

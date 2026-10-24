@@ -798,7 +798,7 @@ it('wraps live labels and semantic hints without overlapping records or descript
   $text = mainMenuPresentationText($frame);
   expect($text['main-command-0-text'])->toBe($label)->and($text['main-info-value'])->toBe($description)
     ->and($text['main-party-0-identity-text'])->toBe($member->name)
-    ->and($text['main-hints'])->toContain(' ' . $controlLabel . ' : Confirm', ' ' . $controlLabel . ' : Cancel')->not->toContain('ESC')
+    ->and($text['main-hints'])->toContain($controlLabel . ' Confirm', $controlLabel . ' Cancel')->not->toContain('ESC')
     ->and($source->keys)->toBe([KeyCode::ENTER]);
   $layers = array_column($frame->textLayers, null, 'id');
   $hints = $layers['main-hints'];
@@ -812,8 +812,8 @@ it('wraps live labels and semantic hints without overlapping records or descript
   ActionHints::useProvider(null);
   InputManager::setBindings([]);
   $frame = $this->state->canvas($theme);
-  $expected = 'Unbound: Confirm  Unbound: Cancel';
-  if (isset(mainMenuPresentationText($frame)['main-party-pager-counter'])) { $expected .= '   Page Up : Prev   Page Down : Next'; }
+  $expected = 'Unbound ConfirmUnbound Cancel';
+  if (isset(mainMenuPresentationText($frame)['main-party-pager-counter'])) { $expected .= 'PgUp PrevPgDn Next'; }
   expect(mainMenuPresentationText($frame)['main-hints'])->toBe($expected);
 })->with([false, true]);
 
@@ -821,12 +821,11 @@ it('refreshes compact hints and profile glyphs on the real four-party menu witho
   InputManager::setBindings(['confirm' => ['keys' => [KeyCode::SPACE, KeyCode::ENTER]],
     'cancel' => ['keys' => [KeyCode::C, KeyCode::c, KeyCode::ESCAPE]]]);
   $data = mainMenuPresentationTheme($alternative);
-  $data['icons']['input.profile-one.confirm'] = 'surface.png';
-  $data['icons']['input.profile-two.confirm'] = 'focus.png';
+  $data['controls'] = ['profile-one' => ['glyphs' => ['confirm' => 'surface.png']], 'profile-two' => ['glyphs' => ['confirm' => 'focus.png']]];
   $theme = new MenuPresentationCatalog($this->root, $data);
   $this->state->mainMenu->setActiveItemByLabel('Order');
   $frame = $this->state->canvas($theme);
-  expect(mainMenuPresentationText($frame)['main-hints'])->toBe(' Enter : Confirm   Escape : Cancel');
+  expect(mainMenuPresentationText($frame)['main-hints'])->toBe('Enter ConfirmEsc Cancel');
   $provider = new class implements ActionHintProvider {
     public function __construct(public string $family = 'profile-one') {}
     public function controlForAction(string $action): ?ControlHint { return new ControlHint($this->family, $action, 'Primary ' . $action); }
@@ -841,7 +840,7 @@ it('refreshes compact hints and profile glyphs on the real four-party menu witho
     $frame = $this->state->canvas($theme);
     expect(count($frame->textLayers))->toBeLessThanOrEqual(64)
       ->and(mainMenuPresentationText($frame))->toHaveKeys(['main-party-0-identity-text', 'main-party-3-identity-text'])
-      ->and(mainMenuPresentationText($frame)['main-hints'])->toBe(': Confirm   Primary cancel : Cancel')
+      ->and(mainMenuPresentationText($frame)['main-hints'])->toBe(' ConfirmPrimary cancel Cancel')
       ->and(array_column(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'main-hints-control-')), 'asset'))->toBe([$asset])
       ->and($this->state->getPresentationMode())->toBe($mode)->and(InputManager::getBindings())->toBe($bindings)
       ->and($source->keys)->toBe([KeyCode::ENTER]);
@@ -854,7 +853,7 @@ it('refreshes compact hints and profile glyphs on the real four-party menu witho
     ->and($this->state->getPresentationMode())->toBeInstanceOf(MainMenuPartyOrderMode::class);
   ActionHints::useProvider(null);
   InputManager::setBinding('cancel', [KeyCode::Q]);
-  expect(mainMenuPresentationText($this->state->canvas($theme))['main-hints'])->toBe(' Enter : Confirm   Q : Cancel');
+  expect(mainMenuPresentationText($this->state->canvas($theme))['main-hints'])->toBe('Enter ConfirmQ Cancel');
 })->with([false, true]);
 
 it('contains replacement portraits using current PNG facts and preserves valid unique instances', function () {
@@ -939,7 +938,7 @@ it('connects in-game Save to the shared themed canvas and modal lifecycle withou
   expect($this->scene->getPresentationCanvas())->toBeNull();
   $terminal = new ReflectionProperty($state, 'helpWindow')->getValue($state);
   expect(implode(' ', $terminal->getContent()))->toContain('Rest Point', '01:00:00')
-    ->and($terminal->getHelp())->toContain('Enter: Save', 'Escape: Back');
+    ->and($terminal->getHelp())->toContain('[Enter] Save', '[Esc] Back');
 
   $themeData = mainMenuPresentationTheme($alternative);
   file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export($themeData, true) . ';');

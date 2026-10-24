@@ -498,6 +498,10 @@ it('animates real player routes independently of its ordinary graphical provider
     ->and($actor->position->x)->toBe(4.0);
   $this->scene->mapManager->blocked = true;
   $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
+  // Refused while the step still slides, the player stands once that step has shown.
+  expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(96)
+    ->and($actor->position->x)->toBe(4.0);
+  $this->stage->advanceGraphicalAnimation(16 / 60 - 0.08);
   expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(48)
     ->and($actor->position->x)->toBe(4.0);
   expect(fn() => $this->stage->move('pose', Vector2::right()))->toThrow(RuntimeException::class, 'real subject');

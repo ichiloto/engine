@@ -80,7 +80,9 @@ editing surface is owned by the GUI Editor plan. Related docs:
   every step, across or down, covers one 48-pixel cell in 16/60 s. While a direction is held the
   player keeps walking one committed cell at a time, and the renderer slides
   each character between cells over its step, with the camera following the
-  player. The terminal keeps stepping once per key event, unchanged.
+  player. Each slide follows the one before it at the step's own pace, drawn
+  on whole device pixels. The terminal keeps stepping once per key event,
+  unchanged.
 - As in RPG Maker, what reaching a cell does happens once the player is seen
   to arrive: its touch events, encounter step, save point notice and movement
   observers wait for the slide, so a dialogue, battle or transfer never cuts
@@ -97,6 +99,16 @@ editing surface is owned by the GUI Editor plan. Related docs:
   Engine derives the lift from the sheet's name, never from its image, and
   sends it only to renderers advertising `sprite_lift`; other renderers
   place the character on its cell exactly as before.
+- Guidance marks move at display rate. A renderer advertising `sprite_bob`
+  is told a cue's bob once (height and seconds) and draws its rise and fall
+  on its own field clock, every mark and plate on the same curve; the game
+  leaves the bob off under reduced motion. Other renderers receive the
+  whole-pixel rise each frame, as before. An edge marker is pinned to the
+  screen at its exact pixel (cell, lift and pivot). For a renderer
+  advertising `pinned_sprite_motion` it carries the motion of the step the
+  camera scrolls with (or of its moving subject), and the renderer slides it
+  from where it is drawn to its new place on the camera's clock, so it keeps
+  pace with the field instead of jumping when the step is committed.
 - Depth is row order: within a draw band, a character in a lower row draws
   in front of one above it, with stable ties. A lift never changes it: a
   character is ordered by its cell, not by where it is drawn.
@@ -350,9 +362,15 @@ editing surface is owned by the GUI Editor plan. Related docs:
   The engine resolves them from neighbouring cells of the same kind for
   authoring tools, and composes each shape from quarter tiles when
   presenting. Map edges count as the same kind, as in RPG Maker.
-- **Draw bands.** Tile layer `NN` draws at `-100 + NN`, the same band as the
-  terminal layers, below characters. Tiles listed in `above` draw at
-  `900 + NN`, above characters and below the interface.
+- **Draw bands.** `PresentationLayerPolicy` owns every band. Tile layer
+  `NN` draws at `-100 + NN`, the same band as the terminal layers, below
+  characters. Tiles listed in `above` draw at `900 + NN`, above characters.
+  An order is two digits, so the highest tile any map can author draws at
+  999, inside the field world. Field guidance (the action prompt, event and
+  NPC cues, quest waymarks and their edge markers) has its own band from
+  1000, over every map layer and character whatever the map's tiles, and
+  the interface starts at 1100. Characters, world objects, signs and field
+  effects are refused in the guidance band.
 - **Glyph fallback.** A cell shows the terminal glyph of the gameplay layer
   that owns it, the topmost one with a glyph there, unless a tile of its own
   covers that layer: a tile of a tile layer that belongs to that gameplay

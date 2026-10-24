@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
+use Ichiloto\Engine\IO\ControlHint;
+use Ichiloto\Engine\IO\ActionHint;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -45,10 +48,24 @@ class ControlsMenuState extends GameSceneState implements CanvasProviderInterfac
     $rows = [];
     foreach ($this->rows as $row) {
       $rows[] = ['action' => $row['action'], 'description' => $row['description'],
-        'keys' => $this->bindings->describeKeys($row['action']),
-        'control' => ActionHints::resolve($row['action'], $row['description'])->control];
+        'keys' => $this->bindings->getControlsForAction($row['action']),
+        'control' => ActionHints::resolveControl($row['action'])];
     }
-    return new ControlsMenuContent($rows, $this->activeIndex, $this->listening, $this->status);
+    return new ControlsMenuContent($rows, $this->activeIndex, $this->listening, $this->status, $this->getControlHints());
+  }
+
+  /**
+   * What the screen's controls do now. Restoring defaults and cancelling a rebind read fixed keys,
+   * so their hints name those keys rather than a rebindable action's.
+   *
+   * @return list<ActionHint>
+   */
+  protected function getControlHints(): array
+  {
+    return $this->listening
+      ? [new ActionHint('rebind_cancel', 'Cancel', ControlHint::keyboard(KeyCode::ESCAPE))]
+      : [ActionHints::resolve('confirm', 'Rebind'), new ActionHint('restore_defaults', 'Defaults', ControlHint::keyboard(KeyCode::R)),
+        ActionHints::resolve('back', 'Back')];
   }
   protected const int MENU_WIDTH = 110;
   protected const int LIST_PANEL_HEIGHT = 24;
@@ -93,7 +110,7 @@ class ControlsMenuState extends GameSceneState implements CanvasProviderInterfac
     $this->activeIndex = 0;
     $this->scrollOffset = 0;
     $this->listening = false;
-    $this->status = 'Select an action to rebind. R restores defaults.';
+    $this->status = 'Select an action to rebind.';
     $this->reloadRows();
     $this->calculateMargins();
     $this->initializeUI();
@@ -120,7 +137,7 @@ class ControlsMenuState extends GameSceneState implements CanvasProviderInterfac
 
     if (Input::isButtonDown('confirm') && $this->activeRow() !== null) {
       $this->listening = true;
-      $this->status = sprintf('Press a key for "%s". Escape cancels.', $this->activeRow()['action'] ?? '');
+      $this->status = sprintf('Press a key for "%s".', $this->activeRow()['action'] ?? '');
       // The confirm key is still down; ignore it so it does not bind itself.
       InputManager::resetState(true);
       $this->refreshUI();
@@ -254,7 +271,7 @@ class ControlsMenuState extends GameSceneState implements CanvasProviderInterfac
 
     $this->listPanel = new Window(
       'Controls',
-      'enter:Rebind  r:Defaults  c:Cancel',
+      TerminalControlText::formatHints($this->getControlHints()),
       new Vector2($this->leftMargin, $this->topMargin),
       self::MENU_WIDTH,
       self::LIST_PANEL_HEIGHT,
@@ -285,7 +302,7 @@ class ControlsMenuState extends GameSceneState implements CanvasProviderInterfac
     foreach (array_slice($this->rows, $this->scrollOffset, $visibleRows, true) as $index => $row) {
       $prefix = $index === $this->activeIndex ? '>' : ' ';
       $action = TerminalText::padRight(ucfirst(str_replace('_', ' ', $row['action'])), 20);
-      $keys = TerminalText::padRight($this->bindings->describeKeys($row['action']), 24);
+      $keys = TerminalText::padRight(TerminalControlText::formatControls($this->bindings->getControlsForAction($row['action'])), 24);
       $line = TerminalText::padRight(
         TerminalText::truncateToWidth(" {$prefix} {$action}{$keys}{$row['description']}", $innerWidth),
         $innerWidth
@@ -294,6 +311,7 @@ class ControlsMenuState extends GameSceneState implements CanvasProviderInterfac
       $content[] = $index === $this->activeIndex ? SelectionStyle::apply($line) : $line;
     }
 
+    $this->listPanel?->setHelp(TerminalControlText::formatHints($this->getControlHints()));
     $this->listPanel?->setContent(array_pad($content, $visibleRows, ''));
     $this->listPanel?->render();
 

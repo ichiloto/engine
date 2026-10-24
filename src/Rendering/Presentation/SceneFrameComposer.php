@@ -115,8 +115,8 @@ final class SceneFrameComposer
         throw new RendererProtocolException('Field canvases require their selected field world and viewport.');
       }
       foreach ($groups as $group) {
-        if ($group->layer < PresentationLayerPolicy::FIELD_EFFECT_BEHIND || $group->layer >= PresentationLayerPolicy::UI) {
-          throw new \InvalidArgumentException('Automatic Game world canvases require layers -1..999; UI layers are reserved.');
+        if (!PresentationLayerPolicy::isFieldWorldLayer($group->layer)) {
+          throw new \InvalidArgumentException('Automatic Game world canvases require layers -1..999; guidance and UI layers are reserved.');
         }
       }
       $viewport = $viewport->selectWorldCanvases(array_column($groups, 'id'));

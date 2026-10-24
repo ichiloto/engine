@@ -23,14 +23,4 @@ final readonly class ActionHint
       }
     }
   }
-
-  /** The controls as readable text: "Enter", a pair as "Q / E", and "Unbound" for an action without one. */
-  public function describeControls(): string
-  {
-    if ($this->pairedAction === null) {
-      return $this->control?->label ?? 'Unbound';
-    }
-
-    return ($this->control?->label ?? 'Unbound') . ' / ' . ($this->pairedControl?->label ?? 'Unbound');
-  }
 }

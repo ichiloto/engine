@@ -54,12 +54,13 @@ class BattleCharacterNameWindow extends Window implements CanFocus
     $position = new Vector2($leftMargin, $topMargin);
     parent::__construct(
       'Name',
-      'c:Cancel',
+      '',
       $position,
       self::WIDTH,
       self::HEIGHT,
       $this->battleScreen->borderPack
     );
+    $this->setControlHints([BattleControlHints::getBackHint('Cancel')]);
   }
 
   /**
@@ -84,7 +85,7 @@ class BattleCharacterNameWindow extends Window implements CanFocus
 
     return new BattleHudListSnapshot(
       $this->title, $this->help, $rows, $this->activeIndex, 0,
-      $visibleRowCount, count($this->names), 1, 1,
+      $visibleRowCount, count($this->names), 1, 1, hints: $this->getControlHints(),
     );
   }
 

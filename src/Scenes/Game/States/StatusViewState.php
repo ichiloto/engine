@@ -175,12 +175,13 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
     );
     $this->infoPanel = new Window(
       get_engine_message('status.conditions'),
-      'tab:Next shift+Tab:Prev esc:Back',
+      '',
       new Vector2($this->leftMargin, $this->topMargin + self::PROFILE_SUMMARY_PANEL_HEIGHT + self::STATS_SUMMARY_PANEL_HEIGHT),
       self::INFO_PANEL_WIDTH,
       self::INFO_PANEL_HEIGHT,
       $this->borderPack
     );
+    $this->infoPanel->setControlHints(CharacterMenuPresentation::getCharacterHints());
 
     $this->updateContent();
   }

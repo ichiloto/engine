@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Animations\Field;
 
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteBob;
 use InvalidArgumentException;
 use Symfony\Component\Console\Formatter\OutputFormatterStyle;
 
@@ -106,14 +107,24 @@ final readonly class FieldCueStyle
   }
 
   /**
-   * How many logical pixels a mark rises now: a smooth rise and fall, still
+   * The bob a mark declares to a renderer that draws it at display rate, at
+   * the given scale (an edge marker is drawn at the field's zoom); none
    * under reduced motion or when the style does not bob.
+   */
+  public function getBob(bool $reducedMotion, float $scale = 1.0): ?PresentationSpriteBob
+  {
+    if ($reducedMotion || $this->bobHeight === 0) { return null; }
+
+    return new PresentationSpriteBob(max(1, (int)round($this->bobHeight * $scale)), $this->bobSeconds);
+  }
+
+  /**
+   * How many logical pixels a mark rises now, in whole pixels, for a
+   * renderer that cannot draw a declared bob: the same rise and fall,
+   * still under reduced motion or when the style does not bob.
    */
   public function getBobLift(float $seconds, bool $reducedMotion): int
   {
-    if ($reducedMotion || $this->bobHeight === 0) { return 0; }
-    $phase = fmod(max(0.0, $seconds), $this->bobSeconds) / $this->bobSeconds;
-
-    return (int)round($this->bobHeight * (1 - cos(2 * M_PI * $phase)) / 2);
+    return (int)round($this->getBob($reducedMotion)?->getOffset($seconds) ?? 0);
   }
 }

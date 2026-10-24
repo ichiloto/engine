@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Messaging\Dialogue\Presentation;
 
-use Ichiloto\Engine\IO\InputBindings;
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
@@ -94,22 +94,18 @@ final class DialogueCanvasPresentation
         }
         if ($line->interactive) {
             $view->surface('dialogue-footer-rule', new CanvasRectangle($x, $footerY - 8, $textWidth, 1), 'edge', 20);
-            $bindings = new InputBindings();
             $autoWidth = max(120, 9 * $m->cellWidth + 2 * $theme->rows->metrics->padding);
             $view->rows('dialogue-auto', [new MenuRow('auto', 'Auto ' . ($line->auto ? 'On' : 'Off'), kind: MenuRowKind::BUTTON,
                 selected: $line->auto, showCursor: false)],
                 new MenuRowLayout(new CanvasRectangle($x, $footerY, $autoWidth, $m->rowHeight),
                     rowHeight: $m->rowHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight));
-            $autoHint = $bindings->controlForAction('dialogue_auto')?->label ?? 'Unbound';
-            $autoHintWidth = mb_strlen($autoHint) * $m->cellWidth;
-            $view->prose('dialogue-auto-hint', $autoHint,
-                new CanvasRectangle($x + $autoWidth + 8, $footerY, $autoHintWidth, $m->rowHeight), 'disabled');
-            $hint = $line->isPrinting ? 'Reveal' : 'Continue';
-            $label = ($bindings->controlForAction('confirm')?->label ?? 'Unbound') . ' ' . $hint;
-            $view->prose('dialogue-advance', $label,
-                new CanvasRectangle($x + $autoWidth + $autoHintWidth + 16, $footerY,
-                    $textWidth - $autoWidth - $autoHintWidth - 40, $m->rowHeight),
-                'text', HorizontalAlignment::RIGHT);
+            // Each control sits on the footer row's centre line, as the Auto button's label does.
+            $autoHint = $view->renderControl('dialogue-auto-hint', ActionHints::resolveControl('dialogue_auto'),
+                new CanvasRectangle($x + $autoWidth + 8, $footerY, $textWidth - $autoWidth - 8, $m->rowHeight), HorizontalAlignment::LEFT);
+            // The advance key alone: it reads the same while typing and when waiting, so nothing in the footer changes.
+            $advanceLeft = $autoHint->x + $autoHint->width + 16;
+            $view->renderControl('dialogue-advance', ActionHints::resolveControl('confirm'),
+                new CanvasRectangle($advanceLeft, $footerY, $x + $textWidth - 24 - $advanceLeft, $m->rowHeight), HorizontalAlignment::RIGHT);
             if (!$line->isPrinting) {
                 $view->icon('dialogue-ready', 'navigation.continue', new CanvasRectangle($width - $margin - $padding - 18,
                     $footerY + ($m->rowHeight - 18) / 2, 18, 18));

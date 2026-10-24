@@ -35,7 +35,7 @@ final class CharacterMenuPresentation
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $info = $state->equipmentInfoPanel?->getPresentationText() ?? '';
-    $hints = self::characterHints();
+    $hints = self::getCharacterHints();
     $hintHeight = MenuActionHints::height($hints, $theme, self::WIDTH - 2 * $p);
     $infoHeight = MenuInfoPanel::getHeight($theme, $hints, self::WIDTH);
     $bodyHeight = self::HEIGHT - $infoHeight;
@@ -114,7 +114,7 @@ final class CharacterMenuPresentation
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $identityWidth = max(180, $m->portraitSize);
-    $hints = self::characterHints();
+    $hints = self::getCharacterHints();
     $hintHeight = MenuActionHints::height($hints, $theme, self::WIDTH - 2 * $p);
     $infoHeight = $hintHeight > 0 ? max(80, 2 * $p + $hintHeight) : 0;
     $rows = CharacterMenuRows::stats($character, $theme);
@@ -232,8 +232,8 @@ final class CharacterMenuPresentation
       MenuRowPainter::canShowIcon($row, $theme->icons)), $rows));
   }
 
-  /** @return list<ActionHint> */
-  private static function characterHints(): array
+  /** @return list<ActionHint> The Equipment and Status screens' controls, in both presentations. */
+  public static function getCharacterHints(): array
   {
     // GameSceneState retains these cycling aliases even without semantic bindings.
     return [ActionHints::resolve('character_next', 'Next', KeyCode::TAB),
