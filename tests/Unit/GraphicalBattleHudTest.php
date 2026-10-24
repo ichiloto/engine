@@ -283,7 +283,8 @@ it('draws a panel\'s control hints as keycaps from the menu theme and keeps its 
   $names = array_merge(...array_map(fn($layer) => array_column(array_filter($layer->runs, fn($run) => $run->foreground !== null), 'text'), $help));
   expect($names)->toBe(['I', ' Info', 'C', ' Back'])
     ->and(array_filter($help, fn($layer) => $layer->grid->cellWidth === 1))->not->toBeEmpty()
-    ->and(min(array_column($help, 'layer')))->toBeGreaterThanOrEqual(1002);
+    // Keys sit with the panel's other text, above its frame.
+    ->and(min(array_column($help, 'layer')))->toBeGreaterThanOrEqual(array_column($keys->textLayers, null, 'id')['hud-submenu-rows']->layer);
   $text = GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'submenu', 0);
   expect(array_column($text->textLayers, null, 'id')['hud-submenu-help']->runs[0]->text)->toBe('[I] Info  [C] Back');
 });
