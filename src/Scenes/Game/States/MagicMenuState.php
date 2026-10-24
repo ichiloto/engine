@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\IO\ActionHint;
 use Ichiloto\Engine\UI\Presentation\MenuDetailStyle;
 use Ichiloto\Engine\UI\Text\TextViewport;
 use Ichiloto\Engine\UI\Presentation\MenuDetailViewport;
@@ -602,22 +604,23 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
     }
 
     /**
-     * Returns the small help string shown on the info-panel border.
+     * The controls shown on the info-panel border.
      *
-     * @return string The help text.
+     * @return list<ActionHint> The hints.
      */
-    protected function getInfoHelpText(): string
+    protected function getInfoHints(): array
     {
         if ($this->isSelectingTarget()) {
-            return 'enter:Cast  c:Back';
+            return [ActionHints::resolve('confirm', 'Cast'), ActionHints::resolve('cancel', 'Back')];
         }
-
-        return match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
-            'Use' => 'enter:Cast  c:Cancel',
-            'Learn' => 'enter:Learn  c:Cancel',
-            'Sort' => 'enter:Apply  c:Cancel',
-            default => 'c:Cancel',
+        $confirm = match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
+            'Use' => 'Cast',
+            'Learn' => 'Learn',
+            'Sort' => 'Apply',
+            default => null,
         };
+
+        return [...($confirm === null ? [] : [ActionHints::resolve('confirm', $confirm)]), ActionHints::resolve('cancel', 'Cancel')];
     }
 
     /**
@@ -629,7 +632,8 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
     {
         $page = $this->menuInfoText->getPage($this->getPresentationDescription(), $this->statusMessage,
             max(1, ($this->infoPanel?->getContentWidth() ?? self::MAGIC_MENU_WIDTH - 2) - 2));
-        $this->infoPanel?->setHelp($page->total > 2 ? $page->range() : $this->getInfoHelpText());
+        if ($page->total > 2) { $this->infoPanel?->setHelp($page->range()); }
+        else { $this->infoPanel?->setControlHints($this->getInfoHints()); }
         return array_pad($page->lines, 2, '');
     }
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\Core\{Rect,Vector2};
 use Ichiloto\Engine\Field\{MapAtlasDocument,MapAtlasView};
 use Ichiloto\Engine\IO\{ActionHints,Input,InputManager};
@@ -198,12 +199,11 @@ class LocalMapState extends GameSceneState implements CanvasProviderInterface
         $actions+=['map_recenter'=>'map.recenter','back'=>'map.close'];
         $hints=[];
         foreach ($actions as $action=>$term) {
-            $hint=ActionHints::resolve($action,MessageCatalog::getTerm($term));
-            $hints[]=($hint->control?->label ?? 'Unbound').':'.$hint->label;
+            $hints[]=TerminalControlText::formatHint(ActionHints::resolve($action,MessageCatalog::getTerm($term)));
         }
         $hints[]=str_replace(MessageCatalog::getTerm('map.focus'),MessageCatalog::getTerm('map.scroll'),MapAtlasTerminal::getFocusHint());
         Console::recomposeFrame(function() use($hints): void {
-            $this->window->setHelp(implode('  ',$hints));
+            $this->window->setHelp(implode(TerminalControlText::SEPARATOR,$hints));
             $this->window->setContent($this->buildContent($this->window->getContentWidth(),$this->window->getContentHeight()));
             $this->window->render();
         });

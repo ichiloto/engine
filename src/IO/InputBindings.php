@@ -66,10 +66,19 @@ class InputBindings implements ActionHintProvider
    */
   public function describeKeys(string $action): string
   {
-    $binding = InputManager::getBindings()[$action] ?? [];
-    $names = array_map(static fn(KeyCode $key): string => $key->name, $this->keysOf($binding));
+    $names = array_map(static fn(ControlHint $control): string => $control->label, $this->getControlsForAction($action));
 
     return $names === [] ? 'Unbound' : implode(', ', $names);
+  }
+
+  /**
+   * Every keyboard control bound to an action, in binding order, for a complete Controls listing.
+   *
+   * @return list<ControlHint>
+   */
+  public function getControlsForAction(string $action): array
+  {
+    return array_values(array_map(ControlHint::keyboard(...), $this->keysOf(InputManager::getBindings()[$action] ?? [])));
   }
 
   /** Compact hints prefer familiar controls only when they are currently bound. */

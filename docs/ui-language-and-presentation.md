@@ -57,6 +57,20 @@ generation, so its screenshots are reference only and must never be fed to an im
   description at once.
 - Portrait, name, level and the points total sit together in one corner block.
 
+## Controls
+
+- A control is a key icon: the key's name on a keycap ("Enter", "Esc", arrows as ↑ ↓ ← →), or the
+  button's glyph from a controller icon set. The Terminal shows the same keycap in brackets ("[Enter]").
+  Never write a key as plain prose ("Press Enter", "enter:Select").
+- A hint is its keycap, then what it does ("[Enter] Select"). A key whose meaning the player already knows
+  shows alone: dialogue's advance key reads only "Enter", the same while text types and when it waits, so
+  nothing in the footer changes while a line is shown.
+- A control and the labels beside it share one centre line: a keycap in a row sits on the same centre as
+  the row's button labels.
+- One place draws every control (`ControlGlyphPresentation` graphically, `TerminalControlText` in the
+  Terminal), and the theme's `controls` sets say how each input device family looks. See
+  [action hint presentation](rendering/input-sources.md#action-hint-presentation).
+
 ## Colour
 
 - A dark or neutral background.

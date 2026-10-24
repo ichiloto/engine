@@ -20,8 +20,18 @@ final class ActionHints
 
   public static function resolve(string $action, string $label, ?KeyCode $keyboardAlias = null): ActionHint
   {
+    return new ActionHint($action, $label, self::resolveControl($action, $keyboardAlias));
+  }
+
+  /**
+   * The control the active display profile shows for an action, for a hint that shows the control alone
+   * (a dialogue's advance key). Every hint resolves its control here, so a rebound key or another
+   * profile's control family shows the same way everywhere.
+   */
+  public static function resolveControl(string $action, ?KeyCode $keyboardAlias = null): ?ControlHint
+  {
     if ($action === 'quick_save' && !SaveFeatures::isQuickSaveEnabled()) {
-      return new ActionHint($action, $label, null);
+      return null;
     }
     $provider = self::$provider ?? new InputBindings();
     $control = $provider->controlForAction($action);
@@ -29,7 +39,7 @@ final class ActionHints
     if ($control === null && $provider instanceof InputBindings && $keyboardAlias !== null) {
       $control = ControlHint::keyboard($keyboardAlias);
     }
-    return new ActionHint($action, $label, $control);
+    return $control;
   }
 
   /**

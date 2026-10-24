@@ -4,6 +4,21 @@
 
 ### Added
 
+- Keycaps for every control, drawn by one owner: `ControlGlyphPresentation`
+  graphically and `TerminalControlText` in the Terminal ("[Enter]"). A theme's
+  `controls` sets in `Data/Presentation/menus.php` give each input device family
+  its look: optional keycap frame artwork (nine-sliced, so its width follows
+  the key's name), keycap colour roles and per-control glyph images. Without
+  artwork the Engine draws a rounded, lipped key in the theme's colours.
+  Swapping to a controller needs only a display provider reporting its family
+  and a `controls` entry with its button glyphs. `ActionHints::resolveControl()`
+  resolves a control for a hint that shows the key alone,
+  `InputBindings::getControlsForAction()` lists every bound key,
+  `MenuCanvas::renderControl()` places one control on its row's centre line,
+  and `Window::setControlHints()` keeps a help line and its semantic hints
+  together so graphical owners draw the same hints as keycaps (battle panels
+  do).
+
 - Joined corner-edged kinds: corner-edged kinds on one tile layer whose art
   names the same join group (`'joins' => 'water'`) share one edge
   (`CornerShape::resolveLayer` takes `Tileset::getCornerJoins()`). Each counts
@@ -133,6 +148,21 @@
 
 ### Changed
 
+- Dialogue's advance hint is the confirm key alone ("Enter"), the same while
+  text types and when it waits; "Reveal" and "Continue" are removed from the
+  footer, graphical and Terminal. The Auto key ("Space") is a keycap and every
+  footer control shares the Auto button's centre line (the hint had sat at the
+  top of its row).
+- Key names come from one mapping, `ControlHint::keyboard()`: Esc, PgUp, PgDn
+  and arrow symbols (↑ ↓ ← →) replace Escape, Page Up, Page Down and Up/Down/
+  Left/Right, and `describeKeys()` uses it (Controls lists "Space, Enter"
+  rather than "SPACE, ENTER"). Hint strips read "keycap label" without a colon.
+- Every hand-written key help line (battle, Magic, Abilities, Status,
+  Equipment, Config, party selection, shop quantity, arena, modals, title
+  Options, item paging) now comes from semantic hints, so a rebound key shows
+  everywhere. Fixed-key controls (battle Info and Back, Controls' Restore
+  Defaults, cancelling a rebind) name their fixed keys through the same owner.
+
 - `TilePiece::$sheet` is the sheet's key as a string (an RPG Maker sheet name
   such as `'A2'`, or a corner sheet's key) instead of a `TilesetSheet` case,
   so a piece can be copied from a corner sheet. Compare with
@@ -218,6 +248,18 @@
   matching `BattlerArtwork::getFromPng`. Image loading behaviour is unchanged.
 
 ### Removed
+
+- Control glyphs in a theme's general `icons` map (`input.<family>.<control>`
+  roles) and `ControlHint::iconRole()`: control artwork now lives only in the
+  theme's `controls` sets. `ActionHint::describeControls()` is removed; the
+  Terminal formats controls through `TerminalControlText`.
+- Key words in prose: "Press enter to continue." under battle defeat and
+  escape results, "R restores defaults" and "Escape cancels" in Controls, and
+  "Use the arrow keys" in party selection and shop quantity text. Their help
+  lines show those keys instead.
+- `BattleTestMenuList::$help`: the arena's Terminal help line is derived from
+  its semantic hints. Its separate "q:Quit" mention is gone (Q still quits from
+  the troop list); "test grants only" is now the list's note.
 
 - Automatic pause-on-unfocus for title animation and rolling credits was removed
   in `eb5e19e`. Removing `window_activation` from their capability requirements

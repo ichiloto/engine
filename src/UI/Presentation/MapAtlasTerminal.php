@@ -20,18 +20,26 @@ final class MapAtlasTerminal
 {
     public static function getFocusHint(): string
     {
+        $controls=self::findControls(['up','right','down','left']);
+        $hint=TerminalControlText::formatControls($controls).' '.MessageCatalog::getTerm('map.focus');
+        $pages=self::findControls(['menu_page_previous','menu_page_next']);
+        return $hint.($pages===[] ? '' : TerminalControlText::SEPARATOR.TerminalControlText::formatControls($pages).' '.MessageCatalog::getTerm('map.cycle'));
+    }
+
+    /**
+     * The distinct bound controls of a group of actions, in order.
+     *
+     * @param list<string> $actions
+     * @return list<\Ichiloto\Engine\IO\ControlHint>
+     */
+    private static function findControls(array $actions): array
+    {
         $controls=[];
-        foreach (['up','right','down','left'] as $action) {
-            $hint=ActionHints::resolve($action,MessageCatalog::getTerm('map.focus'));
-            if ($hint->control!==null) { $controls[]=$hint->control->label; }
+        foreach ($actions as $action) {
+            $control=ActionHints::resolveControl($action);
+            if ($control!==null) { $controls[$control->family.'.'.$control->control]=$control; }
         }
-        $hint=($controls===[] ? 'Unbound' : implode('/',array_unique($controls))).':'.MessageCatalog::getTerm('map.focus');
-        $pages=[];
-        foreach (['menu_page_previous','menu_page_next'] as $action) {
-            $control=ActionHints::resolve($action,MessageCatalog::getTerm('map.cycle'))->control;
-            if ($control!==null) { $pages[]=$control->label; }
-        }
-        return $hint.($pages===[] ? '' : '  '.implode('/',array_unique($pages)).':'.MessageCatalog::getTerm('map.cycle'));
+        return array_values($controls);
     }
 
     public static function getMarkerSymbol(MapLandmarkKind $kind, bool $global = false, bool $places = false): string

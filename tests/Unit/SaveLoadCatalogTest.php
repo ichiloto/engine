@@ -471,7 +471,7 @@ it('keeps semantic controller hints and status readable in the compact load view
   $title = new SaveCatalogTitleProbe($this->game, $this->manager);
   $title->openContinueMenu();
   $title->loadSelectedSlot();
-  expect($title->getDrawnText())->toContain('A: Load', 'B: Back', 'That file is empty.', '1-1 / 6')
+  expect($title->getDrawnText())->toContain('[A] Load', '[B] Back', 'That file is empty.', '1-1 / 6')
     ->not->toContain('Enter', 'Esc')->and(count(Console::getBuffer()))->toBe(8);
 });
 
@@ -671,7 +671,7 @@ it('keeps semantic Save and Back hints readable in the smallest supported viewpo
   $menu = createSaveCapacityMenu($this->scene, $title);
   $menu->openMenu();
   $menu->selectSlot(29);
-  expect($menu->getDrawnText())->toContain('A: Save', 'B: Back', 'File 30', '30-30 / 30')
+  expect($menu->getDrawnText())->toContain('[A] Save', '[B] Back', 'File 30', '30-30 / 30')
     ->not->toContain('Enter', 'Esc')->and(count(Console::getBuffer()))->toBe(8);
 });
 

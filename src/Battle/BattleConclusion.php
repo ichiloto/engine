@@ -156,7 +156,6 @@ final readonly class BattleConclusion
   {
     $scene->result = new BattleResult('Defeat', [
       'The party has been wiped out.',
-      'Press enter to continue.',
     ]);
     $scene->setState($scene->defeatState);
   }
@@ -167,7 +166,6 @@ final readonly class BattleConclusion
     play_sound(SystemSound::ESCAPE);
     $scene->result = new BattleResult('Escaped', [
       'The party slipped away!',
-      'Press enter to continue.',
     ]);
     $scene->shouldLoadGameOver = false;
     $scene->setState($scene->victoryState);

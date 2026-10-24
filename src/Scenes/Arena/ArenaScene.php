@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Arena;
 
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Battle\Presentation\BattleFormationLayout;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Battle\Presentation\BattleStageSlot;
@@ -497,13 +498,14 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     $list = $this->describeList();
     $arena = $list->namesArena ? $this->getArenaName() : null;
     $this->listPanel?->setTitle($arena === null ? $list->title : sprintf('%s · Arena: < %s >', $list->title, $arena));
-    $this->listPanel?->setHelp($list->help);
+    $this->listPanel?->setControlHints($list->resolveHints());
     // Each row follows the cursor's place, ` > `.
     $this->listPanel?->setContent($this->formatList($list->getTerminalRows($innerWidth - 3), $list->selected, $innerWidth,
       self::LIST_HEIGHT - 2, $focus === ArenaSetupEditor::PARTY ? ArenaSetupEditor::TROOPS : $focus));
     $this->listPanel?->render();
 
-    $this->infoPanel?->setHelp($focus === ArenaSetupEditor::PARTY ? 'enter:Edit  esc:Back' : '');
+    $this->infoPanel?->setControlHints($focus === ArenaSetupEditor::PARTY
+      ? [ActionHints::resolve('confirm', 'Edit'), ActionHints::resolve('cancel', 'Back')] : []);
     $this->infoPanel?->setContent($this->describeParty($innerWidth));
     $this->infoPanel?->render();
   }
@@ -525,10 +527,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       default => new BattleTestMenuList('Troop', ...$this->listTroopRows(),
         selected: $focus === ArenaSetupEditor::TROOPS ? ($editor?->troopIndex ?? 0) : null,
         hints: $focus === ArenaSetupEditor::PARTY ? [['confirm', 'Edit'], ['cancel', 'Back']]
-          : [['confirm', ($editor?->onComposeRow ?? false) ? 'Compose' : 'Fight'], ...(($editor?->offersArenas ?? false) ? [['left', 'Arena']] : []),
+          : [['confirm', ($editor?->onComposeRow ?? false) ? 'Compose' : 'Fight'], ...(($editor?->offersArenas ?? false) ? [['left', 'Arena', 'right']] : []),
             ['down', 'Party'], ['cancel', 'Quit']],
-        help: $focus === ArenaSetupEditor::TROOPS
-          ? ($editor?->offersArenas ?? false ? 'enter:Fight  left/right:Arena  down:Party  q:Quit' : 'enter:Fight  down:Party  q:Quit') : '',
         namesArena: true, anchor: $editor?->troopIndex),
     };
   }
@@ -567,15 +567,15 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
 
     return match ($composer->focus) {
       TestTroopComposer::ENEMIES => new BattleTestMenuList('Add an enemy', array_map(static fn(string $enemy): array => [$enemy, []], $composer->enemies),
-        $composer->enemyIndex, [['confirm', 'Add'], ['cancel', 'Back']], 'enter:Add  esc:Back'),
+        $composer->enemyIndex, [['confirm', 'Add'], ['cancel', 'Back']]),
       TestTroopComposer::MEMBER => new BattleTestMenuList(sprintf('%d %s', $composer->memberIndex + 1, $member['enemy'] ?? ''),
         array_map(static fn(string $action): array => [$action === 'move' ? 'Move on the stage' : 'Remove from the troop', []], $composer->actions),
-        $composer->actionIndex, [['confirm', 'Choose'], ['cancel', 'Back']], 'enter:Choose  esc:Back'),
+        $composer->actionIndex, [['confirm', 'Choose'], ['cancel', 'Back']]),
       TestTroopComposer::PLACING => $this->describePlacing($composer, $member),
       default => new BattleTestMenuList('Test Troop',
         array_map(fn(string $row): array => [$this->describeComposerRow($composer, $row), []], $composer->rows),
-        $composer->rowIndex, [['confirm', 'Choose'], ...($arenas ? [['left', 'Arena']] : []), ['cancel', 'Back']],
-        'enter:Choose  esc:Back' . ($arenas ? '  left/right:Arena' : ''), note: $this->keepStatus, namesArena: true),
+        $composer->rowIndex, [['confirm', 'Choose'], ...($arenas ? [['left', 'Arena', 'right']] : []), ['cancel', 'Back']],
+        note: $this->keepStatus, namesArena: true),
     };
   }
 
@@ -591,7 +591,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       ['Back from the front', [sprintf('%d', round($member['place']->depth))]]];
 
     return new BattleTestMenuList(sprintf('Moving %d %s', $composer->memberIndex + 1, $member['enemy'] ?? ''), $rows, null,
-      [['left', 'Across'], ['up', 'Back and forward'], ['confirm', 'Done'], ['cancel', 'Put back']], 'arrows:Move  enter:Done  esc:Put back',
+      [['left', 'Across', 'right'], ['up', 'Back and forward', 'down'], ['confirm', 'Done'], ['cancel', 'Put back']],
       $rows === [] ? [] : [MenuRowColumn::fit(array_column(array_column($rows, 1), 0))]);
   }
 
@@ -798,7 +798,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     }
 
     return new BattleTestMenuList($this->getActorName($member->actorId), $rows, $editor->fieldIndex,
-      [['left', 'Change'], ['confirm', 'Choose'], ['cancel', 'Done']], 'left/right:Change  enter:Choose  esc:Done',
+      [['left', 'Change', 'right'], ['confirm', 'Choose'], ['cancel', 'Done']],
       [MenuRowColumn::fit(array_column(array_column($rows, 1), 0), HorizontalAlignment::LEFT)]);
   }
 
@@ -813,7 +813,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       : (($editor?->isChoiceSelected($choice['id']) ? '[x] ' : '[ ] ') . $choice['name']), []], $choices);
     return new BattleTestMenuList(sprintf('%s for %s', $equipment ? substr($field, 5) : ucfirst($field), $this->getActorName($editor?->member?->actorId ?? '')),
       $rows, $editor?->choiceIndex, $equipment ? [['confirm', 'Equip'], ['cancel', 'Back']] : [['confirm', 'Toggle'], ['cancel', 'Done']],
-      $equipment ? 'enter:Equip  esc:Back' : 'enter:Toggle  esc:Done  test grants only');
+      note: $equipment ? null : 'Test grants only.');
   }
 
   protected function getActorName(string $actorId): string

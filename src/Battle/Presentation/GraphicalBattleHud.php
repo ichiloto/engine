@@ -18,7 +18,9 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\UI\Accessibility;
+use Ichiloto\Engine\UI\Presentation\MenuActionHints;
 use Ichiloto\Engine\UI\Presentation\MenuIconRegistry;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 
 /** Composes owned, live battle windows. It never selects or evaluates commands. */
 final class GraphicalBattleHud
@@ -40,8 +42,12 @@ final class GraphicalBattleHud
       CanvasTextureFallback::getAvailableTextures($textures, $assetRoot))], $assetRoot)['sources'];
   }
 
+  /**
+   * @param MenuPresentationCatalog|null $controls The menu theme, whose control sets draw each panel's hints as keycaps;
+   *   without it a panel's help reads as the Terminal's text.
+   */
   public static function compose(BattleCanvasLayout $arena, BattleHudSnapshot $hud, ?string $focus, float $now,
-    ?string $assetRoot = null): PresentationCanvas
+    ?string $assetRoot = null, ?MenuPresentationCatalog $controls = null): PresentationCanvas
   {
     $skin = $arena->skin;
     if ($skin === null) { return new PresentationCanvas($arena->width, $arena->height); }
@@ -59,7 +65,8 @@ final class GraphicalBattleHud
       $width = $columns * $pitch->cellWidth;
       self::renderImage($images, $text, $skin, 'panel', 'hud-' . $id, new CanvasRectangle($x, $y, $width, $height), 1000, $assetRoot);
       self::line($text, $id . '-title', $list->title, $x + 16, $y + 2, $width - 32, 16, $skin->colors['focus'], cellWidth: 8);
-      self::line($text, $id . '-help', $list->help, $x + 16, $y + $height - 18, $width - 32, 16, $skin->colors['muted'], cellWidth: 8);
+      self::renderHelp($images, $text, $id, $list, new CanvasRectangle($x + 16, $y + $height - 18, $width - 32, 16),
+        $skin, $arena, $controls);
       $rowText = [];
       // Keep one aligned text column even when some optional icons are unavailable.
       $iconSpace = $id === 'submenu' && array_any($list->rows,
@@ -211,6 +218,22 @@ final class GraphicalBattleHud
     $parts = CanvasTextureFallback::render($skin->textures[$role], $id, $bounds, $layer, $skin->colors[$color], $assetRoot, $clip);
     array_push($images, ...$parts['images']);
     array_push($text, ...$parts['textLayers']);
+  }
+
+  /** A panel's hints as keycaps on the help line when the theme can draw them and they fit; otherwise its help text. */
+  private static function renderHelp(array &$images, array &$text, string $id, BattleHudListSnapshot $list,
+    CanvasRectangle $bounds, BattleUiSkin $skin, BattleCanvasLayout $arena, ?MenuPresentationCatalog $controls): void
+  {
+    $cell = [8, (int)$bounds->height];
+    if ($list->hints !== [] && $controls !== null
+      && MenuActionHints::height($list->hints, $controls, $bounds->width, true, $cell) <= $bounds->height) {
+      $canvas = MenuActionHints::compose($arena->width, $arena->height, 'hud-' . $id . '-help', $list->hints, $controls,
+        $bounds, true, $cell, 1002);
+      array_push($images, ...$canvas->images);
+      array_push($text, ...$canvas->textLayers);
+      return;
+    }
+    self::line($text, $id . '-help', $list->help, $bounds->x, $bounds->y, $bounds->width, (int)$bounds->height, $skin->colors['muted'], cellWidth: 8);
   }
 
   private static function line(array &$layers, string $id, string $label, float $x, float $y, float $width, int $height,

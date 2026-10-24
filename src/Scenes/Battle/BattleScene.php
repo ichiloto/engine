@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Battle;
 
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Core\Interfaces\PlayActivitySourceInterface;
 use Ichiloto\Engine\Core\PlayActivity;
@@ -72,6 +73,9 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
     get => $this->config?->partyRoster->battlers ?? $this->party->battlers->toArray();
   }
   public private(set) ?GraphicalBattlePresentation $graphicalPresentation = null;
+  /** The menu theme whose control sets draw HUD hints, read once per asset root. */
+  private ?MenuPresentationCatalog $controlsTheme = null;
+  private ?string $controlsThemeRoot = null;
   public private(set) ?BattleCanvasLayout $battleUiLayout = null;
   public private(set) ?BattleResultsSkin $resultsSkin = null;
   public private(set) ?BattleResultsPlayback $resultsPlayback = null;
@@ -159,10 +163,21 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
         imageFlips: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_IMAGE_FLIP) ?? false,
         compositing: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_COMPOSITING) ?? false);
     }
+    $root = $this->getGame()->getRendererRuntime()?->getAssetRoot();
     $composition = $hud === null ? null : GraphicalBattleHud::compose($layout, $hud, $focus,
-      hrtime(true) / 1_000_000_000, $this->getGame()->getRendererRuntime()?->getAssetRoot());
+      hrtime(true) / 1_000_000_000, $root, $this->findControlsTheme($root));
     return new PresentationCanvas($layout->width, $layout->height, $composition?->images ?? [],
       textLayers: [...$ui, ...($composition?->textLayers ?? [])]);
+  }
+
+  private function findControlsTheme(?string $root): ?MenuPresentationCatalog
+  {
+    if ($root !== null && $root !== $this->controlsThemeRoot) {
+      $this->controlsThemeRoot = $root;
+      try { $this->controlsTheme = MenuPresentationCatalog::load($root); }
+      catch (\Throwable $error) { $this->controlsTheme = null; Debug::warn('Battle hints keep their text: ' . $error->getMessage()); }
+    }
+    return $root === null ? null : $this->controlsTheme;
   }
 
   /** Combat starts only after the scene owner's reveal, or immediately for Off/reduced motion. */

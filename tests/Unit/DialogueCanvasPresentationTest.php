@@ -16,6 +16,7 @@ use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
@@ -158,6 +159,44 @@ it('keeps typing layout stable and only shows the ready cue after typing', funct
     expect($body($typing))->toEqual($body($complete))
         ->and(array_column($typing->images, 'id'))->not->toContain('dialogue-ready-1-1')
         ->and(array_column($complete->images, 'id'))->toContain('dialogue-ready-1-1');
+});
+
+/** The dialogue footer's controls: each one's name text layer, and the Auto button's label layer. */
+function getDialogueFooter(PresentationCanvas $canvas): array
+{
+    $layers = array_column($canvas->textLayers, null, 'id');
+    $name = fn(string $id) => isset($layers[$id]) ? implode('', array_column($layers[$id]->runs, 'text')) : null;
+    $auto = array_find($canvas->textLayers, fn($layer) => str_starts_with($layer->id, 'dialogue-auto-') && str_ends_with($layer->id, '-text'));
+    return ['advance' => $name('dialogue-advance'), 'auto' => $name('dialogue-auto-hint'),
+        'layers' => $layers, 'button' => $auto];
+}
+
+it('shows the advance key alone and the same while typing and waiting', function (bool $warm) {
+    InputManager::setBindings(['confirm' => ['keys' => [KeyCode::ENTER]], 'dialogue_auto' => ['keys' => [KeyCode::SPACE]]]);
+    $catalogue = getDialogueTestCatalog($this->root, $warm);
+    $typing = getDialogueFooter(DialogueCanvasPresentation::compose(getDialogueTestLine(printing: true), $catalogue));
+    $waiting = getDialogueFooter(DialogueCanvasPresentation::compose(getDialogueTestLine(), $catalogue));
+    expect($typing['advance'])->toBe('Enter')->and($waiting['advance'])->toBe('Enter')
+        ->and($typing['layers']['dialogue-advance'])->toEqual($waiting['layers']['dialogue-advance'])
+        ->and($typing['layers']['dialogue-advance-keycaps'])->toEqual($waiting['layers']['dialogue-advance-keycaps'])
+        ->and(array_map(fn($layer) => implode('', array_column($layer->runs, 'text')), $waiting['layers']))
+        ->not->toContain('Enter Continue', 'Enter Reveal');
+})->with([false, true]);
+
+it('shows a rebound advance key and keeps every footer control on the row centre line', function () {
+    InputManager::setBindings(['confirm' => ['keys' => [KeyCode::F]], 'dialogue_auto' => ['keys' => [KeyCode::X]]]);
+    $catalogue = getDialogueTestCatalog($this->root);
+    $footer = getDialogueFooter(DialogueCanvasPresentation::compose(getDialogueTestLine(), $catalogue));
+    $metrics = $catalogue->theme->metrics;
+    $centre = fn($layer) => $layer->y + $metrics->cellHeight / 2;
+    expect($footer['advance'])->toBe('F')->and($footer['auto'])->toBe('X')
+        ->and($centre($footer['layers']['dialogue-auto-hint']))->toBe($centre($footer['button']))
+        ->and($centre($footer['layers']['dialogue-advance']))->toBe($centre($footer['button']));
+    // The keys themselves are one text cell tall around those names.
+    foreach (['dialogue-auto-hint-keycaps', 'dialogue-advance-keycaps'] as $id) {
+        $key = $footer['layers'][$id];
+        expect($key->y + $key->grid->rows / 2)->toBe($centre($footer['button']));
+    }
 });
 
 it('removes content-driven height changes across pages speakers help and portrait availability', function (int $width, int $height) {

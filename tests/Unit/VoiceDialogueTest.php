@@ -367,15 +367,15 @@ it('preserves authored help while appending live rebound Auto hints without dupl
   InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource(null, KeyCode::x, null));
   $modal = new VoiceTestTextBox($game, 'A line still typing.', help:'Remember the blue door.', playback:$flow);
   $modal->show();
-  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto off');
+  expect($modal->getHelp())->toBe('Remember the blue door. [x] Auto Off  [Enter]');
   InputManager::handleInput(); $modal->update();
-  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto off');
+  expect($modal->getHelp())->toBe('Remember the blue door. [x] Auto Off  [Enter]');
   InputManager::handleInput(); $modal->update();
-  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto on');
+  expect($modal->getHelp())->toBe('Remember the blue door. [x] Auto On  [Enter]');
   InputManager::handleInput(); $modal->update();
-  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto on');
+  expect($modal->getHelp())->toBe('Remember the blue door. [x] Auto On  [Enter]');
   $modal->updateContent();
-  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto on');
+  expect($modal->getHelp())->toBe('Remember the blue door. [x] Auto On  [Enter]');
   $modal->hide();
 });
 

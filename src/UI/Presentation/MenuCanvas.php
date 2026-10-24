@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\IO\ControlHint;
 use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
@@ -438,16 +439,37 @@ final class MenuCanvas
     array_push($this->protectedAreas, ...$canvas->getOverlayProtection());
   }
 
-  /** @param list<\Ichiloto\Engine\IO\ActionHint> $hints */
-  /** @param array{int, int}|null $cell A text cell for hints a screen sizes itself; the theme's otherwise. */
+  /**
+   * @param list<\Ichiloto\Engine\IO\ActionHint> $hints
+   * @param array{int, int}|null $cell A text cell for hints a screen sizes itself; the theme's otherwise.
+   */
   public function hints(string $id, array $hints, CanvasRectangle $bounds, bool $required = false, ?array $cell = null): int
   {
-    $canvas = MenuActionHints::compose($this->width, $this->height, $id, $hints, $this->theme, $bounds, $required, $cell);
+    $this->place(MenuActionHints::compose($this->width, $this->height, $id, $hints, $this->theme, $bounds, $required, $cell));
+    return MenuActionHints::height($hints, $this->theme, $bounds->width, $required, $cell);
+  }
+
+  /**
+   * One control on its own, such as a dialogue's advance key: drawn by the shared control owner,
+   * centred vertically in its bounds. Returns the box it occupies.
+   *
+   * @param array{int, int}|null $cell A text cell for a control a screen sizes itself; the theme's otherwise.
+   */
+  public function renderControl(string $id, ?ControlHint $control, CanvasRectangle $bounds,
+    HorizontalAlignment $alignment = HorizontalAlignment::CENTER, ?array $cell = null): CanvasRectangle
+  {
+    $controls = new ControlGlyphPresentation($this->theme, $id, $cell);
+    $box = $controls->renderControl($id, $control, $bounds, $alignment);
+    $this->place($controls->compose($this->width, $this->height));
+    return $box;
+  }
+
+  /** Adds a part composed elsewhere with its own protected areas. */
+  private function place(PresentationCanvas $canvas): void
+  {
     array_push($this->images, ...$canvas->images);
     array_push($this->text, ...$canvas->textLayers);
-    foreach ($canvas->textLayers as $layer) { $this->protectText($layer); }
-    foreach ($canvas->images as $image) { $this->protect($image->destination); }
-    return MenuActionHints::height($hints, $this->theme, $bounds->width, $required, $cell);
+    foreach ($canvas->getOverlayProtection() as $area) { $this->protect($area); }
   }
 
   public function finish(): PresentationCanvas

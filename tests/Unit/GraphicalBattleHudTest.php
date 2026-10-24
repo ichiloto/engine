@@ -270,3 +270,20 @@ it('keeps the combined battlefield and healthy HUD image budget strict', functio
     rmdir($root);
   }
 });
+
+it('draws a panel\'s control hints as keycaps from the menu theme and keeps its text without one', function () {
+  $hints = [new \Ichiloto\Engine\IO\ActionHint('battle_info', 'Info', \Ichiloto\Engine\IO\ControlHint::keyboard(\Ichiloto\Engine\IO\Enumerations\KeyCode::I)),
+    new \Ichiloto\Engine\IO\ActionHint('battle_back', 'Back', \Ichiloto\Engine\IO\ControlHint::keyboard(\Ichiloto\Engine\IO\Enumerations\KeyCode::C))];
+  $list = new BattleHudListSnapshot('Magic', '[I] Info  [C] Back', [new BattleHudRow(0, 'Cure', true)], 0, 0, 4, 1, 1, 1, hints: $hints);
+  $hud = new BattleHudSnapshot(context: $list);
+  $theme = new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog(sys_get_temp_dir(), ['schema' => 'ichiloto.menu/1']);
+  $keys = GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'submenu', 0, null, $theme);
+  $layers = array_column($keys->textLayers, null, 'id');
+  $help = array_values(array_filter($keys->textLayers, fn($layer) => str_starts_with($layer->id, 'hud-submenu-help')));
+  $names = array_merge(...array_map(fn($layer) => array_column(array_filter($layer->runs, fn($run) => $run->foreground !== null), 'text'), $help));
+  expect($names)->toBe(['I', ' Info', 'C', ' Back'])
+    ->and(array_filter($help, fn($layer) => $layer->grid->cellWidth === 1))->not->toBeEmpty()
+    ->and(min(array_column($help, 'layer')))->toBeGreaterThanOrEqual(1002);
+  $text = GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'submenu', 0);
+  expect(array_column($text->textLayers, null, 'id')['hud-submenu-help']->runs[0]->text)->toBe('[I] Info  [C] Back');
+});

@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\MainMenu;
 
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\CharacterPanel;
 use Ichiloto\Engine\Core\Menu\Menu;
 use Ichiloto\Engine\Core\Rect;
@@ -21,7 +22,7 @@ class CharacterSelectionMenu extends Menu
   /**
    * The default help text shown beneath the character panels.
    */
-  public const string DEFAULT_HELP_TEXT = 'Use the arrow keys to select a character.';
+  public const string DEFAULT_HELP_TEXT = 'Select a character.';
   /**
    * The total number of panels.
    */
@@ -102,11 +103,12 @@ class CharacterSelectionMenu extends Menu
 
     $this->helpWindow = new Window(
       '',
-      'c:Cancel',
+      '',
       new Vector2($this->rect->getX(), $this->rect->getY() + (self::PANEL_HEIGHT * self::TOTAL_PANELS)),
       $this->rect->getWidth(),
       4
     );
+    $this->helpWindow->setControlHints([ActionHints::resolve('cancel', 'Cancel')]);
     $this->refreshMembers();
     $this->setHelpText($this->helpText);
   }

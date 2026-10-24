@@ -8,7 +8,9 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\ActionHint;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
@@ -37,6 +39,8 @@ class Window implements WindowInterface
   protected array $content = [];
   /** How authored content affects the window's vertical footprint. */
   protected WindowHeightPolicy $heightPolicy = WindowHeightPolicy::GROW_TO_CONTENT;
+  /** @var list<ActionHint> The semantic hints the help line shows, when it shows controls. */
+  protected array $controlHints = [];
   /**
    * Window constructor.
    *
@@ -197,6 +201,25 @@ class Window implements WindowInterface
   public function setHelp(string $help): void
   {
     $this->help = $help;
+    $this->controlHints = [];
+  }
+
+  /**
+   * Shows what the window's controls do. The help line reads each control's keycap and label, and a
+   * graphical owner draws the same hints with keycaps.
+   *
+   * @param list<ActionHint> $hints
+   */
+  public function setControlHints(array $hints): void
+  {
+    $this->setHelp(TerminalControlText::formatHints($hints));
+    $this->controlHints = $hints;
+  }
+
+  /** @return list<ActionHint> The hints the help line shows, or none when it shows other text. */
+  public function getControlHints(): array
+  {
+    return $this->controlHints;
   }
 
   /**
