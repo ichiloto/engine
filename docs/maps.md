@@ -879,6 +879,28 @@ return [
 Maps sharing a region are the same place as far as the player is concerned,
 and the map screen draws them together.
 
+## Map roles
+
+A map may name what it is to the world in its data's `role`, one of the
+project's roles in `Data/map-roles.php`. A role has a localized name and,
+optionally, `leadsTo`: the roles its maps' transfers may lead to. A role
+without `leadsTo` leads anywhere.
+
+```php
+return ['schema' => 'ichiloto.map-roles/1', 'roles' => [
+    'overworld' => ['name' => ['message' => 'map_roles.overworld.name', 'default' => 'Overworld'],
+        'leadsTo' => ['overworld', 'outside', 'dungeon']],
+    'outside' => ['name' => ['message' => 'map_roles.outside.name', 'default' => 'Outside']],
+    'interior' => ['name' => ['message' => 'map_roles.interior.name', 'default' => 'Interior']],
+]];
+```
+
+The Engine defines no roles and enforces none at runtime: a game's travel
+rules are its own authored data. `MapRoleCatalog` validates the catalog (at
+most 64 roles, stable ids, destinations that are roles), reads a map's role
+with `readMapRole()` and answers `allowsDestination()`; the Editor's
+validation applies it to every route `MapRouteGraph::readMap()` finds.
+
 ## The map screen
 
 The `map` action (M by default) opens the entire active map with the player's
