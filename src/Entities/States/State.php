@@ -57,6 +57,8 @@ class State
    * @param bool $curedByRest True when resting at an inn or a full party recovery cures the state.
    * @param float $damageTakenRate Scales every hit a guard could block (0.5 halves it, 0 blocks it outright, 1 leaves it unchanged).
    * @param bool $coversAllies True when the bearer takes the single-target hits meant for its weakest ally (Cover).
+   * @param int $confusionChancePercent The chance, 0 to 100, that on each of its turns the bearer loses track of friend and
+   *   foe and makes its ordinary attack on a random battler of either side instead of acting (Confusion); 0 never.
    */
   public function __construct(
     protected(set) string $id,
@@ -75,6 +77,7 @@ class State
     protected(set) bool $curedByRest = true,
     protected(set) float $damageTakenRate = 1.0,
     protected(set) bool $coversAllies = false,
+    protected(set) int $confusionChancePercent = 0,
   )
   {
     if ($fieldTickSteps !== null && $fieldTickSteps < 1) {
@@ -82,6 +85,9 @@ class State
     }
     if ($damageTakenRate < 0.0) {
       throw new InvalidArgumentException(sprintf('State "%s" damageTakenRate cannot be negative.', $id));
+    }
+    if ($confusionChancePercent < 0 || $confusionChancePercent > 100) {
+      throw new InvalidArgumentException(sprintf('State "%s" confusionChancePercent must be from 0 to 100.', $id));
     }
   }
 
@@ -124,6 +130,11 @@ class State
       throw new InvalidArgumentException(sprintf('State "%s" damageTakenRate must be a number.', $id));
     }
 
+    $confusionChance = $data['confusionChancePercent'] ?? 0;
+    if (! is_int($confusionChance)) {
+      throw new InvalidArgumentException(sprintf('State "%s" confusionChancePercent must be a whole percentage.', $id));
+    }
+
     return new self(
       $id,
       strval($data['name'] ?? $id),
@@ -141,6 +152,7 @@ class State
       $data['curedByRest'] ?? true,
       floatval($damageTakenRate),
       $data['coversAllies'] ?? false,
+      $confusionChance,
     );
   }
 }

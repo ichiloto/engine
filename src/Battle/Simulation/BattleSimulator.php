@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Battle\Simulation;
 
 use Ichiloto\Engine\Battle\BattlePartyRoster;
+use Ichiloto\Engine\Battle\BattleConfusion;
 use Ichiloto\Engine\Battle\BattleTargetPolicy;
 use Ichiloto\Engine\Battle\CounterAttackResolver;
 use Ichiloto\Engine\Battle\EnemyActionEvaluator;
@@ -219,12 +220,16 @@ class BattleSimulator
         // A state like sleep or paralysis consumes the turn outright.
         $blocked = method_exists($battler, 'getActionBlockingState') && $battler->getActionBlockingState() !== null;
 
+        // A confused battler (Fog, Dazed) may attack whoever it falls on, as in a live battle.
+        $confused = $blocked ? null
+          : BattleConfusion::resolve($battler, $isAlly ? $allies : $enemies, $isAlly ? $enemies : $allies, $random, $resolver);
+
         if (! $blocked) {
-          [$action, $chosen] = $isAlly
+          [$action, $chosen] = $confused ?? ($isAlly
             ? [InherentAttack::createAction($battler, $resolver, $random), []]
             : EnemyActionEvaluator::chooseAction(
-              $battler, $allies, $enemies, $turns, $this->highestLevelOf($allies), random: $random);
-          $targets = BattleTargetPolicy::resolveTargets(
+              $battler, $allies, $enemies, $turns, $this->highestLevelOf($allies), random: $random));
+          $targets = $confused !== null ? $chosen : BattleTargetPolicy::resolveTargets(
             $action->targetScope,
             $battler,
             $isAlly ? $allies : $enemies,

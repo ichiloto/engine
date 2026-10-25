@@ -11,6 +11,7 @@ use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 
@@ -166,6 +167,22 @@ class TurnStateExecutionContext
     $scene = $this->game->sceneManager->findScene(GameScene::class);
 
     return $scene instanceof GameScene ? $scene->gameState : null;
+  }
+
+  /**
+   * Returns the player's knowledge records when this battle belongs to a
+   * started game, so what a battle reveals reaches the foe's record.
+   * Standalone battles and previews record nothing.
+   */
+  public function getKnowledge(): ?KnowledgeProgressService
+  {
+    if (! isset($this->game->sceneManager)) {
+      return null;
+    }
+
+    $scene = $this->game->sceneManager->findScene(GameScene::class);
+
+    return $scene instanceof GameScene && $scene->isStarted() ? $scene->knowledge : null;
   }
 
   /**

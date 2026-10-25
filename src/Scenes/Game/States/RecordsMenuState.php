@@ -26,6 +26,9 @@ use Ichiloto\Engine\UI\Presentation\MenuDetailEntry;
 use Ichiloto\Engine\UI\Presentation\MenuDetailSheet;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\SummonInfoSheet;
+use Ichiloto\Engine\UI\Presentation\EnemyInsightSheet;
+use Ichiloto\Engine\Entities\Enemies\Enemy;
+use Ichiloto\Engine\Util\Stores\EnemyStore;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Text\TextPage;
 use Ichiloto\Engine\UI\Text\TextViewport;
@@ -165,6 +168,8 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
       // A record of a summon reads that summon's own information rather than a copy of it.
       $summon = $row->summonId === null ? null : $this->findSummon($row->summonId);
       if ($summon !== null) { array_push($sections, ...SummonInfoSheet::createSections($summon)); }
+      // What battles have revealed about this kind of foe: its HP, MP, stats and best element.
+      array_push($sections, ...EnemyInsightSheet::createSections($knowledge, $row, $this->findEnemies($row)));
       // Retain the owner's first earned report, including amended/withdrawn status.
       foreach ($knowledge->catalog->reportsFor($row->id) as $report) {
         $state = $knowledge->progress->reportState($row->id, $report->id);
@@ -252,6 +257,17 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
   private function getRecordTypeName(KnowledgeSubject $subject): string
   {
     return $this->getGameScene()->knowledge->catalog->getRecordType($subject->recordType)?->name ?? $subject->recordType;
+  }
+
+  /** @return list<Enemy> The project's enemies this subject is the record of, as authored. */
+  private function findEnemies(KnowledgeSubject $subject): array
+  {
+    $store = ConfigStore::has(EnemyStore::class) ? ConfigStore::get(EnemyStore::class) : null;
+    if (! $store instanceof EnemyStore) { return []; }
+    $catalog = $this->getGameScene()->knowledge->catalog;
+
+    return array_values(array_filter($store->all(),
+      static fn(Enemy $enemy): bool => $catalog->subjectForEnemy($enemy)?->id === $subject->id));
   }
 
   private function findSummon(string $id): ?SummonCutsceneDefinition

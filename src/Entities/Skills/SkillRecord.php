@@ -13,6 +13,8 @@ use Ichiloto\Engine\Entities\Effects\SkillEffects\MPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\MPDrainSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\MPRecoverySkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\RemoveStateSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\RevealSkillEffect;
+use Ichiloto\Engine\Battle\Insight\RevealFact;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\SkillEffect;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
@@ -69,6 +71,21 @@ final class SkillRecord
     'remove_state' => RemoveStateSkillEffect::class,
     'modify_stat_stage' => ModifyStatStageSkillEffect::class,
   ];
+
+  /** The effects that reveal what a battler hides, by type. */
+  public const array INSIGHT_EFFECTS = [
+    'reveal' => RevealSkillEffect::class,
+  ];
+
+  /**
+   * Every effect type a record may name, in the order editors offer them.
+   *
+   * @return list<string>
+   */
+  public static function getEffectTypes(): array
+  {
+    return [...array_keys(self::FORMULA_EFFECTS), ...array_keys(self::STATE_EFFECTS), ...array_keys(self::INSIGHT_EFFECTS)];
+  }
 
   /**
    * Builds a skill from its record data.
@@ -330,11 +347,20 @@ final class SkillRecord
 
         return new ModifyStatStageSkillEffect($stat, self::requireInt($effect, 'delta', $path), $affectsUser);
       })(),
+      'reveal' => (static function () use ($effect, $path): RevealSkillEffect {
+        self::refuseUnknownKeys($effect, ['type', 'facts', 'chancePercent'], $path);
+        $chance = array_key_exists('chancePercent', $effect) ? self::requireInt($effect, 'chancePercent', $path) : 100;
+        if ($chance < 1 || $chance > 100) {
+          throw new InvalidArgumentException(sprintf('%schancePercent must be a whole percentage from 1 to 100.', $path));
+        }
+
+        return new RevealSkillEffect(RevealFact::readList($effect['facts'] ?? null, $path . 'facts'), $chance);
+      })(),
       default => throw new InvalidArgumentException(sprintf(
         '%stype "%s" is not one of %s.',
         $path,
         $type,
-        implode(', ', [...array_keys(self::FORMULA_EFFECTS), ...array_keys(self::STATE_EFFECTS)]),
+        implode(', ', self::getEffectTypes()),
       )),
     };
   }
@@ -372,6 +398,12 @@ final class SkillRecord
       ),
       $effect instanceof RemoveStateSkillEffect => array_filter(
         ['type' => 'remove_state', 'stateIds' => array_values(array_map('strval', $effect->stateIds)), 'chancePercent' => $effect->chancePercent],
+        static fn(mixed $value, string $key): bool => $key !== 'chancePercent' || $value !== 100,
+        ARRAY_FILTER_USE_BOTH,
+      ),
+      $effect instanceof RevealSkillEffect => array_filter(
+        ['type' => 'reveal', 'facts' => array_map(static fn(RevealFact $fact): string => $fact->value, $effect->facts),
+          'chancePercent' => $effect->chancePercent],
         static fn(mixed $value, string $key): bool => $key !== 'chancePercent' || $value !== 100,
         ARRAY_FILTER_USE_BOTH,
       ),

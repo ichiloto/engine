@@ -9,6 +9,8 @@ use Ichiloto\Engine\Battle\CounterAttackRule;
 use Ichiloto\Engine\Battle\HasCounterAttacks;
 use Ichiloto\Engine\Battle\InherentAttack;
 use Ichiloto\Engine\Battle\InherentAttacker;
+use Ichiloto\Engine\Battle\Insight\HasRevealedFacts;
+use Ichiloto\Engine\Battle\Insight\RevealableBattler;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Inventory\Accessory;
@@ -27,11 +29,13 @@ use Ichiloto\Engine\Progress\Knowledge\KnowledgeIdentity;
  *
  * @package Ichiloto\Engine\Entities\Enemies
  */
-class Enemy implements CharacterInterface, CounterAttackProvider, InherentAttacker
+class Enemy implements CharacterInterface, CounterAttackProvider, InherentAttacker, RevealableBattler
 {
   use HasStates;
   use HasStatStages;
   use HasCounterAttacks;
+  // What the player has learned about this foe in the battle it fights.
+  use HasRevealedFacts;
 
   public bool $isKnockedOut {
     get {
