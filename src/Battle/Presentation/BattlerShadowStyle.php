@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
-use Ichiloto\Engine\Rendering\Sprites\PngGroundContact;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetBounds;
 use InvalidArgumentException;
 
 /**
@@ -13,14 +13,16 @@ use InvalidArgumentException;
  * ground so artwork need not paint one: its colour and strength at the
  * centre, how softly it fades to its rim (0 a hard edge, 1 fading from the
  * centre), and how wide it reaches beyond each foot. A grounded battler's
- * shadow follows its art's own ground contact ({@see PngGroundContact}): a
- * soft shape joining an ellipse around each foot, paw, hem or lying body,
- * `contactFlatness` as tall as it is wide, darker at each foot's core
- * (`contactCore`, a share of its strength). Where the art cannot be read, and
- * under a battler in the air, it is one ellipse at the feet point: its width
- * a share of the footprint (a lying or four-legged body's length, a standing
- * body's height times `standing`), `flatness` as tall as wide, shrinking and
- * fading as the battler rises (per reference height). Arenas tint or strengthen it ({@see BattleShadowLight})
+ * shadow follows where its drawn art meets the ground in the pose shown
+ * ({@see PngAssetBounds::getGroundContact()}), read at `flatness`, the
+ * ground's perspective: a soft shape joining an ellipse around each foot,
+ * paw, belly, hem or lying body, `contactFlatness` as tall as it is wide,
+ * darker at each foot's core (`contactCore`, a share of its strength). Where
+ * the art cannot be read, and under a battler in the air, it is one ellipse
+ * at the feet point: its width a share of the footprint (a lying or
+ * four-legged body's length, a standing body's height times `standing`),
+ * `flatness` as tall as wide, shrinking and fading as the battler rises (per
+ * reference height). Arenas tint or strengthen it ({@see BattleShadowLight})
  * and each battler may scale or opt out of it ({@see BattlerGrounding}).
  */
 final readonly class BattlerShadowStyle

@@ -507,14 +507,22 @@ line, where staging, footing, effects and its contact meet the ground
   drawn where it meets the surface. Without its own choice: negative elevation
   in water ripples, negative on land burrows, everything else casts a shadow.
 - A grounded battler's shadow follows where its art actually meets the
-  ground, read from the current image (`PngGroundContact`, cached per file
-  revision and crop, so replaced art needs no metadata). The art's lower
-  edge is each column's lowest opaque pixel; a plank laid under it (its
-  lower convex hull) touches what bears the weight: both feet of a 3/4 stance
-  whatever their depth on screen, every paw, a coiled body. Hems, cloak and
-  tail tips hanging above the plank, and slivers much narrower than the
-  widest contact, are left out; a flat sole on a sloping plank takes in its
-  whole sole. A knockout pose meets the ground along its whole lower edge.
+  ground, read every frame from the image as drawn (pose, crop, mirroring,
+  command movement) by `PngAssetBounds::getGroundContact()`, the same reader
+  battle overlays attach through, cached per content revision and crop, so
+  replaced art needs no metadata. The art's lower edge is each column's
+  lowest solid pixel. In a three-quarter view the ground recedes up the
+  screen, so a contact further back stands higher: every column whose lower
+  edge lies within a depth of the lowest one touches the ground, that depth
+  being the theme's ground perspective (`flatness`, a footprint's height over
+  its width) times the art's solid width. Both feet of a wide or staggered
+  stance, the back feet, belly and front feet of a long four-legged body, a
+  tail lying low, a robe's hem and a lying knockout pose all count; a tail,
+  cloak or weapon held up above the ground does not. Andrew, 26 October 2026:
+  "The shadow of the common Drheko is wrong." The earlier reader laid a
+  plank under the art's lower edge and kept only what it touched, which in a
+  three-quarter view is the nearest feet alone, leaving the Drheko's back
+  legs, belly and tail unshaded.
   The shadow (layer 90, under every body) is one soft shape joining an
   ellipse around each contact, feathered by its own thickness, with a darker
   core under each foot, so a wide or staggered stance is grounded at every
