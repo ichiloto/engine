@@ -423,19 +423,36 @@ save whose map is `map` moves onto `into` at the `to` of the first rectangle
 holding its cell, or else at the entry's `to`. Map aliases apply to the save
 and to `map`, as for shifts.
 
+A retired map's places may have been split across several maps, such as a
+region whose outlying field became a map of its own. A landing then names its
+own `map`, the successor holding that part of the old places, and a save it
+holds lands there; a landing without `map` lands on `into`. A landing's `map`
+is a non-empty string and may not be the retired map unless the map retires
+into itself:
+
+```php
+'landings' => [
+  ['x' => 140, 'y' => 0, 'width' => 81, 'height' => 41, 'map' => 'high-reach', 'to' => [2, 22]],
+  ['x' => 0, 'y' => 0, 'width' => 30, 'height' => 20, 'to' => [139, 126]],
+],
+```
+
 A map may retire into itself, when its old layout is redrawn under the same
 ID: `map` and `into` name one map, the rectangles are in the old layout's
 coordinates and the landings in the new one's. Every save made on the map
 before the step moves, since it stood on the old layout.
 
-The landings are frozen in the manifest: choose open floor on `into`, free of
-events and NPCs and reachable, because loading a save never consults the
-mutable map. Later steps that edit `into` move landed saves as they move any
-other save on it.
+The landings are frozen in the manifest: choose open floor on the map each
+lands on, free of events and NPCs and reachable, because loading a save never
+consults the mutable map. Later steps that edit a successor move landed saves
+as they move any other save on it.
 
 Retirement carries what belongs to the places: a save that visited the
 retired map has visited `into`, wherever the save stands, so the region map
-keeps showing where the player has been. The retired map's own entry stays.
+keeps showing where the player has been. Only `into` takes over the retired
+identity, so only it inherits the visit; a save landing on another successor
+stands on it, and standing there visits it as any arrival does. The retired
+map's own entry stays.
 
 A retirement does not alias the retired map to `into`. A map alias says two
 IDs name one map, so every earlier step's edits on the retired map would also

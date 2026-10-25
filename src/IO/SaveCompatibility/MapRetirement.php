@@ -12,12 +12,19 @@ use Ichiloto\Engine\Exceptions\InvalidSaveCompatibilityManifestException;
  * moves there. Its position becomes the `to` of the first landing rectangle
  * holding it, or else the entry's own `to`.
  *
+ * A retired map's places may have been split across several maps. A landing
+ * then names its own `map`, the successor that holds that part of the old
+ * places, and a save it holds lands there; a landing without one lands on
+ * `into`, which takes over the retired identity.
+ *
  * A map may retire into itself: its old layout is retired and redrawn under
  * the same identity, so every save made on it before this step moves from
  * where it stood on the old layout to that layout's landing on the new one.
  *
  * A save that visited the retired map has visited `into`, since the places it
- * saw are there now. The retired map's one-shot events stay its own: an event
+ * saw are there now. Only `into` takes over the retired identity, so only it
+ * inherits the visit; a save landing on another successor stands on it, and
+ * standing there visits it as any arrival does. The retired map's one-shot events stay its own: an event
  * that moved to another map follows it only through an explicit
  * `one_shot_events` alias, so no marker of `into` reads as completed by
  * accident.
@@ -28,7 +35,8 @@ use Ichiloto\Engine\Exceptions\InvalidSaveCompatibilityManifestException;
 final readonly class MapRetirement
 {
   /**
-   * @param list<array{area: Rect, to: array{int, int}}> $landings In authored order.
+   * @param list<array{area: Rect, map: string, to: array{int, int}}> $landings In authored order, each naming
+   *     the map it lands on (`into` when the entry named none).
    * @param array{int, int} $to
    */
   private function __construct(
@@ -69,7 +77,15 @@ final readonly class MapRetirement
       }
 
       foreach ($rawLandings as $index => $landing) {
-        $landings[] = self::readLanding($landing, sprintf('%s landings[%d]', $where, $index));
+        $landingWhere = sprintf('%s landings[%d]', $where, $index);
+        $landing = self::readLanding($landing, $landingWhere, $into);
+        // Only a map redrawn under its own identity keeps saves on it; a retired map is gone.
+        if ($landing['map'] === $map && $into !== $map) {
+          throw new InvalidSaveCompatibilityManifestException(sprintf(
+            '%s map %s is the retired map; land its saves on a map that took over its places.', $landingWhere, $map
+          ));
+        }
+        $landings[] = $landing;
       }
     }
 
@@ -77,49 +93,60 @@ final readonly class MapRetirement
   }
 
   /**
-   * Returns where a save standing at this position of the retired map lands
-   * on `into`: the first landing whose rectangle holds the position's cell,
-   * else the entry's `to`.
+   * Returns where a save standing at this position of the retired map lands:
+   * the map and cell of the first landing whose rectangle holds the
+   * position's cell, else the entry's `to` on `into`.
+   *
+   * @return array{map: string, position: Vector2}
    */
-  public function getLanding(Vector2 $position): Vector2
+  public function getLandingPlace(Vector2 $position): array
   {
     $cell = new Vector2((int) floor($position->x), (int) floor($position->y));
 
     foreach ($this->landings as $landing) {
       if ($landing['area']->contains($cell)) {
-        return new Vector2(...$landing['to']);
+        return ['map' => $landing['map'], 'position' => new Vector2(...$landing['to'])];
       }
     }
 
-    return new Vector2(...$this->to);
+    return ['map' => $this->into, 'position' => new Vector2(...$this->to)];
   }
 
   /**
-   * Returns every cell a save can land on, the fallback first, so tooling
-   * checks the same cells the migration uses.
+   * Returns every place a save can land on, the fallback on `into` first,
+   * each once, so tooling checks the same places the migration uses.
    *
-   * @return list<array{int, int}>
+   * @return list<array{map: string, cell: array{int, int}}>
    */
-  public function getLandingCells(): array
+  public function getLandingPlaces(): array
   {
-    $cells = [$this->to];
+    $places = [['map' => $this->into, 'cell' => $this->to]];
 
     foreach ($this->landings as $landing) {
-      if (! in_array($landing['to'], $cells, true)) {
-        $cells[] = $landing['to'];
+      $place = ['map' => $landing['map'], 'cell' => $landing['to']];
+      if (! in_array($place, $places, true)) {
+        $places[] = $place;
       }
     }
 
-    return $cells;
+    return $places;
   }
 
-  /** @return array{area: Rect, to: array{int, int}} */
-  private static function readLanding(mixed $landing, string $where): array
+  /** @return array{area: Rect, map: string, to: array{int, int}} */
+  private static function readLanding(mixed $landing, string $where, string $into): array
   {
     if (! is_array($landing)) {
       throw new InvalidSaveCompatibilityManifestException(sprintf(
-        '%s must be an array with x, y, width, height and to.', $where
+        '%s must be an array with x, y, width, height, to and an optional map.', $where
       ));
+    }
+
+    $map = $into;
+    if (array_key_exists('map', $landing)) {
+      $map = is_string($landing['map']) ? trim($landing['map']) : '';
+      if ($map === '') {
+        throw new InvalidSaveCompatibilityManifestException(sprintf('%s map must be a non-empty string; leave it out to land on into.', $where));
+      }
     }
 
     foreach (['x', 'y'] as $key) {
@@ -136,6 +163,7 @@ final readonly class MapRetirement
 
     return [
       'area' => new Rect($landing['x'], $landing['y'], $landing['width'], $landing['height']),
+      'map' => $map,
       'to' => self::readCell($landing['to'] ?? null, "{$where} to"),
     ];
   }

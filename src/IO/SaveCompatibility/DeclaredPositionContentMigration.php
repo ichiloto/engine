@@ -68,8 +68,9 @@ final readonly class DeclaredPositionContentMigration implements ContentMigratio
 
   /**
    * Returns where a saved place stands after this step's edits, in order: a
-   * position edit moves it on its map, and a retirement moves it onto its
-   * destination, naming that map as the retirement spells it. Tooling uses it
+   * position edit moves it on its map, and a retirement moves it onto the map
+   * its landing names (`into` unless the landing names another successor),
+   * spelled as the retirement spells it. Tooling uses it
    * to follow a landing through later steps exactly as a save does.
    *
    * @return array{mapId: string, position: Vector2}
@@ -84,9 +85,8 @@ final readonly class DeclaredPositionContentMigration implements ContentMigratio
       }
 
       if ($edit instanceof MapRetirement) {
-        $position = $edit->getLanding($position);
-        $mapId = $edit->into;
-        $current = $this->getCurrentMapId($edit->into);
+        ['map' => $mapId, 'position' => $position] = $edit->getLandingPlace($position);
+        $current = $this->getCurrentMapId($mapId);
 
         continue;
       }

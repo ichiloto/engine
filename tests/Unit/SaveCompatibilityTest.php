@@ -821,6 +821,69 @@ it('applies a step\'s shifts, removals and relocations to the retired map before
     ->and([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual([7, 7]);
 });
 
+it('lands a save on the successor its landing names when a retired map was split across maps', function (array $position, string $expectedMap, array $expected) {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 2,
+    'migrations' => [
+      ['from' => 0, 'to' => 1, 'mapRetirements' => [[
+        'map' => 'garden', 'into' => 'continent',
+        'landings' => [
+          ['x' => 0, 'y' => 0, 'width' => 5, 'height' => 5, 'map' => 'reach', 'to' => [2, 3]],
+          ['x' => 5, 'y' => 0, 'width' => 5, 'height' => 5, 'to' => [40, 41]],
+        ],
+        'to' => [50, 51],
+      ]]],
+      ['from' => 1, 'to' => 2, 'mapShifts' => [['map' => 'reach', 'axis' => 'x', 'at' => 0, 'by' => 1]]],
+    ],
+  ]);
+
+  $loaded = loadRetirementSave($manifest, 'garden', $position, ['garden' => true]);
+
+  // The successor's later edits follow the save; the visit carries to into, which took over the retired identity.
+  expect($loaded->mapId)->toBe($expectedMap)
+    ->and([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual($expected)
+    ->and($loaded->gameState['visitedMaps'])->toBe(['garden' => true, 'continent' => true]);
+})->with([
+  'in the part another successor took' => [[1, 1], 'reach', [3, 3]],
+  'in a landing without a map' => [[6, 1], 'continent', [40, 41]],
+  'outside every landing' => [[30, 30], 'continent', [50, 51]],
+]);
+
+it('reads every place a retirement lands saves on, the fallback first and each once', function () {
+  $retirement = SaveCompatibilityManifest::readDeclaredPositionEdits(
+    ['from' => 0, 'to' => 1, 'mapRetirements' => [[
+      'map' => 'garden', 'into' => 'continent',
+      'landings' => [
+        ['x' => 0, 'y' => 0, 'width' => 5, 'height' => 5, 'map' => 'reach', 'to' => [2, 3]],
+        ['x' => 5, 'y' => 0, 'width' => 5, 'height' => 5, 'to' => [2, 3]],
+        ['x' => 0, 'y' => 5, 'width' => 5, 'height' => 5, 'map' => 'reach', 'to' => [2, 3]],
+      ],
+      'to' => [50, 51],
+    ]]], 'test')[0];
+
+  expect($retirement->getLandingPlaces())->toBe([
+      ['map' => 'continent', 'cell' => [50, 51]],
+      ['map' => 'reach', 'cell' => [2, 3]],
+      ['map' => 'continent', 'cell' => [2, 3]],
+    ]);
+});
+
+it('keeps a landing on a map redrawn under its own identity', function () {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [['from' => 0, 'to' => 1, 'mapRetirements' => [[
+      'map' => 'world', 'into' => 'world',
+      'landings' => [['x' => 0, 'y' => 0, 'width' => 4, 'height' => 4, 'map' => 'world', 'to' => [9, 9]]],
+      'to' => [1, 1],
+    ]]]],
+  ]);
+
+  $loaded = loadRetirementSave($manifest, 'world', [2, 2]);
+
+  expect($loaded->mapId)->toBe('world')
+    ->and([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual([9, 9]);
+});
+
 it('carries a visit to a retired map to its destination, wherever the save stands', function () {
   $manifest = makeCompatibilityManifest([
     'contentVersion' => 1,
@@ -941,7 +1004,7 @@ it('rejects malformed declarative map retirements', function (mixed $retirements
   'empty landings' => [[['map' => 'a', 'into' => 'b', 'landings' => [], 'to' => [0, 0]]], 'landings must be a non-empty list'],
   'keyed landings' => [[['map' => 'a', 'into' => 'b', 'landings' => ['w' => ['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'to' => [0, 0]]], 'to' => [0, 0]]],
     'landings must be a non-empty list'],
-  'a landing not an array' => [[['map' => 'a', 'into' => 'b', 'landings' => [1], 'to' => [0, 0]]], 'landings[0] must be an array with x, y, width, height and to'],
+  'a landing not an array' => [[['map' => 'a', 'into' => 'b', 'landings' => [1], 'to' => [0, 0]]], 'landings[0] must be an array with x, y, width, height, to and an optional map'],
   'a negative origin' => [[['map' => 'a', 'into' => 'b', 'landings' => [['x' => -1, 'y' => 0, 'width' => 1, 'height' => 1, 'to' => [0, 0]]], 'to' => [0, 0]]],
     'landings[0] x must be a non-negative integer'],
   'a string origin' => [[['map' => 'a', 'into' => 'b', 'landings' => [['x' => 0, 'y' => '0', 'width' => 1, 'height' => 1, 'to' => [0, 0]]], 'to' => [0, 0]]],
@@ -952,6 +1015,10 @@ it('rejects malformed declarative map retirements', function (mixed $retirements
     'landings[0] height must be a positive integer'],
   'a malformed landing cell' => [[['map' => 'a', 'into' => 'b', 'landings' => [['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'to' => [0]]], 'to' => [0, 0]]],
     'landings[0] to must be [x, y]'],
+  'an empty landing map' => [[['map' => 'a', 'into' => 'b', 'landings' => [['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'map' => ' ', 'to' => [0, 0]]], 'to' => [0, 0]]],
+    'landings[0] map must be a non-empty string'],
+  'a landing back onto the retired map' => [[['map' => 'a', 'into' => 'b', 'landings' => [['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'map' => 'a', 'to' => [0, 0]]], 'to' => [0, 0]]],
+    'landings[0] map a is the retired map'],
   'a later landing malformed' => [[['map' => 'a', 'into' => 'b', 'landings' => [
     ['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'to' => [0, 0]],
     ['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'to' => [0, -2]],
