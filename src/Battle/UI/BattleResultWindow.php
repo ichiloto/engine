@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Battle\UI;
 use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Battle\Presentation\BattleOutcomeSnapshot;
 use Ichiloto\Engine\Battle\Presentation\BattleResultsPlayback;
 use Ichiloto\Engine\Battle\Presentation\BattleResultsText;
 use Ichiloto\Engine\Core\Time;
@@ -44,6 +45,17 @@ class BattleResultWindow extends Window
    * @var float The delay between reward reveals in seconds.
    */
   protected float $revealDelay = 0.75;
+  /** The page of playback results shown, from zero, and how many there are. */
+  protected int $pageIndex = 0;
+  protected int $pageCount = 1;
+
+  /** Reads the page shown now and its controls without rendering, for every graphical presentation. */
+  public function presentationSnapshot(): BattleOutcomeSnapshot
+  {
+    $lines = array_map(static fn($line): string => rtrim((string)$line), $this->getContent());
+    while ($lines !== [] && $lines[array_key_last($lines)] === '') { array_pop($lines); }
+    return new BattleOutcomeSnapshot($this->getTitle(), $lines, $this->getControlHints(), $this->pageIndex, $this->pageCount);
+  }
 
   /** Projects all structured facts through explicit pages rather than truncating rewards. */
   public function displayPlayback(BattleResultsPlayback $playback): void
@@ -54,6 +66,8 @@ class BattleResultWindow extends Window
     $playback->setScrollLimit($pages - 1);
     $page = min($pages - 1, $playback->scrollOffset);
     $content = array_pad(array_slice($wrapped, $page * $height, $height), $height, '');
+    $this->pageIndex = $page;
+    $this->pageCount = $pages;
     $stage = $playback->currentStage()['kind'];
     $title = Vocabulary::getTerm('battle.victory', 'Victory') . ' - ' . Vocabulary::getTerm(
       'battle.' . match ($stage) { 'primary' => 'rewards', 'level' => 'level_up', 'ability' => 'new_ability', 'special' => 'special_reward' },
@@ -102,6 +116,8 @@ class BattleResultWindow extends Window
   {
     $this->result = $result;
     $this->revealedEntryCount = 0;
+    $this->pageIndex = 0;
+    $this->pageCount = 1;
     $this->setTitle(Vocabulary::getTerm('battle.' . $result->outcome(), $result->title));
 
     if (! empty($result->entries)) {

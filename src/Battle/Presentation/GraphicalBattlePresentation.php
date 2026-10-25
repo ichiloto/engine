@@ -22,6 +22,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextBatch;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextureFallback;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
+use Ichiloto\Engine\Rendering\Presentation\PresentationFallbackReport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetBounds;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
@@ -50,12 +51,15 @@ final class GraphicalBattlePresentation
   /** The menu theme whose control sets draw HUD hints, read once; null when the project has none or it cannot load. */
   private ?MenuPresentationCatalog $controls = null;
   private bool $controlsRead = false;
+  /** Where this battle logs any part of its graphical presentation that falls back. */
+  public readonly PresentationFallbackReport $fallbacks;
 
   private function __construct(public readonly BattleArenaDefinition $arena, public readonly BattleCanvasLayout $layout,
     private readonly BattleConfig $battle,
     private readonly string $assetRoot, private readonly ?BattleScale $scale)
   {
     $this->headAttachments = new BattleHeadAttachmentLayout();
+    $this->fallbacks = new PresentationFallbackReport();
     $this->defeatStyle = EnemyDefeatStyle::createFromConfig();
     $this->conditionEffects = BattleConditionEffects::createFromConfig(
       new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($assetRoot));
@@ -291,7 +295,8 @@ final class GraphicalBattlePresentation
     $selected = $field?->getSelectedBattlers() ?? [];
     $skin = $this->layout->skin;
     $composition = $skin !== null && $hud !== null
-      ? GraphicalBattleHud::compose($this->layout, $hud, $focus, $now, $this->assetRoot, $this->findControlsTheme()) : null;
+      ? GraphicalBattleHud::compose($this->layout, $hud, $focus, $now, $this->assetRoot, $this->findControlsTheme(),
+        $this->fallbacks) : null;
     $hudBounds = array_map(static fn(CanvasImage $image) => $image->destination, $composition?->images ?? []);
     $focused = $field?->getFocusedBattlers() ?? [];
     $queued = $field?->getQueuedBattlers() ?? [];

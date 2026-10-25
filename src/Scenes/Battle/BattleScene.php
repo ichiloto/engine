@@ -29,6 +29,7 @@ use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedEngine;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerActionState;
+use Ichiloto\Engine\Rendering\Presentation\PresentationFallbackReport;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
@@ -81,6 +82,11 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
   public private(set) ?BattleResultsPlayback $resultsPlayback = null;
   public private(set) ?BattlePauseSkin $pauseSkin = null;
   private ?PresentationCanvas $resultsBattlefield = null;
+  private ?PresentationFallbackReport $fallbackReport = null;
+  /** Where this battle logs any part of its graphical presentation that falls back; one per configured battle. */
+  public PresentationFallbackReport $presentationFallbacks {
+    get => $this->graphicalPresentation?->fallbacks ?? ($this->fallbackReport ??= new PresentationFallbackReport());
+  }
 
   public function beginResults(): void
   {
@@ -165,7 +171,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
     }
     $root = $this->getGame()->getRendererRuntime()?->getAssetRoot();
     $composition = $hud === null ? null : GraphicalBattleHud::compose($layout, $hud, $focus,
-      hrtime(true) / 1_000_000_000, $root, $this->findControlsTheme($root));
+      hrtime(true) / 1_000_000_000, $root, $this->findControlsTheme($root), $this->presentationFallbacks);
     return new PresentationCanvas($layout->width, $layout->height, $composition?->images ?? [],
       textLayers: [...$ui, ...($composition?->textLayers ?? [])]);
   }
@@ -483,6 +489,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
         $pauseSkin = null;
       }
     }
+    $this->fallbackReport = null;
     $this->graphicalPresentation = $presentation;
     $this->battleUiLayout = $layout;
     $this->resultsSkin = $resultsSkin;

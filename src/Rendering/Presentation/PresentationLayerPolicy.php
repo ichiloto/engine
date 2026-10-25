@@ -40,6 +40,7 @@ final class PresentationLayerPolicy
   /** Field guidance marks and edge pointers, over their plates. */
   public const FIELD_GUIDANCE_FRONT = 1001;
   public const FIELD_PROMPT_ID = 'field-prompt';
+  private const string UI_LAYER_PREFIX = 'ui:';
   public const UI = 1100;
   public const CINEMATIC = 2000;
   public const NOTIFICATIONS = 4000;
@@ -79,7 +80,19 @@ final class PresentationLayerPolicy
   public static function ui(object $element, callable $draw): void
   {
     $priority = $element instanceof LayeredPresentationInterface ? $element->getPresentationPriority()->value : 0;
-    Console::withLayer('ui:' . spl_object_id($element), $draw, self::UI + $priority);
+    Console::withLayer(self::getUiLayerId($element), $draw, self::UI + $priority);
+  }
+
+  /** The Console layer a UI element (a window, a modal, a dialogue) draws its Terminal presentation in. */
+  public static function getUiLayerId(object $element): string
+  {
+    return self::UI_LAYER_PREFIX . spl_object_id($element);
+  }
+
+  /** Whether a Console layer holds a UI element's Terminal presentation. */
+  public static function isUiLayer(string $id): bool
+  {
+    return str_starts_with($id, self::UI_LAYER_PREFIX);
   }
 
   public static function fieldPrompt(callable $draw): void
