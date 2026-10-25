@@ -75,6 +75,21 @@ it('validates reachable approaches to solid object events with their allowed hea
     ->and($report->problems === [])->toBe($reachable);
 })->with(['all approaches' => [[], true], 'from below' => [['North'], true], 'from above' => [['South'], false]]);
 
+it('answers whether an event can be used from the cells it answers on, not from its own solid cells', function (array $facing, bool $usable) {
+  // A two-cell desk on solid cells, open floor below and an enclosed nook above: the player never stands on it.
+  $desk = ReachabilityEvent::fromDefinition(['class' => ChestEventTrigger::class, 'marker' => 'D',
+    'area' => ['cells' => [[1, 1], [2, 1]]], 'engagement' => 'facing', 'facing' => $facing]);
+  $map = new MapReachability('desk-room', reachabilityGrid(['#..#', '####', '....']), [$desk]);
+  $report = $map->analyze([new ReachabilityEntrance(0, 2, 'door')]);
+  expect($report->isAnyReachable($desk->area))->toBeFalse()
+    ->and($report->canEngage($desk))->toBe($usable)
+    ->and($report->problems === [])->toBe($usable);
+})->with([
+  'from any side' => [[], true],
+  'from the floor below' => [['North'], true],
+  'only from the enclosed nook above' => [['South'], false],
+]);
+
 it('reaches a faced object whose own walkable cell is the only approach', function () {
   // The object sits at the end of a one-cell-wide dead end: no adjacent cell faces it, but it can be stood on.
   $event = new ReachabilityEvent(CellArea::fromCells([[1, 0]]), ChestEventTrigger::class, 'C',
