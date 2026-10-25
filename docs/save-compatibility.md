@@ -312,8 +312,8 @@ to 2, add exactly one `1 -> 2` step, retain all older steps, then raise
 
 ### Declared map shifts
 
-A step may declare position edits, `mapShifts`, `mapRemovals` and/or `relocations`,
-instead of `class` (a class or declared edits, never both).
+A step may declare position edits, `mapShifts`, `mapRemovals`, `relocations`
+and/or `mapRetirements`, instead of `class` (a class or declared edits, never both).
 It records blank rows or columns inserted into a map, so no generated PHP
 class is needed:
 
@@ -390,10 +390,64 @@ its coordinates. Map aliases apply as for shifts. The cells and landing are
 frozen in the manifest: choose a landing that is open floor, free of events and
 NPCs and reachable, because loading a save never consults the mutable map.
 
-A step may combine `mapShifts`, `mapRemovals` and `relocations`; shifts apply
-first, then removals, then relocations, each list in authored order regardless
-of PHP key order. A move belongs to the step that introduced it: never add edits
-to an earlier step, since saves already past that version will not run it again.
+### Declared map retirements
+
+When a map is retired and its places now stand on another map, a step
+declares `mapRetirements`, so saves standing on the retired map move to the
+matching place on its successor without a project class:
+
+```php
+[
+  'from' => 69,
+  'to' => 70,
+  'mapRetirements' => [
+    [
+      'map' => 'overworld',
+      'into' => 'continent',
+      'landings' => [
+        ['x' => 0, 'y' => 0, 'width' => 60, 'height' => 61, 'to' => [12, 40]],
+        ['x' => 60, 'y' => 0, 'width' => 40, 'height' => 61, 'to' => [88, 31]],
+      ],
+      'to' => [30, 30],
+    ],
+  ],
+]
+```
+
+`map` is the retired map ID and `into` the map its saves move to: both
+non-empty and different. `to` is the `[x, y]` landing on `into` for a save no
+landing holds. `landings` is optional; when present it is a non-empty list of
+rectangles in the retired map's coordinates, each with a non-negative `x` and
+`y`, a positive `width` and `height`, and its own `to` landing on `into`. A
+save whose map is `map` moves onto `into` at the `to` of the first rectangle
+holding its cell, or else at the entry's `to`. Map aliases apply to the save
+and to `map`, as for shifts. A retirement whose `map` and `into` name one map
+through the aliases is invalid.
+
+The landings are frozen in the manifest: choose open floor on `into`, free of
+events and NPCs and reachable, because loading a save never consults the
+mutable map. Later steps that edit `into` move landed saves as they move any
+other save on it.
+
+Retirement carries what belongs to the places: a save that visited the
+retired map has visited `into`, wherever the save stands, so the region map
+keeps showing where the player has been. The retired map's own entry stays.
+
+A retirement does not alias the retired map to `into`. A map alias says two
+IDs name one map, so every earlier step's edits on the retired map would also
+move saves standing on `into`, and every one-shot event `map:marker` would
+read as `into:marker`, completing whichever event of `into` shares the marker.
+A one-shot event that moved to another map follows it through an explicit
+`one_shot_events` alias, such as `overworld:Q` to `high-reach:Q`. Completed
+events of the retired map that no alias names stay under the retired map and
+match nothing.
+
+A step may combine `mapShifts`, `mapRemovals`, `relocations` and
+`mapRetirements`; shifts apply first, then removals, then relocations, then
+retirements, each list in authored order regardless of PHP key order, so a
+retirement reads the position its step has already moved. A move belongs to
+the step that introduced it: never add edits to an earlier step, since saves
+already past that version will not run it again.
 
 `ContentReferenceCategory` is the shared runtime/editor vocabulary: maps,
 one-shot events, quests, actors, items, equipment, abilities, spells,
