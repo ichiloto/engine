@@ -4,6 +4,16 @@
 
 ### Added
 
+- `MapManager::installMapSource()` installs a map a host holds itself (an
+  editor's map with unsaved edits) exactly as `readMapDataFromFile()`
+  installs one read from files: `prepareMapSource()` prepares both, with the
+  host loading the map's graphics and tile layers. `MapGraphics::readLayersFromSources()`
+  is public, for a host reading tile layers it has not saved.
+- `GameScene::renderEventCues()` draws map events' Terminal cues for any
+  host of the field; `Player::renderEventCues()` draws its own events'
+  through it. `MapManager::createEventTriggers()` binds a map's events to
+  the scene's world state as the field does, for the player and for a host
+  that only shows their cues.
 - Separate Music, Sound Effects and Voice volumes beneath the master volume:
   `Audio\Enumerations\AudioBus` names the bus every sound plays on, and a
   sound plays at master volume x bus volume x its own authored volume.

@@ -965,26 +965,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function renderEventCues(): void
   {
-    /** @var EventTrigger $event */
-    foreach ($this->events as $event) {
-      $cueLayer = 'event-cue:' . ($event->mapId ?? '') . ':' . ($event->marker ?? '');
-      if (!$this->getGameScene()->canPresentFieldGuidance() || ! $event->shouldRenderCue()) {
-        Console::removeLayer($cueLayer);
-        continue;
-      }
-
-      if ($this->getGameScene()->isGraphicalFieldPresented() && $this->getGameScene()->fieldEffects?->canPresentCue($event)) {
-        Console::removeLayer($cueLayer);
-        continue;
-      }
-
-      Console::withLayer($cueLayer, function () use ($event): void {
-        foreach ($event->cue->findPositions($event->area) as $position) {
-          $this->scene->camera->renderOnScreen([$this->getGameScene()->fieldEffects?->cueStyle->styleGlyph($event->cue->symbol,
-            $event->cue->color) ?? $event->cue->styledSymbol()], $position);
-        }
-      }, PresentationLayerPolicy::WORLD);
-    }
+    $this->getGameScene()->renderEventCues($this->events);
 
     // Waymarks are field guidance too; recomposed frames rebuild their layer here.
     $this->getGameScene()->renderFieldWaymarks(force: true);
