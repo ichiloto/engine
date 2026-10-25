@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field;
 
+use Ichiloto\Engine\Core\PackedGrid;
+
 /**
  * The encounter terrain of each cell of a map painted in terrain kinds, such
  * as `woodland` or `wetland`, resolved by {@see MapTerrainKinds::resolveEncounterTerrain()}.
@@ -14,16 +16,17 @@ namespace Ichiloto\Engine\Field;
 final readonly class MapEncounterTerrain
 {
   /**
-   * @param array<int, array<int, string>> $grid Encounter terrain ids by row and cell; a cell left out has none.
+   * @param PackedGrid $grid Each cell's encounter terrain as its position in $terrains plus one; 0 for none.
    * @param list<string> $terrains Every encounter terrain the map's kinds meet.
    */
-  public function __construct(private array $grid, public array $terrains)
+  public function __construct(private PackedGrid $grid, public array $terrains)
   {
   }
 
   /** The encounter terrain of a cell, or null when it has none. */
   public function getTerrainAt(int $x, int $y): ?string
   {
-    return $this->grid[$y][$x] ?? null;
+    $index = $this->grid->getValueAt($x, $y) ?? 0;
+    return $index === 0 ? null : $this->terrains[$index - 1];
   }
 }

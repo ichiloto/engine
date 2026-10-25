@@ -49,7 +49,7 @@ final class RetainedPresentation
     /** @var list<PresentationWorldCanvas> */
     private array $worldCanvases = [];
     private readonly object $frameOwner;
-    /** @var list<array<string, mixed>> */
+    /** @var list<array<string, mixed>|RetainedWorldUpload> A queued world is built as it is sent. */
     private array $operations = [];
     private bool $viewportChanged = false;
     private int $invalidation = 0;
@@ -129,7 +129,7 @@ final class RetainedPresentation
         if ($this->world !== $frame->world) {
             if ($this->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id]; }
             $this->world = $frame->world;
-            if ($this->world !== null) { array_push($this->operations, ...$this->getWorldOperations($this->world)); }
+            if ($this->world !== null) { $this->operations[] = $this->getWorldUpload($this->world); }
         }
         foreach ($this->values['text'] ?? [] as $id => $_) {
             if (!isset($frame->values['text'][$id])) { $this->operations[] = ['op' => 'remove', 'kind' => 'text', 'id' => (string)$id]; }
@@ -164,14 +164,10 @@ final class RetainedPresentation
         if ($this->acknowledgedGeneration === $this->generation) { $this->pendingSince = null; }
     }
 
-    /**
-     * A world's upload for this session: tile covers and shadows only for a renderer that negotiated them.
-     *
-     * @return list<array<string, mixed>>
-     */
-    private function getWorldOperations(PresentationWorld $world): array
+    /** A world's upload for this session: tile covers and shadows only for a renderer that negotiated them. */
+    private function getWorldUpload(PresentationWorld $world): RetainedWorldUpload
     {
-        return $world->getOperations($this->client->supports(RendererSessionConfig::TILE_COVERS),
+        return new RetainedWorldUpload($world, $this->client->supports(RendererSessionConfig::TILE_COVERS),
             $this->client->supports(RendererSessionConfig::TILE_SHADOWS));
     }
 
@@ -225,7 +221,7 @@ final class RetainedPresentation
         if ($world !== $this->world) {
             if ($this->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id]; }
             $this->world = $world;
-            if ($world !== null) { array_push($this->operations, ...$this->getWorldOperations($world)); }
+            if ($world !== null) { $this->operations[] = $this->getWorldUpload($world); }
         }
         $this->updateText($text);
         $lift = $this->client->supports(RendererSessionConfig::SPRITE_LIFT);
@@ -272,7 +268,7 @@ final class RetainedPresentation
         if ($this->world !== $world) {
             if ($this->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id]; }
             $this->world = $world;
-            if ($world !== null) { array_push($this->operations, ...$this->getWorldOperations($world)); }
+            if ($world !== null) { $this->operations[] = $this->getWorldUpload($world); }
         }
         $this->replaceValues('text', []);
         $this->textRows = [];
@@ -420,7 +416,7 @@ final class RetainedPresentation
             return false;
         }
         if ($this->upload === null && $this->reset) {
-            $this->operations = $this->world === null ? [] : $this->getWorldOperations($this->world);
+            $this->operations = $this->world === null ? [] : [$this->getWorldUpload($this->world)];
             foreach ($this->values as $kind => $items) {
                 foreach ($items as $id => $value) {
                     if ($kind === 'text') { $this->putText((string)$id); }
@@ -513,7 +509,7 @@ final class RetainedPresentation
         $this->operations = [];
         if ($this->world !== $baseline->world) {
             if ($baseline->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $baseline->world->id]; }
-            if ($this->world !== null) { array_push($this->operations, ...$this->getWorldOperations($this->world)); }
+            if ($this->world !== null) { $this->operations[] = $this->getWorldUpload($this->world); }
         }
         foreach (array_unique([...array_keys($this->values), ...array_keys($baseline->values)]) as $kind) {
             foreach ($this->values[$kind] ?? [] as $id => $value) {

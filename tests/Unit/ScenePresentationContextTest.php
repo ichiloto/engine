@@ -209,8 +209,11 @@ it('uses the host playhead for tiles and existing effect sessions without advanc
     $this->scene->setPresentationContext(($this->createContext)());
     $world = $this->scene->getPresentationWorld();
     $animated = makeBareScene(PresentationWorld::class);
-    new ReflectionMethod(PresentationWorld::class, '__construct')->invoke($animated,
-        $world->id, $world->operations, $world->textLayerIds, $world->estimatedSourceBytes, true);
+    // The same world, animated: every constructed part is the world's own except its animation.
+    new ReflectionMethod(PresentationWorld::class, '__construct')->invoke($animated, ...array_map(
+        static fn(ReflectionParameter $part): mixed => $part->name === 'animated' ? true
+            : new ReflectionProperty(PresentationWorld::class, $part->name)->getValue($world),
+        new ReflectionMethod(PresentationWorld::class, '__construct')->getParameters()));
     new ReflectionProperty(MapManager::class, 'presentationWorld')->setValue($this->scene->mapManager, $animated);
     $this->scene->fieldEffects->startEffect('attached', 'energy', FieldEffectAnchor::fromArray(['object' => 'player']));
     $this->scene->advanceFieldPresentation(0.25);

@@ -166,8 +166,8 @@ final readonly class MapGraphics
         $covers = [];
         foreach ($this->layers as $layer) {
             $owner = $this->owners[$layer->name] ?? null;
-            foreach ($layer->tiles as $y => $row) {
-                foreach ($row as $x => $tileId) {
+            for ($y = 0; $y < $layer->height; $y++) {
+                foreach ($layer->getRowTiles($y) as $x => $tileId) {
                     if ($tileId !== TileId::EMPTY && isset($usable[TileId::getSheet($tileId)?->value ?? ''])) {
                         $covers[$y][$x][$owner ?? ''] = true;
                     }
@@ -206,8 +206,9 @@ final readonly class MapGraphics
         if ($stencil === []) { return []; }
         $layers = $this->indexLayers();
         $stamps = [];
-        foreach ($layers[array_key_first($piece->tiles)]->tiles ?? [] as $y => $row) {
-            foreach ($row as $x => $_) {
+        $origin = $layers[array_key_first($piece->tiles)] ?? null;
+        for ($y = 0; $y < ($origin?->height ?? 0); $y++) {
+            for ($x = 0, $width = $origin->getRowLength($y); $x < $width; $x++) {
                 if (self::matchesStencil($layers, $stencil, $x, $y)) { $stamps[] = [$x, $y]; }
             }
         }
@@ -272,7 +273,7 @@ final readonly class MapGraphics
     private static function matchesStencil(array $layers, array $stencil, int $x, int $y): bool
     {
         foreach ($stencil as [$name, $dx, $dy, $tile]) {
-            if (($layers[$name]->tiles[$y + $dy][$x + $dx] ?? null) !== $tile) { return false; }
+            if (($layers[$name] ?? null)?->getTileAt($x + $dx, $y + $dy) !== $tile) { return false; }
         }
         return true;
     }

@@ -63,6 +63,26 @@ final class CornerShape
    */
   public static function resolveLayer(array $layer, array $tiles, array $joins): array
   {
+    $resolved = [];
+    foreach (self::yieldCorners($layer, $tiles, $joins) as [$x, $y, $tile, $cases]) {
+      $resolved[$y][$x][$tile] = $cases;
+    }
+    return $resolved;
+  }
+
+  /**
+   * The same corners as {@see resolveLayer()}, one at a time in its order
+   * (row, cell, then kind in draw order), as [column, row, flag identity,
+   * cases], so a caller drawing a world map never holds every reached cell
+   * as an array.
+   *
+   * @param list<list<int>> $layer Tile identities by row and cell.
+   * @param list<int> $tiles The flag identities of the corner-edged kinds to draw, in draw order.
+   * @param array<int, list<int>> $joins As for {@see resolveLayer()}.
+   * @return \Generator<int, array{int, int, int, int}>
+   */
+  public static function yieldCorners(array $layer, array $tiles, array $joins): \Generator
+  {
     $height = count($layer);
     $width = max(array_map(count(...), $layer) ?: [0]);
     $flags = [];
@@ -74,8 +94,12 @@ final class CornerShape
       }
     }
     $flagAt = static fn(int $x, int $y): ?int => $flags[min(max($y, 0), $height - 1)][min(max($x, 0), $width - 1)] ?? null;
-    $resolved = [];
-    foreach ($tiles as $tile) {
+    $tiles = array_values(array_unique($tiles));
+    // Each reached cell's cases for each kind, as one integer: column << 24 | kind position << 16 | cases
+    // (autotile flag identities allow fewer than 256 kinds).
+    // Sorting a row's integers orders them by cell, then by kind in draw order.
+    $corners = [];
+    foreach ($tiles as $position => $tile) {
       $group = array_fill_keys($joins[$tile] ?? [$tile], true);
       $group[$tile] = true;
       $holds = static fn(int $x, int $y): int => (int)isset($group[$flagAt($x, $y) ?? -1]);
@@ -98,9 +122,7 @@ final class CornerShape
           }
         }
       }
-      ksort($reached);
       foreach ($reached as $y => $row) {
-        ksort($row);
         foreach ($row as $x => $_) {
           $flag = $flags[$y][$x] ?? null;
           if ($flag !== null && $flag !== $tile && isset($group[$flag])) {
@@ -109,16 +131,19 @@ final class CornerShape
           }
           $cases = $case($x, $y) | $case($x + 1, $y) << 4 | $case($x, $y + 1) << 8 | $case($x + 1, $y + 1) << 12;
           if ($cases !== 0) {
-            $resolved[$y][$x][$tile] = $cases;
+            $corners[$y][] = $x << 24 | $position << 16 | $cases;
           }
         }
       }
     }
-    ksort($resolved);
-    foreach ($resolved as &$row) {
-      ksort($row);
+    unset($flags, $reached);
+    ksort($corners);
+    foreach ($corners as $y => $row) {
+      sort($row);
+      foreach ($row as $corner) {
+        yield [$corner >> 24, $y, $tiles[($corner >> 16) & 0xFF], $corner & 0xFFFF];
+      }
     }
-    return $resolved;
   }
 
   /**

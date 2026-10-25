@@ -186,7 +186,7 @@ it('loads a tileset and uses only sheets whose images fit their RPG Maker layout
 it('reads map tile layers as literal cells matching the map and refuses anything else', function () {
   $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', "....\n....")]);
   $layer = new MapTileLayer('floor', 1, 'floor', "2816 0 10 10\n  0 0  10 0 \n");
-  expect($layer->tiles)->toBe([[2816, 0, 10, 10], [0, 0, 10, 0]])
+  expect($layer->readTiles())->toBe([[2816, 0, 10, 10], [0, 0, 10, 0]])
     ->and($layer->getEntries())->toBe([['2816', '0', '10', '10'], ['0', '0', '10', '0']])
     ->and($layer->getUsedIds())->toBe([2816, 10]);
   $layer->assertMatches($layers);
@@ -220,7 +220,7 @@ it('reads unsaved tile layer sources through the same parser and diagnostics as 
 
   expect($read([$map . '/graphics/01.floor.tiles.php' => $floor, $map . '/graphics/05.furniture.tiles.php' => $furniture]))
     ->toEqual(MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root, $settings))
-    ->and(array_map(static fn(MapTileLayer $layer): array => [$layer->name, $layer->path, $layer->tiles], $edited->layers))->toBe([
+    ->and(array_map(static fn(MapTileLayer $layer): array => [$layer->name, $layer->path, $layer->readTiles()], $edited->layers))->toBe([
       ['floor', 'home/graphics/01.floor.tiles.php', [[2816, 2816, 2816, 2816], [2816, 2816, 0, 0]]],
       ['furniture', 'home/graphics/05.furniture.tiles.php', [[5, 0, 0, 0], [0, 0, 0, 1]]],
     ])
@@ -634,7 +634,8 @@ it('derives wall shadows on the cell to the right from the current tiles, never 
   // Painting the run one cell further, or erasing it, moves or removes its shadow with no other edit.
   expect($shadowsOf("1 1 1 0 0\n0 0 1 0 1")[1])->toBe([0 => [3]])
     ->and($shadowsOf("0 0 0 0 0\n7 0 0 0 0")[1])->toBe([1 => [1]])
-    ->and($shadowsOf("0 0 0 0 0\n0 0 0 0 0")[0]->tileShadows)->toBeNull();
+    ->and($shadowsOf("0 0 0 0 0\n0 0 0 0 0")[0]->getOperations(true, true))
+    ->toBe($shadowsOf("0 0 0 0 0\n0 0 0 0 0")[0]->getOperations(true));
   $operations = $world->getOperations(true, true);
   $value = $operations[0]['value'];
   $shadow = $value['tileset']['tiles'][array_key_last($value['tileset']['tiles'])];

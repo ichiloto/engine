@@ -123,7 +123,7 @@ it('composes unsaved world data projected sprites groups and viewport without ch
     ->and($this->source->viewportInputs)->toBe([[$frame->snapshot, [$sprites[1], $sprites[0]], []]])
     ->and($this->source->sprites)->toBe($sprites)->and($this->source->groups)->toBe($groups)
     ->and($this->source->viewport)->toBe($viewport)->and($viewport->worldCanvasIds)->toBe([])
-    ->and($this->layers->layers[0]->glyphs[4][7])->toBe('X');
+    ->and($this->layers->layers[0]->getGlyphAt(7, 4))->toBe('X');
 });
 
 it('uses current in-memory edits and removes deleted subjects rather than caching an authored map', function () {
