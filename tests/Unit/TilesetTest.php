@@ -88,6 +88,28 @@ it('copies plain tiles from the two eight-column halves of their sheet', functio
     ->and(fn() => TileComposer::compose(1, 47))->toThrow(InvalidArgumentException::class);
 });
 
+it('names the plain tile at every cell of a sheet image as the composer draws it back', function () {
+  foreach ([TilesetSheet::A5, TilesetSheet::B, TilesetSheet::C, TilesetSheet::D, TilesetSheet::E] as $sheet) {
+    $seen = [];
+    for ($row = 0; $row < $sheet->getRows(); $row++) {
+      for ($column = 0; $column < $sheet->getColumns(); $column++) {
+        $tile = TileId::getPlainTileAt($sheet, $column, $row);
+        $seen[$tile] = true;
+        expect(TileId::getPlainTileCell($tile))->toBe([$sheet, $column, $row]);
+        expect(TileId::getSheet($tile))->toBe($sheet);
+        if ($tile !== TileId::EMPTY) {
+          expect(getPieceRects(TileComposer::compose($tile, 48)[0]))->toBe([[$column * 48, $row * 48, 48, 48, 0, 0]]);
+        }
+      }
+    }
+    expect($seen)->toHaveCount($sheet->getColumns() * $sheet->getRows());
+  }
+  expect(TileId::getPlainTileAt(TilesetSheet::C, 8, 12))->toBe(480)
+    ->and(fn() => TileId::getPlainTileAt(TilesetSheet::A2, 0, 0))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => TileId::getPlainTileAt(TilesetSheet::B, 16, 0))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => TileId::getPlainTileAt(TilesetSheet::A5, 8, 0))->toThrow(InvalidArgumentException::class);
+});
+
 it('assembles autotiles from the quarters RPG Maker chooses for each shape', function () {
   // The first A2 kind, isolated (shape 47): its preview tile, the block's first two by two quarters.
   expect(getPieceRects(TileComposer::compose(2816 + 47, 48)[0]))->toBe([

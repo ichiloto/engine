@@ -130,6 +130,9 @@ editing surface is owned by the GUI Editor plan. Related docs:
 - Tile identities follow RPG Maker MZ's numbering (B from 0, C from 256,
   D from 512, E from 768, A5 from 1536, A1 from 2048, A2 from 2816, A3 from
   4352, A4 from 5888), with the autotile shape carried in the identity.
+  `TileId::getPlainTileAt()` and `getPlainTileCell()` map a plain tile to its
+  cell on its sheet's image and back: A5 eight cells across, B to E sixteen
+  across in two halves of eight, the left half's 128 tiles first.
 - RPG Maker's per-tile passage settings do not apply: passage comes from
   the map's shared [physical occupancy](maps.md#physical-occupancy). Only an
   undeclared map uses glyph-keyed compatibility; neither tile selection nor
@@ -194,11 +197,16 @@ editing surface is owned by the GUI Editor plan. Related docs:
   `PASS_THROUGH` is a legacy layer rule, not a final physical cell. Absence
   means no recipe; an explicit null declaration, invalid type or mismatched
   geometry refuses. A connected piece uses one cell independently of its
-  drawn shape. Glyph/art placement never applies this recipe automatically.
-  The GUI edits it through the existing record/source/history service and
-  saves the tileset before selecting it in the Collision tool. An explicit
-  footprint stamp changes only declared map occupancy as one undo step;
-  every non-null cell must fit, including on ragged maps, or nothing changes.
+  drawn shape. Glyph/art placement never applies this recipe automatically:
+  an editor applies it with a placement only when the author asks
+  (`pieces.place` with `footprint`, the GUI's With its collision), in the same
+  undo step, and only on a map with declared occupancy. The GUI edits it
+  through the existing record/source/history service and saves the tileset
+  before selecting it in the Collision tool. An explicit footprint stamp
+  changes only declared map occupancy as one undo step; every non-null cell
+  must fit, including on ragged maps, or nothing changes. Removing a placed
+  copy with its footprint gives those cells the collision the terminal layers
+  left there resolve to, the legacy reading Separate collision captures.
 - **Painted doors.** A stamped piece whose art paints doors, such as a
   building, declares its `doorway` in the same form as a world object's
   resource (below): relative x/y cells from its top-left cell with an
@@ -206,7 +214,9 @@ editing surface is owned by the GUI Editor plan. Related docs:
   may not be solid in the piece's own `occupancy`. The doorway needs nonzero
   tiles, by which `MapGraphics::findPieceStamps()` finds every copy standing
   whole on a map; each copy's doors must meet that map's entrances (see
-  Doorways and entrances). A connected piece paints no doors.
+  Doorways and entrances). `MapGraphics::findPieceStampsCovering()` answers
+  the same rule for the copies over one cell, which is how editors select a
+  placed building. A connected piece paints no doors.
 - **Terrain kinds.** A tileset may declare `kinds`, the terrain a classic
   world map is painted in (grassland, woodland, mountains, water), keyed by
   kind id: a `name`, the gameplay `layer` its `glyph` (one coloured cell) goes

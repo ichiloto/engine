@@ -202,10 +202,57 @@ final readonly class MapGraphics
      */
     public function findPieceStamps(TilesetPiece $piece): array
     {
-        if ($piece->connects !== null) { return []; }
-        // Keep the canonical integer layers; string entry grids are an authoring export.
+        $stencil = self::readStencil($piece);
+        if ($stencil === []) { return []; }
+        $layers = $this->indexLayers();
+        $stamps = [];
+        foreach ($layers[array_key_first($piece->tiles)]->tiles ?? [] as $y => $row) {
+            foreach ($row as $x => $_) {
+                if (self::matchesStencil($layers, $stencil, $x, $y)) { $stamps[] = [$x, $y]; }
+            }
+        }
+        return $stamps;
+    }
+
+    /**
+     * The copies of a stamped piece standing whole over a cell, by the rule of
+     * {@see findPieceStamps()}: their top-left cells, in row order. Only the
+     * origins from which the piece's footprint reaches the cell are read, so
+     * an editor can ask about the cell under the pointer on any map.
+     *
+     * @return list<array{0: int, 1: int}>
+     */
+    public function findPieceStampsCovering(TilesetPiece $piece, int $x, int $y): array
+    {
+        $stencil = self::readStencil($piece);
+        if ($stencil === []) { return []; }
+        $layers = $this->indexLayers();
+        $stamps = [];
+        for ($top = max(0, $y - $piece->height + 1); $top <= $y; $top++) {
+            for ($left = max(0, $x - $piece->width + 1); $left <= $x; $left++) {
+                if (self::matchesStencil($layers, $stencil, $left, $top)) { $stamps[] = [$left, $top]; }
+            }
+        }
+        return $stamps;
+    }
+
+    /** @return array<string, MapTileLayer> The canonical integer layers by name; string entry grids are an authoring export. */
+    private function indexLayers(): array
+    {
         $layers = [];
         foreach ($this->layers as $layer) { $layers[$layer->name] = $layer; }
+        return $layers;
+    }
+
+    /**
+     * A stamped piece's nonzero tiles, each with its layer and its place from
+     * the top-left; empty for a connected piece or one with no nonzero tiles.
+     *
+     * @return list<array{0: string, 1: int, 2: int, 3: int}>
+     */
+    private static function readStencil(TilesetPiece $piece): array
+    {
+        if ($piece->connects !== null) { return []; }
         $stencil = [];
         foreach ($piece->tiles as $name => $rows) {
             foreach ($rows as $dy => $entries) {
@@ -215,18 +262,19 @@ final readonly class MapGraphics
                 }
             }
         }
-        if ($stencil === []) { return []; }
-        $stamps = [];
-        foreach ($layers[array_key_first($piece->tiles)]->tiles ?? [] as $y => $row) {
-            foreach ($row as $x => $_) {
-                $matches = true;
-                foreach ($stencil as [$name, $dx, $dy, $tile]) {
-                    if (($layers[$name]->tiles[$y + $dy][$x + $dx] ?? null) !== $tile) { $matches = false; break; }
-                }
-                if ($matches) { $stamps[] = [$x, $y]; }
-            }
+        return $stencil;
+    }
+
+    /**
+     * @param array<string, MapTileLayer> $layers
+     * @param list<array{0: string, 1: int, 2: int, 3: int}> $stencil
+     */
+    private static function matchesStencil(array $layers, array $stencil, int $x, int $y): bool
+    {
+        foreach ($stencil as [$name, $dx, $dy, $tile]) {
+            if (($layers[$name]->tiles[$y + $dy][$x + $dx] ?? null) !== $tile) { return false; }
         }
-        return $stamps;
+        return true;
     }
 
     /**

@@ -13,8 +13,10 @@ use Ichiloto\Engine\Util\Debug;
 final class PngAssetPreflight
 {
   private const int MAX_CACHE_ENTRIES = 1024;
-  private const int MAX_FILE_BYTES = 16 * 1024 * 1024;
-  private const int MAX_DIMENSION = 4096;
+  /** The largest graphical asset file the Engine reads; tools that bring art into a project hold to it too. */
+  public const int MAX_FILE_BYTES = 16 * 1024 * 1024;
+  /** The widest and tallest graphical asset the Engine reads, in pixels. */
+  public const int MAX_DIMENSION = 4096;
   /** @var array<string, array{version: array, size: ?array, error: ?string, reported: bool}> */
   private static array $cache = [];
   /** Current composition's file facts; discarded before the next frame or after any failure. */

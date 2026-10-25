@@ -88,6 +88,15 @@ it('finds every whole copy of a stamped piece by its nonzero tiles and nothing p
     ]))]);
 
     expect($graphics->findPieceStamps($tileset->pieces['hut']))->toBe([[0, 0], [2, 2]]);
+    // Over one cell, only the copies covering it; the same rule as the whole map's.
+    $hut = $tileset->pieces['hut'];
+    for ($y = 0; $y < 5; $y++) {
+        for ($x = 0; $x < 8; $x++) {
+            $covering = array_values(array_filter($graphics->findPieceStamps($hut), static fn(array $stamp): bool
+                => $x >= $stamp[0] && $y >= $stamp[1] && $x < $stamp[0] + $hut->width && $y < $stamp[1] + $hut->height));
+            expect($graphics->findPieceStampsCovering($hut, $x, $y))->toBe($covering);
+        }
+    }
 });
 
 it('meets each stamped copy of a piece\'s doors with the map\'s entrances', function () {

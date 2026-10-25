@@ -64,9 +64,8 @@ final class TileComposer
     }
     if (!TileId::isAutotile($id)) {
       // Upper sheets and A5: two halves of 8 columns, 128 tiles each.
-      $x = (intdiv($id, 128) % 2 * 8 + $id % 8) * $tileSize;
-      $y = intdiv($id % 256, 8) % 16 * $tileSize;
-      return [[new TilePiece($sheet->value, $x, $y, $tileSize, $tileSize, 0, 0)]];
+      [, $column, $row] = TileId::getPlainTileCell($id);
+      return [[new TilePiece($sheet->value, $column * $tileSize, $row * $tileSize, $tileSize, $tileSize, 0, 0)]];
     }
     $kind = TileId::getKind($id);
     $shape = TileId::getShape($id);
