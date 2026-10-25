@@ -59,11 +59,11 @@ function writePassageArt(string $path, int $columns, int $rows, array $blocks): 
  * @return list<\Ichiloto\Engine\Field\Validation\MapValidationIssue>
  */
 function inspectPassage(string $root, array $glyphs, array $tiles, array $data = [], array $resources = [], array $appearance = [],
-    string $eventRows = ''): array
+    string $eventRows = '', array $pieces = []): array
 {
     $layers = new MapLayerSet([new MapLayer('terrain', 0, false, 'synthetic', implode("\n", $glyphs))]);
     $tileset = Tileset::fromArray('synthetic', ['name' => 'Synthetic', 'sheets' => ['A1' => 'Graphics/A1.png', 'A2' => 'Graphics/A2.png',
-        'B' => 'Graphics/B.png'], 'above' => [6], 'appearance' => $appearance]);
+        'B' => 'Graphics/B.png'], 'above' => [6], 'appearance' => $appearance, 'pieces' => $pieces]);
     $graphics = new MapGraphics($tileset, [new MapTileLayer('ground', 0, 'synthetic', implode("\n", $tiles))], owners: ['ground' => 'terrain']);
     $occupancy = MapCollisionResolver::resolveMap($layers, $data, ['#' => CollisionType::SOLID, ' ' => CollisionType::NONE,
         'M' => CollisionType::NONE]);
@@ -105,6 +105,18 @@ it('reads art drawn over the player as more than ground, and never as an obstacl
     // Tile 6 is drawn above characters, so by default it is overhead art such as a roof.
     expect(inspectPassage($this->root, ['     ', '  #  ', '     '], fillTiles(5, 3, cells: [[2, 1, 6]])))->toBe([])
         ->and(inspectPassage($this->root, ['     ', '     ', '     '], fillTiles(5, 3, cells: [[2, 1, 6]])))->toBe([]);
+});
+
+it('leaves the doors a stamped piece paints to the doorway rule', function () {
+    // Tile 5 shows a barrier: a door painted in a wall. The piece declares its middle cell a door entered on the opening.
+    $glyphs = ['     ', '     '];
+    $tiles = fillTiles(5, 2, cells: [[1, 1, 5], [2, 1, 5], [3, 1, 5]]);
+    $gate = ['gate' => ['name' => 'Gate', 'layer' => 'terrain', 'glyphs' => ['   '], 'tiles' => ['ground' => ['5 5 5']]]];
+    expect(groupPassageCells(inspectPassage($this->root, $glyphs, $tiles, appearance: ['barrier' => [5]], pieces: $gate)))
+        ->toBe([MapPassageAgreementRule::WALK_THROUGH => [[1, 1], [2, 1], [3, 1]]]);
+    $gate['gate']['doorway'] = [['x' => 1, 'y' => 0]];
+    expect(groupPassageCells(inspectPassage($this->root, $glyphs, $tiles, appearance: ['barrier' => [5]], pieces: $gate)))
+        ->toBe([MapPassageAgreementRule::WALK_THROUGH => [[1, 1], [3, 1]]]);
 });
 
 it('reports a walkable cell that shows water, or world object art on its ground row', function () {

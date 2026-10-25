@@ -40,6 +40,14 @@
   cinematic, a transfer) no longer inherits the pace of the step that arrived,
   so an actor started by an arrival walks at its own pace after a dash.
 
+- Painted doors on tileset pieces: a stamped piece, such as a building,
+  declares its `doorway` in the same form as a world object's resource (cells
+  from its top-left cell, each entered on its opening or from the front), read
+  by the shared `Doorway`. A door entered on its opening may not be solid in the
+  piece's own occupancy. `MapGraphics::findPieceStamps()` finds every copy of a
+  piece standing whole on a map's tiles (`FieldPieceEffects` now uses it), and
+  `MapDoorwayRule` holds each copy's doors to the map's entrances; the passage
+  agreement leaves those door cells to it.
 - Keycaps for every control, drawn by one owner: `ControlGlyphPresentation`
   graphically and `TerminalControlText` in the Terminal ("[Enter]"). A theme's
   `controls` sets in `Data/Presentation/menus.php` give each input device family

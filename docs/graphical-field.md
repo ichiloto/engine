@@ -199,6 +199,14 @@ editing surface is owned by the GUI Editor plan. Related docs:
   saves the tileset before selecting it in the Collision tool. An explicit
   footprint stamp changes only declared map occupancy as one undo step;
   every non-null cell must fit, including on ragged maps, or nothing changes.
+- **Painted doors.** A stamped piece whose art paints doors, such as a
+  building, declares its `doorway` in the same form as a world object's
+  resource (below): relative x/y cells from its top-left cell with an
+  optional `entrance`. A door entered on its opening (`'on'`, the default)
+  may not be solid in the piece's own `occupancy`. The doorway needs nonzero
+  tiles, by which `MapGraphics::findPieceStamps()` finds every copy standing
+  whole on a map; each copy's doors must meet that map's entrances (see
+  Doorways and entrances). A connected piece paints no doors.
 - **Terrain kinds.** A tileset may declare `kinds`, the terrain a classic
   world map is painted in (grassland, woodland, mountains, water), keyed by
   kind id: a `name`, the gameplay `layer` its `glyph` (one coloured cell) goes
@@ -575,7 +583,10 @@ cell inside an object's `covers` above that row is an error: the player would
 vanish under the art there. A placement whose resource declares a `doorway`
 must meet an entrance exactly as each door declares: on the door cell for
 `'on'`, and on the cell below it for `'front'`, whose door cell itself must
-hold no entrance. A door drawn one cell off in any direction reports. Both
+hold no entrance. A door drawn one cell off in any direction reports. Each
+copy of a tileset piece that declares a `doorway` and stands whole on the
+map's tiles is held to the same rule; a stamped piece is always drawn, so any
+entrance meets it whatever its conditions. Both
 read authored cells only. Image size, pixels and draw layers decide nothing, an object without
 `covers` claims only its anchor, and overhang above open floor or ordinary
 events stays legal. An object and an entrance whose conditions provably never
