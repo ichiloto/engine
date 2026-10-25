@@ -27,6 +27,7 @@ class TitleOptionsSettingsManager extends SettingsManager
       'battle_transitions',
       'dialogue_speed',
       'dialogue_auto',
+      'always_dash',
       'notification_duration',
     ];
   }

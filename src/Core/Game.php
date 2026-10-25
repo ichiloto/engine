@@ -66,6 +66,7 @@ use Ichiloto\Engine\UI\Windows\DebugWindow;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Progression\ProgressionSettings;
+use Ichiloto\Engine\Field\DashSettings;
 use Ichiloto\Engine\Util\Config\InputConfig;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\PlayerSettings;
@@ -562,6 +563,8 @@ class Game implements CanRun, SubjectInterface
         ConfigStore::remove(ProgressionSettings::class);
         $systemPayload = asset('Data/system.php', true);
         ConfigStore::put(ProgressionSettings::class, ProgressionSettings::fromSystemData($systemPayload));
+        ConfigStore::remove(DashSettings::class);
+        ConfigStore::put(DashSettings::class, DashSettings::fromSystemData($systemPayload));
         ElementRegistry::configure(is_array($systemPayload['elements'] ?? null) ? $systemPayload['elements'] : []);
         ConfigStore::put(ActorStore::class, new ActorStore());
         $actorStore = ConfigStore::get(ActorStore::class);

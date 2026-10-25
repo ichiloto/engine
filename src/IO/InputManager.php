@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\KeyboardEvent;
+use Ichiloto\Engine\Field\PlayerDash;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -169,6 +170,9 @@ class InputManager
     if (! array_key_exists('secondary_action', $bindings)) {
       $bindings['secondary_action'] = self::getDefaultSecondaryActionBinding($bindings);
     }
+    if (! array_key_exists(PlayerDash::ACTION, $bindings)) {
+      $bindings[PlayerDash::ACTION] = self::getDefaultDashBinding($bindings);
+    }
 
     if (!array_key_exists('quick_save', $bindings)) {
       $claimed = array_any($bindings, static fn(array $binding): bool => in_array(KeyCode::F5, $binding['keys'] ?? [], true));
@@ -204,6 +208,23 @@ class InputManager
       !array_any($bindings, static fn(array $binding): bool => in_array($key, $binding['keys'] ?? [], true))));
     return ['description' => 'Perform a secondary field action.', 'keys' => $keys,
       'controllers' => self::WEST_FACE_CONTROLLERS];
+  }
+
+  /**
+   * Holding B to dash, as the Game Boy Advance Final Fantasy releases do.
+   * Reserved data, as the other controller identities are.
+   */
+  public const array DASH_CONTROLLERS = [
+    ['family' => 'gamepad.xbox', 'control' => 'face_east', 'label' => 'B'],
+    ['family' => 'gamepad.playstation', 'control' => 'face_east', 'label' => 'Circle'],
+  ];
+
+  /** RPG Maker's dash key, Shift, when nothing else claims it. Only a held-input source reports it. */
+  public static function getDefaultDashBinding(array $bindings = []): array
+  {
+    $claimed = array_any($bindings, static fn(array $binding): bool => in_array(KeyCode::SHIFT, $binding['keys'] ?? [], true));
+    return ['description' => 'Hold to dash. With Always Dash on, hold to walk.', 'keys' => $claimed ? [] : [KeyCode::SHIFT],
+      'controllers' => self::DASH_CONTROLLERS];
   }
 
   /** Consume the current sampled edges, preserving held controls and unread input for the next owner. */

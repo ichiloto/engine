@@ -4221,6 +4221,16 @@ renderer slides field sprites between cells over each step's duration and
 moves a following camera with the player on one clock. Terminal event-only
 input, route timing and retained-cell composition are unchanged.
 
+Delivered 25 October 2026: RPG Maker's dash
+([dash](input-sources.md#dash-implemented)). The held `dash` action (Shift by
+default, reported through the negotiated `modifier_controls` subscription)
+divides each held step's time by the project's authored multiplier, decided
+with the step so walking and dashing chain end to end; a map may turn it off
+(`disableDashing`) and the player's Always Dash option inverts it. Encounters
+count steps exactly as walking does. The Terminal has no dash: it cannot
+report a held control. Remaining: native held-Shift acceptance in play, and a
+controller dash once a controller source exists.
+
 Bounded macOS physical acceptance: Andrew's four October 10 walking checks and
 October 11 open-space cinematic-return check pass as recorded in the G4 checklist.
 They do not establish other platforms or whole-game input qualification.

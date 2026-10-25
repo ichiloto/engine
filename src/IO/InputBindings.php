@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\IO;
 
+use Ichiloto\Engine\Field\PlayerDash;
 use Ichiloto\Engine\IO\Saves\SaveFeatures;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -34,7 +35,8 @@ class InputBindings implements ActionHintProvider
   }
 
   /**
-   * Returns the rebindable actions in a stable display order.
+   * Returns the rebindable actions in a stable display order. Quick Save
+   * and Dash are listed only where the game and input offer them.
    *
    * @return array<int, array{action: string, description: string, keys: KeyCode[]}> The bindings.
    */
@@ -44,6 +46,7 @@ class InputBindings implements ActionHintProvider
 
     foreach (InputManager::getBindings() as $action => $binding) {
       if (($action === 'quick_save' && !SaveFeatures::isQuickSaveEnabled())
+        || ($action === PlayerDash::ACTION && !PlayerDash::isAvailable())
         || in_array($action, self::LOCKED_ACTIONS, true)) {
         continue;
       }
@@ -96,6 +99,7 @@ class InputBindings implements ActionHintProvider
   public function controlForAction(string $action): ?ControlHint
   {
     if ($action === 'quick_save' && !SaveFeatures::isQuickSaveEnabled()) { return null; }
+    if ($action === PlayerDash::ACTION && !PlayerDash::isAvailable()) { return null; }
     $key = $this->primaryKey($action);
     return $key === null ? null : ControlHint::keyboard($key);
   }

@@ -438,7 +438,9 @@ in a terminal emulator; physical input and GPUI presentation were not measured.
 The Game's GPUI session requires the `key_transitions` subscription, so the
 renderer also reports key presses, releases and resets; PHP applies them
 before each gameplay update and owns held walking and its timing (see
-[key transitions](input-sources.md#key-transitions-implemented)). When the
+[key transitions](input-sources.md#key-transitions-implemented)). It also
+requires `modifier_controls`, so Shift held alone is a control the dash can
+hold (see [dash](input-sources.md#dash-implemented)). When the
 renderer advertises `field_motion`, PHP marks each committed step with its
 duration and names the sprite the camera follows; the renderer slides between
 the committed cells on its own clock, requesting frames only while something
@@ -450,7 +452,7 @@ When the renderer advertises `sprite_lift`, a field character's sprite names
 the lift its character sheet is drawn above its cell (see
 [field character sheets](sprite-sheets.md#lift)); other renderers receive
 the sprite without it and place it on its cell.
-An installed renderer that predates `key_transitions`
+An installed renderer that predates `key_transitions` or `modifier_controls`
 rejects the session at startup; install the updated renderer.
 
 After enqueueing retained-update bytes, Runtime performs one bounded, zero-wait I/O

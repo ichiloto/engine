@@ -12,6 +12,7 @@ use Ichiloto\Engine\Entities\Actions\FieldActionContext;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Field\Enumerations\StepOrigin;
+use Ichiloto\Engine\Field\PlayerDash;
 use Ichiloto\Engine\Field\PlayerWalk;
 use Ichiloto\Engine\Field\FieldActionRegistry;
 use Ichiloto\Engine\Field\SkitPrompt;
@@ -345,9 +346,10 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
     protected function handleNavigation(GameScene $scene): void
     {
         if (Input::isHeldInputAvailable()) {
-            // The walk's clock and the step's presentation share one duration.
+            // The walk's clock and the step's presentation share one duration, a dash's included.
             $this->playerWalk->update(Time::getDeltaTime(), static fn(Vector2 $direction, float $seconds): bool
-                => $scene->moveAtPace($seconds, static fn(): bool => $scene->player->tryMove($direction, $scene->camera, StepOrigin::PLAYER_INPUT)));
+                => $scene->moveAtPace($seconds, static fn(): bool => $scene->player->tryMove($direction, $scene->camera, StepOrigin::PLAYER_INPUT)),
+                PlayerDash::getSpeedMultiplier($scene->mapManager?->isDashingDisabled ?? false));
             return;
         }
 
