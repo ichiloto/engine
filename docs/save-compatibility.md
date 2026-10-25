@@ -414,15 +414,19 @@ matching place on its successor without a project class:
 ]
 ```
 
-`map` is the retired map ID and `into` the map its saves move to: both
-non-empty and different. `to` is the `[x, y]` landing on `into` for a save no
+`map` is the retired map ID and `into` the map its saves move to, both
+non-empty. `to` is the `[x, y]` landing on `into` for a save no
 landing holds. `landings` is optional; when present it is a non-empty list of
 rectangles in the retired map's coordinates, each with a non-negative `x` and
 `y`, a positive `width` and `height`, and its own `to` landing on `into`. A
 save whose map is `map` moves onto `into` at the `to` of the first rectangle
 holding its cell, or else at the entry's `to`. Map aliases apply to the save
-and to `map`, as for shifts. A retirement whose `map` and `into` name one map
-through the aliases is invalid.
+and to `map`, as for shifts.
+
+A map may retire into itself, when its old layout is redrawn under the same
+ID: `map` and `into` name one map, the rectangles are in the old layout's
+coordinates and the landings in the new one's. Every save made on the map
+before the step moves, since it stood on the old layout.
 
 The landings are frozen in the manifest: choose open floor on `into`, free of
 events and NPCs and reachable, because loading a save never consults the

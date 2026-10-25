@@ -121,7 +121,6 @@ final readonly class SaveCompatibilityManifest
     $tombstones = self::normalizeTombstones($data['tombstones'] ?? [], $source);
     self::validateAliasGraph($aliases, $tombstones, $source);
     $migrations = self::normalizeMigrations($data['migrations'] ?? [], $rawVersion, $source);
-    self::validateRetirements($migrations, $aliases[ContentReferenceCategory::MAP->value] ?? [], $source);
 
     return new self($projectId, $rawVersion, $aliases, $tombstones, $migrations);
   }
@@ -373,40 +372,6 @@ final readonly class SaveCompatibilityManifest
 
           $seen[$current] = true;
           $current = $entries[$current];
-        }
-      }
-    }
-  }
-
-  /**
-   * Refuses a retirement whose retired map and destination are one map
-   * through declared map aliases: it would move saves standing on the
-   * destination itself.
-   *
-   * @param array<int, class-string<ContentMigrationInterface>|list<SavedPositionEdit|MapRetirement>> $migrations
-   * @param array<string, string> $mapAliases
-   */
-  private static function validateRetirements(array $migrations, array $mapAliases, string $source): void
-  {
-    $resolve = static function (string $mapId) use ($mapAliases): string {
-      while (isset($mapAliases[$mapId])) {
-        $mapId = $mapAliases[$mapId];
-      }
-
-      return $mapId;
-    };
-
-    foreach ($migrations as $from => $migration) {
-      foreach (is_array($migration) ? $migration : [] as $edit) {
-        if ($edit instanceof MapRetirement && $resolve($edit->map) === $resolve($edit->into)) {
-          throw new InvalidSaveCompatibilityManifestException(sprintf(
-            '%s migration step %d to %d retires "%s" into "%s", which the map aliases make one map.',
-            $source,
-            $from,
-            $from + 1,
-            $edit->map,
-            $edit->into
-          ));
         }
       }
     }

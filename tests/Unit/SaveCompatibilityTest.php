@@ -901,6 +901,27 @@ it('moves a place through a step as a save would, for tooling that follows a lan
     ->and($migration->movePlace('forest', new Vector2(1, 1)))->toEqual(['mapId' => 'forest', 'position' => new Vector2(1, 1)]);
 });
 
+it('retires a map into itself, moving each save made on its old layout to that place on the new one', function (string $mapId, array $position, array $expected) {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [['from' => 0, 'to' => 1, 'mapRetirements' => [[
+      'map' => 'world', 'into' => 'world',
+      'landings' => [['x' => 0, 'y' => 0, 'width' => 10, 'height' => 10, 'to' => [120, 80]]],
+      'to' => [150, 95],
+    ]]]],
+    'aliases' => ['maps' => [['from' => 'old-world', 'to' => 'world']]],
+  ]);
+
+  $loaded = loadRetirementSave($manifest, $mapId, $position);
+
+  expect($loaded->mapId)->toBe('world')
+    ->and([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual($expected);
+})->with([
+  'inside a landing' => ['world', [3, 4], [120, 80]],
+  'elsewhere on the old layout' => ['world', [40, 12], [150, 95]],
+  'under its old alias' => ['old-world', [3, 4], [120, 80]],
+]);
+
 it('rejects malformed declarative map retirements', function (mixed $retirements, string $message, array $aliases = []) {
   expect(fn() => makeCompatibilityManifest([
     'contentVersion' => 1,
@@ -914,7 +935,6 @@ it('rejects malformed declarative map retirements', function (mixed $retirements
   'empty map' => [[['map' => ' ', 'into' => 'b', 'to' => [0, 0]]], 'map must be a non-empty string'],
   'non-string map' => [[['map' => 1, 'into' => 'b', 'to' => [0, 0]]], 'map must be a non-empty string'],
   'empty destination' => [[['map' => 'a', 'into' => '', 'to' => [0, 0]]], 'into must be a non-empty string'],
-  'into itself' => [[['map' => 'a', 'into' => ' a ', 'to' => [0, 0]]], 'retires "a" into itself'],
   'missing fallback' => [[['map' => 'a', 'into' => 'b']], 'to must be [x, y]'],
   'negative fallback' => [[['map' => 'a', 'into' => 'b', 'to' => [0, -1]]], 'non-negative integers'],
   'string fallback' => [[['map' => 'a', 'into' => 'b', 'to' => ['0', 0]]], 'non-negative integers'],
@@ -936,8 +956,6 @@ it('rejects malformed declarative map retirements', function (mixed $retirements
     ['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'to' => [0, 0]],
     ['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'to' => [0, -2]],
   ], 'to' => [0, 0]]], 'landings[1] to must be [x, y]'],
-  'one map through aliases' => [[['map' => 'old-b', 'into' => 'b', 'to' => [0, 0]]], 'which the map aliases make one map',
-    ['maps' => [['from' => 'old-b', 'to' => 'b']]]],
 ]);
 
 it('refuses to mix map retirements and a project migration class', function () {

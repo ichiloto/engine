@@ -12,6 +12,10 @@ use Ichiloto\Engine\Exceptions\InvalidSaveCompatibilityManifestException;
  * moves there. Its position becomes the `to` of the first landing rectangle
  * holding it, or else the entry's own `to`.
  *
+ * A map may retire into itself: its old layout is retired and redrawn under
+ * the same identity, so every save made on it before this step moves from
+ * where it stood on the old layout to that layout's landing on the new one.
+ *
  * A save that visited the retired map has visited `into`, since the places it
  * saw are there now. The retired map's one-shot events stay its own: an event
  * that moved to another map follows it only through an explicit
@@ -53,12 +57,6 @@ final readonly class MapRetirement
     $into = is_string($entry['into'] ?? null) ? trim($entry['into']) : '';
     if ($into === '') {
       throw new InvalidSaveCompatibilityManifestException(sprintf('%s into must be a non-empty string.', $where));
-    }
-
-    if ($into === $map) {
-      throw new InvalidSaveCompatibilityManifestException(sprintf(
-        '%s retires "%s" into itself; into must name another map.', $where, $map
-      ));
     }
 
     $landings = [];
