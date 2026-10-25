@@ -36,7 +36,7 @@ final class MapCompletenessValidator
         ?FieldPresentationCatalog $fieldCatalog = null, bool $requiresGraphics = false): array
     {
         $issues = self::validateEvents($mapId, $data, $eventLayer);
-        $issues = [...$issues, ...self::validateDoorways($mapId, $data, $eventLayer, $layers, $assetRoot, $fieldCatalog)];
+        $issues = [...$issues, ...self::validateDoorways($mapId, $data, $eventLayer, $layers, $assetRoot, $fieldCatalog, $graphics)];
         foreach (is_array($data['events'] ?? null) ? $data['events'] : [] as $key => $event) {
             if (!is_array($event)) { continue; }
             $class = $event['class'] ?? null;
@@ -126,15 +126,17 @@ final class MapCompletenessValidator
     }
 
     /**
-     * Painted doorways on their entrances and entrances in front of their objects ({@see MapDoorwayRule}).
+     * Painted doorways on their entrances and entrances in front of their objects ({@see MapDoorwayRule}),
+     * the world objects' and the stamped tileset pieces' in the map's graphics.
      * Unresolvable events, placements and resources are reported by their own rules.
      * @return list<MapValidationIssue>
      */
     public static function validateDoorways(string $mapId, array $data, array $eventLayer, MapLayerSet $layers, string $assetRoot,
-        ?FieldPresentationCatalog $fieldCatalog = null): array
+        ?FieldPresentationCatalog $fieldCatalog = null, ?MapGraphics $graphics = null): array
     {
         $objects = is_array($data['worldObjects'] ?? null) ? $data['worldObjects'] : [];
-        if ($objects === []) { return []; }
+        $doorPieces = $graphics !== null && array_any($graphics->tileset->pieces, static fn($piece): bool => $piece->doorway !== []);
+        if ($objects === [] && !$doorPieces) { return []; }
         try {
             $fieldCatalog ??= array_any($objects, static fn($entry): bool => is_array($entry) && array_key_exists('resource', $entry))
                 ? FieldPresentationCatalog::load($assetRoot) : null;
@@ -142,7 +144,7 @@ final class MapCompletenessValidator
             $fieldCatalog = null;
         }
         return MapDoorwayRule::inspect($mapId, $data, MapEventResolver::inspect($data, $eventLayer, $mapId)->events,
-            $layers->getComposedGrid(), $fieldCatalog);
+            $layers->getComposedGrid(), $fieldCatalog, $graphics);
     }
 
     /**

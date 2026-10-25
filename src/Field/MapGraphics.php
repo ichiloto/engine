@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Field;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Tilesets\TileId;
 use Ichiloto\Engine\Rendering\Tilesets\Tileset;
+use Ichiloto\Engine\Rendering\Tilesets\TilesetPiece;
 use InvalidArgumentException;
 
 /**
@@ -187,6 +188,45 @@ final readonly class MapGraphics
             }
         }
         return $shown;
+    }
+
+    /**
+     * Where a stamped piece stands whole on this map: the top-left cell of
+     * every place where each of its nonzero tiles lies on its named tile layer,
+     * in row order. Its `0` tiles match anything, as stamping leaves those
+     * cells as they were. Only the tiles say so, never glyphs or collision, so
+     * a copy partly painted over is no longer one. A connected piece, or one
+     * with no nonzero tiles, is never found.
+     *
+     * @return list<array{0: int, 1: int}>
+     */
+    public function findPieceStamps(TilesetPiece $piece): array
+    {
+        if ($piece->connects !== null) { return []; }
+        // Keep the canonical integer layers; string entry grids are an authoring export.
+        $layers = [];
+        foreach ($this->layers as $layer) { $layers[$layer->name] = $layer; }
+        $stencil = [];
+        foreach ($piece->tiles as $name => $rows) {
+            foreach ($rows as $dy => $entries) {
+                foreach ($entries as $dx => $tile) {
+                    if ($tile === '0') { continue; }
+                    $stencil[] = [$name, $dx, $dy, (int) $tile];
+                }
+            }
+        }
+        if ($stencil === []) { return []; }
+        $stamps = [];
+        foreach ($layers[array_key_first($piece->tiles)]->tiles ?? [] as $y => $row) {
+            foreach ($row as $x => $_) {
+                $matches = true;
+                foreach ($stencil as [$name, $dx, $dy, $tile]) {
+                    if (($layers[$name]->tiles[$y + $dy][$x + $dx] ?? null) !== $tile) { $matches = false; break; }
+                }
+                if ($matches) { $stamps[] = [$x, $y]; }
+            }
+        }
+        return $stamps;
     }
 
     /**

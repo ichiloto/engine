@@ -87,7 +87,7 @@ final class MapPassageAgreementRule
     {
         $grid = $occupancy->collisionGrid;
         $issues = [];
-        $skipped = self::findSkippedCells($data, $events, $layers, $catalog);
+        $skipped = self::findSkippedCells($data, $events, $layers, $catalog, $graphics);
         try {
             $objects = WorldObjectDefinition::readMap($data, $layers, $graphics, catalog: $catalog);
         } catch (InvalidArgumentException|RuntimeException) {
@@ -225,11 +225,12 @@ final class MapPassageAgreementRule
 
     /**
      * Cells another rule owns or that show something other than the map:
-     * entrances, painted doorways and NPCs.
+     * entrances, painted doorways (world objects' and stamped pieces') and NPCs.
      *
      * @return array<int, array<int, true>>
      */
-    private static function findSkippedCells(array $data, array $events, MapLayerSet $layers, ?FieldPresentationCatalog $catalog): array
+    private static function findSkippedCells(array $data, array $events, MapLayerSet $layers, ?FieldPresentationCatalog $catalog,
+        MapGraphics $graphics): array
     {
         $skipped = [];
         foreach ($events as $event) {
@@ -252,6 +253,12 @@ final class MapPassageAgreementRule
                 }
             } catch (InvalidArgumentException) {
                 continue; // object.reference reports an unknown resource.
+            }
+        }
+        foreach ($graphics->tileset->pieces as $piece) {
+            if ($piece->doorway === []) { continue; }
+            foreach ($graphics->findPieceStamps($piece) as [$left, $top]) {
+                foreach ($piece->doorway as $door) { $skipped[$top + $door['y']][$left + $door['x']] = true; }
             }
         }
         foreach (is_array($data['npcs'] ?? null) ? $data['npcs'] : [] as $entry) {

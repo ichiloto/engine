@@ -28,7 +28,7 @@ use InvalidArgumentException;
  */
 final readonly class WorldObjectResource
 {
-    public const int MAX_DOORWAY_CELLS = 16;
+    public const int MAX_DOORWAY_CELLS = Doorway::MAX_CELLS;
 
     private function __construct(
         public string $id,
@@ -105,28 +105,7 @@ final readonly class WorldObjectResource
     /** @return list<array{x: int, y: int, entrance: DoorwayEntrance}> */
     private static function readDoorway(string $id, array $data): array
     {
-        if (!array_key_exists('doorway', $data)) { return []; }
-        $doorway = $data['doorway'];
-        if (!is_array($doorway) || !array_is_list($doorway) || $doorway === [] || count($doorway) > self::MAX_DOORWAY_CELLS) {
-            throw new InvalidArgumentException("Resource '{$id}' doorway must be a list of 1.." . self::MAX_DOORWAY_CELLS . ' relative cells.');
-        }
-        $cells = $seen = [];
-        foreach ($doorway as $cell) {
-            if (!is_array($cell) || array_diff(array_keys($cell), ['x', 'y', 'entrance']) !== [] || !is_int($cell['x'] ?? null) || !is_int($cell['y'] ?? null)
-                || isset($seen[$cell['y']][$cell['x']])) {
-                throw new InvalidArgumentException("Resource '{$id}' doorway requires distinct integer x/y offsets from the anchor.");
-            }
-            $entrance = DoorwayEntrance::tryFrom(is_string($cell['entrance'] ?? null) ? $cell['entrance'] : '');
-            if (array_key_exists('entrance', $cell) && $entrance === null) {
-                throw new InvalidArgumentException("Resource '{$id}' doorway entrance must be one of: "
-                    . implode(', ', array_column(DoorwayEntrance::cases(), 'value')) . '.');
-            }
-            SpriteValidation::validateSigned32BitRange($cell['x']);
-            SpriteValidation::validateSigned32BitRange($cell['y']);
-            $seen[$cell['y']][$cell['x']] = true;
-            $cells[] = ['x' => $cell['x'], 'y' => $cell['y'], 'entrance' => $entrance ?? DoorwayEntrance::ON];
-        }
-        return $cells;
+        return array_key_exists('doorway', $data) ? Doorway::readCells($data['doorway'], "Resource '{$id}'") : [];
     }
 
     /** Resolve for explicit authoring only. Validate every cell before a consumer writes occupancy. */

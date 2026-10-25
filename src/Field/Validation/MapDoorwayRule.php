@@ -9,6 +9,7 @@ use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\WorldConditionExclusion;
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
 use Ichiloto\Engine\Field\Enumerations\DoorwayEntrance;
+use Ichiloto\Engine\Field\MapGraphics;
 use Ichiloto\Engine\Field\WorldObjectDefinition;
 use Ichiloto\Engine\Field\WorldObjectPlacement;
 use InvalidArgumentException;
@@ -28,6 +29,12 @@ use InvalidArgumentException;
  * layer decide nothing, and ordinary overhang above open floor stays legal.
  * Objects and entrances whose conditions provably never hold together do not
  * meet.
+ *
+ * A tileset piece may declare its doorway the same way
+ * ({@see \Ichiloto\Engine\Rendering\Tilesets\TilesetPiece::$doorway}); every
+ * copy of it standing whole on the map's tiles ({@see MapGraphics::findPieceStamps()})
+ * must meet its entrances so. A stamped piece is always drawn, so any entrance
+ * meets it whatever its conditions.
  */
 final class MapDoorwayRule
 {
@@ -42,9 +49,11 @@ final class MapDoorwayRule
      * @param list<array> $events Resolved event definitions ({@see MapEventResolver}).
      * @param list<list<string>> $grid The physical grid the placements are read against.
      * @param FieldPresentationCatalog|null $catalog Resources, when the map names any; unresolved resources are reported elsewhere.
+     * @param MapGraphics|null $graphics The map's tiles and tileset, whose stamped pieces may paint doors; null when it has none.
      * @return list<MapValidationIssue>
      */
-    public static function inspect(string $mapId, array $data, array $events, array $grid, ?FieldPresentationCatalog $catalog): array
+    public static function inspect(string $mapId, array $data, array $events, array $grid, ?FieldPresentationCatalog $catalog,
+        ?MapGraphics $graphics = null): array
     {
         $entries = is_array($data[WorldObjectDefinition::DATA_KEY] ?? null) ? $data[WorldObjectDefinition::DATA_KEY] : [];
         $entrances = [];
@@ -100,6 +109,42 @@ final class MapDoorwayRule
                 default => sprintf("World object '%s' paints its doorway at %d,%d, where no entrance is.", $placement->id, $x, $y),
             }, cells: array_map(static fn(array $cell): array => [$cell[0], $cell[1]], $off), path: [WorldObjectDefinition::DATA_KEY, $index],
                 hint: "Place the object so each painted door meets its entrance as its resource declares, or correct the resource's doorway to match its art.");
+        }
+        return [...$issues, ...self::inspectPieceDoorways($mapId, $entrances, $graphics)];
+    }
+
+    /**
+     * Each stamped piece's painted doors against the map's entrances.
+     *
+     * @param list<array{marker: ?string, area: CellArea, conditions: array}> $entrances
+     * @return list<MapValidationIssue>
+     */
+    private static function inspectPieceDoorways(string $mapId, array $entrances, ?MapGraphics $graphics): array
+    {
+        $issues = [];
+        foreach ($graphics === null ? [] : $graphics->tileset->pieces as $piece) {
+            if ($piece->doorway === []) { continue; }
+            foreach ($graphics->findPieceStamps($piece) as [$left, $top]) {
+                $off = [];
+                foreach ($piece->doorway as $cell) {
+                    [$x, $y] = [$left + $cell['x'], $top + $cell['y']];
+                    [$entranceX, $entranceY] = $cell['entrance']->getEntranceCell($x, $y);
+                    $entered = array_any($entrances, static fn(array $entrance): bool => $entrance['area']->containsCell($entranceX, $entranceY));
+                    $onSolidDoor = $cell['entrance'] === DoorwayEntrance::FRONT
+                        && array_any($entrances, static fn(array $entrance): bool => $entrance['area']->containsCell($x, $y));
+                    if (!$entered || $onSolidDoor) { $off[] = [$x, $y, $cell['entrance'], $onSolidDoor]; }
+                }
+                if ($off === []) { continue; }
+                [$x, $y, $relation, $onSolidDoor] = $off[0];
+                $issues[] = new MapValidationIssue($mapId, self::RULE, match (true) {
+                    $onSolidDoor => sprintf("Piece '%s' at %d,%d paints a door at %d,%d entered from the front, but an entrance lies on the door itself.",
+                        $piece->id, $left, $top, $x, $y),
+                    $relation === DoorwayEntrance::FRONT => sprintf("Piece '%s' at %d,%d paints a door at %d,%d entered from the front, with no entrance at %d,%d.",
+                        $piece->id, $left, $top, $x, $y, $x, $y + 1),
+                    default => sprintf("Piece '%s' at %d,%d paints a door at %d,%d, where no entrance is.", $piece->id, $left, $top, $x, $y),
+                }, cells: array_map(static fn(array $cell): array => [$cell[0], $cell[1]], $off),
+                    hint: "Place an entrance at each door the piece paints, or correct the piece's doorway in its tileset to match its art.");
+            }
         }
         return $issues;
     }
