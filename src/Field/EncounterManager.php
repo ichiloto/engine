@@ -2,7 +2,6 @@
 
 namespace Ichiloto\Engine\Field;
 
-use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -44,28 +43,26 @@ use Throwable;
  */
 class EncounterManager
 {
+  /** What the current map's encounter block means ({@see EncounterTable}). */
+  public private(set) EncounterTable $table;
   /**
    * @var array<string, int> Troop weights, keyed by troop name.
    */
-  protected array $troopWeights = [];
-  /** @var array<string, EncounterEntry> Map-owned choices matching the derived weight table. */
-  private array $entries = [];
-  /** @var array<string, list<CellArea>> The cells each area-limited troop is met in, keyed by troop name. */
-  private array $troopAreas = [];
-  /** @var array<string, list<string>> The encounter terrains each terrain-limited troop is met on, keyed by troop name. */
-  private array $troopTerrains = [];
-  /** The encounter terrain of each cell, on a map painted in terrain kinds. */
-  private ?MapEncounterTerrain $terrain = null;
-  /** @var array<string, mixed> Optional presentation selection, validated only by the graphical renderer path. */
-  private array $presentationSettings = [];
+  protected array $troopWeights {
+    get => $this->table->troopWeights;
+  }
   /**
    * @var int Average steps between encounters; 0 disables the map.
    */
-  protected int $averageStepsBetween = 0;
+  protected int $averageStepsBetween {
+    get => $this->table->averageStepsBetween;
+  }
   /**
    * @var bool True when every walkable step counts, not just danger tiles.
    */
-  protected bool $countsEveryTile = false;
+  protected bool $countsEveryTile {
+    get => $this->table->countsEveryTile;
+  }
   /**
    * @var float Steps remaining until the next encounter.
    */
@@ -82,6 +79,7 @@ class EncounterManager
    */
   public function __construct(protected GameScene $gameScene)
   {
+    $this->table = EncounterTable::createEmpty();
   }
 
   /**
@@ -94,58 +92,9 @@ class EncounterManager
    */
   public function configure(?array $encounters, ?MapAreaCatalog $areas = null, ?MapEncounterTerrain $terrain = null): void
   {
-    $this->troopWeights = [];
-    $this->entries = [];
-    $this->troopAreas = [];
-    $this->troopTerrains = [];
-    $this->terrain = $terrain;
-    $this->presentationSettings = array_intersect_key($encounters ?? [], ['battleArena' => true]);
-    $this->averageStepsBetween = 0;
-    $this->countsEveryTile = strval($encounters['tiles'] ?? 'encounter') === 'any';
-
-    foreach ((array) ($encounters['troops'] ?? []) as $troopName => $value) {
-      $entry = EncounterEntry::getFromValue($value);
-      if (! is_string($troopName) || $entry === null) {
-        continue;
-      }
-      $cells = [];
-      foreach ($entry->areas as $areaId) {
-        $area = $areas?->areas[$areaId] ?? null;
-        if ($area !== null) {
-          $cells[] = $area;
-        }
-      }
-      if (count($cells) !== count($entry->areas)) {
-        // Meeting the troop map-wide would put it where its author kept it out.
-        Debug::warn(sprintf('Encounter "%s" names a map area the map does not declare; it is never met.', $troopName));
-        continue;
-      }
-      $unknown = array_diff($entry->terrains, $terrain?->terrains ?? []);
-      if ($unknown !== []) {
-        // Meeting the troop on any terrain would put it where its author kept it out.
-        Debug::warn(sprintf('Encounter "%s" names encounter terrain %s, which no terrain kind of the map meets; it is never met.',
-          $troopName, implode(', ', $unknown)));
-        continue;
-      }
-      $this->entries[$troopName] = $entry;
-      $this->troopWeights[$troopName] = $entry->weight;
-      if ($cells !== []) {
-        $this->troopAreas[$troopName] = $cells;
-      }
-      if ($entry->terrains !== []) {
-        $this->troopTerrains[$troopName] = $entry->terrains;
-      }
-    }
-
-    if (! empty($this->troopWeights)) {
-      $this->averageStepsBetween = max(1, intval($encounters['rate'] ?? 15));
-    } elseif (! empty($encounters)) {
-      // A map that asks for encounters and gets none is a data mistake, not a
-      // design choice, and silence is how it stays unnoticed.
-      Debug::warn(
-        'A map declares encounters but names no troops the engine can read. '
-        . "Expected ['troops' => ['Troop Name' => weight or ['weight' => weight, ...], ...], 'rate' => steps]."
-      );
+    $this->table = EncounterTable::readBlock($encounters, $areas, $terrain);
+    foreach ($this->table->ignored as $warning) {
+      Debug::warn($warning);
     }
 
     $this->resetCounter();
@@ -160,29 +109,20 @@ class EncounterManager
    */
   public function registerStep(?CollisionType $tile, ?Vector2 $position = null): void
   {
-    if ($this->averageStepsBetween < 1 || $this->encounterRateMultiplier <= 0.0) {
+    if ($this->encounterRateMultiplier <= 0.0) {
       return;
     }
 
-    $isDangerTile = $tile === CollisionType::ENCOUNTER;
+    $stepWeight = $this->table->getStepWeight($tile, $position);
 
-    if (! $isDangerTile && ! $this->countsEveryTile) {
+    if ($stepWeight <= 0.0) {
       return;
     }
 
-    $weights = $this->getTroopWeightsAt($position);
-
-    if ($weights === []) {
-      return;
-    }
-
-    // Danger tiles burn the counter twice as fast on maps that count
-    // every tile, mirroring RPG Maker's bush/terrain danger.
-    $stepWeight = ($this->countsEveryTile && $isDangerTile) ? 2.0 : 1.0;
     $this->stepsUntilEncounter -= $stepWeight * $this->encounterRateMultiplier;
 
     if ($this->stepsUntilEncounter <= 0) {
-      $this->startEncounter($weights);
+      $this->startEncounter($this->table->getTroopWeightsAt($position));
     }
   }
 
@@ -194,11 +134,7 @@ class EncounterManager
    */
   public function getTroopWeightsAt(?Vector2 $position): array
   {
-    $terrain = $position === null ? null : $this->terrain?->getTerrainAt((int) floor($position->x), (int) floor($position->y));
-    return array_filter($this->troopWeights, fn(int $weight, string $troopName): bool => (! isset($this->troopAreas[$troopName])
-      || ($position !== null && array_any($this->troopAreas[$troopName], static fn(CellArea $area): bool => $area->contains($position))))
-      && (! isset($this->troopTerrains[$troopName]) || in_array($terrain, $this->troopTerrains[$troopName], true)),
-      ARRAY_FILTER_USE_BOTH);
+    return $this->table->getTroopWeightsAt($position);
   }
 
   /**
@@ -226,7 +162,7 @@ class EncounterManager
     $this->gameScene->sceneManager->loadBattleScene(
       $this->gameScene->party,
       $troop,
-      extraSettings: $this->entries[$troopName]->getBattleSettings($this->presentationSettings)
+      extraSettings: $this->table->entries[$troopName]->getBattleSettings($this->table->presentationSettings)
     );
   }
 

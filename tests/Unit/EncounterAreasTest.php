@@ -95,3 +95,24 @@ it('never meets a troop limited to an area the map does not declare', function (
   }
   expect($manager->encounters)->toBe([]);
 });
+
+it('weighs each step as the field counts it, in one table the field and the editor share', function () {
+  $table = Ichiloto\Engine\Field\EncounterTable::readBlock(['troops' => [
+    'Roost Bats' => ['weight' => 3, 'areas' => ['roost']],
+    'Lost' => ['weight' => 1, 'areas' => ['nowhere']],
+  ], 'rate' => 8, 'tiles' => 'any'], makeAreaCatalog());
+
+  expect($table->averageStepsBetween)->toBe(8)
+    ->and($table->hasEncounters)->toBeTrue()
+    ->and($table->getStepWeight(CollisionType::NONE, new Vector2(0, 0)))->toBe(1.0)
+    ->and($table->getStepWeight(CollisionType::ENCOUNTER, new Vector2(0, 0)))->toBe(2.0)
+    ->and($table->getStepWeight(CollisionType::NONE, new Vector2(3, 0)))->toBe(0.0)
+    ->and($table->ignored)->toBe(['Encounter "Lost" names a map area the map does not declare; it is never met.']);
+
+  $dangerOnly = Ichiloto\Engine\Field\EncounterTable::readBlock(['troops' => ['Wolves' => 2]]);
+  expect($dangerOnly->averageStepsBetween)->toBe(Ichiloto\Engine\Field\EncounterTable::DEFAULT_RATE)
+    ->and($dangerOnly->getStepWeight(CollisionType::NONE, new Vector2(0, 0)))->toBe(0.0)
+    ->and($dangerOnly->getStepWeight(CollisionType::ENCOUNTER, new Vector2(0, 0)))->toBe(1.0)
+    ->and(Ichiloto\Engine\Field\EncounterTable::readBlock(null)->hasEncounters)->toBeFalse()
+    ->and(Ichiloto\Engine\Field\EncounterTable::readBlock(['rate' => 5])->ignored)->toHaveCount(1);
+});

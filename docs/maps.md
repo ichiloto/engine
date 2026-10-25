@@ -761,6 +761,19 @@ delegates to `ProjectReachability`; authoring validation therefore uses the same
 one-cell rule, including whether an NPC's scripted transfer can run. This does
 not rewrite existing layouts or make graphical counter art a collision source.
 
+### Walks between cells
+
+`MapReachability::findRoute($from, $to)` gives a shortest walk between two
+cells under the same movement rules: every cell from the first to the last, or
+null when the player cannot get there. It never passes through a cell that
+takes the player off the map, though it may begin or end on one
+(`isLeavingMapAt()`), and of the equally short walks it keeps its heading
+wherever it can, so it turns as seldom as a player holding a direction.
+`describeStandingProblem()` says why a cell cannot be stood on (outside the
+map, solid, or where a fixed NPC stands). `MapReachability::readMap()` reads a
+map's resolved events, edge triggers and NPCs the way `ProjectReachability`
+does. The Editor's walk measurement (`map.measure`) is built on these.
+
 ## Editing and migration
 
 The Editor cycles through gameplay, decoration and event layers with independent
@@ -1055,3 +1068,14 @@ read, or that names an area the map does not declare, is never met (the
 engine warns): reading it as the whole map would put the troop where its
 author kept it out. `EncounterManager::getTroopWeightsAt()` reports the troops
 a cell offers.
+
+### The encounter table
+
+`EncounterTable::readBlock($encounters, $areas, $terrain)` reads a map's block
+once into what it means: the troops met and where, the average steps between
+encounters (`averageStepsBetween`, fifteen when `rate` is missing) and how much
+each step counts (`getStepWeight()`: none where the step does not count or no
+troop can be met, one for a counted step, two for a danger tile on a map that
+counts every tile). Parts it leaves out are named in `ignored`. The field's
+`EncounterManager` counts the player's steps with it, and the Editor's walk
+measurement reads the same table, so both answer the same way.
