@@ -175,11 +175,6 @@ final readonly class MapReachability
     }
 
     $reachable = array_map(static fn(): bool => true, $this->measureWalks($starts, $blocked));
-
-    if ($entrances !== []) {
-      array_push($problems, ...$this->findUnreachableTargets($reachable));
-    }
-
     $spokenTo = [];
 
     foreach ($this->npcs as $npc) {
@@ -188,7 +183,9 @@ final readonly class MapReachability
       }
     }
 
-    return new MapReachabilityReport($this->mapId, $reachable, $problems, $spokenTo);
+    $report = new MapReachabilityReport($this->mapId, $reachable, $problems, $spokenTo);
+
+    return $entrances === [] ? $report : $report->withProblems($this->findUnreachableTargets($report));
   }
 
   /**
@@ -397,24 +394,18 @@ final readonly class MapReachability
   }
 
   /**
-   * @param array<string, true> $reachable
+   * Events, edge triggers and talkable NPCs the report says the player cannot
+   * use, asked through the report's own predicates so every consumer reads
+   * reachability the way this analysis does.
+   *
    * @return ReachabilityProblem[]
    */
-  private function findUnreachableTargets(array $reachable): array
+  private function findUnreachableTargets(MapReachabilityReport $report): array
   {
     $problems = [];
-    $isAnyReachable = static function (CellArea $area) use ($reachable): bool {
-      foreach ($area->cells as [$x, $y]) {
-        if (isset($reachable[self::key($x, $y)])) {
-          return true;
-        }
-      }
-
-      return false;
-    };
 
     foreach ($this->events as $event) {
-      if (! $isAnyReachable($event->getStandingArea())) {
+      if (! $report->canEngage($event)) {
         $at = $event->area->firstCell;
         $problems[] = new ReachabilityProblem($this->mapId, ReachabilityProblemKind::UNREACHABLE_EVENT,
           sprintf('No %s of event %s (%s) at (%d, %d) can be reached, so it never fires.',
@@ -425,7 +416,7 @@ final readonly class MapReachability
     }
 
     foreach ($this->edgeTriggers as $trigger) {
-      if (! $isAnyReachable(CellArea::fromRect($trigger->area))) {
+      if (! $report->isAnyReachable($trigger->area)) {
         $problems[] = new ReachabilityProblem($this->mapId, ReachabilityProblemKind::UNREACHABLE_EVENT,
           sprintf('No cell of the edge trigger to %s at (%d, %d) can be reached.',
             $trigger->destinationMap, $trigger->area->getX(), $trigger->area->getY()),
@@ -438,7 +429,7 @@ final readonly class MapReachability
         continue;
       }
 
-      if (! $this->isSpokenToFrom($npc, $reachable)) {
+      if (! $report->canSpeakTo($npc->x, $npc->y)) {
         $problems[] = new ReachabilityProblem($this->mapId, ReachabilityProblemKind::UNREACHABLE_NPC,
           sprintf('NPC %s at (%d, %d) can never be spoken to: no reachable cell is beside it or directly across one counter cell from it.',
             $npc->name, $npc->x, $npc->y),

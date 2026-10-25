@@ -137,21 +137,21 @@ final class ProjectReachability
         'entrance' => new ReachabilityEntrance($x, $y, $source, $conditions), 'requires' => $requires];
     };
     $standingIn = static fn(Rect|CellArea $area): Closure => static fn(MapReachabilityReport $report): bool => $report->isAnyReachable($area);
+    $engaging = static fn(ReachabilityEvent $event): Closure => static fn(MapReachabilityReport $report): bool => $report->canEngage($event);
     $besideNpc = static fn(NpcPlacement $npc): Closure => static fn(MapReachabilityReport $report): bool =>
       $report->canSpeakTo($npc->x, $npc->y);
 
     foreach ($maps as $mapId => $map) {
       foreach ($map['arrivals'] as $event) {
         $marker = $event->marker ?? '?';
-        $standingArea = new ReachabilityEvent($event->area, $event::class, $event->marker,
-          $event->engagement, $event->facing)->getStandingArea();
+        $subject = new ReachabilityEvent($event->area, $event::class, $event->marker, $event->engagement, $event->facing);
 
         if ($event instanceof TransferPlayerTrigger) {
           $addArrival($mapId, $event->destinationMap, intval($event->spawnPoint->x), intval($event->spawnPoint->y),
-            "transfer {$marker} on {$mapId}", $standingIn($standingArea), $event->conditions);
+            "transfer {$marker} on {$mapId}", $engaging($subject), $event->conditions);
         } elseif ($event instanceof SleepEventTrigger) {
           $addArrival($mapId, $mapId, intval($event->spawnPoint->x), intval($event->spawnPoint->y),
-            "sleep event {$marker} on {$mapId}", $standingIn($standingArea), $event->conditions);
+            "sleep event {$marker} on {$mapId}", $engaging($subject), $event->conditions);
         }
       }
 
@@ -177,7 +177,7 @@ final class ProjectReachability
 
         foreach (self::findScriptedArrivals($definition['data'] ?? [], $mapId) as $arrival) {
           $addArrival($mapId, $arrival['map'], $arrival['x'], $arrival['y'],
-            sprintf('a scripted %s in event %s on %s', $arrival['kind'], $event->marker ?? '?', $mapId), $standingIn($event->getStandingArea()),
+            sprintf('a scripted %s in event %s on %s', $arrival['kind'], $event->marker ?? '?', $mapId), $engaging($event),
             $event->conditions);
         }
       }

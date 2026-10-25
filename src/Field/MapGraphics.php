@@ -315,7 +315,7 @@ final readonly class MapGraphics
      * @param array<string, string> $sources
      * @return list<MapTileLayer>
      */
-    private static function readLayersFromSources(array $sources, string $displayDirectory, MapLayerSet $layers): array
+    public static function readLayersFromSources(array $sources, string $displayDirectory, MapLayerSet $layers): array
     {
         self::assertLayerCount(count($sources), $displayDirectory);
         $tileLayers = $orders = [];
