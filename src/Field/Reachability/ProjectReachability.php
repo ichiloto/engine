@@ -97,7 +97,6 @@ final class ProjectReachability
           }
           continue;
         }
-        $events = array_map(ReachabilityEvent::fromDefinition(...), $source['data']['events']);
         // Only arrivals are built as triggers: they read nothing but their own data.
         $arrivals = array_map(
           static fn(array $event): EventTrigger => EventTriggerFactory::create($event, $mapId),
@@ -111,13 +110,8 @@ final class ProjectReachability
         );
         $maps[$mapId] = [
           'data' => $source['data'],
-          'map' => new MapReachability(
-            $mapId,
-            MapCollisionResolver::resolveFromAssets($assetRoot, $source['layers'], $source['data'], $dictionary ?? [])->collisionGrid,
-            $events,
-            $edgeTriggers,
-            array_values(array_filter(array_map(NpcPlacement::fromArray(...), (array) ($source['data']['npcs'] ?? [])))),
-          ),
+          'map' => MapReachability::readMap($mapId, $source['data'],
+            MapCollisionResolver::resolveFromAssets($assetRoot, $source['layers'], $source['data'], $dictionary ?? [])->collisionGrid),
           'arrivals' => $arrivals,
           'edgeTriggers' => $edgeTriggers,
         ];

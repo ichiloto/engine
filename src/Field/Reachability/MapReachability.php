@@ -57,6 +57,92 @@ final readonly class MapReachability
   }
 
   /**
+   * The player's movement on a map as its source declares it: its events
+   * with their resolved areas, its edge triggers and its NPCs, over the
+   * collision grid the map resolves to.
+   *
+   * @param array<string, mixed> $data The map's data with resolved events ({@see \Ichiloto\Engine\Field\MapSourceReader}).
+   * @param int[][] $collisions The map's collision grid, CollisionType values.
+   */
+  public static function readMap(string $mapId, array $data, array $collisions): self
+  {
+    return new self(
+      $mapId,
+      $collisions,
+      array_map(ReachabilityEvent::fromDefinition(...), (array) ($data['events'] ?? [])),
+      array_map(MapTrigger::tryFromArray(...), array_values(array_filter((array) ($data['triggers'] ?? []), is_array(...)))),
+      array_values(array_filter(array_map(NpcPlacement::fromArray(...), (array) ($data['npcs'] ?? [])))),
+    );
+  }
+
+  /**
+   * A shortest walk between two cells under the field's movement rules,
+   * every cell from the first to the last, or null when the player cannot
+   * walk there. Of the equally short walks it keeps going the way it was
+   * going wherever it can, so it turns as seldom as a player holding a
+   * direction would. A walk never passes through a cell that takes the
+   * player off the map, though it may begin or end on one.
+   *
+   * @param array{int, int} $from
+   * @param array{int, int} $to
+   * @return list<array{int, int}>|null
+   */
+  public function findRoute(array $from, array $to): ?array
+  {
+    [$fromX, $fromY] = $from;
+    [$toX, $toY] = $to;
+    if (! isset($this->collisions[$fromY][$fromX])) {
+      return null;
+    }
+    $steps = $this->measureWalks([[$fromX, $fromY]], $this->getFixedNpcCells());
+    if (! isset($steps[self::key($toX, $toY)])) {
+      return null;
+    }
+    $exits = $this->getExitCells();
+    $route = [[$toX, $toY]];
+    [$x, $y] = [$toX, $toY];
+    $heading = null;
+    while ($steps[self::key($x, $y)] > 0) {
+      $remaining = $steps[self::key($x, $y)];
+      $back = null;
+      // Walking back, the previous step's heading comes first, then the fixed order.
+      $headings = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+      if ($heading !== null) {
+        array_unshift($headings, $heading);
+      }
+      foreach ($headings as [$dx, $dy]) {
+        $px = $x - $dx;
+        $py = $y - $dy;
+        $key = self::key($px, $py);
+        // A cell that takes the player off the map is only ever walked from when it is where the walk began.
+        if (($steps[$key] ?? null) === $remaining - 1 && (! isset($exits[$key]) || ($px === $fromX && $py === $fromY))) {
+          $back = [$px, $py];
+          $heading = [$dx, $dy];
+          break;
+        }
+      }
+      [$x, $y] = $back;
+      $route[] = $back;
+    }
+
+    return array_reverse($route);
+  }
+
+  /** Why the player cannot stand on a cell, or null when they can. */
+  public function describeStandingProblem(int $x, int $y): ?string
+  {
+    $blocked = $this->getFixedNpcCells();
+
+    return $this->canStandOn($x, $y, $blocked) ? null : $this->describeBlockedCell($x, $y, $blocked);
+  }
+
+  /** Whether stepping onto a cell takes the player off the map: a transfer, exit event or edge trigger is there. */
+  public function isLeavingMapAt(int $x, int $y): bool
+  {
+    return isset($this->getExitCells()[self::key($x, $y)]);
+  }
+
+  /**
    * Floods the map from its entrances and reports what the player cannot
    * reach.
    *
@@ -209,13 +295,7 @@ final readonly class MapReachability
    */
   private function measureWalks(array $starts, array $blocked): array
   {
-    $exits = [];
-
-    foreach ($this->getExitAreas() as $area) {
-      foreach ($area->cells as [$x, $y]) {
-        $exits[self::key($x, $y)] = true;
-      }
-    }
+    $exits = $this->getExitCells();
 
     $steps = [];
     $queue = [];
@@ -284,6 +364,20 @@ final readonly class MapReachability
     }
 
     return $blocked;
+  }
+
+  /** @return array<string, true> Cells that take the player off the map, keyed "x,y". */
+  private function getExitCells(): array
+  {
+    $exits = [];
+
+    foreach ($this->getExitAreas() as $area) {
+      foreach ($area->cells as [$x, $y]) {
+        $exits[self::key($x, $y)] = true;
+      }
+    }
+
+    return $exits;
   }
 
   /** @return CellArea[] Areas that take the player off the map. */

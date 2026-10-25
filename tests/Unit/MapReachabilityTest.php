@@ -587,3 +587,58 @@ it('reports a detoured approach through the project analysis, naming the arrival
     'detoured_approach: Arriving from the starting position, the player first reaches event C (DialogueEventTrigger) at (3, 3) on (3, 2), where it does not answer, and walks 2 more steps round to (3, 4) to use it.',
   ]);
 });
+
+it('finds the shortest walk round walls and NPCs, turning as seldom as it can', function () {
+  //   ......
+  //   .###..
+  //   ...N..   a fixed NPC at (3, 2)
+  $map = new MapReachability('yard', reachabilityGrid(['......', '.###..', '......']), [], [], [reachabilityNpc(['x' => 3, 'y' => 2])]);
+  $route = $map->findRoute([0, 2], [5, 2]);
+
+  expect(count($route) - 1)->toBe(9)
+    ->and($route[0])->toBe([0, 2])
+    ->and(end($route))->toBe([5, 2])
+    ->and(array_any($route, static fn(array $cell): bool => $cell === [3, 2] || $cell[1] === 1 && $cell[0] >= 1 && $cell[0] <= 3))->toBeFalse();
+  // Each step moves one cell in one heading.
+  foreach (array_slice($route, 1) as $index => [$x, $y]) {
+    [$px, $py] = $route[$index];
+    expect(abs($x - $px) + abs($y - $py))->toBe(1);
+  }
+  // Up the west side, along the top and down the east side: three turns, never a staircase.
+  expect($route)->toBe([[0, 2], [0, 1], [0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [4, 1], [4, 2], [5, 2]]);
+});
+
+it('walks to a transfer but never through one, and starts from one the player arrives on', function () {
+  $map = new MapReachability('hall', reachabilityGrid(['.....']),
+    [new ReachabilityEvent(CellArea::fromRect(new Rect(2, 0, 1, 1)), TransferPlayerTrigger::class, 'A')]);
+
+  expect($map->findRoute([0, 0], [2, 0]))->toBe([[0, 0], [1, 0], [2, 0]])
+    ->and($map->findRoute([0, 0], [4, 0]))->toBeNull()
+    ->and($map->findRoute([2, 0], [4, 0]))->toBe([[2, 0], [3, 0], [4, 0]])
+    ->and($map->isLeavingMapAt(2, 0))->toBeTrue()
+    ->and($map->isLeavingMapAt(3, 0))->toBeFalse();
+});
+
+it('says why the player cannot stand on a cell', function () {
+  $map = new MapReachability('room', reachabilityGrid(['.#.']), [], [], [reachabilityNpc(['x' => 2, 'y' => 0])]);
+
+  expect($map->describeStandingProblem(0, 0))->toBeNull()
+    ->and($map->describeStandingProblem(1, 0))->toBe('on a cell the player cannot stand on')
+    ->and($map->describeStandingProblem(2, 0))->toBe('where an NPC stands')
+    ->and($map->describeStandingProblem(9, 0))->toBe('outside the map')
+    ->and($map->findRoute([0, 0], [2, 0]))->toBeNull()
+    ->and($map->findRoute([0, 0], [0, 0]))->toBe([[0, 0]]);
+});
+
+it('reads a map source as the project analysis does', function () {
+  $map = MapReachability::readMap('hall', [
+    'events' => [['class' => TransferPlayerTrigger::class, 'marker' => 'A', 'area' => ['cells' => [[1, 0]]]]],
+    'npcs' => [['name' => 'Guard', 'x' => 2, 'y' => 1, 'dialogue' => [['text' => 'Halt.']]]],
+  ], reachabilityGrid(['...', '...']));
+
+  expect($map->isLeavingMapAt(1, 0))->toBeTrue()
+    ->and($map->describeStandingProblem(2, 1))->toBe('where an NPC stands')
+    ->and($map->findRoute([0, 0], [1, 0]))->toBe([[0, 0], [1, 0]])
+    // The door leaves the map and the guard stands in the only other way east.
+    ->and($map->findRoute([0, 0], [2, 0]))->toBeNull();
+});
