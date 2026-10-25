@@ -10,7 +10,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasCompositeOperation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
-use Ichiloto\Engine\Rendering\Sprites\PngGroundContact;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetBounds;
 
 /**
  * Where a battler meets the surface, shared by the battle and every
@@ -88,23 +88,25 @@ final class BattlerGroundContact
    * @param float $footprint The body span at its slot: a lying or four-legged body's length, a standing body's height.
    * @param float $drawnWidth How wide its art is drawn, which a ripple or burrow rings.
    * @param float $opacity How visible the battler itself is (a fading defeat, a subdued knockout).
-   * @param CanvasImage|null $drawn The art as drawn this frame, whose own ground contact a grounded battler's shadow follows.
-   * @param bool $lying Whether the art shows the body lying down (a knockout), meeting the ground along its whole lower edge.
+   * @param CanvasImage|null $drawn The art as drawn this frame (pose, crop, mirroring and movement), whose own ground
+   *   contact a grounded battler's shadow follows.
    * @return array{images: list<CanvasImage>, composites: list<CanvasComposite>}
    */
   public static function compose(string $id, float $feetX, float $feetY, float $footprint, bool $horizontal, float $drawnWidth,
     float $elevation, BattlerContact $contact, BattleCanvasLayout $layout, ?BattleArenaDefinition $arena,
     ?BattlerGrounding $grounding, string $assetRoot, float $elapsedSeconds = 0, bool $reducedMotion = false,
-    float $opacity = 1.0, ?CanvasImage $drawn = null, bool $lying = false): array
+    float $opacity = 1.0, ?CanvasImage $drawn = null): array
   {
     $none = ['images' => [], 'composites' => []];
     if ($opacity <= 0 || $contact === BattlerContact::NONE) { return $none; }
     $strength = $grounding?->contactOpacity ?? 1.0;
     $scale = $grounding?->contactWidth ?? 1.0;
     if ($contact === BattlerContact::SHADOW) {
-      // A battler on the ground casts its shadow where its art meets the ground; one in the air, under its feet point.
-      $measured = $elevation <= 0 && $drawn !== null ? PngGroundContact::getContact($assetRoot, $drawn->asset, $drawn->sourceRect) : null;
-      $patches = $measured === null ? [] : $measured[$lying ? 'edge' : 'patches'];
+      // A battler on the ground casts its shadow where its drawn art meets the ground, read at the theme's perspective
+      // of the ground; one in the air, under its feet point.
+      $measured = $elevation <= 0 && $drawn !== null && $layout->shadow !== null
+        ? PngAssetBounds::getGroundContact($assetRoot, $drawn, $layout->shadow->flatness) : null;
+      $patches = $measured['patches'] ?? [];
       if ($patches !== []) {
         $shadow = self::composeContactShadow($id, $drawn, $measured, $patches, $layout, $arena, $scale, $strength * $opacity);
         return $shadow === null ? $none : ['images' => [], 'composites' => [$shadow]];
@@ -137,8 +139,9 @@ final class BattlerGroundContact
   /**
    * The shadow where a grounded battler's art meets the ground: an ellipse
    * around each contact patch, joined into one soft shape (so a wide or
-   * staggered stance is grounded at every foot, the ground between them
-   * shaded as under a body), darker at each foot's core.
+   * staggered stance is grounded at every foot, a long body along its whole
+   * length from its back feet and belly to its front feet, the ground between
+   * them shaded as under a body), darker at each foot's core.
    *
    * @param array{top: float, bottom: float} $measured The art's extent.
    * @param list<array{0: float, 1: float, 2: float}> $patches

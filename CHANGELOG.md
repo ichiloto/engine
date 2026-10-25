@@ -230,6 +230,23 @@
 
 ### Changed
 
+- Battle overlays attach to each battler's drawn body: the visible pixels of the artwork it draws this frame,
+  after crop, scale, mirroring, clip and command movement. The target cursor, condition badges, target
+  names, result popups and effect head/centre/feet attachments no longer anchor to the whole image
+  rectangle, whose transparent padding differs per pose and carried them away from the figure (a poison
+  badge floating in the sky over a crouched front-row ally). Condition badges no longer treat other
+  battlers' bodies as obstacles, and a badge pushed off its home cell returns there once it frees, instead
+  of keeping a distant fallback place. Names and popups keep a place beside their own battler, over a
+  neighbour if need be, and otherwise take the nearest free place. `PngAssetBounds` reads padded artwork
+  from its edges inward and keys its cache by an xxh128 content hash, cheap enough for every frame.
+- A grounded battler's shadow lies under every part of its drawn art that meets the ground in a three-quarter
+  view: columns whose lowest solid pixel lies within the theme's ground perspective (`flatness`) times the art's
+  width of the lowest one, read per frame from the drawn image by `PngAssetBounds::getGroundContact()`. A long
+  four-legged body is shaded from its back feet and belly to its front feet, not only under its nearest feet.
+  The shadow keeps the theme's shape, softness and core. `PngGroundContact` and its plank reading are removed;
+  a knockout pose needs no separate lower-edge reading, and `BattlerGroundContact::compose()` no longer takes
+  `$lying`.
+
 - `add_state` no longer afflicts a target that an earlier effect of the same skill knocked out, so a spell
   that damages and then adds a state leaves only its survivors in it. `HasStates::addState()` itself is
   unchanged.
