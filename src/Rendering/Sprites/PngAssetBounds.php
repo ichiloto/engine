@@ -8,10 +8,13 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use RuntimeException;
 
-/** Optional read-only author diagnostics; never a native PNG decode or gameplay gate. */
+/**
+ * The visible extent of current artwork as drawn: what battle overlays attach to and what author
+ * diagnostics measure. Read-only and presentation-only; never a native PNG decode or gameplay gate.
+ */
 final class PngAssetBounds
 {
-  private const int MAX_CACHE_ENTRIES = 128;
+  private const int MAX_CACHE_ENTRIES = 512;
   /** @var array<string, array{version: string, pixels: ?array}> */
   private static array $cache = [];
 
@@ -25,8 +28,9 @@ final class PngAssetBounds
       }
       $path = realpath($root . DIRECTORY_SEPARATOR . $image->asset);
       $canonicalRoot = realpath($root);
+      // A content hash, not stat facts, so a same-size in-place edit is never served stale; xxh128 keeps it cheap per frame.
       if ($path === false || $canonicalRoot === false || !str_starts_with($path, $canonicalRoot . DIRECTORY_SEPARATOR)
-        || ($version = @hash_file('sha256', $path)) === false) {
+        || ($version = @hash_file('xxh128', $path)) === false) {
         throw new RuntimeException('Visible-pixel inspection could not read the current PNG.');
       }
       $crop = $image->sourceRect;
@@ -42,27 +46,11 @@ final class PngAssetBounds
         if ($x + $width > imagesx($decoded) || $y + $height > imagesy($decoded)) {
           throw new RuntimeException('Visible-pixel crop exceeds the decoded PNG.');
         }
-        $left = $width;
-        $top = $height;
-        $right = $bottom = -1;
-        $trueColor = imageistruecolor($decoded);
-        $paletteAlpha = [];
-        for ($row = 0; $row < $height; $row++) {
-          for ($column = 0; $column < $width; $column++) {
-            $color = imagecolorat($decoded, $x + $column, $y + $row);
-            if ($color === false) { throw new RuntimeException('Visible-pixel inspection could not read a PNG pixel.'); }
-            $alpha = $trueColor ? (($color >> 24) & 127)
-              : ($paletteAlpha[$color] ??= imagecolorsforindex($decoded, $color)['alpha']);
-            if ($alpha === 127) { continue; }
-            $left = min($left, $column);
-            $top = min($top, $row);
-            $right = max($right, $column);
-            $bottom = max($bottom, $row);
-          }
-        }
+        // Palette transparency becomes the alpha channel, so one comparison classifies every pixel.
+        if (!imageistruecolor($decoded)) { imagepalettetotruecolor($decoded); }
+        $pixels = self::findVisiblePixels($decoded, $x, $y, $width, $height);
         unset($decoded);
-        self::$cache[$key] = ['version' => $version,
-          'pixels' => $right < 0 ? null : [$left, $top, $right - $left + 1, $bottom - $top + 1]];
+        self::$cache[$key] = ['version' => $version, 'pixels' => $pixels];
       }
       $pixels = self::$cache[$key]['pixels'];
       if ($pixels === null || $image->opacity === 0.0) { return ['bounds' => null, 'diagnostic' => null]; }
@@ -85,5 +73,35 @@ final class PngAssetBounds
     } catch (RuntimeException $error) {
       return ['bounds' => null, 'diagnostic' => $error->getMessage()];
     }
+  }
+  /**
+   * Scans inward from each edge and stops at the first visible pixel, so padded artwork reads only its margins.
+   * @return array{int, int, int, int}|null Left, top, width and height within the crop; null when fully transparent.
+   */
+  private static function findVisiblePixels(\GdImage $image, int $x, int $y, int $width, int $height): ?array
+  {
+    $top = $bottom = $left = $right = null;
+    for ($row = 0; $row < $height && $top === null; $row++) {
+      for ($column = 0; $column < $width; $column++) {
+        if (imagecolorat($image, $x + $column, $y + $row) < 0x7F000000) { $top = $row; break; }
+      }
+    }
+    if ($top === null) { return null; }
+    for ($row = $height - 1; $bottom === null; $row--) {
+      for ($column = 0; $column < $width; $column++) {
+        if (imagecolorat($image, $x + $column, $y + $row) < 0x7F000000) { $bottom = $row; break; }
+      }
+    }
+    for ($column = 0; $left === null; $column++) {
+      for ($row = $top; $row <= $bottom; $row++) {
+        if (imagecolorat($image, $x + $column, $y + $row) < 0x7F000000) { $left = $column; break; }
+      }
+    }
+    for ($column = $width - 1; $right === null; $column--) {
+      for ($row = $top; $row <= $bottom; $row++) {
+        if (imagecolorat($image, $x + $column, $y + $row) < 0x7F000000) { $right = $column; break; }
+      }
+    }
+    return [$left, $top, $right - $left + 1, $bottom - $top + 1];
   }
 }

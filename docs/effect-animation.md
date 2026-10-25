@@ -552,7 +552,7 @@ The pivot is a finite normalized point in the selected sheet cell (0..1 on
 each axis), independent of the PNG's current resolution. `ground` attaches
 that point to the subject's stable ground pivot, following actual advance,
 recoil and shake, rather than the current posed rectangle or its transparency.
-`head` uses the current artwork's top centre. Explicit attachment is refused
+`head` uses the top centre of the battler's drawn body (below). Explicit attachment is refused
 on screen anchors; the image pivot remains usable there. Mirroring reflects
 the pivot too. Viewport boundaries crop source pixels at unchanged density
 instead of translating the image away from its attachment.
@@ -765,10 +765,31 @@ build to the right of the reserved overhead cursor slot, then wrap upward at the
 configured column limit. They stay attached to the presented combatant instance.
 Their actual bounds protect them from notification and feedback overlays.
 `BattleHeadAttachmentLayout` reserves every supported cursor motion envelope,
-including while selection is absent, and all battler bounds before placing
-badges. Existing semantic slots are retained before new conditions are assigned;
-adding or curing a condition never recenters or renumbers the remaining badges.
-Edge fallbacks use separate free cells. Insufficient space is an explicit error.
+including while selection is absent, before placing badges. Each semantic slot has
+a home cell in the head rows; a badge never covers a cursor envelope, another badge
+or its own battler, while another battler's body may stand behind it, as battlers
+stand behind one another. A badge whose home is taken keeps its last place beside
+the head while that stays free and returns home once it frees, so it never drifts
+away from its battler. Adding or curing a condition never recenters or renumbers
+the remaining badges. Edge fallbacks use the nearest separate free cells.
+Insufficient space is an explicit error.
+
+#### One anchor: the drawn body
+
+Every battle overlay attaches to the battler's drawn body: the visible pixels of
+the artwork it draws this frame, after crop, scale, mirroring, surface clip and
+command advance, recoil or shake. The target cursor, condition badges, target
+names, result popups and effect `head`/`center`/`feet` attachments all read it;
+`ground` attachment and contact shadows use the ground pivot. Production canvases
+carry transparent padding that differs per pose (a crouched afflicted pose leaves
+far more empty canvas above the head than idle), so the whole image rectangle is
+never an overlay anchor. `PngAssetBounds` reads the visible extent from the current
+PNG, keyed by a content hash, so replaced artwork needs no duplicated metadata.
+When GD or the pixels are unavailable, overlays fall back to the image rectangle
+with a logged diagnostic. Formation clearance diagnostics place the cursor on
+the same body. Names and popups take a place beside their own body first, over a
+neighbour's body when only that keeps them beside it, and otherwise the nearest
+free place, never the first free place found across the field.
 These are battlefield badges, not extra icons in the cramped status HUD.
 
 ### Show Gameplay Instead Of Narrating It

@@ -23,6 +23,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextureFallback;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetBounds;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
@@ -80,6 +81,24 @@ final class GraphicalBattlePresentation
       $this->poseDiagnostics[$diagnostic] = true;
     }
     return $placed['bounds'];
+  }
+
+  /**
+   * The body a battler visibly draws this frame: its artwork's visible pixels as placed, cropped, mirrored, clipped
+   * and moved. Every overlay (cursor, condition badges, names, results and effects) attaches here, so transparent
+   * canvas padding and pose-specific margins never carry an overlay away from the figure.
+   */
+  private function locateBody(CanvasImage $drawn, int $identity): CanvasRectangle
+  {
+    $visible = PngAssetBounds::getVisibleBounds($this->assetRoot, $drawn);
+    if ($visible['bounds'] !== null) { return $visible['bounds']; }
+    $diagnostic = $identity . ':body:' . $drawn->asset;
+    if (!isset($this->poseDiagnostics[$diagnostic])) {
+      Debug::warn('Battle overlays attach to the whole artwork rectangle; its visible body is unknown: ' . $drawn->asset
+        . ': ' . ($visible['diagnostic'] ?? 'the artwork has no visible pixels.'));
+      $this->poseDiagnostics[$diagnostic] = true;
+    }
+    return $drawn->destination;
   }
 
   /** Where a participant stands: its frontline slot, or its troop place on this arena's ground. */
@@ -188,7 +207,10 @@ final class GraphicalBattlePresentation
         $bounds = $presentation->placeBaseArtwork($possibleSlot, $available ? $art : null, $participant['poses'], $identity,
           $participant['scale']);
         $bounds->assertWithin($layout->width, $layout->height);
-        if ($available) { $layout->skin?->targetCursor?->layout($bounds, $layout->width, $layout->height); }
+        if ($available) {
+          $layout->skin?->targetCursor?->layout($presentation->locateBody(new CanvasImage('combatant-' . $identity,
+            $art->asset, $bounds, 100, $art->sourceRect), $identity), $layout->width, $layout->height);
+        }
         if (min($bounds->width, $bounds->height) < 1) {
           throw new RuntimeException('Battler images must cover at least one graphical unit in each dimension.');
         }
@@ -275,7 +297,7 @@ final class GraphicalBattlePresentation
     $queued = $field?->getQueuedBattlers() ?? [];
     $frontline = $this->battle->partyRoster->battlers;
     $enemies = $this->battle->troop->members->toArray();
-    $combatantBounds = [];
+    $bodies = [];
     $combatantImages = [];
     $conditionBattlers = [];
     $groundAnchors = [];
@@ -352,7 +374,8 @@ final class GraphicalBattlePresentation
       $partySides[$identity] = $participant['party'];
       $image = new CanvasImage($image->id, $art->asset, $bounds, $image->layer, $art->sourceRect,
         clipRect: $clip === null ? null : new CanvasRectangle($bounds->x, $clip->y, $bounds->width, $clip->height));
-      $combatantBounds[$identity] = $bounds;
+      // Overlays attach to the body as drawn this frame, following steps, recoil, shake and pose changes.
+      $bodies[$identity] = $participant['available'] ? $this->locateBody($image, $identity) : $image->destination;
       $popups = array_filter($feedback, static fn(array $popup) => $popup['battler'] === $battler);
       $defeat = $playback?->getEnemyDefeatTreatment($battler, $reducedMotion);
       if (!$participant['party'] && $battler->isKnockedOut
@@ -384,9 +407,9 @@ final class GraphicalBattlePresentation
         } elseif (($defeat['pulse'] ?? false) && !$compositing) {
           $playback?->recordPresentationFailure(new RuntimeException('Renderer cannot tint enemy defeat pulses; fade and clear remain.'));
         }
-        $protectedCombatants[] = $bounds;
+        $protectedCombatants[] = $bodies[$identity];
       }
-      $bounds = $image->destination;
+      $bounds = $bodies[$identity];
       $lines = $participant['available'] ? [] : [['text' => $battler->name, 'color' => null]];
       if (in_array($battler, $selected, true)) {
         if ($skin === null && $participant['available']) {
@@ -450,7 +473,7 @@ final class GraphicalBattlePresentation
       $condition = $this->conditionEffects->createPlayback($battler, $field?->getPoseElapsedSeconds() ?? 0,
         $includeOptionalArtwork);
       if ($condition === null) { continue; }
-      $ambient = GraphicalBattleEffects::compose($condition, $this->layout, $combatantBounds, $this->assetRoot,
+      $ambient = GraphicalBattleEffects::compose($condition, $this->layout, $bodies, $this->assetRoot,
         $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors, $partySides);
       array_push($images, ...$ambient->images);
       array_push($text, ...$ambient->textLayers);
@@ -458,7 +481,7 @@ final class GraphicalBattlePresentation
       array_push($conditionAreas, ...$ambient->getOverlayProtection());
     }
     if ($playback !== null && $includeOptionalArtwork) {
-      $effects = GraphicalBattleEffects::compose($playback, $this->layout, $combatantBounds, $this->assetRoot,
+      $effects = GraphicalBattleEffects::compose($playback, $this->layout, $bodies, $this->assetRoot,
         $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors, $partySides);
       array_push($images, ...$effects->images);
       array_push($text, ...$effects->textLayers);
@@ -469,7 +492,7 @@ final class GraphicalBattlePresentation
       array_push($text, ...$composition->textLayers);
       array_push($composites, ...$composition->composites);
     }
-    $badges = GraphicalBattleConditions::compose($this->layout, $conditionBattlers, $combatantBounds, $this->assetRoot, $this->headAttachments);
+    $badges = GraphicalBattleConditions::compose($this->layout, $conditionBattlers, $bodies, $this->assetRoot, $this->headAttachments);
     array_push($images, ...$badges->images);
     array_push($text, ...$badges->textLayers);
     array_push($conditionAreas, ...$badges->getOverlayProtection());

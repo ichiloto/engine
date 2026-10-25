@@ -64,8 +64,8 @@ final class BattleFormationClearance
       // The battle's cursor clears the authored regions, as at runtime; other battlers may stand behind it.
       $occupied = [...self::getOutsideAreas($layout, $layout->battlerArea), ...self::getOutsideAreas($layout, $area)];
       try {
-        // Runtime cursors attach to the full posed rectangle, not an inferred body.
-        $placed = $cursor->layout($image->destination, $layout->width, $layout->height, occupied: $occupied);
+        // Runtime cursors attach to the visible body as drawn, as every battle overlay does.
+        $placed = $cursor->layout($bounds, $layout->width, $layout->height, occupied: $occupied);
         if ($placed === null) { $issues[$image->id][] = 'No target cursor placement clears the authored region.'; }
       } catch (RuntimeException $error) { $issues[$image->id][] = $error->getMessage(); }
     }

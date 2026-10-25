@@ -37,7 +37,7 @@ final class GraphicalBattleConditions
   ];
 
   /** @param array<int, CharacterInterface> $battlers Only currently presented battlers.
-   * @param array<int, CanvasRectangle> $bounds
+   * @param array<int, CanvasRectangle> $bounds Each battler's drawn body; badges attach to its head.
    */
   public static function compose(BattleCanvasLayout $layout, array $battlers, array $bounds, string $assetRoot,
     ?BattleHeadAttachmentLayout $attachments = null): PresentationCanvas

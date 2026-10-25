@@ -22,7 +22,7 @@ use RuntimeException;
 /** Retained effect layers inspect the command lane, never dispatch combat cues. */
 final class GraphicalBattleEffects
 {
-  /** @param array<int, CanvasRectangle> $bounds Combatant instance identities.
+  /** @param array<int, CanvasRectangle> $bounds Combatant instance identity => its drawn body; head, centre and feet attach to it.
    * @param array<int, CanvasImage> $battlerImages Current visible poses, including crop, motion and opacity.
    * @param array<int, Vector2>|null $groundAnchors Current posed ground points; rectangle-only hosts use bottom centres.
    * @param array<int, bool> $partySides Combatant identity => whether it stands with the party; opponent-facing tracks read it.
