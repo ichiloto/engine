@@ -40,6 +40,8 @@ use Ichiloto\Engine\Field\PlayerGraphicalSubject;
 use Ichiloto\Engine\Field\PlayerPresentationConfig;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderHostInterface;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Events\Triggers\EventTrigger;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\SceneManager;
@@ -518,6 +520,34 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         return WorldConditionEvaluator::allHold($route->conditions, $this->gameState, $this->party)
             && (!$route->secret || $route->landmarkId === null
                 || $this->gameState->hasRevealedLandmark($route->source, $route->landmarkId));
+    }
+
+    /**
+     * Draws the Terminal cues of available, incomplete map events while the
+     * field shows guidance, each on its own layer; graphical cue art replaces
+     * a cue's glyph where the graphical field presents it.
+     *
+     * Event-layer marker letters remain editor-only identities. A cue exists
+     * only when an author deliberately opts a trigger into player guidance.
+     *
+     * @param iterable<EventTrigger> $events
+     */
+    public function renderEventCues(iterable $events): void
+    {
+        foreach ($events as $event) {
+            $cueLayer = 'event-cue:' . ($event->mapId ?? '') . ':' . ($event->marker ?? '');
+            if (!$this->canPresentFieldGuidance() || !$event->shouldRenderCue()
+                || ($this->isGraphicalFieldPresented() && $this->fieldEffects?->canPresentCue($event))) {
+                Console::removeLayer($cueLayer);
+                continue;
+            }
+            Console::withLayer($cueLayer, function () use ($event): void {
+                foreach ($event->cue->findPositions($event->area) as $position) {
+                    $this->camera->renderOnScreen([$this->fieldEffects?->cueStyle->styleGlyph($event->cue->symbol,
+                        $event->cue->color) ?? $event->cue->styledSymbol()], $position);
+                }
+            }, PresentationLayerPolicy::WORLD);
+        }
     }
 
     /**

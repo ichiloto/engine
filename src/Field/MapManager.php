@@ -28,6 +28,7 @@ use Ichiloto\Engine\Quests\Story\StoryIndex;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
+use Closure;
 use InvalidArgumentException;
 
 /**
@@ -717,27 +718,42 @@ class MapManager implements CanRenderAt
   {
     if ($player = $this->gameScene->player) {
       $player->removeEventTriggers();
-      $gameState = $this->gameScene->gameState;
 
-      foreach ($events as $eventData) {
-        $eventTrigger = $eventData instanceof \Ichiloto\Engine\Events\Triggers\EventTrigger
-          ? $eventData : EventTriggerFactory::create($eventData, $mapId !== '' ? $mapId : null);
-        $eventTrigger->bind($gameState, $this->gameScene->party);
-
-        // A one-shot event the world state already records as completed
-        // stays completed — a looted chest does not refill on map re-entry.
-        if (
-          ! $eventTrigger->isReusable &&
-          $eventTrigger->mapId !== null &&
-          $eventTrigger->marker !== null &&
-          $gameState->isEventComplete($eventTrigger->mapId, $eventTrigger->marker)
-        ) {
-          $eventTrigger->restoreCompleted();
-        }
-
+      foreach ($this->createEventTriggers($events, $mapId) as $eventTrigger) {
         $player->addTrigger($eventTrigger);
       }
     }
+  }
+
+  /**
+   * A map's event triggers bound to the scene's world state and party, as the
+   * field holds them: a one-shot event the world state already records as
+   * completed stays completed, so a looted chest does not refill on map
+   * re-entry.
+   *
+   * @param array<int, mixed> $events Event data or triggers.
+   * @return list<\Ichiloto\Engine\Events\Triggers\EventTrigger>
+   */
+  protected function createEventTriggers(array $events, string $mapId = ''): array
+  {
+    $gameState = $this->gameScene->gameState;
+    $triggers = [];
+    foreach ($events as $eventData) {
+      $eventTrigger = $eventData instanceof \Ichiloto\Engine\Events\Triggers\EventTrigger
+        ? $eventData : EventTriggerFactory::create($eventData, $mapId !== '' ? $mapId : null);
+      $eventTrigger->bind($gameState, $this->gameScene->party);
+      if (
+        ! $eventTrigger->isReusable &&
+        $eventTrigger->mapId !== null &&
+        $eventTrigger->marker !== null &&
+        $gameState->isEventComplete($eventTrigger->mapId, $eventTrigger->marker)
+      ) {
+        $eventTrigger->restoreCompleted();
+      }
+      $triggers[] = $eventTrigger;
+    }
+
+    return $triggers;
   }
 
   /**
@@ -925,7 +941,35 @@ class MapManager implements CanRenderAt
    */
   protected function readSplitMapDataFromFiles(array $paths): array
   {
-    $prepared = $this->prepareSplitMapDataFromFiles($paths);
+    return $this->installMapGeometry($this->prepareSplitMapDataFromFiles($paths));
+  }
+
+  /**
+   * Installs a map's geometry, graphics and world objects from a source a host
+   * holds itself, as {@see readMapDataFromFile()} installs them from a map's
+   * files: an editor showing a map as it stands, unsaved edits included. The
+   * source is what {@see MapSourceReader::readDeclarations()} reads; the host
+   * loads the map's graphics and tile layers as it holds them, and the Engine
+   * prepares the rest exactly as it prepares a map read from files
+   * ({@see prepareMapSource()}).
+   *
+   * @param array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet} $source
+   * @param Closure(): ?MapGraphics $loadGraphics
+   * @param Closure(): ?list<MapTileLayer> $readTileLayers
+   * @return array<string, mixed> The map's data.
+   */
+  protected function installMapSource(string $mapId, array $source, ?MapTerrainKinds $kinds, Closure $loadGraphics,
+    Closure $readTileLayers): array
+  {
+    return $this->installMapGeometry($this->prepareMapSource($mapId, $source, $kinds, $loadGraphics, $readTileLayers));
+  }
+
+  /**
+   * @param array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>, kinds: ?MapTerrainKinds} $prepared
+   * @return array<string, mixed> The map's data.
+   */
+  private function installMapGeometry(array $prepared): array
+  {
     $landmarks = MapLandmarkCatalog::readMap($prepared['data'], $prepared['tiles'], MapCategoryCatalog::load($this->getAssetRoot()));
     $overview = new MapOverview($prepared['tiles'], $prepared['occupancy']?->collisionGrid,
       MapAtlasTerrain::readMap($prepared['data'],$prepared['layers'],$prepared['kinds']));
@@ -970,25 +1014,45 @@ class MapManager implements CanRenderAt
   {
     $source = MapSourceReader::readFiles($paths);
     $map = $source['data'];
+    $kinds = MapTerrainKinds::loadForMap($this->getAssetRoot(), $map);
+    return $this->prepareMapSource($paths['id'], $source, $kinds,
+      fn(): ?MapGraphics => MapGraphics::loadFromDirectory(dirname($paths['data']), $paths['id'], $map['tileset'] ?? null,
+        $source['layers'], $this->getAssetRoot(), $map[MapGraphics::SETTINGS_KEY] ?? null, $kinds?->tileset, $kinds !== null),
+      static fn(): ?array => MapGraphics::readLayersFromDirectory(dirname($paths['data']), $paths['id'], $source['layers']));
+  }
+
+  /**
+   * Prepares a map's gameplay source for the field, wherever it is held: its
+   * declared occupancy, graphics, graphical ownership and world objects. The
+   * holder loads the map's graphics and reads its tile layers; neither ever
+   * decides whether the map loads.
+   *
+   * @param array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet} $source
+   * @param Closure(): ?MapGraphics $loadGraphics
+   * @param Closure(): ?list<MapTileLayer> $readTileLayers Null when the map's tile layers are unknown.
+   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>, kinds: ?MapTerrainKinds}
+   */
+  protected function prepareMapSource(string $mapId, array $source, ?MapTerrainKinds $kinds, Closure $loadGraphics,
+    Closure $readTileLayers): array
+  {
+    $map = $source['data'];
     // Validate declared physical data before either loading path can mutate a scene.
     // Legacy read-only/preview loading still needs no collision dictionary here.
-    $kinds = MapTerrainKinds::loadForMap($this->getAssetRoot(), $map);
     $occupancy = array_key_exists(MapPhysicalOccupancy::DATA_KEY, $map)
       ? MapCollisionResolver::resolveMap($source['layers'], $map, kinds: $kinds)
       : null;
 
     if (array_key_exists('tiles2d', $map)) {
       // Glyph-keyed crops are retired; a map draws graphics from its tileset.
-      Debug::warn("{$paths['id']}/" . basename($paths['data']) . " tiles2d is no longer read; its map shows terminal glyphs until it has a tileset.");
+      Debug::warn("{$mapId}/" . basename($mapId) . ".data.php tiles2d is no longer read; its map shows terminal glyphs until it has a tileset.");
     }
 
     $graphics = null;
     try {
-      $graphics = MapGraphics::loadFromDirectory(dirname($paths['data']), $paths['id'], $map['tileset'] ?? null,
-        $source['layers'], $this->getAssetRoot(), $map[MapGraphics::SETTINGS_KEY] ?? null, $kinds?->tileset, $kinds !== null);
+      $graphics = $loadGraphics();
     } catch (\Throwable $error) {
       // Graphics never decide whether a map loads: it shows its terminal glyphs instead.
-      Debug::warn("Map {$paths['id']} graphics are unusable; showing terminal glyphs: " . $error->getMessage());
+      Debug::warn("Map {$mapId} graphics are unusable; showing terminal glyphs: " . $error->getMessage());
     }
 
     $tileOwners = null;
@@ -997,15 +1061,15 @@ class MapManager implements CanRenderAt
       && is_array($object['covers'] ?? null) && !empty($object['covers']['tileLayers']))) {
       $tileLayers = null;
       try {
-        $tileLayers = MapGraphics::readLayersFromDirectory(dirname($paths['data']), $paths['id'], $source['layers']);
+        $tileLayers = $readTileLayers();
       } catch (\Throwable $error) {
-        Debug::warn("Map {$paths['id']} graphical ownership is unavailable: " . $error->getMessage());
+        Debug::warn("Map {$mapId} graphical ownership is unavailable: " . $error->getMessage());
       }
       if ($tileLayers !== null) {
         // Explicit owners remain provable without tileset pieces; inferred owners remain unknown.
         $tileOwners = MapGraphics::resolveLayerOwners($map[MapGraphics::SETTINGS_KEY] ?? null,
           array_column($tileLayers, 'name'), array_column(array_filter($source['layers']->layers,
-            static fn(MapLayer $layer): bool => !$layer->decoration), 'name'), null, $paths['id']);
+            static fn(MapLayer $layer): bool => !$layer->decoration), 'name'), null, $mapId);
       }
     }
 
