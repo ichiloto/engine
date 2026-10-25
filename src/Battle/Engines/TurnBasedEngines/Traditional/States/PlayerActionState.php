@@ -232,6 +232,11 @@ class PlayerActionState extends TurnState
 
     $subjects = $this->selectionMode === self::MODE_TARGET ? $context->ui->fieldWindow->getFocusedBattlers()
       : array_filter([$this->activeCharacter]);
+    // What has been revealed about a targeted foe leads, ahead of the option's own text.
+    if ($this->selectionMode === self::MODE_TARGET) {
+      $known = array_filter(array_map(\Ichiloto\Engine\Battle\Presentation\BattlerInsight::getInfo(...), $subjects));
+      if ($known !== []) { $infoText = trim(implode(' ', $known) . ' ' . ($infoText ?? '')); }
+    }
     foreach ($subjects as $subject) {
       $conditions = \Ichiloto\Engine\Battle\Presentation\BattlerConditions::getInfo($subject);
       if ($conditions !== '') { $infoText = trim(($infoText ?? '') . ' ' . $conditions); }

@@ -17,4 +17,6 @@ enum BattleFeedbackRole: string
   case KO = 'ko';
   case MISS = 'miss';
   case ZERO = 'zero';
+  /** A fact a reveal uncovered, such as the HP it read. */
+  case REVEAL = 'reveal';
 }

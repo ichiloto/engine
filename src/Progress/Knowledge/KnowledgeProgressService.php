@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Progress\Knowledge;
 
+use Ichiloto\Engine\Battle\Insight\RevealFact;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
 use InvalidArgumentException;
 
@@ -49,6 +50,33 @@ final class KnowledgeProgressService
     }
     $this->discoverSubject($subject->id, $source);
     return $this->recordOutcome($subject->id, $outcomeId);
+  }
+
+  /**
+   * Records that a battle revealed a fact about a foe, for the foe's kind:
+   * the Engine-owned observation `reveal.<fact>`, which the foe's record
+   * reads to show what is known. It is evidence about a battler's
+   * capabilities, not the authored field research a subject's own
+   * observations name, so it is accepted for any subject and leaves the
+   * subject's depth (and the card it shows) where it was.
+   *
+   * @return bool True when the fact was recorded for the first time.
+   */
+  public function recordEnemyReveal(Enemy $enemy, RevealFact $fact, string $source = 'battle.reveal'): bool
+  {
+    $subject = $this->catalog->subjectForEnemy($enemy);
+    if (! $subject instanceof KnowledgeSubject) {
+      return false;
+    }
+    $this->discoverSubject($subject->id, '');
+
+    return $this->progress->recordObservation($subject->id, $fact->getObservationId(), $this->requireSource($source), 1.0);
+  }
+
+  /** Whether a fact has been revealed about a subject's kind in any battle. */
+  public function isFactRecorded(string $subjectId, RevealFact $fact): bool
+  {
+    return isset($this->progress->subjectState($subjectId)['observations'][$fact->getObservationId()]);
   }
 
   public function recordObservation(
