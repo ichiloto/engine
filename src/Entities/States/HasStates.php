@@ -215,6 +215,21 @@ trait HasStates
     return false;
   }
 
+  /**
+   * Returns the chance that this battler acts confused on its turn: the highest of its states' confusion chances.
+   *
+   * @return int 0 to 100; 0 when no state confuses it.
+   */
+  public function getConfusionChancePercent(): int
+  {
+    $chance = 0;
+    foreach ($this->states as $instance) {
+      $chance = max($chance, $instance->state->confusionChancePercent);
+    }
+
+    return $chance;
+  }
+
   /** Harmful or action-blocking states take precedence over beneficial states. */
   public function getStateDisposition(): StateDisposition
   {

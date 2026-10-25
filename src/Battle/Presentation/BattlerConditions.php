@@ -17,6 +17,12 @@ final class BattlerConditions
     'magicAttack' => 'MAT', 'magicDefence' => 'MDF', 'speed' => 'SPD',
     'grace' => 'GRC', 'evasion' => 'EVA'];
 
+  /** A stat's short label (ATK, DEF ...), as condition badges and revealed stats show it. */
+  public static function getStatLabel(string $stat): string
+  {
+    return self::STAT_LABELS[$stat] ?? mb_strtoupper(mb_substr($stat, 0, 3, 'UTF-8'), 'UTF-8');
+  }
+
   /** The badge is the compact terminal form: a state's icon or label, a stage's label and change.
    * @return list<array{key: string, name: string, description: string, glyph: string,
    * iconKey: string, symbol: string, label: string, badge: string, polarity: string, magnitude: ?int}>
@@ -41,7 +47,7 @@ final class BattlerConditions
       $name = self::STAT_NAMES[$stat] ?? $stat;
       $sign = $stage > 0 ? '+' : '';
       $polarity = $stage > 0 ? 'positive' : 'negative';
-      $label = self::STAT_LABELS[$stat] ?? mb_strtoupper(mb_substr($stat, 0, 3, 'UTF-8'), 'UTF-8');
+      $label = self::getStatLabel($stat);
       $entries[] = ['key' => 'stat:' . $stat . ':' . $polarity,
         'name' => $name . ' ' . $sign . $stage,
         'description' => sprintf('%s is at stage %s%d for this battle.', $name, $sign, $stage),

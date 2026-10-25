@@ -1080,6 +1080,16 @@ class BattleFieldWindow extends Window implements \Ichiloto\Engine\Battle\Presen
     $y = $this->position->y + $position->y + intdiv(count($battler->image), 2);
 
     $this->renderTrackedTargetIndicator($marker, $x, $y);
+
+    // A foe whose HP has been revealed shows it beneath itself while it is targeted.
+    $hp = \Ichiloto\Engine\Battle\Presentation\BattlerInsight::getTargetLine($battler);
+    if ($hp !== null) {
+      $label = $this->formatIndicator($hp);
+      $spriteWidth = $this->getTroopVisibleSpriteWidth($battler, $position);
+      $this->renderTrackedTargetIndicator($label,
+        $this->position->x + $position->x + max(0, intdiv(max(0, $spriteWidth - TerminalText::displayWidth($label)), 2)),
+        $this->position->y + $position->y + count($battler->image));
+    }
   }
 
   /**

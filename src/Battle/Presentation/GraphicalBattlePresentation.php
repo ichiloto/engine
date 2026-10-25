@@ -429,6 +429,8 @@ final class GraphicalBattlePresentation
           if (in_array($battler, $queued, true)) { $lines[] = ['text' => 'Queued', 'color' => $skin?->colors['selected']]; }
         }
         if ($participant['available']) { $lines[] = ['text' => $battler->name, 'color' => null]; }
+        // A foe whose HP has been revealed shows it beneath its name while it is targeted.
+        if (($hp = BattlerInsight::getTargetLine($battler)) !== null) { $lines[] = ['text' => $hp, 'color' => null]; }
       }
       if ($skin !== null) {
         $feedbackParticipants[] = ['id' => $identity, 'bounds' => $bounds, 'persistent' => $lines, 'popups' => $popups];

@@ -13,7 +13,9 @@ use Ichiloto\Engine\Util\Debug;
  * new AddStateSkillEffect('poison', 80)   // 80% chance to poison
  * ```
  *
- * The target's state resistances scale the chance (0 grants immunity).
+ * The target's state resistances scale the chance (0 grants immunity). A
+ * target knocked out by the skill's earlier effects is not afflicted, so a
+ * spell that damages and then adds a state leaves only its survivors in it.
  *
  * @package Ichiloto\Engine\Entities\Effects\SkillEffects
  */
@@ -45,10 +47,12 @@ class AddStateSkillEffect extends SkillEffect
 
     foreach (is_array($context->target) ? $context->target : [$context->target] as $target) {
       if (method_exists($target, 'addState')) {
+        // Only a survivor is left with the state: an earlier effect of the same skill may have knocked the target out.
         $context->recordSecondaryOutcome(
           'state',
           $state->id,
-          $target->addState($state, $this->chancePercent, $context->random, $target === $context->user),
+          ! $target->isKnockedOut
+            && $target->addState($state, $this->chancePercent, $context->random, $target === $context->user),
         );
       }
     }

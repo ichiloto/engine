@@ -4,6 +4,27 @@
 
 ### Added
 
+- The `reveal` skill effect: `['type' => 'reveal', 'facts' => ['hp', 'mp', 'stats', 'affinities'], 'chancePercent' => 75]`
+  reveals a foe's HP, MP, stats or best element (`RevealFact`) for the rest of the battle. One roll per
+  target, no resistance and no immunity; a failed roll reveals nothing and still spends the MP and turn.
+  Foes keep what is revealed (`RevealableBattler`, `HasRevealedFacts` on `Enemy`); the party's own facts are
+  always shown. The battle shows a revealed foe's HP over it on the cast and while it is targeted, MISS for a
+  failed reveal, and everything known about it in the Info window for a one-foe reveal and on Info while
+  targeting, in the Terminal and GPUI alike (`BattlerInsight`, feedback role `reveal`). The best element is
+  the project element with the highest multiplier above 1.0, or "No element beats ordinary damage"
+  (`ElementalInsight`; terms `battle.insight.best` and `battle.insight.none`).
+  `KnowledgeProgressService::recordEnemyReveal()` records each revealed fact for the foe's knowledge subject
+  as the Engine-owned observation `reveal.<fact>`, accepted beside a subject's authored observations and
+  leaving its depth unchanged; the Records menu shows the recorded facts in an Analysis section
+  (`EnemyInsightSheet`, term `records.analysis`), read from the enemy as authored.
+  `TurnStateExecutionContext::getKnowledge()` supplies the service to a battle of a started game.
+- Confusion as a state field: `confusionChancePercent` (0 to 100). As each of the bearer's turns begins it
+  rolls the chance; on a hit the bearer makes its ordinary attack on a random battler still fighting on
+  either side, never itself, in place of its chosen action (`BattleConfusion`, used by the live battle and
+  the battle simulator alike). `HasStates::getConfusionChancePercent()`.
+- `SkillRecord::getEffectTypes()` lists every effect type a record may name.
+- Documentation: [Skill effects and battle states](docs/skill-effects-and-states.md).
+
 - `MapManager::installMapSource()` installs a map a host holds itself (an
   editor's map with unsaved edits) exactly as `readMapDataFromFile()`
   installs one read from files: `prepareMapSource()` prepares both, with the
@@ -208,6 +229,10 @@
   `motion` and viewport `follow`).
 
 ### Changed
+
+- `add_state` no longer afflicts a target that an earlier effect of the same skill knocked out, so a spell
+  that damages and then adds a state leaves only its survivors in it. `HasStates::addState()` itself is
+  unchanged.
 
 - Config and the title Options play the cursor (or confirm) sound after a
   setting changes instead of before, so a volume is heard at its new level.
