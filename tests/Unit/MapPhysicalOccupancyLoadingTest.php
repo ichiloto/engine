@@ -228,7 +228,7 @@ it('keeps real graphical layer sheet and offset changes independent of resolved 
         $after = $manager->prepareMap('test/physical');
         expect($after->tiles)->toBe($before->tiles)
             ->and($after->collisions)->toBe($before->collisions)
-            ->and($after->graphics->layers[0]->tiles)->toBe([[4, 0], [0, 1]])
+            ->and($after->graphics->layers[0]->readTiles())->toBe([[4, 0], [0, 1]])
             ->and($after->graphics->offsets)->toBe(['floor' => [0.5, -0.5]])
             ->and($after->graphics->tileset->getUsableSheets($root . '/assets')['tileSize'])->toBe(4)
             ->and($after->graphics->tileset->isAbove(1))->toBeTrue();
@@ -237,7 +237,7 @@ it('keeps real graphical layer sheet and offset changes independent of resolved 
             $terminalEdit = $manager->prepareMap('test/physical');
             expect($terminalEdit->tiles)->not->toBe($after->tiles)
                 ->and($terminalEdit->collisions)->toBe($after->collisions)
-                ->and($terminalEdit->graphics->layers[0]->tiles)->toBe($after->graphics->layers[0]->tiles)
+                ->and($terminalEdit->graphics->layers[0]->readTiles())->toBe($after->graphics->layers[0]->readTiles())
                 ->and($terminalEdit->graphics->offsets)->toBe($after->graphics->offsets);
         }
     } finally {

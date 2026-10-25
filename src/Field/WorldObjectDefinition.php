@@ -115,7 +115,7 @@ final readonly class WorldObjectDefinition
                 $layer = array_find($layers->layers, static fn(MapLayer $layer): bool => $layer->name === $layerName);
                 foreach ($rows as $y => $cells) {
                     foreach ($cells as $x => $_) {
-                        $terminalFootprint[] = ['x' => $x, 'y' => $y, 'layer' => $layerName, 'symbol' => $layer->grid[$y][$x]];
+                        $terminalFootprint[] = ['x' => $x, 'y' => $y, 'layer' => $layerName, 'symbol' => $layer->getCellAt($x, $y)];
                     }
                 }
             }

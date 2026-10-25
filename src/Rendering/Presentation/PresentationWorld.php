@@ -2,8 +2,10 @@
 
 namespace Ichiloto\Engine\Rendering\Presentation;
 
+use Ichiloto\Engine\Core\PackedGrid;
 use Ichiloto\Engine\Field\MapGraphics;
 use Ichiloto\Engine\Field\MapLayerSet;
+use Ichiloto\Engine\Field\MapTileLayer;
 use Ichiloto\Engine\IO\Console\SgrColorParser;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\FieldViewport;
@@ -12,6 +14,7 @@ use Ichiloto\Engine\Rendering\Tilesets\CornerShape;
 use Ichiloto\Engine\Rendering\Tilesets\TileComposer;
 use Ichiloto\Engine\Rendering\Tilesets\TileId;
 use Ichiloto\Engine\Rendering\Tilesets\TilePiece;
+use Generator;
 use InvalidArgumentException;
 
 /**
@@ -29,8 +32,14 @@ use InvalidArgumentException;
  * adds, for a renderer that negotiated them, the bands its raised tiles cast
  * on the cells to their right: derived from the tiles here on every upload,
  * never authored or stored.
+ *
+ * The world keeps its upload compactly: each distinct wire cell once, its
+ * rows as packed indices ({@see PackedGrid}), and each tile row as packed
+ * column and tile pairs. {@see getOperations()} builds the operations for
+ * each upload, sharing equal cells, so a world map is held in bytes per cell
+ * and its per-cell arrays exist only while one upload is being sent.
  */
-final readonly class PresentationWorld
+final class PresentationWorld
 {
     public const int MAX_LAYERS = 64;
     public const int MAX_CELLS = 1048576;
@@ -44,20 +53,33 @@ final readonly class PresentationWorld
     public const int MAX_SHEETS = 16;
 
     /**
-     * @param list<array<string, mixed>> $operations The upload every renderer accepts, without tile covers.
-     * @param array<string, string> $tileCovers The gameplay layer id each covering tile layer id belongs to.
-     * @param array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>}|null $tileShadows
-     *   The shadow catalog tiles, layers and rows, sent only with tile shadows.
+     * @var list<array<string, mixed>> The upload every renderer accepts, without tile covers or shadows, built
+     *   on each read. A sender streams it instead ({@see streamOperations()}).
      */
-    private function __construct(public string $id, public array $operations, public array $textLayerIds,
-        public int $estimatedSourceBytes, public bool $animated = false, public array $tileCovers = [],
-        public ?array $tileShadows = null) {}
+    public array $operations {
+        get => $this->getOperations(false);
+    }
 
     /**
-     * The operations that upload this world. With tile covers, for a renderer
-     * that negotiated tile_covers, each tile layer that belongs to a gameplay
-     * layer names it as its `coversLayerId`: its tiles hide only that layer's
-     * glyphs. Without, every tile hides the glyph of its cell, as before.
+     * @param array<string, mixed> $definition The world's `put` value, without tile covers or shadows.
+     * @param list<array{glyph: string, foreground: ?array, background: ?array, ownerLayerId: string}> $wireCells Each distinct wire cell.
+     * @param PackedGrid $rowCells Each row's cells, as indices into $wireCells.
+     * @param array<string, array<int, string>> $tileRows Each tile layer's rows, in upload order: each row's packed column and tile pairs.
+     * @param array<string, string> $tileCovers The gameplay layer id each covering tile layer id belongs to.
+     * @param array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, rows: array<string, array<int, string>>}|null $tileShadows
+     *   The shadow catalog tiles, layers and rows, sent only with tile shadows.
+     */
+    private function __construct(public readonly string $id, private readonly array $definition,
+        private readonly array $wireCells, private readonly PackedGrid $rowCells, private readonly array $tileRows,
+        public readonly array $textLayerIds, public readonly int $estimatedSourceBytes, public readonly bool $animated = false,
+        public readonly array $tileCovers = [], private readonly ?array $tileShadows = null) {}
+
+    /**
+     * The operations that upload this world, built for this upload. With tile
+     * covers, for a renderer that negotiated tile_covers, each tile layer that
+     * belongs to a gameplay layer names it as its `coversLayerId`: its tiles
+     * hide only that layer's glyphs. Without, every tile hides the glyph of
+     * its cell, as before.
      *
      * With tile shadows, for a renderer that negotiated tile_shadows, the
      * shadow bands follow: their fill tiles after the catalog, so no other
@@ -67,21 +89,58 @@ final readonly class PresentationWorld
      * under later layers and every character. A shadows layer never hides a
      * glyph. Without, nothing of the shadows is sent.
      *
+     * Equal tile cells share one array across the list; a caller's edits stay
+     * its own by copy-on-write.
+     *
      * @return list<array<string, mixed>>
      */
     public function getOperations(bool $tileCovers, bool $tileShadows = false): array
     {
-        $operations = $this->operations;
+        return iterator_to_array($this->yieldOperations($tileCovers, $tileShadows, true), false);
+    }
+
+    /**
+     * The same operations as {@see getOperations()}, built one at a time as
+     * the caller takes them, so a sender holds only what it is sending.
+     *
+     * @return Generator<int, array<string, mixed>>
+     */
+    public function streamOperations(bool $tileCovers, bool $tileShadows = false): Generator
+    {
+        return $this->yieldOperations($tileCovers, $tileShadows, false);
+    }
+
+    /** @return Generator<int, array<string, mixed>> */
+    private function yieldOperations(bool $tileCovers, bool $tileShadows, bool $shareCells): Generator
+    {
+        $definition = $this->definition;
         if ($tileCovers && $this->tileCovers !== []) {
-            $operations[0]['value']['layers'] = array_map(fn(array $layer): array => isset($this->tileCovers[$layer['id']])
-                ? [...$layer, 'coversLayerId' => $this->tileCovers[$layer['id']]] : $layer, $operations[0]['value']['layers']);
+            $definition['layers'] = array_map(fn(array $layer): array => isset($this->tileCovers[$layer['id']])
+                ? [...$layer, 'coversLayerId' => $this->tileCovers[$layer['id']]] : $layer, $definition['layers']);
         }
-        if ($tileShadows && $this->tileShadows !== null) {
-            $operations[0]['value']['layers'] = [...$operations[0]['value']['layers'], ...$this->tileShadows['layers']];
-            $operations[0]['value']['tileset']['tiles'] = [...$operations[0]['value']['tileset']['tiles'], ...$this->tileShadows['tiles']];
-            $operations = [...$operations, ...$this->tileShadows['operations']];
+        $shadows = $tileShadows ? $this->tileShadows : null;
+        if ($shadows !== null) {
+            $definition['layers'] = [...$definition['layers'], ...$shadows['layers']];
+            $definition['tileset']['tiles'] = [...$definition['tileset']['tiles'], ...$shadows['tiles']];
         }
-        return $operations;
+        yield ['op' => 'put', 'kind' => 'world', 'id' => $this->id, 'value' => $definition];
+        for ($y = 0; $y < $this->rowCells->height; $y++) {
+            yield ['op' => 'worldRows', 'id' => $this->id, 'rows' => [['row' => $y,
+                'cells' => array_map(fn(int $index): array => $this->wireCells[$index], $this->rowCells->getRowValues($y))]]];
+        }
+        $cells = [];
+        foreach ([...$this->tileRows, ...($shadows['rows'] ?? [])] as $layerId => $tileRows) {
+            foreach ($tileRows as $row => $pairs) {
+                $values = unpack('v*', $pairs);
+                $wire = [];
+                for ($index = 1, $count = count($values); $index < $count; $index += 2) {
+                    $cell = ['column' => $values[$index], 'tile' => $values[$index + 1]];
+                    $wire[] = $shareCells ? ($cells[$values[$index] << 16 | $values[$index + 1]] ??= $cell) : $cell;
+                }
+                yield ['op' => 'worldTiles', 'id' => $this->id, 'layerId' => $layerId,
+                    'rows' => [['row' => $row, 'cells' => $wire]]];
+            }
+        }
     }
 
     public static function getFromLayers(MapLayerSet $layers, string $id = 'map', ?MapGraphics $graphics = null,
@@ -106,8 +165,8 @@ final readonly class PresentationWorld
                     $owner = $layers->getGameplayLayerAt($x, $y);
                     foreach ($layers->layers as $layer) {
                         if ($layer->decoration || isset($coverage['glyphs'][$layer->name][$y][$x])) { continue; }
-                        if ($layer->glyphs[$y][$x] !== ' ') {
-                            $cell = $layer->grid[$y][$x];
+                        if (($layer->getGlyphAt($x, $y) ?? ' ') !== ' ') {
+                            $cell = $layer->getCellAt($x, $y);
                             $owner = $layer;
                         }
                     }
@@ -122,14 +181,15 @@ final readonly class PresentationWorld
             || $width * $height > self::MAX_CELLS || count($layers->layers) > self::MAX_LAYERS) {
             throw new InvalidArgumentException('Retained world exceeds the bounded layer or cell budget.');
         }
-        $metadata = $rows = $styled = [];
+        $metadata = $styled = [];
         $estimatedBytes = count($layers->layers) * self::LAYER_SOURCE_BYTES;
+        $ownerAt = static fn(int $x, int $y): string => PresentationLayerPolicy::getMapLayerId($projectedOwners[$y][$x]
+            ?? $layers->getGameplayLayerAt($x, $y));
         // Match the native retained-source charge before allocating per-cell wire arrays.
         foreach ($grid as $y => $cells) {
             foreach ($cells as $x => $cell) {
                 $styled[$cell] ??= self::getWireCell($cell);
-                $estimatedBytes += self::CELL_SOURCE_BYTES + strlen($styled[$cell]['glyph'])
-                    + strlen(PresentationLayerPolicy::getMapLayerId($projectedOwners[$y][$x] ?? $layers->getGameplayLayerAt($x, $y)));
+                $estimatedBytes += self::CELL_SOURCE_BYTES + strlen($styled[$cell]['glyph']) + strlen($ownerAt($x, $y));
             }
         }
         if ($estimatedBytes > self::MAX_SOURCE_BYTES) {
@@ -140,7 +200,7 @@ final readonly class PresentationWorld
                 'layer' => PresentationLayerPolicy::getMapLayerOrder($layer),
                 'kind' => $layer->decoration ? 'decoration' : 'gameplay'];
         }
-        $tiles = $graphics === null ? null : self::getTilePresentation($graphics, $layers, $assetRoot, $id, $coverage['tiles'] ?? []);
+        $tiles = $graphics === null ? null : self::getTilePresentation($graphics, $layers, $assetRoot, $coverage['tiles'] ?? []);
         if ($tiles !== null) {
             $metadata = [...$metadata, ...$tiles['layers']];
             $estimatedBytes += $tiles['bytes'];
@@ -149,21 +209,25 @@ final readonly class PresentationWorld
                 throw new InvalidArgumentException('Retained world exceeds the bounded layer or source-memory budget with its tiles.');
             }
         }
-        $wireCells = [];
-        foreach ($grid as $y => $cells) {
-            $wire = [];
-            foreach ($cells as $x => $cell) {
-                $ownerId = PresentationLayerPolicy::getMapLayerId($projectedOwners[$y][$x] ?? $layers->getGameplayLayerAt($x, $y));
-                // Identical immutable cells share storage; caller edits remain isolated by PHP copy-on-write.
-                $wireCells[$ownerId][$cell] ??= [...$styled[$cell], 'ownerLayerId' => $ownerId];
-                $wire[] = $wireCells[$ownerId][$cell];
+        // Each distinct cell is held once, and each row as indices to it.
+        $wireCells = $indices = [];
+        $rowCells = PackedGrid::fromRows((static function () use ($grid, $styled, $ownerAt, &$wireCells, &$indices): \Generator {
+            foreach ($grid as $y => $cells) {
+                $row = [];
+                foreach ($cells as $x => $cell) {
+                    $ownerId = $ownerAt($x, $y);
+                    if (!isset($indices[$ownerId][$cell])) {
+                        $indices[$ownerId][$cell] = count($wireCells);
+                        $wireCells[] = [...$styled[$cell], 'ownerLayerId' => $ownerId];
+                    }
+                    $row[] = $indices[$ownerId][$cell];
+                }
+                yield $row;
             }
-            $rows[] = ['op' => 'worldRows', 'id' => $id, 'rows' => [['row' => $y, 'cells' => $wire]]];
-        }
-        return new self($id, [['op' => 'put', 'kind' => 'world', 'id' => $id,
-            'value' => ['columns' => $width, 'rows' => $height, 'cellWidth' => FieldViewport::TILE_SIZE,
-                'cellHeight' => FieldViewport::TILE_SIZE, 'layers' => $metadata,
-                ...($tiles === null ? [] : ['tileset' => $tiles['tileset']])]], ...$rows, ...($tiles['operations'] ?? [])],
+        })());
+        return new self($id, ['columns' => $width, 'rows' => $height, 'cellWidth' => FieldViewport::TILE_SIZE,
+            'cellHeight' => FieldViewport::TILE_SIZE, 'layers' => $metadata,
+            ...($tiles === null ? [] : ['tileset' => $tiles['tileset']])], $wireCells, $rowCells, $tiles['rows'] ?? [],
             array_column(array_filter($metadata, static fn(array $layer): bool => $layer['kind'] !== 'tiles'), 'id'),
             $estimatedBytes, $tiles['animated'] ?? false, $tiles['covers'] ?? [], $tiles['shadows'] ?? null);
     }
@@ -183,9 +247,12 @@ final readonly class PresentationWorld
      * shows the kind, so a map without corner-edged kinds is uploaded
      * exactly as before.
      *
-     * @return array{tileset: array<string, mixed>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>, bytes: int, animated: bool, covers: array<string, string>, shadows: array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>}|null}|null
+     * Tile layers are shaped one at a time, so no more than one layer's
+     * cells are ever held as arrays.
+     *
+     * @return array{tileset: array<string, mixed>, layers: list<array<string, mixed>>, rows: array<string, array<int, string>>, bytes: int, animated: bool, covers: array<string, string>, shadows: array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, rows: array<string, array<int, string>>}|null}|null
      */
-    private static function getTilePresentation(MapGraphics $graphics, MapLayerSet $mapLayers, string $assetRoot, string $id,
+    private static function getTilePresentation(MapGraphics $graphics, MapLayerSet $mapLayers, string $assetRoot,
         array $coveredCells = []): ?array
     {
         $gameplayIds = [];
@@ -202,21 +269,23 @@ final readonly class PresentationWorld
         $catalog = $tiles = [];
         $bytes = array_sum(array_map(strlen(...), $wireSheets));
         $animated = false;
-        $layers = $operations = $covers = [];
-        $shown = array_map(static function ($layer) use ($coveredCells): array {
-            $tiles = $layer->tiles;
+        $layers = $rows = $covers = [];
+        // A layer's cells as shown: covered cells hold nothing.
+        $readShown = static function (MapTileLayer $layer) use ($coveredCells): array {
+            $shown = $layer->readTiles();
             foreach ($coveredCells[$layer->name] ?? [] as $y => $cells) {
-                foreach ($cells as $x => $_) { $tiles[$y][$x] = TileId::EMPTY; }
+                foreach ($cells as $x => $_) { $shown[$y][$x] = TileId::EMPTY; }
             }
-            return $tiles;
-        }, $graphics->layers);
-        $resolved = array_map(AutotileShape::resolveLayer(...), $shown);
+            return $shown;
+        };
         $cornerTiles = $graphics->tileset->getCornerTiles();
         $cornerJoins = $graphics->tileset->getCornerJoins();
         $cornerSheets = $cornerTiles === [] ? [] : $graphics->tileset->getUsableCornerSheets($assetRoot, $size,
-            self::getShownCornerTiles($shown, $cornerTiles));
+            self::getShownCornerTiles($graphics->layers, $coveredCells, $cornerTiles));
+        // Tiles share many pieces (an autotile's quarters recur across its shapes); equal pieces share one array.
+        $shared = [];
         $addTile = static function (string $key, int $shiftX, int $shiftY, callable $compose)
-            use (&$catalog, &$tiles, &$bytes, &$animated, &$sheetIndices): int {
+            use (&$catalog, &$tiles, &$bytes, &$animated, &$sheetIndices, &$shared): int {
             if (isset($catalog[$key])) {
                 return $catalog[$key];
             }
@@ -226,7 +295,7 @@ final readonly class PresentationWorld
             $frames = $compose();
             $animated = $animated || count($frames) > 1;
             $catalog[$key] = count($tiles);
-            $tiles[] = [
+            $tile = [
                 ...($shiftX === 0 ? [] : ['left' => $shiftX]),
                 ...($shiftY === 0 ? [] : ['top' => $shiftY]),
                 'frames' => array_map(static fn(array $pieces): array => array_map(
@@ -236,16 +305,29 @@ final readonly class PresentationWorld
                             'width' => $piece->width, 'height' => $piece->height, 'left' => $piece->left, 'top' => $piece->top];
                     }, $pieces), $frames),
             ];
+            foreach ($tile['frames'] as $frame => $framePieces) {
+                foreach ($framePieces as $index => $piece) {
+                    $tile['frames'][$frame][$index] = $shared[implode(':', $piece)] ??= $piece;
+                }
+            }
+            $tiles[] = $tile;
             return $catalog[$key];
         };
+        $shadowStyle = $graphics->tileset->shadows;
+        $casters = $ground = [];
         foreach ($graphics->layers as $index => $layer) {
+            $shown = $readShown($layer);
+            $resolved = AutotileShape::resolveLayer($shown);
+            if ($shadowStyle !== null) {
+                self::collectShadowCells($graphics, $index, $resolved, $sheetIndices, $casters, $ground);
+            }
             $covered = $gameplayIds[$graphics->owners[$layer->name] ?? ''] ?? null;
             $bands = $cornerBands = [];
             // A layer offset in field cells, each one tile.
             [$offsetX, $offsetY] = $graphics->offsets[$layer->name] ?? [0.0, 0.0];
             $shiftX = (int)round($offsetX * $size);
             $shiftY = (int)round($offsetY * $size);
-            foreach ($resolved[$index] as $y => $cells) {
+            foreach ($resolved as $y => $cells) {
                 foreach ($cells as $x => $tileId) {
                     if ($tileId === TileId::EMPTY || CornerShape::isCornerTile($tileId, $cornerTiles)
                         || !isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
@@ -254,27 +336,26 @@ final readonly class PresentationWorld
                     $tile = $addTile("{$tileId}:{$shiftX}:{$shiftY}", $shiftX, $shiftY,
                         static fn(): array => TileComposer::compose($tileId, $size, $graphics->tileset->isTable($tileId)));
                     $band = $graphics->tileset->isAbove($tileId) ? 'above' : 'below';
-                    $bands[$band][$y][] = ['column' => $x, 'tile' => $tile];
+                    $bands[$band][$y] = ($bands[$band][$y] ?? '') . pack('vv', $x, $tile);
                     $bytes += self::TILE_CELL_SOURCE_BYTES;
                 }
             }
-            foreach ($cornerSheets === [] ? [] : CornerShape::resolveLayer($shown[$index], array_keys($cornerSheets), $cornerJoins) as $y => $cells) {
-                foreach ($cells as $x => $kinds) {
-                    foreach ($kinds as $flag => $cases) {
-                        $sheet = $cornerSheets[$flag];
-                        if (!isset($sheetIndices[$sheet->key])) {
-                            $sheetIndices[$sheet->key] = count($wireSheets);
-                            $wireSheets[] = $sheet->asset;
-                            $bytes += strlen($sheet->asset);
-                        }
-                        $tile = $addTile("corners:{$flag}:{$cases}:{$shiftX}:{$shiftY}", $shiftX, $shiftY,
-                            static fn(): array => TileComposer::composeCorners($sheet, $cases, $size));
-                        $band = $graphics->tileset->isAbove($flag) ? 'above' : 'below';
-                        $cornerBands[$band][$sheet->kind][$y][] = ['column' => $x, 'tile' => $tile];
-                        $bytes += self::TILE_CELL_SOURCE_BYTES;
-                    }
+            unset($resolved);
+            foreach ($cornerSheets === [] ? [] : CornerShape::yieldCorners($shown, array_keys($cornerSheets), $cornerJoins)
+                as [$x, $y, $flag, $cases]) {
+                $sheet = $cornerSheets[$flag];
+                if (!isset($sheetIndices[$sheet->key])) {
+                    $sheetIndices[$sheet->key] = count($wireSheets);
+                    $wireSheets[] = $sheet->asset;
+                    $bytes += strlen($sheet->asset);
                 }
+                $tile = $addTile("corners:{$flag}:{$cases}:{$shiftX}:{$shiftY}", $shiftX, $shiftY,
+                    static fn(): array => TileComposer::composeCorners($sheet, $cases, $size));
+                $band = $graphics->tileset->isAbove($flag) ? 'above' : 'below';
+                $cornerBands[$band][$sheet->kind][$y] = ($cornerBands[$band][$sheet->kind][$y] ?? '') . pack('vv', $x, $tile);
+                $bytes += self::TILE_CELL_SOURCE_BYTES;
             }
+            unset($shown);
             foreach (['below' => false, 'above' => true] as $band => $above) {
                 $bandId = 'tiles:' . $layer->name . ($band === 'above' ? ':above' : '');
                 $drawn = isset($bands[$band]) ? [$bandId => $bands[$band]] : [];
@@ -283,14 +364,11 @@ final readonly class PresentationWorld
                         $drawn[$bandId . ':corners:' . $sheet->kind] = $cornerBands[$band][$sheet->kind];
                     }
                 }
-                foreach ($drawn as $layerId => $rows) {
+                foreach ($drawn as $layerId => $bandRows) {
                     $layers[] = ['id' => $layerId, 'layer' => PresentationLayerPolicy::getTileLayerOrder($layer->order, $above),
                         'kind' => 'tiles'];
                     if ($covered !== null) { $covers[$layerId] = $covered; }
-                    foreach ($rows as $y => $cells) {
-                        $operations[] = ['op' => 'worldTiles', 'id' => $id, 'layerId' => $layerId,
-                            'rows' => [['row' => $y, 'cells' => $cells]]];
-                    }
+                    $rows[$layerId] = $bandRows;
                 }
             }
         }
@@ -300,35 +378,73 @@ final readonly class PresentationWorld
         if (count($wireSheets) > self::MAX_SHEETS) {
             throw new InvalidArgumentException('Retained world exceeds the ' . self::MAX_SHEETS . '-sheet tileset budget with its corner sheets.');
         }
-        $shadows = self::getTileShadows($graphics, $resolved, $sheetIndices, $size, count($tiles), $id, $bytes);
+        $shadows = $shadowStyle === null ? null : self::getTileShadows($graphics, $casters, $ground, $size, count($tiles), $bytes);
         if (count($tiles) + count($shadows['tiles'] ?? []) > self::MAX_CATALOG_TILES) {
             throw new InvalidArgumentException('Retained world exceeds the ' . self::MAX_CATALOG_TILES . '-tile catalog.');
         }
         return ['tileset' => ['tileSize' => $usable['tileSize'], 'sheets' => $wireSheets, 'tiles' => $tiles],
-            'layers' => $layers, 'operations' => $operations, 'bytes' => $bytes, 'animated' => $animated, 'covers' => $covers,
+            'layers' => $layers, 'rows' => $rows, 'bytes' => $bytes, 'animated' => $animated, 'covers' => $covers,
             'shadows' => $shadows];
     }
 
     /**
      * The corner-edged kinds' autotiles the map shows, so only their sheets are read and sent.
      *
-     * @param list<array<int, array<int, int>>> $shown Each tile layer's cells.
+     * @param list<MapTileLayer> $layers
+     * @param array<string, array<int, array<int, mixed>>> $coveredCells Cells that show nothing, by tile layer name.
      * @param list<int> $cornerTiles
      * @return list<int>
      */
-    private static function getShownCornerTiles(array $shown, array $cornerTiles): array
+    private static function getShownCornerTiles(array $layers, array $coveredCells, array $cornerTiles): array
     {
         $found = [];
-        foreach ($shown as $rows) {
-            foreach ($rows as $row) {
-                foreach ($row as $tileId) {
-                    if (CornerShape::isCornerTile($tileId, $cornerTiles)) {
+        foreach ($layers as $layer) {
+            for ($y = 0; $y < $layer->height; $y++) {
+                foreach ($layer->getRowTiles($y) as $x => $tileId) {
+                    if (CornerShape::isCornerTile($tileId, $cornerTiles) && !isset($coveredCells[$layer->name][$y][$x])) {
                         $found[TileId::getFlagId($tileId)] = true;
                     }
                 }
             }
         }
         return array_keys($found);
+    }
+
+    /**
+     * Records which cells of one shaped tile layer cast a shadow and which
+     * show a tile below the characters, for {@see getTileShadows()}: each row
+     * as a string holding, per cell, the casting layer's position plus one
+     * (casters) or "\1" (ground). Later layers are higher, so a caster of a
+     * later layer takes the cell.
+     *
+     * @param list<list<int>> $resolved The layer's cells, shaped.
+     * @param array<string, int> $sheetIndices The usable sheets.
+     * @param array<int, string> $casters
+     * @param array<int, string> $ground
+     */
+    private static function collectShadowCells(MapGraphics $graphics, int $index, array $resolved, array $sheetIndices,
+        array &$casters, array &$ground): void
+    {
+        $style = $graphics->tileset->shadows;
+        $layer = $graphics->layers[$index];
+        foreach ($resolved as $y => $cells) {
+            foreach ($cells as $x => $tileId) {
+                if ($tileId === TileId::EMPTY || !isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
+                    continue;
+                }
+                if ($style->isCaster($tileId)) {
+                    $casters[$y] ??= str_repeat("\0", count($cells));
+                    $caster = ord($casters[$y][$x]);
+                    if ($caster === 0 || $graphics->layers[$caster - 1]->order <= $layer->order) {
+                        $casters[$y][$x] = chr($index + 1);
+                    }
+                }
+                if (!$graphics->tileset->isAbove($tileId)) {
+                    $ground[$y] ??= str_repeat("\0", count($cells));
+                    $ground[$y][$x] = "\1";
+                }
+            }
+        }
     }
 
     /**
@@ -340,39 +456,20 @@ final readonly class PresentationWorld
      * band belongs to the highest layer whose caster throws it and keeps that
      * layer's offset.
      *
-     * @param list<array<int, array<int, int>>> $resolved Each tile layer's cells, shaped.
-     * @param array<string, int> $sheetIndices The usable sheets.
+     * @param array<int, string> $casters Each row's casting layers ({@see collectShadowCells()}).
+     * @param array<int, string> $ground Each row's cells showing a tile below the characters.
      * @param int $tileCount Catalog tiles before the bands' fill tiles.
-     * @return array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>}|null
+     * @return array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, rows: array<string, array<int, string>>}|null
      */
-    private static function getTileShadows(MapGraphics $graphics, array $resolved, array $sheetIndices, int $size,
-        int $tileCount, string $id, int &$bytes): ?array
+    private static function getTileShadows(MapGraphics $graphics, array $casters, array $ground, int $size,
+        int $tileCount, int &$bytes): ?array
     {
         $style = $graphics->tileset->shadows;
-        if ($style === null) {
-            return null;
-        }
-        $casters = $ground = [];
-        foreach ($graphics->layers as $index => $layer) {
-            foreach ($resolved[$index] as $y => $cells) {
-                foreach ($cells as $x => $tileId) {
-                    if ($tileId === TileId::EMPTY || !isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
-                        continue;
-                    }
-                    if ($style->isCaster($tileId)
-                        && (!isset($casters[$y][$x]) || $graphics->layers[$casters[$y][$x]]->order <= $layer->order)) {
-                        $casters[$y][$x] = $index;
-                    }
-                    if (!$graphics->tileset->isAbove($tileId)) {
-                        $ground[$y][$x] = true;
-                    }
-                }
-            }
-        }
         $cast = [];
         foreach ($casters as $y => $cells) {
-            foreach ($cells as $x => $index) {
-                if (isset($ground[$y][$x + 1]) && !isset($casters[$y][$x + 1])) {
+            for ($x = 0, $width = strlen($cells); $x < $width; $x++) {
+                $index = ord($cells[$x]) - 1;
+                if ($index >= 0 && ($ground[$y][$x + 1] ?? "\0") === "\1" && ($cells[$x + 1] ?? "\0") === "\0") {
                     $cast[$index][$y][] = $x + 1;
                 }
             }
@@ -382,9 +479,9 @@ final readonly class PresentationWorld
         }
         $width = max(1, (int)round($style->width * $size));
         $fill = [0, 0, 0, max(1, (int)round($style->opacity * 255))];
-        $tiles = $layers = $operations = $catalog = [];
+        $tiles = $layers = $rows = $catalog = [];
         ksort($cast);
-        foreach ($cast as $index => $rows) {
+        foreach ($cast as $index => $castRows) {
             $layer = $graphics->layers[$index];
             [$offsetX, $offsetY] = $graphics->offsets[$layer->name] ?? [0.0, 0.0];
             $shiftX = (int)round($offsetX * $size);
@@ -399,15 +496,14 @@ final readonly class PresentationWorld
             $layerId = 'tiles:' . $layer->name . ':shadows';
             $layers[] = ['id' => $layerId, 'layer' => PresentationLayerPolicy::getTileLayerOrder($layer->order, false), 'kind' => 'shadows'];
             $bytes += self::LAYER_SOURCE_BYTES;
-            ksort($rows);
-            foreach ($rows as $y => $columns) {
+            ksort($castRows);
+            foreach ($castRows as $y => $columns) {
                 sort($columns);
-                $operations[] = ['op' => 'worldTiles', 'id' => $id, 'layerId' => $layerId, 'rows' => [['row' => $y,
-                    'cells' => array_map(static fn(int $column): array => ['column' => $column, 'tile' => $catalog[$key]], $columns)]]];
+                $rows[$layerId][$y] = implode('', array_map(static fn(int $column): string => pack('vv', $column, $catalog[$key]), $columns));
                 $bytes += count($columns) * self::TILE_CELL_SOURCE_BYTES;
             }
         }
-        return ['tiles' => $tiles, 'layers' => $layers, 'operations' => $operations];
+        return ['tiles' => $tiles, 'layers' => $layers, 'rows' => $rows];
     }
 
     /**

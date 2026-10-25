@@ -700,7 +700,7 @@ it('covers only declared glyph and static fixture cells and preserves independen
     expect($cells[1][1])->toMatchArray(['glyph' => 'g', 'ownerLayerId' => 'map:ground'])
         ->and($cells[1][2])->toMatchArray(['glyph' => 's', 'ownerLayerId' => 'map:signs'])
         ->and($this->scene->mapManager->getPresentationWorld())->toBe($world)
-        ->and($this->prepared->graphics->layers[1]->tiles[1][1])->toBe(2);
+        ->and($this->prepared->graphics->layers[1]->getTileAt(1, 1))->toBe(2);
     $tiles = array_values(array_filter($world->operations, fn($op) => $op['op'] === 'worldTiles'));
     $floor = array_values(array_filter($tiles, fn($op) => $op['layerId'] === 'tiles:floor'));
     $objects = array_values(array_filter($tiles, fn($op) => $op['layerId'] === 'tiles:objects:above'));

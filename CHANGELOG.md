@@ -230,6 +230,15 @@
 
 ### Changed
 
+- A world map's field state and graphical upload are held compactly, so a classic world map loads, plays and
+  leaves within PHP's default 128 MB: Last Legend's 320 x 248 continent crashed the game at 128 MB when the
+  player left Happyville (`MapTerrainKinds::resolveEncounterTerrain()` ran out of memory). Gameplay layers, tile
+  layers, encounter terrain and gameplay owners keep their cells as packed bytes (`Core\PackedGrid`). The
+  retained world keeps its upload packed and builds operations on request (`PresentationWorld::getOperations()`,
+  `streamOperations()`); a renderer session streams a world chunk by chunk (`RetainedWorldUpload`), and corner
+  cases stream too (`CornerShape::yieldCorners()`). Every map's collision, encounter terrain, ownership,
+  overview and renderer upload are unchanged byte for byte. On the continent, a transfer's peak fell from
+  205 MB to 20 MB and the installed map from 191 MB to 15 MB.
 - Battle overlays attach to each battler's drawn body: the visible pixels of the artwork it draws this frame,
   after crop, scale, mirroring, clip and command movement. The target cursor, condition badges, target
   names, result popups and effect head/centre/feet attachments no longer anchor to the whole image
@@ -372,6 +381,12 @@
 
 ### Removed
 
+- The per-cell array properties of map layers, replaced by accessors over packed cells: `MapLayer::$grid` and
+  `MapLayer::$glyphs` (use `getCellAt()`, `getGlyphAt()`, `getRowCells()`, `getRowGlyphs()`, or `readGrid()`
+  and `readGlyphs()`), `MapTileLayer::$tiles` (use `getTileAt()`, `getRowTiles()` or `readTiles()`) and
+  `MapLayerSet::$gameplayOwners` (use `getGameplayLayerAt()` or `readGameplayOwners()`).
+  `PresentationWorld::$tileShadows` is no longer public, and `PresentationWorld::$operations` is built on each
+  read. `MapEncounterTerrain` takes a packed grid of terrain positions.
 - Control glyphs in a theme's general `icons` map (`input.<family>.<control>`
   roles) and `ControlHint::iconRole()`: control artwork now lives only in the
   theme's `controls` sets. `ActionHint::describeControls()` is removed; the

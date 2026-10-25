@@ -141,12 +141,13 @@ final class MapCollisionResolver
             $gameplay[] = [$layer, (is_array($section) ? $section : []) + $flat];
         }
         $result = [];
-        foreach ($gameplay[0][0]->grid as $y => $row) {
-            foreach ($row as $x => $_) {
+        $base = $gameplay[0][0];
+        for ($y = 0; $y < $base->height; $y++) {
+            for ($x = 0, $width = $base->getRowLength($y); $x < $width; $x++) {
                 $result[$y][$x] = CollisionType::SOLID->value;
                 for ($index = count($gameplay) - 1; $index >= 0; $index--) {
                     [$layer, $types] = $gameplay[$index];
-                    $glyph = TerminalText::stripAnsi($layer->grid[$y][$x]);
+                    $glyph = $layer->getGlyphAt($x, $y) ?? ' ';
                     if ($index !== 0 && $glyph === ' ') {
                         continue;
                     }

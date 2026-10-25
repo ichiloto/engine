@@ -76,7 +76,7 @@ final readonly class MapAtlasTerrain
     {
         $role=null;
         foreach ($this->bindings as [$layer,$binding]) {
-            $glyph=$layer->glyphs[$y][$x] ?? null;
+            $glyph=$layer->getGlyphAt($x,$y);
             if ($glyph===null) { continue; }
             $next=$binding['symbols'][$glyph] ?? ($glyph!==' ' ? ($binding['default'] ?? null) : null);
             if ($next!==null) { $role=$next; }

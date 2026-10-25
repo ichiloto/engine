@@ -374,8 +374,8 @@ final class MapPassageAgreementRule
         foreach (array_reverse($graphics->layers) as $layer) {
             [$offsetX, $offsetY] = $graphics->offsets[$layer->name] ?? [0.0, 0.0];
             $offset = $offsetX !== 0.0 || $offsetY !== 0.0;
-            foreach ($layer->tiles as $y => $row) {
-                foreach ($row as $x => $id) {
+            for ($y = 0; $y < $layer->height; $y++) {
+                foreach ($layer->getRowTiles($y) as $x => $id) {
                     // A tile whose sheet cannot be drawn shows nothing.
                     if ($id === TileId::EMPTY || !isset($usable[TileId::getSheet($id)?->value ?? ''])) { continue; }
                     $class = $graphics->tileset->classifyAppearance($id);

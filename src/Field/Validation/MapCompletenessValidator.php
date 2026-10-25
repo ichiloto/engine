@@ -69,13 +69,14 @@ final class MapCompletenessValidator
             return []; // terrain.kinds reports why.
         }
         $tiles = [];
-        foreach ($graphics->layers as $layer) { $tiles[$layer->name] = $layer->tiles; }
+        foreach ($graphics->layers as $layer) { $tiles[$layer->name] = $layer; }
         $cells = [];
         foreach ($layers->layers as $layer) {
             if ($layer->decoration || !in_array($layer->name, $kinds->getLayers(), true)) { continue; }
-            foreach ($layer->glyphs as $y => $row) {
-                foreach ($row as $x => $glyph) {
-                    $kind = $kinds->findKindAt($layer->name, $glyph, static fn(string $name): int => $tiles[$name][$y][$x] ?? 0);
+            for ($y = 0; $y < $layer->height; $y++) {
+                foreach ($layer->getRowGlyphs($y) as $x => $glyph) {
+                    $kind = $kinds->findKindAt($layer->name, $glyph,
+                        static fn(string $name): int => ($tiles[$name] ?? null)?->getTileAt($x, $y) ?? 0);
                     if ($kind?->awaitingArt === true) { $cells[$layer->name][$y][$x] = true; }
                 }
             }

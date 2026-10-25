@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Field;
 
 use Closure;
+use Ichiloto\Engine\Core\PackedGrid;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Tilesets\TileId;
@@ -236,19 +237,24 @@ final readonly class MapTerrainKinds
         $gameplay[] = [$layer, (is_array($section) ? $section : []) + $flat];
       }
     }
-    $grid = [];
-    foreach ($gameplay[0][0]->grid ?? [] as $y => $row) {
-      foreach (array_keys($row) as $x) {
+    $terrains = $this->getEncounterTerrains();
+    $terrainIndices = array_flip($terrains);
+    $base = $gameplay[0][0] ?? null;
+    $rows = [];
+    for ($y = 0; $y < ($base?->height ?? 0); $y++) {
+      $row = [];
+      for ($x = 0, $width = $base->getRowLength($y); $x < $width; $x++) {
+        $row[$x] = 0;
         for ($index = count($gameplay) - 1; $index >= 0; $index--) {
           [$layer, $types] = $gameplay[$index];
-          $glyph = $layer->glyphs[$y][$x] ?? ' ';
+          $glyph = $layer->getGlyphAt($x, $y) ?? ' ';
           if ($index !== 0 && $glyph === ' ') {
             continue;
           }
           $kinds = $this->getKindsOn($layer->name, $glyph);
           if ($kinds !== []) {
             if ($kinds[0]->encounters !== null) {
-              $grid[$y][$x] = $kinds[0]->encounters;
+              $row[$x] = $terrainIndices[$kinds[0]->encounters] + 1;
             }
             break;
           }
@@ -257,8 +263,9 @@ final readonly class MapTerrainKinds
           }
         }
       }
+      $rows[] = $row;
     }
-    return new MapEncounterTerrain($grid, $this->getEncounterTerrains());
+    return new MapEncounterTerrain(PackedGrid::fromRows($rows), $terrains);
   }
 
   /**

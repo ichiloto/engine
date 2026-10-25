@@ -732,6 +732,34 @@ meet, which needs mouth tiles in the sheet layout (today two joined waters
 meet along the cell edge between them, so their colours change there in a
 straight line).
 
+#### Memory of a world map
+
+A classic world map loads, plays and leaves within PHP's default 128 MB beside
+the rest of the game. Every per-cell grid the field keeps is packed bytes
+(`Core\PackedGrid`): a gameplay layer holds each distinct styled cell once and
+its rows as palette indices (`MapLayer::getCellAt()`, `getGlyphAt()`, a row at a
+time, or `readGrid()` and `readGlyphs()` built for the caller); a tile layer
+holds its tile identities the same way (`MapTileLayer::getTileAt()`,
+`getRowTiles()`, `readTiles()`); encounter terrain and gameplay owners too.
+The retained world (`PresentationWorld`) keeps its upload packed and shares
+equal cells and catalog pieces; `getOperations()` builds the operations, and a
+renderer session streams them (`streamOperations()`, `RetainedWorldUpload`),
+so an upload holds one transport chunk at a time. Tile layers are shaped one
+at a time, and corner cases stream from compact rows
+(`CornerShape::yieldCorners()`). Leaving a map releases all of it.
+
+Measured on Last Legend's 320 x 248 continent (twelve tile layers, terrain
+kinds, corner-edged waters), from a transfer out of Happyville: the
+transfer's peak fell from 205 MB to 20 MB above the field it left, and the
+installed continent from 191 MB to 15 MB, with byte-identical renderer
+uploads. Tests guard a synthetic 320 x 256 world (`WorldMapMemoryTest`) and
+every map of the game (Last Legend's `FieldTravelMemoryTest`) at 128 MB.
+
+Remaining, recorded rather than claimed: the collision grid is still a
+nested integer array (about 3.6 MB on the continent), and `CellArea` expands
+a named area's rectangle into one array per cell (1.4 MB for the continent's
+areas; a region covering a whole 256 x 256 map would cost about 16 MB).
+
 ## Open compatibility item
 
 1. **Legacy path retirement.** Once Last Legend is fully migrated, does the

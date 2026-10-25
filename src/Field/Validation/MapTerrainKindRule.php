@@ -41,7 +41,7 @@ final class MapTerrainKindRule
     {
         $tiles = [];
         foreach ($graphics->layers as $layer) {
-            $tiles[$layer->name] = $layer->tiles;
+            $tiles[$layer->name] = $layer;
         }
         $paired = self::findPieceTiles($graphics->tileset->pieces);
         $disagreements = $awaiting = [];
@@ -49,9 +49,9 @@ final class MapTerrainKindRule
             if ($layer->decoration || !in_array($layer->name, $kinds->getLayers(), true)) {
                 continue;
             }
-            foreach ($layer->glyphs as $y => $row) {
-                foreach ($row as $x => $glyph) {
-                    $tileAt = static fn(string $name): int => $tiles[$name][$y][$x] ?? TileId::EMPTY;
+            for ($y = 0; $y < $layer->height; $y++) {
+                foreach ($layer->getRowGlyphs($y) as $x => $glyph) {
+                    $tileAt = static fn(string $name): int => ($tiles[$name] ?? null)?->getTileAt($x, $y) ?? TileId::EMPTY;
                     $named = $kinds->getKindsOn($layer->name, $glyph);
                     if ($named !== []) {
                         $kind = $kinds->findKindAt($layer->name, $glyph, $tileAt);
