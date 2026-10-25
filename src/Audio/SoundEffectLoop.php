@@ -8,7 +8,8 @@ namespace Ichiloto\Engine\Audio;
  * An owned handle to a looping sound effect.
  *
  * The AudioManager owns the player process behind the handle: it spawns it,
- * keeps it in step with the sound effect toggle and the master volume, and
+ * keeps it in step with the Effects switch and the master and Effects
+ * volumes, and
  * respawns it on players that cannot loop by themselves. The holder only
  * stops the loop, which ends the process at once. A stopped handle stays
  * stopped; starting the sound again takes a new handle.
@@ -41,7 +42,7 @@ final class SoundEffectLoop
    * @param AudioManager $audio The manager that owns the player process.
    * @param string $path The resolved path of the looping track.
    * @param float $volume The loop's own volume between 0.0 and 1.0, scaled
-   *   by the master volume.
+   *   by the master and Effects volumes.
    */
   public function __construct(
     private readonly AudioManager $audio,

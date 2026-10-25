@@ -10,8 +10,8 @@ namespace Ichiloto\Engine\Audio\Enumerations;
  * `audio.sounds.<value>` key in their project config; sounds without a
  * configured track are silent. The enum value doubles as the config key.
  * Each sound also has its own authored volume, `audio.sound_volumes.<value>`
- * (0 to 100, scaled by the master volume), so a dense sound can sit under
- * the music without the game editing the file.
+ * (0 to 100, scaled by the master and Effects volumes), so a dense sound
+ * can sit under the music without the game editing the file.
  *
  * @package Ichiloto\Engine\Audio\Enumerations
  */
@@ -75,7 +75,7 @@ enum SystemSound: string
   public const int DEFAULT_VOLUME = 100;
   /** The quietest authored volume: the sound is silent. */
   public const int MIN_VOLUME = 0;
-  /** The loudest authored volume: the sound plays at the master volume. */
+  /** The loudest authored volume: the sound plays at the Effects gain. */
   public const int MAX_VOLUME = 100;
 
   /**

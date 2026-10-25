@@ -15,6 +15,9 @@ Scene themes live in the project config:
   'master_volume' => 70,
   'music' => true,
   'sfx' => true,
+  'music_volume' => 100,  // each bus's starting volume, 0 to 100
+  'sfx_volume' => 100,
+  'voice_volume' => 100,
   'bgm' => [
     'title' => 'title-theme',        // plays on the title screen
     'battle' => 'clash-of-steel',    // plays during battles
@@ -210,8 +213,8 @@ Games opt in per sound by declaring a track under `audio.sounds`:
 Sounds without a configured track are silent. The available keys are the
 cases of `Ichiloto\Engine\Audio\Enumerations\SystemSound`. Every sound also
 reads `audio.sound_volumes.<key>` (default 100), which scales it under the
-master volume, so a dense sound can sit under the music without editing the
-file. The Editor's Configuration category offers both the track (chosen from
+master and Effects volumes (see [Volumes and buses](#volumes-and-buses)), so
+a dense sound can sit under the music without editing the file. The Editor's Configuration category offers both the track (chosen from
 the project's SFX folder) and the volume for every system sound.
 
 The engine fires these at its built-in interaction points: cursor movement,
@@ -316,7 +319,8 @@ already installed on the host, detected once at startup.
 
 On macOS, one-shot sounds play through `afplay`, while music and looping
 sounds prefer `mpv` or `ffplay` when installed. Every volume the engine
-computes (master volume times a sound's own volume) is a linear gain, and each
+computes (master volume times bus volume times a sound's own volume) is a
+linear gain, and each
 backend converts it to its player's own scale: `mpv` and `paplay` control
 volume cubically, so they receive the cube root of the gain. The same setting
 therefore plays at the same level through every player, and the authored
@@ -351,6 +355,38 @@ assets/
       menu-select.wav   <- playSoundEffect('menu-select')
 ```
 
+## Volumes and buses
+
+Every sound plays on one bus (`Ichiloto\Engine\Audio\Enumerations\AudioBus`):
+**Music** (background music), **Effects** (sound effects, system sounds and
+their loops, the counter tick and EXP tally among them) or **Voice** (speech).
+A sound plays at
+
+```text
+master volume x bus volume x the sound's own volume
+```
+
+each from 0 to 100, so the player sets the balance between music, effects and
+voices without changing any sound's authored level. The bus volumes default to
+100, which plays a bus at the master volume unchanged.
+
+The player changes Master Volume, Music Volume, Sound Effects Volume and Voice
+Volume in Config and the title Options, beside the Music, Sound Effects and
+Voice switches. The game's `config.php` authors where each starts; the player's
+choices are kept in `.data/player-settings.json`, never in `config.php`. A
+player file saved before the bus volumes existed keeps its master volume and
+switches, and each bus starts at the game's authored volume. A bus volume the
+player has not moved follows the authored one when the game changes it. The
+Editor's Configuration offers each authored volume with its range.
+
+Changing a volume in either menu plays the cursor sound after the change, at
+the new level, so Sound Effects Volume and Master Volume are heard as chosen.
+A Music Volume change applies to the music already playing as a master volume
+change does (below), and a running loop restarts at its new level at once.
+`AudioManager::getBusGain()` reports a bus's master-times-bus gain,
+`getBusVolume()` its own volume and `isBusEnabled()` its switch. A sound whose
+gain is zero starts no player.
+
 ## Project settings
 
 The manager honours the same project config keys the title options menu edits,
@@ -358,13 +394,17 @@ and it honours them live — no restart required:
 
 | Key                   | Default | Effect                                        |
 |-----------------------|---------|-----------------------------------------------|
-| `audio.music`         | `false` | Toggling off stops BGM; on resumes the track. |
-| `audio.sfx`           | `false` | Gates sound effects only.                     |
-| `audio.voice`         | `true`  | Independent voice acting toggle in Config and title Options. |
+| `audio.music`         | `false` | Music switch: off stops BGM; on resumes the track. |
+| `audio.sfx`           | `false` | Effects switch: gates sound effects only.     |
+| `audio.voice`         | `true`  | Voice switch, independent of Effects, in Config and title Options. |
 | `audio.voice_music_duck` | `1.0` | Skit speech BGM multiplier, clamped to 0-1; 1 leaves music unchanged. |
-| `audio.master_volume` | `75`    | 0–100; changes restart BGM at the new volume. |
+| `audio.master_volume` | `75`    | 0 to 100, above every bus; changes restart BGM at the new volume. |
+| `audio.music_volume`  | `100`   | 0 to 100, the Music bus; changes restart BGM at the new volume. |
+| `audio.sfx_volume`    | `100`   | 0 to 100, the Effects bus; running loops follow it at once. |
+| `audio.voice_volume`  | `100`   | 0 to 100, the Voice bus; the next spoken line plays at it. |
 
-Note that music and SFX default to **off**, matching the title options menu;
+A volume that is not a number plays at its default, with one warning in the
+log. Music and SFX default to **off**, matching the title options menu;
 enable them in the game's project config to ship with sound on.
 
 ## Speech
@@ -379,7 +419,9 @@ Manager shutdown stops both channels. General speech references use the normal
 audio resolver with `Audio/Voice` as the conventional directory; skit basenames
 use the stricter directory contract in [skits.md](skits.md#runtime-contract).
 
-Speech respects its independent `audio.voice` gate and zero master volume.
+Speech respects its independent `audio.voice` gate and plays at the master
+volume times `audio.voice_volume`; a zero gain plays no line. A line already
+speaking keeps the level it started at.
 SFX mute no longer mutes voice acting. Muting Voice during playback stops the line on the next update or query;
 unmuting does not resume an interrupted line. Missing files, unsupported
 formats, spawn failures and unsuccessful process exits produce diagnostics;
@@ -416,8 +458,9 @@ Looping sound effects (`startSoundEffectLoop()`, `startSystemSoundLoop()`)
 return an owned `SoundEffectLoop` handle. The manager prefers a player that
 loops natively (`mpv`, `ffplay`); with only `afplay` it respawns the player
 each time the loop ends, which leaves a gap of up to one frame between passes.
-A loop sounds only while `audio.sfx` is on and its volume is above zero, and
-resumes by itself when they come back. `stop()` on the handle ends the player
+A loop sounds only while `audio.sfx` is on and its gain (master times Effects
+times its own volume) is above zero, follows a changed master or Effects
+volume at once, and resumes by itself when they come back. `stop()` on the handle ends the player
 at once; `shutdown()` stops every loop. A player that fails (a non-zero exit,
 or a native looper that ends on its own) leaves its loop silent instead of
 respawning it every frame.

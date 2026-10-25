@@ -19,10 +19,13 @@ class TitleOptionsSettingsManager extends SettingsManager
   {
     return [
       'volume',
-      'cursor_memory',
+      'music_volume',
+      'sfx_volume',
+      'voice_volume',
       'music',
       'sfx',
       'voice',
+      'cursor_memory',
       'transitions',
       'battle_transitions',
       'dialogue_speed',

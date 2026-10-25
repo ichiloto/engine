@@ -4,6 +4,22 @@
 
 ### Added
 
+- Separate Music, Sound Effects and Voice volumes beneath the master volume:
+  `Audio\Enumerations\AudioBus` names the bus every sound plays on, and a
+  sound plays at master volume x bus volume x its own authored volume.
+  `audio.music_volume`, `audio.sfx_volume` and `audio.voice_volume` (0 to 100,
+  default 100) are authored per game in `config.php` and chosen by the player
+  in Config and the title Options (Master Volume, Music Volume, Sound Effects
+  Volume, Voice Volume), kept in player settings. Earlier player settings keep
+  their master volume; each bus starts at the game's authored volume. Changes
+  apply live: music already playing restarts at its position on a
+  seek-capable player, and running loops (the counter tick, the EXP tally)
+  restart at the new level. `AudioManager::getBusGain()`, `getBusVolume()`,
+  `isBusEnabled()` and a public `getMasterVolume()`.
+- Solid fills (an Engine-drawn slider track, divider or backing) pack onto
+  shared whole-pixel lattices when glyph batching leaves a canvas over its
+  text-layer budget, so a dense Config list with four sliders no longer falls
+  back to the Terminal presentation in GPUI.
 - Dash, as RPG Maker's: while the `dash` action is held, each held field step
   takes the walking time divided by the project's multiplier, authored in
   `Data/system.php` (`'dash' => ['enabled' => true, 'speedMultiplier' => 2.0]`,
@@ -175,6 +191,13 @@
 
 ### Changed
 
+- Config and the title Options play the cursor (or confirm) sound after a
+  setting changes instead of before, so a volume is heard at its new level.
+  The Volume row is labelled Master Volume and SFX is labelled Sound Effects.
+- A sound effect whose gain is zero (master, Effects or its own volume at 0)
+  starts no player process. A master or sound volume that is not a number
+  plays at its default with a warning; a numeric string master volume used to
+  be read as its number.
 - Dialogue's advance hint is the confirm key alone ("Enter"), the same while
   text types and when it waits; "Reveal" and "Continue" are removed from the
   footer, graphical and Terminal. The Auto key ("Space") is a keycap and every
