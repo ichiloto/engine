@@ -430,7 +430,7 @@ pattern per 30 field pixels, so it plays faster as the dash goes faster.
   (`DashSettings::MAX_SPEED_MULTIPLIER`), so a step lasts at least 4 frames at
   60 updates per second; 2 is RPG Maker's.
 - A map turns dashing off for itself with `'disableDashing' => true` in its
-  data (the map Inspector's Dashing row), as RPG Maker's Disable Dashing does.
+  data (the map Inspector's Disable Dashing switch), as RPG Maker's Disable Dashing does.
   Cinematics, routes and events move characters at their own authored paces
   and never read the dash.
 - Always Dash is a player option in Config and the title Options, stored in
