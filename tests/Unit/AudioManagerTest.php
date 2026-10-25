@@ -26,11 +26,27 @@ afterEach(function () {
 it('builds an mpv command with volume and native looping', function () {
   $backend = new MpvBackend();
 
-  expect($backend->buildCommand('/tmp/theme.ogg', 0.75, true))
-    ->toBe(['mpv', '--no-video', '--no-terminal', '--really-quiet', '--volume=75', '--loop-file=inf', '--', '/tmp/theme.ogg'])
+  // mpv's volume is cubic: 50 plays at an eighth of the amplitude.
+  expect($backend->buildCommand('/tmp/theme.ogg', 0.125, true))
+    ->toBe(['mpv', '--no-video', '--no-terminal', '--really-quiet', '--volume=50', '--loop-file=inf', '--', '/tmp/theme.ogg'])
     ->and($backend->buildCommand('/tmp/hit.wav', 1.0, false))
     ->toBe(['mpv', '--no-video', '--no-terminal', '--really-quiet', '--volume=100', '--', '/tmp/hit.wav']);
 });
+
+it('plays every gain at the same level through cubic and linear players', function (float $gain) {
+  $mpv = new MpvBackend()->buildCommand('/tmp/a.wav', $gain, false)[4];
+  $paplay = new PaplayBackend()->buildCommand('/tmp/a.wav', $gain, false)[1];
+  $afplay = new AfplayBackend()->buildCommand('/tmp/a.wav', $gain, false)[2];
+  $ffplay = new FfplayBackend()->buildCommand('/tmp/a.wav', $gain, false)[6];
+
+  // Each player's own gain: mpv and PulseAudio cube their volume fraction.
+  expect(((float)substr($mpv, strlen('--volume=')) / 100) ** 3)->toEqualWithDelta($gain, 0.002)
+    ->and(((int)substr($paplay, strlen('--volume=')) / 65536) ** 3)->toEqualWithDelta($gain, 0.002)
+    // afplay takes two decimals and ffplay whole percents.
+    ->and((float)$afplay)->toEqualWithDelta($gain, 0.006)
+    ->and((int)$ffplay / 100)->toEqualWithDelta($gain, 0.006);
+})->with(['silent' => 0.0, 'EXP tally under master 75' => 0.225, 'counter under master 75' => 0.2625,
+  'master 75' => 0.75, 'full' => 1.0]);
 
 it('builds an ffplay command with volume and native looping', function () {
   $backend = new FfplayBackend();
@@ -42,7 +58,8 @@ it('builds an ffplay command with volume and native looping', function () {
 it('builds a paplay command with pulse volume units', function () {
   $backend = new PaplayBackend();
 
-  expect($backend->buildCommand('/tmp/hit.wav', 0.5, false))
+  // PulseAudio's volume is cubic: 50% plays at an eighth of the amplitude.
+  expect($backend->buildCommand('/tmp/hit.wav', 0.125, false))
     ->toBe(['paplay', '--volume=32768', '/tmp/hit.wav']);
 });
 

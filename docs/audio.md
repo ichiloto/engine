@@ -314,6 +314,15 @@ already installed on the host, detected once at startup.
 | `aplay`  | Linux                | wav                     | ALSA last resort                   |
 | `afplay` | macOS                | wav, mp3, m4a, aiff     | ships with macOS                   |
 
+On macOS, one-shot sounds play through `afplay`, while music and looping
+sounds prefer `mpv` or `ffplay` when installed. Every volume the engine
+computes (master volume times a sound's own volume) is a linear gain, and each
+backend converts it to its player's own scale: `mpv` and `paplay` control
+volume cubically, so they receive the cube root of the gain. The same setting
+therefore plays at the same level through every player, and the authored
+balance between music, loops and one-shot sounds holds whichever players are
+installed.
+
 If none of these are installed — or a particular file's format is not supported
 by any installed player — every audio call degrades to a silent no-op (logged
 once to the debug log, never spammed) and the game remains fully playable.

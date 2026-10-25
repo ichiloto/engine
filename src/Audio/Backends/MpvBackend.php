@@ -8,6 +8,10 @@ namespace Ichiloto\Engine\Audio\Backends;
  * mpv decodes virtually every common audio format, supports native looping and
  * per-process volume, which makes it the preferred backend when installed.
  *
+ * mpv's `--volume` is a cubic control: 50 plays at an eighth of the
+ * amplitude (-18 dB). The command takes the cube root of the requested gain
+ * so mpv plays at the same level as the linear players (afplay, ffplay).
+ *
  * @package Ichiloto\Engine\Audio\Backends
  */
 class MpvBackend extends CommandLineAudioBackend
@@ -54,7 +58,7 @@ class MpvBackend extends CommandLineAudioBackend
       '--no-video',
       '--no-terminal',
       '--really-quiet',
-      sprintf('--volume=%d', (int)round($this->clampVolume($volume) * 100)),
+      '--volume=' . round($this->convertGainToCubicVolume($volume) * 100, 2),
     ];
 
     if ($startAtSeconds > 0) {

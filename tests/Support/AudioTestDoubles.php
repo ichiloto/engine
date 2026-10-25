@@ -229,14 +229,18 @@ function putAudioProjectConfig(array $values): void
 /**
  * A manager whose project binds a synthetic counter tick (`tick.wav`) and,
  * when asked, a synthetic EXP tally (`tally.wav`), with the given audio
- * settings.
+ * settings. `$backends` stands in for the players a host has installed; by
+ * default one fake player that loops natively.
+ *
+ * @param AudioBackendInterface[]|null $backends
  */
-function makeCounterTickManager(array $audio = ['sfx' => true, 'master_volume' => 100], bool $bindsExpTally = false): TestableAudioManager
+function makeCounterTickManager(array $audio = ['sfx' => true, 'master_volume' => 100], bool $bindsExpTally = false,
+  ?array $backends = null): TestableAudioManager
 {
   $root = makeAudioAssetsRoot(['tick.wav', 'tally.wav']);
   $sounds = ['counter' => "$root/tick.wav", ...($bindsExpTally ? ['exp_tally' => "$root/tally.wav"] : [])];
-  putAudioProjectConfig(['audio' => [...$audio, 'sounds' => $sounds]]);
-  return new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+  putAudioProjectConfig(['audio' => [...$audio, 'sounds' => [...$sounds, ...($audio['sounds'] ?? [])]]]);
+  return new TestableAudioManager(makeAudioTestGame(), $backends ?? [new FakeAudioBackend()]);
 }
 
 /**

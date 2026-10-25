@@ -1525,6 +1525,59 @@ it('plays the EXP tally while graphical Results count EXP, never for the termina
   }
 })->with(['graphical' => true, 'terminal' => false]);
 
+it('sounds the EXP tally under the victory music while native Results count EXP on the macOS players', function () {
+  [$battle, $catalog, $hero] = graphicalBattleFixture(true);
+  $scene = graphicalBattleScene($battle, GraphicalBattlePresentation::prepare($battle, $catalog, $this->root));
+  new ReflectionProperty(BattleScene::class, 'resultsSkin')->setValue($scene, graphicalResultsFixtureSkin());
+  $scene->result = new BattleResult('Victory', rewards: new BattleRewards(10000, 42, [ExperienceAwarder::award($hero, 10000)]));
+  $fanfare = makeAudioAssetsRoot(['fanfare.mp3']) . '/fanfare.mp3';
+  // macOS: one-shot sounds play through afplay; music and loops prefer mpv, whose volume is cubic.
+  $manager = makeCounterTickManager(['sfx' => true, 'music' => true, 'master_volume' => 75,
+    'bgm' => ['victory' => $fanfare], 'sound_volumes' => ['exp_tally' => 30]], bindsExpTally: true,
+    backends: [new Ichiloto\Engine\Audio\Backends\AfplayBackend(), new Ichiloto\Engine\Audio\Backends\MpvBackend()]);
+  $instance = new ReflectionProperty(Ichiloto\Engine\Audio\AudioManager::class, 'instance');
+  $previous = $instance->getValue();
+  $instance->setValue(null, $manager);
+  $delta = new ReflectionProperty(Ichiloto\Engine\Core\Time::class, 'deltaTime');
+  $oldDelta = $delta->getValue();
+  $victory = new Ichiloto\Engine\Scenes\Battle\States\BattleVictoryState(new Ichiloto\Engine\Scenes\SceneStateContext($scene));
+  // One game frame: the scene updates its count, then the audio manager is pumped.
+  $runFrames = static function (float $seconds) use ($victory, $manager): void {
+    for ($elapsed = 0.0; $elapsed < $seconds - 1e-9; $elapsed += 0.05) { $victory->execute(); $manager->update(); }
+  };
+  // The gain a player applies: mpv cubes its volume fraction.
+  $gainOf = static fn(array $command): float => ((float)substr($command[4], strlen('--volume=')) / 100) ** 3;
+  try {
+    $scene->setState($victory);
+    $delta->setValue(null, 0.05);
+    $runFrames(0.5);
+    expect($manager->counterSound->isPlaying)->toBeFalse()->and(listSpawnedSoundFiles($manager))->toBe(['fanfare.mp3']);
+    $runFrames(0.6);
+    [$music, $tally] = $manager->spawnedCommands;
+    expect($scene->resultsPlayback->isCounting)->toBeTrue()
+      ->and($manager->counterSound->isPlaying)->toBeTrue()
+      ->and(listSpawnedSoundFiles($manager))->toBe(['fanfare.mp3', 'tally.wav'])
+      ->and($tally[0])->toBe('mpv')->and($tally)->toContain('--loop-file=inf')
+      // Master 75 under the tally's own 30: the same gain afplay would apply to a one-shot sound.
+      ->and($gainOf($tally))->toEqualWithDelta(0.75 * 0.30, 0.002)
+      ->and($gainOf($music))->toEqualWithDelta(0.75, 0.002)
+      ->and($gainOf($tally) / $gainOf($music))->toEqualWithDelta(0.30, 0.005);
+    // The count ends before Continue: the tally stops with it, without a respawn.
+    $runFrames(1.5);
+    expect($scene->resultsPlayback->isCounting)->toBeFalse()
+      ->and($scene->resultsPlayback->isFinished())->toBeFalse()
+      ->and($manager->counterSound->isPlaying)->toBeFalse()
+      ->and(listSpawnedSoundFiles($manager))->toBe(['fanfare.mp3', 'tally.wav'])
+      ->and($manager->spawnedPlaybacks[1]->isRunning)->toBeFalse();
+    $victory->exit();
+    expect($scene->resultsPlayback)->toBeNull()->and($manager->counterSound->isPlaying)->toBeFalse();
+  } finally {
+    $delta->setValue(null, $oldDelta);
+    $instance->setValue(null, $previous);
+    $manager->shutdown();
+  }
+});
+
 it('keeps victory input presentation-only and finishes the exit without an extra confirmation', function () {
   [$battle, $catalog, $hero] = graphicalBattleFixture(true);
   $scene = graphicalBattleScene($battle, GraphicalBattlePresentation::prepare($battle, $catalog, $this->root));
