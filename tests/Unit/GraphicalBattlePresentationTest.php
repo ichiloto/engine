@@ -2486,3 +2486,78 @@ it('keeps a prepared battle usable as individual background battler and target a
     rmdir($root);
   }
 });
+
+/** Every glyph a canvas draws, joined, for asserting what reads on screen. */
+function graphicalBattleCanvasText(PresentationCanvas $canvas): string
+{
+  return implode("\n", array_map(fn($layer) => implode('', array_column(array_filter($layer->runs,
+    fn($run) => $run->foreground !== null), 'text')), $canvas->textLayers));
+}
+
+it('draws escape and defeat results as the themed graphical battle panel, never their Terminal window', function (string $title, array $lines, bool $keys) {
+  [$battle, $catalog, $hero] = graphicalBattleFixture(skinned: true);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $scene = graphicalBattleScene($battle, $presentation);
+  $theme = createTestDirectory('ichiloto-battle-outcome-');
+  if ($keys) {
+    mkdir($theme . '/Data/Presentation', 0700, true);
+    file_put_contents($theme . '/Data/Presentation/menus.php', '<?php return ' . var_export(['schema' => 'ichiloto.menu/1'], true) . ';');
+  }
+  new ReflectionProperty(GraphicalBattlePresentation::class, 'controls')->setValue($presentation,
+    \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog::load($theme));
+  new ReflectionProperty(GraphicalBattlePresentation::class, 'controlsRead')->setValue($presentation, true);
+  $scene->ui->hideControls();
+  $scene->result = new BattleResult($title, $lines);
+  $scene->resultWindow = new \Ichiloto\Engine\Battle\UI\BattleResultWindow($scene->ui);
+  $scene->resultWindow->display($scene->result);
+  // The Terminal keeps its result window, help line and all.
+  expect(implode('', Console::snapshot()->rows))->toContain($title)->toContain('Continue');
+  $frame = $scene->getPresentationCanvas();
+  $text = graphicalBattleCanvasText($frame);
+  $outcome = array_values(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'hud-outcome')));
+  $hero = array_find($frame->images, fn($image) => $image->id === 'combatant-' . spl_object_id($hero))->destination;
+  $top = min(array_map(fn($image) => $image->destination->y, $outcome));
+  $bottom = max(array_map(fn($image) => $image->destination->y + $image->destination->height, $outcome));
+  $left = min(array_map(fn($image) => $image->destination->x, $outcome));
+  $right = max(array_map(fn($image) => $image->destination->x + $image->destination->width, $outcome));
+  expect($outcome)->not->toBeEmpty()
+    ->and(array_filter($frame->textLayers, fn($layer) => str_starts_with($layer->id, 'battle-ui-')))->toBe([])
+    ->and($text)->toContain($title, ...$lines)->not->toContain('Continue')->not->toContain('═')->not->toContain('║')
+    ->and($keys ? $text : '')->not->toContain('[Space]')
+    // The party stays in view.
+    ->and($bottom <= $hero->y || $top >= $hero->y + $hero->height || $right <= $hero->x || $left >= $hero->x + $hero->width)->toBeTrue()
+    ->and(count($frame->textLayers))->toBeLessThanOrEqual(\Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame::MAX_TEXT_LAYERS)
+    ->and($scene->presentationFallbacks->getReportedMessages())->toBe($keys ? []
+      : ['Battle result controls read as text: the project has no menu theme to draw keycaps.']);
+  expect(file_exists($this->logRoot . '/warning.log') && str_contains(file_get_contents($this->logRoot . '/warning.log'), 'Battle result controls'))
+    ->toBe(!$keys);
+})->with([
+  'escape' => ['Escaped', ['The party slipped away!'], true],
+  'defeat' => ['Defeat', ['The party has been wiped out.'], true],
+  'escape without a menu theme' => ['Escaped', ['The party slipped away!'], false],
+]);
+
+it('leaves themed battle modals to the frame composer and reports a modal it must draw in Terminal cells', function (bool $themed) {
+  [$battle, $catalog] = graphicalBattleFixture(skinned: true);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $scene = graphicalBattleScene($battle, $presentation);
+  $root = createTestDirectory('ichiloto-battle-modal-');
+  if ($themed) {
+    mkdir($root . '/Data/Presentation', 0700, true);
+    file_put_contents($root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
+      'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1']], true) . ';');
+  }
+  $scene->getGame()->useRendererRuntime(new RendererRuntime(
+    new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $root), new FakeRendererTransport()));
+  $modal = new stdClass();
+  \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::ui($modal, fn() => Console::write('MODAL OVER BATTLE', 40, 15));
+  $ui = BattleCanvasUiAdapter::collect($scene, $presentation->layout);
+  $text = implode('', array_map(fn($layer) => implode('', array_column($layer->runs, 'text')), $ui));
+  if ($themed) {
+    expect($text)->not->toContain('MODAL OVER BATTLE')->and($scene->presentationFallbacks->getReportedMessages())->toBe([]);
+  } else {
+    expect($text)->toContain('MODAL OVER BATTLE')
+      ->and($scene->presentationFallbacks->getReportedMessages())->toHaveCount(1)
+      ->and(file_get_contents($this->logRoot . '/warning.log'))->toContain('Battle dialogue and modals have no graphical theme');
+  }
+})->with(['themed' => true, 'without a dialogue theme' => false]);

@@ -709,6 +709,13 @@ header preflight does not claim to validate compressed pixel data or await paint
 `BattleCharacterStatusWindow`, `BattleMessageWindow` and `BattleResultWindow`
 footprints from the canonical Console snapshot. Explicit named Console overlays
 retain their ownership and order. Pause state supplies its existing label.
+A skinned battle draws every one of those windows itself through
+`BattleHudSnapshot`, so none reaches the canvas as Terminal cells; a window that
+still would is reported through the battle's `PresentationFallbackReport`. UI
+owner layers (`ui:*`: dialogue and modals) are left to the frame composer when
+the project has a dialogue presentation catalogue, which themes them over the
+battle or falls back, reported, to the whole Terminal frame. Without that
+catalogue their Terminal cells are still projected, and that is reported.
 Unowned base cells, battlefield borders and terminal battler glyphs are not
 admitted. `BattleFieldWindow` selects the graphical path before constructing
 terminal battlers, selection art, damage placement or deferred G2/G3 animation
@@ -924,6 +931,16 @@ omit battle command/target/feedback overlays. Resume does not catch up elapsed
 presentation time from a blocked scene. A new battle discards the prior Results
 session. All configured PNGs receive pre-entry path/crop validation; resource
 budgets apply to concurrently displayed families, not the whole catalog.
+
+Every result without the full Results screen (escape, defeat, and victory when
+the project has no `results` skin or the canvas cannot hold it) reads from
+`BattleResultWindow::presentationSnapshot()` and is drawn by `GraphicalBattleHud`
+in the battle skin's framed `panel`, centred in the band above the battlefield
+and below any visible battle message, sized to its content. Its controls show as
+keys alone at the panel's foot, drawn by `ControlGlyphPresentation` from the menu
+theme, with a page count when the window has pages. Without a menu theme the keys
+read as `[Key]` text and that is reported. A result too long for the panel or the
+canvas is an error; the window owns wrapping and pagination.
 
 Terminal results keep a fixed panel and paginate its measured content viewport.
 Party Progress names are left aligned and their level/EXP values are right aligned,

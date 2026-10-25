@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Messaging\Dialogue\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\Interfaces\ModalPresentationProviderInterface;
@@ -22,6 +23,16 @@ final class DialogueScenePresentation
     private array $diagnostics = [];
 
     public function __construct(private readonly string $assetRoot) {}
+
+    /**
+     * Whether the frame composer presents a scene's active UI owners (dialogue and modals) itself, over the
+     * scene's canvas. A scene canvas then leaves their Terminal cells out: an owner the composer cannot present
+     * graphically falls back, reported, to the whole Terminal frame, never to a Terminal box over artwork.
+     */
+    public static function composesSceneOwners(string $assetRoot): bool
+    {
+        return file_exists($assetRoot . '/' . DialoguePresentationCatalog::FILE);
+    }
 
     public function getPageLayout(string $speaker, DialogueContext $context, string $help, int $width,
         bool $interactive = true): ?DialoguePageLayout
@@ -63,14 +74,21 @@ final class DialogueScenePresentation
     {
         $fallback = null;
         try {
-            if (!file_exists($this->assetRoot . '/' . DialoguePresentationCatalog::FILE)) { return null; }
             $context = $scene instanceof ScenePresentationContextProviderInterface ? $scene->getPresentationContext() : null;
             $active = $context !== null ? $context->getActivePresentations() : $scene->getUI()->getActivePresentations();
             if ($active === []) { return null; }
             $embedded = $base?->presentationOwners ?? [];
+            if (!self::composesSceneOwners($this->assetRoot)) {
+                if (array_any($active, static fn($owner) =>
+                    !in_array(PresentationLayerPolicy::getUiLayerId($owner), $embedded, true))) {
+                    $this->report('Dialogue and modals have no graphical theme (no dialogue presentation catalogue); '
+                        . 'terminal presentation retained.');
+                }
+                return null;
+            }
             // Failed optional graphics must not conceal an unconverted modal behind an opaque scene.
             if ($base !== null && array_any($active, static fn($owner) =>
-                !in_array('ui:' . spl_object_id($owner), $embedded, true))) {
+                !in_array(PresentationLayerPolicy::getUiLayerId($owner), $embedded, true))) {
                 $fallback = new DialogueSurface(null, false);
             }
             if (!$supportsCanvas) {
@@ -79,7 +97,10 @@ final class DialogueScenePresentation
             }
             $this->loadCatalogue();
             $catalogue = $this->catalogue;
-            if ($catalogue?->theme === null) { return $fallback; }
+            if ($catalogue?->theme === null) {
+                $this->report('Dialogue presentation catalogue has no theme; terminal presentation retained.');
+                return $fallback;
+            }
             $canvas = $base;
             $excluded = [];
             $overlay = $base === null;
@@ -87,7 +108,7 @@ final class DialogueScenePresentation
             $dialogues = 0;
             // UIManager reports the input-owning top layer first; painting proceeds bottom to top.
             foreach (array_reverse($active) as $owner) {
-              $layerId = 'ui:' . spl_object_id($owner);
+              $layerId = PresentationLayerPolicy::getUiLayerId($owner);
               if (in_array($layerId, $embedded, true)) { $excluded[] = $layerId; continue; }
               if ($owner instanceof DialoguePresentationProviderInterface) {
                 $line = $owner->getDialogueSnapshot();
@@ -114,7 +135,10 @@ final class DialogueScenePresentation
                 }
                 $dialogues++;
               } elseif ($owner instanceof ModalPresentationProviderInterface) {
-                if ($canvas === null && !$supportsOverlay) { return $fallback; }
+                if ($canvas === null && !$supportsOverlay) {
+                    $this->report('Renderer lacks canvas_overlay; modals retain terminal presentation.');
+                    return $fallback;
+                }
                 $modal = $owner->getModalPresentation();
                 if ($modal === null) { throw new RuntimeException('Active modal has no graphical snapshot.'); }
                 $part = MenuModalPresentation::compose(new PresentationCanvas($base?->width ?? $width,

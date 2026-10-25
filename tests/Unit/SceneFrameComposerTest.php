@@ -482,3 +482,29 @@ it('applies an explicit graphical layer suppression when its overlay intentional
   expect($this->captures[0][0])->not->toContain('cinematic-cover')
     ->and(array_column($terminal->snapshot->textLayers,'id'))->toContain('cinematic-cover');
 });
+
+it('reports dialogue and modals it cannot theme instead of leaving them in Terminal cells silently', function (?array $catalogue, string $report) {
+  if ($catalogue !== null) {
+    mkdir($this->root . '/Data/Presentation', 0700, true);
+    file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export($catalogue, true) . ';');
+  }
+  $owner = $this->getStubBuilder(TextBoxModal::class)->disableOriginalConstructor()
+    ->onlyMethods(['getDialogueSnapshot'])->getStub();
+  $owner->method('getDialogueSnapshot')->willReturn(new DialogueSnapshot('Synthetic speaker', 'Synthetic page.',
+    'Synthetic page.', false, 0, 1, false, WindowPosition::BOTTOM, new DialogueContext()));
+  $ui = $this->getStubBuilder(UIManager::class)->disableOriginalConstructor()
+    ->onlyMethods(['getActivePresentations'])->getStub();
+  $ui->method('getActivePresentations')->willReturn([$owner]);
+  new ReflectionProperty(GameScene::class, 'uiManager')->setValue($this->scene, $ui);
+  $this->grid = $this->scene->grid = new RendererGridConfig(80, 30, 16, 24);
+  $composer = new SceneFrameComposer($this->root);
+  $first = $composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture);
+  $composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture);
+  // The owner keeps its Terminal cells, and the fallback is logged once.
+  expect($first->canvas)->toBeNull()
+    ->and($this->captures[0][0])->not->toContain('ui:' . spl_object_id($owner))
+    ->and(substr_count(file_get_contents($this->root . '/warning.log'), $report))->toBe(1);
+})->with([
+  'without a catalogue' => [null, 'no dialogue presentation catalogue'],
+  'with a catalogue that has no theme' => [['schema' => 'ichiloto.dialogue/1'], 'catalogue has no theme'],
+]);
