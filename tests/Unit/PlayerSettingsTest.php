@@ -293,3 +293,28 @@ it('persists corner size across sessions and ignores unsupported saved sizes', f
   file_put_contents($this->projectRoot.'/.data/player-settings.json','{"ui":{"hud":{"map_size":"opened"}}}');
   expect((new PlayerSettings($this->projectRoot))->getOverrides())->toBe([]);
 });
+
+it('keeps an earlier player master volume and starts each bus volume at the game\'s authored one', function () {
+  $authored = static fn(int $music): string => "<?php return ['audio' => ['master_volume' => 75, 'music_volume' => $music, 'sfx_volume' => 90]];\n";
+  file_put_contents($this->projectRoot . '/config.php', $authored(60));
+  mkdir($this->projectRoot . '/.data');
+  // Player settings saved before the game had bus volumes.
+  file_put_contents($this->projectRoot . '/.data/player-settings.json', '{"audio":{"master_volume":40,"music":true}}');
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->projectRoot));
+  ConfigStore::put(ProjectConfig::class, new ProjectConfig());
+  $catalog = new SettingsCatalog();
+
+  expect([$catalog->read('volume'), $catalog->read('music_volume'), $catalog->read('sfx_volume'), $catalog->read('voice_volume')])
+    ->toBe([40, 60, 90, 100]);
+  $catalog->write('sfx_volume', 30);
+  $catalog->persist();
+
+  expect(json_decode(file_get_contents($this->projectRoot . '/.data/player-settings.json'), true))
+    ->toBe(['audio' => ['master_volume' => 40, 'music' => true, 'sfx_volume' => 30]])
+    ->and(file_get_contents($this->projectRoot . '/config.php'))->toBe($authored(60));
+  // A bus the player never moved follows the game's authored volume when it changes.
+  file_put_contents($this->projectRoot . '/config.php', $authored(70));
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->projectRoot));
+  ConfigStore::put(ProjectConfig::class, new ProjectConfig());
+  expect([$catalog->read('volume'), $catalog->read('music_volume'), $catalog->read('sfx_volume')])->toBe([40, 70, 30]);
+});

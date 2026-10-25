@@ -554,21 +554,22 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
 
     $horizontal = Input::getAxis(AxisName::HORIZONTAL);
 
+    // Each change sounds after it applies, so a volume is heard at its new level.
     if ($horizontal > 0) {
-      $audioManager->playSystemSound(SystemSound::CURSOR);
       $this->changeActiveOption(1);
+      $audioManager->playSystemSound(SystemSound::CURSOR);
       return;
     }
 
     if ($horizontal < 0) {
-      $audioManager->playSystemSound(SystemSound::CURSOR);
       $this->changeActiveOption(-1);
+      $audioManager->playSystemSound(SystemSound::CURSOR);
       return;
     }
 
     if (Input::isButtonDown('confirm')) {
-      $audioManager->playSystemSound(SystemSound::CONFIRM);
       $this->activateSelectedOption();
+      $audioManager->playSystemSound(SystemSound::CONFIRM);
     }
   }
 

@@ -20,6 +20,7 @@ final class PlayerSettings extends AbstractConfig
 {
   public const array PATHS = [
     'audio.master_volume', 'audio.music', 'audio.sfx', 'audio.voice',
+    'audio.music_volume', 'audio.sfx_volume', 'audio.voice_volume',
     'ui.dialogue.auto', 'ui.dialogue.speed', 'ui.dialogue.message.speed',
     'accessibility.notificationDurationScale', 'ui.cursor.memory',
     'ui.battle.message_pace', 'ui.battle.animation_pace',

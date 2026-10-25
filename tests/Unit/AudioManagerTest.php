@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Audio\Enumerations\AudioBus;
 use Ichiloto\Engine\Audio\Enumerations\CountKind;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Audio\AudioPlayback;
@@ -824,4 +825,113 @@ it('plays no counter tick while sound effects are muted', function () {
 
   expect($manager->spawnedCommands)->toBe([]);
   $manager->shutdown();
+});
+
+/* Audio buses: master x bus x the sound's own volume */
+
+it('plays each bus at the master volume times its own volume times the sound\'s authored volume', function () {
+  $root = makeAudioAssetsRoot(['theme.ogg', 'cursor.wav', 'line.wav']);
+  putAudioProjectConfig(['audio' => ['music' => true, 'sfx' => true, 'master_volume' => 50,
+    'music_volume' => 60, 'sfx_volume' => 40, 'voice_volume' => 80,
+    'sounds' => ['cursor' => "$root/cursor.wav"], 'sound_volumes' => ['cursor' => 50]]]);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+
+  $manager->playBackgroundMusic("$root/theme.ogg");
+  $manager->playSystemSound(SystemSound::CURSOR);
+  $manager->playSoundEffect("$root/cursor.wav");
+  $manager->playSpeech("$root/line.wav");
+
+  expect(array_column($manager->spawnedCommands, 1))->toBe(['0.30', '0.10', '0.20', '0.40'])
+    ->and($manager->getBusGain(AudioBus::MUSIC))->toEqualWithDelta(0.3, 1e-9)
+    ->and($manager->getBusVolume(AudioBus::EFFECTS))->toBe(0.4);
+  $manager->shutdown();
+});
+
+it('plays a bus the game authors no volume for at the master volume, and reads a broken one as full', function () {
+  $root = makeAudioAssetsRoot(['hit.wav']);
+  putAudioProjectConfig(['audio' => ['sfx' => true, 'master_volume' => 70, 'music_volume' => 'loud']]);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+
+  $manager->playSoundEffect("$root/hit.wav");
+
+  expect($manager->spawnedCommands[0][1])->toBe('0.70')
+    ->and($manager->getBusVolume(AudioBus::MUSIC))->toBe(1.0)
+    ->and($manager->getBusVolume(AudioBus::VOICE))->toBe(1.0);
+  $manager->shutdown();
+});
+
+it('starts no player for a sound whose bus volume is zero, and keeps the bus switch independent', function () {
+  $root = makeAudioAssetsRoot(['hit.wav', 'line.wav']);
+  putAudioProjectConfig(['audio' => ['sfx' => true, 'master_volume' => 100, 'sfx_volume' => 0]]);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+
+  $manager->playSoundEffect("$root/hit.wav");
+  expect($manager->spawnedCommands)->toBe([])
+    ->and($manager->isBusEnabled(AudioBus::EFFECTS))->toBeTrue()
+    ->and($manager->playSpeech("$root/line.wav"))->not->toBeNull();
+  $manager->shutdown();
+});
+
+it('applies a music volume change to the music already playing, at its current position', function () {
+  $config = new AudioArrayConfigStub(['audio' => ['music' => true, 'master_volume' => 80, 'music_volume' => 100]]);
+  ConfigStore::put(ProjectConfig::class, $config);
+  $root = makeAudioAssetsRoot(['theme.ogg']);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend(loopsNatively: false, seekable: true)]);
+  $manager->playBackgroundMusic("$root/theme.ogg");
+  $manager->update();
+  $manager->pretendBgmHasPlayedFor(12.0);
+
+  $config->set('audio.music_volume', 50);
+  $manager->update();
+  // An Effects change leaves the music alone.
+  $config->set('audio.sfx_volume', 10);
+  $manager->update();
+
+  expect($manager->spawnedCommands)->toHaveCount(2)
+    ->and($manager->spawnedCommands[1][1])->toBe('0.40')
+    ->and($manager->spawnedCommands[1][3])->toStartWith('start=12')
+    ->and($manager->spawnedPlaybacks[0]->isRunning)->toBeFalse();
+  $manager->shutdown();
+});
+
+it('follows the Effects volume live on a running loop, silences it at zero and resumes it', function () {
+  $manager = makeCounterTickManager(['sfx' => true, 'master_volume' => 80, 'sfx_volume' => 50]);
+  $config = ConfigStore::get(ProjectConfig::class);
+  $count = new stdClass();
+
+  $manager->counterSound->holdTick($count);
+  $manager->update();
+  $first = $manager->spawnedPlaybacks[0];
+  $config->set('audio.sfx_volume', 25);
+  $manager->counterSound->holdTick($count);
+  $manager->update();
+  $config->set('audio.music_volume', 10);
+  $manager->counterSound->holdTick($count);
+  $manager->update();
+  expect(array_column($manager->spawnedCommands, 1))->toBe(['0.40', '0.20'])->and($first->isRunning)->toBeFalse();
+
+  $config->set('audio.sfx_volume', 0);
+  $manager->counterSound->holdTick($count);
+  $manager->update();
+  expect($manager->spawnedPlaybacks[1]->isRunning)->toBeFalse()->and($manager->spawnedCommands)->toHaveCount(2);
+
+  $config->set('audio.sfx_volume', 100);
+  $manager->counterSound->holdTick($count);
+  $manager->update();
+  expect($manager->spawnedCommands[2][1])->toBe('0.80');
+  $manager->shutdown();
+});
+
+it('lets every bus switch decide whether an automated launch is silent', function () {
+  $config = new class(['audio' => ['music' => false, 'sfx' => false]]) extends ProjectConfig {
+    protected function load(): array { return $this->options; }
+  };
+  $config->set('audio.voice', false);
+  \Ichiloto\Engine\Audio\AudioMutePreflight::assertMuted($config);
+  foreach (AudioBus::cases() as $bus) {
+    $config->set($bus->getEnabledConfigPath(), true);
+    expect(fn() => \Ichiloto\Engine\Audio\AudioMutePreflight::assertMuted($config))
+      ->toThrow(RuntimeException::class, $bus->getEnabledConfigPath());
+    $config->set($bus->getEnabledConfigPath(), false);
+  }
 });

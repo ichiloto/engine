@@ -547,6 +547,52 @@ it('batches only fully visible nonoverlapping text without changing paint positi
   expect(CanvasTextBatch::compact($overlapping))->toBe($overlapping);
 });
 
+it('packs solid fills onto pixel lattices only when over budget, painting the same pixels in the same order', function () {
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']);
+  $fill = static fn(string $id, CanvasRectangle $box, string $color, int $layer = 40): CanvasTextLayer => new CanvasTextLayer($id, $layer,
+    $box->x, $box->y, new RendererGridConfig(1, 1, (int)ceil($box->width), (int)ceil($box->height)),
+    [new PresentationTextRun(0, 0, ' ', background: $theme->colors[$color])], $box);
+  $layers = [];
+  for ($i = 0; $i < 40; $i++) {
+    // A slider: its track, then its fill painted over it.
+    $layers[] = $fill("track-$i", new CanvasRectangle(10, $i * 12, 100, 8), 'edge');
+    $layers[] = $fill("fill-$i", new CanvasRectangle(10, $i * 12 + 3, 50.25 + $i, 2), 'accent');
+  }
+  // Glyphs over one track keep it, and the fill over it, where they were.
+  $layers[] = new CanvasTextLayer('glyph', 40, 20, 0, new RendererGridConfig(1, 1, 8, 8),
+    [new PresentationTextRun(0, 0, 'x', $theme->colors['text'])]);
+  $paint = static function (array $layers): array {
+    $pixels = [];
+    foreach ($layers as $text) {
+      foreach ($text->runs as $run) {
+        if ($run->background === null) { continue; }
+        $box = $text->clipRect ?? $text->bounds;
+        for ($cell = 0; $cell < mb_strlen($run->text); $cell++) {
+          $x0 = $text->x + ($run->column + $cell) * $text->grid->cellWidth;
+          $y0 = $text->y + $run->row * $text->grid->cellHeight;
+          for ($y = (int)floor($y0); $y < $y0 + $text->grid->cellHeight; $y++) {
+            for ($x = (int)floor($x0); $x < $x0 + $text->grid->cellWidth; $x++) {
+              if ($x + 0.5 >= $box->x && $x + 0.5 < $box->x + $box->width && $y + 0.5 >= $box->y && $y + 0.5 < $box->y + $box->height) {
+                $pixels["$x:$y"] = $run->background->toArray();
+              }
+            }
+          }
+        }
+      }
+    }
+    ksort($pixels);
+    return $pixels;
+  };
+
+  $packed = CanvasTextBatch::compact($layers);
+  $ids = array_column($packed, 'id');
+
+  expect(count($packed))->toBeLessThanOrEqual(64)->and($paint($packed))->toBe($paint($layers))
+    ->and($ids)->toContain('track-0', 'fill-0', 'glyph')
+    ->and(array_filter($packed, fn($text) => $text->grid->cellWidth === 1 && $text->grid->cellHeight === 1))->not->toBeEmpty()
+    ->and(CanvasTextBatch::compact(array_slice($layers, 0, 64)))->toBe(array_slice($layers, 0, 64));
+});
+
 it('stacks quantity chevrons to the right while independently centering the value and Continue', function (bool $art, int $amount) {
   $data = [...modalMenuTheme(false), 'showInputHints' => false];
   if ($art) {
