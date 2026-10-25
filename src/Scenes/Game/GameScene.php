@@ -1135,6 +1135,27 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         }
     }
 
+    /**
+     * Runs work that belongs to no move in progress (what arriving at a cell
+     * sets off: an event, a cinematic, a transfer) at field walking time. A
+     * pace belongs to its own move; nothing it sets off inherits it, so a
+     * dashing step never hurries an actor that walks at field speed.
+     *
+     * @template T
+     * @param Closure(): T $work
+     * @return T
+     */
+    public function runAtFieldPace(Closure $work): mixed
+    {
+        $previous = $this->stepPace;
+        $this->stepPace = null;
+        try {
+            return $work();
+        } finally {
+            $this->stepPace = $previous;
+        }
+    }
+
     /** How long a step with this displacement takes to show: the current pace, or field walking time. */
     public function getStepSeconds(Vector2 $displacement): float
     {

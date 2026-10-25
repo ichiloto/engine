@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Rendering;
 
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\KeyHoldState;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
@@ -116,7 +117,8 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
           && !in_array(RendererSessionConfig::WINDOW_ACTIVATION, $capabilities, true)) {
           throw new RendererProtocolException('Window activation requires negotiated window_activation support.');
         }
-        self::assertKeyTransitionContract($event, in_array(RendererSessionConfig::KEY_TRANSITIONS, $capabilities, true));
+        self::assertKeyTransitionContract($event, in_array(RendererSessionConfig::KEY_TRANSITIONS, $capabilities, true),
+          in_array(RendererSessionConfig::MODIFIER_CONTROLS, $capabilities, true));
         if ($event->type === RendererEventType::INPUT_RESET) {
           $heldControls = $quarantinedControls = [];
         } elseif ($event->type === RendererEventType::KEY_RELEASE) {
@@ -390,9 +392,15 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
       || $event->type === RendererEventType::KEY_RELEASE || $event->type === RendererEventType::INPUT_RESET;
   }
 
-  /** Transitions are an explicit subscription; a subscribed session never receives an unidentified key. */
-  private static function assertKeyTransitionContract(RendererEvent $event, bool $negotiated): void
+  /**
+   * Transitions are an explicit subscription; a subscribed session never receives an unidentified key. Shift
+   * alone is a control only in a session that also subscribed to modifier controls.
+   */
+  private static function assertKeyTransitionContract(RendererEvent $event, bool $negotiated, bool $modifierControls): void
   {
+    if (! $modifierControls && ($event->key === KeyCode::SHIFT->value || $event->control === KeyCode::SHIFT->value)) {
+      throw new RendererProtocolException('Shift as a control requires negotiated modifier_controls support.');
+    }
     $transition = $event->type === RendererEventType::KEY_RELEASE || $event->type === RendererEventType::INPUT_RESET
       || $event->control !== null;
     if ($transition && ! $negotiated) {

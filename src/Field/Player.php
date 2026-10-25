@@ -237,7 +237,12 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   {
     $arrival = $this->pendingArrival;
     $this->pendingArrival = null;
-    $arrival?->__invoke();
+    if ($arrival === null) {
+      return;
+    }
+    // Held walking runs a step's arrival inside the next step's pace; what
+    // arriving sets off walks at its own.
+    ($this->scene ?? null) instanceof GameScene ? $this->scene->runAtFieldPace($arrival) : $arrival();
   }
 
   /**

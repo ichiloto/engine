@@ -50,6 +50,8 @@ class MapManager implements CanRenderAt
   public private(set) ?MapKnowledge $mapKnowledge = null;
   public private(set) ?MapOverview $overview = null;
   public private(set) ?MapAtlasDefinition $atlasDefinition = null;
+  /** Whether the current map turns dashing off (its `disableDashing`); {@see DashSettings}. */
+  public private(set) bool $isDashingDisabled = false;
   private ?array $lastKnowledgePosition = null;
   private ?ProjectMapIndex $projectMapIndex = null;
   private ?StoryIndex $storyIndex = null;
@@ -312,6 +314,7 @@ class MapManager implements CanRenderAt
     $source = $this->prepareSplitMapDataFromFiles($this->resolveMapPaths($filename));
     $map = $source['data'];
     MapAtlasDefinition::readMap($map);
+    DashSettings::readMapDisablesDashing($map);
     [$collisions, $dictionary] = $this->resolveSourceCollisions($source);
     $mapTriggers = [];
     foreach ($map['triggers'] ?? [] as $trigger) {
@@ -396,6 +399,7 @@ class MapManager implements CanRenderAt
     $this->mapKnowledge = $prepared->landmarks === null ? null : new MapKnowledge($mapId, $prepared->landmarks);
     $this->overview = $prepared->overview;
     $this->atlasDefinition = MapAtlasDefinition::readMap($map);
+    $this->isDashingDisabled = DashSettings::readMapDisablesDashing($map);
     $this->lastKnowledgePosition = null;
     $this->installWorldObjects($prepared->worldObjects, $mapId);
     $this->loadMapTriggers($prepared->mapTriggers);

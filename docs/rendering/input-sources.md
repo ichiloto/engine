@@ -304,6 +304,15 @@ new events:
 
 The control names the physical key independently of its text: case, Shift and
 Caps Lock change `key`, never `control` (Tab and Shift-Tab are control `tab`).
+
+`modifier_controls` is a second subscription over `key_transitions`. With it,
+Shift held alone is a control of its own: the renderer reports a press
+(`{"type":"key","key":"shift","control":"shift","repeat":false}`) when Shift
+goes down and a `key_release` for `shift` when it comes up, so a binding such
+as dash can hold it. Shift still changes the `key` other controls type, and
+other modifiers stay chord modifiers, never controls. A Shift identity in a
+session without the subscription is a protocol error. The Game's GPUI session
+requires both subscriptions.
 The renderer tracks held controls itself, because GPUI's `is_held` is false
 for keys macOS routes through text input (the arrows): a key-down for a held
 control is a repeat and creates no press. A key-up releases its control
@@ -397,7 +406,52 @@ direction still held when control returns must be pressed again.
 
 Event-only input keeps its one step per key event with its own timing. Route
 timing is unchanged: a route step presents over its own `secondsPerStep`
-through `GameScene::moveAtPace()`, and wander steps walk at field speed.
+through `GameScene::moveAtPace()`, and wander steps walk at field speed. A
+pace belongs to its own move only: what a step's arrival sets off (an event,
+a cinematic, a transfer) runs through `GameScene::runAtFieldPace()`, so it
+never inherits the pace of the step that arrived.
+
+### Dash (implemented)
+
+RPG Maker's dash, Final Fantasy V's Sprint: while the semantic `dash` action
+is held, each held step takes the walking time divided by the project's speed
+multiplier. `Field\PlayerDash` decides it when `PlayerWalk` decides the step,
+and `PlayerWalk` uses that one duration for its clock and the step's
+presentation, so the renderer slides each step at its declared duration and
+nothing in the renderer chooses a speed. The step in progress keeps its own
+time: starting or stopping a dash changes the pace from the next step on, and
+held steps still chain end to end, each decided on the update before the one
+in progress ends. The walk animation advances by distance travelled, one
+pattern per 30 field pixels, so it plays faster as the dash goes faster.
+
+- Authored per game in `Data/system.php`, edited in the Editor's Database >
+  System: `'dash' => ['enabled' => true, 'speedMultiplier' => 2.0]`. A project
+  without `dash` has no dash. The multiplier is greater than 1 and at most 4
+  (`DashSettings::MAX_SPEED_MULTIPLIER`), so a step lasts at least 4 frames at
+  60 updates per second; 2 is RPG Maker's.
+- A map turns dashing off for itself with `'disableDashing' => true` in its
+  data (the map Inspector's Dashing row), as RPG Maker's Disable Dashing does.
+  Cinematics, routes and events move characters at their own authored paces
+  and never read the dash.
+- Always Dash is a player option in Config and the title Options, stored in
+  player settings at `field.always_dash`; the project's `config.php` may author
+  its first value. With it on, the player dashes unless `dash` is held.
+- `dash` defaults to Shift when nothing else claims it, reported through
+  `modifier_controls`, and is remappable in Controls. Its controller identity,
+  B or Circle (`face_east`), is reserved data, as the other controller
+  identities are. Controls and hints draw it through the shared keycap owners.
+- Encounters and every other step-driven system count steps, not time: each
+  dashed step is one validated `Player::tryMove()`, so a dashed cell counts
+  exactly as a walked one.
+- The Terminal has no dash. It reports key events and never a held control,
+  so it cannot tell that a dash key is held, and it walks one validated step
+  per key event at the keyboard's own repeat rate, with no step duration for a
+  dash to shorten. Controls and the option lists leave Dash and Always Dash
+  out there (`PlayerDash::isAvailable()`), as they leave out Quick Save in a
+  game without it.
+- A held-state reset (focus loss, a menu or dialogue reset) releases Shift
+  with every other control; a dash still held when control returns must be
+  pressed again.
 
 ### Planned
 
@@ -412,7 +466,8 @@ through `GameScene::moveAtPace()`, and wander steps walk at field speed.
   documented four-direction facing rule.
 - Physical controllers, controller libraries, analog magnitude (partial walk
   speed), device identity and hot-plug remain planned; they must report
-  normalized controls, not synthetic keyboard presses.
+  normalized controls, not synthetic keyboard presses. A controller dash binds
+  the reserved `face_east` identity once such a source exists.
 - Enhanced terminal key reporting remains outside this delivery.
 
 ### Acceptance

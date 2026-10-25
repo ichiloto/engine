@@ -4,6 +4,26 @@
 
 ### Added
 
+- Dash, as RPG Maker's: while the `dash` action is held, each held field step
+  takes the walking time divided by the project's multiplier, authored in
+  `Data/system.php` (`'dash' => ['enabled' => true, 'speedMultiplier' => 2.0]`,
+  greater than 1 and at most 4; no `dash` means no dash). `PlayerWalk::update()`
+  takes the multiplier for the step it decides, so the step clock, the slide
+  the renderer draws and the walk animation share one duration, and steps
+  chain end to end across a change between walking and dashing. A map turns
+  dashing off with `'disableDashing' => true`. Always Dash (`field.always_dash`)
+  is a player option in Config and the title Options; with it on, holding dash
+  walks. `dash` defaults to Shift where nothing claims it, with B / Circle
+  (`face_east`) reserved for a controller. Encounter and other step counts are
+  unchanged by dashing. The Terminal reports no held control, so it offers no
+  dash and leaves Dash and Always Dash out of Controls and the option lists.
+- `KeyCode::SHIFT` and the `modifier_controls` renderer event subscription
+  (over `key_transitions`): Shift held alone is reported as control `shift`,
+  pressed and released with the modifier. The Game's GPUI session requires it.
+- `GameScene::runAtFieldPace()`: what a step's arrival sets off (an event, a
+  cinematic, a transfer) no longer inherits the pace of the step that arrived,
+  so an actor started by an arrival walks at its own pace after a dash.
+
 - Keycaps for every control, drawn by one owner: `ControlGlyphPresentation`
   graphically and `TerminalControlText` in the Terminal ("[Enter]"). A theme's
   `controls` sets in `Data/Presentation/menus.php` give each input device family

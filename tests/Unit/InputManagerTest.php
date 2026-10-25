@@ -209,6 +209,7 @@ it('preserves an explicit Info entry including deliberate unbinding', function (
     'map_recenter' => ['description' => 'Centre the map on your position.', 'keys' => [KeyCode::HOME]],
     'dialogue_auto' => InputManager::getDefaultDialogueAutoBinding($authored),
     'secondary_action' => InputManager::getDefaultSecondaryActionBinding($authored),
+    'dash' => InputManager::getDefaultDashBinding($authored),
     'quick_save' => ['description' => 'Quick Save', 'keys' => [KeyCode::F5]],
   ]);
   InputManager::setInputSource(new FakeInputSource(KeyCode::i));

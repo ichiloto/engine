@@ -23,6 +23,7 @@ class MainMenuSettingsManager extends SettingsManager
             'voice',
             'dialogue_speed',
             'dialogue_auto',
+            'always_dash',
             'notification_duration',
             'cursor_memory',
             'battle_message_pace',

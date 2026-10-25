@@ -28,9 +28,10 @@ final class RendererRegistry
           // Optional surfaces select from the renderer's advertised capabilities after startup.
           // Merely installing a theme must not tighten the game's transport requirements.
           // Key transitions are an event subscription: requiring it is how the Game asks for
-          // key presses and releases, which held field walking needs.
+          // key presses and releases, which held field walking needs; modifier controls report Shift
+          // held alone, which dashing holds.
           requiredCapabilities: [RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES,
-            RendererSessionConfig::KEY_TRANSITIONS]),
+            RendererSessionConfig::KEY_TRANSITIONS, RendererSessionConfig::MODIFIER_CONTROLS]),
       ), 'GPUI', static function () use ($resolver): RendererAvailability {
         $resolver->resolve('gpui');
         return new RendererAvailability(true);

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Settings;
 
 use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Field\PlayerDash;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
@@ -85,6 +86,12 @@ class SettingsCatalog
         'Advances dialogue after voice or reading time until switched off.',
         ['Off' => false, 'On' => true],
       ),
+      ...(PlayerDash::isAvailable() ? [new GameSetting(
+        'always_dash',
+        'Always Dash',
+        'Dash without holding Dash; hold Dash to walk.',
+        ['Off' => false, 'On' => true],
+      )] : []),
       new GameSetting(
         'cursor_memory',
         'Cursor Memory',
@@ -193,6 +200,7 @@ class SettingsCatalog
       ),
       'notification_duration' => Accessibility::notificationDurationScale(),
       'cursor_memory' => boolval(config(ProjectConfig::class, 'ui.cursor.memory', false)),
+      'always_dash' => boolval(config(ProjectConfig::class, PlayerDash::CONFIG_ALWAYS_DASH, false)),
       'battle_message_pace' => config(ProjectConfig::class, 'ui.battle.message_pace', 'slow'),
       'battle_animation_pace' => config(
         ProjectConfig::class,
@@ -232,6 +240,7 @@ class SettingsCatalog
       'dialogue_speed' => $this->writeBoth($config, ['ui.dialogue.speed', 'ui.dialogue.message.speed'], intval($value)),
       'notification_duration' => $this->writePath($config, 'accessibility.notificationDurationScale', max(0.1, floatval($value))),
       'cursor_memory' => $this->writePath($config, 'ui.cursor.memory', boolval($value)),
+      'always_dash' => $this->writePath($config, PlayerDash::CONFIG_ALWAYS_DASH, boolval($value)),
       'battle_message_pace' => $this->writePath($config, 'ui.battle.message_pace', strval($value)),
       'battle_animation_pace' => $this->writePath($config, 'ui.battle.animation_pace', strval($value)),
       'selection_color' => $this->writeBoth(
