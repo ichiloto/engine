@@ -24,7 +24,7 @@ final readonly class MenuRowLayout
     public bool $wrapText = false,
   ) {
     new RendererGridConfig(1, 1, $cellWidth, $cellHeight);
-    if ($rowHeight < $cellHeight || $rowHeight > 256 || !array_is_list($columns)) {
+    if ($rowHeight < $cellHeight || $rowHeight > RendererGridConfig::MAX_CELL_SIZE || !array_is_list($columns)) {
       throw new InvalidArgumentException('Menu row geometry must fit its Canvas text height.');
     }
     $copy = [];
@@ -73,11 +73,11 @@ final readonly class MenuRowLayout
     return array_sum(array_map(fn(MenuRowColumn $column) => $column->cells + $metrics->gapCells, $this->columns));
   }
 
-  public function assertFits(MenuRowMetrics $metrics): void
+  public function assertFits(MenuRowMetrics $metrics, bool $hasSeparateTreatment = false): void
   {
     $cells = $this->textCells($metrics);
-    if ($cells < 1 || $cells > 512 || $this->valueCells($metrics) >= $cells
-      || $metrics->separatorWidth + $this->cellHeight > $this->rowHeight
+    if ($cells < 1 || $cells > RendererGridConfig::MAX_COLUMNS || $this->valueCells($metrics) >= $cells
+      || (!$hasSeparateTreatment && $metrics->separatorWidth + $this->cellHeight > $this->rowHeight)
       || 2 * $metrics->focusWidth >= min($this->rowHeight, $this->viewport->width)
       || $metrics->accentWidth > $this->viewport->width) {
       throw new InvalidArgumentException('Menu columns and theme metrics require a larger row or viewport within Canvas limits.');

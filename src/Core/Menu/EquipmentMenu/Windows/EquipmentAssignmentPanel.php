@@ -6,7 +6,11 @@ use Ichiloto\Engine\Core\Area;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\EquipmentSlot;
-use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
+use Ichiloto\Engine\UI\Presentation\CharacterMenuRows;
+use Ichiloto\Engine\UI\Presentation\SummonEquipmentSlot;
+use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
 
@@ -34,10 +38,17 @@ class EquipmentAssignmentPanel extends Window
    * @var EquipmentSlot[] The slots to display in the panel.
    */
   protected array $slots = [];
+  protected ?Character $character = null;
   /**
    * @var int The total number of slots.
    */
   protected int $totalSlots = 0;
+  private ?SummonEquipmentSlot $summonSlot = null;
+
+  public function isSummonSlotSelected(): bool
+  {
+    return $this->summonSlot !== null && $this->activeSlotIndex === count($this->slots);
+  }
 
   /**
    * Create a new EquipmentAssignmentPanel instance.
@@ -68,10 +79,13 @@ class EquipmentAssignmentPanel extends Window
    * @param EquipmentSlot[] $slots The slots to display in the panel.
    * @return void
    */
-  public function setSlots(array $slots): void
+  public function setSlots(array $slots, ?Character $character = null, ?SummonEquipmentSlot $summonSlot = null): void
   {
     $this->slots = $slots;
-    $this->totalSlots = count($slots);
+    $this->character = $character;
+    $this->summonSlot = $summonSlot;
+    $this->totalSlots = count($slots) + ($summonSlot === null ? 0 : 1);
+    $this->activeSlotIndex = min($this->activeSlotIndex, $this->totalSlots - 1);
     $this->updateContent();
   }
 
@@ -84,11 +98,17 @@ class EquipmentAssignmentPanel extends Window
 
     foreach ($this->slots as $index => $slot) {
       $prefix = $index === $this->activeSlotIndex ? '>' : ' ';
-      $slotName = TerminalText::padRight("{$slot->name}:", 20);
-      $equippedItem = trim("{$slot->equipment?->icon} {$slot->equipment?->name}");
-      $content[] = " {$prefix} {$slotName} {$equippedItem}";
+      $type = $this->character === null ? $slot->semanticSlot : CharacterMenuRows::getSlotIcon($this->character, $slot);
+      $slotName = TerminalMenuRow::composeIconLabel(EquipmentIcon::getTerminalGlyph($type), "{$slot->name}:", 2);
+      $equippedItem = $slot->equipment?->name ?? '';
+      $content[] = TerminalMenuRow::compose($slotName, $equippedItem, $this->getContentWidth(),
+        prefix: " {$prefix} ", valueAlignment: 'left', labelWidth: 20);
     }
 
+    if ($this->summonSlot !== null) {
+      $content[] = TerminalMenuRow::compose($this->summonSlot->getLabel() . ':', implode(', ', $this->summonSlot->getAssignedNames()),
+        $this->getContentWidth(), prefix: $this->isSummonSlotSelected() ? ' > ' : '   ', valueAlignment: 'left', labelWidth: 20);
+    }
     $content = array_pad($content, $this->height - 2, '');
 
     $this->setContent($content);
@@ -109,6 +129,7 @@ class EquipmentAssignmentPanel extends Window
 
   public function selectPreviousSlot(): void
   {
+    if ($this->totalSlots === 0) { return; }
     $index = wrap($this->activeSlotIndex - 1, 0, $this->totalSlots - 1);
     $this->setActiveSlotByIndex($index);
   }
@@ -120,6 +141,7 @@ class EquipmentAssignmentPanel extends Window
    */
   public function selectNextSlot(): void
   {
+    if ($this->totalSlots === 0) { return; }
     $index = wrap($this->activeSlotIndex + 1, 0, $this->totalSlots - 1);
     $this->setActiveSlotByIndex($index);
   }

@@ -137,11 +137,11 @@ it('retains long content, signed stats and actual MP costs without ANSI or contr
     'description' => "\e[31mRED\e[0m\n" . str_repeat('d', 601), 'cost' => 8];
   $p = new BattleResultsPlayback(new BattleRewards(260, 0, [playbackAward(learned: [$skill])]), true);
   $p->confirm();
-  $level = implode("\n", array_column(BattleResultsContent::eventLines($p), 'text'));
+  $level = implode("\n", array_column(BattleResultsContent::getEventLines($p), 'text'));
   expect($level)->toContain('+20', '-1', '(0)');
   $p->update(0.1);
   $p->confirm();
-  $lines = BattleResultsContent::eventLines($p);
+  $lines = BattleResultsContent::getEventLines($p);
   $text = implode("\n", array_column($lines, 'text'));
   expect($text)->toContain('Cost: 8 MP', 'RED')->not->toContain("\e")
     ->and(substr_count($text, 'd'))->toBeGreaterThanOrEqual(601)->and($p->pageCount())->toBeGreaterThan(1);

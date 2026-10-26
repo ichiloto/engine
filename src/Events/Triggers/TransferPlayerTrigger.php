@@ -20,11 +20,11 @@ class TransferPlayerTrigger extends EventTrigger
   /**
    * @var string The destination map.
    */
-  protected string $destinationMap = '';
+  protected(set) string $destinationMap = '';
   /**
    * @var Vector2 The spawn point.
    */
-  protected Vector2 $spawnPoint;
+  protected(set) Vector2 $spawnPoint;
   /**
    * @var string[] The spawn sprite.
    */
@@ -36,6 +36,7 @@ class TransferPlayerTrigger extends EventTrigger
    */
   public function configure(): void
   {
+    $this->isReusable = (bool) ($this->data->reusable ?? true);
     $this->destinationMap = $this->data->destinationMap ?? throw new RequiredFieldException('destinationMap');
     $this->spawnPoint = new Vector2(
       $this->data->spawnPoint->x ?? throw new RequiredFieldException('spawnPoint.x'),
@@ -54,6 +55,6 @@ class TransferPlayerTrigger extends EventTrigger
   {
     parent::enter($context);
     $destination = new Location($this->destinationMap, $this->spawnPoint, $this->spawnSprite);
-    $context->scene->transferPlayer($destination);
+    $context->scene->transferPlayer($destination, onCommitted: $this->complete(...));
   }
 }

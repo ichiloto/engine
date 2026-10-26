@@ -28,7 +28,7 @@ class ActiveTimeFlowState extends PlayerActionState
    */
   public function enter(TurnStateExecutionContext $context): void
   {
-    $context->roundNumber++;
+    $context->roundNumber = max(1, $context->roundNumber);
     $context->ui->setState($context->ui->playerActionState);
     $this->menuStack = new Stack(MenuInterface::class);
     $this->activeCharacterIndex = -1;
@@ -188,7 +188,7 @@ class ActiveTimeFlowState extends PlayerActionState
    */
   protected function activateReadyCharacter(TurnStateExecutionContext $context, Character $character): void
   {
-    $partyBattlers = $context->party->battlers->toArray();
+    $partyBattlers = $context->partyRoster->battlers;
     $index = array_search($character, $partyBattlers, true);
 
     if (! is_int($index)) {
@@ -227,11 +227,12 @@ class ActiveTimeFlowState extends PlayerActionState
 
     [$action, $resolvedTargets] = EnemyActionEvaluator::chooseAction(
       $enemy,
-      $targets,
-      $context->getLivingTroopBattlers(),
+      $context->partyRoster->battlers,
+      $context->troop->members->toArray(),
       max(1, $context->roundNumber),
       $maxPartyLevel,
       $gameState === null ? null : $gameState->getSwitch(...),
+      $this->engine->random,
     );
 
     $this->getAtbEngine()->queueImmediateTurn(

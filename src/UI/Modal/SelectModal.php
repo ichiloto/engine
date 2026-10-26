@@ -235,11 +235,11 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
       $this->render();
     }
 
-    if (Input::isButtonDown("confirm")) {
+    if (Input::isButtonPressed("confirm")) {
       $this->playInteractionSound(SystemSound::CONFIRM);
       $this->value = $this->activeOptionIndex;
       $this->hide();
-    } else if (Input::isButtonDown('cancel')) {
+    } else if (Input::isButtonPressed('cancel')) {
       $this->cancel();
     }
   }

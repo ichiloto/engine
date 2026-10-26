@@ -29,6 +29,31 @@ it('floors float coordinates when writing to the console buffer', function () {
   expect(TerminalText::stripAnsi($symbols[10] ?? ''))->toBe('Z');
 });
 
+it('clips text past the left and right edges instead of drawing it at the edge', function () {
+  setConsoleDimensionsForTest(8, 2);
+
+  ob_start();
+  Console::write('i', -3, 0);
+  Console::write('/', 8, 0);
+  Console::write('abcd', -2, 1);
+  Console::write('xyz', 6, 1);
+  ob_end_clean();
+
+  $rows = array_map(static fn(string $row): string => TerminalText::stripAnsi($row), Console::getBuffer());
+  expect($rows[0])->toBe('        ')
+    ->and($rows[1])->toBe('cd    xy');
+});
+
+it('drops a wide glyph the left edge cuts, keeping the text after it', function () {
+  setConsoleDimensionsForTest(6, 1);
+
+  ob_start();
+  Console::write('😀ab', -1, 0);
+  ob_end_clean();
+
+  expect(TerminalText::stripAnsi(Console::getBuffer()[0]))->toBe(' ab   ');
+});
+
 it('keeps emoji writes aligned to terminal cell width', function () {
   setConsoleDimensionsForTest(8, 3);
 

@@ -4,6 +4,8 @@ namespace Ichiloto\Engine\Battle\Actions;
 
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as Actor;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
+use Ichiloto\Engine\Entities\ItemScope;
 
 /**
  * A turn spent doing nothing (a failed escape, hesitation).
@@ -12,6 +14,9 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as Actor;
  */
 class PassAction extends BattleAction
 {
+  public ItemScope $targetScope {
+    get { return new ItemScope(ItemScopeSide::USER); }
+  }
   /**
    * @inheritDoc
    */

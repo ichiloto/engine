@@ -40,8 +40,8 @@ class ShowCreditsCommand extends MenuItem
   {
     parent::__construct(
       $menu,
-      get_message('title.credits', 'Credits'),
-      get_message('title.credits_description', 'See who made this game.')
+      get_engine_message('title.credits'),
+      get_engine_message('title.credits_description')
     );
   }
 

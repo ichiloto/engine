@@ -6,6 +6,8 @@ use Ichiloto\Engine\Battle\Presentation\BattlePauseSkin;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattlePause;
 use Ichiloto\Engine\Battle\Presentation\PauseAction;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
+use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationPlacement;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -102,6 +104,18 @@ it('composes centered independent labels over the unchanged scene at every appro
   expect($menu->confirmation !== null)->toBe($confirm);
 })->with([[1350, 720], [960, 540], [736, 414]])->with([false, true]);
 
+it('preserves battlefield protection and composites while protecting the complete pause control', function () {
+  $effect = new CanvasComposite('battle-effect', 16, 16, new CanvasRectangle(900, 200, 16, 16), []);
+  $actor = new CanvasRectangle(900, 200, 100, 160);
+  $field = new PresentationCanvas(1350, 720, composites: [$effect], protectedAreas: [$actor]);
+  $menu = new BattlePauseMenu(true, static fn(): float => 0);
+  $menu->open();
+  $frame = GraphicalBattlePause::frame($field, pauseSkinFixture(), $menu);
+  expect($frame->composites)->toBe([$effect])->and($frame->getOverlayProtection())->toContain($actor)
+    ->and(NotificationPlacement::isClear(new CanvasRectangle(20, 20, 100, 80), $frame->getOverlayProtection()))->toBeTrue()
+    ->and(NotificationPlacement::isClear(new CanvasRectangle(670, 350, 10, 20), $frame->getOverlayProtection()))->toBeFalse();
+});
+
 it('reserves cursor motion for the root list while confirmation focus stays steady and returns intact', function (bool $reducedMotion, int $index) {
   $now = 0.0;
   $menu = new BattlePauseMenu($reducedMotion, function () use (&$now): float { return $now; });
@@ -159,5 +173,46 @@ it('rejects incomplete declared skins and leaves legacy catalogs optional', func
   $textures = $skin->textures; unset($textures['focus']);
   expect(fn() => new BattlePauseSkin($textures, $skin->colors))->toThrow(InvalidArgumentException::class)
     ->and((new BattlePresentationCatalog([], [], []))->pause)->toBeNull();
-  expect(fn() => GraphicalBattlePause::preflight($skin, sys_get_temp_dir()))->toThrow(RuntimeException::class);
+  $root = sys_get_temp_dir() . '/ichiloto-pause-absent-' . bin2hex(random_bytes(4));
+  mkdir($root);
+  try { GraphicalBattlePause::preflight($skin, $root); } finally { rmdir($root); }
+});
+
+it('retains healthy pause buttons and centered controls when other textures are unavailable', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-pause-fallback-' . bin2hex(random_bytes(4));
+  mkdir($root);
+  $skin = pauseSkinFixture();
+  $now = 0.0;
+  $menu = new BattlePauseMenu(true, function () use (&$now): float { return $now; });
+  $menu->open(); $now = 0.2; $menu->tick();
+  try {
+    file_put_contents($root . '/selected.png', "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 96, 48));
+    GraphicalBattlePause::preflight($skin, $root);
+    $frame = GraphicalBattlePause::frame(new PresentationCanvas(1350, 720), $skin, $menu, $root);
+    expect(array_unique(array_column($frame->images, 'asset')))->toBe(['selected.png']);
+    $layers = array_column($frame->textLayers, null, 'id');
+    expect($layers)->toHaveKeys(['pause-panel-fallback', 'pause-focus-fallback', 'pause-label-0'])
+      ->and($layers['pause-panel-fallback']->layer)->toBeLessThan($frame->images[0]->layer)
+      ->and($layers['pause-focus-fallback']->clipRect->height)->toBe(2.0)
+      ->and($layers['pause-label-0']->bounds->x + $layers['pause-label-0']->bounds->width / 2)->toBe(675.0);
+    unlink($root . '/selected.png');
+    $frame = GraphicalBattlePause::frame(new PresentationCanvas(1350, 720), $skin, $menu, $root);
+    expect($frame->images)->toBe([])
+      ->and(array_column($frame->textLayers, null, 'id')['pause-label-0']->runs[0]->text)->toBe('Resume');
+  } finally {
+    foreach (glob($root . '/*') ?: [] as $path) { unlink($path); }
+    rmdir($root);
+  }
+});
+
+it('does not reinterpret invalid texture geometry as missing optional artwork', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-pause-geometry-' . bin2hex(random_bytes(4));
+  mkdir($root);
+  $skin = pauseSkinFixture();
+  $textures = $skin->textures;
+  $textures['selector'] = new CanvasNineSlice('missing.png', new SpriteSourceRect(0, 0, 8, 8), minimumWidth: 20);
+  try {
+    expect(fn() => GraphicalBattlePause::preflight(new BattlePauseSkin($textures, $skin->colors), $root))
+      ->toThrow(InvalidArgumentException::class);
+  } finally { rmdir($root); }
 });

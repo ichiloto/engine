@@ -54,6 +54,12 @@ class ItemStore implements ConfigInterface
     }
   }
 
+  /** @return list<string> The definition id of every item, weapon and armour, in authored order. */
+  public function getItemIds(): array
+  {
+    return array_values(array_map(static fn(InventoryItem $item): string => $item->id, $this->items));
+  }
+
   /**
    * @inheritDoc
    */

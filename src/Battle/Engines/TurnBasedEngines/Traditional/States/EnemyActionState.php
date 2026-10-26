@@ -64,11 +64,12 @@ class EnemyActionState extends TurnState
 
     return EnemyActionEvaluator::chooseAction(
       $enemy,
-      $partyTargets,
-      $context->getLivingTroopBattlers(),
+      $context->partyRoster->battlers,
+      $context->troop->members->toArray(),
       $context->roundNumber,
       $maxPartyLevel,
       $gameState === null ? null : $gameState->getSwitch(...),
+      $this->engine->random,
     );
   }
 }

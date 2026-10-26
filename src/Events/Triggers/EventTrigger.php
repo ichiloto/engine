@@ -3,12 +3,16 @@
 namespace Ichiloto\Engine\Events\Triggers;
 
 use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\WorldStateWriter;
+use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerInterface;
+use Ichiloto\Engine\Events\Enumerations\EventEngagement;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
@@ -22,6 +26,11 @@ use RuntimeException;
  */
 abstract class EventTrigger implements EventTriggerInterface
 {
+  /**
+   * @var CellArea The event's authored cells, stood on or faced: exactly
+   * the cells its marker occupies, in any shape, connected or not.
+   */
+  protected(set) CellArea $area;
   /**
    * @var object The data.
    */
@@ -46,6 +55,12 @@ abstract class EventTrigger implements EventTriggerInterface
    * @var array<int, array<string, mixed>> The world-state conditions gating this trigger.
    */
   protected(set) array $conditions = [];
+  /** @var list<MovementHeading> Allowed player headings; empty means unrestricted. */
+  protected(set) array $facing = [];
+  /** Whether engagement must be re-evaluated when the player turns in place. */
+  public bool $dependsOnFacing {
+    get => $this->engagement === EventEngagement::FACING || $this->facing !== [];
+  }
   /**
    * @var array<int, array<string, mixed>> The world-state writes applied on completion.
    */
@@ -74,7 +89,7 @@ abstract class EventTrigger implements EventTriggerInterface
   /**
    * EventTrigger constructor.
    *
-   * @param Rect $area The trigger area. The area on the map where the trigger is activated.
+   * @param Rect|CellArea $area The cells on the map where the trigger is activated; a rectangle covers all of its cells.
    * @param array $data The data.
    * @param array<int, array<string, mixed>> $conditions World-state conditions that must hold for the trigger to be active.
    * @param array<int, array<string, mixed>> $sets World-state writes applied when the trigger completes.
@@ -86,10 +101,12 @@ abstract class EventTrigger implements EventTriggerInterface
    * @param array{symbol?: string, color?: string, conditions?: array<int, array<string, mixed>>}|null $cue Optional authored,
    * player-visible guidance for the trigger while it is available. Cue
    * conditions may further delay presentation without disabling interaction.
+   * @param list<string> $facing Optional cardinal heading names; empty allows any facing.
+   * @param EventEngagement $engagement Whether the player stands inside or faces an adjacent event cell.
    * @throws JsonException If the data cannot be serialized.
    */
   final public function __construct(
-    protected(set) Rect $area,
+    Rect|CellArea $area,
     array $data = [],
     array $conditions = [],
     array $sets = [],
@@ -97,9 +114,12 @@ abstract class EventTrigger implements EventTriggerInterface
     ?string $marker = null,
     protected(set) ?string $whenBlocked = null,
     ?array $cue = null,
+    array $facing = [],
+    protected(set) EventEngagement $engagement = EventEngagement::INSIDE,
   )
   {
-    $serializedData = json_encode($data, JSON_THROW_ON_ERROR);
+    $this->area = $area instanceof Rect ? CellArea::fromRect($area) : $area;
+    $serializedData = json_encode((object) $data, JSON_THROW_ON_ERROR);
     $this->data = json_decode($serializedData) ?? throw new RuntimeException('Failed to parse trigger data.');
     $this->conditions = array_values(array_filter($conditions, 'is_array'));
     $this->sets = array_values(array_filter($sets, 'is_array'));
@@ -107,7 +127,25 @@ abstract class EventTrigger implements EventTriggerInterface
     $this->marker = $marker !== null && trim($marker) !== '' ? trim($marker) : null;
     $this->whenBlocked = $whenBlocked !== null && trim($whenBlocked) !== '' ? trim($whenBlocked) : null;
     $this->cue = EventCue::fromArray($cue);
+    $this->facing = self::parseFacing($facing);
     $this->configure();
+  }
+
+  /** @return list<MovementHeading> Validated authored headings, shared with map analysis. */
+  public static function parseFacing(mixed $facing): array
+  {
+    if (!is_array($facing) || !array_is_list($facing)) {
+      throw new InvalidArgumentException('Event facing must be a list of cardinal heading names.');
+    }
+    $headings = [];
+    foreach ($facing as $name) {
+      $heading = is_string($name) ? MovementHeading::tryFrom($name) : null;
+      if ($heading === null || $heading === MovementHeading::NONE) {
+        throw new InvalidArgumentException('Event facing accepts North, East, South and West only.');
+      }
+      if (!in_array($heading, $headings, true)) { $headings[] = $heading; }
+    }
+    return $headings;
   }
 
   /**
@@ -122,6 +160,16 @@ abstract class EventTrigger implements EventTriggerInterface
   {
     $this->gameState = $gameState;
     $this->party = $party;
+  }
+
+  /** Tests transient interaction eligibility separately from world-state availability. */
+  public function canEngage(Vector2 $position, MovementHeading $heading): bool
+  {
+    if ($this->isComplete || !$this->isAvailable()
+      || ($this->facing !== [] && !in_array($heading, $this->facing, true))) {
+      return false;
+    }
+    return $this->engagement->canReach($this->area, $position, $heading);
   }
 
   /**

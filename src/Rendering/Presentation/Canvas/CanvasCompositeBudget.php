@@ -14,10 +14,14 @@ final class CanvasCompositeBudget
   public static function getWork(array $composites): int
   {
     $work = 0;
+    $worlds = 0;
     foreach ($composites as $composite) {
       $work += 2 * $composite->width * $composite->height;
       foreach ($composite->operations as $operation) {
         $data = $operation->data;
+        if ($data['type'] === 'world' && ++$worlds > 1) {
+          throw new InvalidArgumentException('A frame can request one active-map overview raster.');
+        }
         if ($data['type'] === 'stroke') {
           $half = $data['width'] / 2;
           $left = min(array_column($data['points'], 0)) - $half;
@@ -32,7 +36,7 @@ final class CanvasCompositeBudget
         $pixels = (int)(max(0, min($composite->width, ceil($right)) - max(0, floor($left)))
           * max(0, min($composite->height, ceil($bottom)) - max(0, floor($top))));
         $cost = match ($data['type']) {
-          'image' => 16 + (isset($data['displacement']) ? 8 : 0),
+          'image', 'world' => 16 + (isset($data['displacement']) ? 8 : 0),
           'fill' => 4, 'stroke' => 4 + count($data['points']),
         };
         foreach ([$data['masks'], $data['displacement']['masks'] ?? []] as $masks) {

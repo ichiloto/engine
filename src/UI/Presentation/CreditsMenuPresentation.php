@@ -15,7 +15,7 @@ use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 /** A clipped, centered roll using the same panel, typography and button theme as other menus. */
 final class CreditsMenuPresentation
 {
-  public const array CAPABILITIES = [...MenuPresentationCatalog::CAPABILITIES, RendererSessionConfig::WINDOW_ACTIVATION];
+  public const array CAPABILITIES = MenuPresentationCatalog::CAPABILITIES;
 
   public static function getViewport(MenuPresentationCatalog $theme): CanvasRectangle
   {
@@ -43,10 +43,10 @@ final class CreditsMenuPresentation
     $bounds = MenuLayout::getBounds();
     $viewport = self::getViewport($theme);
     $view->frame('credits-frame', $bounds);
-    $view->prose('credits-heading', get_message('title.credits', 'Credits'),
+    $view->prose('credits-heading', get_engine_message('title.credits'),
       new CanvasRectangle($viewport->x, $bounds->y + max($m->panelPadding, $m->sectionGap), $viewport->width, $m->cellHeight),
       'accent', HorizontalAlignment::CENTER);
-    $label = get_message('menu.back', 'Back');
+    $label = get_engine_message('menu.back');
     $buttonWidth = MenuLayout::getButtonWidth($theme, $label, $viewport->width);
     $view->rows('credits-back', [new MenuRow('back', $label, kind: MenuRowKind::BUTTON,
       selected: true, focused: true, showCursor: false)],
@@ -70,6 +70,7 @@ final class CreditsMenuPresentation
     $text = new CanvasTextLayer('credits-roll', 30,
       $viewport->x + ($viewport->width - $columns * $m->cellWidth) / 2, $origin + $first * $m->cellHeight,
       new RendererGridConfig($columns, $end - $first, $m->cellWidth, $m->cellHeight), $runs, $viewport);
-    return new PresentationCanvas($base->width, $base->height, $base->images, $base->indicators, [...$base->textLayers, $text]);
+    return new PresentationCanvas($base->width, $base->height, $base->images, $base->indicators, [...$base->textLayers, $text],
+      $base->composites, [...$base->getOverlayProtection(), $viewport], viewportFit: $base->viewportFit);
   }
 }

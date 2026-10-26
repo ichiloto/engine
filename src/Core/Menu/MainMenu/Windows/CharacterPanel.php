@@ -5,7 +5,10 @@ namespace Ichiloto\Engine\Core\Menu\MainMenu\Windows;
 use Ichiloto\Engine\Core\Interfaces\CanFocus;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\UI\SelectionStyle;
+use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -68,13 +71,19 @@ class CharacterPanel extends Window implements CanFocus
   ): void
   {
     $leftMargin = 18;
-    $this->details = [
-      sprintf("%{$leftMargin}s%s", ' ', $name),
-      sprintf("%{$leftMargin}sRole: %s", ' ', $role),
-      sprintf("%{$leftMargin}sLv %12d", ' ', $level),
-      sprintf("%{$leftMargin}sHP %12s", ' ', $hp),
-      sprintf("%{$leftMargin}sMP %12s", ' ', $mp),
+    $fields = [
+      ['Role:', $role],
+      [Vocabulary::getTerm('stats.level', 'Lv'), (string)$level],
+      [Vocabulary::getTerm('stats.hp', 'HP'), $hp],
+      [Vocabulary::getTerm('stats.mp', 'MP'), $mp],
     ];
+    $fieldWidth = max(15, ...array_map(static fn(array $field): int =>
+      TerminalText::displayWidth($field[0]) + 1 + TerminalText::displayWidth($field[1]), $fields));
+    $prefix = str_repeat(' ', $leftMargin);
+    $this->details = [$prefix . $name];
+    foreach ($fields as [$label, $value]) {
+      $this->details[] = $prefix . TerminalMenuRow::compose($label, $value, $fieldWidth);
+    }
     $this->applyHighlightState();
   }
 

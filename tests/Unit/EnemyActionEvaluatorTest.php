@@ -14,6 +14,10 @@ use Ichiloto\Engine\Entities\Skills\BasicSkill;
 use Ichiloto\Engine\Entities\Skills\SkillInvocation;
 use Ichiloto\Engine\Entities\States\HasStates;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
 
 function makeAiEnemy(int $hp = 100, int $totalHp = 100, int $mp = 0): object
 {
@@ -143,4 +147,35 @@ it('keeps only patterns rated within two of the best', function () {
   }
 
   expect(EnemyActionEvaluator::pickPattern([]))->toBeNull();
+});
+
+it('lets an enemy target its own fallen ally without substituting a living player', function () {
+  $scope = new ItemScope(ItemScopeSide::ALLY, status: ItemScopeStatus::DEAD);
+  $skill = new BasicSkill('Synthetic revive', '', '', 0, 0, $scope);
+  $enemy = makePatternEnemy(new ActionPattern($skill, 5, new ActionCondition()));
+  $fallen = makePatternEnemy();
+  $fallen->stats->currentHp = 0;
+  $player = new Character('Player', 1, new Stats(currentHp: 100));
+  [$action, $targets] = EnemyActionEvaluator::chooseAction($enemy, [$player], [$enemy, $fallen], 1, 1);
+  expect($action)->toBeInstanceOf(SkillBattleAction::class)
+    ->and(array_map(spl_object_id(...), $targets))->toBe([spl_object_id($fallen)]);
+});
+
+it('resolves authored random enemy skills to their count and status', function () {
+  $scope = new ItemScope(ItemScopeSide::ENEMY, ItemScopeNumber::RANDOM, ItemScopeStatus::ALIVE, 2);
+  $skill = new BasicSkill('Synthetic random', '', '', 0, 0, $scope);
+  $enemy = makePatternEnemy(new ActionPattern($skill, 5, new ActionCondition()));
+  $players = array_map(static fn(int $hp): Character => new Character('Player', 1,
+    new Stats(currentHp: $hp)), [100, 100, 0]);
+  [$action, $targets] = EnemyActionEvaluator::chooseAction($enemy, $players, [$enemy], 1, 1);
+  expect($action)->toBeInstanceOf(SkillBattleAction::class)
+    ->and(array_map(spl_object_id(...), $targets))
+    ->toEqualCanonicalizing([spl_object_id($players[0]), spl_object_id($players[1])]);
+});
+
+it('does not substitute self when the opposing side has no eligible recipients', function () {
+  $enemy = makePatternEnemy(makePattern(5, new ActionCondition()));
+  $fallen = new Character('Fallen', 1, new Stats(currentHp: 0));
+  [$action, $targets] = EnemyActionEvaluator::chooseAction($enemy, [$fallen], [$enemy], 1, 1);
+  expect($action)->toBeInstanceOf(AttackAction::class)->and($targets)->toBe([]);
 });

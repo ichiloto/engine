@@ -226,6 +226,9 @@ it('emits only whole wide glyphs within physical bounds on every native path', f
   drawTerminalViewportFrame($mode, fn() => Console::write($glyph, $x, 0));
   $symbol = TerminalText::stabilizeSymbol(TerminalText::firstSymbol($glyph));
   $visible = $x === 3 ? $symbol : ($x === 4 ? ' ' : '');
+  // The emoji fixture clears its reserved pair before painting. At the physical
+  // edge no following address may step outside the viewport; CJK output stays compact.
+  if ($x === 3 && $glyph === "\u{1F5E1}\u{FE0F}") { $visible = "  \e[1;4H" . $symbol; }
   $expected = $visible === '' ? '' : sprintf("\e[1;%dH%s", $x + 1, $visible);
   if (in_array($mode, ['full', 'region'], true)) {
     $line = $x < 5 ? str_repeat(' ', $x) . $visible : '     ';

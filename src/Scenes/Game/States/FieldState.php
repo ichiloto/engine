@@ -2,12 +2,23 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Exception;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\Time;
+use Ichiloto\Engine\Entities\Actions\FieldActionContext;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
+use Ichiloto\Engine\Field\PlayerWalk;
+use Ichiloto\Engine\Field\FieldActionRegistry;
+use Ichiloto\Engine\Field\SkitPrompt;
+use Ichiloto\Engine\Field\SkitPromptPresentation;
+use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\IO\Saves\SaveFeedback;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -16,7 +27,6 @@ use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 
 /**
@@ -35,8 +45,77 @@ use Ichiloto\Engine\Util\Debug;
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class FieldState extends GameSceneState
+class FieldState extends GameSceneState implements CanvasOverlayProviderInterface
 {
+    private ?PlayerWalk $walk = null;
+    private ?SkitPromptPresentation $skitPromptPresentation = null;
+    /** Invalidates movement across ownership handoffs, even without held input or a missed update. */
+    protected(set) int $movementGeneration = 0;
+
+    private function getSkitPrompt(): ?SkitPrompt
+    {
+        if (!isset($this->context)) { return null; }
+        $scene = $this->getGameScene();
+        $prompt = $scene->skitManager?->getAvailablePrompt();
+        if ($prompt === null) { return null; }
+        return $scene->isStopping || $scene->state !== $this
+            || $scene->sceneManager->currentScene !== $scene || $scene->sceneManager->hasSceneTransition()
+            || $scene->hasUnstableEventSession() || $scene->getUI()->getActivePresentations() !== []
+            ? null : $prompt;
+    }
+
+    public function renderPresentationOverlay(): void
+    {
+        ($this->skitPromptPresentation ??= new SkitPromptPresentation())->renderTerminal($this->getSkitPrompt(),
+            ActionHints::resolve('skit', 'Watch skit'));
+    }
+
+    public function getPresentationOverlay(int $width, int $height): ?PresentationCanvas
+    {
+        $scene = $this->getGameScene();
+        $context = $scene->getPresentationContext();
+        $owners = $context !== null ? $context->getActivePresentations() : $scene->getUI()->getActivePresentations();
+        $atlas = null;
+        if (!$scene->isStopping && $scene->state === $this && !$scene->hasUnstableEventSession()
+            && $owners === [] && $scene->locationHUDWindow?->isPresentationVisible()) {
+            $value = config(\Ichiloto\Engine\Util\Config\ProjectConfig::class,'ui.hud.map_size','compact');
+            $size = \Ichiloto\Engine\UI\Presentation\MapAtlasSize::getCornerSize($value);
+            if ($size !== \Ichiloto\Engine\UI\Presentation\MapAtlasSize::OFF) {
+                $atlas = $scene->getMapAtlasCanvas($size,$width,$height);
+            }
+        }
+        $prompt = $this->getSkitPrompt();
+        $runtime = $context === null ? $scene->getGame()->getRendererRuntime() : null;
+        $skit = $prompt === null || $runtime === null ? null
+            : ($this->skitPromptPresentation ??= new SkitPromptPresentation())->getCanvas($prompt,
+                ActionHints::resolve('skit', 'Watch skit'), $runtime, $width, $height);
+        return $skit === null ? $atlas : PresentationCanvas::composeOverlay($atlas,$skit);
+    }
+
+    public function getExcludedOverlayLayers(): array
+    {
+        return [SkitPromptPresentation::LAYER];
+    }
+
+    public function exit(): void { Console::removeOverlay(SkitPromptPresentation::LAYER); }
+    public function suspend(): void
+    {
+        $this->cancelWalking();
+        Console::removeOverlay(SkitPromptPresentation::LAYER);
+    }
+
+    /** Held walking, for input that reports held keys. */
+    protected PlayerWalk $playerWalk {
+        get => $this->walk ??= new PlayerWalk();
+    }
+
+    /** Invalidate in-flight movement and stop walking; earlier presses must be pressed again. */
+    public function cancelWalking(): void
+    {
+        $this->movementGeneration++;
+        $this->playerWalk->cancel();
+    }
+
     /**
      * @inheritDoc
      */
@@ -54,6 +133,7 @@ class FieldState extends GameSceneState
      */
     public function renderTheField(bool $forceFullRepaint = false): void
     {
+        $this->getGameScene()->synchronizeFieldViewport();
         Console::recomposeFrame(function (): void {
             $this->getGameScene()->mapManager->render();
             $this->getGameScene()->player->renderEventCues();
@@ -63,6 +143,7 @@ class FieldState extends GameSceneState
             $this->getGameScene()->getUI()->render();
             $this->getGameScene()->cinematicPresentation?->render();
             $this->getGameScene()->eventInterpreter?->renderPresentation();
+            $this->renderPresentationOverlay();
         }, $forceFullRepaint);
     }
 
@@ -75,13 +156,28 @@ class FieldState extends GameSceneState
      */
     public function execute(?SceneStateContext $context = null): void
     {
+        try { $this->executeField($context); }
+        finally { $this->renderPresentationOverlay(); }
+    }
+
+    private function executeField(?SceneStateContext $context): void
+    {
         $scene = $this->context->getScene();
         assert($scene instanceof GameScene);
 
-        if ($scene->isStopping) {
+        if ($scene->isStopping || $scene->state !== $this || $scene->sceneManager->currentScene !== $scene
+            || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
         $scene->reconcileFieldPresentation();
+        // The player's last step arrives once its slide has shown, here in
+        // the field and never under a menu opened while it slid.
+        $movementGeneration = $this->movementGeneration;
+        $scene->player?->completeArrival();
+        if ($scene->isStopping || $scene->state !== $this || $scene->sceneManager->currentScene !== $scene
+            || $scene->sceneManager->hasSceneTransition()) {
+            return;
+        }
 
         // A story event owns field input while it is running. Its pending
         // dialogue, timer, route, transfer, or battle continuation advances
@@ -103,9 +199,16 @@ class FieldState extends GameSceneState
             return;
         }
 
+        // Even a completed arrival event may have consumed this frame's input.
+        if ($movementGeneration !== $this->movementGeneration) {
+            return;
+        }
+
         $this->handleActions($scene);
 
-        if ($scene->isStopping || $scene->hasUnstableEventSession()) {
+        if ($scene->isStopping || $movementGeneration !== $this->movementGeneration
+            || $scene->sceneManager->currentScene !== $scene
+            || $scene->hasUnstableEventSession() || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
 
@@ -118,11 +221,18 @@ class FieldState extends GameSceneState
 
         $this->handleNavigation($scene);
 
-        if ($scene->isStopping || $scene->hasUnstableEventSession()) {
+        if ($scene->isStopping || $movementGeneration !== $this->movementGeneration
+            || $scene->sceneManager->currentScene !== $scene
+            || $scene->hasUnstableEventSession() || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
 
         $scene->npcManager?->update();
+
+        // After the player and NPCs have moved: who can be spoken to from here.
+        if (! $scene->isStopping && $scene->state === $this) {
+            $scene->player?->refreshTalkTarget();
+        }
     }
 
     /**
@@ -138,8 +248,8 @@ class FieldState extends GameSceneState
         if (
             Input::isButtonDown("quit") &&
             confirm(
-                get_message("confirm.quit", "Are you sure you want to quit?"),
-                config(ProjectConfig::class, 'vocab.game.shutdown', 'Exit Game'))) {
+                get_engine_message("confirm.quit"),
+                Vocabulary::getTerm('game.shutdown', 'Exit Game'))) {
             $scene->getGame()->quit();
             return;
         }
@@ -147,30 +257,49 @@ class FieldState extends GameSceneState
         if (Input::isButtonDown("menu")) {
             play_sound(SystemSound::CONFIRM);
             $this->setState($scene->mainMenuState);
+            return;
         }
 
         if (Input::isButtonDown("action")) {
             $scene->player->interact();
         }
 
-        if ($scene->isStopping) {
+        if ($scene->isStopping || $scene->state !== $this || $scene->sceneManager->currentScene !== $scene
+            || $scene->hasUnstableEventSession() || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
 
-        if (Input::isButtonDown("map")) {
+        if (Input::isButtonDown('secondary_action') && FieldActionRegistry::executeSecondaryAction(
+            new FieldActionContext($scene->player, $scene, $scene->player->position),
+        )) {
+            return;
+        }
+
+        if (Input::isButtonPressed('map_size') && $scene->canPresentMapAtlas()
+            && $scene->locationHUDWindow?->isPresentationVisible()) {
+            $settings = new \Ichiloto\Engine\Settings\SettingsCatalog();
+            $settings->write('atlas_size',\Ichiloto\Engine\UI\Presentation\MapAtlasSize::getCornerSize(
+                $settings->read('atlas_size'))->getNextCornerSize()->value);
+            try { $settings->persist(); }
+            catch (\Throwable $error) { Debug::warn('Could not persist atlas size: '.$error->getMessage()); }
+            return;
+        }
+
+        if (Input::isButtonPressed("map")) {
             $this->showInGameMap();
+            return;
         }
 
         if (Input::isButtonDown("skit")) {
             $scene->skitManager?->playNextAvailableSkit();
         }
 
-        if ($scene->isStopping) {
+        if ($scene->isStopping || $scene->state !== $this || $scene->sceneManager->currentScene !== $scene
+            || $scene->hasUnstableEventSession() || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
 
-        // F5 quick-saves from the field, the way a PC RPG player expects.
-        if (Input::isKeyDown(KeyCode::F5)) {
+        if (Input::isButtonDown('quick_save')) {
             try {
                 $scene->sceneManager->saveManager->quickSave($scene);
                 play_sound(SystemSound::SAVE);
@@ -179,11 +308,12 @@ class FieldState extends GameSceneState
                     NotificationChannel::SYSTEM,
                     'Quick saved',
                     $scene->party?->location?->name ?? '',
-                    NotificationDuration::SHORT
+                    NotificationDuration::SHORT,
+                    presentationRole: 'save'
                 );
             } catch (\Throwable $exception) {
                 Debug::warn(sprintf('Quick save failed: %s', $exception->getMessage()));
-                alert($exception->getMessage(), 'Quick Save Unavailable');
+                alert(SaveFeedback::describeWriteFailure($exception), 'Quick Save Unavailable');
             }
         }
 
@@ -213,6 +343,14 @@ class FieldState extends GameSceneState
      */
     protected function handleNavigation(GameScene $scene): void
     {
+        if (Input::isHeldInputAvailable()) {
+            // The walk's clock and the step's presentation share one duration.
+            $this->playerWalk->update(Time::getDeltaTime(), static fn(Vector2 $direction, float $seconds): bool
+                => $scene->moveAtPace($seconds, static fn(): bool => $scene->player->tryMove($direction, $scene->camera)));
+            return;
+        }
+
+        // Event-only input (the terminal) steps once per key event, as it always has.
         $h = Input::getAxis(AxisName::HORIZONTAL);
         $v = Input::getAxis(AxisName::VERTICAL);
 
@@ -226,7 +364,6 @@ class FieldState extends GameSceneState
      */
     public function resume(): void
     {
-        $this->getGameScene()->locationHUDWindow->activate();
         $this->renderTheField(forceFullRepaint: true);
     }
 }

@@ -127,6 +127,19 @@ it('writes dialogue speed to both paths a project may read', function () {
     ->and($config->get('ui.dialogue.message.speed'))->toBe(80);
 });
 
+it('exposes independent Voice in both settings menus without changing SFX', function () {
+  $config = new CatalogConfigStub(['audio'=>['sfx'=>false, 'voice'=>true]]);
+  ConfigStore::put(ProjectConfig::class, $config);
+  $catalog = new SettingsCatalog();
+  foreach ([new MainMenuSettingsManager(), new TitleOptionsSettingsManager()] as $manager) {
+    expect(array_column($manager->getSettings(), 'key'))->toContain('voice');
+  }
+  expect($catalog->read('voice'))->toBeTrue()->and($catalog->read('sfx'))->toBeFalse();
+  $catalog->write('voice', false);
+  $catalog->write('sfx', true);
+  expect($catalog->read('voice'))->toBeFalse()->and($catalog->read('sfx'))->toBeTrue();
+});
+
 it('reads and writes the player notification duration profile', function () {
   $config = new CatalogConfigStub([]);
   ConfigStore::put(ProjectConfig::class, $config);
@@ -153,4 +166,22 @@ it('lets a player choose a screen transition', function () {
 
   expect($config->get('ui.transitions.style'))->toBe('wipe')
     ->and($catalog->read('transitions'))->toBe(TransitionStyle::WIPE);
+});
+
+it('exposes and persists battle transitions independently while preserving legacy defaults', function () {
+  $config = new CatalogConfigStub(['ui' => ['transitions' => ['style' => 'none']]]);
+  ConfigStore::put(ProjectConfig::class, $config);
+  $catalog = new SettingsCatalog();
+  expect($catalog->read('battle_transitions'))->toBeFalse();
+  $catalog->write('battle_transitions', true);
+  expect($catalog->read('battle_transitions'))->toBeTrue()
+    ->and($config->get('ui.transitions.battle'))->toBeTrue()
+    ->and($config->get('ui.transitions.style'))->toBe('none');
+  $catalog->write('transitions', TransitionStyle::WIPE);
+  $catalog->write('battle_transitions', false);
+  expect($catalog->read('battle_transitions'))->toBeFalse()
+    ->and($catalog->read('transitions'))->toBe(TransitionStyle::WIPE);
+  foreach ([new MainMenuSettingsManager(), new TitleOptionsSettingsManager()] as $manager) {
+    expect(array_column($manager->getSettings(), 'key'))->toContain('battle_transitions');
+  }
 });

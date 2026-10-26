@@ -5,12 +5,32 @@ namespace Ichiloto\Engine\Cutscenes\Cinematics;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use RuntimeException;
+use InvalidArgumentException;
 
 /** Resolves generic cinematic subject references against the live field. */
 final class CinematicSubjectResolver
 {
   public function __construct(protected GameScene $gameScene)
   {
+  }
+
+  /** The shared authored reference boundary used by cinematics, routes and staged locations. */
+  public static function validateReference(array $reference, bool $allowScreenPosition = false): void
+  {
+    $kind = strtolower(trim(strval($reference['kind'] ?? $reference['subject'] ?? '')));
+    $allowed = $allowScreenPosition ? CinematicCommandSchema::SUBJECT_KINDS
+      : array_values(array_diff(CinematicCommandSchema::SUBJECT_KINDS, ['screen_position']));
+    if (!in_array($kind, $allowed, true)) {
+      throw new InvalidArgumentException(sprintf('unsupported subject kind "%s".', $kind !== '' ? $kind : '(empty)'));
+    }
+    if (in_array($kind, ['npc', 'world_object', 'staged_actor', 'marker'], true)
+      && trim(strval($reference['id'] ?? '')) === '') {
+      throw new InvalidArgumentException(sprintf('%s subject requires an id.', $kind));
+    }
+    if (in_array($kind, ['position', 'screen_position'], true)
+      && (!is_numeric($reference['x'] ?? null) || !is_numeric($reference['y'] ?? null))) {
+      throw new InvalidArgumentException(sprintf('%s subject requires numeric x and y coordinates.', $kind));
+    }
   }
 
   /** @param array<string, mixed> $reference */
@@ -25,11 +45,12 @@ final class CinematicSubjectResolver
         $this->gameScene->npcManager?->findById($id)?->position,
         sprintf('Map NPC "%s" was not found.', $id),
       ),
+      'world_object' => $this->getWorldObjectPosition($id),
       'staged_actor' => $this->copy(
         $this->gameScene->cinematicStage?->find($id)?->position,
         sprintf('Staged actor "%s" was not found.', $id),
       ),
-      'party_actor' => $this->partyActorPosition($id),
+      'party_actor' => $this->getPartyActorPosition($id),
       'position' => new Vector2(intval($reference['x'] ?? 0), intval($reference['y'] ?? 0)),
       'marker' => $this->copy(
         $this->gameScene->player?->findEventMarkerPosition($id),
@@ -39,17 +60,27 @@ final class CinematicSubjectResolver
     };
   }
 
-  protected function partyActorPosition(string $id): Vector2
+  private function getWorldObjectPosition(string $id): Vector2
+  {
+    $object = $this->gameScene->mapManager?->findWorldObject($id);
+    if ($object === null || !$object->isCurrent()) {
+      throw new RuntimeException(sprintf('Map world object "%s" was not found.', $id));
+    }
+    return $object->position;
+  }
+
+  protected function getPartyActorPosition(string $id): Vector2
   {
     $members = $this->gameScene->party?->members->toArray() ?? [];
+    $hasStableIdentity = $id !== '' && array_any($members, static fn($actor): bool => $actor->actorId === $id);
 
     foreach ($members as $index => $actor) {
       $matches = $id === ''
         ? $index === 0
-        : in_array($id, array_filter([
+        : ($hasStableIdentity ? $actor->actorId === $id : in_array($id, array_filter([
           property_exists($actor, 'id') ? strval($actor->id) : null,
           property_exists($actor, 'name') ? strval($actor->name) : null,
-        ]), true);
+        ]), true));
 
       if (! $matches) {
         continue;

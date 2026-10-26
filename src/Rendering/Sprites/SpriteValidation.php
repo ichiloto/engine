@@ -16,6 +16,14 @@ final class SpriteValidation
     self::validateSigned32BitRange($layer);
   }
 
+  /** A lift draws a sprite up to its own height above its cell, never below it. */
+  public static function validateLift(int $lift, int $height): void
+  {
+    if ($lift < 0 || $lift > $height) {
+      throw new InvalidArgumentException('Sprite lift must be between 0 and the sprite height in logical pixels.');
+    }
+  }
+
   public static function validateAssetPath(string $asset): void
   {
     if ($asset === '' || preg_match('//u', $asset) !== 1 || str_contains($asset, "\0")

@@ -33,6 +33,12 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  */
 class ScriptEventTrigger extends EventTrigger implements AutomaticEventTriggerInterface, EventSessionCompletionTargetInterface
 {
+  /** Authored payload vocabulary shared with authoring tools. */
+  public const array DATA_FIELDS = ['scriptId', 'script', 'mode', 'reusable'];
+  public const string MODE_ACTION = 'action';
+  public const string MODE_AUTO = 'auto';
+  public const array MODES = [self::MODE_ACTION, self::MODE_AUTO];
+
   /**
    * @var array<int, array<string, mixed>> The script commands.
    */
@@ -51,7 +57,7 @@ class ScriptEventTrigger extends EventTrigger implements AutomaticEventTriggerIn
   public function configure(): void
   {
     $this->isReusable = (bool) ($this->data->reusable ?? true);
-    $this->runsAutomatically = strval($this->data->mode ?? 'action') === 'auto';
+    $this->runsAutomatically = strval($this->data->mode ?? self::MODE_ACTION) === self::MODE_AUTO;
     $scriptId = trim(strval($this->data->scriptId ?? ''));
     $this->scriptId = $scriptId !== '' ? $scriptId : null;
     $this->script = $this->resolveScript();

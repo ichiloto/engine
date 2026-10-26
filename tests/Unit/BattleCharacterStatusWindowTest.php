@@ -33,7 +33,7 @@ it('keeps zero hp and mp bars framed at a stable width', function () {
     ->and(TerminalText::displayWidth($line))->toBe(31);
 });
 
-it('aligns the hp, mp, and atb headings with the compact battle bars', function () {
+it('aligns the hp, mp, and Time headings with the compact battle bars', function () {
   $window = makeBattleCharacterStatusWindow();
   $character = new Character('Kaelion', 0, new Stats(currentHp: 245, totalHp: 999, currentMp: 32, totalMp: 80));
 
@@ -54,7 +54,8 @@ it('aligns the hp, mp, and atb headings with the compact battle bars', function 
     ->and($plainHeader)->not->toContain(' ')
     ->and(mb_strpos($plainHeader, 'HP', 0, 'UTF-8'))->toBe($barStarts[0])
     ->and(mb_strpos($plainHeader, 'MP', 0, 'UTF-8'))->toBe($barStarts[1])
-    ->and(mb_strpos($plainHeader, 'ATB', 0, 'UTF-8'))->toBe($barStarts[2]);
+    ->and(mb_strpos($plainHeader, 'Time', 0, 'UTF-8'))->toBe($barStarts[2])
+    ->and($plainHeader)->not->toContain('ATB');
 });
 
 it('can retain four battlers for future four-person battle layouts', function () {

@@ -37,9 +37,26 @@ final readonly class BattleTargetCursor
   public function layout(CanvasRectangle $battler, int $width, int $height, float $now = 0, bool $animate = false,
     array $occupied = []): ?array
   {
-    $travel = 4;
     $offset = GraphicalBattleHud::cursorOffset($now, !$animate);
-    $fitsCanvas = false;
+    $options = $this->getPlacementOptions($battler, $width, $height);
+    foreach ($options as $option) {
+      $envelope = $option['envelope'];
+      if (array_any($occupied, static fn(CanvasRectangle $obstacle) => $envelope->x < $obstacle->x + $obstacle->width
+        && $envelope->x + $envelope->width > $obstacle->x && $envelope->y < $obstacle->y + $obstacle->height
+        && $envelope->y + $envelope->height > $obstacle->y)) { continue; }
+      return ['texture' => $option['texture'], 'bounds' => new CanvasRectangle($option['bounds']->x + $option['dx'] * $offset,
+        $option['bounds']->y + $option['dy'] * $offset, $this->size, $this->size), 'envelope' => $envelope];
+    }
+    // A temporary modal may obscure every valid placement without invalidating the formation.
+    if ($options !== []) { return null; }
+    throw new RuntimeException('Target cursor cannot fit outside the battler within the graphical canvas.');
+  }
+
+  /** All potential cursor slots are reserved even while the battler is not selected. */
+  public function getPlacementOptions(CanvasRectangle $battler, int $width, int $height): array
+  {
+    $travel = 4;
+    $options = [];
     foreach ([$this->placement, ...array_filter(BattleCursorPlacement::cases(), fn($p) => $p !== $this->placement)] as $placement) {
       [$x, $y, $dx, $dy] = match ($placement) {
         BattleCursorPlacement::ABOVE => [$battler->x + ($battler->width - $this->size) / 2,
@@ -54,16 +71,10 @@ final readonly class BattleTargetCursor
       $envelopeWidth = $this->size + abs($dx) * $travel;
       $envelopeHeight = $this->size + abs($dy) * $travel;
       if ($left < 0 || $top < 0 || $left + $envelopeWidth > $width || $top + $envelopeHeight > $height) { continue; }
-      $fitsCanvas = true;
-      if (array_any($occupied, static fn(CanvasRectangle $obstacle) => $left < $obstacle->x + $obstacle->width
-        && $left + $envelopeWidth > $obstacle->x && $top < $obstacle->y + $obstacle->height
-        && $top + $envelopeHeight > $obstacle->y)) { continue; }
-      return ['texture' => $this->textures[$placement->value],
-        'bounds' => new CanvasRectangle($x + $dx * $offset, $y + $dy * $offset, $this->size, $this->size),
+      $options[] = ['texture' => $this->textures[$placement->value], 'placement' => $placement,
+        'bounds' => new CanvasRectangle($x, $y, $this->size, $this->size), 'dx' => $dx, 'dy' => $dy,
         'envelope' => new CanvasRectangle($left, $top, $envelopeWidth, $envelopeHeight)];
     }
-    // A temporary modal may obscure every valid placement without invalidating the formation.
-    if ($fitsCanvas) { return null; }
-    throw new RuntimeException('Target cursor cannot fit outside the battler within the graphical canvas.');
+    return $options;
   }
 }

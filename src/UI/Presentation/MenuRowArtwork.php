@@ -8,6 +8,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 
@@ -31,6 +32,7 @@ final readonly class MenuRowArtwork
   /** @return list<CanvasImage> */
   public function images(string $root, string $id, CanvasRectangle $bounds, int $layer, ?int $borderLayer = null): array
   {
+    if (PngAssetPreflight::getAvailableSize($root, $this->asset) === null) { return []; }
     $images = $this->slice($root, $bounds)->images($id, $bounds, $layer, $bounds);
     if ($borderLayer === null) { return $images; }
     $result = [];
@@ -68,7 +70,7 @@ final readonly class MenuRowArtwork
    */
   public function borderInsets(string $root, CanvasRectangle $bounds): ?array
   {
-    if ($this->borderWidths === null) { return null; }
+    if ($this->borderWidths === null || PngAssetPreflight::getAvailableSize($root, $this->asset) === null) { return null; }
     $slice = $this->slice($root, $bounds);
     return array_map(fn(int $width, int $cut): float => min($width, $cut) / $this->density,
       $this->borderWidths, [$slice->left, $slice->top, $slice->right, $slice->bottom]);
@@ -82,7 +84,7 @@ final readonly class MenuRowArtwork
     if ([$left, $top, $right, $bottom] !== [$this->left, $this->top, $this->right, $this->bottom]) {
       Debug::warn("Menu artwork cuts reconciled to current image and row bounds: {$this->asset}");
     }
-    return CanvasNineSlice::fromPng($root, $this->asset, $left, $top, $right, $bottom, $this->density);
+    return CanvasNineSlice::getFromPng($root, $this->asset, $left, $top, $right, $bottom, $this->density);
   }
 
   /** @return array{int, int} */

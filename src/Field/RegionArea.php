@@ -21,6 +21,7 @@ readonly class RegionArea
    * @param array{0: int, 1: int}|null $station Where the project wants this
    * place drawn on the region map, if it says.
    * @param string $description A line about the place, for the map screen.
+   * @param list<RegionRoute> $routes Distinct source-owned transfers, before knowledge filtering.
    */
   public function __construct(
     public string $id,
@@ -29,6 +30,7 @@ readonly class RegionArea
     public array $links = [],
     public ?array $station = null,
     public string $description = '',
+    public array $routes = [],
   )
   {
   }

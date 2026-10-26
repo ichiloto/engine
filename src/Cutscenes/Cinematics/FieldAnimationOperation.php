@@ -3,36 +3,46 @@
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
 use Ichiloto\Engine\Animations\Animation;
-use Ichiloto\Engine\Animations\AnimationPlaybackSession;
+use Ichiloto\Engine\Animations\Field\FieldEffectAnchor;
+use Ichiloto\Engine\Animations\Field\FieldEffectSession;
+use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
+use Ichiloto\Engine\Animations\Timelines\LegacyAnimationTimeline;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Interpreter\EventPendingOperationInterface;
 use Ichiloto\Engine\UI\Accessibility;
 
-/** Non-blocking field host for an existing reusable Animation. */
+/** A cinematic lane owns one shared effect session, never a manager-wide slot. */
 final class FieldAnimationOperation implements EventPendingOperationInterface
 {
-  protected AnimationPlaybackSession $session;
+  protected FieldEffectSession $session;
   protected(set) bool $isComplete = false;
 
   public function __construct(
-    Animation $animation,
+    Animation|CompiledEffectTimeline $animation,
     protected CinematicPresentationManager $presentation,
     protected Vector2 $position,
     protected bool $screenSpace = false,
-    float $secondsPerFrame = 0.12,
+    ?float $secondsPerFrame = null,
   )
   {
-    $this->session = new AnimationPlaybackSession($animation, max(0.01, $secondsPerFrame));
-
-    if (Accessibility::prefersReducedMotion()) {
-      $this->session->cancel();
-      $this->presentation->clearAnimation();
-      $this->isComplete = true;
-      return;
+    if ($animation instanceof Animation) {
+      $timeline = LegacyAnimationTimeline::compile($animation, includeFlash: false);
+      // The field's rest treatment is its first frame, not the battle's final frame.
+      $timeline->defaults['restFrame'] = 0;
+      $secondsPerFrame ??= .12;
+    } else {
+      $timeline = $animation;
+      if ($secondsPerFrame !== null) {
+        throw new \InvalidArgumentException('An effect timeline owns its frame rate.');
+      }
     }
-
-    $this->playCue($this->session->currentFrame);
-    $this->showCurrentFrame();
+    if ($timeline->defaults['playback']['loop'] ?? false) {
+      throw new \InvalidArgumentException('A blocking cinematic field effect must play once; loops belong to the map.');
+    }
+    $this->session = new FieldEffectSession('cinematic-effect:' . spl_object_id($this),
+      FieldEffectAnchor::createAtPosition($position), $timeline, $secondsPerFrame);
+    $this->presentation->presentEffect($this->session, $screenSpace);
+    FieldEffectSession::playCues($this->session->playback->takeCurrentFrameCues());
   }
 
   public function update(float $deltaSeconds): bool
@@ -41,44 +51,25 @@ final class FieldAnimationOperation implements EventPendingOperationInterface
       return true;
     }
 
-    $frames = $this->session->update($deltaSeconds);
+    // Host cleanup (transfer/shutdown) cancels this owner instead of letting it reappear.
+    if (!$this->presentation->hasEffect($this->session->id)) { $this->cancel(); return true; }
+    $update = $this->session->update($deltaSeconds, Accessibility::prefersReducedMotion());
+    FieldEffectSession::playCues($update->crossedCues);
 
-    foreach ($frames as $frame) {
-      $this->playCue($frame);
-    }
-
-    if ($this->session->isComplete) {
-      $this->presentation->clearAnimation();
+    if ($this->session->playback->isCompleted) {
+      $this->presentation->removeEffect($this->session->id);
       $this->isComplete = true;
       return true;
     }
 
-    $this->showCurrentFrame();
     return false;
   }
 
   public function cancel(): void
   {
-    $this->session->cancel();
-    $this->presentation->clearAnimation();
+    $this->session->playback->pause();
+    $this->presentation->removeEffect($this->session->id);
     $this->isComplete = true;
   }
 
-  protected function showCurrentFrame(): void
-  {
-    $this->presentation->showAnimationFrame(
-      $this->session->animation->getFrame($this->session->currentFrame),
-      $this->position,
-      $this->screenSpace,
-    );
-  }
-
-  protected function playCue(int $frame): void
-  {
-    $cue = $this->session->animation->getCue($frame);
-
-    if ($cue !== null && $cue->soundEffect !== '') {
-      play_sound($cue->soundEffect);
-    }
-  }
 }

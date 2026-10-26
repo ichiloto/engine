@@ -1,0 +1,865 @@
+# Graphical field - authoritative plan
+
+This plan defines how a graphical renderer (GPUI today, others later)
+represents the field. Ichiloto is a terminal game engine: the terminal
+layers remain a complete playable presentation of shared gameplay. The graphical
+field represents that same state, following RPG Maker's established conventions
+rather than inventing new ones. It supersedes the scale, pivot and tile-family
+choices in Stages 1 to 3 of the graphical
+correction roadmap in [layered-tilemaps.md](layered-tilemaps.md); the
+editing surface is owned by the GUI Editor plan. Related docs:
+[maps.md](maps.md), [rendering/tile-batches.md](rendering/tile-batches.md),
+[rendering/runtime.md](rendering/runtime.md).
+
+## Principles
+
+1. **The terminal represents the whole game.** Geometry, physical occupancy,
+   movement, events, interactions and saves are shared gameplay state. Explicit
+   [physical occupancy](maps.md#physical-occupancy)
+   is independent of both appearances; undeclared maps retain the glyph-keyed
+   compatibility adapter until explicitly migrated. Pure graphical edits cannot
+   make a cell solid, walkable or interactive, or change Terminal appearance.
+2. **The terminal grid is the field's grid.** A map cell is one terminal
+   character, and the player moves one cell per step, in every renderer. A
+   graphical renderer draws each terminal cell as one RPG Maker tile, with
+   no conversion of maps, coordinates or saves, so maps are laid out in
+   tiles: a bed one tile wide and two long is one glyph column and two rows.
+3. **RPG Maker's conventions, adopted outright.** Tile size, tileset sheet
+   layouts, autotile composition, tile identities and character sheet
+   layouts follow RPG Maker MZ. Only the conventions are adopted; no RPG
+   Maker assets are used or required.
+4. **Graphical meaning is independent of glyph meaning.** A `#` may be a
+   wall in one place and a chair in another, and Apthia's architecture need
+   not look like Gedisville's. Graphics are their own authored data on the
+   same grid, never derived from which glyph a cell holds.
+5. **Art is the developer's and is replaceable.** The engine reads image
+   dimensions from the files, validates sheet shapes against the layouts,
+   and fails an asset only when it is missing, the wrong type, corrupt or
+   not a valid sheet. Authored data never restates what an image knows.
+
+## The unit
+
+- The graphical field draws each terminal cell as one RPG Maker tile, a
+  48 x 48 logical-pixel square (`FieldViewport::TILE_SIZE`). A step moves
+  48 pixels across or down, one cell either way, as in the terminal.
+- RPG Maker's tile is 48 x 48, built from four 24 x 24 quarters, and its
+  character frames are 48 x 48 as well, so a tile or a character frame fills
+  exactly its cell.
+- A terminal character box is about twice as tall as it is wide, so a map
+  laid out only for the terminal's proportions looks twice as wide
+  graphically as it does in the terminal. Maps meant to be seen graphically
+  are laid out in RPG Maker's proportions, one glyph per tile.
+- The number of visible cells follows from the window size divided by the
+  cell size and the field zoom, not from the terminal's column count.
+- The field and the interface use separate grids. Dialogue, menus and the
+  HUD keep their text grid; only the field uses the field cell.
+
+## Characters
+
+- Player graphical identity is a project choice, separate from Terminal sprites.
+  Existing projects retain fixed-player `sprites2d`; explicit `party-leader`
+  mode resolves the selected leader's stable actor ID and current actor-owned
+  `images.field2d` role. Party-order changes preserve field geometry, camera,
+  movement and arrival ownership. Inherited cinematic player art follows that
+  same role; explicitly named cast members stay themselves. Missing roles are
+  diagnosed, not replaced with another actor's art. See the
+  [sheet and identity contract](rendering/sprite-sheets.md#player-identity-and-actor-roles).
+- NPC visibility is reconciled at the field presentation boundary, including
+  while a story event still owns dialogue or waits after battle. The shared
+  field compositor redraws both sprite providers and terminal layers together,
+  preserving active overlays; a hidden NPC must not leave a fallback glyph.
+  Gameplay event-exit callbacks still wait for the event to release ownership.
+- Character art uses RPG Maker's character sheet layout: each character is
+  3 frames by 4 directions (down, left, right, up) of 48 x 48 frames. A
+  standard sheet holds 8 characters. As in RPG Maker, the leading `$` and
+  `!` marks of the sheet's file name describe it: `$` holds one character,
+  and `!` holds an object, such as a door or chest.
+- Walking cycles frames in RPG Maker's pattern (1, 2, 1, 0 around the idle
+  middle frame) by distance travelled; standing shows the middle frame.
+- Characters walk at RPG Maker's default speed, 180 field pixels per second:
+  every step, across or down, covers one 48-pixel cell in 16/60 s. While a direction is held the
+  player keeps walking one committed cell at a time, and the renderer slides
+  each character between cells over its step, with the camera following the
+  player. The terminal keeps stepping once per key event, unchanged.
+- As in RPG Maker, what reaching a cell does happens once the player is seen
+  to arrive: its touch events, encounter step, save point notice and movement
+  observers wait for the slide, so a dialogue, battle or transfer never cuts
+  it short. The step itself (position, collision) is committed at once, and a
+  step without a slide (the terminal, reduced motion) arrives immediately.
+- A character stands on its one cell: its 48 x 48 frame is bottom-centred
+  on the cell and fills it exactly, as in RPG Maker. There are no authored width, height
+  or anchor values for field characters, and none are accepted. Field
+  images such as cinematic poses are sized in whole character frames.
+- Like RPG Maker (Sprite_Character's shiftY), the field draws a character
+  6 field pixels above its cell, so art drawn with the feet on the frame's
+  bottom edge stands inside its tile. An object sheet (`!`) is not lifted,
+  and neither are single-image field art, battle or interface sprites. The
+  Engine derives the lift from the sheet's name, never from its image, and
+  sends it only to renderers advertising `sprite_lift`; other renderers
+  place the character on its cell exactly as before.
+- Depth is row order: within a draw band, a character in a lower row draws
+  in front of one above it, with stable ties. A lift never changes it: a
+  character is ordered by its cell, not by where it is drawn.
+
+## Tilesets
+
+- A tileset is a project resource naming its sheets in RPG Maker's layout:
+  A1 (animated water and waterfalls), A2 (ground), A3 (building exteriors),
+  A4 (walls), A5 (normal lower tiles) and B to E (upper tiles, 256 each).
+  The engine validates each sheet's dimensions against its layout.
+- Autotiles (A1 to A4) compose each tile from 24 x 24 quarter pieces
+  according to its neighbours, exactly as RPG Maker does, so edges,
+  corners, ends and junctions need no hand-placed variants.
+- Tile identities follow RPG Maker MZ's numbering (B from 0, C from 256,
+  D from 512, E from 768, A5 from 1536, A1 from 2048, A2 from 2816, A3 from
+  4352, A4 from 5888), with the autotile shape carried in the identity.
+- RPG Maker's per-tile passage settings do not apply: passage comes from
+  the map's shared [physical occupancy](maps.md#physical-occupancy). Only an
+  undeclared map uses glyph-keyed compatibility; neither tile selection nor
+  drawing priority changes physical cells. Its "above characters" priority
+  is kept as a purely graphical draw band.
+- A tileset may name its missing-art tile (`missingArt`), a plain tile on
+  one of its sheets that marks a cell whose art nobody can yet infer. It
+  draws like any tile; tools report the cells that show it as art to do.
+- A tileset may give its raised tiles a shadow (`shadows`): the tiles that
+  cast (`casters`: whole sheets such as `'A3'` and `'A4'`, RPG Maker's
+  raised buildings and walls, so a wall kind painted later casts too, or
+  flag identities like `above`, so every shape of an autotile kind casts),
+  the band's `width` as a fraction of a cell and its
+  `opacity`. Its look belongs to the tileset because it matches that art's
+  lighting. A tileset without `shadows` casts none.
+
+## Graphical map data
+
+- **Tileset resource.** `assets/Data/Tilesets/<id>.php` returns the
+  tileset's `name`, its `sheets` keyed by RPG Maker sheet name (`A1` to
+  `A5`, `B` to `E`; any may be omitted) as asset-relative PNG paths, and
+  two optional lists of tile identities: `above` (RPG Maker's star: drawn
+  above characters) and `tables` (A2 autotiles drawn as tables). The file
+  name is the tileset's stable identity.
+- **Sheet validation.** Each sheet's tile size is its width divided by its
+  layout's tile columns (A1, A2, A3, A4, B to E: 16 columns; A5: 8). It
+  must be a whole, even number of pixels (autotiles are built from quarter
+  tiles), the height must be the layout's rows (A1 and A2: 12, A3: 8, A4:
+  15, A5 and B to E: 16) times the tile size, and every sheet of a tileset
+  shares one tile size. RPG Maker's 48 pixels is recommended, not
+  required. A missing or invalid sheet is reported, and the cells that
+  would use it fall back to terminal glyphs.
+- **Pieces.** A tileset may list `pieces`: whole items a map is built
+  from, such as a bed, keyed by id. Each has a `name`, the gameplay `layer`
+  its terminal `glyphs` go on (rows of one-cell characters), and optional
+  `tiles` keyed by tile layer name, with rows of the same entries a tile
+  layer holds (`42`, `0`) over the same footprint, one whole tile per cell:
+  `'bed' => ['name' => 'Bed', 'layer' => 'fixtures', 'glyphs' => ['=', '='], 'tiles' => ['furniture' => ['32', '40']]]`.
+  A space glyph or a `0` tile leaves that cell as it was. An editor stamps
+  a piece whole, writing its glyphs and its tiles together, so a map made
+  in the terminal draws correctly graphically without a second pass; the
+  terminal editor never asks for or shows the tiles. Runtime collision reads
+  the map's explicit `occupancy`; only an undeclared map uses legacy glyph
+  passage. A map offers the pieces of the tileset it names.
+- **Physical recipes.** A piece may separately declare `occupancy`, a
+  rectangular list of rows matching its logical width and height. Cells are
+  final `CollisionType` cases or `null` to leave the destination unchanged:
+  `'occupancy' => [[CollisionType::SOLID, null], [CollisionType::COUNTER, CollisionType::SOLID]]`.
+  `PASS_THROUGH` is a legacy layer rule, not a final physical cell. Absence
+  means no recipe; an explicit null declaration, invalid type or mismatched
+  geometry refuses. A connected piece uses one cell independently of its
+  drawn shape. Glyph/art placement never applies this recipe automatically.
+  The GUI edits it through the existing record/source/history service and
+  saves the tileset before selecting it in the Collision tool. An explicit
+  footprint stamp changes only declared map occupancy as one undo step;
+  every non-null cell must fit, including on ragged maps, or nothing changes.
+- **Independent underlays.** A stamped piece may declare `keeps`, a list of
+  tile layers whose existing tiles remain beneath it, for example
+  `'keeps' => ['walls']` for a window that can sit on any wall material.
+  The shared `TilesetPiece` parser exposes this readonly list. Names must be
+  valid, distinct tile layer names and cannot also be layers the piece writes.
+  Omission means no retained layers. Connected pieces may keep the same
+  independently authored layers at each single-cell shape, including through
+  reshaping; these are retained cells, not tiles the piece owns or fabricates.
+  This removes the former blanket connected-piece prohibition while retaining
+  all name, uniqueness and written-layer validation. Retention describes
+  graphical authoring only; physical occupancy remains independent, with
+  glyph passage used only by undeclared legacy maps. Both the Engine contract
+  and Editor consumer are implemented: `editor/src/Canvas/PieceRole.php`
+  carries retention on each connected shape, and `GlyphTilePlanner` /
+  `CanvasEditor` preserve it through placement, reshaping, erasure and existing
+  source-preserving history. `editor/tests/Unit/Canvas/ConnectedKeptUnderlayTest.php`
+  exercises retained backing, omission, draw/reshape/erase, Undo and save/reopen with
+  synthetic maps. The retained Engine qualification is 146 tests / 896
+  assertions in secondary `test-tmp/connected-keeps-20261011-0141/after-verified-paths.xml`;
+  Claude's Editor `ee3c739` consumer receipt is
+  `docs/agents/to-codex/20261011-0337-editor-ee3c739-pushed.md`.
+  Game `dfa4953` binds the exterior stone wall to retained substrate and adds
+  missing backing without replacing existing cells. Shared `TileCoverage` and
+  its Editor warning/Game regression consumers are also implemented; retention
+  does not fabricate absent backing or prove every authored map is covered.
+  Remaining author-owned coverage choices and bounded native checks stay in
+  the [integration roadmap](rendering/integration-roadmap.md).
+- **Piece cell styles.** Existing `glyphs` rows may use the same terminal
+  markup as map layers, for example `'<fg=green>ab</><fg=yellow>c</>'`.
+  Parsing uses shared `TerminalText` rules, including nested styles, ANSI,
+  background and truecolour. `TilesetPiece::grid` contains independently
+  renderable styled cells, just like `MapLayer::grid`; `glyphs` contains
+  only their plain symbols. Editors use the authored cell style when present
+  and keep their brush-style fallback for unstyled cells (`grid[y][x]` equals
+  `glyphs[y][x]`). Style does not change piece geometry, tiles, collision or
+  identity; even a styled space leaves the destination cell as it was.
+  These are derived presentation values, not extra authored metadata: keep
+  source-preserving edits in the original `glyphs` rows. Each cell must still
+  be one terminal cell wide; non-visible control characters are rejected.
+  `getSourceGrid()` is the source-writing counterpart: independent authored cells,
+  such as `'<info>a</info>'`, with the original tag spelling and grapheme bytes.
+  Row-spanning/nested wrappers are repeated around each cell, not reconstructed
+  from display ANSI. Plain cells remain plain. `TerminalText::getSourceSymbols`
+  owns this shared source projection. `TerminalText::parseSourceCells` returns
+  exact `{symbol, prefix, suffix}` parts for source-cell consumers, including
+  named closing tags and raw grapheme bytes. Editors use these parts in their
+  existing source-cell/transaction path rather than maintaining another style
+  parser or normalising named closers to `</>`. Keep brush fallback on unstyled
+  cells; styled spaces still do not stamp. Never write `grid` display ANSI as new source
+  or use concatenated source cells to rewrite the original piece rows.
+  Existing closing tags keep their spelling (including named closers);
+  missing per-cell closing boundaries are materialised. Authored legacy ANSI
+  stays ANSI source, never converted to markup; ordinary markup never gains
+  display escape codes. Fetch the source grid once per placement operation,
+  not once per cell or gameplay frame: this is an uncached authoring projection.
+  Source projection is requested separately from runtime display. It refuses
+  a row whose independent cells would change geometry or presentation (for
+  example some context-dependent mixtures of legacy ANSI and markup, or
+  formatter-escaped tag literals), before
+  producing cells. Runtime loading/display remains supported and unchanged;
+  editors must refuse that placement before a transaction writes anything.
+- **Connected pieces.** A piece with `'connects' => 'lines'`, such as a
+  wall or fence, is drawn cell by cell and joins the cells of the same
+  piece beside it. Its `glyphs` name one glyph for each shape (`horizontal`,
+  `vertical`, `corner`) and its `tiles` give one entry per tile layer, or
+  one per shape. A cell joined only across is horizontal, only down is
+  vertical, and anything else (corners, junctions, a lone post) is a corner.
+  Drawing or erasing a cell reshapes the cells of the piece beside it, which
+  are recognised by their glyphs. A wall's tile can be an A4 wall top: the
+  autotile shapes its own edges.
+  Connected shape strings may carry styles too: `shapeGrid` exposes each
+  styled display cell while `shapes` stays plain. Membership and distinct-shape
+  validation compare plain symbols, so recolouring a cell cannot disconnect
+  it and differently coloured copies of one symbol cannot be different
+  shapes. Blank shapes, including styled spaces, are rejected. The connected
+  piece's one-cell `grid`/`glyphs` uses its corner shape.
+  `getSourceShapeGrid()` retains each authored shape string; the one-cell
+  `getSourceGrid()` uses its authored corner. Source spelling never changes plain
+  connected membership, collision or graphical tile entries.
+- **Map graphics.** A map names its tileset in its data file
+  (`'tileset' => 'interior'`, like RPG Maker's map properties). Tilesets are
+  grouped by kind of setting, such as interiors, and shared by every map of
+  that kind ([maps](maps.md#graphics)). Its tile layers
+  live in `graphics/` beside `layers/`, named `NN.name.tiles.php` and
+  ordered by `NN` like terminal layers. Each returns a literal nowdoc with
+  one row per map row and one whitespace-separated tile identity per
+  terminal cell; `0` is empty (RPG Maker's first B tile). Rows match the
+  map's cells exactly. Nothing in them is executed.
+- **Autotiles per cell.** Every cell of a floor, wall or water area holds
+  its autotile, and the engine composes that cell's whole tile from its four
+  quarters by the shape its neighbouring cells give it, exactly as RPG Maker
+  composes a tile from its neighbouring tiles. A wall one column thick is
+  one tile wide, with both its edges.
+- **Floor source corners.** A floor autotile block is two tiles wide and
+  three tiles high. Its upper-left tile is the isolated preview; its
+  upper-right four quarters are inward (concave) corners, not four miniature
+  isolated tiles. The bottom two tile rows supply outer edges and interior
+  quarters. `TileComposer` lists source quarters in destination order: top
+  left, top right, bottom left, bottom right. `AutotileShape` chooses them
+  independently for each tile layer, joining only the same kind on that
+  layer. Check assembled concave, convex, stair-step and junction shapes,
+  not just the atlas preview, when preparing replacement artwork.
+- **Transparent terrain boundaries.** Transparent edge and corner pixels
+  reveal already-drawn lower tile layers; they do not sample neighbouring
+  materials or acquire a ground colour automatically. Author a continuous
+  opaque substrate beneath transparent terrain overlays wherever ground
+  should remain visible. Two different transparent autotile kinds placed
+  side by side on one layer do not provide backing for each other's edges.
+  Substrate selection and coverage belong to the game's graphical map data
+  and reusable pieces, not terminal glyphs, collision or renderer defaults.
+  Intentional voids remain empty. Material changes and inner-corner alpha
+  must be inspected together in the composed result.
+- **Layer offsets.** The map data may shift a whole tile layer by half a
+  field cell (half a tile) across or down, like a Tiled layer offset:
+  `'tileLayers' => ['lounge' => ['offset' => [0, -0.5]]]`. Art can then sit
+  between the cells its terminal footprint allows, such as a coffee table
+  centred between a sofa and a television. Offsets are -0.5, 0 or 0.5 and
+  never move collision or events.
+- **Tiles belong to a gameplay layer.** Each tile layer belongs to at most
+  one gameplay layer, so moving that layer's glyphs in an editor carries its
+  tiles in the same cells, moving other layers leaves them, and its tiles
+  hide only that layer's glyphs (see Glyph fallback). The map data may name
+  it: `'tileLayers' => ['floor' => ['movesWith' => 'buildings']]`, which
+  must name a gameplay layer. Otherwise it is the gameplay layer whose
+  tileset pieces write that tile layer, when exactly one does; a tile layer
+  with neither belongs to none and stays where it is.
+  `MapGraphics::resolveLayerOwners()` is the one resolution the runtime and
+  the editors share.
+- **Plain tiles** (A5 and B to E) are drawn whole in their cell, so an item
+  two tiles wide is two glyphs wide. A cell holds exactly one whole tile: an
+  entry naming half a tile (`42L`) is refused by the engine and the editor
+  validator with a message asking for whole tiles, never reinterpreted.
+- **Autotile shapes** are carried in the identity, as RPG Maker stores them.
+  The engine resolves them from neighbouring cells of the same kind for
+  authoring tools, and composes each shape from quarter tiles when
+  presenting. Map edges count as the same kind, as in RPG Maker.
+- **Draw bands.** Tile layer `NN` draws at `-100 + NN`, the same band as the
+  terminal layers, below characters. Tiles listed in `above` draw at
+  `900 + NN`, above characters and below the interface.
+- **Glyph fallback.** A cell shows the terminal glyph of the gameplay layer
+  that owns it, the topmost one with a glyph there, unless a tile of its own
+  covers that layer: a tile of a tile layer that belongs to that gameplay
+  layer, or of a tile layer that belongs to none. A covered glyph stays
+  hidden even where its tile is transparent, and a tile placed beside a cell
+  never hides its glyph, even where it overhangs. So a floor that belongs to
+  the buildings layer leaves visible the glyph of a fixture that has no tile
+  yet, while the fixture's own tile hides it. Renderers that do not
+  advertise `tile_covers` never learn which layer a tile layer belongs to,
+  and there every tile hides the glyph of its cell.
+  `MapGraphics::getShownGlyphCells()` answers this rule for a whole map, so
+  authoring tools can report the glyphs that have no graphics yet.
+- **Shadows (ambient occlusion).** As RPG Maker's auto-shadow, a caster
+  throws a translucent black band over the left of the cell to its right.
+  The Engine derives the bands from the tiles on every upload; they are never
+  authored, stamped or saved. A cell is shaded when a caster in any tile
+  layer stands to its left, it shows a tile below the characters, and it
+  holds no caster itself. So a wall run shades only the floor at its open
+  right edge, and painting, stamping, dragging or erasing either neighbour,
+  in the GUI editor or anywhere else, needs nothing more to keep the
+  shadows true. Each band belongs to the highest tile layer whose caster
+  throws it, keeps that layer's offset, and paints right after that layer's
+  tiles: over the floor and wall beneath and under later layers (furniture)
+  and every character. Bands never hide a glyph, and never touch terminal
+  geometry, collision, events or saves. They reach only renderers that
+  advertise `tile_shadows`; others receive exactly the world they always
+  did. The tile palette shows loose tiles without neighbours, so it never
+  asks for shadows. Per-cell author overrides (RPG Maker's shadow pen) are
+  not part of this; add them only if an authored exception is ever needed.
+- **Animation.** A1 water cycles RPG Maker's frames (water 0, 1, 2, 1;
+  waterfalls 0, 1, 2) on one counter advancing every 30/60 seconds, as
+  RPG Maker does. Reduced motion holds the first frame.
+- **Retained upload.** The world carries the cell size, and the tileset:
+  its sheets, tile size and a catalog of the tile identities the map uses,
+  each as frames of pieces copied from a sheet into the tile. Tile layers
+  are world layers of kind `tiles` whose rows list cells and catalog
+  indices, uploaded once per map load; with `tile_covers`, each names the
+  gameplay layer it belongs to in `coversLayerId`. With `tile_shadows`,
+  shadow bands follow as fill tiles in world layers of kind `shadows`. The viewport carries only the camera
+  and the animation frame. The renderer knows nothing of RPG Maker:
+  composition rules stay in the engine.
+- **Terminal and editors.** None of this changes terminal geometry,
+  collision, events or saves. The TUI editor preserves a map's graphics
+  folder through resize, duplicate, move and delete, and validates it. It
+  writes tiles only when it stamps a piece or copies, cuts and pastes the
+  glyphs they move with, and never shows or asks for them; painting
+  individual tiles belongs to the GUI editor (Phase 4).
+
+## Map-Owned World Objects
+
+Traversable fixtures are not NPCs. Optional `worldObjects` in map data declares
+non-blocking presentation subjects, owned by the installed map and selected
+from the existing world state. Omission leaves existing projects unchanged.
+The declaration never creates an NPC, changes terminal grids, collision,
+events, routes or saves, or implements collection mechanics.
+
+Reusable presentation definitions belong to the existing
+`assets/Data/Presentation/field.php` catalog, alongside `cues` and
+`actionPrompt`. Its optional `resources` dictionary is keyed by stable
+lowercase IDs, not artwork names or hashes. Each entry requires a display
+`name`, explicit normalized `pivot` (the intended ground contact, such as a
+trunk base), and an existing `sprites2d` draw role. An optional authoring-only
+`occupancyStamp` is a list of relative integer x/y offsets and resolved
+`CollisionType` cases; `PASS_THROUGH`, duplicate offsets and more than 256 cells
+refuse. Omission means no recipe, not inferred collision.
+
+```php
+// Data/Presentation/field.php (asset-root-relative)
+return ['resources' => [
+  'whole-object' => [
+    'name' => 'Whole Object',
+    'pivot' => ['x' => .5, 'y' => .875],
+    'sprites2d' => ['asset' => 'Graphics/Objects/whole.png',
+      'cells' => ['width' => 3, 'height' => 4]],
+    'occupancyStamp' => [['x' => 0, 'y' => 0,
+      'type' => \Ichiloto\Engine\Events\Enumerations\CollisionType::SOLID]],
+  ],
+]];
+
+// Literal map data placement; no duplicated role, pivot or source dimensions.
+'worldObjects' => [[
+  'id' => 'placed-001', 'resource' => 'whole-object',
+  'anchor' => ['x' => 4, 'y' => 3],
+  'covers' => ['layer' => 'fixtures', 'cells' => [[4, 3]], 'tileLayers' => []],
+]],
+```
+
+The reference form accepts `id`, `resource`, `anchor` and optional
+`covers`, `label` (for signs), `terminal` and `conditions`; `pivot`, `sprites2d` and even an empty `variants` are mutually
+exclusive with it. Existing inline/conditional declarations below remain
+supported without automatic extraction or source rewriting. `readMap(...,
+catalog: $catalog)` is the shared admission API for resource-aware consumers;
+`FieldPresentationCatalog::getResource()` returns a shared immutable
+`WorldObjectResource`. `MapManager` loads the catalog once per preparation pass
+when references are present, with syntax validation independent of optional
+cue/object pixels. Unknown references, malformed declarations, out-of-map
+anchors and malformed recipe structure refuse before installation. Runtime
+admission does not resolve authoring-recipe extents against a placement.
+
+Both resource-backed and inline placements accept optional `conditions`, a
+list of at most 32 existing `WorldConditionEvaluator` conditions. Omitted or
+empty conditions keep the placement available. All conditions must hold for its
+graphical subject, sign canvas, atlas subject and optional Terminal override to
+appear. Conditions read current saved world state and party inventory; map PHP
+source stays declarative. Invalid lists and predicates refuse before map installation.
+`WorldObjectDefinition::isAvailable()` and `WorldObject::isVisible()` expose the
+same selection used by rendering, while `isCurrent()` retains map ownership.
+
+Visibility never changes collision, event identity, saves or authored map glyphs.
+
+### Events bound to map subjects
+
+An inspection event may name the stable world-object placement it describes:
+
+```php
+'F' => [
+  'class' => DialogueEventTrigger::class,
+  'subject' => ['kind' => 'world_object', 'id' => 'lockers-1'],
+  'engagement' => 'facing',
+  'data' => ['dialogue' => /* authored pages */ []],
+],
+```
+
+The marker remains its map-event/save identity. Do not paint that marker on the
+event layer or declare an independent `area`. `WorldObjectPlacement` resolves
+the exact authored `covers.cells`, or the placement anchor when it has no
+coverage. Moving those physical cells moves the event. Replacing a resource,
+image, crop or pivot does not change its area. Missing or duplicate subjects,
+invalid cells and competing area owners refuse map preparation before installing
+the destination. Existing unbound marker and explicit-area events remain valid.
+
+For bound events, placement conditions and event conditions must both hold.
+`WorldConditionEvaluator` reads existing saved state in either renderer; it does
+not alter occupancy or manufacture a new save identity. Subject selection,
+movement and removal belong to the shared source-preserving Editor session.
+Removing a referenced placement requires rebinding or deleting its event.
+
+### Shared map completeness validation
+
+`Field\Validation\MapCompletenessValidator` checks current in-memory data,
+event cells, `MapLayerSet`, optional `MapGraphics`, the asset root and a catalog
+reference resolver. Editor, Console and Game checks use this same API. Its
+readonly `MapValidationIssue` values carry `mapId`, stable `rule`, `message`,
+optional `marker`, exact `cells`, authored `path` and `hint`. These are readiness
+errors; drafts remain saveable. A graphical project passes `requiresGraphics:
+true`; a Terminal-only game needs no graphical assets.
+
+`validateEvents`, `validateChestReward` and `validateCoverage` are the narrow
+entry points used by inspectors. `validate` combines them without a running
+scene or global configuration. `MapEventResolver::inspect` retains all area and
+subject defects; runtime `MapSourceReader::resolveEvents` requires that result
+to be valid. Coverage uses the Engine's tile ownership, current image admission
+and explicit object coverage. Missing declared art and exposed gameplay glyphs
+are errors. Conditional object presence cannot conceal an otherwise exposed
+base fixture glyph. Replacing artwork never requires an old image hash or
+duplicated dimensions to match.
+
+The inventory callback resolves an ID/name/alias to the current stable definition
+ID, returns null for an absent reference, or throws for ambiguity. It supplies
+identity only. The Engine owns supported chest kinds, whole positive quantities
+and gold amounts; runtime opening calls that same rule before any mutation.
+Zero, negative and fractional rewards and unknown kinds are rejected, removing
+the old behavior that could complete an empty chest, debit gold or truncate a
+fractional amount. The chest stays closed and reports its existing player-safe
+message, with detailed `chest.reward` diagnostics in the log.
+
+These checks resolve declared identities and cells. They cannot infer an
+inspection subject or a local speaker from dialogue prose. Story referents and
+mandatory quest approach contracts require explicit authored references and a
+content audit; they are not silently treated as verified by this API.
+An unavailable placement removes its presentation override, restoring any
+underlying Terminal glyph as existing null variants do. Authors retain ownership
+of the base layer. Atlas caches include availability so revealed or removed props
+update without reloading the map. Resource artwork remains one shared definition.
+
+`WorldObjectResource::resolveOccupancyStamp()` validates and returns absolute
+typed cells for an explicit authoring transaction, refusing out-of-map stamp
+cells before any writes; runtime never resolves or applies them. Widening an
+authoring recipe must not invalidate existing placements or change their
+persisted occupancy or saves. Only map occupancy owns collision. A GUI brush
+must refuse implicit-occupancy
+maps until explicitly separated; it persists IDs/choices once and stamps
+physical cells through the existing occupancy writer. Joined Terminal crowns
+belong on decoration layers, which remain excluded from graphical glyph
+composition. `covers` claims only exclusive gameplay-layer trunk cells, not
+overlapping crown bounds.
+
+Static resource roles share current-file frames within each coverage or sprite
+collection pass, including unavailable-art results. No frame facts survive that
+operation; a new pass observes replacement/recovery through the existing asset
+guard. Map reinstall releases shared static roles and placement-owned animation
+clocks. Animated resources share immutable intent, not playback clocks.
+The combined inline/reference admission remains 128 objects and the aggregate
+presentation budget remains 1,024 sprites. An additional static tier still
+requires mixed-scene/native paint evidence and owner acceptance; PHP projection
+and fake transport measurements alone do not establish decode cost or FPS.
+
+An inline object and each of its variants may declare `terminal`: either one
+styled display cell at the object's anchor, or `['color' => 'yellow']` to
+recolour its entire declared `covers` glyph footprint. The footprint may be
+irregular or span several cells; it remains one subject/event. The colour
+form preserves each authored glyph, background and attributes, and never
+overwrites another gameplay layer above it. It requires explicit glyph
+coverage, independently of optional graphical coverage availability. A
+styled anchor cell, for example `<fg=yellow>m</>`, can supply deliberate
+Terminal presentation when the map's original cell is blank.
+Omission in a variant inherits the base treatment; explicit `null` restores
+the authored map cells. Presentation never
+rewrites the map, changes collision, or stores a second gameplay state. Two
+objects may not claim the same Terminal presentation cell. The same selected variant
+supplies graphical artwork and Terminal treatment; unavailable artwork retains
+the styled glyph fallback. Reinstalling a map releases the old presentation.
+
+Use a `map_event` condition to read a completed one-shot event directly from
+the existing save state. Its `name` is the map ID and `marker` is the event
+identity, independent of the chest's position or its artwork. For example:
+
+```php
+'terminal' => ['color' => 'yellow'], // Over the object's explicitly owned glyph cells.
+'variants' => [[
+  'id' => 'opened',
+  'conditions' => [['type' => 'map_event', 'name' => 'town/home', 'marker' => 'C']],
+  'sprites2d' => ['asset' => 'Graphics/Objects/chest-open.png'],
+  'terminal' => ['color' => 'white'],
+]],
+```
+
+An already completed event selects the opened appearance on initial load and
+map re-entry, without applying rewards again. `negate` uses the same shared
+condition rules as other variants. Art paths and closed/open crops remain
+project-owned; the Engine has no Last Legend tile IDs or chest-image names.
+Editor condition codecs must preserve both map and marker references; the
+graphical world-object authoring path must preserve Terminal variants without
+requiring graphical authoring in the TUI.
+
+Native verification on 2026-10-15 used Last Legend's reusable
+`ChestStateAcceptance.php` fixture through the shared scene-preview driver.
+On macOS, PHP 8.5.11 and the installed GPUI renderer (`b0aad6ac…`), two current
+authored chests covered single-cell and multi-cell ownership. The real opening
+action, disk save/load and authored away/return transfers completed eight
+checkpoints in 91.54 seconds; each reward was granted once. Open artwork was
+observed in the native window, including after map return. The native run's
+state/artwork/colour assertions passed; this is not an image comparison of every
+checkpoint. Andrew separately confirmed the native Terminal visual check:
+"Passed: colours persist and it closes cleanly". Automated control of macOS
+Terminal was unavailable, so that visual result is user-reported. Both sessions
+were muted, with no audio playback backend and isolated disposable storage.
+Normal saves/settings were preserved. This is macOS evidence, not Linux,
+Windows/WSLg, full-suite or remote-CI qualification.
+
+```php
+'worldObjects' => [[
+  'id' => 'instrument',
+  'anchor' => ['x' => 4, 'y' => 3],
+  'pivot' => ['x' => .5, 'y' => .875],
+  'sprites2d' => ['asset' => 'Graphics/Objects/instrument.png'],
+  'variants' => [[
+    'id' => 'lit',
+    'conditions' => [['type' => 'event', 'name' => 'instrument-activated']],
+    'sprites2d' => ['asset' => 'Graphics/Objects/instrument-lit.png'],
+  ], [
+    'id' => 'absent',
+    'conditions' => [['type' => 'switch', 'name' => 'instrument-removed']],
+    'sprites2d' => null,
+  ]],
+  'covers' => [
+    'layer' => 'fixtures', 'cells' => [[4, 3]], 'tileLayers' => ['objects'],
+  ],
+]],
+```
+
+`WorldObjectDefinition::readMap()` is the shared admission boundary. A map
+has at most 128 objects; IDs and variant IDs are explicit lowercase identifiers
+of 1..64 characters beginning with a letter. IDs are map-local, not inferred
+from filenames, appearance, dimensions or hashes. An anchor requires integer
+x/y inside the map. It places the image's normalized explicit pivot at that
+cell's bottom-centre ground point on the existing field metric; image overhang
+does not expand ground occupancy. Draw layer and ground-row sorting use the
+existing sprite projection, not terminal glyph identity.
+
+`sprites2d` reuses field image, field pose animation and character sheet roles.
+Paths are asset-root-relative. Image draw size uses existing whole field `cells`,
+not duplicate source dimensions; crops and sheet frames read the current file.
+The explicit pivot applies to every selected frame. Static crops extending
+partly beyond replacement artwork are clipped within that same image with a
+diagnostic; wholly out-of-bounds crops or incompatible animation/sheet grids
+retain glyph presentation with diagnostics. No other identity/art is chosen.
+The existing PNG path/header/resource preflight applies (16 MiB, 4096 pixels
+per axis); native preparation remains the decode authority.
+
+Variants are an ordered list of at most 16 entries, each with a distinct ID,
+1..32 shared world conditions and an explicit role or null. The first matching
+entry wins; otherwise the base role wins. Null is intentional graphical
+absence, not a missing-art fallback. Conditions use the existing evaluator,
+including negation, switches, events, variables, inventory and quests; they
+do not require new story flags. Validation refuses malformed selector types,
+operators and typed values through `WorldConditionEvaluator::validateAll()`
+rather than coercing them into another state at admission. This narrows admission,
+not `allHold()`'s unchanged unvalidated runtime coercion; object declarations
+always pass admission before evaluation.
+Selection is read-only and re-evaluated from current state, including after
+load, transfer, cinematic cleanup and return. Nothing is serialized for objects.
+
+Optional `covers` takes one existing gameplay layer, 1..256 distinct map cells,
+and an explicit list of graphical tile layers belonging to that gameplay
+layer through `MapGraphics::resolveLayerOwners()`. An empty tile list is valid.
+Overlapping object ownership and unknown/unrelated owners refuse before map
+installation when their references can be validated. Optional graphics/tileset
+failure remains non-fatal. The same tile-layer parser and owner resolver validate
+available declarations without requiring tileset pieces: explicit `movesWith`
+owners remain provable, while inferred owners may be unavailable. Missing or
+unreadable graphical declarations and unprovable owners are diagnosed; none of
+that object's glyph/tile coverage is applied until all ownership is proven.
+Reload/return resolves ownership again from current sources and restored assets.
+Malformed references and overlaps still refuse, without rewriting declarations.
+A declaration replaces only those static tile cells, including
+their above-character band. Other cells, ground layers and maps remain intact.
+Valid selected art, explicit absence and deliberately hidden cinematic leases
+also remove only the declared layer's glyph cells from graphical projection;
+underlying glyph owners are recomposed. Unavailable selected/replacement art
+keeps useful owned glyphs, not stale fixture tiles as substitute artwork.
+Authored layers, collision and terminal rendering stay untouched. Retained
+uploads rebuild only when this coverage changes, using the same upload owner
+and tile/shadow composition, not another map runtime.
+
+Graphical identity is `world-object:<map-id>:<declared-id>`. Each map installation
+creates new subject instances, so a stale lease cannot claim a same-ID object
+on another map or a later installation. [Cinematic bindings](cinematics.md#map-owned-world-object-leases)
+temporarily replace/suppress that identity; they never roll back world state.
+
+Authoring must preserve literal declarations and the original condition arrays
+through existing source-preserving edits/transactions/undo. Select identities,
+roles, layers and files through shared resource/asset pickers. Do not flatten
+executable map data or write derived frames, dimensions, selected variants or
+coverage grids back into source. Unsupported PHP edits must refuse before a
+write. Dedicated GUI controls and their safe round trips remain a separate
+Editor/GUI boundary; this runtime contract does not claim authoring completion
+or add a graphical workflow to the TUI.
+
+### Editable Signage (Implemented Contract, Bounded Native Proof)
+
+Reusable signs extend the map-owned presentation path rather than baking words
+into tile images or adding a Game-specific HUD overlay. Andrew approved editable
+labels on reusable boards and translation from the start on October 11, then
+selected an open-licensed font with replaceable developer font resources.
+Existing bed/purse icon signs remain usable and unchanged.
+
+The shared runtime contract is implemented. `WorldObjectResource::fromArray()`
+requires exactly one `sprites2d` or `sign` presentation. `WorldSignStyle` owns
+the replaceable board asset, `fontRole`, source-pixel left/right cuts, density
+1 or 2, logical padding and width limits, with optional layer/repeat width.
+`WorldObjectDefinition::readMap()` admits sign placements with the existing
+stable `id`, `resource`, `anchor`, optional `covers` and required
+`label => ['message' => ..., 'default' => ...]`. Only named sign resources
+accept labels; image variants and inline resource overrides refuse. Optional
+coverage names explicit owners and tile layers; `tileLayers => []` retains
+building textures. No label or image extent changes physical occupancy.
+The complete schema and examples are in
+[localized map signs](rendering/styled-presentation.md#localized-map-signs).
+
+The optional `Data/Presentation/text.php` catalog uses `ichiloto.text/1`, with
+at most 128 stable keyed roles. Each `TextRole` owns an ordered project font
+chain, size, typed foreground and optional outline/shadow `glyphEffects`.
+Plain effects descriptors are now admitted and exported through the shared
+`CanvasGlyphEffects` / `PresentationColor` factories; constructing PHP objects
+is not required. Existing object-valued input remains compatible, not authority
+to flatten unsupported source. Font names/paths are project data, never Engine
+constants. `LocalizedText` resolves the current `MessageCatalog` locale/base/
+authored-default order without changing locale or inventing labels; base and
+resolved text must be single-line UTF-8 within 4096 scalars.
+
+`WorldSignPlayback` nonblockingly prepares the complete label through the
+host's `TextPreparationProviderInterface`; the transport owner alone pumps
+replies. `WorldSignStyle::composeCanvas()` centers effect-expanded paint bounds,
+including negative bearings, inside current-board padding. Width grows within
+the authored minimum/maximum; oversized labels re-query at smaller font sizes
+with at most eight reductions and a one-pixel minimum, never truncating text.
+Impossible fits, unusable glyphs/assets and resource refusals are diagnosed and
+retain Terminal presentation, not substitute artwork or machine fonts.
+Shared request-capacity pressure retries on a later frame without polling.
+Scene suspension removes hidden retained field sign tickets through the existing
+`WorldObject::releaseTextPresentation()` path. It retires only that field's
+pending/prepared requests; late replies remain owned by the broker for cleanup.
+Installed definitions, stable subject identity, gameplay state and terminal
+geometry are preserved. Returning to the field naturally prepares its labels
+again. Map replacement and field stop continue to release the complete objects;
+other scenes' text requests and the shared request/instance limits are unchanged.
+Consumers may read the existing immutable 64-request bound through public
+`TextPreparationProviderInterface::MAX_REQUESTS`; the broker's existing
+`RendererTextRequests::MAX_REQUESTS` name remains an alias. Owned, pending and
+releasing requests all count against that shared bound, including cancelled
+pending work awaiting its late reply. This adds no provider method, capacity
+increase, availability polling or native protocol change.
+Locale, role, current font-file facts, board geometry or session changes retire
+stale tickets; map/context teardown releases owned preparation. Those file
+facts are transient invalidation, not permanent hashes or saved identity.
+
+`CanvasNineSlice::composeRepeatedXImages()` is used by the sign consumer, not
+merely an independent helper. Fixed caps and full-density repeated middle strips
+preserve grain; the clipped final tail may need transparent logical margin.
+Pivot compensation anchors the visible board rather than that margin. Expansion
+checks the image budget before allocation. Existing stretched `images()` and
+canvas bounds remain unchanged.
+
+`GameScene::getPresentationWorldCanvases()` projects prepared signs through
+`PresentationWorldCanvas`, `WorldCanvasProviderInterface` and the shared
+`SceneFrameComposer`. Board and label are one camera-transformed, clipped,
+depth-sorted field subject, not a HUD overlay. Actors/groups share stable
+layer/ground-row ranking and the 1,024-subject ceiling. Group children consume
+aggregate canvas limits, including the 64-item text/label pool; grouping cannot
+raise limits. Coverage activates only while the sign is prepared and usable.
+Terminal/unsupported contexts keep their existing authored presentation.
+Runtime and isolated previews bind their own text provider through
+`ScenePresentationContext::textPreparation`; authoring sources can use the same
+composer through `FramePresentationSourceInterface` without a second GameScene.
+
+The protocol-2 `world_canvas`, `canvas_labels` and `text_layout` seam is
+implemented in both Engine and GPUI Renderer. World groups also require the
+existing graphical-canvas/viewport capabilities, with crop and clip/opacity
+capabilities checked for the sign path. `prepare_text` names `requestId` and
+a typed whole-UTF-8 spec: 1..16 explicit asset-root-relative fonts, optional
+`faceIndex` 0..31 (default zero), size 1..256, locale, foreground and optional
+effects (omit absent effects; wire null refuses). Correlated `text_prepared`
+returns a session-only `layoutId` and advance/baseline/line/ink/paint bounds;
+`text_prepare_failed` preserves the actual diagnostic. `release_text` names
+layout IDs and retires registry ownership, not an accepted frame's live layout.
+Queries never advance retained generation. Group/screen labels reference that
+same layout, local origin/layer and optional clip/opacity;
+`viewport.worldCanvasIds` selects groups belonging to its world.
+Renderer `gpui-renderer/src/text_layout.rs`, `transport.rs` and `scene_view.rs` share project
+font admission/shaping; `renderer.rs` paints the retained groups. SFNT
+TTF/OTF and collections are admitted from safe project paths, at most 32 MiB
+per font and within shared memory limits, without machine-font fallback.
+
+Retained October 11 synthetic qualification, not a new test run: the sign/
+catalog/scene/broker and adjacent families pass 653 tests / 5,080 assertions,
+zero errors/failures/skips, in secondary
+`test-tmp/map-sign-engine-20261011-VqDOKmLX/qualification-final.xml` and its log.
+The later plain-effects contract receipt is 639 / 1,000 in
+`test-tmp/engine-glyph-contract-4plLHs/test-summary.log`.
+Renderer `test-tmp/renderer-signs-20261011-JCUXZJ/qualification.json` records
+280 passes and four existing opt-in benchmark/replay ignores at `9c4f0ba`;
+this is dated substrate evidence, not current all-platform qualification.
+These secondary receipt paths are under
+`/Volumes/Macintosh HD 2/IchilotoBuildCaches/`.
+
+Claude's existing source-preserving authoring services are implemented in
+`editor/src/Field/FieldResourceFields.php`, `TextRoleFields.php` and
+`WorldObjectAuthoring.php`. The live editing canvas uses `AuthoringCanvasHost`,
+`AuthoringMapSource` and placement-owned `AuthoringSignPlaybacks` with the same
+Engine playback and embedded Renderer service. This does not establish every
+GUI workflow or add graphical authoring to the TUI. The dedicated GUI Sign
+creation flow remains Claude's follow-up: `gui-editor/src/editor/world_objects.rs`
+currently sends only x/y from its generic Create action, while
+`editor/src/Session/SessionHost.php` already accepts optional `resource` and
+`text` on `worldObjects.create`.
+
+Production board/font admission is no longer pending: Game `b7819b5` imports
+`Graphics/Objects/Signs/WoodBoard.png`, `StoneBoard.png` and reusable resources.
+Game `f795537` imports `Fonts/Silkscreen-Regular.ttf` and its text roles;
+`6e67451` adds their editable shadow/highlight treatments.
+The source-owner receipt is
+`examples/last-legend/assets/Graphics/Comparison/G4SignImports-20261011/Admission.json`,
+with exact local-import approval, the named unavailable-tool/board-licence
+exceptions, and font/source provenance. OFL/AUTHORS files accompany the font.
+Import hashes are historical evidence only; they do not gate replaceable art.
+The receipt's `nativeAcceptance: false` records import-time scope, not the later
+visual proof.
+
+Andrew's October 11 19:56:56 screenshot visibly confirms short/long labels on
+both boards, centered and readable without clipping or exposed background
+rectangles. The retained `NativeSigns.png` and matching `NativeRun.json` are in
+secondary `test-tmp/g4-sign-proof-20261011-1956/`; the run exits zero after
+2,011 frames, with audio disabled and no protected/user-file changes.
+Its automatic visual-acceptance flag remains false: the supplied human pixels,
+not the driver or failed inspection-tool targeting, establish composition.
+The [integration roadmap](rendering/integration-roadmap.md) owns this bounded
+native record. It does not close authored facade placement, native dynamic
+label/locale/font replacement, edit/save/reopen workflows, actor/sign depth
+occlusion, reduced-motion sign proof or Windows/Linux/WSLg acceptance.
+Engine retains vocabulary/layout/lifecycle ownership, Renderer font/paint
+ownership, and Claude Editor/GUI/Game ownership; those concrete conditions
+remain open rather than treating runtime support as all-authoring completion.
+
+## Project format
+
+`ichiloto upgrade` is the project's format chain. A project records its
+format version in `ichiloto.json`, and the command runs every numbered
+step between that version and the engine's, in order, like the save
+compatibility chain. Each step is its own class; a later format change
+adds a step and never edits an earlier one. Format 1 is the project id and
+save compatibility manifest. The version is bookkeeping the tools write and
+read; nobody tracks it by hand.
+
+The experience follows established upgraders (Unity and Godot on opening
+an older project, framework migrations, `ng update`):
+
+1. **Detect.** `ichiloto play`, `validate` and the editor notice a project
+   behind the engine's format and say what is outdated and to run
+   `ichiloto upgrade`, instead of failing on the old data.
+2. **Explain.** `ichiloto upgrade` takes no arguments. It first lists, one
+   line per pending step, what will change, then asks to continue.
+   `--dry-run` prints the same list and changes nothing.
+3. **Protect.** It refuses to run over uncommitted changes unless told to,
+   so each upgrade is one reviewable, reversible change.
+4. **Report.** It ends with the follow-up list for a person and writes it
+   to a file in the project.
+
+## Phases
+
+### Phase 1 - The unit and characters
+
+1. Render the field on its own grid, separate from the interface's text
+   grid, one terminal cell per 48 x 48 field cell.
+2. RPG Maker character sheets for the player, NPCs and field creatures,
+   bottom-centred on their cell, with the walking pattern and row-order
+   depth.
+3. Remove per-sprite width, height and anchor for field characters.
+4. Maps without graphics render terminal glyphs in their cells.
+
+### Phase 2 - Tilesets and graphical layers
+
+1. Tileset resources with layout validation.
+2. Tile identities and autotile composition for A1 to A4.
+3. Graphical layer files, loading, validation and retained upload, with
+   one whole tile per cell: autotiles composed for their cell and plain
+   tiles drawn whole.
+4. Remove the glyph-keyed crop tables and cell overrides.
+
+### Phase 3 - Last Legend Home proof
+
+Home drawn from its tileset over its unchanged terminal layers.
+
+### Phase 4 - Authoring
+
+Map painting with tilesets and autotiles in the GUI Editor, per its plan.
+
+### Phase 5 - Last Legend art
+
+New tilesets and character sheets in RPG Maker's layouts for the wider
+maps. The existing 16 x 32 art is not carried forward.
+
+## Decisions already made (do not relitigate)
+
+- The terminal remains a complete playable presentation. Shared physical
+  occupancy is independent of presentation; only undeclared legacy maps derive
+  collision from terminal layers. Conversion is explicit and source-preserving.
+- Graphics never change terminal geometry, movement or authoring. A map
+  cell is one terminal character in every renderer; the graphical field
+  draws it as one 48 x 48 RPG Maker tile, and maps are laid out in tiles.
+- RPG Maker MZ's tile size, sheet layouts, autotiles, tile identities and
+  character sheets are adopted as the conventions. A cell shows one whole
+  tile, and a character frame fills its cell.
+- Graphics are independent authored data, never keyed off glyphs.
+- Existing 16 x 32 art is recreated, not migrated.

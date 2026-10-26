@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\IO;
 
+use Ichiloto\Engine\IO\Saves\SaveFeatures;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 
 /** Shared display resolver. It does not poll, detect devices, cache bindings or handle input. */
@@ -19,6 +20,9 @@ final class ActionHints
 
   public static function resolve(string $action, string $label, ?KeyCode $keyboardAlias = null): ActionHint
   {
+    if ($action === 'quick_save' && !SaveFeatures::isQuickSaveEnabled()) {
+      return new ActionHint($action, $label, null);
+    }
     $provider = self::$provider ?? new InputBindings();
     $control = $provider->controlForAction($action);
     // An owner can declare a real retained keyboard alias, never an invented general fallback.

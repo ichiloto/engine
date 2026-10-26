@@ -71,14 +71,27 @@ final class MessageCatalog
     return self::format(self::resolve($path, $default), ...$arguments);
   }
 
+  /** Formats an Engine term using its catalog default and project overrides. */
+  public static function getTerm(string $path, int|float|string ...$arguments): string
+  {
+    return self::format(self::resolveTerm($path), ...$arguments);
+  }
+
+  /** Resolves an Engine term without substituting its placeholders. */
+  public static function resolveTerm(string $path, bool $allowEmpty = false): string
+  {
+    return self::resolve($path, EngineMessageTerms::getDefault($path), $allowEmpty);
+  }
+
   /**
    * Resolves a message without formatting it.
    *
    * @param string $path The dot path under `messages.`.
    * @param string $default The string used when the path is not authored.
+   * @param bool $allowEmpty Whether an explicitly empty localized value overrides the base message.
    * @return string The raw message.
    */
-  public static function resolve(string $path, string $default = ''): string
+  public static function resolve(string $path, string $default = '', bool $allowEmpty = false): string
   {
     if (! ConfigStore::has(ProjectConfig::class)) {
       return $default;
@@ -89,7 +102,7 @@ final class MessageCatalog
     if ($locale !== '') {
       $localized = config(ProjectConfig::class, "messages.$locale.$path", null);
 
-      if (is_string($localized) && $localized !== '') {
+      if (is_string($localized) && ($allowEmpty || $localized !== '')) {
         return $localized;
       }
     }

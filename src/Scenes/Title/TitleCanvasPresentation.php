@@ -86,10 +86,11 @@ trait TitleCanvasPresentation
         $credits = CreditsMenuPresentation::compose($this->creditsContent, $this->creditsPlayback, $this->creditsTheme);
         $canvas = $this->titleCatalog === null ? $credits : MenuCanvas::overlay(
           TitleMenuPresentation::compose($this->titleCatalog, $this->titlePlayback, [], false), $credits, $this->creditsTheme);
-        if ($modal !== null) {
+        if ($modal !== null && !MenuModalPresentation::requiresSceneComposition($this->getUI(), $runtime->getAssetRoot())) {
           $snapshot = $modal instanceof ModalPresentationProviderInterface ? $modal->getModalPresentation() : null;
           if ($snapshot === null) { throw new RuntimeException('Active credits modal has no supported canvas presentation.'); }
-          $canvas = MenuModalPresentation::compose($canvas, $snapshot, $this->creditsTheme);
+          $canvas = MenuModalPresentation::compose($canvas, $snapshot, $this->creditsTheme,
+            ownerLayerId: 'ui:' . spl_object_id($modal));
         }
         return $canvas;
       }
@@ -117,18 +118,20 @@ trait TitleCanvasPresentation
       $info = $this->titleInfoText ??= new MenuInfoText();
       if ($this->showingOptions && $this->optionsManager !== null) {
         $choices = array_map(fn($setting) => $this->optionsManager->getCurrentChoiceIndex($setting), $this->options);
-        $snapshot = new SettingsMenuContent('Options', $this->options, $choices, $this->activeOptionIndex, $info,
+        $snapshot = new SettingsMenuContent($this->getOptionsMenuTitle(), $this->options, $choices, $this->activeOptionIndex, $info,
           $this->optionStatusMessage, $this->optionStatusMessage !== null, 'Back', $this->isBackRowSelected(),
           new CanvasRectangle(225, 60, 900, 600));
         $canvas = MenuCanvas::overlay($canvas, SettingsMenuPresentation::compose($snapshot, $catalog->theme, $time), $catalog->theme);
       } elseif ($this->showingContinueMenu) {
         $canvas = MenuCanvas::overlay($canvas, SaveLoadMenuPresentation::compose($this->continueSlots,
-          $this->activeContinueSlotIndex, $catalog->theme, $info, $this->continueStatusMessage, $time), $catalog->theme);
+          $this->activeContinueSlotIndex, $catalog->theme, $info, $this->continueStatusMessage, $time,
+          title: $this->getContinueMenuTitle()), $catalog->theme);
       }
-      if ($modal !== null) {
+      if ($modal !== null && !MenuModalPresentation::requiresSceneComposition($this->getUI(), $runtime->getAssetRoot())) {
         $snapshot = $modal instanceof ModalPresentationProviderInterface ? $modal->getModalPresentation() : null;
         if ($snapshot === null) { throw new RuntimeException('Active title modal has no supported canvas presentation.'); }
-        $canvas = MenuModalPresentation::compose($canvas, $snapshot, $catalog->theme, $time);
+        $canvas = MenuModalPresentation::compose($canvas, $snapshot, $catalog->theme, $time,
+          'ui:' . spl_object_id($modal));
       }
       return $canvas;
     } catch (Throwable $error) {

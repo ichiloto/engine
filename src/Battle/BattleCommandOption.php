@@ -22,6 +22,7 @@ readonly class BattleCommandOption
    * @param mixed $source The original source object backing the action.
    * @param int $mpCost The MP the acting character must hold to use this option.
    * @param ItemScopeNumber $targetNumber How many targets the action hits.
+   * @param BattleCommandType|null $type Semantic presentation category, independent of the label.
    */
   public function __construct(
     public string $label,
@@ -32,6 +33,7 @@ readonly class BattleCommandOption
     public mixed $source = null,
     public int $mpCost = 0,
     public ItemScopeNumber $targetNumber = ItemScopeNumber::ONE,
+    public ?BattleCommandType $type = null,
   )
   {
   }

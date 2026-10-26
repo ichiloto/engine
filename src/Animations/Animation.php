@@ -9,6 +9,8 @@ namespace Ichiloto\Engine\Animations;
  */
 final class Animation
 {
+  /** @var list<string> Explicit command defaults, independent of display names. */
+  public readonly array $roles;
   /**
    * @var array<int, AnimationFrame> $frames
    */
@@ -17,6 +19,11 @@ final class Animation
    * @var array<int, AnimationCue> $cues
    */
   protected array $cues = [];
+
+  public bool $hasLegacyPresentation {
+    get => $this->maxFrames > 1 || $this->cues !== []
+      || array_any($this->frames, static fn(AnimationFrame $frame): bool => $frame->getCells() !== []);
+  }
 
   /**
    * @param int $id The animation id.
@@ -33,8 +40,25 @@ final class Animation
     public int $maxFrames = 1,
     array $frames = [],
     array $cues = [],
+    public ?string $sourceEffect = null,
+    public ?string $targetEffect = null,
+    array $roles = [],
   )
   {
+    if (!array_is_list($roles) || count($roles) !== count(array_unique($roles, SORT_REGULAR))) {
+      throw new \InvalidArgumentException('Animation roles must be a unique list.');
+    }
+    $validatedRoles = [];
+    foreach ($roles as $role) {
+      if (!is_string($role) || !in_array($role, ActionAnimationResolver::getSupportedRoles(), true)) {
+        throw new \InvalidArgumentException('Animation roles must be attack, a supported attack weapon role, skill or restorative.');
+      }
+      $validatedRoles[] = $role;
+    }
+    $this->roles = $validatedRoles;
+    foreach ([$sourceEffect, $targetEffect] as $effect) {
+      if ($effect !== null) { \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary::assertId($effect); }
+    }
     $this->maxFrames = max(1, $maxFrames);
 
     foreach ($frames as $frame) {
@@ -60,6 +84,9 @@ final class Animation
    */
   public static function fromArray(array $data): self
   {
+    if (array_key_exists('roles', $data) && !is_array($data['roles'])) {
+      throw new \InvalidArgumentException('Animation roles must be a unique list.');
+    }
     $frames = array_map(
       static fn(array $frame): AnimationFrame => AnimationFrame::fromArray($frame),
       array_values(array_filter($data['frames'] ?? [], 'is_array'))
@@ -78,6 +105,9 @@ final class Animation
       intval($data['maxFrames'] ?? max(1, count($frames))),
       $frames,
       $cues,
+      $data['sourceEffect'] ?? null,
+      $data['targetEffect'] ?? null,
+      $data['roles'] ?? [],
     );
   }
 
@@ -209,6 +239,9 @@ final class Animation
       'name' => $this->name,
       'position' => $this->position->value,
       'maxFrames' => $this->maxFrames,
+      ...($this->sourceEffect === null ? [] : ['sourceEffect' => $this->sourceEffect]),
+      ...($this->targetEffect === null ? [] : ['targetEffect' => $this->targetEffect]),
+      ...($this->roles === [] ? [] : ['roles' => $this->roles]),
       'frames' => array_map(
         static fn(AnimationFrame $frame): array => $frame->toArray(),
         $this->getFrames()

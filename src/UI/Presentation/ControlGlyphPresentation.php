@@ -11,6 +11,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use RuntimeException;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 
 /** Standalone control display for lookups/buttons, independent of optional helper strips. */
 final class ControlGlyphPresentation
@@ -45,6 +46,7 @@ final class ControlGlyphPresentation
 
   private static function asset(?ControlHint $control, MenuPresentationCatalog $theme): ?string
   {
-    return $control === null ? null : ($theme->icons?->icons[$control->iconRole()] ?? null);
+    $asset = $control === null ? null : ($theme->icons?->icons[$control->iconRole()] ?? null);
+    return $asset !== null && PngAssetPreflight::getAvailableSize($theme->assetRoot, $asset) !== null ? $asset : null;
   }
 }

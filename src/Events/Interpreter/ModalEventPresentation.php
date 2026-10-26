@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Events\Interpreter;
 
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Modal\SelectModal;
@@ -12,7 +13,7 @@ use Ichiloto\Engine\UI\Modal\TextBoxModal;
 /**
  * Drives the existing terminal modals one game-loop tick at a time.
  */
-final class ModalEventPresentation implements EventPresentationInterface
+final class ModalEventPresentation implements EventDialoguePresentationInterface
 {
   protected ?ModalInterface $modal = null;
 
@@ -22,12 +23,18 @@ final class ModalEventPresentation implements EventPresentationInterface
 
   public function beginText(string $text, string $speaker): void
   {
+    $this->beginDialogue($text, $speaker, new DialogueContext());
+  }
+
+  public function beginDialogue(string $text, string $speaker, DialogueContext $context): void
+  {
     $this->reset();
     $this->modal = new TextBoxModal(
       $this->gameScene->getGame(),
       $text,
       $speaker,
       charactersPerSecond: dialogue_speed(),
+      presentation: $context,
     );
     $this->modal->show();
   }

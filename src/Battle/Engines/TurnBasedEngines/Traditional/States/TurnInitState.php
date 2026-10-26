@@ -67,7 +67,7 @@ class TurnInitState extends TurnState
 
     /** @var CharacterInterface[] $battlers */
     $battlers = array_values(array_filter(
-      [...$context->party->battlers->toArray(), ...$context->troop->members->toArray()],
+      [...$context->partyRoster->battlers, ...$context->troop->members->toArray()],
       fn(CharacterInterface $battler) => ! $battler->isKnockedOut
         && ! ($excludedSide === 'troop' && $battler instanceof \Ichiloto\Engine\Entities\Enemies\Enemy)
         && ! ($excludedSide === 'party' && ! $battler instanceof \Ichiloto\Engine\Entities\Enemies\Enemy)
@@ -91,7 +91,7 @@ class TurnInitState extends TurnState
    */
   private function updateUI(TurnStateExecutionContext $context): void
   {
-    $context->ui->characterStatusWindow->setCharacters($context->party->battlers->toArray());
+    $context->ui->characterStatusWindow->setCharacters($context->partyRoster->battlers);
     $context->ui->characterNameWindow->setActiveSelection(-1);
     $context->ui->commandContextWindow->clear();
     $context->ui->fieldWindow->clearTargetIndicators();

@@ -12,6 +12,7 @@ use Ichiloto\Engine\UI\Presentation\{MenuCanvas, MenuPresentationCatalog};
 use Tests\Support\Input\FakeRendererTransport;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 function getCompositeTestRect(int $size = 16): array
 {
@@ -113,7 +114,10 @@ it('negotiates compositing before submission and keeps overlays above the entire
     $client->pump();
     $presenter = new RendererPresentation($client, new RendererGridConfig(1, 1));
     if (count($caps) === 1) { expect(fn() => $presenter->presentCanvas($canvas))->toThrow(RendererProtocolException::class); }
-    else { expect($presenter->presentCanvas($canvas))->toBeTrue(); }
+    else {
+      expect($presenter->presentCanvas($canvas))->toBeTrue()
+        ->and(Tests\Support\Rendering\RetainedFrameState::replay($transport->sent)[0]['canvas'])->toBe($canvas->toArray());
+    }
   }
   $theme = new MenuPresentationCatalog(__DIR__, ['schema' => 'ichiloto.menu/1']);
   $overlay = new PresentationCanvas(100, 100, composites: [new CanvasComposite('overlay', 16, 16, new CanvasRectangle(0, 0, 16, 16), [])]);

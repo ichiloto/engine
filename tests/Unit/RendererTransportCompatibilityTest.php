@@ -32,6 +32,8 @@ it('accepts a custom transport written against the previous public namespace', f
     public function start(RendererSessionConfig $session): void {}
     public function isRunning(): bool { return false; }
     public function send(RendererMessage $message): void {}
+    public function trySend(RendererMessage $message): bool { $this->send($message); return true; }
+    public function getPendingWriteBytes(): int { return 0; }
     public function pollEvents(float $waitSeconds = 0.0): array { return []; }
     public function shutdown(): ?int { return 0; }
     public function getState(): RendererTransportState { return RendererTransportState::STOPPED; }

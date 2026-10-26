@@ -159,6 +159,128 @@ final class TerminalText
   }
 
   /**
+   * Splits an authored row into independent source cells, not display ANSI.
+   * Shared wrappers are distributed; spelling and raw grapheme bytes remain
+   * authored. Unsupported source projections fail before an editor writes.
+   *
+   * @return list<string>
+   */
+  public static function getSourceSymbols(string $text): array
+  {
+    return array_map(static fn(array $cell): string => $cell['prefix'] . $cell['symbol'] . $cell['suffix'], self::parseSourceCells($text));
+  }
+
+  /** @return list<array{symbol: string, prefix: string, suffix: string}> Exact source parts for shared authoring consumers. */
+  public static function parseSourceCells(string $text): array
+  {
+    $previous = self::$formatter;
+    self::$formatter = clone self::getFormatter();
+    self::$formatter->getStyleStack()->reset();
+    try {
+      $expected = self::visibleSymbols($text);
+      self::$formatter->getStyleStack()->reset();
+      if ($expected === []) { return []; }
+      $ansi = substr(self::ANSI_PATTERN, 1, -1);
+      preg_match_all('/' . $ansi . '|<[^<>]*>|\X/u', $text, $matches, PREG_OFFSET_CAPTURE);
+      $frames = $stack = $cells = [];
+      $controls = '';
+      $hasAnsi = false;
+      foreach ($matches[0] ?? [] as [$token, $sourceOffset]) {
+        if (preg_match(self::ANSI_PATTERN, $token) === 1) {
+          $controls .= $token;
+          $hasAnsi = true;
+          continue;
+        }
+        $closing = str_starts_with($token, '</');
+        $key = str_starts_with($token, '<')
+          ? self::getSourceStyleKey($closing ? '<' . substr($token, 2) : $token) : null;
+        if (!$closing && $key !== null) {
+          $stack[] = count($frames);
+          $frames[] = ['open' => $token, 'close' => '</>', 'key' => $key];
+          $controls .= $token;
+          continue;
+        }
+        if ($token === '</>' || ($closing && $key !== null)) {
+          $controls .= $token;
+          for ($index = count($stack) - 1; $index >= 0; $index--) {
+            $frame = $stack[$index];
+            if ($token === '</>' || $frames[$frame]['key'] === $key) {
+              $frames[$frame]['close'] = $token;
+              $stack = array_slice($stack, 0, $index);
+              break;
+            }
+          }
+          continue;
+        }
+        // Unrecognised tags are literal text. Do not format source graphemes:
+        // the display formatter may normalise Unicode, but source must not.
+        preg_match_all('/\X/u', $token, $glyphs, PREG_OFFSET_CAPTURE);
+        foreach ($glyphs[0] ?? [] as [$glyph, $glyphOffset]) {
+          $cells[] = ['glyph' => $glyph, 'frames' => $stack, 'offset' => strlen($controls),
+            'sourceOffset' => $sourceOffset + $glyphOffset];
+        }
+      }
+      self::$formatter->getStyleStack()->reset();
+      $state = new SgrStyleState();
+      preg_match_all(self::ANSI_PATTERN, self::formatStyles($text), $sequences);
+      foreach ($sequences[0] ?? [] as $sequence) { $state->apply($sequence); }
+      $ansiClose = $state->prefix() === '' ? '' : Color::RESET->value;
+      if (count($expected) === 1 && count($cells) === 1 && $stack === [] && $ansiClose === '') {
+        $cell = $cells[0];
+        return [['symbol' => $cell['glyph'], 'prefix' => substr($text, 0, $cell['sourceOffset']),
+          'suffix' => substr($text, $cell['sourceOffset'] + strlen($cell['glyph']))]];
+      }
+      // Only missing scope boundaries are materialised. Existing closing tag
+      // spelling and authored ANSI controls are never replaced or inferred.
+      foreach (array_reverse($stack) as $frame) { $controls .= $frames[$frame]['close']; }
+      $controls .= $ansiClose;
+      $result = [];
+      foreach ($cells as $index => $cell) {
+        if ($hasAnsi && $cell['frames'] === [] && ($expected[$index] ?? null) === self::stripAnsi($expected[$index] ?? '')) {
+          $prefix = $suffix = '';
+        } elseif ($hasAnsi) {
+          // Replay authored controls, plus any missing closing boundary.
+          // Never convert display ANSI into supposedly authored markup.
+          $prefix = substr($controls, 0, $cell['offset']);
+          $suffix = substr($controls, $cell['offset']);
+        } else {
+          $prefix = $suffix = '';
+          foreach ($cell['frames'] as $frame) { $prefix .= $frames[$frame]['open']; }
+          foreach (array_reverse($cell['frames']) as $frame) { $suffix .= $frames[$frame]['close']; }
+        }
+        $source = $prefix . $cell['glyph'] . $suffix;
+        self::$formatter->getStyleStack()->reset();
+        $shown = self::visibleSymbols($source);
+        if (count($shown) !== 1 || !isset($expected[$index])
+          || \Normalizer::normalize($shown[0]) !== \Normalizer::normalize($expected[$index])) {
+          throw new \InvalidArgumentException('Terminal source row cannot be split into independent authored cells without changing its presentation. Keep this source intact; no cells were produced.');
+        }
+        $result[] = ['symbol' => $cell['glyph'], 'prefix' => $prefix, 'suffix' => $suffix];
+      }
+      if (count($result) !== count($expected)) {
+        throw new \InvalidArgumentException('Terminal source row cannot be split into independent authored cells without changing its geometry. Keep this source intact; no cells were produced.');
+      }
+      return $result;
+    } finally {
+      self::$formatter = $previous;
+    }
+  }
+
+  /** The existing formatter, not a second colour grammar, recognises source tags. */
+  private static function getSourceStyleKey(string $tag): ?string
+  {
+    $formatter = clone self::getFormatter();
+    $formatter->getStyleStack()->reset();
+    try {
+      $shown = $formatter->format($tag . 'x');
+      if (preg_replace(self::ANSI_PATTERN, '', $shown) !== 'x') { return null; }
+      return $formatter->getStyleStack()->getCurrent()->apply('');
+    } catch (Throwable) {
+      return null;
+    }
+  }
+
+  /**
    * Returns a symbol-based slice of the text.
    *
    * @param string $text The text to slice.
@@ -197,7 +319,7 @@ final class TerminalText
         break;
       }
 
-      $output[] = $symbol;
+      $output[] = self::stabilizeSymbol($symbol);
       $visibleWidth += $symbolWidth;
     }
 
@@ -224,7 +346,7 @@ final class TerminalText
     $lastSpaceIndex = null;
 
     while ($symbols !== []) {
-      $symbol = array_shift($symbols);
+      $symbol = self::stabilizeSymbol(array_shift($symbols));
       $symbolWidth = self::getSymbolWidth($symbol);
 
       if ($line !== [] && $lineWidth + $symbolWidth > $width) {
@@ -257,6 +379,14 @@ final class TerminalText
     }
 
     return $lines;
+  }
+
+  /** Wrap each authored paragraph independently, retaining blank lines and explicit page content. */
+  public static function wrapParagraphsToWidth(string $text, int $width): array
+  {
+    $text = str_replace(["\r\n", "\r", "\t"], ["\n", "\n", '    '], $text);
+    return array_merge(...array_map(static fn(string $paragraph): array => self::wrapToWidth($paragraph, $width),
+      explode("\n", $text)));
   }
 
   /**
@@ -336,8 +466,7 @@ final class TerminalText
     // frame, and measuring one costs several regex passes. Cache by symbol.
     static $widths = [];
 
-    $key = str_contains($symbol, "\u{200D}")
-      ? (self::allowsCompositeEmoji() ? '1:' : '0:') . $symbol : $symbol;
+    $key = self::getSymbolCacheKey($symbol);
     if (isset($widths[$key])) {
       return $widths[$key];
     }
@@ -450,8 +579,7 @@ final class TerminalText
   {
     static $stabilized = [];
 
-    $key = str_contains($symbol, "\u{200D}") || preg_match('/[\x{1F3FB}-\x{1F3FF}]/u', $symbol) === 1
-      ? (self::allowsCompositeEmoji() ? '1:' : '0:') . $symbol : $symbol;
+    $key = self::getSymbolCacheKey($symbol);
     if (isset($stabilized[$key])) {
       return $stabilized[$key];
     }
@@ -461,6 +589,13 @@ final class TerminalText
     }
 
     return $stabilized[$key] = self::computeStabilizedSymbol($symbol);
+  }
+
+  /** Width and emitted-glyph caches must depend on the same terminal capability. */
+  private static function getSymbolCacheKey(string $symbol): string
+  {
+    return str_contains($symbol, "\u{200D}") || preg_match('/[\x{1F3FB}-\x{1F3FF}]/u', $symbol) === 1
+      ? (self::allowsCompositeEmoji() ? '1:' : '0:') . $symbol : $symbol;
   }
 
   /**

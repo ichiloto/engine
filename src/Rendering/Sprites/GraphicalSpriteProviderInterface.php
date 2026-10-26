@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Rendering\Sprites;
 
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
 
 /** Opt-in presentation intent; never draws, polls, or owns a Camera/client. */
 interface GraphicalSpriteProviderInterface
@@ -15,4 +16,7 @@ interface GraphicalSpriteProviderInterface
 
   /** Logical world/grid position, without terminal glyph offsets. Callers must not mutate it. */
   public function getGraphicalSpriteWorldPosition(): Vector2;
+
+  /** How the object reached its current cell, when that was a step a renderer may slide; otherwise null. */
+  public function getGraphicalSpriteMotion(): ?PresentationSpriteMotion;
 }

@@ -254,3 +254,46 @@ describe('special skills', function() {
       ->toBe($skillIcon);
   });
 });
+
+
+it('hydrates historical skill weapon lists without dynamic properties or lost requirements', function (string $legacyKey) {
+  $current = new \Ichiloto\Engine\Entities\Skills\SpecialSkill('Legacy strike', 'Synthetic.', '', 3, 0);
+  $fields = get_mangled_object_vars($current);
+  $fields[$legacyKey] = $fields['requiredWeapons'];
+  unset($fields['requiredWeapons'], $fields['counterAttack']);
+  $array = serialize($fields);
+  $class = $current::class;
+  $legacy = 'O:' . strlen($class) . ':"' . $class . '":' . count($fields) . ':{' . substr($array, strpos($array, '{') + 1);
+  set_error_handler(static function ($severity, $message): never { throw new \ErrorException($message, 0, $severity); });
+  try { $restored = unserialize($legacy); } finally { restore_error_handler(); }
+  expect($restored->name)->toBe('Legacy strike')
+    ->and($restored->requiredWeapons)->toBe([])
+    ->and($restored->counterAttack)->toBeNull()
+    ->and(get_mangled_object_vars($restored))->not->toHaveKey('requiredWeapon')
+    ->and(unserialize(serialize($restored)))->toEqual($restored);
+})->with(['requiredWeapon', "\0*\0requiredWeapon"]);
+
+it('preserves current concrete skill fields and refuses unknown serialized data', function () {
+  $skill = new \Ichiloto\Engine\Entities\Skills\MagicSkill('Fixture spell', 'Synthetic.', '', 4, 2);
+  expect(unserialize(serialize($skill)))->toEqual($skill);
+  $fields = get_mangled_object_vars($skill);
+  $fields['unexpectedDefinition'] = 'unknown';
+  $target = new \ReflectionClass($skill::class)->newInstanceWithoutConstructor();
+  expect(fn() => $target->__unserialize($fields))->toThrow(\InvalidArgumentException::class, 'Unknown serialized skill field');
+});
+
+
+final class SerializedSkillExtensionProbe extends SpecialSkill
+{
+  private int $extensionValue = 7;
+  public function getExtensionValue(): int { return $this->extensionValue; }
+}
+
+it('preserves private skill extension fields without coercing invalid typed save values', function () {
+  $skill = new SerializedSkillExtensionProbe('Probe', 'Synthetic.', '', 1, 0);
+  expect(unserialize(serialize($skill))->getExtensionValue())->toBe(7);
+  $fields = get_mangled_object_vars($skill);
+  $fields['cost'] = '5';
+  $target = new ReflectionClass($skill::class)->newInstanceWithoutConstructor();
+  expect(fn() => $target->__unserialize($fields))->toThrow(TypeError::class);
+});

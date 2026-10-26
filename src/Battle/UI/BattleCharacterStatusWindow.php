@@ -7,6 +7,7 @@ use Ichiloto\Engine\Battle\Presentation\BattleHudStatusSnapshot;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\UI\Elements\ProgressBar\ProgressBar;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -67,13 +68,14 @@ class BattleCharacterStatusWindow extends Window
 
     $position = new Vector2($leftMargin, $topMargin);
     parent::__construct(
-      'HP══════MP══ATB',
+      '',
       '',
       $position,
       self::WIDTH,
       self::HEIGHT,
       $this->battleScreen->borderPack
     );
+    $this->setTitle($this->formatHeaderLine(true));
   }
 
   /**
@@ -205,15 +207,15 @@ class BattleCharacterStatusWindow extends Window
     $cells = array_fill(0, self::CONTENT_WIDTH, $horizontal);
 
     if ($showAtb) {
-      $this->writeHeaderLabel($cells, 'HP', $this->getCompactHpBarStart());
-      $this->writeHeaderLabel($cells, 'MP', $this->getCompactMpBarStart());
-      $this->writeHeaderLabel($cells, 'ATB', $this->getCompactAtbBarStart());
+      $this->writeHeaderLabel($cells, Vocabulary::getTerm('stats.hp', 'HP'), $this->getCompactHpBarStart());
+      $this->writeHeaderLabel($cells, Vocabulary::getTerm('stats.mp', 'MP'), $this->getCompactMpBarStart());
+      $this->writeHeaderLabel($cells, Vocabulary::getTerm('battle.atb', 'Time'), $this->getCompactAtbBarStart());
 
       return implode('', $cells);
     }
 
-    $this->writeHeaderLabel($cells, 'HP', $this->getStandardHpBarStart());
-    $this->writeHeaderLabel($cells, 'MP', $this->getStandardMpBarStart());
+    $this->writeHeaderLabel($cells, Vocabulary::getTerm('stats.hp', 'HP'), $this->getStandardHpBarStart());
+    $this->writeHeaderLabel($cells, Vocabulary::getTerm('stats.mp', 'MP'), $this->getStandardMpBarStart());
 
     return implode('', $cells);
   }

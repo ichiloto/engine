@@ -42,10 +42,12 @@ class BattlePacing
 
     $battleUiConfig = config(ProjectConfig::class, 'ui.battle', []);
 
-    if (! is_array($battleUiConfig)) {
-      return new self();
-    }
+    return is_array($battleUiConfig) ? self::fromBattleUiConfig($battleUiConfig) : new self();
+  }
 
+  /** @param array<string, mixed> $battleUiConfig */
+  public static function fromBattleUiConfig(array $battleUiConfig): self
+  {
     $messagePaceValue = $battleUiConfig['message_pace'] ?? $battleUiConfig['message_speed'] ?? null;
     $legacyInfoDisplaySpeed = $battleUiConfig['info_display_speed'] ?? null;
     $resolvedMessagePaceValue = $messagePaceValue ?? $legacyInfoDisplaySpeed;
@@ -60,6 +62,11 @@ class BattlePacing
         ? floatval($legacyInfoDisplaySpeed)
         : null,
     );
+  }
+
+  public function getAnimationPace(): BattlePace
+  {
+    return $this->animationPace;
   }
 
   /**

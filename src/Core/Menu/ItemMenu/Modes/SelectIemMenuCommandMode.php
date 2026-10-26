@@ -76,7 +76,7 @@ class SelectIemMenuCommandMode extends ItemMenuMode
         }
       } else {
         play_sound(SystemSound::BUZZER);
-        alert(get_message("inventory.empty", "Inventory is empty."));
+        alert(get_engine_message("inventory.empty"));
       }
     }
   }

@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\IO\SaveCompatibility;
 
 use ErrorException;
+use Ichiloto\Engine\Core\ProjectState\ProjectStateData;
+use Ichiloto\Engine\Core\ProjectState\ProjectStateRegistry;
 use Ichiloto\Engine\Exceptions\CorruptSaveException;
 use Ichiloto\Engine\Exceptions\MissingSaveMigrationException;
 use Ichiloto\Engine\Exceptions\SaveCompatibilityException;
@@ -37,6 +39,7 @@ final readonly class SaveCompatibilityPipeline
   public function __construct(
     private SaveCompatibilityManifest $manifest,
     ?array $schemaMigrations = null,
+    private ?ProjectStateRegistry $projectStateRegistry = null,
   )
   {
     $this->schemaMigrations = $schemaMigrations ?? self::SCHEMA_MIGRATIONS;
@@ -45,6 +48,13 @@ final readonly class SaveCompatibilityPipeline
   /** @return array<string, mixed> */
   public function createEnvelope(SaveSlot $slot, GameConfig $config): array
   {
+    $projectState = $this->projectStateRegistry !== null
+      ? $this->projectStateRegistry->prepareSnapshot($config->projectState)
+      : ProjectStateData::copySnapshot($config->projectState);
+    $config = clone $config;
+    $data = $config->getSaveCompatibilityData();
+    $data['projectState'] = $projectState;
+    $config->applySaveCompatibilityData($data);
     return [
       'schemaVersion' => self::CURRENT_SCHEMA_VERSION,
       'contentVersion' => $this->manifest->contentVersion,
@@ -132,20 +142,19 @@ final readonly class SaveCompatibilityPipeline
     $postResolutionMigrations = [];
 
     while ($contentVersion < $this->manifest->contentVersion) {
-      $migrationClass = $this->manifest->migrationFrom($contentVersion);
-
-      if ($migrationClass === null) {
-        throw new MissingSaveMigrationException(sprintf(
-          'Save %s requires missing content migration %d to %d for project %s.',
-          $savePath,
-          $contentVersion,
-          $contentVersion + 1,
-          $this->manifest->projectId
-        ));
-      }
-
       try {
-        $migration = new $migrationClass();
+        $migration = $this->manifest->createMigrationFrom($contentVersion);
+
+        if ($migration === null) {
+          throw new MissingSaveMigrationException(sprintf(
+            'Save %s requires missing content migration %d to %d for project %s.',
+            $savePath,
+            $contentVersion,
+            $contentVersion + 1,
+            $this->manifest->projectId
+          ));
+        }
+
         $payload = $migration->migrate($envelope['payload']);
 
         if ($migration instanceof PostResolutionContentMigrationInterface) {
@@ -200,6 +209,14 @@ final readonly class SaveCompatibilityPipeline
         ), previous: $throwable);
       }
     }
+
+    // Content migrations may update project data, but cannot admit unsafe values.
+    $projectState = $this->projectStateRegistry !== null
+      ? $this->projectStateRegistry->prepareSnapshot($config->projectState)
+      : ProjectStateData::copySnapshot($config->projectState);
+    $data = $config->getSaveCompatibilityData();
+    $data['projectState'] = $projectState;
+    $config->applySaveCompatibilityData($data);
 
     // Storage identity belongs to the selected file, not its serialized origin.
     $slot = new SaveSlot(

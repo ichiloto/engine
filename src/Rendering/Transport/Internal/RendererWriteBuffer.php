@@ -16,11 +16,17 @@ final class RendererWriteBuffer
 
   public function append(string $line): void
   {
-    if ($this->pendingBytes() + strlen($line) > $this->capacity) {
+    if (!$this->tryAppend($line)) {
       throw new RendererTransportException('Renderer outbound buffer is full; message was not queued.');
     }
+  }
+
+  public function tryAppend(string $line): bool
+  {
+    if ($this->pendingBytes() + strlen($line) > $this->capacity) { return false; }
     $this->bytes = substr($this->bytes, $this->offset) . $line;
     $this->offset = 0;
+    return true;
   }
 
   /** @param callable(string): (int|false) $write */

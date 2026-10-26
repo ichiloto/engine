@@ -34,6 +34,12 @@ final class SelectionStyle
     return $prefix . self::resolveColor()->value . $text . Color::RESET->value;
   }
 
+  /** Styles a persistent choice in the highlight hue's other intensity, independently of focus. */
+  public static function applyMarked(string $text): string
+  {
+    return Color::apply($text, self::resolveColor()->getAlternateIntensity());
+  }
+
   /**
    * Resolves the configured selection color for menu-like interfaces.
    *

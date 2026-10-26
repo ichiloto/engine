@@ -57,14 +57,14 @@ if (in_array($scenario, ['startup_error', 'pre_session_error', 'pre_session_key'
   exit(92);
 }
 if ($scenario === 'startup_timeout') {
-  rendererStubWrite('waiting for an unavailable surface', STDERR);
+  // A deadline may expire before this child runs; timeout evidence must not require peer output.
   usleep(2_000_000);
   exit(93);
 }
 if ($scenario === 'stderr_flood') {
   rendererStubWrite(str_repeat('diagnostic-', 100000) . 'STARTUP-TAIL', STDERR);
 }
-$ready = rendererStubEvent('ready', $scenario === 'capabilities' && isset($message['requiredCapabilities'])
+$ready = rendererStubEvent('ready', in_array($scenario, ['capabilities', 'dialogue_preview', 'scene_preview_start_key', 'project_text'], true) && isset($message['requiredCapabilities'])
   ? ['capabilities' => $message['requiredCapabilities']] : []);
 if ($scenario === 'ready_key') {
   $ready .= rendererStubEvent('key', ['key' => 'W']);
@@ -93,6 +93,7 @@ if ($scenario === 'exit_pending') {
   exit(7);
 }
 if ($scenario === 'slow_reader') { usleep(120000); }
+if ($scenario === 'retained_upload_slow') { usleep(150000); }
 
 $deadline = hrtime(true) + 7_000_000_000;
 while (hrtime(true) < $deadline && ($line = fgets(STDIN)) !== false) {
@@ -108,6 +109,79 @@ while (hrtime(true) < $deadline && ($line = fgets(STDIN)) !== false) {
     exit($scenario === 'shutdown_nonzero' ? 17 : 0);
   }
   switch ($scenario) {
+    case 'project_text':
+      if ($message['type'] === 'prepare_text') {
+        if ($message['spec']['text'] === 'refuse') {
+          rendererStubWrite(rendererStubEvent('text_prepare_failed', ['requestId' => $message['requestId'],
+            'message' => 'Synthetic resource refusal']));
+        } else {
+          rendererStubWrite(rendererStubEvent('text_prepared', ['requestId' => $message['requestId'],
+            'layoutId' => 'pipe-layout', 'metrics' => ['advance' => 20, 'baseline' => 10,
+              'lineBounds' => ['x' => 0, 'y' => 0, 'width' => 20, 'height' => 15], 'inkBounds' => null,
+              'paintBounds' => ['x' => -1, 'y' => -1, 'width' => 22, 'height' => 17]]]));
+        }
+      } elseif ($message['type'] === 'release_text') {
+        rendererStubWrite(rendererStubEvent('text_released', ['layoutIds' => $message['layoutIds']]));
+      } elseif ($message['type'] === 'frame') {
+        rendererStubWrite(rendererStubEvent('frame_ack', ['generation' => $message['generation'],
+          'frame' => $message['frame'], 'presented' => $message['present']]) . rendererStubEvent('key', ['key' => 'up']));
+      }
+      break;
+    case 'retained_upload_fast':
+    case 'retained_upload_slow':
+    case 'retained_upload_drop':
+      $acceptedGeneration ??= 0;
+      $receivedPackets = ($receivedPackets ?? 0) + 1;
+      if ($receivedPackets === 1) { rendererStubWrite(rendererStubEvent('key', ['key' => 'right'])); }
+      if ($scenario === 'retained_upload_slow') { usleep(1000); }
+      // Drop an actual packet and its first resulting NACK, not just its acknowledgement.
+      if ($scenario === 'retained_upload_drop' && $receivedPackets === 1) { break; }
+      if (!$message['reset'] && $message['baseGeneration'] !== $acceptedGeneration) {
+        if ($scenario !== 'retained_upload_drop' || $receivedPackets !== 2) {
+          rendererStubWrite(rendererStubEvent('frame_rejected', ['generation' => $message['generation'],
+            'expectedGeneration' => $acceptedGeneration, 'message' => 'Base generation was not accepted', 'resyncRequired' => true]));
+        }
+        break;
+      }
+      $acceptedGeneration = $message['generation'];
+      rendererStubWrite(rendererStubEvent('frame_ack', ['generation' => $acceptedGeneration,
+        'frame' => $message['frame'], 'presented' => $message['present']]));
+      if ($message['present']) { rendererStubWrite(rendererStubEvent('key', ['key' => 'enter'])); }
+      break;
+    case 'retained_smoke':
+    case 'retained_smoke_recovery':
+    case 'dialogue_preview':
+    case 'scene_preview_start_key':
+      if ($protocol !== 2 || !isset($message['operations'], $message['generation'], $message['baseGeneration'], $message['present'], $message['reset'])
+        || isset($message['text']) || isset($message['textLayers']) || isset($message['tileBatches'])) {
+        rendererStubWrite(rendererStubEvent('error', ['message' => 'Smoke tools must send retained protocol two operations']));
+        break;
+      }
+      if ($scenario === 'retained_smoke_recovery' && $message['generation'] === 1) {
+        rendererStubWrite(rendererStubEvent('frame_rejected', ['generation' => 1, 'expectedGeneration' => 0,
+          'message' => 'Simulated recoverable upload failure', 'resyncRequired' => true]) . rendererStubEvent('resized'));
+      } else {
+        rendererStubWrite(rendererStubEvent('frame_ack', ['generation' => $message['generation'],
+          'frame' => $message['frame'], 'presented' => $message['present']]));
+        if ($scenario === 'scene_preview_start_key' && $message['present'] && !($startupKeySent ?? false)) {
+          $startupKeySent = true;
+          rendererStubWrite(rendererStubEvent('key', ['key' => 'enter']));
+        }
+      }
+      break;
+    case 'retained_feedback':
+      if ($message['generation'] === 600) {
+        rendererStubWrite(rendererStubEvent('key', ['key' => 'up'])
+          . rendererStubEvent('frame_rejected', ['generation' => 0, 'expectedGeneration' => 0,
+            'message' => 'Recoverable rejected update', 'resyncRequired' => true])
+          . rendererStubEvent('resized'));
+        for ($generation = 1; $generation < 600; $generation++) {
+          rendererStubWrite(rendererStubEvent('frame_ack', ['generation' => $generation, 'frame' => 1, 'presented' => false]));
+        }
+      }
+      rendererStubWrite(rendererStubEvent('frame_ack', ['generation' => $message['generation'],
+        'frame' => $message['frame'], 'presented' => true]));
+      break;
     case 'v2_events':
       rendererStubWrite(rendererStubEvent('key', ['key' => 'up']) . rendererStubEvent('error', ['message' => 'recoverable']));
       break;

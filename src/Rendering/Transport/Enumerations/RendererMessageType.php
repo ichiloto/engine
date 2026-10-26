@@ -8,4 +8,6 @@ enum RendererMessageType: string
   case HELLO = 'hello';
   case FRAME = 'frame';
   case SHUTDOWN = 'shutdown';
+  case PREPARE_TEXT = 'prepare_text';
+  case RELEASE_TEXT = 'release_text';
 }

@@ -20,14 +20,18 @@ class MainMenuSettingsManager extends SettingsManager
             'volume',
             'music',
             'sfx',
+            'voice',
             'dialogue_speed',
+            'dialogue_auto',
             'notification_duration',
             'cursor_memory',
             'battle_message_pace',
             'battle_animation_pace',
             'selection_color',
             'transitions',
+            'battle_transitions',
             'location_hud',
+            'atlas_size',
         ];
     }
 }

@@ -29,6 +29,7 @@ class Party extends BattleGroup
    * The minimum gold the party can have.
    */
   const int MIN_GOLD = 0;
+  public const int BATTLE_SIZE = 3;
 
   /**
    * @var int The party's account balance.
@@ -63,24 +64,14 @@ class Party extends BattleGroup
    */
   public ItemList $battlers {
     get {
-      $members = $this->members->toArray();
-      $frontline = array_slice($members, 0, 3);
-      $livingFrontline = array_filter(
-        $frontline,
-        static fn(CharacterInterface $member): bool => ! $member->isKnockedOut
-      );
-
-      if (! empty($livingFrontline) || count($members) <= 3) {
-        return new ItemList(CharacterInterface::class, $frontline);
-      }
-
-      $livingMembers = array_values(array_filter(
-        $members,
-        static fn(CharacterInterface $member): bool => ! $member->isKnockedOut
-      ));
-
-      return new ItemList(CharacterInterface::class, array_slice($livingMembers, 0, 3));
+      return new ItemList(CharacterInterface::class, array_slice($this->members->toArray(), 0, self::BATTLE_SIZE));
     }
+  }
+
+  public function isDefeated(): bool
+  {
+    $battlers = $this->battlers->toArray();
+    return $battlers !== [] && array_all($battlers, static fn(CharacterInterface $member): bool => $member->isKnockedOut);
   }
 
   /**
@@ -263,25 +254,8 @@ class Party extends BattleGroup
     ?GameState $gameState = null,
   ): bool
   {
+    if (!$this->canReassignSummon($definition, $character, $gameState)) { return false; }
     $policy = $definition->wielders;
-
-    if (! $policy instanceof SummonWielderPolicy || ! $policy->isValid()) {
-      return false;
-    }
-
-    if (! $this->members->contains($character)) {
-      return false;
-    }
-
-    if ($definition->availability !== null) {
-      if ($gameState === null || ! $definition->isAvailable($gameState, $this)) {
-        return false;
-      }
-    }
-
-    if (! $policy->allowsCharacter($character)) {
-      return false;
-    }
 
     if ($policy->isExclusive()) {
       $holders = $this->getSummonHolders($definition->id);
@@ -300,6 +274,22 @@ class Party extends BattleGroup
       }
     }
 
+    return true;
+  }
+
+  /** Preview the same eligibility and exclusive-ownership checks used by an atomic holder change. */
+  public function canReassignSummon(SummonCutsceneDefinition $definition, Character $character,
+    ?GameState $gameState = null): bool
+  {
+    $policy = $definition->wielders;
+    if (!$policy instanceof SummonWielderPolicy || !$policy->isValid()
+      || !$this->members->contains($character) || !$policy->allowsCharacter($character)
+      || ($definition->availability !== null && ($gameState === null || !$definition->isAvailable($gameState, $this)))) {
+      return false;
+    }
+    if ($policy->isExclusive() && count($this->getSummonHolders($definition->id)) > 1) {
+      throw new SummonAssignmentException(sprintf('Exclusive summon "%s" has multiple holders.', $definition->id));
+    }
     return true;
   }
 
@@ -352,12 +342,7 @@ class Party extends BattleGroup
       ));
     }
 
-    if (! $policy->isValid()
-      || ! $this->members->contains($character)
-      || ! $policy->allowsCharacter($character)
-      || ($definition->availability !== null
-        && ($gameState === null || ! $definition->isAvailable($gameState, $this)))
-    ) {
+    if (!$this->canReassignSummon($definition, $character, $gameState)) {
       return false;
     }
 

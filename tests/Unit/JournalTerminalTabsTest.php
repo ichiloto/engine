@@ -93,7 +93,7 @@ beforeEach(function () {
   ]));
   $this->scene = makeBareScene(GameScene::class);
   $ui = makeBareScene(UIManager::class);
-  $ui->locationHUDWindow = makeBareScene(LocationHUDWindow::class);
+  new ReflectionProperty(GameScene::class, 'locationHUDWindow')->setValue($this->scene, makeBareScene(LocationHUDWindow::class));
   new ReflectionProperty($this->scene, 'uiManager')->setValue($this->scene, $ui);
   new ReflectionProperty($this->scene, 'gameState')->setValue($this->scene, new GameState());
   new ReflectionProperty($this->scene, 'party')->setValue($this->scene, new Party());
@@ -150,6 +150,17 @@ it('uses the shared horizontal highlighted tab strip and preserves owner tab and
   journalTerminalKey($state, KeyCode::ESCAPE);
   expect($state->exits)->toBe(1);
 })->with([false, true])->with([80, 135]);
+
+it('centers terminal journals using the actual panel height sum', function (bool $records) {
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 135, 'height' => 50]));
+  Console::syncDimensions(135, 50);
+  $state = $records ? new JournalTerminalRecordsState(new SceneStateContext($this->scene))
+    : new JournalTerminalQuestState(new SceneStateContext($this->scene));
+  $state->enter();
+  $height = $state->header()->getHeight() + $state->list()->getHeight() + $state->info()->getHeight();
+  expect($state->header()->getPosition()->y)->toBe((float)intdiv(50 - $height, 2))
+    ->and($state->info()->getPosition()->y + $state->info()->getHeight())->toBe($state->header()->getPosition()->y + $height);
+})->with([false, true]);
 
 it('puts list pagination in the supported bottom-left border and uses every content row', function (bool $records) {
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 135, 'height' => 36]));

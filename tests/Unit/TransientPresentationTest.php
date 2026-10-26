@@ -2,21 +2,33 @@
 
 use Ichiloto\Engine\Animations\Animation;
 use Ichiloto\Engine\Animations\AnimationPlayer;
+use Ichiloto\Engine\Animations\AnimationTargetPosition;
+use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
+use Ichiloto\Engine\Animations\Timelines\EffectPlaybackSession;
+use Ichiloto\Engine\Animations\Timelines\LegacyAnimationTimeline;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExecutionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
+use Ichiloto\Engine\Battle\BattleTurnTimings;
+use Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback;
+use Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline;
+use Ichiloto\Engine\Battle\Presentation\BattlePoseRole;
 use Ichiloto\Engine\Battle\UI\BattleFieldWindow;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Timers;
+use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutscenePlayer;
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\CharacterSprites;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\NormalizedRow;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\Messaging\Notifications\Interfaces\NotificationInterface;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
@@ -38,14 +50,25 @@ use Ichiloto\Engine\UI\Interfaces\UIElementInterface;
 use Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
+
+/** Modal fixtures do not own a running game's terminal shutdown lifecycle. */
+final class TransientGameFixture extends Game
+{
+  public function __construct() {}
+  public function __destruct() {}
+}
 
 /** Isolates target placement, while using production popup storage, formatting and drawing. */
 final class TransientBattleField extends BattleFieldWindow
 {
-  public function __construct()
+  /** @param array<int, array{x: int, y: int}>|null $anchors */
+  public function __construct(private ?array $anchors = null)
   {
     $this->position = new Vector2();
     $this->width = 80;
@@ -53,8 +76,37 @@ final class TransientBattleField extends BattleFieldWindow
   }
   protected function resolveStatChangePopupAnchor(CharacterInterface $battler): ?array
   {
-    return ['x' => 10, 'y' => 5];
+    return $this->anchors === null ? ['x' => 10, 'y' => 5] : ($this->anchors[spl_object_id($battler)] ?? null);
   }
+  protected function resolveActionAnimationOrigin(CharacterInterface $battler, AnimationTargetPosition $position): ?array
+  {
+    $anchor = $this->resolveStatChangePopupAnchor($battler);
+    return $anchor === null ? null : ['x' => $anchor['x'] + 1, 'y' => $anchor['y'] + 2];
+  }
+}
+
+/** Synthetic subjects share display names, not identity or position. */
+function createTransientFlashFixture(array $commands, ?callable $resolve = null, array $glyphCommands = []): array
+{
+  $members = array_map(static fn(string $glyph): Character => new Character('Shared name', 0,
+    new Stats(currentHp: 100, totalHp: 100), images: new CharacterSprites(battle: [$glyph])), ['A', 'B', 'C']);
+  $anchors = [];
+  foreach ($members as $index => $member) { $anchors[spl_object_id($member)] = ['x' => 5 + 10 * $index, 'y' => 5]; }
+  $field = new TransientBattleField($anchors);
+  new ReflectionProperty(BattleFieldWindow::class, 'battleScreen')->setValue($field, new TransientBattleScreen());
+  $effect = new CompiledEffectTimeline('flash', '', fps: 10, playbackSegments: [[
+    'startFrame' => 0, 'endFrame' => 1, 'layer' => 'flash', 'drawCommands' => $commands,
+  ], ...($glyphCommands === [] ? [] : [[
+    'startFrame' => 0, 'endFrame' => 1, 'layer' => 'glyph', 'drawCommands' => $glyphCommands,
+  ]])], defaults: ['lengthFrames' => 4]);
+  $playback = new BattleCommandPlayback(new BattleCommandTimeline(
+    new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect),
+    $members[0], [$members[1], $members[2], $members[1]], BattlePoseRole::ATTACK,
+    $resolve ?? static fn() => null, static fn() => null);
+  $field->setCommandPlayback($playback);
+  $playback->update($playback->plan->phases['target']['start'] / BattleCommandTimeline::FPS);
+  foreach ($members as $index => $member) { Console::write($member->images->battle[0], 5 + 10 * $index, 6); }
+  return [$field, $playback, $members];
 }
 
 final class TransientBattleScreen extends BattleScreen
@@ -107,7 +159,7 @@ final class TransientTextBox extends TextBoxModal
 
 beforeEach(function () {
   $this->states = [];
-  foreach ([Console::class, Timers::class, ConfigStore::class, EventManager::class] as $class) {
+  foreach ([Console::class, Timers::class, Time::class, ConfigStore::class, EventManager::class] as $class) {
     $this->states[$class] = new ReflectionClass($class)->getStaticProperties();
   }
   foreach (['frameDepth' => 0, 'isRecomposing' => false, 'terminalHandedBack' => false,
@@ -141,11 +193,12 @@ it('presents real action stat popups with their colour during the hold and not a
     ->invoke($state, $context, $target, $previousHp, $previousMp, 0.002);
   $during = $this->transport->sent;
   expect($during)->not->toBeEmpty();
-  $runs = array_merge(...array_column($during[0]->payload['textLayers'], 'runs'));
+  $runs = array_merge(...array_column(RetainedFrameState::replay($during)[0]['textLayers'], 'runs'));
   expect(array_any($runs, fn($run) => $run['text'] === $text && $run['foreground'] === ['kind' => 'ansi16', 'index' => $index]))->toBeTrue();
   $this->presenter->present(Console::presentationSnapshot());
-  $last = end($this->transport->sent);
-  expect(implode('', array_column($last->payload['textLayers'][0]['runs'], 'text')))->not->toContain($text);
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  $last = end($frames);
+  expect(implode('', array_column($last['textLayers'][0]['runs'], 'text')))->not->toContain($text);
 })->with([
   [52, 100, 20, 20, '48', 9], [100, 52, 20, 20, '+48', 10], [100, 100, 52, 100, '-48 MP', 14],
 ]);
@@ -155,21 +208,291 @@ it('presents an announcement before its shared action pause clears it', function
   $context = new ReflectionClass(TurnStateExecutionContext::class)->newInstanceWithoutConstructor();
   new ReflectionProperty(TurnStateExecutionContext::class, 'ui')->setValue($context, new TransientBattleScreen());
   new ReflectionMethod(ActionExecutionState::class, 'displayPhase')->invoke($state, $context, 'Turn over!', 0.002, true);
-  expect($this->transport->sent[0]->payload['textLayers'][0]['runs'][0]['text'])->toStartWith('Turn over!')
+  expect(RetainedFrameState::replay($this->transport->sent)[0]['textLayers'][0]['runs'][0]['text'])->toStartWith('Turn over!')
     ->and(Console::snapshot()->rows[0])->not->toContain('Turn over!');
 });
 
 it('presents each authored animation frame before advancing', function () {
   new AnimationPlayer(0.01)->play(new Animation(1, 'Test', maxFrames: 3), fn($index) => Console::write((string)$index, 0, 0));
-  expect(array_map(fn($message) => $message->payload['textLayers'][0]['runs'][0]['text'][0], $this->transport->sent))->toBe(['1', '2', '3']);
+  expect(array_map(fn($frame) => $frame['textLayers'][0]['runs'][0]['text'][0], RetainedFrameState::replay($this->transport->sent)))->toBe(['1', '2', '3']);
 });
 
 it('presents each summon frame and retains PHP cue order', function () {
   $cues = [];
   $cutscene = new SummonCompiledCutscene('test', 'test', fps: 100, cueSchedule: [['frame' => 1]], defaults: ['lengthFrames' => 3]);
   new SummonCutscenePlayer()->play($cutscene, fn($index) => Console::write((string)$index, 0, 0), function ($cue, $index) use (&$cues) { $cues[] = $index; });
-  expect(array_map(fn($message) => $message->payload['textLayers'][0]['runs'][0]['text'][0], $this->transport->sent))->toBe(['0', '1', '2'])
+  expect(array_map(fn($frame) => $frame['textLayers'][0]['runs'][0]['text'][0], RetainedFrameState::replay($this->transport->sent)))->toBe(['0', '1', '2'])
     ->and($cues)->toBe([1]);
+});
+
+it('removes terminal background flash washes while retaining timed foreground colour and underlay restoration', function () {
+  $field = new TransientBattleField();
+  Console::write('BASE', 2, 2);
+  $before = Console::getBuffer()[2];
+  $field->beginBattleFlash(new Character('Target', 0, new Stats()), true, 'red', 1, 2);
+  $render = new ReflectionMethod(BattleFieldWindow::class, 'renderBattleFlash');
+  $render->invoke($field, 1);
+  expect(Console::getBuffer()[2])->toContain("\033[31m")->not->toContain("\033[41m");
+  expect(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi(Console::getBuffer()[2]))->toContain('BASE');
+  $render->invoke($field, 2);
+  expect(Console::getBuffer()[2])->toContain("\033[31m")->not->toContain("\033[41m");
+  $render->invoke($field, 3);
+  expect(Console::getBuffer()[2])->toBe($before);
+});
+
+it('removes coloured empty cells from terminal target flashes and preserves the surrounding field', function () {
+  $field = new TransientBattleField();
+  Console::write('OUTSIDE', 2, 2);
+  Console::write('TARGET', 9, 6);
+  $outside = Console::getBuffer()[2];
+  $target = Console::getBuffer()[6];
+  $field->beginBattleFlash(new Character('Target', 0, new Stats()), false, 'white', 0, 1);
+  new ReflectionMethod(BattleFieldWindow::class, 'renderBattleFlash')->invoke($field, 0);
+  expect(Console::getBuffer()[2])->toBe($outside)
+    ->and(Console::getBuffer()[6])->toContain("\033[37m")->not->toContain('107m')
+    ->and(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi(Console::getBuffer()[6]))
+    ->toBe(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($target));
+  $field->clearBattleFlash();
+  expect(Console::getBuffer()[6])->toBe($target);
+});
+
+it('colours every distinct terminal flash recipient together and suppresses invisible and screen flashes', function (bool $atomic) {
+  [$field] = createTransientFlashFixture([
+    ['payload' => ['anchor' => 'caster', 'color' => 'red']],
+    ['payload' => ['anchor' => 'target', 'color' => 'blue']],
+    ['visible' => false, 'payload' => ['anchor' => 'target', 'color' => 'green']],
+    ['payload' => ['anchor' => 'legacy-screen', 'color' => 'magenta']],
+    ['payload' => ['anchor' => 'screen', 'color' => 'magenta']],
+  ]);
+  Console::write("\e[32mGap\e[0m", 10, 6);
+  $before = Console::getBuffer();
+  if ($atomic) { Console::updateFrame(fn() => $field->renderMagicCastEffects()); }
+  else { $field->renderMagicCastEffects(); }
+  $cells = NormalizedRow::fromText(Console::getBuffer()[6])->cells;
+  expect($cells[5])->toContain("\e[31m", 'A')
+    ->and($cells[15])->toContain("\e[34m", 'B')
+    ->and($cells[25])->toContain("\e[34m", 'C')
+    ->and($cells[10])->toContain("\e[32m", 'G')
+    ->and(array_map(TerminalText::stripAnsi(...), Console::getBuffer()))
+    ->toBe(array_map(TerminalText::stripAnsi(...), $before))
+    ->and(Console::presentationSnapshot()->textLayers)->toHaveCount(2);
+})->with([false, true]);
+
+it('keeps terminal pulses quiet during pause and redraw and restores live content on expiry and cancellation', function (bool $tracked) {
+  Console::setLayerTracking($tracked);
+  $hits = 0;
+  [$field, $playback] = createTransientFlashFixture([
+    ['payload' => ['anchor' => 'target', 'color' => 'white']],
+  ], function () use (&$hits): void { $hits++; });
+  Console::write("\e[32mGap\e[0m", 10, 6);
+  Console::replaceOverlay('higher-notice', ['UI'], 18, 6, 2500);
+  Console::updateFrame(fn() => $field->renderMagicCastEffects());
+  $during = Console::getBuffer();
+  $field->pauseTiming();
+  $frame = $playback->session->currentFrame;
+  $playback->update(10);
+  ob_clean();
+  Console::updateFrame(function () use ($field): void {
+    Console::write(str_repeat(' ', 30), 0, 6);
+    Console::write('A', 5, 6);
+    Console::write('B', 15, 6);
+    Console::write('C', 25, 6);
+    Console::write("\e[32mGap\e[0m", 10, 6);
+    $field->renderMagicCastEffects();
+  });
+  expect(ob_get_contents())->toBe('')->and(Console::getBuffer())->toBe($during)
+    ->and($playback->session->currentFrame)->toBe($frame)->and($hits)->toBe(0);
+  Console::updateFrame(function () use ($field): void {
+    Console::write("\e[33mNew\e[0m", 10, 6);
+    $field->renderMagicCastEffects();
+  });
+  expect(NormalizedRow::fromText(Console::getBuffer()[6])->cells[10])->toContain("\e[33m", 'N');
+  $field->resumeTiming();
+  $playback->update(.2);
+  Console::updateFrame(fn() => $field->renderMagicCastEffects());
+  expect(array_column(Console::presentationSnapshot()->textLayers, 'id'))->not->toContain('battle-effect-flash')
+    ->and(Console::getBuffer()[6])->toContain('UI')
+    ->and(NormalizedRow::fromText(Console::getBuffer()[6])->cells[15])->toBe('B')
+    ->and(NormalizedRow::fromText(Console::getBuffer()[6])->cells[10])->toContain("\e[33m", 'N');
+  $playback->update(10);
+  expect($hits)->toBe(1)->and($playback->isCompleted)->toBeTrue();
+  [$next] = createTransientFlashFixture([['payload' => ['anchor' => 'target', 'color' => 'red']]]);
+  Console::updateFrame(fn() => $next->renderMagicCastEffects());
+  expect(array_column(Console::presentationSnapshot()->textLayers, 'id'))->toContain('battle-effect-flash');
+  $next->setCommandPlayback(null);
+  expect(array_column(Console::presentationSnapshot()->textLayers, 'id'))->not->toContain('battle-effect-flash');
+})->with([false, true]);
+
+it('uses one terminal flash layer for multiple recipients at the shared layer limit', function () {
+  [$field] = createTransientFlashFixture([['payload' => ['anchor' => 'target', 'color' => 'red']]]);
+  Console::setTerminalOutputEnabled(false);
+  for ($index = 0; $index < 62; $index++) { Console::replaceOverlay('notice-' . $index, ['n'], 0, 0, 2500); }
+  Console::updateFrame(fn() => $field->renderMagicCastEffects());
+  expect(Console::presentationSnapshot()->textLayers)->toHaveCount(64)
+    ->and(NormalizedRow::fromText(Console::getBuffer()[6])->cells[15])->toContain("\e[31m", 'B')
+    ->and(NormalizedRow::fromText(Console::getBuffer()[6])->cells[25])->toContain("\e[31m", 'C');
+});
+
+it('colours this frames terminal effect glyphs without hiding them beneath a stale flash underlay', function () {
+  [$field] = createTransientFlashFixture([['payload' => ['anchor' => 'target', 'color' => 'red']]],
+    glyphCommands: [['content' => '*', 'payload' => ['anchor' => 'target']]]);
+  Console::updateFrame(fn() => $field->renderMagicCastEffects());
+  $cells = NormalizedRow::fromText(Console::getBuffer()[6])->cells;
+  expect($cells[15])->toContain("\e[31m", '*')->and($cells[25])->toContain("\e[31m", '*');
+});
+
+it('preserves whole wide glyphs and row geometry at staggered terminal flash boundaries', function () {
+  $target = new Character('Target', 0, new Stats(), images: new CharacterSprites(battle: ['A', 'A', 'A']));
+  $field = new TransientBattleField([spl_object_id($target) => ['x' => 5, 'y' => 5]]);
+  foreach ([2, 3, 4] as $row => $x) {
+    Console::write("\e[32m\u{754c}\e[0m", $x, 6 + $row);
+    if ($row < 2) { Console::write('A', 5, 6 + $row); }
+    Console::write('Z', 10, 6 + $row);
+  }
+  $before = Console::getBuffer();
+  $field->beginBattleFlash($target, false, 'red', 0, 1);
+  Console::updateFrame(fn() => new ReflectionMethod(BattleFieldWindow::class, 'renderBattleFlash')->invoke($field, 0));
+  expect(array_map(TerminalText::stripAnsi(...), Console::getBuffer()))
+    ->toBe(array_map(TerminalText::stripAnsi(...), $before))
+    ->and(NormalizedRow::fromText(Console::getBuffer()[6])->cells[5])->toContain("\e[31m", 'A')
+    ->and(NormalizedRow::fromText(Console::getBuffer()[8])->cells[4])->toContain("\e[32m", "\u{754c}");
+  $field->clearBattleFlash();
+  expect(Console::getBuffer())->toBe($before);
+});
+
+it('clears all terminal flashes when reduced motion is enabled without changing logical command time', function () {
+  [$field, $playback] = createTransientFlashFixture([['payload' => ['anchor' => 'target', 'color' => 'red']]]);
+  $before = Console::getBuffer();
+  Console::updateFrame(fn() => $field->renderMagicCastEffects());
+  $frame = $playback->session->currentFrame;
+  ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => true]]));
+  Console::updateFrame(fn() => $field->renderMagicCastEffects());
+  expect(Console::getBuffer())->toBe($before)
+    ->and(array_column(Console::presentationSnapshot()->textLayers, 'id'))->not->toContain('battle-effect-flash')
+    ->and($playback->session->currentFrame)->toBe($frame);
+});
+
+it('composes a complete quiet terminal command and restores formation without stale effects', function (bool $tracked, bool $reduced) {
+  Console::setLayerTracking($tracked);
+  Console::syncDimensions(135, 36);
+  ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));
+  $sink = fopen('php://memory', 'w+');
+  new ReflectionProperty(Console::class, 'terminalOutputStream')->setValue(null, $sink);
+  Console::setTerminalOutputEnabled(true);
+  $party = new \Ichiloto\Engine\Entities\Party();
+  $actor = new Character('Actor', 0, new Stats(currentHp: 100, totalHp: 100),
+    images: new CharacterSprites(battle: ['HHH', 'H H', 'HHH']));
+  $target = new Character('Target', 0, new Stats(currentHp: 80, totalHp: 100),
+    images: new CharacterSprites(battle: ['TTT', 'T T', 'TTT']));
+  $party->addMember($actor);
+  $party->addMember($target);
+  $screen = new class($party) extends BattleScreen {
+    public \Ichiloto\Engine\Entities\Party $party { get => $this->members; }
+    public array $partyBattlers { get => $this->members->battlers->toArray(); }
+    public \Ichiloto\Engine\Entities\Troop $troop { get => new \Ichiloto\Engine\Entities\Troop('Empty'); }
+    public function __construct(private \Ichiloto\Engine\Entities\Party $members)
+    {
+      $this->screenDimensions = new Rect(0, 0, 135, 36);
+      $this->borderPack = new \Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack();
+      $this->fieldWindow = new BattleFieldWindow($this);
+    }
+  };
+  $source = new CompiledEffectTimeline('source', '', fps: 10, playbackSegments: [[
+    'startFrame' => 0, 'endFrame' => 1, 'layer' => 'glyph',
+    'drawCommands' => [['content' => '@', 'payload' => ['anchor' => 'caster']]],
+  ]], defaults: ['lengthFrames' => 4, 'restFrame' => 0]);
+  $effect = new CompiledEffectTimeline('target', '', fps: 10, playbackSegments: [
+    ...array_map(static fn(int $stroke): array => [
+      'startFrame' => $stroke * 3, 'endFrame' => $stroke * 3 + 1, 'layer' => 'glyph',
+      'drawCommands' => [['content' => $stroke === 0 ? '/' : '\\',
+        'payload' => ['anchor' => 'target', 'facing' => 'east']]],
+    ], [0, 1]),
+    ['startFrame' => 0, 'endFrame' => 4, 'layer' => 'shake',
+      'drawCommands' => [['payload' => ['anchor' => 'caster', 'amplitude' => 5]]]],
+    ['startFrame' => 0, 'endFrame' => 4, 'layer' => 'flash',
+      'drawCommands' => [['payload' => ['anchor' => 'screen', 'color' => 'red']]]],
+  ], defaults: ['lengthFrames' => 6, 'restFrame' => 0]);
+  $hits = 0;
+  $field = $screen->fieldWindow;
+  $playback = new BattleCommandPlayback(new BattleCommandTimeline(
+    new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), $source, $effect),
+    $actor, [$target], BattlePoseRole::ATTACK,
+    function () use (&$hits, $field, $target): void {
+      $hits++;
+      $field->showStatChangePopup($target, [['text' => '+7']], durationSeconds: .1);
+    }, static fn() => null);
+  $locate = static function (array $rows, string $text): array {
+    foreach ($rows as $y => $line) {
+      $x = mb_strpos(TerminalText::stripAnsi($line), $text);
+      if ($x !== false) { return ['x' => $x, 'y' => $y]; }
+    }
+    throw new RuntimeException('Expected terminal subject not drawn: ' . $text);
+  };
+  try {
+    $screen->refreshField();
+    $baseline = Console::snapshot()->rows;
+    $idle = $locate($baseline, 'HHH');
+    $recipient = $locate($baseline, 'TTT');
+    $field->setCommandPlayback($playback);
+    $strokes = $phases = [];
+    $sawSource = $sawResult = false;
+    $actingX = null;
+    $frames = $playback->session->totalFrames;
+    for ($tick = 0; $tick <= $frames; $tick++) {
+      $playback->update($tick === 0 ? 0 : 1 / BattleCommandTimeline::FPS);
+      $screen->refreshField();
+      $rows = Console::snapshot()->rows;
+      $presented = $locate($rows, 'HHH');
+      expect($locate($rows, 'TTT'))->toBe($recipient)
+        ->and($presented['y'])->toBe($idle['y']);
+      $advanced = !$reduced && !in_array($playback->phase, ['return', 'finish'], true);
+      if ($advanced) {
+        $actingX ??= $presented['x'];
+        expect($presented['x'])->toBe($actingX)->toBeLessThan($idle['x']);
+      } else { expect($presented['x'])->toBe($idle['x']); }
+      $phases[$playback->phase] = true;
+      $text = implode('', array_map(TerminalText::stripAnsi(...), $rows));
+      if ($playback->phase === 'source') { $sawSource = $sawSource || str_contains($text, '@'); }
+      if ($playback->phase === 'target') {
+        foreach (['\\', '/'] as $stroke) {
+          if (str_contains($text, $stroke) && !in_array($stroke, $strokes, true)) { $strokes[] = $stroke; }
+        }
+      }
+      if ($playback->phase === 'reaction') { $sawResult = $sawResult || str_contains($text, '+7'); }
+      $bytes = ftell($sink);
+      $screen->refreshField();
+      expect(ftell($sink))->toBe($bytes)->and(Console::snapshot()->rows)->toBe($rows);
+    }
+    $field->setCommandPlayback(null);
+    $field->clearMagicCastEffects();
+    $field->clearStatChangePopups();
+    $screen->refreshField();
+    expect(array_keys($phases))->toBe(['advance', 'announce', 'source', 'target', 'reaction', 'return', 'finish'])
+      ->and($sawSource)->toBeTrue()->and($sawResult)->toBeTrue()->and($hits)->toBe(1)
+      ->and($strokes)->toBe($reduced ? ['\\'] : (($actingX < $recipient['x']) ? ['/', '\\'] : ['\\', '/']))
+      ->and(Console::snapshot()->rows)->toBe($baseline);
+    rewind($sink);
+    expect(stream_get_contents($sink))->not->toContain("\e[2J", "\e[41m", "\e[101m");
+  } finally {
+    new ReflectionProperty(Console::class, 'terminalOutputStream')->setValue(null, null);
+    fclose($sink);
+  }
+})->with([false, true])->with([false, true]);
+
+it('orders terminal summon art by z and clears lower layers before drawing', function () {
+  $screen = new TransientBattleScreen();
+  $field = $screen->fieldWindow;
+  new ReflectionProperty(BattleFieldWindow::class, 'battleScreen')->setValue($field, $screen);
+  $command = static fn(string $content, int $x, int $z): array =>
+    ['content' => $content, 'position' => [$x, 0], 'zIndex' => $z];
+  $cutscene = new SummonCompiledCutscene('layers', 'fixture', playbackSegments: [
+    ['startFrame' => 0, 'endFrame' => 0, 'drawCommands' => [$command('B', 2, 10)]],
+    ['startFrame' => 0, 'endFrame' => 0, 'drawCommands' => [$command('A', 0, 0)]],
+    ['startFrame' => 0, 'endFrame' => 0, 'clearBeforeDraw' => true, 'drawCommands' => [$command('C', 1, 5)]],
+  ]);
+  $field->showSummonCutsceneFrame($cutscene, 0);
+  $line = \Ichiloto\Engine\IO\Console\TerminalText::stripAnsi(Console::getBuffer()[1]);
+  expect(substr($line, 1, 3))->toBe(' CB');
 });
 
 it('presents transition cover above all UI and sprites before it is removed', function () {
@@ -177,31 +500,39 @@ it('presents transition cover above all UI and sprites before it is removed', fu
     public function isEnabled(): bool { return true; }
   };
   $transition->out();
-  $shades = array_map(fn($message) => mb_substr($message->payload['textLayers'][1]['runs'][0]['text'], 0, 1), $this->transport->sent);
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  $shades = array_map(fn($frame) => mb_substr($frame['textLayers'][1]['runs'][0]['text'], 0, 1), $frames);
   expect($shades)->toBe(['░', '▒', '▓', '█'])
-    ->and($this->transport->sent[0]->payload['textLayers'][1]['layer'])->toBe(3000);
+    ->and($frames[0]['textLayers'][1]['layer'])->toBe(3000);
   $transition->in();
   expect(Console::presentationSnapshot()->textLayers)->toHaveCount(1);
 });
 
-it('presents battle intro frames before the next intro clear', function () {
+it('presents battle intro frames through the shared clock without blocking waits or screen clears', function () {
   $scene = new ReflectionClass(BattleScene::class)->newInstanceWithoutConstructor();
   $scene->ui = new TransientBattleScreen();
   new ReflectionProperty(BattleScene::class, 'camera')->setValue($scene, new Camera($scene, 80, 24));
   $state = new BattleStartState(new SceneStateContext($scene));
-  foreach (['frames' => ['FIRST', 'SECOND'], 'totalFrames' => 2, 'sleepTime' => 2000] as $name => $value) {
+  $session = new EffectPlaybackSession(LegacyAnimationTimeline::compileTextFrames('entry', ['FIRST', 'SECOND'], 100));
+  foreach (['introPlayback' => $session, 'lastIntroTime' => 0.0] as $name => $value) {
     new ReflectionProperty($state, $name)->setValue($state, $value);
   }
+  $state->refreshIntroPresentation();
+  $this->presenter->present(Console::presentationSnapshot());
   $advance = new ReflectionMethod($state, 'playIntroAnimation');
+  new ReflectionProperty(Time::class, 'time')->setValue(null, 0.01);
   $advance->invoke($state);
-  $advance->invoke($state);
-  expect($this->transport->sent)->toHaveCount(2)
-    ->and($this->transport->sent[0]->payload['textLayers'][0]['runs'][0]['text'])->toStartWith('FIRST')
-    ->and($this->transport->sent[1]->payload['textLayers'][0]['runs'][0]['text'])->toStartWith('SECOND');
+  $this->presenter->present(Console::presentationSnapshot());
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect($frames)->toHaveCount(2)
+    ->and($frames[0]['textLayers'][1]['runs'][0]['text'])->toStartWith('FIRST')
+    ->and($frames[1]['textLayers'][1]['runs'][0]['text'])->toStartWith('SECOND')
+    ->and(ob_get_contents())->not->toContain("\033[2J");
+  $state->exit();
 });
 
 it('presents fresh direct modal select and typewriter content in a sparse modal layer before dismissal', function ($kind, $expected) {
-  $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $game = new TransientGameFixture();
   $modal = match ($kind) {
     'modal' => new TransientModal($game, 'Old content', rect: new Rect(5, 5, 30, 5)),
     'select' => new TransientSelectModal($game, 'Choose', ['First', 'Second'], rect: new Rect(5, 5, 30, 5)),
@@ -209,7 +540,7 @@ it('presents fresh direct modal select and typewriter content in a sparse modal 
   };
   $modal->open();
   expect($this->transport->sent)->not->toBeEmpty();
-  $layers = $this->transport->sent[0]->payload['textLayers'];
+  $layers = RetainedFrameState::replay($this->transport->sent)[0]['textLayers'];
   expect($layers)->toHaveCount(2)->and($layers[1]['layer'])->toBe(1020)
     ->and(implode('', array_column($layers[1]['runs'], 'text')))->toContain($expected);
   expect(Console::presentationSnapshot()->textLayers)->toHaveCount(1);
@@ -239,7 +570,7 @@ it('derives UIManager layers from existing priorities and safely nests direct mo
   new ReflectionProperty(UIManager::class, 'uiElements')->setValue($ui, $elements);
   $ui->render();
   expect(Console::presentationSnapshot()->textLayers[1]->layer)->toBe(1010);
-  $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $game = new TransientGameFixture();
   $modal = new TransientModal($game, 'Modal', rect: new Rect(5, 5, 30, 5));
   PresentationLayerPolicy::ui($modal, $modal->render(...));
   expect(array_column(Console::presentationSnapshot()->textLayers, 'layer'))->toBe([0, 1010, 1020]);
@@ -255,6 +586,7 @@ it('wraps the existing notification renderer above PHP UI without changing its d
   };
   $manager->render();
   expect(Console::presentationSnapshot()->textLayers[1]->id)->toBe('notifications')
-    ->and(Console::presentationSnapshot()->textLayers[1]->layer)->toBe(2000)
+    ->and(Console::presentationSnapshot()->textLayers[1]->layer)->toBe(PresentationLayerPolicy::NOTIFICATIONS)
+    ->toBeGreaterThan(PresentationLayerPolicy::TRANSITION)
     ->and(Console::presentationSnapshot()->textLayers[1]->runs[0]->text)->toBe('Notice');
 });

@@ -2,7 +2,9 @@
 
 namespace Ichiloto\Engine\Events\Triggers;
 
-use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Core\CellArea;
+use Ichiloto\Engine\Events\Enumerations\EventEngagement;
+use Ichiloto\Engine\Events\MapEventDefinition;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use InvalidArgumentException;
@@ -14,12 +16,13 @@ class EventTriggerFactory
   }
 
   /**
-   * Creates an event trigger.
+   * Creates a trigger from a resolved {@see MapEventDefinition} envelope.
    *
    * @param array $args The arguments.
    * @return EventTrigger The event trigger.
    * @throws NotFoundException If the class does not exist.
    * @throws RequiredFieldException If a required field is missing.
+   * @throws InvalidArgumentException If the area is neither exact cells nor a rectangle.
    */
   public static function create(array $args, ?string $mapId = null): EventTrigger
   {
@@ -36,14 +39,19 @@ class EventTriggerFactory
       throw new RequiredFieldException('area');
     }
 
-    $area = new Rect(
-      $args['area']['x'] ?? throw new RequiredFieldException('area.x'),
-      $args['area']['y'] ?? throw new RequiredFieldException('area.y'),
-      $args['area']['width'] ?? throw new RequiredFieldException('area.width'),
-      $args['area']['height'] ?? throw new RequiredFieldException('area.height')
-    );
+    // Exact cells as the map reader resolves them, or an explicit rectangle.
+    $area = CellArea::fromArray($args['area'], 'Event area');
 
     $data = $args['data'] ?? throw new RequiredFieldException('data');
+
+    if (array_key_exists('facing', $args) && !is_array($args['facing'])) {
+      throw new InvalidArgumentException('Event facing must be a list of cardinal heading names.');
+    }
+
+    $engagement = EventEngagement::INSIDE;
+    if (array_key_exists('engagement', $args)) {
+      $engagement = EventEngagement::parse($args['engagement']);
+    }
 
     return new $class(
       $area,
@@ -54,6 +62,8 @@ class EventTriggerFactory
       isset($args['marker']) ? strval($args['marker']) : null,
       isset($args['whenBlocked']) ? strval($args['whenBlocked']) : null,
       is_array($args['cue'] ?? null) ? $args['cue'] : null,
+      $args['facing'] ?? [],
+      $engagement,
     );
   }
 }

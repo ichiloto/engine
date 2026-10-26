@@ -2,6 +2,7 @@
 
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\BattleCommandOption;
+use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Battle\Presentation\BattleHudListSnapshot;
 use Ichiloto\Engine\Battle\Presentation\BattleHudRow;
 use Ichiloto\Engine\Battle\Presentation\BattleHudSnapshot;
@@ -81,6 +82,23 @@ function hudSnapshotOption(string $label, int $mpCost = 0): BattleCommandOption
 {
   return new BattleCommandOption($label, "Authored info: {$label}", new AttackAction('Test'), mpCost: $mpCost);
 }
+
+it('carries semantic command artwork separately without changing terminal labels or selection', function () {
+  $window = makeHudSnapshotScreen()->commandContextWindow;
+  $window->setItems([
+    new BattleCommandOption('Attack', 'Strike.', new AttackAction('Attack'), type: BattleCommandType::ATTACK),
+    hudSnapshotOption('Custom command'),
+  ], 'Attack');
+  $window->focus();
+  $window->setSelectionBlink(false);
+  $before = $window->recordedState();
+  $snapshot = $window->presentationSnapshot();
+  expect(array_column($snapshot->rows, 'label'))->toBe(['Attack', 'Custom command'])
+    ->and(array_column($snapshot->rows, 'iconRole'))->toBe(['command.attack', null])
+    ->and($window->recordedState())->toBe($before)
+    ->and(TerminalText::stripAnsi($before[0][0]))->toContain('> Attack')
+    ->and(TerminalText::stripAnsi($before[0][0]))->not->toContain('ATK');
+});
 
 it('copies exact command viewport rows and pagination without rendering or changing selection', function () {
   $window = makeHudSnapshotScreen()->commandWindow;
@@ -235,7 +253,7 @@ it('only supplies ATB when the status window owns an ATB layout and keeps four r
   $snapshot = $window->presentationSnapshot();
   expect(array_column($snapshot->rows, 'atbRatio'))->toBe([0.5, 1.0, 0.0, 0.0])
     ->and($snapshot->title)->toBe($window->getTitle())
-    ->and($snapshot->title)->toContain('ATB')
+    ->and($snapshot->title)->toContain('Time')->not->toContain('ATB')
     ->and($window->recordedState())->toBe($before);
   $window->clearAtbPercentages();
   expect(array_column($window->presentationSnapshot()->rows, 'atbRatio'))->toBe([null, null, null, null]);

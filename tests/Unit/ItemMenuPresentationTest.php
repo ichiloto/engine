@@ -12,6 +12,12 @@ use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Effects\HPRecoveryEffect;
 use Ichiloto\Engine\Entities\Enumerations\ValueBasis;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
+use Ichiloto\Engine\Entities\Enumerations\WeaponType;
+use Ichiloto\Engine\Entities\Enumerations\ArmorType;
+use Ichiloto\Engine\Entities\Inventory\Armor;
+use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
+use Ichiloto\Engine\Entities\Inventory\EquipmentSlotType;
+use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\IO\ActionHints;
@@ -36,9 +42,11 @@ use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeInputSource;
 use Tests\Support\Input\FakeRendererTransport;
+use function Tests\Support\Rendering\writeTestPng;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 class ItemMenuGameProbe extends Game
 {
@@ -87,6 +95,7 @@ beforeEach(function () {
   $this->alerts = new ItemMenuAlerts();
   new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->alerts);
   Console::setTerminalOutputEnabled(false);
+  Console::enterAlternateScreen();
   Console::syncDimensions(135, 36);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 135, 'height' => 36]));
   $this->game = $game = new ItemMenuGameProbe();
@@ -102,7 +111,7 @@ beforeEach(function () {
   $scene = makeBareScene(GameScene::class);
   new ReflectionProperty($scene, 'sceneManager')->setValue($scene, $manager);
   $ui = makeBareScene(\Ichiloto\Engine\UI\UIManager::class);
-  $ui->locationHUDWindow = makeBareScene(LocationHUDWindow::class);
+  new ReflectionProperty(GameScene::class, 'locationHUDWindow')->setValue($scene, makeBareScene(LocationHUDWindow::class));
   new ReflectionProperty($scene, 'uiManager')->setValue($scene, $ui);
   $this->party = new Party();
   $this->actor = new Character('First Actor', 0, new Stats(totalHp: 500, totalMp: 100));
@@ -183,6 +192,49 @@ it('keeps every item reachable using terminal page slicing and graphical selecti
   $panel->selectPrevious();
   expect($panel->activeIndex)->toBe(69)->and($panel->page)->toBe($panel->totalPages);
 });
+
+it('uses shared equipment type icons in inventory artwork and native terminal rows without changing consumables', function () {
+  writeTestPng($this->root . '/Dagger.png', 18, 24);
+  writeTestPng($this->root . '/Head.png', 18, 24);
+  $this->theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false,
+    'icons' => ['weapon.dagger' => 'Dagger.png', 'slot.head' => 'Head.png']]);
+  $items = [new Weapon('First weapon', '', 'OLD-A', 5, equipmentType: WeaponType::DAGGER, id: 'weapon.first'),
+    new Weapon('Second weapon', '', 'OLD-B', 10, equipmentType: WeaponType::DAGGER, id: 'weapon.second'),
+    new Item('Ordinary item', '', 'AUTHORED', 5, id: 'item.ordinary'),
+    new Armor('First helmet', '', 'OLD-C', 5, equipmentType: ArmorType::GENERAL_ARMOR,
+      semanticSlot: EquipmentSlotType::HEAD, id: 'helmet.first'),
+    new Armor('Second helmet', '', 'OLD-D', 10, equipmentType: ArmorType::MAGIC_ARMOR,
+      semanticSlot: EquipmentSlotType::HEAD, id: 'helmet.second')];
+  $this->party->inventory->addItems(...$items);
+  $this->state->selectionPanel->setItems($items);
+  $canvas = ItemMenuPresentation::compose($this->state, $this->theme);
+  $images = array_column($canvas->images, null, 'id');
+  foreach ([0 => 'Dagger.png', 1 => 'Dagger.png', 3 => 'Head.png', 4 => 'Head.png'] as $index => $asset) {
+    $parts = array_filter($images, fn($image) => str_starts_with($image->id, 'items-inventory-item-' . $index . '-icon-'));
+    expect($parts)->not->toBeEmpty()->and(array_unique(array_column($parts, 'asset')))->toBe([$asset]);
+  }
+  expect($images)->not->toHaveKey('items-inventory-item-2-icon');
+  $terminal = implode('', $this->state->selectionPanel->getContent());
+  expect($terminal)->toContain(EquipmentIcon::getTerminalGlyph(WeaponType::DAGGER) . ' First weapon',
+    EquipmentIcon::getTerminalGlyph(WeaponType::DAGGER) . ' Second weapon', 'Ordinary item',
+    EquipmentIcon::getTerminalGlyph(EquipmentSlotType::HEAD) . ' First helmet',
+    EquipmentIcon::getTerminalGlyph(EquipmentSlotType::HEAD) . ' Second helmet')
+    ->not->toContain('OLD-A', 'OLD-B', 'OLD-C', 'OLD-D')->and($items[2]->icon)->toBe('AUTHORED');
+  $this->state->selectionPanel->render();
+  expect(implode('', Console::snapshot()->rows))->toContain('First weapon', 'Second weapon', 'Ordinary item')
+    ->not->toContain('OLD-A', 'OLD-B');
+});
+
+it('reserves terminal inventory quantities beside native-width icons in a narrow panel', function (WeaponType $type) {
+  $panel = $this->state->selectionPanel;
+  $gear = new Weapon(str_repeat('Fixture ', 10), '', '/', 1, quantity: 74, equipmentType: $type);
+  new ReflectionProperty($panel, 'width')->setValue($panel, 18);
+  $panel->setItems([new Item(str_repeat('Ordinary ', 10), '', '/', 1, quantity: 74), $gear]);
+  foreach (array_slice($panel->getContent(), 0, 2) as $row) {
+    expect(\Ichiloto\Engine\IO\Console\TerminalText::displayWidth($row))->toBe(14)
+      ->and(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($row))->toEndWith(' 74');
+  }
+})->with([WeaponType::SWORD, WeaponType::DAGGER, WeaponType::STAFF, WeaponType::FLAIL, WeaponType::WHIP]);
 
 it('normalizes keyed input and clamps selection after a changing or empty inventory', function () {
   $items = itemMenuInventory($this->state, 30);
@@ -328,3 +380,23 @@ it('uses menu-only renderer capabilities and retains its canvas beneath alerts',
   $modal->hide();
   expect($this->state->getPresentationCanvas())->toEqual($before);
 })->with([true, false]);
+
+
+it('keeps inventory and healthy frames when one optional panel image is missing', function () {
+  $chunk = static fn(string $type, string $bytes) => pack('N', strlen($bytes)) . $type . $bytes . pack('N', crc32($type . $bytes));
+  file_put_contents($this->root . '/surface.png', "\x89PNG\r\n\x1a\n"
+    . $chunk('IHDR', pack('NNCCCCC', 4, 4, 8, 6, 0, 0, 0))
+    . $chunk('IDAT', gzcompress(str_repeat("\0" . str_repeat("\xAA\xBB\xCC\xFF", 4), 4))) . $chunk('IEND', ''));
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false,
+    'frames' => ['panel' => ['asset' => 'missing.png'], 'quiet' => ['asset' => 'surface.png']]]);
+  $items = itemMenuInventory($this->state, 3);
+  $mode = $this->state->mode;
+  $frame = ItemMenuPresentation::compose($this->state, $theme);
+  expect($frame)->toBeInstanceOf(PresentationCanvas::class)
+    ->and(itemMenuText($frame))->toContain('Use', 'Item 000', 'Item 002')
+    ->and(array_column($frame->images, 'asset'))->toContain('surface.png')->not->toContain('missing.png')
+    ->and($this->state->selectionPanel->items)->toBe($items)
+    ->and($this->state->mode)->toBe($mode)
+    ->and($items[0]->quantity)->toBe(1)
+    ->and(file_get_contents($this->root . '/warning.log'))->toContain('missing.png');
+});

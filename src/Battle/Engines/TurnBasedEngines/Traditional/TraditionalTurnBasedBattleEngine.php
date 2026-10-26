@@ -33,7 +33,8 @@ class TraditionalTurnBasedBattleEngine extends TurnBasedEngine
       $this->battleConfig->party,
       $this->battleConfig->troop,
       $this->battleConfig->ui,
-      []
+      [],
+      $this->battleConfig->partyRoster,
     );
     $this->setState($this->turnInitState);
   }

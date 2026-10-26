@@ -19,6 +19,26 @@ final class ElementRegistry
    */
   public static function configure(array $elements = []): void
   {
+    $canonical = [];
+
+    foreach (self::getCanonicalIdentities($elements) as $identity) {
+      $canonical[strtolower($identity)] = $identity;
+    }
+
+    self::$elements = $canonical;
+  }
+
+  /**
+   * The element identities a project's authored list declares, as the game
+   * will know them: the Engine's defaults when it lists none. Reads nothing
+   * global, so an editor can ask without configuring the running game.
+   *
+   * @param array<mixed> $elements The authored list, from system.php.
+   * @return list<string> The identities, in authored order.
+   * @throws InvalidArgumentException When an identity is empty or repeated.
+   */
+  public static function getCanonicalIdentities(array $elements = []): array
+  {
     $elements = $elements === []
       ? array_map(static fn(ElementType $element): string => $element->value, ElementType::cases())
       : $elements;
@@ -39,7 +59,7 @@ final class ElementRegistry
       $canonical[$key] = $identity;
     }
 
-    self::$elements = $canonical;
+    return array_values($canonical);
   }
 
   /** @return string[] */
