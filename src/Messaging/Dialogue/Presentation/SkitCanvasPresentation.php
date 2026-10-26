@@ -20,7 +20,7 @@ final class SkitCanvasPresentation
         $context = $line->context;
         $images = [];
         $root = $view->theme->assetRoot;
-        $background = $catalogue->skits[$context->skitId]['background'] ?? null;
+        $background = $context->backdrop;
         $size = $background === null ? null : PngAssetPreflight::getAvailableSize($root, $background);
         if ($size !== null) {
             $scale = max($view->width / $size['width'], $view->height / $size['height']);

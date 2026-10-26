@@ -53,7 +53,7 @@ function getDialogueTestCatalog(string $root, bool $warm = false): DialoguePrese
         'hero' => ['portrait' => 'hero.png', 'bust' => 'hero.png',
             'emotions' => ['Happy' => ['portrait' => 'happy.png', 'bust' => 'happy.png']]],
         'friend' => ['portrait' => 'hero.png', 'bust' => 'hero.png'],
-    ], $theme, ['Display Hero' => 'hero'], ['sample' => ['background' => 'background.png']]);
+    ], $theme, ['Display Hero' => 'hero']);
 }
 
 function getDialogueTestLine(string $speaker = 'Display Hero', ?DialogueContext $context = null,
@@ -306,8 +306,9 @@ it('stages borderless busts with contextual backgrounds and removes redundant ca
     $context = new DialogueContext('hero', 'Happy', 'sample', 'A scene', 'Town', [
         ['actorId' => 'hero', 'name' => 'Hero', 'emotion' => 'Happy'],
         ['actorId' => 'friend', 'name' => 'Friend', 'emotion' => 'Neutral'],
-    ]);
+    ], 'background.png');
     $canvas = DialogueCanvasPresentation::compose(getDialogueTestLine('Hero', $context), getDialogueTestCatalog($this->root), $width, $height);
+    expect(array_find($canvas->images, fn($image) => $image->id === 'skit-background')->asset)->toBe('background.png');
     expect(array_column($canvas->images, 'id'))->toContain('skit-background', 'skit-bust-0', 'skit-bust-1')
         ->not->toContain('dialogue-portrait-1-1');
     $bust = array_find($canvas->images, fn($image) => $image->id === 'skit-bust-0');
@@ -331,7 +332,7 @@ it('stages borderless busts with contextual backgrounds and removes redundant ca
 it('joins busts to an unskinned dialogue panel without changing source artwork', function () {
     $base = getDialogueTestCatalog($this->root);
     $catalogue = new DialoguePresentationCatalog($base->actors,
-        new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']), skits: $base->skits);
+        new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']));
     $context = new DialogueContext('hero', skitId: 'sample', participants: [
         ['actorId' => 'hero', 'name' => 'Hero', 'emotion' => 'Neutral'],
     ]);
@@ -383,8 +384,7 @@ it('preserves image tone alpha and source geometry when composing a canvas overl
 
 it('allows games to configure emphasis and retains scaling without unsupported image tone', function () {
     $base = getDialogueTestCatalog($this->root);
-    $catalogue = new DialoguePresentationCatalog($base->actors, $base->theme, $base->speakers, $base->skits,
-        new SkitStageStyle(0.85, 0.45));
+    $catalogue = new DialoguePresentationCatalog($base->actors, $base->theme, $base->speakers, new SkitStageStyle(0.85, 0.45));
     $context = new DialogueContext('hero', skitId: 'sample', participants: [
         ['actorId' => 'hero', 'name' => 'Hero', 'emotion' => 'Neutral'],
         ['actorId' => 'friend', 'name' => 'Friend', 'emotion' => 'Neutral'],
@@ -417,7 +417,6 @@ it('honours negotiated image tone in scene composition and diagnoses its absence
     file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
         'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1'],
         'actors' => ['hero' => ['bust' => 'hero.png'], 'friend' => ['bust' => 'hero.png']],
-        'skits' => ['sample' => ['background' => 'background.png']],
     ], true) . ';');
     $context = new DialogueContext('hero', skitId: 'sample', participants: [
         ['actorId' => 'hero', 'name' => 'Hero', 'emotion' => 'Neutral'],
@@ -441,12 +440,34 @@ it('honours negotiated image tone in scene composition and diagnoses its absence
         ->toBe($supportsTone ? 0 : 1);
 })->with([true, false]);
 
+it('shows a named backdrop it can decode and reports one it cannot, once, on the theme backing', function (string $backdrop, bool $shown) {
+    mkdir($this->root . '/Data/Presentation', 0777, true);
+    file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
+        'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1'], 'actors' => ['hero' => ['bust' => 'hero.png']],
+    ], true) . ';');
+    $context = new DialogueContext('hero', skitId: 'sample', participants: [['actorId' => 'hero', 'name' => 'Hero', 'emotion' => 'Neutral']],
+        backdrop: $backdrop);
+    $owner = $this->getStubBuilder(TextBoxModal::class)->disableOriginalConstructor()->onlyMethods(['getDialogueSnapshot'])->getStub();
+    $owner->method('getDialogueSnapshot')->willReturn(getDialogueTestLine('Hero', $context));
+    $ui = $this->getStubBuilder(UIManager::class)->disableOriginalConstructor()->onlyMethods(['getActivePresentations'])->getStub();
+    $ui->method('getActivePresentations')->willReturn([$owner]);
+    $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getUI'])->getStub();
+    $scene->method('getUI')->willReturn($ui);
+    $presentation = new DialogueScenePresentation($this->root);
+    foreach (range(0, 1) as $iteration) {
+        $surface = $presentation->compose($scene, null, 1280, 720, true);
+        expect(array_any($surface->canvas->images, fn($image) => $image->id === 'skit-background'))->toBe($shown);
+    }
+    $log = $this->root . '/warning.log';
+    expect(is_file($log) ? substr_count(file_get_contents($log), 'backdrop ' . $backdrop . ' is missing') : 0)->toBe($shown ? 0 : 1);
+})->with([['background.png', true], ['Graphics/Skits/Missing.png', false]]);
+
 it('keeps larger casts readable in stable groups with the active speaker present', function () {
     $cast = array_map(fn($index) => ['actorId' => 'hero' . $index, 'name' => 'Actor ' . $index, 'emotion' => 'Neutral'], range(0, 7));
     $context = new DialogueContext('hero7', skitId: 'sample', skitTitle: 'Group scene', participants: $cast);
     $base = getDialogueTestCatalog($this->root);
     $catalogue = new DialoguePresentationCatalog(array_fill_keys(array_column($cast, 'actorId'), ['bust' => 'hero.png']),
-        $base->theme, skits: $base->skits);
+        $base->theme);
     $canvas = DialogueCanvasPresentation::compose(getDialogueTestLine('Actor 7', $context), $catalogue, 800, 480);
     $names = implode(' ', array_merge(...array_map(fn($layer) => array_column($layer->runs, 'text'), $canvas->textLayers)));
     $busts = array_values(array_filter($canvas->images, fn($image) => str_starts_with($image->id, 'skit-bust-')));

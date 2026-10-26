@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Messaging\Dialogue\Presentation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInterface;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\Interfaces\ModalPresentationProviderInterface;
 use Ichiloto\Engine\UI\Presentation\MenuCanvas;
@@ -117,8 +118,11 @@ final class DialogueScenePresentation
                     $this->report('Renderer lacks canvas_overlay; field dialogue retains terminal presentation.');
                     return null;
                 }
-                if ($skit && !isset($catalogue->skits[$line->context->skitId]['background'])) {
-                    $this->report('Skit ' . $line->context->skitId . ' has no contextual background binding; using theme backing.');
+                // The skit's owner reports a backdrop nothing names; a named one the stage cannot show is reported here.
+                $backdrop = $skit ? $line->context->backdrop : null;
+                if ($backdrop !== null && PngAssetPreflight::getAvailableSize($catalogue->theme->assetRoot, $backdrop) === null) {
+                    $this->report('Skit ' . $line->context->skitId . ' backdrop ' . $backdrop
+                        . ' is missing or is not a PNG the renderer can show; using theme backing.');
                 }
                 if ($skit && !$supportsImageTone && $catalogue->skitStage->inactiveBrightness !== 1.0) {
                     $this->report('Renderer lacks canvas_image_tone; skit speaker emphasis retains scale without dimming.');
