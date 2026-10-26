@@ -13,11 +13,19 @@ use InvalidArgumentException;
  * drawn bottom to top in depth order: an object whose ground row (its
  * footprint's bottom row) lies further south draws in front, as the field
  * orders characters, and of two on one row the one further east. A piece
- * that stacks ({@see isStackedPiece()}) is pure decoration: its tiles go on
- * the stack's first layer, it writes no glyph, occupancy, effect or kept
- * layer, so it never changes passage, encounters or atlas roles. Every tile
- * of a stack's pieces belongs to one piece cell, so the objects a cell holds
- * are read back from its tiles and never stored twice.
+ * that stacks ({@see isStackedPiece()}) puts its tiles on the stack's first
+ * layer and writes no effect or kept layer. Most stacked pieces are
+ * decoration, with spaces for glyphs and no occupancy, so the ground beneath
+ * keeps its passage, as a peak stands on a solid mountain kind. One whose art
+ * stands on walkable ground as an obstacle, such as a hill crest's mound,
+ * declares its ground footprint like any object: glyphs on the cells it
+ * blocks, on a gameplay layer above the terrain kinds, and the occupancy
+ * those cells take on a map with declared occupancy. Every tile of a stack's
+ * pieces belongs to one piece cell, so the objects a cell holds are read back
+ * from its tiles and never stored twice; each tile belongs to its piece's
+ * gameplay layer, so a stack holding pieces of several gameplay layers
+ * belongs to none of them as a whole
+ * ({@see \Ichiloto\Engine\Field\MapGraphics::resolveLayerOwners()}).
  *
  * Declared in a tileset as `'stacks' => ['relief' => ['layers' => ['relief-1', 'relief-2', 'relief-3']]]`.
  */
@@ -107,10 +115,11 @@ final readonly class TilesetStack
    *
    * @param array<string, TilesetPiece> $pieces
    * @param list<string> $kindLayers Tile layers its terrain kinds paint.
+   * @param list<string> $groundLayers Gameplay layers its terrain kinds are painted on.
    * @return array<string, self> Keyed by stack id.
    * @throws InvalidArgumentException
    */
-  public static function readAll(mixed $data, array $pieces, array $kindLayers, string $context): array
+  public static function readAll(mixed $data, array $pieces, array $kindLayers, string $context, array $groundLayers): array
   {
     if (!is_array($data) || ($data !== [] && array_is_list($data))) {
       throw new InvalidArgumentException("{$context} stacks must be keyed by stack id.");
@@ -157,10 +166,13 @@ final readonly class TilesetStack
         throw new InvalidArgumentException("{$pieceContext}: a piece on stack {$stack->id} puts its tiles on its first layer, "
           . "{$stack->getBaseLayer()}, and on no other tile layer; the stack lays them across its layers.");
       }
-      if (array_any($piece->glyphs, static fn(array $row): bool => array_any($row, static fn(string $glyph): bool => $glyph !== ' '))
-        || $piece->occupancy !== null || $piece->effect !== null || $piece->keeps !== []) {
-        throw new InvalidArgumentException("{$pieceContext}: a piece on stack {$stack->id} is decoration only: spaces for glyphs, "
-          . 'and no occupancy, effect or kept layers.');
+      if ($piece->effect !== null || $piece->keeps !== [] || $piece->doorway !== []) {
+        throw new InvalidArgumentException("{$pieceContext}: a piece on stack {$stack->id} declares no effect, kept layers or doorway.");
+      }
+      $glyphs = array_any($piece->glyphs, static fn(array $row): bool => array_any($row, static fn(string $glyph): bool => $glyph !== ' '));
+      if ($glyphs && in_array($piece->layer, $groundLayers, true)) {
+        throw new InvalidArgumentException("{$pieceContext}: a piece on stack {$stack->id} writes its footprint's glyphs on a gameplay layer "
+          . "above the terrain kinds, never on {$piece->layer}, where they would replace the kind it stands on.");
       }
       foreach ($piece->tiles[$stack->getBaseLayer()] as $row => $entries) {
         foreach ($entries as $column => $entry) {
