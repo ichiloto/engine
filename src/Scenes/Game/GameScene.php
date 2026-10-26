@@ -39,6 +39,9 @@ use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Field\PlayerGraphicalSubject;
 use Ichiloto\Engine\Field\PlayerPresentationConfig;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderHostInterface;
+use Ichiloto\Engine\Rendering\Sprites\SpriteThicketHostInterface;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteThicket;
+use Ichiloto\Engine\Field\MapThickets;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
@@ -122,7 +125,7 @@ use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInter
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameScene extends AbstractScene implements PlayActivitySourceInterface, GraphicalSpriteProviderHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface, \Ichiloto\Engine\Events\Interpreter\EventExecutionHostInterface, \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface
+class GameScene extends AbstractScene implements PlayActivitySourceInterface, GraphicalSpriteProviderHostInterface, SpriteThicketHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface, \Ichiloto\Engine\Events\Interpreter\EventExecutionHostInterface, \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface
 {
     private ?FieldViewport $fieldViewport = null;
     private ?ScenePresentationContext $presentationContext = null;
@@ -409,6 +412,26 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     private bool $fieldMusicPending = false;
     private int $fieldMusicHolds = 0;
     private bool $fieldMusicIsExplicitSilence = false;
+
+    /** The thickets of the current map's graphics, read again when the map's graphics change. */
+    private ?MapThickets $mapThickets = null;
+
+    /**
+     * How the current map's foliage hides a character standing in a cell
+     * ({@see MapThickets}); only a renderer that negotiated sprite_thicket is
+     * sent it. Under reduced motion it hides without rustling.
+     */
+    public function findSpriteThicketAt(Vector2 $cell): ?PresentationSpriteThicket
+    {
+        $graphics = $this->mapManager?->graphics;
+        if ($graphics === null) {
+            return null;
+        }
+        if ($this->mapThickets?->graphics !== $graphics) {
+            $this->mapThickets = new MapThickets($graphics);
+        }
+        return $this->mapThickets->findSpriteThicketAt((int)$cell->x, (int)$cell->y, Accessibility::prefersReducedMotion());
+    }
 
     public function getGraphicalSpriteProviders(): iterable
     {

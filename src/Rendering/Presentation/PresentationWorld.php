@@ -371,7 +371,7 @@ final class PresentationWorld
             }
             unset($shown);
             foreach (['below' => false, 'above' => true] as $band => $above) {
-                $bandId = 'tiles:' . $layer->name . ($band === 'above' ? ':above' : '');
+                $bandId = PresentationLayerPolicy::getTileLayerId($layer->name, $above);
                 $drawn = isset($bands[$band]) ? [$bandId => $bands[$band]] : [];
                 foreach ($cornerSheets as $sheet) {
                     if (isset($cornerBands[$band][$sheet->kind])) {

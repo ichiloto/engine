@@ -124,6 +124,25 @@ editing surface is owned by the GUI Editor plan. Related docs:
 - Depth is row order: within a draw band, a character in a lower row draws
   in front of one above it, with stable ties. A lift never changes it: a
   character is ordered by its cell, not by where it is drawn.
+- A character in a thicket ([tileset thickets](#tilesets)) is drawn hidden
+  in its foliage, as classic JRPGs hide a walker in a forest or tall grass.
+  The game decides from the cell a character occupies, the cell its step
+  slides it into: the player, NPCs and cinematic cast (`ThicketSubjectInterface`)
+  stand in their cell's foliage; object characters (`!` sheets), world
+  objects, art held on a world object's attachment and guidance do not.
+  Party followers, when the Engine has them, are field characters the same
+  way. It sends the hiding with the sprite (`thicket`: `depth` logical
+  pixels up from the drawn feet, `opacity` of the hidden part, 0 masking it,
+  and a `rustle` naming the retained world layer whose tile in that cell is
+  the foliage) only to renderers advertising `sprite_thicket`; other
+  renderers draw the whole character as before. The renderer changes the
+  hiding along the step's slide, so a character sinks into a thicket over
+  the step that enters it and rises out over the step that leaves it, and
+  while a character slides through foliage that rustles it parts that
+  cell's own foliage art around it at display rate, closing as the step
+  ends. Under reduced motion the game sends no rustle and steps do not
+  slide, so the hiding changes at once. The terminal, collision, movement
+  speed and encounters never see thickets.
 
 ## Tilesets
 
@@ -173,6 +192,22 @@ editing surface is owned by the GUI Editor plan. Related docs:
   hold anything and have no default; a cell showing such a tile is not
   judged until it is classified. The game ignores `appearance` and it never
   changes passage ([look and passage](#look-and-passage)).
+- A tileset may declare its thickets (`thickets`), the foliage characters
+  walk through hidden, like RPG Maker's bush flag but per foliage type with
+  its depth: `'thickets' => ['woodland' => ['name' => 'Woodland', 'depth' =>
+  20, 'opacity' => 0.0], 'reeds' => ['name' => 'Reeds', 'depth' => 10,
+  'opacity' => 0.5, 'tiles' => [1544]]]`. `depth` is the field pixels of a
+  character hidden, up from its feet (1 to 48, one cell); `opacity` draws
+  the hidden part masked (0) or see-through (below 1); `rustle` (true unless
+  authored false) parts the foliage around a walker. A terrain kind names
+  the thicket its own autotile is (`'thicket' => 'woodland'`), and a
+  thicket's `tiles` list the flag identities of other tiles that are one;
+  a tile is one thicket, and a kind's autotile is decided by its kind. A
+  character is hidden by the deepest thicket among the tiles its cell
+  shows, the uppermost tile layer's when equally deep, so it hides where
+  foliage art is drawn and nowhere else. A corner-edged kind's art lies on
+  the corners between cells, so its thicket hides without a rustle. Authored
+  in the GUI editor's Database > Tilesets (Thickets, and a kind's Thicket).
 
 ## Graphical map data
 

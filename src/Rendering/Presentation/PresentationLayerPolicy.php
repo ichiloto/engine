@@ -52,6 +52,15 @@ final class PresentationLayerPolicy
     return 'map:' . $layer->name;
   }
 
+  /**
+   * The retained world layer id of a map tile layer's band: its tiles drawn
+   * below characters, or those drawn above them.
+   */
+  public static function getTileLayerId(string $name, bool $above): string
+  {
+    return 'tiles:' . $name . ($above ? ':above' : '');
+  }
+
   public static function getMapLayerOrder(MapLayer $layer): int
   {
     return self::getTileLayerOrder($layer->order, false);

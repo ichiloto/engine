@@ -32,6 +32,8 @@ final readonly class PresentationSprite
     public ?PresentationSpriteBob $bob = null,
     /** Field sprites only: the opacity it eases to at display rate. Negotiated sprite_fade only. */
     public ?PresentationSpriteFade $fade = null,
+    /** Field characters only: the lower part the foliage of its cell hides. Negotiated sprite_thicket only. */
+    public ?PresentationSpriteThicket $thicket = null,
   )
   {
     if ($id === '' || str_contains($id, "\0") || preg_match('//u', $id) !== 1) {
@@ -44,6 +46,9 @@ final readonly class PresentationSprite
     if ($quarterTurns < 0 || $quarterTurns > 3) {
       throw new InvalidArgumentException('Sprite quarterTurns must be an integer from 0 to 3.');
     }
+    if ($thicket !== null && $thicket->depth > $height) {
+      throw new InvalidArgumentException('A sprite thicket hides at most the sprite\'s whole height.');
+    }
   }
 
   /**
@@ -53,11 +58,13 @@ final readonly class PresentationSprite
    * that negotiated sprite_bob, a bobbing sprite names its `bob`; without, it
    * holds still at its lift. With `$fade`, for a renderer that negotiated
    * sprite_fade, a fading sprite names its `fade`; without, it is opaque.
+   * With `$thicket`, for a renderer that negotiated sprite_thicket, a
+   * character in a thicket names its `thicket`; without, it is drawn whole.
    *
-   * @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int, sourceRect?: array{x: int, y: int, width: int, height: int}, motion?: array{duration: float}, lift?: int, quarterTurns?: int, pivot?: array{x: float, y: float}, bob?: array{height: int, seconds: float}, fade?: array{opacity: float, seconds: float}}
+   * @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int, sourceRect?: array{x: int, y: int, width: int, height: int}, motion?: array{duration: float}, lift?: int, quarterTurns?: int, pivot?: array{x: float, y: float}, bob?: array{height: int, seconds: float}, fade?: array{opacity: float, seconds: float}, thicket?: array{depth: int, opacity: float, rustle?: array{layer: string}}}
    */
   public function toArray(bool $lift = false, bool $quarterTurns = false, bool $pivot = false, bool $bob = false,
-    bool $fade = false): array
+    bool $fade = false, bool $thicket = false): array
   {
     $data = ['id' => $this->id, 'asset' => $this->asset, 'x' => $this->x, 'y' => $this->y,
       'width' => $this->width, 'height' => $this->height, 'anchor' => $this->anchor->value, 'layer' => $this->layer];
@@ -68,6 +75,7 @@ final readonly class PresentationSprite
     if ($pivot && $this->pivot !== null) { $data['pivot'] = $this->pivot->toArray(); }
     if ($bob && $this->bob !== null) { $data['bob'] = $this->bob->toArray(); }
     if ($fade && $this->fade !== null) { $data['fade'] = $this->fade->toArray(); }
+    if ($thicket && $this->thicket !== null) { $data['thicket'] = $this->thicket->toArray(); }
     return $data;
   }
 
@@ -76,7 +84,7 @@ final readonly class PresentationSprite
   {
     return $this->motion === null ? $this : new self($this->id, $this->asset, $this->x, $this->y, $this->width,
       $this->height, $this->anchor, $this->layer, $this->sourceRect, lift: $this->lift, quarterTurns: $this->quarterTurns,
-      pivot: $this->pivot, bob: $this->bob, fade: $this->fade);
+      pivot: $this->pivot, bob: $this->bob, fade: $this->fade, thicket: $this->thicket);
   }
 
   /** @param list<PresentationSprite> $sprites @return list<PresentationSprite> */

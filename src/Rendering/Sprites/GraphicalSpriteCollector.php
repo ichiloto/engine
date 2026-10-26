@@ -26,8 +26,12 @@ final readonly class GraphicalSpriteCollector
   {
     $sprites = $unpresented = [];
     if ($scene instanceof GraphicalSpriteProviderHostInterface) {
+      $thickets = $scene instanceof SpriteThicketHostInterface ? $scene : null;
       foreach ($scene->getGraphicalSpriteProviders() as $provider) {
-        if (($sprite = $this->projector->project($provider, $scene->camera)) !== null) {
+        // A character is hidden by the foliage of the cell it occupies, the cell it is sliding to.
+        $thicket = $thickets !== null && $provider instanceof ThicketSubjectInterface && $provider->standsInFoliage
+          ? $thickets->findSpriteThicketAt($provider->getGraphicalSpriteWorldPosition()) : null;
+        if (($sprite = $this->projector->project($provider, $scene->camera, $thicket)) !== null) {
           $sprites[] = $sprite;
         } else {
           $unpresented[] = $provider->getGraphicalSpriteId();

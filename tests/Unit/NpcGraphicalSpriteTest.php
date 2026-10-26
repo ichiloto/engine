@@ -722,6 +722,85 @@ it('lifts a character NPC for renderers that negotiated sprite_lift but never an
   }
 });
 
+/** Grove foliage, a synthetic thicket, over the cells listed on a 32 x 12 field. */
+function installNpcTestThickets(GameScene $scene, array $cells): void
+{
+  $tileset = Ichiloto\Engine\Rendering\Tilesets\Tileset::fromArray('grove', ['name' => 'Grove', 'sheets' => ['A2' => 'Graphics/A2.png'],
+    'thickets' => ['grove' => ['name' => 'Grove', 'depth' => 20, 'opacity' => 0]],
+    'kinds' => ['grove' => ['name' => 'Grove', 'layer' => 'terrain', 'glyph' => '<fg=green>♣</>', 'art' => ['layer' => 'features', 'tile' => 2912],
+      'passage' => 'walk', 'atlas' => 'vegetation', 'thicket' => 'grove']]]);
+  $rows = array_fill(0, 12, array_fill(0, 32, 0));
+  foreach ($cells as [$x, $y]) { $rows[$y][$x] = 2912; }
+  $layer = new Ichiloto\Engine\Field\MapTileLayer('features', 1, 'graphics/01.features.tiles.php',
+    implode("\n", array_map(static fn(array $row): string => implode(' ', $row), $rows)));
+  new ReflectionProperty(MapManager::class, 'graphics')->setValue($scene->mapManager, new Ichiloto\Engine\Field\MapGraphics($tileset, [$layer]));
+}
+
+it('hides the player and character NPCs in their cells\' thickets for a renderer that draws them, never an object NPC', function () {
+  writeCharacterSheetPng($this->root . '/!Chest.png', 4, 6);
+  $this->manager->configure([getNpcTestEntry(), getNpcTestEntry(['id' => 'chest', 'x' => 10,
+    'sprites2d' => characterSheetData('!Chest.png')])]);
+  $hero = new Player($this->scene, 'hero', new Vector2(2, 2), new Rect(0, 0, 1, 1), ['P'], MovementHeading::SOUTH, [],
+    Ichiloto\Engine\Rendering\Sprites\CharacterSheet::fromArray(characterSheetData(NPC_TEST_SHEET)), $this->root);
+  new ReflectionProperty(Player::class, 'isActive')->setValue($hero, true);
+  new ReflectionProperty(GameScene::class, 'player')->setValue($this->scene, $hero);
+  // The guide stands in the grove beside the chest's; the player, in the grove at (2, 2).
+  installNpcTestThickets($this->scene, [[2, 2], [7, 4], [10, 4]]);
+  $thickets = static fn(array $frame): array => array_combine(array_column($frame['sprites'], 'asset'),
+    array_map(static fn(array $sprite): ?array => $sprite['thicket'] ?? null, $frame['sprites']));
+  $present = function (array $capabilities): array {
+    $transport = new FakeRendererTransport();
+    $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
+      'capabilities' => ['sprite_source_rect', 'tile_batches', ...$capabilities]]))];
+    $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']),
+      $this->root, protocol: RendererProtocolVersion::V2), $transport);
+    try {
+      $runtime->start('Thickets', 24, 8);
+      $runtime->present($this->scene);
+      $frames = RetainedFrameState::replay($transport->sent);
+      return $frames[array_key_last($frames)];
+    } finally {
+      $runtime->shutdown();
+    }
+  };
+  $player = static fn(array $frame): ?array => array_values(array_filter($frame['sprites'],
+    static fn(array $sprite): bool => $sprite['id'] === 'player'))[0]['thicket'] ?? null;
+  $npcs = static fn(array $frame): array => array_map(static fn(array $sprite): ?array => $sprite['thicket'] ?? null,
+    array_column(array_filter($frame['sprites'], static fn(array $sprite): bool => $sprite['id'] !== 'player'), null, 'asset'));
+
+  // A renderer that never negotiated sprite_thicket draws every character whole, as before.
+  $plain = $present([]);
+  expect($player($plain))->toBeNull()
+    ->and($npcs($plain))->toBe([NPC_TEST_SHEET => null, '!Chest.png' => null]);
+
+  $hidden = $present(['sprite_thicket']);
+  $grove = ['depth' => 20, 'opacity' => 0.0, 'rustle' => ['layer' => 'tiles:features']];
+  expect($player($hidden))->toBe($grove)
+    ->and($npcs($hidden))->toBe([NPC_TEST_SHEET => $grove, '!Chest.png' => null]);
+
+  // An NPC that walks out of the grove is drawn whole from that step, which slides it there.
+  expect($this->manager->moveNpcById('guide', Vector2::left()))->toBeTrue();
+  $out = $present(['sprite_thicket', 'field_motion']);
+  expect($npcs($out)[NPC_TEST_SHEET])->toBeNull()
+    ->and(array_column($out['sprites'], 'motion', 'asset')[NPC_TEST_SHEET] ?? null)->toBe(['duration' => 16 / 60]);
+
+  // Reduced motion keeps every character hidden, with the foliage held still.
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => true], 'ui' => ['hud' => ['location' => false]]]);
+  expect($player($present(['sprite_thicket'])))->toBe(['depth' => 20, 'opacity' => 0.0]);
+});
+
+it('stands cinematic cast in their cells\' foliage, but never an object sheet', function () {
+  writeCharacterSheetPng($this->root . '/!Chest.png', 4, 6);
+  $cast = static fn(mixed $art): Ichiloto\Engine\Cutscenes\Cinematics\StagedActor => new Ichiloto\Engine\Cutscenes\Cinematics\StagedActor(
+    'cast', ['C'], new Vector2(1, 1), graphicalSprites: $art);
+
+  expect($cast(Ichiloto\Engine\Rendering\Sprites\CharacterSheet::fromArray(characterSheetData(NPC_TEST_SHEET)))->standsInFoliage)->toBeTrue()
+    ->and($cast(Ichiloto\Engine\Rendering\Sprites\CharacterSheet::fromArray(characterSheetData('!Chest.png')))->standsInFoliage)->toBeFalse()
+    ->and($cast(new Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition('pose.png', 48, 48))->standsInFoliage)->toBeTrue()
+    ->and($cast(null)->standsInFoliage)->toBeFalse()
+    ->and($this->npc->standsInFoliage)->toBeTrue();
+});
+
 /** Stands the player on a tile and faces it one way, as field movement leaves it. */
 function placeNpcTestPlayer(Player $player, int $x, int $y, Vector2 $facing): void
 {
