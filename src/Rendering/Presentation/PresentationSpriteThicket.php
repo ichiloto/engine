@@ -13,9 +13,10 @@ use InvalidArgumentException;
  * that cell around the character while it walks, at display rate along the
  * same slide that draws the step.
  *
- * The renderer draws the hiding change along a slide too: a character
- * walking into a thicket sinks into it over the step, and rises out of it
- * walking out, so neither snaps between cells. Without a slide it changes at
+ * The renderer draws the hiding change along a slide too, so it never snaps
+ * between cells: stepping across, each part of the character is hidden by
+ * the foliage of the cell it is over; stepping up or down, it sinks into a
+ * thicket or rises out of it over the step. Without a slide it changes at
  * once.
  *
  * Presentation only, sent to a renderer that negotiated sprite_thicket;

@@ -136,11 +136,12 @@ editing surface is owned by the GUI Editor plan. Related docs:
   and a `rustle` naming the retained world layer whose tile in that cell is
   the foliage) only to renderers advertising `sprite_thicket`; other
   renderers draw the whole character as before. The renderer changes the
-  hiding along the step's slide, so a character sinks into a thicket over
-  the step that enters it and rises out over the step that leaves it, and
-  while a character slides through foliage that rustles it parts that
-  cell's own foliage art around it at display rate, closing as the step
-  ends. Under reduced motion the game sends no rustle and steps do not
+  hiding along the step's slide: stepping across, each part of the
+  character is hidden by the foliage of the cell it is over, the edge
+  moving with the slide; stepping up or down, it sinks into a thicket or
+  rises out of it over the step. While a character slides through foliage
+  that rustles it parts that cell's own foliage art around it at display
+  rate, closing as the step ends. Under reduced motion the game sends no rustle and steps do not
   slide, so the hiding changes at once. The terminal, collision, movement
   speed and encounters never see thickets.
 
