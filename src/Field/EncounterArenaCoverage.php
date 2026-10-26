@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
+use Ichiloto\Engine\Field\Reachability\MapReachabilityReport;
 use Throwable;
 
 /**
@@ -54,6 +55,32 @@ final readonly class EncounterArenaCoverage
         'missingVariant' => $missing, 'problem' => $problem, 'cells' => $cells, 'troops' => $troops];
     }
     return new self($rows);
+  }
+
+  /**
+   * Measures one map as the game reads it from its files: its collision and
+   * encounter terrain resolved as the field resolves them. Null for a map
+   * that declares no encounters.
+   *
+   * @param string $assetRoot The project's `assets` directory.
+   * @param MapReachabilityReport|null $reachability Where the player can walk on the map; null counts every cell.
+   */
+  public static function measureMapFiles(string $assetRoot, string $mapId, ?BattlePresentationCatalog $catalog,
+    ?MapReachabilityReport $reachability = null): ?self
+  {
+    $mapsDirectory = $assetRoot . '/Maps';
+    $source = MapSourceReader::readFiles(MapSourceReader::resolvePaths($mapsDirectory, $mapId));
+    $data = $source['data'];
+    if (!is_array($data['encounters'] ?? null)) {
+      return null;
+    }
+    $dictionary = array_key_exists(MapPhysicalOccupancy::DATA_KEY, $data) ? []
+      : MapSourceReader::loadCollisionDictionary($mapsDirectory . '/collisions.php');
+    $kinds = MapTerrainKinds::loadForMap($assetRoot, $data);
+    $collisions = MapCollisionResolver::resolveMap($source['layers'], $data, $dictionary, $kinds)->collisionGrid;
+    $terrain = $kinds?->resolveEncounterTerrain($source['layers'], $kinds->composeDictionary($dictionary));
+    $table = EncounterTable::readBlock($data['encounters'], MapAreaCatalog::readMap($data, $source['tiles']), $terrain);
+    return self::measure($table, $collisions, $catalog, $reachability === null ? null : $reachability->isReachable(...));
   }
 
   /**
