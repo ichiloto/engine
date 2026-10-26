@@ -335,6 +335,40 @@ Mixed random tables can select a scene on an individual map-owned choice:
 ],
 ```
 
+Random battles follow where they start. A map's `battleArenas` rules pick the
+arena for a named area, for an encounter terrain, or for a terrain within an
+area, and an arena in `arenas.php` may stand for a region with `variants`, the
+arena drawn for each encounter terrain a battle there can start on:
+
+```php
+'encounters' => [
+  'battleArena' => 'arena.central-road',
+  'battleArenas' => [
+    ['area' => 'garden-fringe', 'battleArena' => 'arena.garden-fields'],
+    ['area' => 'garden-fringe', 'terrain' => 'wetland', 'battleArena' => 'arena.garden-marsh'],
+    ['terrain' => 'desert', 'battleArena' => 'arena.dunes'],
+  ],
+  // ...
+],
+// arenas.php
+'arena.central-road' => [..., 'variants' => ['woodland' => 'arena.road-woodland', 'grassland' => 'arena.central-road']],
+```
+
+`EncounterTable::resolveBattleArenaAt($troop, $cell)` decides: a troop's own
+arena as authored; else the cell's area-and-terrain rule, area rule, terrain
+rule; else the map's arena; else the default. A terrain rule picks its arena
+outright. Every other choice carries the cell's encounter terrain as the
+`battleTerrain` setting, and `BattlePresentationCatalog::resolveArenaVariant()`
+draws the arena's variant for it. A variant may name its own arena when the
+picture already shows that terrain. A missing variant draws the arena's own
+background and is logged; `Field\EncounterArenaCoverage` lists every arena and
+terrain a map's battles meet with the missing ones, for the Editor's validation
+and a game's tests. Thicket terrain kinds carry their encounter terrain, so a
+battle started in a thicket refines by it. Event and boss battles name no
+terrain and keep their authored arenas. Rules that name an undeclared area,
+a terrain the map's kinds do not meet, neither, or a repeated scope are left
+out and named in the table's `ignored`.
+
 `Field\EncounterEntry::getFromValue()` reads numeric legacy weights and structured
 rows; `getBattleSettings($mapSettings)` selects entry settings over common map
 settings. Unreadable/nonpositive weights are skipped as before. Optional invalid
