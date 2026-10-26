@@ -27,10 +27,13 @@ final class SceneFrameComposer
 {
   private readonly GraphicalSpriteCollector $collector;
   private readonly DialogueScenePresentation $dialogue;
+  /** Where a graphical field reports a subject it can only show by its terminal glyph. */
+  public readonly PresentationFallbackReport $fallbacks;
 
   public function __construct(string $assetRoot)
   {
     $this->collector = new GraphicalSpriteCollector();
+    $this->fallbacks = new PresentationFallbackReport();
     $this->dialogue = new DialogueScenePresentation($assetRoot);
   }
 
@@ -75,8 +78,12 @@ final class SceneFrameComposer
         : PresentationCanvas::composeOverlay($sceneOverlay, $noticeCanvas));
     }
     $collection = LatencyTrace::getTimeNow();
-    $sprites = $scene instanceof SceneInterface || $scene === null ? $this->collector->collect($scene)
-      : PresentationSprite::orderedList($scene->getPresentationSprites());
+    $unpresented = [];
+    if ($scene instanceof SceneInterface || $scene === null) {
+      ['sprites' => $sprites, 'unpresented' => $unpresented] = $this->collector->collectPresentation($scene);
+    } else {
+      $sprites = PresentationSprite::orderedList($scene->getPresentationSprites());
+    }
     $slides = $supports(RendererSessionConfig::FIELD_MOTION);
     if (!$slides) { $sprites = array_map(static fn($sprite) => $sprite->withoutMotion(), $sprites); }
     LatencyTrace::end('presentation.sprites', $collection, ['count' => count($sprites)]);
@@ -86,10 +93,10 @@ final class SceneFrameComposer
           'sourceRect' => $sprite->sourceRect?->toArray()], $sprites)]);
     }
     PresentationLayerPolicy::assertWorldSprites($sprites);
-    // Keep off-grid sprites for renderer clipping without concealing Terminal edge cells.
-    $visible = array_filter($sprites, static fn($sprite) => $sprite->x >= 0 && $sprite->x < $grid->columns
-      && $sprite->y >= 0 && $sprite->y < $grid->rows);
-    $excluded = array_map(static fn($sprite) => $sprite->id, $visible);
+    // A sprite is its subject's graphical presentation wherever it stands: off-grid sprites stay for renderer
+    // clipping, and their subject's terminal layer never shows in its place. A wide terminal glyph whose subject
+    // stands just past the left edge would otherwise leave its tail on screen as a glyph.
+    $excluded = array_map(static fn($sprite) => $sprite->id, $sprites);
     $sceneOverlay = $scene instanceof CanvasOverlayProviderInterface && $overlaySupported
       ? $scene->getPresentationOverlay($width, $height) : null;
     if ($scene instanceof CanvasOverlayProviderInterface && $overlaySupported) {
@@ -102,6 +109,7 @@ final class SceneFrameComposer
     $snapshotStart = LatencyTrace::getTimeNow();
     $snapshot = $collectText(array_values($excluded), $world?->textLayerIds ?? []);
     LatencyTrace::end('presentation.snapshot', $snapshotStart);
+    if ($world !== null) { $this->reportGlyphSubjects($unpresented, $snapshot); }
     $viewport = $scene instanceof FrameViewportProviderInterface
       ? $scene->getPresentationViewport($snapshot, $sprites, []) : null;
     if (!$slides) { $viewport = $viewport?->withoutFollow(); }
@@ -129,5 +137,30 @@ final class SceneFrameComposer
   public function getDialoguePageLayout(string $speaker, DialogueContext $context, string $help, int $width): ?DialoguePageLayout
   {
     return $this->dialogue->getPageLayout($speaker, $context, $help, $width);
+  }
+
+  /**
+   * Reports each field subject the graphical field shows by its terminal
+   * glyph because it has no sprite: its own terminal layer is drawn with
+   * visible glyphs this frame. Graceful degradation keeps play going; the
+   * report keeps the missing presentation from passing unnoticed.
+   *
+   * @param list<string> $unpresented Subject ids presented this frame without a sprite.
+   */
+  private function reportGlyphSubjects(array $unpresented, ConsolePresentationSnapshot|ConsolePresentationChanges $text): void
+  {
+    if ($unpresented === []) { return; }
+    $subjects = array_fill_keys($unpresented, true);
+    $layers = $text instanceof ConsolePresentationSnapshot
+      ? array_map(static fn(PresentationTextLayer $layer): array => [$layer->id, $layer->runs], $text->textLayers)
+      : array_map(static fn(array $layer): array => [$layer['id'], array_merge(...array_column($layer['rows'], 'runs'))],
+        $text->layers);
+    foreach ($layers as [$id, $runs]) {
+      if (!isset($subjects[$id])) { continue; }
+      $glyphs = trim(implode('', array_map(static fn(PresentationTextRun $run): string => $run->text, $runs)));
+      if ($glyphs === '') { continue; }
+      $this->fallbacks->report(sprintf("Field subject '%s' has no graphical sprite; the graphical field draws its terminal glyph '%s' instead.",
+        $id, $glyphs));
+    }
   }
 }

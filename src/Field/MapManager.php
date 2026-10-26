@@ -7,6 +7,7 @@ use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Rendering\Sprites\FieldSpriteRole;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Rendering\Presentation\PresentationFallbackReport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\Console\Console;
@@ -65,7 +66,9 @@ class MapManager implements CanRenderAt
   /** Null outside a collection/coverage pass: no replacement facts survive the operation. */
   private ?array $worldObjectResourceFrames = null;
   private int $worldObjectInstallation = 0;
-  private array $presentationWorldCoverage = [];
+  private array $presentationWorldProjection = [];
+  /** Where the graphical field reports map cells it can only show by their terminal glyphs, once per cause for this manager. */
+  private ?PresentationFallbackReport $presentationFallbacks = null;
   private ?array $terminalPresentationCells = null;
   /**
    * The collision map.
@@ -561,30 +564,60 @@ class MapManager implements CanRenderAt
       return null;
     }
     $policy = TerminalCapabilities::supportsCompositeEmoji();
-    $coverage = $this->getWorldObjectCoverage();
-    if ($this->presentationWorldPolicy === $policy && $this->presentationWorldCoverage === $coverage) {
+    $projection = $this->getWorldObjectProjection();
+    if ($this->presentationWorldPolicy === $policy && $this->presentationWorldProjection === $projection) {
       $this->camera->setRetainedWorldAvailable($this->presentationWorld !== null);
       return $this->presentationWorld;
     }
     $this->presentationWorldPolicy = $policy;
-    $this->presentationWorldCoverage = $coverage;
+    $this->presentationWorldProjection = $projection;
     $this->presentationWorld = null;
     try {
-      $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, 'map', $this->graphics, $this->getAssetRoot(), $coverage,
-        $this->terminalPresentationCells ?? []);
+      $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, 'map', $this->graphics, $this->getAssetRoot(),
+        $projection['coverage'], $projection['terminal']);
     } catch (\Throwable $error) {
       // Unsupported world bounds keep the screen-space retained text path usable.
       Debug::warn('Retained map presentation is unavailable: ' . $error->getMessage());
     }
+    if ($this->presentationWorld !== null) { $this->reportGlyphCells($this->presentationWorld); }
     $this->camera->setRetainedWorldAvailable($this->presentationWorld !== null);
     return $this->presentationWorld;
+  }
+
+  /**
+   * Reports the cells the graphical field can only show by their terminal
+   * glyphs, by map, glyph, gameplay layer and cell: a map without graphics,
+   * or glyphs no tile, world object or sprite presents. The field still
+   * draws them so play goes on; the report keeps the missing art visible.
+   */
+  private function reportGlyphCells(PresentationWorld $world): void
+  {
+    // A map without graphics is a glyph world by design; one whose tileset fails to load says so as it loads.
+    if ($this->graphics === null) { return; }
+    $found = [];
+    foreach ($world->getGlyphCells() as $cell) {
+      $found[$cell['layerId']][$cell['glyph']][] = "({$cell['x']}, {$cell['y']})";
+    }
+    foreach ($found as $layerId => $glyphs) {
+      foreach ($glyphs as $glyph => $cells) {
+        ($this->presentationFallbacks ??= new PresentationFallbackReport())->report(sprintf(
+          "Map %s: the graphical field draws terminal glyph '%s' of %s at %s; no tile, world object or sprite presents it.",
+          $this->gameScene->currentMapId, $glyph, $layerId, implode(', ', $cells)));
+      }
+    }
+  }
+
+  /** @return list<string> Every map cell fallback the graphical field has reported for this manager, in order. */
+  public function getReportedPresentationFallbacks(): array
+  {
+    return $this->presentationFallbacks?->getReportedMessages() ?? [];
   }
 
   private function clearPresentationWorld(): void
   {
     $this->presentationWorld = null;
     $this->presentationWorldPolicy = null;
-    $this->presentationWorldCoverage = [];
+    $this->presentationWorldProjection = [];
   }
 
   /** Project live object display cells without changing authored layers, occupancy or save data. */
@@ -658,9 +691,18 @@ class MapManager implements CanRenderAt
     $this->clearPresentationWorld();
   }
 
-  private function getWorldObjectCoverage(): array
+  /**
+   * What the world objects change in the graphical world: the authored
+   * glyphs and tiles their art covers, and the terminal cells of the objects
+   * whose graphics do not present them. An object whose art presents it
+   * keeps its terminal glyph to the terminal: its sprite is its graphical
+   * presentation, as an NPC's is.
+   *
+   * @return array{coverage: array<string, array<string, array<int, array<int, true>>>>, terminal: array<int, array<int, string>>}
+   */
+  private function getWorldObjectProjection(): array
   {
-    $coverage = [];
+    $coverage = $terminal = [];
     foreach ($this->getWorldObjects() as $object) {
       if (!$object->isCurrent()) { continue; }
       $stage = $this->gameScene->cinematicStage;
@@ -672,8 +714,12 @@ class MapManager implements CanRenderAt
           foreach ($rows as $y => $cells) { $coverage[$kind][$name][$y] = ($coverage[$kind][$name][$y] ?? []) + $cells; }
         }
       }
+      if ($hideGlyphs) { continue; }
+      foreach ($object->getTerminalCells() as $y => $row) {
+        foreach ($row as $x => $symbol) { $terminal[$y][$x] = $symbol; }
+      }
     }
-    return $coverage;
+    return ['coverage' => $coverage, 'terminal' => $terminal];
   }
 
   /**

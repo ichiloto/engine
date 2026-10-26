@@ -425,6 +425,31 @@ it('restores authored terminal presentation for an explicit null variant and kee
     expect($this->scene->camera->worldSpace)->toBe($map->tileMap);
 });
 
+it('keeps an object terminal glyph out of the graphical world while its art presents it and reports it when the art fails', function () {
+    $map = $this->scene->mapManager;
+    $atObject = static fn(PresentationWorld $world): array => array_values(array_filter($world->getGlyphCells(),
+        static fn(array $cell): bool => [$cell['x'], $cell['y']] === [1, 1]));
+    $reported = "Map synthetic/room: the graphical field draws terminal glyph 'm' of map:fixtures at (1, 1); "
+        . 'no tile, world object or sprite presents it.';
+    // The object's art covers the cell beside its anchor, so nothing but ownership keeps its anchor glyph out.
+    $map->applyPreparedMap(createWorldObjectPreparedMap([createWorldObjectSource(['terminal' => '<fg=yellow>m</>',
+        'covers' => ['layer' => 'fixtures', 'cells' => [[2, 1]], 'tileLayers' => []]])]), $this->scene->player);
+    $map->refreshTerminalPresentation();
+    // The Terminal shows the object by its glyph; the graphical world keeps the authored cell under its sprite.
+    expect(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($this->scene->camera->worldSpace[1][1]))->toBe('m')
+        ->and(getWorldObjectWireCells($map->getPresentationWorld())[1][1]['glyph'])->toBe('o')
+        ->and($atObject($map->getPresentationWorld()))->toBe([])
+        ->and($map->getReportedPresentationFallbacks())->not->toContain($reported);
+
+    $map->applyPreparedMap(createWorldObjectPreparedMap([createWorldObjectSource(['terminal' => '<fg=yellow>m</>',
+        'sprites2d' => ['asset' => 'Graphics/missing.png'], 'variants' => []])]), $this->scene->player);
+    // Without its art the graphical field falls back to the glyph, and says where.
+    $world = $map->getPresentationWorld();
+    expect(getWorldObjectWireCells($world)[1][1]['glyph'])->toBe('m')
+        ->and($atObject($world))->toBe([['x' => 1, 'y' => 1, 'glyph' => 'm', 'layerId' => 'map:fixtures']])
+        ->and($map->getReportedPresentationFallbacks())->toContain($reported);
+});
+
 it('refuses malformed terminal cells and incomplete map-event identities before installing an object', function () {
     foreach (['two', '<fg=white>xx</>', 3, []] as $terminal) {
         expect(fn() => createWorldObjectPreparedMap([createWorldObjectSource(['terminal' => $terminal])]))
@@ -586,6 +611,27 @@ it('composes prepared signs through the shared scene path with camera-relative v
     $cleared = $composer->composeFrame($this->scene, $context->grid, $context->supports(...),
         static fn() => new \Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot(12, 6, []), refreshOverlay: false);
     expect($cleared->worldCanvases)->toBe([])->and($cleared->viewport->worldCanvasIds)->toBe([]);
+});
+
+it('reports a field subject the graphical field can only show by its terminal glyph', function () {
+    $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(12, 6, 16, 24),
+        static fn(string $cap): bool => true, assetRoot: $this->root . '/assets'));
+    $plain = new \Ichiloto\Engine\Field\Npc('Lamp', '<fg=yellow>()</>', new Vector2(3, 1), id: 'lamp',
+        graphicalSpriteId: 'npc:synthetic:lamp');
+    $this->scene->npcManager->applyPreparedNpcs([$plain]);
+    $composer = new \Ichiloto\Engine\Rendering\Presentation\SceneFrameComposer($this->root . '/assets');
+    $context = $this->scene->getPresentationContext();
+    $compose = fn(array $runs) => $composer->composeFrame($this->scene, $context->grid, $context->supports(...),
+        static fn() => new \Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot(12, 6, [
+            new \Ichiloto\Engine\Rendering\Presentation\PresentationTextLayer('npc:synthetic:lamp', 1, $runs)]),
+        refreshOverlay: false);
+    // A subject that draws nothing in its own layer shows no glyph, so there is nothing to report.
+    $compose([]);
+    expect($composer->fallbacks->getReportedMessages())->toBe([]);
+    $compose([new \Ichiloto\Engine\Rendering\Presentation\PresentationTextRun(1, 3, '()')]);
+    $compose([new \Ichiloto\Engine\Rendering\Presentation\PresentationTextRun(1, 3, '()')]);
+    expect($composer->fallbacks->getReportedMessages())->toBe(["Field subject 'npc:synthetic:lamp' has no graphical "
+        . "sprite; the graphical field draws its terminal glyph '()' instead."]);
 });
 
 it('requires localized labels only for sign resources and refuses mixed presentation ownership', function () {

@@ -478,6 +478,12 @@ it('finds the glyphs the graphical field still shows, by the layer each tile cov
     ->and($cells(new MapGraphics($graphics->tileset, [])))->toBe(['0:=:fixtures', '1:=:fixtures', '2:=:fixtures', '3:=:fixtures', '4:=:fixtures'])
     ->and(new MapGraphics($graphics->tileset, [])->getShownGlyphCells(new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', ' .')]), $this->root))
     ->toBe([['x' => 1, 'y' => 0, 'glyph' => '.', 'layer' => 'terrain']]);
+
+  // The uploaded world shows the same cells by the same rule: the renderer's covers decide, not the authoring tools.
+  $world = static fn(MapGraphics $graphics): array => array_map(static fn(array $cell): string =>
+    "{$cell['x']}:{$cell['glyph']}:{$cell['layerId']}", PresentationWorld::getFromLayers($layers, 'home', $graphics, $root)->getGlyphCells());
+  expect($world($graphics))->toBe(['0:=:map:fixtures', '3:=:map:fixtures', '4:=:map:fixtures'])
+    ->and($world(new MapGraphics($graphics->tileset, [])))->toHaveCount(5);
 });
 
 it('names the plain tile that marks missing art, from one of its own sheets', function () {

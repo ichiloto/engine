@@ -181,7 +181,7 @@ afterEach(function () {
   }
 });
 
-it('shares Camera projection and map identity while retaining field-edge and screen-pinned sprites', function () {
+it('shares Camera projection and map identity while retaining field-edge and screen-pinned sprites in place of their terminal glyphs', function () {
   $camera = $this->scene->camera->captureState();
   $frame = $this->composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture);
   $actor = array_find($frame->sprites, fn($sprite) => $sprite->id === 'actor');
@@ -193,9 +193,9 @@ it('shares Camera projection and map identity while retaining field-edge and scr
     ->and($frame->world)->toBe($this->scene->world)
     ->and($frame->viewport->worldOriginX)->toBe(3)->and($frame->viewport->worldOriginY)->toBe(2)
     ->and($frame->viewport->spriteIds)->toBe(['actor', 'edge'])->and($frame->viewport->follow->spriteId)->toBe('actor')
-    ->and($frame->viewport->tileFrame)->toBe(7)->and($this->captures[0][0])->toBe(['actor', 'screen-effect'])
+    ->and($frame->viewport->tileFrame)->toBe(7)->and($this->captures[0][0])->toBe(['actor', 'edge', 'screen-effect'])
     ->and($this->captures[0][1])->toBe($frame->world->textLayerIds)
-    ->and(array_column($frame->snapshot->textLayers, 'id'))->toBe(['edge', 'terminal-only', 'ui:dialogue'])
+    ->and(array_column($frame->snapshot->textLayers, 'id'))->toBe(['terminal-only', 'ui:dialogue'])
     ->and($this->scene->camera->captureState())->toEqual($camera);
   $this->actor->definition = GraphicalSpriteDefinition::fromArray(['asset' => 'Other/Replacement.png', 'layer' => 10]);
   $replacement = $this->composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture);

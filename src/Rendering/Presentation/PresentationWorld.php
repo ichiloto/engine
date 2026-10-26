@@ -523,6 +523,58 @@ final class PresentationWorld
     }
 
     /**
+     * The cells this world shows by their terminal glyph: a visible glyph that
+     * no tile covers, by the rule a renderer that negotiated tile covers
+     * applies ({@see getOperations()}): a tile hides the glyph of the gameplay
+     * layer its tile layer belongs to, and a tile of a layer that belongs to
+     * none hides any glyph. Every such cell is one the graphical field draws
+     * without art. Rows are read one at a time, so a world map is never held
+     * as per-cell arrays.
+     *
+     * @return list<array{x: int, y: int, glyph: string, layerId: string}> In row order.
+     */
+    public function getGlyphCells(): array
+    {
+        $visible = [];
+        foreach ($this->wireCells as $index => $cell) {
+            if (trim($cell['glyph']) !== '') { $visible[$index] = true; }
+        }
+        if ($visible === []) { return []; }
+        $cells = [];
+        for ($y = 0; $y < $this->rowCells->height; $y++) {
+            $covered = null;
+            foreach ($this->rowCells->getRowValues($y) as $x => $index) {
+                if (!isset($visible[$index])) { continue; }
+                $covered ??= $this->readCoveredRow($y);
+                $owner = $this->wireCells[$index]['ownerLayerId'];
+                if (isset($covered[$x][$owner]) || isset($covered[$x][''])) { continue; }
+                $cells[] = ['x' => $x, 'y' => $y, 'glyph' => $this->wireCells[$index]['glyph'], 'layerId' => $owner];
+            }
+        }
+        return $cells;
+    }
+
+    /**
+     * The gameplay layers each column's tiles cover in one row, `''` for a tile
+     * of a layer that belongs to none.
+     *
+     * @return array<int, array<string, true>>
+     */
+    private function readCoveredRow(int $y): array
+    {
+        $covered = [];
+        foreach ($this->tileRows as $layerId => $rows) {
+            if (!isset($rows[$y])) { continue; }
+            $owner = $this->tileCovers[$layerId] ?? '';
+            $values = unpack('v*', $rows[$y]);
+            for ($index = 1, $count = count($values); $index < $count; $index += 2) {
+                $covered[$values[$index]][$owner] = true;
+            }
+        }
+        return $covered;
+    }
+
+    /**
      * The cell's text as the renderer draws it, with the colours of its first
      * visible character (the background of its first character).
      *
