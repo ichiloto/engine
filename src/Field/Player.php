@@ -31,7 +31,7 @@ use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
-use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
+use Ichiloto\Engine\Rendering\Sprites\ThicketSubjectInterface;
 use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
@@ -46,8 +46,12 @@ use RuntimeException;
  *
  * @package Ichiloto\Engine\Field
  */
-class Player extends GameObject implements GraphicalSpriteProviderInterface
+class Player extends GameObject implements ThicketSubjectInterface
 {
+  /** The party's leader walks among its cell's foliage, unless drawn from an object sheet. */
+  public bool $standsInFoliage {
+    get => $this->getGraphicalCharacterSheet()?->isObject === false;
+  }
   private ?CharacterWalkAnimation $walkAnimation = null;
   /**
    * @var Closure(): void|null What a committed step does on arrival (its

@@ -18,6 +18,18 @@
   icon, in its tiles or its terminal glyphs, is not its destination's type's (`place.icon`) or where a place icon
   stands over a way into a map naming no type (`place.untyped`). The Engine defines no type and changes nothing
   at runtime.
+- Thickets: a tileset's `thickets` (`TilesetThicket`) are foliage characters walk through hidden in the
+  graphical field, like RPG Maker's bush flag but per foliage type: `depth` field pixels up from the feet
+  (1 to 48), `opacity` of the hidden part (0 masks it), `rustle` (true unless authored false) and the
+  `tiles` that are one. A terrain kind names the thicket its own autotile is (`TerrainKind::$thicket`);
+  `Tileset::getThicket()` answers for any tile in any shape. `MapThickets` finds the deepest thicket among
+  the tiles a cell shows. The player, NPCs and cinematic cast (`ThicketSubjectInterface::$standsInFoliage`,
+  never object sheets or world objects) carry the thicket of the cell they occupy
+  (`SpriteThicketHostInterface`, `GameScene::findSpriteThicketAt()`), sent as `PresentationSpriteThicket`
+  only to renderers negotiating the new `sprite_thicket` capability; others draw the whole character as
+  before. The rustle names the retained world layer whose tile is the foliage
+  (`PresentationLayerPolicy::getTileLayerId()`), and is left off under reduced motion. The terminal,
+  collision, movement and encounters are unchanged.
 - The `reveal` skill effect: `['type' => 'reveal', 'facts' => ['hp', 'mp', 'stats', 'affinities'], 'chancePercent' => 75]`
   reveals a foe's HP, MP, stats or best element (`RevealFact`) for the rest of the battle. One roll per
   target, no resistance and no immunity; a failed roll reveals nothing and still spends the MP and turn.

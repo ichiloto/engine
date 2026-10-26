@@ -14,10 +14,11 @@ use RuntimeException;
 /**
  * A project tileset: RPG Maker sheets by name, the graphical flags RPG Maker
  * keeps per tile, the pieces maps are built from with it and the terrain
- * kinds world maps are painted in ({@see TerrainKind}), and the tile layers
+ * kinds world maps are painted in ({@see TerrainKind}), the tile layers
  * whose tiles stack so decorations drawn on them overlap ({@see TilesetStack}),
- * and the piece a world map shows for each type of place
- * ({@see \Ichiloto\Engine\Field\PlaceTypeCatalog}).
+ * the piece a world map shows for each type of place
+ * ({@see \Ichiloto\Engine\Field\PlaceTypeCatalog}), and the thickets
+ * characters walk through hidden to the waist or the ankles ({@see TilesetThicket}).
  * Tiles carry no
  * passage settings: collision comes from the map's occupancy or terminal
  * layers, and on a map painted in terrain kinds from its kinds
@@ -32,7 +33,7 @@ final readonly class Tileset
   /** The key naming the piece shown for each type of place. */
   public const string PLACE_ICONS = 'placeIcons';
   private const array FIELDS = ['name', 'sheets', 'above', 'tables', 'pieces', 'kinds', 'stacks', 'missingArt', 'shadows',
-    TilesetAppearance::DATA_KEY, self::PLACE_ICONS];
+    TilesetAppearance::DATA_KEY, self::PLACE_ICONS, TilesetThicket::DATA_KEY];
 
   /**
    * @param array<string, string> $sheets Asset-relative PNG paths keyed by sheet name.
@@ -46,6 +47,7 @@ final readonly class Tileset
    * @param array<string, TilesetStack> $stacks Tile layers whose tiles stack, keyed by stack id.
    * @param array<string, string> $placeIcons The piece id a map drawn with this tileset shows for each place type
    *     id, so the icon over an entrance follows the type of the place it leads to.
+   * @param array<string, TilesetThicket> $thickets Thickets, keyed by thicket id, in authored order.
    */
   public function __construct(
     public string $id,
@@ -60,7 +62,34 @@ final readonly class Tileset
     public array $kinds = [],
     public array $stacks = [],
     public array $placeIcons = [],
-  ) {}
+    public array $thickets = [],
+  ) {
+    $byTile = [];
+    foreach ($thickets as $thicket) {
+      foreach ($thicket->tiles as $tile) {
+        $byTile[$tile] = $thicket;
+      }
+    }
+    foreach ($kinds as $kind) {
+      if ($kind->thicket !== null && $kind->art !== null) {
+        $byTile[$kind->art['tile']] = $thickets[$kind->thicket];
+      }
+    }
+    $this->thicketsByTile = $byTile;
+  }
+
+  /** @var array<int, TilesetThicket> The thicket each tile is, by flag identity. */
+  private array $thicketsByTile;
+
+  /**
+   * The thicket a tile is, in any of its shapes: the one its terrain kind
+   * names for a kind's own autotile, otherwise the one that lists it; null
+   * for a tile that hides nobody.
+   */
+  public function getThicket(int $id): ?TilesetThicket
+  {
+    return $id === TileId::EMPTY ? null : $this->thicketsByTile[TileId::getFlagId($id)] ?? null;
+  }
 
   /** The piece a map drawn with this tileset shows for a place type, or null when it gives the type none. */
   public function getPlaceIcon(string $placeType): ?TilesetPiece
@@ -164,7 +193,10 @@ final readonly class Tileset
     }
     $shadows = array_key_exists('shadows', $data)
       ? TilesetShadows::fromArray($data['shadows'], $context, self::getIdentityList(...)) : null;
-    $kinds = TerrainKind::readAll($data['kinds'] ?? [], $sheets, array_map(strval(...), array_keys($pieces)), $context);
+    $thickets = TilesetThicket::readAll($data[TilesetThicket::DATA_KEY] ?? [], $context, self::getIdentityList(...));
+    $kinds = TerrainKind::readAll($data['kinds'] ?? [], $sheets, array_map(strval(...), array_keys($pieces)), $context,
+      array_map(strval(...), array_keys($thickets)));
+    self::assertThicketTilesAreNotKinds($thickets, $kinds, $context);
     $appearance = TilesetAppearance::fromArray($data[TilesetAppearance::DATA_KEY] ?? [], $context, self::getIdentityList(...))
       ->withKinds($kinds, $context);
     $kindLayers = [];
@@ -174,7 +206,7 @@ final readonly class Tileset
     $stacks = TilesetStack::readAll($data['stacks'] ?? [], $pieces, array_values(array_unique($kindLayers)), $context);
     $placeIcons = self::readPlaceIcons($data[self::PLACE_ICONS] ?? [], $pieces, $stacks, $context);
     return new self($id, $data['name'], $sheets, $above, $tables, $pieces, $missingArt, $shadows, $appearance, $kinds, $stacks,
-      $placeIcons);
+      $placeIcons, $thickets);
   }
 
   /**
@@ -208,6 +240,25 @@ final readonly class Tileset
       }
     }
     return $icons;
+  }
+
+  /**
+   * A terrain kind's own autotile is the thicket its kind names, so a
+   * thicket's tiles never list one.
+   *
+   * @param array<string, TilesetThicket> $thickets
+   * @param array<string, TerrainKind> $kinds
+   */
+  private static function assertThicketTilesAreNotKinds(array $thickets, array $kinds, string $context): void
+  {
+    foreach ($kinds as $kind) {
+      foreach ($kind->art === null ? [] : $thickets as $thicket) {
+        if (in_array($kind->art['tile'], $thicket->tiles, true)) {
+          throw new InvalidArgumentException("{$context} thicket {$thicket->id} lists tile {$kind->art['tile']}, terrain kind {$kind->id}'s own autotile; "
+            . 'name the thicket on the kind instead.');
+        }
+      }
+    }
   }
 
   /** @return list<int> Flag identities, one per autotile kind. */

@@ -13,14 +13,25 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
 use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
-use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
+use Ichiloto\Engine\Rendering\Sprites\ThicketSubjectInterface;
 use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
 use Ichiloto\Engine\Rendering\Sprites\FieldSpriteRole;
 use Ichiloto\Engine\UI\Accessibility;
 
 /** A temporary field participant owned by one cinematic. */
-final class StagedActor implements GraphicalSpriteProviderInterface
+final class StagedActor implements ThicketSubjectInterface
 {
+  /**
+   * Cast stand among their cell's foliage: a character sheet unless it is an object sheet, and a pose or image.
+   * A world object's art, and a visual held on one of its attachments, stand where the object is.
+   */
+  public bool $standsInFoliage {
+    get {
+      if ($this->attachment !== null || $this->subject?->subject instanceof WorldObject) { return false; }
+      $sprites = $this->getGraphicalSprites();
+      return $sprites instanceof CharacterSheet ? !$sprites->isObject : $sprites !== null;
+    }
+  }
   public MovementHeading $facing {
     get => $this->subject?->subject instanceof WorldObject ? $this->localFacing : ($this->subject?->subject->heading ?? $this->localFacing);
   }

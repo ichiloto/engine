@@ -14,8 +14,8 @@ use InvalidArgumentException;
  * One kind of terrain a classic world map is painted in, such as grass,
  * forest or mountains: a stable id and name, its terminal glyph and colour,
  * its graphical autotile, its passage on foot, its encounter terrain, its
- * atlas role and, for a feature such as a forest, the ground kind it stands
- * on. The kind is the cell's identity; its glyph and its autotile are two
+ * atlas role, for a feature such as a forest, the ground kind it stands
+ * on, and the thicket its autotile is, if any ({@see TilesetThicket}). The kind is the cell's identity; its glyph and its autotile are two
  * independent presentations of it, and neither the glyph nor its colour is a
  * graphical tile identity.
  *
@@ -25,7 +25,8 @@ use InvalidArgumentException;
  * 'grass' => ['name' => 'Grass', 'layer' => 'terrain', 'glyph' => '<fg=green>.</>',
  *   'art' => ['layer' => 'ground', 'tile' => 2816], 'passage' => 'walk', 'encounters' => 'grass', 'atlas' => 'ground'],
  * 'forest' => ['name' => 'Forest', 'layer' => 'terrain', 'glyph' => '<fg=green>♣</>', 'ground' => 'grass',
- *   'art' => ['layer' => 'features', 'tile' => 3200], 'passage' => 'walk', 'encounters' => 'forest', 'atlas' => 'vegetation'],
+ *   'art' => ['layer' => 'features', 'tile' => 3200], 'passage' => 'walk', 'encounters' => 'forest', 'atlas' => 'vegetation',
+ *   'thicket' => 'forest'],
  * 'hills' => ['name' => 'Hills', 'layer' => 'terrain', 'glyph' => '<fg=green>n</>', 'art' => ['awaiting' => true],
  *   'passage' => 'walk', 'encounters' => 'hills', 'atlas' => 'highland'],
  * 'road' => ['name' => 'Road', 'layer' => 'terrain', 'glyph' => '<fg=#d2b48c>·</>',
@@ -54,7 +55,7 @@ use InvalidArgumentException;
  */
 final readonly class TerrainKind
 {
-  public const array FIELDS = ['name', 'layer', 'glyph', 'art', 'passage', 'encounters', 'atlas', 'ground', 'keeps'];
+  public const array FIELDS = ['name', 'layer', 'glyph', 'art', 'passage', 'encounters', 'atlas', 'ground', 'keeps', 'thicket'];
   /** The art key that marks a kind whose autotile is still to be drawn: `'art' => ['awaiting' => true]`. */
   public const string AWAITING_ART = 'awaiting';
   /** The art key naming a corner-edged kind's corner sheet ({@see CornerSheet}). */
@@ -90,6 +91,7 @@ final readonly class TerrainKind
    * @param string|null $ground The kind a feature stands on, painted beneath it; null for a ground kind.
    * @param list<string> $keeps Tile layers whose existing tiles stay beneath it, such as a substrate.
    * @param TilesetPiece $piece The one-cell piece that places it.
+   * @param string|null $thicket The thicket its own autotile is, by thicket id ({@see TilesetThicket}); null when it hides nobody.
    */
   public function __construct(
     public string $id,
@@ -103,6 +105,7 @@ final readonly class TerrainKind
     public ?string $ground,
     public array $keeps,
     public TilesetPiece $piece,
+    public ?string $thicket = null,
   ) {
     $this->symbol = TerminalText::stripAnsi(TerminalText::visibleSymbols($glyph)[0] ?? '');
     $this->awaitingArt = $art === null;
@@ -121,9 +124,10 @@ final readonly class TerrainKind
    *
    * @param array<string, string> $sheets The tileset's sheets, by sheet name.
    * @param list<string> $pieceIds The tileset's authored piece ids, which kind ids must not repeat.
+   * @param list<string> $thicketIds The tileset's thicket ids, one of which a kind's thicket names.
    * @return array<string, self> By kind id, in authored order.
    */
-  public static function readAll(mixed $data, array $sheets, array $pieceIds, string $context): array
+  public static function readAll(mixed $data, array $sheets, array $pieceIds, string $context, array $thicketIds = []): array
   {
     if (!is_array($data) || ($data !== [] && array_is_list($data))) {
       throw new InvalidArgumentException("{$context} kinds must be keyed by kind id.");
@@ -138,7 +142,7 @@ final readonly class TerrainKind
       if (in_array($id, $pieceIds, true)) {
         throw new InvalidArgumentException("{$kindContext}: a piece already has this id; kinds and pieces are placed by id, so each id names one.");
       }
-      $definitions[$id] = self::readDefinition($definition, $sheets, $kindContext);
+      $definitions[$id] = self::readDefinition($definition, $sheets, $kindContext, $thicketIds);
     }
     $kinds = [];
     foreach ($definitions as $id => $definition) {
@@ -150,7 +154,7 @@ final readonly class TerrainKind
   }
 
   /** @return array<string, mixed> The kind's own fields, read and checked. */
-  private static function readDefinition(mixed $data, array $sheets, string $context): array
+  private static function readDefinition(mixed $data, array $sheets, string $context, array $thicketIds): array
   {
     if (!is_array($data) || array_diff(array_keys($data), self::FIELDS) !== []) {
       throw new InvalidArgumentException("{$context} must be an array of " . implode(', ', self::FIELDS) . '.');
@@ -231,8 +235,13 @@ final readonly class TerrainKind
     if ($art !== null && in_array($art['layer'], $keeps, true)) {
       throw new InvalidArgumentException("{$context} keeps its own art layer {$art['layer']}; it paints that layer, so it cannot keep it.");
     }
+    $thicket = $data['thicket'] ?? null;
+    if ($thicket !== null && (!is_string($thicket) || !in_array($thicket, $thicketIds, true))) {
+      throw new InvalidArgumentException("{$context} thicket must name one of this tileset's thickets"
+        . ($thicketIds === [] ? ', and it has none.' : ': ' . implode(', ', $thicketIds) . '.'));
+    }
     return ['name' => $data['name'], 'layer' => $data['layer'], 'glyph' => $glyph, 'art' => $art, 'passage' => $passage,
-      'encounters' => $encounters, 'atlas' => $data['atlas'], 'ground' => $ground, 'keeps' => $keeps];
+      'encounters' => $encounters, 'atlas' => $data['atlas'], 'ground' => $ground, 'keeps' => $keeps, 'thicket' => $thicket];
   }
 
   /** @param array<string, array<string, mixed>> $definitions */
@@ -269,7 +278,7 @@ final readonly class TerrainKind
     $piece = TilesetPiece::fromArray($id, ['name' => $definition['name'], 'layer' => $definition['layer'], 'glyphs' => [$definition['glyph']],
       'tiles' => $tiles, 'keeps' => $keeps], $context);
     return new self($id, $definition['name'], $definition['layer'], $definition['glyph'], $definition['art'], $definition['passage'],
-      $definition['encounters'], $definition['atlas'], $groundId, $keeps, $piece);
+      $definition['encounters'], $definition['atlas'], $groundId, $keeps, $piece, $definition['thicket']);
   }
 
   /**

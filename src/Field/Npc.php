@@ -17,7 +17,7 @@ use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
 use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
-use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
+use Ichiloto\Engine\Rendering\Sprites\ThicketSubjectInterface;
 use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 
@@ -58,8 +58,12 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  *
  * @package Ichiloto\Engine\Field
  */
-class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProviderInterface
+class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterface
 {
+  /** An NPC walks among its cell's foliage, unless drawn from an object sheet such as a chest. */
+  public bool $standsInFoliage {
+    get => $this->graphicalSprites?->isObject === false;
+  }
   /**
    * @var float The next time this NPC may take a wander step.
    */
