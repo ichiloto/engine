@@ -3,12 +3,15 @@
 namespace Ichiloto\Engine\Rendering\Presentation;
 
 use Ichiloto\Engine\Core\PackedGrid;
+use Ichiloto\Engine\Field\MapCompilationCache;
 use Ichiloto\Engine\Field\MapGraphics;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\MapTileLayer;
 use Ichiloto\Engine\IO\Console\SgrColorParser;
+use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\FieldViewport;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Tilesets\AutotileShape;
 use Ichiloto\Engine\Rendering\Tilesets\CornerShape;
 use Ichiloto\Engine\Rendering\Tilesets\TileComposer;
@@ -16,6 +19,7 @@ use Ichiloto\Engine\Rendering\Tilesets\TileId;
 use Ichiloto\Engine\Rendering\Tilesets\TilePiece;
 use Generator;
 use InvalidArgumentException;
+use RuntimeException;
 
 /**
  * Immutable, map-owned upload. Camera movement never visits its cells in PHP.
@@ -167,6 +171,29 @@ final class PresentationWorld
 
     public static function getFromLayers(MapLayerSet $layers, string $id = 'map', ?MapGraphics $graphics = null,
         string $assetRoot = '', array $coverage = [], array $terminalCells = []): self
+    {
+        // Every input is immutable. Artwork bytes are cache invalidation facts, never game identity or admission gates.
+        $facts = [];
+        $art = $graphics?->tileset->sheets ?? [];
+        foreach ($graphics?->tileset->kinds ?? [] as $kind) {
+            if (is_string($kind->art['corners'] ?? null)) { $art[] = $kind->art['corners']; }
+        }
+        foreach (array_unique($art) as $asset) {
+            try {
+                PngAssetPreflight::inspect($assetRoot, $asset);
+                $facts[$asset] = hash_file('sha256', $assetRoot . DIRECTORY_SEPARATOR . $asset);
+            } catch (RuntimeException $error) { $facts[$asset] = ['unavailable' => $error->getMessage()]; }
+        }
+        $key = 'world:' . hash('sha256', serialize([$layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $facts,
+            TerminalCapabilities::supportsCompositeEmoji()]));
+        if (($cached = MapCompilationCache::find($key)) instanceof self) { return $cached; }
+        $world = self::compileFromLayers($layers, $id, $graphics, $assetRoot, $coverage, $terminalCells);
+        MapCompilationCache::store($key, $world, $world->estimatedSourceBytes);
+        return $world;
+    }
+
+    private static function compileFromLayers(MapLayerSet $layers, string $id, ?MapGraphics $graphics,
+        string $assetRoot, array $coverage, array $terminalCells): self
     {
         $grid = $layers->getComposedGrid();
         foreach ($terminalCells as $y => $row) {

@@ -631,6 +631,24 @@ through the same record schema.
 > column accounting, unchanged-row skipping, and frame batching (including
 > nesting). Verified live: the map renders identically after the change.
 
+### Performance — large-map transfers ⏳ *first-visit latency remains open*
+
+The shared map path now reuses immutable layer grids, parsed tile grids and
+compiled presentation worlds in bounded compressed memory, with current source
+and artwork bytes checked before reuse. Expanded maps still release on exit.
+Negotiated compact world rows reduce upload bytes while preserving each cell.
+See [graphical-field.md](graphical-field.md) for these contracts.
+
+First preparation still blocks `GameScene::transferPlayer()`: source validation,
+map-local actors and world compilation finish before the atomic map commit, then
+the destination world must reach its renderer acknowledgement. Reuse improves a
+return visit; it does not make an uncached large destination instant. Removing
+that first-visit pause requires a shared staged preparation lifecycle with bounded
+work between frames, failure/cancellation before commit, and preserved event,
+cinematic, arrival-input and autosave ordering. It belongs to Engine's transfer
+and presentation path. Keep current Terminal behavior and source-preserving Editor
+round trips; a map-specific bypass or extra loading delay does not solve it.
+
 ### Known issue — rare unreproducible test flake
 > Twice during Phase 6/7 work a single suite run reported one failure that
 > did not reproduce. The first cause was real and fixed: static caches

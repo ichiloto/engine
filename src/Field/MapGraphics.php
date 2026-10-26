@@ -367,6 +367,10 @@ final readonly class MapGraphics
     public static function readLayersFromSources(array $sources, string $displayDirectory, MapLayerSet $layers): array
     {
         self::assertLayerCount(count($sources), $displayDirectory);
+        $key = 'tiles:' . hash('sha256', serialize([$sources, $displayDirectory, array_map(count(...), $layers->getComposedGrid())]));
+        $cached = MapCompilationCache::find($key);
+        if (is_array($cached)) { return $cached; }
+
         $tileLayers = $orders = [];
         foreach ($sources as $path => $source) {
             $filename = basename((string)$path);
@@ -383,6 +387,9 @@ final readonly class MapGraphics
             $tileLayers[] = $layer;
         }
         usort($tileLayers, static fn(MapTileLayer $a, MapTileLayer $b): int => $a->order <=> $b->order);
+        $charge = array_sum(array_map(strlen(...), $sources));
+        foreach ($tileLayers as $layer) { $charge += $layer->width * $layer->height * 4; }
+        MapCompilationCache::store($key, $tileLayers, $charge);
         return $tileLayers;
     }
 

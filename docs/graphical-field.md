@@ -489,6 +489,17 @@ editing surface is owned by the GUI Editor plan. Related docs:
   Streaming chooses the smaller encoding per row; older peers keep ordinary
   rows. This reduces large-map transfer bytes without changing map geometry,
   source state, artwork or arrival ownership.
+- **Compilation reuse.** Immutable authored layer grids, parsed tile grids and
+  compiled worlds share a process-local cache capped at 512 KiB of compressed
+  snapshots and 32 entries. Live objects have weak references, so leaving a map
+  releases its expanded memory. A snapshot can expand to at most 64 MiB. Lookups
+  read current source bytes, complete presentation inputs and current artwork
+  bytes; same-size edits with unchanged timestamps still invalidate reuse.
+  Artwork hashes are internal invalidation facts and impose no identity or
+  admission requirement on replaceable art. Data PHP, events, NPCs and gameplay
+  state are loaded fresh. A changed or evicted map compiles normally; first
+  preparation and native arrival remain synchronous, so reuse does not promise
+  an instant first visit to a large map.
 - **Retained upload.** The world carries the cell size, and the tileset:
   its sheets, tile size and a catalog of the tile identities the map uses,
   each as frames of pieces copied from a sheet into the tile. Tile layers
