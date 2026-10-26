@@ -230,6 +230,14 @@
 
 ### Changed
 
+- An action's announcement is read for its own time, apart from the rest of its turn: each action category's
+  reading time per pace is authored in `config.php` at `ui.battle.announcement_seconds.<category>.<pace>`
+  (0.1 s to 10 s; `BattlePacing::getAnnouncementSeconds()`, `BattleActionCategory::getAnnouncementSeconds()`
+  and `getAnnouncementConfigPath()`; `BattleTurnTimings::fromTotalDuration()` takes the reading time). An
+  authored summon's move is still read for 4.2 s slow, 2.8 s medium and 1.68 s fast, but the summon category's
+  turn budget is an attack's again (4.0, 2.5 and 1.5 s, from 15, 10 and 6 s), so stepping forward, the cast
+  beat, the results and stepping back around a summon's sequence are as long as before summons were paced by
+  their action type: a slow Djin turn takes 20.4 s instead of 26.3 s. Every other action's turn is unchanged.
 - A world map's field state and graphical upload are held compactly, so a classic world map loads, plays and
   leaves within PHP's default 128 MB: Last Legend's 320 x 248 continent crashed the game at 128 MB when the
   player left Happyville (`MapTerrainKinds::resolveEncounterTerrain()` ran out of memory). Gameplay layers, tile
