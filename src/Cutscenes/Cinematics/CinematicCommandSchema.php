@@ -64,6 +64,13 @@ final class CinematicCommandSchema
   ];
   /** Map subjects whose authored look a staged actor can wear. */
   public const array STAGED_ACTOR_APPEARANCE_KINDS = ['npc'];
+  /**
+   * The fields that give a staged actor its graphical look: its own art, the
+   * subject it stands for, or the map NPC whose look it wears. An actor
+   * staged with none of them is drawn by its terminal glyph in a graphical
+   * field, which reports it as a fallback.
+   */
+  public const array STAGED_ACTOR_GRAPHICAL_FIELDS = ['sprites2d', 'subject', 'appearance'];
   public const array RELATIVE_POSITION_FIELDS = ['at', 'offset'];
   public const array SKIP_POLICIES = ['forbidden', 'authored'];
   public const array FINALIZER_COMMAND_TYPES = [
@@ -134,6 +141,7 @@ final class CinematicCommandSchema
         'completion' => self::CINEMATIC_TRIGGER_COMPLETION,
       ],
       'stagedActorFields' => self::STAGED_ACTOR_FIELDS,
+      'stagedActorGraphicalFields' => self::STAGED_ACTOR_GRAPHICAL_FIELDS,
       'stagedPoseAnimation' => [
         'field' => 'sprites2d.animation',
         'fields' => FieldPoseAnimation::FIELDS,
