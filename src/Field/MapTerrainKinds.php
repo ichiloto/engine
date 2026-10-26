@@ -240,31 +240,33 @@ final readonly class MapTerrainKinds
     $terrains = $this->getEncounterTerrains();
     $terrainIndices = array_flip($terrains);
     $base = $gameplay[0][0] ?? null;
-    $rows = [];
-    for ($y = 0; $y < ($base?->height ?? 0); $y++) {
-      $row = [];
-      for ($x = 0, $width = $base->getRowLength($y); $x < $width; $x++) {
-        $row[$x] = 0;
-        for ($index = count($gameplay) - 1; $index >= 0; $index--) {
-          [$layer, $types] = $gameplay[$index];
-          $glyph = $layer->getGlyphAt($x, $y) ?? ' ';
-          if ($index !== 0 && $glyph === ' ') {
-            continue;
-          }
-          $kinds = $this->getKindsOn($layer->name, $glyph);
-          if ($kinds !== []) {
-            if ($kinds[0]->encounters !== null) {
-              $row[$x] = $terrainIndices[$kinds[0]->encounters] + 1;
+    // Row by row into packed storage: no grid of terrains is ever built.
+    $rows = (function () use ($base, $gameplay, $terrainIndices): \Generator {
+      for ($y = 0; $y < ($base?->height ?? 0); $y++) {
+        $row = [];
+        for ($x = 0, $width = $base->getRowLength($y); $x < $width; $x++) {
+          $row[$x] = 0;
+          for ($index = count($gameplay) - 1; $index >= 0; $index--) {
+            [$layer, $types] = $gameplay[$index];
+            $glyph = $layer->getGlyphAt($x, $y) ?? ' ';
+            if ($index !== 0 && $glyph === ' ') {
+              continue;
             }
-            break;
-          }
-          if (MapCollisionResolver::lookUp($types, $glyph) !== CollisionType::PASS_THROUGH) {
-            break;
+            $kinds = $this->getKindsOn($layer->name, $glyph);
+            if ($kinds !== []) {
+              if ($kinds[0]->encounters !== null) {
+                $row[$x] = $terrainIndices[$kinds[0]->encounters] + 1;
+              }
+              break;
+            }
+            if (MapCollisionResolver::lookUp($types, $glyph) !== CollisionType::PASS_THROUGH) {
+              break;
+            }
           }
         }
+        yield $row;
       }
-      $rows[] = $row;
-    }
+    })();
     return new MapEncounterTerrain(PackedGrid::fromRows($rows), $terrains);
   }
 

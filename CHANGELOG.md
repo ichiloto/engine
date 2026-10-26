@@ -238,7 +238,8 @@
   `streamOperations()`); a renderer session streams a world chunk by chunk (`RetainedWorldUpload`), and corner
   cases stream too (`CornerShape::yieldCorners()`). Every map's collision, encounter terrain, ownership,
   overview and renderer upload are unchanged byte for byte. On the continent, a transfer's peak fell from
-  205 MB to 20 MB and the installed map from 191 MB to 15 MB.
+  205 MB to 19 MB and the installed map from 191 MB to 14 MB. Single-pass derivations stream rows through
+  generators (`AutotileShape::yieldRows()`, encounter terrain, layer parsing).
 - Battle overlays attach to each battler's drawn body: the visible pixels of the artwork it draws this frame,
   after crop, scale, mirroring, clip and command movement. The target cursor, condition badges, target
   names, result popups and effect head/centre/feet attachments no longer anchor to the whole image

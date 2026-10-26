@@ -18,22 +18,48 @@ final class AutotileShape
    */
   public static function resolveLayer(array $layer): array
   {
-    $resolved = $layer;
-    foreach ($layer as $y => $row) {
-      foreach ($row as $x => $id) {
+    return iterator_to_array(self::yieldRows($layer));
+  }
+
+  /**
+   * The same shapes as {@see resolveLayer()}, one row at a time: rows are
+   * read as they are needed, and only a row and the two beside it are held,
+   * so a world map's layer is never held whole to be shaped.
+   *
+   * @param iterable<int, list<int>> $rows Tile identities by row and cell, rows in order from 0.
+   * @return \Generator<int, list<int>> Each row with every autotile's shape resolved, keyed by row.
+   */
+  public static function yieldRows(iterable $rows): \Generator
+  {
+    $window = [];
+    $emit = static function (int $y) use (&$window): array {
+      $resolved = $window[$y];
+      foreach ($window[$y] as $x => $id) {
         if (!TileId::isAutotile($id)) {
           continue;
         }
         $kind = TileId::getKind($id);
-        $same = static fn(int $dx, int $dy): bool => self::isSameKind($layer, $x + $dx, $y + $dy, $kind);
-        $resolved[$y][$x] = TileId::getAutotileId($kind, match (true) {
+        $same = static fn(int $dx, int $dy): bool => self::isSameKind($window, $x + $dx, $y + $dy, $kind);
+        $resolved[$x] = TileId::getAutotileId($kind, match (true) {
           TileId::isWaterfall($id) => self::getWaterfallShape($same),
           TileId::isWall($id) => self::getWallShape($same),
           default => self::getFloorShape($same),
         });
       }
+      return $resolved;
+    };
+    $last = null;
+    foreach ($rows as $y => $row) {
+      $window[$y] = $row;
+      if ($last !== null) {
+        yield $last => $emit($last);
+        unset($window[$last - 1]);
+      }
+      $last = $y;
     }
-    return $resolved;
+    if ($last !== null) {
+      yield $last => $emit($last);
+    }
   }
 
   /**

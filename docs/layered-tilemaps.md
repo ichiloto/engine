@@ -744,14 +744,18 @@ holds its tile identities the same way (`MapTileLayer::getTileAt()`,
 The retained world (`PresentationWorld`) keeps its upload packed and shares
 equal cells and catalog pieces; `getOperations()` builds the operations, and a
 renderer session streams them (`streamOperations()`, `RetainedWorldUpload`),
-so an upload holds one transport chunk at a time. Tile layers are shaped one
-at a time, and corner cases stream from compact rows
-(`CornerShape::yieldCorners()`). Leaving a map releases all of it.
+so an upload holds one transport chunk at a time. Passes that read every
+cell once stream rows through generators instead of building whole grids:
+parsing layers into packed rows, deriving encounter terrain, shaping
+autotiles (`AutotileShape::yieldRows()` holds three rows at a time) and corner
+cases (`CornerShape::yieldCorners()`), and building upload operations. State
+read at random during play (collision, glyphs, tiles, terrain) stays in
+compact random-access storage. Leaving a map releases all of it.
 
 Measured on Last Legend's 320 x 248 continent (twelve tile layers, terrain
 kinds, corner-edged waters), from a transfer out of Happyville: the
-transfer's peak fell from 205 MB to 20 MB above the field it left, and the
-installed continent from 191 MB to 15 MB, with byte-identical renderer
+transfer's peak fell from 205 MB to 19 MB above the field it left, and the
+installed continent from 191 MB to 14 MB, with byte-identical renderer
 uploads. Tests guard a synthetic 320 x 256 world (`WorldMapMemoryTest`) and
 every map of the game (Last Legend's `FieldTravelMemoryTest`) at 128 MB.
 
