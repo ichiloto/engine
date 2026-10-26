@@ -4,6 +4,13 @@
 
 ### Added
 
+- Place types: a map names the type of the place it belongs to in its data's `placeType`, one of the project's
+  types in `Data/place-types.php` (`PlaceTypeCatalog`, schema `ichiloto.place-types/1`), such as a town, an
+  outpost or a shrine. A tileset gives each type the piece a map drawn with it shows over entrances into such a
+  place (`placeIcons`, `Tileset::getPlaceIcon()`), and `Validation\MapPlaceIconRule` warns where an entrance's
+  icon, in its tiles or its terminal glyphs, is not its destination's type's (`place.icon`) or where a place icon
+  stands over a way into a map naming no type (`place.untyped`). The Engine defines no type and changes nothing
+  at runtime.
 - The `reveal` skill effect: `['type' => 'reveal', 'facts' => ['hp', 'mp', 'stats', 'affinities'], 'chancePercent' => 75]`
   reveals a foe's HP, MP, stats or best element (`RevealFact`) for the rest of the battle. One roll per
   target, no resistance and no immunity; a failed roll reveals nothing and still spends the MP and turn.

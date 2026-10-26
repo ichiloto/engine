@@ -914,6 +914,35 @@ most 64 roles, stable ids, destinations that are roles), reads a map's role
 with `readMapRole()` and answers `allowsDestination()`; the Editor's
 validation applies it to every route `MapRouteGraph::readMap()` finds.
 
+## Place types
+
+A map may name the type of the place it belongs to in its data's
+`placeType`, one of the project's types in `Data/place-types.php`, each with a
+localized name: a city, a town, a village, a castle, an outpost, an inn, a
+shrine, a cave, a wild area, or whatever a game names. A place type is the
+scale and nature of the whole place, so a player can tell a larger settlement
+from a single building on the world map. It differs from the map's role (what
+one map is to travel) and from a landmark's category (what a building inside a
+place offers).
+
+```php
+return ['schema' => 'ichiloto.place-types/1', 'types' => [
+    'town' => ['name' => ['message' => 'place_types.town.name', 'default' => 'Town']],
+    'outpost' => ['name' => ['message' => 'place_types.outpost.name', 'default' => 'Outpost']],
+]];
+```
+
+A tileset gives each type the piece a map drawn with it shows over an
+entrance into a place of that type, in `placeIcons` (see the graphical field
+guide). `PlaceTypeCatalog` validates the catalog (at most 64 types, stable
+ids) and reads a map's type with `readMapPlaceType()`.
+`Validation\MapPlaceIconRule` holds every entrance on a map whose tileset
+declares place icons to its destination's type: the type's piece stands whole
+over the entrance, in its tiles and its terminal glyphs (`place.icon`), and a
+place icon over a way into a map naming no type is reported (`place.untyped`).
+The findings are warnings. The Engine defines no type and changes nothing at
+runtime.
+
 ## The map screen
 
 The `map` action (M by default) opens the entire active map with the player's
