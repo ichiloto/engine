@@ -13,6 +13,7 @@ use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\SceneFrameComposer;
+use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\Presentation\RetainedFrame;
 use Ichiloto\Engine\Rendering\ScreenTransitionPhase;
@@ -52,6 +53,8 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
   private ScreenTransitionPhase $handoffPhase = ScreenTransitionPhase::GATHER;
   private float $handoffProgress = 0;
   public private(set) bool $windowActive = true;
+  /** The world of the newest frame the renderer window has shown; null before one, or without a session. */
+  public ?PresentationWorld $presentedWorld { get => $this->presentation?->presentedWorld; }
   public private(set) ?RendererGridConfig $grid = null;
 
   public function __construct(private readonly RendererRuntimeConfig $config, ?RendererTransportInterface $transport = null)

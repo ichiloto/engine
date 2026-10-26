@@ -60,8 +60,10 @@ final class CinematicCommandSchema
   ];
   public const array STAGED_ACTOR_FIELDS = [
     'id', 'sprite', 'asset', 'x', 'y', 'facing', 'faceToward', 'visible', 'collision', 'sprites', 'sprites2d',
-    'subject', 'suppress', 'replace', 'at', 'offset',
+    'subject', 'suppress', 'replace', 'at', 'offset', 'appearance',
   ];
+  /** Map subjects whose authored look a staged actor can wear. */
+  public const array STAGED_ACTOR_APPEARANCE_KINDS = ['npc'];
   public const array RELATIVE_POSITION_FIELDS = ['at', 'offset'];
   public const array SKIP_POLICIES = ['forbidden', 'authored'];
   public const array FINALIZER_COMMAND_TYPES = [
@@ -173,6 +175,13 @@ final class CinematicCommandSchema
         'suppress' => 'additional real subject references sharing this visual',
         'replace' => 'explicitly replace an existing visual without resetting captured transforms',
         'movement' => 'route a real player/NPC; world-object anchors are fixed; bound visuals have no independent transform or collision',
+      ],
+      'stagedActorAppearance' => [
+        'kinds' => self::STAGED_ACTOR_APPEARANCE_KINDS,
+        'id' => 'required stable map NPC id on the cinematic\'s current map',
+        'look' => 'the NPC\'s terminal glyph, directional glyphs, graphical character sheet and heading, read even while its conditions hide it',
+        'ownership' => 'an independent staged actor that owns its own place, facing, visibility and collision; it never binds or suppresses the NPC',
+        'exclusive' => 'appearance is the only look: no sprite, sprites, sprites2d, asset or subject beside it',
       ],
       'skipPolicies' => self::SKIP_POLICIES,
       'finalizerCommandTypes' => self::FINALIZER_COMMAND_TYPES,

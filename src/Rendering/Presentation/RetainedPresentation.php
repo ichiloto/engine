@@ -62,6 +62,14 @@ final class RetainedPresentation
     private ?RetainedUpload $delivered = null;
     /** @var list<int> Final generations of fully queued frames the renderer has not consumed yet. */
     private array $framesInFlight = [];
+    /** @var array<int, PresentationWorld|null> The world of each fully queued frame, by final generation, until it is shown. */
+    private array $queuedWorlds = [];
+    /**
+     * The world of the newest frame the renderer acknowledged as shown: a world map streams over many
+     * game ticks, so a scene can know when its arrival is actually on screen. Null before any frame
+     * or after the session restarts.
+     */
+    public private(set) ?PresentationWorld $presentedWorld = null;
     private bool $coalesced = false;
     private int $windowBase = 0;
     private int $pendingWriteBytes = 0;
@@ -158,7 +166,14 @@ final class RetainedPresentation
             $this->progressGeneration = $generation;
             $this->pendingSince = $this->getTime();
         }
-        if ($presented) { $this->acknowledgedGeneration = max($this->acknowledgedGeneration, $generation); }
+        if ($presented) {
+            $this->acknowledgedGeneration = max($this->acknowledgedGeneration, $generation);
+            foreach ($this->queuedWorlds as $final => $world) {
+                if ($final > $generation) { break; }
+                $this->presentedWorld = $world;
+                unset($this->queuedWorlds[$final]);
+            }
+        }
         $this->framesInFlight = array_values(array_filter($this->framesInFlight,
             fn(int $final): bool => $final > $this->progressGeneration));
         if ($this->acknowledgedGeneration === $this->generation) { $this->pendingSince = null; }
@@ -181,10 +196,12 @@ final class RetainedPresentation
         $this->pendingSince = null;
         $this->upload = $this->reconcile = $this->delivered = null;
         $this->framesInFlight = [];
+        $this->queuedWorlds = [];
         $this->coalesced = false;
         $this->generation = max($this->generation, $expectedGeneration ?? 0);
         $this->windowBase = $this->generation;
         if ($newSession) {
+            $this->presentedWorld = null;
             $this->warnedUnsupportedPivot = false;
             $this->generation = $this->acknowledgedGeneration = $this->progressGeneration = 0;
             $this->windowBase = $this->pendingWriteBytes = 0;
@@ -469,6 +486,7 @@ final class RetainedPresentation
                 $this->pendingWriteBytes = $this->client->getPendingWriteBytes();
                 if ($this->upload->advance()) {
                     $this->framesInFlight[] = $this->generation;
+                    $this->queuedWorlds[$this->generation] = $this->upload->world;
                     $this->delivered = $this->upload;
                     if ($this->coalesced) { $this->reconcile = $this->upload; }
                     $this->upload = null;

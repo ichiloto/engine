@@ -423,3 +423,84 @@ it('scrolls through the real field compositor and runtime without revisiting sta
     }
     return $cases;
 });
+
+it('holds arrival events until the renderer has shown the map the player arrived on', function () {
+    gc_collect_cycles();
+    Console::syncDimensions(40, 12);
+    $transport = new FakeRendererTransport();
+    $runtime = $this->runtime = new RendererRuntime(new RendererRuntimeConfig(
+        new RendererProcessConfig(['fixture']), $this->root, cellWidth: 10, cellHeight: 20), $transport);
+    $runtime->start('Arrival hold', 40, 12);
+    $game = $this->getStubBuilder(PassiveGame::class)->disableOriginalConstructor()
+        ->onlyMethods(['getRendererRuntime'])->getStub();
+    $game->method('getRendererRuntime')->willReturn($runtime);
+    $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()
+        ->onlyMethods(['getGame'])->getStub();
+    $scene->method('getGame')->willReturn($game);
+    new ReflectionProperty(AbstractScene::class, 'sceneManager')->setValue($scene,
+        new ReflectionClass(SceneManager::class)->newInstanceWithoutConstructor());
+    $layout = new FieldViewport($runtime->grid);
+    new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, new Camera($scene, $layout->columns, $layout->rows));
+    $manager = new RetainedMapManagerProbe($scene);
+    new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $manager);
+    new ReflectionProperty(GameScene::class, 'party')->setValue($scene,
+        new ReflectionClass(Party::class)->newInstanceWithoutConstructor());
+    $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()
+        ->onlyMethods(['render', 'renderEventCues', 'getGraphicalSpriteDefinition', 'evaluateAutomaticTriggersAtCurrentPosition'])->getMock();
+    $player->method('getGraphicalSpriteDefinition')->willReturn(null);
+    $arrivals = 0;
+    $player->method('evaluateAutomaticTriggersAtCurrentPosition')->willReturnCallback(function () use (&$arrivals): void { $arrivals++; });
+    new ReflectionProperty(Player::class, 'isActive')->setValue($player, true);
+    new ReflectionProperty(Player::class, 'position')->setValue($player, new Vector2(5, 5));
+    $ui = $this->getMockBuilder(UIManager::class)->disableOriginalConstructor()->onlyMethods(['render'])->getMock();
+    new ReflectionProperty(AbstractScene::class, 'uiManager')->setValue($scene, $ui);
+    $field = new FieldState(new SceneStateContext($scene));
+    new ReflectionProperty(GameScene::class, 'fieldState')->setValue($scene, $field);
+    new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
+    new ReflectionProperty(GameScene::class, 'fieldViewport')->setValue($scene, $layout);
+    $set = new MapLayerSet([new MapLayer('ground', 0, false, 'ground', implode("\n", array_fill(0, 60, str_repeat('.', 90))))]);
+    $manager->applyPreparedMap(new PreparedMap([], $set->getComposedGrid(),
+        array_fill(0, 60, array_fill(0, 90, 0)), [], [], layers: $set), $player);
+    new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
+    // The player has just arrived: the transfer starts the wait and asks for the map's arrival events.
+    new ReflectionProperty(GameScene::class, 'arrivalPresentationSince')->setValue($scene, \Ichiloto\Engine\Core\Time::getTime());
+    new ReflectionProperty(GameScene::class, 'hasPendingAutomaticTriggerEvaluation')->setValue($scene, true);
+    // PHPUnit doubles hooked properties, so this double reads the wait itself.
+    $waiting = static fn(): bool => new ReflectionProperty(GameScene::class, 'arrivalPresentationSince')->getValue($scene) !== null;
+    $evaluate = new ReflectionMethod(GameScene::class, 'evaluatePendingAutomaticTriggers');
+    $await = new ReflectionMethod(GameScene::class, 'awaitArrivalPresentation');
+    $field->renderTheField();
+    $world = $manager->getPresentationWorld();
+    $acknowledge = static function (array $packet) use ($transport, $runtime): void {
+        $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'frame_ack',
+            'generation' => $packet['generation'], 'frame' => $packet['frame'],
+            'presented' => $packet['present']], JSON_THROW_ON_ERROR))];
+        $runtime->pump();
+    };
+    // The world streams over several ticks; until its final packet is shown, nothing arrives.
+    expect($runtime->present($scene))->toBeTrue();
+    $shown = false;
+    for ($tick = 0; $tick <= count($world->operations) && !$shown; $tick++) {
+        $evaluate->invoke($scene);
+        expect($arrivals)->toBe(0)->and($waiting())->toBeTrue()
+            ->and($runtime->presentedWorld)->not->toBe($world);
+        $last = end($transport->sent)->payload;
+        $acknowledge($last);
+        $shown = $last['present'];
+        if (!$shown) { $runtime->present($scene); }
+    }
+    expect($shown)->toBeTrue()->and($runtime->presentedWorld)->toBe($world)
+        ->and($await->invoke($scene))->toBeFalse()->and($waiting())->toBeFalse();
+    $evaluate->invoke($scene);
+    expect($arrivals)->toBe(1);
+    $runtime->shutdown();
+    $manager->unloadGeometry();
+    $this->runtime = null;
+});
+
+it('never holds an arrival the terminal shows at once', function () {
+    $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
+    new ReflectionProperty(GameScene::class, 'arrivalPresentationSince')->setValue($scene, 0.0);
+    expect(new ReflectionMethod(GameScene::class, 'awaitArrivalPresentation')->invoke($scene))->toBeFalse()
+        ->and($scene->isAwaitingArrivalPresentation)->toBeFalse();
+});

@@ -259,9 +259,9 @@ final class CinematicScriptValidator
       throw self::failure($cinematicId, $path, 'staged actor id is required.');
     }
 
-    if (! array_key_exists('subject', $entry)
+    if (! array_key_exists('subject', $entry) && ! array_key_exists('appearance', $entry)
       && ! array_key_exists('sprite', $entry) && trim(strval($entry['asset'] ?? '')) === '') {
-      throw self::failure($cinematicId, $path, 'staged actor requires a sprite or asset reference.');
+      throw self::failure($cinematicId, $path, 'staged actor requires a sprite, asset reference or appearance.');
     }
 
     foreach (['x', 'y'] as $coordinate) {

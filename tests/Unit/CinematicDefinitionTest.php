@@ -257,5 +257,5 @@ it('rejects empty parallel blocks and malformed cinematic fields before runtime'
     'id' => 'invalid-staged-cast',
     'name' => 'Invalid Staged Cast',
     'cast' => [['id' => 'actor-without-art']],
-  ], []))->toThrow(InvalidArgumentException::class, 'requires a sprite or asset reference');
+  ], []))->toThrow(InvalidArgumentException::class, 'requires a sprite, asset reference or appearance');
 });

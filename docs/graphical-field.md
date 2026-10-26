@@ -88,6 +88,13 @@ editing surface is owned by the GUI Editor plan. Related docs:
   observers wait for the slide, so a dialogue, battle or transfer never cuts
   it short. The step itself (position, collision) is committed at once, and a
   step without a slide (the terminal, reduced motion) arrives immediately.
+- A transfer arrives once the renderer shows the new map. A world map streams to
+  the renderer over many ticks while the window still shows the map left behind,
+  so the field holds its time until the renderer acknowledges a frame of the
+  destination world: arrival events (an arrival cinematic), a story session
+  continuing after its transfer and input wait. The terminal, and a map drawn as
+  plain text, never hold. A hold past 30 seconds lets the field go on and is
+  logged as a warning naming the map.
 - A character stands on its one cell: its 48 x 48 frame is bottom-centred
   on the cell and fills it exactly, as in RPG Maker. There are no authored width, height
   or anchor values for field characters, and none are accepted. Field
