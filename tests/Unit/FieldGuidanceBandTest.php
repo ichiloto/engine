@@ -16,7 +16,10 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Animations\Field\FieldSpriteBounds;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSprite;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteBob;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteFade;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Rendering\Sprites\FieldSpriteRole;
@@ -226,6 +229,111 @@ it('slides edge markers with the camera for a renderer that slides pinned sprite
   showGuidanceBandWaymark($manager, new Vector2(3, 2));
   expect(array_map(static fn(FieldEffectSprite $sprite) => $sprite instanceof FieldScreenSprite,
     $manager->getSprites([], $this->view, ['x' => 0, 'y' => 0], false, cameraMotion: $step)))->each->toBeFalse();
+});
+
+/** A one-cell character sprite standing at a cell. */
+function createGuidanceBandPlayer(Vector2 $cell): FieldEffectSprite
+{
+  return new FieldEffectSprite('player', new GraphicalSpriteDefinition('Graphics/mark.png', 48, 48), $cell);
+}
+
+/** @param list<FieldEffectSprite> $sprites @return list<array{string, Vector2, GraphicalSpriteDefinition}> Where each is drawn, fade aside. */
+function placeGuidanceBandSprites(array $sprites): array
+{
+  return array_map(static fn(FieldEffectSprite $sprite): array => [$sprite->getGraphicalSpriteId(),
+    $sprite->getGraphicalSpriteWorldPosition(), $sprite->getGraphicalSpriteDefinition()->applyFade(null)], $sprites);
+}
+
+/** @param list<FieldEffectSprite> $sprites @return list<PresentationSpriteFade|null> */
+function getGuidanceBandFades(array $sprites): array
+{
+  return array_map(static fn(FieldEffectSprite $sprite): ?PresentationSpriteFade => $sprite->getGraphicalSpriteDefinition()->fade, $sprites);
+}
+
+it('keeps a waymark anchored wherever the player stands and fades the whole mark only while the player overlaps it',
+  function (bool $reduced) {
+  writeGuidanceBandProject($this->root);
+  $manager = new FieldEffectManager($this->root);
+  $manager->setCapabilities(true, true);
+  $manager->installMap('map', [], null, []);
+  showGuidanceBandWaymark($manager, new Vector2(3, 2));
+  $sample = fn(?Vector2 $player): array => $manager->getSprites($player === null ? [] : [createGuidanceBandPlayer($player)],
+    $this->view, ['x' => 0, 'y' => 0], $reduced, playerId: 'player');
+
+  $alone = $sample(null);
+  $seconds = $reduced ? 0.0 : 0.2;
+  expect($alone)->toHaveCount(2)->and(getGuidanceBandFades($alone))->each->toEqual(new PresentationSpriteFade(1.0, $seconds));
+  // Standing on it, beside it, below it or far away, the player never moves the mark.
+  foreach ([[new Vector2(3, 2), true], [new Vector2(3, 3), false], [new Vector2(2, 2), false], [new Vector2(4, 1), false],
+    [new Vector2(10, 9), false]] as [$cell, $overlapped]) {
+    $sprites = $sample($cell);
+    expect(placeGuidanceBandSprites($sprites))->toEqual(placeGuidanceBandSprites($alone))
+      ->and(getGuidanceBandFades($sprites))->each->toEqual(new PresentationSpriteFade($overlapped ? 0.4 : 1.0, $seconds));
+  }
+})->with(['eased' => false, 'reduced motion' => true]);
+
+it('fades an edge marker the player overlaps at the view edge without moving it', function () {
+  writeGuidanceBandProject($this->root, ['overlap' => ['opacity' => 0.25, 'seconds' => 0.5]]);
+  $manager = new FieldEffectManager($this->root);
+  $manager->setCapabilities(true, true);
+  $manager->installMap('map', [], null, []);
+  showGuidanceBandWaymark($manager, new Vector2(-100, 7));
+  $alone = $manager->getSprites([], $this->view, ['x' => 0, 'y' => 0], false, playerId: 'player');
+  $mark = FieldSpriteBounds::join(array_map(fn(FieldEffectSprite $sprite) => FieldSpriteBounds::findBounds($sprite, $this->view,
+    ['x' => 0, 'y' => 0]), $alone));
+  $under = createGuidanceBandPlayer(new Vector2(floor(($mark->left + $mark->right) / 2 / FieldViewport::TILE_SIZE),
+    floor(($mark->top + $mark->bottom) / 2 / FieldViewport::TILE_SIZE)));
+  $overlapped = $manager->getSprites([$under], $this->view, ['x' => 0, 'y' => 0], false, playerId: 'player');
+  $clear = $manager->getSprites([createGuidanceBandPlayer(new Vector2(13, 7))], $this->view, ['x' => 0, 'y' => 0], false,
+    playerId: 'player');
+
+  expect($alone)->toHaveCount(3)->each->toBeInstanceOf(FieldScreenSprite::class)
+    ->and(placeGuidanceBandSprites($overlapped))->toEqual(placeGuidanceBandSprites($alone))
+    ->and(placeGuidanceBandSprites($clear))->toEqual(placeGuidanceBandSprites($alone))
+    ->and(getGuidanceBandFades($overlapped))->each->toEqual(new PresentationSpriteFade(0.25, 0.5))
+    ->and(getGuidanceBandFades($clear))->each->toEqual(new PresentationSpriteFade(1.0, 0.5));
+});
+
+it('fades event cues the player stands under, never the guidance the player carries, and nothing while marks stay opaque',
+  function () {
+  writeGuidanceBandProject($this->root);
+  $manager = new FieldEffectManager($this->root);
+  $manager->setCapabilities(true, true);
+  $cue = new ScriptEventTrigger(new Rect(3, 1, 1, 1), ['mode' => 'action', 'reusable' => false], mapId: 'map', marker: 'E',
+    cue: ['symbol' => '!', 'color' => 'bright-yellow']);
+  $manager->installMap('map', [], null, [$cue]);
+  $manager->showActionPrompt('player');
+  $fades = [];
+  foreach ($manager->getSprites([createGuidanceBandPlayer(new Vector2(3, 1))], $this->view, ['x' => 0, 'y' => 0], false,
+    playerId: 'player') as $sprite) {
+    $fades[$sprite->getGraphicalSpriteId()] = $sprite->getGraphicalSpriteDefinition()->fade;
+  }
+
+  expect($fades)->toEqual([
+    'field-effect:map:cue-E:plate' => new PresentationSpriteFade(0.4, 0.2),
+    'field-effect:map:cue-E:mark' => new PresentationSpriteFade(0.4, 0.2),
+    'field-effect:map:' . FieldEffectManager::ACTION_PROMPT_ID . ':mark' => null,
+  ]);
+
+  writeGuidanceBandProject($this->root . '/opaque', ['overlap' => ['opacity' => 1.0]]);
+  $opaque = new FieldEffectManager($this->root . '/opaque');
+  $opaque->setCapabilities(true, true);
+  $opaque->installMap('map', [], null, [$cue]);
+  expect(getGuidanceBandFades($opaque->getSprites([createGuidanceBandPlayer(new Vector2(3, 1))], $this->view, ['x' => 0, 'y' => 0],
+    false, playerId: 'player')))->each->toBeNull();
+});
+
+it('declares a fade only to a renderer that negotiated sprite_fade', function () {
+  $fade = new PresentationSpriteFade(0.4, 0.2);
+  $sprite = new GraphicalSpriteProjector()->project(new FieldEffectSprite('mark',
+    new GraphicalSpriteDefinition('Graphics/mark.png', 48, 48, fade: $fade), new Vector2(1, 1)), new Camera(makeCameraTestScene(), 135, 36));
+
+  expect($sprite->fade)->toBe($fade)
+    ->and($sprite->toArray(fade: true)['fade'])->toBe(['opacity' => 0.4, 'seconds' => 0.2])
+    ->and($sprite->toArray())->not->toHaveKey('fade')
+    ->and($sprite->withoutMotion()->fade)->toBe($fade)
+    ->and(fn() => new PresentationSpriteFade(1.2))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => new PresentationSpriteFade(0.5, 11.0))->toThrow(InvalidArgumentException::class);
 });
 
 it('draws Terminal waymarks over every field glyph and under UI', function () {

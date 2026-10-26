@@ -198,8 +198,11 @@ length. An exit that is itself a target is marked once, as the target.
 
 On the field, an on-screen waymark draws the game's waymark symbol, above a
 character or at an event; an event's own cue stands in for it while visible.
-An off-screen waymark hugs the view edge with an arrow pointing toward it,
-kept off the player's cell. Guidance hides while a cinematic owns the field,
+An off-screen waymark hugs the view edge with an arrow pointing toward it.
+Waymarks stay anchored to what they mark and never move for the player; a
+mark the player's sprite overlaps turns see-through (the cue style's
+`overlap`), and a Terminal glyph on the player's cell gives way to the player
+until the player moves on. Guidance hides while a cinematic owns the field,
 and the UI layer (dialogue, menus) always draws over it. The local map marks
 objectives and routes with legend entries **Objective** and **Way to
 objective**. The world map marks objectives that lie on it, and the places it

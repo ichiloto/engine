@@ -11,6 +11,7 @@ use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 use Ichiloto\Engine\Field\Waymarks\{FieldWaymark, FieldWaymarkAnchor, FieldWaymarkRole};
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteFade;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Util\Debug;
 
@@ -65,6 +66,23 @@ it('reads the cue style with Engine defaults and refuses values the presentation
     ->and(FieldCueStyle::fromArray(null)->styleGlyph('!', 'bright-yellow'))->toBe('<fg=bright-yellow;bg=black;options=bold>!</>');
   foreach ([['bob' => ['height' => 13]], ['bob' => ['seconds' => 0.1]], ['pointerSpacing' => ['y' => 97]], ['terminal' => ['background' => 'plaid']],
     ['outline' => 2], ['plate' => 'Graphics/plate.png']] as $invalid) {
+    expect(fn() => FieldCueStyle::fromArray($invalid))->toThrow(InvalidArgumentException::class);
+  }
+});
+
+it('reads the authored overlap fade, eases it, switches it under reduced motion and declares none when marks stay opaque',
+  function () {
+  $style = FieldCueStyle::fromArray(['overlap' => ['opacity' => 0.25, 'seconds' => 0.5]]);
+  $opaque = FieldCueStyle::fromArray(['overlap' => ['opacity' => 1]]);
+
+  expect($style->overlapOpacity)->toBe(0.25)->and($style->overlapSeconds)->toBe(0.5)
+    ->and($style->getOverlapFade(true, false))->toEqual(new PresentationSpriteFade(0.25, 0.5))
+    ->and($style->getOverlapFade(false, false))->toEqual(new PresentationSpriteFade(1.0, 0.5))
+    ->and($style->getOverlapFade(true, true))->toEqual(new PresentationSpriteFade(0.25, 0.0))
+    ->and($opaque->getOverlapFade(true, false))->toBeNull()
+    ->and(FieldCueStyle::fromArray(null)->getOverlapFade(true, false))->not->toBeNull();
+  foreach ([['overlap' => ['opacity' => 1.5]], ['overlap' => ['opacity' => -0.1]], ['overlap' => ['seconds' => 3]],
+    ['overlap' => ['opacity' => 'half']], ['overlap' => ['alpha' => 0.5]]] as $invalid) {
     expect(fn() => FieldCueStyle::fromArray($invalid))->toThrow(InvalidArgumentException::class);
   }
 });

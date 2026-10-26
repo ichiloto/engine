@@ -377,60 +377,107 @@ final class FieldEffectManager
   }
 
   /**
+   * Every field effect, cue and waymark image to draw now.
+   *
+   * Guidance is UI over the field: it stays anchored to what it marks and
+   * never moves for a field sprite. While the player's sprite overlaps a
+   * mark, the whole mark eases to the game's overlap opacity, so the player
+   * shows beneath it ({@see FieldCueStyle::getOverlapFade()}).
+   *
    * @param iterable<GraphicalSpriteProviderInterface> $objects
    * @param array{x: int, y: int} $origin
-   * @param Vector2|null $player The player's world position, which edge images never cover.
+   * @param string|null $playerId The player's sprite identity among `$objects`.
    * @param PresentationSpriteMotion|null $cameraMotion The step the camera scrolls with now, when it follows a
    *   stepping character: edge markers slide with it to their new places, for a renderer that slides pinned sprites.
    * @return list<FieldEffectSprite>
    */
   public function getSprites(iterable $objects, ?FieldViewport $viewport, array $origin, bool $reducedMotion,
-    bool $showGuidance = true, ?Vector2 $player = null, ?PresentationSpriteMotion $cameraMotion = null): array
+    bool $showGuidance = true, ?string $playerId = null, ?PresentationSpriteMotion $cameraMotion = null): array
   {
     $indexed = $this->reconcileObjects($objects);
+    $player = $playerId === null || !isset($indexed[$playerId]) ? null
+      : FieldSpriteBounds::findBounds($indexed[$playerId], $viewport, $origin);
     $sprites = [];
     foreach ($this->sessions as $id => $session) {
-      if (!$showGuidance && $this->isGuidance($id)) { continue; }
-      $object = $session->anchor->objectId === null ? null : ($indexed[$session->anchor->objectId] ?? null);
-      if ($session->anchor->objectId !== null && $object === null) { $this->removeEffect($id); continue; }
-      if (!$this->supported) { continue; }
-      $cue = $this->cues[$id] ?? null;
-      if ($cue !== null && !$cue->shouldRenderCue()) { continue; }
-      $position = $object?->getGraphicalSpriteWorldPosition() ?? $session->anchor->cell;
-      if ($position === null) { continue; }
-      $waymark = $this->waymarks[$id] ?? null;
-      $npcCue = isset($this->npcCues[$id]);
-      // Waymark art draws all or nothing; otherwise the terminal glyphs are the waymarks.
-      if ($waymark !== null && !$this->canPresentWaymarks()) { continue; }
-      $cueMark = $cue !== null || $waymark !== null || $npcCue;
-      // A renderer that draws the bob is told it once; any other is sent this frame's whole-pixel rise.
-      $lift = $cueMark && !$this->bobsDeclared ? $this->catalog->cueStyle->getBobLift($this->clock, $reducedMotion) : 0;
-      // An NPC occupies its cell, so its cue floats above it.
-      if ($npcCue) { $position = new Vector2($position->x, $position->y - 1); }
-      if ($waymark !== null) {
-        // A character occupies its cell, so its waymark floats above it.
-        if ($object !== null) { $position = new Vector2($position->x, $position->y - 1); }
-        $edge = $viewport === null ? null
-          : FieldCueEdgePlacement::locatePixels($position, $origin, $viewport, $this->catalog->waymarks->inset, $player);
-        if ($edge !== null) {
-          array_push($sprites, ...$this->composeEdgeMarker($session, $edge, $viewport, $lift, $reducedMotion,
-            $this->pinnedMotion ? $cameraMotion ?? $object?->getGraphicalSpriteMotion() : null));
-          continue;
-        }
-        if ($this->isCuePresented($waymark->anchor->eventMarker)
-          || ($waymark->anchor->objectId !== null && $this->isNpcCuePresented($waymark->anchor->objectId))) { continue; }
-      }
-      $marks = $session->getSprites($position, $reducedMotion, $object?->getGraphicalSpriteMotion(), $this->isGuidance($id));
-      if ($cueMark) {
-        $bob = $this->bobsDeclared ? $this->catalog->cueStyle->getBob($reducedMotion) : null;
-        $color = $cue?->cue?->color ?? ($npcCue ? $this->npcCues[$id]->cue?->color : $this->catalog->waymarks->color);
-        $marks = [...$this->createPlate($session->id . ':plate', (string)$color, $position, $lift, $bob,
-          $object?->getGraphicalSpriteMotion()),
-          ...array_map(static fn(FieldEffectSprite $mark): FieldEffectSprite => self::raise($mark, $lift, $bob), $marks)];
+      $marks = $this->composeSession($id, $session, $indexed, $viewport, $origin, $reducedMotion, $showGuidance, $cameraMotion);
+      // Guidance the player carries, such as the action prompt over the player, is never under the player.
+      if ($marks !== [] && $this->isGuidance($id) && ($playerId === null || $session->anchor->objectId !== $playerId)) {
+        $marks = $this->fadeUnderPlayer($marks, $player, $viewport, $origin, $reducedMotion);
       }
       array_push($sprites, ...$marks);
     }
     return $sprites;
+  }
+
+  /**
+   * The images one session shows now: an effect, a cue or a waymark on its
+   * cell, or a waymark's edge marker.
+   *
+   * @param array<string, GraphicalSpriteProviderInterface> $indexed
+   * @param array{x: int, y: int} $origin
+   * @return list<FieldEffectSprite>
+   */
+  private function composeSession(string $id, FieldEffectSession $session, array $indexed, ?FieldViewport $viewport,
+    array $origin, bool $reducedMotion, bool $showGuidance, ?PresentationSpriteMotion $cameraMotion): array
+  {
+    if (!$showGuidance && $this->isGuidance($id)) { return []; }
+    $object = $session->anchor->objectId === null ? null : ($indexed[$session->anchor->objectId] ?? null);
+    if ($session->anchor->objectId !== null && $object === null) { $this->removeEffect($id); return []; }
+    if (!$this->supported) { return []; }
+    $cue = $this->cues[$id] ?? null;
+    if ($cue !== null && !$cue->shouldRenderCue()) { return []; }
+    $position = $object?->getGraphicalSpriteWorldPosition() ?? $session->anchor->cell;
+    if ($position === null) { return []; }
+    $waymark = $this->waymarks[$id] ?? null;
+    $npcCue = isset($this->npcCues[$id]);
+    // Waymark art draws all or nothing; otherwise the terminal glyphs are the waymarks.
+    if ($waymark !== null && !$this->canPresentWaymarks()) { return []; }
+    $cueMark = $cue !== null || $waymark !== null || $npcCue;
+    // A renderer that draws the bob is told it once; any other is sent this frame's whole-pixel rise.
+    $lift = $cueMark && !$this->bobsDeclared ? $this->catalog->cueStyle->getBobLift($this->clock, $reducedMotion) : 0;
+    // An NPC occupies its cell, so its cue floats above it.
+    if ($npcCue) { $position = new Vector2($position->x, $position->y - 1); }
+    if ($waymark !== null) {
+      // A character occupies its cell, so its waymark floats above it.
+      if ($object !== null) { $position = new Vector2($position->x, $position->y - 1); }
+      $edge = $viewport === null ? null
+        : FieldCueEdgePlacement::locatePixels($position, $origin, $viewport, $this->catalog->waymarks->inset);
+      if ($edge !== null) {
+        return $this->composeEdgeMarker($session, $edge, $viewport, $lift, $reducedMotion,
+          $this->pinnedMotion ? $cameraMotion ?? $object?->getGraphicalSpriteMotion() : null);
+      }
+      if ($this->isCuePresented($waymark->anchor->eventMarker)
+        || ($waymark->anchor->objectId !== null && $this->isNpcCuePresented($waymark->anchor->objectId))) { return []; }
+    }
+    $marks = $session->getSprites($position, $reducedMotion, $object?->getGraphicalSpriteMotion(), $this->isGuidance($id));
+    if ($cueMark) {
+      $bob = $this->bobsDeclared ? $this->catalog->cueStyle->getBob($reducedMotion) : null;
+      $color = $cue?->cue?->color ?? ($npcCue ? $this->npcCues[$id]->cue?->color : $this->catalog->waymarks->color);
+      $marks = [...$this->createPlate($session->id . ':plate', (string)$color, $position, $lift, $bob,
+        $object?->getGraphicalSpriteMotion()),
+        ...array_map(static fn(FieldEffectSprite $mark): FieldEffectSprite => self::raise($mark, $lift, $bob), $marks)];
+    }
+    return $marks;
+  }
+
+  /**
+   * One guidance mark's images, all eased to the game's overlap opacity
+   * while the player's sprite overlaps any of them and back to opaque once
+   * it does not, so a mark and its plate and pointer always fade together.
+   *
+   * @param list<FieldEffectSprite> $marks
+   * @param array{x: int, y: int} $origin
+   * @return list<FieldEffectSprite>
+   */
+  private function fadeUnderPlayer(array $marks, ?FieldSpriteBounds $player, ?FieldViewport $viewport, array $origin,
+    bool $reducedMotion): array
+  {
+    $bounds = FieldSpriteBounds::join(array_map(static fn(FieldEffectSprite $mark): ?FieldSpriteBounds
+      => FieldSpriteBounds::findBounds($mark, $viewport, $origin), $marks));
+    $fade = $this->catalog->cueStyle->getOverlapFade($player !== null && $bounds?->overlaps($player) === true, $reducedMotion);
+    if ($fade === null) { return $marks; }
+
+    return array_map(static fn(FieldEffectSprite $mark): FieldEffectSprite => $mark->applyFade($fade), $marks);
   }
 
   /**

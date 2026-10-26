@@ -207,6 +207,7 @@ rotate them) leaves waymarks as terminal glyphs and logs a note once.
 'cueStyle' => [
   'bob' => ['height' => 3, 'seconds' => 1.2],     // logical pixels and seconds; held still under reduced motion; drawn at display rate by a sprite_bob renderer
   'pointerSpacing' => ['x' => 24, 'y' => 30],     // logical pixels from an edge mark's centre to its pointer
+  'overlap' => ['opacity' => 0.4, 'seconds' => 0.2], // opacity while the player's sprite overlaps a mark, and its fade; 1 keeps marks opaque
   'terminal' => ['background' => 'black', 'bold' => true],
 ],
 ```
@@ -215,8 +216,18 @@ The mark's outline is part of its artwork and each colour names its own
 plate, so new art drops in by changing the cue binding's effect, plate or
 pointer data only. In the Terminal every cue glyph (event
 cues, waymark marks and edge arrows) takes the style's background cell and
-bold. Engine defaults: no bob, pointer spacing 24 across and 30 up or down (a tall mark needs more), and a
-black, bold Terminal cell.
+bold. Engine defaults: no bob, pointer spacing 24 across and 30 up or down (a tall mark needs more), opacity
+0.4 under the player with a 0.2 second fade, and a black, bold Terminal cell.
+
+Guidance is UI: no mark ever moves to make way for the player or any other
+field sprite. While the player's sprite overlaps a mark (its plate, mark or
+edge pointer), the whole mark eases to the overlap opacity, and back once the
+player moves off, so the player shows beneath it. A renderer advertising
+`sprite_fade` draws the fade at display rate; reduced motion switches without
+the fade, and other renderers keep marks opaque. Guidance the player carries,
+the action prompt, never fades. In the Terminal a glyph keeps its cell; where
+the player stands on it, the player shows and the glyph returns when the
+player moves on.
 
 The initial field subset did not include battle playback; its current shared
 runtime and outstanding acceptance are recorded below. Still outstanding for

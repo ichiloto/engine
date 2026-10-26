@@ -451,17 +451,12 @@ it('leaves story cues at their authored cell; objective waymarks own the edge', 
   expect($view->createViewport([], $screen, screenSpriteIds: ['edge'])->spriteIds)->toBe(['player']);
 });
 
-it('keeps an edge image off the player and inside the waymark inset', function () {
+it('keeps an edge image inside the waymark inset', function () {
   $view = new FieldViewport(new RendererGridConfig(135, 36, 10, 20));
   $plain = FieldCueEdgePlacement::locate(new Vector2(100, 7), ['x' => 0, 'y' => 0], $view);
   $inset = FieldCueEdgePlacement::locate(new Vector2(100, 7), ['x' => 0, 'y' => 0], $view, 2);
-  $tile = FieldViewport::TILE_SIZE * $view->zoom;
-  $playerColumn = ($plain['position']->x + 0.5) * 10 ;
-  $player = new Vector2(($view->columns - 1) / 2 + ($playerColumn - 1350 / 2) / $tile, 7);
-  $avoided = FieldCueEdgePlacement::locate(new Vector2(100, 7), ['x' => 0, 'y' => 0], $view, 0, $player);
 
-  expect($inset['position']->x)->toBeLessThan($plain['position']->x)
-    ->and($avoided['position'])->not->toEqual($plain['position']);
+  expect($inset['position']->x)->toBeLessThan($plain['position']->x);
 });
 
 it('places straight and diagonal edge images in all eight directions', function (int $x, int $y, string $direction) {

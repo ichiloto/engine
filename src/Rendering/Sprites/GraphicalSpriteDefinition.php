@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Rendering\Sprites;
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteAnchor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteBob;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteFade;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use InvalidArgumentException;
@@ -16,7 +17,8 @@ use InvalidArgumentException;
  * presentation protocol. A lift, in the same pixels, draws the art that far
  * above its cell without moving the cell ({@see CharacterSheet::LIFT}).
  * A bob, which the game sets and no authored file does, rises above that
- * lift and back at display rate ({@see PresentationSpriteBob}).
+ * lift and back at display rate ({@see PresentationSpriteBob}). A fade, which
+ * the game also sets, eases its opacity at display rate ({@see PresentationSpriteFade}).
  */
 final readonly class GraphicalSpriteDefinition
 {
@@ -31,6 +33,7 @@ final readonly class GraphicalSpriteDefinition
     public int $quarterTurns = 0,
     public ?PresentationSpritePivot $pivot = null,
     public ?PresentationSpriteBob $bob = null,
+    public ?PresentationSpriteFade $fade = null,
   )
   {
     SpriteValidation::validateDefinition($asset, $width, $height, $layer);
@@ -38,6 +41,13 @@ final readonly class GraphicalSpriteDefinition
     if ($quarterTurns < 0 || $quarterTurns > 3) {
       throw new InvalidArgumentException('Sprite quarterTurns must be an integer from 0 to 3.');
     }
+  }
+
+  /** The same image, eased to this opacity. */
+  public function applyFade(?PresentationSpriteFade $fade): self
+  {
+    return new self($this->asset, $this->width, $this->height, $this->anchor, $this->layer, $this->sourceRect,
+      $this->lift, $this->quarterTurns, $this->pivot, $this->bob, $fade);
   }
 
   /**

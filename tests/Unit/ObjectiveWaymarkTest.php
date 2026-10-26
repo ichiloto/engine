@@ -412,15 +412,22 @@ it('hugs the view edge with an arrow pointing toward an off-screen target', func
   'north-east' => [100, -40, '↗', 'top'], 'south-west' => [-60, 60, '↙', 'bottom'],
 ]);
 
-it('keeps arrows the style inset from the edge and off the player\'s cell', function () {
-  $inset = placeWaymark(new Vector2(200, 10), inset: 2)[0];
-  $edge = FieldWaymarkTerminalPresenter::locateEdge(200, 10, 40, 20);
-  $avoided = placeWaymark(new Vector2(200, 10), new Vector2($edge['x'], $edge['y']))[0];
-
-  expect($inset['x'])->toBe(37)
-    ->and([$avoided['x'], $avoided['y']])->not->toBe([$edge['x'], $edge['y']])
-    ->and($avoided['x'])->toBe(39);
+it('keeps arrows the style inset from the edge', function () {
+  expect(placeWaymark(new Vector2(200, 10), inset: 2)[0]['x'])->toBe(37);
 });
+
+it('never moves a waymark glyph for the player: the player shows on a shared cell and the glyph returns in place', function (
+  int $x, int $y) {
+  $alone = placeWaymark(new Vector2($x, $y));
+  [$cellX, $cellY] = [$alone[0]['x'], $alone[0]['y']];
+
+  // Wherever the player stands, a glyph it does not share a cell with keeps its own.
+  foreach ([[0, 0], [$cellX - 1, $cellY], [$cellX, $cellY + 1], [$cellX + 1, $cellY - 1], [20, 10]] as [$px, $py]) {
+    if ([$px, $py] === [$cellX, $cellY]) { continue; }
+    expect(placeWaymark(new Vector2($x, $y), new Vector2($px, $py)))->toBe($alone);
+  }
+  expect(placeWaymark(new Vector2($x, $y), new Vector2($cellX, $cellY)))->toBe([]);
+})->with(['on screen' => [10, 5], 'east edge' => [200, 10], 'south edge' => [20, 200], 'north-east edge' => [100, -40]]);
 
 it('reads an authored waymark style beside the cue bindings and refuses invalid styles', function () {
   $catalog = FieldPresentationCatalog::fromArray(['waymarks' => ['color' => 'bright-cyan', 'symbol' => '*', 'inset' => 1]],

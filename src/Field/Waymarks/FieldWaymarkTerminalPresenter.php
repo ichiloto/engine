@@ -18,7 +18,9 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
  * is on screen, or an arrow at the view edge pointing toward it.
  *
  * Arrows sit on the line from the view centre toward the subject, kept the
- * style's inset from the edge and off the player's cell. The layer is
+ * style's inset from the edge. Guidance is UI: no glyph ever moves to make
+ * way for the player. Where the player stands on a glyph's cell, the player
+ * shows and that glyph is left out until the player moves on. The layer is
  * field guidance: over the map and every character, below UI, so dialogue
  * and menus always cover it.
  */
@@ -60,10 +62,11 @@ final class FieldWaymarkTerminalPresenter
         if ($waymark->anchor->objectId !== null && $y > 0) { $y--; }
         $text = $style->styleSymbol($cueStyle);
       } else {
-        $edge = self::locateEdge($x, $y, $width, $height, $style->inset, $playerX, $playerY);
+        $edge = self::locateEdge($x, $y, $width, $height, $style->inset);
         [$x, $y] = [$edge['x'], $edge['y']];
         $text = $style->styleArrow($edge['direction'], $cueStyle);
       }
+      // The player's own cell shows the player; the glyph keeps its cell and returns once the player moves on.
       if ($x === $playerX && $y === $playerY) { continue; }
       if (isset($taken["{$x}:{$y}"])) { continue; }
       $taken["{$x}:{$y}"] = true;
@@ -78,8 +81,7 @@ final class FieldWaymarkTerminalPresenter
    *
    * @return array{x: int, y: int, direction: string}
    */
-  public static function locateEdge(int $x, int $y, int $width, int $height, int $inset = 0,
-    ?int $playerX = null, ?int $playerY = null): array
+  public static function locateEdge(int $x, int $y, int $width, int $height, int $inset = 0): array
   {
     $centreX = ($width - 1) / 2;
     $centreY = ($height - 1) / 2;
@@ -95,14 +97,6 @@ final class FieldWaymarkTerminalPresenter
     $scale = min($dx == 0 ? INF : $halfWidth / abs($dx), $dy == 0 ? INF : $halfHeight / abs($dy));
     $edgeX = (int)max($minX, min($maxX, round($centreX + $dx * $scale)));
     $edgeY = (int)max($minY, min($maxY, round($centreY + $dy * $scale)));
-    if ($edgeX === $playerX && $edgeY === $playerY) {
-      // Slide along the edge the arrow sits on, toward the view's middle.
-      if ($edgeX === $minX || $edgeX === $maxX) {
-        $edgeY += $edgeY > $centreY ? -1 : 1;
-      } else {
-        $edgeX += $edgeX > $centreX ? -1 : 1;
-      }
-    }
     return ['x' => $edgeX, 'y' => $edgeY, 'direction' => FieldPresentationCatalog::DIRECTIONS[$index]];
   }
 

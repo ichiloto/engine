@@ -427,7 +427,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
             }
             foreach ([...($this->fieldEffects?->getSprites($this->getFieldObjectSpriteProviders(), $this->fieldViewport,
                 $this->camera->getWorldOrigin(), Accessibility::prefersReducedMotion(), $this->canPresentFieldGuidance(),
-                $this->player?->getGraphicalSpriteWorldPosition(),
+                $this->player?->getGraphicalSpriteId(),
                 $this->camera->followsPlayer ? $this->player?->getGraphicalSpriteMotion() : null) ?? []),
                 ...($this->cinematicPresentation?->getEffectSprites($this->fieldViewport) ?? [])] as $effect) {
                 if ($effect instanceof ScreenSpaceSpriteProviderInterface) {
