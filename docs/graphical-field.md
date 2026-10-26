@@ -116,6 +116,11 @@ editing surface is owned by the GUI Editor plan. Related docs:
   camera scrolls with (or of its moving subject), and the renderer slides it
   from where it is drawn to its new place on the camera's clock, so it keeps
   pace with the field instead of jumping when the step is committed.
+- Guidance never moves for a field sprite. While the player's sprite
+  overlaps a mark, the game declares the cue style's overlap opacity to a
+  renderer advertising `sprite_fade`, which eases the whole mark to it at
+  display rate and back when the player moves off; under reduced motion the
+  opacity switches without the fade.
 - Depth is row order: within a draw band, a character in a lower row draws
   in front of one above it, with stable ties. A lift never changes it: a
   character is ordered by its cell, not by where it is drawn.

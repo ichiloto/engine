@@ -30,6 +30,8 @@ final readonly class PresentationSprite
     public ?PresentationSpritePivot $pivot = null,
     /** Field sprites only: a rise and fall above the lift, drawn at display rate. Negotiated sprite_bob only. */
     public ?PresentationSpriteBob $bob = null,
+    /** Field sprites only: the opacity it eases to at display rate. Negotiated sprite_fade only. */
+    public ?PresentationSpriteFade $fade = null,
   )
   {
     if ($id === '' || str_contains($id, "\0") || preg_match('//u', $id) !== 1) {
@@ -49,11 +51,13 @@ final readonly class PresentationSprite
    * sprite_lift, a lifted sprite names its `lift`; without, the value is the
    * unlifted placement every renderer accepts. With `$bob`, for a renderer
    * that negotiated sprite_bob, a bobbing sprite names its `bob`; without, it
-   * holds still at its lift.
+   * holds still at its lift. With `$fade`, for a renderer that negotiated
+   * sprite_fade, a fading sprite names its `fade`; without, it is opaque.
    *
-   * @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int, sourceRect?: array{x: int, y: int, width: int, height: int}, motion?: array{duration: float}, lift?: int, quarterTurns?: int, pivot?: array{x: float, y: float}, bob?: array{height: int, seconds: float}}
+   * @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int, sourceRect?: array{x: int, y: int, width: int, height: int}, motion?: array{duration: float}, lift?: int, quarterTurns?: int, pivot?: array{x: float, y: float}, bob?: array{height: int, seconds: float}, fade?: array{opacity: float, seconds: float}}
    */
-  public function toArray(bool $lift = false, bool $quarterTurns = false, bool $pivot = false, bool $bob = false): array
+  public function toArray(bool $lift = false, bool $quarterTurns = false, bool $pivot = false, bool $bob = false,
+    bool $fade = false): array
   {
     $data = ['id' => $this->id, 'asset' => $this->asset, 'x' => $this->x, 'y' => $this->y,
       'width' => $this->width, 'height' => $this->height, 'anchor' => $this->anchor->value, 'layer' => $this->layer];
@@ -63,6 +67,7 @@ final readonly class PresentationSprite
     if ($quarterTurns && $this->quarterTurns > 0) { $data['quarterTurns'] = $this->quarterTurns; }
     if ($pivot && $this->pivot !== null) { $data['pivot'] = $this->pivot->toArray(); }
     if ($bob && $this->bob !== null) { $data['bob'] = $this->bob->toArray(); }
+    if ($fade && $this->fade !== null) { $data['fade'] = $this->fade->toArray(); }
     return $data;
   }
 
@@ -71,7 +76,7 @@ final readonly class PresentationSprite
   {
     return $this->motion === null ? $this : new self($this->id, $this->asset, $this->x, $this->y, $this->width,
       $this->height, $this->anchor, $this->layer, $this->sourceRect, lift: $this->lift, quarterTurns: $this->quarterTurns,
-      pivot: $this->pivot, bob: $this->bob);
+      pivot: $this->pivot, bob: $this->bob, fade: $this->fade);
   }
 
   /** @param list<PresentationSprite> $sprites @return list<PresentationSprite> */
