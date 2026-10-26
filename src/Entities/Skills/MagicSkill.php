@@ -35,6 +35,7 @@ class MagicSkill extends Skill
    * @param Weapon[] $requiredWeapons The required weapons.
    * @param MagicEffectType|null $effectType The explicit magic animation type.
    * @param int|null $animationId The stable animation id, or null for legacy selection.
+   * @param float $animationScale How large the bound animation's target effect plays.
    */
   public function __construct(
     string $name,
@@ -49,6 +50,7 @@ class MagicSkill extends Skill
     array $requiredWeapons = [],
     protected(set) ?MagicEffectType $effectType = null,
     ?int $animationId = null,
+    float $animationScale = \Ichiloto\Engine\Animations\EffectScale::DEFAULT,
   )
   {
     parent::__construct(
@@ -63,6 +65,7 @@ class MagicSkill extends Skill
       $effects,
       $requiredWeapons,
       $animationId,
+      animationScale: $animationScale,
     );
 
     $this->effectType ??= $this->inferEffectType($effects);

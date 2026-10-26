@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Animations\EffectScale;
 use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
@@ -30,10 +31,15 @@ final readonly class BattleCommandTimeline
   private ?EffectPlaybackTiming $sourceTiming;
   private ?EffectPlaybackTiming $targetTiming;
 
+  /**
+   * @param float $targetScale The action binding's size for the target effect's images
+   *   ({@see \Ichiloto\Engine\Animations\EffectScale}); the source effect and terminal glyphs keep their authored size.
+   */
   public function __construct(BattleTurnTimings $timings, ?CompiledEffectTimeline $source = null,
     ?CompiledEffectTimeline $target = null, ?CompiledEffectTimeline $terminalTarget = null,
-    public bool $resultsOnly = false, bool $showAnnouncement = true)
+    public bool $resultsOnly = false, bool $showAnnouncement = true, float $targetScale = EffectScale::DEFAULT)
   {
+    $targetScale = EffectScale::readValue($targetScale, 'Battle target effect scale');
     if ($resultsOnly) {
       if (!is_finite($timings->statChanges) || $timings->statChanges < 0) {
         throw new InvalidArgumentException('Battle result duration must be finite and non-negative.');
@@ -103,7 +109,7 @@ final readonly class BattleCommandTimeline
         $restFrames[$phase] = $cursor + $clock->getFrameBoundary($rest, self::FPS);
         $restSegments[$phase] = [];
         foreach ($effect->playbackSegments as $segment) {
-          $copy = self::getAnchoredSegment($segment, $effect, $phase);
+          $copy = self::getAnchoredSegment($segment, $effect, $phase, $phase === 'target' ? $targetScale : EffectScale::DEFAULT);
           $copy['startFrame'] = $cursor + $clock->getFrameBoundary($segment['startFrame'], self::FPS);
           $copy['endFrame'] = $cursor + $clock->getFrameBoundary($segment['endFrame'] + 1, self::FPS) - 1;
           if ($segment['startFrame'] <= $rest && $rest <= $segment['endFrame']) {
@@ -204,12 +210,17 @@ final readonly class BattleCommandTimeline
     };
   }
 
-  private static function getAnchoredSegment(array $segment, CompiledEffectTimeline $effect, string $phase): array
+  /** A scaled lane stamps its image commands; glyphs and text keep their cells, which cannot resize without distortion. */
+  private static function getAnchoredSegment(array $segment, CompiledEffectTimeline $effect, string $phase,
+    float $scale = EffectScale::DEFAULT): array
   {
     foreach ($segment['drawCommands'] as &$command) {
       $command['trackId'] = $phase . '-' . ($command['trackId'] ?? 'track');
       $command['payload']['anchor'] ??= $effect instanceof SummonCompiledCutscene && $segment['layer'] !== 'image'
         ? 'legacy-screen' : ($phase === 'source' ? 'caster' : 'target');
+      if ($segment['layer'] === 'image' && !EffectScale::playsAuthoredSize($scale)) {
+        $command['payload']['scale'] = $scale;
+      }
     }
     unset($command);
     return $segment;

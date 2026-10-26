@@ -1223,6 +1223,18 @@ supports clearing it. Skill Ctrl+G follows the explicit id even after a rename.
 Saved inventory instances resolve the current item definition's animation;
 the artwork binding is not frozen into a save.
 
+The same bindings accept an optional `animationScale` (0.25 to 4.0, default
+1.0): how large the animation's target effect plays, as a multiple of the size
+its timeline authors. One timeline serves every grade of a spell; Freeze I and
+Blizzard bind the same animation at different scales. The scale applies to the
+target lane's image tracks only: cell boxes and cell offsets grow or shrink
+together, so each image keeps its pivot on its anchor or ground point. The
+caster (source) effect, glyph and text tracks, and the terminal presentation
+keep their authored size, because terminal glyphs cannot be resized without
+distortion. Records omit the default. The Editor edits it as Effect Scale beside
+the Animation picker, and its battle effect preview plays each binding at its
+scale. Role-selected attacks play their effect as authored.
+
 A null skill reference uses an explicitly declared semantic animation default,
 not its display name. `ActionAnimationResolver::getSupportedRoles()` supplies
 the closed role list for validation and Editor selectors: `attack`, `skill`,

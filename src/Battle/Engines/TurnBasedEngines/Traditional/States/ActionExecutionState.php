@@ -437,7 +437,9 @@ class ActionExecutionState extends TurnState
         } elseif ($cue['type'] !== 'commandPhase') {
           $this->handleSummonCue($context, $focusTarget, $cue, $cue['frame'], Accessibility::prefersReducedMotion());
         }
-      }, terminalTarget: $targetEffect !== $terminalTarget ? $terminalTarget : null);
+      }, terminalTarget: $targetEffect !== $terminalTarget ? $terminalTarget : null,
+      targetScale: $actionAnimation === null ? \Ichiloto\Engine\Animations\EffectScale::DEFAULT
+        : ActionAnimationResolver::getExplicitAnimationScale($action));
     $this->command->begin();
   }
 

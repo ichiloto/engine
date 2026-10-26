@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Animations\EffectScale;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageFit;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageTint;
@@ -95,8 +96,11 @@ final class GraphicalBattleEffects
                 'ground' => $ground->y,
                 'head' => $box->y, 'feet' => $box->y + $box->height, default => $box->y + $box->height / 2,
               };
-            $x += ($position['x'] ?? 0) * $arena->uiGrid->cellWidth;
-            $y += ($position['y'] ?? 0) * $arena->uiGrid->cellHeight;
+            // A binding's scale sizes images about their pivot and anchor; offsets scale with them so the
+            // composition holds. Glyphs and text keep their cells.
+            $scale = $segment['layer'] === 'image' ? (float)($data['scale'] ?? EffectScale::DEFAULT) : EffectScale::DEFAULT;
+            $x += ($position['x'] ?? 0) * $arena->uiGrid->cellWidth * $scale;
+            $y += ($position['y'] ?? 0) * $arena->uiGrid->cellHeight * $scale;
             switch ($segment['layer']) {
               case 'image':
                 if (!$imageFlips && (($data['flipX'] ?? false) || ($data['flipY'] ?? false))) {
@@ -116,10 +120,10 @@ final class GraphicalBattleEffects
                 }
                 $frameWidth = intdiv($size['width'], $columns);
                 $frameHeight = intdiv($size['height'], $rows);
-                $width = min($arena->width, ($data['cells']['width'] ?? null) === null
-                  ? $frameWidth : $data['cells']['width'] * 48);
-                $height = min($arena->height, ($data['cells']['height'] ?? null) === null
-                  ? $frameHeight : $data['cells']['height'] * 48);
+                $width = min($arena->width, (int)round((($data['cells']['width'] ?? null) === null
+                  ? $frameWidth : $data['cells']['width'] * 48) * $scale));
+                $height = min($arena->height, (int)round((($data['cells']['height'] ?? null) === null
+                  ? $frameHeight : $data['cells']['height'] * 48) * $scale));
                 $fitted = CanvasImageFit::parse($data['fit'] ?? 'stretch')->getSize($frameWidth, $frameHeight, $width, $height);
                 $width = $fitted['width'];
                 $height = $fitted['height'];
