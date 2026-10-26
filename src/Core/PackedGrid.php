@@ -21,6 +21,9 @@ final readonly class PackedGrid
   /** The largest value a cell can hold. */
   public const int MAX_VALUE = 0xFFFFFFFF;
 
+  /** The pack format of a cell, by its width in bytes. */
+  private const array FORMATS = [1 => 'C*', 2 => 'v*', 4 => 'V*'];
+
   /** Number of rows. */
   public int $height;
 
@@ -45,26 +48,28 @@ final readonly class PackedGrid
    */
   public static function fromRows(iterable $rows): self
   {
-    $wide = [];
-    $max = 0;
+    // Rows are packed as they arrive, as narrow as the values so far allow; a wider value
+    // repacks the rows before it, at most twice, so most rows are packed once.
+    $packed = [];
+    $bytes = 1;
     foreach ($rows as $row) {
+      $max = 0;
       foreach ($row as $value) {
         if (!is_int($value) || $value < 0 || $value > self::MAX_VALUE) {
           throw new InvalidArgumentException('A packed grid holds integers from 0 to ' . self::MAX_VALUE . '.');
         }
         if ($value > $max) { $max = $value; }
       }
-      $wide[] = $row === [] ? '' : pack('V*', ...$row);
+      $width = $max <= 0xFF ? 1 : ($max <= 0xFFFF ? 2 : 4);
+      if ($width > $bytes) {
+        foreach ($packed as $y => $previous) {
+          $packed[$y] = $previous === '' ? '' : pack(self::FORMATS[$width], ...unpack(self::FORMATS[$bytes], $previous));
+        }
+        $bytes = $width;
+      }
+      $packed[] = $row === [] ? '' : pack(self::FORMATS[$bytes], ...$row);
     }
-    $bytes = $max <= 0xFF ? 1 : ($max <= 0xFFFF ? 2 : 4);
-    if ($bytes === 4) {
-      return new self($wide, 4);
-    }
-    $format = $bytes === 1 ? 'C*' : 'v*';
-    foreach ($wide as $y => $row) {
-      $wide[$y] = $row === '' ? '' : pack($format, ...unpack('V*', $row));
-    }
-    return new self($wide, $bytes);
+    return new self($packed, $bytes);
   }
 
   /** The value at a cell, or null outside the grid or past the end of its row. */
@@ -95,7 +100,7 @@ final readonly class PackedGrid
   public function getRowValues(int $y): array
   {
     $row = $this->rows[$y] ?? '';
-    return $row === '' ? [] : array_values(unpack(match ($this->bytes) { 1 => 'C*', 2 => 'v*', default => 'V*' }, $row));
+    return $row === '' ? [] : array_values(unpack(self::FORMATS[$this->bytes], $row));
   }
 
   /** @return list<list<int>> Every row's values, built for the caller. */

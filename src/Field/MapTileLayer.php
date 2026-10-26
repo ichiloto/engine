@@ -92,21 +92,40 @@ final readonly class MapTileLayer
         return array_keys($used);
     }
 
-    /** @return Generator<int, list<int>> */
+    /**
+     * Each entry is checked once per distinct spelling: a layer repeats few
+     * tiles over many cells.
+     *
+     * @return Generator<int, list<int>>
+     */
     private static function parseRows(string $text, string $path): Generator
     {
+        $tiles = [];
         foreach (preg_split('/\r\n|\n|\r/', rtrim($text, "\r\n")) ?: [] as $y => $line) {
             $row = [];
             foreach (preg_split('/\s+/', trim($line), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $x => $value) {
-                if (preg_match('/\A(?<id>\d+)[LR]\z/', $value, $match) === 1) {
-                    throw new InvalidArgumentException("Tile layer {$path} row {$y}, cell {$x}: '{$value}' names half of tile {$match['id']}, but each field cell holds one whole tile; use whole tiles, such as '{$match['id']}'.");
-                }
-                if (preg_match('/\A\d+\z/', $value) !== 1 || ((int)$value !== TileId::EMPTY && !TileId::isValid((int)$value))) {
-                    throw new InvalidArgumentException("Tile layer {$path} row {$y}, cell {$x}: '{$value}' is not an RPG Maker tile identity.");
-                }
-                $row[] = (int)$value;
+                $row[] = $tiles[$value] ??= self::readEntry($value)
+                    ?? throw self::createEntryRefusal($path, $y, $x, $value);
             }
             yield $row;
         }
+    }
+
+    /** An entry's tile identity, or null when it names none. */
+    private static function readEntry(string $value): ?int
+    {
+        if (!ctype_digit($value)) {
+            return null;
+        }
+        $id = (int)$value;
+        return $id === TileId::EMPTY || TileId::isValid($id) ? $id : null;
+    }
+
+    private static function createEntryRefusal(string $path, int $y, int $x, string $value): InvalidArgumentException
+    {
+        if (preg_match('/\A(?<id>\d+)[LR]\z/', $value, $match) === 1) {
+            return new InvalidArgumentException("Tile layer {$path} row {$y}, cell {$x}: '{$value}' names half of tile {$match['id']}, but each field cell holds one whole tile; use whole tiles, such as '{$match['id']}'.");
+        }
+        return new InvalidArgumentException("Tile layer {$path} row {$y}, cell {$x}: '{$value}' is not an RPG Maker tile identity.");
     }
 }

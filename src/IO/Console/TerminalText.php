@@ -680,6 +680,14 @@ final class TerminalText
   /**
    * Converts supported Symfony formatter tags to ANSI codes.
    *
+   * The formatter reads tags left to right, and its style stack carries over
+   * from one call to the next, so formatting a text in consecutive pieces cut
+   * between tags gives exactly what formatting it whole gives. For text that
+   * is not ASCII the formatter finds each tag by measuring the whole text up
+   * to it, so a long styled row (a world map row) costs its length for every
+   * tag it holds; formatted piece by piece ({@see splitFormatterPieces()}),
+   * each tag costs only the length of its own piece.
+   *
    * @param string $text The text to normalize.
    * @return string The normalized text.
    */
@@ -691,10 +699,45 @@ final class TerminalText
 
     try {
       LatencyTrace::record('terminal.format');
-      return self::getFormatter()->format($text);
+      $formatter = self::getFormatter();
+      $formatted = '';
+      foreach (self::splitFormatterPieces($text) as $piece) {
+        $formatted .= $formatter->format($piece);
+      }
+      return $formatted;
     } catch (Throwable) {
       return $text;
     }
+  }
+
+  /**
+   * Cuts a text after each unescaped closing tag `</>` that ends a grapheme
+   * of its own, so no piece starts with a character the formatter would have
+   * joined to the tag (a combining mark measures as part of the `>`). Text
+   * that is ASCII or not UTF-8 stays whole: the formatter reads it bytewise
+   * already.
+   *
+   * @return list<string> The pieces, in order; together they are the text.
+   */
+  private static function splitFormatterPieces(string $text): array
+  {
+    if (! preg_match('/[\x80-\xFF]/', $text) || ! preg_match('//u', $text)) {
+      return [$text];
+    }
+    $pieces = [];
+    $start = $offset = 0;
+    $length = strlen($text);
+    while (($at = strpos($text, '</>', $offset)) !== false) {
+      $end = $offset = $at + 3;
+      if ($end === $length || ($at > 0 && $text[$at - 1] === '\\')
+        || preg_match('/\G\X/u', $text, $grapheme, 0, $end - 1) !== 1 || $grapheme[0] !== '>') {
+        continue;
+      }
+      $pieces[] = substr($text, $start, $end - $start);
+      $start = $end;
+    }
+    $pieces[] = substr($text, $start);
+    return $pieces;
   }
 
   /**

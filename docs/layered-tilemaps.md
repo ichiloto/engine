@@ -759,6 +759,16 @@ installed continent from 191 MB to 14 MB, with byte-identical renderer
 uploads. Tests guard a synthetic 320 x 256 world (`WorldMapMemoryTest`) and
 every map of the game (Last Legend's `FieldTravelMemoryTest`) at 128 MB.
 
+Loading the world is bounded by its size, not by its row length per tag or
+per cell. A styled row is formatted in pieces between closing tags
+(`TerminalText::formatStyles()`): the formatter measures text up to each tag,
+so formatting a 320-cell row of pictographs whole cost its length for every
+tag. Hot loops read a row once and look neighbours up directly; each distinct
+glyph, tile identity or entry is decided once per layer. On the continent a
+transfer prepares, installs and builds its world in 0.5 s instead of 1.9 s.
+`WorldMapMemoryTest` also bounds the synthetic world's load time, and the
+formatter's work is tested to grow with a row's length.
+
 Remaining, recorded rather than claimed: the collision grid is still a
 nested integer array (about 3.6 MB on the continent), and `CellArea` expands
 a named area's rectangle into one array per cell (1.4 MB for the continent's

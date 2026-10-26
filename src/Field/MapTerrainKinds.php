@@ -241,25 +241,32 @@ final readonly class MapTerrainKinds
     $terrainIndices = array_flip($terrains);
     $base = $gameplay[0][0] ?? null;
     // Row by row into packed storage: no grid of terrains is ever built.
-    $rows = (function () use ($base, $gameplay, $terrainIndices): \Generator {
+    // Each layer's glyphs are read a row at a time. What a glyph decides on a layer is read once: the
+    // terrain it gives (its position plus one, 0 for none) when it decides the cell, or null to look below.
+    $decisions = [];
+    $decide = function (int $index, string $glyph) use ($gameplay, $terrainIndices): ?int {
+      [$layer, $types] = $gameplay[$index];
+      $kinds = $this->getKindsOn($layer->name, $glyph);
+      if ($kinds !== []) {
+        return $kinds[0]->encounters === null ? 0 : $terrainIndices[$kinds[0]->encounters] + 1;
+      }
+      return MapCollisionResolver::lookUp($types, $glyph) !== CollisionType::PASS_THROUGH ? 0 : null;
+    };
+    $rows = (static function () use ($base, $gameplay, $decide, &$decisions): \Generator {
       for ($y = 0; $y < ($base?->height ?? 0); $y++) {
+        $glyphs = array_map(static fn(array $entry): array => $entry[0]->getRowGlyphs($y), $gameplay);
         $row = [];
         for ($x = 0, $width = $base->getRowLength($y); $x < $width; $x++) {
           $row[$x] = 0;
           for ($index = count($gameplay) - 1; $index >= 0; $index--) {
-            [$layer, $types] = $gameplay[$index];
-            $glyph = $layer->getGlyphAt($x, $y) ?? ' ';
+            $glyph = $glyphs[$index][$x] ?? ' ';
             if ($index !== 0 && $glyph === ' ') {
               continue;
             }
-            $kinds = $this->getKindsOn($layer->name, $glyph);
-            if ($kinds !== []) {
-              if ($kinds[0]->encounters !== null) {
-                $row[$x] = $terrainIndices[$kinds[0]->encounters] + 1;
-              }
-              break;
-            }
-            if (MapCollisionResolver::lookUp($types, $glyph) !== CollisionType::PASS_THROUGH) {
+            $decision = array_key_exists($glyph, $decisions[$index] ?? [])
+              ? $decisions[$index][$glyph] : ($decisions[$index][$glyph] = $decide($index, $glyph));
+            if ($decision !== null) {
+              $row[$x] = $decision;
               break;
             }
           }
