@@ -4,6 +4,13 @@
 
 ### Added
 
+- Skit backdrops follow the place: `SkitBackdrop::resolve()` gives a skit the skit's own `backdrop` (only for
+  content that needs one setting), else the current map's `skitBackdrop`, else the `skitBackdrop` of the map's
+  region in the new optional `Data/regions.php` (`RegionCatalog`, schema `ichiloto.regions/1`, keyed by region
+  name), else none, which `SkitManager` logs with the skit and the map while the stage shows the theme backing.
+  The resolved path travels in `DialogueContext::$backdrop` (and in a preview snapshot's `backdrop`);
+  `DialogueScenePresentation` reports a named backdrop it cannot decode. `MapManager::$skitBackdropBinding`
+  holds the current map's part. Project format 4 records the change.
 - Place types: a map names the type of the place it belongs to in its data's `placeType`, one of the project's
   types in `Data/place-types.php` (`PlaceTypeCatalog`, schema `ichiloto.place-types/1`), such as a town, an
   outpost or a shrine. A tileset gives each type the piece a map drawn with it shows over entrances into such a
@@ -404,6 +411,10 @@
 
 ### Removed
 
+- The dialogue catalogue's per-skit `skits` key and `DialoguePresentationCatalog::$skits` (and its constructor
+  argument): a skit's backdrop belongs to the place it plays in. `ichiloto upgrade` to format 4 moves each
+  `skits.<id>.background` to that skit's `backdrop`; `DialoguePresentationCatalog::load()` refuses the key
+  afterwards and names the upgrade.
 - The per-cell array properties of map layers, replaced by accessors over packed cells: `MapLayer::$grid` and
   `MapLayer::$glyphs` (use `getCellAt()`, `getGlyphAt()`, `getRowCells()`, `getRowGlyphs()`, or `readGrid()`
   and `readGlyphs()`), `MapTileLayer::$tiles` (use `getTileAt()`, `getRowTiles()` or `readTiles()`) and

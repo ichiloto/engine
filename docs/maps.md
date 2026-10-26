@@ -892,6 +892,13 @@ return [
 Maps sharing a region are the same place as far as the player is concerned,
 and the map screen draws them together.
 
+What a project authors for a whole region lives in the optional
+`Data/regions.php` (`RegionCatalog`, schema `ichiloto.regions/1`), one record
+per region keyed by its name exactly as maps write it. A record may name the
+region's `skitBackdrop`, which skits show on any of its maps that names none
+(see the skits plan, Backdrops Follow The Place). A map's own `skitBackdrop`
+(an asset-root-relative PNG) wins over its region's.
+
 ## Map roles
 
 A map may name what it is to the world in its data's `role`, one of the

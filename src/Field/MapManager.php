@@ -54,6 +54,8 @@ class MapManager implements CanRenderAt
   public private(set) ?MapAtlasDefinition $atlasDefinition = null;
   /** Whether the current map turns dashing off (its `disableDashing`); {@see DashSettings}. */
   public private(set) bool $isDashingDisabled = false;
+  /** The current map's part in choosing a skit's backdrop (its `skitBackdrop` and `region`); {@see SkitBackdrop}. */
+  public private(set) array $skitBackdropBinding = [];
   private ?array $lastKnowledgePosition = null;
   private ?ProjectMapIndex $projectMapIndex = null;
   private ?StoryIndex $storyIndex = null;
@@ -404,6 +406,7 @@ class MapManager implements CanRenderAt
     $this->overview = $prepared->overview;
     $this->atlasDefinition = MapAtlasDefinition::readMap($map);
     $this->isDashingDisabled = DashSettings::readMapDisablesDashing($map);
+    $this->skitBackdropBinding = SkitBackdrop::readMapBinding($map);
     $this->lastKnowledgePosition = null;
     $this->installWorldObjects($prepared->worldObjects, $mapId);
     $this->loadMapTriggers($prepared->mapTriggers);

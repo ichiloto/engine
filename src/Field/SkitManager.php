@@ -24,6 +24,7 @@ use Throwable;
  *   'id' => 'breakfast-banter',
  *   'title' => 'Breakfast Banter',
  *   'where' => 'happyville/home',      // optional map gate; omit for anywhere
+ *   'backdrop' => 'Graphics/Skits/Home/Kitchen.png', // optional; only when the content needs this setting
  *   'conditions' => [ …trigger conditions… ],
  *   'beats' => [
  *     ['speaker' => 'Kaelion', 'text' => '…'],
@@ -34,7 +35,8 @@ use Throwable;
  *
  * A persistent field prompt shows the next playable skit. Playing one shows
  * its beats as a dialogue exchange and
- * records `skit_seen:<id>` so it never replays.
+ * records `skit_seen:<id>` so it never replays. Its graphical stage shows the
+ * backdrop of the place it plays in ({@see SkitBackdrop}).
  *
  * @package Ichiloto\Engine\Field
  */
@@ -163,6 +165,7 @@ class SkitManager
     $locationName = $location?->name ?? '';
     $locationRegion = $location?->region ?? '';
     $locationLabel = $locationName === $locationRegion || $locationRegion === '' ? $locationName : $locationName . ' - ' . $locationRegion;
+    $backdrop = $this->resolveBackdrop($skitId, $skit, $assets);
 
     $playback->beginConversation();
     try {
@@ -181,7 +184,7 @@ class SkitManager
           try {
             $this->showBeat([...$beat, 'speaker' => $speaker->name, 'emotion' => $presentation->emotion,
               'presentation' => new DialogueContext($speaker->actorId, $presentation->emotion, $skitId,
-                strval($skit['title'] ?? $skitId), $locationLabel, array_values($participants))], $speed, $playback);
+                strval($skit['title'] ?? $skitId), $locationLabel, array_values($participants), $backdrop)], $speed, $playback);
           } finally {
             $playback->finishLine();
           }
@@ -199,6 +202,23 @@ class SkitManager
   {
     show_text(strval($beat['text'] ?? ''), strval($beat['speaker'] ?? ''),
       charactersPerSecond: $speed, playback: $playback, presentation: $beat['presentation'] ?? null);
+  }
+
+  /**
+   * The backdrop the skit shows here: its own, the current map's or the map's region's. A skit with none to show
+   * is reported with the skit and the map, so the missing art is found, and plays on the theme's backing.
+   */
+  protected function resolveBackdrop(string $skitId, array $skit, string $assets): ?string
+  {
+    try { $regions = RegionCatalog::load($assets); }
+    catch (Throwable $exception) {
+      Debug::warn('Regions could not load: ' . $exception->getMessage());
+      $regions = new RegionCatalog();
+    }
+    $backdrop = SkitBackdrop::resolve($skit, $this->gameScene->mapManager?->skitBackdropBinding ?? [], $regions);
+    $absence = $backdrop->describeAbsence($skitId, $this->gameScene->currentMapId);
+    if ($absence !== null) { Debug::warn($absence); }
+    return $backdrop->asset;
   }
 
   protected function loadDialoguePresentation(string $assets): DialoguePresentationCatalog
