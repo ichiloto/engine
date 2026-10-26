@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Rendering\Tilesets;
 
+use Ichiloto\Engine\Field\MapLandmarkCatalog;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use Ichiloto\Engine\Util\Debug;
@@ -14,7 +15,9 @@ use RuntimeException;
  * A project tileset: RPG Maker sheets by name, the graphical flags RPG Maker
  * keeps per tile, the pieces maps are built from with it and the terrain
  * kinds world maps are painted in ({@see TerrainKind}), and the tile layers
- * whose tiles stack so decorations drawn on them overlap ({@see TilesetStack}).
+ * whose tiles stack so decorations drawn on them overlap ({@see TilesetStack}),
+ * and the piece a world map shows for each type of place
+ * ({@see \Ichiloto\Engine\Field\PlaceTypeCatalog}).
  * Tiles carry no
  * passage settings: collision comes from the map's occupancy or terminal
  * layers, and on a map painted in terrain kinds from its kinds
@@ -26,7 +29,10 @@ use RuntimeException;
 final readonly class Tileset
 {
   public const string DIRECTORY = 'Data/Tilesets';
-  private const array FIELDS = ['name', 'sheets', 'above', 'tables', 'pieces', 'kinds', 'stacks', 'missingArt', 'shadows', TilesetAppearance::DATA_KEY];
+  /** The key naming the piece shown for each type of place. */
+  public const string PLACE_ICONS = 'placeIcons';
+  private const array FIELDS = ['name', 'sheets', 'above', 'tables', 'pieces', 'kinds', 'stacks', 'missingArt', 'shadows',
+    TilesetAppearance::DATA_KEY, self::PLACE_ICONS];
 
   /**
    * @param array<string, string> $sheets Asset-relative PNG paths keyed by sheet name.
@@ -38,6 +44,8 @@ final readonly class Tileset
    * @param TilesetAppearance $appearance What its tiles show at ground level, read by validation only.
    * @param array<string, TerrainKind> $kinds Terrain kinds, keyed by kind id, in authored order.
    * @param array<string, TilesetStack> $stacks Tile layers whose tiles stack, keyed by stack id.
+   * @param array<string, string> $placeIcons The piece id a map drawn with this tileset shows for each place type
+   *     id, so the icon over an entrance follows the type of the place it leads to.
    */
   public function __construct(
     public string $id,
@@ -51,7 +59,14 @@ final readonly class Tileset
     public TilesetAppearance $appearance = new TilesetAppearance(),
     public array $kinds = [],
     public array $stacks = [],
+    public array $placeIcons = [],
   ) {}
+
+  /** The piece a map drawn with this tileset shows for a place type, or null when it gives the type none. */
+  public function getPlaceIcon(string $placeType): ?TilesetPiece
+  {
+    return isset($this->placeIcons[$placeType]) ? $this->pieces[$this->placeIcons[$placeType]] : null;
+  }
 
   /** The stack a piece's tiles are laid on, or null when it is stamped as authored. */
   public function getStackOf(TilesetPiece $piece): ?TilesetStack
@@ -157,7 +172,42 @@ final readonly class Tileset
       array_push($kindLayers, ...array_map(strval(...), array_keys($kind->piece->tiles)));
     }
     $stacks = TilesetStack::readAll($data['stacks'] ?? [], $pieces, array_values(array_unique($kindLayers)), $context);
-    return new self($id, $data['name'], $sheets, $above, $tables, $pieces, $missingArt, $shadows, $appearance, $kinds, $stacks);
+    $placeIcons = self::readPlaceIcons($data[self::PLACE_ICONS] ?? [], $pieces, $stacks, $context);
+    return new self($id, $data['name'], $sheets, $above, $tables, $pieces, $missingArt, $shadows, $appearance, $kinds, $stacks,
+      $placeIcons);
+  }
+
+  /**
+   * The place icons: a piece id for each place type id. Each is one of the
+   * tileset's own pieces stamped whole with graphical tiles, so every copy
+   * on a map is found by its tiles ({@see \Ichiloto\Engine\Field\MapGraphics::findPieceStampsCovering()}).
+   * Whether each type is one of the project's is the Editor's to check.
+   *
+   * @param array<string, TilesetPiece> $pieces
+   * @param array<string, TilesetStack> $stacks
+   * @return array<string, string>
+   */
+  private static function readPlaceIcons(mixed $icons, array $pieces, array $stacks, string $context): array
+  {
+    if (!is_array($icons) || ($icons !== [] && array_is_list($icons))) {
+      throw new InvalidArgumentException("{$context} placeIcons must be keyed by place type id.");
+    }
+    foreach ($icons as $type => $pieceId) {
+      if (!is_string($type) || preg_match(MapLandmarkCatalog::ID_PATTERN, $type) !== 1) {
+        throw new InvalidArgumentException("{$context} placeIcons: '{$type}' is not a stable place type id.");
+      }
+      $piece = is_string($pieceId) ? ($pieces[$pieceId] ?? null) : null;
+      if ($piece === null) {
+        throw new InvalidArgumentException("{$context} placeIcons: {$type} shows " . var_export($pieceId, true) . ', which is not one of its pieces.');
+      }
+      $stacked = array_any($stacks, static fn(TilesetStack $stack): bool => $stack->isStackedPiece($piece));
+      $drawn = array_any($piece->tiles, static fn(array $rows): bool
+        => array_any($rows, static fn(array $row): bool => array_any($row, static fn(string $tile): bool => $tile !== '0')));
+      if ($piece->connects !== null || $stacked || !$drawn) {
+        throw new InvalidArgumentException("{$context} placeIcons: {$type} shows piece {$pieceId}, which is not stamped whole with tiles.");
+      }
+    }
+    return $icons;
   }
 
   /** @return list<int> Flag identities, one per autotile kind. */

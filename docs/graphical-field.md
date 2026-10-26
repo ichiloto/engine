@@ -237,6 +237,13 @@ editing surface is owned by the GUI Editor plan. Related docs:
   the kinds through the existing collision dictionary or declared occupancy,
   and a kind's autotile shows what its passage says. The contract, refusals
   and the collision decision are in the layered tilemaps plan, Stage 7.
+- **Place icons.** A tileset may declare `placeIcons`, the piece a map
+  drawn with it shows for each place type (`Data/place-types.php`, see the
+  maps guide), keyed by type id: `'placeIcons' => ['town' => 'walled-town',
+  'outpost' => 'watchtower']`. Each is one of its own pieces stamped whole
+  with tiles. Validation (`MapPlaceIconRule`) holds the piece over every
+  entrance to its destination's type, so changing a type's piece here is
+  reported at every entrance that still shows the old one.
 - **Stacks.** A tileset may declare `stacks`, tile layers whose tiles
   overlap, keyed by stack id: `'stacks' => ['relief' => ['layers' =>
   ['relief-1', 'relief-2', 'relief-3', 'relief-4']]]`, bottom to top. A piece
