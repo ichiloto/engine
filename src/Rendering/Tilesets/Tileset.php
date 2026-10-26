@@ -109,6 +109,22 @@ final readonly class Tileset
   }
 
   /**
+   * The stack a tile layer belongs to, or null for a layer no stack holds.
+   * Only stacked pieces write a stack's layers, so their tiles there are laid
+   * by the stack, never carried by a glyph.
+   */
+  public function findStackHolding(string $tileLayer): ?TilesetStack
+  {
+    return array_find($this->stacks, static fn(TilesetStack $stack): bool => in_array($tileLayer, $stack->layers, true));
+  }
+
+  /** @return list<string> Every stack's tile layers, whose tiles their stacks lay rather than any glyph. */
+  public function getStackLayers(): array
+  {
+    return array_merge([], ...array_values(array_map(static fn(TilesetStack $stack): array => $stack->layers, $this->stacks)));
+  }
+
+  /**
    * The tile layers a piece's tiles go on: those it names, or every layer of
    * the stack it is laid on.
    *
@@ -203,7 +219,8 @@ final readonly class Tileset
     foreach ($kinds as $kind) {
       array_push($kindLayers, ...array_map(strval(...), array_keys($kind->piece->tiles)));
     }
-    $stacks = TilesetStack::readAll($data['stacks'] ?? [], $pieces, array_values(array_unique($kindLayers)), $context);
+    $stacks = TilesetStack::readAll($data['stacks'] ?? [], $pieces, array_values(array_unique($kindLayers)), $context,
+      array_values(array_unique(array_map(static fn(TerrainKind $kind): string => $kind->layer, $kinds))));
     $placeIcons = self::readPlaceIcons($data[self::PLACE_ICONS] ?? [], $pieces, $stacks, $context);
     return new self($id, $data['name'], $sheets, $above, $tables, $pieces, $missingArt, $shadows, $appearance, $kinds, $stacks,
       $placeIcons, $thickets);

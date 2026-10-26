@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Field\MapGraphics;
 use Ichiloto\Engine\Rendering\Tilesets\Tileset;
 
@@ -60,12 +61,35 @@ it('refuses stacks and stacked pieces that could change play or lose track of th
   'unknown key' => [['stacks' => ['relief' => ['order' => 'rows']]]],
   'bad stack id' => [['stacks' => ['Relief!' => ['layers' => ['x-a', 'x-b']]]]],
   'layer twice' => [['stacks' => ['relief' => ['layers' => ['relief-a', 'relief-b', 'relief-a']]]]],
-  'glyph' => [['pieces' => ['rock' => ['glyphs' => ['^']]]]],
-  'occupancy' => [['pieces' => ['rock' => ['occupancy' => [[\Ichiloto\Engine\Events\Enumerations\CollisionType::SOLID]]]]]],
+  'kept layer' => [['pieces' => ['rock' => ['keeps' => ['objects']]]]],
   'upper layer' => [['pieces' => ['rock' => ['tiles' => ['relief-b' => ['9']]]]]],
   'second layer' => [['pieces' => ['rock' => ['tiles' => ['relief-a' => ['9'], 'objects' => ['21']]]]]],
   'shared tile' => [['pieces' => ['rock' => ['tiles' => ['relief-a' => ['4']]]]]],
 ]);
+
+it('takes a stacked obstacle\'s ground footprint, whose stack then belongs to no single gameplay layer', function () {
+  // A mound standing on walkable ground: its middle cell blocks, on the fixtures layer above the terrain.
+  $tileset = Tileset::fromArray('synthetic', stackedTileset(['pieces' => [
+    'mound' => ['name' => 'Mound', 'layer' => 'fixtures', 'glyphs' => [' n '], 'tiles' => ['relief-a' => ['30 31 32']],
+      'occupancy' => [[null, CollisionType::SOLID, null]]],
+  ]]));
+  $mound = $tileset->pieces['mound'];
+  expect($tileset->getStackOf($mound)?->id)->toBe('relief')
+    ->and($mound->occupancy)->toBe([[null, CollisionType::SOLID, null]])
+    ->and($tileset->stacks['relief']->locate(31))->toMatchArray(['piece' => $mound, 'column' => 1, 'row' => 0])
+    // Its tiles belong to the fixtures layer and the crag's and rock's to the terrain, so the stack's layers cover every glyph.
+    ->and(MapGraphics::resolveLayerOwners(null, ['relief-a', 'relief-b'], ['terrain', 'fixtures'], $tileset, 'synthetic'))
+    ->toBe(['relief-a' => null, 'relief-b' => null]);
+});
+
+it('refuses a stacked footprint\'s glyphs on the layer terrain kinds are painted on', function () {
+  expect(fn() => Tileset::fromArray('synthetic', stackedTileset([
+    'sheets' => ['A2' => 'Graphics/Tilesets/A2.png'],
+    'kinds' => ['grass' => ['name' => 'Grass', 'layer' => 'terrain', 'glyph' => '<fg=green>.</>',
+      'art' => ['layer' => 'ground', 'tile' => 2816], 'passage' => 'walk', 'atlas' => 'ground']],
+    'pieces' => ['rock' => ['glyphs' => ['^']]],
+  ])))->toThrow(InvalidArgumentException::class, 'where they would replace the kind it stands on');
+});
 
 it('refuses a stack on a layer terrain kinds paint', function () {
   expect(fn() => Tileset::fromArray('synthetic', stackedTileset([

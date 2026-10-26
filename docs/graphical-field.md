@@ -288,17 +288,24 @@ editing surface is owned by the GUI Editor plan. Related docs:
 - **Stacks.** A tileset may declare `stacks`, tile layers whose tiles
   overlap, keyed by stack id: `'stacks' => ['relief' => ['layers' =>
   ['relief-1', 'relief-2', 'relief-3', 'relief-4']]]`, bottom to top. A piece
-  whose tiles go on a stack's first layer stacks: it is decoration alone
-  (space glyphs, no `occupancy`, `effect` or `keeps`), so it never changes
-  passage, encounters or atlas roles, and each of its tiles draws one piece
-  cell, so the objects a cell holds are read back from its tiles. Editors lay
+  whose tiles go on a stack's first layer stacks. It declares no `effect`,
+  `keeps` or `doorway`. A decoration, such as a peak over a solid mountain
+  kind, has space glyphs and no `occupancy`, so it never changes passage,
+  encounters or atlas roles. An obstacle standing on walkable ground, such as
+  a hill crest's mound, declares its ground footprint like any object: glyphs
+  on a gameplay layer above the terrain kinds, never the kinds' own layer,
+  and the matching `occupancy`. Each of its tiles draws one piece cell, so
+  the objects a cell holds are read back from its tiles. Editors lay
   each of its tiles into the cell's stack in depth order
   (`TilesetStack::layTile`): further south by the piece's bottom row, then
   further east by its centre column, draws in front, as the field orders
   characters, and a cell holds at most one tile per stack layer. Peaks and
   hill crests over a world map's mountain and hill kinds are stacked pieces,
-  their art overhanging the footprint into one flank column each side. The
-  stack's layers are owned by the gameplay layer its pieces name.
+  their art overhanging the footprint into one flank column each side. Each
+  stacked tile belongs to its piece's gameplay layer: a stack whose pieces
+  all name one layer is owned by it, and one whose pieces name several, as
+  the World tileset's peaks (terrain) and hill crests (fixtures) do, belongs
+  to none, so its tiles cover every glyph beneath them.
 - **Independent underlays.** A stamped piece may declare `keeps`, a list of
   tile layers whose existing tiles remain beneath it, for example
   `'keeps' => ['walls']` for a window that can sit on any wall material.

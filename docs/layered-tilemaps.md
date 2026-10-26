@@ -633,8 +633,11 @@ same session requests the Console uses.
 
 Peaks and hill crests stand over the mountain and hill kinds as stacked
 pieces ([graphical field](graphical-field.md), Stacks): World B to E stamps of
-whole objects that overlap in depth order on a tileset stack, decoration only,
-so the kind stays the passage authority. Last Legend's overworld and Garden of
+whole objects that overlap in depth order on a tileset stack. Peaks are
+decoration over the solid mountain kinds, so the kind stays the passage
+authority there; a hill crest's mound stands on the walkable hills kind, so
+each crest declares its ground footprint (glyphs on the fixtures layer and
+occupancy) and blocks the cells its mound covers. Last Legend's overworld and Garden of
 Roads are painted in kinds with its approved World A2 and relief art; its
 overworld decision records the conversion.
 
