@@ -497,6 +497,21 @@ it('names the plain tile that marks missing art, from one of its own sheets', fu
   }
 });
 
+it('names the map roles its art is drawn for, suiting any map when it names none', function () {
+  $sheets = ['name' => 'Atlas', 'sheets' => ['A2' => 'Graphics/Tilesets/A2.png']];
+  $world = Tileset::fromArray('atlas', [...$sheets, 'roles' => ['region', 'sea-chart']]);
+  expect($world->roles)->toBe(['region', 'sea-chart'])
+    ->and($world->isDrawnFor('region'))->toBeTrue()
+    ->and($world->isDrawnFor('room'))->toBeFalse();
+  $any = Tileset::fromArray('atlas', $sheets);
+  expect($any->roles)->toBeNull()->and($any->isDrawnFor('room'))->toBeTrue();
+  // An empty list, a repeated role, a non-id and a dictionary are refused; leaving it out is how a tileset suits any map.
+  foreach ([[], ['region', 'region'], ['Region'], ['region' => true], 'region'] as $invalid) {
+    expect(fn() => Tileset::fromArray('atlas', [...$sheets, 'roles' => $invalid]))
+      ->toThrow(InvalidArgumentException::class, 'roles must list the distinct map role ids its art is drawn for');
+  }
+});
+
 it('reads whole pieces from the tileset with glyphs and tiles over one footprint', function () {
   $tileset = Tileset::fromArray('home', ['name' => 'Home', 'sheets' => ['B' => 'Graphics/Tilesets/B.png'], 'pieces' => [
     'bed' => ['name' => 'Bed', 'layer' => 'fixtures', 'glyphs' => ['=', '='], 'tiles' => ['furniture' => ['32', '40']]],

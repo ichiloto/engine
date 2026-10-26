@@ -25,6 +25,12 @@ use RuntimeException;
  * ({@see \Ichiloto\Engine\Field\MapTerrainKinds}). What each tile shows at
  * ground level ({@see TilesetAppearance}) is for validation alone and never
  * changes passage; a kind's own autotile shows what its passage says.
+ * A tileset may name the map roles its art is drawn for
+ * ({@see \Ichiloto\Engine\Field\MapRoleCatalog}): a world map's icons and
+ * relief are drawn at the overworld's scale, so its tileset names only the
+ * overworld, and a map of another role that names it reads at the wrong
+ * scale. The Engine enforces none of this; its Editor validates each map's
+ * role against the tileset it names. A tileset that names none suits any map.
  * Loaded from `Data/Tilesets/<id>.php`.
  */
 final readonly class Tileset
@@ -32,8 +38,10 @@ final readonly class Tileset
   public const string DIRECTORY = 'Data/Tilesets';
   /** The key naming the piece shown for each type of place. */
   public const string PLACE_ICONS = 'placeIcons';
+  /** The data key listing the map roles a tileset's art is drawn for. */
+  public const string ROLES_KEY = 'roles';
   private const array FIELDS = ['name', 'sheets', 'above', 'tables', 'pieces', 'kinds', 'stacks', 'missingArt', 'shadows',
-    TilesetAppearance::DATA_KEY, self::PLACE_ICONS, TilesetThicket::DATA_KEY];
+    TilesetAppearance::DATA_KEY, self::PLACE_ICONS, TilesetThicket::DATA_KEY, self::ROLES_KEY];
 
   /**
    * @param array<string, string> $sheets Asset-relative PNG paths keyed by sheet name.
@@ -48,6 +56,7 @@ final readonly class Tileset
    * @param array<string, string> $placeIcons The piece id a map drawn with this tileset shows for each place type
    *     id, so the icon over an entrance follows the type of the place it leads to.
    * @param array<string, TilesetThicket> $thickets Thickets, keyed by thicket id, in authored order.
+   * @param list<string>|null $roles The map roles its art is drawn for, or null when it suits any map.
    */
   public function __construct(
     public string $id,
@@ -63,6 +72,7 @@ final readonly class Tileset
     public array $stacks = [],
     public array $placeIcons = [],
     public array $thickets = [],
+    public ?array $roles = null,
   ) {
     $byTile = [];
     foreach ($thickets as $thicket) {
@@ -89,6 +99,12 @@ final readonly class Tileset
   public function getThicket(int $id): ?TilesetThicket
   {
     return $id === TileId::EMPTY ? null : $this->thicketsByTile[TileId::getFlagId($id)] ?? null;
+  }
+
+  /** Whether its art is drawn for maps of this role: always, when it names no roles. */
+  public function isDrawnFor(string $role): bool
+  {
+    return $this->roles === null || in_array($role, $this->roles, true);
   }
 
   /** The piece a map drawn with this tileset shows for a place type, or null when it gives the type none. */
@@ -205,8 +221,9 @@ final readonly class Tileset
     }
     $stacks = TilesetStack::readAll($data['stacks'] ?? [], $pieces, array_values(array_unique($kindLayers)), $context);
     $placeIcons = self::readPlaceIcons($data[self::PLACE_ICONS] ?? [], $pieces, $stacks, $context);
+    $roles = self::readRoles($data, $context);
     return new self($id, $data['name'], $sheets, $above, $tables, $pieces, $missingArt, $shadows, $appearance, $kinds, $stacks,
-      $placeIcons, $thickets);
+      $placeIcons, $thickets, $roles);
   }
 
   /**
@@ -259,6 +276,26 @@ final readonly class Tileset
         }
       }
     }
+  }
+
+  /**
+   * The map roles a tileset's data names: a list of distinct stable role ids, or null when it names none. Whether
+   * each is one of the project's roles is the Editor's to say, where the roles are authored.
+   *
+   * @return list<string>|null
+   */
+  private static function readRoles(array $data, string $context): ?array
+  {
+    if (!array_key_exists(self::ROLES_KEY, $data)) {
+      return null;
+    }
+    $roles = $data[self::ROLES_KEY];
+    if (!is_array($roles) || !array_is_list($roles) || $roles === []
+      || array_filter($roles, static fn(mixed $role): bool => is_string($role) && preg_match(MapLandmarkCatalog::ID_PATTERN, $role) === 1) !== $roles
+      || count(array_unique($roles)) !== count($roles)) {
+      throw new InvalidArgumentException("{$context}: roles must list the distinct map role ids its art is drawn for; leave it out to suit any map.");
+    }
+    return $roles;
   }
 
   /** @return list<int> Flag identities, one per autotile kind. */
