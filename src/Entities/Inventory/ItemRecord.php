@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities\Inventory;
 
 use BackedEnum;
+use Ichiloto\Engine\Animations\EffectScale;
 use Ichiloto\Engine\Entities\Effects\BaseEffect;
 use Ichiloto\Engine\Entities\Effects\HPDamageEffect;
 use Ichiloto\Engine\Entities\Effects\HPRecoveryEffect;
@@ -76,7 +77,7 @@ final class ItemRecord
   ];
 
   /** The keys only an item's data holds. */
-  private const array ITEM_KEYS = ['scope', 'occasion', 'effects', 'animationId'];
+  private const array ITEM_KEYS = ['scope', 'occasion', 'effects', 'animationId', 'animationScale'];
 
   /** The keys only equipment's data holds. */
   private const array EQUIPMENT_KEYS = [
@@ -132,6 +133,7 @@ final class ItemRecord
         'occasion' => self::readEnum(Occasion::class, $data, 'occasion', Occasion::ALWAYS),
         'effects' => self::readEffects($data['effects'] ?? []),
         'animationId' => array_key_exists('animationId', $data) ? self::requireInt($data, 'animationId') : null,
+        'animationScale' => EffectScale::readValue($data['animationScale'] ?? null),
       ]);
     }
 
@@ -217,6 +219,10 @@ final class ItemRecord
 
       if ($item->animationId !== null) {
         $data['animationId'] = $item->animationId;
+      }
+
+      if (! EffectScale::playsAuthoredSize($item->animationScale)) {
+        $data['animationScale'] = $item->animationScale;
       }
 
       return $data;

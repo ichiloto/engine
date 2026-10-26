@@ -23,6 +23,7 @@ use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Magic\MagicEffectType;
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Animations\EffectScale;
 use InvalidArgumentException;
 
 /**
@@ -35,7 +36,8 @@ use InvalidArgumentException;
  * removes, and a skill names its battle animation by id.
  *
  * Writing a record leaves out values equal to what reading would assume
- * (no target count, a per-hit roll, no animation), so a record states only
+ * (no target count, a per-hit roll, no animation, an animation at its own
+ * size), so a record states only
  * what its author chose. A spell always states its effect type.
  *
  * @package Ichiloto\Engine\Entities\Skills
@@ -45,7 +47,7 @@ final class SkillRecord
   /** The keys a record's data may hold. */
   public const array KEYS = [
     'kind', 'name', 'description', 'icon', 'cost', 'cooldown', 'occasion', 'scope', 'invocation', 'effects',
-    'animationId', 'effectType', 'counterAttack',
+    'animationId', 'animationScale', 'effectType', 'counterAttack',
   ];
 
   /** Each kind's value, by the class it builds. */
@@ -121,6 +123,7 @@ final class SkillRecord
       'invocation' => self::readInvocation(self::requireArray($data, 'invocation')),
       'effects' => self::readEffects($data['effects'] ?? []),
       'animationId' => self::readOptionalInt($data['animationId'] ?? null, 'animationId'),
+      'animationScale' => EffectScale::readValue($data['animationScale'] ?? null),
     ];
     $counterAttack = CounterAttackRule::fromArray($data['counterAttack'] ?? null);
     if ($counterAttack !== null && $class === MagicSkill::class) {
@@ -171,6 +174,9 @@ final class SkillRecord
 
     if ($skill->animationId !== null) {
       $data['animationId'] = $skill->animationId;
+    }
+    if (! EffectScale::playsAuthoredSize($skill->animationScale)) {
+      $data['animationScale'] = $skill->animationScale;
     }
     if ($skill->counterAttack !== null) { $data['counterAttack'] = $skill->counterAttack->toArray(); }
 

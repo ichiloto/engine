@@ -19,6 +19,8 @@ use Ichiloto\Engine\Entities\ItemScope as SkillScope;
 abstract class Skill implements SkillInterface
 {
   protected(set) ?int $animationId = null;
+  /** How large the bound animation's target effect plays; see {@see \Ichiloto\Engine\Animations\EffectScale}. */
+  protected(set) float $animationScale = \Ichiloto\Engine\Animations\EffectScale::DEFAULT;
 
   /**
    * @var SkillEffect[] The effects of the skill.
@@ -43,6 +45,7 @@ abstract class Skill implements SkillInterface
    * @param SkillEffect[] $effects The effects of the skill.
    * @param Weapon[] $requiredWeapons The required weapons of the skill.
    * @param int|null $animationId The stable animation id, or null for legacy selection.
+   * @param float $animationScale How large the bound animation's target effect plays.
    */
   public function __construct(
     protected(set) string $name,
@@ -57,9 +60,11 @@ abstract class Skill implements SkillInterface
     array $requiredWeapons = [],
     ?int $animationId = null,
     protected(set) ?CounterAttackRule $counterAttack = null,
+    float $animationScale = \Ichiloto\Engine\Animations\EffectScale::DEFAULT,
   )
   {
     $this->animationId = $animationId;
+    $this->animationScale = \Ichiloto\Engine\Animations\EffectScale::readValue($animationScale);
     foreach ($effects as $effect) {
       if ($effect instanceof SkillEffect) {
         $this->effects[] = $effect;

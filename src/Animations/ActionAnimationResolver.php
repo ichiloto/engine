@@ -27,6 +27,16 @@ final class ActionAnimationResolver
     };
   }
 
+  /** The action's authored target effect size; role-selected and unbound actions play their effect as authored. */
+  public static function getExplicitAnimationScale(?BattleAction $action): float
+  {
+    return match (true) {
+      $action instanceof SkillBattleAction => $action->skill->animationScale,
+      $action instanceof ItemBattleAction => $action->item->animationScale,
+      default => EffectScale::DEFAULT,
+    };
+  }
+
   /** Runtime and previews share ID precedence and exact role selection, never a name fallback. */
   public static function resolveForAction(?BattleAction $action, CharacterInterface $actor,
     AnimationLibrary $library): ?Animation
