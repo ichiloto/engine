@@ -36,6 +36,9 @@ final class RendererPresentation
 
   public function hasPendingUpload(): bool { return $this->retained->hasPendingUpload(); }
 
+  /** The world of the newest frame the renderer has shown. */
+  public ?PresentationWorld $presentedWorld { get => $this->retained->presentedWorld; }
+
   public function acknowledge(int $generation, bool $presented): void { $this->retained->acknowledge($generation, $presented); }
 
   public function captureFrame(): RetainedFrame { return $this->retained->captureFrame(); }

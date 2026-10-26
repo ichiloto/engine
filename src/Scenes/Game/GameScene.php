@@ -730,6 +730,18 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     protected(set) bool $hasDeferredAutoSave = false;
     /** Whether the destination map still needs its automatic entry triggers evaluated. */
     protected bool $hasPendingAutomaticTriggerEvaluation = false;
+    /**
+     * Seconds an arrival waits for the renderer to show its map before the field goes on and the wait is
+     * reported. A slow upload stays well inside it; reaching it means the renderer is not showing the map.
+     */
+    public const float ARRIVAL_PRESENTATION_LIMIT_SECONDS = 30.0;
+    /** When the latest transfer's map began waiting to be shown by the renderer; null once it is on screen. */
+    private ?float $arrivalPresentationSince = null;
+    /**
+     * True while the renderer has not yet shown the map the player just arrived on. The field holds its
+     * time meanwhile: arrival events, story sessions and input wait, so nothing happens off screen.
+     */
+    public bool $isAwaitingArrivalPresentation { get => $this->arrivalPresentationSince !== null; }
     /** Prevent teardown callbacks from starting fresh field work. */
     public private(set) bool $isStopping = false;
     /**
@@ -1242,6 +1254,13 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         if ($this->isStopping || $this->sceneManager->currentScene !== $this || $this->sceneManager->hasSceneTransition()) {
             return;
         }
+        if ($this->isAwaitingArrivalPresentation) {
+            if ($this->awaitArrivalPresentation()) { return; }
+            $this->evaluatePendingAutomaticTriggers();
+            if ($this->isStopping || $this->sceneManager->currentScene !== $this || $this->sceneManager->hasSceneTransition()) {
+                return;
+            }
+        }
         $this->state->execute($this->sceneStateContext);
         if ($this->isStopping || $this->sceneManager->currentScene !== $this || $this->sceneManager->hasSceneTransition()) {
             return;
@@ -1339,6 +1358,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $this->cancelPendingSavedGameResume();
         $this->hasDeferredAutoSave = false;
         $this->hasPendingAutomaticTriggerEvaluation = false;
+        $this->arrivalPresentationSince = null;
         $failure = null;
         foreach ([
             fn() => $this->releaseLocationHUDWindow(),
@@ -1499,6 +1519,8 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         // The destination is already validated; its music resolves on commit.
         $this->currentMapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $location->mapFilename) ?: $location->mapFilename;
         $this->mapManager->applyPreparedMap($destination, $this->player);
+        // A graphical renderer shows the new map only once its world has streamed in.
+        $this->arrivalPresentationSince = Time::getTime();
 
         if ($transition !== null) {
             // The field is drawn behind the configured cover, then revealed.
@@ -1546,6 +1568,29 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $this->evaluatePendingAutomaticTriggers();
     }
 
+    /**
+     * Holds the field while the renderer has not shown the map the player arrived on. A world map streams
+     * to the renderer over many ticks; meanwhile the window still shows the map left behind, so an arrival
+     * cinematic, a continuing story session or a step would happen out of sight. A terminal, or a map the
+     * renderer draws as plain text, shows the arrival at once and never holds.
+     *
+     * @return bool Whether the field still holds this tick; once it does not, the arrival is shown.
+     */
+    protected function awaitArrivalPresentation(): bool
+    {
+        if ($this->arrivalPresentationSince === null) { return false; }
+        $runtime = $this->presentationContext === null && isset($this->sceneManager) ? $this->getGame()->getRendererRuntime() : null;
+        $world = $runtime !== null && $this->isGraphicalFieldPresented() ? $this->getPresentationWorld() : null;
+        if ($world !== null && $runtime->presentedWorld !== $world) {
+            $waited = Time::getTime() - $this->arrivalPresentationSince;
+            if ($waited < self::ARRIVAL_PRESENTATION_LIMIT_SECONDS) { return true; }
+            Debug::warn(sprintf('The renderer had not shown map "%s" %.1f seconds after the player arrived; the field goes on without it.',
+                $this->currentMapId, $waited));
+        }
+        $this->arrivalPresentationSince = null;
+        return false;
+    }
+
     /** Recheck the current map and position after the existing event owner releases control. */
     public function requestAutomaticTriggerEvaluation(): void
     {
@@ -1556,6 +1601,10 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     protected function evaluatePendingAutomaticTriggers(): void
     {
         if ($this->isStopping || ! $this->hasPendingAutomaticTriggerEvaluation || $this->hasUnstableEventSession()) {
+            return;
+        }
+        // Arrival events begin once the player can see where they arrived; the hold's release evaluates them.
+        if ($this->awaitArrivalPresentation()) {
             return;
         }
         if ($this->configuringSavedGame || $this->resumingSavedGame

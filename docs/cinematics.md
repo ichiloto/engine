@@ -240,6 +240,16 @@ changes an existing staged visual while preserving the subject lease.
 For an unbound replacement, each omitted x/y, facing and collision field retains
 its current value; explicit zero coordinates and `collision => false` are overrides.
 
+An independent staged actor may instead wear a map NPC's look:
+`appearance => ['kind' => 'npc', 'id' => '...']` gives it that NPC's terminal glyph,
+directional glyphs, character sheet and heading, read from the NPC even while its
+conditions hide it from the field. It is the actor's whole look, so `sprite`,
+`sprites`, `sprites2d`, `asset` and `subject` are refused beside it; place it with
+`at => ['kind' => 'npc', 'id' => '...']` to stand where that NPC stands. This stages
+something the story has already removed, such as a barrier a cutaway shows cleared,
+with the art its map owns: one staged actor per NPC, none bound or suppressed, and
+no second registration of the same sheet in the cinematic.
+
 ### Map-Owned World Object Leases
 
 `subject => ['kind' => 'world_object', 'id' => 'instrument']` binds a temporary

@@ -71,6 +71,7 @@ final class CinematicStageManager
     }
 
     $subject = isset($entry['subject']) ? $this->resolveSubject($entry['subject']) : null;
+    $appearance = isset($entry['appearance']) ? $this->resolveAppearance($entry['appearance']) : null;
     $previous = $this->actors[$id] ?? null;
     $independentActor = $subject === null && $previous?->subject === null ? $previous : null;
     // A replacement staged without a new place keeps its attachment, as it keeps its cell.
@@ -80,7 +81,7 @@ final class CinematicStageManager
       : new Vector2(isset($entry['x']) ? intval($entry['x']) : ($independentActor?->position->x ?? 0),
         isset($entry['y']) ? intval($entry['y']) : ($independentActor?->position->y ?? 0)));
     $assetReference = trim(strval($entry['asset'] ?? '')) ?: null;
-    $sprite = $entry['sprite'] ?? ($subject === null ? '@' : null);
+    $sprite = $entry['sprite'] ?? $appearance?->sprite ?? ($subject === null ? '@' : null);
 
     if ($assetReference !== null) {
       $sprite ??= '@';
@@ -93,8 +94,13 @@ final class CinematicStageManager
 
     $sprite = $sprite === null ? null : (is_array($sprite) ? array_values(array_map('strval', $sprite)) : [strval($sprite)]);
     $facing = CinematicFacing::resolve($this->gameScene, $entry, $position)
-      ?? $independentActor?->facing ?? MovementHeading::SOUTH;
-    $graphicalSprites = isset($entry['sprites2d']) ? self::getGraphicalSprites($entry['sprites2d']) : null;
+      ?? $independentActor?->facing ?? $appearance?->heading ?? MovementHeading::SOUTH;
+    $graphicalSprites = isset($entry['sprites2d']) ? self::getGraphicalSprites($entry['sprites2d'])
+      : $appearance?->getGraphicalCharacterSheet();
+    // The NPC keeps one glyph per heading; a staged look keeps rows per heading.
+    $directionalSprites = is_array($entry['sprites'] ?? null) ? $entry['sprites']
+      : array_map(static fn(mixed $glyph): array => array_values(array_map('strval', (array)$glyph)),
+        $appearance?->directionalSprites ?? []);
     $suppressed = $subject !== null ? [spl_object_id($subject) => $subject] : [];
     foreach ($entry['suppress'] ?? [] as $reference) {
       $other = $this->resolveSubject($reference);
@@ -120,7 +126,7 @@ final class CinematicStageManager
       position: $position,
       isVisible: ($entry['visible'] ?? true) !== false,
       hasCollision: boolval($entry['collision'] ?? $independentActor?->hasCollision ?? false),
-      directionalSprites: is_array($entry['sprites'] ?? null) ? $entry['sprites'] : [],
+      directionalSprites: $directionalSprites,
       facing: $facing,
       assetReference: $assetReference,
       graphicalSprites: $graphicalSprites,
@@ -146,6 +152,9 @@ final class CinematicStageManager
     if (array_key_exists('replace', $entry) && !is_bool($entry['replace'])) {
       throw new \InvalidArgumentException('Staged actor replace must be boolean.');
     }
+    if (array_key_exists('appearance', $entry)) {
+      self::validateAppearance($entry);
+    }
     if (!array_key_exists('subject', $entry)) {
       if (array_key_exists('suppress', $entry)) {
         throw new \InvalidArgumentException('Additional suppression requires a real subject anchor.');
@@ -167,6 +176,31 @@ final class CinematicStageManager
         throw new \InvalidArgumentException('Real subject requires kind player, npc or world_object, with a stable id for npc/world_object.');
       }
     }
+  }
+
+  /** An appearance names the one map subject whose authored look the actor wears; nothing else gives it a look. */
+  private static function validateAppearance(array $entry): void
+  {
+    $appearance = $entry['appearance'];
+    if (!is_array($appearance) || array_is_list($appearance) || array_diff(array_keys($appearance), ['kind', 'id']) !== []
+      || !in_array($appearance['kind'] ?? null, CinematicCommandSchema::STAGED_ACTOR_APPEARANCE_KINDS, true)
+      || !is_string($appearance['id'] ?? null) || trim($appearance['id']) === '') {
+      throw new \InvalidArgumentException(sprintf('Staged actor appearance requires kind %s and a stable id.',
+        implode('|', CinematicCommandSchema::STAGED_ACTOR_APPEARANCE_KINDS)));
+    }
+    $others = array_values(array_intersect(['sprite', 'sprites', 'sprites2d', 'asset', 'subject'], array_keys($entry)));
+    if ($others !== []) {
+      throw new \InvalidArgumentException(sprintf('A staged actor wearing an appearance takes its whole look from it; remove %s.',
+        implode(', ', $others)));
+    }
+  }
+
+  /** The map NPC's authored look stays readable while its story conditions hide it from the field. */
+  private function resolveAppearance(array $reference): Npc
+  {
+    return $this->gameScene->npcManager?->findById($reference['id'])
+      ?? throw new RuntimeException(sprintf('Staged actor appearance NPC "%s" is not on map "%s".',
+        $reference['id'], $this->gameScene->currentMapId));
   }
 
   private function resolveSubject(array $reference): Player|Npc|WorldObject
