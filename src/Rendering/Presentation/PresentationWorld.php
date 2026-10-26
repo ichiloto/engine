@@ -270,18 +270,19 @@ final class PresentationWorld
         $bytes = array_sum(array_map(strlen(...), $wireSheets));
         $animated = false;
         $layers = $rows = $covers = [];
-        // A layer's cells as shown: covered cells hold nothing.
-        $readShown = static function (MapTileLayer $layer) use ($coveredCells): array {
-            $shown = $layer->readTiles();
-            foreach ($coveredCells[$layer->name] ?? [] as $y => $cells) {
-                foreach ($cells as $x => $_) { $shown[$y][$x] = TileId::EMPTY; }
+        // A layer's rows as shown, one at a time: covered cells hold nothing.
+        $readShown = static function (MapTileLayer $layer) use ($coveredCells): \Generator {
+            for ($y = 0; $y < $layer->height; $y++) {
+                $row = $layer->getRowTiles($y);
+                foreach ($coveredCells[$layer->name][$y] ?? [] as $x => $_) { $row[$x] = TileId::EMPTY; }
+                yield $y => $row;
             }
-            return $shown;
         };
         $cornerTiles = $graphics->tileset->getCornerTiles();
         $cornerJoins = $graphics->tileset->getCornerJoins();
+        $cornerLayers = [];
         $cornerSheets = $cornerTiles === [] ? [] : $graphics->tileset->getUsableCornerSheets($assetRoot, $size,
-            self::getShownCornerTiles($graphics->layers, $coveredCells, $cornerTiles));
+            self::getShownCornerTiles($graphics->layers, $coveredCells, $cornerTiles, $cornerLayers));
         // Tiles share many pieces (an autotile's quarters recur across its shapes); equal pieces share one array.
         $shared = [];
         $addTile = static function (string $key, int $shiftX, int $shiftY, callable $compose)
@@ -316,18 +317,16 @@ final class PresentationWorld
         $shadowStyle = $graphics->tileset->shadows;
         $casters = $ground = [];
         foreach ($graphics->layers as $index => $layer) {
-            $shown = $readShown($layer);
-            $resolved = AutotileShape::resolveLayer($shown);
-            if ($shadowStyle !== null) {
-                self::collectShadowCells($graphics, $index, $resolved, $sheetIndices, $casters, $ground);
-            }
             $covered = $gameplayIds[$graphics->owners[$layer->name] ?? ''] ?? null;
             $bands = $cornerBands = [];
             // A layer offset in field cells, each one tile.
             [$offsetX, $offsetY] = $graphics->offsets[$layer->name] ?? [0.0, 0.0];
             $shiftX = (int)round($offsetX * $size);
             $shiftY = (int)round($offsetY * $size);
-            foreach ($resolved as $y => $cells) {
+            foreach (AutotileShape::yieldRows($readShown($layer)) as $y => $cells) {
+                if ($shadowStyle !== null) {
+                    self::collectShadowRow($graphics, $index, $y, $cells, $sheetIndices, $casters, $ground);
+                }
                 foreach ($cells as $x => $tileId) {
                     if ($tileId === TileId::EMPTY || CornerShape::isCornerTile($tileId, $cornerTiles)
                         || !isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
@@ -340,8 +339,10 @@ final class PresentationWorld
                     $bytes += self::TILE_CELL_SOURCE_BYTES;
                 }
             }
-            unset($resolved);
-            foreach ($cornerSheets === [] ? [] : CornerShape::yieldCorners($shown, array_keys($cornerSheets), $cornerJoins)
+            // Corner cases need the whole layer, so only a layer showing a corner-edged kind is read whole.
+            $shown = $cornerSheets === [] || !isset($cornerLayers[$layer->name]) ? []
+                : iterator_to_array($readShown($layer));
+            foreach ($shown === [] ? [] : CornerShape::yieldCorners($shown, array_keys($cornerSheets), $cornerJoins)
                 as [$x, $y, $flag, $cases]) {
                 $sheet = $cornerSheets[$flag];
                 if (!isset($sheetIndices[$sheet->key])) {
@@ -393,9 +394,10 @@ final class PresentationWorld
      * @param list<MapTileLayer> $layers
      * @param array<string, array<int, array<int, mixed>>> $coveredCells Cells that show nothing, by tile layer name.
      * @param list<int> $cornerTiles
+     * @param array<string, true> $shownOn Set to the names of the layers that show any.
      * @return list<int>
      */
-    private static function getShownCornerTiles(array $layers, array $coveredCells, array $cornerTiles): array
+    private static function getShownCornerTiles(array $layers, array $coveredCells, array $cornerTiles, array &$shownOn): array
     {
         $found = [];
         foreach ($layers as $layer) {
@@ -403,6 +405,7 @@ final class PresentationWorld
                 foreach ($layer->getRowTiles($y) as $x => $tileId) {
                     if (CornerShape::isCornerTile($tileId, $cornerTiles) && !isset($coveredCells[$layer->name][$y][$x])) {
                         $found[TileId::getFlagId($tileId)] = true;
+                        $shownOn[$layer->name] = true;
                     }
                 }
             }
@@ -411,38 +414,36 @@ final class PresentationWorld
     }
 
     /**
-     * Records which cells of one shaped tile layer cast a shadow and which
+     * Records which cells of one shaped tile layer row cast a shadow and which
      * show a tile below the characters, for {@see getTileShadows()}: each row
      * as a string holding, per cell, the casting layer's position plus one
      * (casters) or "\1" (ground). Later layers are higher, so a caster of a
      * later layer takes the cell.
      *
-     * @param list<list<int>> $resolved The layer's cells, shaped.
+     * @param list<int> $cells The row's cells, shaped.
      * @param array<string, int> $sheetIndices The usable sheets.
      * @param array<int, string> $casters
      * @param array<int, string> $ground
      */
-    private static function collectShadowCells(MapGraphics $graphics, int $index, array $resolved, array $sheetIndices,
+    private static function collectShadowRow(MapGraphics $graphics, int $index, int $y, array $cells, array $sheetIndices,
         array &$casters, array &$ground): void
     {
         $style = $graphics->tileset->shadows;
         $layer = $graphics->layers[$index];
-        foreach ($resolved as $y => $cells) {
-            foreach ($cells as $x => $tileId) {
-                if ($tileId === TileId::EMPTY || !isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
-                    continue;
+        foreach ($cells as $x => $tileId) {
+            if ($tileId === TileId::EMPTY || !isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
+                continue;
+            }
+            if ($style->isCaster($tileId)) {
+                $casters[$y] ??= str_repeat("\0", count($cells));
+                $caster = ord($casters[$y][$x]);
+                if ($caster === 0 || $graphics->layers[$caster - 1]->order <= $layer->order) {
+                    $casters[$y][$x] = chr($index + 1);
                 }
-                if ($style->isCaster($tileId)) {
-                    $casters[$y] ??= str_repeat("\0", count($cells));
-                    $caster = ord($casters[$y][$x]);
-                    if ($caster === 0 || $graphics->layers[$caster - 1]->order <= $layer->order) {
-                        $casters[$y][$x] = chr($index + 1);
-                    }
-                }
-                if (!$graphics->tileset->isAbove($tileId)) {
-                    $ground[$y] ??= str_repeat("\0", count($cells));
-                    $ground[$y][$x] = "\1";
-                }
+            }
+            if (!$graphics->tileset->isAbove($tileId)) {
+                $ground[$y] ??= str_repeat("\0", count($cells));
+                $ground[$y][$x] = "\1";
             }
         }
     }
@@ -456,7 +457,7 @@ final class PresentationWorld
      * band belongs to the highest layer whose caster throws it and keeps that
      * layer's offset.
      *
-     * @param array<int, string> $casters Each row's casting layers ({@see collectShadowCells()}).
+     * @param array<int, string> $casters Each row's casting layers ({@see collectShadowRow()}).
      * @param array<int, string> $ground Each row's cells showing a tile below the characters.
      * @param int $tileCount Catalog tiles before the bands' fill tiles.
      * @return array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, rows: array<string, array<int, string>>}|null
