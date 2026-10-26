@@ -183,13 +183,18 @@ final class PresentationWorld
         }
         $metadata = $styled = [];
         $estimatedBytes = count($layers->layers) * self::LAYER_SOURCE_BYTES;
-        $ownerAt = static fn(int $x, int $y): string => PresentationLayerPolicy::getMapLayerId($projectedOwners[$y][$x]
-            ?? $layers->getGameplayLayerAt($x, $y));
+        // Each cell's owning layer id, a row at a time: its gameplay owner unless a graphical cover projected another.
+        $readOwnerIds = static function (int $y) use ($layers, $projectedOwners): array {
+            $ids = array_map(PresentationLayerPolicy::getMapLayerId(...), $layers->getRowGameplayLayers($y));
+            foreach ($projectedOwners[$y] ?? [] as $x => $owner) { $ids[$x] = PresentationLayerPolicy::getMapLayerId($owner); }
+            return $ids;
+        };
         // Match the native retained-source charge before allocating per-cell wire arrays.
         foreach ($grid as $y => $cells) {
+            $ownerIds = $readOwnerIds($y);
             foreach ($cells as $x => $cell) {
                 $styled[$cell] ??= self::getWireCell($cell);
-                $estimatedBytes += self::CELL_SOURCE_BYTES + strlen($styled[$cell]['glyph']) + strlen($ownerAt($x, $y));
+                $estimatedBytes += self::CELL_SOURCE_BYTES + strlen($styled[$cell]['glyph']) + strlen($ownerIds[$x]);
             }
         }
         if ($estimatedBytes > self::MAX_SOURCE_BYTES) {
@@ -211,11 +216,12 @@ final class PresentationWorld
         }
         // Each distinct cell is held once, and each row as indices to it.
         $wireCells = $indices = [];
-        $rowCells = PackedGrid::fromRows((static function () use ($grid, $styled, $ownerAt, &$wireCells, &$indices): \Generator {
+        $rowCells = PackedGrid::fromRows((static function () use ($grid, $styled, $readOwnerIds, &$wireCells, &$indices): \Generator {
             foreach ($grid as $y => $cells) {
+                $ownerIds = $readOwnerIds($y);
                 $row = [];
                 foreach ($cells as $x => $cell) {
-                    $ownerId = $ownerAt($x, $y);
+                    $ownerId = $ownerIds[$x];
                     if (!isset($indices[$ownerId][$cell])) {
                         $indices[$ownerId][$cell] = count($wireCells);
                         $wireCells[] = [...$styled[$cell], 'ownerLayerId' => $ownerId];
@@ -323,20 +329,27 @@ final class PresentationWorld
             [$offsetX, $offsetY] = $graphics->offsets[$layer->name] ?? [0.0, 0.0];
             $shiftX = (int)round($offsetX * $size);
             $shiftY = (int)round($offsetY * $size);
+            // Each tile identity the layer shows is placed once: its catalog tile and band, or false when its cell
+            // shows nothing here (empty, drawn by corner tiles, or on an unusable sheet).
+            $placements = [];
             foreach (AutotileShape::yieldRows($readShown($layer)) as $y => $cells) {
                 if ($shadowStyle !== null) {
                     self::collectShadowRow($graphics, $index, $y, $cells, $sheetIndices, $casters, $ground);
                 }
+                $rowBands = ['below' => '', 'above' => ''];
                 foreach ($cells as $x => $tileId) {
-                    if ($tileId === TileId::EMPTY || CornerShape::isCornerTile($tileId, $cornerTiles)
-                        || !isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
-                        continue;
+                    $placement = $placements[$tileId] ??= $tileId === TileId::EMPTY || CornerShape::isCornerTile($tileId, $cornerTiles)
+                        || !isset($sheetIndices[TileId::getSheet($tileId)?->value ?? '']) ? false
+                        : [$addTile("{$tileId}:{$shiftX}:{$shiftY}", $shiftX, $shiftY,
+                            static fn(): array => TileComposer::compose($tileId, $size, $graphics->tileset->isTable($tileId))),
+                            $graphics->tileset->isAbove($tileId) ? 'above' : 'below'];
+                    if ($placement !== false) {
+                        $rowBands[$placement[1]] .= pack('vv', $x, $placement[0]);
+                        $bytes += self::TILE_CELL_SOURCE_BYTES;
                     }
-                    $tile = $addTile("{$tileId}:{$shiftX}:{$shiftY}", $shiftX, $shiftY,
-                        static fn(): array => TileComposer::compose($tileId, $size, $graphics->tileset->isTable($tileId)));
-                    $band = $graphics->tileset->isAbove($tileId) ? 'above' : 'below';
-                    $bands[$band][$y] = ($bands[$band][$y] ?? '') . pack('vv', $x, $tile);
-                    $bytes += self::TILE_CELL_SOURCE_BYTES;
+                }
+                foreach ($rowBands as $band => $pairs) {
+                    if ($pairs !== '') { $bands[$band][$y] = $pairs; }
                 }
             }
             // Corner cases need the whole layer, so only a layer showing a corner-edged kind is read whole.
@@ -399,12 +412,14 @@ final class PresentationWorld
      */
     private static function getShownCornerTiles(array $layers, array $coveredCells, array $cornerTiles, array &$shownOn): array
     {
-        $found = [];
+        $found = $flags = [];
         foreach ($layers as $layer) {
             for ($y = 0; $y < $layer->height; $y++) {
                 foreach ($layer->getRowTiles($y) as $x => $tileId) {
-                    if (CornerShape::isCornerTile($tileId, $cornerTiles) && !isset($coveredCells[$layer->name][$y][$x])) {
-                        $found[TileId::getFlagId($tileId)] = true;
+                    // Each tile identity's corner-edged kind, or false for none, is read once.
+                    $flag = $flags[$tileId] ??= CornerShape::isCornerTile($tileId, $cornerTiles) ? TileId::getFlagId($tileId) : false;
+                    if ($flag !== false && !isset($coveredCells[$layer->name][$y][$x])) {
+                        $found[$flag] = true;
                         $shownOn[$layer->name] = true;
                     }
                 }

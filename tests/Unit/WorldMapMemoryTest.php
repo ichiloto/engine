@@ -7,7 +7,7 @@ use Ichiloto\Engine\Rendering\Tilesets\TilesetSheet;
 
 /**
  * A synthetic classic world map: 320 x 256 cells painted in terrain kinds
- * (grass, sand and corner-edged water), with buildings, trees and a
+ * (grass drawn as a pictograph, sand and corner-edged water), with buildings, trees and a
  * decoration layer over them, and twelve tile layers, ten of them dense with
  * varied plain tiles. Its shapes come from a fixed hash, never from a real
  * game's art or layout.
@@ -35,7 +35,7 @@ final class WorldMapMemoryFixture
             'name' => 'Synthetic World',
             'sheets' => ['A1' => 'Graphics/A1.png', 'A2' => 'Graphics/A2.png', 'B' => 'Graphics/B.png'],
             'kinds' => [
-                'grass' => ['name' => 'Grass', 'layer' => 'terrain', 'glyph' => '<fg=green>.</>',
+                'grass' => ['name' => 'Grass', 'layer' => 'terrain', 'glyph' => '<fg=green>♣</>',
                     'art' => ['layer' => 'ground', 'tile' => self::GRASS], 'passage' => 'walk', 'encounters' => 'grassland', 'atlas' => 'ground'],
                 'sand' => ['name' => 'Sand', 'layer' => 'terrain', 'glyph' => '<fg=yellow>:</>',
                     'art' => ['layer' => 'ground', 'tile' => self::SAND], 'passage' => 'walk', 'encounters' => 'desert', 'atlas' => 'ground'],
@@ -58,7 +58,7 @@ final class WorldMapMemoryFixture
                 $shape = sin($x / 23) + cos($y / 17) + sin(($x + $y) / 31);
                 $noise = self::hash($x, $y);
                 $kind = $shape < -0.9 ? 'water' : ($shape < -0.6 ? 'sand' : 'grass');
-                $glyphs .= ['water' => '<fg=blue>~</>', 'sand' => '<fg=yellow>:</>', 'grass' => '<fg=green>.</>'][$kind];
+                $glyphs .= ['water' => '<fg=blue>~</>', 'sand' => '<fg=yellow>:</>', 'grass' => '<fg=green>♣</>'][$kind];
                 $wall = $kind !== 'water' && $x % 40 >= 10 && $x % 40 <= 14 && $y % 32 >= 8 && $y % 32 <= 12
                     && ($x % 40 === 10 || $x % 40 === 14 || $y % 32 === 8 || $y % 32 === 12);
                 $walls .= $wall ? '<fg=white>#</>' : ' ';
@@ -135,7 +135,7 @@ final class WorldMapMemoryFixture
     }
 }
 
-it('loads, presents and leaves a classic world map within the default memory limit, releasing it on every transfer', function () {
+it('loads, presents and leaves a classic world map within the default memory limit and in bounded time, releasing it on every transfer', function () {
     $root = createTestDirectory('ichiloto-world-memory-');
     WorldMapMemoryFixture::write($root);
     mkdir($root . '/logs');
@@ -159,5 +159,11 @@ it('loads, presents and leaves a classic world map within the default memory lim
         // Leaving the world releases it: what remains is the code its first visit loaded,
         // and coming and going again adds nothing.
         ->and($result['afterLeavingBytes'])->toBeLessThan(2 * $megabytes)
-        ->and($result['afterReturningBytes'] - $result['afterLeavingBytes'])->toBeLessThan(256 * 1024);
+        ->and($result['afterReturningBytes'] - $result['afterLeavingBytes'])->toBeLessThan(256 * 1024)
+        // The transfer builds the world once and every later frame reads it.
+        ->and($result['world']['reused'])->toBeTrue()
+        // A generous bound on preparing, installing, presenting and sending the whole world: it takes
+        // about a second and a half. Work that grows with a row's length per cell or per tag, as
+        // formatting each styled row whole did, took this world over twenty seconds.
+        ->and($result['world']['milliseconds'])->toBeLessThan(8000);
 });

@@ -142,16 +142,18 @@ final class MapCollisionResolver
         }
         $result = [];
         $base = $gameplay[0][0];
+        // Each layer's glyphs are read a row at a time, and each glyph is looked up once per layer.
+        $typeOf = [];
         for ($y = 0; $y < $base->height; $y++) {
+            $glyphs = array_map(static fn(array $entry): array => $entry[0]->getRowGlyphs($y), $gameplay);
             for ($x = 0, $width = $base->getRowLength($y); $x < $width; $x++) {
                 $result[$y][$x] = CollisionType::SOLID->value;
                 for ($index = count($gameplay) - 1; $index >= 0; $index--) {
-                    [$layer, $types] = $gameplay[$index];
-                    $glyph = $layer->getGlyphAt($x, $y) ?? ' ';
+                    $glyph = $glyphs[$index][$x] ?? ' ';
                     if ($index !== 0 && $glyph === ' ') {
                         continue;
                     }
-                    $type = self::lookUp($types, $glyph);
+                    $type = $typeOf[$index][$glyph] ??= self::lookUp($gameplay[$index][1], $glyph);
                     if ($type !== CollisionType::PASS_THROUGH) {
                         $result[$y][$x] = $type->value;
                         break;

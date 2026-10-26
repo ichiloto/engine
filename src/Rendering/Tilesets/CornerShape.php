@@ -27,6 +27,8 @@ final class CornerShape
   public const int BOTTOM_LEFT = 4;
   public const int BOTTOM_RIGHT = 8;
   public const int CASES = 16;
+  /** The flag of a cell holding no autotile, which no kind has. */
+  private const int NO_FLAG = -1;
 
   /**
    * Where each case's tile sits in a phase of a corner sheet, as [column,
@@ -85,15 +87,22 @@ final class CornerShape
   {
     $height = count($layer);
     $width = max(array_map(count(...), $layer) ?: [0]);
-    $flags = [];
-    foreach ($layer as $y => $row) {
-      foreach ($row as $x => $id) {
-        if ($id !== TileId::EMPTY && TileId::isAutotile($id)) {
-          $flags[$y][$x] = TileId::getFlagId($id);
-        }
+    // Each cell's autotile flag identity (NO_FLAG for none), read once, with a border of one cell on every side
+    // that continues the edge cells: the cell at x, y is at [y + 1][x + 1]. A cell's corners then read the
+    // nine cells around it directly.
+    $flags = $flagOf = $cellsOf = [];
+    for ($y = 0; $y < $height; $y++) {
+      $source = $layer[$y] ?? [];
+      $row = [];
+      for ($x = 0; $x < $width; $x++) {
+        $id = $source[$x] ?? TileId::EMPTY;
+        $row[] = $flag = $flagOf[$id] ??= $id !== TileId::EMPTY && TileId::isAutotile($id) ? TileId::getFlagId($id) : self::NO_FLAG;
+        // Each kind's own cells, as y << 16 | x (field extents stay below 65536).
+        if ($flag !== self::NO_FLAG) { $cellsOf[$flag][] = $y << 16 | $x; }
       }
+      $flags[] = [$row[0] ?? self::NO_FLAG, ...$row, $row[$width - 1] ?? self::NO_FLAG];
     }
-    $flagAt = static fn(int $x, int $y): ?int => $flags[min(max($y, 0), $height - 1)][min(max($x, 0), $width - 1)] ?? null;
+    $flags = [$flags[0] ?? [], ...$flags, $flags[$height - 1] ?? []];
     $tiles = array_values(array_unique($tiles));
     // Each reached cell's cases for each kind, as one integer: column << 24 | kind position << 16 | cases
     // (autotile flag identities allow fewer than 256 kinds).
@@ -102,41 +111,38 @@ final class CornerShape
     foreach ($tiles as $position => $tile) {
       $group = array_fill_keys($joins[$tile] ?? [$tile], true);
       $group[$tile] = true;
-      $holds = static fn(int $x, int $y): int => (int)isset($group[$flagAt($x, $y) ?? -1]);
-      $owns = static fn(int $x, int $y): bool => $flagAt($x, $y) === $tile;
-      // A corner's case among the joined kinds, or none when none of this kind's own cells touch it.
-      $case = static fn(int $x, int $y): int => $owns($x - 1, $y - 1) || $owns($x, $y - 1) || $owns($x - 1, $y) || $owns($x, $y)
-        ? $holds($x - 1, $y - 1) | $holds($x, $y - 1) << 1 | $holds($x - 1, $y) << 2 | $holds($x, $y) << 3 : 0;
       $reached = [];
-      foreach ($flags as $y => $row) {
-        foreach ($row as $x => $flag) {
-          if ($flag !== $tile) {
-            continue;
-          }
-          for ($dy = -1; $dy <= 1; $dy++) {
-            for ($dx = -1; $dx <= 1; $dx++) {
-              if ($y + $dy >= 0 && $y + $dy < $height && $x + $dx >= 0 && $x + $dx < $width) {
-                $reached[$y + $dy][$x + $dx] = true;
-              }
+      foreach ($cellsOf[$tile] ?? [] as $cell) {
+        [$x, $y] = [$cell & 0xFFFF, $cell >> 16];
+        for ($dy = -1; $dy <= 1; $dy++) {
+          for ($dx = -1; $dx <= 1; $dx++) {
+            if ($y + $dy >= 0 && $y + $dy < $height && $x + $dx >= 0 && $x + $dx < $width) {
+              $reached[$y + $dy][$x + $dx] = true;
             }
           }
         }
       }
       foreach ($reached as $y => $row) {
+        [$above, $middle, $below] = [$flags[$y], $flags[$y + 1], $flags[$y + 2]];
         foreach ($row as $x => $_) {
-          $flag = $flags[$y][$x] ?? null;
-          if ($flag !== null && $flag !== $tile && isset($group[$flag])) {
+          $flag = $middle[$x + 1];
+          if ($flag !== $tile && isset($group[$flag])) {
             // A joined kind's own cell: that kind draws it.
             continue;
           }
-          $cases = $case($x, $y) | $case($x + 1, $y) << 4 | $case($x, $y + 1) << 8 | $case($x + 1, $y + 1) << 12;
+          // The nine cells around this one: rows above, beside and below, each left, centre and right.
+          [$nw, $n, $ne] = [$above[$x], $above[$x + 1], $above[$x + 2]];
+          [$w, $c, $e] = [$middle[$x], $flag, $middle[$x + 2]];
+          [$sw, $s, $se] = [$below[$x], $below[$x + 1], $below[$x + 2]];
+          $cases = self::getCase($nw, $n, $w, $c, $tile, $group) | self::getCase($n, $ne, $c, $e, $tile, $group) << 4
+            | self::getCase($w, $c, $sw, $s, $tile, $group) << 8 | self::getCase($c, $e, $s, $se, $tile, $group) << 12;
           if ($cases !== 0) {
             $corners[$y][] = $x << 24 | $position << 16 | $cases;
           }
         }
       }
     }
-    unset($flags, $reached);
+    unset($flags, $cellsOf, $reached);
     ksort($corners);
     foreach ($corners as $y => $row) {
       sort($row);
@@ -144,6 +150,21 @@ final class CornerShape
         yield [$corner >> 24, $y, $tiles[($corner >> 16) & 0xFF], $corner & 0xFFFF];
       }
     }
+  }
+
+  /**
+   * A corner's case among the joined kinds, from the flags of the four cells
+   * that meet at it, or none when none of this kind's own cells touch it.
+   *
+   * @param array<int, true> $group The flag identities of the joined kinds, this kind's included.
+   */
+  private static function getCase(int $topLeft, int $topRight, int $bottomLeft, int $bottomRight, int $tile, array $group): int
+  {
+    if ($topLeft !== $tile && $topRight !== $tile && $bottomLeft !== $tile && $bottomRight !== $tile) {
+      return 0;
+    }
+    return (int)isset($group[$topLeft]) | (int)isset($group[$topRight]) << 1 | (int)isset($group[$bottomLeft]) << 2
+      | (int)isset($group[$bottomRight]) << 3;
   }
 
   /**

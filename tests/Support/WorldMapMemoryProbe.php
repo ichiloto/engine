@@ -42,6 +42,7 @@ $player = new ReflectionClass(Player::class)->newInstanceWithoutConstructor();
 new ReflectionProperty(Player::class, 'position')->setValue($player, new Vector2(1, 1));
 
 $enter = static function (string $mapId) use ($manager, $player): array {
+    $start = hrtime(true);
     // The destination is prepared while the current map is still installed, as a transfer does.
     $manager->applyPreparedMap($manager->prepareMap($mapId), $player);
     $world = $manager->getPresentationWorld();
@@ -51,7 +52,10 @@ $enter = static function (string $mapId) use ($manager, $player): array {
         $bytes += strlen($upload->getMessage($packets)->encode());
         $packets++;
     } while (!$upload->advance());
-    return ['packets' => $packets, 'bytes' => $bytes, 'columns' => $manager->mapWidth, 'rows' => $manager->mapHeight];
+    return ['packets' => $packets, 'bytes' => $bytes, 'columns' => $manager->mapWidth, 'rows' => $manager->mapHeight,
+        'milliseconds' => (hrtime(true) - $start) / 1e6,
+        // Every later frame reads the world the transfer built.
+        'reused' => $manager->getPresentationWorld() === $world];
 };
 $settled = static function (): int {
     gc_collect_cycles();

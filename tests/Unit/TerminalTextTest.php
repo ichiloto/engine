@@ -236,3 +236,51 @@ it('emits the stabilized graphemes whose widths were used for fitting and wrappi
     ->and(TerminalText::padRight($text, 12))->toBe("\u{1F5E1}\u{FE0F} Fixture  ")
     ->and(TerminalText::wrapToWidth($text, 7))->toBe(["\u{1F5E1}\u{FE0F}", 'Fixture']);
 });
+
+it('formats styled text exactly as the shared formatter formats it whole, its carried style state included', function () {
+  $formatter = new ReflectionProperty(TerminalText::class, 'formatter');
+  $previous = $formatter->getValue();
+  $formatter->setValue(null, null);
+  try {
+    TerminalText::formatStyles('<info>x</info>');
+    // The expected output comes from the same formatter, taking each text whole in the same order.
+    $whole = clone $formatter->getValue();
+    $rows = [
+      str_repeat('<fg=green>♣♣♣</><fg=bright-green>,,</><fg=blue>~</>', 40),
+      "<fg=blue>a</>\u{0301}<fg=red>b</>♣",
+      "<fg=blue>e\u{0301}</>♣<fg=red>e\u{0301}</>x",
+      'plain ♣ \\</> text<fg=blue>x</>y',
+      '<fg=blue>outer <fg=red>♣</> still blue</> after <comment>♣</comment>',
+      '<fg=blue>♣</fg=red>x</>',
+      '<fg=blue>♣</><fg=red>left open ♣',
+      'carried ♣<fg=blue>x</> closes</>',
+      "<fg=blue>♣</>\r\n<fg=red>♣</>",
+      "\xFF<fg=blue>♣</>",
+    ];
+    foreach ($rows as $row) {
+      try { $expected = $whole->format($row); } catch (Throwable) { $expected = $row; }
+      expect(TerminalText::formatStyles($row))->toBe($expected, $row);
+    }
+  } finally {
+    $formatter->setValue(null, $previous);
+  }
+});
+
+it('formats a long styled row in time that grows with its length, not with its length per tag', function () {
+  // A world map row is a run of styled segments; each segment here is the same, so a row four
+  // times longer is four times the work. Formatting it whole would cost its length for every tag.
+  $row = static fn(int $segments): string => str_repeat('<fg=green>♣♣♣</><fg=bright-green>,,</>', $segments);
+  $least = static function (string $text): float {
+    $best = INF;
+    for ($run = 0; $run < 5; $run++) {
+      $start = hrtime(true);
+      TerminalText::formatStyles($text);
+      $best = min($best, hrtime(true) - $start);
+    }
+    return $best;
+  };
+  $short = $least($row(100));
+  $long = $least($row(400));
+  // Linear work gives about 4; work per tag across the whole row gives about 16.
+  expect($long / $short)->toBeLessThan(8.0);
+});

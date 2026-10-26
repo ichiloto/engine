@@ -91,6 +91,12 @@ final readonly class MapLayerSet
         return $index === null ? $this->gameplayLayers[0] : $this->layers[$index];
     }
 
+    /** @return list<MapLayer> The topmost gameplay layer of each cell in a row, as {@see getGameplayLayerAt()} gives it; empty outside the map. */
+    public function getRowGameplayLayers(int $y): array
+    {
+        return array_map(fn(int $index): MapLayer => $this->layers[$index], $this->owners->getRowValues($y));
+    }
+
     /** @param array<int, string[]> $grid */
     public function assertMatchingGrid(array $grid, string $context): void
     {

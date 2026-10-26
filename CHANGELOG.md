@@ -248,6 +248,13 @@
   overview and renderer upload are unchanged byte for byte. On the continent, a transfer's peak fell from
   205 MB to 19 MB and the installed map from 191 MB to 14 MB. Single-pass derivations stream rows through
   generators (`AutotileShape::yieldRows()`, encounter terrain, layer parsing).
+- A world map loads about three times faster, with the same memory and byte-identical renderer uploads. On
+  Last Legend's continent, preparing, installing and building the world fell from 1.9 s to 0.5 s. Styled text
+  is formatted in pieces between closing tags (`TerminalText::formatStyles()`), so a long styled row costs its
+  length once rather than once per tag. Autotile and corner shaping read each row's kinds once and compare
+  neighbours directly; the world places each distinct tile once per layer; collision and encounter terrain read
+  a layer's glyphs a row at a time (`MapLayerSet::getRowGameplayLayers()` gives a row's owners); tile layers
+  check each distinct entry once; `PackedGrid` packs most rows once.
 - Battle overlays attach to each battler's drawn body: the visible pixels of the artwork it draws this frame,
   after crop, scale, mirroring, clip and command movement. The target cursor, condition badges, target
   names, result popups and effect head/centre/feet attachments no longer anchor to the whole image
