@@ -483,6 +483,12 @@ editing surface is owned by the GUI Editor plan. Related docs:
 - **Animation.** A1 water cycles RPG Maker's frames (water 0, 1, 2, 1;
   waterfalls 0, 1, 2) on one counter advancing every 30/60 seconds, as
   RPG Maker does. Reduced motion holds the first frame.
+- **Compact wire rows.** A peer advertising `world_row_runs` accepts repeated
+  owner cells and contiguous identical tile spans as runs. Every glyph, style,
+  owner, tile and gap expands to the same ordinary cells under the same limits.
+  Streaming chooses the smaller encoding per row; older peers keep ordinary
+  rows. This reduces large-map transfer bytes without changing map geometry,
+  source state, artwork or arrival ownership.
 - **Retained upload.** The world carries the cell size, and the tileset:
   its sheets, tile size and a catalog of the tile identities the map uses,
   each as frames of pieces copied from a sheet into the tile. Tile layers

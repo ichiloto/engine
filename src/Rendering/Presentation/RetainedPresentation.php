@@ -183,7 +183,8 @@ final class RetainedPresentation
     private function getWorldUpload(PresentationWorld $world): RetainedWorldUpload
     {
         return new RetainedWorldUpload($world, $this->client->supports(RendererSessionConfig::TILE_COVERS),
-            $this->client->supports(RendererSessionConfig::TILE_SHADOWS));
+            $this->client->supports(RendererSessionConfig::TILE_SHADOWS),
+            $this->client->supports(RendererSessionConfig::WORLD_ROW_RUNS));
     }
 
     private function getTime(): float { return $this->clock === null ? hrtime(true) / 1_000_000_000 : ($this->clock)(); }

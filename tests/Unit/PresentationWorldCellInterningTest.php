@@ -237,3 +237,32 @@ it('bounds repeated-cell upload allocation while retaining all styled multi-owne
             : ['map:terrain' => 160000])
         ->and($result['variants'])->toBe($expected);
 })->with(['uniform', 'styled', 'patterned']);
+
+
+it('transmits repeated styled owners as lossless runs only when the renderer supports them', function () {
+    $world = PresentationWorld::getFromLayers(createPresentationWorldInterningLayers(), 'synthetic');
+    $ordinary = $world->getOperations(true, true);
+    $compact = iterator_to_array($world->streamOperations(true, true, true), false);
+    $expanded = $compact;
+    foreach ($expanded as &$operation) {
+        if ($operation['op'] !== 'worldRowRuns') { continue; }
+        $operation['op'] = 'worldRows';
+        foreach ($operation['rows'] as &$row) {
+            $row['cells'] = [];
+            foreach ($row['runs'] as $run) {
+                array_push($row['cells'], ...array_fill(0, $run['count'], $run['cell']));
+            }
+            unset($row['runs']);
+        }
+        unset($row);
+    }
+    unset($operation);
+    expect($expanded)->toBe($ordinary)
+        ->and(strlen(json_encode($compact)))->toBeLessThan(strlen(json_encode($ordinary)))
+        ->and(iterator_to_array(new \Ichiloto\Engine\Rendering\Presentation\RetainedWorldUpload($world, true, true), false))->toBe($ordinary);
+    // Distinct, alternating cells and empty ragged rows keep their smaller ordinary representation.
+    $alternating = PresentationWorld::getFromLayers(new MapLayerSet([
+        new MapLayer('terrain', 0, false, 'synthetic', 'XYXYXY' . "\n\n" . 'Z'),
+    ], legacy: true));
+    expect(iterator_to_array($alternating->streamOperations(false, false, true), false))->toBe($alternating->operations);
+});

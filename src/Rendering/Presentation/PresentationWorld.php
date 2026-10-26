@@ -105,13 +105,13 @@ final class PresentationWorld
      *
      * @return Generator<int, array<string, mixed>>
      */
-    public function streamOperations(bool $tileCovers, bool $tileShadows = false): Generator
+    public function streamOperations(bool $tileCovers, bool $tileShadows = false, bool $rowRuns = false): Generator
     {
-        return $this->yieldOperations($tileCovers, $tileShadows, false);
+        return $this->yieldOperations($tileCovers, $tileShadows, false, $rowRuns);
     }
 
     /** @return Generator<int, array<string, mixed>> */
-    private function yieldOperations(bool $tileCovers, bool $tileShadows, bool $shareCells): Generator
+    private function yieldOperations(bool $tileCovers, bool $tileShadows, bool $shareCells, bool $rowRuns = false): Generator
     {
         $definition = $this->definition;
         if ($tileCovers && $this->tileCovers !== []) {
@@ -125,8 +125,20 @@ final class PresentationWorld
         }
         yield ['op' => 'put', 'kind' => 'world', 'id' => $this->id, 'value' => $definition];
         for ($y = 0; $y < $this->rowCells->height; $y++) {
-            yield ['op' => 'worldRows', 'id' => $this->id, 'rows' => [['row' => $y,
-                'cells' => array_map(fn(int $index): array => $this->wireCells[$index], $this->rowCells->getRowValues($y))]]];
+            $indices = $this->rowCells->getRowValues($y);
+            $cells = array_map(fn(int $index): array => $this->wireCells[$index], $indices);
+            $runs = [];
+            if ($rowRuns) {
+                foreach ($indices as $index) {
+                    $last = count($runs) - 1;
+                    if ($last >= 0 && $runs[$last]['cell'] === $this->wireCells[$index]) { $runs[$last]['count']++; }
+                    else { $runs[] = ['count' => 1, 'cell' => $this->wireCells[$index]]; }
+                }
+            }
+            // Run encoding is optional per row: alternating content keeps its smaller ordinary form.
+            $compact = $rowRuns && strlen(json_encode($runs, JSON_THROW_ON_ERROR)) < strlen(json_encode($cells, JSON_THROW_ON_ERROR));
+            yield ['op' => $compact ? 'worldRowRuns' : 'worldRows', 'id' => $this->id,
+                'rows' => [['row' => $y, $compact ? 'runs' : 'cells' => $compact ? $runs : $cells]]];
         }
         $cells = [];
         foreach ([...$this->tileRows, ...($shadows['rows'] ?? [])] as $layerId => $tileRows) {
@@ -137,8 +149,18 @@ final class PresentationWorld
                     $cell = ['column' => $values[$index], 'tile' => $values[$index + 1]];
                     $wire[] = $shareCells ? ($cells[$values[$index] << 16 | $values[$index + 1]] ??= $cell) : $cell;
                 }
-                yield ['op' => 'worldTiles', 'id' => $this->id, 'layerId' => $layerId,
-                    'rows' => [['row' => $row, 'cells' => $wire]]];
+                $runs = [];
+                if ($rowRuns) {
+                    foreach ($wire as $cell) {
+                        $last = count($runs) - 1;
+                        if ($last >= 0 && $runs[$last]['tile'] === $cell['tile']
+                            && $runs[$last]['column'] + $runs[$last]['count'] === $cell['column']) { $runs[$last]['count']++; }
+                        else { $runs[] = [...$cell, 'count' => 1]; }
+                    }
+                }
+                $compact = $rowRuns && strlen(json_encode($runs, JSON_THROW_ON_ERROR)) < strlen(json_encode($wire, JSON_THROW_ON_ERROR));
+                yield ['op' => $compact ? 'worldTileRuns' : 'worldTiles', 'id' => $this->id, 'layerId' => $layerId,
+                    'rows' => [['row' => $row, $compact ? 'runs' : 'cells' => $compact ? $runs : $wire]]];
             }
         }
     }

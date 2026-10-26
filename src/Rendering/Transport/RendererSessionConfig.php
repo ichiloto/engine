@@ -39,6 +39,7 @@ final readonly class RendererSessionConfig
   public const string TILE_COVERS = 'tile_covers';
   /** A world's tiles may be filled shapes, and its `shadows` layers paint them without hiding glyphs. */
   public const string TILE_SHADOWS = 'tile_shadows';
+  public const string WORLD_ROW_RUNS = 'world_row_runs';
   /** Retained field sprites may be drawn a lift above the cell that places and orders them. */
   public const string SPRITE_LIFT = 'sprite_lift';
   /** Retained field sprites may declare a bob the renderer draws at display rate on its field clock. */
@@ -71,7 +72,7 @@ final readonly class RendererSessionConfig
   {
     return $this->protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY,
-        self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
+        self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS, self::WORLD_ROW_RUNS,
         self::SPRITE_LIFT, self::SPRITE_BOB, self::SPRITE_FADE, self::SPRITE_THICKET, self::PINNED_SPRITE_MOTION, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
         self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT,
         ...array_values(array_intersect(self::EVENT_SUBSCRIPTIONS, $this->requiredCapabilities))]
@@ -94,7 +95,7 @@ final readonly class RendererSessionConfig
     if ($icon !== null) { ApplicationIcon::assertAssetPath($icon); }
     $allowed = $protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
-        self::CANVAS_COMPOSITING, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
+        self::CANVAS_COMPOSITING, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS, self::WORLD_ROW_RUNS,
         self::SPRITE_LIFT, self::SPRITE_BOB, self::SPRITE_FADE, self::SPRITE_THICKET, self::PINNED_SPRITE_MOTION, self::KEY_TRANSITIONS, self::MODIFIER_CONTROLS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
         self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT]
       : [self::SPRITE_SOURCE_RECT];

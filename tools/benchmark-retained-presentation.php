@@ -143,6 +143,8 @@ final class BenchmarkPresentationTransport implements RendererTransportInterface
             }
             foreach ($operation['rows'] ?? [] as $row) {
                 if ($operation['op'] === 'worldRows') { $this->worldCells += count($row['cells']); }
+                elseif ($operation['op'] === 'worldRowRuns') { $this->worldCells += array_sum(array_column($row['runs'], 'count')); }
+                elseif ($operation['op'] === 'worldTileRuns') { $this->tileCells += array_sum(array_column($row['runs'], 'count')); }
                 elseif ($operation['op'] === 'worldTiles') { $this->tileCells += count($row['cells']); }
                 elseif ($operation['op'] === 'textRows') { $this->textRuns += count($row['runs']); }
             }
