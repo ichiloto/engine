@@ -25,6 +25,7 @@ use Throwable;
  *      // terrains of the map's terrain kinds) limit where a troop is met
  *   'rate' => 12,          // average steps between encounters
  *   'battleArena' => 'arena.forest', // optional graphical arena catalog key
+ *   'battleArenas' => [['terrain' => 'woodland', 'battleArena' => 'arena.deep-forest']], // optional rules by area and terrain
  *   'tiles' => 'encounter' // 'encounter' (default): only danger tiles count; 'any': every step counts
  * ],
  * ```
@@ -35,7 +36,9 @@ use Throwable;
  * while the player stands in one of them, and a step where no troop can be
  * met does not count, so a map whose troops all live in pockets is quiet
  * between them. A troop limited to encounter terrains is met only on cells
- * whose terrain kind meets one of them ({@see MapEncounterTerrain}). `encounterRateMultiplier` is the
+ * whose terrain kind meets one of them ({@see MapEncounterTerrain}). The battle is drawn on the arena the
+ * block picks for the cell, refined by the arena's variant for the cell's terrain
+ * ({@see EncounterTable::resolveBattleArenaAt()}). `encounterRateMultiplier` is the
  * repel/lure hook: below 1 stretches the counter (repel), above 1 burns it
  * faster (lure), 0 suppresses encounters entirely.
  *
@@ -122,7 +125,7 @@ class EncounterManager
     $this->stepsUntilEncounter -= $stepWeight * $this->encounterRateMultiplier;
 
     if ($this->stepsUntilEncounter <= 0) {
-      $this->startEncounter($this->table->getTroopWeightsAt($position));
+      $this->startEncounter($this->table->getTroopWeightsAt($position), $position);
     }
   }
 
@@ -141,9 +144,10 @@ class EncounterManager
    * Starts a weighted-random encounter among the troops that can be met here.
    *
    * @param array<string, int> $weights Troop weights, keyed by troop name.
+   * @param Vector2|null $position The cell the battle starts on, whose area and terrain choose its arena.
    * @return void
    */
-  protected function startEncounter(array $weights): void
+  protected function startEncounter(array $weights, ?Vector2 $position = null): void
   {
     $this->resetCounter();
     $troopName = $this->pickTroopName($weights);
@@ -162,7 +166,7 @@ class EncounterManager
     $this->gameScene->sceneManager->loadBattleScene(
       $this->gameScene->party,
       $troop,
-      extraSettings: $this->table->entries[$troopName]->getBattleSettings($this->table->presentationSettings)
+      extraSettings: $this->table->resolveBattleArenaAt($troopName, $position)->settings
     );
   }
 

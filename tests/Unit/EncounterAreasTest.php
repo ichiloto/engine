@@ -16,7 +16,7 @@ function makeAreaEncounterManager(): EncounterManager
     /** @var list<array<string, int>> */
     public array $encounters = [];
 
-    protected function startEncounter(array $weights): void
+    protected function startEncounter(array $weights, ?Vector2 $position = null): void
     {
       $this->resetCounter();
       $this->encounters[] = $weights;

@@ -9,6 +9,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
+use Ichiloto\Engine\Rendering\Tilesets\TerrainKind;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -37,17 +38,24 @@ use RuntimeException;
  * where battlers may plant their feet ({@see BattleFooting}); an arena
  * without it is land throughout. `shadow` is the arena's light on battlers'
  * contact shadows: `['strength' => 1.3, 'color' => '#1a120c']` ({@see BattleShadowLight}).
+ *
+ * `variants` makes an arena a region's: for each encounter terrain a battle
+ * there can start on, the arena drawn for it, by identity:
+ * `['woodland' => 'arena.apthia-woodland', 'grassland' => 'arena.road']`. A
+ * variant may name its own arena when the picture already shows that terrain.
+ * The arenas it names are checked where the catalog binds them, since a
+ * variant may be an arena the presentation code registers.
  */
 final readonly class BattleArenaBindings
 {
   public const string FILE = 'Data/Presentation/arenas.php';
 
   private const array TOP_KEYS = ['default', 'arenas'];
-  private const array ARENA_KEYS = ['name', 'background', 'ground', 'footing', 'shadow'];
+  private const array ARENA_KEYS = ['name', 'background', 'ground', 'footing', 'shadow', 'variants'];
   private const array BACKGROUND_KEYS = ['image', 'source'];
   private const array SOURCE_KEYS = ['x', 'y', 'width', 'height'];
 
-  /** @param array<string, array{name: string, image: string, source: ?SpriteSourceRect, ground: ?BattleGround, footing: BattleFooting, shadow: ?BattleShadowLight}> $arenas */
+  /** @param array<string, array{name: string, image: string, source: ?SpriteSourceRect, ground: ?BattleGround, footing: BattleFooting, shadow: ?BattleShadowLight, variants: array<string, string>}> $arenas */
   private function __construct(
     public array $arenas,
     public ?string $defaultArena,
@@ -116,8 +124,9 @@ final readonly class BattleArenaBindings
       $ground = array_key_exists('ground', $entry) ? BattleGround::fromArray($entry['ground'], "{$where}.ground") : null;
       $footing = array_key_exists('footing', $entry) ? BattleFooting::fromArray($entry['footing'], "{$where}.footing") : new BattleFooting();
       $light = array_key_exists('shadow', $entry) ? BattleShadowLight::fromArray($entry['shadow'], "{$where}.shadow") : null;
+      $variants = array_key_exists('variants', $entry) ? self::readVariants($entry['variants'], "{$where}.variants") : [];
       $arenas[$id] = ['name' => $name, 'image' => $image, 'source' => $source, 'ground' => $ground, 'footing' => $footing,
-        'shadow' => $light];
+        'shadow' => $light, 'variants' => $variants];
     }
     $default = $data['default'] ?? null;
     if ($default !== null && (!is_string($default) || !isset($arenas[$default]))) {
@@ -138,9 +147,26 @@ final readonly class BattleArenaBindings
     foreach ($this->arenas as $id => $arena) {
       $definitions[$id] = new BattleArenaDefinition($arena['name'],
         new CanvasImage($id, $arena['image'], new CanvasRectangle(0, 0, $width, $height), sourceRect: $arena['source']),
-        ground: $arena['ground'], footing: $arena['footing'], shadowLight: $arena['shadow']);
+        ground: $arena['ground'], footing: $arena['footing'], shadowLight: $arena['shadow'], variants: $arena['variants']);
     }
     return $definitions;
+  }
+
+  /** @return array<string, string> Encounter terrain => arena identity. */
+  private static function readVariants(mixed $value, string $where): array
+  {
+    $variants = [];
+    foreach (self::requireMap($value, $where) as $terrain => $arena) {
+      if (!is_string($terrain) || preg_match(TerrainKind::ENCOUNTER_PATTERN, $terrain) !== 1) {
+        throw new InvalidArgumentException("{$where}: variants are keyed by encounter terrain ids, such as woodland.");
+      }
+      if (!is_string($arena)) {
+        throw new InvalidArgumentException("{$where}.{$terrain}: expected the identity of an arena.");
+      }
+      CanvasValidation::id($arena);
+      $variants[$terrain] = $arena;
+    }
+    return $variants;
   }
 
   private static function requireMap(mixed $value, string $where): array
