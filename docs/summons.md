@@ -42,8 +42,25 @@ return [
 - `moveName` is what the battle log announces when the summon acts. Without
   it, the summon name is announced instead.
 - The action `linkedActionId` names is paced as a summon, whatever it is
-  called: at the slow animation pace the move is read for about 4.2 s before
-  the summon arrives (2.8 s medium, 1.7 s fast).
+  called: its move is read for the summon announcement time before the
+  summon arrives, 4.2 s at the slow animation pace (2.8 s medium, 1.68 s
+  fast). The beats before and after the summon's own sequence (stepping
+  forward, the cast, the results, stepping back) are paced as an attack's,
+  and the sequence plays at its authored length.
+- A project authors the reading time per action category and pace in
+  `config.php`, under `ui.battle.announcement_seconds`, from 0.1 s to 10 s
+  (`BattlePacing::getAnnouncementSeconds()`); the Editor's Configuration lists
+  every one with the Engine's time:
+
+```php
+'ui' => ['battle' => ['announcement_seconds' => [
+  'summon' => ['slow' => 4.2, 'medium' => 2.8, 'fast' => 1.68],
+]]],
+```
+
+  The categories are `physical_attack`, `basic_magic`, `high_magic` and
+  `summon` (`BattleActionCategory`). Changing a reading time changes nothing
+  else in the turn.
 
 ### Codex fields
 

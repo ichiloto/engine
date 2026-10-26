@@ -1142,7 +1142,9 @@ elements the same way. Affinities a summon's source omits read "Not recorded"
 
 Action-name messages are removed when the shared announcement phase ends,
 before source/cast or summon animation continues. The existing authored pacing
-and `BattleTurnTimings::announcement` own their readable duration; effect length
+and `BattleTurnTimings::announcement` own their readable duration (each action
+category's authored reading time, `ui.battle.announcement_seconds`; see
+[Summons](../summons.md)); effect length
 does not extend the banner. This removes the old whole-action message hold for
 both renderers without changing action resolution, animation clocks, result
 feedback or input. Blank authored callouts stay silent.

@@ -7,6 +7,8 @@ use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Battle\BattlePacing;
+use Ichiloto\Engine\Battle\BattleTurnTimings;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
 
 /**
@@ -61,7 +63,11 @@ enum BattleActionCategory: string
   }
 
   /**
-   * Returns the total turn duration in seconds for the provided pace.
+   * Returns the total turn duration in seconds for the provided pace: the
+   * budget the turn's phases share ({@see BattleTurnTimings::fromTotalDuration()}).
+   *
+   * An authored summon plays its own sequence at its own length, so its
+   * budget paces only the beats around that sequence, as an attack's does.
    *
    * @param BattlePace $pace The active animation pace.
    * @return float
@@ -85,10 +91,44 @@ enum BattleActionCategory: string
         BattlePace::SLOW => 9.0,
       },
       self::SUMMON => match ($pace) {
-        BattlePace::FAST => 6.0,
-        BattlePace::MEDIUM => 10.0,
-        BattlePace::SLOW => 15.0,
+        BattlePace::FAST => 1.5,
+        BattlePace::MEDIUM => 2.5,
+        BattlePace::SLOW => 4.0,
       },
     };
+  }
+
+  /**
+   * Returns how long this category's announcement is read at the provided
+   * pace when the project authors no time of its own
+   * ({@see self::getAnnouncementConfigPath()}). A summon's move is held long
+   * enough to read before the summon arrives; every other category reads
+   * for its share of its turn budget.
+   *
+   * @param BattlePace $pace The active animation pace.
+   * @return float
+   */
+  public function getAnnouncementSeconds(BattlePace $pace): float
+  {
+    return match ($this) {
+      self::SUMMON => match ($pace) {
+        BattlePace::FAST => 1.68,
+        BattlePace::MEDIUM => 2.8,
+        BattlePace::SLOW => 4.2,
+      },
+      default => $this->totalDurationSeconds($pace) * BattleTurnTimings::ANNOUNCEMENT_SHARE,
+    };
+  }
+
+  /**
+   * Returns the config path a project authors this category's announcement
+   * reading time at, for the provided pace, in seconds.
+   *
+   * @param BattlePace $pace The animation pace the time applies to.
+   * @return string
+   */
+  public function getAnnouncementConfigPath(BattlePace $pace): string
+  {
+    return sprintf('ui.battle.%s.%s.%s', BattlePacing::ANNOUNCEMENT_SECONDS_KEY, $this->value, $pace->value);
   }
 }
