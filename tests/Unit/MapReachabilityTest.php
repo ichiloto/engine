@@ -657,3 +657,35 @@ it('reads a map source as the project analysis does', function () {
     // The door leaves the map and the guard stands in the only other way east.
     ->and($map->findRoute([0, 0], [2, 0]))->toBeNull();
 });
+
+
+it('reads staged terrain dependencies for saved maps and reports failed readers without a disk fallback', function () {
+  $root = createTestDirectory('staged-reachability-');
+  $assets = $root . '/assets';
+  mkdir($assets . '/Data', 0700, true);
+  writeReachabilityMap($assets, 'room', ['...'], ['   '], [
+    'terrainKinds' => true, 'tileset' => 'draft',
+    'occupancy' => [[CollisionType::NONE, CollisionType::NONE, CollisionType::NONE]],
+  ]);
+  file_put_contents($assets . '/Data/system.php', '<?php return ' . var_export([
+    'startingPositions' => ['player' => ['destinationMap' => 'room', 'spawnPoint' => ['x' => 0, 'y' => 0], 'spawnSprite' => ['South']]],
+  ], true) . ';');
+  $tileset = Ichiloto\Engine\Rendering\Tilesets\Tileset::fromArray('draft', [
+    'name' => 'Draft', 'sheets' => ['A2' => 'Graphics/Draft.png'],
+    'kinds' => ['floor' => ['name' => 'Floor', 'layer' => 'ground', 'glyph' => '<fg=green>.</>', 'art' => ['awaiting' => true], 'passage' => 'walk', 'atlas' => 'ground']],
+  ]);
+  $reads = [];
+  $reader = static function (string $id) use ($tileset, &$reads): Ichiloto\Engine\Rendering\Tilesets\Tileset {
+    $reads[] = $id;
+    return $tileset;
+  };
+  $project = ProjectReachability::analyze($assets, [], $reader);
+  expect(array_keys($project->reports))->toBe(['room'])
+    ->and($project->reports['room']->isReachable(2, 0))->toBeTrue()
+    ->and($project->getAllProblems())->toBe([])
+    ->and($reads)->toBe(['draft'])
+    ->and(is_dir($assets . '/Data/Tilesets'))->toBeFalse();
+  $failed = ProjectReachability::analyze($assets, [], static function (string $id): never { throw new RuntimeException('Staged terrain is invalid.'); });
+  expect($failed->reports)->toBe([])
+    ->and(implode(' ', reachabilityProblems($failed->getAllProblems())))->toContain('Staged terrain is invalid.');
+});

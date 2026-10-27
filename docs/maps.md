@@ -72,7 +72,7 @@ geometry and event-subject resolution as file-backed loading and returns
 event areas have been resolved; do not pass already-normalized subject events
 back as declarations with an independent `area`.
 
-`ProjectReachability::analyze($assetRoot, $mapSources = [])` checks a current
+`ProjectReachability::analyze($assetRoot, $mapSources = [], $loadTileset = null)` checks a current
 in-memory view without saving or copying maps. Overrides are keyed by map ID:
 
 ```php
@@ -82,6 +82,12 @@ in-memory view without saving or copying maps. Overrides are keyed by map ID:
   'old/room' => null, // removed from this view
 ]
 ```
+
+An optional tileset reader accepts a stable tileset ID and returns its current
+`Tileset`. It is used for every map painted in terrain kinds, including maps
+whose declarations have not changed, so staged catalogue edits participate in
+reachability and safe-save planning. Reader failures remain unreadable-map
+diagnostics. Without a reader, tilesets are loaded from the saved assets.
 
 An override replaces disk source, including new maps that have no directory
 yet. Null removes a map from the validation view. Other maps, project startup

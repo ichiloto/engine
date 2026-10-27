@@ -77,15 +77,16 @@ final readonly class MapTerrainKinds
    * does not opt in. A map that opts in and whose tileset cannot be read, or
    * declares no kinds, is refused: its passage would otherwise be unknown.
    *
+   * @param (Closure(string): Tileset)|null $loadTileset Reads the current catalogue when supplied, including unsaved authoring.
    * @throws InvalidArgumentException
    */
-  public static function loadForMap(string $assetRoot, array $data): ?self
+  public static function loadForMap(string $assetRoot, array $data, ?Closure $loadTileset = null): ?self
   {
     if (!self::isDeclared($data)) {
       return null;
     }
     try {
-      $tileset = Tileset::load($assetRoot, $data['tileset']);
+      $tileset = $loadTileset === null ? Tileset::load($assetRoot, $data['tileset']) : $loadTileset($data['tileset']);
     } catch (Throwable $error) {
       throw new InvalidArgumentException("The map is painted in terrain kinds, but tileset {$data['tileset']} cannot be read, so its passage is unknown: "
         . $error->getMessage(), previous: $error);

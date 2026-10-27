@@ -13,6 +13,8 @@ use Ichiloto\Engine\Events\Triggers\SleepEventTrigger;
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
 use Ichiloto\Engine\Field\MapCollisionResolver;
 use Ichiloto\Engine\Field\MapPhysicalOccupancy;
+use Ichiloto\Engine\Field\MapTerrainKinds;
+use Ichiloto\Engine\Rendering\Tilesets\Tileset;
 use Ichiloto\Engine\Field\MapSourceReader;
 use Ichiloto\Engine\Field\MapLayerSet;
 use InvalidArgumentException;
@@ -54,8 +56,9 @@ final class ProjectReachability
    * @param string $assetRoot The project's `assets` directory.
    * @param array<string, array{data: array, layers: MapLayerSet, eventLayer: array}|null> $mapSources
    *   Current authored overrides keyed by map id; null removes a map from this read-only view.
+   * @param (Closure(string): Tileset)|null $loadTileset Current tileset reader for every map, including maps whose declarations are unchanged.
    */
-  public static function analyze(string $assetRoot, array $mapSources = []): self
+  public static function analyze(string $assetRoot, array $mapSources = [], ?Closure $loadTileset = null): self
   {
     $mapsDirectory = Path::join($assetRoot, 'Maps');
     $problems = [];
@@ -111,7 +114,8 @@ final class ProjectReachability
         $maps[$mapId] = [
           'data' => $source['data'],
           'map' => MapReachability::readMap($mapId, $source['data'],
-            MapCollisionResolver::resolveFromAssets($assetRoot, $source['layers'], $source['data'], $dictionary ?? [])->collisionGrid),
+            MapCollisionResolver::resolveMap($source['layers'], $source['data'], $dictionary ?? [],
+              MapTerrainKinds::loadForMap($assetRoot, $source['data'], $loadTileset))->collisionGrid),
           'arrivals' => $arrivals,
           'edgeTriggers' => $edgeTriggers,
         ];

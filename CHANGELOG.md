@@ -260,6 +260,8 @@
 
 ### Changed
 
+- Project reachability can read the current authoring tileset catalogue for every map, including staged tilesets. Invalid current dependencies remain errors; ordinary runtime analysis continues to read saved assets.
+
 - Removed the blocking summon-announcement pause. The move name stays visible while casting and the cutscene
   begin, for the existing authored reading duration. Its info box overlays the cinematic and opening cover;
   command completion/cancellation clears it. Ordinary action announcements retain their existing timing.
