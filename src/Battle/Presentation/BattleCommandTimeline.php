@@ -18,6 +18,7 @@ final readonly class BattleCommandTimeline
 {
   public const int FPS = 120;
   public CompiledEffectTimeline $timeline;
+  /** Announcement is a visibility interval that overlaps summon source/cutscene phases. */
   public array $phases;
   /** @var array<string, int> Reduced-motion inspection frames on the command lane. */
   public array $restFrames;
@@ -136,7 +137,14 @@ final readonly class BattleCommandTimeline
           $cues[] = $cue;
         }
       }
-      $cursor += $length;
+      // A summon starts casting as its callout appears. Reading time owns visibility,
+      // not a blocking beat before the cutscene; every authored lane keeps its own clock.
+      if ($phase !== 'announce' || $this->summon === null) { $cursor += $length; }
+    }
+    if ($this->summon !== null && $showAnnouncement) {
+      $cues[] = ['id' => 'command-announcement-end', 'type' => 'commandAnnouncementEnd',
+        'frame' => min($phases['announce']['start'] + $phases['announce']['length'], $phases['finish']['start']),
+        'payload' => []];
     }
     // Summons retain their explicit cue/frame/end policy; ordinary effects may
     // author an impact cue. No cue means resolution at the target stage's end.

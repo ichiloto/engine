@@ -256,6 +256,10 @@
 
 ### Changed
 
+- Removed the blocking summon-announcement pause. The move name stays visible while casting and the cutscene
+  begin, for the existing authored reading duration. Its info box overlays the cinematic and opening cover;
+  command completion/cancellation clears it. Ordinary action announcements retain their existing timing.
+
 - An action's announcement is read for its own time, apart from the rest of its turn: each action category's
   reading time per pace is authored in `config.php` at `ui.battle.announcement_seconds.<category>.<pace>`
   (0.1 s to 10 s; `BattlePacing::getAnnouncementSeconds()`, `BattleActionCategory::getAnnouncementSeconds()`

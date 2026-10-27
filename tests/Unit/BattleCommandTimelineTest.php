@@ -93,3 +93,23 @@ it('returns inactive mappings for unauthored stages and result-only plans and re
       ->and(fn() => $plan->getAuthoredFrameAtCommandFrame('not-a-lane', 0))->toThrow(InvalidArgumentException::class);
   }
 });
+
+
+it('keeps summon playback and impact independent of announcement visibility duration and silence', function () {
+  $summon = new \Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene('visitor', '', fps: 10,
+    cueSchedule: [['id' => 'impact', 'type' => 'applyEffect', 'frame' => 20, 'payload' => []]],
+    defaults: ['lengthFrames' => 60]);
+  $short = new BattleCommandTimeline(new BattleTurnTimings(.1, .2, .1, .3, .1, .1, .1), target: $summon);
+  $long = new BattleCommandTimeline(new BattleTurnTimings(.1, 4, .1, .3, .1, .1, .1), target: $summon);
+  $silent = new BattleCommandTimeline(new BattleTurnTimings(.1, 4, .1, .3, .1, .1, .1), target: $summon, showAnnouncement: false);
+  foreach ([$short, $long, $silent] as $plan) {
+    expect($plan->phases['source']['start'])->toBe($plan->phases['announce']['start'])
+      ->and($plan->phases['target'])->toBe($short->phases['target'])
+      ->and($plan->timeline->defaults['lengthFrames'])->toBe($short->timeline->defaults['lengthFrames'])
+      ->and(array_find($plan->timeline->cueSchedule, static fn($cue) => $cue['type'] === 'commandImpact')['frame'])
+      ->toBe($short->getCommandFrameForAuthoredFrame('target', 20));
+  }
+  expect(array_find($long->timeline->cueSchedule, static fn($cue) => $cue['type'] === 'commandAnnouncementEnd')['frame'])
+    ->toBe($long->phases['announce']['start'] + 4 * BattleCommandTimeline::FPS)
+    ->and(array_column($silent->timeline->cueSchedule, 'type'))->not->toContain('commandAnnouncementEnd');
+});

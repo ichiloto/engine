@@ -31,7 +31,7 @@ beforeEach(function () {
   // The summon's name and its linked action deliberately avoid the word "summon".
   file_put_contents($directory . '/call.data.php', "<?php return ['id' => 'call', 'name' => 'Caller',"
     . " 'moveName' => 'Skyfall', 'linkedActionId' => 'Skybreak'];");
-  file_put_contents($directory . '/call.timeline.php', "<?php return ['fps' => 12, 'lengthFrames' => 4,"
+  file_put_contents($directory . '/call.timeline.php', "<?php return ['fps' => 12, 'lengthFrames' => 96,"
     . " 'tracks' => [], 'cues' => [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 2]]];");
   chdir($this->root);
 });
@@ -103,7 +103,7 @@ it('reads a category\'s announcement for the time the project authors at each pa
     ->toBe('ui.battle.announcement_seconds.summon.medium');
 });
 
-it('holds the summon move for its whole announcement before the summon arrives without changing the outcome',
+it('overlays the summon move as the cutscene starts without adding a reading pause or changing the outcome',
   function (bool $activeTime, bool $graphical, bool $reduced) {
     $priorConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
     $priorDelta = new ReflectionProperty(Time::class, 'deltaTime')->getValue();
@@ -128,8 +128,8 @@ it('holds the summon move for its whole announcement before the summon arrives w
       $frames = static fn(float ...$seconds): int => array_sum(array_map(
         static fn(float $phase): int => max(1, (int)ceil($phase * BattleCommandTimeline::FPS)), $seconds));
       expect($phases['announce']['length'])->toBe($reading)
-        ->and($arrival)->toBe($phases['announce']['start'] + $reading + $frames($attack->actionAnimation))
-        ->and($arrival - $reading)->toBe($frames($attack->stepForward, $attack->actionAnimation))
+        ->and($arrival)->toBe($phases['announce']['start'] + $frames($attack->actionAnimation))
+        ->and($arrival)->toBe($frames($attack->stepForward, $attack->actionAnimation))
         ->and($playback->plan->timeline->defaults['lengthFrames'] - $departure)
         ->toBe($frames($attack->statChanges, $attack->stepBack, $attack->turnOver));
 
@@ -143,8 +143,9 @@ it('holds the summon move for its whole announcement before the summon arrives w
 
       expect(array_keys($read))->toBe(['Skyfall'])
         ->and(min($read['Skyfall']))->toBeLessThanOrEqual($phases['announce']['start'] + 1)
-        ->and(max($read['Skyfall']))->toBeLessThan($arrival)
+        ->and(max($read['Skyfall']))->toBeGreaterThanOrEqual($arrival)
         ->and(count($read['Skyfall']))->toBeGreaterThanOrEqual($reading - 1)
+        ->and(max($read['Skyfall']))->toBeLessThanOrEqual($phases['announce']['start'] + $reading)
         ->and($enemies[0]->stats->currentHp)->toBe(93)
         ->and($playback->presentationFailure)->toBeNull()
         ->and($context->getCurrentTurn())->toBeNull();

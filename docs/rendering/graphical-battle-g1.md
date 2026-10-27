@@ -1174,11 +1174,16 @@ elements the same way. Affinities a summon's source omits read "Not recorded"
 
 ### Brief action callouts
 
-Action-name messages are removed when the shared announcement phase ends,
-before source/cast or summon animation continues. The existing authored pacing
+Ordinary action-name messages are removed when the shared announcement phase
+ends, before source/cast animation continues. A summon's announcement is a
+concurrent visibility interval: casting and its cutscene start while the action
+name is displayed. Its info box composes above the full-screen cinematic and
+opening cover; battle controls stay hidden. The reading duration adds no
+pre-cutscene pause and expires on its own command clock or at command finish.
+An authored message can replace the callout without its timer clearing that
+replacement. The existing authored pacing
 and `BattleTurnTimings::announcement` own their readable duration (each action
 category's authored reading time, `ui.battle.announcement_seconds`; see
-[Summons](../summons.md)); effect length
-does not extend the banner. This removes the old whole-action message hold for
-both renderers without changing action resolution, animation clocks, result
-feedback or input. Blank authored callouts stay silent.
+[Summons](../summons.md)); effect length does not extend the banner. Both renderers share the same
+visibility clock; combat still resolves once at its authored impact. Cancelled
+and completed commands remove their owned announcement. Blank authored callouts stay silent.

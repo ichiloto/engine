@@ -2561,3 +2561,39 @@ it('leaves themed battle modals to the frame composer and reports a modal it mus
       ->and(file_get_contents($this->logRoot . '/warning.log'))->toContain('Battle dialogue and modals have no graphical theme');
   }
 })->with(['themed' => true, 'without a dialogue theme' => false]);
+
+
+it('stacks the live action announcement above a full-screen summon and its opaque opening cover', function (bool $skinned, bool $reduced) {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture($skinned);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $field = graphicalBattleScene($battle, $presentation)->ui->fieldWindow;
+  $summon = new \Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene('visitor', '', fps: 10,
+    defaults: ['lengthFrames' => 100, 'restFrame' => 0, 'stage' => [
+      'canvas' => ['width' => 400, 'height' => 300], 'startFrame' => 0, 'restoreFrame' => 99,
+      'camera' => [['id' => 'camera', 'frame' => 0, 'focus' => ['x' => 200, 'y' => 150], 'zoom' => 1]],
+      'covers' => [['id' => 'opening', 'frame' => 0, 'color' => 'black', 'opacity' => 1, 'easing' => 'hold'],
+        ['id' => 'end', 'frame' => 99, 'color' => 'black', 'opacity' => 0]],
+    ]]);
+  $plan = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline(
+    new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, 4, .1, .1, .1, .1, .1), target: $summon);
+  $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $hero, $enemies,
+    BattlePoseRole::SUMMON, static function (): void { throw new RuntimeException('Rendering must not resolve combat.'); }, static fn() => null);
+  $playback->begin();
+  $playback->update(($plan->phases['target']['start'] + 1) / 120);
+  $field->setCommandPlayback($playback);
+  $ui = $skinned ? [] : [new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer('callout', 1000, 20, 20,
+    new \Ichiloto\Engine\Rendering\Transport\RendererGridConfig(20, 1, 10, 20),
+    [new \Ichiloto\Engine\Rendering\Presentation\PresentationTextRun(0, 0, 'Skyfall')])];
+  $canvas = $presentation->frame($field, $ui, new BattleHudSnapshot(message: 'Skyfall'), reducedMotion: $reduced);
+  $cover = array_find($canvas->composites, static fn($item) => $item->id === 'cinematic-stage-cover');
+  $callout = array_find($canvas->textLayers, static fn($layer) => array_any($layer->runs,
+    static fn($run) => str_contains($run->text, 'Skyfall')));
+  expect(array_column($canvas->composites, 'id'))->toContain('cinematic-stage-background');
+  if ($reduced) { expect($cover)->toBeNull(); }
+  else { expect($cover)->not->toBeNull()->and($cover->opacity)->toBe(1.0); }
+  expect($callout)->not->toBeNull()->and($callout->layer)->toBeGreaterThan(max(array_column($canvas->composites, 'layer')))
+    ->and(array_column($canvas->images, 'id'))->not->toContain('arena', 'combatant-' . spl_object_id($hero))
+    ->and($playback->presentationFailure)->toBeNull();
+  $cleared = $presentation->frame($field, [], new BattleHudSnapshot(), reducedMotion: $reduced);
+  expect($cleared->textLayers)->toBeEmpty()->and($cleared->composites)->not->toBeEmpty();
+})->with([false, true])->with([false, true]);

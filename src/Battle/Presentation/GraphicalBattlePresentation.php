@@ -284,8 +284,16 @@ final class GraphicalBattlePresentation
       $playback->plan->summon->playbackSegments, $this->assetRoot, $this->layout->width, $this->layout->height,
       $imageFlips, $compositing);
     if ($stageFrame?->active) {
-      CanvasImagePreflight::inspect($stageCanvas->images, $this->assetRoot, $stageCanvas->composites);
-      return $stageCanvas;
+      // The cutscene owns the battlefield, while the action callout remains screen-space UI.
+      // Reuse the same HUD/message composition and stack it above even a cinematic cover.
+      $message = $hud === null ? null : new BattleHudSnapshot(message: $hud->message, messageRows: $hud->messageRows);
+      $overlay = $this->layout->skin !== null && $message !== null
+        ? GraphicalBattleHud::compose($this->layout, $message, null, $now, $this->assetRoot,
+          $this->findControlsTheme(), $this->fallbacks)
+        : new PresentationCanvas($this->layout->width, $this->layout->height, textLayers: $ui);
+      $canvas = PresentationCanvas::composeOverlay($stageCanvas, $overlay);
+      CanvasImagePreflight::inspect($canvas->images, $this->assetRoot, $canvas->composites);
+      return $canvas;
     }
     $images = PngAssetPreflight::getAvailableSize($this->assetRoot, $this->arena->background->asset) === null
       ? [] : [$this->arena->background];
