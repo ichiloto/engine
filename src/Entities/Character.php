@@ -541,22 +541,37 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
    */
   public function assignEquipment(string $slotName, ?Equipment $equipment): bool
   {
-    foreach ($this->equipment as $slot) {
-      if ($slot->name !== $slotName) {
-        continue;
-      }
-      if ($equipment !== null && (! $this->canEquip($equipment) || $slot->acceptsType !== $equipment::class
-        || $slot->semanticSlot !== $equipment->semanticSlot)) {
-        return false;
-      }
+    $slot = $this->findAssignableEquipmentSlot($slotName, $equipment);
+    if ($slot === null) { return false; }
+    $slot->equipment = $equipment;
+    $this->adjustStatTotals();
+    return true;
+  }
 
-      $slot->equipment = $equipment;
-      $this->adjustStatTotals();
-
-      return true;
+  /** A read-only replacement preview through the same eligibility, growth and cap rules as assignment. */
+  public function previewEquipmentStats(string $slotName, ?Equipment $equipment): ?Stats
+  {
+    $slot = $this->findAssignableEquipmentSlot($slotName, $equipment);
+    if ($slot === null) { return null; }
+    $resolved = $this->resolveStatsWithEquipment($this->equipmentContributions($slot, $equipment));
+    $preview = clone $this->effectiveStats;
+    foreach (StatKey::cases() as $stat) {
+      $property = $stat->statsProperty();
+      $preview->$property = $resolved[$stat->value]->effectiveValue;
     }
+    $preview->currentHp = $preview->currentHp;
+    $preview->currentMp = $preview->currentMp;
+    return $preview;
+  }
 
-    return false;
+  private function findAssignableEquipmentSlot(string $slotName, ?Equipment $equipment): ?EquipmentSlot
+  {
+    foreach ($this->equipment as $slot) {
+      if ($slot->name !== $slotName) { continue; }
+      return $equipment !== null && (!$this->canEquip($equipment) || $slot->acceptsType !== $equipment::class
+        || $slot->semanticSlot !== $equipment->semanticSlot) ? null : $slot;
+    }
+    return null;
   }
 
   /**
@@ -925,7 +940,12 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
   /** @param array<string, int> $temporary @return array<string, StatResolution> */
   public function resolveStats(bool $includeEquipment = true, array $temporary = []): array
   {
-    $equipment = $includeEquipment ? $this->equipmentContributions() : [];
+    return $this->resolveStatsWithEquipment($includeEquipment ? $this->equipmentContributions() : [], $temporary);
+  }
+
+  /** @param array<string, int> $equipment @param array<string, int> $temporary @return array<string, StatResolution> */
+  private function resolveStatsWithEquipment(array $equipment, array $temporary = []): array
+  {
     $resolved = [];
 
     foreach (StatKey::cases() as $stat) {
@@ -988,7 +1008,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
   }
 
   /** @return array<string, int> */
-  private function equipmentContributions(): array
+  private function equipmentContributions(?EquipmentSlot $replacementSlot = null, ?Equipment $replacement = null): array
   {
     $totals = array_fill_keys(array_map(
       static fn(StatKey $stat): string => $stat->value,
@@ -996,7 +1016,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
     ), 0);
 
     foreach ($this->equipment as $slot) {
-      $changes = $slot->equipment?->parameterChanges;
+      $changes = ($slot === $replacementSlot ? $replacement : $slot->equipment)?->parameterChanges;
 
       if ($changes === null) {
         continue;

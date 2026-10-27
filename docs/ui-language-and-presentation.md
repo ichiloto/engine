@@ -88,6 +88,18 @@ generation, so its screenshots are reference only and must never be fed to an im
 - Menu transitions stay under about half a second (Persona 5 Royal).
 - Reduced motion and the Terminal keep the same words, order and information, without the flare.
 
+## Equipment shopping
+
+Keep the existing shop composition. Add equipment comparisons beneath Possession in its existing
+right detail panel: character name, eligibility, current gear and current/projected HP, MP, Attack,
+Defence, Magic Attack, Magic Defence, Speed, Grace and Evasion. Show signed increases and decreases
+alongside their values, with theme colours as additional cues. Include reserves and each compatible
+slot; the existing Info action reads overflow content. Consumables retain the normal possession view.
+
+PHP owns eligibility and projected stats through the same assignment, growth and cap rules used by
+actual equipping. Previewing leaves gear, item quantities, resources and saves unchanged. The Terminal
+and graphical menu read the same comparison content; themes retain their existing panels and artwork.
+
 ## Battle resources
 
 A resource built up and spent in battle (RPG Maker's TP; Ichiloto's AP) is a two or three letter label

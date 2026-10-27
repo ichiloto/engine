@@ -4,6 +4,14 @@
 
 ### Added
 
+- Equipment in the existing shop detail panel now shows each party member's eligibility, current gear,
+  and current/projected stats with increases and decreases. Reserve members and alternate compatible
+  slots remain readable through the existing Info action. Shop layout, artwork, purchasing and selling
+  flow are unchanged. Terminal and graphical presentations share the comparison content.
+- Character equipment previews use the same slot eligibility, natural stats, permanent growth and caps
+  as actual assignment, without changing gear, inventory or resources. The equipment menu also uses
+  this shared preview; the old manual subtract/add calculation on already-capped totals was removed.
+
 - Field scripts can recruit a project actor with `recruit_actor`, using the shared actor factory and
   Editor actor picker. Recruitment is idempotent by actor identity, preserves existing progress and
   roster order across save/load, and leaves the current frontline/reserve capacity unchanged.

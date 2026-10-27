@@ -540,3 +540,63 @@ it('uses the shared renderer lifecycle and preserves the shop beneath supported 
   $modal->hide();
   expect($this->state->getPresentationCanvas())->toEqual($before);
 })->with([true, false]);
+
+
+it('adds equipment comparisons inside the existing detail panel while preserving every existing shop surface', function () {
+  $weapon = new Weapon('Candidate Sword', 'A sword.', '/', 100, 1,
+    parameterChanges: new \Ichiloto\Engine\Entities\ParameterChanges(attack: 6, speed: -2), equipmentType: WeaponType::SWORD, id: 'candidate-sword');
+  $this->state->merchandise = [$weapon];
+  shopPresentationPress($this->state, KeyCode::ENTER);
+  $before = ShopMenuPresentation::compose($this->state, $this->theme);
+  $fighter = new \Ichiloto\Engine\Entities\Character('Fighter', 0, new \Ichiloto\Engine\Entities\Stats(), actorNaturalAdjustments: ['speed' => 9]);
+  $old = new Weapon('Old Sword', '', '/', 1, 1, parameterChanges: new \Ichiloto\Engine\Entities\ParameterChanges(attack: 2), id: 'old-sword');
+  $fighter->assignEquipment($fighter->equipment[0]->name, $old);
+  $caster = new \Ichiloto\Engine\Entities\Character('Caster', 0, new \Ichiloto\Engine\Entities\Stats());
+  $caster->role = new \Ichiloto\Engine\Entities\Roles\CharacterRole($caster, 'Caster', allowedWeaponTypes: [WeaponType::STAFF]);
+  $equipped = new \Ichiloto\Engine\Entities\Character('Equipped', 0, new \Ichiloto\Engine\Entities\Stats());
+  $equipped->assignEquipment($equipped->equipment[0]->name, $weapon);
+  $reserve = new \Ichiloto\Engine\Entities\Character('Reserve actor', 0, new \Ichiloto\Engine\Entities\Stats());
+  foreach ([$fighter, $caster, $equipped, $reserve] as $actor) { $this->party->addMember($actor); }
+  $this->state->mode->updateItemsInPossession();
+  $snapshot = serialize($this->party);
+  $after = ShopMenuPresentation::compose($this->state, $this->theme);
+  expect($after->images)->toEqual($before->images)->and($after->indicators)->toEqual($before->indicators)
+    ->and($after->composites)->toEqual($before->composites)->and($after->labels)->toEqual($before->labels);
+  $existing = array_column($after->textLayers, null, 'id');
+  foreach ($before->textLayers as $layer) { expect($existing[$layer->id])->toEqual($layer); }
+  $text = shopPresentationText($after);
+  expect($text)->toContain('Fighter: Can equip', 'Wearing: Old Sword', '+4', '−2', 'Caster: Cannot equip', 'Equipped: Already equipped', 'Reserve actor (Reserve)', 'HP', 'MP', 'MAT', 'MDF', 'GRC', 'EVA')
+    ->and(serialize($this->party))->toBe($snapshot);
+  foreach ($after->textLayers as $layer) {
+    if (str_starts_with($layer->id, 'shop-comparison-')) {
+      $layer->bounds->assertWithin($after->width, $after->height);
+      expect($layer->x)->toBeGreaterThanOrEqual($existing['shop-details-possession-text']->clipRect->x);
+    }
+  }
+  expect(TerminalText::stripAnsi(implode('\n', $this->state->detailPanel->getContent())))->toContain('Fighter', 'Old Sword', 'Cannot equip', '+4');
+  $this->state->merchandise = [$this->item];
+  $this->state->mode->enter();
+  expect(shopPresentationText(ShopMenuPresentation::compose($this->state, $this->theme)))->not->toContain('Fighter', 'Wearing:')
+    ->and(TerminalText::stripAnsi(implode('', $this->state->detailPanel->getContent())))->not->toContain('Fighter');
+});
+
+it('keeps every reserve comparison reachable through existing Info without purchasing or changing item selection', function (int $cellWidth, int $cellHeight) {
+  $weapon = new Weapon('Preview', '', '/', 100, 1, parameterChanges: new \Ichiloto\Engine\Entities\ParameterChanges(attack: 3), id: 'preview');
+  $this->state->merchandise = [$weapon];
+  for ($i = 0; $i < 8; $i++) { $this->party->addMember(new \Ichiloto\Engine\Entities\Character('Actor' . $i, 0, new \Ichiloto\Engine\Entities\Stats())); }
+  shopPresentationPress($this->state, KeyCode::ENTER);
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false,
+    'metrics' => ['cellWidth' => $cellWidth, 'cellHeight' => $cellHeight]]);
+  $before = serialize($this->party);
+  $read = '';
+  for ($page = 0; $page < 12; $page++) {
+    $canvas = ShopMenuPresentation::compose($this->state, $theme);
+    $read .= shopPresentationText($canvas);
+    foreach ($canvas->textLayers as $layer) { $layer->bounds->assertWithin($canvas->width, $canvas->height); }
+    shopPresentationPress($this->state, KeyCode::I);
+  }
+  foreach (range(0, 7) as $i) { expect($read)->toContain('Actor' . $i); }
+  expect($this->state->mainPanel->activeItem)->toBe($weapon)
+    ->and($this->state->mode)->toBeInstanceOf(ShopMerchandiseSelectionMode::class)
+    ->and(serialize($this->party))->toBe($before);
+})->with([[10, 20], [8, 18]]);

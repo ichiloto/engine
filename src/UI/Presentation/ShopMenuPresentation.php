@@ -121,6 +121,34 @@ final class ShopMenuPresentation
       $possession = (string)$state->detailPanel->possession;
       $view->rows('shop-details', [new MenuRow('possession', Vocabulary::getTerm('shop.possession', 'Possession'), [new MenuRowValue($possession)])],
         self::layout($theme, self::inset($detailBox, $p), [new MenuRowColumn(mb_strlen($possession))]));
+      $comparisonTop = $detailBox->y + $p + $m->rowHeight + $m->sectionGap;
+      $comparisonWidth = $detailBox->width - 2 * $p;
+      $columns = max(1, (int)floor($comparisonWidth / $m->cellWidth));
+      $rows = max(1, (int)floor(($detailBox->y + $detailBox->height - $p - $comparisonTop) / $m->cellHeight));
+      $comparison = $state->detailPanel->getComparisonPage($columns, $rows);
+      if ($comparison !== null) {
+        $more = $comparison['page']->total > count($comparison['page']->lines);
+        $comparisonHints = [ActionHints::resolve('info', 'More stats')];
+        $hintHeightInDetail = MenuActionHints::height($comparisonHints, $theme, $comparisonWidth);
+        $footerHeight = $more ? $m->cellHeight + $hintHeightInDetail : 0;
+        if ($more) { $comparison = $state->detailPanel->getComparisonPage($columns, max(1, $rows - (int)ceil($footerHeight / $m->cellHeight))); }
+        foreach ($comparison['lines'] as $row => $line) {
+          foreach ($line['cells'] as $cell => $value) {
+            if ($value['text'] === '') { continue; }
+            $view->textLines('shop-comparison-' . $row . '-' . $cell,
+              [['text' => $value['text'], 'color' => $value['color']]],
+              new CanvasRectangle($detailBox->x + $p + $value['x'] * $m->cellWidth, $comparisonTop + $row * $m->cellHeight,
+                max(1, $comparisonWidth - $value['x'] * $m->cellWidth), $m->cellHeight));
+          }
+        }
+        if ($more) {
+          $footerY = $detailBox->y + $detailBox->height - $p - $footerHeight;
+          $view->textLines('shop-comparison-range', [['text' => $comparison['page']->range(), 'color' => 'muted']],
+            new CanvasRectangle($detailBox->x + $p, $footerY, $comparisonWidth, $m->cellHeight));
+          if ($hintHeightInDetail > 0) { $view->hints('shop-comparison-info', $comparisonHints,
+            new CanvasRectangle($detailBox->x + $p, $footerY + $m->cellHeight, $comparisonWidth, $hintHeightInDetail)); }
+        }
+      }
     }
     if ($hintHeight > 0) {
       $view->hints('shop-hints', $hints, new CanvasRectangle($list->x,
