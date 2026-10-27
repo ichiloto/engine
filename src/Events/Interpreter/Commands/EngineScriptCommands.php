@@ -127,6 +127,15 @@ final class EngineScriptCommands
       ],
     ],
     [
+      'type' => 'recruit_actor',
+      'class' => RecruitActorCommand::class,
+      'label' => 'Recruit Actor',
+      'description' => 'Adds the selected actor once using its current starting definition. Existing members keep their progress and order; a full frontline sends the new member to reserve.',
+      'fields' => [
+        ['key' => 'actor', 'label' => 'Actor', 'kind' => 'reference', 'reference' => 'actor', 'required' => true],
+      ],
+    ],
+    [
       'type' => 'end_battle',
       'class' => EndBattleCommand::class,
       'label' => 'End Battle',

@@ -478,6 +478,23 @@ interpreter runs commands registered in `ScriptCommandRegistry`: the Engine's
 own, and any a project declares. A registered command works wherever a script
 does: map triggers, NPC conversations, Common Events and cinematics.
 
+Field scripts can recruit a project actor through the same catalogue and
+factory used by game start and save restoration:
+
+```php
+['type' => 'recruit_actor', 'actor' => 'actor.traveller'],
+```
+
+`Party::recruitActor()` appends a fully constructed character once by stable
+actor identity. Repeating the command, including after save/load, keeps the
+existing character's resources, growth, equipment and roster position. Different
+actors may share a display name. The existing frontline capacity is unchanged;
+an appended recruit beyond it is a reserve. Invalid references or factory errors
+leave the roster unchanged. The command is field-only; changing a running battle's
+roster is excluded. Its required Actor field uses the Editor's resource picker.
+Recruitment does not invent a level-scaling policy, new stats, dialogue, story
+flags or art; those remain authored project decisions.
+
 The Engine registers two services, so an NPC can own the interaction a
 trigger tile used to stand in for:
 

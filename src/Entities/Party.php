@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Entities\Actors\ActorDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonWielderPolicy;
 use Ichiloto\Engine\Core\GameState;
@@ -110,6 +111,18 @@ class Party extends BattleGroup
     }
 
     return $party;
+  }
+
+  /** Recruit a current project actor once, preserving existing members and their mutable progress. */
+  public function recruitActor(ActorDefinition $definition): bool
+  {
+    foreach ($this->members as $member) {
+      if ($member instanceof Character && $member->actorId === $definition->id) { return false; }
+    }
+    // Fully construct before changing the roster. A rejected definition leaves the party untouched.
+    $character = $definition->createCharacter();
+    $this->addMember($character);
+    return true;
   }
 
   /**

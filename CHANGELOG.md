@@ -4,6 +4,10 @@
 
 ### Added
 
+- Field scripts can recruit a project actor with `recruit_actor`, using the shared actor factory and
+  Editor actor picker. Recruitment is idempotent by actor identity, preserves existing progress and
+  roster order across save/load, and leaves the current frontline/reserve capacity unchanged.
+
 - Skit backdrops follow the place: `SkitBackdrop::resolve()` gives a skit the skit's own `backdrop` (only for
   content that needs one setting), else the current map's `skitBackdrop`, else the `skitBackdrop` of the map's
   region in the new optional `Data/regions.php` (`RegionCatalog`, schema `ichiloto.regions/1`, keyed by region
