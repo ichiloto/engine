@@ -565,31 +565,45 @@ it('adds equipment comparisons inside the existing detail panel while preserving
   $existing = array_column($after->textLayers, null, 'id');
   foreach ($before->textLayers as $layer) { expect($existing[$layer->id])->toEqual($layer); }
   $text = shopPresentationText($after);
-  expect($text)->toContain('Fighter: Can equip', 'Wearing: Old Sword', 'ATK ', 'SPD ', 'Caster: Cannot equip', 'Equipped: Already equipped', 'Reserve actor (Reserve)', 'HP', 'MP', 'MAT', 'MDF', 'GRC', 'EVA')
-    ->not->toContain('+4', '−2', 'Now', 'After', 'Change')
+  expect($text)->toContain('Fighter', 'Old Sword', 'Attack', 'Speed')
+    ->not->toContain('Caster', 'Equipped', 'Can equip', 'Cannot equip', 'Already equipped', 'Wearing:', 'ATK', 'SPD', 'Defence', 'HP', 'MP', '+4', '−2', 'Now', 'After', 'Change')
     ->and(serialize($this->party))->toBe($snapshot);
   $comparison = \Ichiloto\Engine\UI\Presentation\ShopEquipmentComparison::create($this->party, $weapon);
-  $cells = array_merge(...array_column($comparison->getLines(60), 'cells'));
+  $lines = $comparison->getLines(60);
   $projected = $fighter->previewEquipmentStats($fighter->equipment[0]->name, $weapon);
-  foreach (['ATK' => ['attack', 'increase'], 'SPD' => ['speed', 'decrease'], 'DEF' => ['defence', 'text']] as $label => [$field, $color]) {
-    $prefix = $label . ' ' . number_format($fighter->effectiveStats->$field) . ' → ';
-    $value = number_format($projected->$field);
-    $index = array_search($prefix, array_column($cells, 'text'), true);
-    expect($index)->not->toBeFalse();
-    expect($cells[$index]['color'])->toBe('text')->and($cells[$index + 1]['text'])->toBe($value)->and($cells[$index + 1]['color'])->toBe($color);
-    $runs = array_merge(...array_column($after->textLayers, 'runs'));
-    $nativeIndex = array_search($prefix, array_column($runs, 'text'), true);
-    expect($nativeIndex)->not->toBeFalse();
-    expect($runs[$nativeIndex]->foreground)->toEqual($this->theme->colors['text'])
-      ->and($runs[$nativeIndex + 1]->text)->toBe($value)->and($runs[$nativeIndex + 1]->foreground)->toEqual($this->theme->colors[$color]);
+  $statLines = array_values(array_filter($lines, fn($line) => count($line['cells']) === 4));
+  $columns = [];
+  foreach (['Attack' => ['attack', 'increase'], 'Speed' => ['speed', 'decrease']] as $label => [$field, $color]) {
+    $line = array_values(array_filter($statLines, fn($line) => $line['cells'][0]['text'] === $label))[0];
+    expect($line['cells'][1]['color'])->toBe('text')->and(trim($line['cells'][1]['text']))->toBe(number_format($fighter->effectiveStats->$field))
+      ->and($line['cells'][2]['text'])->toBe('→')->and($line['cells'][2]['color'])->toBe('text')
+      ->and(trim($line['cells'][3]['text']))->toBe(number_format($projected->$field))->and($line['cells'][3]['color'])->toBe($color);
+    $columns[] = array_column($line['cells'], 'x');
   }
+  expect($columns[0])->toBe($columns[1]);
+  $left = $existing['shop-details-possession-text']->x;
+  $right = $left + $existing['shop-details-possession-text']->grid->columns * $this->theme->metrics->cellWidth;
+  $arrows = [];
   foreach ($after->textLayers as $layer) {
-    if (str_starts_with($layer->id, 'shop-comparison-')) {
-      $layer->bounds->assertWithin($after->width, $after->height);
-      expect($layer->x)->toBeGreaterThanOrEqual($existing['shop-details-possession-text']->clipRect->x);
+    if (!str_starts_with($layer->id, 'shop-comparison-content')) { continue; }
+    $layer->bounds->assertWithin($after->width, $after->height);
+    foreach ($layer->runs as $run) {
+      $x = $layer->x + $run->column * $layer->grid->cellWidth;
+      if (in_array($run->text, ['Fighter', 'Attack', 'Speed'], true)) { expect($x)->toBe($left); }
+      if ($run->text === '→') { $arrows[] = $x; }
+      if ($run->foreground == $this->theme->colors['increase'] || $run->foreground == $this->theme->colors['decrease']) {
+        expect($x + mb_strlen($run->text) * $layer->grid->cellWidth)->toBe($right);
+      }
     }
   }
-  expect(TerminalText::stripAnsi(implode('\n', $this->state->detailPanel->getContent())))->toContain('Fighter', 'Old Sword', 'Cannot equip', 'ATK ' . $fighter->effectiveStats->attack . ' → ' . $projected->attack, 'SPD ' . $fighter->effectiveStats->speed . ' → ' . $projected->speed)->not->toContain('+4', '−2');
+  expect(array_unique($arrows))->toHaveCount(1);
+  shopPresentationPress($this->state, KeyCode::I);
+  expect(shopPresentationText(ShopMenuPresentation::compose($this->state, $this->theme)))->toContain('Reserve actor (Reserve)');
+  shopPresentationPress($this->state, KeyCode::I);
+  ShopMenuPresentation::compose($this->state, $this->theme);
+  $this->state->detailPanel->updateContent();
+  $terminal = TerminalText::stripAnsi(implode('\n', $this->state->detailPanel->getContent()));
+  expect($terminal)->toContain('Fighter', 'Old Sword', 'Attack', 'Speed')->not->toContain('Caster', 'Equipped', 'Can equip', 'Cannot equip', 'Defence', 'HP', 'ATK', '+4', '−2');
   $this->state->merchandise = [$this->item];
   $this->state->mode->enter();
   expect(shopPresentationText(ShopMenuPresentation::compose($this->state, $this->theme)))->not->toContain('Fighter', 'Wearing:')
@@ -616,3 +630,35 @@ it('keeps every reserve comparison reachable through existing Info without purch
     ->and($this->state->mode)->toBeInstanceOf(ShopMerchandiseSelectionMode::class)
     ->and(serialize($this->party))->toBe($before);
 })->with([[10, 20], [8, 18]]);
+
+
+it('uses the existing cast portraits and fades ineligible or unchanged actors without adding status prose', function () {
+  writeTestPng($this->root . '/portrait.png', 80, 100);
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false,
+    'portraits' => ['fighter' => 'portrait.png', 'caster' => 'portrait.png', 'same' => 'portrait.png', 'other' => 'portrait.png']]);
+  $weapon = new Weapon('Candidate', '', '/', 100, parameterChanges: new \Ichiloto\Engine\Entities\ParameterChanges(attack: 3), equipmentType: WeaponType::SWORD);
+  $fighter = new \Ichiloto\Engine\Entities\Character('Fighter', 0, new \Ichiloto\Engine\Entities\Stats(), actorId: 'fighter');
+  $caster = new \Ichiloto\Engine\Entities\Character('Caster', 0, new \Ichiloto\Engine\Entities\Stats(), actorId: 'caster');
+  $caster->role = new \Ichiloto\Engine\Entities\Roles\CharacterRole($caster, 'Caster', allowedWeaponTypes: [WeaponType::STAFF]);
+  $same = new \Ichiloto\Engine\Entities\Character('Same', 0, new \Ichiloto\Engine\Entities\Stats(), actorId: 'same');
+  $same->assignEquipment('Weapon', $weapon);
+  $other = new \Ichiloto\Engine\Entities\Character('Other', 0, new \Ichiloto\Engine\Entities\Stats(), actorId: 'other');
+  foreach ([$fighter, $caster, $same, $other] as $actor) { $this->party->addMember($actor); }
+  $this->state->merchandise = [$weapon];
+  shopPresentationPress($this->state, KeyCode::ENTER);
+  $before = serialize($this->party);
+  $canvas = ShopMenuPresentation::compose($this->state, $theme);
+  $profiles = array_values(array_filter($canvas->images, fn($image) => str_starts_with($image->id, 'shop-profile-') && $image->asset === 'portrait.png'));
+  expect($profiles)->toHaveCount(4)->and(array_column($profiles, 'opacity'))->toBe([1.0, .3, .3, 1.0])
+    ->and(shopPresentationText($canvas))->toContain('Attack')->not->toContain('Fighter', 'Caster', 'Same', 'Other', 'Can equip', 'Cannot equip', 'Defence', 'Empty')
+    ->and(serialize($this->party))->toBe($before);
+  foreach ($profiles as $profile) { $profile->destination->assertWithin($canvas->width, $canvas->height); }
+  expect($this->state->detailPanel->getCurrentComparisonActorId())->toBe('fighter');
+  $focus = array_values(array_filter($canvas->textLayers, fn($layer) => str_starts_with($layer->id, 'shop-profile-focus')));
+  expect($focus)->not->toBeEmpty();
+  shopPresentationPress($this->state, KeyCode::I);
+  $next = ShopMenuPresentation::compose($this->state, $theme);
+  expect($this->state->detailPanel->getCurrentComparisonActorId())->toBe('other')
+    ->and(shopPresentationText($next))->toContain('Attack')->not->toContain('Fighter', 'Caster', 'Same', 'Other', 'Empty', 'Can equip')
+    ->and(serialize($this->party))->toBe($before);
+});

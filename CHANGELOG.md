@@ -4,11 +4,12 @@
 
 ### Added
 
-- Equipment in the existing shop detail panel now shows each party member's eligibility, current gear,
-  and current → resulting stats. Only the result is coloured green for an increase or red for a decrease;
-  signed deltas have been removed. Reserve members and alternate compatible
-  slots remain readable through the existing Info action. Shop layout, artwork, purchasing and selling
-  flow are unchanged. Terminal and graphical presentations share the comparison content.
+- Equipment comparisons enhance the existing shop detail panel with the known roster's portraits,
+  fading unaffected actors and focusing the current comparison. Existing Info cycles affected actors.
+  Removed eligibility sentences, unaffected stat rows, signed deltas and identity text duplicated by
+  visible portraits. Full shared stat names and aligned current → result columns follow the existing
+  row padding; only the resulting number is coloured. Terminal identity remains where no portrait is
+  available. Shop layout, artwork bindings and purchasing/selling flow are unchanged.
 - Character equipment previews use the same slot eligibility, natural stats, permanent growth and caps
   as actual assignment, without changing gear, inventory or resources. The equipment menu also uses
   this shared preview; the old manual subtract/add calculation on already-capped totals was removed.

@@ -94,19 +94,30 @@ generation, so its screenshots are reference only and must never be fed to an im
 
 ## Equipment shopping
 
-Keep the existing shop composition. Add equipment comparisons beneath Possession in its existing
-right detail panel: character name, eligibility, current gear and current/projected HP, MP, Attack,
-Defence, Magic Attack, Magic Defence, Speed, Grace and Evasion. Use the stat label followed by current
-value, an arrow and the resulting value, such as `ATK 24 → 31`. Keep the label, current value and arrow
-neutral. Colour only the resulting value green for an increase, red for a decrease, neutral for no
-change. Remove signed deltas and invented “Now / After / Change” headings. Andrew confirmed this
-presentation on 28 October 2026. Square Enix's [Star Ocean: Second Evolution manual, Equipment](https://www.jp.square-enix.com/Ocean2DL/links/so2_manual_psp.pdf)
-provides an explicit precedent for green improved stats and red decreased stats. Include reserves and each compatible
-slot; the existing Info action reads overflow content. Consumables retain the normal possession view.
+Keep the existing shop composition. Use its right detail panel beneath Possession for the known party
+and reserves' existing portrait bindings. Fade portraits whose stats are unaffected, including actors
+who cannot equip the selected item. A steady focus outline identifies the actor whose changes are
+shown. The existing Info action cycles through affected actors/compatible slots and any overflowing
+stats. Do not repeat names, eligibility statements or current-gear text when that portrait is visible.
+The Terminal and themes without that portrait retain identity text because they have no picture.
+An explicit slot name remains where one actor has several compatible slots.
 
-PHP owns eligibility and projected stats through the same assignment, growth and cap rules used by
-actual equipping. Previewing leaves gear, item quantities, resources and saves unchanged. The Terminal
-and graphical menu read the same comparison content; themes retain their existing panels and artwork.
+Show only changed stats. Use the same localized stat names as the character/equipment screens through
+CharacterMenuRows::getStatLabel, with one stat per row. Apply the existing row padding, row height and
+right-aligned value columns. Keep the label, current value and arrow neutral; colour only the result
+green for an increase and red for a decrease. Remove unaffected stats, signed deltas, eligibility
+sentences and invented Now/After/Change headings. Consumables retain their normal possession view.
+
+Andrew confirmed this presentation on28October2026 with Final Fantasy shop/equipment screenshots.
+FFIX uses portraits with dimming and figures; FFXIII uses a portrait strip to identify a focused actor.
+The inspected [Octopath Traveler shop](https://sullla.com/Octopath/olberic1.html) shows aligned current/arrow/result
+rows for the relevant defence stats. Square Enix's [Star Ocean: Second Evolution manual](https://www.jp.square-enix.com/Ocean2DL/links/so2_manual_psp.pdf)
+explicitly documents green increased stats and red decreased stats. These are references for the
+corresponding visual conventions; they do not require replacing the existing Shop layout.
+
+PHP owns eligibility and projected stats through actual assignment, growth and cap rules. Previewing
+leaves gear, quantities, resources and saves unchanged. Names identify actors only where portraits
+cannot; fixture labels such as Eligible fighter must never be put in front of the player.
 
 ## Battle resources
 

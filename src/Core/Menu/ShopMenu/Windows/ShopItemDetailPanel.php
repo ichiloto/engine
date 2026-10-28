@@ -34,19 +34,31 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
   private ?ShopEquipmentComparison $comparison = null;
   private TextViewport $comparisonText;
   private ?TextPage $lastComparisonPage = null;
+  private int $comparisonGroup = 0;
+  private bool $lastComparisonIdentity = true;
 
   public function setItem(?InventoryItem $item, Party $party): void
   {
     $this->comparison = $item instanceof Equipment ? ShopEquipmentComparison::create($party, $item) : null;
     $this->comparisonText->setText($this->comparison?->source ?? '');
     $this->lastComparisonPage = null;
+    $this->comparisonGroup = 0;
+  }
+
+  /** @return list<array{id: string, affected: bool}> */
+  public function getComparisonProfiles(): array { return $this->comparison?->profiles ?? []; }
+
+  public function getCurrentComparisonActorId(): ?string
+  {
+    return $this->comparison?->getGroupActorId($this->comparisonGroup);
   }
 
   /** @return array{page: TextPage, lines: array}|null */
-  public function getComparisonPage(int $columns, int $rows): ?array
+  public function getComparisonPage(int $columns, int $rows, bool $showIdentity = true): ?array
   {
     if ($this->comparison === null || $this->comparison->source === '') { return null; }
-    $lines = $this->comparison->getLines(max(1, $columns));
+    $this->lastComparisonIdentity = $showIdentity;
+    $lines = $this->comparison->getLines(max(1, $columns), $this->comparisonGroup, $showIdentity);
     $wrapped = array_map(static fn(array $line): array => [$line['offset'], ShopEquipmentComparison::getPlainLine($line)], $lines);
     $page = $this->comparisonText->createLayoutPage($wrapped, max(1, $columns), max(1, $rows));
     $this->lastComparisonPage = $page;
@@ -57,12 +69,18 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
   public function advanceComparison(): bool
   {
     $page = $this->lastComparisonPage;
-    if ($page === null || $page->total <= count($page->lines)) { return false; }
-    if ($page->first + count($page->lines) >= $page->total) { $this->comparisonText->reset(); return true; }
+    if ($page === null) { return false; }
+    if ($page->first + count($page->lines) >= $page->total) {
+      $count = $this->comparison?->getGroupCount() ?? 0;
+      if ($count < 2 && $page->total <= count($page->lines)) { return false; }
+      $this->comparisonGroup = ($this->comparisonGroup + 1) % max(1, $count);
+      $this->comparisonText->reset();
+      return true;
+    }
     $target = $page->first + count($page->lines);
     do {
       $this->comparisonText->scroll(1, $page);
-      $next = $this->getComparisonPage($page->columns, $page->rows)['page'];
+      $next = $this->getComparisonPage($page->columns, $page->rows, $this->lastComparisonIdentity)['page'];
       if ($next->first <= $page->first) { break; }
       $page = $next;
     } while ($page->first < $target);
@@ -113,13 +131,13 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
         $this->getContentWidth() - 1, ' ', 'right'),
     ];
 
-    $comparison = $this->getComparisonPage(max(1, $this->getContentWidth() - 1), max(1, $this->height - 5));
+    $comparison = $this->getComparisonPage(max(1, $this->getContentWidth() - 2), max(1, $this->height - 5));
     if ($comparison !== null) {
       $content[] = '';
       foreach ($comparison['lines'] as $line) {
-        $text = '';
+        $text = ' ';
         foreach ($line['cells'] as $cell) {
-          $padding = str_repeat(' ', max(0, $cell['x'] - TextViewport::measure(TerminalText::stripAnsi($text))));
+          $padding = str_repeat(' ', max(0, $cell['x'] + 1 - TextViewport::measure(TerminalText::stripAnsi($text))));
           $color = match ($cell['color']) { 'increase' => Color::GREEN, 'decrease' => Color::RED, 'accent' => Color::YELLOW, 'muted' => Color::DARK_GRAY, default => Color::RESET };
           $text .= $padding . Color::apply($cell['text'], $color);
         }

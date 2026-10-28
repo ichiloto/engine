@@ -273,7 +273,7 @@ final class MenuCanvas
       $stacked->composites, $stacked->protectedAreas, $stacked->presentationOwners, $stacked->labels, $stacked->viewportFit);
   }
 
-  public function portrait(string $actorId, CanvasRectangle $bounds, string $id = 'portrait'): void
+  public function portrait(string $actorId, CanvasRectangle $bounds, string $id = 'portrait', float $opacity = 1): void
   {
     $asset = $this->theme->portraits[$actorId] ?? null;
     if ($asset === null) { return; }
@@ -285,6 +285,9 @@ final class MenuCanvas
     $box = new CanvasRectangle($bounds->x + $inset, $bounds->y + $inset,
       $bounds->width - 2 * $inset, $bounds->height - 2 * $inset);
     $images = MenuIconRegistry::containAsset($this->theme->assetRoot, $id, $asset, $box, 22, $bounds);
+    $images = array_map(static fn(CanvasImage $image): CanvasImage => new CanvasImage($image->id,
+      $image->asset, $image->destination, $image->layer, $image->sourceRect, $image->opacity * $opacity,
+      $image->clipRect, $image->brightness, $image->flipX, $image->flipY), $images);
     array_push($this->images, ...$images);
     if ($images === []) { $this->fill($id . '-fallback', $box, 'panel', 22); }
   }

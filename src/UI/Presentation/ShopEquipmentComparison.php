@@ -14,104 +14,112 @@ use Ichiloto\Engine\UI\Text\TextViewport;
 /** Read-only comparison content for the existing shop detail panel in both presentations. */
 final readonly class ShopEquipmentComparison
 {
-  /** @param list<array{offset: int, text: string, color: string, stat: bool, neutralLength: int}> $cells */
-  private function __construct(public string $source, private array $cells) {}
+  /** @param list<array{offset: int, text: string, color: string, label: ?string, current: ?string, result: ?string, group: int, context: bool}> $entries */
+  private function __construct(public string $source, private array $entries,
+    /** @var list<array{id: string, affected: bool}> */ public array $profiles,
+    /** @var list<string> */ private array $actors) {}
 
   public static function create(Party $party, Equipment $item): self
   {
     $source = '';
-    $cells = [];
-    $add = static function (string $text, string $color = 'text', bool $stat = false, int $neutralLength = 0) use (&$source, &$cells): void {
+    $entries = [];
+    $profiles = [];
+    $actors = [];
+    $group = -1;
+    $add = static function (string $text, string $color = 'text', ?string $label = null,
+      ?string $current = null, ?string $result = null, bool $context = false) use (&$source, &$entries, &$group): void {
       $text = TextViewport::normalize($text);
-      $cells[] = ['offset' => strlen($source), 'text' => $text, 'color' => $color, 'stat' => $stat, 'neutralLength' => $neutralLength];
+      $entries[] = ['offset' => strlen($source), 'text' => $text, 'color' => $color,
+        'label' => $label, 'current' => $current, 'result' => $result, 'group' => $group, 'context' => $context];
       $source .= $text . "\n";
     };
     foreach ($party->members->toArray() as $index => $actor) {
+      if (!$actor instanceof Character) { continue; }
+      $profile = count($profiles);
+      $profiles[] = ['id' => $actor->actorId, 'affected' => false];
+      if (!$actor->canEquip($item)) { continue; }
+      $slots = array_values(array_filter($actor->equipment, static fn($slot): bool =>
+        $slot->acceptsType === $item::class && $slot->semanticSlot === $item->semanticSlot));
       $name = $actor->name . ($index >= Party::BATTLE_SIZE ? ' (' . Vocabulary::getTerm('party.reserve', 'Reserve') . ')' : '');
-      if (!$actor instanceof Character) {
-        $add($name, 'accent');
-        $add(Vocabulary::getTerm('shop.previewUnavailable', 'Equipment preview unavailable'), 'muted');
-        $add('');
-        continue;
-      }
-      $slots = array_values(array_filter($actor->equipment, static fn($slot): bool => $actor->canEquip($item)
-        && $slot->acceptsType === $item::class && $slot->semanticSlot === $item->semanticSlot));
-      if ($slots === []) {
-        $add($name . ': ' . Vocabulary::getTerm('shop.cannotEquip', 'Cannot equip'), 'muted');
-        $add('');
-        continue;
-      }
       $current = $actor->effectiveStats;
       foreach ($slots as $slot) {
         $after = $actor->previewEquipmentStats($slot->name, $item);
         if ($after === null) { throw new \LogicException('Eligible shop equipment has no stat preview.'); }
-        $same = $slot->equipment instanceof Equipment && $slot->equipment::class === $item::class && $slot->equipment->id === $item->id;
-        $add($name . (count($slots) > 1 ? ' / ' . $slot->name : '') . ': '
-          . Vocabulary::getTerm($same ? 'shop.equipped' : 'shop.canEquip', $same ? 'Already equipped' : 'Can equip'), 'accent');
-        $add(Vocabulary::getTerm('shop.wearing', 'Wearing') . ': ' . ($slot->equipment?->name ?? Vocabulary::getTerm('equipment.empty', 'Empty')), 'muted');
-        $labels = ['maxHp' => 'HP', 'maxMp' => 'MP', 'attack' => 'ATK', 'defence' => 'DEF',
-          'magicAttack' => 'MAT', 'magicDefence' => 'MDF', 'speed' => 'SPD', 'grace' => 'GRC', 'evasion' => 'EVA'];
+        $changed = false;
         foreach (StatKey::cases() as $stat) {
           $field = $stat->statsProperty();
-          $beforeValue = $current->$field;
-          $afterValue = $after->$field;
-          $delta = $afterValue - $beforeValue;
-          $label = Vocabulary::getTerm('stats.short.' . $stat->value, $labels[$stat->value]);
-          $prefix = $label . ' ' . number_format($beforeValue) . ' → ';
-          $add($prefix . number_format($afterValue),
-            $delta > 0 ? 'increase' : ($delta < 0 ? 'decrease' : 'text'), true, strlen($prefix));
+          if ($current->$field === $after->$field) { continue; }
+          if (!$changed) {
+            $group++;
+            $actors[] = $actor->actorId;
+            $add($name, 'accent');
+            if (count($slots) > 1) { $add($slot->name, 'muted', context: true); }
+            $add($slot->equipment?->name ?? Vocabulary::getTerm('equipment.empty', 'Empty'), 'muted');
+            $changed = true;
+            $profiles[$profile]['affected'] = true;
+          }
+          $label = CharacterMenuRows::getStatLabel($field);
+          $beforeValue = number_format($current->$field);
+          $afterValue = number_format($after->$field);
+          $add($label . ' ' . $beforeValue . ' → ' . $afterValue,
+            $after->$field > $current->$field ? 'increase' : 'decrease', $label, $beforeValue, $afterValue);
         }
       }
     }
-    return new self($source, $cells);
+    return new self($source, $entries, $profiles, $actors);
   }
 
-  /** Compact stat cells flow within the current panel width; long names remain complete wrapped lines.
+  public function getGroupCount(): int { return count($this->actors); }
+
+  public function getGroupActorId(int $group): ?string { return $this->actors[$group] ?? null; }
+
+  /** Full stat names share right-aligned value columns; names and gear retain complete wrapping.
    * @return list<array{offset: int, cells: list<array{x: int, text: string, color: string}>}>
    */
-  public function getLines(int $columns): array
+  public function getLines(int $columns, ?int $group = null, bool $showIdentity = true): array
   {
+    $entries = array_values(array_filter($this->entries, static fn(array $entry): bool =>
+      ($group === null || $entry['group'] === $group) && ($showIdentity || $entry['label'] !== null || $entry['context'])));
+    $figures = [];
+    foreach ($entries as $entry) {
+      if ($entry['label'] !== null) { array_push($figures, $entry['current'], $entry['result']); }
+    }
+    $figure = MenuRowColumn::fit($figures);
+    $valueWidth = 2 * $figure->cells + 3;
     $lines = [];
-    $row = null;
-    $used = 0;
-    $groups = 0;
-    foreach ($this->cells as $cell) {
-      $width = TextViewport::measure($cell['text']);
-      if ($cell['stat'] && $width <= $columns) {
-        if ($row !== null && ($groups >= 3 || $used + 2 + $width > $columns)) {
-          $lines[] = $row;
-          $row = null;
+    foreach ($entries as $entry) {
+      if ($entry['label'] === null) {
+        foreach (TextViewport::wrap($entry['text'], $columns) as [$offset, $text]) {
+          $lines[] = ['offset' => $entry['offset'] + $offset, 'cells' => [['x' => 0, 'text' => $text, 'color' => $entry['color']]]];
         }
-        if ($row === null) { $row = ['offset' => $cell['offset'], 'cells' => []]; $used = 0; $groups = 0; }
-        $x = $used === 0 ? 0 : $used + 2;
-        array_push($row['cells'], ...self::createLineCells($cell, $cell['text'], 0, $x));
-        $used = $x + $width;
-        $groups++;
-      } else {
-        if ($row !== null) { $lines[] = $row; $row = null; }
-        foreach (TextViewport::wrap($cell['text'], $columns) as [$offset, $text]) {
-          $lines[] = ['offset' => $cell['offset'] + $offset, 'cells' => self::createLineCells($cell, $text, $offset)];
+        continue;
+      }
+      $labelColumns = $columns - $valueWidth - 2;
+      if ($labelColumns < 1) {
+        // Narrow Terminal/theme viewports retain every figure through the shared text wrapper.
+        $prefix = $entry['label'] . ' ' . $entry['current'] . ' → ';
+        foreach (TextViewport::wrap($entry['text'], $columns) as [$offset, $text]) {
+          $neutral = substr($text, 0, max(0, strlen($prefix) - $offset));
+          $result = substr($text, strlen($neutral));
+          $cells = [];
+          if ($neutral !== '') { $cells[] = ['x' => 0, 'text' => $neutral, 'color' => 'text']; }
+          if ($result !== '') { $cells[] = ['x' => TextViewport::measure($neutral), 'text' => $result, 'color' => $entry['color']]; }
+          $lines[] = ['offset' => $entry['offset'] + $offset, 'cells' => $cells];
         }
+        continue;
+      }
+      foreach (TextViewport::wrap($entry['label'], $labelColumns) as $index => [$offset, $label]) {
+        $cells = [['x' => 0, 'text' => $label, 'color' => 'text']];
+        if ($index === 0) {
+          $x = $columns - $valueWidth;
+          $cells[] = ['x' => $x, 'text' => $figure->formatCell($entry['current']), 'color' => 'text'];
+          $cells[] = ['x' => $x + $figure->cells + 1, 'text' => '→', 'color' => 'text'];
+          $cells[] = ['x' => $x + $figure->cells + 3, 'text' => $figure->formatCell($entry['result']), 'color' => $entry['color']];
+        }
+        $lines[] = ['offset' => $entry['offset'] + $offset, 'cells' => $cells];
       }
     }
-    if ($row !== null) { $lines[] = $row; }
     return $lines;
-  }
-
-  /** Keep the stat name, current value and arrow neutral; only the resulting value carries comparison colour.
-   * @param array{neutralLength: int, color: string} $cell
-   * @return list<array{x: int, text: string, color: string}>
-   */
-  private static function createLineCells(array $cell, string $text, int $offset, int $x = 0): array
-  {
-    $neutral = substr($text, 0, max(0, $cell['neutralLength'] - $offset));
-    $result = substr($text, strlen($neutral));
-    $cells = [];
-    if ($neutral !== '') { $cells[] = ['x' => $x, 'text' => $neutral, 'color' => 'text']; }
-    if ($result !== '' || $cells === []) {
-      $cells[] = ['x' => $x + TextViewport::measure($neutral), 'text' => $result, 'color' => $cell['color']];
-    }
-    return $cells;
   }
 
   /** @param array{cells: list<array{x: int, text: string, color: string}>} $line */
