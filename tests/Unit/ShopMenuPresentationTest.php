@@ -565,15 +565,31 @@ it('adds equipment comparisons inside the existing detail panel while preserving
   $existing = array_column($after->textLayers, null, 'id');
   foreach ($before->textLayers as $layer) { expect($existing[$layer->id])->toEqual($layer); }
   $text = shopPresentationText($after);
-  expect($text)->toContain('Fighter: Can equip', 'Wearing: Old Sword', '+4', '−2', 'Caster: Cannot equip', 'Equipped: Already equipped', 'Reserve actor (Reserve)', 'HP', 'MP', 'MAT', 'MDF', 'GRC', 'EVA')
+  expect($text)->toContain('Fighter: Can equip', 'Wearing: Old Sword', 'ATK ', 'SPD ', 'Caster: Cannot equip', 'Equipped: Already equipped', 'Reserve actor (Reserve)', 'HP', 'MP', 'MAT', 'MDF', 'GRC', 'EVA')
+    ->not->toContain('+4', '−2', 'Now', 'After', 'Change')
     ->and(serialize($this->party))->toBe($snapshot);
+  $comparison = \Ichiloto\Engine\UI\Presentation\ShopEquipmentComparison::create($this->party, $weapon);
+  $cells = array_merge(...array_column($comparison->getLines(60), 'cells'));
+  $projected = $fighter->previewEquipmentStats($fighter->equipment[0]->name, $weapon);
+  foreach (['ATK' => ['attack', 'increase'], 'SPD' => ['speed', 'decrease'], 'DEF' => ['defence', 'text']] as $label => [$field, $color]) {
+    $prefix = $label . ' ' . number_format($fighter->effectiveStats->$field) . ' → ';
+    $value = number_format($projected->$field);
+    $index = array_search($prefix, array_column($cells, 'text'), true);
+    expect($index)->not->toBeFalse();
+    expect($cells[$index]['color'])->toBe('text')->and($cells[$index + 1]['text'])->toBe($value)->and($cells[$index + 1]['color'])->toBe($color);
+    $runs = array_merge(...array_column($after->textLayers, 'runs'));
+    $nativeIndex = array_search($prefix, array_column($runs, 'text'), true);
+    expect($nativeIndex)->not->toBeFalse();
+    expect($runs[$nativeIndex]->foreground)->toEqual($this->theme->colors['text'])
+      ->and($runs[$nativeIndex + 1]->text)->toBe($value)->and($runs[$nativeIndex + 1]->foreground)->toEqual($this->theme->colors[$color]);
+  }
   foreach ($after->textLayers as $layer) {
     if (str_starts_with($layer->id, 'shop-comparison-')) {
       $layer->bounds->assertWithin($after->width, $after->height);
       expect($layer->x)->toBeGreaterThanOrEqual($existing['shop-details-possession-text']->clipRect->x);
     }
   }
-  expect(TerminalText::stripAnsi(implode('\n', $this->state->detailPanel->getContent())))->toContain('Fighter', 'Old Sword', 'Cannot equip', '+4');
+  expect(TerminalText::stripAnsi(implode('\n', $this->state->detailPanel->getContent())))->toContain('Fighter', 'Old Sword', 'Cannot equip', 'ATK ' . $fighter->effectiveStats->attack . ' → ' . $projected->attack, 'SPD ' . $fighter->effectiveStats->speed . ' → ' . $projected->speed)->not->toContain('+4', '−2');
   $this->state->merchandise = [$this->item];
   $this->state->mode->enter();
   expect(shopPresentationText(ShopMenuPresentation::compose($this->state, $this->theme)))->not->toContain('Fighter', 'Wearing:')

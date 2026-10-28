@@ -5,7 +5,8 @@
 ### Added
 
 - Equipment in the existing shop detail panel now shows each party member's eligibility, current gear,
-  and current/projected stats with increases and decreases. Reserve members and alternate compatible
+  and current → resulting stats. Only the result is coloured green for an increase or red for a decrease;
+  signed deltas have been removed. Reserve members and alternate compatible
   slots remain readable through the existing Info action. Shop layout, artwork, purchasing and selling
   flow are unchanged. Terminal and graphical presentations share the comparison content.
 - Character equipment previews use the same slot eligibility, natural stats, permanent growth and caps

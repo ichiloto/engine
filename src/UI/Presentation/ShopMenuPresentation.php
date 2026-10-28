@@ -132,15 +132,18 @@ final class ShopMenuPresentation
         $hintHeightInDetail = MenuActionHints::height($comparisonHints, $theme, $comparisonWidth);
         $footerHeight = $more ? $m->cellHeight + $hintHeightInDetail : 0;
         if ($more) { $comparison = $state->detailPanel->getComparisonPage($columns, max(1, $rows - (int)ceil($footerHeight / $m->cellHeight))); }
+        $texts = [];
         foreach ($comparison['lines'] as $row => $line) {
-          foreach ($line['cells'] as $cell => $value) {
+          foreach ($line['cells'] as $value) {
             if ($value['text'] === '') { continue; }
-            $view->textLines('shop-comparison-' . $row . '-' . $cell,
-              [['text' => $value['text'], 'color' => $value['color']]],
-              new CanvasRectangle($detailBox->x + $p + $value['x'] * $m->cellWidth, $comparisonTop + $row * $m->cellHeight,
-                max(1, $comparisonWidth - $value['x'] * $m->cellWidth), $m->cellHeight));
+            $texts[] = ['text' => $value['text'], 'color' => $value['color'],
+              'x' => $detailBox->x + $p + $value['x'] * $m->cellWidth,
+              'y' => $comparisonTop + $row * $m->cellHeight];
           }
         }
+        $view->renderTexts('shop-comparison-content', $texts,
+          new CanvasRectangle($detailBox->x + $p, $comparisonTop, $comparisonWidth, count($comparison['lines']) * $m->cellHeight),
+          [$m->cellWidth, $m->cellHeight]);
         if ($more) {
           $footerY = $detailBox->y + $detailBox->height - $p - $footerHeight;
           $view->textLines('shop-comparison-range', [['text' => $comparison['page']->range(), 'color' => 'muted']],

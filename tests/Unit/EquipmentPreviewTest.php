@@ -73,7 +73,7 @@ it('previews one compatible accessory slot while preserving another and rejects 
   $party = new \Ichiloto\Engine\Entities\Party();
   $party->addMember($actor);
   $comparison = \Ichiloto\Engine\UI\Presentation\ShopEquipmentComparison::create($party, $candidate);
-  expect($comparison->source)->toContain('Tester / Left charm: Can equip', 'Tester / Right charm: Can equip', '+3', '−3');
+  expect($comparison->source)->toContain('Tester / Left charm: Can equip', 'Tester / Right charm: Can equip', 'ATK ' . $actor->effectiveStats->attack . ' → ' . $left->attack, 'ATK ' . $actor->effectiveStats->attack . ' → ' . $right->attack);
   foreach ($comparison->getLines(12) as $line) {
     expect(\Ichiloto\Engine\UI\Text\TextViewport::measure(\Ichiloto\Engine\UI\Presentation\ShopEquipmentComparison::getPlainLine($line)))->toBeLessThanOrEqual(12);
   }

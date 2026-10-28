@@ -14,16 +14,16 @@ use Ichiloto\Engine\UI\Text\TextViewport;
 /** Read-only comparison content for the existing shop detail panel in both presentations. */
 final readonly class ShopEquipmentComparison
 {
-  /** @param list<array{offset: int, text: string, color: string, stat: bool}> $cells */
+  /** @param list<array{offset: int, text: string, color: string, stat: bool, neutralLength: int}> $cells */
   private function __construct(public string $source, private array $cells) {}
 
   public static function create(Party $party, Equipment $item): self
   {
     $source = '';
     $cells = [];
-    $add = static function (string $text, string $color = 'text', bool $stat = false) use (&$source, &$cells): void {
+    $add = static function (string $text, string $color = 'text', bool $stat = false, int $neutralLength = 0) use (&$source, &$cells): void {
       $text = TextViewport::normalize($text);
-      $cells[] = ['offset' => strlen($source), 'text' => $text, 'color' => $color, 'stat' => $stat];
+      $cells[] = ['offset' => strlen($source), 'text' => $text, 'color' => $color, 'stat' => $stat, 'neutralLength' => $neutralLength];
       $source .= $text . "\n";
     };
     foreach ($party->members->toArray() as $index => $actor) {
@@ -57,9 +57,9 @@ final readonly class ShopEquipmentComparison
           $afterValue = $after->$field;
           $delta = $afterValue - $beforeValue;
           $label = Vocabulary::getTerm('stats.short.' . $stat->value, $labels[$stat->value]);
-          $add($label . ' ' . number_format($beforeValue) . ($delta === 0 ? '' : '→' . number_format($afterValue)
-            . ' ' . ($delta > 0 ? '+' : '−') . number_format(abs($delta))),
-            $delta > 0 ? 'increase' : ($delta < 0 ? 'decrease' : 'text'), true);
+          $prefix = $label . ' ' . number_format($beforeValue) . ' → ';
+          $add($prefix . number_format($afterValue),
+            $delta > 0 ? 'increase' : ($delta < 0 ? 'decrease' : 'text'), true, strlen($prefix));
         }
       }
     }
@@ -74,26 +74,44 @@ final readonly class ShopEquipmentComparison
     $lines = [];
     $row = null;
     $used = 0;
+    $groups = 0;
     foreach ($this->cells as $cell) {
       $width = TextViewport::measure($cell['text']);
       if ($cell['stat'] && $width <= $columns) {
-        if ($row !== null && (count($row['cells']) >= 3 || $used + 2 + $width > $columns)) {
+        if ($row !== null && ($groups >= 3 || $used + 2 + $width > $columns)) {
           $lines[] = $row;
           $row = null;
         }
-        if ($row === null) { $row = ['offset' => $cell['offset'], 'cells' => []]; $used = 0; }
+        if ($row === null) { $row = ['offset' => $cell['offset'], 'cells' => []]; $used = 0; $groups = 0; }
         $x = $used === 0 ? 0 : $used + 2;
-        $row['cells'][] = ['x' => $x, 'text' => $cell['text'], 'color' => $cell['color']];
+        array_push($row['cells'], ...self::createLineCells($cell, $cell['text'], 0, $x));
         $used = $x + $width;
+        $groups++;
       } else {
         if ($row !== null) { $lines[] = $row; $row = null; }
         foreach (TextViewport::wrap($cell['text'], $columns) as [$offset, $text]) {
-          $lines[] = ['offset' => $cell['offset'] + $offset, 'cells' => [['x' => 0, 'text' => $text, 'color' => $cell['color']]]];
+          $lines[] = ['offset' => $cell['offset'] + $offset, 'cells' => self::createLineCells($cell, $text, $offset)];
         }
       }
     }
     if ($row !== null) { $lines[] = $row; }
     return $lines;
+  }
+
+  /** Keep the stat name, current value and arrow neutral; only the resulting value carries comparison colour.
+   * @param array{neutralLength: int, color: string} $cell
+   * @return list<array{x: int, text: string, color: string}>
+   */
+  private static function createLineCells(array $cell, string $text, int $offset, int $x = 0): array
+  {
+    $neutral = substr($text, 0, max(0, $cell['neutralLength'] - $offset));
+    $result = substr($text, strlen($neutral));
+    $cells = [];
+    if ($neutral !== '') { $cells[] = ['x' => $x, 'text' => $neutral, 'color' => 'text']; }
+    if ($result !== '' || $cells === []) {
+      $cells[] = ['x' => $x + TextViewport::measure($neutral), 'text' => $result, 'color' => $cell['color']];
+    }
+    return $cells;
   }
 
   /** @param array{cells: list<array{x: int, text: string, color: string}>} $line */

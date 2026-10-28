@@ -12,6 +12,10 @@ generation, so its screenshots are reference only and must never be fed to an im
 
 ## Words
 
+- **Use established JRPG conventions for the same screen.** Study actual comparable screens before
+  adding labels, columns or controls. Use their familiar visual relationships and terminology;
+  do not invent headings or extra data merely to fill space. Enhance the current screen within its
+  established composition unless Andrew requests a redesign.
 - **Name the thing, not the data structure.** Players see "Fire", not "node"; "Hearts 3/7", not
   "Region: Hearts". Only FFX shows the word "node" on screen, once, in a help line.
 - **A growth screen has a proper name.** Sphere Grid, Crystarium, Character Builder, Skill Panel, Soul
@@ -92,8 +96,12 @@ generation, so its screenshots are reference only and must never be fed to an im
 
 Keep the existing shop composition. Add equipment comparisons beneath Possession in its existing
 right detail panel: character name, eligibility, current gear and current/projected HP, MP, Attack,
-Defence, Magic Attack, Magic Defence, Speed, Grace and Evasion. Show signed increases and decreases
-alongside their values, with theme colours as additional cues. Include reserves and each compatible
+Defence, Magic Attack, Magic Defence, Speed, Grace and Evasion. Use the stat label followed by current
+value, an arrow and the resulting value, such as `ATK 24 → 31`. Keep the label, current value and arrow
+neutral. Colour only the resulting value green for an increase, red for a decrease, neutral for no
+change. Remove signed deltas and invented “Now / After / Change” headings. Andrew confirmed this
+presentation on 28 October 2026. Square Enix's [Star Ocean: Second Evolution manual, Equipment](https://www.jp.square-enix.com/Ocean2DL/links/so2_manual_psp.pdf)
+provides an explicit precedent for green improved stats and red decreased stats. Include reserves and each compatible
 slot; the existing Info action reads overflow content. Consumables retain the normal possession view.
 
 PHP owns eligibility and projected stats through the same assignment, growth and cap rules used by
