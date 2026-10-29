@@ -245,7 +245,8 @@ class ActionExecutionState extends TurnState
           if ($this->getCounterAttackResolver()->canExecute($response,
             $context->partyRoster->battlers, $context->troop->members->toArray())) {
             $response->action->executeWithReactions($response->actor, [$response->target],
-              $this->engine->battleConfig->reactions, allowInterception: false);
+              $this->engine->battleConfig->reactions, allowInterception: false,
+              gauges: $this->engine instanceof \Ichiloto\Engine\Battle\BattleGaugeControl ? $this->engine : null);
           }
         });
       return true;

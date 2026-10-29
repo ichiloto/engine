@@ -6,6 +6,7 @@ use Ichiloto\Engine\Battle\Resolution\ResolutionKind;
 use Ichiloto\Engine\Battle\CounterAttackRule;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\PrepareCounterSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\ResetAtbSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDrainSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPRecoverSkillEffect;
@@ -74,6 +75,7 @@ final class SkillRecord
     'remove_state' => RemoveStateSkillEffect::class,
     'modify_stat_stage' => ModifyStatStageSkillEffect::class,
     'prepare_counter' => PrepareCounterSkillEffect::class,
+    'reset_atb' => ResetAtbSkillEffect::class,
   ];
 
   /** The effects that reveal what a battler hides, by type. */
@@ -324,6 +326,10 @@ final class SkillRecord
     }
 
     return match ($type) {
+      'reset_atb' => (static function () use ($effect, $path): ResetAtbSkillEffect {
+        self::refuseUnknownKeys($effect, ['type'], $path);
+        return new ResetAtbSkillEffect();
+      })(),
       'prepare_counter' => (static function () use ($effect, $path): PrepareCounterSkillEffect {
         self::refuseUnknownKeys($effect, ['type', 'skill', 'stateId'], $path);
         return new PrepareCounterSkillEffect(self::requireString($effect, 'skill', $path),
@@ -416,6 +422,7 @@ final class SkillRecord
     }
 
     return match (true) {
+      $effect instanceof ResetAtbSkillEffect => ['type' => 'reset_atb'],
       $effect instanceof PrepareCounterSkillEffect => ['type' => 'prepare_counter',
         'skill' => $effect->skill, 'stateId' => $effect->stateId],
       $effect instanceof AddStateSkillEffect => array_filter(

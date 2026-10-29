@@ -38,6 +38,7 @@ final class SkillEffectExecutor
     string $actionId,
     string $executionId,
     ?\Ichiloto\Engine\Battle\BattleReactions $reactions = null,
+    ?\Ichiloto\Engine\Battle\BattleGaugeControl $gauges = null,
   ): CombatActionResult
   {
     $orderedTargetIds = [];
@@ -64,6 +65,7 @@ final class SkillEffectExecutor
         $skill->invocation->criticalScope,
         $rollLedger,
         $reactions,
+        $gauges,
       );
 
       foreach ($skill->effects as $effect) {

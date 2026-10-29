@@ -23,6 +23,8 @@ use Ichiloto\Engine\IO\Console\TerminalText;
  */
 class State
 {
+  /** Declared default preserves states restored from older saves. */
+  protected(set) float $atbRate = 1.0;
   /** The badge label length derived from the name when none is authored. */
   protected const int DERIVED_LABEL_LENGTH = 3;
 
@@ -78,6 +80,7 @@ class State
     protected(set) float $damageTakenRate = 1.0,
     protected(set) bool $coversAllies = false,
     protected(set) int $confusionChancePercent = 0,
+    float $atbRate = 1.0,
   )
   {
     if ($fieldTickSteps !== null && $fieldTickSteps < 1) {
@@ -89,6 +92,10 @@ class State
     if ($confusionChancePercent < 0 || $confusionChancePercent > 100) {
       throw new InvalidArgumentException(sprintf('State "%s" confusionChancePercent must be from 0 to 100.', $id));
     }
+    if (!is_finite($atbRate) || $atbRate < 0.0) {
+      throw new InvalidArgumentException(sprintf('State "%s" atbRate must be a finite non-negative multiplier.', $id));
+    }
+    $this->atbRate = $atbRate;
   }
 
   /**
@@ -134,6 +141,10 @@ class State
     if (! is_int($confusionChance)) {
       throw new InvalidArgumentException(sprintf('State "%s" confusionChancePercent must be a whole percentage.', $id));
     }
+    $atbRate = $data['atbRate'] ?? 1.0;
+    if (!is_int($atbRate) && !is_float($atbRate)) {
+      throw new InvalidArgumentException(sprintf('State "%s" atbRate must be a number.', $id));
+    }
 
     return new self(
       $id,
@@ -153,6 +164,7 @@ class State
       floatval($damageTakenRate),
       $data['coversAllies'] ?? false,
       $confusionChance,
+      (float) $atbRate,
     );
   }
 }

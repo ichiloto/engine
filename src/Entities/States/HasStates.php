@@ -33,6 +33,15 @@ trait HasStates
    * @var string|null The last elemental reaction tag (WEAK!, RESIST, NULL, ABSORB) for the battle UI to display and clear.
    */
   public ?string $lastElementReaction = null;
+  /** Current state-owned ATB pace; movement and ordinary stats keep their own owners. */
+  public function getAtbRate(): float
+  {
+    $rate = 1.0;
+    foreach ($this->states as $instance) {
+      if ($instance->remainingTurns !== 0) { $rate *= $instance->state->atbRate; }
+    }
+    return $rate;
+  }
   /**
    * @var bool True when the last hit on this battler was critical; the battle UI displays and clears it.
    */

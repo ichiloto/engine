@@ -54,6 +54,7 @@ effects and integrated game presentation are still pending.
 | `remove_state` | `stateIds`, `chancePercent` (default 100) | Rolls to cure each listed state the target has |
 | `modify_stat_stage` | `stat`, `delta`, `affectsUser` | Raises or lowers a stat stage for the battle |
 | `prepare_counter` | `skill`, `stateId` | Draws the selected opponent's next attack into a decoy miss, then queues one response |
+| `reset_atb` | — | Resets a surviving target's ATB gauge and removes its ready-queue entry |
 | `reveal` | `facts`, `chancePercent` (1 to 100, default 100) | Reveals facts about each foe for the rest of the battle |
 
 Effects apply in order to each target. `add_state` skips a target an earlier
@@ -93,6 +94,24 @@ available to block the target's next turn.
 command failure and each simulator run release it. Actor saves store no selected
 opponent or reaction lease. Editor skill/state pickers, record round trips and
 project validation share the runtime contract.
+
+### Active-time effects
+
+`reset_atb` requests a reset from the active engine through `BattleGaugeControl`.
+The engine owns gauge values and ready-queue removal. A previously ready target
+must refill before acting; other participants' gauges and turns remain intact.
+When earlier damage in the same invocation missed, the reset is skipped. Standalone
+reset effects can act without damage. Defeated or absent participants are refused.
+Traditional combat and the turn-based simulator have no ATB gauge; the effect
+records an unapplied timing outcome there while other effects retain their rules.
+
+States may author `atbRate`: a finite non-negative multiplier, default 1. Active
+rates multiply together. For example, 0.5 halves fill pace; 0 pauses it. Curing or
+expiring the state restores the remaining rates. An already-ready action remains
+ready until it acts or an explicit reset retires it. Older serialized states use
+the ordinary 1 multiplier. This changes ATB fill independently of field movement
+and combat stats. The Editor authors both the effect and state rate through its
+shared record schemas.
 
 ### Reveal
 
@@ -154,6 +173,7 @@ nothing.
 | `persistsAfterBattle`, `fieldTickSteps`, `fieldTickKnocksOut`, `curedByRest` | Life outside battle |
 | `disposition` | `harmful` (default), `beneficial` or `neutral` |
 | `counterAttack`, `damageTakenRate`, `coversAllies` | Counters, protection and Cover |
+| `atbRate` | Multiplies ATB fill pace; default 1, 0 pauses fill |
 
 ### Confusion
 

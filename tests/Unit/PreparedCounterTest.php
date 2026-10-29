@@ -149,6 +149,17 @@ it('keeps selected-opponent leases out of actor and battle configuration saves',
   expect($owner->hasState('synthetic-decoy'))->toBeFalse();
 });
 
+it('releases the prior reaction owner when the active-time engine is reconfigured', function () {
+  [$engine, $context, $screen, $owner, , $foes] = createTargetExecutionFixture(true, false, $this->createStub(AudioManager::class));
+  $reactions = new BattleReactions(SkillCatalog::fromSkills(['r.php' => createPreparedResponse()]));
+  new ReflectionProperty(\Ichiloto\Engine\Scenes\Battle\BattleConfig::class, 'reactionOwner')->setValue($engine->battleConfig, $reactions);
+  $reactions->prepareCounter($owner, $foes[0], new CounterAttackRule('Synthetic reply'), StateRegistry::get('synthetic-decoy'));
+  expect($owner->hasState('synthetic-decoy'))->toBeTrue();
+  $engine->configure(new \Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleConfig(
+    $context->party, $context->troop, $screen));
+  expect($owner->hasState('synthetic-decoy'))->toBeFalse()->and($reactions->turnOwner)->toBeNull();
+});
+
 it('runs the diverted miss and counter through the shared live turn playback without consuming the reactors turn',
   function (bool $activeTime, bool $graphical) {
     $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));

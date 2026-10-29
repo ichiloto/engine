@@ -75,6 +75,7 @@ class SkillBattleAction extends BattleAction implements ExecutionEligibility
       $actionId,
       $executionId,
       $this->reactions,
+      $this->gauges,
     );
   }
 }
