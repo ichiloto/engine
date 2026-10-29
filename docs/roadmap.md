@@ -51,8 +51,9 @@ occupied positions and pushes back-row members into distinct front places.
 Editor source authoring and duplicate-position refusal are present. Shared line/row
 selection, preview, queued TBS/ATB execution, enemy AI and simulation consume the
 current formation. Selected line anchors retain combatant identity across queued
-formation changes. Group effect dispatch and visible row-change presentation
-remain in progress before formation-dependent moves are complete.
+formation changes. Command group effects now shuffle occupied places or move survivors forward once
+after all damage, with live/counter/simulator context ownership. Visible row-change
+presentation remains in progress before formation-dependent moves are complete.
 See [Crisis techniques](skill-effects-and-states.md#crisis-techniques).
 
 Prepared decoy counters now divert a selected opponent's next damaging command,

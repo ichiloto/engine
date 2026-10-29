@@ -147,7 +147,17 @@ refuse line skills. Historical serialized skills retain ordinary scope behavior.
 Editor fields constrain the shape and save through the same runtime validator;
 changing shape updates its required One/All scope atomically. Draft metadata
 remains authored data while unassigned scope/occasion stay unassigned.
-Group formation effects and visible row-change presentation remain in progress.
+`change_formation` is a command group effect with operation `shuffle` or
+`move_to_front`. The executor resolves every recipient's individual effects
+first, then applies each group effect once, independent of invocation repeats.
+Survivors with a successful prior hit participate; missed or knocked-out
+recipients keep their positions. Standalone formation effects use the selected
+surviving group. Mutations validate one side's current participants before costs
+or damage, and record per-recipient formation outcomes. Live turns, counters and
+isolated simulation runs pass their battle-owned formation for the execution
+and release it afterwards. Formation effects require Battle Screen occasion;
+a missing battle formation refuses execution before MP spending. Visible
+row-change presentation remains in progress.
 
 ### Reveal
 

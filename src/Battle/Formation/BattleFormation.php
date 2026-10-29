@@ -82,6 +82,12 @@ final class BattleFormation
     return $this->places->offsetExists($member) ? $this->places[$member]['initial'] : null;
   }
 
+  /** Validates a formation command before any of its costs or damage mutate battlers. */
+  public function validateTargets(array $targets): void
+  {
+    $this->requireOneSide($targets);
+  }
+
   /** @param list<CharacterInterface> $eligible @return list<CharacterInterface> */
   public function getLineTargets(CharacterInterface $anchor, array $eligible): array
   {

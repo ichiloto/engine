@@ -60,6 +60,9 @@ class SkillBattleAction extends BattleAction implements ExecutionEligibility
     }
 
     foreach ($this->skill->effects as $effect) {
+      if ($effect instanceof \Ichiloto\Engine\Entities\Effects\SkillEffects\GroupSkillEffect) {
+        $effect->validateContext($this->formation, $targets);
+      }
       if ($effect instanceof \Ichiloto\Engine\Entities\Effects\SkillEffects\PrepareCounterSkillEffect) {
         $effect->validate($this->reactions);
       }
@@ -79,6 +82,7 @@ class SkillBattleAction extends BattleAction implements ExecutionEligibility
       $executionId,
       $this->reactions,
       $this->gauges,
+      $this->formation,
     );
   }
 }

@@ -248,7 +248,8 @@ class ActionExecutionState extends TurnState
             $context->partyRoster->battlers, $context->troop->members->toArray())) {
             $response->action->executeWithReactions($response->actor, [$response->target],
               $this->engine->battleConfig->reactions, allowInterception: false,
-              gauges: $this->engine instanceof \Ichiloto\Engine\Battle\BattleGaugeControl ? $this->engine : null);
+              gauges: $this->engine instanceof \Ichiloto\Engine\Battle\BattleGaugeControl ? $this->engine : null,
+              formation: $this->engine->battleConfig->formation);
           }
         });
       return true;

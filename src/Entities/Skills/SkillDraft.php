@@ -116,6 +116,9 @@ final readonly class SkillDraft
           \Ichiloto\Engine\Battle\Formation\BattleTargetShape::BACK_ROW], true) ? 'All' : 'One';
       }
     }
+    if (in_array('occasion', $unassigned, true) && array_any($complete['effects'], static fn(array $effect): bool => ($effect['type'] ?? null) === 'change_formation')) {
+      $complete['occasion'] = \Ichiloto\Engine\Entities\Enumerations\Occasion::BATTLE_SCREEN->value;
+    }
     $reading = SkillRecord::readSkill($complete);
 
     return new self(strval($data['name']), strval($data['kind']), array_values(array_unique($unassigned)), $data, $reading);

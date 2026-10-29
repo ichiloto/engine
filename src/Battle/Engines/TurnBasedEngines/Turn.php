@@ -66,7 +66,8 @@ class Turn
 
     $this->action->executeWithReactions($this->battler, $this->targets,
       $context->battleConfig->getReactions($context->engine->random),
-      gauges: $context->engine instanceof \Ichiloto\Engine\Battle\BattleGaugeControl ? $context->engine : null);
+      gauges: $context->engine instanceof \Ichiloto\Engine\Battle\BattleGaugeControl ? $context->engine : null,
+      formation: $context->battleConfig->formation);
 
     $this->complete();
   }

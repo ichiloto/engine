@@ -76,6 +76,7 @@ final class SkillRecord
     'modify_stat_stage' => ModifyStatStageSkillEffect::class,
     'prepare_counter' => PrepareCounterSkillEffect::class,
     'reset_atb' => ResetAtbSkillEffect::class,
+    'change_formation' => \Ichiloto\Engine\Entities\Effects\SkillEffects\FormationSkillEffect::class,
   ];
 
   /** The effects that reveal what a battler hides, by type. */
@@ -328,6 +329,11 @@ final class SkillRecord
     }
 
     return match ($type) {
+      'change_formation' => (static function () use ($effect, $path): \Ichiloto\Engine\Entities\Effects\SkillEffects\FormationSkillEffect {
+        self::refuseUnknownKeys($effect, ['type', 'operation'], $path);
+        return new \Ichiloto\Engine\Entities\Effects\SkillEffects\FormationSkillEffect(
+          self::readEnum(\Ichiloto\Engine\Battle\Formation\BattleFormationChange::class, self::requireString($effect, 'operation', $path), $path . 'operation'));
+      })(),
       'reset_atb' => (static function () use ($effect, $path): ResetAtbSkillEffect {
         self::refuseUnknownKeys($effect, ['type'], $path);
         return new ResetAtbSkillEffect();
@@ -425,6 +431,7 @@ final class SkillRecord
 
     return match (true) {
       $effect instanceof ResetAtbSkillEffect => ['type' => 'reset_atb'],
+      $effect instanceof \Ichiloto\Engine\Entities\Effects\SkillEffects\FormationSkillEffect => ['type' => 'change_formation', 'operation' => $effect->operation->value],
       $effect instanceof PrepareCounterSkillEffect => ['type' => 'prepare_counter',
         'skill' => $effect->skill, 'stateId' => $effect->stateId],
       $effect instanceof AddStateSkillEffect => array_filter(

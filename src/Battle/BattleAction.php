@@ -24,17 +24,20 @@ abstract class BattleAction implements BattleActionInterface
   protected ?BattleReactions $reactions = null;
   protected bool $allowInterception = true;
   protected ?BattleGaugeControl $gauges = null;
+  protected ?\Ichiloto\Engine\Battle\Formation\BattleFormation $formation = null;
 
   /** A battle injects its own reaction owner only for the duration of execution. */
   final public function executeWithReactions(Actor $actor, array $targets, BattleReactions $reactions,
-    bool $allowInterception = true, ?BattleGaugeControl $gauges = null): void
+    bool $allowInterception = true, ?BattleGaugeControl $gauges = null,
+    ?\Ichiloto\Engine\Battle\Formation\BattleFormation $formation = null): void
   {
     $this->lastResult = null;
     $this->reactions = $reactions;
     $this->allowInterception = $allowInterception;
     $this->gauges = $gauges;
+    $this->formation = $formation;
     try { $this->execute($actor, $targets); }
-    finally { $this->reactions = null; $this->allowInterception = true; $this->gauges = null; }
+    finally { $this->reactions = null; $this->allowInterception = true; $this->gauges = null; $this->formation = null; }
   }
   /** The command's targeting contract, shared by selection and execution. */
   public ItemScope $targetScope {

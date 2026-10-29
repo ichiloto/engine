@@ -69,6 +69,9 @@ abstract class Skill implements SkillInterface
     $this->battleTargeting = $battleTargeting;
     $this->animationScale = \Ichiloto\Engine\Animations\EffectScale::readValue($animationScale);
     foreach ($effects as $effect) {
+      if ($effect instanceof \Ichiloto\Engine\Entities\Effects\SkillEffects\FormationSkillEffect && $occasion !== Occasion::BATTLE_SCREEN) {
+        throw new \InvalidArgumentException('Formation effects require a battle-only skill.');
+      }
       if ($effect instanceof SkillEffect) {
         $this->effects[] = $effect;
       }

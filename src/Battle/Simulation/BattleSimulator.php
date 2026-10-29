@@ -251,7 +251,7 @@ class BattleSimulator
 
           if ($targets !== []) {
             $targets = $reactions->resolveTargets($action, $battler, $targets, $allies, $enemies);
-            $action->executeWithReactions($battler, $targets, $reactions);
+            $action->executeWithReactions($battler, $targets, $reactions, formation: $battleConfig?->formation);
 
             if (($result = $action->lastResult) !== null) {
               $this->recordResult($result, $battler, $targets, $isAlly, $damage, $hpLoss, $healing, $mitigation);
@@ -259,7 +259,7 @@ class BattleSimulator
                 ...$counters->resolveResponses($result, $battler, $targets, $allies, $enemies)] as $response) {
                 if (!$counters->canExecute($response, $allies, $enemies)) { continue; }
                 $response->action->executeWithReactions($response->actor, [$response->target], $reactions,
-                  allowInterception: false);
+                  allowInterception: false, formation: $battleConfig?->formation);
                 if (($counterResult = $response->action->lastResult) !== null) {
                   $this->recordResult($counterResult, $response->actor, [$response->target], !$isAlly,
                     $damage, $hpLoss, $healing, $mitigation);

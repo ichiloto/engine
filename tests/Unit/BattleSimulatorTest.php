@@ -300,3 +300,21 @@ it('uses authored logical rows for enemy targeting in each isolated simulation r
   expect($report->hpLost['Rear'])->toBe(10.0)->and($report->hpLost['Front'] ?? 0)->toBe(0)
     ->and([serialize($party), serialize($enemy)])->toBe($before);
 });
+
+
+it('injects a fresh formation owner into command group effects on each simulation run', function () {
+  $party = makeSimulationParty('Rear', new Stats(currentHp: 100, totalHp: 100, attack: 0, speed: 1));
+  $observer = new class extends \Ichiloto\Engine\Entities\Effects\SkillEffects\GroupSkillEffect {
+    public array $rows = [];
+    public function applyToGroup(\Ichiloto\Engine\Entities\Skills\SkillGroupEffectContext $context): void {
+      $this->rows[] = $context->formation->getPosition($context->getTargets()[0])->row->value;
+    }
+  };
+  $skill = new BasicSkill('Push', '', '', 0, 0, occasion: \Ichiloto\Engine\Entities\Enumerations\Occasion::BATTLE_SCREEN,
+    effects: [new \Ichiloto\Engine\Entities\Effects\SkillEffects\FormationSkillEffect(\Ichiloto\Engine\Battle\Formation\BattleFormationChange::MOVE_TO_FRONT), $observer]);
+  $enemy = makeSimulationEnemy('Mover', new Stats(currentHp: 500, totalHp: 500, attack: 0, speed: 99));
+  new ReflectionProperty(Enemy::class, 'actionPatterns')->setValue($enemy, [new ActionPattern($skill, 5, new ActionCondition())]);
+  new BattleSimulator(turnLimit: 1)->simulate($party, new Troop('Mover', [$enemy]), 3,
+    ['partyFormation' => [['row' => 'back', 'lane' => 0]]]);
+  expect($observer->rows)->toBe(['front', 'front', 'front'])->and($party->battlers[0]->stats->currentHp)->toBe(100);
+});
