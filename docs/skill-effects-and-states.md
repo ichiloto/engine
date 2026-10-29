@@ -6,6 +6,44 @@ writes them; `SkillRecord::getEffectTypes()` lists every type, and the Editor
 offers the same list. States are authored in `assets/Data/states.php` and read
 by `StateRegistry`.
 
+## Crisis techniques
+
+An actor may reference a project resource with `'crisisAbility' => 'surge'`.
+The resource lives in `assets/Data/crisis-abilities.php`, a list of records:
+
+```php
+return [[
+    'id' => 'surge',
+    'name' => 'Surge',
+    'label' => 'SRG',
+    'hpBelowPercent' => 10,
+    'states' => ['focus'],
+    'variants' => [[
+        'skill' => 'Finishing Strike',
+        'conditions' => [['type' => 'variable', 'name' => 'form', 'value' => 'first']],
+    ]],
+]];
+```
+
+HP strictly below the authored percentage, or any listed active state, makes
+the crisis active for a conscious actor. Availability reads current resources
+and states and changes no MP. Each variant references a normal basic or special
+skill and shared world conditions. Exactly one matching variant offers a
+technique. Overlapping variants are reported as an authoring error. A queued
+technique checks current activation, form and actor ownership again before
+presentation and expenditure. The skill's ordinary effect and resource contracts
+perform the action.
+
+The Editor's Crisis Abilities category authors these records and variants;
+the actor page selects their stable resource IDs. Skill and state references
+use the shared pickers. Actor saves keep mutable resources and persistent states;
+the current project source supplies crisis rules when the actor is reconstructed.
+Battle condition badges project current crisis activation.
+
+Delivery is in progress. The initial implementation offers the technique within
+the existing Attack choices. The final secondary-command interaction, specialized
+reactions, formation effects and integrated game presentation are still pending.
+
 ## Effect types
 
 | Type | Values | What it does |

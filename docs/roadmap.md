@@ -34,6 +34,17 @@ Battle Test's former four-member ceiling is removed. See
 This does not implement a particular game's split/reunion scene, change its
 normal party size, add controller devices or authorize native launches.
 
+## Crisis techniques — in progress, 29 October 2026
+
+Project-authored crisis resources now define HP/status activation and
+world-conditioned skill variants. The initial runtime reads live resources,
+rechecks queued actions, retains ordinary Attack, and projects a crisis badge.
+Current-source actor reconstruction keeps the resource definition out of saved
+mutable actor state. Synthetic runtime and Editor round-trip checks cover this
+foundation. Full delivery still requires the secondary-command interaction,
+authored specialized reactions/formation effects and integrated presentation.
+See [Crisis techniques](skill-effects-and-states.md#crisis-techniques).
+
 ## Maturity map
 
 **Polished / complete**

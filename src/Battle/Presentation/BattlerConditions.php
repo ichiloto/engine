@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
+use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\States\StateDisposition;
 
 /** A current projection, never a second state or stat-stage store. */
@@ -30,6 +31,11 @@ final class BattlerConditions
   public static function getEntries(CharacterInterface $battler): array
   {
     $entries = [];
+    if ($battler instanceof Character && ($ability = $battler->crisisAbility) !== null && $ability->isActive($battler)) {
+      $entries[] = ['key' => 'crisis', 'name' => $ability->name, 'description' => $ability->description,
+        'glyph' => $ability->label, 'iconKey' => 'status.crisis', 'symbol' => 'crisis',
+        'label' => $ability->label, 'badge' => $ability->label, 'polarity' => 'positive', 'magnitude' => null];
+    }
     foreach ($battler->states ?? [] as $instance) {
       $state = $instance->state;
       $entries[] = ['key' => 'state:' . $state->id, 'name' => $state->name,

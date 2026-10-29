@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Entities\Actors;
 
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Battle\CounterAttackRule;
+use Ichiloto\Engine\Battle\CrisisAbilityCatalog;
 use Ichiloto\Engine\Entities\Enumerations\WeaponType;
 use Ichiloto\Engine\Entities\Stats\StatKey;
 use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
@@ -49,6 +50,7 @@ final class ActorDefinition
 
     $this->id = $id;
     CounterAttackRule::fromArray($data['counterAttack'] ?? null);
+    CrisisAbilityCatalog::requireReference($data['crisisAbility'] ?? null);
     if (($data['attackStyle'] ?? null) !== null) {
       try {
         WeaponType::require($data['attackStyle']);

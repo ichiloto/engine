@@ -8,6 +8,8 @@ use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Battle\BattleCommandLoadout;
 use Ichiloto\Engine\Battle\CounterAttackProvider;
 use Ichiloto\Engine\Battle\CounterAttackRule;
+use Ichiloto\Engine\Battle\CrisisAbility;
+use Ichiloto\Engine\Battle\CrisisAbilityCatalog;
 use Ichiloto\Engine\Battle\HasCounterAttacks;
 use Ichiloto\Engine\Battle\InherentAttack;
 use Ichiloto\Engine\Battle\InherentAttacker;
@@ -222,6 +224,8 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
   protected(set) ?WeaponType $attackStyle = null;
   /** Project-owned inherent attack; catalogue membership alone never grants an action. */
   protected(set) ?BasicSkill $attackSkill = null;
+  /** Project-owned crisis rules; availability is derived from live resources and states. */
+  protected(set) ?CrisisAbility $crisisAbility = null;
   /**
    * @var string[] The ids of the summons assigned to this character.
    */
@@ -342,6 +346,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
     ?WeaponType $attackStyle = null,
     ?BasicSkill $attackSkill = null,
     ?CounterAttackRule $counterAttack = null,
+    ?CrisisAbility $crisisAbility = null,
   )
   {
     $this->maxLevel = $maxLevel;
@@ -350,6 +355,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
     $this->attackStyle = $attackStyle;
     $this->attackSkill = InherentAttack::requireBattleUsable($attackSkill, 'actor');
     $this->counterAttack = $counterAttack;
+    $this->crisisAbility = $crisisAbility;
     $this->abilityBook = $abilityBook ?? new AbilityBook();
     $this->spellbook = $spellbook ?? new Spellbook();
     $this->actorNaturalAdjustments = self::normalizeNaturalAdjustments($actorNaturalAdjustments);
@@ -436,6 +442,8 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
       ($data['attackStyle'] ?? null) === null ? null : WeaponType::require($data['attackStyle']),
       self::resolveAttackSkill($data['attackSkill'] ?? null),
       CounterAttackRule::fromArray($data['counterAttack'] ?? null),
+      ($crisisReference = CrisisAbilityCatalog::requireReference($data['crisisAbility'] ?? null)) === null
+        ? null : CrisisAbilityCatalog::fromProject()->getAbility($crisisReference),
     );
 
     // Actors reference a class by name (`'class' => 'Vanguard'`); the role
@@ -1352,7 +1360,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
     $roleName = null;
 
     foreach ($data as $key => $value) {
-      if (in_array($key, ['states', 'battleCommandLoadout', 'attackStyle', 'attackSkill', 'counterAttack'], true)) {
+      if (in_array($key, ['states', 'battleCommandLoadout', 'attackStyle', 'attackSkill', 'counterAttack', 'crisisAbility'], true)) {
         continue;
       }
 
