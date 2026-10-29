@@ -177,13 +177,19 @@ class Party extends BattleGroup
   }
 
   /** Recruit a current project actor once, preserving existing members and their mutable progress. */
-  public function recruitActor(ActorDefinition $definition): bool
+  public function recruitActor(ActorDefinition $definition, RecruitmentLevelPolicy $levelPolicy = RecruitmentLevelPolicy::AUTHORED): bool
   {
     foreach ($this->members as $member) {
       if ($member instanceof Character && $member->actorId === $definition->id) { return false; }
     }
     // Fully construct before changing the roster. A rejected definition leaves the party untouched.
-    $character = $definition->createCharacter();
+    $startingLevel = null;
+    if ($levelPolicy === RecruitmentLevelPolicy::PARTY_AVERAGE) {
+      $members = $this->members->toArray();
+      if ($members === []) { throw new \InvalidArgumentException('Party-average recruitment requires an existing party.'); }
+      $startingLevel = intdiv(array_sum(array_map(static fn(Character $member): int => $member->level, $members)), count($members));
+    }
+    $character = $definition->createCharacter(startingLevel: $startingLevel);
     $this->addMember($character);
     return true;
   }

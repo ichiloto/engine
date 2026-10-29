@@ -120,8 +120,11 @@ final class ActorDefinition
    *
    * @param array<string, mixed> $savedState
    */
-  public function createCharacter(array $savedState = [], ?string $savePath = null): Character
+  public function createCharacter(array $savedState = [], ?string $savePath = null, ?int $startingLevel = null): Character
   {
+    if ($startingLevel !== null && ($startingLevel < 1 || $savedState !== [])) {
+      throw new \InvalidArgumentException('A starting level must be positive and applies only to a new actor.');
+    }
     $variantId = $this->resolveVariantId($savedState, $savePath);
     $data = $this->data;
     $data['actorId'] = $this->id;
@@ -129,6 +132,12 @@ final class ActorDefinition
     $data['naturalVariantId'] = $variantId;
 
     $character = Character::fromArray($data);
+    if ($startingLevel !== null) {
+      $level = min($startingLevel, $character->maxLevel);
+      $experience = $character->getLevelExperienceThresholds()[$level]
+        ?? throw new \InvalidArgumentException('The actor experience curve has no threshold for its starting level.');
+      $character->addExperience($experience - $character->currentExp);
+    }
 
     if ($savedState !== []) {
       $character->restoreMutableState($savedState);

@@ -3,6 +3,7 @@
 use Ichiloto\Engine\Entities\Actors\ActorDefinition;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\RecruitmentLevelPolicy;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Events\Interpreter\Commands\RecruitActorCommand;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
@@ -78,4 +79,49 @@ it('keeps actors with equal display names distinct by their authored identity', 
   $other = ActorDefinition::fromArray([...$first->data(), 'id' => 'actor.other']);
   expect($this->party->recruitActor($first))->toBeTrue()->and($this->party->recruitActor($other))->toBeTrue()
     ->and(array_column($this->party->members->toArray(), 'actorId'))->toBe(['actor.hero', 'actor.other']);
+});
+
+it('matches a new recruit to the roster average before joining and preserves existing progress', function () {
+  foreach ([3, 5, 7, 12] as $index => $level) {
+    $member = new Character('Member ' . $index, 0, new Stats());
+    $member->addExperience($member->getLevelExperienceThresholds()[$level]);
+    $member->stats->currentHp = 1;
+    $this->party->addMember($member);
+  }
+  $before = array_map(static fn(Character $member) => $member->toArray(), $this->party->members->toArray());
+  $frontline = $this->party->battlers->toArray();
+  (new RecruitActorCommand())->execute(new ScriptCommandContext($this->scene), [
+    'actor' => 'actor.hero', 'levelPolicy' => 'partyAverage',
+  ]);
+  $members = $this->party->members->toArray();
+  $recruit = $members[4];
+  expect($recruit->level)->toBe(6)
+    ->and($recruit->currentExp)->toBe($recruit->getLevelExperienceThresholds()[6])
+    ->and($this->party->battlers->toArray())->toBe($frontline)
+    ->and(array_map(static fn(Character $member) => $member->toArray(), array_slice($members, 0, 4)))->toBe($before);
+
+  $recruit->stats->currentHp = 9;
+  $loaded = unserialize(serialize($this->party));
+  $saved = $loaded->members->toArray()[4]->toArray();
+  expect($loaded->recruitActor($this->actors->require('actor.hero', 'repeat recruitment'), RecruitmentLevelPolicy::PARTY_AVERAGE))->toBeFalse()
+    ->and($loaded->members->toArray()[4]->toArray())->toBe($saved);
+});
+
+it('refuses an empty average and invalid policies without partially recruiting', function () {
+  $definition = $this->actors->require('actor.hero', 'testing recruitment policy');
+  expect(fn() => $this->party->recruitActor($definition, RecruitmentLevelPolicy::PARTY_AVERAGE))
+    ->toThrow(InvalidArgumentException::class, 'existing party');
+  foreach (['average', '', 3, []] as $policy) {
+    expect(fn() => (new RecruitActorCommand())->execute(new ScriptCommandContext($this->scene), [
+      'actor' => 'actor.hero', 'levelPolicy' => $policy,
+    ]))->toThrow(RuntimeException::class, 'levelPolicy');
+  }
+  expect($this->party->members->count())->toBe(0);
+});
+
+it('declares an optional constrained starting-level policy in the shared command schema', function () {
+  $definition = ScriptCommandCatalog::createEngineCatalog()->findDefinition('recruit_actor');
+  $field = $definition->fields[1];
+  expect($field->key)->toBe('levelPolicy')->and($field->required)->toBeFalse()
+    ->and($field->options)->toBe(['authored', 'partyAverage']);
 });

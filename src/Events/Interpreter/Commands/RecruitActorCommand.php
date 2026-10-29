@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Events\Interpreter\Commands;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 use RuntimeException;
+use Ichiloto\Engine\Entities\RecruitmentLevelPolicy;
 
 /** Field recruitment uses the same current actor factory as game start and save restoration. */
 final class RecruitActorCommand implements ScriptCommandHandlerInterface
@@ -21,7 +22,11 @@ final class RecruitActorCommand implements ScriptCommandHandlerInterface
     }
     $store = ConfigStore::get(ActorStore::class);
     if (!$store instanceof ActorStore) { throw new RuntimeException('recruit_actor requires the project actor catalogue.'); }
-    $party->recruitActor($store->require($reference, 'recruiting a party member'));
+    $policy = $command['levelPolicy'] ?? RecruitmentLevelPolicy::AUTHORED->value;
+    if (!is_string($policy) || ($policy = RecruitmentLevelPolicy::tryFrom($policy)) === null) {
+      throw new RuntimeException('recruit_actor.levelPolicy must be authored or partyAverage.');
+    }
+    $party->recruitActor($store->require($reference, 'recruiting a party member'), $policy);
     return ScriptCommandOutcome::complete();
   }
 }

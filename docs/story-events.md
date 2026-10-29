@@ -483,6 +483,7 @@ factory used by game start and save restoration:
 
 ```php
 ['type' => 'recruit_actor', 'actor' => 'actor.traveller'],
+['type' => 'recruit_actor', 'actor' => 'actor.archer', 'levelPolicy' => 'partyAverage'],
 ```
 
 `Party::recruitActor()` appends a fully constructed character once by stable
@@ -492,8 +493,12 @@ actors may share a display name. The existing frontline capacity is unchanged;
 an appended recruit beyond it is a reserve. Invalid references or factory errors
 leave the roster unchanged. The command is field-only; changing a running battle's
 roster is excluded. Its required Actor field uses the Editor's resource picker.
-Recruitment does not invent a level-scaling policy, new stats, dialogue, story
-flags or art; those remain authored project decisions.
+The optional Starting Level picker selects `authored` (the default) or
+`partyAverage`. The latter uses the permanent roster, including reserves,
+before adding the recruit and rounds the average level down. It requires a
+nonempty party. The actor factory uses the recruit's own experience curve,
+maximum level, stat growth and automatic role skills. Repeating recruitment
+keeps an owned actor's progress. Story flags, dialogue and art remain project data.
 
 The Engine registers two services, so an NPC can own the interaction a
 trigger tile used to stand in for:

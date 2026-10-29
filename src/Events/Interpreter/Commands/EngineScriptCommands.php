@@ -157,9 +157,12 @@ final class EngineScriptCommands
       'type' => 'recruit_actor',
       'class' => RecruitActorCommand::class,
       'label' => 'Recruit Actor',
-      'description' => 'Adds the selected actor once using its current starting definition. Existing members keep their progress and order; a full frontline sends the new member to reserve.',
+      'description' => 'Adds the selected actor once using its current definition and selected starting-level policy. Existing members keep their progress and order; a full frontline sends the new member to reserve.',
       'fields' => [
         ['key' => 'actor', 'label' => 'Actor', 'kind' => 'reference', 'reference' => 'actor', 'required' => true],
+        ['key' => 'levelPolicy', 'label' => 'Starting Level', 'kind' => 'option',
+          'options' => ['authored', 'partyAverage'],
+          'description' => 'Authored level, or the permanent party roster average rounded down before this actor joins.'],
       ],
     ],
     [

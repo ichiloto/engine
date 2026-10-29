@@ -15,6 +15,38 @@ function foundationActorDefinition(): ActorDefinition
   return $store->require('actor.hero', 'loading the project-backed actor test fixture');
 }
 
+it('builds a recruit at the requested level using its own growth and level-gated skills', function () {
+  $baseline = foundationActorDefinition()->createCharacter();
+  $role = new \Ichiloto\Engine\Entities\Roles\CharacterRole(
+    $baseline, 'Recruit test',
+    skillsToLearn: [
+      new \Ichiloto\Engine\Entities\Roles\SkillToLearn(3, new \Ichiloto\Engine\Entities\Skills\SpecialSkill('Early', '', '', 0, 0)),
+      new \Ichiloto\Engine\Entities\Roles\SkillToLearn(8, new \Ichiloto\Engine\Entities\Skills\SpecialSkill('Later', '', '', 0, 0)),
+    ],
+  );
+  $definition = ActorDefinition::fromArray([...foundationActorDefinition()->data(), 'role' => $role]);
+  $atFive = $definition->createCharacter(startingLevel: 5);
+  $expected = $definition->createCharacter();
+  $expected->addExperience($expected->getLevelExperienceThresholds()[5] - $expected->currentExp);
+  expect($atFive->level)->toBe(5)
+    ->and($atFive->stats->jsonSerialize())->toBe($expected->stats->jsonSerialize())
+    ->and(array_column($atFive->abilityBook->getLearnedAbilities(), 'name'))->toBe(['Early']);
+
+  $highDefinition = ActorDefinition::fromArray([...$definition->data(), 'currentExp' => $atFive->getLevelExperienceThresholds()[9]]);
+  $lower = $highDefinition->createCharacter(startingLevel: 2);
+  expect($lower->level)->toBe(2)->and($lower->abilityBook->getLearnedAbilities())->toBeEmpty();
+  $capped = $definition->createCharacter(startingLevel: 999);
+  expect($capped->level)->toBe($capped->maxLevel);
+});
+
+it('applies starting levels only to new actors and keeps authored recruitment unchanged by default', function () {
+  $definition = foundationActorDefinition();
+  $authored = $definition->createCharacter();
+  expect($authored->currentExp)->toBe($definition->data()['currentExp']);
+  expect(fn() => $definition->createCharacter(startingLevel: 0))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => $definition->createCharacter($authored->toArray(), startingLevel: 4))->toThrow(InvalidArgumentException::class);
+});
+
 it('hydrates every authored attack style without changing stats or equipment', function (WeaponType $type) {
   $data = foundationActorDefinition()->data();
   $baseline = ActorDefinition::fromArray($data)->createCharacter();
