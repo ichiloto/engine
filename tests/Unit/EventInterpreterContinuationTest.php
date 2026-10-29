@@ -481,6 +481,67 @@ function makeEventRuntime(): array
   return [$scene, $interpreter, $presentation];
 }
 
+it('reveals an adjacent sensed passage through Action and restores its opening from the normal saved event state', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($scene->mapManager, $scene);
+  $player = new EventTestPlayer(new Vector2(0, 0));
+  $scene->installPlayer($player);
+  $source = ['class' => \Ichiloto\Engine\Events\Triggers\PassageEventTrigger::class,
+    'marker' => 'P', 'area' => ['cells' => [[1, 0]]], 'engagement' => 'facing',
+    'conditions' => [['type' => 'switch', 'name' => 'sense']],
+    'cue' => ['symbol' => '!', 'maxDistance' => 2],
+    'data' => ['reusable' => false, 'mode' => 'action']];
+  $restore = new ReflectionMethod(MapManager::class, 'createEventTriggers');
+  [$trigger] = $restore->invoke($scene->mapManager, [$source], 'test-passage');
+  $player->addTrigger($trigger);
+  expect($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeFalse()
+    ->and($player->availableAction)->toBeNull()->and($player->blockedMessages)->toBe([])
+    ->and($player->getCuedEventMarkers())->toBe([]);
+  $scene->gameState->setSwitch('sense');
+  expect($player->position->x)->toBe(0.0)
+    ->and($player->getCuedEventMarkers())->toBe(['P' => true])
+    ->and($player->availableAction)->toBeNull();
+  // Acquiring the ability in place requires no extra walking or turning.
+  $player->interact();
+  $interpreter->update(0.1);
+  expect($trigger->isComplete)->toBeTrue()
+    ->and($scene->gameState->isEventComplete('test-passage', 'P'))->toBeTrue()
+    ->and($player->getCuedEventMarkers())->toBe([])
+    ->and($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeTrue();
+  $scene->gameState->restoreSnapshot(GameState::fromArray($scene->gameState->toArray())->toArray());
+  [$reloaded] = $restore->invoke($scene->mapManager, [$source], 'test-passage');
+  expect($reloaded->isComplete)->toBeTrue()
+    ->and($reloaded->getEntryRefusal(new Vector2(0, 0), new Vector2(1, 0)))->toBeNull();
+});
+
+it('keeps a passage blocked when its opening script fails', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $trigger = new \Ichiloto\Engine\Events\Triggers\PassageEventTrigger(new Rect(1, 0, 1, 1),
+    ['reusable' => false, 'mode' => 'action', 'script' => [['type' => 'unknown-passage-command']]],
+    mapId: 'test-passage', marker: 'P', engagement: \Ichiloto\Engine\Events\Enumerations\EventEngagement::FACING);
+  $trigger->bind($scene->gameState, $scene->party);
+  $trigger->startSession($scene);
+  $interpreter->update(0.1);
+  expect($trigger->isComplete)->toBeFalse()
+    ->and($scene->gameState->isEventComplete('test-passage', 'P'))->toBeFalse()
+    ->and($trigger->getEntryRefusal(new Vector2(0, 0), new Vector2(1, 0)))->toBe('');
+});
+
+it('applies the same logical proximity range to an NPC page cue without disabling conversation', function () {
+  [$scene] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(0, 0));
+  $scene->installPlayer($player);
+  $npcs = new NpcManager($scene);
+  $npcs->configure([['id' => 'guide', 'name' => 'Guide', 'sprite' => 'G', 'x' => 4, 'y' => 0,
+    'dialogue' => [['lines' => [['text' => 'Here.']], 'cue' => ['symbol' => '!', 'maxDistance' => 2]]]]]);
+  $npc = $npcs->findById('guide');
+  expect($npcs->shouldRenderCue($npc))->toBeFalse();
+  $player->position->x = 2;
+  expect($npcs->shouldRenderCue($npc))->toBeTrue()->and($npc->currentPage?->isTalkable)->toBeTrue();
+  $player->position->x = 1;
+  expect($npcs->shouldRenderCue($npc))->toBeFalse()->and($npc->currentPage?->isTalkable)->toBeTrue();
+});
+
 /** Save settings are project-relative; the disposable project owns every generated save. */
 function makeEventTestSaveManager(string $projectRoot, SaveCompatibilityManifest $manifest): SaveManager
 {

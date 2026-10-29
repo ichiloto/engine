@@ -10,6 +10,7 @@ use Ichiloto\Engine\Entities\Actions\ChestOpeningAction;
 use Ichiloto\Engine\Events\Enumerations\LootType;
 use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
+use Ichiloto\Engine\Events\Triggers\PassageEventTrigger;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Events\Enumerations\EventEngagement;
 use Ichiloto\Engine\Field\MapGraphics;
@@ -117,6 +118,7 @@ final class MapCompletenessValidator
                 if (!is_array($event['data'] ?? null)) { throw new InvalidArgumentException('Event data must be an array.'); }
                 EventTrigger::parseFacing($event['facing'] ?? []);
                 if (array_key_exists('engagement', $event)) { EventEngagement::parse($event['engagement']); }
+                if (is_a($class, PassageEventTrigger::class, true)) { PassageEventTrigger::validateDefinition($event, $mapId); }
             } catch (InvalidArgumentException $error) {
                 $issues[] = new MapValidationIssue($mapId, 'event.definition', $error->getMessage(), $marker,
                     $event['area']['cells'] ?? [], ['events', $marker ?? '']);
@@ -124,6 +126,23 @@ final class MapCompletenessValidator
         }
         return [...$issues, ...MapEventSpeakerRule::inspect($mapId, $data, $result->events),
             ...MapNpcInteractionRule::inspect($mapId, $data, $result->events)];
+    }
+
+    /** @return list<MapValidationIssue> */
+    public static function validateOpeningFloors(string $mapId, array $data, array $eventLayer, array $collisions): array
+    {
+        $issues = [];
+        foreach (MapEventResolver::inspect($data, $eventLayer, $mapId)->events as $event) {
+            if (!is_a($event['class'] ?? '', PassageEventTrigger::class, true)) { continue; }
+            try {
+                PassageEventTrigger::validateFloor(\Ichiloto\Engine\Core\CellArea::fromArray($event['area']), $collisions);
+            } catch (InvalidArgumentException $error) {
+                $issues[] = new MapValidationIssue($mapId, 'passage.floor', $error->getMessage(), $event['marker'] ?? null,
+                    $event['area']['cells'] ?? [], ['events', $event['marker'] ?? ''],
+                    'Author walkable floor and use the passage event to own its closed access.');
+            }
+        }
+        return $issues;
     }
 
     /**

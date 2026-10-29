@@ -559,13 +559,13 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     {
         foreach ($events as $event) {
             $cueLayer = 'event-cue:' . ($event->mapId ?? '') . ':' . ($event->marker ?? '');
-            if (!$this->canPresentFieldGuidance() || !$event->shouldRenderCue()
+            if (!$this->canPresentFieldGuidance() || !$event->shouldRenderCue($this->player?->position)
                 || ($this->isGraphicalFieldPresented() && $this->fieldEffects?->canPresentCue($event))) {
                 Console::removeLayer($cueLayer);
                 continue;
             }
             Console::withLayer($cueLayer, function () use ($event): void {
-                foreach ($event->cue->findPositions($event->area) as $position) {
+                foreach ($event->cue->findVisiblePositions($event->area, $this->player?->position) as $position) {
                     $this->camera->renderOnScreen([$this->fieldEffects?->cueStyle->styleGlyph($event->cue->symbol,
                         $event->cue->color) ?? $event->cue->styledSymbol()], $position);
                 }
@@ -1313,7 +1313,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $this->fieldEffects?->showWaymarks($this->hasGraphicalFieldPresentation() ? $this->getFieldWaymarks() : []);
         $this->fieldEffects?->showNpcCues($this->hasGraphicalFieldPresentation() ? ($this->npcManager?->listCuedNpcs() ?? []) : []);
         $this->fieldEffects?->update($seconds, Accessibility::prefersReducedMotion(),
-            $this->getFieldObjectSpriteProviders(), $this->canPresentFieldGuidance());
+            $this->getFieldObjectSpriteProviders(), $this->canPresentFieldGuidance(), $this->player?->position);
     }
 
     /**

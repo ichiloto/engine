@@ -275,6 +275,7 @@ class NpcManager
   public function shouldRenderCue(Npc $npc): bool
   {
     return $npc->cue !== null && $this->isPresentationVisible($npc) && $this->gameScene->canPresentFieldGuidance()
+      && $npc->cue->isInRange($npc->position, $this->gameScene->player?->position)
       && $this->conditionsHold($npc->cue->conditions);
   }
 

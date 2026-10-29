@@ -82,7 +82,7 @@ final readonly class MapLandmarkCatalog
                 }
                 $claimedEvents[$anchor['event']] = true;
                 $area = $event->area;
-                if ($event->isTransfer) { $access = $event->accessConditions; }
+                if ($event->isRoute) { $access = $event->accessConditions; }
             } elseif (isset($anchor['trigger'])) {
                 $trigger = $anchors->triggers[$anchor['trigger']] ?? throw new InvalidArgumentException("Landmark '{$id}' references a missing legacy trigger id.");
                 if (isset($claimedTriggers[$anchor['trigger']])) { throw new InvalidArgumentException('A legacy trigger can anchor only one landmark.'); }
@@ -96,10 +96,10 @@ final readonly class MapLandmarkCatalog
                 $area = $object->area;
             }
             if ($access !== null && !$kind->isRoute()) {
-                throw new InvalidArgumentException('A transfer landmark must use passage, entrance or exit so ordinary routes remain visible.');
+                throw new InvalidArgumentException('A route landmark must use passage, entrance or exit.');
             }
             if ($access === null && $kind->isRoute()) {
-                throw new InvalidArgumentException('Route landmarks must reference a transfer event or legacy trigger.');
+                throw new InvalidArgumentException('Route landmarks must reference an opening passage, transfer event or legacy trigger.');
             }
             $secret = array_key_exists('secret', $entry) ? $entry['secret'] : false;
             $distance = array_key_exists('approachDistance', $entry) ? $entry['approachDistance'] : self::DEFAULT_APPROACH_DISTANCE;

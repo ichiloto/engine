@@ -108,6 +108,7 @@ final class MapNpcInteractionRule
         $issues = [];
         foreach ($events as $event) {
             $class = $event['class'] ?? null;
+            if (is_a(is_string($class) ? $class : '', \Ichiloto\Engine\Events\Triggers\PassageEventTrigger::class, true)) { continue; }
             if (!is_string($class) || !array_any(self::PAGE_ACTION_TRIGGERS, static fn(string $type): bool => is_a($class, $type, true))) {
                 continue;
             }

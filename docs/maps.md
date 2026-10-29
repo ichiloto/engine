@@ -145,12 +145,59 @@ unavailable event's `whenBlocked` gate only stops steps onto its own cells.
 A cue shows on each separate placement. Cinematics that name a marker as a
 subject use its first cell in reading order, the top-left of a rectangle.
 An NPC's pages take the same `cue` (symbol, colour, conditions, optional
-kind), read by the same validator; the NPC shows the cue of the page talking
+kind and `maxDistance`), read by the same validator; the NPC shows the cue of the page talking
 would run, in the cell above itself (see [NPC pages](#npc-pages)).
 Quest waymarks name markers the same way and mark each placement; see
 [Waymarks](quests.md#waymarks-where-an-objective-sends-the-player) for how
 objectives are marked on the field, the local map and the world map, and how
 the next exit toward another map is chosen.
+
+### Opening passages
+
+`PassageEventTrigger` owns a permanent opening operated through the ordinary
+Action interaction. Author it on walkable physical floor, with `engagement =>
+'facing'`, `data.mode => 'action'` and `data.reusable => false`. The map id and
+event marker are its saved identity. Entry from outside stays blocked until
+the opening action completes. A player already inside can move out.
+
+```php
+'P' => [
+  'class' => PassageEventTrigger::class,
+  'engagement' => 'facing',
+  'conditions' => [['type' => 'switch', 'name' => 'sense-passages']],
+  'cue' => ['symbol' => '!', 'maxDistance' => 2],
+  'data' => ['mode' => 'action', 'reusable' => false],
+],
+```
+
+Root conditions control whether the Action interaction and cue are available.
+Sensing displays the marker; Action completes the opening. Optional inline
+`script` commands or a selected `scriptId` can present the reveal. An empty
+opening script completes directly. A failed script leaves the passage closed.
+`whenBlocked` supplies an optional explanation; its absence keeps refused
+movement quiet. Completion uses existing `completedEvents`, survives reload and
+map visits, and keeps the opening after the sensing condition changes.
+
+Concealing artwork belongs to a world object. Give that object's visibility the
+negated `map_event` condition for this map and marker; its graphical and terminal
+presentations then retire together when the passage opens. Keep the physical
+floor walkable and use the event as the closed-access owner. Runtime preparation
+and Editor validation refuse permanently blocked floor under an opening passage.
+Artwork replacement never changes physical occupancy.
+
+For a secret minimap passage, anchor an explicit `kind => 'passage'` landmark to
+this event, set `secret => true`, and use its `map_event` completion as the
+`revealConditions`. The same completion controls route access. Undescribed
+opening passages create no automatic marker. Each independent opening needs its
+own event marker; disconnected placements of one event share completion.
+
+Cue `maxDistance` is an optional integer from 0 to 64 logical cardinal steps.
+Each separate placement measures from its own cue cell. Outside that range it
+shows no cue. Omission preserves unlimited cue range. Both graphical and terminal
+presenters use the logical player position, and NPC cues support the same range.
+The shared Editor offers Opening Passage and cue-range controls with ordinary
+source-preserving save, undo and redo. Game conditions own which ability senses
+a passage; the Engine carries no game-specific character or story rule.
 
 ### Event speakers
 

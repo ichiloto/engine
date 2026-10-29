@@ -329,7 +329,11 @@ class MapManager implements CanRenderAt
     $eventTriggers = [];
     $mapId = strval($map['id'] ?? '');
     foreach ($map['events'] ?? [] as $event) {
-      $eventTriggers[] = EventTriggerFactory::create($event, $mapId !== '' ? $mapId : null);
+      $trigger = EventTriggerFactory::create($event, $mapId !== '' ? $mapId : null);
+      if ($trigger instanceof \Ichiloto\Engine\Events\Triggers\PassageEventTrigger) {
+        $trigger::validateFloor($trigger->area, $collisions);
+      }
+      $eventTriggers[] = $trigger;
     }
     $npcs = $this->gameScene->npcManager?->prepareNpcs(
       is_array($map['npcs'] ?? null) ? $map['npcs'] : [],

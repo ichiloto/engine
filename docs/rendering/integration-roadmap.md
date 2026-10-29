@@ -4333,6 +4333,13 @@ unpublished, not a release, another G4 goal or cross-platform acceptance.
   preview host retires its renderer session even when the grid stays the same.
 
 Remaining representative integrations follow the established ownership seam.
+Opening passages now use a one-shot Action event over authored walkable floor,
+saved map-event completion, conditionally concealed world objects and optional
+proximity cues in both presentations. Shared Editor authoring and source round
+trips accompany the runtime contract; Game integration and native acceptance
+remain separate from the synthetic interaction and reload checks. See
+[Opening passages](../maps.md#opening-passages).
+
 Runtime tests need ordinary, reduced-motion and legal-skip paths, matching
 terminal presentations and scene-specific native observation. Source inspection,
 headless tests and art previews are distinct evidence, not interchangeable

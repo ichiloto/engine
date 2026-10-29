@@ -386,7 +386,7 @@ class Player extends GameObject implements ThicketSubjectInterface
     // A conditioned event with a blocked message is an authored field gate,
     // not merely an advisory notification. Reject entry before mutating the
     // player position, advancing encounters, or notifying movement observers.
-    if ($this->isMovementBlockedByUnavailableEvent($event)) {
+    if ($this->isMovementBlockedByEvent($event)) {
       $this->stopGraphicalAnimation(afterSlide: true);
       if ($previousHeading !== $this->heading) { $this->reconcileFacingEvents(); }
       $this->render();
@@ -502,7 +502,7 @@ class Player extends GameObject implements ThicketSubjectInterface
   }
 
   /**
-   * Determines whether an unavailable event rejects the attempted entry.
+   * Determines whether an event's access policy rejects the attempted entry.
    *
    * A non-empty whenBlocked message makes the event area fail closed while
    * its conditions do not hold. Movement from inside the area remains
@@ -511,27 +511,23 @@ class Player extends GameObject implements ThicketSubjectInterface
    * @param MovementEvent $movementEvent The attempted movement.
    * @return bool True when the movement must not update field state.
    */
-  protected function isMovementBlockedByUnavailableEvent(MovementEvent $movementEvent): bool
+  protected function isMovementBlockedByEvent(MovementEvent $movementEvent): bool
   {
     $blockingEvent = null;
+    $explanation = '';
 
     /** @var EventTrigger $event */
     foreach ($this->events as $event) {
       $eventId = spl_object_id($event);
-      $destinationIsInside = $event->area->contains($movementEvent->destination);
-
-      if (! $destinationIsInside || $event->isComplete || $event->isAvailable() || $event->whenBlocked === null) {
+      $refusal = $event->getEntryRefusal($movementEvent->origin, $movementEvent->destination);
+      if ($refusal === null) {
         unset($this->announcedBlockedEvents[$eventId]);
         continue;
       }
-
-      // Never trap a player whose save already places them inside a gate.
-      // The transition from outside to inside is the authoritative boundary.
-      if ($event->area->contains($movementEvent->origin)) {
-        continue;
+      if ($blockingEvent === null) {
+        $blockingEvent = $event;
+        $explanation = $refusal;
       }
-
-      $blockingEvent ??= $event;
     }
 
     if ($blockingEvent === null) {
@@ -540,9 +536,9 @@ class Player extends GameObject implements ThicketSubjectInterface
 
     $eventId = spl_object_id($blockingEvent);
 
-    if (! isset($this->announcedBlockedEvents[$eventId])) {
+    if ($explanation !== '' && ! isset($this->announcedBlockedEvents[$eventId])) {
       $this->announcedBlockedEvents[$eventId] = true;
-      $this->announceBlockedEvent($blockingEvent->whenBlocked);
+      $this->announceBlockedEvent($explanation);
     }
 
     return true;
@@ -986,7 +982,7 @@ class Player extends GameObject implements ThicketSubjectInterface
     $markers = [];
 
     foreach ($this->events as $event) {
-      if ($event->marker !== null && $event->shouldRenderCue()) {
+      if ($event->marker !== null && $event->shouldRenderCue($this->position)) {
         $markers[$event->marker] = true;
       }
     }
@@ -1235,6 +1231,9 @@ class Player extends GameObject implements ThicketSubjectInterface
   public function interact(): void
   {
     $this->stopGraphicalAnimation();
+    // Conditions can change while standing still. Resolve faced Action events
+    // at the input edge, without starting automatic arrivals.
+    $this->reconcileFacingEvents(includeAutomatic: false);
     if ($this->availableAction === null && $this->talkToFacingNpc()) {
       return;
     }

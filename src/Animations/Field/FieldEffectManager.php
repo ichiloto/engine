@@ -53,6 +53,7 @@ final class FieldEffectManager
   /** Whether the renderer slides screen-pinned sprites, so edge markers carry the camera's motion. */
   private bool $pinnedMotion = false;
   private ?bool $actionPromptUsable = null;
+  private ?Vector2 $viewerPosition = null;
 
   public function __construct(string $assetRoot, private readonly EffectPresentation $presentation = EffectPresentation::GRAPHICAL)
   {
@@ -343,18 +344,20 @@ final class FieldEffectManager
   public function clear(): void
   {
     foreach (array_keys($this->sessions) as $id) { $this->removeEffect($id); }
-    $this->cues = []; $this->waymarks = []; $this->npcCues = []; $this->mapId = '';
+    $this->cues = []; $this->waymarks = []; $this->npcCues = []; $this->mapId = ''; $this->viewerPosition = null;
   }
   public int $count { get => count($this->sessions); }
 
   /** @param iterable<GraphicalSpriteProviderInterface>|null $objects */
-  public function update(float $seconds, bool $reducedMotion, ?iterable $objects = null, bool $showGuidance = true): void
+  public function update(float $seconds, bool $reducedMotion, ?iterable $objects = null, bool $showGuidance = true,
+    ?Vector2 $viewerPosition = null): void
   {
+    $this->viewerPosition = $viewerPosition === null ? null : clone $viewerPosition;
     if ($objects !== null) { $this->reconcileObjects($objects); }
     $this->clock += $seconds;
     foreach ($this->sessions as $id => $session) {
       if (!$showGuidance && $this->isGuidance($id)) { continue; }
-      if (isset($this->cues[$id]) && !$this->cues[$id]->shouldRenderCue()) { continue; }
+      if (!$this->canShowEventCue($id, $session)) { continue; }
       FieldEffectSession::playCues($session->update($seconds, $reducedMotion)->crossedCues);
       if ($session->playback->isCompleted) { unset($this->sessions[$id]); }
     }
@@ -395,6 +398,9 @@ final class FieldEffectManager
     bool $showGuidance = true, ?string $playerId = null, ?PresentationSpriteMotion $cameraMotion = null): array
   {
     $indexed = $this->reconcileObjects($objects);
+    if ($playerId !== null) {
+      $this->viewerPosition = isset($indexed[$playerId]) ? clone $indexed[$playerId]->getGraphicalSpriteWorldPosition() : null;
+    }
     $player = $playerId === null || !isset($indexed[$playerId]) ? null
       : FieldSpriteBounds::findBounds($indexed[$playerId], $viewport, $origin);
     $sprites = [];
@@ -425,7 +431,7 @@ final class FieldEffectManager
     if ($session->anchor->objectId !== null && $object === null) { $this->removeEffect($id); return []; }
     if (!$this->supported) { return []; }
     $cue = $this->cues[$id] ?? null;
-    if ($cue !== null && !$cue->shouldRenderCue()) { return []; }
+    if (!$this->canShowEventCue($id, $session)) { return []; }
     $position = $object?->getGraphicalSpriteWorldPosition() ?? $session->anchor->cell;
     if ($position === null) { return []; }
     $waymark = $this->waymarks[$id] ?? null;
@@ -581,9 +587,17 @@ final class FieldEffectManager
   {
     if ($marker === null) { return false; }
     foreach ($this->cues as $id => $event) {
-      if ($event->marker === $marker && isset($this->sessions[$id]) && $event->shouldRenderCue()) { return true; }
+      if ($event->marker === $marker && isset($this->sessions[$id])
+        && $this->canShowEventCue($id, $this->sessions[$id])) { return true; }
     }
     return false;
+  }
+
+  private function canShowEventCue(string $id, FieldEffectSession $session): bool
+  {
+    $event = $this->cues[$id] ?? null;
+    return $event === null || ($session->anchor->cell !== null && $event->shouldRenderCue($this->viewerPosition)
+      && ($event->cue?->isInRange($session->anchor->cell, $this->viewerPosition) ?? false));
   }
 
   /** Whether the NPC with this sprite identity shows its own cue art now, so its waymark need not. */

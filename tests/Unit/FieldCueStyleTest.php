@@ -57,6 +57,28 @@ afterEach(function () {
   foreach ($this->debug as $key => $value) { new ReflectionProperty(Debug::class, $key)->setValue(null, $value); }
 });
 
+it('draws only nearby placements of a proximity cue and retires them on completion', function () {
+  writeCueStyleProject($this->root);
+  $manager = new FieldEffectManager($this->root);
+  $manager->setCapabilities(true, true);
+  $trigger = new ScriptEventTrigger(\Ichiloto\Engine\Core\CellArea::fromCells([[2, 2], [10, 2]]),
+    ['reusable' => false], marker: 'P', cue: ['symbol' => '!', 'maxDistance' => 2]);
+  $manager->installMap('map', [], null, [$trigger]);
+  $manager->update(0.1, false, viewerPosition: new Vector2(1, 2));
+  $sprites = $manager->getSprites([], $this->view, ['x' => 0, 'y' => 0], false);
+  expect($sprites)->not->toBeEmpty()
+    ->and(array_all($sprites, fn($sprite) => str_contains($sprite->getGraphicalSpriteId(), 'cue-P:')))->toBeTrue();
+  $manager->update(0.1, false, viewerPosition: new Vector2(11, 2));
+  $sprites = $manager->getSprites([], $this->view, ['x' => 0, 'y' => 0], false);
+  expect($sprites)->not->toBeEmpty()
+    ->and(array_all($sprites, fn($sprite) => str_contains($sprite->getGraphicalSpriteId(), 'cue-P-2:')))->toBeTrue();
+  $manager->update(0.1, false, viewerPosition: new Vector2(6, 2));
+  expect($manager->getSprites([], $this->view, ['x' => 0, 'y' => 0], false))->toBe([]);
+  $trigger->complete();
+  $manager->update(0.1, false, viewerPosition: new Vector2(2, 2));
+  expect($manager->getSprites([], $this->view, ['x' => 0, 'y' => 0], false))->toBe([]);
+});
+
 it('reads the cue style with Engine defaults and refuses values the presentation cannot honour', function () {
   $style = FieldCueStyle::fromArray(['bob' => ['height' => 3, 'seconds' => 1.5],
     'pointerSpacing' => ['x' => 14, 'y' => 26], 'terminal' => ['background' => null, 'bold' => false]]);

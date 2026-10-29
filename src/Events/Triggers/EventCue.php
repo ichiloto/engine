@@ -17,6 +17,7 @@ use Symfony\Component\Console\Formatter\OutputFormatterStyle;
  */
 final readonly class EventCue
 {
+  public const int MAX_DISTANCE = 64;
   /** Null preserves older unclassified cues without inventing a story decision. */
   public ?EventCueKind $kind;
   /**
@@ -28,8 +29,12 @@ final readonly class EventCue
     public string $color = 'bright-yellow',
     public array $conditions = [],
     ?string $kind = null,
+    public ?int $maxDistance = null,
   )
   {
+    if ($maxDistance !== null && ($maxDistance < 0 || $maxDistance > self::MAX_DISTANCE)) {
+      throw new InvalidArgumentException('Cue maxDistance must be an integer from 0 to 64 cells.');
+    }
     $this->kind = $kind === null ? null : EventCueKind::tryFrom($kind);
     if ($kind !== null && $this->kind === null) {
       throw new InvalidArgumentException('Event cue kind must be story or route.');
@@ -51,11 +56,16 @@ final readonly class EventCue
     }
   }
 
-  /** @param array{symbol?: mixed, color?: mixed, conditions?: mixed, kind?: mixed}|null $data */
+  /** @param array{symbol?: mixed, color?: mixed, conditions?: mixed, kind?: mixed, maxDistance?: mixed}|null $data */
   public static function fromArray(?array $data): ?self
   {
     if ($data === null) {
       return null;
+    }
+
+    if (array_key_exists('maxDistance', $data)
+      && (!is_int($data['maxDistance']) || $data['maxDistance'] < 0 || $data['maxDistance'] > self::MAX_DISTANCE)) {
+      throw new InvalidArgumentException('Cue maxDistance must be an integer from 0 to 64 cells.');
     }
 
     if (isset($data['kind']) && !is_string($data['kind'])) {
@@ -78,6 +88,7 @@ final readonly class EventCue
       trim(strval($data['color'] ?? 'bright-yellow')),
       array_values(array_filter((array) ($data['conditions'] ?? []), 'is_array')),
       $data['kind'] ?? null,
+      $data['maxDistance'] ?? null,
     );
   }
 
@@ -91,6 +102,19 @@ final readonly class EventCue
   public function findPositions(CellArea $area): array
   {
     return array_map(static fn(CellArea $piece): Vector2 => $piece->findCenterCell(), $area->findPieces());
+  }
+
+  /** Range is measured in logical cardinal steps, independently for every separate cue placement. */
+  public function isInRange(Vector2 $position, ?Vector2 $viewer): bool
+  {
+    return $this->maxDistance === null || ($viewer !== null
+      && abs($position->x - $viewer->x) + abs($position->y - $viewer->y) <= $this->maxDistance);
+  }
+
+  /** @return list<Vector2> */
+  public function findVisiblePositions(CellArea $area, ?Vector2 $viewer): array
+  {
+    return array_values(array_filter($this->findPositions($area), fn(Vector2 $cell): bool => $this->isInRange($cell, $viewer)));
   }
 
   /** Returns Symfony Console formatter markup understood by TerminalText. */

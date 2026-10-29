@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
+use Ichiloto\Engine\Events\Triggers\PassageEventTrigger;
 use InvalidArgumentException;
 
 /** Source reference tables, without requiring an Editor to reconstruct a runtime map. */
@@ -39,8 +40,12 @@ final readonly class MapLandmarkAnchors
         foreach ($map['events'] ?? [] as $index => $event) {
             $id = $event['marker'] ?? '@' . $index;
             if (isset($events[$id])) { throw new InvalidArgumentException('Duplicate event anchor identity.'); }
+            $passage = is_a($event['class'] ?? '', PassageEventTrigger::class, true);
+            if ($passage) { PassageEventTrigger::validateDefinition($event, $map['id'] ?? null); }
             $events[$id] = new MapLandmarkAnchor(CellArea::fromArray($event['area']),
-                is_a($event['class'] ?? '', TransferPlayerTrigger::class, true), $event['conditions'] ?? []);
+                is_a($event['class'] ?? '', TransferPlayerTrigger::class, true),
+                $passage ? [['type' => 'map_event', 'name' => $map['id'], 'marker' => $id]] : ($event['conditions'] ?? []),
+                $passage);
         }
         foreach ($map['worldObjects'] ?? [] as $object) {
             if (isset($objects[$object['id']])) { throw new InvalidArgumentException('Duplicate object anchor identity.'); }
