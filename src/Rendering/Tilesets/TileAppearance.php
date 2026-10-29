@@ -18,6 +18,13 @@ enum TileAppearance: string
   case BARRIER = 'barrier';
   case OVERHEAD = 'overhead';
 
+  /** Shared authored appearance for tiles and whole field images; it never supplies physical passage. */
+  public static function parse(mixed $value): self
+  {
+    return (is_string($value) ? self::tryFrom($value) : null)
+      ?? throw new \InvalidArgumentException('Appearance must be ground, water, barrier or overhead.');
+  }
+
   /** Whether the tile shows something the player cannot walk on. */
   public function showsObstacle(): bool
   {

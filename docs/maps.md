@@ -24,6 +24,19 @@ their data and event files. This legacy format remains supported. An existing
 but empty or invalid `layers/` directory is an error, not a request to fall back
 to the legacy grid.
 
+## Field-image appearance and passage diagnostics
+
+A field presentation resource or inline world object can declare optional
+`appearance`: `ground`, `water`, `barrier` or `overhead`, using `TileAppearance`.
+A resource owns this value for all its placements; a placement cannot override
+it. Omission retains legacy image-based inspection. Invalid values are refused.
+
+`MapPassageAgreementRule` uses this declaration when inspecting opaque art.
+Floors and overhead trim do not imply a ground obstacle; water, barriers and
+unclassified images retain obstruction checks on their ground rows. Ground art
+covering solid physical cells still exposes invisible walls. This diagnostic
+annotation never changes physical occupancy, rendering, events or saves.
+
 ## Grid source format
 
 ### Named local areas

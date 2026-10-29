@@ -95,7 +95,7 @@ final class MapPassageAgreementRule
         }
 
         // Every object's opaque art, cell by cell: all of it, and only what stands on its ground rows.
-        $shown = $grounded = $covered = [];
+        $shown = $grounded = $covered = $openGround = $otherArt = [];
         foreach ($objects as $index => $object) {
             $placement = self::readPlacement($data, $index, $layers);
             $footprint = self::findFootprint($object, $placement, $grid, $layers);
@@ -115,7 +115,12 @@ final class MapPassageAgreementRule
             foreach ($art as $y => $row) {
                 foreach ($row as $x => $mask) {
                     $shown[$y][$x] = isset($shown[$y][$x]) ? $shown[$y][$x] | $mask : $mask;
-                    if ($y >= $groundTop) {
+                    if ($object->appearance === TileAppearance::GROUND) {
+                        $openGround[$y][$x] = isset($openGround[$y][$x]) ? $openGround[$y][$x] | $mask : $mask;
+                    } else {
+                        $otherArt[$y][$x] = isset($otherArt[$y][$x]) ? $otherArt[$y][$x] | $mask : $mask;
+                    }
+                    if ($y >= $groundTop && !in_array($object->appearance, [TileAppearance::GROUND, TileAppearance::OVERHEAD], true)) {
                         $grounded[$y][$x] = isset($grounded[$y][$x]) ? $grounded[$y][$x] | $mask : $mask;
                     }
                 }
@@ -140,11 +145,12 @@ final class MapPassageAgreementRule
                 $type = CollisionType::from($value);
                 if ($type === CollisionType::NPC) { continue; }
                 if ($type->blocksMovement()) {
-                    if (PngCellCoverage::isCentreCovered($shown[$y][$x] ?? null)
+                    if (PngCellCoverage::isCentreCovered($otherArt[$y][$x] ?? null)
                         || isset($overdrawn[$y][$x])) {
                         continue;
                     }
-                    if (($tiles[$y][$x] ?? null) === TileAppearance::GROUND) { $walls[] = [$x, $y]; }
+                    if (PngCellCoverage::isCentreCovered($openGround[$y][$x] ?? null)
+                        || ($tiles[$y][$x] ?? null) === TileAppearance::GROUND) { $walls[] = [$x, $y]; }
                     continue;
                 }
                 if (isset($sealed[$y][$x])) { continue; }

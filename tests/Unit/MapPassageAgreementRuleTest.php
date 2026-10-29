@@ -88,6 +88,44 @@ function fillTiles(int $width, int $height, int $tile = 2816, array $cells = [])
     return array_map(static fn(array $row): string => implode(' ', $row), $rows);
 }
 
+it('classifies walkable whole-image ground and overhead without making opaque floor or trim an obstacle', function () {
+    writePassageArt($this->root . '/Graphics/floor.png', 1, 1, [[0, 0, 1, 1]]);
+    $object = ['id' => 'floor', 'anchor' => ['x' => 2, 'y' => 1], 'pivot' => ['x' => .5, 'y' => 1.],
+        'sprites2d' => ['asset' => 'Graphics/floor.png']];
+    foreach (['ground', 'overhead'] as $appearance) {
+        expect(inspectPassage($this->root, ['     ', '     ', '     '], fillTiles(5, 3),
+            ['worldObjects' => [[...$object, 'appearance' => $appearance]]]))->toBe([]);
+    }
+    // Ground art can cover a water tile, as a bridge or platform does, while physical passage stays authored.
+    expect(inspectPassage($this->root, ['     ', '     ', '     '], fillTiles(5, 3, cells: [[2, 1, 2048]]),
+        ['worldObjects' => [[...$object, 'appearance' => 'ground']]]))->toBe([]);
+    // A visible floor over a physical wall still reports an invisible wall.
+    expect(groupPassageCells(inspectPassage($this->root, ['     ', '  #  ', '     '], fillTiles(5, 3),
+        ['worldObjects' => [[...$object, 'appearance' => 'ground']]])))
+        ->toBe([MapPassageAgreementRule::INVISIBLE_WALL => [[2, 1]]]);
+    foreach ([null, 'barrier', 'water'] as $appearance) {
+        $entry = $appearance === null ? $object : [...$object, 'appearance' => $appearance];
+        expect(groupPassageCells(inspectPassage($this->root, ['     ', '     ', '     '], fillTiles(5, 3),
+            ['worldObjects' => [$entry]])))->toBe([MapPassageAgreementRule::WALK_THROUGH => [[2, 1]]]);
+    }
+});
+
+it('uses a reusable resource appearance for every placement without changing image or physical data', function () {
+    writePassageArt($this->root . '/Graphics/floor.png', 1, 1, [[0, 0, 1, 1]]);
+    $resource = ['name' => 'Walkable platform', 'pivot' => ['x' => .5, 'y' => 1.],
+        'sprites2d' => ['asset' => 'Graphics/floor.png'], 'appearance' => 'ground'];
+    $data = ['worldObjects' => [
+        ['id' => 'first', 'resource' => 'floor', 'anchor' => ['x' => 1, 'y' => 1]],
+        ['id' => 'second', 'resource' => 'floor', 'anchor' => ['x' => 3, 'y' => 1]],
+    ]];
+    $before = hash_file('sha256', $this->root . '/Graphics/floor.png');
+    expect(inspectPassage($this->root, ['     ', '     ', '     '], fillTiles(5, 3), $data, ['floor' => $resource]))->toBe([])
+        ->and(hash_file('sha256', $this->root . '/Graphics/floor.png'))->toBe($before);
+    $resource['appearance'] = 'barrier';
+    expect(groupPassageCells(inspectPassage($this->root, ['     ', '     ', '     '], fillTiles(5, 3), $data, ['floor' => $resource])))
+        ->toBe([MapPassageAgreementRule::WALK_THROUGH => [[1, 1], [3, 1]]]);
+});
+
 it('reports a solid cell that shows only walkable ground, and not one that shows water or a barrier', function () {
     $glyphs = ['     ', '  #  ', '     '];
     $issues = inspectPassage($this->root, $glyphs, fillTiles(5, 3));

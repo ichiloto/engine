@@ -12,6 +12,7 @@ use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Sprites\FieldSpriteRole;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
+use Ichiloto\Engine\Rendering\Tilesets\TileAppearance;
 use InvalidArgumentException;
 
 /**
@@ -42,6 +43,8 @@ final readonly class WorldObjectResource
         public array $doorway = [],
         /** @var list<WorldObjectAttachment> */
         public array $attachments = [],
+        /** What the art depicts, for diagnostics; absence retains legacy unclassified-image inspection. */
+        public ?TileAppearance $appearance = null,
     ) {}
 
     public static function assertId(mixed $id): void
@@ -54,7 +57,7 @@ final readonly class WorldObjectResource
     public static function fromArray(string $id, mixed $data): self
     {
         self::assertId($id);
-        if (!is_array($data) || array_diff(array_keys($data), ['name', 'pivot', 'sprites2d', 'occupancyStamp', 'sign', 'doorway', 'attachments']) !== []
+        if (!is_array($data) || array_diff(array_keys($data), ['name', 'pivot', 'sprites2d', 'occupancyStamp', 'sign', 'doorway', 'attachments', 'appearance']) !== []
             || !is_string($data['name'] ?? null) || trim($data['name']) === ''
             || str_contains($data['name'], "\0") || preg_match('//u', $data['name']) !== 1
             || !is_array($data['pivot'] ?? null)
@@ -94,7 +97,8 @@ final readonly class WorldObjectResource
         return new self($id, $data['name'], PresentationSpritePivot::fromArray($data['pivot']),
             array_key_exists('sprites2d', $data) ? FieldSpriteRole::readDefinition($sprites) : null, $cells,
             array_key_exists('sign', $data) ? WorldSignStyle::fromArray($data['sign']) : null, $doorway,
-            array_key_exists('attachments', $data) ? WorldObjectAttachment::readList($id, $data['attachments']) : []);
+            array_key_exists('attachments', $data) ? WorldObjectAttachment::readList($id, $data['attachments']) : [],
+            array_key_exists('appearance', $data) ? TileAppearance::parse($data['appearance']) : null);
     }
 
     public function findAttachment(string $id): ?WorldObjectAttachment

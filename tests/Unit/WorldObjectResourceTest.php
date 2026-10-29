@@ -18,6 +18,27 @@ function createWorldObjectResourceSource(array $extra = []): array
     ], $extra);
 }
 
+it('shares explicit appearance with placements and refuses a second placement authority', function () {
+    $plain = WorldObjectResource::fromArray('whole', createWorldObjectResourceSource());
+    expect($plain->appearance)->toBeNull();
+    foreach (\Ichiloto\Engine\Rendering\Tilesets\TileAppearance::cases() as $appearance) {
+        $resource = WorldObjectResource::fromArray('whole', createWorldObjectResourceSource(['appearance' => $appearance->value]));
+        expect($resource->appearance)->toBe($appearance)->and($resource->sprites)->toEqual($plain->sprites)
+            ->and($resource->occupancyStamp)->toBe($plain->occupancyStamp);
+    }
+    foreach ([null, '', 'floor', true, [], 1] as $invalid) {
+        expect(fn() => WorldObjectResource::fromArray('whole', createWorldObjectResourceSource(['appearance' => $invalid])))
+            ->toThrow(InvalidArgumentException::class);
+    }
+    $layers = new MapLayerSet([new MapLayer('ground', 0, false, 'ground', 'ggg')]);
+    $catalog = FieldPresentationCatalog::fromArray(['resources' => ['whole' => createWorldObjectResourceSource(['appearance' => 'overhead'])]], '/missing');
+    $entry = ['id' => 'one', 'resource' => 'whole', 'anchor' => ['x' => 1, 'y' => 0]];
+    expect(WorldObjectDefinition::readMap(['worldObjects' => [$entry]], $layers, catalog: $catalog)[0]->appearance)
+        ->toBe(\Ichiloto\Engine\Rendering\Tilesets\TileAppearance::OVERHEAD)
+        ->and(fn() => WorldObjectDefinition::readMap(['worldObjects' => [[...$entry, 'appearance' => 'ground']]], $layers, catalog: $catalog))
+        ->toThrow(InvalidArgumentException::class);
+});
+
 it('admits named resources without requiring optional pixels and shares immutable definitions with placements', function () {
     $catalog = FieldPresentationCatalog::fromArray(['resources' => ['whole' => createWorldObjectResourceSource()]], '/missing-synthetic-root');
     $layers = new MapLayerSet([new MapLayer('ground', 0, false, 'ground', "ggg\nggg")]);
