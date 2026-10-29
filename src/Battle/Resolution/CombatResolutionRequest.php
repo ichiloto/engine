@@ -25,6 +25,7 @@ final readonly class CombatResolutionRequest
     public int $minimumDamage = CombatCalibration::MINIMUM_DAMAGE,
     public ?int $hitRollOverride = null,
     public ?int $criticalRollOverride = null,
+    public ?string $forcedMissReason = null,
   )
   {
     if (trim($this->actionId) === '' || trim($this->executionId) === '') {

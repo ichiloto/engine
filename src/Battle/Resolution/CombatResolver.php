@@ -25,8 +25,8 @@ final class CombatResolver
       CombatCalibration::HIT_CHANCE_FLOOR,
       CombatCalibration::HIT_CHANCE_CEILING,
     ));
-    $hitRoll = $guaranteed ? null : ($request->hitRollOverride ?? $random->nextInt(1, 100));
-    $hit = $guaranteed || $hitRoll <= $hitChance;
+    $hitRoll = $guaranteed || $request->forcedMissReason !== null ? null : ($request->hitRollOverride ?? $random->nextInt(1, 100));
+    $hit = $request->forcedMissReason === null && ($guaranteed || $hitRoll <= $hitChance);
     $offensive = match ($request->kind) {
       ResolutionKind::PHYSICAL_DAMAGE => $actor->stats->attack,
       ResolutionKind::MAGICAL_DAMAGE => $actor->stats->magicAttack,
@@ -45,7 +45,7 @@ final class CombatResolver
         self::identity($request->actor),
         self::identity($request->target),
         false,
-        'accuracyRoll',
+        $request->forcedMissReason ?? 'accuracyRoll',
         $request->rawMagnitude,
         $request->kind,
         $offensive,

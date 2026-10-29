@@ -74,7 +74,9 @@ final class CounterAttackResolver
     $actor = $response->actor;
     return $actor instanceof CounterAttackProvider
       && $this->canRespond($actor, $response->target, $party, $troop)
-      && in_array($response->rule, $actor->getCounterAttackRules(), true)
+      && ($response->prepared === null ? in_array($response->rule, $actor->getCounterAttackRules(), true)
+        : ($response->prepared->consumed && $response->prepared->actor === $actor
+          && $response->prepared->opponent === $response->target && $response->prepared->rule === $response->rule))
       && $actor->stats->currentMp >= $response->action->skill->cost;
   }
 

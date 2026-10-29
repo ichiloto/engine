@@ -34,6 +34,7 @@ class SkillEffectContext
     protected(set) SkillResolutionScope $hitScope = SkillResolutionScope::PER_HIT,
     protected(set) SkillResolutionScope $criticalScope = SkillResolutionScope::PER_HIT,
     ?SkillRollLedger $rollLedger = null,
+    public readonly ?\Ichiloto\Engine\Battle\BattleReactions $reactions = null,
   )
   {
     $this->resolver = $resolver ?? new CombatResolver();

@@ -26,6 +26,14 @@ class BattleConfig implements SceneConfigurationInterface
   protected(set) array $appliedEntryRuleIds = [];
   private bool $hasEvaluatedEntryRules = false;
   private ?BattlePartyRoster $roster = null;
+  private ?\Ichiloto\Engine\Battle\BattleReactions $reactionOwner = null;
+  public \Ichiloto\Engine\Battle\BattleReactions $reactions {
+    get => $this->getReactions();
+  }
+  public function getReactions(?\Ichiloto\Engine\Battle\Resolution\CombatRandomSource $random = null): \Ichiloto\Engine\Battle\BattleReactions
+  {
+    return $this->reactionOwner ??= new \Ichiloto\Engine\Battle\BattleReactions(random: $random);
+  }
   public BattlePartyRoster $partyRoster {
     get => $this->roster ??= new BattlePartyRoster($this->party, $this->getReservePolicy());
   }
@@ -190,6 +198,8 @@ class BattleConfig implements SceneConfigurationInterface
         'hasEvaluatedEntryRules',
         'roster',
         'partyRoster',
+        'reactionOwner',
+        'reactions',
       ], true)) {
         continue;
       }
@@ -212,5 +222,6 @@ class BattleConfig implements SceneConfigurationInterface
     $this->hasEvaluatedEntryRules = false;
     $this->getReservePolicy();
     $this->roster = null;
+    $this->reactionOwner = null;
   }
 }

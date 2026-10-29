@@ -179,8 +179,10 @@ class BattleSimulator
   {
     $resolver = new CombatResolver();
     $counters = new CounterAttackResolver($this->skills, $random);
+    $reactions = new \Ichiloto\Engine\Battle\BattleReactions($this->skills, $random);
     $turns = 0;
 
+    try {
     while ($turns < $this->turnLimit) {
       if ($roster->battlers === [] || ($roster->isDefeated && !$roster->promoteReservesAfterWipeout())) {
         return ['result' => 'defeat', 'turns' => $turns];
@@ -209,6 +211,7 @@ class BattleSimulator
         }
 
         $isAlly = in_array($battler, $allies, true);
+        $reactions->beginTurn($battler);
 
         if ($this->living($isAlly ? $enemies : $allies) === []) {
           break;
@@ -241,13 +244,16 @@ class BattleSimulator
           );
 
           if ($targets !== []) {
-            $action->execute($battler, $targets);
+            $targets = $reactions->resolveTargets($action, $battler, $targets, $allies, $enemies);
+            $action->executeWithReactions($battler, $targets, $reactions);
 
             if (($result = $action->lastResult) !== null) {
               $this->recordResult($result, $battler, $targets, $isAlly, $damage, $hpLoss, $healing, $mitigation);
-              foreach ($counters->resolveResponses($result, $battler, $targets, $allies, $enemies) as $response) {
+              foreach ([...$reactions->takeResponses($battler),
+                ...$counters->resolveResponses($result, $battler, $targets, $allies, $enemies)] as $response) {
                 if (!$counters->canExecute($response, $allies, $enemies)) { continue; }
-                $response->action->execute($response->actor, [$response->target]);
+                $response->action->executeWithReactions($response->actor, [$response->target], $reactions,
+                  allowInterception: false);
                 if (($counterResult = $response->action->lastResult) !== null) {
                   $this->recordResult($counterResult, $response->actor, [$response->target], !$isAlly,
                     $damage, $hpLoss, $healing, $mitigation);
@@ -277,6 +283,7 @@ class BattleSimulator
     }
 
     return ['result' => 'stalemate', 'turns' => $turns];
+    } finally { $reactions->clear(); }
   }
 
   /**

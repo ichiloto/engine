@@ -56,15 +56,25 @@ class SkillBattleAction extends BattleAction implements ExecutionEligibility
       return;
     }
 
+    foreach ($this->skill->effects as $effect) {
+      if ($effect instanceof \Ichiloto\Engine\Entities\Effects\SkillEffects\PrepareCounterSkillEffect) {
+        $effect->validate($this->reactions);
+      }
+    }
     $actor->stats->currentMp -= $this->skill->cost;
     $executionId = $this->nextExecutionId();
     $actionId = 'skill.' . trim(strtolower(preg_replace('/[^a-z0-9]+/i', '-', $this->skill->name) ?? ''), '-');
+    if ($this->allowInterception && ($miss = $this->reactions?->intercept($this, $actor, $targets, $actionId, $executionId, $this->resolver)) !== null) {
+      $this->lastResult = $miss;
+      return;
+    }
     $this->lastResult = $this->effectExecutor->execute(
       $this->skill,
       $actor,
       $targets,
       $actionId,
       $executionId,
+      $this->reactions,
     );
   }
 }

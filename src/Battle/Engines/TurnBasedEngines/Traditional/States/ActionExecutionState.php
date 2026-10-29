@@ -75,6 +75,7 @@ class ActionExecutionState extends TurnState
     $this->endingTurn = false;
     $this->counterQueue = [];
     $this->executingCounter = false;
+    $this->engine->battleConfig->getReactions($this->engine->random);
     $this->getCounterAttackResolver()->validateBattlers([
       ...$context->partyRoster->battlers, ...$context->troop->members->toArray()]);
     $context->resetTurnCursor();
@@ -97,9 +98,10 @@ class ActionExecutionState extends TurnState
       Console::updateFrame(fn() => $this->updateTurn($context));
       if ($this->command?->playback->isCompleted) {
         if (!$this->endingTurn && !$this->executingCounter && !$this->command->playback->isCancelled) {
-          $this->counterQueue = $this->getCounterAttackResolver()->resolveResponses(
+          $this->counterQueue = [...$this->engine->battleConfig->reactions->takeResponses($this->command->playback->actor),
+            ...$this->getCounterAttackResolver()->resolveResponses(
             $this->command->result, $this->command->playback->actor, $this->command->playback->targets,
-            $context->partyRoster->battlers, $context->troop->members->toArray());
+            $context->partyRoster->battlers, $context->troop->members->toArray())];
         }
         if ($this->command->playback->isCancelled) { $this->counterQueue = []; }
         $this->disposeCommand($context);
@@ -116,6 +118,7 @@ class ActionExecutionState extends TurnState
       $this->disposeCommand($context);
       $this->counterQueue = [];
       $this->executingCounter = false;
+      $this->engine->battleConfig?->reactions->clear();
       throw $error;
     }
   }
@@ -139,6 +142,7 @@ class ActionExecutionState extends TurnState
       $this->transitionToResolutionIfNeeded($context);
       return;
     }
+    $this->engine->battleConfig->reactions->beginTurn($turn->battler);
 
     // A guard raised last round protects until this battler acts again.
     if (method_exists($turn->battler, 'stopGuarding')) {
@@ -194,6 +198,10 @@ class ActionExecutionState extends TurnState
       return;
     }
 
+    if ($turn->action !== null) {
+      $targets = $this->engine->battleConfig->reactions->resolveTargets($turn->action, $turn->battler,
+        $targets, $party, $troop);
+    }
     $turn->targets = $targets;
 
     $actionName = $turn->action?->name ?? 'Attack';
@@ -236,7 +244,8 @@ class ActionExecutionState extends TurnState
         $response->action->name, function () use ($context, $response): void {
           if ($this->getCounterAttackResolver()->canExecute($response,
             $context->partyRoster->battlers, $context->troop->members->toArray())) {
-            $response->action->execute($response->actor, [$response->target]);
+            $response->action->executeWithReactions($response->actor, [$response->target],
+              $this->engine->battleConfig->reactions, allowInterception: false);
           }
         });
       return true;

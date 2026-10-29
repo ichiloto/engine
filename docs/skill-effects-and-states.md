@@ -41,8 +41,9 @@ the current project source supplies crisis rules when the actor is reconstructed
 Battle condition badges project current crisis activation.
 
 Delivery is in progress. The initial implementation offers the technique within
-the existing Attack choices. The final secondary-command interaction, specialized
-reactions, formation effects and integrated game presentation are still pending.
+the existing Attack choices. Selected-opponent decoy counters use the shared
+prepared-response effect. The final secondary-command interaction, formation
+effects and integrated game presentation are still pending.
 
 ## Effect types
 
@@ -52,6 +53,7 @@ reactions, formation effects and integrated game presentation are still pending.
 | `add_state` | `stateId`, `chancePercent` (default 100), `guaranteed` (default false) | Afflicts each surviving target; ordinary effects use state resistance, and explicitly guaranteed effects bypass resistance and the chance roll |
 | `remove_state` | `stateIds`, `chancePercent` (default 100) | Rolls to cure each listed state the target has |
 | `modify_stat_stage` | `stat`, `delta`, `affectsUser` | Raises or lowers a stat stage for the battle |
+| `prepare_counter` | `skill`, `stateId` | Draws the selected opponent's next attack into a decoy miss, then queues one response |
 | `reveal` | `facts`, `chancePercent` (1 to 100, default 100) | Reveals facts about each foe for the rest of the battle |
 
 Effects apply in order to each target. `add_state` skips a target an earlier
@@ -62,6 +64,35 @@ An explicitly guaranteed state effect uses `guaranteed: true` and a 100% base
 chance. It applies once to a survivor even when that target resists the state.
 Already active states retain their existing duration and identity. Existing
 effects and older serialized effects keep their ordinary resistance behavior.
+
+### Prepared counters
+
+A battle-only skill selecting one living opponent may author:
+
+```php
+['type' => 'prepare_counter', 'skill' => 'Reply', 'stateId' => 'decoy']
+```
+
+`skill` selects a response accepted by `CounterAttackRule`; `stateId` selects
+the user's battle-only stance. The battle owns the chosen opponent and exact
+stance instance. Removing or expiring that instance cancels its diversion.
+Another preparation by the same user replaces its prior preparation. The
+selected opponent's next damaging command redirects to the user, spends its
+ordinary cost, and produces one forced Miss. Its entire invocation, including
+repeated hits and secondary effects, is skipped. A healing or support command
+leaves the preparation active.
+
+The stance clears at interception. The response follows through the existing
+counter playback without consuming the reactor's ordinary turn or ATB gauge.
+Living participants, action blockers and response MP are checked again. Counter
+responses do not trigger reaction chains. A state inflicted during the target's
+own interrupted turn starts counting after that turn, so a one-turn Stun remains
+available to block the target's next turn.
+
+`BattleConfig` owns this transient reaction context; Engine stop/reconfiguration,
+command failure and each simulator run release it. Actor saves store no selected
+opponent or reaction lease. Editor skill/state pickers, record round trips and
+project validation share the runtime contract.
 
 ### Reveal
 

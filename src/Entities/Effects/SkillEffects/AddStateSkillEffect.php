@@ -58,7 +58,8 @@ class AddStateSkillEffect extends SkillEffect
           'state',
           $state->id,
           ! $target->isKnockedOut
-            && $target->addState($state, $this->chancePercent, $context->random, $target === $context->user, $this->guaranteed),
+            && $target->addState($state, $this->chancePercent, $context->random,
+              $target === $context->user || $context->reactions?->turnOwner === $target, $this->guaranteed),
         );
       }
     }

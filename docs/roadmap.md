@@ -42,8 +42,15 @@ rechecks queued actions, retains ordinary Attack, and projects a crisis badge.
 Current-source actor reconstruction keeps the resource definition out of saved
 mutable actor state. Synthetic runtime and Editor round-trip checks cover this
 foundation. Full delivery still requires the secondary-command interaction,
-authored specialized reactions/formation effects and integrated presentation.
+authored formation/line/gauge effects and integrated presentation.
 See [Crisis techniques](skill-effects-and-states.md#crisis-techniques).
+
+Prepared decoy counters now divert a selected opponent's next damaging command,
+force one whole-invocation miss and queue a normal counter response. Traditional,
+ATB and simulation share battle-owned reaction state and explicit cleanup.
+Counter-inflicted states received during the target's own turn retain their
+first duration tick for the next turn. Full-game move art and integration remain
+part of the ongoing delivery.
 
 Explicit guaranteed state effects now bypass resistance and the chance roll on
 surviving targets. Existing effects keep their resistance rules; older saved

@@ -104,6 +104,8 @@ function createTurnEndFixture(bool $partyTick, bool $graphical): array
     public array $transitions = [];
     public function setState(TurnState $state): void { $this->transitions[] = $state; }
   };
+  $engine->configure(new \Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedBattleConfig(
+    $party, $context->troop, $screen));
   $state = new class($engine) extends ActionExecutionState {
     public function endTurn(TurnStateExecutionContext $context, Turn $turn): void { $this->beginTurnEnd($context, $turn); }
     protected function playDamageFeedbackSound(TurnStateExecutionContext $context, CharacterInterface $target,

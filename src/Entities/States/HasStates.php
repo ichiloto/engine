@@ -106,7 +106,7 @@ trait HasStates
    *
    * @param State $state The state to add.
    * @param int $chancePercent The base infliction chance (before resistance).
-   * @param bool $givenByBearer True when the bearer gives itself the state on its own turn: its duration and ticks start after that turn.
+   * @param bool $givenByBearer Defers the first tick when a state is received during the bearer's current turn, including its own effects and interrupting responses.
    * @param bool $guaranteed True when an authored effect guarantees application, bypassing resistance and the chance roll.
    * @return bool True when the state was newly inflicted.
    */

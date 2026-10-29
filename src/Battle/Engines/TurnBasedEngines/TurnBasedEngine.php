@@ -82,6 +82,7 @@ abstract class TurnBasedEngine implements BattleEngineInterface
    */
   public function configure(BattleConfig $config): void
   {
+    if ($this->battleConfig !== $config) { $this->battleConfig?->reactions->clear(); }
     $this->battleConfig = $config;
   }
 
@@ -104,6 +105,7 @@ abstract class TurnBasedEngine implements BattleEngineInterface
     $this->turnQueue->clear();
     $this->state = null;
     $this->turnStateExecutionContext = null;
+    $this->battleConfig?->reactions->clear();
     $this->battleConfig = null;
   }
 

@@ -37,6 +37,7 @@ final class SkillEffectExecutor
     array $targets,
     string $actionId,
     string $executionId,
+    ?\Ichiloto\Engine\Battle\BattleReactions $reactions = null,
   ): CombatActionResult
   {
     $orderedTargetIds = [];
@@ -62,6 +63,7 @@ final class SkillEffectExecutor
         $skill->invocation->hitScope,
         $skill->invocation->criticalScope,
         $rollLedger,
+        $reactions,
       );
 
       foreach ($skill->effects as $effect) {

@@ -62,7 +62,8 @@ class Turn
       return;
     }
 
-    $this->action->execute($this->battler, $this->targets);
+    $this->action->executeWithReactions($this->battler, $this->targets,
+      $context->battleConfig->getReactions($context->engine->random));
 
     $this->complete();
   }

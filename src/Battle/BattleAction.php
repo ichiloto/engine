@@ -21,6 +21,19 @@ abstract class BattleAction implements BattleActionInterface
   protected CombatRandomSource $random;
   protected(set) ?CombatActionResult $lastResult = null;
   private int $executionSequence = 0;
+  protected ?BattleReactions $reactions = null;
+  protected bool $allowInterception = true;
+
+  /** A battle injects its own reaction owner only for the duration of execution. */
+  final public function executeWithReactions(Actor $actor, array $targets, BattleReactions $reactions,
+    bool $allowInterception = true): void
+  {
+    $this->lastResult = null;
+    $this->reactions = $reactions;
+    $this->allowInterception = $allowInterception;
+    try { $this->execute($actor, $targets); }
+    finally { $this->reactions = null; $this->allowInterception = true; }
+  }
   /** The command's targeting contract, shared by selection and execution. */
   public ItemScope $targetScope {
     get { return new ItemScope(); }

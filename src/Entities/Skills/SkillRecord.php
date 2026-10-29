@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Entities\Skills;
 use Ichiloto\Engine\Battle\Resolution\ResolutionKind;
 use Ichiloto\Engine\Battle\CounterAttackRule;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\PrepareCounterSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDrainSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPRecoverSkillEffect;
@@ -72,6 +73,7 @@ final class SkillRecord
     'add_state' => AddStateSkillEffect::class,
     'remove_state' => RemoveStateSkillEffect::class,
     'modify_stat_stage' => ModifyStatStageSkillEffect::class,
+    'prepare_counter' => PrepareCounterSkillEffect::class,
   ];
 
   /** The effects that reveal what a battler hides, by type. */
@@ -126,6 +128,13 @@ final class SkillRecord
       'animationScale' => EffectScale::readValue($data['animationScale'] ?? null),
     ];
     $counterAttack = CounterAttackRule::fromArray($data['counterAttack'] ?? null);
+    if (array_any($arguments['effects'], static fn($effect): bool => $effect instanceof PrepareCounterSkillEffect)
+      && ($arguments['occasion'] !== Occasion::BATTLE_SCREEN
+        || $arguments['scope']->side !== ItemScopeSide::ENEMY
+        || $arguments['scope']->number !== ItemScopeNumber::ONE
+        || $arguments['scope']->status !== ItemScopeStatus::ALIVE)) {
+      throw new InvalidArgumentException('A prepared counter must be battle-only and select one living opponent.');
+    }
     if ($counterAttack !== null && $class === MagicSkill::class) {
       throw new InvalidArgumentException('counterAttack grants belong to non-magic abilities, not spells.');
     }
@@ -315,6 +324,11 @@ final class SkillRecord
     }
 
     return match ($type) {
+      'prepare_counter' => (static function () use ($effect, $path): PrepareCounterSkillEffect {
+        self::refuseUnknownKeys($effect, ['type', 'skill', 'stateId'], $path);
+        return new PrepareCounterSkillEffect(self::requireString($effect, 'skill', $path),
+          self::requireString($effect, 'stateId', $path));
+      })(),
       'add_state' => (static function () use ($effect, $path): AddStateSkillEffect {
         self::refuseUnknownKeys($effect, ['type', 'stateId', 'chancePercent', 'guaranteed'], $path);
         $guaranteed = $effect['guaranteed'] ?? false;
@@ -402,6 +416,8 @@ final class SkillRecord
     }
 
     return match (true) {
+      $effect instanceof PrepareCounterSkillEffect => ['type' => 'prepare_counter',
+        'skill' => $effect->skill, 'stateId' => $effect->stateId],
       $effect instanceof AddStateSkillEffect => array_filter(
         ['type' => 'add_state', 'stateId' => $effect->stateId, 'chancePercent' => $effect->chancePercent,
           'guaranteed' => $effect->guaranteed],

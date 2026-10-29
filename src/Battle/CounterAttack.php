@@ -15,5 +15,6 @@ final readonly class CounterAttack
     public CharacterInterface $target,
     public SkillBattleAction $action,
     public CounterAttackRule $rule,
+    public ?PreparedCounter $prepared = null,
   ) {}
 }
