@@ -457,7 +457,7 @@ class EventInterpreter
         return EventCommandResult::COMPLETED;
 
       case 'recover_party':
-        foreach ($party?->members->toArray() ?? [] as $member) {
+        foreach ($party?->participants->toArray() ?? [] as $member) {
           $member->clearBattleStates();
           $member->recoverFromRest();
           $member->stats->currentAp = $member->stats->totalAp;

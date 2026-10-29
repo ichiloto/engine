@@ -371,3 +371,21 @@ it('keeps terminal row bytes unchanged across snapshot reads', function () {
     ->and($before[2][0])->toBe(str_pad('   Hero', 20))
     ->and($before[3][0])->toBe('   0 [          ]     0 [     ]');
 });
+
+
+it('pages eight combatants and their vitals together through the last actor', function () {
+  $screen = makeHudSnapshotScreen();
+  $actors = array_map(fn($n) => new Character('Member' . $n, 0, new Stats(currentHp: 10 + $n, totalHp: 100)), range(1, 8));
+  $screen->characterStatusWindow->setCharacters($actors);
+  $screen->characterNameWindow->setNames(array_column($actors, 'name'));
+  $screen->characterNameWindow->setActiveSelection(7, blink: false);
+  $names = $screen->characterNameWindow->presentationSnapshot();
+  $status = $screen->characterStatusWindow->presentationSnapshot();
+  expect(array_column($names->rows, 'index'))->toBe([4, 5, 6, 7])
+    ->and(array_column($names->rows, 'label'))->toBe(['Member5', 'Member6', 'Member7', 'Member8'])
+    ->and(array_column($status->rows, 'index'))->toBe([4, 5, 6, 7])
+    ->and(array_column($status->rows, 'currentHp'))->toBe([15, 16, 17, 18])
+    ->and($names->currentPage)->toBe(2)->and($names->totalPages)->toBe(2);
+  $screen->characterNameWindow->setActiveSelection(0, blink: false);
+  expect(array_column($screen->characterStatusWindow->presentationSnapshot()->rows, 'index'))->toBe([0, 1, 2, 3]);
+});

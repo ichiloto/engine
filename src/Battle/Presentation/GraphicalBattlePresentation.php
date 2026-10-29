@@ -158,7 +158,7 @@ final class GraphicalBattlePresentation
     $arena->background->destination->assertWithin($layout->width, $layout->height);
     $presentation = new self($arena, $layout, $battle, $assetRoot, $catalog->scale);
     $images = PngAssetPreflight::getAvailableSize($assetRoot, $arena->background->asset) === null ? [] : [$arena->background];
-    foreach ([[$battle->party->members->toArray(), true],
+    foreach ([[$battle->party->participants->toArray(), true],
       [$battle->troop->members->toArray(), false]] as [$members, $party]) {
       foreach ($members as $member) {
         $key = $member instanceof Character ? $member->actorId : $member->name;

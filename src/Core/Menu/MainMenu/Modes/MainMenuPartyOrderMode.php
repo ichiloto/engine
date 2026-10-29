@@ -157,7 +157,7 @@ class MainMenuPartyOrderMode extends MainMenuMode
     }
 
     $party = $this->mainMenuState->getGameScene()->party;
-    $members = $party->members->toArray();
+    $members = $party->participants->toArray();
     $sourceMember = $members[$this->sourceIndex] ?? null;
     $destinationMember = $members[$activeIndex] ?? null;
 

@@ -90,7 +90,9 @@ class BattleSimulator
 
     for ($run = 0; $run < $runs; $run++) {
       $runParty = new Party();
+      $runParty->setBattleSize($party->battleSize);
       foreach ($allies as $ally) { $runParty->addMember(clone $ally); }
+      if ($party->getSelectedActorIds() !== null) { $runParty->selectParticipants($party->getSelectedActorIds()); }
       $runEnemies = array_map(static fn(CharacterInterface $enemy): CharacterInterface => clone $enemy, $enemies);
       $runAllies = $runParty->members->toArray();
       $fullHealth = $this->healthOf([...$runAllies, ...$runEnemies]);

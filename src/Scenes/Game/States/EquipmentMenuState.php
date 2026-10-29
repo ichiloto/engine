@@ -477,7 +477,7 @@ class EquipmentMenuState extends GameSceneState implements CanvasProviderInterfa
    */
   protected function selectCharacterByOffset(int $offset): void
   {
-    $characters = $this->getGameScene()->party->members->toArray();
+    $characters = $this->getGameScene()->party->participants->toArray();
     $totalCharacters = count($characters);
 
     if ($totalCharacters < 2) {

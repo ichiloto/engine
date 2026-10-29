@@ -214,6 +214,11 @@ final readonly class SaveContentResolver
         $member->completeDeferredSaveHydration($raw);
       }
     }
+    $selection = $config->party->getSelectedActorIds();
+    if ($selection !== null) {
+      $config->party->selectParticipants($this->identityList(ContentReferenceCategory::ACTOR, $selection));
+    }
+    $config->party->setBattleSize($config->party->battleSize);
   }
 
   /** @param array<string, mixed> $savedState */

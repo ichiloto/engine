@@ -278,3 +278,15 @@ it('keeps the ground band\'s far edge as the furthest any battler stands', funct
     ->and($band->getDepthScale(300))->toBe(.9)->and($band->getDepthScale(588))->toBe(1.0)
     ->and(fn() => $band->getFootY(-1))->toThrow(InvalidArgumentException::class);
 });
+
+
+it('places every member of an eight-member graphical party through shared staging', function () {
+  $layout = stagingLayout([]);
+  $bodies = array_fill(0, 8, ['width' => 48.0, 'height' => 72.0]);
+  $staged = BattleStaging::stage($layout, null, $bodies, [], []);
+  expect($staged->party)->toHaveCount(8);
+  foreach ($staged->party as $slot) {
+    expect($slot->x)->toBeGreaterThanOrEqual(0)->toBeLessThanOrEqual($layout->width)
+      ->and($slot->y)->toBeGreaterThanOrEqual(0)->toBeLessThanOrEqual($layout->getHudTop());
+  }
+});

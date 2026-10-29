@@ -253,7 +253,7 @@ class CharacterSelectionMenu extends Menu
     $scene = $this->getScene();
     assert($scene instanceof GameScene);
 
-    $this->partyMembers = $scene->party->members->toArray();
+    $this->partyMembers = $scene->party->participants->toArray();
 
     foreach ($this->characterPanels as $index => $panel) {
       $member = $this->partyMembers[$index] ?? null;

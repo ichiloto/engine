@@ -24,8 +24,8 @@ use InvalidArgumentException;
  */
 final readonly class BattleTestSetup
 {
-  /** At most this many members, the front three fighting and any fourth in reserve. */
-  public const int MAX_MEMBERS = 4;
+  /** At most this many members; battleSize determines the active frontline. */
+  public const int MAX_MEMBERS = Party::MAX_BATTLE_SIZE;
   /** How many of each item the party holds. */
   public const int ITEM_QUANTITY = 99;
 
@@ -34,8 +34,11 @@ final readonly class BattleTestSetup
    * @param string|null $arena The battle presentation's arena to fight in, by key; null for its default.
    *   Graphical presentation only: it changes nothing a fight does.
    */
-  public function __construct(public array $members, public ?string $arena = null)
+  public function __construct(public array $members, public ?string $arena = null, public int $battleSize = Party::BATTLE_SIZE)
   {
+    if ($battleSize < 1 || $battleSize > Party::MAX_BATTLE_SIZE) {
+      throw new InvalidArgumentException('A battle test frontline has 1 to 8 members.');
+    }
     if ($members === [] || count($members) > self::MAX_MEMBERS || !array_is_list($members)) {
       throw new InvalidArgumentException(sprintf('A battle test party has 1 to %d members.', self::MAX_MEMBERS));
     }
@@ -49,7 +52,8 @@ final readonly class BattleTestSetup
   {
     $system = asset('Data/system.php', true);
 
-    return self::getFromPartyReferences($actors, SystemData::fromArray(is_array($system) ? $system : [])->startingParty);
+    $system = SystemData::fromArray(is_array($system) ? $system : []);
+    return self::getFromPartyReferences($actors, $system->startingParty, $system->battle->partySize);
   }
 
   /**
@@ -60,7 +64,7 @@ final readonly class BattleTestSetup
    *
    * @param list<mixed> $references
    */
-  public static function getFromPartyReferences(ActorStore $actors, array $references): self
+  public static function getFromPartyReferences(ActorStore $actors, array $references, int $battleSize = Party::BATTLE_SIZE): self
   {
     $members = [];
     foreach ($references as $reference) {
@@ -71,7 +75,7 @@ final readonly class BattleTestSetup
       throw new InvalidArgumentException('The project has no starting party to set up a battle test from.');
     }
 
-    return new self(array_slice($members, 0, self::MAX_MEMBERS));
+    return new self(array_slice($members, 0, self::MAX_MEMBERS), battleSize: $battleSize);
   }
 
   /**
@@ -84,7 +88,7 @@ final readonly class BattleTestSetup
    */
   public static function fromArray(array $data): self
   {
-    $unknown = array_diff(array_keys($data), ['members', 'arena']);
+    $unknown = array_diff(array_keys($data), ['members', 'arena', 'battleSize']);
     if ($unknown !== []) {
       throw new InvalidArgumentException('A battle test setup has no ' . implode(', ', $unknown) . '.');
     }
@@ -97,7 +101,7 @@ final readonly class BattleTestSetup
       throw new InvalidArgumentException('A battle test setup\'s arena is an arena key.');
     }
 
-    return new self(array_map(BattleTestMember::fromArray(...), $members), $arena);
+    return new self(array_map(BattleTestMember::fromArray(...), $members), $arena, $data['battleSize'] ?? Party::BATTLE_SIZE);
   }
 
   /**
@@ -108,6 +112,7 @@ final readonly class BattleTestSetup
   public function toArray(): array
   {
     return [
+      ...($this->battleSize === Party::BATTLE_SIZE ? [] : ['battleSize' => $this->battleSize]),
       'members' => array_map(static fn(BattleTestMember $member): array => $member->toArray(), $this->members),
       ...($this->arena === null ? [] : ['arena' => $this->arena]),
     ];
@@ -116,7 +121,7 @@ final readonly class BattleTestSetup
   /** The setup a party describes: its members, their levels and what they wear. */
   public static function getFromParty(Party $party): self
   {
-    return new self(array_map(self::describeCharacter(...), array_slice($party->members->toArray(), 0, self::MAX_MEMBERS)));
+    return new self(array_map(self::describeCharacter(...), array_slice($party->participants->toArray(), 0, self::MAX_MEMBERS)), battleSize: $party->battleSize);
   }
 
   private static function describeCharacter(Character $character): BattleTestMember
@@ -192,7 +197,7 @@ final readonly class BattleTestSetup
         array_splice($members, $index, 1);
       }
 
-      return new self($members, $this->arena);
+      return new self($members, $this->arena, $this->battleSize);
     }
     if ($index >= count($members)) {
       $members[] = $member;
@@ -200,13 +205,18 @@ final readonly class BattleTestSetup
       $members[$index] = $member;
     }
 
-    return new self(array_slice($members, 0, self::MAX_MEMBERS), $this->arena);
+    return new self(array_slice($members, 0, self::MAX_MEMBERS), $this->arena, $this->battleSize);
+  }
+
+  public function withBattleSize(int $size): self
+  {
+    return new self($this->members, $this->arena, $size);
   }
 
   /** The setup fighting in an arena of the battle presentation, by key; null for its default. */
   public function withArena(?string $arena): self
   {
-    return new self($this->members, $arena === null || trim($arena) === '' ? null : $arena);
+    return new self($this->members, $arena === null || trim($arena) === '' ? null : $arena, $this->battleSize);
   }
 
   /**
@@ -234,6 +244,7 @@ final readonly class BattleTestSetup
       throw new InvalidArgumentException("The battle test party cannot be built:\n" . implode("\n", $problems));
     }
     $party = new Party();
+    $party->setBattleSize($this->battleSize);
     $loadouts = $this->createLoadoutCatalog($skills, $summons);
     foreach ($this->members as $member) {
       $character = $this->createCharacter($member, $actors, $items);

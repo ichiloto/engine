@@ -1384,3 +1384,38 @@ it('refuses a save holding a tombstoned knowledge subject', function () {
   expect(fn() => new SaveContentResolver($manifest, '/saves/knowledge.iedata')->resolve($config))
     ->toThrow(RuntimeException::class, 'creature.removed');
 });
+
+
+it('restores selected participation and capacity through the actual save pipeline', function () {
+  $config = makeCompatibilityConfig();
+  $config->party->addMember(new Character('Companion', 0, new Stats(currentHp: 63, totalHp: 100)));
+  $config->party->setBattleSize(8);
+  $config->party->selectParticipants(['Companion']);
+  $config->applySaveCompatibilityData([...$config->getSaveCompatibilityData(), 'gameState' => ['flags' => ['searchStarted' => true]]]);
+  $pipeline = new SaveCompatibilityPipeline(makeCompatibilityManifest());
+  $path = '/saves/synthetic-split.iedata';
+  $saved = serialize($pipeline->createEnvelope(makeCompatibilitySlot($path), $config));
+  $loaded = $pipeline->load($saved, $path)->config;
+  expect($loaded->party->battleSize)->toBe(8)
+    ->and(array_column($loaded->party->participants->toArray(), 'actorId'))->toBe(['Companion'])
+    ->and($loaded->party->leader->stats->currentHp)->toBe(63)
+    ->and($loaded->gameState['flags']['searchStarted'])->toBeTrue()
+    ->and(array_column($loaded->party->members->toArray(), 'actorId'))->toBe(['Hero', 'Companion']);
+  $loaded->party->regroupParticipants();
+  $again = $pipeline->load(serialize($pipeline->createEnvelope(makeCompatibilitySlot($path), $loaded)), $path)->config;
+  expect($again->party->getSelectedActorIds())->toBeNull()
+    ->and(array_column($again->party->participants->toArray(), 'actorId'))->toBe(['Hero', 'Companion']);
+});
+
+
+it('migrates a selected actor reference with the permanent saved actor', function () {
+  $config = makeCompatibilityConfig();
+  $config->party->selectParticipants(['Hero']);
+  $manifest = makeCompatibilityManifest(['aliases' => ['actors' => [['from' => 'Hero', 'to' => 'Renamed']]]]);
+  $pipeline = new SaveCompatibilityPipeline($manifest);
+  $path = '/saves/synthetic-party-alias.iedata';
+  $loaded = $pipeline->load(serialize($pipeline->createEnvelope(makeCompatibilitySlot($path), $config)), $path)->config;
+  expect($loaded->party->getSelectedActorIds())->toBe(['Renamed'])
+    ->and($loaded->party->leader->actorId)->toBe('Renamed')
+    ->and($loaded->party->leader)->toBe($loaded->party->members[0]);
+});

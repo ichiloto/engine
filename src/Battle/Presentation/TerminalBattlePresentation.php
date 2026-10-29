@@ -23,7 +23,7 @@ final class TerminalBattlePresentation
     ?BattleConditionEffects $conditionEffects = null)
   {
     $this->origin = clone ($origin ?? new Vector2());
-    $this->effects = new TerminalBattleEffects($positions, $this->origin, $width, $height);
+    $this->effects = new TerminalBattleEffects($positions ?? PartyBattlerPositions::createForSize(max(1, count($battle->partyRoster->battlers)), $width, $height), $this->origin, $width, $height);
     $this->conditionEffects = $conditionEffects ?? BattleConditionEffects::createFromConfig(
       new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary(getcwd() . '/assets'));
   }

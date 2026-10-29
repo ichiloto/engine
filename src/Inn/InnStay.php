@@ -113,7 +113,7 @@ class InnStay
     }
 
     /** @var Character $member */
-    foreach ($scene->party->members as $member) {
+    foreach ($scene->party->participants as $member) {
       $member->recoverFromRest();
     }
 

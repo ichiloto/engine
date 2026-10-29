@@ -45,6 +45,8 @@ final class FieldSkillExecutor
     ?Character $selectedTarget = null,
   ): FieldSkillExecutionResult
   {
+    if (!$party->participants->contains($caster)) { return $this->failure(FieldSkillFailureReason::CASTER_NOT_PRESENT); }
+
     if (! in_array($skill->occasion, [Occasion::ALWAYS, Occasion::MENU_SCREEN], true)) {
       return $this->failure(FieldSkillFailureReason::WRONG_OCCASION);
     }
@@ -116,7 +118,7 @@ final class FieldSkillExecutor
 
     /** @var Character[] $eligibleTargets */
     $eligibleTargets = SkillTargetPolicy::filterByStatus(
-      $party->members->toArray(),
+      $party->participants->toArray(),
       $skill->scope->status,
     );
 

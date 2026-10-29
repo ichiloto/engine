@@ -127,6 +127,33 @@ final class EngineScriptCommands
       ],
     ],
     [
+      'type' => 'set_party_size',
+      'class' => PartyParticipationCommand::class,
+      'label' => 'Set Party Battle Size',
+      'description' => 'Sets this party’s frontline capacity from 1 to 8 without changing membership.',
+      'fields' => [
+        ['key' => 'size', 'label' => 'Battle Members', 'kind' => 'integer', 'minimum' => 1, 'maximum' => 8, 'required' => true],
+      ],
+    ],
+    [
+      'type' => 'select_party',
+      'class' => PartyParticipationCommand::class,
+      'label' => 'Select Present Party',
+      'description' => 'Selects 1 to 8 permanent actors for field movement, menus and battles. Other members keep their progress.',
+      'fields' => [
+        ['key' => 'members', 'label' => 'Present Members', 'kind' => 'list', 'minimum' => 1, 'maximum' => 8, 'required' => true, 'fields' => [
+          ['key' => 'actor', 'label' => 'Actor', 'kind' => 'reference', 'reference' => 'actor', 'required' => true],
+        ]],
+      ],
+    ],
+    [
+      'type' => 'regroup_party',
+      'class' => PartyParticipationCommand::class,
+      'label' => 'Regroup Party',
+      'description' => 'Restores the permanent party’s membership and order after a split, without recreating actors.',
+      'fields' => [],
+    ],
+    [
       'type' => 'recruit_actor',
       'class' => RecruitActorCommand::class,
       'label' => 'Recruit Actor',

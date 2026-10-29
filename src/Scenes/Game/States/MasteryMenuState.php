@@ -450,7 +450,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     /** Shows the next or previous party member's board at the same place, on the same level. */
     protected function selectCharacterByOffset(int $offset): void
     {
-        $characters = $this->getGameScene()->party->members->toArray();
+        $characters = $this->getGameScene()->party->participants->toArray();
         if (count($characters) < 2) {
             return;
         }

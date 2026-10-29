@@ -251,7 +251,7 @@ class BattleFieldWindow extends Window implements \Ichiloto\Engine\Battle\Presen
     $topMargin = $this->battleScreen->screenDimensions->getTop();
 
     $position = new Vector2($leftMargin, $topMargin);
-    $this->partyBattlerPositions = new PartyBattlerPositions();
+    $this->partyBattlerPositions = PartyBattlerPositions::createForSize(max(1, count($this->battleScreen->partyBattlers)));
 
     parent::__construct(
       '',

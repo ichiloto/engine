@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Entities\Skills;
 /** Why a requested field skill did not commit. */
 enum FieldSkillFailureReason: string
 {
+  case CASTER_NOT_PRESENT = 'caster_not_present';
   case WRONG_OCCASION = 'wrong_occasion';
   case CASTER_KNOCKED_OUT = 'caster_knocked_out';
   case INSUFFICIENT_MP = 'insufficient_mp';

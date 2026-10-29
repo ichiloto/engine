@@ -18,6 +18,22 @@ enemy-AI schema, the story-flag store, the class data, the encounter tile
 type, and the guard/escape vocabulary all exist and have no consumer. The
 fastest path to "full 2D JRPGs" is mostly *wiring what is already designed*.
 
+## Variable party participation — 29 October 2026
+
+Shared Party capacity now supports 1–8 active battlers, replacing the fixed
+three-member limit while retaining three as the legacy project default.
+Story-authored participation selects original permanent actors for field
+leadership, menus/targets, battle entry and reserve promotion; regrouping keeps
+permanent order and progress. Selection and capacity persist through the normal
+save pipeline, including actor aliases. The Editor authors the project size and
+selection/regroup commands through the existing source-preserving schemas and
+Actor pickers. Terminal formations and synchronized four-row battle-HUD paging
+cover eight combatants; graphical staging retains theme-owned formations.
+Battle Test's former four-member ceiling is removed. See
+[Party capacity and temporary groups](story-events.md#party-capacity-and-temporary-groups).
+This does not implement a particular game's split/reunion scene, change its
+normal party size, add controller devices or authorize native launches.
+
 ## Maturity map
 
 **Polished / complete**

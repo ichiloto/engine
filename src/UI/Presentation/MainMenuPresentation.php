@@ -83,7 +83,7 @@ final class MainMenuPresentation
         $footer->width - 2 * $footerHorizontalPadding, $hintHeight));
     }
 
-    $members = $state->party->members->toArray();
+    $members = $state->party->participants->toArray();
     $cardPadding = $layout['cardPadding'];
     $heights = $layout['heights'];
     $pages = $layout['pagination'];
@@ -150,7 +150,7 @@ final class MainMenuPresentation
     $cardInsets = ($theme->frames['panel'] ?? null)?->borderInsets($theme->assetRoot,
       new CanvasRectangle(0, 0, self::PARTY_WIDTH, 140));
     $cardPadding = $cardInsets === null ? $verticalPadding : (int)ceil(max($verticalPadding, $cardInsets[1], $cardInsets[3]));
-    $members = $state->party->members->toArray();
+    $members = $state->party->participants->toArray();
     $heights = [];
     for ($index = 0; $index < max(4, count($members)); $index++) {
       $heights[] = self::recordHeight($members[$index] ?? null, $theme, $cardPadding);

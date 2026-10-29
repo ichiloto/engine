@@ -207,7 +207,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
 
     public function getPartyPresentationIndex(): int
     {
-        $members = $this->party->members->toArray();
+        $members = $this->party->participants->toArray();
         if ($this->mode instanceof MainMenuCharacterSelectionMode || $this->mode instanceof MainMenuPartyOrderMode) {
             $index = $this->characterSelectionMenu?->getActivePanelIndex();
             if ($index !== null && isset($members[$index])) { return $index; }
@@ -219,7 +219,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
     /** Remember gameplay identity, so reordering and submenu re-entry do not retain a stale position. */
     public function rememberPartyPresentationCharacter(?Character $character): void
     {
-        if ($character !== null && in_array($character, $this->party->members->toArray(), true)) {
+        if ($character !== null && in_array($character, $this->party->participants->toArray(), true)) {
             $this->partyPresentationCharacter = $character;
         }
     }
@@ -238,7 +238,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         $pages = MainMenuPresentation::getPartyPagination($this, $this->menuTheme);
         $target = $pages->getAdjacentRecordIndex($index, $direction);
         if ($target === $index) { return true; }
-        $character = $this->party->members->toArray()[$target] ?? null;
+        $character = $this->party->participants->toArray()[$target] ?? null;
         if (!$character instanceof Character) { return true; }
         $this->rememberPartyPresentationCharacter($character);
         if (!$this->mode instanceof MainMenuCommandSelectionMode) {
@@ -448,7 +448,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         $this->mode->enter();
         if (($mode instanceof MainMenuCharacterSelectionMode || $mode instanceof MainMenuPartyOrderMode)
             && $this->partyPresentationCharacter !== null && $this->getPresentationCanvas() !== null) {
-            $index = array_search($this->partyPresentationCharacter, $this->party->members->toArray(), true);
+            $index = array_search($this->partyPresentationCharacter, $this->party->participants->toArray(), true);
             if (is_int($index)) { $this->characterSelectionMenu?->focusPanelByIndex($index); }
         }
     }

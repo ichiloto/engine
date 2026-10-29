@@ -264,7 +264,7 @@ it('reads a setup from a party and changes members within one to four', function
     // The last member stays; a fifth is not added.
     ->and($setup->withMember(0, null)->members)->toHaveCount(1);
   $full = $setup;
-  foreach (range(1, 5) as $index) {
+  foreach (range(1, BattleTestSetup::MAX_MEMBERS + 1) as $index) {
     $full = $full->withMember($index, new BattleTestMember('veteran', 3));
   }
   expect($full->members)->toHaveCount(BattleTestSetup::MAX_MEMBERS)
@@ -393,7 +393,7 @@ it('refuses malformed members and setups instead of ignoring what it does not un
   'unknown command' => [['actor' => 'hero', 'level' => 1, 'commands' => ['dance']], 'command types'],
   'unknown setup field' => [['members' => [['actor' => 'hero', 'level' => 1]], 'party' => []], 'has no party'],
   'members not a list' => [['members' => ['hero' => ['actor' => 'hero', 'level' => 1]]], 'list of members'],
-  'no members' => [['members' => []], '1 to 4 members'],
+  'no members' => [['members' => []], '1 to 8 members'],
 ]);
 
 it('takes a project\'s battle test from system data, the starting party when it keeps none, and never swaps a bad one', function () {
@@ -481,4 +481,13 @@ it('sets up the starting party an editor passes as it stands, the same way as th
   expect(array_column($test->createSetup($this->actors, ['hero', 'veteran'])->members, 'actorId'))->toBe(['hero', 'veteran'])
     ->and($test->createSetup($this->actors, ['hero'])->arena)->toBe('arena.lake')
     ->and(fn() => $test->createSetup($this->actors, []))->toThrow(InvalidArgumentException::class, 'no starting party');
+});
+
+
+it('round trips an eight-member battle test and preserves its capacity across arena changes', function () {
+  $entry = ['members' => array_map(fn($n) => ['actor' => 'actor.' . $n, 'level' => 1], range(1, 8)), 'battleSize' => 8];
+  $project = \Ichiloto\Engine\Scenes\Arena\ProjectBattleTest::fromArray($entry);
+  expect($project->toArray())->toEqual($entry)
+    ->and($project->setup->withArena('synthetic')->battleSize)->toBe(8)
+    ->and($project->setup->withMember(0, $project->setup->members[1])->battleSize)->toBe(8);
 });

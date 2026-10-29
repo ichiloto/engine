@@ -582,6 +582,49 @@ validation applies the same checks. Authored cinematic skips reject
 registered commands conservatively, as they do Common Events, since the
 Engine cannot prove a project command safe to skip.
 
+## Party capacity and temporary groups
+
+`assets/Data/system.php` owns `battle.partySize`, an integer from 1 to 8.
+Projects without this field retain the existing default of three active
+battlers. The saved Party owns its current capacity; changing it never removes
+actors, equipment, growth, inventory or summon assignments.
+
+Field scripts can author:
+
+```php
+['type' => 'set_party_size', 'size' => 8],
+['type' => 'select_party', 'members' => [['actor' => 'actor.scout']]],
+// Transfers and battles use the selected original actor, including field menus.
+['type' => 'regroup_party'],
+```
+
+`select_party` accepts 1–8 distinct permanent actor IDs in participation order.
+The Editor exposes Actor pickers for its members. Selection replaces the current
+group atomically; it does not nest groups. `regroup_party` is idempotent and
+restores access to the permanent roster in its existing order. It keeps the
+current battle capacity. A solo story sequence normally needs only selection,
+so regrouping retains the project's normal capacity without a paired size edit.
+
+Present members and frontline capacity are separate: the first `partySize`
+present members fight; other present members are reserves. Separated members
+cannot lead, be field targets or enter through reserve promotion. They retain
+the existing travelling-roster experience policy. A split and its current size
+survive normal Save, Quick Save and Continue. Existing active-session save
+restrictions still apply; party commands do not serialize a suspended scene.
+
+Runtime APIs are `Party::setBattleSize()`, `selectParticipants()` and
+`regroupParticipants()`. `participants` reads the current field group;
+`members` retains permanent ownership. Save compatibility resolves selected
+actor IDs using the same project aliases as saved actors. Invalid, missing or
+ambiguous selections fail instead of silently changing participants.
+
+Terminal formations support all eight combatants. Battle name/vital panels
+share the selected actor's four-row page, keeping members five through eight
+accessible on both presentations. Graphical themes may author up to eight
+formation slots or use the existing automatic arrangement. An explicit formation
+with too few slots is diagnosed; it is not silently substituted. Battle Test
+supports eight members and preserves its configured frontline size.
+
 ## Save safety
 
 Active execution sessions are deliberately in-memory only. They do not enter

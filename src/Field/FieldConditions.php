@@ -72,7 +72,7 @@ class FieldConditions
     $knockedOut = false;
 
     /** @var Character $member */
-    foreach ($party->members as $member) {
+    foreach ($party->participants as $member) {
       foreach ($member->tickFieldStep() as $event) {
         if ($event['hpDelta'] >= 0) {
           continue;

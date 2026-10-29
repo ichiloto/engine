@@ -33,14 +33,14 @@ final readonly class ShopEquipmentComparison
         'label' => $label, 'current' => $current, 'result' => $result, 'group' => $group, 'context' => $context];
       $source .= $text . "\n";
     };
-    foreach ($party->members->toArray() as $index => $actor) {
+    foreach ($party->participants->toArray() as $index => $actor) {
       if (!$actor instanceof Character) { continue; }
       $profile = count($profiles);
       $profiles[] = ['id' => $actor->actorId, 'affected' => false];
       if (!$actor->canEquip($item)) { continue; }
       $slots = array_values(array_filter($actor->equipment, static fn($slot): bool =>
         $slot->acceptsType === $item::class && $slot->semanticSlot === $item->semanticSlot));
-      $name = $actor->name . ($index >= Party::BATTLE_SIZE ? ' (' . Vocabulary::getTerm('party.reserve', 'Reserve') . ')' : '');
+      $name = $actor->name . ($index >= $party->battleSize ? ' (' . Vocabulary::getTerm('party.reserve', 'Reserve') . ')' : '');
       $current = $actor->effectiveStats;
       foreach ($slots as $slot) {
         $after = $actor->previewEquipmentStats($slot->name, $item);

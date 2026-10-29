@@ -85,6 +85,7 @@ class GameLoader
     }
     $systemData = SystemData::fromArray($systemData);
     $party = new Party();
+    $party->setBattleSize($systemData->battle->partySize);
 
     foreach ($systemData->startingParty as $member) {
       try {

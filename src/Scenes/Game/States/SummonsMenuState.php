@@ -103,7 +103,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
 
     private function refreshDefinitions(): void
     {
-        if ($this->character !== null && !$this->party->members->contains($this->character)) {
+        if ($this->character !== null && !$this->party->participants->contains($this->character)) {
             $this->character = null;
             $this->equipmentReturn = null;
             $this->view = SummonsMenuView::SUMMONS;
@@ -134,7 +134,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     private function getHolderOptions(): array
     {
         $definition = $this->getSelectedSummon();
-        return $definition === null ? [] : array_values(array_filter($this->party->members->toArray(),
+        return $definition === null ? [] : array_values(array_filter($this->party->participants->toArray(),
             fn(Character $member): bool => $member->hasSummon($definition->id)
                 || $this->party->canReassignSummon($definition, $member, $this->getGameScene()->gameState)));
     }
@@ -335,7 +335,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
             elseif ($action === 'assign') { $this->setView(SummonsMenuView::HOLDERS); }
         } else {
             $member = $this->view === SummonsMenuView::CHARACTER ? $this->character : ($this->getHolderOptions()[$this->activeIndex] ?? null);
-            if ($member === null || !$this->party->members->contains($member)) { $this->refreshUI(); return; }
+            if ($member === null || !$this->party->participants->contains($member)) { $this->refreshUI(); return; }
             if ($member->hasSummon($definition->id)) { $this->party->unassignSummon($definition->id, $member); }
             elseif ($this->view === SummonsMenuView::CHARACTER) { $this->party->assignSummon($definition, $member, $this->getGameScene()->gameState); }
             else { $this->party->reassignSummon($definition, $member, $this->getGameScene()->gameState); }
@@ -347,7 +347,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     {
         if ($this->view !== SummonsMenuView::CHARACTER) { return false; }
         $offset = $this->isNextCharacterRequested() ? 1 : ($this->isPreviousCharacterRequested() ? -1 : 0);
-        $members = $this->party->members->toArray();
+        $members = $this->party->participants->toArray();
         if ($offset === 0 || count($members) < 2) { return false; }
         $current = array_search($this->character, $members, true);
         $this->character = $members[wrap(($current === false ? 0 : $current) + $offset, 0, count($members) - 1)];

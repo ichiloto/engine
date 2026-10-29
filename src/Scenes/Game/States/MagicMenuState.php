@@ -710,7 +710,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
      */
     protected function selectCharacterByOffset(int $offset): void
     {
-        $characters = $this->getGameScene()->party->members->toArray();
+        $characters = $this->getGameScene()->party->participants->toArray();
         $totalCharacters = count($characters);
 
         if ($totalCharacters < 2) {
@@ -891,7 +891,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
     {
         /** @var Character[] $targets */
         $targets = SkillTargetPolicy::filterByStatus(
-            $this->party->members->toArray(),
+            $this->party->participants->toArray(),
             $spell->scope->status,
         );
 
@@ -1010,6 +1010,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         }
 
         return match ($result->failureReason) {
+            FieldSkillFailureReason::CASTER_NOT_PRESENT => 'That character is away from the party.',
             FieldSkillFailureReason::WRONG_OCCASION => sprintf('%s can only be used in battle.', $spell->name),
             FieldSkillFailureReason::CASTER_KNOCKED_OUT => 'A knocked-out character cannot cast magic.',
             FieldSkillFailureReason::INSUFFICIENT_MP => get_engine_message('magic.insufficient_mp', Vocabulary::getTerm('stats.mp', 'MP'), $spell->name),

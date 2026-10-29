@@ -264,3 +264,22 @@ it('ticks states when each battler ends its turn, as a live turn does', function
     ->and($report->hpLost['Poisoned'])->toBe(20.0)
     ->and($enemy->stats->currentHp)->toBe(20);
 });
+
+
+it('simulates an eight-member frontline and a selected solo actor without changing the source party', function () {
+  $party = new Party();
+  foreach (range(1, 8) as $n) {
+    $party->addMember(new Character('Member' . $n, 0, new Stats(currentHp: 1000, totalHp: 1000, attack: 100, defence: 80, speed: 20, grace: 20)));
+  }
+  $party->setBattleSize(8);
+  $original = $party->members->toArray();
+  $troop = new Troop('Synthetic', [makeSimulationEnemy('Target', new Stats(currentHp: 10000, totalHp: 10000, attack: 1, defence: 0, speed: 1))]);
+  $report = new BattleSimulator()->simulate($party, $troop, 1);
+  foreach ($original as $actor) { expect($report->damageDealt[$actor->name] ?? 0)->toBeGreaterThan(0); }
+  $party->selectParticipants(['Member8']);
+  $solo = new BattleSimulator()->simulate($party, $troop, 1);
+  expect($solo->damageDealt['Member8'] ?? 0)->toBeGreaterThan(0);
+  foreach (array_slice($original, 0, 7) as $actor) { expect($solo->damageDealt[$actor->name] ?? 0)->toEqual(0); }
+  expect($party->members->toArray())->toBe($original)->and($party->leader)->toBe($original[7]);
+  foreach ($original as $actor) { expect($actor->stats->currentHp)->toBe(1000); }
+});

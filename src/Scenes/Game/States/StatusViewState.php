@@ -96,7 +96,7 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
    */
   protected int $currentCharacterIndex {
     get {
-      return $this->getGameScene()->party->members->findIndex(fn(Character $character) => $character === $this->character);
+      return $this->getGameScene()->party->participants->findIndex(fn(Character $character) => $character === $this->character);
     }
   }
 
@@ -356,8 +356,8 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
    */
   protected function selectPreviousCharacter(): void
   {
-    $previousCharacterIndex = wrap($this->currentCharacterIndex - 1, 0, $this->getGameScene()->party->members->count() - 1);
-    $this->character = $this->getGameScene()->party->members->toArray()[$previousCharacterIndex];
+    $previousCharacterIndex = wrap($this->currentCharacterIndex - 1, 0, $this->getGameScene()->party->participants->count() - 1);
+    $this->character = $this->getGameScene()->party->participants->toArray()[$previousCharacterIndex];
     $this->updateContent();
   }
 
@@ -368,8 +368,8 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
    */
   protected function selectNextCharacter(): void
   {
-    $previousCharacterIndex = wrap($this->currentCharacterIndex + 1, 0, $this->getGameScene()->party->members->count() - 1);
-    $this->character = $this->getGameScene()->party->members->toArray()[$previousCharacterIndex];
+    $previousCharacterIndex = wrap($this->currentCharacterIndex + 1, 0, $this->getGameScene()->party->participants->count() - 1);
+    $this->character = $this->getGameScene()->party->participants->toArray()[$previousCharacterIndex];
     $this->updateContent();
   }
 }
