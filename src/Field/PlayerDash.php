@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
@@ -42,9 +44,10 @@ final class PlayerDash
    *
    * @param bool $mapDisablesDashing Whether the current map turns dashing off.
    */
-  public static function getSpeedMultiplier(bool $mapDisablesDashing = false): float
+  public static function getSpeedMultiplier(bool $mapDisablesDashing = false, ?GameState $gameState = null,
+    ?Party $party = null): float
   {
-    if ($mapDisablesDashing || ! self::isAvailable()) {
+    if ($mapDisablesDashing || ! self::isAvailable() || !self::getSettings()->isUnlocked($gameState, $party)) {
       return 1.0;
     }
     $held = InputManager::isButtonHeld(self::ACTION);

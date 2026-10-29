@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
+use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Core\WorldConditionEvaluator;
+use Ichiloto\Engine\Entities\Party;
 use InvalidArgumentException;
 use LogicException;
 
@@ -27,6 +30,7 @@ final readonly class DashSettings implements ConfigInterface
   public const string KEY = 'dash';
   public const string ENABLED = 'enabled';
   public const string SPEED_MULTIPLIER = 'speedMultiplier';
+  public const string CONDITIONS = 'conditions';
   /** RPG Maker's dash: one move speed up, twice the walking speed. */
   public const float DEFAULT_SPEED_MULTIPLIER = 2.0;
   /**
@@ -38,12 +42,16 @@ final readonly class DashSettings implements ConfigInterface
   /** The map data key that turns dashing off on that map. */
   public const string MAP_DISABLE_DASHING = 'disableDashing';
 
-  public function __construct(public bool $enabled = false, public float $speedMultiplier = self::DEFAULT_SPEED_MULTIPLIER)
+  /** @param list<array<string, mixed>> $conditions Shared world conditions required to dash. */
+  public function __construct(public bool $enabled = false, public float $speedMultiplier = self::DEFAULT_SPEED_MULTIPLIER,
+    public array $conditions = [])
   {
     if (! is_finite($speedMultiplier) || $speedMultiplier <= 1.0 || $speedMultiplier > self::MAX_SPEED_MULTIPLIER) {
       throw new InvalidArgumentException(sprintf('system.dash.%s must be a number greater than 1 and at most %g.',
         self::SPEED_MULTIPLIER, self::MAX_SPEED_MULTIPLIER));
     }
+    if (!array_is_list($conditions)) { throw new InvalidArgumentException('system.dash.conditions must be a list.'); }
+    WorldConditionEvaluator::validateAll($conditions, 'system.dash.conditions');
   }
 
   /** The rule a project's `Data/system.php` authors; no `dash` section means no dash. */
@@ -58,7 +66,7 @@ final readonly class DashSettings implements ConfigInterface
       throw new InvalidArgumentException('system.dash must be an associative array.');
     }
     foreach ($data as $key => $value) {
-      if ($key !== self::ENABLED && $key !== self::SPEED_MULTIPLIER) {
+      if (!in_array($key, [self::ENABLED, self::SPEED_MULTIPLIER, self::CONDITIONS], true)) {
         throw new InvalidArgumentException(sprintf('Unknown system.dash field: %s.', $key));
       }
     }
@@ -71,7 +79,15 @@ final readonly class DashSettings implements ConfigInterface
       throw new InvalidArgumentException(sprintf('system.dash.%s must be a number.', self::SPEED_MULTIPLIER));
     }
 
-    return new self($enabled, (float) $multiplier);
+    $conditions = $data[self::CONDITIONS] ?? [];
+    if (!is_array($conditions)) { throw new InvalidArgumentException('system.dash.conditions must be a list.'); }
+    return new self($enabled, (float) $multiplier, $conditions);
+  }
+
+  public function isUnlocked(?GameState $gameState = null, ?Party $party = null): bool
+  {
+    return $this->enabled && ($this->conditions === [] || ($gameState !== null
+      && WorldConditionEvaluator::allHold($this->conditions, $gameState, $party)));
   }
 
   /**
@@ -95,13 +111,14 @@ final readonly class DashSettings implements ConfigInterface
     return match ($path) {
       self::ENABLED => $this->enabled,
       self::SPEED_MULTIPLIER => $this->speedMultiplier,
+      self::CONDITIONS => $this->conditions,
       default => $default,
     };
   }
 
   public function has(string $path): bool
   {
-    return $path === self::ENABLED || $path === self::SPEED_MULTIPLIER;
+    return in_array($path, [self::ENABLED, self::SPEED_MULTIPLIER, self::CONDITIONS], true);
   }
 
   public function set(string $path, mixed $value): void

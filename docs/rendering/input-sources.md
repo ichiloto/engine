@@ -12,6 +12,20 @@ GPUI from a game, change project configuration, or render a graphical game frame
 
 ## Contract and normalization
 
+### Story-gated dashing
+
+`system.dash.conditions` accepts the shared world-condition list. The field
+movement owner evaluates it against the current `GameState` and party before
+each held step. A locked gate uses walking speed. Empty conditions preserve
+the project's unconditional dash rule. Project and map dash restrictions still
+apply. The System database authors the condition list through the shared
+condition editor.
+
+Player control bindings and Always Dash preferences remain player-owned. A
+story gate does not rewrite them; the stored preference takes effect when the
+gate opens. Existing saved story state supplies the gate facts through the
+normal load path.
+
 `IO\InputSources\InputSourceInterface` has two methods:
 
 ```php

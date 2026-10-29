@@ -316,11 +316,16 @@ final class SkillRecord
 
     return match ($type) {
       'add_state' => (static function () use ($effect, $path): AddStateSkillEffect {
-        self::refuseUnknownKeys($effect, ['type', 'stateId', 'chancePercent'], $path);
+        self::refuseUnknownKeys($effect, ['type', 'stateId', 'chancePercent', 'guaranteed'], $path);
+        $guaranteed = $effect['guaranteed'] ?? false;
+        if (!is_bool($guaranteed)) {
+          throw new InvalidArgumentException(sprintf('%sguaranteed must be boolean.', $path));
+        }
 
         return new AddStateSkillEffect(
           self::requireString($effect, 'stateId', $path),
           array_key_exists('chancePercent', $effect) ? self::requireInt($effect, 'chancePercent', $path) : 100,
+          $guaranteed,
         );
       })(),
       'remove_state' => (static function () use ($effect, $path): RemoveStateSkillEffect {
@@ -398,8 +403,11 @@ final class SkillRecord
 
     return match (true) {
       $effect instanceof AddStateSkillEffect => array_filter(
-        ['type' => 'add_state', 'stateId' => $effect->stateId, 'chancePercent' => $effect->chancePercent],
-        static fn(mixed $value, string $key): bool => $key !== 'chancePercent' || $value !== 100,
+        ['type' => 'add_state', 'stateId' => $effect->stateId, 'chancePercent' => $effect->chancePercent,
+          'guaranteed' => $effect->guaranteed],
+        static fn(mixed $value, string $key): bool => match ($key) {
+          'chancePercent' => $value !== 100, 'guaranteed' => $value !== false, default => true,
+        },
         ARRAY_FILTER_USE_BOTH,
       ),
       $effect instanceof RemoveStateSkillEffect => array_filter(

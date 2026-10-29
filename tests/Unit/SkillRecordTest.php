@@ -41,6 +41,26 @@ function minimalSkillData(array $overrides = []): array
   ];
 }
 
+it('round trips explicit guaranteed state application and rejects conflicting chance data', function () {
+  $data = minimalSkillData(['effects' => [['type' => 'add_state', 'stateId' => 'stun', 'guaranteed' => true]]]);
+  $skill = SkillRecord::readSkill($data);
+  expect($skill->effects[0]->guaranteed)->toBeTrue()
+    ->and(SkillRecord::writeSkill($skill)['effects'])->toBe($data['effects']);
+  expect(fn() => SkillRecord::readSkill(minimalSkillData(['effects' => [
+    ['type' => 'add_state', 'stateId' => 'stun', 'guaranteed' => true, 'chancePercent' => 25],
+  ]])))->toThrow(InvalidArgumentException::class);
+  expect(fn() => SkillRecord::readSkill(minimalSkillData(['effects' => [
+    ['type' => 'add_state', 'stateId' => 'stun', 'guaranteed' => 'true'],
+  ]])))->toThrow(InvalidArgumentException::class);
+});
+
+it('keeps old serialized state effects probabilistic when the new field is absent', function () {
+  $effect = new AddStateSkillEffect('stun');
+  Closure::bind(function (): void { unset($this->guaranteed); }, $effect, AddStateSkillEffect::class)();
+  $restored = unserialize(serialize($effect));
+  expect($restored->guaranteed)->toBeFalse();
+});
+
 it('round-trips every kind and every effect type through record data', function () {
   $effects = [
     new HPDamageSkillEffect('$user->stats->attack * 4', 'Fire', 0.15, true, ResolutionKind::MAGICAL_DAMAGE),

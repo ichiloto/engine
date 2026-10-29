@@ -151,6 +151,29 @@ it('offers no dash in the Terminal, which cannot report a held control, and hide
   expect($controls)->not->toContain('dash')->and($config)->not->toContain('always_dash');
 });
 
+it('gates actual dashing on current story state without changing the players Always Dash choice', function () {
+  InputManager::setInputSource($source = new FakeHeldInputSource());
+  $settings = DashSettings::fromArray(['enabled' => true, 'speedMultiplier' => 2.0,
+    'conditions' => [['type' => 'event', 'name' => 'movement-unlocked']]]);
+  ConfigStore::put(DashSettings::class, $settings);
+  $state = new \Ichiloto\Engine\Core\GameState();
+  $this->config->set(PlayerDash::CONFIG_ALWAYS_DASH, true);
+  InputManager::handleInput();
+  expect(PlayerDash::getSpeedMultiplier())->toBe(1.0)
+    ->and(PlayerDash::getSpeedMultiplier(gameState: $state))->toBe(1.0);
+  $state->recordStoryEvent('movement-unlocked');
+  expect(PlayerDash::getSpeedMultiplier(gameState: $state))->toBe(2.0)
+    ->and(PlayerDash::getSpeedMultiplier(mapDisablesDashing: true, gameState: $state))->toBe(1.0)
+    ->and($this->config->get(PlayerDash::CONFIG_ALWAYS_DASH))->toBeTrue();
+  $source->press('shift', KeyCode::SHIFT);
+  InputManager::handleInput();
+  expect(PlayerDash::getSpeedMultiplier(gameState: $state))->toBe(1.0);
+  expect(fn() => DashSettings::fromArray(['enabled' => true, 'conditions' => 'bad']))
+    ->toThrow(InvalidArgumentException::class);
+  expect(fn() => DashSettings::fromArray(['enabled' => true, 'conditions' => [['type' => 'unknown', 'name' => 'x']]]))
+    ->toThrow(InvalidArgumentException::class);
+});
+
 it('binds dash to Shift where nothing claims it, keycapped as Shift, with room for a controller button', function () {
   $dash = InputManager::getBindings()['dash'];
   expect($dash['keys'])->toBe([KeyCode::SHIFT])

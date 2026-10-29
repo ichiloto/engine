@@ -21,6 +21,7 @@ use Ichiloto\Engine\Util\Debug;
  */
 class AddStateSkillEffect extends SkillEffect
 {
+  protected(set) bool $guaranteed = false;
   /**
    * @param string $stateId The state to inflict.
    * @param int $chancePercent The base infliction chance.
@@ -28,8 +29,13 @@ class AddStateSkillEffect extends SkillEffect
   public function __construct(
     protected(set) string $stateId,
     protected(set) int $chancePercent = 100,
+    bool $guaranteed = false,
   )
   {
+    if ($guaranteed && $chancePercent !== 100) {
+      throw new \InvalidArgumentException('A guaranteed state effect must use chancePercent 100.');
+    }
+    $this->guaranteed = $guaranteed;
     parent::__construct('0');
   }
 
@@ -52,7 +58,7 @@ class AddStateSkillEffect extends SkillEffect
           'state',
           $state->id,
           ! $target->isKnockedOut
-            && $target->addState($state, $this->chancePercent, $context->random, $target === $context->user),
+            && $target->addState($state, $this->chancePercent, $context->random, $target === $context->user, $this->guaranteed),
         );
       }
     }

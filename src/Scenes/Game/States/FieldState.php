@@ -349,7 +349,8 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
             // The walk's clock and the step's presentation share one duration, a dash's included.
             $this->playerWalk->update(Time::getDeltaTime(), static fn(Vector2 $direction, float $seconds): bool
                 => $scene->moveAtPace($seconds, static fn(): bool => $scene->player->tryMove($direction, $scene->camera, StepOrigin::PLAYER_INPUT)),
-                PlayerDash::getSpeedMultiplier($scene->mapManager?->isDashingDisabled ?? false));
+                PlayerDash::getSpeedMultiplier($scene->mapManager?->isDashingDisabled ?? false,
+                    $scene->gameState, $scene->party));
             return;
         }
 

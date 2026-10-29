@@ -12,6 +12,7 @@ function makeAfflictable(int $hp = 100): object
     use HasStates;
 
     public Stats $stats;
+    public int $knockoutFloor = 0;
     public bool $isKnockedOut {
       get {
         return $this->stats->currentHp <= 0;
@@ -98,6 +99,36 @@ it('never inflicts at zero chance', function () {
   $battler = makeAfflictable();
 
   expect($battler->addState(poisonState(), 0))->toBeFalse();
+});
+
+it('honours an explicit guaranteed application while retaining normal state immunity', function () {
+  $battler = makeAfflictable();
+  $battler->setStateResistances(['stun' => 0.0]);
+  expect($battler->addState(stunState()))->toBeFalse()
+    ->and($battler->addState(stunState(), guaranteed: true))->toBeTrue()
+    ->and($battler->hasState('stun'))->toBeTrue()
+    ->and($battler->addState(stunState(), guaranteed: true))->toBeFalse();
+});
+
+it('applies a guaranteed state effect to immune survivors while leaving knocked-out targets unchanged', function () {
+  $state = stunState();
+  $registry = new ReflectionProperty(\Ichiloto\Engine\Entities\States\StateRegistry::class, 'states');
+  $before = $registry->getValue();
+  $registry->setValue(null, ['stun' => $state]);
+  try {
+    $actor = new \Ichiloto\Engine\Entities\Character('Actor', 1, new Stats());
+    $target = new \Ichiloto\Engine\Entities\Character('Target', 1, new Stats());
+    $target->setStateResistances(['stun' => 0.0]);
+    $context = new \Ichiloto\Engine\Entities\Skills\SkillEffectContext($actor, $target);
+    new \Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect('stun')->apply($context);
+    expect($target->hasState('stun'))->toBeFalse();
+    new \Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect('stun', guaranteed: true)->apply($context);
+    expect($target->hasState('stun'))->toBeTrue();
+    $target->removeState('stun');
+    $target->stats->currentHp = 0;
+    new \Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect('stun', guaranteed: true)->apply($context);
+    expect($target->hasState('stun'))->toBeFalse();
+  } finally { $registry->setValue(null, $before); }
 });
 
 it('ticks HP formulas with a damage floor of one', function () {

@@ -455,6 +455,7 @@ final class WalkingFieldScene extends GameScene
 {
   public function __construct()
   {
+    $this->gameState = new GameState();
     $this->camera = new class extends Camera { public function __construct() {} };
     $scene = $this;
     $this->player = new class($scene) extends Player {
@@ -600,6 +601,7 @@ it('keeps held walking cardinal at a blocked corner and applies effects once per
       public function __destruct() {}
     };
     $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getGame'])->getStub();
+    new ReflectionProperty(GameScene::class, 'gameState')->setValue($scene, new GameState());
     $scene->method('getGame')->willReturn($game);
     $camera = new class extends Camera { public function __construct() {} };
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
@@ -751,6 +753,20 @@ function withDash(DashSettings $settings, array $player, Closure $test): void
   }
 }
 
+it('reads a live story unlock before timing each held field step', function () {
+  withDash(new DashSettings(true, 2.0, [['type' => 'event', 'name' => 'dash-earned']]), [], function () {
+    $scene = new WalkingFieldScene();
+    $field = new WalkingFieldState(new SceneStateContext($scene));
+    $this->source->press('shift', KeyCode::SHIFT)->press('down', KeyCode::DOWN);
+    foreach (range(1, 20) as $_) { InputManager::handleInput(); $field->navigate($scene); }
+    expect(array_unique(array_column($scene->player->moves, 2)))->toBe([WALK_STEP]);
+    $scene->gameState->recordStoryEvent('dash-earned');
+    $scene->player->moves = [];
+    foreach (range(1, 40) as $_) { InputManager::handleInput(); $field->navigate($scene); }
+    expect(array_unique(array_column($scene->player->moves, 2)))->toBe([WALK_STEP / 2]);
+  });
+});
+
 it('dashes the field step and its presentation while dash is held, and walks where the game, map or input offers no dash', function () {
   $paces = static function (FieldState $state, GameScene $scene, int $frames): array {
     $scene->player->moves = [];
@@ -816,6 +832,7 @@ it('counts one encounter step, trigger and movement per dashed cell, as walking 
           public function __destruct() {}
         };
         $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getGame'])->getStub();
+        new ReflectionProperty(GameScene::class, 'gameState')->setValue($scene, new GameState());
         $scene->method('getGame')->willReturn($game);
         new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, new class extends Camera { public function __construct() {} });
         $map = $this->getStubBuilder(MapManager::class)->disableOriginalConstructor()->onlyMethods(['scrollMap'])->getStub();

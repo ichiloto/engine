@@ -107,6 +107,7 @@ trait HasStates
    * @param State $state The state to add.
    * @param int $chancePercent The base infliction chance (before resistance).
    * @param bool $givenByBearer True when the bearer gives itself the state on its own turn: its duration and ticks start after that turn.
+   * @param bool $guaranteed True when an authored effect guarantees application, bypassing resistance and the chance roll.
    * @return bool True when the state was newly inflicted.
    */
   public function addState(
@@ -114,6 +115,7 @@ trait HasStates
     int $chancePercent = 100,
     ?CombatRandomSource $random = null,
     bool $givenByBearer = false,
+    bool $guaranteed = false,
   ): bool
   {
     if ($this->hasState($state->id)) {
@@ -125,7 +127,7 @@ trait HasStates
 
     $random ??= new NativeCombatRandomSource();
 
-    if ($effectiveChance < 1 || $random->nextInt(1, 100) > $effectiveChance) {
+    if (!$guaranteed && ($effectiveChance < 1 || $random->nextInt(1, 100) > $effectiveChance)) {
       return false;
     }
 

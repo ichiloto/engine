@@ -49,7 +49,7 @@ reactions, formation effects and integrated game presentation are still pending.
 | Type | Values | What it does |
 | --- | --- | --- |
 | `hp_damage`, `hp_drain`, `hp_recover`, `mp_damage`, `mp_drain`, `mp_recover` | `formula`, `element`, `variance`, `isCriticalHit`; `hp_damage` also `resolutionKind` | Changes HP or MP by the formula's amount |
-| `add_state` | `stateId`, `chancePercent` (default 100) | Afflicts each target with the state; the target's state resistance scales the chance |
+| `add_state` | `stateId`, `chancePercent` (default 100), `guaranteed` (default false) | Afflicts each surviving target; ordinary effects use state resistance, and explicitly guaranteed effects bypass resistance and the chance roll |
 | `remove_state` | `stateIds`, `chancePercent` (default 100) | Rolls to cure each listed state the target has |
 | `modify_stat_stage` | `stat`, `delta`, `affectsUser` | Raises or lowers a stat stage for the battle |
 | `reveal` | `facts`, `chancePercent` (1 to 100, default 100) | Reveals facts about each foe for the rest of the battle |
@@ -57,6 +57,11 @@ reactions, formation effects and integrated game presentation are still pending.
 Effects apply in order to each target. `add_state` skips a target an earlier
 effect of the same skill knocked out, so a spell that damages and then adds a
 state leaves only its survivors in it.
+
+An explicitly guaranteed state effect uses `guaranteed: true` and a 100% base
+chance. It applies once to a survivor even when that target resists the state.
+Already active states retain their existing duration and identity. Existing
+effects and older serialized effects keep their ordinary resistance behavior.
 
 ### Reveal
 

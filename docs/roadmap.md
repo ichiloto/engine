@@ -45,6 +45,19 @@ foundation. Full delivery still requires the secondary-command interaction,
 authored specialized reactions/formation effects and integrated presentation.
 See [Crisis techniques](skill-effects-and-states.md#crisis-techniques).
 
+Explicit guaranteed state effects now bypass resistance and the chance roll on
+surviving targets. Existing effects keep their resistance rules; older saved
+effects retain the default. Editor effect authoring round trips the guarantee.
+
+## Story-gated dash — 29 October 2026
+
+Projects can require shared world conditions before held-input movement uses
+the dash multiplier. Field movement reads the current game state and party on
+each step. Existing unguarded projects keep their dash behavior, map restrictions
+still apply, and player Always Dash preferences remain intact. System authoring
+uses the existing conditions editor. See
+[Story-gated dashing](rendering/input-sources.md#story-gated-dashing).
+
 ## Maturity map
 
 **Polished / complete**
