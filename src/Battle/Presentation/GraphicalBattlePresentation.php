@@ -44,7 +44,7 @@ final class GraphicalBattlePresentation
   private readonly BattleConditionEffects $conditionEffects;
   private readonly BattleHeadAttachmentLayout $headAttachments;
   private readonly EnemyDefeatStyle $defeatStyle;
-  /** Where this battle's party and troop stand, fixed for the battle. */
+  /** Starting presentation anchors; current logical positions project movement over these. */
   private BattleStaging $staging;
   /** @var array<int, BattlerSlot> Troop member instance => its slot; defeat never renumbers survivors. */
   private array $enemySlots = [];
@@ -107,6 +107,28 @@ final class GraphicalBattlePresentation
 
   /** Where a participant stands: its frontline slot, or its troop place on this arena's ground. */
   public function getSlot(CharacterInterface $battler): BattlerSlot
+  {
+    $base = $this->getBaseSlot($battler);
+    $formation = $this->battle->formation;
+    if ($formation->getPosition($battler) == $formation->getInitialPosition($battler)) { return $base; }
+    $party = $this->participants[spl_object_id($battler)]['party'];
+    $members = $party ? $this->battle->partyRoster->battlers : $this->battle->troop->members->toArray();
+    $anchors = array_map(fn(CharacterInterface $member): array => ['battler' => $member,
+      'point' => new \Ichiloto\Engine\Core\Vector2($this->getBaseSlot($member)->x, $this->getBaseSlot($member)->y)], $members);
+    $point = BattleFormationProjection::project($formation, $battler, $anchors,
+      ($party ? 1 : -1) * $base->width * $this->layout->spacing->lateral, $base->height * $this->layout->spacing->depth);
+    $area = $party ? $this->layout->partyArea : $this->layout->enemyArea;
+    $left = $area?->x ?? ($party ? $this->layout->width / 2 : 0);
+    $right = $area === null ? ($party ? $this->layout->width : $this->layout->width / 2) : $area->x + $area->width;
+    $ground = $this->staging->ground;
+    $y = max($ground->top, min($ground->bottom, $point->y));
+    $scale = $base->displayScale / $ground->getDepthScale($base->y) * $ground->getDepthScale($y);
+    return BattleStaging::fitMovedSlot($this->layout, $this->arena, $party,
+      $this->participants[spl_object_id($battler)]['habitat'] ?? EnemyHabitat::LAND,
+      new BattlerSlot(max($left, min($right, $point->x)), $y, $base->width, $base->height, $scale));
+  }
+
+  private function getBaseSlot(CharacterInterface $battler): BattlerSlot
   {
     $identity = spl_object_id($battler);
     $participant = $this->participants[$identity] ?? throw new RuntimeException('Not a participant of this graphical battle.');

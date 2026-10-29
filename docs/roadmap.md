@@ -52,8 +52,12 @@ Editor source authoring and duplicate-position refusal are present. Shared line/
 selection, preview, queued TBS/ATB execution, enemy AI and simulation consume the
 current formation. Selected line anchors retain combatant identity across queued
 formation changes. Command group effects now shuffle occupied places or move survivors forward once
-after all damage, with live/counter/simulator context ownership. Visible row-change
-presentation remains in progress before formation-dependent moves are complete.
+after all damage, with live/counter/simulator context ownership. Graphical and
+terminal frames now project those mutations over their original presentation
+anchors while preserving battler identity, theme sizing, footing and side bounds.
+Battle configuration validates positions without freezing pre-battle party edits.
+Authored move integration, the final crisis command interaction and production
+presentation remain required for full crisis delivery.
 See [Crisis techniques](skill-effects-and-states.md#crisis-techniques).
 
 Prepared decoy counters now divert a selected opponent's next damaging command,

@@ -30,7 +30,8 @@ final class TerminalBattleEffects
   private readonly Vector2 $origin;
 
   public function __construct(?PartyBattlerPositions $positions = null, ?Vector2 $origin = null,
-    private readonly int $width = 135, private readonly int $height = 30)
+    private readonly int $width = 135, private readonly int $height = 30,
+    private readonly ?\Ichiloto\Engine\Scenes\Battle\BattleConfig $battle = null)
   {
     if ($width < 1 || $height < 1) { throw new InvalidArgumentException('Terminal battle dimensions must be positive.'); }
     $this->positions = $positions ?? new PartyBattlerPositions();
@@ -39,12 +40,24 @@ final class TerminalBattleEffects
 
   public function getPartyIdlePosition(int $index): Vector2
   {
-    return clone ($this->positions->idlePositions[$index] ?? throw new RuntimeException('Invalid party battler position.'));
+    return $this->projectPartyPosition($index, $this->positions->idlePositions);
   }
 
   public function getPartyActivePosition(int $index): Vector2
   {
-    return clone ($this->positions->activePositions[$index] ?? throw new RuntimeException('Invalid party battler active position.'));
+    return $this->projectPartyPosition($index, $this->positions->activePositions);
+  }
+
+  private function projectPartyPosition(int $index, array $positions): Vector2
+  {
+    $base = $positions[$index] ?? throw new RuntimeException('Invalid party battler position.');
+    $member = $this->battle?->partyRoster->battlers[$index] ?? null;
+    if ($member === null || $this->battle->formation->getPosition($member) == $this->battle->formation->getInitialPosition($member)) { return clone $base; }
+    $anchors = [];
+    foreach ($this->battle->partyRoster->battlers as $i => $battler) { $anchors[] = ['battler' => $battler, 'point' => $positions[$i]]; }
+    $point = BattleFormationProjection::project($this->battle->formation, $member, $anchors, 6, max(1, count($member->images->battle) + 1));
+    return new Vector2((int) clamp($point->x, $this->getPartyZoneLeft(), $this->width - max(1, self::getSpriteWidth($member->images->battle))),
+      (int) clamp($point->y, 1, max(1, $this->height - count($member->images->battle))));
   }
 
   public static function isCommandAdvanced(CharacterInterface $battler, ?BattleCommandPlayback $playback,
@@ -62,6 +75,17 @@ final class TerminalBattleEffects
   }
 
   public function getTroopIdlePosition(Enemy $battler): Vector2
+  {
+    $base = $this->getTroopBaseIdlePosition($battler);
+    if ($this->battle === null || $this->battle->formation->getPosition($battler) == $this->battle->formation->getInitialPosition($battler)) { return $base; }
+    $anchors = array_map(fn(Enemy $member): array => ['battler' => $member, 'point' => $this->getTroopBaseIdlePosition($member)], $this->battle->troop->members->toArray());
+    $point = BattleFormationProjection::project($this->battle->formation, $battler, $anchors, -6, max(1, count($battler->image) + 1));
+    $maximum = max(self::TROOP_ZONE_LEFT, $this->getPartyZoneLeft() - self::BATTLE_SIDE_GAP - self::TROOP_STEP_X_OFFSET - max(1, self::getSpriteWidth($battler->image)));
+    return new Vector2((int) clamp($point->x, self::TROOP_ZONE_LEFT, $maximum),
+      (int) clamp($point->y, self::TROOP_ZONE_TOP, max(self::TROOP_ZONE_TOP, $this->height - count($battler->image))));
+  }
+
+  private function getTroopBaseIdlePosition(Enemy $battler): Vector2
   {
     // Reserve the enemy step as well as the party's active positions before fitting art.
     $maximumX = max(self::TROOP_ZONE_LEFT, $this->getPartyZoneLeft() - self::BATTLE_SIDE_GAP

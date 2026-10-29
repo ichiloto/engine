@@ -95,3 +95,16 @@ it('rejects malformed logical positions and defaults omitted troop positions saf
   expect((new BattleConfig($party, new Troop('Empty')))->formation->getPosition($party->leader)->toArray())
     ->toBe(['row' => 'front', 'lane' => 0]);
 });
+
+
+it('validates configuration without freezing participants until the battle acquires its roster', function () {
+  $party = new \Ichiloto\Engine\Entities\Party();
+  $original = new \Ichiloto\Engine\Entities\Character('Original', 0, new \Ichiloto\Engine\Entities\Stats());
+  $party->addMember($original);
+  $config = new \Ichiloto\Engine\Scenes\Battle\BattleConfig($party, new \Ichiloto\Engine\Entities\Troop('Empty', []));
+  $replacement = new \Ichiloto\Engine\Entities\Character('Replacement', 0, new \Ichiloto\Engine\Entities\Stats());
+  $party->members[0] = $replacement;
+  expect($config->partyRoster->battlers)->toBe([$replacement])
+    ->and($config->formation->getPosition($replacement))->not->toBeNull()
+    ->and($config->formation->getPosition($original))->toBeNull();
+});

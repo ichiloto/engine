@@ -2597,3 +2597,40 @@ it('stacks the live action announcement above a full-screen summon and its opaqu
   $cleared = $presentation->frame($field, [], new BattleHudSnapshot(), reducedMotion: $reduced);
   expect($cleared->textLayers)->toBeEmpty()->and($cleared->composites)->not->toBeEmpty();
 })->with([false, true])->with([false, true]);
+
+
+it('projects a formation permutation through actual combatant images without changing authored staging or combat state', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $before = array_map($presentation->getSlot(...), $enemies);
+  $positions = array_map(static fn($enemy) => clone $enemy->position, $enemies);
+  $battle->formation->shufflePositions($enemies, new class implements \Ichiloto\Engine\Battle\Resolution\CombatRandomSource {
+    public function nextInt(int $minimum, int $maximum): int { return $minimum; }
+  });
+  $logical = array_map($battle->formation->getPosition(...), $enemies);
+  $frame = $presentation->frame();
+  foreach ($enemies as $index => $enemy) {
+    $slot = $presentation->getSlot($enemy);
+    expect([$slot->x, $slot->y])->toEqual([$before[1 - $index]->x, $before[1 - $index]->y])
+      ->and([$slot->width, $slot->height])->toEqual([$before[$index]->width, $before[$index]->height])
+      ->and(graphicalCombatantImage($frame, $enemy))->not->toBeNull()
+      ->and($enemy->position)->toEqual($positions[$index])->and($enemy->stats->currentHp)->toBe(100);
+  }
+  $presentation->frame();
+  expect(array_map($battle->formation->getPosition(...), $enemies))->toEqual($logical);
+});
+
+it('places a newly occupied logical front position within the themed side and arena ground', function () {
+  [$source, $catalog, , $enemies] = graphicalBattleFixture();
+  $troop = new Troop('Rows', $enemies, graphicalFormation: array_map($source->troop->getStagePlace(...), $enemies),
+    battlePositions: [new \Ichiloto\Engine\Battle\Formation\BattlePosition(\Ichiloto\Engine\Battle\Formation\BattleRow::BACK, 0),
+      new \Ichiloto\Engine\Battle\Formation\BattlePosition(\Ichiloto\Engine\Battle\Formation\BattleRow::FRONT, 0)]);
+  $battle = new BattleConfig($source->party, $troop);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $before = $presentation->getSlot($enemies[0]);
+  $battle->formation->moveToFront([$enemies[0]]);
+  $moved = $presentation->getSlot($enemies[0]);
+  expect($moved->x)->toBeGreaterThan($before->x)->toBeLessThanOrEqual($catalog->ui->width / 2)
+    ->and($moved->y)->toBeGreaterThanOrEqual($presentation->getStaging()->ground->top)->toBeLessThanOrEqual($presentation->getStaging()->ground->bottom)
+    ->and(graphicalCombatantImage($presentation->frame(), $enemies[0]))->not->toBeNull();
+});

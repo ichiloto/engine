@@ -166,8 +166,19 @@ surviving group. Mutations validate one side's current participants before costs
 or damage, and record per-recipient formation outcomes. Live turns, counters and
 isolated simulation runs pass their battle-owned formation for the execution
 and release it afterwards. Formation effects require Battle Screen occasion;
-a missing battle formation refuses execution before MP spending. Visible
-row-change presentation remains in progress.
+a missing battle formation refuses execution before MP spending.
+
+Graphical and terminal consumers now project logical movement onto the original
+renderer-owned anchors. A permutation takes the corresponding starting anchor;
+a newly occupied position uses renderer-unit row/lane spacing. Graphical spacing
+uses the existing theme's lateral/depth factors, keeps the battler's own artwork
+size limits, and refits arena ground, perspective and habitat footing. Terminal
+positions retain the side separation and field bounds. Artwork, target markers,
+command effects and overlays read the same projected positions. Unchanged
+formations retain their original placement; drawing changes no authored position,
+HP, actor identity or logical formation. Current movement is an immediate new
+placement, including reduced motion. Configuration validates declarations without
+freezing the party before battle setup has acquired its live roster.
 
 ### Reveal
 

@@ -382,12 +382,12 @@ class BattleFieldWindow extends Window implements \Ichiloto\Engine\Battle\Presen
 
   private function getTerminalEffects(): TerminalBattleEffects
   {
-    return new TerminalBattleEffects($this->partyBattlerPositions, $this->position, $this->width, $this->height);
+    return new TerminalBattleEffects($this->partyBattlerPositions, $this->position, $this->width, $this->height, $this->battleScreen->getBattleConfig());
   }
 
   private function getTerminalGeometry(): TerminalBattleEffects
   {
-    return new TerminalBattleEffects($this->partyBattlerPositions);
+    return new TerminalBattleEffects($this->partyBattlerPositions, battle: $this->battleScreen->getBattleConfig());
   }
 
   /**

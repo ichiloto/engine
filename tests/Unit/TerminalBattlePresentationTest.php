@@ -418,3 +418,42 @@ it('raises an opponent-facing terminal ward on the side facing each subject oppo
   expect($frame['draws'])->toBe([['text' => '(', 'x' => $party['x'] - 2, 'y' => $party['y']],
     ['text' => ')', 'x' => $troop['x'] + 2, 'y' => $troop['y']]]);
 });
+
+
+it('projects changed enemy formation places in terminal sprites and retains original authored positions', function () {
+  $party = new Party();
+  $party->addMember(new Character('Hero', 1, new Stats(currentHp: 100)));
+  $enemies = [terminalPreviewEnemy(['A'], new Vector2(5, 5)), terminalPreviewEnemy(['B'], new Vector2(20, 10))];
+  $battle = new BattleConfig($party, new Troop('Twins', $enemies));
+  $presentation = new TerminalBattlePresentation($battle);
+  $effects = new \Ichiloto\Engine\Battle\Presentation\TerminalBattleEffects(battle: $battle);
+  $before = array_map($effects->getTroopIdlePosition(...), $enemies);
+  $battle->formation->shufflePositions($enemies, new class implements \Ichiloto\Engine\Battle\Resolution\CombatRandomSource {
+    public function nextInt(int $minimum, int $maximum): int { return $minimum; }
+  });
+  expect(array_map($effects->getTroopIdlePosition(...), $enemies))->toEqual(array_reverse($before));
+  $frame = $presentation->getFrame();
+  expect(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($frame['lines'][4])[4])->toBe('B')
+    ->and(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($frame['lines'][9])[19])->toBe('A')
+    ->and($enemies[0]->position)->toEqual(new Vector2(5, 5))->and($enemies[1]->position)->toEqual(new Vector2(20, 10));
+});
+
+
+it('keeps all eight party members within terminal presentation bounds after a formation permutation', function () {
+  $party = new Party();
+  $party->setBattleSize(8);
+  for ($i = 0; $i < 8; $i++) { $party->addMember(new Character('Member' . $i, 1, new Stats())); }
+  $battle = new BattleConfig($party, new Troop('Empty', []));
+  $positions = PartyBattlerPositions::createForSize(8);
+  $effects = new TerminalBattleEffects($positions, battle: $battle);
+  $members = $battle->partyRoster->battlers;
+  $before = array_map(static fn(int $index) => $effects->getPartyIdlePosition($index), range(0, 7));
+  $battle->formation->shufflePositions($members, new class implements \Ichiloto\Engine\Battle\Resolution\CombatRandomSource {
+    public function nextInt(int $minimum, int $maximum): int { return $minimum; }
+  });
+  $after = array_map(static fn(int $index) => $effects->getPartyIdlePosition($index), range(0, 7));
+  expect($after)->not->toEqual($before);
+  foreach ($after as $point) { expect($point->x)->toBeGreaterThanOrEqual($effects->getPartyZoneLeft())->toBeLessThan(135);
+    expect($point->y)->toBeGreaterThanOrEqual(1)->toBeLessThan(30); }
+  expect(array_map(static fn($member): string => $member->actorId, $members))->toBe(array_map(static fn(int $i): string => 'Member' . $i, range(0, 7)));
+});

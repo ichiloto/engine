@@ -276,6 +276,13 @@ final readonly class BattleStaging
    * already on its footing, or one with no footing to keep to, is returned
    * as it is.
    */
+  /** Logical movement retains the arena's habitat-specific footing and perspective. */
+  public static function fitMovedSlot(BattleCanvasLayout $layout, BattleArenaDefinition $arena, bool $party,
+    EnemyHabitat $habitat, BattlerSlot $slot): BattlerSlot
+  {
+    return self::getFootedSlot($layout, $party, $layout->getGround($arena), $arena->footing ?? new BattleFooting(), $habitat, $slot);
+  }
+
   private static function getFootedSlot(BattleCanvasLayout $layout, bool $party, BattleGroundBand $ground, BattleFooting $footing,
     EnemyHabitat $habitat, BattlerSlot $slot): BattlerSlot
   {
