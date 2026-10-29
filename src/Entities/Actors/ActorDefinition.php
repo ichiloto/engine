@@ -49,6 +49,7 @@ final class ActorDefinition
     }
 
     $this->id = $id;
+    InitialEquipment::fromArray($data['initialEquipment'] ?? [], $source);
     CounterAttackRule::fromArray($data['counterAttack'] ?? null);
     CrisisAbilityCatalog::requireReference($data['crisisAbility'] ?? null);
     if (($data['attackStyle'] ?? null) !== null) {
@@ -141,6 +142,8 @@ final class ActorDefinition
 
     if ($savedState !== []) {
       $character->restoreMutableState($savedState);
+    } else {
+      InitialEquipment::fromArray($data['initialEquipment'] ?? [], $this->source)->equipCharacter($character);
     }
     // A new or restored character knows every role skill of their level and
     // stands where their Mastery Map says, even if a save predates either.

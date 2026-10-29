@@ -500,6 +500,16 @@ nonempty party. The actor factory uses the recruit's own experience curve,
 maximum level, stat growth and automatic role skills. Repeating recruitment
 keeps an owned actor's progress. Story flags, dialogue and art remain project data.
 
+Actor data can declare first-creation equipment by semantic slot and stable item
+identity, for example `initialEquipment: ['weapon' => 'equipment.short-bow']`.
+The factory equips independent catalogue instances after applying the actor's
+class and starting level. Slot/type mismatches, unresolved references and class
+restrictions reject construction before recruitment changes the roster. The
+existing `equipment` field continues to describe hydrated equipment slots.
+Starting loadouts apply to new characters; saved equipment, including empty
+slots, is restored without re-granting or resetting initial gear. Changes to a
+starting loadout therefore affect future recruits and new games.
+
 The Engine registers two services, so an NPC can own the interaction a
 trigger tile used to stand in for:
 
