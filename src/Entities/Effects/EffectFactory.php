@@ -39,6 +39,10 @@ class EffectFactory
       unset($args['type']);
     }
 
+    if ($type === AddStateEffect::class) {
+      return new AddStateEffect(...$args);
+    }
+
     if (! $args['valueBasis'] instanceof ValueBasis) {
       $args['valueBasis'] = ValueBasis::tryFrom($args['valueBasis']) ?? throw new InvalidArgumentException("Invalid value basis: {$args['valueBasis']}");
     }

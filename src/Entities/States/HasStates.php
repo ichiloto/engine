@@ -127,22 +127,25 @@ trait HasStates
     bool $guaranteed = false,
   ): bool
   {
-    if ($this->hasState($state->id)) {
-      return false;
-    }
-
-    $resistance = $this->stateResistances[$state->id] ?? 1.0;
-    $effectiveChance = intval(round(clamp($chancePercent, 0, 100) * $resistance));
+    $effectiveChance = $this->getStateApplicationChance($state, $chancePercent, $guaranteed);
+    if ($effectiveChance < 1) { return false; }
 
     $random ??= new NativeCombatRandomSource();
 
-    if (!$guaranteed && ($effectiveChance < 1 || $random->nextInt(1, 100) > $effectiveChance)) {
+    if (!$guaranteed && $random->nextInt(1, 100) > $effectiveChance) {
       return false;
     }
 
     $this->states[] = new StateInstance($state, $state->durationTurns, awaitsNextTurn: $givenByBearer);
 
     return true;
+  }
+
+  /** Available application chance without rolling or changing live state; shared by effects and menu previews. */
+  public function getStateApplicationChance(State $state, int $chancePercent = 100, bool $guaranteed = false): int
+  {
+    if ($this->hasState($state->id)) { return 0; }
+    return $guaranteed ? 100 : intval(round(clamp($chancePercent, 0, 100) * ($this->stateResistances[$state->id] ?? 1.0)));
   }
 
   /**

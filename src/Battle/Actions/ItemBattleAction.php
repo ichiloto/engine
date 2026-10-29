@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Battle\Actions;
 
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
+use Ichiloto\Engine\Entities\Effects\AddStateEffect;
 use Ichiloto\Engine\Battle\Resolution\CombatActionResult;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
 use Ichiloto\Engine\Battle\Resolution\CombatResourceChange;
@@ -50,9 +52,10 @@ class ItemBattleAction extends BattleAction implements ExecutionEligibility
   public function __construct(
     protected(set) Item $item,
     protected(set) ?Inventory $inventory = null,
+    ?CombatRandomSource $random = null,
   )
   {
-    parent::__construct($item->name);
+    parent::__construct($item->name, random: $random);
   }
 
   public function getExecutionRefusal(Actor $actor): ?string
@@ -89,17 +92,21 @@ class ItemBattleAction extends BattleAction implements ExecutionEligibility
 
       $change = new CombatResourceChange();
       $hits = [];
+      $secondary = [];
       foreach ($this->item->effects as $effect) {
         $hp = $target->stats->currentHp;
         $mp = $target->stats->currentMp;
         $previousResult = $effect instanceof BaseEffect ? $effect->lastResult : null;
-        $effect->apply($target);
+        if ($effect instanceof AddStateEffect) {
+          $effect->apply($target, $this->random, $target === $actor || $this->reactions?->turnOwner === $target);
+          $secondary[] = ['type' => 'state', 'id' => $effect->stateId, 'applied' => $effect->lastApplied];
+        } else { $effect->apply($target); }
         $change = $change->accumulate(CombatResourceChange::measure($target, $hp, $mp));
         if ($effect instanceof BaseEffect && $effect->lastResult !== null && $effect->lastResult !== $previousResult) {
           $hits[] = $effect->lastResult;
         }
       }
-      $results[] = new CombatTargetResult(CombatResolver::identity($target), $hits, resourceChange: $change);
+      $results[] = new CombatTargetResult(CombatResolver::identity($target), $hits, $secondary, $change);
     }
 
     $this->lastResult = new CombatActionResult('item.' . $this->item->id, $this->nextExecutionId(),

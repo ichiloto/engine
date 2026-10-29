@@ -45,6 +45,22 @@ the existing Attack choices. Selected-opponent decoy counters use the shared
 prepared-response effect. The final secondary-command interaction, formation
 effects and integrated game presentation are still pending.
 
+## State-granting items
+
+Inventory records support `add_state` with `name`, `description`, a selected
+`stateId`, optional `chancePercent` (0..100, default 100), and optional
+`guaranteed` (default false; requires 100%). The target's shared state system
+owns resistance, duplicate prevention, duration, field ticks and persistence.
+A preceding item effect may change whether a recipient is still alive.
+
+Battle execution uses the battle random source and records per-target state
+outcomes. A consumable item is spent once per action, including a failed application.
+A state granted on its bearer's current turn starts counting on the next turn.
+Field-menu eligibility previews possible outcomes on a copy without rolling or
+changing live state; an already active state is not reapplied or extended.
+Authored item scope and occasion continue to control access. The Editor's item
+effect selector and state picker round-trip these records with Undo/Redo.
+
 ## Effect types
 
 | Type | Values | What it does |

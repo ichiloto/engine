@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities\Inventory;
 
 use BackedEnum;
+use Ichiloto\Engine\Entities\Effects\AddStateEffect;
 use Ichiloto\Engine\Animations\EffectScale;
 use Ichiloto\Engine\Entities\Effects\BaseEffect;
 use Ichiloto\Engine\Entities\Effects\HPDamageEffect;
@@ -60,11 +61,13 @@ final class ItemRecord
     'max_hp_increment' => MaxHPIncrementEffect::class,
     'max_mp_increment' => MaxMPIncrementEffect::class,
     'remove_state' => RemoveStateEffect::class,
+    'add_state' => AddStateEffect::class,
   ];
 
   /** The keys an effect holds besides its type, name and description, by type; the rest share the value keys. */
   private const array EFFECT_KEYS = [
     'remove_state' => ['stateIds'],
+    'add_state' => ['stateId', 'chancePercent', 'guaranteed'],
   ];
 
   /** The keys an effect with a value holds besides its type, name and description. */
@@ -341,6 +344,13 @@ final class ItemRecord
         }
       }
 
+      if ($class === AddStateEffect::class) {
+        $read[] = new AddStateEffect(self::requireText($effect, 'name', $path),
+          self::requireText($effect, 'description', $path), self::requireString($effect, 'stateId', $path),
+          self::readInt($effect, 'chancePercent', 100, $path), self::readBool($effect, 'guaranteed', false, $path));
+        continue;
+      }
+
       if ($class === RemoveStateEffect::class) {
         $stateIds = $effect['stateIds'] ?? null;
 
@@ -384,6 +394,13 @@ final class ItemRecord
   {
     $type = array_search($effect::class, self::EFFECTS, true)
       ?: throw new InvalidArgumentException(sprintf('%s is not an effect an item record can name.', $effect::class));
+
+    if ($effect instanceof AddStateEffect) {
+      $data = ['type' => $type, 'name' => $effect->name, 'description' => $effect->description, 'stateId' => $effect->stateId];
+      if ($effect->chancePercent !== 100) { $data['chancePercent'] = $effect->chancePercent; }
+      if ($effect->guaranteed) { $data['guaranteed'] = true; }
+      return $data;
+    }
 
     if ($effect instanceof RemoveStateEffect) {
       return [
@@ -512,12 +529,12 @@ final class ItemRecord
   }
 
   /** @param array<string, mixed> $data */
-  private static function readBool(array $data, string $key, bool $default): bool
+  private static function readBool(array $data, string $key, bool $default, string $path = ''): bool
   {
     $value = $data[$key] ?? $default;
 
     if (! is_bool($value)) {
-      throw new InvalidArgumentException(sprintf('%s must be true or false.', $key));
+      throw new InvalidArgumentException(sprintf('%s%s must be true or false.', $path, $key));
     }
 
     return $value;

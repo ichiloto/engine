@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities;
 
 use Exception;
+use Ichiloto\Engine\Entities\Effects\AddStateEffect;
 use Ichiloto\Engine\Battle\BattleCommand;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Battle\BattleCommandLoadout;
@@ -783,7 +784,8 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
     $before = $probe->captureItemTargetCondition();
 
     foreach ($item->effects as $effect) {
-      $effect->apply($probe);
+      if ($effect instanceof AddStateEffect) { $effect->applyForPreview($probe); }
+      else { $effect->apply($probe); }
     }
 
     return $probe->captureItemTargetCondition() !== $before;
