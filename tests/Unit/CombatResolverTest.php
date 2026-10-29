@@ -399,3 +399,34 @@ it('lets a physical skill carry an element through the target affinity', functio
     ->and($hits['resist']->elementalOutcome)->toBe(ElementalOutcome::RESIST)
     ->and(array_map(static fn($hit): int => $hit->actualHpLost, $hits))->toBe(['neutral' => 64, 'weak' => 128, 'resist' => 32]);
 });
+
+
+it('supports authored protection piercing with true damage while preserving ordinary protection and encounter floors', function () {
+  $actor = foundationBattler('Actor', new Stats(currentHp: 100));
+  $target = foundationBattler('Target', new Stats(currentHp: 100, totalHp: 100, defence: 999, magicDefence: 999));
+  $target->beginGuarding();
+  $target->addState(\Ichiloto\Engine\Entities\States\State::fromArray(['id' => 'barrier', 'name' => 'Barrier', 'damageTakenRate' => 0]));
+  $effect = new HPDamageSkillEffect('$target->stats->currentHp', variance: 0, resolutionKind: ResolutionKind::TRUE_DAMAGE);
+  $context = new SkillEffectContext($actor, $target, random: sequenceRandom(100, 100, 100));
+  $effect->apply($context);
+  expect($target->stats->currentHp)->toBe(100);
+  $piercing = new HPDamageSkillEffect('$target->stats->currentHp', variance: 0, resolutionKind: ResolutionKind::TRUE_DAMAGE, ignoresProtection: true);
+  $piercing->apply(new SkillEffectContext($actor, $target, random: sequenceRandom(100, 100, 100)));
+  expect($target->stats->currentHp)->toBe(0);
+  $target->stats->currentHp = 100;
+  $target->setKnockoutFloorPercent(1);
+  $piercing->apply(new SkillEffectContext($actor, $target, random: sequenceRandom(100, 100, 100)));
+  expect($target->stats->currentHp)->toBe(1);
+});
+
+it('retains ordinary protection in historical damage effects and strictly reads the optional piercing flag', function () {
+  $effect = new HPDamageSkillEffect('5');
+  Closure::bind(function (): void { unset($this->ignoresProtection); }, $effect, HPDamageSkillEffect::class)();
+  expect(unserialize(serialize($effect))->ignoresProtection)->toBeFalse();
+  $skill = new SpecialSkill('Pierce', '', '', 0, 0, effects: [new HPDamageSkillEffect('5', ignoresProtection: true)]);
+  $data = SkillRecord::writeSkill($skill);
+  expect($data['effects'][0]['ignoresProtection'])->toBeTrue()
+    ->and(SkillRecord::readSkill($data)->effects[0]->ignoresProtection)->toBeTrue();
+  $data['effects'][0]['ignoresProtection'] = 'true';
+  expect(fn() => SkillRecord::readSkill($data))->toThrow(InvalidArgumentException::class);
+});

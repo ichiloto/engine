@@ -301,7 +301,7 @@ final class SkillRecord
 
     if (isset(self::FORMULA_EFFECTS[$type])) {
       $class = self::FORMULA_EFFECTS[$type];
-      self::refuseUnknownKeys($effect, ['type', 'formula', 'element', 'variance', 'isCriticalHit', ...($type === 'hp_damage' ? ['resolutionKind'] : [])], $path);
+      self::refuseUnknownKeys($effect, ['type', 'formula', 'element', 'variance', 'isCriticalHit', ...($type === 'hp_damage' ? ['resolutionKind', 'ignoresProtection'] : [])], $path);
       $variance = $effect['variance'] ?? 0.2;
 
       if (! is_int($variance) && ! is_float($variance)) {
@@ -321,8 +321,12 @@ final class SkillRecord
         $isCriticalHit,
       ];
 
-      if (array_key_exists('resolutionKind', $effect)) {
-        $arguments[] = self::readEnum(ResolutionKind::class, strval($effect['resolutionKind']), $path . 'resolutionKind');
+      if ($type === 'hp_damage') {
+        $arguments[] = array_key_exists('resolutionKind', $effect)
+          ? self::readEnum(ResolutionKind::class, strval($effect['resolutionKind']), $path . 'resolutionKind') : null;
+        $ignores = $effect['ignoresProtection'] ?? false;
+        if (!is_bool($ignores)) { throw new InvalidArgumentException($path . 'ignoresProtection must be boolean.'); }
+        $arguments[] = $ignores;
       }
 
       return new $class(...$arguments);
@@ -425,6 +429,7 @@ final class SkillRecord
       if ($effect instanceof HPDamageSkillEffect && $effect->resolutionKind !== null) {
         $data['resolutionKind'] = $effect->resolutionKind->value;
       }
+      if ($effect instanceof HPDamageSkillEffect && $effect->ignoresProtection) { $data['ignoresProtection'] = true; }
 
       return $data;
     }

@@ -113,6 +113,16 @@ the ordinary 1 multiplier. This changes ATB fill independently of field movement
 and combat stats. The Editor authors both the effect and state rate through its
 shared record schemas.
 
+### Protection piercing
+
+`hp_damage` may set `ignoresProtection: true` to bypass Guard and protective
+state damage multipliers through the shared resolver. Omission preserves their
+ordinary behavior, including historical serialized effects. `resolutionKind:
+'trueDamage'` supplies the existing defence bypass separately. A non-elemental,
+zero-variance current-HP formula can use both contracts for lethal damage.
+Encounter knockout floors remain owned by the encounter outcome policy. The
+Editor exposes this flag on HP damage and removes it when changing effect type.
+
 ### Logical battle formation — integration in progress
 
 Troop member records can declare `battlePosition: ['row' => 'front', 'lane' => 0]`
