@@ -22,6 +22,9 @@ class SkillBattleAction extends BattleAction implements ExecutionEligibility
   public ItemScope $targetScope {
     get { return clone $this->skill->scope; }
   }
+  public ?\Ichiloto\Engine\Battle\Formation\BattleTargeting $targeting {
+    get => $this->skill->battleTargeting;
+  }
 
   /**
    * @param Skill $skill The skill wrapped by this battle action.

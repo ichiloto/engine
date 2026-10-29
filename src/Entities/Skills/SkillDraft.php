@@ -104,6 +104,18 @@ final readonly class SkillDraft
     foreach ($unassigned as $path) {
       $complete = self::standIn($complete, $path);
     }
+    // Geometry may already be authored while scope/occasion await the author.
+    // These values exist only in the private validation reading, never in draft data.
+    $targeting = \Ichiloto\Engine\Battle\Formation\BattleTargeting::fromArray($data['battleTargeting'] ?? null);
+    if ($targeting !== null) {
+      if (in_array('occasion', $unassigned, true)) {
+        $complete['occasion'] = \Ichiloto\Engine\Entities\Enumerations\Occasion::BATTLE_SCREEN->value;
+      }
+      if (in_array('scope', $unassigned, true)) {
+        $complete['scope']['number'] = in_array($targeting->shape, [\Ichiloto\Engine\Battle\Formation\BattleTargetShape::FRONT_ROW,
+          \Ichiloto\Engine\Battle\Formation\BattleTargetShape::BACK_ROW], true) ? 'All' : 'One';
+      }
+    }
     $reading = SkillRecord::readSkill($complete);
 
     return new self(strval($data['name']), strval($data['kind']), array_values(array_unique($unassigned)), $data, $reading);

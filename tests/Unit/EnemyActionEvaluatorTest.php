@@ -196,3 +196,17 @@ it('falls back to the enemy inherent attack: its authored attack skill, or the b
     ->and($builtInTargets)->toBe($party)
     ->and($authoredTargets)->toBe($party);
 });
+
+
+it('queues a line anchor from current eligible instances and skips patterns whose row is empty', function () {
+  $line = new BasicSkill('Line', '', '', 0, 0, occasion: Occasion::BATTLE_SCREEN,
+    battleTargeting: new \Ichiloto\Engine\Battle\Formation\BattleTargeting(\Ichiloto\Engine\Battle\Formation\BattleTargetShape::LINE));
+  $row = new BasicSkill('Back row', '', '', 0, 0, new ItemScope(number: ItemScopeNumber::ALL), Occasion::BATTLE_SCREEN,
+    battleTargeting: new \Ichiloto\Engine\Battle\Formation\BattleTargeting(\Ichiloto\Engine\Battle\Formation\BattleTargetShape::BACK_ROW));
+  $enemy = makePatternEnemy(new ActionPattern($line, 5, new ActionCondition()), new ActionPattern($row, 9, new ActionCondition()));
+  $players = [new Character('Twin', 1, new Stats()), new Character('Twin', 1, new Stats())];
+  $formation = new \Ichiloto\Engine\Battle\Formation\BattleFormation($players, [$enemy]);
+  [$action, $anchors] = EnemyActionEvaluator::chooseAction($enemy, $players, [$enemy], 1, 1,
+    random: new \Ichiloto\Engine\Battle\Resolution\SeededCombatRandomSource(1), formation: $formation);
+  expect($action->skill)->toBe($line)->and($anchors)->toHaveCount(1)->and(in_array($anchors[0], $players, true))->toBeTrue();
+});

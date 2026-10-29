@@ -40,6 +40,9 @@ abstract class BattleAction implements BattleActionInterface
   public ItemScope $targetScope {
     get { return new ItemScope(); }
   }
+  public ?\Ichiloto\Engine\Battle\Formation\BattleTargeting $targeting {
+    get => null;
+  }
   /**
    * BattleAction constructor.
    *

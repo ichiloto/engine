@@ -584,6 +584,8 @@ class PlayerActionState extends TurnState
     }
 
     $turn->action = $selectedOption->action;
+    $turn->targetAnchor = $selectedOption->action->targeting?->shape === \Ichiloto\Engine\Battle\Formation\BattleTargetShape::LINE
+      ? ($this->getSelectionPool($context, $selectedOption)[$this->activeTargetIndex] ?? null) : null;
     $turn->targets = $targets;
     $this->selectionMode = self::MODE_COMMAND;
     $this->activeTargetIndex = -1;
@@ -643,7 +645,15 @@ class PlayerActionState extends TurnState
         continue;
       }
 
-      foreach ($turn->targets as $target) {
+      $queuedTargets = $turn->targets;
+      if ($turn->action->targeting !== null && $turn->action->targeting->shape !== \Ichiloto\Engine\Battle\Formation\BattleTargetShape::SCOPE) {
+        $isPartyActor = in_array($turn->battler, $partyBattlers, true);
+        $queuedTargets = BattleTargetPolicy::resolveTargets($turn->action->targetScope, $turn->battler,
+          $isPartyActor ? $partyBattlers : $troopMembers, $isPartyActor ? $troopMembers : $partyBattlers,
+          $turn->targetAnchor === null ? $turn->targets : [$turn->targetAnchor], $this->engine->random,
+          $this->engine->battleConfig->formation, $turn->action->targeting);
+      }
+      foreach ($queuedTargets as $target) {
         $partyIndex = array_search($target, $partyBattlers, true);
 
         if (is_int($partyIndex)) {
@@ -666,9 +676,12 @@ class PlayerActionState extends TurnState
 
     if ($this->selectionMode === self::MODE_TARGET && $this->activeTargetIndex >= 0) {
       $option = $this->getSelectedOption();
-      $indexes = $option?->action->targetScope->number === ItemScopeNumber::ONE
-        ? [$this->activeTargetIndex] : $this->getSelectableTargetIndexes($context);
       $pool = $option === null ? [] : $this->getSelectionPool($context, $option);
+      $indexes = $this->getSelectableTargetIndexes($context);
+      if ($option?->action->targetScope->number === ItemScopeNumber::ONE) {
+        $preview = $this->resolveSelectedTargets($context, $option);
+        $indexes = array_keys(array_filter($pool, static fn($target): bool => in_array($target, $preview, true)));
+      }
       $partyFocus = $troopFocus = [];
       foreach ($indexes as $index) {
         $target = $pool[$index] ?? null;
@@ -748,6 +761,9 @@ class PlayerActionState extends TurnState
       return $description;
     }
 
+    if ($selectedOption->action->targeting?->shape === \Ichiloto\Engine\Battle\Formation\BattleTargetShape::LINE) {
+      return trim($description . ' Choose a target to select its line.');
+    }
     return trim($description . match ($selectedOption->action->targetScope->number) {
       ItemScopeNumber::ALL => ' Confirm all highlighted targets, or press C to return.',
       ItemScopeNumber::RANDOM => ' Confirm random targets from the highlighted group, or press C to return.',
@@ -770,7 +786,8 @@ class PlayerActionState extends TurnState
     }
 
     $eligible = BattleTargetPolicy::getEligibleTargets($selectedOption->action->targetScope,
-      $this->activeCharacter, $context->partyRoster->battlers, $context->troop->members->toArray());
+      $this->activeCharacter, $context->partyRoster->battlers, $context->troop->members->toArray(),
+      $this->engine->battleConfig->formation, $selectedOption->action->targeting);
     $indexes = [];
     foreach ($this->getSelectionPool($context, $selectedOption) as $index => $target) {
       if (in_array($target, $eligible, true)) { $indexes[] = $index; }
@@ -798,7 +815,7 @@ class PlayerActionState extends TurnState
     return BattleTargetPolicy::resolveTargets($selectedOption->action->targetScope, $this->activeCharacter,
       $context->partyRoster->battlers, $context->troop->members->toArray(),
       $selected === null || $selectedOption->action->targetScope->number === ItemScopeNumber::RANDOM ? [] : [$selected],
-      $this->engine->random);
+      $this->engine->random, $this->engine->battleConfig->formation, $selectedOption->action->targeting);
   }
 
   /**

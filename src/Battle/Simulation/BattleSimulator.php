@@ -97,7 +97,10 @@ class BattleSimulator
       $runAllies = $runParty->members->toArray();
       $fullHealth = $this->healthOf([...$runAllies, ...$runEnemies]);
       $roster = new BattlePartyRoster($runParty, $policy);
-      $outcome = $this->fight($roster, $runEnemies, $damage, $hpLoss, $healing, $mitigation, $random);
+      $runTroop = new Troop($troop->name, $runEnemies, classification: $troop->classification,
+        battlePositions: array_map($troop->getBattlePosition(...), $enemies));
+      $runConfig = new \Ichiloto\Engine\Scenes\Battle\BattleConfig($runParty, $runTroop, settings: $settings, partyRoster: $roster);
+      $outcome = $this->fight($roster, $runEnemies, $damage, $hpLoss, $healing, $mitigation, $random, $runConfig);
       $totalTurns += $outcome['turns'];
 
       match ($outcome['result']) {
@@ -175,6 +178,7 @@ class BattleSimulator
     array &$healing,
     array &$mitigation,
     SeededCombatRandomSource $random,
+    ?\Ichiloto\Engine\Scenes\Battle\BattleConfig $battleConfig = null,
   ): array
   {
     $resolver = new CombatResolver();
@@ -233,7 +237,7 @@ class BattleSimulator
           [$action, $chosen] = $confused ?? ($isAlly
             ? [InherentAttack::createAction($battler, $resolver, $random), []]
             : EnemyActionEvaluator::chooseAction(
-              $battler, $allies, $enemies, $turns, $this->highestLevelOf($allies), random: $random));
+              $battler, $allies, $enemies, $turns, $this->highestLevelOf($allies), random: $random, formation: $battleConfig?->formation));
           $targets = $confused !== null ? $chosen : BattleTargetPolicy::resolveTargets(
             $action->targetScope,
             $battler,
@@ -241,6 +245,8 @@ class BattleSimulator
             $isAlly ? $enemies : $allies,
             $chosen === [] && $isAlly ? $this->pickRandom($this->living($enemies), $random) : $chosen,
             $random,
+            $battleConfig?->formation,
+            $action->targeting,
           );
 
           if ($targets !== []) {

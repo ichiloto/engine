@@ -244,11 +244,13 @@ class ActiveTimeBattleEngine extends TurnBasedEngine implements \Ichiloto\Engine
     CharacterInterface $battler,
     BattleAction $action,
     array $targets,
+    ?CharacterInterface $targetAnchor = null,
   ): void
   {
     $turn = new Turn($battler);
     $turn->action = $action;
     $turn->targets = $targets;
+    $turn->targetAnchor = $targetAnchor;
     $context->setTurns([$turn]);
     $this->resetGauge($battler);
     $this->setState($this->actionExecutionState);

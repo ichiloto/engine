@@ -61,9 +61,12 @@ abstract class Skill implements SkillInterface
     ?int $animationId = null,
     protected(set) ?CounterAttackRule $counterAttack = null,
     float $animationScale = \Ichiloto\Engine\Animations\EffectScale::DEFAULT,
+    ?\Ichiloto\Engine\Battle\Formation\BattleTargeting $battleTargeting = null,
   )
   {
     $this->animationId = $animationId;
+    $battleTargeting?->validateScope($scope, $occasion);
+    $this->battleTargeting = $battleTargeting;
     $this->animationScale = \Ichiloto\Engine\Animations\EffectScale::readValue($animationScale);
     foreach ($effects as $effect) {
       if ($effect instanceof SkillEffect) {
@@ -78,6 +81,9 @@ abstract class Skill implements SkillInterface
     }
   }
 
+  /** Missing in historical serialized skills; ordinary scope/cover behavior remains the default. */
+  protected(set) ?\Ichiloto\Engine\Battle\Formation\BattleTargeting $battleTargeting = null;
+
   /**
    * Restores declared skill fields, including the historical weapon-list name.
    * @param array<string, mixed> $data
@@ -85,6 +91,7 @@ abstract class Skill implements SkillInterface
   public function __unserialize(array $data): void
   {
     $this->counterAttack = null;
+    $this->battleTargeting = null;
     foreach ($data as $key => $value) {
       $name = str_contains($key, "\0") ? substr($key, strrpos($key, "\0") + 1) : $key;
       if ($name === 'requiredWeapon') {

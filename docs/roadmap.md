@@ -48,9 +48,11 @@ combatant instances. Troop member `battlePosition` declarations and optional
 per-battle party slot positions seed it; reserve replacements synchronize at the
 same ownership boundary. The domain resolves selected lines/rows, permutes
 occupied positions and pushes back-row members into distinct front places.
-Editor source authoring and duplicate-position refusal are present. Selection,
-queued execution, group effect dispatch and visible row-change presentation
-still need to consume this domain before formation-dependent moves are complete.
+Editor source authoring and duplicate-position refusal are present. Shared line/row
+selection, preview, queued TBS/ATB execution, enemy AI and simulation consume the
+current formation. Selected line anchors retain combatant identity across queued
+formation changes. Group effect dispatch and visible row-change presentation
+remain in progress before formation-dependent moves are complete.
 See [Crisis techniques](skill-effects-and-states.md#crisis-techniques).
 
 Prepared decoy counters now divert a selected opponent's next damaging command,

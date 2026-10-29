@@ -112,6 +112,8 @@ class ActiveTimeFlowState extends PlayerActionState
     }
 
     $actor = $this->activeCharacter;
+    $anchor = $selectedOption->action->targeting?->shape === \Ichiloto\Engine\Battle\Formation\BattleTargetShape::LINE
+      ? ($this->getSelectionPool($context, $selectedOption)[$this->activeTargetIndex] ?? null) : null;
     $this->selectionMode = self::MODE_COMMAND;
     $this->activeTargetIndex = -1;
     $this->activeCharacterIndex = -1;
@@ -119,7 +121,7 @@ class ActiveTimeFlowState extends PlayerActionState
     $context->ui->commandContextWindow->clear();
     $context->ui->characterNameWindow->setActiveSelection(-1);
     $this->applyTargetingVisuals($context);
-    $this->getAtbEngine()->queueImmediateTurn($context, $actor, $selectedOption->action, $targets);
+    $this->getAtbEngine()->queueImmediateTurn($context, $actor, $selectedOption->action, $targets, $anchor);
   }
 
   /**

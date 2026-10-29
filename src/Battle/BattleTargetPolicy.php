@@ -23,6 +23,8 @@ final class BattleTargetPolicy
     CharacterInterface $actor,
     array $allies,
     array $opponents,
+    ?\Ichiloto\Engine\Battle\Formation\BattleFormation $formation = null,
+    ?\Ichiloto\Engine\Battle\Formation\BattleTargeting $targeting = null,
   ): array
   {
     $pool = match ($scope->side) {
@@ -36,7 +38,16 @@ final class BattleTargetPolicy
     foreach (SkillTargetPolicy::filterByStatus($pool, $scope->status) as $target) {
       $unique[spl_object_id($target)] = $target;
     }
-    return array_values($unique);
+    $eligible = array_values($unique);
+    $shape = $targeting?->shape ?? \Ichiloto\Engine\Battle\Formation\BattleTargetShape::SCOPE;
+    if ($shape !== \Ichiloto\Engine\Battle\Formation\BattleTargetShape::SCOPE && $formation === null) {
+      throw new \InvalidArgumentException('Geometric battle targeting requires the current battle formation.');
+    }
+    return match ($shape) {
+      \Ichiloto\Engine\Battle\Formation\BattleTargetShape::FRONT_ROW => $formation->getRowTargets(\Ichiloto\Engine\Battle\Formation\BattleRow::FRONT, $eligible),
+      \Ichiloto\Engine\Battle\Formation\BattleTargetShape::BACK_ROW => $formation->getRowTargets(\Ichiloto\Engine\Battle\Formation\BattleRow::BACK, $eligible),
+      default => $eligible,
+    };
   }
 
   /**
@@ -56,9 +67,11 @@ final class BattleTargetPolicy
     array $opponents,
     array $preferred = [],
     ?CombatRandomSource $random = null,
+    ?\Ichiloto\Engine\Battle\Formation\BattleFormation $formation = null,
+    ?\Ichiloto\Engine\Battle\Formation\BattleTargeting $targeting = null,
   ): array
   {
-    $eligible = self::getEligibleTargets($scope, $actor, $allies, $opponents);
+    $eligible = self::getEligibleTargets($scope, $actor, $allies, $opponents, $formation, $targeting);
     if ($eligible === [] || $scope->number === ItemScopeNumber::ALL) {
       return $eligible;
     }
@@ -69,10 +82,13 @@ final class BattleTargetPolicy
       }
     }
     $selected = array_values($selected);
+    if ($targeting?->shape === \Ichiloto\Engine\Battle\Formation\BattleTargetShape::LINE) {
+      return $formation->getLineTargets($selected[0] ?? $eligible[0], $eligible);
+    }
     if ($scope->number === ItemScopeNumber::ONE) {
       $target = $selected[0] ?? $eligible[0];
 
-      return [$scope->side === ItemScopeSide::ENEMY ? self::applyCover($target, $eligible) : $target];
+      return [$scope->side === ItemScopeSide::ENEMY && !$targeting?->ignoreCover ? self::applyCover($target, $eligible) : $target];
     }
 
     $count = max(1, min($scope->targetCount ?? 1, count($eligible)));

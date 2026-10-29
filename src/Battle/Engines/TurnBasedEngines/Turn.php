@@ -26,6 +26,8 @@ class Turn
    * @var CharacterInterface[] The targets of the action.
    */
   public array $targets = [];
+  /** The selected instance anchors a line even if formation changes while this action waits. */
+  public ?CharacterInterface $targetAnchor = null;
 
   /**
    * Turn constructor.

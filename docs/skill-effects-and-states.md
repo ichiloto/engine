@@ -129,8 +129,25 @@ combatant's side and lane, ordered front then back. `getRowTargets` filters by r
 randomness. `moveToFront` retains each free lane; an occupied destination uses the
 first free front lane. Both mutations reject mixed sides and duplicate targets.
 Current/initial positions let presentation consumers identify movement without
-storing combat position in an actor save. Targeting/effect/presentation consumers
-are still being integrated; the new declarations alone do not implement the moves.
+storing combat position in an actor save.
+
+Skills may declare `battleTargeting: ['shape' => 'line', 'ignoreCover' => true]`.
+Shapes are `scope` (ordinary scope), `line` (one selected anchor's lane),
+`front_row` and `back_row` (all eligible members of that row). Lines require
+`scope.number = One`; row shapes require `All`. Geometry and cover piercing
+require a battle-only skill. Target status and side still filter recipients.
+An empty row stays empty. `ignoreCover` preserves the chosen single recipient
+when a normal single-target attack would be redirected by Cover.
+
+The shared target policy serves player preview, traditional/ATB queued execution,
+enemy AI and seeded simulation. A queued line retains the chosen combatant as
+its anchor and resolves the current lane at execution. Preview does not consume
+random draws for line or row recipients. Single-recipient counter responses
+refuse line skills. Historical serialized skills retain ordinary scope behavior.
+Editor fields constrain the shape and save through the same runtime validator;
+changing shape updates its required One/All scope atomically. Draft metadata
+remains authored data while unassigned scope/occasion stay unassigned.
+Group formation effects and visible row-change presentation remain in progress.
 
 ### Reveal
 

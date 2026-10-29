@@ -51,6 +51,7 @@ class MagicSkill extends Skill
     protected(set) ?MagicEffectType $effectType = null,
     ?int $animationId = null,
     float $animationScale = \Ichiloto\Engine\Animations\EffectScale::DEFAULT,
+    ?\Ichiloto\Engine\Battle\Formation\BattleTargeting $battleTargeting = null,
   )
   {
     parent::__construct(
@@ -66,6 +67,7 @@ class MagicSkill extends Skill
       $requiredWeapons,
       $animationId,
       animationScale: $animationScale,
+      battleTargeting: $battleTargeting,
     );
 
     $this->effectType ??= $this->inferEffectType($effects);

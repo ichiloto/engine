@@ -49,7 +49,7 @@ final class SkillRecord
   /** The keys a record's data may hold. */
   public const array KEYS = [
     'kind', 'name', 'description', 'icon', 'cost', 'cooldown', 'occasion', 'scope', 'invocation', 'effects',
-    'animationId', 'animationScale', 'effectType', 'counterAttack',
+    'animationId', 'animationScale', 'effectType', 'counterAttack', 'battleTargeting',
   ];
 
   /** Each kind's value, by the class it builds. */
@@ -128,6 +128,7 @@ final class SkillRecord
       'effects' => self::readEffects($data['effects'] ?? []),
       'animationId' => self::readOptionalInt($data['animationId'] ?? null, 'animationId'),
       'animationScale' => EffectScale::readValue($data['animationScale'] ?? null),
+      'battleTargeting' => \Ichiloto\Engine\Battle\Formation\BattleTargeting::fromArray($data['battleTargeting'] ?? null),
     ];
     $counterAttack = CounterAttackRule::fromArray($data['counterAttack'] ?? null);
     if (array_any($arguments['effects'], static fn($effect): bool => $effect instanceof PrepareCounterSkillEffect)
@@ -190,6 +191,7 @@ final class SkillRecord
       $data['animationScale'] = $skill->animationScale;
     }
     if ($skill->counterAttack !== null) { $data['counterAttack'] = $skill->counterAttack->toArray(); }
+    if ($skill->battleTargeting !== null) { $data['battleTargeting'] = $skill->battleTargeting->toArray(); }
 
     if ($skill instanceof MagicSkill && $skill->effectType !== null) {
       $data['effectType'] = $skill->effectType->value;

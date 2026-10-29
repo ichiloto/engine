@@ -189,8 +189,10 @@ class ActionExecutionState extends TurnState
       $turn->battler,
       $isPartyActor ? $party : $troop,
       $isPartyActor ? $troop : $party,
-      $turn->targets,
+      $turn->targetAnchor === null ? $turn->targets : [$turn->targetAnchor],
       $this->engine->random,
+      $this->engine->battleConfig->formation,
+      $turn->action?->targeting,
     );
 
     if (empty($targets)) {

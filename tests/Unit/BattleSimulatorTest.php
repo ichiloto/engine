@@ -188,7 +188,7 @@ it('isolates every run and exceptions from caller afflictions, stages, guarding 
     public function __construct(private bool $fail) { parent::__construct(); }
     protected function fight(\Ichiloto\Engine\Battle\BattlePartyRoster $roster, array $enemies,
       array &$damage, array &$hpLoss, array &$healing, array &$mitigation,
-      SeededCombatRandomSource $random): array
+      SeededCombatRandomSource $random, ?\Ichiloto\Engine\Scenes\Battle\BattleConfig $battleConfig = null): array
     {
       foreach ([...$roster->battlers, ...$enemies] as $battler) {
         expect($battler->states[0]->remainingTurns)->toBe(4)
@@ -282,4 +282,21 @@ it('simulates an eight-member frontline and a selected solo actor without changi
   foreach (array_slice($original, 0, 7) as $actor) { expect($solo->damageDealt[$actor->name] ?? 0)->toEqual(0); }
   expect($party->members->toArray())->toBe($original)->and($party->leader)->toBe($original[7]);
   foreach ($original as $actor) { expect($actor->stats->currentHp)->toBe(1000); }
+});
+
+
+it('uses authored logical rows for enemy targeting in each isolated simulation run', function () {
+  $party = new Party();
+  foreach (['Front', 'Rear'] as $name) { $party->addMember(new Character($name, 1, new Stats(currentHp: 100, totalHp: 100, attack: 0, speed: 1))); }
+  $enemy = makeSimulationEnemy('Row caster', new Stats(currentHp: 500, totalHp: 500, currentMp: 50, totalMp: 50, attack: 0, speed: 99));
+  $skill = new BasicSkill('Row', '', '', 3, 0, new \Ichiloto\Engine\Entities\ItemScope(number: \Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber::ALL),
+    \Ichiloto\Engine\Entities\Enumerations\Occasion::BATTLE_SCREEN, new SkillInvocation(accuracy: 100),
+    [new HPDamageSkillEffect('10', variance: 0, resolutionKind: \Ichiloto\Engine\Battle\Resolution\ResolutionKind::TRUE_DAMAGE)],
+    battleTargeting: new \Ichiloto\Engine\Battle\Formation\BattleTargeting(\Ichiloto\Engine\Battle\Formation\BattleTargetShape::BACK_ROW));
+  new ReflectionProperty(Enemy::class, 'actionPatterns')->setValue($enemy, [new ActionPattern($skill, 5, new ActionCondition())]);
+  $troop = new Troop('Rows', [$enemy], battlePositions: [new \Ichiloto\Engine\Battle\Formation\BattlePosition(\Ichiloto\Engine\Battle\Formation\BattleRow::BACK, 4)]);
+  $before = [serialize($party), serialize($enemy)];
+  $report = new BattleSimulator(turnLimit: 1)->simulate($party, $troop, 3, ['partyFormation' => [['row' => 'front', 'lane' => 0], ['row' => 'back', 'lane' => 0]]]);
+  expect($report->hpLost['Rear'])->toBe(10.0)->and($report->hpLost['Front'] ?? 0)->toBe(0)
+    ->and([serialize($party), serialize($enemy)])->toBe($before);
 });
