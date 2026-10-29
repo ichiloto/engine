@@ -43,6 +43,14 @@ Current-source actor reconstruction keeps the resource definition out of saved
 mutable actor state. Synthetic runtime and Editor round-trip checks cover this
 foundation. Full delivery still requires the secondary-command interaction,
 authored formation/line effects and integrated presentation.
+BattleConfig now owns renderer-independent front/back rows and lanes keyed by
+combatant instances. Troop member `battlePosition` declarations and optional
+per-battle party slot positions seed it; reserve replacements synchronize at the
+same ownership boundary. The domain resolves selected lines/rows, permutes
+occupied positions and pushes back-row members into distinct front places.
+Editor source authoring and duplicate-position refusal are present. Selection,
+queued execution, group effect dispatch and visible row-change presentation
+still need to consume this domain before formation-dependent moves are complete.
 See [Crisis techniques](skill-effects-and-states.md#crisis-techniques).
 
 Prepared decoy counters now divert a selected opponent's next damaging command,

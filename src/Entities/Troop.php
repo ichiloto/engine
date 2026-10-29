@@ -52,6 +52,8 @@ class Troop extends BattleGroup
   protected(set) ?EscapePolicy $escapePolicy = null;
   /** @var SplObjectStorage<Enemy, ?BattleStageSlot> Places follow instances, never names or mutable roster indices. */
   private SplObjectStorage $graphicalFormation;
+  /** @var SplObjectStorage<Enemy, \Ichiloto\Engine\Battle\Formation\BattlePosition>|null */
+  private ?SplObjectStorage $battlePositions = null;
   /**
    * @var list<BattleEventPage> The troop's event pages, which name members by their index in the troop.
    */
@@ -79,6 +81,7 @@ class Troop extends BattleGroup
     ?string $definitionId = null,
     BattleClassification $classification = BattleClassification::ORDINARY,
     array $graphicalFormation = [],
+    array $battlePositions = [],
   )
   {
     $backgroundMusic = is_string($backgroundMusic) ? trim($backgroundMusic) : '';
@@ -110,13 +113,28 @@ class Troop extends BattleGroup
     }
     $this->eventPages = array_values($eventPages);
     $this->graphicalFormation = new SplObjectStorage();
+    if (!array_is_list($battlePositions) || ($battlePositions !== [] && count($battlePositions) !== count($this->members))) {
+      throw new InvalidArgumentException('Troop battle positions require one logical position or null per enemy instance.');
+    }
+    $this->battlePositions = new SplObjectStorage();
+    \Ichiloto\Engine\Battle\Formation\BattlePosition::validateDistinct($battlePositions);
     foreach ($this->members as $index => $enemy) {
       $slot = $graphicalFormation[$index] ?? null;
       if ($slot !== null && !$slot instanceof BattleStageSlot) {
         throw new InvalidArgumentException('Troop graphical placements must be BattleStageSlot entries or null.');
       }
       $this->graphicalFormation[$enemy] = $slot;
+      $place = $battlePositions[$index] ?? null;
+      if ($place !== null && !$place instanceof \Ichiloto\Engine\Battle\Formation\BattlePosition) {
+        throw new InvalidArgumentException('Troop battle positions must be logical positions or null.');
+      }
+      if ($place !== null) { $this->battlePositions[$enemy] = $place; }
     }
+  }
+
+  public function getBattlePosition(Enemy $enemy): ?\Ichiloto\Engine\Battle\Formation\BattlePosition
+  {
+    return $this->battlePositions?->offsetExists($enemy) ? $this->battlePositions[$enemy] : null;
   }
 
   /**
@@ -167,6 +185,7 @@ class Troop extends BattleGroup
 
     $enemies = [];
     $formation = [];
+    $battlePositions = [];
     $formationErrors = [];
 
     foreach ($enemyDataList as $index => $enemyData) {
@@ -202,6 +221,8 @@ class Troop extends BattleGroup
 
       $enemies[] = $enemyClone;
       $formation[] = $slot;
+      $battlePositions[] = array_key_exists('battlePosition', $enemyData)
+        ? \Ichiloto\Engine\Battle\Formation\BattlePosition::fromArray($enemyData['battlePosition'], "{$source}.enemies[{$index}].battlePosition") : null;
     }
 
     if (count($formation) > 64) {
@@ -227,6 +248,7 @@ class Troop extends BattleGroup
       definitionId: is_string($data['id'] ?? null) ? $data['id'] : null,
       classification: $classification,
       graphicalFormation: $formation,
+      battlePositions: $battlePositions,
     );
     $troop->graphicalFormationError = $formationErrors === [] ? null : implode('; ', $formationErrors);
     return $troop;

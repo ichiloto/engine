@@ -113,6 +113,25 @@ the ordinary 1 multiplier. This changes ATB fill independently of field movement
 and combat stats. The Editor authors both the effect and state rate through its
 shared record schemas.
 
+### Logical battle formation — integration in progress
+
+Troop member records can declare `battlePosition: ['row' => 'front', 'lane' => 0]`
+or a `back` row. Each side's authored row/lane pairs must be distinct. An omitted
+position receives a distinct front-row lane. `BattleConfig::formation` owns
+mutable positions keyed by current battler instances; graphical stage positions
+and terminal coordinates remain separate. Per-battle `settings.partyFormation`
+accepts up to eight optional row/lane declarations for the active party slots.
+Replacement reserves acquire slot positions without changing permanent party data.
+
+`getLineTargets` filters an already eligible recipient list to the selected
+combatant's side and lane, ordered front then back. `getRowTargets` filters by row.
+`shufflePositions` permutes selected occupied positions once using injected combat
+randomness. `moveToFront` retains each free lane; an occupied destination uses the
+first free front lane. Both mutations reject mixed sides and duplicate targets.
+Current/initial positions let presentation consumers identify movement without
+storing combat position in an actor save. Targeting/effect/presentation consumers
+are still being integrated; the new declarations alone do not implement the moves.
+
 ### Reveal
 
 `facts` lists what a reveal uncovers (`RevealFact`):

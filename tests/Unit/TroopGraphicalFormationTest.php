@@ -54,6 +54,25 @@ it('loads independent graphical placements beside unchanged terminal positions f
     ->and($restored->getStagePlace($restored->members[1])->x)->toBe(260.5);
 });
 
+it('loads logical combat positions independently of both presentation coordinate systems', function () {
+  $troop = Troop::fromArray(['name' => 'Logical formation', 'enemies' => [
+    ['enemy' => 'Twin', 'position' => [15, 7], 'battlePosition' => ['row' => 'front', 'lane' => 3]],
+    ['enemy' => 'Twin', 'position' => [50, 20], 'battlePosition' => ['row' => 'back', 'lane' => 3]],
+  ]]);
+  $members = $troop->members->toArray();
+  expect($troop->getBattlePosition($members[0])->toArray())->toBe(['row' => 'front', 'lane' => 3])
+    ->and($troop->getBattlePosition($members[1])->toArray())->toBe(['row' => 'back', 'lane' => 3])
+    ->and($troop->getStagePlace($members[0]))->toBeNull();
+  $troop->members[0] = $members[1]; $troop->members[1] = $members[0];
+  expect($troop->getBattlePosition($members[0])->row)->toBe(\Ichiloto\Engine\Battle\Formation\BattleRow::FRONT);
+  $restored = unserialize(serialize($troop));
+  expect($restored->getBattlePosition($restored->members[0])->row)->toBe(\Ichiloto\Engine\Battle\Formation\BattleRow::BACK);
+  expect(fn() => Troop::fromArray(['name' => 'Overlap', 'enemies' => [
+    ['enemy' => 'Twin', 'position' => [15, 7], 'battlePosition' => ['row' => 'front', 'lane' => 0]],
+    ['enemy' => 'Twin', 'position' => [50, 20], 'battlePosition' => ['row' => 'front', 'lane' => 0]],
+  ]]))->toThrow(InvalidArgumentException::class, 'same logical battle position');
+});
+
 it('refuses invalid graphical data with source context while preserving terminal combatants', function (mixed $placement) {
   $troop = Troop::fromArray(['name' => 'Broken art', 'enemies' => [
     ['enemy' => 'Twin', 'position' => [15, 7], 'graphicalPlacement' => $placement],

@@ -26,6 +26,30 @@ class BattleConfig implements SceneConfigurationInterface
   protected(set) array $appliedEntryRuleIds = [];
   private bool $hasEvaluatedEntryRules = false;
   private ?BattlePartyRoster $roster = null;
+  private ?\Ichiloto\Engine\Battle\Formation\BattleFormation $formationOwner = null;
+  public \Ichiloto\Engine\Battle\Formation\BattleFormation $formation {
+    get => $this->getFormation();
+  }
+
+  public function getFormation(): \Ichiloto\Engine\Battle\Formation\BattleFormation
+  {
+    $party = $this->partyRoster->battlers;
+    $troop = $this->troop->members->toArray();
+    $authored = $this->settings['partyFormation'] ?? [];
+    if (!is_array($authored) || !array_is_list($authored) || count($authored) > Party::MAX_BATTLE_SIZE) {
+      throw new \InvalidArgumentException('partyFormation requires at most eight logical positions or null.');
+    }
+    $positions = array_map(static fn($data) => $data === null ? null
+      : \Ichiloto\Engine\Battle\Formation\BattlePosition::fromArray($data, 'partyFormation'), $authored);
+    $partyPositions = array_map(static fn(int $index) => $positions[$index] ?? null, array_keys($party));
+    $troopPositions = array_map($this->troop->getBattlePosition(...), $troop);
+    if ($this->formationOwner === null) {
+      return $this->formationOwner = new \Ichiloto\Engine\Battle\Formation\BattleFormation($party, $troop, $partyPositions, $troopPositions);
+    }
+    $this->formationOwner->synchronizeSide('party', $party, $partyPositions);
+    $this->formationOwner->synchronizeSide('troop', $troop, $troopPositions);
+    return $this->formationOwner;
+  }
   private ?\Ichiloto\Engine\Battle\BattleReactions $reactionOwner = null;
   public \Ichiloto\Engine\Battle\BattleReactions $reactions {
     get => $this->getReactions();
@@ -63,6 +87,7 @@ class BattleConfig implements SceneConfigurationInterface
     $this->roster = $partyRoster;
     $entryExecutionId = is_string($entryExecutionId) ? trim($entryExecutionId) : '';
     $this->entryExecutionId = $entryExecutionId !== '' ? $entryExecutionId : bin2hex(random_bytes(16));
+    $this->getFormation();
   }
 
   public function entryContext(GameState $worldState): BattleEntryContext
@@ -200,6 +225,8 @@ class BattleConfig implements SceneConfigurationInterface
         'partyRoster',
         'reactionOwner',
         'reactions',
+        'formationOwner',
+        'formation',
       ], true)) {
         continue;
       }
@@ -223,5 +250,7 @@ class BattleConfig implements SceneConfigurationInterface
     $this->getReservePolicy();
     $this->roster = null;
     $this->reactionOwner = null;
+    $this->formationOwner = null;
+    $this->getFormation();
   }
 }
