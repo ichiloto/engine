@@ -3,6 +3,7 @@
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandSchema;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicLibrary;
+use Ichiloto\Engine\Events\MapEventDefinition;
 function cinematicFixtureRoot(): string
 {
   return dirname(__DIR__) . '/Fixtures/Projects/CinematicAcceptance/assets/Cutscenes/Cinematics';
@@ -46,13 +47,15 @@ it('exports one authoritative runtime and authoring vocabulary', function () {
     ->and($schema['cameraOperations'])->toContain('detach', 'pan', 'track', 'route', 'shake', 'restore')
     ->and($schema['cinematicDefinitionFields'])->toContain('id', 'name', 'cast', 'skip', 'finalizer')
     ->and($schema['cinematicEventTrigger']['class'])->toBe('Ichiloto\\Engine\\Events\\Triggers\\CinematicEventTrigger')
-    ->and($schema['cinematicEventTrigger']['rootFields'])->toBe(['class', 'conditions', 'sets', 'whenBlocked', 'cue', 'facing', 'engagement', 'subject', 'data'])
+    ->and($schema['cinematicEventTrigger']['rootFields'])->toBe(MapEventDefinition::ROOT_FIELDS)
     ->and($schema['relativePosition']['fields'])->toBe(['at', 'offset'])
     ->and($schema['relativePosition']['subjectKinds'])->toContain('player', 'npc', 'world_object', 'staged_actor', 'party_actor', 'marker')
     ->and($schema['relativePosition']['consumers'])->toBe(['move_route.waypoints', 'stage_actor'])
     ->and($schema['endFacing']['fields'])->toBe(['facing', 'faceToward'])
     ->and($schema['endFacing']['consumers'])->toBe(['move_route.waypoints', 'stage_actor'])
     ->and($schema['stagedActorFields'])->toContain('facing', 'faceToward')
+    ->and($schema['existingStagedActorCommands'])->toContain('show_actor', 'hide_actor')
+    ->and($schema['existingStagedActorCommands'])->not->toContain('remove_actor')
     ->and($schema['cinematicEventTrigger']['dataFields'])->toBe(['cinematicId', 'mode', 'reusable'])
     ->and($schema['cinematicEventTrigger']['modes'])->toBe(['action', 'auto'])
     ->and($schema['cinematicEventTrigger']['completion'])->toBe([

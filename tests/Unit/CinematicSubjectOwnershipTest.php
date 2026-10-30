@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandSchema;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicController;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicFacing;
@@ -1443,3 +1444,20 @@ it('uses ordinary recording through actual NPC talk and map trigger entry points
   expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
     ->and(fn() => $session->movementRoute('approach'))->toThrow(RuntimeException::class);
 })->with([false, true]);
+
+
+it('declares staged-actor existence requirements consistently with runtime operations', function (string $command, string $operation) {
+  $requiresActor = in_array($command, CinematicCommandSchema::EXISTING_STAGED_ACTOR_COMMANDS, true);
+  if ($requiresActor) {
+    expect(fn() => $this->stage->$operation('retry-owned-actor'))
+      ->toThrow(RuntimeException::class, 'Staged actor "retry-owned-actor" was not found.');
+  } else {
+    $this->stage->$operation('retry-owned-actor');
+    $this->stage->$operation('retry-owned-actor');
+    expect($this->stage->find('retry-owned-actor'))->toBeNull();
+  }
+})->with([
+  'show staged actor' => ['show_actor', 'show'],
+  'hide staged actor' => ['hide_actor', 'hide'],
+  'retryable actor cleanup' => ['remove_actor', 'remove'],
+]);

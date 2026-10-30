@@ -35,6 +35,13 @@ final class CinematicCommandSchema
     ...self::CINEMATIC_COMMAND_TYPES,
   ];
 
+  /**
+   * Commands whose actorId/id must identify an existing staged actor.
+   * CinematicStageManager::show() and ::hide() require it; ::remove()
+   * accepts an absent actor so cleanup remains safe on retries.
+   */
+  public const array EXISTING_STAGED_ACTOR_COMMANDS = ['show_actor', 'hide_actor'];
+
   public const array BLOCK_TYPES = ['sequence', 'parallel'];
   public const array NESTED_BLOCK_SHAPES = [
     'sequence' => ['commands'],
@@ -141,6 +148,7 @@ final class CinematicCommandSchema
         'completion' => self::CINEMATIC_TRIGGER_COMPLETION,
       ],
       'stagedActorFields' => self::STAGED_ACTOR_FIELDS,
+      'existingStagedActorCommands' => self::EXISTING_STAGED_ACTOR_COMMANDS,
       'stagedActorGraphicalFields' => self::STAGED_ACTOR_GRAPHICAL_FIELDS,
       'stagedPoseAnimation' => [
         'field' => 'sprites2d.animation',
