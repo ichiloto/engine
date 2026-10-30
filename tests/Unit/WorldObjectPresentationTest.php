@@ -137,6 +137,195 @@ function createWorldObjectSource(array $extra = []): array
     ], $extra);
 }
 
+/** A real prepared bed binding, with a solid bed and a clear standing exit. */
+function installWorldObjectBed(WorldObjectTestScene $scene, string $root, array $bed = [], bool $cover = false): \Ichiloto\Engine\Field\Npc
+{
+    $catalog = createResourceWorldObjectCatalog($root, ['attachments' => [
+        ['id' => 'occupant', 'cell' => ['x' => 0, 'y' => 0], 'point' => ['x' => .5, 'y' => .25]],
+    ], ...($cover ? ['bedCover2d' => ['asset' => 'Graphics/glow.png', 'cells' => ['width' => 3, 'height' => 4]]] : [])]);
+    $base = createWorldObjectPreparedMap([['id' => 'fixture', 'anchor' => ['x' => 1, 'y' => 1], 'resource' => 'whole']], catalog: $catalog);
+    $entry = ['id' => 'sleeper', 'name' => 'Sleeper', 'sprite' => 'S', 'x' => 2, 'y' => 1, 'movement' => 'wander',
+        'bed' => array_replace(['object' => 'fixture', 'attachment' => 'occupant',
+            'poses2d' => ['lying' => ['asset' => 'Graphics/energized.png'], 'sitting' => ['asset' => 'Graphics/glow.png']]], $bed)];
+    $npcs = $scene->npcManager->prepareNpcs([$entry], $scene->currentMapId, $base->worldObjects);
+    $collisions = $base->collisions;
+    $collisions[1][1] = CollisionType::SOLID->value;
+    $prepared = new PreparedMap([...$base->data, 'npcs' => [$entry]], $base->tiles, $collisions,
+        [], [], $npcs, $base->layers, $base->graphics, $base->worldObjects);
+    $scene->mapManager->applyPreparedMap($prepared, $scene->player);
+    return $scene->npcManager->findById('sleeper');
+}
+
+it('installs a persistent real bed occupant on its logical attachment before any cinematic runs', function () {
+    $npc = installWorldObjectBed($this->scene, $this->root);
+    expect([(int)$npc->position->x, (int)$npc->position->y])->toBe([1, 1])
+        ->and($npc->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::LYING)
+        ->and($npc->getFieldTerminalSprite())->toBe('▣')
+        ->and($this->scene->npcManager->npcAt(1, 1))->toBe($npc)
+        ->and($this->scene->mapManager->canMoveTo(1, 1))->toBeFalse()
+        ->and($this->scene->npcManager->moveNpcById('sleeper', new Vector2(1, 0)))->toBeFalse();
+    $this->scene->cinematicStage->configure([['id' => 'sleeper-look', 'subject' => ['kind' => 'npc', 'id' => 'sleeper']]]);
+    $actor = $this->scene->cinematicStage->require('sleeper-look');
+    expect($actor->subject->subject)->toBe($npc)->and($actor->sprite)->toBe(['▣'])
+        ->and($actor->getGraphicalSpriteDefinition()->asset)->toBe('Graphics/energized.png')
+        ->and($actor->getGraphicalSpriteWorldPosition())->toEqual($npc->getGraphicalSpriteWorldPosition());
+});
+
+it('commits sitting and standing through the event command and restores the saved posture on a fresh map instance', function () {
+    $npc = installWorldObjectBed($this->scene, $this->root);
+    $session = $this->scene->eventInterpreter->run([
+        ['type' => 'set_bed_posture', 'npc' => 'sleeper', 'posture' => 'sitting', 'seconds' => .2],
+        ['type' => 'set_bed_posture', 'npc' => 'sleeper', 'posture' => 'standing', 'seconds' => .2],
+    ]);
+    expect($npc->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::LYING);
+    $this->scene->eventInterpreter->update(.2);
+    expect($session->failureMessage)->toBeNull();
+    expect($npc->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::SITTING);
+    $this->scene->eventInterpreter->update(.2);
+    expect($session->status)->toBe(\Ichiloto\Engine\Events\Interpreter\EventExecutionStatus::COMPLETED)
+        ->and($npc->getFieldTerminalSprite())->toBe('S')->and([(int)$npc->position->x, (int)$npc->position->y])->toBe([2, 1]);
+    $state = unserialize(serialize($this->scene->gameState));
+    new ReflectionProperty($this->scene, 'gameState')->setValue($this->scene, $state);
+    $reloaded = installWorldObjectBed($this->scene, $this->root);
+    expect($reloaded)->not->toBe($npc)->and($reloaded->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::STANDING)
+        ->and([(int)$reloaded->position->x, (int)$reloaded->position->y])->toBe([2, 1]);
+});
+
+it('keeps posture and occupancy unchanged on cancellation or a newly blocked bed exit', function (bool $cancel) {
+    $npc = installWorldObjectBed($this->scene, $this->root);
+    $operation = new \Ichiloto\Engine\Field\BedPostureOperation($this->scene, $npc,
+        \Ichiloto\Engine\Field\Enumerations\BedPosture::STANDING, .3);
+    expect($operation->update(.1))->toBeFalse();
+    if ($cancel) { $operation->cancel(); }
+    else {
+        $this->scene->player->restoreFieldTransform(new Vector2(2, 1), MovementHeading::SOUTH, ['v']);
+        expect(fn() => $operation->update(.3))->toThrow(RuntimeException::class, 'exit is blocked');
+        $operation->cancel();
+    }
+    expect($npc->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::LYING)
+        ->and($npc->bed->isOccupied)->toBeTrue()->and([(int)$npc->position->x, (int)$npc->position->y])->toBe([1, 1])
+        ->and($this->scene->gameState->getVariable($npc->bed->stateKey, 'unset'))->toBe('unset');
+})->with([false, true]);
+
+it('composes the bed, real occupant and covers once in the field, takeover and overview without changing collision', function () {
+    $context = new ScenePresentationContext(new RendererGridConfig(12, 6, 10, 20), static fn(string $cap): bool => true,
+        assetRoot: $this->root . '/assets');
+    new ReflectionProperty(GameScene::class, 'presentationContext')->setValue($this->scene, $context);
+    $npc = installWorldObjectBed($this->scene, $this->root, cover: true);
+    $object = $this->scene->mapManager->findWorldObject('fixture');
+    $group = $object->getPresentationWorldCanvas();
+    expect(array_column($group->canvas->images, 'id'))->toBe(['base', 'occupant', 'cover'])
+        ->and($group->canvas->presentationOwners)->toContain($npc->getGraphicalSpriteId(), $object->getGraphicalSpriteId())
+        ->and($object->getGraphicalSpriteDefinition())->toBeNull()
+        ->and(array_map(static fn($provider): string => $provider->getGraphicalSpriteId(),
+            iterator_to_array($this->scene->getGraphicalSpriteProviders())))->not->toContain($npc->getGraphicalSpriteId())
+        ->and($this->scene->mapManager->canMoveTo(1, 1))->toBeFalse();
+    $this->scene->cinematicStage->configure([['id' => 'in-bed', 'subject' => ['kind' => 'npc', 'id' => 'sleeper']]]);
+    $actor = $this->scene->cinematicStage->require('in-bed');
+    $group = $object->getPresentationWorldCanvas();
+    expect($group->canvas->presentationOwners)->toContain($actor->getGraphicalSpriteId())
+        ->and($actor->isComposedInBed())->toBeTrue()
+        ->and($object->getOverviewSubject()->images)->toHaveCount(3);
+    $this->scene->cinematicStage->hide('in-bed');
+    expect(array_column($object->getPresentationWorldCanvas()->canvas->images, 'id'))->toBe(['base', 'cover']);
+    $this->scene->cinematicStage->clear();
+    expect(array_column($object->getPresentationWorldCanvas()->canvas->images, 'id'))->toBe(['base', 'occupant', 'cover']);
+    $stand = new \Ichiloto\Engine\Field\BedPostureOperation($this->scene, $npc,
+        \Ichiloto\Engine\Field\Enumerations\BedPosture::STANDING);
+    $stand->update(0);
+    expect(array_column($object->getPresentationWorldCanvas()->canvas->images, 'id'))->toBe(['base', 'cover'])
+        ->and($this->scene->mapManager->getCollisionGrid()[1][1])->toBe(CollisionType::SOLID->value);
+});
+
+it('preflights bed slots and exits from actual sources before replacing any current map occupant', function (bool $blockedExit) {
+    $field = ['resources' => ['simple-bed' => ['name' => 'Bed', 'pivot' => ['x' => .5, 'y' => 1],
+        'sprites2d' => ['asset' => 'Graphics/base.png', 'cells' => ['width' => 1, 'height' => 2]],
+        'attachments' => [['id' => 'occupant', 'cell' => ['x' => 0, 'y' => 0], 'point' => ['x' => .5, 'y' => .25]]]]]];
+    mkdir($this->root . '/assets/Data/Presentation', 0777, true);
+    file_put_contents($this->root . '/assets/Data/Presentation/field.php', '<?php return ' . var_export($field, true) . ';');
+    $grid = array_fill(0, 3, array_fill(0, 4, CollisionType::NONE));
+    $grid[1][1] = CollisionType::SOLID;
+    $grid[1][2] = $blockedExit ? CollisionType::SOLID : CollisionType::NONE;
+    $data = ['occupancy' => $grid, 'worldObjects' => [['id' => 'fixture', 'anchor' => ['x' => 1, 'y' => 1], 'resource' => 'simple-bed']],
+        'npcs' => [['id' => 'sleeper', 'name' => 'Sleeper', 'sprite' => 'S', 'x' => 2, 'y' => 1,
+            'bed' => ['object' => 'fixture', 'attachment' => 'occupant']]]];
+    writeWorldObjectLoadingSources($this->root, $data, false);
+    $before = $this->scene->mapManager->findWorldObject('fixture');
+    if ($blockedExit) {
+        expect(fn() => $this->scene->mapManager->prepareMap('synthetic/loading'))
+            ->toThrow(InvalidArgumentException::class, 'standing exit');
+    } else {
+        $prepared = $this->scene->mapManager->prepareMap('synthetic/loading');
+        expect($prepared->npcs[0]->id)->toBe('sleeper')
+            ->and([(int)$prepared->npcs[0]->position->x, (int)$prepared->npcs[0]->position->y])->toBe([1, 1])
+            ->and($prepared->npcs[0]->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::LYING);
+    }
+    expect($this->scene->mapManager->findWorldObject('fixture'))->toBe($before)
+        ->and($this->scene->currentMapId)->toBe('synthetic/room')->and($this->scene->npcManager->npcs)->toBe([]);
+})->with([false, true]);
+
+it('drives one owned get-up clip from field time and commits immediately under reduced motion', function (bool $reduced) {
+    putSceneAudioConfig(['accessibility' => ['reducedMotion' => $reduced]]);
+    $npc = installWorldObjectBed($this->scene, $this->root, ['transitions2d' => ['standing' => [
+        'asset' => 'Graphics/glow.png', 'animation' => ['columns' => 2, 'frames' => [0, 1], 'fps' => 10, 'loop' => false, 'restFrame' => 1]]]]);
+    $operation = new \Ichiloto\Engine\Field\BedPostureOperation($this->scene, $npc,
+        \Ichiloto\Engine\Field\Enumerations\BedPosture::STANDING);
+    if ($reduced) {
+        expect($operation->update(0))->toBeTrue();
+    } else {
+        expect($npc->bed->getFrame()->sourceRect->x)->toBe(0)->and($operation->update(.1))->toBeFalse()
+            ->and($npc->bed->getFrame()->sourceRect->x)->toBe(5)->and($operation->update(.1))->toBeTrue();
+    }
+    expect($npc->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::STANDING)
+        ->and([(int)$npc->position->x, (int)$npc->position->y])->toBe([2, 1]);
+})->with([false, true]);
+
+it('keeps committed posture and exit consistent when a later cinematic command fails', function () {
+    $npc = installWorldObjectBed($this->scene, $this->root);
+    $definition = createWorldObjectCinematic([
+        ['type' => 'set_bed_posture', 'npc' => 'sleeper', 'posture' => 'standing'],
+        ['type' => 'text', 'name' => 'Sleeper', 'text' => 'Synthetic line.'],
+    ], ['cast' => [['id' => 'occupant', 'subject' => ['kind' => 'npc', 'id' => 'sleeper']]],
+        'skip' => ['policy' => 'forbidden'], 'finalizer' => []]);
+    $this->scene->cinematicController->start($definition);
+    $this->scene->eventInterpreter->update(0);
+    expect($npc->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::STANDING);
+    $this->scene->eventInterpreter->failActiveSession('Synthetic later interruption.');
+    expect($npc->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::STANDING)
+        ->and([(int)$npc->position->x, (int)$npc->position->y])->toBe([2, 1]);
+});
+
+it('validates shared bed slots against declared conditions without changing map sources', function () {
+    $npc = installWorldObjectBed($this->scene, $this->root);
+    $base = ['id' => 'a', 'name' => 'A', 'x' => 2, 'y' => 1, 'bed' => ['object' => 'fixture', 'attachment' => 'occupant']];
+    $other = [...$base, 'id' => 'b', 'name' => 'B'];
+    $inspect = fn(array $entries) => \Ichiloto\Engine\Field\Validation\MapBedRule::inspect($this->scene->currentMapId,
+        ['npcs' => $entries], [$npc->bed->objectDefinition], $this->scene->mapManager->getCollisionGrid());
+    expect($inspect([$base]))->toBe([])->and($inspect([$base, $other]))->toHaveCount(1);
+    $base['conditions'] = [['type' => 'switch', 'name' => 'phase', 'value' => true]];
+    $other['conditions'] = [['type' => 'switch', 'name' => 'phase', 'value' => false]];
+    expect($inspect([$base, $other]))->toBe([]);
+});
+
+it('reports the same physical bed defects through the in-memory authoring validator', function (bool $blockedExit) {
+    $npc = installWorldObjectBed($this->scene, $this->root);
+    $rows = array_map(static fn(array $row): array => array_map(CollisionType::from(...), $row), $this->scene->mapManager->getCollisionGrid());
+    if ($blockedExit) { $rows[1][2] = CollisionType::SOLID; }
+    $data = ['occupancy' => $rows,
+        'worldObjects' => [['id' => 'fixture', 'anchor' => ['x' => 1, 'y' => 1], 'resource' => 'whole']],
+        'npcs' => [['id' => 'sleeper', 'name' => 'Sleeper', 'x' => 2, 'y' => 1,
+            'bed' => ['object' => 'fixture', 'attachment' => 'occupant']]]];
+    $catalog = createResourceWorldObjectCatalog($this->root, ['attachments' => [
+        ['id' => 'occupant', 'cell' => ['x' => 0, 'y' => 0], 'point' => ['x' => .5, 'y' => .25]],
+    ]]);
+    $issues = \Ichiloto\Engine\Field\Validation\MapCompletenessValidator::validate($this->scene->currentMapId,
+        $data, array_fill(0, 3, array_fill(0, 4, ' ')), $this->scene->mapManager->layers,
+        $this->scene->mapManager->graphics, $this->root . '/assets', static fn(string $id): ?string => null, $catalog);
+    $beds = array_values(array_filter($issues, static fn($issue): bool => $issue->rule === 'npc.bed'));
+    expect($beds)->toHaveCount($blockedExit ? 1 : 0);
+    if ($blockedExit) { expect($beds[0]->message)->toContain('standing exit'); }
+})->with([false, true]);
+
 function createWorldObjectPreparedMap(array $objects, string $id = 'synthetic/room', ?FieldPresentationCatalog $catalog = null,
     ?MapLayerSet $layers = null): PreparedMap
 {

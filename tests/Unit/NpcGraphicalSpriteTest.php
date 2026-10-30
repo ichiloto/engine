@@ -65,6 +65,9 @@ final class NpcGraphicalTestScene extends GameScene
   {
     $this->gameState = new GameState();
     $this->party = new Party();
+    $this->uiManager = new class($this->testGame) extends \Ichiloto\Engine\UI\UIManager {
+      public function __construct(Game $game) { parent::__construct($game); }
+    };
     $this->currentMapId = 'Village/Plaza';
     $this->camera = new Camera($this, 24, 8, worldSpace: array_fill(0, 12, str_repeat('.', 32)));
     $this->mapManager = makeBareScene(MapManager::class);

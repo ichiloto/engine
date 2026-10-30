@@ -306,6 +306,81 @@ the conversation context, and portrait-only Skits keep their own presentation.
 reference sources. Editor controls and project scene bindings remain separate
 delivery steps.
 
+Continuous scenes declare phase groups alongside their complete speaker map:
+
+```php
+'groups' => [
+  'private' => ['speakers' => ['hero', 'guide']],
+  'reunion' => ['speakers' => ['hero', 'guest', 'friend'],
+    'addressees' => ['hero' => 'guest']],
+  'offscreen' => ['speakers' => []],
+],
+'initialGroup' => 'private',
+```
+
+`['type' => 'select_conversation_group', 'group' => 'reunion']` switches the owned
+conversation context and clears prior turn-taking. Only selected participants
+resolve or turn. Each group owns its addressee/facing defaults. Empty groups
+suspend field participation. Map changes reset previous-speaker memory; the
+selected phase continues until the next explicit selection or cinematic cleanup.
+Editor group fields select the current cinematic's declared group ids. This
+supports disappearances, private exchanges and map travel within one timeline.
+
+### Bed occupants and posture changes
+
+An ordinary map NPC can bind a bed world object and its resource's named logical
+attachment. Its usual `x` and `y` declare the clear standing exit:
+
+```php
+['id' => 'guest', 'name' => 'Guest', 'x' => 6, 'y' => 4,
+ 'sprites2d' => ['sheet' => 'People/Guest.png'],
+ 'bed' => ['object' => 'guest-bed', 'attachment' => 'occupant', 'posture' => 'lying',
+   'poses2d' => [
+     'lying' => ['asset' => 'People/Guest-Lying.png'],
+     'sitting' => ['asset' => 'People/Guest-Sitting.png'],
+   ],
+   'transitions2d' => ['standing' => ['asset' => 'People/Guest-Getting-Up.png',
+     'animation' => ['columns' => 3, 'frames' => [0, 1, 2], 'fps' => 8, 'loop' => false]]],
+   'terminal' => '▣']],
+```
+
+The bed resource supplies its base `sprites2d`, an `occupant` attachment with
+independent logical `cell` and normalized graphical `point`, and foreground
+`bedCover2d` artwork sharing its pivot. The ordinary map occupancy owns the solid
+bed cells and clear exit. `MapBedRule::inspect` checks those physical facts and
+exclusive shared-slot occupants before map installation. The in-memory
+`MapCompletenessValidator::validate` takes an optional resolved physical occupancy
+snapshot for legacy maps and reads explicit occupancy directly when present.
+
+The real NPC is present from map entry, at its bed attachment when occupied.
+It keeps its identity, pages, conditions and collision. Movement and wandering
+are blocked while in bed. Its current field role and occupied-bed glyph remain
+available to an existing-subject cinematic takeover. Directional character-sheet
+roles use the NPC heading; image and pose-animation roles use their authored art.
+
+`set_bed_posture` selects a current-map `npc` and native posture value `lying`,
+`sitting` or `standing`. It uses an optional target-posture transition role, its
+clip duration, or explicit finite `seconds` within 0..30. Zero-duration changes
+and reduced-motion transitions commit immediately. Timed transitions yield to
+the field loop and own the NPC's movement. Cancellation keeps the previous pose
+and saved state. Standing checks the exit at the beginning and again at commit.
+Committed posture writes update the cinematic transform baseline, so a later
+failure preserves a consistent saved posture and position.
+
+Posture saves in the existing world-state variables under
+`npc-bed:<encoded map id>:<encoded NPC id>`. Reload resolves current authored bed
+and exit geometry. Artwork reads and rendering advance no gameplay state.
+The bed, current occupant and covers form one world canvas in that order, with
+ordinary and staged subject ownership retained. Terminal and consumers lacking
+world-canvas support retain field glyphs. Missing artwork remains diagnostic.
+Current canvas children support mirrors; a quarter-turned compound piece needs
+shared canvas child rotation support and currently reports that capability gap.
+
+`CinematicCommandSchema::export()['bedOccupancy']` exports the shared placement,
+posture, pose, resource, persistence and validation contract. Editor pickers,
+resource/pose editing, project artwork, native scene qualification and visual
+approval remain delivery steps with their owners.
+
 ### Session states
 
 `EventExecutionStatus` distinguishes:

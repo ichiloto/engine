@@ -4113,8 +4113,15 @@ player/NPC/staged subjects, and text plus ordinary dialogue pages share one
 turn-taking path. Listeners face the speaker; addressee selection and authored
 facing overrides retain scene direction. Existing real-subject leases restore
 interrupted turns. Editor pickers/source-preserving edits, Game bindings and
-native/player confirmation remain pending. The in-bed occupant, covers,
-persistence and posture transitions remain a separate open Engine dependency.
+native/player confirmation remain pending. Owned conversation groups now scope
+private exchanges, disappearing subjects and map phases without restarting the
+cinematic. Shared bed occupants, saved posture, checked exits, timed transitions,
+Terminal glyphs and atomic base/body/covers composition are implemented. Editor
+binding/pose/resource controls, Game admission of approved artwork, native scene
+qualification and Andrew's full-scene review remain pending. Canvas child
+quarter-turn support is a shared rendering gap for quarter-turned compound art;
+ordinary upright and mirrored roles use the existing canvas contract. The
+renderer reports unavailable compound presentation and retains field fallback.
 
 Shared `DialogueSnapshot` composition now presents the current TextBox page,
 typing cursor, speaker and Auto state without changing playback ownership.

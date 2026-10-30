@@ -34,7 +34,7 @@ final class MapCompletenessValidator
      */
     public static function validate(string $mapId, array $data, array $eventLayer, MapLayerSet $layers,
         ?MapGraphics $graphics, string $assetRoot, callable $resolveInventoryReference,
-        ?FieldPresentationCatalog $fieldCatalog = null, bool $requiresGraphics = false): array
+        ?FieldPresentationCatalog $fieldCatalog = null, bool $requiresGraphics = false, ?MapPhysicalOccupancy $occupancy = null): array
     {
         $issues = self::validateEvents($mapId, $data, $eventLayer);
         $issues = [...$issues, ...self::validateDoorways($mapId, $data, $eventLayer, $layers, $assetRoot, $fieldCatalog, $graphics)];
@@ -50,6 +50,19 @@ final class MapCompletenessValidator
         try { $layers->assertMatchingGrid($eventLayer, "Event map {$mapId}"); }
         catch (InvalidArgumentException $error) {
             $issues[] = new MapValidationIssue($mapId, 'event.grid', $error->getMessage());
+        }
+        if (array_any(is_array($data['npcs'] ?? null) ? $data['npcs'] : [], static fn(mixed $npc): bool => is_array($npc) && array_key_exists('bed', $npc))) {
+            try {
+                if ($occupancy === null && array_key_exists(MapPhysicalOccupancy::DATA_KEY, $data)) {
+                    $occupancy = new MapPhysicalOccupancy($data[MapPhysicalOccupancy::DATA_KEY], $layers);
+                }
+                if ($occupancy === null) { throw new InvalidArgumentException('Bed preflight requires the map\'s resolved physical occupancy.'); }
+                $fieldCatalog ??= FieldPresentationCatalog::load($assetRoot);
+                $objects = WorldObjectDefinition::readMap($data, $layers, $graphics, catalog: $fieldCatalog);
+                $issues = [...$issues, ...MapBedRule::inspect($mapId, $data, $objects, $occupancy->collisionGrid)];
+            } catch (InvalidArgumentException|RuntimeException $error) {
+                $issues[] = new MapValidationIssue($mapId, MapBedRule::RULE, $error->getMessage(), path: ['npcs']);
+            }
         }
         return [...$issues, ...self::validateCoverage($mapId, $data, $layers, $graphics, $assetRoot, $fieldCatalog, $requiresGraphics),
             ...self::validateTerrainKinds($mapId, $data, $layers, $graphics)];

@@ -341,6 +341,42 @@ it('selects distinct stable speakers that share one display label without guessi
   expect(fn() => $conversation->prepareLine('Bully', ['speaker' => 'unknown']))->toThrow(RuntimeException::class);
 });
 
+it('scopes participation to an owned conversation group across private exchanges, disappearing NPCs and map changes', function () {
+  $bindings = ['speakers' => ['hero' => ['kind' => 'player'], 'guide' => ['kind' => 'npc', 'id' => 'guide'],
+    'witness' => ['kind' => 'staged_actor', 'id' => 'later-witness']],
+    'groups' => ['first' => ['speakers' => ['hero', 'guide']], 'private' => ['speakers' => ['hero', 'witness']],
+      'silent' => ['speakers' => []]], 'initialGroup' => 'first'];
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, $bindings);
+  $conversation->prepareLine('Hero', ['speaker' => 'hero']);
+  expect($this->npc->heading)->toBe(MovementHeading::WEST)->and($this->player->heading)->toBe(MovementHeading::EAST);
+  $this->scene->gameState->setSwitch('departed', true);
+  $this->scene->changeMapIdentity('another-map');
+  $this->stage->configure([['id' => 'later-witness', 'x' => 3, 'y' => 1]]);
+  $conversation->selectGroup('private');
+  $conversation->prepareLine('Witness', ['speaker' => 'witness']);
+  expect($this->player->heading)->toBe(MovementHeading::NORTH)
+    ->and($this->stage->require('later-witness')->facing)->toBe(MovementHeading::SOUTH)
+    ->and($this->npc->heading)->toBe(MovementHeading::WEST);
+  expect(fn() => $conversation->prepareLine('Guide', ['speaker' => 'guide']))->toThrow(RuntimeException::class);
+  $conversation->selectGroup('silent');
+  $before = $this->player->heading;
+  $conversation->prepareLine('Remote voice');
+  expect($this->player->heading)->toBe($before);
+});
+
+it('selects a conversation phase through the real command without resetting the cinematic or its stage', function () {
+  $conversation = ['speakers' => ['hero' => ['kind' => 'player'], 'guide' => ['kind' => 'npc', 'id' => 'guide']],
+    'groups' => ['before' => ['speakers' => []], 'talk' => ['speakers' => ['hero', 'guide']]], 'initialGroup' => 'before'];
+  $definition = subjectOwnershipDefinition([
+    ['type' => 'select_conversation_group', 'group' => 'talk'],
+    ['type' => 'text', 'name' => 'Hero', 'speaker' => 'hero', 'text' => 'Synthetic exchange.'],
+  ], ['cast' => [], 'presentation' => ['conversation' => $conversation]]);
+  $session = $this->scene->cinematicController->start($definition);
+  expect($session->failureMessage)->toBeNull()->and($session->status)->toBe(EventExecutionStatus::YIELDED)
+    ->and($this->npc->heading)->toBe(MovementHeading::WEST)->and($this->player->heading)->toBe(MovementHeading::EAST);
+  $this->scene->eventInterpreter->failActiveSession('Synthetic phase end.');
+});
+
 it('resolves every participant before turning and rejects duplicate real-subject aliases', function (bool $duplicate) {
   $this->stage->configure([['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]]);
   $bindings = subjectConversation();

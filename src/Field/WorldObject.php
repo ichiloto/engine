@@ -23,11 +23,16 @@ final class WorldObject implements GraphicalSpriteProviderInterface
     private ?string $selectedVariant = null;
     private bool $selected = false;
     private ?WorldSignPlayback $sign = null;
+    private ?FieldSpriteRole $bedCover = null;
+    private ?string $bedPresentationFailure = null;
 
     public function __construct(public readonly WorldObjectDefinition $definition, private readonly GameScene $scene,
         public readonly string $mapId, private readonly string $assetRoot)
     {
         if ($definition->resource?->sign !== null) { $this->sign = new WorldSignPlayback($definition, $assetRoot); }
+        if ($definition->resource?->bedCover !== null) {
+            $this->bedCover = new FieldSpriteRole($definition->resource->bedCover, $assetRoot, 'Bed cover ' . $mapId . '/' . $definition->id);
+        }
     }
 
     public Vector2 $position { get => new Vector2($this->definition->x, $this->definition->y); }
@@ -60,6 +65,12 @@ final class WorldObject implements GraphicalSpriteProviderInterface
     public function getGraphicalSpriteId(): string { return 'world-object:' . $this->mapId . ':' . $this->definition->id; }
     public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
     {
+        return $this->bedCover !== null && $this->getPresentationWorldCanvas() !== null ? null : $this->getBaseGraphicalSpriteDefinition();
+    }
+
+    /** The base role stays available to compound presentation and logical attachment placement. */
+    public function getBaseGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
+    {
         if (!$this->isVisible()) { return null; }
         if ($this->sign !== null) { return null; }
         if ($this->definition->resource !== null && $this->definition->sprites instanceof GraphicalSpriteDefinition) {
@@ -80,7 +91,7 @@ final class WorldObject implements GraphicalSpriteProviderInterface
      */
     public function locateAttachment(WorldObjectAttachment $attachment): ?array
     {
-        $frame = $this->getGraphicalSpriteDefinition();
+        $frame = $this->getBaseGraphicalSpriteDefinition();
         $canvas = $frame === null ? $this->getPresentationWorldCanvas() : null;
         if ($frame === null && $canvas === null) { return null; }
         $width = $frame?->width ?? $canvas->canvas->width;
@@ -115,6 +126,31 @@ final class WorldObject implements GraphicalSpriteProviderInterface
 
     public function getPresentationWorldCanvas(): ?\Ichiloto\Engine\Rendering\Presentation\PresentationWorldCanvas
     {
+        if ($this->bedCover !== null && $this->isVisible()
+            && $this->scene->canPresentWorldCanvases()) {
+            $base = $this->getBaseGraphicalSpriteDefinition();
+            $cover = $this->bedCover->getFrame($this->definition->pivot);
+            if ($base === null || $cover === null) { return null; }
+            $occupant = $this->scene->npcManager?->findBedOccupant($this->definition->id);
+            $actor = $occupant === null ? null : $this->scene->cinematicStage?->findSubjectVisual($occupant);
+            $hidden = $actor !== null ? !$actor->isVisible : ($occupant !== null && ($this->scene->cinematicStage?->suppresses($occupant) ?? false));
+            $body = $hidden || $occupant === null ? null : ($actor !== null
+                ? $actor->getGraphicalSpriteDefinition() : $occupant->bed->getFrame());
+            // An unavailable occupant role keeps its visible Terminal fallback.
+            if ($occupant !== null && !$hidden && $body === null) { return null; }
+            try {
+                $group = BedPresentation::compose($this, $base, $cover, $occupant, $body,
+                    array_filter([$occupant?->getGraphicalSpriteId(), $actor?->getGraphicalSpriteId()]));
+                $this->bedPresentationFailure = null;
+                return $group;
+            } catch (\InvalidArgumentException $error) {
+                if ($this->bedPresentationFailure !== $error->getMessage()) {
+                    $this->bedPresentationFailure = $error->getMessage();
+                    \Ichiloto\Engine\Util\Debug::warn($this->bedPresentationFailure);
+                }
+                return null;
+            }
+        }
         if ($this->sign === null || !$this->isVisible()) { return null; }
         $presentation = $this->sign->getPresentation($this->scene->getTextPreparationProvider());
         if ($presentation === null) { return null; }
@@ -126,7 +162,7 @@ final class WorldObject implements GraphicalSpriteProviderInterface
     public function getOverviewSubject(): ?CanvasWorldSubject
     {
         if (!$this->isVisible()) { return null; }
-        if ($this->sign !== null) {
+        if ($this->sign !== null || $this->bedCover !== null) {
             $group = $this->getPresentationWorldCanvas();
             if ($group === null) { return null; }
             // Printed sign text is represented by the atlas's readable landmark
@@ -150,7 +186,7 @@ final class WorldObject implements GraphicalSpriteProviderInterface
     public function hidesOwnedGlyphs(): bool
     {
         if (!$this->isVisible()) { return false; }
-        if ($this->sign !== null) {
+        if ($this->sign !== null || $this->bedCover !== null) {
             return $this->definition->shouldHideOwnedGlyphs($this->getPresentationWorldCanvas() !== null, true);
         }
         if ($this->definition->resource !== null && $this->definition->sprites instanceof GraphicalSpriteDefinition) {
@@ -162,6 +198,7 @@ final class WorldObject implements GraphicalSpriteProviderInterface
 
     public function advanceGraphicalAnimation(float $seconds): void
     {
+        $this->bedCover?->advance($seconds);
         if ($this->definition->resource === null || !$this->definition->sprites instanceof GraphicalSpriteDefinition) {
             $this->selectRole()?->advance($seconds);
         }
@@ -172,5 +209,6 @@ final class WorldObject implements GraphicalSpriteProviderInterface
         $this->role?->release();
         $this->role = null;
         $this->sign?->release();
+        $this->bedCover?->release();
     }
 }

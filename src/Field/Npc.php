@@ -60,9 +60,23 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  */
 class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterface
 {
+  public private(set) ?NpcBed $bed = null;
+
+  public function bindBed(NpcBed $bed): void
+  {
+    $this->bed?->release();
+    $this->bed = $bed;
+  }
+
+  public function getFieldTerminalSprite(): string
+  {
+    return $this->bed?->isOccupied ? $this->bed->definition->terminal : $this->sprite;
+  }
+
+  public function releaseFieldPresentation(): void { $this->bed?->release(); }
   /** An NPC walks among its cell's foliage, unless drawn from an object sheet such as a chest. */
   public bool $standsInFoliage {
-    get => $this->graphicalSprites?->isObject === false;
+    get => !($this->bed?->isOccupied ?? false) && $this->graphicalSprites?->isObject === false;
   }
   /**
    * @var float The next time this NPC may take a wander step.
@@ -163,6 +177,12 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
 
   public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
   {
+    if ($this->bed?->isOccupied) { return $this->bed->getPlacement()['image'] ?? null; }
+    return $this->getOrdinaryGraphicalSpriteDefinition();
+  }
+
+  public function getOrdinaryGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
+  {
     $frame = $this->graphicalSprites === null ? null : $this->graphicalAssetGuard?->getFrameSize($this->graphicalSprites);
     if ($frame === null) {
       return null;
@@ -172,6 +192,7 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
 
   public function getGraphicalSpriteWorldPosition(): Vector2
   {
+    if ($this->bed?->isOccupied) { return $this->bed->getPlacement()['position'] ?? clone $this->position; }
     return clone $this->position;
   }
 
@@ -192,6 +213,7 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
 
   public function advanceGraphicalAnimation(float $seconds): void
   {
+    $this->bed?->advance($seconds);
     $this->walkAnimation->advance($seconds);
   }
 

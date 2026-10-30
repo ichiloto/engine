@@ -11,6 +11,16 @@
 
 ### Added
 
+- Saved, real NPC bed occupants with lying/sitting/standing postures, occupied-bed
+  Terminal glyphs, inherited cinematic poses and layered base/body/cover canvases.
+  Blocked exits and interruptions preserve state; movement and wandering are
+  blocked while in bed. Unsupported consumers disable world canvases and retain
+  field glyphs. Shared physical preflight and authoring schemas cover bindings.
+
+- Owned conversation phase groups and `select_conversation_group`, allowing
+  private exchanges, disappearances and map changes inside one cinematic while
+  resolving and turning only the selected participants.
+
 - Shared cinematic conversation-facing bindings for field speakers and listeners,
   used by text commands and ordinary dialogue pages. Current subject positions,
   explicit facing choices, direction-fixed occupants and active route ownership

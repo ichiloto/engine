@@ -66,7 +66,8 @@ final readonly class NpcPlacement
       strval($entry['movement'] ?? 'fixed') === 'wander',
       $wanderArea,
       $hasLines($entry['dialogue'] ?? []) || $hasLines($entry['script'] ?? []),
-      $conditions !== [],
+      // A bed's x/y is its standing exit; saved posture determines whether the NPC occupies it.
+      $conditions !== [] || array_key_exists('bed', $entry),
       $conditions,
     );
   }

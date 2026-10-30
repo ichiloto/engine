@@ -328,6 +328,8 @@ class MapManager implements CanRenderAt
     }
     $eventTriggers = [];
     $mapId = strval($map['id'] ?? '');
+    $bedIssues = \Ichiloto\Engine\Field\Validation\MapBedRule::inspect($mapId, $map, $source['worldObjects'], $collisions);
+    if ($bedIssues !== []) { throw new \InvalidArgumentException($bedIssues[0]->message); }
     foreach ($map['events'] ?? [] as $event) {
       $trigger = EventTriggerFactory::create($event, $mapId !== '' ? $mapId : null);
       if ($trigger instanceof \Ichiloto\Engine\Events\Triggers\PassageEventTrigger) {
@@ -338,6 +340,7 @@ class MapManager implements CanRenderAt
     $npcs = $this->gameScene->npcManager?->prepareNpcs(
       is_array($map['npcs'] ?? null) ? $map['npcs'] : [],
       $mapId,
+      $source['worldObjects'],
     );
 
     return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers'],

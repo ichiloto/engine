@@ -178,6 +178,13 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
             : (isset($this->sceneManager) && $this->getGame()->getRendererRuntime()?->supports($capability) === true);
     }
 
+    /** Compound field subjects require both existing canvas and viewport capabilities. */
+    public function canPresentWorldCanvases(): bool
+    {
+        return $this->supportsScenePresentation(RendererSessionConfig::WORLD_CANVAS)
+            && $this->supportsScenePresentation(RendererSessionConfig::FRAME_VIEWPORT);
+    }
+
     /** Resolve camera dimensions before any field producer draws into Console. */
     public function synchronizeFieldViewport(): void
     {
@@ -326,9 +333,13 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
 
     public function getPresentationWorldCanvases(): array
     {
-        if (!$this->hasGraphicalFieldPresentation()) { return []; }
+        if (!$this->hasGraphicalFieldPresentation() || !$this->canPresentWorldCanvases()) { return []; }
         $origin = $this->camera->getWorldOrigin();
         $groups = [];
+        foreach ($this->cinematicStage?->all() ?? [] as $actor) {
+            $group = $actor->getPresentationWorldCanvas();
+            if ($group !== null) { $groups[] = $group->createProjected($origin['x'], $origin['y']); }
+        }
         foreach ($this->mapManager?->getWorldObjects() ?? [] as $object) {
             if ($this->cinematicStage?->suppresses($object) ?? false) { continue; }
             $group = $object->getPresentationWorldCanvas();
@@ -442,9 +453,11 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
                 yield $this->player;
             }
             foreach ($this->cinematicStage?->all() ?? [] as $actor) {
-                yield $actor;
+                if (!$actor->isComposedInBed() && $actor->getPresentationWorldCanvas() === null) { yield $actor; }
             }
-            yield from $this->npcManager?->getGraphicalSpriteProviders() ?? [];
+            foreach ($this->npcManager?->getGraphicalSpriteProviders() ?? [] as $npc) {
+                if (!($npc->bed?->isOccupied && $npc->bed->getPresentationWorldCanvas() !== null)) { yield $npc; }
+            }
             foreach ($this->mapManager?->getWorldObjects() ?? [] as $object) {
                 if (!($this->cinematicStage?->suppresses($object) ?? false)) { yield $object; }
             }

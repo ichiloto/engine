@@ -51,11 +51,13 @@ class NpcManager
    */
   public function configure(array $entries): void
   {
-    $this->applyPreparedNpcs($this->prepareNpcs($entries, $this->gameScene->currentMapId));
+    $objects = array_map(static fn(WorldObject $object): WorldObjectDefinition => $object->definition,
+      iterator_to_array($this->gameScene->mapManager?->getWorldObjects() ?? new \EmptyIterator()));
+    $this->applyPreparedNpcs($this->prepareNpcs($entries, $this->gameScene->currentMapId, $objects));
   }
 
   /** Builds a destination's NPC list without changing the current map. */
-  public function prepareNpcs(array $entries, string $mapId): array
+  public function prepareNpcs(array $entries, string $mapId, array $worldObjects = []): array
   {
     $npcs = [];
     $ids = [];
@@ -110,6 +112,14 @@ class NpcManager
       if (isset($this->gameScene->gameState)) {
         $npc->bind($mapId, $this->gameScene->gameState, $this->gameScene->party);
       }
+      if (array_key_exists('bed', $entry)) {
+        if (!isset($this->gameScene->gameState)) { throw new RuntimeException('NPC beds require the current world state.'); }
+        $bed = NpcBedDefinition::fromArray($entry['bed']);
+        [$object, $attachment] = $bed->resolveObject($worldObjects);
+        $npc->bindBed(new NpcBed($bed, $npc, $object, $attachment, new Vector2($placement->x, $placement->y),
+          $this->gameScene->gameState, $mapId,
+          $this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets', $this->gameScene));
+      }
       $npcs[] = $npc;
     }
 
@@ -132,6 +142,7 @@ class NpcManager
   public function applyPreparedNpcs(array $npcs): void
   {
     $this->stopGraphicalAnimation();
+    foreach ($this->npcs as $npc) { if (!in_array($npc, $npcs, true)) { $npc->releaseFieldPresentation(); } }
     $this->npcs = $npcs;
   }
 
@@ -161,6 +172,14 @@ class NpcManager
   public function getGraphicalSpriteProviders(): array
   {
     return array_values(array_filter($this->npcs, $this->isPresentationVisible(...)));
+  }
+
+  public function findBedOccupant(string $objectId): ?Npc
+  {
+    $occupants = array_values(array_filter($this->npcs, fn(Npc $npc): bool => $npc->bed?->isOccupied
+      && $npc->bed->definition->objectId === $objectId && $this->isFieldVisible($npc)));
+    if (count($occupants) > 1) { throw new RuntimeException('More than one current NPC occupies the same bed.'); }
+    return $occupants[0] ?? null;
   }
 
   /** Called alongside the Player/staged-actor tick, including during event routes. */
@@ -214,7 +233,7 @@ class NpcManager
     $now = Time::getTime();
 
     foreach ($this->visibleNpcs() as $npc) {
-      if (! $npc->wanders) {
+      if (! $npc->wanders || $npc->bed?->isOccupied) {
         continue;
       }
 
@@ -248,7 +267,7 @@ class NpcManager
   {
     if ($this->isPresentationVisible($npc)) {
       Console::withLayer($npc->getGraphicalSpriteId(), function () use ($npc): void {
-        $this->gameScene->camera->renderOnScreen([$npc->sprite], $npc->position);
+        $this->gameScene->camera->renderOnScreen([$npc->getFieldTerminalSprite()], $npc->position);
       });
     }
     $this->renderCue($npc);
@@ -351,7 +370,8 @@ class NpcManager
     $player = $this->gameScene->player;
 
     if (
-      ! $this->gameScene->mapManager->canMoveTo($destinationX, $destinationY)
+      $npc->bed?->isOccupied
+      || ! $this->gameScene->mapManager->canMoveTo($destinationX, $destinationY)
       || ($player !== null
         && intval($player->position->x) === $destinationX
         && intval($player->position->y) === $destinationY)

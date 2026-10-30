@@ -7,6 +7,7 @@ use Ichiloto\Engine\Animations\Field\FieldPosePlayback;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Field\WorldObject;
+use Ichiloto\Engine\Field\Npc;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\FieldMetric;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
@@ -27,7 +28,8 @@ final class StagedActor implements ThicketSubjectInterface
    */
   public bool $standsInFoliage {
     get {
-      if ($this->attachment !== null || $this->subject?->subject instanceof WorldObject) { return false; }
+      if ($this->attachment !== null || $this->subject?->subject instanceof WorldObject
+        || ($this->subject?->subject instanceof Npc && $this->subject->subject->bed?->isOccupied)) { return false; }
       $sprites = $this->getGraphicalSprites();
       return $sprites instanceof CharacterSheet ? !$sprites->isObject : $sprites !== null;
     }
@@ -44,7 +46,8 @@ final class StagedActor implements ThicketSubjectInterface
       $sprite = $this->directionalSprites[$this->facing->name]
         ?? $this->directionalSprites[strtolower($this->facing->name)] ?? null;
       return is_array($sprite) && $sprite !== [] ? array_values(array_map('strval', $sprite))
-        : ($this->baseSprite ?? (array)$this->subject?->subject->sprite);
+        : ($this->baseSprite ?? ($this->subject?->subject instanceof Npc
+          ? [$this->subject->subject->getFieldTerminalSprite()] : (array)$this->subject?->subject->sprite));
     }
   }
   public bool $isVisible {
@@ -159,8 +162,26 @@ final class StagedActor implements ThicketSubjectInterface
     return $frame === null ? null : ($this->attachment?->place($frame)['image'] ?? $frame);
   }
 
+  /** A takeover retains its real object's compound presentation unless an explicit replacement was authored. */
+  public function getPresentationWorldCanvas(): ?\Ichiloto\Engine\Rendering\Presentation\PresentationWorldCanvas
+  {
+    if (!$this->isVisible || $this->graphicalSprites !== null || !$this->subject?->subject instanceof WorldObject) { return null; }
+    $group = $this->subject->subject->getPresentationWorldCanvas();
+    if ($group === null) { return null; }
+    return new \Ichiloto\Engine\Rendering\Presentation\PresentationWorldCanvas($this->getGraphicalSpriteId(),
+      $group->x, $group->y, $group->pivot, $group->canvas, $group->layer);
+  }
+
+  public function isComposedInBed(): bool
+  {
+    return $this->subject?->subject instanceof Npc && $this->subject->subject->bed?->isOccupied
+      && $this->subject->subject->bed->getPresentationWorldCanvas() !== null;
+  }
+
   public function getGraphicalSpriteWorldPosition(): Vector2
   {
+    if ($this->graphicalSprites === null && $this->subject?->subject instanceof Npc
+      && $this->subject->subject->bed?->isOccupied) { return $this->subject->subject->getGraphicalSpriteWorldPosition(); }
     $frame = $this->attachment !== null && $this->isVisible ? $this->getFrameDefinition() : null;
     $placement = $frame === null ? null : $this->attachment->place($frame);
     return $placement['position'] ?? clone $this->position;
@@ -181,6 +202,8 @@ final class StagedActor implements ThicketSubjectInterface
 
   public function advanceGraphicalAnimation(float $seconds): void
   {
+    if ($this->graphicalSprites === null && $this->subject?->subject instanceof Npc
+      && $this->subject->subject->bed?->isOccupied) { $this->subject->subject->bed->advance($seconds); }
     $this->walkAnimation->advance($seconds);
     if ($this->isVisible) {
       $this->posePlayback?->advance($seconds, Accessibility::prefersReducedMotion());
@@ -190,6 +213,8 @@ final class StagedActor implements ThicketSubjectInterface
 
   private function getFrameDefinition(): ?GraphicalSpriteDefinition
   {
+    if ($this->graphicalSprites === null && $this->subject?->subject instanceof Npc
+      && $this->subject->subject->bed?->isOccupied) { return $this->subject->subject->getGraphicalSpriteDefinition(); }
     if ($this->subject?->subject instanceof WorldObject) {
       return $this->worldObjectRole !== null ? $this->worldObjectRole->getFrame($this->subject->subject->definition->pivot)
         : $this->subject->subject->getGraphicalSpriteDefinition();

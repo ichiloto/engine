@@ -23,6 +23,10 @@ enum ScriptCommandReference: string
   case QUEST = 'quest';
   /** An actor. */
   case ACTOR = 'actor';
+  /** A stable NPC identity from the map containing the script. */
+  case NPC = 'npc';
+  /** A group declared by the active cinematic's conversation. */
+  case CONVERSATION_GROUP = 'conversation_group';
   /** A standalone, cue-free stage timeline admitted by EffectTimelineLibrary::loadStage(). */
   case STAGE_TIMELINE = 'stage_timeline';
   /** An income schedule declared in the project's income data. */

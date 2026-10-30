@@ -242,7 +242,7 @@ final class CinematicStageManager
       if (!$actor->ownsPresentation()) { continue; }
       foreach ($actor->suppressedSubjects as $lease) {
         if ($lease->subject === $subject) {
-          return !$actor->isVisible || $actor->getGraphicalSpriteDefinition() !== null;
+          return !$actor->isVisible || $actor->getGraphicalSpriteDefinition() !== null || $actor->getPresentationWorldCanvas() !== null;
         }
       }
     }
@@ -329,6 +329,11 @@ final class CinematicStageManager
   public function find(string $id): ?StagedActor
   {
     return $this->actors[trim($id)] ?? null;
+  }
+
+  public function findSubjectVisual(Player|Npc|WorldObject $subject): ?StagedActor
+  {
+    return array_find($this->actors, static fn(StagedActor $actor): bool => $actor->subject?->subject === $subject && $actor->ownsPresentation());
   }
 
   public function require(string $id): StagedActor

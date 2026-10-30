@@ -201,5 +201,25 @@ final class EngineScriptCommands
         ],
       ],
     ],
+    [
+      'type' => 'select_conversation_group',
+      'class' => SelectConversationGroupCommand::class,
+      'label' => 'Conversation Group',
+      'description' => 'Selects the active cinematic conversation phase and its participating speakers.',
+      'fields' => [
+        ['key' => 'group', 'label' => 'Group', 'kind' => 'reference', 'reference' => 'conversation_group', 'required' => true],
+      ],
+    ],
+    [
+      'type' => 'set_bed_posture',
+      'class' => SetBedPostureCommand::class,
+      'label' => 'Bed Posture',
+      'description' => 'Changes a current bed occupant posture; checks the exit before getting up and preserves saved state on interruption.',
+      'fields' => [
+        ['key' => 'npc', 'label' => 'Occupant', 'kind' => 'reference', 'reference' => 'npc', 'required' => true],
+        ['key' => 'posture', 'label' => 'Posture', 'kind' => 'option', 'options' => ['lying', 'sitting', 'standing'], 'required' => true],
+        ['key' => 'seconds', 'label' => 'Transition Seconds', 'kind' => 'number', 'minimum' => 0, 'maximum' => 30],
+      ],
+    ],
   ];
 }

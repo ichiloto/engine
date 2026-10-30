@@ -18,17 +18,19 @@ final class CinematicConversation
     public const array SUBJECT_KINDS = ['player', 'npc', 'staged_actor'];
     private ?string $previousSpeaker = null;
     private string $mapId;
+    private ?string $activeGroup = null;
 
     public function __construct(private readonly GameScene $scene, private readonly array $definition)
     {
         self::validate($definition);
         $this->mapId = $scene->currentMapId;
+        $this->activeGroup = $definition['initialGroup'] ?? null;
     }
 
     public static function validate(array $definition): void
     {
-        if (array_diff(array_keys($definition), ['speakers', 'addressees', 'facing']) !== []) {
-            throw new InvalidArgumentException('Conversation accepts speakers, addressees and facing bindings.');
+        if (array_diff(array_keys($definition), ['speakers', 'addressees', 'facing', 'groups', 'initialGroup']) !== []) {
+            throw new InvalidArgumentException('Conversation accepts speakers, addressees, facing, groups and initialGroup bindings.');
         }
         $speakers = $definition['speakers'] ?? null;
         if (!is_array($speakers) || $speakers === [] || array_is_list($speakers)) {
@@ -58,6 +60,34 @@ final class CinematicConversation
                 } else { CinematicFacing::validate($value); }
             }
         }
+        if (array_key_exists('groups', $definition)) {
+            $groups = $definition['groups'];
+            if (!is_array($groups) || $groups === [] || array_is_list($groups)) {
+                throw new InvalidArgumentException('Conversation groups must be keyed by stable group ids.');
+            }
+            foreach ($groups as $id => $group) {
+                if (!is_string($id) || trim($id) === '' || !is_array($group)
+                    || array_diff(array_keys($group), ['speakers', 'addressees', 'facing']) !== []
+                    || !is_array($group['speakers'] ?? null) || !array_is_list($group['speakers'])
+                    || array_any($group['speakers'], static fn(mixed $key): bool => !is_string($key) || !isset($speakers[$key]))
+                    || count(array_unique($group['speakers'])) !== count($group['speakers'])) {
+                    throw new InvalidArgumentException('A conversation group selects distinct bound speaker keys.');
+                }
+                $subset = array_intersect_key($speakers, array_flip($group['speakers']));
+                if ($subset === []) {
+                    if (($group['addressees'] ?? []) !== [] || ($group['facing'] ?? []) !== []) {
+                        throw new InvalidArgumentException('An empty conversation group has no addressee or facing overrides.');
+                    }
+                } else {
+                    self::validate(['speakers' => $subset, 'addressees' => $group['addressees'] ?? [], 'facing' => $group['facing'] ?? []]);
+                }
+            }
+            if (!is_string($definition['initialGroup'] ?? null) || !isset($groups[$definition['initialGroup']])) {
+                throw new InvalidArgumentException('Grouped conversations select an authored initialGroup.');
+            }
+        } elseif (array_key_exists('initialGroup', $definition)) {
+            throw new InvalidArgumentException('initialGroup requires declared conversation groups.');
+        }
     }
 
     /** Text and dialogue pages share these optional stable speaker selections and direction overrides. */
@@ -81,7 +111,9 @@ final class CinematicConversation
     public function prepareLine(string $name, array $line = []): void
     {
         self::validateLine($line);
-        $bindings = $this->definition['speakers'];
+        $group = $this->activeGroup === null ? $this->definition : $this->definition['groups'][$this->activeGroup];
+        $bindings = $this->activeGroup === null ? $this->definition['speakers']
+            : array_intersect_key($this->definition['speakers'], array_flip($group['speakers']));
         $name = $line['speaker'] ?? $name;
         if (!isset($bindings[$name])) {
             if (isset($line['speaker']) || isset($line['addressee']) || CinematicFacing::isDeclared($line)) {
@@ -94,7 +126,7 @@ final class CinematicConversation
             $this->mapId = $this->scene->currentMapId;
         }
         $others = array_values(array_diff(array_keys($bindings), [$name]));
-        $addressee = $line['addressee'] ?? $this->definition['addressees'][$name]
+        $addressee = $line['addressee'] ?? $group['addressees'][$name]
             ?? ($this->previousSpeaker !== $name ? $this->previousSpeaker : null)
             ?? (count($others) === 1 ? $others[0] : null);
         if ($addressee !== null) { self::validateAddressee($addressee, $bindings, $name); }
@@ -112,7 +144,7 @@ final class CinematicConversation
         }
         foreach ($subjects as $speaker => $subject) {
             $override = $speaker === $name && CinematicFacing::isDeclared($line)
-                ? $line : ($this->definition['facing'][$speaker] ?? []);
+                ? $line : ($group['facing'][$speaker] ?? []);
             if (CinematicFacing::isDeclared($override)) {
                 if ($this->isMovingSubject($subject)) {
                     throw new RuntimeException('A dialogue facing override must wait for its subject movement to finish.');
@@ -131,6 +163,14 @@ final class CinematicConversation
         }
         $this->previousSpeaker = $name;
         $this->scene->requestFieldPresentationReconciliation();
+    }
+
+    /** Select one scene phase's participants; declaration-wide bindings remain available for later phases. */
+    public function selectGroup(string $id): void
+    {
+        if (!isset($this->definition['groups'][$id])) { throw new RuntimeException("Conversation group '$id' is not declared."); }
+        $this->activeGroup = $id;
+        $this->previousSpeaker = null;
     }
 
     private function resolveSubject(array $reference): Player|Npc|StagedActor

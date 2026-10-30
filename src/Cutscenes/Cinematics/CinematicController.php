@@ -85,6 +85,11 @@ final class CinematicController implements EventSessionCompletionTargetInterface
     $this->conversation?->prepareLine($speaker, $line);
   }
 
+  public function selectConversationGroup(string $id): void
+  {
+    ($this->conversation ?? throw new RuntimeException('No cinematic conversation is active.'))->selectGroup($id);
+  }
+
   public function onEventSessionCompleted(GameScene $gameScene, EventExecutionSession $session): void
   {
     if ($this->active === null || $session->scriptId !== $this->active->id
