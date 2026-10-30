@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Removed
+
+- Removed measured arena depth scaling: `ground.scaleReference`, `BattleGroundScale`,
+  and their body-scaling/clearance projection. The existing `ground.perspective`
+  setting remains; `1.0` keeps each battler's size constant across foot rows.
+  Shared body calibration, authored proportions, footing and HUD clearance remain.
+
 ### Added
 
 - Equipment comparisons enhance the existing shop detail panel with the known roster's portraits,

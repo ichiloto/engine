@@ -522,67 +522,15 @@ previews through the same rule and returns its `staging`. The Terminal battle,
 combat, saves and terminal positions never read any of it; richer staging
 (animated poses, overlapping effects, summons) builds on the same slots.
 
+Use `ground.perspective: 1.0` for uniform battler size across foot rows. The
+arena backdrop supplies its composition independently of battler calibration.
+
 Clearance (`BattleFormationClearance`) now reports battlers standing on the
 same ground: two footings (the lowest 12% of visible art across its middle
 60%) that overlap. It no longer reports art that merely overlaps another
 battler's, which a staged field needs; art outside the authored areas and a
 target cursor with no room are still reported. Diagnostics never move
 battlers.
-
-### Measured Arena Scale
-
-A ground can declare `scaleReference` instead of the legacy `perspective`
-ratio. These are shared canvas coordinates of the final composed backdrop:
-
-```php
-'ground' => [
-  'top' => 250, 'bottom' => 650,
-  'scaleReference' => [
-    'horizonY' => 100, 'referenceY' => 600,
-    'pixelsPerUnit' => 100, 'vanishingX' => 675,
-  ],
-],
-```
-
-These synthetic values explain the contract; Art measures production values.
-`horizonY` is the planar floor's horizon, `referenceY` the ground row where the
-project's existing reference battler retains its shared body height, and
-`pixelsPerUnit` the upright pixels per chosen physical unit there (for example
-metres). Optional `vanishingX` records the floor's vanishing point for authoring
-and review guides. A standing band must lie below the horizon. All authored
-values are finite and bounded; invalid calibration is refused. An explicit
-`perspective` and `scaleReference` together are refused. An arena's explicit
-scale model replaces the theme's; an arena specifying only band edges retains
-the theme's scale model.
-
-`BattleGroundScale::getDepthScale(y)` gives
-`(y - horizonY) / (referenceY - horizonY)`. A guide's projected height is its
-physical height times `getPixelsPerUnitAt(y)`, available through
-`getProjectedHeight(y, height)`. No actor name, real height or physical unit is
-inferred. Art chooses reference calibration consistent with the project's
-shared body reference. For example, a reference body of180 canvas pixels for
-a1.8-unit figure requires100 pixels per unit at its reference row.
-
-Runtime staging and `BattleFormationLayout` previews use the same scale. Body
-clearance, footing relocation and logical formation movement use its same
-linear coefficients, retaining perspective when feet move. Animation poses,
-shadows and effects keep their existing shared anchors. An arena with legacy
-`perspective:1` retains equal size at every depth until deliberately reauthored.
-Combat, terminal placement and save data remain independent of this display.
-
-Art must fit the backdrop to the measured scale: measure floorboard convergence
-and at least two known-size references at different depths, then compare the
-reference figure at the stage and each battler foot row. Apply the correction
-to floor and architecture together; recompose or outpaint missing room rather
-than stretching/cropping to conceal a mismatch. The Engine does not rescale a
-background to compensate for inconsistent artwork. Review physical-height
-silhouettes and floor references against the final admitted image. A source
-image replaced with a new composition requires its artist to recheck this
-calibration; image bytes and dimensions never become character identity.
-
-Claude owns the shared Editor fields and configurable physical-height guide
-overlay through the existing source-preserving save/undo workflow. Runtime
-projection tests do not establish Editor or native visual acceptance.
 
 ### Surface Contact And Elevation
 

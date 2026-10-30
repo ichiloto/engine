@@ -3589,14 +3589,6 @@ both editors on local Editor develop (`e569d72`); omitted/cleared values remain
 passes (4612 tests, one existing skip), as do Game graphical/pose checks (109)
 and static analysis. This correction has no new native playtest or publication.
 
-Measured arena scale (2026-10-30): ground.scaleReference records horizonY,
-referenceY, pixelsPerUnit and optional vanishingX. Runtime and formation
-previews share the measured projection and body-footing constraints. Art owns
-coherent floor/architecture scale and guide evidence; Claude owns Editor
-calibration fields and physical-height overlays, with save/undo/validation.
-Lovehut's corrected composition and native acceptance remain separate from
-Engine projection verification. See [Measured Arena Scale](graphical-battle-g1.md#measured-arena-scale).
-
 Battle ownership correction (2026-10-02): scenes supply name/background/skin,
 troops supply per-enemy graphicalPlacement, and the shared canvas layout owns
 party slots, UI geometry and feedback safe area. Troop-keyed scene fallback

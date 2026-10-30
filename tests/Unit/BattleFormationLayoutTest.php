@@ -451,24 +451,14 @@ it('composes the canvas the battle draws at rest: the cropped background, then e
     ->and([$canvas->width, $canvas->height])->toBe([1350, 720]);
 });
 
-
-it('shares measured arena scaling between runtime frames and previews at distinct foot rows', function (bool $reduced) {
+it('keeps uniform battler size across foot rows in runtime and preview frames', function (bool $reduced) {
   ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));
-  $scale = new \Ichiloto\Engine\Battle\Presentation\BattleGroundScale(100, 600, 150 / 1.8);
-  $bindings = \Ichiloto\Engine\Battle\Presentation\BattleArenaBindings::getFromArray(['arenas' => ['measured' => [
-    'name' => 'Synthetic measured room', 'background' => ['image' => 'arena.png'],
-    'ground' => ['top' => 200, 'bottom' => 720, 'scaleReference' => $scale->toArray()],
-  ]]]);
-  $arena = $bindings->getDefinitions(1350, 720)['measured'];
-  $catalog = new BattlePresentationCatalog(['measured' => $arena], ['Hero' => $this->art], ['Creature' => $this->enemyArt],
-    ui: $this->layout, actorPoses: ['Hero' => $this->poses], defaultArena: 'measured', scale: $this->scale);
   $slots = [formationSlot(200, 350, 200, 230), formationSlot(400, 600, 200, 230)];
-  $preview = BattleFormationLayout::compose($catalog, 'measured',
+  $preview = BattleFormationLayout::compose($this->catalog, 'scene',
     array_map(static fn($slot): array => ['enemyId' => 'Creature', 'slot' => $slot], $slots), ['Hero'], $this->root,
     reducedMotion: $reduced);
-  expect($preview->enemies[0]->bounds->height)->toEqualWithDelta($preview->enemies[1]->bounds->height / 2, 1e-9)
-    ->and($preview->staging->ground->scaleReference)->toEqual($scale)
-    ->and($catalog->scale->referenceHeight)->toBe(150.0);
+  expect($preview->enemies[0]->bounds->height)->toEqual($preview->enemies[1]->bounds->height)
+    ->and($preview->enemies[0]->bounds->width)->toEqual($preview->enemies[1]->bounds->width);
   $party = new Party();
   $hero = new Character('Hero', 1, new Stats(currentHp: 100, totalHp: 100));
   $party->addMember($hero);
@@ -476,18 +466,20 @@ it('shares measured arena scaling between runtime frames and previews at distinc
   foreach ($slots as $index => $_) {
     $enemy = new ReflectionClass(Enemy::class)->newInstanceWithoutConstructor();
     foreach (['name' => 'Creature', 'level' => 1, 'stats' => new Stats(currentHp: 100, totalHp: 100),
-      'position' => new Vector2($index, 0)] as $key => $value) {
+      'position' => new Vector2($index, 0), 'imagePath' => 'synthetic.txt',
+      'rewards' => new \Ichiloto\Engine\Battle\BattleRewards(0, 0, [])] as $key => $value) {
       new ReflectionProperty(Enemy::class, $key)->setValue($enemy, $value);
     }
     $enemies[] = $enemy;
   }
-  $battle = new BattleConfig($party, new Troop('Synthetic measured', $enemies, graphicalFormation: $slots));
-  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $battle = new BattleConfig($party, new Troop('Synthetic uniform formation', $enemies, graphicalFormation: $slots));
+  $before = serialize($battle);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $this->catalog, $this->root);
   $frame = $presentation->frame();
   foreach ($enemies as $index => $enemy) {
     $image = array_find($frame->images, static fn($image): bool => $image->id === 'combatant-' . spl_object_id($enemy));
     expect($image->destination)->toEqual($preview->enemies[$index]->image->destination)
-      ->and($presentation->getSlot($enemy)->displayScale)->toEqualWithDelta($scale->getDepthScale($slots[$index]->getSlotOn($preview->staging->ground)->y), 1e-9);
+      ->and($presentation->getSlot($enemy)->displayScale)->toBe(1.0);
   }
-  expect($hero->stats->currentHp)->toBe(100)->and($enemies[0]->stats->currentHp)->toBe(100);
+  expect(serialize($battle))->toBe($before);
 })->with([false, true]);

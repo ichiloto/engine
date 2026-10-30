@@ -326,9 +326,8 @@ final readonly class BattleStaging
       [$top, $bottom] = [max($top, $area->y), min($bottom, $area->y + $area->height)];
     }
     $multiplier = $slot->displayScale / $ground->getDepthScale($slot->y);
-    $line = $ground->getDepthScaleLine();
-    $slope = $line['slope'] * $multiplier;
-    $intercept = $line['intercept'] * $multiplier;
+    $slope = (1 - $ground->perspective) / $ground->depth * $multiplier;
+    $intercept = $multiplier - $slope * $ground->bottom;
     $canvasLeft = $body['width'] * ($body['pivotX'] ?? .5);
     $canvasRight = $body['width'] - $canvasLeft;
     $canvasTop = $body['height'] * ($body['pivotY'] ?? 1.0);

@@ -96,7 +96,7 @@ readonly class BattleCanvasLayout
       throw new InvalidArgumentException(sprintf('Battle ground from %s to %s must run down the canvas above its bottom edge%s.',
         $top, $bottom, $arena === null ? '' : " for arena {$arena->name}"));
     }
-    return new BattleGroundBand($top, $bottom, $ground->perspective ?? 1.0, $ground->scaleReference);
+    return new BattleGroundBand($top, $bottom, $ground->perspective ?? 1.0);
   }
 
   public function getForArena(BattleArenaDefinition $arena): self
