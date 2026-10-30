@@ -326,14 +326,8 @@ final class PresentationWorld
         $animated = false;
         $layers = $rows = $covers = [];
         // One shown row: remove owned source art, then present currently available object tiles.
-        $readShown = static function (MapTileLayer $layer) use ($coveredCells, $tileCells): \Generator {
-            for ($y = 0; $y < $layer->height; $y++) {
-                $row = $layer->getRowTiles($y);
-                foreach ($coveredCells[$layer->name][$y] ?? [] as $x => $_) { $row[$x] = TileId::EMPTY; }
-                foreach ($tileCells[$layer->name][$y] ?? [] as $x => $tile) { $row[$x] = $tile; }
-                yield $y => $row;
-            }
-        };
+        $readShown = static fn(MapTileLayer $layer): \Generator => $layer->yieldShownRows(
+            $coveredCells[$layer->name] ?? [], $tileCells[$layer->name] ?? []);
         $cornerTiles = $graphics->tileset->getCornerTiles();
         $cornerJoins = $graphics->tileset->getCornerJoins();
         $cornerLayers = [];

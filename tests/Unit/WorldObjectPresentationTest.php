@@ -1754,7 +1754,12 @@ it('validates tile object layer identity map footprint and bounded distinct owne
     $read = static fn(array $objects): array => WorldObjectDefinition::readMap(['worldObjects' => $objects], $base->layers, $base->graphics);
     $objects = $read([$entry]);
     expect($objects[0]->tilePresentation)->toBe(['objects' => [1 => [1 => 2]]])
-        ->and($objects[0]->sprites)->toBeNull();
+        ->and($objects[0]->sprites)->toBeNull()
+        ->and($objects[0]->shouldHideOwnedGlyphs(false, false))->toBeFalse();
+    $imageObject = $read([createWorldObjectSource()])[0];
+    expect($imageObject->shouldHideOwnedGlyphs(false, true))->toBeFalse()
+        ->and($imageObject->shouldHideOwnedGlyphs(true, true))->toBeTrue()
+        ->and($imageObject->shouldHideOwnedGlyphs(false, false))->toBeTrue();
     foreach ([null, 1, [['x' => 1]], ['missing' => [['x' => 1, 'y' => 1, 'tile' => 2]]],
         ['objects' => []], ['objects' => [['x' => 2, 'y' => 1, 'tile' => 2]]],
         ['objects' => [['x' => 1, 'y' => 1, 'tile' => -1]]],

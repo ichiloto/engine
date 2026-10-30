@@ -236,3 +236,30 @@ it('judges nothing on a map without graphics, whose glyphs are its collision', f
     expect(MapCompletenessValidator::validatePassageAgreement('test/field', [], [[' ', ' ', ' '], [' ', ' ', ' ']], $layers, $occupancy,
         null, $this->root))->toBe([]);
 });
+
+
+it('judges unconditional object tiles and source coverage through the same shown rows as the field', function () {
+    $object = static fn(int $tile): array => ['id' => 'tile-object', 'anchor' => ['x' => 2, 'y' => 1],
+        'pivot' => ['x' => .5, 'y' => 1], 'tiles2d' => ['ground' => [['x' => 2, 'y' => 1, 'tile' => $tile]]]];
+    $floor = ['     ', '     ', '     '];
+    $solid = ['     ', '  #  ', '     '];
+    // A permanent barrier drawn only by an object still reads as a wall.
+    expect(groupPassageCells(inspectPassage($this->root, $floor, fillTiles(5, 3),
+        ['worldObjects' => [$object(5)]], appearance: ['barrier' => [5]])))
+        ->toBe([MapPassageAgreementRule::WALK_THROUGH => [[2, 1]]])
+        ->and(inspectPassage($this->root, $solid, fillTiles(5, 3),
+            ['worldObjects' => [$object(5)]], appearance: ['barrier' => [5]]))->toBe([]);
+    // A tile object can replace water with a bridge, or expose an invisible physical wall.
+    expect(inspectPassage($this->root, $floor, fillTiles(5, 3, cells: [[2, 1, 2048]]),
+        ['worldObjects' => [$object(2816)]]))->toBe([])
+        ->and(groupPassageCells(inspectPassage($this->root, $solid, fillTiles(5, 3, cells: [[2, 1, 2048]]),
+            ['worldObjects' => [$object(2816)]])))
+        ->toBe([MapPassageAgreementRule::INVISIBLE_WALL => [[2, 1]]]);
+    // Explicit source coverage plus clearing leaves a visible terminal wall, rather than an invisible one.
+    $cleared = [...$object(0), 'covers' => ['layer' => 'terrain', 'cells' => [[2, 1]], 'tileLayers' => ['ground']]];
+    expect(inspectPassage($this->root, $solid, fillTiles(5, 3), ['worldObjects' => [$cleared]]))->toBe([]);
+    // Conditional disguises retain the existing conservative baseline policy.
+    $conditional = [...$object(5), 'conditions' => [['type' => 'switch', 'name' => 'closed']]];
+    expect(inspectPassage($this->root, $floor, fillTiles(5, 3),
+        ['worldObjects' => [$conditional]], appearance: ['barrier' => [5]]))->toBe([]);
+});

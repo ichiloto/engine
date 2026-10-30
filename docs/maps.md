@@ -255,6 +255,13 @@ its source coverage, preserving authored removal states. Opening the passage
 retires its tile disguise; the underlying floor and neighbouring shadows are
 recomposed from the same saved completion. Staging an object temporarily
 suppresses its tile contribution through the existing cinematic ownership.
+Passage-agreement validation reads unconditional object contributions and source
+coverage through the same shown-row iterator as rendering. It retains the
+existing baseline policy for conditional objects. Warnings never change physical
+occupancy. Runtime and authoring share
+`WorldObjectDefinition::shouldHideOwnedGlyphs(drawable, hasSelectedRole)` after
+evaluating availability and resolving the selected presentation; this preserves
+terminal fallback when optional art or tile sheets cannot draw.
 No new renderer capability is required: composed tiles and shadows use the
 existing retained-world protocol. Shared Editor tile selection and source
 round trips are tracked in the rendering integration roadmap.

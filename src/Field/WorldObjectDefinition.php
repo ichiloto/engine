@@ -179,6 +179,19 @@ final readonly class WorldObjectDefinition
         return ['id' => null, 'sprites' => $this->sprites, 'terminal' => $this->terminal];
     }
 
+    /** Shared by runtime and authoring after availability/selected-role resolution.
+     * Tile layers hide their own glyphs only when usable; explicit absent image variants retain their claims.
+     */
+    public function shouldHideOwnedGlyphs(bool $drawable, bool $hasSelectedRole): bool
+    {
+        if ($this->tilePresentation !== [] && $this->sprites === null) { return false; }
+        if ($drawable) { return true; }
+        if ($this->resource?->sign !== null || ($this->resource !== null && $this->sprites instanceof GraphicalSpriteDefinition)) {
+            return false;
+        }
+        return !$hasSelectedRole;
+    }
+
     private static function requireId(mixed $id): string
     {
         return WorldObjectPlacement::requireId($id);

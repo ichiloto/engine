@@ -54,6 +54,21 @@ final readonly class MapTileLayer
         return $this->grid->getRowValues($y);
     }
 
+  /** Validated object coverage and tile contributions, applied once before shaping or inspection.
+   * @param array<int, array<int, mixed>> $coveredCells
+   * @param array<int, array<int, int>> $tileCells
+   * @return Generator<int, list<int>>
+   */
+  public function yieldShownRows(array $coveredCells = [], array $tileCells = []): Generator
+  {
+    for ($y = 0; $y < $this->height; $y++) {
+      $row = $this->getRowTiles($y);
+      foreach ($coveredCells[$y] ?? [] as $x => $_) { $row[$x] = TileId::EMPTY; }
+      foreach ($tileCells[$y] ?? [] as $x => $tile) { $row[$x] = $tile; }
+      yield $y => $row;
+    }
+  }
+
     /** @return list<list<int>> Every row's tile identities, built for the caller. */
     public function readTiles(): array
     {

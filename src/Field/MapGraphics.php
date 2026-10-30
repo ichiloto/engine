@@ -160,14 +160,14 @@ final readonly class MapGraphics
      *
      * @return list<array{x: int, y: int, glyph: string, layer: string}> In row order, without blank cells.
      */
-    public function getShownGlyphCells(MapLayerSet $layers, string $assetRoot): array
+    public function getShownGlyphCells(MapLayerSet $layers, string $assetRoot, array $coveredTiles = [], array $tileCells = []): array
     {
         $usable = $this->tileset->getUsableSheets($assetRoot)['sheets'] ?? [];
         $covers = [];
         foreach ($this->layers as $layer) {
             $owner = $this->owners[$layer->name] ?? null;
-            for ($y = 0; $y < $layer->height; $y++) {
-                foreach ($layer->getRowTiles($y) as $x => $tileId) {
+            foreach ($layer->yieldShownRows($coveredTiles[$layer->name] ?? [], $tileCells[$layer->name] ?? []) as $y => $row) {
+                foreach ($row as $x => $tileId) {
                     if ($tileId !== TileId::EMPTY && isset($usable[TileId::getSheet($tileId)?->value ?? ''])) {
                         $covers[$y][$x][$owner ?? ''] = true;
                     }

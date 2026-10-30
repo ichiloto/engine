@@ -150,14 +150,14 @@ final class WorldObject implements GraphicalSpriteProviderInterface
     public function hidesOwnedGlyphs(): bool
     {
         if (!$this->isVisible()) { return false; }
-        // Tile-layer coverage hides its own glyphs only when those tiles can actually draw.
-        if ($this->definition->tilePresentation !== [] && $this->definition->sprites === null) { return false; }
-        if ($this->sign !== null) { return $this->getPresentationWorldCanvas() !== null; }
+        if ($this->sign !== null) {
+            return $this->definition->shouldHideOwnedGlyphs($this->getPresentationWorldCanvas() !== null, true);
+        }
         if ($this->definition->resource !== null && $this->definition->sprites instanceof GraphicalSpriteDefinition) {
-            return $this->getGraphicalSpriteDefinition() !== null;
+            return $this->definition->shouldHideOwnedGlyphs($this->getGraphicalSpriteDefinition() !== null, true);
         }
         $role = $this->selectRole();
-        return $this->isCurrent() && ($role === null || $role->getFrame($this->definition->pivot) !== null);
+        return $this->definition->shouldHideOwnedGlyphs($role?->getFrame($this->definition->pivot) !== null, $role !== null);
     }
 
     public function advanceGraphicalAnimation(float $seconds): void

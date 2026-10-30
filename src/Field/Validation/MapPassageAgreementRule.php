@@ -95,8 +95,17 @@ final class MapPassageAgreementRule
         }
 
         // Every object's opaque art, cell by cell: all of it, and only what stands on its ground rows.
-        $shown = $grounded = $covered = $openGround = $otherArt = [];
+        $shown = $grounded = $covered = $openGround = $otherArt = $coveredTiles = $objectTiles = [];
         foreach ($objects as $index => $object) {
+            // Conditional presentation is absent at times; judge its underlying map as before.
+            if ($object->conditions === []) {
+                foreach ($object->coverage['tiles'] ?? [] as $name => $rows) {
+                    foreach ($rows as $y => $cells) { $coveredTiles[$name][$y] = ($coveredTiles[$name][$y] ?? []) + $cells; }
+                }
+                foreach ($object->tilePresentation as $name => $rows) {
+                    foreach ($rows as $y => $cells) { $objectTiles[$name][$y] = ($objectTiles[$name][$y] ?? []) + $cells; }
+                }
+            }
             $placement = self::readPlacement($data, $index, $layers);
             $footprint = self::findFootprint($object, $placement, $grid, $layers);
             $art = self::measureArt($object, $assetRoot);
@@ -132,11 +141,11 @@ final class MapPassageAgreementRule
             }
         }
         // A cell still showing its terminal glyph shows no tiles to judge.
-        foreach ($graphics->getShownGlyphCells($layers, $assetRoot) as $cell) {
+        foreach ($graphics->getShownGlyphCells($layers, $assetRoot, $coveredTiles, $objectTiles) as $cell) {
             if (!isset($covered[$cell['layer']][$cell['y']][$cell['x']])) { $skipped[$cell['y']][$cell['x']] = true; }
         }
 
-        [$tiles, $overdrawn] = self::readTileAppearance($graphics, $assetRoot);
+        [$tiles, $overdrawn] = self::readTileAppearance($graphics, $assetRoot, $coveredTiles, $objectTiles);
         $sealed = self::findSealedCells($grid, $data, $events);
         $walls = $through = [];
         foreach ($grid as $y => $row) {
@@ -373,15 +382,15 @@ final class MapPassageAgreementRule
      *
      * @return array{0: array<int, array<int, ?TileAppearance>>, 1: array<int, array<int, true>>}
      */
-    private static function readTileAppearance(MapGraphics $graphics, string $assetRoot): array
+    private static function readTileAppearance(MapGraphics $graphics, string $assetRoot, array $coveredTiles = [], array $objectTiles = []): array
     {
         $usable = $graphics->tileset->getUsableSheets($assetRoot)['sheets'] ?? [];
         $tiles = $overdrawn = [];
         foreach (array_reverse($graphics->layers) as $layer) {
             [$offsetX, $offsetY] = $graphics->offsets[$layer->name] ?? [0.0, 0.0];
             $offset = $offsetX !== 0.0 || $offsetY !== 0.0;
-            for ($y = 0; $y < $layer->height; $y++) {
-                foreach ($layer->getRowTiles($y) as $x => $id) {
+            foreach ($layer->yieldShownRows($coveredTiles[$layer->name] ?? [], $objectTiles[$layer->name] ?? []) as $y => $row) {
+                foreach ($row as $x => $id) {
                     // A tile whose sheet cannot be drawn shows nothing.
                     if ($id === TileId::EMPTY || !isset($usable[TileId::getSheet($id)?->value ?? ''])) { continue; }
                     $class = $graphics->tileset->classifyAppearance($id);
