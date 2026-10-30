@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Core;
 
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
+
 /**
  * Proves that two lists of world conditions can never hold together.
  *
@@ -34,8 +36,10 @@ final class WorldConditionExclusion
      * @param array<int|string, mixed> $others The other list.
      * @return bool True when one list holds a complement of a condition in the other.
      */
-    public static function proveExclusive(array $conditions, array $others): bool
+    public static function proveExclusive(array $conditions, array $others, ?WorldAbilityCatalog $worldAbilities = null): bool
     {
+        $conditions = self::expandAbilityConditions($conditions, $worldAbilities);
+        $others = self::expandAbilityConditions($others, $worldAbilities);
         $expected = [];
 
         foreach ($conditions as $condition) {
@@ -58,6 +62,35 @@ final class WorldConditionExclusion
     }
 
     /**
+     * An available ability implies all its source predicates. Its negation
+     * implies the inverse predicate only when its source has exactly one.
+     * Multi-predicate negation remains a disjunction and is never flattened.
+     * The catalog has already rejected dependency cycles.
+     */
+    private static function expandAbilityConditions(array $conditions, ?WorldAbilityCatalog $catalog, array &$visited = []): array
+    {
+        $expanded = [];
+        foreach ($conditions as $condition) {
+            $expanded[] = $condition;
+            if (!is_array($condition) || !is_string($condition['type'] ?? null)
+                || trim($condition['type']) !== WorldConditionType::WORLD_ABILITY->value
+                || !is_string($condition['name'] ?? null) || trim($condition['name']) === '') { continue; }
+            $catalog ??= WorldAbilityCatalog::getProjectCatalog();
+            $id = trim($condition['name']);
+            $key = (($condition['negate'] ?? false) ? 'negative:' : 'positive:') . $id;
+            if (isset($visited[$key])) { continue; }
+            $visited[$key] = true;
+            $source = $catalog->getAbility($id)->conditions;
+            if ($condition['negate'] ?? false) {
+                if (count($source) !== 1) { continue; }
+                $source[0]['negate'] = !($source[0]['negate'] ?? false);
+            }
+            array_push($expanded, ...self::expandAbilityConditions($source, $catalog, $visited));
+        }
+        return $expanded;
+    }
+
+    /**
      * Reads a condition as the test the Engine runs and the result it
      * requires, or null when it proves nothing.
      *
@@ -69,7 +102,7 @@ final class WorldConditionExclusion
             return null;
         }
 
-        $type = WorldConditionType::tryFrom(strval($condition['type']));
+        $type = WorldConditionType::tryFrom(trim(strval($condition['type'])));
         $name = trim(strval($condition['name']));
 
         if (! $type instanceof WorldConditionType || $name === '') {
@@ -78,7 +111,7 @@ final class WorldConditionExclusion
 
         $holdsOn = ! (bool) ($condition['negate'] ?? false);
         $parameters = match ($type) {
-            WorldConditionType::SWITCH, WorldConditionType::EVENT, WorldConditionType::KEY_ITEM => [],
+            WorldConditionType::SWITCH, WorldConditionType::EVENT, WorldConditionType::KEY_ITEM, WorldConditionType::WORLD_ABILITY => [],
             WorldConditionType::MAP_EVENT => is_string($condition['marker'] ?? null) && trim($condition['marker']) !== ''
                 ? [trim($condition['marker'])]
                 : null,

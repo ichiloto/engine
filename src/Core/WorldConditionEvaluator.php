@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Core;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Quests\QuestLog;
 use Ichiloto\Engine\Quests\QuestManager;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 
@@ -109,7 +110,8 @@ class WorldConditionEvaluator
    * @param QuestLog|null $questLog Explicit state for detached/preflight evaluation; otherwise the running manager.
    * @return bool True when all conditions hold.
    */
-  public static function allHold(array $conditions, GameState $gameState, ?Party $party = null, ?QuestLog $questLog = null): bool
+  public static function allHold(array $conditions, GameState $gameState, ?Party $party = null, ?QuestLog $questLog = null,
+    ?WorldAbilityCatalog $worldAbilities = null): bool
   {
     foreach ($conditions as $condition) {
       if (! is_array($condition)) {
@@ -117,7 +119,7 @@ class WorldConditionEvaluator
       }
 
       $typeValue = strval($condition['type'] ?? '');
-      $type = WorldConditionType::tryFrom($typeValue);
+      $type = WorldConditionType::tryFrom(trim($typeValue));
 
       if (! $type instanceof WorldConditionType) {
         Debug::warn(sprintf(
@@ -141,7 +143,7 @@ class WorldConditionEvaluator
         continue;
       }
 
-      $result = self::evaluate($type, $condition, $name, $gameState, $party, $questLog);
+      $result = self::evaluate($type, $condition, $name, $gameState, $party, $questLog, $worldAbilities);
 
       if (($condition['negate'] ?? false) ? $result : ! $result) {
         return false;
@@ -169,9 +171,12 @@ class WorldConditionEvaluator
     GameState $gameState,
     ?Party $party,
     ?QuestLog $questLog = null,
+    ?WorldAbilityCatalog $worldAbilities = null,
   ): bool
   {
     return match ($type) {
+      WorldConditionType::WORLD_ABILITY => ($worldAbilities ?? WorldAbilityCatalog::getProjectCatalog())
+        ->isUnlocked($name, $gameState, $party, $questLog),
       WorldConditionType::SWITCH => $gameState->getSwitch($name) === (bool) ($condition['value'] ?? true),
       WorldConditionType::EVENT => $gameState->hasStoryEvent($name),
       WorldConditionType::MAP_EVENT => is_string($condition['marker'] ?? null)

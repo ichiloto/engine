@@ -67,6 +67,7 @@ use Ichiloto\Engine\UI\Windows\DebugWindow;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Progression\ProgressionSettings;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Field\DashSettings;
 use Ichiloto\Engine\Util\Config\InputConfig;
 use Ichiloto\Engine\Util\Config\PlaySettings;
@@ -560,6 +561,7 @@ class Game implements CanRun, SubjectInterface
         WordForms::fromProject()->registerExceptions();
         ConfigStore::put(FieldMusicCatalog::class, FieldMusicCatalog::fromProject());
         ConfigStore::put(IncomeCatalog::class, IncomeCatalog::fromProject());
+        ConfigStore::put(WorldAbilityCatalog::class, WorldAbilityCatalog::fromProject());
 
         ConfigStore::put(InputConfig::class, new InputConfig());
         ConfigStore::remove(ProgressionSettings::class);

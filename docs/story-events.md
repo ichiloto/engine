@@ -19,6 +19,51 @@ conversations through exploration prompts or story scripts; Summons use compiled
 [Cinematic cutscenes](cinematics.md) for the asset taxonomy and cinematic
 runtime contract.
 
+## Shared world abilities
+
+Exploration abilities live in `assets/Data/world-abilities.php`. The optional
+file returns a list of records:
+
+```php
+return [[
+  'id' => 'dash',
+  'name' => 'Dash',
+  'description' => 'Move faster while holding the dash control.',
+  'iconRole' => 'power.dash',
+  'conditions' => [['type' => 'switch', 'name' => 'movement_power_granted']],
+]];
+```
+
+Consumers reference that definition through the shared condition vocabulary:
+`['type' => 'world_ability', 'name' => 'dash']`. Existing dash settings, trigger
+conditions and cue conditions all accept it. The definition owns availability,
+name, description and optional semantic icon role; existing switches, variables,
+events and party/quest data continue to own saved facts. Abilities may depend on
+other abilities. The catalog rejects unknown dependencies and cycles before
+evaluation, including negated cycles.
+
+`WorldAbilityCatalog::getUnlockedAbilities()` projects current definitions in
+authored order for acquisition presentation. Its dependency memo is scoped to
+one query and cleared on completion or failure. Changed world state reaches
+the next query immediately. Availability queries add no grant flags or saved
+presentation state. This source/query foundation precedes the cinematic
+showcase and first-use prompt wiring.
+
+The application loads the current catalog before evaluating project content.
+Detached tools use `WorldAbilityCatalog::fromProject(assetRoot)` and pass the
+result as `worldAbilities:` to `WorldConditionEvaluator::allHold()`, or install
+that exact catalog in the existing project `ConfigStore`. Runtime catalogs are
+read-only; source edits use the Editor's source-preserving paths. The Editor
+must offer current ability IDs through a selector and validate references.
+Changing a source file requires loading the new catalog; no permanent source
+cache is used. Existing games without this file retain their current rules.
+
+`WorldConditionExclusion::proveExclusive()` accepts the same optional catalog.
+It expands the predicates implied by a positive ability. A negated ability with
+one predicate implies that predicate's inverse; a negated conjunction stays a
+disjunction. Detached validation must use its own project's catalog. Runtime
+evaluation and exclusion trim condition types consistently with validation.
+
 ## Map trigger
 
 ```php

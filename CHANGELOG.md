@@ -25,6 +25,11 @@
 
 ### Added
 
+- Project-owned world abilities share one availability definition between
+  movement, event/cue conditions and acquired-power queries. The native
+  `world_ability` predicate supports validated dependencies and detached
+  evaluation. Existing world facts remain the saved authority.
+
 - Automatic party-join notices use the recruited actor's portrait, localized
   text and a configurable `party_join` jingle. Field scripts and gameplay pause
   for acknowledgement; initial/load rosters stay quiet. Pending presentation is
