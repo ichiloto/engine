@@ -4,6 +4,8 @@ namespace Ichiloto\Engine\IO\Console;
 
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Symfony\Component\Console\Formatter\OutputFormatter;
+use Symfony\Component\Console\Output\AnsiColorMode;
+use Symfony\Component\Console\Terminal;
 use Throwable;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 
@@ -184,10 +186,19 @@ final class TerminalText
     }
     if (strpbrk($symbol, '<>\\') === false) { return $prefix . $symbol . $suffix; }
 
-    $formatter = clone self::getFormatter();
-    $formatter->getStyleStack()->reset();
-    $marker = "\u{E000}";
-    $parts = explode($marker, $formatter->format($prefix . $marker . $suffix));
+    // This is persisted source, independent of the host's display capability.
+    // Symfony resolves authored hex colours when constructing a style. Scope
+    // its supported colour mode to this synchronous formatting call only.
+    $mode = Terminal::getColorMode();
+    Terminal::setColorMode(AnsiColorMode::Ansi24);
+    try {
+      $formatter = clone self::getFormatter();
+      $formatter->getStyleStack()->reset();
+      $marker = "\u{E000}";
+      $parts = explode($marker, $formatter->format($prefix . $marker . $suffix));
+    } finally {
+      Terminal::setColorMode($mode);
+    }
     if (count($parts) !== 2 || preg_replace(self::ANSI_PATTERN, '', $parts[0] . $parts[1]) !== '') {
       throw new \InvalidArgumentException('A source cell style contains unsupported literal text or controls.');
     }

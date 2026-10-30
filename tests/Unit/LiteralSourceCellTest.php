@@ -3,6 +3,26 @@
 use Ichiloto\Engine\Field\MapGridSource;
 use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Symfony\Component\Console\Output\AnsiColorMode;
+use Symfony\Component\Console\Terminal;
+
+it('persists exact authored colours without truecolor host support and restores the display mode', function (AnsiColorMode $mode) {
+  $originalMode = Terminal::getColorMode();
+  $originalColorTerm = getenv('COLORTERM');
+  putenv('COLORTERM');
+  Terminal::setColorMode($mode);
+  try {
+    $source = TerminalText::composeSourceCell('\\', '<fg=#af875f;bg=#123456;options=bold>', '</>');
+    expect($source)->toContain("\e[38;2;175;135;95;48;2;18;52;86;1m")
+      ->and(Terminal::getColorMode())->toBe($mode)
+      ->and(TerminalText::parseSourceCells($source)[0]['symbol'])->toBe('\\');
+    expect(fn() => TerminalText::composeSourceCell('<', '<invalid-style>', '</>'))->toThrow(InvalidArgumentException::class);
+    expect(Terminal::getColorMode())->toBe($mode);
+  } finally {
+    Terminal::setColorMode($originalMode);
+    $originalColorTerm === false ? putenv('COLORTERM') : putenv('COLORTERM=' . $originalColorTerm);
+  }
+})->with([AnsiColorMode::Ansi4, AnsiColorMode::Ansi8, AnsiColorMode::Ansi24]);
 
 it('constructs styled literal delimiters without allowing a backslash to escape the closing style', function (string $glyph) {
   $source = TerminalText::composeSourceCell($glyph, '<fg=#af875f>', '</>');

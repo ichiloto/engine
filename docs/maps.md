@@ -45,6 +45,9 @@ a styled backslash directly before a formatter closing tag changes its meaning.
 For formatter delimiters and backslashes the helper resolves the existing style
 to equivalent ANSI boundaries, retaining literal glyph bytes without NULs or a
 second escape grammar. Regular source style spelling remains unchanged.
+Authored hex colours are serialized as 24-bit ANSI independently of the host's
+terminal capabilities. The display formatter's colour mode is restored after
+source composition, including failures.
 `parseSourceCells` and `getSourceSymbols` keep those boundaries independently
 composable, including literal characters that would otherwise form a tag.
 
