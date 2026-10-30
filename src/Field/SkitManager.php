@@ -236,9 +236,7 @@ class SkitManager
       }
     }
     $location = $this->gameScene->party->location;
-    $locationName = $location?->name ?? '';
-    $locationRegion = $location?->region ?? '';
-    $locationLabel = $locationName === $locationRegion || $locationRegion === '' ? $locationName : $locationName . ' - ' . $locationRegion;
+    $locationLabel = implode(' - ', $location?->displayNames ?? []);
     $backdrop = $this->resolveBackdrop($skitId, $skit, $assets);
 
     $beats = [];

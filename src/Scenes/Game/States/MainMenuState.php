@@ -366,7 +366,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         $partyLocation = $this->getGameScene()->party->location;
         $locationDetailPosition = new Vector2($this->leftMargin, $this->topMargin + 31);
         $this->locationDetailPanel = new LocationDetailPanel($locationDetailPosition, $this->borderPack);
-        $this->locationDetailPanel->setLocation($partyLocation?->name, $partyLocation?->region);
+        $this->locationDetailPanel->setLocation($partyLocation?->name ?? '', $partyLocation?->region ?? '');
 
         $this->characterSelectionMenu = new CharacterSelectionMenu(
             $this->context->getScene(),

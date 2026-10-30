@@ -11,6 +11,10 @@
 
 ### Changed
 
+- Shared location presentation shows identical place and region names once in
+  main-menu summaries, Terminal panels and Skits. Distinct names retain their
+  existing order; authored map and save fields remain unchanged.
+
 - Removed silent Skit skipping and duplicate-id overwrites. Malformed Skit files
   now stop catalog loading with the file and validation reason. Runtime and
   Editor consumers share `SkitPlaybackDefinition` for trigger and SFX fields.

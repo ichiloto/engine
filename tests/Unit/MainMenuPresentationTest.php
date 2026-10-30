@@ -1193,3 +1193,25 @@ it('shows each member\'s conditions beside their resources in both renderers', f
   expect(TerminalText::stripAnsi($panels[1]->getContent()[0]))->toContain('Actor 1  V DZE')
     ->and(TerminalText::stripAnsi($panels[0]->getContent()[0]))->not->toContain('DZE');
 })->with([false, true]);
+
+
+it('shares distinct location names between terminal summaries and both graphical themes without changing map data', function (string $name, string $region, array $expected) {
+  $location = new PartyLocation($name, $region);
+  $this->party->location = $location;
+  new ReflectionProperty($this->state, 'locationDetailPanel')->getValue($this->state)->setLocation($name, $region);
+  expect($location->displayNames)->toBe($expected)
+    ->and($location->prettyLocation)->toBe(implode(' - ', array_reverse($expected)))
+    ->and($location->name)->toBe($name)->and($location->region)->toBe($region)
+    ->and($this->state->getPresentationSummaries()['location']['lines'])->toBe($expected);
+  foreach ([false, true] as $alternative) {
+    $frame = $this->state->canvas(new MenuPresentationCatalog($this->root, mainMenuPresentationTheme($alternative)));
+    expect(mainMenuPresentationText($frame)['main-location-value'] ?? '')->toBe(implode('', $expected));
+  }
+})->with([
+  'same place and region' => ['Synthetic Port', 'Synthetic Port', ['Synthetic Port']],
+  'distinct region' => ['Synthetic Port', 'Synthetic Coast', ['Synthetic Port', 'Synthetic Coast']],
+  'region only' => ['', 'Synthetic Coast', ['Synthetic Coast']],
+  'place only' => ['Synthetic Port', '', ['Synthetic Port']],
+  'no label' => ['', '', []],
+  'display whitespace' => [' Synthetic Port ', 'Synthetic Port', ['Synthetic Port']],
+]);

@@ -279,3 +279,13 @@ it('reports parse failures and duplicate identities without installing a partial
     unlink($filename);
     expect(SkitManager::loadSkits()['selected']['beats'][0]['text'])->toBe('First');
 });
+
+
+it('uses the shared location names in Skit context while preserving authored place and region', function () {
+    $this->scene->party->location = new \Ichiloto\Engine\Entities\PartyLocation('Synthetic Port', 'Synthetic Port');
+    $operation = $this->scene->skitManager->beginSkitPlayback('selected', $this->presentation);
+    $operation->update(0);
+    expect($this->presentation->shown[0][2]->location)->toBe('Synthetic Port')
+        ->and($this->scene->party->location->region)->toBe('Synthetic Port');
+    $operation->cancel();
+});
