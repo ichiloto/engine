@@ -24,6 +24,28 @@ it('persists exact authored colours without truecolor host support and restores 
   }
 })->with([AnsiColorMode::Ansi4, AnsiColorMode::Ansi8, AnsiColorMode::Ansi24]);
 
+it('resolves source style boundaries directly without adding a glyph or changing the display mode', function () {
+  $mode = Terminal::getColorMode();
+  try {
+    Terminal::setColorMode(AnsiColorMode::Ansi4);
+    $style = TerminalText::resolveSourceStyle('<fg=#af875f;bg=#123456;options=bold>', '</>');
+    expect($style['prefix'])->toBe("\e[38;2;175;135;95;48;2;18;52;86;1m")
+      ->and($style['suffix'])->toBe("\e[39;49;22m")
+      ->and(TerminalText::resolveSourceStyle('', ''))->toBe(['prefix' => '', 'suffix' => ''])
+      ->and(Terminal::getColorMode())->toBe(AnsiColorMode::Ansi4);
+    expect(fn() => TerminalText::resolveSourceStyle('<fg=red>literal', '</>'))->toThrow(InvalidArgumentException::class);
+    expect(Terminal::getColorMode())->toBe(AnsiColorMode::Ansi4);
+  } finally { Terminal::setColorMode($mode); }
+});
+
+it('keeps plain source fast paths exact for ASCII and combined Unicode graphemes', function (string $source, array $glyphs) {
+  expect(TerminalText::parseSourceCells($source))->toBe(array_map(
+    static fn(string $glyph): array => ['symbol' => $glyph, 'prefix' => '', 'suffix' => ''], $glyphs));
+})->with([
+  ['', []], [' .#> 0', [' ', '.', '#', '>', ' ', '0']],
+  ["e\u{0301}🇿🇲👩‍🔬", ["e\u{0301}", '🇿🇲', '👩‍🔬']],
+]);
+
 it('constructs styled literal delimiters without allowing a backslash to escape the closing style', function (string $glyph) {
   $source = TerminalText::composeSourceCell($glyph, '<fg=#af875f>', '</>');
   expect(TerminalText::stripAnsi($source))->toBe($glyph)

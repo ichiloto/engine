@@ -48,8 +48,15 @@ second escape grammar. Regular source style spelling remains unchanged.
 Authored hex colours are serialized as 24-bit ANSI independently of the host's
 terminal capabilities. The display formatter's colour mode is restored after
 source composition, including failures.
+`resolveSourceStyle($prefix, $suffix)` exposes those same host-independent
+`prefix`/`suffix` ANSI boundaries without inserting a glyph. Empty wrappers
+produce empty boundaries; literal text in a style is refused. Consumers use
+this resolver instead of changing their own formatter colour modes.
 `parseSourceCells` and `getSourceSymbols` keep those boundaries independently
 composable, including literal characters that would otherwise form a tag.
+Plain printable rows use an ASCII/grapheme fast path. Styled rows reuse exact
+style and source/display proofs within the row; acceptance and source spelling
+remain the shared parser's responsibility.
 
 ## Grid source format
 
