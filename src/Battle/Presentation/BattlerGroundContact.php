@@ -137,13 +137,11 @@ final class BattlerGroundContact
   }
 
   /**
-   * The shadow where a grounded battler's art meets the ground: an ellipse
-   * around each contact patch, joined into one soft shape (so a wide or
-   * staggered stance is grounded at every foot, a long body along its whole
-   * length from its back feet and belly to its front feet, the ground between
-   * them shaded as under a body), darker at each foot's core.
+   * A soft, axis-aligned body pool over the contact span, with smaller radial
+   * contact pools at each foot. Foot depth affects its extent without shearing
+   * the ground into a filled polygon. Current art owns contact locations.
    *
-   * @param array{top: float, bottom: float} $measured The art's extent.
+   * @param array{top: float, bottom: float} $measured
    * @param list<array{0: float, 1: float, 2: float}> $patches
    */
   private static function composeContactShadow(string $id, CanvasImage $drawn, array $measured, array $patches, BattleCanvasLayout $layout,
@@ -156,7 +154,6 @@ final class BattlerGroundContact
     if ($strength <= 0) { return null; }
     $box = $drawn->destination;
     $place = static fn(float $share): float => $box->x + ($drawn->flipX ? 1 - $share : $share) * $box->width;
-    // A foot's shadow reaches past it by the theme's width, and is never smaller than a small share of the art's height.
     $least = .045 * ($measured['bottom'] - $measured['top']) * $box->height;
     $feet = [];
     foreach ($patches as [$left, $right, $low]) {
@@ -165,80 +162,38 @@ final class BattlerGroundContact
       $feet[] = [($from + $to) / 2, $box->y + ($drawn->flipY ? 1 - $low : $low) * $box->height, $radius,
         max($least * .5, $radius * $style->contactFlatness)];
     }
-    $points = [];
-    foreach ($feet as [$x, $y, $rx, $ry]) {
-      for ($step = 0; $step < 16; $step++) {
-        $points[] = [$x + cos($step * M_PI / 8) * $rx, $y + sin($step * M_PI / 8) * $ry];
-      }
-    }
-    $hull = self::getHull($points);
-    $xs = array_column($hull, 0);
-    $ys = array_column($hull, 1);
-    $left = max(0.0, floor(min($xs)));
-    $top = max(0.0, floor(min($ys)));
-    $width = (int) max(2, min(1024, ceil(min($layout->width, max($xs)) - $left)));
-    $height = (int) max(2, min(1024, ceil(min($layout->height, max($ys)) - $top)));
-    $local = static fn(array $point): array => [round($point[0] - $left, 2), round($point[1] - $top, 2)];
-    // The renderer takes up to 128 distinct corners: thin a long outline evenly, then drop any that coincide.
-    $outline = array_map($local, count($hull) > 128 ? array_values(array_filter($hull,
-      static fn(int $index): bool => $index % (int) ceil(count($hull) / 128) === 0, ARRAY_FILTER_USE_KEY)) : $hull);
-    $outline = array_values(array_filter($outline, static fn(array $point, int $index): bool =>
-      $point !== $outline[($index + 1) % count($outline)], ARRAY_FILTER_USE_BOTH));
-    if (count($outline) < 3) { return null; }
+    $leftEdge = min(array_map(static fn(array $foot): float => $foot[0] - $foot[2], $feet));
+    $rightEdge = max(array_map(static fn(array $foot): float => $foot[0] + $foot[2], $feet));
+    $topEdge = min(array_map(static fn(array $foot): float => $foot[1] - $foot[3], $feet));
+    $bottomEdge = max(array_map(static fn(array $foot): float => $foot[1] + $foot[3], $feet));
+    $cx = ($leftEdge + $rightEdge) / 2; $cy = ($topEdge + $bottomEdge) / 2;
+    $rx = ($rightEdge - $leftEdge) / 2;
+    $ry = max(($bottomEdge - $topEdge) / 2, $rx * $style->flatness);
+    if ($cx + $rx <= 0 || $cx - $rx >= $layout->width || $cy + $ry <= 0 || $cy - $ry >= $layout->height) { return null; }
+    $left = max(0.0, floor($cx - $rx)); $top = max(0.0, floor($cy - $ry));
+    $width = (int)max(2, min(1024, ceil(min($layout->width, $cx + $rx) - $left)));
+    $height = (int)max(2, min(1024, ceil(min($layout->height, $cy + $ry) - $top)));
     $color = ($light->color ?? $style->color)->toArray();
     $destination = ['x' => 0, 'y' => 0, 'width' => $width, 'height' => $height];
     $operations = [new CanvasCompositeOperation(['type' => 'fill', 'destination' => $destination,
-      'brush' => ['type' => 'solid', 'color' => $color],
-      'masks' => [['type' => 'polygon', 'contours' => [$outline],
-        // Feather by the shape's own thickness (twice its area over its outline), not its extent: a steep stance's thin
-        // band and a lying body's broad shadow each soften across their width.
-        'feather' => max(1.0, self::getThickness($hull) * $style->softness * .5)]]])];
-    foreach ($style->contactCore > 0 ? array_slice($feet, 0, 128) : [] as [$x, $y, $rx, $ry]) {
-      [$cx, $cy] = $local([$x, $y]);
+      'brush' => ['type' => 'radial', 'center' => [$cx - $left, $cy - $top], 'radius' => [$rx, $ry],
+        'stops' => self::getShadowStops($color, $style->softness)]])];
+    foreach ($style->contactCore > 0 ? array_slice($feet, 0, 128) : [] as [$x, $y, $footX, $footY]) {
       $operations[] = new CanvasCompositeOperation(['type' => 'fill', 'destination' => $destination, 'opacity' => $style->contactCore,
-        'brush' => ['type' => 'solid', 'color' => $color],
-        'masks' => [['type' => 'ellipse', 'center' => [$cx, $cy], 'radius' => [$rx * .8, $ry * .8], 'feather' => $ry * .8]]]);
+        'brush' => ['type' => 'radial', 'center' => [$x - $left, $y - $top], 'radius' => [$footX * .8, $footY * .8],
+          'stops' => self::getShadowStops($color, 1.0)]]);
     }
     return new CanvasComposite($id, $width, $height, new CanvasRectangle($left, $top, $width, $height), $operations,
       self::SHADOW_LAYER, $strength);
   }
 
-  /**
-   * A convex shape's typical thickness: twice its area over its perimeter.
-   *
-   * @param list<array{0: float, 1: float}> $hull
-   */
-  private static function getThickness(array $hull): float
+  /** @return list<array{offset:float|int, color:array, opacity:float}> */
+  private static function getShadowStops(array $color, float $softness): array
   {
-    $area = $perimeter = 0.0;
-    foreach ($hull as $index => [$x, $y]) {
-      [$nx, $ny] = $hull[($index + 1) % count($hull)];
-      $area += $x * $ny - $nx * $y;
-      $perimeter += hypot($nx - $x, $ny - $y);
-    }
-    return $perimeter > 0 ? abs($area) / $perimeter : 0.0;
-  }
-
-  /**
-   * The convex hull of points, counter-clockwise without repeats.
-   *
-   * @param list<array{0: float, 1: float}> $points
-   * @return list<array{0: float, 1: float}>
-   */
-  private static function getHull(array $points): array
-  {
-    usort($points, static fn(array $one, array $two): int => [$one[0], $one[1]] <=> [$two[0], $two[1]]);
-    $cross = static fn(array $o, array $a, array $b): float => ($a[0] - $o[0]) * ($b[1] - $o[1]) - ($a[1] - $o[1]) * ($b[0] - $o[0]);
-    $chain = static function (array $sorted) use ($cross): array {
-      $chain = [];
-      foreach ($sorted as $point) {
-        while (count($chain) >= 2 && $cross($chain[count($chain) - 2], $chain[count($chain) - 1], $point) <= 0) { array_pop($chain); }
-        $chain[] = $point;
-      }
-      array_pop($chain);
-      return $chain;
-    };
-    return [...$chain($points), ...$chain(array_reverse($points))];
+    $inner = 1 - $softness;
+    return [['offset' => 0, 'color' => $color, 'opacity' => 1.0],
+      ...($inner > .001 ? [['offset' => min($inner, .999), 'color' => $color, 'opacity' => 1.0]] : []),
+      ['offset' => 1, 'color' => $color, 'opacity' => 0.0]];
   }
 
   private static function composeShadow(string $id, float $feetX, float $feetY, float $footprint, bool $horizontal, float $height,
@@ -252,10 +207,7 @@ final class BattlerGroundContact
     $strength = min(1.0, $style->opacity * $light->strength * $fade * $opacity);
     if ($strength <= 0) { return null; }
     $color = ($light->color ?? $style->color)->toArray();
-    $inner = 1 - $style->softness;
-    $stops = [['offset' => 0, 'color' => $color, 'opacity' => 1.0],
-      ...($inner > 0.001 ? [['offset' => min($inner, .999), 'color' => $color, 'opacity' => 1.0]] : []),
-      ['offset' => 1, 'color' => $color, 'opacity' => 0.0]];
+    $stops = self::getShadowStops($color, $style->softness);
     return self::composeEllipse($id, $feetX, $feetY, $width, $style->flatness, $stops, $layout, self::SHADOW_LAYER, $strength);
   }
 

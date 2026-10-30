@@ -11,6 +11,10 @@
 
 ### Changed
 
+- Replaced filled convex-hull battler shadows with radial body ellipses and
+  smaller soft foot-contact pools. Current artwork still determines ground
+  contacts; theme softness and arena colour/strength remain configurable.
+
 - Shared location presentation shows identical place and region names once in
   main-menu summaries, Terminal panels and Skits. Distinct names retain their
   existing order; authored map and save fields remain unchanged.

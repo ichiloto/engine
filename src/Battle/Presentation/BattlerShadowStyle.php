@@ -15,9 +15,10 @@ use InvalidArgumentException;
  * centre), and how wide it reaches beyond each foot. A grounded battler's
  * shadow follows where its drawn art meets the ground in the pose shown
  * ({@see PngAssetBounds::getGroundContact()}), read at `flatness`, the
- * ground's perspective: a soft shape joining an ellipse around each foot,
- * paw, belly, hem or lying body, `contactFlatness` as tall as it is wide,
- * darker at each foot's core (`contactCore`, a share of its strength). Where
+ * ground's perspective: an axis-aligned soft body ellipse spanning the feet,
+ * paws, belly, hem or lying body, plus smaller contact pools with
+ * `contactFlatness` height/width, darker at each foot's core (`contactCore`,
+ * a share of its strength). Where
  * the art cannot be read, and under a battler in the air, it is one ellipse
  * at the feet point: its width a share of the footprint (a lying or
  * four-legged body's length, a standing body's height times `standing`),

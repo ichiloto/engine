@@ -32,10 +32,10 @@ function writeGroundShadowArt(string $path, array $rectangles): void
 
 /** The shadow of art drawn at a destination, as the battle draws a grounded battler's. */
 function composeGroundShadow(string $root, string $asset, CanvasRectangle $destination, bool $flipX = false,
-  float $elevation = 0): CanvasComposite
+  float $elevation = 0, float $core = .5): CanvasComposite
 {
   $layout = new BattleCanvasLayout(1350, 720, shadow: new BattlerShadowStyle(PresentationColor::rgb(10, 10, 20), opacity: .5,
-    flatness: .28));
+    flatness: .28, contactCore: $core));
   $arena = new BattleArenaDefinition('Field', new CanvasImage('field', 'field.png', new CanvasRectangle(0, 0, 1350, 720)));
   return BattlerGroundContact::compose('shadow', $destination->x + $destination->width / 2, $destination->y + $destination->height,
     90, false, $destination->width, $elevation, BattlerContact::SHADOW, $layout, $arena, null, $root,
@@ -45,10 +45,10 @@ function composeGroundShadow(string $root, string $asset, CanvasRectangle $desti
 /** @return array{left: float, right: float, top: float, bottom: float} The shadow's outline in canvas units. */
 function getGroundShadowExtent(CanvasComposite $shadow): array
 {
-  $outline = $shadow->operations[0]->data['masks'][0]['contours'][0];
-  $xs = array_map(static fn(array $point): float => $point[0] + $shadow->destination->x, $outline);
-  $ys = array_map(static fn(array $point): float => $point[1] + $shadow->destination->y, $outline);
-  return ['left' => min($xs), 'right' => max($xs), 'top' => min($ys), 'bottom' => max($ys)];
+  $brush = $shadow->operations[0]->data['brush'];
+  [$cx, $cy] = $brush['center']; [$rx, $ry] = $brush['radius'];
+  return ['left' => $shadow->destination->x + $cx - $rx, 'right' => $shadow->destination->x + $cx + $rx,
+    'top' => $shadow->destination->y + $cy - $ry, 'bottom' => $shadow->destination->y + $cy + $ry];
 }
 
 beforeEach(function () {
@@ -130,4 +130,65 @@ it('reads replaced art afresh, and keeps the feet-point ellipse in the air or wi
       ->operations[0]->data['brush']['type'])->toBe('radial')
     ->and(composeGroundShadow($this->root, 'Broken.png', new CanvasRectangle(400, 300, 100, 100))
       ->operations[0]->data['brush']['type'])->toBe('radial');
+});
+
+
+/** Samples the generic source-over radial descriptor contract in canvas coordinates. */
+function sampleGroundShadowAlpha(CanvasComposite $shadow, float $worldX, float $worldY): float
+{
+  $x = $worldX - $shadow->destination->x; $y = $worldY - $shadow->destination->y;
+  if ($x < 0 || $y < 0 || $x >= $shadow->width || $y >= $shadow->height) { return 0; }
+  $alpha = 0.0;
+  foreach ($shadow->operations as $operation) {
+    $data = $operation->data; $brush = $data['brush'];
+    expect($brush['type'])->toBe('radial');
+    $distance = hypot(($x - $brush['center'][0]) / $brush['radius'][0], ($y - $brush['center'][1]) / $brush['radius'][1]);
+    $stops = $brush['stops']; $value = $stops[0]['opacity'];
+    foreach ($stops as $index => $stop) {
+      if ($distance >= $stop['offset']) { $value = $stop['opacity']; continue; }
+      if ($index > 0) {
+        $previous = $stops[$index - 1]; $share = ($distance - $previous['offset']) / ($stop['offset'] - $previous['offset']);
+        $value = $previous['opacity'] * (1 - $share) + $stop['opacity'] * $share;
+      }
+      break;
+    }
+    $value *= $data['opacity']; $alpha = $value + $alpha * (1 - $value);
+  }
+  return $alpha * $shadow->opacity;
+}
+
+it('fades continuously to an ellipse rim at small, ordinary and large battler scales', function (int $size) {
+  writeGroundShadowArt($this->root . '/Contact.png', [[40, 80, 120, 50], [50, 130, 20, 35], [140, 130, 20, 60]]);
+  $shadow = composeGroundShadow($this->root, 'Contact.png', new CanvasRectangle(300, 50, $size, $size), core: 0);
+  $brush = $shadow->operations[0]->data['brush'];
+  [$x, $y] = [$shadow->destination->x + $brush['center'][0], $shadow->destination->y + $brush['center'][1]];
+  [$rx, $ry] = $brush['radius'];
+  $inner = sampleGroundShadowAlpha($shadow, $x + .45 * $rx, $y);
+  $middle = sampleGroundShadowAlpha($shadow, $x + .7 * $rx, $y);
+  $rim = sampleGroundShadowAlpha($shadow, $x + .95 * $rx, $y);
+  expect($inner)->toBeGreaterThan($middle)->and($middle)->toBeGreaterThan($rim)->and($rim)->toBeGreaterThan(0)
+    ->and(sampleGroundShadowAlpha($shadow, $x + $rx, $y))->toEqualWithDelta(0, .00001)
+    ->and(sampleGroundShadowAlpha($shadow, $x, $y + .7 * $ry))->toEqualWithDelta($middle, .00001)
+    ->and(sampleGroundShadowAlpha($shadow, $x, $y - .7 * $ry))->toEqualWithDelta($middle, .00001);
+})->with([32, 190, 600]);
+
+it('keeps arena colour and strength while contact cores stay soft and bounded', function () {
+  writeGroundShadowArt($this->root . '/Feet.png', [[60, 10, 80, 130], [60, 140, 20, 40], [120, 140, 20, 40]]);
+  $layout = new BattleCanvasLayout(1350, 720, shadow: new BattlerShadowStyle(PresentationColor::rgb(10, 20, 30), opacity: .5));
+  $color = PresentationColor::rgb(25, 18, 12);
+  $arena = new BattleArenaDefinition('Synthetic', new CanvasImage('back', 'Back.png', new CanvasRectangle(0, 0, 1350, 720)),
+    shadowLight: new \Ichiloto\Engine\Battle\Presentation\BattleShadowLight(1.4, $color));
+  $shadow = BattlerGroundContact::compose('shadow', 500, 500, 190, false, 190, 0, BattlerContact::SHADOW,
+    $layout, $arena, null, $this->root, opacity: .6,
+    drawn: new CanvasImage('body', 'Feet.png', new CanvasRectangle(400, 300, 200, 200)))['composites'][0];
+  expect($shadow->opacity)->toEqualWithDelta(.42, .00001)->and(count($shadow->operations))->toBeGreaterThan(1);
+  foreach ($shadow->operations as $operation) {
+    expect($operation->data['masks'])->toBe([])->and($operation->data['brush']['stops'][0]['color'])->toBe($color->toArray())
+      ->and($operation->data['brush']['stops'][array_key_last($operation->data['brush']['stops'])]['opacity'])->toBe(0.0);
+  }
+  $first = $shadow->operations[0]->data['brush'];
+  $alpha = sampleGroundShadowAlpha($shadow, $shadow->destination->x + $first['center'][0], $shadow->destination->y + $first['center'][1]);
+  expect($alpha)->toBeGreaterThan(0)->and($alpha)->toBeLessThanOrEqual(.42);
+  expect(\Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasCompositeBudget::getWork([$shadow]))
+    ->toBeLessThan(\Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasCompositeBudget::MAX_WORK);
 });

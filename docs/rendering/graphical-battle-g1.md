@@ -569,10 +569,12 @@ line, where staging, footing, effects and its contact meet the ground
   plank under the art's lower edge and kept only what it touched, which in a
   three-quarter view is the nearest feet alone, leaving the Drheko's back
   legs, belly and tail unshaded.
-  The shadow (layer 90, under every body) is one soft shape joining an
-  ellipse around each contact, feathered by its own thickness, with a darker
-  core under each foot, so a wide or staggered stance is grounded at every
-  foot. Andrew, 22 October 2026, on the earlier single ellipse at the feet
+  The shadow (layer 90, under every body) uses an axis-aligned radial body
+  ellipse spanning those contacts, plus smaller radial pools under each foot.
+  Its opacity falls to zero across the theme's softness band. The previous
+  filled convex hull is removed: staggered contacts change the ellipse's extent
+  without shearing it into an opaque polygon. Each foot retains a darker,
+  soft core. Andrew, 22 October 2026, on the earlier single ellipse at the feet
   point: "a circle doesn't quite work for the guys as their wide leg stance
   make them look like they are hovering". A battler in the air, or art that
   cannot be read (no GD, an unreadable file), keeps one ellipse at its feet
