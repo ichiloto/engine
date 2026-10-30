@@ -18,7 +18,7 @@ final class CinematicCommandSchema
 {
   public const array BASE_COMMAND_TYPES = [
     'text', 'choice', 'wait', 'set_switch', 'set_variable', 'record_event',
-    'give_item', 'give_gold', 'recover_party', 'play_sound', 'play_music',
+    'give_item', 'give_gold', 'recover_party', 'play_sound', 'play_music', 'play_skit',
     'accept_quest', 'knowledge', 'move_player', 'move_route', 'transfer',
     'start_battle', 'branch',
   ];
@@ -138,6 +138,17 @@ final class CinematicCommandSchema
           'source' => 'case-sensitive expression key on the existing speaker identity in DialoguePresentationCatalog'],
         'speaker' => 'name remains authored display text; existing catalog speaker aliases resolve artwork identity',
         'missingArtwork' => 'existing expression, Neutral and base-role fallback; no required portrait',
+      ],
+      'skitPlayback' => [
+        'command' => 'play_skit',
+        'referenceField' => 'skit',
+        'referenceSource' => 'assets/Data/Skits/*.php:id',
+        'triggers' => array_column(\Ichiloto\Engine\Field\Enumerations\SkitTrigger::cases(), 'value'),
+        'defaultTrigger' => 'prompt',
+        'soundCues' => ['open', 'close'],
+        'soundReferences' => 'ordinary AudioManager SFX references; select current project sound assets',
+        'completion' => 'skit_seen:id after every beat; already seen completes immediately',
+        'interruption' => 'owned dialogue/voice cleanup; unseen content stays retryable',
       ],
       'cinematicDefinitionFields' => self::CINEMATIC_DEFINITION_FIELDS,
       'cinematicEventTrigger' => [

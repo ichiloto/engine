@@ -11,6 +11,12 @@
 
 ### Added
 
+- Story-selected Skits through cooperative `play_skit` event playback, with shared
+  speaker/backdrop/voice bindings, script-only trigger selection and named open/close
+  SFX cues. Completion uses existing seen state; cancellation releases dialogue and
+  voice ownership and preserves retryability. Optional exploration Skits retain
+  their existing prompt and playback behavior.
+
 - Tileset-owned graphical `layerOffsets`, inherited by maps and palette previews,
   with explicit per-map overrides. Map and tileset offsets accept finite fractions
   within half a field cell, including one source pixel at 48px tile size. Physical

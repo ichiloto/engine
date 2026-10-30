@@ -15,6 +15,7 @@ use Ichiloto\Engine\Events\Interpreter\ModalEventPresentation;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Dialogue\Dialogue;
+use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueCanvasPresentation;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationCatalog;
@@ -86,6 +87,18 @@ function getEmotionTestModal(ModalEventPresentation $presentation): ?TextBoxModa
 {
   return new ReflectionProperty(ModalEventPresentation::class, 'modal')->getValue($presentation);
 }
+
+it('keeps the shared conversation playback and speed on cooperative Skit modals', function () {
+  $adapter = new ModalEventPresentation($this->scene);
+  $playback = new DialoguePlayback();
+  $context = new DialogueContext(skitId: 'synthetic', skitTitle: 'Current conversation');
+  $adapter->beginPlayedDialogue('Synthetic prose.', 'Guide', $context, $playback, 42.0);
+  $modal = getEmotionTestModal($adapter);
+  expect($modal->getDialogueSnapshot()->context)->toBe($context)
+    ->and(new ReflectionProperty(TextBoxModal::class, 'playback')->getValue($modal))->toBe($playback)
+    ->and(new ReflectionProperty(TextBoxModal::class, 'charactersPerSecond')->getValue($modal))->toBe(42.0);
+  $adapter->reset();
+});
 
 beforeEach(function () {
   $this->states = [];

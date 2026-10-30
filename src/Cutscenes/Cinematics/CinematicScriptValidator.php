@@ -57,6 +57,7 @@ final class CinematicScriptValidator
 
       match ($type) {
         'text' => self::validateText($command, $cinematicId, $commandPath),
+        'play_skit' => self::validateStableReference($command, 'skit', $cinematicId, $commandPath),
         'sequence' => self::validateRequiredBlock($command, 'commands', $cinematicId, "$commandPath/sequence"),
         'parallel' => self::validateParallel($command, $cinematicId, $commandPath),
         'branch' => self::validateBranch($command, $cinematicId, $commandPath),

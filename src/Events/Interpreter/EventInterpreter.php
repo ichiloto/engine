@@ -468,6 +468,23 @@ class EventInterpreter
         play_sound(strval($command['sound'] ?? ''));
         return EventCommandResult::COMPLETED;
 
+      case 'play_skit':
+        $skitId = $command['skit'] ?? null;
+        if (!is_string($skitId) || trim($skitId) === '') { throw new RuntimeException('play_skit requires a Skit reference.'); }
+        if (!$this->presentation instanceof EventPlayedDialoguePresentationInterface) {
+          throw new RuntimeException('play_skit requires a cooperative conversation presentation.');
+        }
+        $manager = $this->gameScene->skitManager ?? throw new RuntimeException('play_skit requires the field Skit manager.');
+        $session->claimPresentation($lane);
+        try { $operation = $manager->beginSkitPlayback($skitId, $this->presentation); }
+        catch (Throwable $error) { $session->releasePresentation($lane); throw $error; }
+        if ($operation === null) {
+          $session->releasePresentation($lane);
+          return EventCommandResult::COMPLETED;
+        }
+        $lane->yieldFor($command, ['kind' => 'skit'], $operation);
+        return EventCommandResult::YIELDED;
+
       case 'play_music':
         play_music(strval($command['music'] ?? ''), boolval($command['loop'] ?? true));
         return EventCommandResult::COMPLETED;
@@ -1036,6 +1053,7 @@ class EventInterpreter
         return false;
       }
 
+      if ($type === 'play_skit') { $session->releasePresentation($lane); }
       $lane->completePendingCommand();
       return true;
     }

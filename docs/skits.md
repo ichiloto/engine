@@ -58,6 +58,53 @@ this functionality. Last Legend is the reference consumer. Related docs:
   Skip, ambient lip/eye animation and Editor emotion/voice authoring remain
   planned; the static graphical stage is implemented.
 
+### Story-selected Skits And Lifecycle Sounds
+
+Field event scripts select a current Skit by its stable identity:
+
+```php
+['type' => 'play_skit', 'skit' => 'device-call'],
+```
+
+The authored Skit uses the existing speaker, voice, backdrop and beat format:
+
+```php
+return [
+  'id' => 'device-call',
+  'title' => 'A Call',
+  'trigger' => 'script',
+  'sounds' => ['open' => 'DeviceOn', 'close' => 'DeviceOff'],
+  'beats' => [/* ordinary speaker/text/emotion/voice beats */],
+];
+```
+
+`SkitTrigger` defines `prompt` and `script`. Existing Skits default to `prompt`;
+`script` keeps a story conversation out of the optional exploration cue. Explicit
+playback still checks its current map and story conditions. An unknown or gated
+Skit fails with a diagnostic. An already seen Skit completes immediately so a
+retried enclosing story script can continue without replaying its conversation.
+
+`SkitManager::beginSkitPlayback()` prepares the same current speaker, expression,
+voice, participant and place bindings used by optional playback. Its
+`SkitPlaybackOperation` advances on field ticks through `ModalEventPresentation`,
+sharing one `DialoguePlayback` across beats. The interpreter retains presentation
+ownership and waits until the last beat finishes before running later commands.
+Terminal and graphical stages receive the same text and playback metadata.
+
+`sounds.open` and `sounds.close` are optional ordinary `AudioManager` SFX
+references. Opening plays once when playback starts; closing plays once on normal
+completion or cancellation of an opened conversation. Game shutdown suppresses a
+new closing sound. Effects mute and volume settings apply through the existing
+Effects bus. Voice sequences, modal ownership and the busy state are released on
+completion, interruption and presentation failure. Unfinished Skits remain unseen
+and retryable; completed Skits record only the existing `skit_seen:<id>` event,
+which already survives save restoration.
+
+The shared cinematic schema exports the command's `skit` reference, trigger values,
+sound cue names and completion policy for source-preserving Editor authoring and
+resource pickers. Editor consumer work and project scene/audio bindings are
+separate integration steps.
+
 ### Availability Cue (Decided 2026-10-06)
 
 Timed skit-availability notifications and their announcement sound are removed.

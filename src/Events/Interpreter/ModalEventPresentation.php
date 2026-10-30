@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Events\Interpreter;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
+use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Modal\SelectModal;
 use Ichiloto\Engine\UI\Modal\TextBoxModal;
@@ -14,7 +15,7 @@ use Ichiloto\Engine\UI\Modal\TextBoxModal;
  * field or a battle. Graphical renderers compose the same modals over the
  * host scene's canvas.
  */
-final class ModalEventPresentation implements EventDialoguePresentationInterface
+final class ModalEventPresentation implements EventPlayedDialoguePresentationInterface
 {
   protected ?ModalInterface $modal = null;
 
@@ -29,12 +30,25 @@ final class ModalEventPresentation implements EventDialoguePresentationInterface
 
   public function beginDialogue(string $text, string $speaker, DialogueContext $context): void
   {
+    $this->showDialogue($text, $speaker, $context, null, dialogue_speed());
+  }
+
+  public function beginPlayedDialogue(string $text, string $speaker, DialogueContext $context,
+    DialoguePlayback $playback, float $charactersPerSecond): void
+  {
+    $this->showDialogue($text, $speaker, $context, $playback, $charactersPerSecond);
+  }
+
+  private function showDialogue(string $text, string $speaker, DialogueContext $context,
+    ?DialoguePlayback $playback, float $charactersPerSecond): void
+  {
     $this->reset();
     $this->modal = new TextBoxModal(
       $this->host->getGame(),
       $text,
       $speaker,
-      charactersPerSecond: dialogue_speed(),
+      charactersPerSecond: $charactersPerSecond,
+      playback: $playback,
       presentation: $context,
     );
     $this->modal->show();
