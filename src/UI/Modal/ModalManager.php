@@ -29,6 +29,8 @@ class ModalManager implements CanUpdate, CanRender
   protected Stack $modals;
   /** @var list<array{message: string, title: string, notice?: NoticeContent, owner?: object}> */
   protected array $pendingAlerts = [];
+  /** Ownership remains pending while a deferred notice is on screen. */
+  private ?object $activeNoticeOwner = null;
   /**
    * @var ModalInterface|null $currentModal The current modal.
    */
@@ -94,7 +96,8 @@ class ModalManager implements CanUpdate, CanRender
 
   public function hasPendingNotices(object $owner): bool
   {
-    return array_any($this->pendingAlerts, static fn(array $entry): bool => ($entry['owner'] ?? null) === $owner);
+    return $this->activeNoticeOwner === $owner
+      || array_any($this->pendingAlerts, static fn(array $entry): bool => ($entry['owner'] ?? null) === $owner);
   }
 
   /** Called only at a normal frame boundary, never from the blocked-frame pump. */
@@ -102,6 +105,7 @@ class ModalManager implements CanUpdate, CanRender
   {
     if ($this->currentModal !== null || $this->pendingAlerts === []) { return; }
     $alert = array_shift($this->pendingAlerts);
+    $this->activeNoticeOwner = $alert['owner'] ?? null;
     try {
       if (isset($alert['notice'])) { $this->showPendingNotice($alert['notice']); }
       else { $this->showPendingAlert($alert['message'], $alert['title']); }
@@ -110,6 +114,7 @@ class ModalManager implements CanUpdate, CanRender
       array_unshift($this->pendingAlerts, $alert);
       throw $error;
     }
+    finally { $this->activeNoticeOwner = null; }
   }
 
   protected function showPendingAlert(string $message, string $title): void

@@ -23,6 +23,8 @@ enum ScriptCommandReference: string
   case QUEST = 'quest';
   /** An actor. */
   case ACTOR = 'actor';
+  /** A project exploration power declared by WorldAbilityCatalog. */
+  case WORLD_ABILITY = 'world_ability';
   /** A stable NPC identity from the map containing the script. */
   case NPC = 'npc';
   /** A named destination declared by the selected NPC, including its default placement. */

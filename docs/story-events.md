@@ -64,6 +64,38 @@ one predicate implies that predicate's inverse; a negated conjunction stays a
 disjunction. Detached validation must use its own project's catalog. Runtime
 evaluation and exclusion trim condition types consistently with validation.
 
+### Power showcase
+
+After changing the world facts that unlock a power, a field script may present
+its actual current definition:
+
+```php
+['type' => 'show_power_unlocks',
+ 'abilities' => [['ability' => 'dash']],
+ 'actor' => 'actor.hero',
+ 'includeCrisis' => true,
+ 'announcement' => 'The authored transformation announcement.'],
+```
+
+The selected world abilities appear in list order. `includeCrisis` appends the
+actor's current unlocked form technique, even while its battle activation is
+inactive. Names and descriptions come from the power/skill sources. World
+abilities and crisis definitions may bind an optional semantic `iconRole` in
+the current theme; a crisis definition without it uses the actor's portrait.
+The optional announcement precedes the powers. Locked, missing or duplicate
+power references fail before queuing presentation. This command changes no
+resources, learned skills or saved world facts.
+
+`NoticeSequenceOperation` holds its event lane through each acknowledgement,
+using the normal deferred modal queue and shared themed/terminal notice.
+Ownership remains pending during active delivery. A delivery failure retains
+the queued notice for retry; cancellation removes only that operation's queued
+notices. The surrounding cinematic owns retry/completion and its temporary
+stage effects. Editors select `world_ability` references from the current
+catalog and actor references from the actor catalog. The command declaration
+exports both reference kinds. Transformation effects and saved first-use
+prompts remain separate work.
+
 ## Map trigger
 
 ```php

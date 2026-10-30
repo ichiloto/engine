@@ -231,5 +231,19 @@ final class EngineScriptCommands
         ['key' => 'placement', 'label' => 'Placement', 'kind' => 'reference', 'reference' => 'npc_placement', 'required' => true],
       ],
     ],
+    [
+      'type' => 'show_power_unlocks',
+      'class' => ShowPowerUnlocksCommand::class,
+      'label' => 'Show Unlocked Powers',
+      'description' => 'Presents current unlocked power definitions one at a time and waits for acknowledgement.',
+      'fields' => [
+        ['key' => 'abilities', 'label' => 'World Powers', 'kind' => 'list', 'fields' => [
+          ['key' => 'ability', 'label' => 'Power', 'kind' => 'reference', 'reference' => 'world_ability', 'required' => true],
+        ]],
+        ['key' => 'actor', 'label' => 'Actor', 'kind' => 'reference', 'reference' => 'actor'],
+        ['key' => 'includeCrisis', 'label' => 'Current Crisis Technique', 'kind' => 'boolean'],
+        ['key' => 'announcement', 'label' => 'Opening Announcement', 'kind' => 'text'],
+      ],
+    ],
   ];
 }

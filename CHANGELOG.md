@@ -25,6 +25,11 @@
 
 ### Added
 
+- Power-unlock showcases resolve current world powers and form techniques from
+  their existing sources, then hold the event lane through each notice's
+  acknowledgement. Crisis definitions may select a theme icon role. Deferred
+  notice ownership stays active during delivery as well as while queued.
+
 - Project-owned world abilities share one availability definition between
   movement, event/cue conditions and acquired-power queries. The native
   `world_ability` predicate supports validated dependencies and detached

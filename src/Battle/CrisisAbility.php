@@ -29,6 +29,7 @@ final readonly class CrisisAbility
     public ?float $hpBelowPercent,
     public array $states,
     public array $variants,
+    public ?string $iconRole = null,
   ) {}
 
   public static function fromArray(mixed $data): ?self
@@ -36,13 +37,14 @@ final readonly class CrisisAbility
     if ($data === null) { return null; }
     if (!is_array($data)) { throw new InvalidArgumentException('crisisAbility must be an array.'); }
     foreach (array_keys($data) as $key) {
-      if (!in_array($key, ['name', 'label', 'description', 'hpBelowPercent', 'states', 'variants'], true)) {
+      if (!in_array($key, ['name', 'label', 'description', 'hpBelowPercent', 'states', 'variants', 'iconRole'], true)) {
         throw new InvalidArgumentException(sprintf('Unknown crisisAbility field "%s".', $key));
       }
     }
     $name = self::requireReference($data['name'] ?? null, 'name');
     $label = $data['label'] ?? mb_substr(mb_strtoupper($name), 0, 3);
     $description = $data['description'] ?? '';
+    $iconRole = isset($data['iconRole']) ? self::requireReference($data['iconRole'], 'iconRole') : null;
     if (!is_string($label) || trim($label) === '' || !is_string($description)) {
       throw new InvalidArgumentException('crisisAbility label must be nonempty text and description must be text.');
     }
@@ -76,7 +78,7 @@ final readonly class CrisisAbility
       WorldConditionEvaluator::validateAll($conditions, 'crisisAbility variant conditions');
       $normalized[] = ['skill' => $skill, 'conditions' => $conditions];
     }
-    return new self($name, trim($label), $description, $threshold === null ? null : (float) $threshold, $states, $normalized);
+    return new self($name, trim($label), $description, $threshold === null ? null : (float) $threshold, $states, $normalized, $iconRole);
   }
 
   public function isActive(Character $actor): bool
@@ -130,6 +132,7 @@ final readonly class CrisisAbility
   {
     return ['name' => $this->name, 'label' => $this->label, 'description' => $this->description,
       ...($this->hpBelowPercent === null ? [] : ['hpBelowPercent' => $this->hpBelowPercent]),
+      ...($this->iconRole === null ? [] : ['iconRole' => $this->iconRole]),
       'states' => $this->states, 'variants' => $this->variants];
   }
 
