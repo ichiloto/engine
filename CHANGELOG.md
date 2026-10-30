@@ -9,6 +9,12 @@
   setting remains; `1.0` keeps each battler's size constant across foot rows.
   Shared body calibration, authored proportions, footing and HUD clearance remain.
 
+### Changed
+
+- Removed silent Skit skipping and duplicate-id overwrites. Malformed Skit files
+  now stop catalog loading with the file and validation reason. Runtime and
+  Editor consumers share `SkitPlaybackDefinition` for trigger and SFX fields.
+
 ### Added
 
 - Saved, real NPC bed occupants with lying/sitting/standing postures, occupied-bed

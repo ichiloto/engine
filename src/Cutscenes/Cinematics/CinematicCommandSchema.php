@@ -173,6 +173,8 @@ final class CinematicCommandSchema
         'command' => 'play_skit',
         'referenceField' => 'skit',
         'referenceSource' => 'assets/Data/Skits/*.php:id',
+        'definitionReader' => \Ichiloto\Engine\Field\SkitPlaybackDefinition::class,
+        'invalidSource' => 'load error naming the file and reason; no skipped or overwritten definitions',
         'triggers' => array_column(\Ichiloto\Engine\Field\Enumerations\SkitTrigger::cases(), 'value'),
         'defaultTrigger' => 'prompt',
         'soundCues' => ['open', 'close'],

@@ -19,7 +19,7 @@ use RuntimeException;
 use Throwable;
 
 /**
- * Manages Tales-style optional conversations ("skits").
+ * Manages portrait conversations ("skits") prompted during exploration or selected by story scripts.
  *
  * Skits are authored one per file under `assets/Data/Skits/*.php`:
  *
@@ -82,15 +82,27 @@ class SkitManager
     foreach (glob(Path::join($directory, '*.php')) ?: [] as $filename) {
       try {
         $skit = require $filename;
-        $id = is_array($skit) ? trim(strval($skit['id'] ?? '')) : '';
-
-        if ($id !== '' && ! empty($skit['beats'])) {
-          self::readTrigger($skit, $id);
-          SkitPlaybackPlan::readSounds($skit['sounds'] ?? [], "Skit {$id}");
-          $skits[$id] = $skit;
+        if (!is_array($skit) || !is_string($skit['id'] ?? null)
+          || trim($skit['id']) === '' || str_contains($skit['id'], "\0")) {
+          throw new InvalidArgumentException('A Skit requires a non-empty string id.');
         }
+        $id = trim($skit['id']);
+        if (array_key_exists($id, $skits)) {
+          throw new InvalidArgumentException("Skit id '{$id}' is already defined by another file.");
+        }
+        if (!is_array($skit['beats'] ?? null) || !array_is_list($skit['beats']) || $skit['beats'] === []) {
+          throw new InvalidArgumentException("Skit {$id} requires a non-empty list of dialogue beats.");
+        }
+        foreach ($skit['beats'] as $index => $beat) {
+          if (!is_array($beat) || !is_string($beat['text'] ?? null)) {
+            throw new InvalidArgumentException("Skit {$id} beat {$index} requires text.");
+          }
+        }
+        SkitPlaybackDefinition::fromArray($skit, "Skit {$id}");
+        $skits[$id] = $skit;
       } catch (Throwable $exception) {
-        Debug::warn(sprintf('Skipping invalid skit %s: %s', basename($filename), $exception->getMessage()));
+        throw new RuntimeException(sprintf('Invalid Skit file %s: %s', $filename, $exception->getMessage()),
+          previous: $exception);
       }
     }
 
@@ -106,7 +118,7 @@ class SkitManager
   {
     return array_filter(
       $this->skits,
-      fn(array $skit, string $skitId): bool => self::readTrigger($skit, $skitId) === SkitTrigger::PROMPT
+      fn(array $skit, string $skitId): bool => SkitPlaybackDefinition::fromArray($skit, "Skit {$skitId}")->trigger === SkitTrigger::PROMPT
         && $this->isAvailable($skitId, $skit),
       ARRAY_FILTER_USE_BOTH
     );
@@ -202,8 +214,8 @@ class SkitManager
 
   protected function preparePlaybackPlan(string $skitId, array $skit): SkitPlaybackPlan
   {
-    self::readTrigger($skit, $skitId);
-    $sounds = SkitPlaybackPlan::readSounds($skit['sounds'] ?? [], "Skit {$skitId}");
+    $definition = SkitPlaybackDefinition::fromArray($skit, "Skit {$skitId}");
+    $sounds = $definition->sounds;
     $speed = is_numeric($skit['speed'] ?? null) ? floatval($skit['speed']) : dialogue_speed();
     $assets = Path::join(Path::getCurrentWorkingDirectory(), 'assets');
     $catalogue = $this->loadDialoguePresentation($assets);
@@ -243,13 +255,6 @@ class SkitManager
     }
     if ($beats === []) { throw new RuntimeException("Skit '{$skitId}' requires at least one dialogue beat."); }
     return new SkitPlaybackPlan($skitId, $beats, $speed, $duck, $sounds);
-  }
-
-  private static function readTrigger(array $skit, string $id): SkitTrigger
-  {
-    $trigger = $skit['trigger'] ?? SkitTrigger::PROMPT->value;
-    return (is_string($trigger) ? SkitTrigger::tryFrom($trigger) : null)
-      ?? throw new InvalidArgumentException("Skit {$id} trigger must be prompt or script.");
   }
 
   protected function showBeat(array $beat, float $speed, DialoguePlayback $playback): void

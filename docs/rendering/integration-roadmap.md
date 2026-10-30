@@ -4107,6 +4107,13 @@ shared gameplay identity, existing data and source-safe round trips.
 
 ## Dialogue And Skits
 
+`SkitPlaybackDefinition::fromArray` now owns authored trigger/SFX reading for
+runtime and Editor consumers. Skit loading raises file-specific errors for
+malformed definitions, parse failures and duplicate ids. Silent skips and
+identity overwrites are removed. Editor consumption of the public reader remains
+its owner's follow-up; current project-resource and source-preservation checks
+remain required.
+
 Field conversational facing is implemented through
 `presentation.conversation`: explicit display-speaker bindings select current
 player/NPC/staged subjects, and text plus ordinary dialogue pages share one

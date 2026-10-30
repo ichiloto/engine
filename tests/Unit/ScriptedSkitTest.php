@@ -226,3 +226,56 @@ it('keeps completion in restored world state and rejects competing presentation 
         ->and($this->scene->gameState->hasStoryEvent('skit_seen:selected'))->toBeFalse()
         ->and($this->game->audioManager->sequences)->toBe(1);
 });
+
+
+it('shares the typed playback reader without resolving assets or mutating authored fields', function () {
+    $source = ['trigger' => 'script', 'sounds' => ['open' => 'DeviceOn'], 'title' => 'Authored title'];
+    $definition = \Ichiloto\Engine\Field\SkitPlaybackDefinition::fromArray($source, 'Synthetic');
+    expect($definition->trigger)->toBe(\Ichiloto\Engine\Field\Enumerations\SkitTrigger::SCRIPT)
+        ->and($definition->sounds)->toBe(['open' => 'DeviceOn'])
+        ->and($source)->toBe(['trigger' => 'script', 'sounds' => ['open' => 'DeviceOn'], 'title' => 'Authored title'])
+        ->and(\Ichiloto\Engine\Field\SkitPlaybackDefinition::fromArray([])->trigger)
+        ->toBe(\Ichiloto\Engine\Field\Enumerations\SkitTrigger::PROMPT);
+    foreach ([['trigger' => 'unknown'], ['trigger' => []], ['sounds' => ['open' => '']], ['sounds' => ['other' => 'cue']]] as $invalid) {
+        expect(fn() => \Ichiloto\Engine\Field\SkitPlaybackDefinition::fromArray($invalid, 'Synthetic'))
+            ->toThrow(InvalidArgumentException::class, 'Synthetic');
+    }
+});
+
+it('reports malformed authored files with their source and reason instead of silently dropping them', function (mixed $invalid, string $reason) {
+    $filename = $this->root . '/assets/Data/Skits/broken.php';
+    file_put_contents($filename, '<?php return ' . var_export($invalid, true) . ';');
+    try {
+        SkitManager::loadSkits();
+        test()->fail('Malformed authored Skit was accepted.');
+    } catch (RuntimeException $exception) {
+        expect($exception->getMessage())->toContain($filename, $reason)
+            ->and($exception->getPrevious())->toBeInstanceOf(InvalidArgumentException::class);
+    }
+    unlink($filename);
+    expect(array_keys(SkitManager::loadSkits()))->toBe(['optional', 'selected']);
+})->with([
+    'non-array source' => [false, 'non-empty string id'],
+    'missing identity' => [['beats' => [['text' => 'Line']]], 'non-empty string id'],
+    'missing beats' => [['id' => 'broken'], 'non-empty list'],
+    'empty beats' => [['id' => 'broken', 'beats' => []], 'non-empty list'],
+    'malformed beat' => [['id' => 'broken', 'beats' => ['Line']], 'beat 0 requires text'],
+    'invalid trigger' => [['id' => 'broken', 'beats' => [['text' => 'Line']], 'trigger' => 'wrong'], 'trigger must'],
+    'invalid sound' => [['id' => 'broken', 'beats' => [['text' => 'Line']], 'sounds' => ['open' => false]], 'sounds.open'],
+]);
+
+it('reports parse failures and duplicate identities without installing a partial catalog', function () {
+    $filename = $this->root . '/assets/Data/Skits/broken.php';
+    file_put_contents($filename, '<?php return [;');
+    try {
+        SkitManager::loadSkits();
+        test()->fail('Parse failure was hidden.');
+    } catch (RuntimeException $exception) {
+        expect($exception->getMessage())->toContain($filename)
+            ->and($exception->getPrevious())->toBeInstanceOf(ParseError::class);
+    }
+    file_put_contents($filename, '<?php return ["id" => "selected", "beats" => [["text" => "Other"]]];');
+    expect(fn() => SkitManager::loadSkits())->toThrow(RuntimeException::class, "already defined");
+    unlink($filename);
+    expect(SkitManager::loadSkits()['selected']['beats'][0]['text'])->toBe('First');
+});

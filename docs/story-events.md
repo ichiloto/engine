@@ -14,8 +14,8 @@ suspend the session and continue it through the regular game loop.
 
 These scripts are story events or reusable Common Events. First-class
 Cinematics add cast, camera, presentation, safe-skip, and final-state metadata
-while hosting this same interpreter and session model. Skits remain optional
-party conversations, and Summons remain compiled frame timelines. See
+while hosting this same interpreter and session model. Skits present portrait
+conversations through exploration prompts or story scripts; Summons use compiled frame timelines. See
 [Cinematic cutscenes](cinematics.md) for the asset taxonomy and cinematic
 runtime contract.
 
@@ -810,3 +810,18 @@ lanes are available through the first-class Cinematic contract described in
 [Cinematic cutscenes](cinematics.md). The Engine exposes validation-facing
 schemas, but the corresponding first-class TUI authoring surface is a separate
 Editor gate.
+
+
+### Shared Skit playback validation
+
+`Field\SkitPlaybackDefinition::fromArray($skit, $context)` reads a Skit's
+`trigger` and named `sounds` fields for runtime and Editor consumers. It returns
+an immutable typed trigger (`prompt` by default, or `script`) and SFX references.
+The reader performs no file resolution, writes or playback. The Editor retains
+project-resource validation and source-preserving edits around this shared reader.
+
+`SkitManager::loadSkits()` requires each file to return a unique non-empty string
+id and a non-empty list of beats with string text, then checks those playback
+fields. A malformed file, duplicate id or PHP loading failure raises an error
+naming the file and reason. Silent skipping and duplicate-id overwrites have
+been removed. A missing Skits directory still means the project has no Skits.
