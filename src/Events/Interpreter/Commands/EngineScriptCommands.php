@@ -163,6 +163,9 @@ final class EngineScriptCommands
         ['key' => 'levelPolicy', 'label' => 'Starting Level', 'kind' => 'option',
           'options' => ['authored', 'partyAverage'],
           'description' => 'Authored level, or the permanent party roster average rounded down before this actor joins.'],
+        ['key' => 'spPolicy', 'label' => 'Starting SP', 'kind' => 'option',
+          'options' => ['authored', 'partyAverageEarned', 'partyAverageEstimatedEarned'],
+          'description' => 'Authored points, roster-average recorded earned SP, or that average with explicitly authorized legacy spending estimated once from current learned-node prices. Existing members receive no repeat grant.'],
       ],
     ],
     [

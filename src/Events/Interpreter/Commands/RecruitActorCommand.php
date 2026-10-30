@@ -8,6 +8,7 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 use RuntimeException;
 use Ichiloto\Engine\Entities\RecruitmentLevelPolicy;
+use Ichiloto\Engine\Entities\RecruitmentPointPolicy;
 
 /** Field recruitment uses the same current actor factory as game start and save restoration. */
 final class RecruitActorCommand implements ScriptCommandHandlerInterface
@@ -26,7 +27,11 @@ final class RecruitActorCommand implements ScriptCommandHandlerInterface
     if (!is_string($policy) || ($policy = RecruitmentLevelPolicy::tryFrom($policy)) === null) {
       throw new RuntimeException('recruit_actor.levelPolicy must be authored or partyAverage.');
     }
-    $party->recruitActor($store->require($reference, 'recruiting a party member'), $policy);
+    $pointPolicy = $command['spPolicy'] ?? RecruitmentPointPolicy::AUTHORED->value;
+    if (!is_string($pointPolicy) || ($pointPolicy = RecruitmentPointPolicy::tryFrom($pointPolicy)) === null) {
+      throw new RuntimeException('recruit_actor.spPolicy must be authored, partyAverageEarned or partyAverageEstimatedEarned.');
+    }
+    $party->recruitActor($store->require($reference, 'recruiting a party member'), $policy, $pointPolicy);
     return ScriptCommandOutcome::complete();
   }
 }

@@ -26,17 +26,29 @@ final class MasteryProgress implements JsonSerializable
 
   /** Null preserves a legacy history whose past purchase prices were not saved. */
   public private(set) ?int $spentPoints = null;
+  /** Actual debits made after loading a history whose earlier spending is still unknown. */
+  public private(set) int $pendingSpentPoints = 0;
+  private ?array $legacyNodes = null;
+  /** Historical learned nodes awaiting an explicit estimate; later free/paid grants are excluded. */
+  public array $unrecordedNodes {
+    get => $this->spentPoints === null ? ($this->legacyNodes ?? $this->learned) : [];
+  }
 
   /** Current spendable balance; every debit records its actual amount. */
   public int $points = 0 {
     set {
       if ($value < 0) { throw new InvalidArgumentException('A character cannot hold fewer than 0 Mastery points.'); }
       $spent = $this->spentPoints;
-      if ($spent !== null && $value < $this->points) { $spent += $this->points - $value; }
-      if ($spent !== null && $value > PHP_INT_MAX - $spent) {
+      $pending = $this->pendingSpentPoints;
+      $debit = max(0, $this->points - $value);
+      if ($spent === null) { $pending += $debit; }
+      else { $spent += $debit; }
+      if ($value > PHP_INT_MAX - ($spent ?? $pending)) {
         throw new InvalidArgumentException('Total earned Mastery points exceed the supported integer range.');
       }
       $this->spentPoints = $spent;
+      $this->pendingSpentPoints = $pending;
+      if ($spent === null) { $this->legacyNodes ??= $this->learned; }
       $this->points = $value;
     }
   }
@@ -50,15 +62,28 @@ final class MasteryProgress implements JsonSerializable
    * @param int $points The Mastery points (SP) the character holds, unspent.
    * @param list<string> $learned The nodes learned.
    * @param int|null $spentPoints Historical SP spent; zero for a new character, null for unknown legacy history.
+   * @param int $pendingSpentPoints Actual later spending while an older baseline remains unknown.
+   * @param list<string>|null $unrecordedNodes Original historical nodes, kept separate from later grants.
    */
   public function __construct(
     int $points = 0,
     public array $learned = [],
     ?int $spentPoints = 0,
+    int $pendingSpentPoints = 0,
+    ?array $unrecordedNodes = null,
   )
   {
     if ($spentPoints !== null && $spentPoints < 0) { throw new InvalidArgumentException('Spent Mastery points cannot be negative.'); }
+    if ($pendingSpentPoints < 0 || ($spentPoints !== null && $pendingSpentPoints !== 0)) {
+      throw new InvalidArgumentException('Pending Mastery spending requires an unknown historical baseline and a non-negative amount.');
+    }
+    if ($unrecordedNodes !== null && (!array_is_list($unrecordedNodes)
+      || array_any($unrecordedNodes, static fn(mixed $id): bool => !is_string($id)))) {
+      throw new InvalidArgumentException('Unrecorded Mastery nodes must be a list of identities.');
+    }
     $this->spentPoints = $spentPoints;
+    $this->pendingSpentPoints = $pendingSpentPoints;
+    $this->legacyNodes = $spentPoints === null ? array_values(array_unique($unrecordedNodes ?? $learned)) : [];
     $this->points = $points;
   }
 
@@ -79,7 +104,12 @@ final class MasteryProgress implements JsonSerializable
     if ($spent !== null && (!is_int($spent) || $spent < 0)) {
       throw new InvalidArgumentException('Spent Mastery points must be a non-negative integer or unknown (null).');
     }
-    return new self(max(0, intval($data['points'] ?? 0)), $learned, $spent);
+    $pending = $data['pendingSpentPoints'] ?? 0;
+    $unrecorded = $data['unrecordedNodes'] ?? null;
+    if (!is_int($pending) || ($unrecorded !== null && !is_array($unrecorded))) {
+      throw new InvalidArgumentException('Mastery spending history requires an integer pending amount and a node list.');
+    }
+    return new self(max(0, intval($data['points'] ?? 0)), $learned, $spent, $pending, $unrecorded);
   }
 
   public function hasLearned(string $node): bool
@@ -90,6 +120,7 @@ final class MasteryProgress implements JsonSerializable
   /** Records a node as learned. */
   public function markLearned(string $node): void
   {
+    if ($this->spentPoints === null) { $this->legacyNodes ??= $this->learned; }
     if (! $this->hasLearned($node)) {
       $this->learned[] = $node;
     }
@@ -116,6 +147,17 @@ final class MasteryProgress implements JsonSerializable
     $this->points -= $points;
   }
 
+  /** Establishes an unknown history once; known spending is never repriced. */
+  public function initializeSpentPoints(int $points): void
+  {
+    if ($this->spentPoints !== null || $points < $this->pendingSpentPoints || $points > PHP_INT_MAX - $this->points) {
+      throw new InvalidArgumentException('Only unknown Mastery spending can receive a valid historical baseline.');
+    }
+    $this->spentPoints = $points;
+    $this->pendingSpentPoints = 0;
+    $this->legacyNodes = [];
+  }
+
   /** @return array<string, mixed> */
   public function jsonSerialize(): array
   {
@@ -123,6 +165,8 @@ final class MasteryProgress implements JsonSerializable
       'points' => $this->points,
       'learned' => $this->learned,
     ], static fn(mixed $value): bool => $value !== [] && $value !== 0);
-    return $data === [] && $this->spentPoints === 0 ? [] : [...$data, 'spentPoints' => $this->spentPoints];
+    if ($data === [] && $this->spentPoints === 0) { return []; }
+    return [...$data, 'spentPoints' => $this->spentPoints, ...($this->spentPoints === null
+      ? ['pendingSpentPoints' => $this->pendingSpentPoints, 'unrecordedNodes' => $this->unrecordedNodes] : [])];
   }
 }

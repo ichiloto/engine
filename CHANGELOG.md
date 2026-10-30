@@ -14,8 +14,15 @@
 - Mastery progress records actual SP spending and derives known earned totals,
   preserving unknown historical spending in older learned-node saves. Current node
   prices never rewrite recorded spending. Direct negative SP balances are now
-  rejected; spending must fit the available balance. Recruitment catch-up policy
-  and any historical estimate remain separate authored decisions.
+  rejected; spending must fit the available balance. New debits remain recorded
+  separately while an older baseline is unknown. Recruitment selects its catch-up
+  policy explicitly in authored data.
+
+- Recruitment accepts authored SP policies: keep the existing starting points,
+  grant the permanent roster's average recorded earned SP, or explicitly estimate
+  unknown historical spending once from current learned-node prices before that
+  average. Existing members keep their spendable points and known history; repeat
+  recruitment preserves the actor's acquired progress.
 
 - Story-selected Skits through cooperative `play_skit` event playback, with shared
   speaker/backdrop/voice bindings, script-only trigger selection and named open/close

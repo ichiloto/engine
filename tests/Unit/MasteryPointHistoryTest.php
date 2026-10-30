@@ -36,11 +36,21 @@ it('preserves missing historical spending as unknown instead of repricing legacy
   expect($legacy->spentPoints)->toBeNull()->and($legacy->earnedPoints)->toBeNull();
   $legacy->addPoints(10);
   $legacy->spendPoints(5);
+  $legacy->markLearned('newly-paid-node');
+  $legacy->markLearned('new-free-node');
+  $loaded = MasteryProgress::fromArray($legacy->jsonSerialize());
   expect($legacy->points)->toBe(45)->and($legacy->earnedPoints)->toBeNull()
-    ->and(MasteryProgress::fromArray($legacy->jsonSerialize())->spentPoints)->toBeNull();
+    ->and($loaded->spentPoints)->toBeNull()->and($loaded->pendingSpentPoints)->toBe(5)
+    ->and($loaded->unrecordedNodes)->toBe(['legacy-node']);
+  $loaded->initializeSpentPoints(35);
+  expect($loaded->earnedPoints)->toBe(80)->and($loaded->pendingSpentPoints)->toBe(0)
+    ->and($loaded->unrecordedNodes)->toBe([]);
   $class = MasteryProgress::class;
   $oldObject = unserialize(sprintf('O:%d:"%s":2:{s:6:"points";i:40;s:7:"learned";a:1:{i:0;s:6:"legacy";}}', strlen($class), $class));
   expect($oldObject->points)->toBe(40)->and($oldObject->spentPoints)->toBeNull()->and($oldObject->earnedPoints)->toBeNull();
+  $oldObject->spendPoints(2);
+  $oldObject->markLearned('future');
+  expect($oldObject->pendingSpentPoints)->toBe(2)->and($oldObject->unrecordedNodes)->toBe(['legacy']);
   expect(MasteryProgress::fromArray(['points' => 40])->earnedPoints)->toBe(40);
 });
 

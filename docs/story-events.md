@@ -484,6 +484,8 @@ factory used by game start and save restoration:
 ```php
 ['type' => 'recruit_actor', 'actor' => 'actor.traveller'],
 ['type' => 'recruit_actor', 'actor' => 'actor.archer', 'levelPolicy' => 'partyAverage'],
+['type' => 'recruit_actor', 'actor' => 'actor.archer', 'levelPolicy' => 'partyAverage',
+  'spPolicy' => 'partyAverageEstimatedEarned'],
 ```
 
 `Party::recruitActor()` appends a fully constructed character once by stable
@@ -499,6 +501,26 @@ before adding the recruit and rounds the average level down. It requires a
 nonempty party. The actor factory uses the recruit's own experience curve,
 maximum level, stat growth and automatic role skills. Repeating recruitment
 keeps an owned actor's progress. Story flags, dialogue and art remain project data.
+
+The optional Starting SP picker (`spPolicy`, `RecruitmentPointPolicy`) selects
+`authored`, `partyAverageEarned` or `partyAverageEstimatedEarned`. The first
+retains the existing starting balance. The others grant the recruit the permanent
+roster's average total earned SP, rounded down before recruitment. Current
+spendable balances of existing members remain unchanged. Recorded earned totals
+combine unspent points and actual spending, so changing node prices does not
+recalculate history.
+
+`partyAverageEarned` requires established histories. The explicit estimated mode
+initializes an unknown legacy history from the current prices of its learned
+historical nodes, once, and retains that baseline on save/load. Spending after
+the journal begins is recorded separately while the older baseline remains
+unknown; those purchases keep their actual paid amounts, and later free grants
+are excluded from the historical estimate. A missing map or unknown or
+unpriced historical node produces a diagnostic before recruiting or changing
+any existing member. Projects resolve such historical content through their
+content migration. The estimate is an authored policy choice; it is never
+silently applied by the default recruitment path. Completed/repeated recruitment
+preserves acquired progress and grants no second award.
 
 Actor data can declare first-creation equipment by semantic slot and stable item
 identity, for example `initialEquipment: ['weapon' => 'equipment.short-bow']`.
