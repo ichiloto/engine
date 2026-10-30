@@ -85,6 +85,12 @@ geometry and event-subject resolution as file-backed loading and returns
 event areas have been resolved; do not pass already-normalized subject events
 back as declarations with an independent `area`.
 
+Hosts installing in-memory map source through `MapManager::installMapSource`
+may supply a lazy field-catalogue loader alongside graphics and tile layers.
+Resource-backed world objects then resolve against the host's current catalogue.
+File-backed runtime loads retain the project-file catalogue path. The same map
+validation and object preparation apply before scene mutation.
+
 `ProjectReachability::analyze($assetRoot, $mapSources = [], $loadTileset = null)` checks a current
 in-memory view without saving or copying maps. Overrides are keyed by map ID:
 

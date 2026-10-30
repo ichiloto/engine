@@ -1009,12 +1009,13 @@ class MapManager implements CanRenderAt
    * @param array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet} $source
    * @param Closure(): ?MapGraphics $loadGraphics
    * @param Closure(): ?list<MapTileLayer> $readTileLayers
+   * @param (Closure(): FieldPresentationCatalog)|null $loadFieldCatalog The host's current resource catalogue; null reads project files.
    * @return array<string, mixed> The map's data.
    */
   protected function installMapSource(string $mapId, array $source, ?MapTerrainKinds $kinds, Closure $loadGraphics,
-    Closure $readTileLayers): array
+    Closure $readTileLayers, ?Closure $loadFieldCatalog = null): array
   {
-    return $this->installMapGeometry($this->prepareMapSource($mapId, $source, $kinds, $loadGraphics, $readTileLayers));
+    return $this->installMapGeometry($this->prepareMapSource($mapId, $source, $kinds, $loadGraphics, $readTileLayers, $loadFieldCatalog));
   }
 
   /**
@@ -1083,10 +1084,11 @@ class MapManager implements CanRenderAt
    * @param array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet} $source
    * @param Closure(): ?MapGraphics $loadGraphics
    * @param Closure(): ?list<MapTileLayer> $readTileLayers Null when the map's tile layers are unknown.
+   * @param (Closure(): FieldPresentationCatalog)|null $loadFieldCatalog The host's current resource catalogue.
    * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>, kinds: ?MapTerrainKinds}
    */
   protected function prepareMapSource(string $mapId, array $source, ?MapTerrainKinds $kinds, Closure $loadGraphics,
-    Closure $readTileLayers): array
+    Closure $readTileLayers, ?Closure $loadFieldCatalog = null): array
   {
     $map = $source['data'];
     // Validate declared physical data before either loading path can mutate a scene.
@@ -1129,7 +1131,8 @@ class MapManager implements CanRenderAt
     // Malformed subject/selector ownership refuses before scene mutation; unavailable optional art does not.
     $catalog = is_array($objects) && array_any($objects, static fn(mixed $object): bool => is_array($object)
       && array_key_exists('resource', $object))
-      ? FieldPresentationCatalog::load($this->getAssetRoot(), EffectPresentation::TERMINAL) : null;
+      ? ($loadFieldCatalog === null ? FieldPresentationCatalog::load($this->getAssetRoot(), EffectPresentation::TERMINAL)
+        : $loadFieldCatalog()) : null;
     $worldObjects = WorldObjectDefinition::readMap($map, $source['layers'], $graphics, $tileOwners, $catalog);
     return [...$source, 'graphics' => $graphics, 'occupancy' => $occupancy, 'worldObjects' => $worldObjects, 'kinds' => $kinds];
   }
