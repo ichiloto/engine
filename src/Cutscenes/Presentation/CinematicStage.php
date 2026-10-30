@@ -30,7 +30,8 @@ final readonly class CinematicStage
     if ($data['startFrame'] >= $data['restoreFrame'] || $restFrame < $data['startFrame'] || $restFrame >= $data['restoreFrame']) {
       throw new InvalidArgumentException('stage.startFrame/restoreFrame require an active interval containing the sequence restFrame.');
     }
-    $background = self::validateColor(array_key_exists('background', $data) ? $data['background'] : 'black', 'stage.background');
+    $background = array_key_exists('background', $data) ? $data['background'] : 'black';
+    $background = $background === null ? null : self::validateColor($background, 'stage.background');
     $subjects = array_key_exists('subjects', $data) ? $data['subjects'] : [];
     if (!is_array($subjects) || !array_is_list($subjects) || count($subjects) > 32) {
       throw new InvalidArgumentException('stage.subjects must be a list of at most 32 identities.');

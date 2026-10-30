@@ -25,6 +25,10 @@
 
 ### Added
 
+- Field scripts can play owned standalone stage timelines alongside other
+  cinematic lanes. Transparent stage backgrounds and image-free cover stages
+  support scene dimming; existing opaque backgrounds and Terminal timing remain.
+
 - Cinematic field effects can follow a current field subject's ground position
   and step motion, with cancellation on subject/map/generation replacement.
   Party actor targeting follows the participating leader during story splits.

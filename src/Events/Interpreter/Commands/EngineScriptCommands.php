@@ -245,5 +245,15 @@ final class EngineScriptCommands
         ['key' => 'announcement', 'label' => 'Opening Announcement', 'kind' => 'text'],
       ],
     ],
+    [
+      'type' => 'play_stage',
+      'class' => PlayStageCommand::class,
+      'label' => 'Play Stage Presentation',
+      'description' => 'Plays a cue-free stage timeline for the selected duration alongside other cinematic lanes.',
+      'fields' => [
+        ['key' => 'stage', 'label' => 'Stage', 'kind' => 'reference', 'reference' => 'stage_timeline', 'required' => true],
+        ['key' => 'seconds', 'label' => 'Seconds', 'kind' => 'number', 'minimum' => 0, 'required' => true],
+      ],
+    ],
   ];
 }

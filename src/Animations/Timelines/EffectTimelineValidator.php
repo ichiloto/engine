@@ -70,7 +70,7 @@ final class EffectTimelineValidator
       throw new InvalidArgumentException('A caller-owned stage presentation needs a stage and once playback.');
     }
     $tracks = $data['tracks'] ?? null;
-    if (!is_array($tracks) || !array_is_list($tracks) || (!$forSummon && $tracks === []) || count($tracks) > 32) {
+    if (!is_array($tracks) || !array_is_list($tracks) || (!$forSummon && !$forStage && $tracks === []) || count($tracks) > 32) {
       throw new InvalidArgumentException("Effect {$id} needs a list of 1..32 tracks.");
     }
     $ids = $normalized = [];
@@ -259,7 +259,7 @@ final class EffectTimelineValidator
     if ($hasImages && !$imageRestCovered) {
       throw new InvalidArgumentException("Effect {$id} image sequence has no authored rest presentation.");
     }
-    if ($stage !== null && !$stageRestCovered) {
+    if ($stage !== null && !$stageRestCovered && !($forStage && $tracks === [])) {
       throw new InvalidArgumentException('Cinematic stage needs image content at its safe reduced-motion frame.');
     }
     $cues = $data['cues'] ?? [];

@@ -1397,9 +1397,27 @@ retain their higher application-owned priority above stage images and covers.
 `EffectTimelineLibrary::loadStage` and `compileStage` admit standalone graphical
 stages independently of battle/summon profiles. They require fixed, once-only
 playback, stage-image tracks, no cues and a safe reduced-motion rest frame.
+Standalone cover-only stages may have an empty track list. Field/battle image
+admission retains its existing nonempty-track rule. Image-bearing stages still
+require image content at their reduced-motion rest frame.
 `CinematicStageSession` takes an explicit asset root and consumer duration;
 `advanceTo` accepts monotonic elapsed time, while `getCanvas` is read-only.
 Backward preview seek requires a fresh session or pure stage projection.
+
+An explicit `stage.background => null` makes the stage an overlay on the current
+scene. Omission retains its existing opaque black background. Authored cover
+keys still own colour, opacity and the transparent final frame; reduced motion
+retains its existing cover suppression. Cover-only overlays allocate a shared
+one-pixel composite fill and need no generated image or duplicate field canvas.
+
+The shared field command `play_stage` selects a `stage_timeline` and explicit
+nonnegative `seconds`. It runs cooperatively in sequence/parallel lanes and
+releases only its own session. Zero seconds completes immediately. Terminal
+keeps the same authored duration without inspecting graphical artwork. Active
+map/generation cleanup cancels the owned graphical session. Editors use the
+existing stage timeline selector, preserve explicit null backgrounds and permit
+cover-only sources through the shared validator. Audio and gameplay stay in
+the surrounding ordinary commands; standalone stages carry no cues.
 
 An inn may select a stable timeline ID through `InnOffer::presentation`; absent
 or null uses the optional `graphics.inn.presentation` project setting. The

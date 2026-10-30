@@ -608,6 +608,14 @@ transition cover. Explicit clear, failure, transfer and shutdown release owned
 sessions. Cinematic commands reject looping timelines, whose lifetime belongs
 to the map rather than a blocking command lane.
 
+`play_stage` is a registered field command for a standalone cue-free stage:
+`['type' => 'play_stage', 'stage' => 'transformation-dim', 'seconds' => 1.5]`.
+It uses the shared stage timeline/session and can run beside a field animation
+or sound lane. An explicit null stage background supports transparent overlays;
+the existing default remains opaque black. See
+[caller-owned stages](effect-animation.md#caller-owned-rest-stages-local-g4-foundation-october-7)
+for cover-only sources, Terminal timing and Editor authoring.
+
 Field timelines currently present glyph/text/image tracks and `playSound` cues.
 Terminal and graphical sequences may have independent timing, selected before
 image inspection. Both use the shared depth/clear composition rule. Reduced
