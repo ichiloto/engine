@@ -173,12 +173,24 @@ final class BattleCommandRunner
     }
     switch ($cue['payload']['phase']) {
       case 'source':
-        if ($this->playback->plan->summon === null) { $this->context->ui->hideMessage(); }
+        if ($this->playback->plan->summon === null && !$this->playback->plan->hasCinematicStages()) {
+          $this->context->ui->hideMessage();
+        }
+        if ($this->playback->plan->hasCinematicStage('source') && $this->context->ui->usesGraphicalField()) {
+          $this->hidControls = true;
+          $this->context->ui->hideControls();
+        }
         break;
       case 'target':
-        if ($this->playback->plan->cinematicStage === null) { break; }
+        if (!$this->playback->plan->hasCinematicStage('target')) {
+          if ($this->hidControls && $this->playback->plan->hasCinematicStage('source')) {
+            $this->context->ui->showControls();
+            $this->hidControls = false;
+          }
+          break;
+        }
       case 'summon-in':
-        if ($this->context->ui->usesGraphicalField()) {
+        if ($this->context->ui->usesGraphicalField() && !$this->hidControls) {
           $this->hidControls = true;
           $this->context->ui->hideControls();
         }

@@ -41,9 +41,29 @@ the current project source supplies crisis rules when the actor is reconstructed
 Battle condition badges project current crisis activation.
 
 Delivery is in progress. The initial implementation offers the technique within
-the existing Attack choices. Selected-opponent decoy counters use the shared
-prepared-response effect. The final secondary-command interaction, formation
-effects and integrated game presentation are still pending.
+the existing Attack choices; the final secondary-command interaction awaits
+Andrew's decision. Shared formation effects, selected-opponent prepared counters,
+guaranteed state application, protection piercing and ATB reset/Slow are delivered.
+Ordinary battle effects now support staged source and target cut-ins through the
+shared command lifecycle. Bespoke Awakening artwork, Editor stage controls for
+ordinary effects, persistent decoy presentation and integrated native acceptance
+remain open in the existing integration roadmap.
+
+## Staged action presentation
+
+An ordinary action's existing animation binding may select a source effect with
+an authored graphical `stage`, followed by its target effect. The battle profile
+of `EffectTimelineLibrary` validates the stage using the shared cinematic schema.
+Each lane owns its own fixed authored clock, safe reduced-motion frame, image
+segments, camera and covers. Source and target may both use stages. Stage images
+keep their authored canvas size independently of target-effect scaling.
+
+The announcement overlaps staged action playback. Controls hide for the cut-in
+and return for an ordinary target lane or at the command's return; interruption
+releases the same owned presentation. Rendering and stage inspection never
+resolve combat. The target impact policy still applies the action once. Paired
+Terminal timelines keep their own content and timing. Summon identities, costs,
+availability and legacy fades retain their existing owners.
 
 ## State-granting items
 

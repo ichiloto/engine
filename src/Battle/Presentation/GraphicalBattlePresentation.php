@@ -303,7 +303,7 @@ final class GraphicalBattlePresentation
     $stageFrame = $includeOptionalArtwork && $playback !== null && !$playback->isCompleted
       ? $playback->plan->getCinematicStageFrame($playback->session->currentFrame, $reducedMotion) : null;
     $stageCanvas = $stageFrame === null ? null : CinematicStagePresentation::compose($stageFrame,
-      $playback->plan->summon->playbackSegments, $this->assetRoot, $this->layout->width, $this->layout->height,
+      $playback->plan->getCinematicStageSegments($playback->session->currentFrame), $this->assetRoot, $this->layout->width, $this->layout->height,
       $imageFlips, $compositing);
     if ($stageFrame?->active) {
       // The cutscene owns the battlefield, while the action callout remains screen-space UI.

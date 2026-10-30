@@ -25,7 +25,12 @@ final readonly class BattleCommandTimeline
   /** @var array<string, list<array>> Original rest art, even when pacing skips that frame. */
   public array $restSegments;
   public ?SummonCompiledCutscene $summon;
+  /** Legacy target-stage access; source stages use the same lane-owned inspection methods below. */
   public ?CinematicStage $cinematicStage;
+  /** @var array<string, CinematicStage> Each effect lane owns its own stage and authored clock. */
+  private array $cinematicStages;
+  /** @var array<string, list<array>> Unshifted authored segments for each stage. */
+  private array $cinematicSegments;
   public ?CompiledEffectTimeline $terminalTarget;
   public array $terminalSegments;
   public ?EffectPlaybackTiming $terminalTiming;
@@ -48,6 +53,7 @@ final readonly class BattleCommandTimeline
       $length = max(1, (int)ceil($timings->statChanges * self::FPS));
       $this->summon = $this->terminalTarget = $this->terminalTiming = null;
       $this->cinematicStage = null;
+      $this->cinematicStages = $this->cinematicSegments = [];
       $this->sourceTiming = $this->targetTiming = null;
       $this->terminalSegments = [];
       $this->restFrames = $this->restSegments = [];
@@ -63,9 +69,16 @@ final readonly class BattleCommandTimeline
     }
     $cursor = 0;
     $this->summon = $target instanceof SummonCompiledCutscene ? $target : null;
-    $this->cinematicStage = isset($this->summon->defaults['stage'])
-      ? CinematicStage::fromArray($this->summon->defaults['stage'], $this->summon->defaults['lengthFrames'],
-        $this->summon->defaults['restFrame'] ?? 0) : null;
+    $stages = $stageSegments = [];
+    foreach (['source' => $source, 'target' => $target] as $lane => $effect) {
+      if (!is_array($effect?->defaults['stage'] ?? null)) { continue; }
+      $stages[$lane] = CinematicStage::fromArray($effect->defaults['stage'], $effect->defaults['lengthFrames'],
+        $effect->defaults['restFrame'] ?? 0);
+      $stageSegments[$lane] = $effect->playbackSegments;
+    }
+    $this->cinematicStages = $stages;
+    $this->cinematicSegments = $stageSegments;
+    $this->cinematicStage = $stages['target'] ?? null;
     $this->terminalTarget = $target?->hasTerminalContent ? null : $terminalTarget;
     $this->terminalSegments = array_map(
       static fn(array $segment): array => self::getAnchoredSegment($segment, $terminalTarget, 'target'),
@@ -137,11 +150,11 @@ final readonly class BattleCommandTimeline
           $cues[] = $cue;
         }
       }
-      // A summon starts casting as its callout appears. Reading time owns visibility,
-      // not a blocking beat before the cutscene; every authored lane keeps its own clock.
-      if ($phase !== 'announce' || $this->summon === null) { $cursor += $length; }
+      // Staged actions and summons start as their callout appears. Reading time
+      // owns visibility while each authored lane keeps its own clock.
+      if ($phase !== 'announce' || ($this->summon === null && $stages === [])) { $cursor += $length; }
     }
-    if ($this->summon !== null && $showAnnouncement) {
+    if (($this->summon !== null || $stages !== []) && $showAnnouncement) {
       $cues[] = ['id' => 'command-announcement-end', 'type' => 'commandAnnouncementEnd',
         'frame' => min($phases['announce']['start'] + $phases['announce']['length'], $phases['finish']['start']),
         'payload' => []];
@@ -174,8 +187,34 @@ final readonly class BattleCommandTimeline
   /** Inspection uses the same authored clock as stage images and combat cues. */
   public function getCinematicStageFrame(int $frame, bool $reducedMotion = false): ?CinematicStageFrame
   {
-    $authored = $this->getAuthoredFrameAtCommandFrame('target', $frame);
-    return $authored === null ? null : $this->cinematicStage?->getFrame($authored, $reducedMotion);
+    $lane = $this->getActiveCinematicLane($frame);
+    return $lane === null ? null : $this->cinematicStages[$lane]->getFrame(
+      $this->getAuthoredFrameAtCommandFrame($lane, $frame), $reducedMotion);
+  }
+
+  /** @return list<array> The active stage's original segments, using the same authored clock as its frame. */
+  public function getCinematicStageSegments(int $frame): array
+  {
+    $lane = $this->getActiveCinematicLane($frame);
+    return $lane === null ? [] : $this->cinematicSegments[$lane];
+  }
+
+  public function hasCinematicStage(string $lane): bool
+  {
+    return isset($this->cinematicStages[$lane]);
+  }
+
+  public function hasCinematicStages(): bool
+  {
+    return $this->cinematicStages !== [];
+  }
+
+  private function getActiveCinematicLane(int $frame): ?string
+  {
+    foreach ($this->cinematicStages as $lane => $stage) {
+      if ($this->getAuthoredFrameAtCommandFrame($lane, $frame) !== null) { return $lane; }
+    }
+    return null;
   }
 
   /** Boundaries never preview a cue early; fast authored frames may share a command tick. */

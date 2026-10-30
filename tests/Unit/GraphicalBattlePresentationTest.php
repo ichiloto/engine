@@ -2634,3 +2634,31 @@ it('places a newly occupied logical front position within the themed side and ar
     ->and($moved->y)->toBeGreaterThanOrEqual($presentation->getStaging()->ground->top)->toBeLessThanOrEqual($presentation->getStaging()->ground->bottom)
     ->and(graphicalCombatantImage($presentation->frame(), $enemies[0]))->not->toBeNull();
 });
+
+
+it('composes an ordinary source-stage cut-in through the actual battle renderer without a summon binding', function () {
+  [$battle, $catalog, $hero] = graphicalBattleFixture();
+  $source = ['fps' => 10, 'lengthFrames' => 5, 'restFrame' => 1,
+    'stage' => ['canvas' => ['width' => 320, 'height' => 180], 'startFrame' => 0, 'restoreFrame' => 4,
+      'camera' => [['id' => 'wide', 'frame' => 0, 'focus' => ['x' => 160, 'y' => 90], 'zoom' => 1]]],
+    'tracks' => [['id' => 'portrait', 'type' => 'image', 'asset' => 'test-sprite.png', 'anchor' => 'stage',
+      'placement' => ['position' => ['x' => 160, 'y' => 160], 'size' => ['width' => 32, 'height' => 48]],
+      'keyframes' => [['frame' => 0, 'duration' => 4]]]]];
+  $compiled = new \Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator($this->root)
+    ->compile('ordinary-stage', $source, forBattle: true);
+  $plan = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline(
+    new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, .5, .1, .1, .1, .1, .1), source: $compiled);
+  $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $hero, [],
+    BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $field = graphicalBattleScene($battle, $presentation)->ui->fieldWindow;
+  $field->setCommandPlayback($playback);
+  $tick = $plan->getCommandFrameForAuthoredFrame('source', 1);
+  $playback->update($tick / \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline::FPS);
+  $canvas = $presentation->frame($field);
+  expect($plan->summon)->toBeNull()
+    ->and(array_column($canvas->images, 'id'))->toContain('cinematic-stage-portrait')->not->toContain('arena')
+    ->and($playback->presentationFailure)->toBeNull();
+  $playback->cancel();
+  expect(array_column($presentation->frame($field)->images, 'id'))->toContain('arena');
+});

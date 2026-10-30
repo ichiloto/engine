@@ -4344,3 +4344,37 @@ Runtime tests need ordinary, reduced-motion and legal-skip paths, matching
 terminal presentations and scene-specific native observation. Source inspection,
 headless tests and art previews are distinct evidence, not interchangeable
 proof of complete gameplay or platform support.
+
+
+### Ordinary battle-action cut-ins — shared Engine delivery, 30 October 2026
+
+Ordinary battle effects can now author the existing `stage` descriptor through
+`EffectTimelineLibrary` with battle admission. A skill's existing animation
+source-effect binding selects its cut-in; its target-effect binding selects the
+battlefield impact. No Summon registration or game-owned cinematic runner is
+required. Source and target lanes each retain their original stage segments and
+fixed authored clock. Shared validation covers resource decoding, placements,
+camera/covers, safe rest frames and bounded source data. Field-only effects and
+caller-owned standalone stages retain their separate admission contracts.
+
+The command announcement overlaps stage playback. The normal battle renderer
+selects the stage belonging to the active lane, preserves the screen-space
+announcement, and restores the battlefield/controls through the existing command
+lifecycle. Source-only cut-ins restore controls for a normal target effect;
+consecutive source/target stages share one control lease. Cancellation releases
+that lease. Combat remains one target-owned resolution, and inspection/rendering
+cannot execute it. Paired Terminal content remains independent; normal and
+reduced-motion stages use the same impact policy. Existing Summon stage and
+legacy cover behavior remains covered by focused regressions.
+
+Editor follow-up owned by Claude on return: expose the existing stage
+camera/cover/subject/image-placement controls for ordinary battle effects through
+the shared source-preserving effect authoring, validation and undo/redo paths.
+Do not create a second stage schema. Verify flat and paired sources and the
+existing animation source/target pickers against Engine runtime selection.
+Art is preparing the ten authored Awakening move/form variants against this
+contract; no bespoke action art or native final acceptance is claimed by this
+Engine delivery. Persistent state/reaction-owned shadow-decoy visuals and the
+newly exposed land-footing/full-body clearance limitation remain separate open
+Engine follow-ups. Actual current findings are retained in Game's 0158 action
+brief and 0242 clearance receipt in the agent channel.

@@ -22,7 +22,7 @@ final class EffectTimelineValidator
     if ($forStage && ($forBattle || $forSummon)) {
       throw new InvalidArgumentException('Standalone stage admission is independent of battle and summon profiles.');
     }
-    $acceptsStage = $forSummon || $forStage;
+    $acceptsStage = $forBattle || $forSummon || $forStage;
     EffectTimelineLibrary::assertId($id);
     if (is_array($data) && array_key_exists('presentations', $data)) {
       $variants = $data['presentations'];
