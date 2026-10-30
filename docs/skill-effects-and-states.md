@@ -34,6 +34,13 @@ technique checks current activation, form and actor ownership again before
 presentation and expenditure. The skill's ordinary effect and resource contracts
 perform the action.
 
+Acquisition presentation reads `CrisisAbility::getUnlockedSkill()` to resolve
+the current form's actual technique independently of temporary HP/state
+activation. It uses the same variant conditions and skill catalog as combat.
+`getAvailableSkill()` additionally requires current activation. Neither query
+changes HP, MP, learned skills or saved state. This lets a power-reveal notice
+name an unlocked technique while the actor is healthy.
+
 The Editor's Crisis Abilities category authors these records and variants;
 the actor page selects their stable resource IDs. Skill and state references
 use the shared pickers. Actor saves keep mutable resources and persistent states;

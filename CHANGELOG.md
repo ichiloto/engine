@@ -25,6 +25,10 @@
 
 ### Added
 
+- A read-only crisis-technique acquisition query resolves the current unlocked
+  form independently of temporary battle activation, sharing combat's source
+  conditions and catalog without changing resources or saves.
+
 - Deterministic position variants for corner-sheet terrain, with variant rows
   derived from the current PNG. Shared corners select the same source row;
   retained-world composition and pixel inspection use those same choices.

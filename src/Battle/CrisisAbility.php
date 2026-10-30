@@ -90,11 +90,23 @@ final readonly class CrisisAbility
     return false;
   }
 
-  /** Resolve current form through the shared world predicates; overlapping forms are an authoring error. */
+  /** The current form's technique, available only while live HP or states activate it. */
   public function getAvailableSkill(Character $actor, ?GameState $gameState = null, ?Party $party = null,
     ?SkillCatalog $catalog = null): ?Skill
   {
     if (!$this->isActive($actor)) { return null; }
+    return $this->getUnlockedSkill($actor, $gameState, $party, $catalog);
+  }
+
+  /**
+   * Resolve the technique granted by current form predicates independently of
+   * its temporary battle activation. Acquisition UI reads this same source;
+   * it does not grant a skill, change resources or persist derived availability.
+   * Overlapping forms remain an authoring error.
+   */
+  public function getUnlockedSkill(Character $actor, ?GameState $gameState = null, ?Party $party = null,
+    ?SkillCatalog $catalog = null): ?Skill
+  {
     $selected = null;
     foreach ($this->variants as $variant) {
       if ($variant['conditions'] !== [] && ($gameState === null

@@ -108,6 +108,30 @@ it('keeps guarded form variants unavailable without world context', function () 
   expect($ability->getAvailableSkill(crisisTestActor($ability)))->toBeNull();
 });
 
+it('resolves the unlocked form for acquisition presentation independently of battle activation', function () {
+  withCrisisTestProject(function () {
+    $ability = CrisisAbility::fromArray(crisisTestData(['variants' => [
+      ['skill' => 'Test finisher', 'conditions' => [['type' => 'variable', 'name' => 'form', 'value' => 'first']]],
+      ['skill' => 'Second form', 'conditions' => [['type' => 'variable', 'name' => 'form', 'value' => 'second']]],
+    ]]));
+    $actor = crisisTestActor($ability); $actor->stats->currentHp = 100;
+    $state = new GameState(); $before = $actor->toArray();
+    expect($ability->getUnlockedSkill($actor))->toBeNull()
+      ->and($ability->getUnlockedSkill($actor, $state))->toBeNull();
+    $state->setVariable('form', 'first');
+    expect($ability->getUnlockedSkill($actor, $state)->name)->toBe('Test finisher')
+      ->and($ability->getAvailableSkill($actor, $state))->toBeNull()
+      ->and($actor->toArray())->toBe($before);
+    $state->setVariable('form', 'second');
+    expect($ability->getUnlockedSkill($actor, $state)->name)->toBe('Second form')
+      ->and($ability->getAvailableSkill($actor, $state))->toBeNull()
+      ->and($actor->stats->currentMp)->toBe(7);
+    $actor->stats->currentHp = 9;
+    expect($ability->getAvailableSkill($actor, $state)->name)->toBe('Second form')
+      ->and($actor->stats->currentMp)->toBe(7);
+  });
+});
+
 it('executes an eligible crisis technique through the normal skill effect and MP contract', function () {
   withCrisisTestProject(function () {
     $skill = new SpecialSkill('Paid finisher', 'Synthetic combat effect.', '', 3, 0,
