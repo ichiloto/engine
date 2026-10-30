@@ -170,6 +170,33 @@ final class TerminalText
     return array_map(static fn(array $cell): string => $cell['prefix'] . $cell['symbol'] . $cell['suffix'], self::parseSourceCells($text));
   }
 
+  /**
+   * Composes one literal source cell inside its independently owned style.
+   * Formatter delimiters and a trailing backslash must never become markup
+   * or escape a generated closing tag. For those literals, Symfony resolves
+   * the style to equivalent ANSI boundaries while the glyph stays literal.
+   * This uses the existing formatter grammar without changing its escaping.
+   */
+  public static function composeSourceCell(string $symbol, string $prefix = '', string $suffix = ''): string
+  {
+    if (preg_match('/\A\X\z/u', $symbol) !== 1 || preg_match('/[\x00-\x1f\x7f]/u', $symbol) === 1) {
+      throw new \InvalidArgumentException('A source cell contains one printable literal grapheme.');
+    }
+    if (strpbrk($symbol, '<>\\') === false) { return $prefix . $symbol . $suffix; }
+
+    $formatter = clone self::getFormatter();
+    $formatter->getStyleStack()->reset();
+    $marker = "\u{E000}";
+    $parts = explode($marker, $formatter->format($prefix . $marker . $suffix));
+    if (count($parts) !== 2 || preg_replace(self::ANSI_PATTERN, '', $parts[0] . $parts[1]) !== '') {
+      throw new \InvalidArgumentException('A source cell style contains unsupported literal text or controls.');
+    }
+    // Even an unstyled delimiter needs a boundary, so adjacent cells cannot
+    // accidentally join into a formatter tag or escape one another's tags.
+    return ($parts[0] === '' ? Color::RESET->value : $parts[0]) . $symbol
+      . ($parts[1] === '' ? Color::RESET->value : $parts[1]);
+  }
+
   /** @return list<array{symbol: string, prefix: string, suffix: string}> Exact source parts for shared authoring consumers. */
   public static function parseSourceCells(string $text): array
   {
@@ -181,7 +208,7 @@ final class TerminalText
       self::$formatter->getStyleStack()->reset();
       if ($expected === []) { return []; }
       $ansi = substr(self::ANSI_PATTERN, 1, -1);
-      preg_match_all('/' . $ansi . '|<[^<>]*>|\X/u', $text, $matches, PREG_OFFSET_CAPTURE);
+      preg_match_all('/' . $ansi . '|<[^<>\x1b]*>|\X/u', $text, $matches, PREG_OFFSET_CAPTURE);
       $frames = $stack = $cells = [];
       $controls = '';
       $hasAnsi = false;
@@ -236,7 +263,8 @@ final class TerminalText
       $controls .= $ansiClose;
       $result = [];
       foreach ($cells as $index => $cell) {
-        if ($hasAnsi && $cell['frames'] === [] && ($expected[$index] ?? null) === self::stripAnsi($expected[$index] ?? '')) {
+        if ($hasAnsi && $cell['frames'] === [] && strpbrk($cell['glyph'], '<>\\') === false
+          && ($expected[$index] ?? null) === self::stripAnsi($expected[$index] ?? '')) {
           $prefix = $suffix = '';
         } elseif ($hasAnsi) {
           // Replay authored controls, plus any missing closing boundary.

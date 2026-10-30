@@ -37,6 +37,17 @@ unclassified images retain obstruction checks on their ground rows. Ground art
 covering solid physical cells still exposes invisible walls. This diagnostic
 annotation never changes physical occupancy, rendering, events or saves.
 
+## Literal source cells
+
+`TerminalText::composeSourceCell($symbol, $prefix, $suffix)` composes a literal
+grapheme with its independent style. Use it when authoring glyphs; concatenating
+a styled backslash directly before a formatter closing tag changes its meaning.
+For formatter delimiters and backslashes the helper resolves the existing style
+to equivalent ANSI boundaries, retaining literal glyph bytes without NULs or a
+second escape grammar. Regular source style spelling remains unchanged.
+`parseSourceCells` and `getSourceSymbols` keep those boundaries independently
+composable, including literal characters that would otherwise form a tag.
+
 ## Grid source format
 
 ### Named local areas
