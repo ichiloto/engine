@@ -25,6 +25,10 @@
 
 ### Added
 
+- Deterministic position variants for corner-sheet terrain, with variant rows
+  derived from the current PNG. Shared corners select the same source row;
+  retained-world composition and pixel inspection use those same choices.
+
 - Persistent named placements for real NPCs. `commit_npc_placement` commits only a
   physically reached, clear destination and preserves it through cinematic
   cleanup and save/reload. Current source owns geometry, headings and bed exits;

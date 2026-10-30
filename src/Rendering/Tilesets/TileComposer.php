@@ -87,15 +87,20 @@ final class TileComposer
    * whose corner holds none of the kind (case 0) draws nothing.
    *
    * @param int $cases The cell's four corner cases, packed as {@see CornerShape::resolveLayer()} gives them.
+   * @param list<int> $variants Four source rows, normally {@see CornerSheet::getCellVariants()}.
    * @return list<list<TilePiece>> The animation frames, each the pieces copied into the cell's tile.
    */
-  public static function composeCorners(CornerSheet $sheet, int $cases, int $tileSize): array
+  public static function composeCorners(CornerSheet $sheet, int $cases, int $tileSize, array $variants = [0, 0, 0, 0]): array
   {
     if ($cases < 1 || $cases > 0xFFFF) {
       throw new InvalidArgumentException("Corner cases {$cases} name no corner of the kind.");
     }
     if ($tileSize < 2 || $tileSize % 2 !== 0) {
       throw new InvalidArgumentException('Tiles are composed from quarter tiles, so their size must be even.');
+    }
+    if (!array_is_list($variants) || count($variants) !== 4
+      || array_any($variants, static fn(mixed $variant): bool => !is_int($variant) || $variant < 0 || $variant >= $sheet->variants)) {
+      throw new InvalidArgumentException('Corner variants must be four integer source rows within the current sheet.');
     }
     $half = intdiv($tileSize, 2);
     $frames = [];
@@ -110,7 +115,8 @@ final class TileComposer
         // The corner tile's quarter that faces this cell: a cell's top left is its corner tile's bottom right.
         $facing = 3 - $quarter;
         $pieces[] = new TilePiece($sheet->key, ($phase * CornerSheet::COLUMNS + $column) * $tileSize + $facing % 2 * $half,
-          $row * $tileSize + intdiv($facing, 2) * $half, $half, $half, $quarter % 2 * $half, intdiv($quarter, 2) * $half);
+          ($variants[$quarter] * CornerSheet::ROWS + $row) * $tileSize + intdiv($facing, 2) * $half,
+          $half, $half, $quarter % 2 * $half, intdiv($quarter, 2) * $half);
       }
       $frames[] = $pieces;
     }

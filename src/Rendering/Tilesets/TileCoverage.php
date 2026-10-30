@@ -64,7 +64,7 @@ final class TileCoverage
    *   ({@see CornerShape::resolveLayer()}).
    * @return array{tileSize: ?int, uncoveredPixels: ?int, diagnostic: ?string}
    */
-  public function findUncovered(array $stack, array $corners = []): array
+  public function findUncovered(array $stack, array $corners = [], int $x = 0, int $y = 0): array
   {
     if (!array_is_list($stack)) {
       throw new InvalidArgumentException('Tile coverage stack must be a list of tile identities.');
@@ -89,7 +89,7 @@ final class TileCoverage
         : $this->readMasks($tileId);
     }
     foreach ($corners as [$tile, $cases]) {
-      $results[] = $this->readCornerMasks($tile, $cases);
+      $results[] = $this->readCornerMasks($tile, $cases, $x, $y);
     }
     $covered = str_repeat("\0", $this->tileSize * $this->tileSize);
     foreach ($results as $result) {
@@ -119,7 +119,7 @@ final class TileCoverage
   }
 
   /** @return array{frames: ?list<string>, diagnostic: ?string} */
-  private function readCornerMasks(int $tile, int $cases): array
+  private function readCornerMasks(int $tile, int $cases, int $x, int $y): array
   {
     if (!in_array($tile, $this->tileset->getCornerTiles(), true)) {
       throw new InvalidArgumentException("Tile {$tile} is not a corner-edged kind's autotile for pixel inspection.");
@@ -130,10 +130,12 @@ final class TileCoverage
       return ['frames' => null, 'diagnostic' => "Tile pixel inspection unavailable: tileset {$this->tileset->id} has no usable corner sheet for tile {$tile}."];
     }
     if (!isset($this->sheets[$sheet->key]) && !isset($this->sheetDiagnostics[$sheet->key])) {
-      $this->readSheet($sheet->key, $sheet->asset, $this->tileSize * CornerSheet::COLUMNS * $sheet->phases, $this->tileSize * CornerSheet::ROWS);
+      $this->readSheet($sheet->key, $sheet->asset, $this->tileSize * CornerSheet::COLUMNS * $sheet->phases,
+        $this->tileSize * CornerSheet::ROWS * $sheet->variants);
     }
-    return $this->readComposedMasks("corners:{$tile}:{$cases}", "corner tile {$tile}",
-      fn(): array => TileComposer::composeCorners($sheet, $cases, $this->tileSize));
+    $variants = $sheet->getCellVariants($x, $y);
+    return $this->readComposedMasks("corners:{$tile}:{$cases}:" . implode(',', $variants), "corner tile {$tile}",
+      fn(): array => TileComposer::composeCorners($sheet, $cases, $this->tileSize, $variants));
   }
 
   /**

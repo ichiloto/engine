@@ -407,8 +407,10 @@ final class PresentationWorld
                     $wireSheets[] = $sheet->asset;
                     $bytes += strlen($sheet->asset);
                 }
-                $tile = $addTile("corners:{$flag}:{$cases}:{$shiftX}:{$shiftY}", $shiftX, $shiftY,
-                    static fn(): array => TileComposer::composeCorners($sheet, $cases, $size));
+                $variants = $sheet->getCellVariants($x, $y);
+                $variantKey = implode(',', $variants);
+                $tile = $addTile("corners:{$flag}:{$cases}:{$shiftX}:{$shiftY}:{$variantKey}", $shiftX, $shiftY,
+                    static fn(): array => TileComposer::composeCorners($sheet, $cases, $size, $variants));
                 $band = $graphics->tileset->isAbove($flag) ? 'above' : 'below';
                 $cornerBands[$band][$sheet->kind][$y] = ($cornerBands[$band][$sheet->kind][$y] ?? '') . pack('vv', $x, $tile);
                 $bytes += self::TILE_CELL_SOURCE_BYTES;

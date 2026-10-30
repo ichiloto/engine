@@ -15,12 +15,46 @@ stair-stepped. The contract and its reasons are in
 - A still kind (sand, grass, road) has one phase: 192 x 192.
 - Animated water has three phases side by side: 576 x 192. The game cycles
   them 0, 1, 2, 1, one step every half second, as RPG Maker A1 water.
+- Variants stack complete phase strips vertically. Two still variants are
+  192 x 384; two animated variants are 576 x 384. Every row uses the same
+  case layout and matching tile edges. Existing single-row sheets retain
+  their original appearance.
 
 The Engine reads the phases and tile size from the image, so replacing the
 file needs nothing else. Bind it in Database > Tilesets > Terrain Kinds >
 Corner Sheet. Kinds that should flow into each other, such as a river, a
 lake and the sea, name one group in Joins on the same row: where they meet
 there is no bank, so draw each sheet's banks only for meeting land.
+
+## Position variants and Editor inspection
+
+`CornerSheet::read()` derives `phases` from width and `variants` from height
+at the current tileset tile size. The existing `art.corners` PNG binding is
+the source declaration; there is no duplicated variant-count field to update
+when artwork changes. Generic PNG dimension and file-size limits apply.
+
+`CornerSheet::getCellVariants(x, y)` returns four row indices in cell-quarter
+order. A stable SHA-256 hash of decimal corner coordinates selects each row.
+All four cells meeting a corner select the same variant for that corner;
+otherwise cutting four different drawings into quarters could break a seam.
+Each cell can therefore contain quarters from several compatible variant rows.
+The selection uses neither time, process randomness, asset filename nor saved
+state. Replacing artwork preserves the selection when its row count stays the
+same; changing that count changes presentation alone. Collision, terminal
+glyphs, events and save geometry remain owned by the map.
+
+The Editor can display the derived count beside its PNG picker and preview
+each case against each variant row. `TileComposer::composeCorners(sheet,
+cases, tileSize, variants)` accepts four explicit indices; pass four copies of
+one index to inspect that row, or use `getCellVariants()` for a map preview.
+The normal runtime emits ordinary tile-piece source rectangles. GPUI receives
+the selected source rows through its existing retained-world tile protocol.
+
+Pixel inspection must use the same map coordinates:
+`TileCoverage::findUncovered(stack, cornerShares, x, y)`. Callers caching these
+verdicts must include the selected variant combinations in their key, or avoid
+sharing a verdict between different positions. Animation phases remain separate
+from variants and retain the 0, 1, 2, 1 cycle within the selected row.
 
 ## What a tile is
 

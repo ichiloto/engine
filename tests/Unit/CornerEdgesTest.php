@@ -62,13 +62,18 @@ final class CornerEdgesFixture
     return [$case * 16 + $quarter, 40 + $phase * 60, 200, $opaque ? 255 : 0];
   }
 
-  public static function createRoot(int $phases = 3): string
+  public static function createRoot(int $phases = 3, int $variants = 1): string
   {
     $root = createTestDirectory('ichiloto-corner-edges-');
     foreach (['A1', 'A2'] as $sheet) {
       self::writePng("{$root}/Graphics/{$sheet}.png", 16 * self::SIZE, 12 * self::SIZE, static fn(): array => [90, 140, 60, 255]);
     }
-    self::writePng($root . '/' . self::WATER_SHEET, $phases * 4 * self::SIZE, 4 * self::SIZE, self::getCornerPixel(...));
+    self::writePng($root . '/' . self::WATER_SHEET, $phases * 4 * self::SIZE, $variants * 4 * self::SIZE,
+      static function (int $x, int $y): array {
+        $pixel = self::getCornerPixel($x, $y % (4 * self::SIZE));
+        $pixel[2] -= intdiv($y, 4 * self::SIZE) * 20;
+        return $pixel;
+      });
     self::writePng($root . '/' . self::SAND_SHEET, 4 * self::SIZE, 4 * self::SIZE, self::getCornerPixel(...));
     return $root;
   }
@@ -536,3 +541,81 @@ it('still draws a kind outside the join group with its own edge against the grou
   expect(CornerShape::resolveLayer($layer, $tileset->getCornerTiles(), $joins))
     ->toBe(CornerShape::resolveLayer($layer, $tileset->getCornerTiles(), []));
 });
+
+it('reads variant rows from replaceable artwork while preserving horizontal animation phases', function () {
+  $root = CornerEdgesFixture::createRoot(phases: 3, variants: 2);
+  $kind = CornerEdgesFixture::createTileset()->kinds['water'];
+  $sheet = CornerSheet::read($kind, $root, CornerEdgesFixture::SIZE);
+  expect($sheet->variants)->toBe(2)->and($sheet->phases)->toBe(3);
+  foreach ([[1, 1], [3, 3], [1, 2]] as [$phases, $variants]) {
+    CornerEdgesFixture::writePng($root . '/' . CornerEdgesFixture::WATER_SHEET, $phases * 32, $variants * 32,
+      static fn(int $x, int $y): array => CornerEdgesFixture::getCornerPixel($x, $y % 32));
+    $replacement = CornerSheet::read($kind, $root, 8);
+    expect($replacement->phases)->toBe($phases)->and($replacement->variants)->toBe($variants);
+  }
+});
+
+it('selects repeatable position variants shared by all four cells meeting a corner', function () {
+  $sheet = new CornerSheet('water', CornerEdgesFixture::WATER, 'replaceable.png', 1, 5);
+  $seen = [];
+  for ($y = -4; $y < 8; $y++) {
+    for ($x = -4; $x < 8; $x++) {
+      $here = $sheet->getCellVariants($x, $y);
+      $right = $sheet->getCellVariants($x + 1, $y); $below = $sheet->getCellVariants($x, $y + 1);
+      $diagonal = $sheet->getCellVariants($x + 1, $y + 1);
+      expect($here[1])->toBe($right[0])->and($here[2])->toBe($below[0])
+        ->and($here[3])->toBe($right[2])->toBe($below[1])->toBe($diagonal[0])
+        ->and((new CornerSheet('renamed', CornerEdgesFixture::WATER, 'moved.png', 3, 5))->getCellVariants($x, $y))->toBe($here);
+      foreach ($here as $variant) { $seen[$variant] = true; }
+    }
+  }
+  expect(count($seen))->toBe(5);
+});
+
+it('uploads varied corner sources through ordinary retained tile pieces without changing animation or glyphs', function () {
+  $root = CornerEdgesFixture::createRoot(phases: 3, variants: 2);
+  $tileset = CornerEdgesFixture::createTileset(); $rows = array_fill(0, 6, str_repeat('~', 8));
+  $world = CornerEdgesFixture::createWorld($root, $tileset, $rows);
+  $again = CornerEdgesFixture::createWorld($root, $tileset, $rows);
+  expect($world->getOperations(true))->toBe($again->getOperations(true))->and($world->animated)->toBeTrue();
+  $value = $world->operations[0]['value']; $sheet = CornerSheet::read($tileset->kinds['water'], $root, 8);
+  $cells = CornerEdgesFixture::getLayerCells($world, 'tiles:water:corners:water'); $seen = [];
+  foreach ($cells as $y => $row) {
+    foreach ($row as $x => $index) {
+      $frames = $value['tileset']['tiles'][$index]['frames'];
+      expect(count($frames))->toBe(4);
+      $variants = $sheet->getCellVariants($x, $y);
+      foreach ($frames as $frame => $pieces) {
+        foreach ($pieces as $quarter => $piece) {
+          $variant = intdiv($piece['y'], 32); $seen[$variant] = true;
+          expect($variant)->toBe($variants[$quarter])
+            ->and(intdiv($piece['x'], 32))->toBe(TileComposer::WATER_FRAMES[$frame]);
+        }
+      }
+    }
+  }
+  expect(count($seen))->toBe(2)->and($tileset->kinds['water']->glyph)->toBe('<fg=blue>~</>');
+});
+
+it('inspects the selected source variants and caches distinct position combinations separately', function () {
+  if (!function_exists('imagecreatefrompng')) { $this->markTestSkipped('Tile pixel inspection needs PHP GD.'); }
+  $root = CornerEdgesFixture::createRoot(phases: 1, variants: 2);
+  CornerEdgesFixture::writePng($root . '/' . CornerEdgesFixture::WATER_SHEET, 32, 64,
+    static fn(int $x, int $y): array => [0, 0, 0, $y < 32 ? 255 : 0]);
+  $tileset = CornerEdgesFixture::createTileset(); $sheet = CornerSheet::read($tileset->kinds['water'], $root, 8);
+  $coverage = new TileCoverage($tileset, $root); $counts = [];
+  for ($y = 0; $y < 5; $y++) {
+    for ($x = 0; $x < 5; $x++) {
+      $expected = 16 * count(array_filter($sheet->getCellVariants($x, $y), static fn(int $v): bool => $v === 1));
+      $result = $coverage->findUncovered([], [[CornerEdgesFixture::WATER, 0xFFFF]], $x, $y);
+      expect($result['diagnostic'])->toBeNull()->and($result['uncoveredPixels'])->toBe($expected);
+      $counts[$expected] = true;
+    }
+  }
+  expect(count($counts))->toBeGreaterThan(1);
+});
+
+it('refuses invalid explicit variant selections before composing source rectangles', function (array $variants) {
+  $sheet = new CornerSheet('water', CornerEdgesFixture::WATER, 'replaceable.png', 1, 2);
+  expect(fn() => TileComposer::composeCorners($sheet, 0xFFFF, 8, $variants))->toThrow(InvalidArgumentException::class, 'variants');
+})->with([[[]], [[0, 0, 0]], [[0, 0, 0, 2]], [[0, 0, 0, -1]], [[0, 0, 0, '1']], [['a' => 0, 0, 0, 0]]]);
