@@ -46,8 +46,12 @@ final class MapAtlasDocument
         foreach ($this->source['worldObjects'] as $object) { $variants[]=[$object->isAvailable($state,$party),$object->selectVariant($state,$party)['id']]; }
         $key=serialize($variants);
         if ($this->world!==null && $key===$this->worldState) { return $this->world; }
-        $coverage=[]; $subjects=[];
+        $coverage=[]; $subjects=[]; $tiles=[];
         foreach ($this->source['worldObjects'] as $object) {
+            if (!$object->isAvailable($state,$party)) { continue; }
+            foreach ($object->tilePresentation as $name=>$rows) {
+                foreach ($rows as $y=>$cells) { $tiles[$name][$y]=($tiles[$name][$y] ?? [])+$cells; }
+            }
             $subject=$this->createSubject($object,$state,$party);
             if ($subject!==null) { $subjects[]=$subject; }
             foreach ($object->coverage as $kind=>$names) {
@@ -57,7 +61,7 @@ final class MapAtlasDocument
                 }
             }
         }
-        $world=PresentationWorld::getFromLayers($this->source['layers'],'atlas-world',$this->source['graphics'],$this->assetRoot,$coverage);
+        $world=PresentationWorld::getFromLayers($this->source['layers'],'atlas-world',$this->source['graphics'],$this->assetRoot,$coverage,tileCells: $tiles);
         $this->world=$world; $this->subjects=$subjects; $this->worldState=$key;
         return $world;
     }

@@ -1646,3 +1646,123 @@ it('refuses attachments outside staged visuals, off world objects, with offsets 
         // The inline fixture has no resource, so it declares no attachment.
         ->and(fn() => $this->scene->cinematicStage->add($staged))->toThrow(RuntimeException::class);
 });
+
+
+it('presents a closed passage exactly as an ordinary autotiled wall and restores floor and shadows after opening', function () {
+    writeTestPng($this->root . '/assets/Graphics/walls.png', 32, 30);
+    $base = createWorldObjectPreparedMap([]);
+    $tileset = Tileset::fromArray('disguises', ['name' => 'Synthetic wall disguise',
+        'sheets' => ['B' => 'Graphics/tiles.png', 'A4' => 'Graphics/walls.png'], 'above' => [5888],
+        'shadows' => ['casters' => ['A4'], 'width' => .5, 'opacity' => .35]]);
+    $makeGraphics = static fn(string $middle): MapGraphics => new MapGraphics($tileset, [
+        $base->graphics->layers[0],
+        new MapTileLayer('objects', 10, 'walls', "0 0 0 0\n5888 {$middle} 0 0\n0 0 0 0"),
+    ], owners: ['floor' => 'ground', 'objects' => 'fixtures']);
+    $graphics = $makeGraphics('0');
+    $entry = ['id' => 'hidden-wall', 'anchor' => ['x' => 1, 'y' => 1], 'pivot' => ['x' => .5, 'y' => 1],
+        'tiles2d' => ['objects' => [['x' => 1, 'y' => 1, 'tile' => 5888]]],
+        'terminal' => '|', 'conditions' => [['type' => 'map_event', 'name' => 'synthetic/room', 'marker' => 'P', 'negate' => true]]];
+    $data = [...$base->data, 'worldObjects' => [$entry]];
+    $definitions = WorldObjectDefinition::readMap($data, $base->layers, $graphics);
+    $prepared = new PreparedMap($data, $base->tiles, $base->collisions, [], [], [], $base->layers, $graphics, $definitions);
+    $manager = $this->scene->mapManager;
+    $manager->applyPreparedMap($prepared, $this->scene->player);
+    $physical = [$manager->tileMap, $manager->getCollisionGrid()];
+    $object = $manager->findWorldObject('hidden-wall');
+    expect($object->definition->sprites)->toBeNull()->and($object->getTerminalSymbol())->toBe('|');
+    $tileRows = static fn(PresentationWorld $world): array => array_values(array_filter($world->getOperations(true, true),
+        static fn(array $operation): bool => $operation['op'] === 'worldTiles'));
+    $atlas = new \Ichiloto\Engine\Field\MapAtlasDocument('synthetic/room', [
+        'worldObjects' => $definitions, 'layers' => $base->layers, 'graphics' => $graphics,
+    ], new \Ichiloto\Engine\Field\MapOverview($manager->tileMap),
+        \Ichiloto\Engine\Field\MapLandmarkCatalog::readMap([], $manager->tileMap), $this->root . '/assets');
+    $ordinaryWall = PresentationWorld::getFromLayers($base->layers, 'map', $makeGraphics('5888'), $this->root . '/assets');
+    $closed = $manager->getPresentationWorld();
+    expect($tileRows($closed))->toBe($tileRows($ordinaryWall));
+    $shadowColumns = static function (PresentationWorld $world) use ($tileRows): array {
+        $columns = [];
+        foreach ($tileRows($world) as $operation) {
+            if (!str_ends_with($operation['layerId'], ':shadows')) { continue; }
+            foreach ($operation['rows'] as $row) { foreach ($row['cells'] as $cell) { $columns[] = [$row['row'], $cell['column']]; } }
+        }
+        return $columns;
+    };
+    expect($shadowColumns($closed))->toBe([[1, 2]]);
+    // Sensing changes the cue's eligibility, while the disguise remains until Action completes.
+    $this->scene->gameState->setSwitch('sense');
+    expect($manager->getPresentationWorld())->toBe($closed);
+    $this->scene->cinematicStage->add(['id' => 'wall-reveal',
+        'subject' => ['kind' => 'world_object', 'id' => 'hidden-wall'],
+        'sprites2d' => ['asset' => 'Graphics/glow.png']]);
+    $floor = PresentationWorld::getFromLayers($base->layers, 'map', $graphics, $this->root . '/assets');
+    expect($tileRows($manager->getPresentationWorld()))->toBe($tileRows($floor));
+    $this->scene->cinematicStage->remove('wall-reveal');
+    expect($manager->getPresentationWorld())->toBe($closed);
+    $atlasClosed = $atlas->getPresentationWorld($this->scene->gameState, $this->scene->party);
+    $event = \Ichiloto\Engine\Events\Triggers\EventTriggerFactory::create([
+        'class' => \Ichiloto\Engine\Events\Triggers\PassageEventTrigger::class, 'marker' => 'P',
+        'area' => ['cells' => [[1, 1]]], 'engagement' => 'facing', 'data' => ['mode' => 'action', 'reusable' => false],
+    ], 'synthetic/room');
+    $event->bind($this->scene->gameState);
+    expect($event->getEntryRefusal(new Vector2(2, 1), new Vector2(1, 1)))->toBe('');
+    $event->complete();
+    $opened = $manager->getPresentationWorld();
+    $floor = PresentationWorld::getFromLayers($base->layers, 'map', $graphics, $this->root . '/assets');
+    expect($opened)->not->toBe($closed)->and($tileRows($opened))->toBe($tileRows($floor))
+        ->and($shadowColumns($opened))->toBe([[1, 1]])
+        ->and($object->isVisible())->toBeFalse()->and($object->getTerminalSymbol())->toBeNull()
+        ->and($event->getEntryRefusal(new Vector2(2, 1), new Vector2(1, 1)))->toBeNull()
+        ->and([$manager->tileMap, $manager->getCollisionGrid()])->toBe($physical);
+    $atlasOpen = $atlas->getPresentationWorld($this->scene->gameState, $this->scene->party);
+    expect($shadowColumns($atlasClosed))->toBe([[1, 2]])->and($shadowColumns($atlasOpen))->toBe([[1, 1]]);
+    $saved = GameState::fromArray($this->scene->gameState->toArray());
+    new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene, $saved);
+    expect($manager->getPresentationWorld())->toBe($opened)->and($saved->isEventComplete('synthetic/room', 'P'))->toBeTrue();
+    new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene, new GameState());
+    expect($tileRows($manager->getPresentationWorld()))->toBe($tileRows($closed))
+        ->and($object->getTerminalSymbol())->toBe('|');
+    unlink($this->root . '/assets/Graphics/walls.png');
+    $manager->applyPreparedMap($prepared, $this->scene->player);
+    expect($manager->getPresentationWorld()->getGlyphCells())->toContain(
+        ['x' => 1, 'y' => 1, 'glyph' => '|', 'layerId' => 'map:fixtures']);
+});
+
+it('restores authored tile coverage when a conditional object is unavailable and preserves explicit absent variants', function () {
+    $entry = createWorldObjectSource(['conditions' => [['type' => 'switch', 'name' => 'visible']]]);
+    $prepared = createWorldObjectPreparedMap([$entry]);
+    $manager = $this->scene->mapManager;
+    $manager->applyPreparedMap($prepared, $this->scene->player);
+    $tileRows = static fn(PresentationWorld $world): array => array_values(array_filter($world->getOperations(true),
+        static fn(array $operation): bool => $operation['op'] === 'worldTiles'));
+    $base = PresentationWorld::getFromLayers($prepared->layers, 'map', $prepared->graphics, $this->root . '/assets');
+    expect($tileRows($manager->getPresentationWorld()))->toBe($tileRows($base))
+        ->and($manager->findWorldObject('fixture')->hidesOwnedGlyphs())->toBeFalse();
+    $this->scene->gameState->setSwitch('visible');
+    $present = $tileRows($manager->getPresentationWorld());
+    expect($present)->not->toBe($tileRows($base));
+    $this->scene->gameState->setSwitch('removed');
+    expect($manager->findWorldObject('fixture')->getGraphicalSpriteDefinition())->toBeNull()
+        ->and($tileRows($manager->getPresentationWorld()))->toBe($present);
+    $this->scene->gameState->setSwitch('visible', false);
+    expect($tileRows($manager->getPresentationWorld()))->toBe($tileRows($base));
+});
+
+it('validates tile object layer identity map footprint and bounded distinct ownership before installation', function () {
+    $base = createWorldObjectPreparedMap([]);
+    $entry = ['id' => 'tiles-only', 'anchor' => ['x' => 1, 'y' => 1], 'pivot' => ['x' => .5, 'y' => 1],
+        'tiles2d' => ['objects' => [['x' => 1, 'y' => 1, 'tile' => 2]]]];
+    $read = static fn(array $objects): array => WorldObjectDefinition::readMap(['worldObjects' => $objects], $base->layers, $base->graphics);
+    $objects = $read([$entry]);
+    expect($objects[0]->tilePresentation)->toBe(['objects' => [1 => [1 => 2]]])
+        ->and($objects[0]->sprites)->toBeNull();
+    foreach ([null, 1, [['x' => 1]], ['missing' => [['x' => 1, 'y' => 1, 'tile' => 2]]],
+        ['objects' => []], ['objects' => [['x' => 2, 'y' => 1, 'tile' => 2]]],
+        ['objects' => [['x' => 1, 'y' => 1, 'tile' => -1]]],
+        ['objects' => [['x' => 1, 'y' => 1, 'tile' => '2']]],
+        ['objects' => [['x' => 1, 'y' => 1, 'tile' => 2], ['x' => 1, 'y' => 1, 'tile' => 3]]],
+        ['objects' => [['x' => 1, 'y' => 1, 'tile' => 2, 'collision' => true]]]] as $invalid) {
+        expect(fn() => $read([[...$entry, 'tiles2d' => $invalid]]))->toThrow(InvalidArgumentException::class);
+    }
+    expect(fn() => $read([$entry, [...$entry, 'id' => 'other']]))->toThrow(InvalidArgumentException::class)
+        ->and(fn() => $read([createWorldObjectSource(), [...$entry, 'id' => 'overlap']]))->toThrow(InvalidArgumentException::class);
+});

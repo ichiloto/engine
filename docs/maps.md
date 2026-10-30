@@ -225,6 +225,40 @@ floor walkable and use the event as the closed-access owner. Runtime preparation
 and Editor validation refuse permanently blocked floor under an opening passage.
 Artwork replacement never changes physical occupancy.
 
+For a wall disguise, use the wall's tile identity in `tiles2d`. Available object
+tiles replace the corresponding graphical layer cells before neighbour shaping,
+custom corner joins and tileset shadows are computed. The field and map overview
+use this same composition. The object can omit `sprites2d` when it supplies tiles:
+
+```php
+'worldObjects' => [[
+  'id' => 'concealed-wall',
+  'anchor' => ['x' => 4, 'y' => 3],
+  'pivot' => ['x' => .5, 'y' => 1],
+  'tiles2d' => ['walls' => [['x' => 4, 'y' => 3, 'tile' => 5888]]],
+  'conditions' => [['type' => 'map_event', 'name' => 'house/hall', 'marker' => 'P', 'negate' => true]],
+  'terminal' => '|',
+]],
+```
+
+`tiles2d` names existing graphical layers and lists absolute map `x`, `y` and
+integer `tile` identities. Zero clears a tile. Every cell must belong to the
+object's explicit `covers.cells` footprint, or its anchor when `covers` is
+omitted. The total limit is 256 tile contributions per object; duplicate claims
+and overlapping ownership between objects are refused. Contributions may share
+the same object's covered source cells. Declared layer identities are validated
+even when optional artwork is unavailable; terminal presentation remains usable.
+
+An unavailable object contributes no tiles and no longer suppresses its covered
+source tiles or glyphs. An available object's explicit null sprite variant keeps
+its source coverage, preserving authored removal states. Opening the passage
+retires its tile disguise; the underlying floor and neighbouring shadows are
+recomposed from the same saved completion. Staging an object temporarily
+suppresses its tile contribution through the existing cinematic ownership.
+No new renderer capability is required: composed tiles and shadows use the
+existing retained-world protocol. Shared Editor tile selection and source
+round trips are tracked in the rendering integration roadmap.
+
 For a secret minimap passage, anchor an explicit `kind => 'passage'` landmark to
 this event, set `secret => true`, and use its `map_event` completion as the
 `revealConditions`. The same completion controls route access. Undescribed

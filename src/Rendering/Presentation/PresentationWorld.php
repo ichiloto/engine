@@ -170,7 +170,7 @@ final class PresentationWorld
     }
 
     public static function getFromLayers(MapLayerSet $layers, string $id = 'map', ?MapGraphics $graphics = null,
-        string $assetRoot = '', array $coverage = [], array $terminalCells = []): self
+        string $assetRoot = '', array $coverage = [], array $terminalCells = [], array $tileCells = []): self
     {
         // Every input is immutable. Artwork bytes are cache invalidation facts, never game identity or admission gates.
         $facts = [];
@@ -184,16 +184,16 @@ final class PresentationWorld
                 $facts[$asset] = hash_file('sha256', $assetRoot . DIRECTORY_SEPARATOR . $asset);
             } catch (RuntimeException $error) { $facts[$asset] = ['unavailable' => $error->getMessage()]; }
         }
-        $key = 'world:' . hash('sha256', serialize([$layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $facts,
+        $key = 'world:' . hash('sha256', serialize([$layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells, $facts,
             TerminalCapabilities::supportsCompositeEmoji()]));
         if (($cached = MapCompilationCache::find($key)) instanceof self) { return $cached; }
-        $world = self::compileFromLayers($layers, $id, $graphics, $assetRoot, $coverage, $terminalCells);
+        $world = self::compileFromLayers($layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells);
         MapCompilationCache::store($key, $world, $world->estimatedSourceBytes);
         return $world;
     }
 
     private static function compileFromLayers(MapLayerSet $layers, string $id, ?MapGraphics $graphics,
-        string $assetRoot, array $coverage, array $terminalCells): self
+        string $assetRoot, array $coverage, array $terminalCells, array $tileCells): self
     {
         $grid = $layers->getComposedGrid();
         foreach ($terminalCells as $y => $row) {
@@ -254,7 +254,7 @@ final class PresentationWorld
                 'layer' => PresentationLayerPolicy::getMapLayerOrder($layer),
                 'kind' => $layer->decoration ? 'decoration' : 'gameplay'];
         }
-        $tiles = $graphics === null ? null : self::getTilePresentation($graphics, $layers, $assetRoot, $coverage['tiles'] ?? []);
+        $tiles = $graphics === null ? null : self::getTilePresentation($graphics, $layers, $assetRoot, $coverage['tiles'] ?? [], $tileCells);
         if ($tiles !== null) {
             $metadata = [...$metadata, ...$tiles['layers']];
             $estimatedBytes += $tiles['bytes'];
@@ -308,7 +308,7 @@ final class PresentationWorld
      * @return array{tileset: array<string, mixed>, layers: list<array<string, mixed>>, rows: array<string, array<int, string>>, bytes: int, animated: bool, covers: array<string, string>, shadows: array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, rows: array<string, array<int, string>>}|null}|null
      */
     private static function getTilePresentation(MapGraphics $graphics, MapLayerSet $mapLayers, string $assetRoot,
-        array $coveredCells = []): ?array
+        array $coveredCells = [], array $tileCells = []): ?array
     {
         $gameplayIds = [];
         foreach ($mapLayers->layers as $mapLayer) {
@@ -325,11 +325,12 @@ final class PresentationWorld
         $bytes = array_sum(array_map(strlen(...), $wireSheets));
         $animated = false;
         $layers = $rows = $covers = [];
-        // A layer's rows as shown, one at a time: covered cells hold nothing.
-        $readShown = static function (MapTileLayer $layer) use ($coveredCells): \Generator {
+        // One shown row: remove owned source art, then present currently available object tiles.
+        $readShown = static function (MapTileLayer $layer) use ($coveredCells, $tileCells): \Generator {
             for ($y = 0; $y < $layer->height; $y++) {
                 $row = $layer->getRowTiles($y);
                 foreach ($coveredCells[$layer->name][$y] ?? [] as $x => $_) { $row[$x] = TileId::EMPTY; }
+                foreach ($tileCells[$layer->name][$y] ?? [] as $x => $tile) { $row[$x] = $tile; }
                 yield $y => $row;
             }
         };
@@ -337,7 +338,7 @@ final class PresentationWorld
         $cornerJoins = $graphics->tileset->getCornerJoins();
         $cornerLayers = [];
         $cornerSheets = $cornerTiles === [] ? [] : $graphics->tileset->getUsableCornerSheets($assetRoot, $size,
-            self::getShownCornerTiles($graphics->layers, $coveredCells, $cornerTiles, $cornerLayers));
+            self::getShownCornerTiles($graphics->layers, $readShown, $cornerTiles, $cornerLayers));
         // Tiles share many pieces (an autotile's quarters recur across its shapes); equal pieces share one array.
         $shared = [];
         $addTile = static function (string $key, int $shiftX, int $shiftY, callable $compose)
@@ -454,20 +455,20 @@ final class PresentationWorld
      * The corner-edged kinds' autotiles the map shows, so only their sheets are read and sent.
      *
      * @param list<MapTileLayer> $layers
-     * @param array<string, array<int, array<int, mixed>>> $coveredCells Cells that show nothing, by tile layer name.
+     * @param callable(MapTileLayer): Generator $readShown Source coverage and current object tiles applied before shaping.
      * @param list<int> $cornerTiles
      * @param array<string, true> $shownOn Set to the names of the layers that show any.
      * @return list<int>
      */
-    private static function getShownCornerTiles(array $layers, array $coveredCells, array $cornerTiles, array &$shownOn): array
+    private static function getShownCornerTiles(array $layers, callable $readShown, array $cornerTiles, array &$shownOn): array
     {
         $found = $flags = [];
         foreach ($layers as $layer) {
-            for ($y = 0; $y < $layer->height; $y++) {
-                foreach ($layer->getRowTiles($y) as $x => $tileId) {
+            foreach ($readShown($layer) as $y => $row) {
+                foreach ($row as $x => $tileId) {
                     // Each tile identity's corner-edged kind, or false for none, is read once.
                     $flag = $flags[$tileId] ??= CornerShape::isCornerTile($tileId, $cornerTiles) ? TileId::getFlagId($tileId) : false;
-                    if ($flag !== false && !isset($coveredCells[$layer->name][$y][$x])) {
+                    if ($flag !== false) {
                         $found[$flag] = true;
                         $shownOn[$layer->name] = true;
                     }

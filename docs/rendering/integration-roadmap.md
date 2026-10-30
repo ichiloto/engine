@@ -4338,7 +4338,12 @@ saved map-event completion, conditionally concealed world objects and optional
 proximity cues in both presentations. Shared Editor authoring and source round
 trips accompany the runtime contract; Game integration and native acceptance
 remain separate from the synthetic interaction and reload checks. See
-[Opening passages](../maps.md#opening-passages).
+[Opening passages](../maps.md#opening-passages). Available world objects can now contribute `tiles2d` to existing tile layers
+before autotile shaping and shadow generation, including the map overview.
+Unavailable objects no longer suppress covered source presentation. Claude owns
+Editor layer/tile selection and source-preserving save/undo for this field;
+Golden Inn migration and closed/open visual acceptance follow the Engine change.
+The retained-world tile/shadow protocol is unchanged.
 
 Runtime tests need ordinary, reduced-motion and legal-skip paths, matching
 terminal presentations and scene-specific native observation. Source inspection,

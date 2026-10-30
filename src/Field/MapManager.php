@@ -581,7 +581,7 @@ class MapManager implements CanRenderAt
     $this->presentationWorld = null;
     try {
       $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, 'map', $this->graphics, $this->getAssetRoot(),
-        $projection['coverage'], $projection['terminal']);
+        $projection['coverage'], $projection['terminal'], $projection['tiles']);
     } catch (\Throwable $error) {
       // Unsupported world bounds keep the screen-space retained text path usable.
       Debug::warn('Retained map presentation is unavailable: ' . $error->getMessage());
@@ -705,13 +705,13 @@ class MapManager implements CanRenderAt
    * keeps its terminal glyph to the terminal: its sprite is its graphical
    * presentation, as an NPC's is.
    *
-   * @return array{coverage: array<string, array<string, array<int, array<int, true>>>>, terminal: array<int, array<int, string>>}
+   * @return array{coverage: array, terminal: array<int, array<int, string>>, tiles: array<string, array<int, array<int, int>>>}
    */
   private function getWorldObjectProjection(): array
   {
-    $coverage = $terminal = [];
+    $coverage = $terminal = $tiles = [];
     foreach ($this->getWorldObjects() as $object) {
-      if (!$object->isCurrent()) { continue; }
+      if (!$object->isVisible()) { continue; }
       $stage = $this->gameScene->cinematicStage;
       $hideGlyphs = ($stage?->suppresses($object) ?? false)
         ? $stage->hidesWorldObjectGlyphs($object) : $object->hidesOwnedGlyphs();
@@ -721,12 +721,17 @@ class MapManager implements CanRenderAt
           foreach ($rows as $y => $cells) { $coverage[$kind][$name][$y] = ($coverage[$kind][$name][$y] ?? []) + $cells; }
         }
       }
+      if (!($stage?->suppresses($object) ?? false)) {
+        foreach ($object->definition->tilePresentation as $name => $rows) {
+          foreach ($rows as $y => $cells) { $tiles[$name][$y] = ($tiles[$name][$y] ?? []) + $cells; }
+        }
+      }
       if ($hideGlyphs) { continue; }
       foreach ($object->getTerminalCells() as $y => $row) {
         foreach ($row as $x => $symbol) { $terminal[$y][$x] = $symbol; }
       }
     }
-    return ['coverage' => $coverage, 'terminal' => $terminal];
+    return ['coverage' => $coverage, 'terminal' => $terminal, 'tiles' => $tiles];
   }
 
   /**

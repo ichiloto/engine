@@ -149,6 +149,9 @@ final class WorldObject implements GraphicalSpriteProviderInterface
     /** Explicit absence is valid presentation state; unavailable art is not. */
     public function hidesOwnedGlyphs(): bool
     {
+        if (!$this->isVisible()) { return false; }
+        // Tile-layer coverage hides its own glyphs only when those tiles can actually draw.
+        if ($this->definition->tilePresentation !== [] && $this->definition->sprites === null) { return false; }
         if ($this->sign !== null) { return $this->getPresentationWorldCanvas() !== null; }
         if ($this->definition->resource !== null && $this->definition->sprites instanceof GraphicalSpriteDefinition) {
             return $this->getGraphicalSpriteDefinition() !== null;
