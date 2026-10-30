@@ -689,3 +689,14 @@ it('reads staged terrain dependencies for saved maps and reports failed readers 
   expect($failed->reports)->toBe([])
     ->and(implode(' ', reachabilityProblems($failed->getAllProblems())))->toContain('Staged terrain is invalid.');
 });
+
+
+it('checks talk reachability at every source-owned named NPC destination', function () {
+  $npc = reachabilityNpc(['id' => 'traveller', 'x' => 1, 'y' => 1,
+    'placements' => ['arrived' => ['x' => 2, 'y' => 3]]]);
+  $report = (new MapReachability('named', reachabilityGrid(['.....', '.....', '#####', '##.##', '#####']), npcs: [$npc]))
+    ->analyze([new ReachabilityEntrance(0, 0, 'entry')]);
+  expect($report->canSpeakTo(1, 1))->toBeTrue()->and($report->canSpeakTo(2, 3))->toBeFalse();
+  $problems = array_values(array_filter($report->problems, static fn($problem) => $problem->kind === ReachabilityProblemKind::UNREACHABLE_NPC));
+  expect($problems)->toHaveCount(1)->and($problems[0]->message)->toContain('(2, 3)');
+});

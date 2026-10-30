@@ -276,3 +276,25 @@ it('loads a map painted in terrain kinds with its kinds\' passage and encounter 
         chdir($workingDirectory);
     }
 });
+
+
+it('resolves saved named NPC destinations before installation and refuses blocked or overlapping current destinations', function () {
+    [$root, $paths, $grid, $manager, $scene] = createOccupancyLoadingFixture(text: "....\n....\n....");
+    new ReflectionProperty(GameScene::class, 'npcManager')->setValue($scene, new \Ichiloto\Engine\Field\NpcManager($scene));
+    $entry = ['id' => 'arriving', 'name' => 'Arriving', 'x' => 0, 'y' => 0,
+        'placements' => ['meeting' => ['x' => 3, 'y' => 1]]];
+    $data = ['id' => 'test/physical', 'npcs' => [$entry]];
+    file_put_contents($paths['data'], '<?php return ' . var_export($data, true) . ';');
+    $scene->gameState->setVariable(\Ichiloto\Engine\Field\NpcPlacementSet::getStateKey('test/physical', 'arriving'), 'meeting');
+    $prepared = $manager->prepareMap('test/physical');
+    expect((int)$prepared->npcs[0]->position->x)->toBe(3)
+        ->and((int)$prepared->npcs[0]->position->y)->toBe(1)->and($scene->npcManager->npcs)->toBe([]);
+    $data['npcs'][] = ['id' => 'other', 'name' => 'Other', 'x' => 3, 'y' => 1];
+    file_put_contents($paths['data'], '<?php return ' . var_export($data, true) . ';');
+    expect(fn() => $manager->prepareMap('test/physical'))->toThrow(InvalidArgumentException::class, 'overlaps');
+    $data['npcs'] = [$entry];
+    file_put_contents($paths['data'], '<?php return ' . var_export($data, true) . ';');
+    file_put_contents($grid, \Ichiloto\Engine\Field\MapGridSource::buildSource("....\n...#\n....", 'MAP'));
+    expect(fn() => $manager->prepareMap('test/physical'))->toThrow(InvalidArgumentException::class, 'clear physical floor')
+        ->and($scene->npcManager->npcs)->toBe([]);
+});

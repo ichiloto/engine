@@ -34,7 +34,7 @@ final class NpcBed
     public bool $isOccupied { get => $this->posture !== BedPosture::STANDING || $this->transitionActive; }
     public Vector2 $cell { get => new Vector2($this->objectDefinition->x + $this->attachment->cellX,
         $this->objectDefinition->y + $this->attachment->cellY); }
-    public Vector2 $exit { get => clone $this->standingExit; }
+    public Vector2 $exit { get => $this->npc->placementState?->position ?? clone $this->standingExit; }
 
     public function __construct(public readonly NpcBedDefinition $definition, private readonly Npc $npc,
         public readonly WorldObjectDefinition $objectDefinition, public readonly WorldObjectAttachment $attachment,

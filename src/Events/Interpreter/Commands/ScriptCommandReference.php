@@ -25,6 +25,8 @@ enum ScriptCommandReference: string
   case ACTOR = 'actor';
   /** A stable NPC identity from the map containing the script. */
   case NPC = 'npc';
+  /** A named destination declared by the selected NPC, including its default placement. */
+  case NPC_PLACEMENT = 'npc_placement';
   /** A group declared by the active cinematic's conversation. */
   case CONVERSATION_GROUP = 'conversation_group';
   /** A standalone, cue-free stage timeline admitted by EffectTimelineLibrary::loadStage(). */

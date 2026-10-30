@@ -328,6 +328,8 @@ class MapManager implements CanRenderAt
     }
     $eventTriggers = [];
     $mapId = strval($map['id'] ?? '');
+    $placementIssues = \Ichiloto\Engine\Field\Validation\MapNpcPlacementRule::inspect($mapId, $map, $collisions);
+    if ($placementIssues !== []) { throw new \InvalidArgumentException($placementIssues[0]->message); }
     $bedIssues = \Ichiloto\Engine\Field\Validation\MapBedRule::inspect($mapId, $map, $source['worldObjects'], $collisions);
     if ($bedIssues !== []) { throw new \InvalidArgumentException($bedIssues[0]->message); }
     foreach ($map['events'] ?? [] as $event) {

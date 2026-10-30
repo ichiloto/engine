@@ -204,7 +204,7 @@ final class MapPassageAgreementRule
         }
         foreach (is_array($data['npcs'] ?? null) ? $data['npcs'] : [] as $entry) {
             $npc = NpcPlacement::fromArray($entry);
-            if ($npc !== null) { $occupied[$npc->y][$npc->x] = true; }
+            if ($npc !== null) { foreach ($npc->getStandingCells() as [$x, $y]) { $occupied[$y][$x] = true; } }
         }
         $walkable = static fn(int $x, int $y): bool => isset($grid[$y][$x]) && !CollisionType::from($grid[$y][$x])->blocksMovement();
         $sealed = $seen = [];
@@ -278,7 +278,7 @@ final class MapPassageAgreementRule
         }
         foreach (is_array($data['npcs'] ?? null) ? $data['npcs'] : [] as $entry) {
             $npc = NpcPlacement::fromArray($entry);
-            if ($npc !== null) { $skipped[$npc->y][$npc->x] = true; }
+            if ($npc !== null) { foreach ($npc->getStandingCells() as [$x, $y]) { $skipped[$y][$x] = true; } }
         }
         return $skipped;
     }

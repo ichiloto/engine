@@ -148,7 +148,8 @@ final class MapEventSpeakerRule
     /** @return list<array{int, int}>|null Where a page may stand: its cell, its whole wander area, or null when it wanders freely. */
     private static function getStandingCells(NpcPlacement $page): ?array
     {
-        if (!$page->wanders) { return [[$page->x, $page->y]]; }
+        if (!$page->wanders) { return $page->placements === null ? [[$page->x, $page->y]]
+            : array_map(static fn(array $position): array => [$position['x'], $position['y']], array_values($page->placements->placements)); }
         if ($page->wanderArea === null) { return null; }
         $cells = [];
         ['x' => $x, 'y' => $y, 'width' => $width, 'height' => $height] = $page->wanderArea;

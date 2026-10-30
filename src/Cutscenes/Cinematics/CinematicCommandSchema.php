@@ -169,6 +169,16 @@ final class CinematicCommandSchema
         'speaker' => 'name remains authored display text; existing catalog speaker aliases resolve artwork identity',
         'missingArtwork' => 'existing expression, Neutral and base-role fallback; no required portrait',
       ],
+      'npcPlacements' => [
+        'mapField' => 'npcs[].placements',
+        'reader' => \Ichiloto\Engine\Field\NpcPlacementSet::class,
+        'fields' => \Ichiloto\Engine\Field\NpcPlacementSet::FIELDS,
+        'defaultId' => \Ichiloto\Engine\Field\NpcPlacementSet::DEFAULT,
+        'command' => 'commit_npc_placement',
+        'pickerScope' => 'Select current map NPC, then one of that NPC placements or default.',
+        'persistence' => 'Saved stable placement id; current authored cells/facing resolve at load.',
+        'commit' => 'Real subject must already occupy that clear destination; commit never teleports.',
+      ],
       'skitPlayback' => [
         'command' => 'play_skit',
         'referenceField' => 'skit',

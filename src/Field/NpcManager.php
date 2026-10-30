@@ -63,7 +63,10 @@ class NpcManager
     $ids = [];
 
     foreach (array_values($entries) as $index => $entry) {
-      $placement = NpcPlacement::fromArray($entry);
+      if (is_array($entry) && array_key_exists('placements', $entry) && !isset($this->gameScene->gameState)) {
+        throw new RuntimeException('Named NPC placements require the current world state.');
+      }
+      $placement = NpcPlacement::fromArray($entry, isset($this->gameScene->gameState) ? $this->gameScene->gameState : null, $mapId);
 
       if ($placement === null) {
         continue;
@@ -107,10 +110,14 @@ class NpcManager
         assetRoot: $graphicalSprites === null ? null
           : ($this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets'),
         directionFix: ($entry['directionFix'] ?? false) === true,
-        facing: self::readFacing($entry),
+        facing: $placement->placements === null ? self::readFacing($entry)
+          : $placement->placements->placements[$placement->placements->readSelection($this->gameScene->gameState, $mapId, $id)]['facing'],
       );
       if (isset($this->gameScene->gameState)) {
         $npc->bind($mapId, $this->gameScene->gameState, $this->gameScene->party);
+      }
+      if ($placement->placements !== null) {
+        $npc->bindPlacementState(new NpcPlacementState($placement->placements, $npc, $this->gameScene->gameState, $mapId, $id));
       }
       if (array_key_exists('bed', $entry)) {
         if (!isset($this->gameScene->gameState)) { throw new RuntimeException('NPC beds require the current world state.'); }
@@ -123,7 +130,25 @@ class NpcManager
       $npcs[] = $npc;
     }
 
+    $this->validatePreparedPlacements($npcs);
     return $npcs;
+  }
+
+  /** Current saved choices may not install overlapping real NPCs. */
+  private function validatePreparedPlacements(array $npcs): void
+  {
+    if (!array_any($npcs, static fn(Npc $npc): bool => $npc->placementState !== null)) { return; }
+    $claims = [];
+    foreach ($npcs as $npc) {
+      if (!$this->conditionsHold($npc->conditions)) { continue; }
+      $key = (int)$npc->position->x . ':' . (int)$npc->position->y;
+      foreach ($claims[$key] ?? [] as $other) {
+        if ($npc->placementState !== null || $other->placementState !== null) {
+          throw new InvalidArgumentException('A saved NPC placement overlaps another present NPC; correct current source or migrate its selection.');
+        }
+      }
+      $claims[$key][] = $npc;
+    }
   }
 
   /**

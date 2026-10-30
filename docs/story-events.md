@@ -825,3 +825,50 @@ id and a non-empty list of beats with string text, then checks those playback
 fields. A malformed file, duplicate id or PHP loading failure raises an error
 naming the file and reason. Silent skipping and duplicate-id overwrites have
 been removed. A missing Skits directory still means the project has no Skits.
+
+
+### Persistent real-NPC placements
+
+A real NPC may declare named `placements` alongside its ordinary root x/y:
+
+```php
+'id' => 'guide', 'name' => 'Guide', 'x' => 2, 'y' => 3, 'facing' => 'south',
+'placements' => [
+  'after-arrival' => ['x' => 8, 'y' => 5, 'facing' => 'west'],
+],
+```
+
+The root coordinates are the reserved `default` placement. Each name selects
+current physical x/y and optional cardinal facing; omitted facing inherits the
+root heading. Names require stable NPC identity. Source preflight checks every
+destination against resolved physical floor. Static reachability checks talking
+at every authored destination. Saves store only the selected name, so current
+source geometry remains authoritative after map edits.
+
+Route the real NPC through the existing movement system, then run:
+
+```php
+['type' => 'commit_npc_placement', 'npc' => 'guide', 'placement' => 'after-arrival'],
+```
+
+The command verifies the same present map/NPC identity, exclusive movement
+ownership, reached destination, physical floor and current occupants. It commits
+one existing GameState variable `npc-placement:<encoded map>:<encoded NPC>` and
+updates only that subject's cinematic restore baseline. It never teleports.
+Cancelled routes leave the prior saved selection and existing transform lease
+intact. Later cleanup after a successful commit retains the committed transform.
+Map reload resolves the selected name and current heading; missing saved names,
+removed placement catalogs and overlapping present NPCs raise explicit source or
+migration errors before map installation. Select `default` after physically
+returning there to commit the root placement.
+
+A bed occupant must stand before committing a standing destination. Its named
+placement then owns the current standing exit used on a later bed transition;
+the bed's physical attachment remains independent. Placement commands preserve
+ordinary NPC identity, pages, presence, movement and artwork. Named placements
+change physical field position equally in Terminal and graphical presentation.
+
+Editor authoring consumes `CinematicCommandSchema::export()['npcPlacements']`:
+select a current-map NPC, then one of that NPC's names or `default` through the
+`npc_placement` reference picker. Preserve PHP source, validation and undo. Editor
+controls and Game scene binding remain their owners' integration work.

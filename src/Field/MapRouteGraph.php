@@ -102,7 +102,7 @@ final readonly class MapRouteGraph
         foreach (array_unique(self::findTransferDestinations($script, $assetRoot, $visited)) as $destination) {
           if ($destination === $mapId) { continue; }
           $routes[] = new MapRoute($mapId, $destination, '@npc:' . $placement->id,
-            CellArea::fromCells([[$placement->x, $placement->y]]), [...$placement->conditions, ...$page->conditions], true,
+            CellArea::fromCells($placement->getStandingCells()), [...$placement->conditions, ...$page->conditions], true,
             npcId: $placement->id, npcPage: $page->index);
         }
       }

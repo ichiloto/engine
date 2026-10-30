@@ -61,6 +61,9 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterface
 {
   public private(set) ?NpcBed $bed = null;
+  public private(set) ?NpcPlacementState $placementState = null;
+
+  public function bindPlacementState(NpcPlacementState $state): void { $this->placementState = $state; }
 
   public function bindBed(NpcBed $bed): void
   {

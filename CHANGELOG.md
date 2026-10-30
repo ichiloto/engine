@@ -21,6 +21,12 @@
 
 ### Added
 
+- Persistent named placements for real NPCs. `commit_npc_placement` commits only a
+  physically reached, clear destination and preserves it through cinematic
+  cleanup and save/reload. Current source owns geometry, headings and bed exits;
+  missing saved names and conflicting occupants fail preflight. Shared Editor
+  reference/schema and reachability checks cover every authored destination.
+
 - Saved, real NPC bed occupants with lying/sitting/standing postures, occupied-bed
   Terminal glyphs, inherited cinematic poses and layered base/body/cover canvases.
   Blocked exits and interruptions preserve state; movement and wandering are

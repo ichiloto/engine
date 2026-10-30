@@ -4107,6 +4107,12 @@ shared gameplay identity, existing data and source-safe round trips.
 
 ## Dialogue And Skits
 
+Real NPC named placements and explicit reached-destination commits now preserve
+successful scene arrivals through cleanup and reload, with current authored
+geometry, physical preflight and existing subject-lease ownership. Missing saved
+placement identities require explicit migration. Editor source-preserving picker
+controls, Game scene wiring and complete scene/player qualification remain open.
+
 `SkitPlaybackDefinition::fromArray` now owns authored trigger/SFX reading for
 runtime and Editor consumers. Skit loading raises file-specific errors for
 malformed definitions, parse failures and duplicate ids. Silent skips and

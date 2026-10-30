@@ -51,7 +51,7 @@ final readonly class SourceFieldWaymarkLocator implements FieldWaymarkLocatorInt
   {
     foreach (is_array($data['npcs'] ?? null) ? $data['npcs'] : [] as $entry) {
       $placement = NpcPlacement::fromArray($entry);
-      if ($placement?->id === $id) { return [new FieldWaymarkAnchor(new Vector2($placement->x, $placement->y))]; }
+      if ($placement?->id === $id) { return array_map(static fn(array $cell): FieldWaymarkAnchor => new FieldWaymarkAnchor(new Vector2(...$cell)), $placement->getStandingCells()); }
     }
     return [];
   }

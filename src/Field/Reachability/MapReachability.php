@@ -178,8 +178,10 @@ final readonly class MapReachability
     $spokenTo = [];
 
     foreach ($this->npcs as $npc) {
-      if ($this->isSpokenToFrom($npc, $reachable)) {
-        $spokenTo[self::key($npc->x, $npc->y)] = true;
+      foreach ($npc->getStandingCells() as [$x, $y]) {
+        if (array_any($this->getTalkCellsAt($npc, $x, $y), static fn(array $cell): bool => isset($reachable[self::key(...$cell)]))) {
+          $spokenTo[self::key($x, $y)] = true;
+        }
       }
     }
 
@@ -429,11 +431,12 @@ final readonly class MapReachability
         continue;
       }
 
-      if (! $report->canSpeakTo($npc->x, $npc->y)) {
-        $problems[] = new ReachabilityProblem($this->mapId, ReachabilityProblemKind::UNREACHABLE_NPC,
-          sprintf('NPC %s at (%d, %d) can never be spoken to: no reachable cell is beside it or directly across one counter cell from it.',
-            $npc->name, $npc->x, $npc->y),
-          $npc->x, $npc->y);
+      foreach ($npc->getStandingCells() as [$x, $y]) {
+        if (! $report->canSpeakTo($x, $y)) {
+          $problems[] = new ReachabilityProblem($this->mapId, ReachabilityProblemKind::UNREACHABLE_NPC,
+            sprintf('NPC %s at (%d, %d) can never be spoken to: no reachable cell is beside it or directly across one counter cell from it.',
+              $npc->name, $x, $y), $x, $y);
+        }
       }
     }
 
@@ -455,13 +458,18 @@ final readonly class MapReachability
   /** @return list<array{int, int}> Cells from which the player speaks to this NPC, beside it or across one counter cell. */
   private function getTalkCells(NpcPlacement $npc): array
   {
-    $occupied = [];
+    return $this->getTalkCellsAt($npc, $npc->x, $npc->y);
+  }
+
+  private function getTalkCellsAt(NpcPlacement $npc, int $targetX, int $targetY): array
+  {
+    $occupied = [self::key($targetX, $targetY) => true];
 
     foreach ($this->npcs as $other) {
-      $occupied[self::key($other->x, $other->y)] = true;
+      if ($other !== $npc && $other->placements === null) { $occupied[self::key($other->x, $other->y)] = true; }
     }
 
-    return InteractionReach::findTalkCells($npc->x, $npc->y,
+    return InteractionReach::findTalkCells($targetX, $targetY,
       fn(int $x, int $y): bool => ($this->collisions[$y][$x] ?? null) === CollisionType::COUNTER->value,
       static fn(int $x, int $y): bool => isset($occupied[self::key($x, $y)]));
   }

@@ -36,6 +36,18 @@ final class MapCompletenessValidator
         ?MapGraphics $graphics, string $assetRoot, callable $resolveInventoryReference,
         ?FieldPresentationCatalog $fieldCatalog = null, bool $requiresGraphics = false, ?MapPhysicalOccupancy $occupancy = null): array
     {
+        if (array_any(is_array($data['npcs'] ?? null) ? $data['npcs'] : [], static fn(mixed $npc): bool => is_array($npc) && array_key_exists('placements', $npc))) {
+            try {
+                if ($occupancy === null && array_key_exists(MapPhysicalOccupancy::DATA_KEY, $data)) {
+                    $occupancy = new MapPhysicalOccupancy($data[MapPhysicalOccupancy::DATA_KEY], $layers);
+                }
+                if ($occupancy === null) { throw new InvalidArgumentException('NPC placement preflight requires resolved physical occupancy.'); }
+                $placementIssues = MapNpcPlacementRule::inspect($mapId, $data, $occupancy->collisionGrid);
+                if ($placementIssues !== []) { return $placementIssues; }
+            } catch (InvalidArgumentException|RuntimeException $error) {
+                return [new MapValidationIssue($mapId, MapNpcPlacementRule::RULE, $error->getMessage(), path: ['npcs'])];
+            }
+        }
         $issues = self::validateEvents($mapId, $data, $eventLayer);
         $issues = [...$issues, ...self::validateDoorways($mapId, $data, $eventLayer, $layers, $assetRoot, $fieldCatalog, $graphics)];
         foreach (is_array($data['events'] ?? null) ? $data['events'] : [] as $key => $event) {

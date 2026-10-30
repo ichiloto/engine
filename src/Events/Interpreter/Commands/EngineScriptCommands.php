@@ -221,5 +221,15 @@ final class EngineScriptCommands
         ['key' => 'seconds', 'label' => 'Transition Seconds', 'kind' => 'number', 'minimum' => 0, 'maximum' => 30],
       ],
     ],
+    [
+      'type' => 'commit_npc_placement',
+      'class' => CommitNpcPlacementCommand::class,
+      'label' => 'Commit NPC Placement',
+      'description' => 'Saves a named placement after the real NPC physically reaches it; reload uses current authored geometry.',
+      'fields' => [
+        ['key' => 'npc', 'label' => 'NPC', 'kind' => 'reference', 'reference' => 'npc', 'required' => true],
+        ['key' => 'placement', 'label' => 'Placement', 'kind' => 'reference', 'reference' => 'npc_placement', 'required' => true],
+      ],
+    ],
   ];
 }
