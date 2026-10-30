@@ -135,6 +135,7 @@ final class CinematicStageManager
       assetRoot: $subject !== null || $graphicalSprites instanceof CharacterSheet || $graphicalSprites instanceof FieldPoseAnimation
         ? $this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() : null,
       attachment: $attachment,
+      hasAuthoredFacing: CinematicFacing::isDeclared($entry) || ($independentActor?->hasAuthoredFacing ?? false),
     );
     if ($this->animationPaused) { $actor->pauseGraphicalAnimation(); }
     ($this->actors[$id] ?? null)?->releaseVisual();

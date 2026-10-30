@@ -4107,6 +4107,15 @@ shared gameplay identity, existing data and source-safe round trips.
 
 ## Dialogue And Skits
 
+Field conversational facing is implemented through
+`presentation.conversation`: explicit display-speaker bindings select current
+player/NPC/staged subjects, and text plus ordinary dialogue pages share one
+turn-taking path. Listeners face the speaker; addressee selection and authored
+facing overrides retain scene direction. Existing real-subject leases restore
+interrupted turns. Editor pickers/source-preserving edits, Game bindings and
+native/player confirmation remain pending. The in-bed occupant, covers,
+persistence and posture transitions remain a separate open Engine dependency.
+
 Shared `DialogueSnapshot` composition now presents the current TextBox page,
 typing cursor, speaker and Auto state without changing playback ownership.
 `Data/Presentation/dialogue.php` binds a replaceable dialogue theme, explicit

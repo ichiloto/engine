@@ -89,6 +89,11 @@ final class CinematicScriptValidator
     } catch (InvalidArgumentException $error) {
       throw self::failure($cinematicId, "$path/emotion", $error->getMessage());
     }
+    try {
+      CinematicConversation::validateLine($command);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, "$path/facing", $error->getMessage());
+    }
   }
 
   /** @param array<string, mixed> $command */

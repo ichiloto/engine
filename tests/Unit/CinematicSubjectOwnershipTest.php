@@ -225,6 +225,144 @@ function subjectOwnershipDefinition(array $commands = [], array $data = []): Cin
     $commands ?: [['type' => 'wait', 'seconds' => 10]]);
 }
 
+function subjectConversation(array $extra = []): array
+{
+  return array_replace(['speakers' => ['Hero' => ['kind' => 'player'],
+    'Guide' => ['kind' => 'staged_actor', 'id' => 'guide-look']]], $extra);
+}
+
+it('exports constrained conversation references and rejects malformed bindings before a cinematic starts', function (array $conversation) {
+  expect(fn() => subjectOwnershipDefinition([['type' => 'wait', 'seconds' => 1]],
+    ['presentation' => ['conversation' => $conversation]]))->toThrow(InvalidArgumentException::class);
+  expect(CinematicCommandSchema::export()['conversationFacing']['subjectKinds'])->toBe(['player', 'npc', 'staged_actor']);
+})->with([
+  'empty speakers' => [['speakers' => []]],
+  'unsupported subject' => [['speakers' => ['Hero' => ['kind' => 'world_object', 'id' => 'table']]]],
+  'missing subject id' => [['speakers' => ['Guide' => ['kind' => 'npc']]]],
+  'unknown addressee' => [subjectConversation(['addressees' => ['Hero' => 'Unknown']])],
+  'self addressee' => [subjectConversation(['addressees' => ['Hero' => 'Hero']])],
+  'unknown facing speaker' => [subjectConversation(['facing' => ['Unknown' => ['facing' => 'west']]])],
+  'invalid fixed facing' => [subjectConversation(['facing' => ['Guide' => ['facing' => 'sideways']]])],
+]);
+
+it('leaves an active route in charge of headings and refuses competing authored turns before changing other participants', function () {
+  $this->stage->configure([['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]]);
+  $session = $this->scene->eventInterpreter->start([['type' => 'wait', 'seconds' => 10]]);
+  $session->claimMovementSubject($this->player);
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, subjectConversation());
+  $conversation->prepareLine('Hero');
+  expect($this->player->heading)->toBe(MovementHeading::SOUTH)->and($this->npc->heading)->toBe(MovementHeading::WEST);
+  $this->npc->face(new Vector2(0, 1));
+  expect(fn() => $conversation->prepareLine('Hero', ['facing' => 'north']))->toThrow(RuntimeException::class);
+  expect($this->player->heading)->toBe(MovementHeading::SOUTH)->and($this->npc->heading)->toBe(MovementHeading::SOUTH);
+  $session->releaseMovementSubject($this->player);
+  $conversation->prepareLine('Hero');
+  expect($this->player->heading)->toBe(MovementHeading::EAST);
+});
+
+it('turns a staged speaker and its listener on the real text boundary and restores their headings after interruption', function () {
+  $cast = [['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]];
+  $definition = subjectOwnershipDefinition([['type' => 'text', 'name' => 'Guide', 'text' => 'Synthetic speech.']],
+    ['cast' => $cast, 'presentation' => ['conversation' => subjectConversation()]]);
+  $positions = [clone $this->player->position, clone $this->npc->position];
+  $initial = [$this->player->heading, $this->npc->heading];
+  $this->scene->cinematicController->start($definition);
+  expect($this->npc->heading)->toBe(MovementHeading::WEST)
+    ->and($this->player->heading)->toBe(MovementHeading::EAST)
+    ->and($this->stage->require('guide-look')->facing)->toBe(MovementHeading::WEST)
+    ->and($this->player->position)->toEqual($positions[0])->and($this->npc->position)->toEqual($positions[1]);
+  $this->scene->eventInterpreter->failActiveSession('Synthetic interruption.');
+  expect([$this->player->heading, $this->npc->heading])->toBe($initial);
+});
+
+it('prepares ordinary dialogue pages through the same active cinematic bindings without changing their show contract', function () {
+  $definition = subjectOwnershipDefinition([['type' => 'wait', 'seconds' => 10]],
+    ['cast' => [['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]],
+      'presentation' => ['conversation' => subjectConversation()]]);
+  $this->scene->cinematicController->start($definition);
+  $dialogue = \Ichiloto\Engine\Messaging\Dialogue\Dialogue::fromArray(['name' => 'Guide', 'text' => 'Synthetic page.', 'facing' => 'north']);
+  $dialogue->prepareFieldPresentation($this->scene);
+  expect($this->npc->heading)->toBe(MovementHeading::NORTH)
+    ->and($this->player->heading)->toBe(MovementHeading::EAST)
+    ->and(new ReflectionMethod($dialogue, 'show')->getNumberOfParameters())->toBe(0);
+  $this->scene->eventInterpreter->failActiveSession('End synthetic page.');
+  $before = [$this->player->heading, $this->npc->heading];
+  $dialogue->prepareFieldPresentation($this->scene);
+  expect([$this->player->heading, $this->npc->heading])->toBe($before);
+});
+
+it('preserves explicit staged facing while other speakers still face that actor', function () {
+  $this->stage->configure([['id' => 'guide-look', 'sprite' => '@', 'x' => 8, 'y' => 4, 'facing' => 'north']]);
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, subjectConversation());
+  $conversation->prepareLine('Guide');
+  expect($this->stage->require('guide-look')->facing)->toBe(MovementHeading::NORTH)
+    ->and($this->player->heading)->toBe(MovementHeading::EAST);
+  $conversation->prepareLine('Guide', ['facing' => 'south']);
+  expect($this->stage->require('guide-look')->facing)->toBe(MovementHeading::SOUTH);
+});
+
+it('uses current positions, group addressees, turn taking and explicit listener overrides', function () {
+  $this->stage->configure([['id' => 'guide-look', 'x' => 8, 'y' => 4], ['id' => 'third', 'x' => 3, 'y' => 1]]);
+  $bindings = subjectConversation();
+  $bindings['speakers']['Witness'] = ['kind' => 'staged_actor', 'id' => 'third'];
+  $bindings['addressees'] = ['Hero' => 'Witness'];
+  $bindings['facing'] = ['Guide' => ['facing' => 'south']];
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, $bindings);
+  $conversation->prepareLine('Hero');
+  expect($this->player->heading)->toBe(MovementHeading::NORTH)
+    ->and($this->stage->require('third')->facing)->toBe(MovementHeading::SOUTH)
+    ->and($this->stage->require('guide-look')->facing)->toBe(MovementHeading::SOUTH);
+  $conversation->prepareLine('Witness');
+  expect($this->stage->require('third')->facing)->toBe(MovementHeading::SOUTH);
+  $this->stage->move('third', new Vector2(0, 5));
+  $conversation->prepareLine('Hero', ['addressee' => 'Witness']);
+  expect($this->player->heading)->toBe(MovementHeading::SOUTH)
+    ->and($this->stage->require('third')->facing)->toBe(MovementHeading::NORTH);
+});
+
+it('keeps narration and off-field dialogue from changing participant headings', function () {
+  $this->stage->configure([['id' => 'guide-look', 'x' => 8, 'y' => 4]]);
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, subjectConversation());
+  $before = [$this->player->heading, $this->stage->require('guide-look')->facing];
+  $conversation->prepareLine('');
+  $conversation->prepareLine('Remote voice');
+  expect([$this->player->heading, $this->stage->require('guide-look')->facing])->toBe($before);
+});
+
+it('selects distinct stable speakers that share one display label without guessing from their names', function () {
+  $this->stage->configure([['id' => 'left', 'x' => 1, 'y' => 4], ['id' => 'above', 'x' => 3, 'y' => 1]]);
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, ['speakers' => [
+    'hero' => ['kind' => 'player'], 'first' => ['kind' => 'staged_actor', 'id' => 'left'],
+    'second' => ['kind' => 'staged_actor', 'id' => 'above']]]);
+  $conversation->prepareLine('Bully', ['speaker' => 'first', 'addressee' => 'hero']);
+  expect($this->player->heading)->toBe(MovementHeading::WEST);
+  $conversation->prepareLine('Bully', ['speaker' => 'second', 'addressee' => 'hero']);
+  expect($this->player->heading)->toBe(MovementHeading::NORTH);
+  expect(fn() => $conversation->prepareLine('Bully', ['speaker' => 'unknown']))->toThrow(RuntimeException::class);
+});
+
+it('resolves every participant before turning and rejects duplicate real-subject aliases', function (bool $duplicate) {
+  $this->stage->configure([['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]]);
+  $bindings = subjectConversation();
+  $bindings['speakers']['Other'] = ['kind' => 'npc', 'id' => $duplicate ? 'guide' : 'missing'];
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, $bindings);
+  $before = [$this->player->heading, $this->npc->heading];
+  expect(fn() => $conversation->prepareLine('Hero', ['addressee' => 'Guide']))->toThrow(RuntimeException::class);
+  expect([$this->player->heading, $this->npc->heading])->toBe($before);
+})->with([false, true]);
+
+it('respects direction-fixed real occupants without changing physical occupancy or presentation identity', function () {
+  $this->scene->npcManager->configure([['id' => 'guide', 'name' => 'Guide', 'sprite' => 'N',
+    'x' => 7, 'y' => 4, 'directionFix' => true, 'facing' => 'north']]);
+  $npc = $this->scene->npcManager->findById('guide');
+  $this->stage->configure([['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]]);
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, subjectConversation());
+  $conversation->prepareLine('Hero');
+  expect($npc->heading)->toBe(MovementHeading::NORTH)
+    ->and($this->stage->require('guide-look')->subject->subject)->toBe($npc)
+    ->and($this->player->heading)->toBe(MovementHeading::EAST);
+});
+
 function makeSubjectOwnershipLoopCast(array $extra = []): array
 {
   return array_replace(['id' => 'pulse', 'sprite' => 'P', 'subject' => ['kind' => 'npc', 'id' => 'guide'],

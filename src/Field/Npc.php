@@ -241,6 +241,7 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
     }
 
     foreach ($page->lines as $line) {
+      $gameScene->cinematicController?->prepareDialogue(strval($line['name'] ?? $this->name), $line);
       show_text(
         strval($line['text'] ?? ''),
         strval($line['name'] ?? $this->name),

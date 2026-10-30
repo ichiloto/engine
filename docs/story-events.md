@@ -259,6 +259,53 @@ and retain nested command/page data. Those controls and round-trip acceptance ar
 not delivered by this runtime slice. Existing artwork replacement remains owned
 by the shared catalog and PNG checks, without frozen hashes or dimensions.
 
+### Field conversation facing
+
+A cinematic binds its conversation speakers to selected field subjects once in its
+definition. This is separate from portrait artwork identity:
+
+```php
+'presentation' => ['initial' => 'field', 'conversation' => [
+  'speakers' => [
+    'hero' => ['kind' => 'player'],
+    'guide' => ['kind' => 'staged_actor', 'id' => 'guide-look'],
+  ],
+]],
+```
+
+The `text` command's `speaker => 'hero'` selects a bound key independently of
+its display `name`; two people may share a display label. A conversation may
+instead explicitly bind exact display-name keys for existing lines. An omitted
+`speaker` then selects that exact key. At each line, listeners
+face the speaker. The speaker faces an authored addressee, the previous other
+speaker, or the sole other participant. Group scenes can select a default per
+speaker with `addressees => ['hero' => 'guide']`; a line may select another bound
+speaker with `addressee => 'witness'`. An initial group line without an addressee
+keeps the speaker's heading. Empty names and unbound off-field voices leave field
+headings alone. Subject positions are resolved when the line starts.
+
+`facing` or `faceToward` on a line overrides that speaker's automatic turn.
+The conversation's `facing` map supplies persistent overrides by speaker, using
+the same facing fields. Explicit staged-actor facing and NPC `directionFix` also
+take precedence over automatic turns. Active movement retains its heading;
+an explicit line turn must wait for that subject's route to finish. Resolve
+speaker references through the current player, NPC or staged-actor picker and
+select addressees from the bound speakers. Never infer subject ids from text,
+filenames or artwork.
+
+The same preparation runs for ordinary NPC/dialogue pages during the active
+cinematic. Specialized dialogue `show()` methods retain their existing API.
+Bound stage subjects turn their real occupant, so Terminal directional glyphs
+and graphical character-sheet rows agree. Turning changes no position or
+collision. Existing cinematic leases restore real transforms on failure; current
+map identity and eligibility still govern cleanup. Duplicate real-subject
+aliases and missing participants fail before any heading changes. Cleanup clears
+the conversation context, and portrait-only Skits keep their own presentation.
+
+`CinematicCommandSchema::export()['conversationFacing']` exposes these fields and
+reference sources. Editor controls and project scene bindings remain separate
+delivery steps.
+
 ### Session states
 
 `EventExecutionStatus` distinguishes:

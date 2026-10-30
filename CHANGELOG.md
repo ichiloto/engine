@@ -11,6 +11,12 @@
 
 ### Added
 
+- Shared cinematic conversation-facing bindings for field speakers and listeners,
+  used by text commands and ordinary dialogue pages. Current subject positions,
+  explicit facing choices, direction-fixed occupants and active route ownership
+  remain authoritative; real subject transforms restore on interrupted playback.
+  Subject and addressee choices are exported for Editor authoring.
+
 - Mastery progress records actual SP spending and derives known earned totals,
   preserving unknown historical spending in older learned-node saves. Current node
   prices never rewrite recorded spending. Direct negative SP balances are now

@@ -16,6 +16,7 @@ final class CinematicController implements EventSessionCompletionTargetInterface
   protected ?EventSessionCompletionTargetInterface $downstreamCompletionTarget = null;
   protected bool $terminalOutcomeHandled = false;
   private ?string $cameraMapBefore = null;
+  private ?CinematicConversation $conversation = null;
 
   public function __construct(protected GameScene $gameScene)
   {
@@ -42,6 +43,8 @@ final class CinematicController implements EventSessionCompletionTargetInterface
     $this->terminalOutcomeHandled = false;
 
     try {
+      $this->conversation = isset($cinematic->presentation['conversation'])
+        ? new CinematicConversation($this->gameScene, $cinematic->presentation['conversation']) : null;
       $initialPresentation = strtolower(trim(strval($cinematic->presentation['initial'] ?? '')));
 
       if (in_array($initialPresentation, ['black', 'hidden'], true)) {
@@ -74,6 +77,12 @@ final class CinematicController implements EventSessionCompletionTargetInterface
   public function skip(): bool
   {
     return $this->gameScene->eventInterpreter?->skipActiveCinematic() ?? false;
+  }
+
+  /** Both cooperative text commands and ordinary dialogue pages use the active conversation's bindings. */
+  public function prepareDialogue(string $speaker, array $line = []): void
+  {
+    $this->conversation?->prepareLine($speaker, $line);
   }
 
   public function onEventSessionCompleted(GameScene $gameScene, EventExecutionSession $session): void
@@ -138,6 +147,7 @@ final class CinematicController implements EventSessionCompletionTargetInterface
     }
 
     $this->active = null;
+    $this->conversation = null;
     $this->cameraBefore = null;
     $this->cameraMapBefore = null;
     $this->downstreamCompletionTarget = null;

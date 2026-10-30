@@ -80,6 +80,8 @@ final class StagedActor implements ThicketSubjectInterface
     ?string $assetRoot = null,
     /** Holds the visual on a feature of a world object's art; its position is the attachment's terminal cell. */
     public readonly ?CinematicAttachment $attachment = null,
+    /** An explicit authored heading takes precedence over automatic conversation turns. */
+    public readonly bool $hasAuthoredFacing = false,
   )
   {
     $this->localFacing = $facing;

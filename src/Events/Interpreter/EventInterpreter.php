@@ -389,6 +389,9 @@ class EventInterpreter
         $session->claimPresentation($lane);
         $text = strval($command['text'] ?? '');
         $speaker = strval($command['name'] ?? '');
+        if ($scope === EventExecutionScope::FIELD) {
+          $this->gameScene->cinematicController?->prepareDialogue($speaker, $command);
+        }
         if ($this->presentation instanceof EventDialoguePresentationInterface) {
           $this->presentation->beginDialogue($text, $speaker, $context);
         } else {

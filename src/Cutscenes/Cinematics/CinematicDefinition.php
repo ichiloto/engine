@@ -113,6 +113,13 @@ final class CinematicDefinition
 
     CinematicScriptValidator::validate($commands, $id);
 
+    if (is_array($data['presentation'] ?? null) && array_key_exists('conversation', $data['presentation'])) {
+      if (!is_array($data['presentation']['conversation'])) {
+        throw new InvalidArgumentException('Cinematic conversation requires speaker bindings.');
+      }
+      CinematicConversation::validate($data['presentation']['conversation']);
+    }
+
     if ($skipPolicy === 'authored') {
       CinematicCommandPolicy::assertAuthoredSkipSafe($commands, $id);
     }
