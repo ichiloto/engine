@@ -568,6 +568,28 @@ on screen anchors; the image pivot remains usable there. Mirroring reflects
 the pivot too. Viewport boundaries crop source pixels at unchanged density
 instead of translating the image away from its attachment.
 
+Battle image tracks can use `anchor => target-group` to draw one image for
+the command's exact selected recipients. Current visible bodies and stable
+projected ground anchors supply the geometry; equal names remain separate
+identities and duplicate references are collected once. Center/head attachment
+uses the combined body bounds. Ground attachment uses the midpoint across the
+selected ground points at their nearest depth. `BattleEffectTargetGroup`
+retains every identity/ground point plus the left/right/far/near envelope for
+depth-aware consumers; it never selects targets or resolves combat.
+
+For one area composition covering those recipients, add `span => true`,
+`attachment => ground` and `fit => contain`. The image's authored cells define
+its minimum size; it grows uniformly to cover the ground-point spread plus the
+current visible-body reach around their actual pivots. Aspect ratio, normalized
+image pivot, offsets, sheet crop and front/behind layering remain intact.
+Different recipient depths remain in the geometry; the image ground origin is
+the nearest edge, rather than an invented flat row or the first target.
+`span => false` retains fixed image sizing. The span option is refused on
+individual, screen and stage tracks or with stretch fit. Viewport clipping
+retains source density and the anchored origin. A missing selected ground/body
+is a reported presentation failure; combat remains command-owned. Paired
+Terminal tracks retain their existing independent content and admission.
+
 Last Legend's approved blue preparation and green healing sheets use their
 ring centres as pivots and `ground` attachment on caster and target respectively.
 No art or terminal sequence was changed. Field image tracks now accept the same

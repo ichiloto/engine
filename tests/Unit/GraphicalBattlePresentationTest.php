@@ -2662,3 +2662,33 @@ it('composes an ordinary source-stage cut-in through the actual battle renderer 
   $playback->cancel();
   expect(array_column($presentation->frame($field)->images, 'id'))->toContain('arena');
 });
+
+it('projects one selected-group image through the actual battle frame at the recipients ground envelope', function (bool $reduced) {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $effect = new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($this->root)->compile('group-ground',
+    ['fps' => 24, 'lengthFrames' => 24, 'restFrame' => 0, 'tracks' => [[
+      'id' => 'plume', 'type' => 'image', 'asset' => 'test-sprite.png',
+      'anchor' => 'target-group', 'attachment' => 'ground', 'fit' => 'contain', 'span' => true,
+      'pivot' => ['x' => .5, 'y' => 1.0], 'keyframes' => [['frame' => 0, 'duration' => 24]],
+    ]]], true);
+  $plan = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline(
+    new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect);
+  $hits = 0;
+  $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $hero, $enemies,
+    BattlePoseRole::ATTACK, function () use (&$hits) { $hits++; }, static fn() => null);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $field = graphicalBattleScene($battle, $presentation)->ui->fieldWindow;
+  $field->setCommandPlayback($playback);
+  $playback->update($plan->phases['target']['start'] / 120);
+  $canvas = $presentation->frame($field, reducedMotion: $reduced);
+  $images = array_values(array_filter($canvas->images, static fn($image): bool => str_ends_with($image->id, 'target-group')));
+  $slots = array_map($presentation->getSlot(...), $enemies);
+  $x = array_column($slots, 'x'); $y = array_column($slots, 'y');
+  expect($images)->toHaveCount(1)
+    ->and($images[0]->destination->x + $images[0]->destination->width / 2)->toEqualWithDelta((min($x) + max($x)) / 2, 1e-6)
+    ->and($images[0]->destination->y + $images[0]->destination->height)->toEqualWithDelta(max($y), 1e-6)
+    ->and($playback->presentationFailure)->toBeNull()->and($hits)->toBe(0);
+  $playback->update(100);
+  expect($hits)->toBe(1)
+    ->and(array_filter($presentation->frame($field)->images, static fn($image): bool => str_ends_with($image->id, 'target-group')))->toBeEmpty();
+})->with([false, true]);

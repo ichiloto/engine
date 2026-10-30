@@ -65,26 +65,34 @@ final class GraphicalBattleEffects
         $data = $command['payload'] ?? [];
         $anchor = $data['anchor'] ?? 'target';
         if ($anchor === 'stage') { continue; }
+        $targetGroup = null;
+        if ($anchor === 'target-group') {
+          try { $targetGroup = BattleEffectTargetGroup::collectTargets($playback->targets, $bounds, $groundAnchors, $partySides); }
+          catch (RuntimeException $error) { $playback->recordPresentationFailure($error); continue; }
+          if ($targetGroup === null) { continue; }
+        }
         $subjects = [];
         foreach ($anchor === 'caster' ? [$playback->actor] : $playback->targets as $subject) {
           $subjects[spl_object_id($subject)] = $subject;
         }
-        if (in_array($anchor, ['screen', 'legacy-screen'], true)
+        if ($targetGroup !== null || in_array($anchor, ['screen', 'legacy-screen'], true)
           || ($segment['layer'] === 'flash' && ($data['scope'] ?? '') === 'screen')) { $subjects = [null]; }
         foreach ($subjects as $subject) {
-          $box = $subject === null ? null : ($bounds[spl_object_id($subject)] ?? null);
+          $box = $targetGroup?->bounds ?? ($subject === null ? null : ($bounds[spl_object_id($subject)] ?? null));
           if ($subject !== null && $box === null) { continue; }
           $recipient = $anchor === 'caster'
             ? array_find($playback->targets, static fn($target): bool => $target !== $playback->actor) : $subject;
           $casterX = ($groundAnchors[spl_object_id($playback->actor)] ?? null)?->x;
-          $recipientX = $recipient === null ? null : ($groundAnchors[spl_object_id($recipient)] ?? null)?->x;
+          $recipientX = $targetGroup?->getGroundOrigin()->x
+            ?? ($recipient === null ? null : ($groundAnchors[spl_object_id($recipient)] ?? null)?->x);
           $oriented = BattleEffectDirection::orientForSubject($command, $casterX, $recipientX,
-            $subject === null ? null : ($partySides[spl_object_id($subject)] ?? null));
+            $targetGroup?->partySide ?? ($subject === null ? null : ($partySides[spl_object_id($subject)] ?? null)));
           $data = $oriented['payload'] ?? [];
-          $id = 'command-effect-' . $oriented['trackId'] . '-' . ($subject === null ? 'screen' : spl_object_id($subject));
+          $id = 'command-effect-' . $oriented['trackId'] . '-' . ($targetGroup !== null ? 'target-group'
+            : ($subject === null ? 'screen' : spl_object_id($subject)));
           $position = $oriented['position'] ?? ['x' => 0, 'y' => 0];
           $attachment = $data['attachment'] ?? $data['legacyPosition'] ?? 'center';
-          $ground = $subject === null ? null : ($groundAnchors[spl_object_id($subject)] ?? null);
+          $ground = $targetGroup?->getGroundOrigin() ?? ($subject === null ? null : ($groundAnchors[spl_object_id($subject)] ?? null));
           try {
             if ($attachment === 'ground' && $ground === null) {
               throw new InvalidArgumentException('Battle effect ground attachment requires the subject ground point.');
@@ -127,6 +135,14 @@ final class GraphicalBattleEffects
                 $fitted = CanvasImageFit::parse($data['fit'] ?? 'stretch')->getSize($frameWidth, $frameHeight, $width, $height);
                 $width = $fitted['width'];
                 $height = $fitted['height'];
+                if ($targetGroup !== null && ($data['span'] ?? false)) {
+                  // One group composition, preserving source proportions and
+                  // depth-varying ground identity. Cells are its minimum size.
+                  $growth = max(1.0, $targetGroup->spanWidth * $scale / $width);
+                  $width *= $growth; $height *= $growth;
+                  $x += ($position['x'] ?? 0) * $arena->uiGrid->cellWidth * $scale * ($growth - 1);
+                  $y += ($position['y'] ?? 0) * $arena->uiGrid->cellHeight * $scale * ($growth - 1);
+                }
                 $pivot = $data['pivot'] ?? ['x' => .5, 'y' => .5];
                 if ($data['flipX'] ?? false) { $pivot['x'] = 1 - $pivot['x']; }
                 if ($data['flipY'] ?? false) { $pivot['y'] = 1 - $pivot['y']; }

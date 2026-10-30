@@ -132,7 +132,7 @@ final class EffectTimelineValidator
         continue;
       }
       if (!is_array($track) || array_diff(array_keys($track), ['id', 'type', 'asset', 'sheet', 'cells', 'fit', 'depth', 'keyframes',
-        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment'] : []),
+        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment', 'span'] : []),
         ...($acceptsStage ? ['placement', 'zIndex'] : []), ...($forStage ? ['anchor'] : [])]) !== []
         || ($track['type'] ?? null) !== 'image' || !is_string($track['id'] ?? null)) {
         throw new InvalidArgumentException("Effect {$id} currently accepts image tracks with id, asset, sheet, cells, depth and keyframes.");
@@ -165,8 +165,14 @@ final class EffectTimelineValidator
       if (!in_array($depth, ['behind', 'front'], true)) { throw new InvalidArgumentException("Effect {$id} depth must be behind or front."); }
       $fit = \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageFit::parse(
         array_key_exists('fit', $track) ? $track['fit'] : 'stretch');
-      if (isset($track['anchor']) && !in_array($track['anchor'], ['caster', 'target', 'screen', ...($acceptsStage ? ['stage'] : [])], true)) {
+      if (isset($track['anchor']) && !in_array($track['anchor'], ['caster', 'target', 'screen',
+        ...($forBattle ? ['target-group'] : []), ...($acceptsStage ? ['stage'] : [])], true)) {
         throw new InvalidArgumentException("Effect {$id} has an invalid image anchor.");
+      }
+      if (array_key_exists('span', $track) && (!is_bool($track['span'])
+        || ($track['anchor'] ?? null) !== 'target-group'
+        || ($track['attachment'] ?? 'center') !== 'ground' || $fit->value !== 'contain')) {
+        throw new InvalidArgumentException("Effect {$id} span requires a target-group ground image with contain fit and a boolean value.");
       }
       if (array_key_exists('attachment', $track)) {
         EffectImageAttachment::parse($track['attachment']);
@@ -215,6 +221,7 @@ final class EffectTimelineValidator
             'cells' => $cells, 'depth' => $depth, ...(isset($track['fit']) ? ['fit' => $fit->value] : []),
             ...(!isset($track['anchor']) ? [] : ['anchor' => $track['anchor']]),
             ...(!isset($track['attachment']) ? [] : ['attachment' => $track['attachment']]),
+            ...(!array_key_exists('span', $track) ? [] : ['span' => $track['span']]),
             ...(!isset($track['pivot']) ? [] : ['pivot' => $track['pivot']]),
             ...(!isset($track['facing']) ? [] : ['facing' => $track['facing']]),
             ...(!isset($track['toward']) ? [] : ['toward' => $track['toward']]),
