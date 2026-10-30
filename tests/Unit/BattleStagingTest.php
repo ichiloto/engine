@@ -193,7 +193,8 @@ it('stands each side on its arena footing: an arranged troop follows a road, aut
     foreach ($staging->enemies as $slot) {
       expect($slot->x)->toBeGreaterThanOrEqual($leftEdge($slot->y) - .000001)->toBeLessThanOrEqual(675.0);
     }
-    expect(array_map(static fn($slot): float => $slot->x, $staging->party))->toBe([700.0, 1150.0]);
+    // The first authored anchor would put half its body across the party boundary.
+    expect(array_map(static fn($slot): float => $slot->x, $staging->party))->toBe([725.0, 1150.0]);
     // Footing holds feet, not art: the lanes keep their spacing rather than squeezing into a column.
     $columns = array_map(static fn($slot): float => $slot->x, $staging->enemies);
     if ($count > 1) { expect(max($columns) - min($columns))->toBeGreaterThan(100.0); }

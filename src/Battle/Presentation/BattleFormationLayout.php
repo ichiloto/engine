@@ -11,6 +11,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetBounds;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -200,7 +201,7 @@ final readonly class BattleFormationLayout
    * battle scale, or the legacy width or contain fit; the reference body when
    * no art is usable, so a name stand-in still takes a place.
    *
-   * @return array{width: float, height: float, pivotX: float, pivotY: float}
+   * @return array{width: float, height: float, pivotX: float, pivotY: float, visible: array{left: float, right: float, top: float, bottom: float}|null}
    */
   public static function getStandingSize(?BattlerArtwork $art, ?BattlePoseSet $poses, ?BattlerScale $profile,
     ?BattleScale $scale, ?BattleStageSlot $place, string $assetRoot): array
@@ -214,7 +215,7 @@ final readonly class BattleFormationLayout
     $drawn = $posed ?? $art;
     if ($drawn === null) {
       $unit = $scale === null ? 1.0 : $scale->referenceHeight * ($profile?->relativeSize ?? 1.0);
-      return ['width' => $unit, 'height' => $unit, 'pivotX' => .5, 'pivotY' => 1.0];
+      return ['width' => $unit, 'height' => $unit, 'pivotX' => .5, 'pivotY' => 1.0, 'visible' => null];
     }
     $pixelScale = match (true) {
       $profile !== null && $scale !== null => $profile->getPixelScale($scale->referenceHeight, $drawn,
@@ -223,8 +224,15 @@ final readonly class BattleFormationLayout
       $place !== null => min($place->width / $drawn->width, $place->height / $drawn->height),
       default => 1.0,
     };
+    $bounds = PngAssetBounds::getVisibleBounds($assetRoot, new CanvasImage('standing-body', $drawn->asset,
+      new CanvasRectangle(0, 0, $drawn->width, $drawn->height), sourceRect: $drawn->sourceRect))['bounds'];
     return ['width' => $drawn->width * $pixelScale, 'height' => $drawn->height * $pixelScale,
-      'pivotX' => $drawn->pivotX / $drawn->width, 'pivotY' => $drawn->pivotY / $drawn->height];
+      'pivotX' => $drawn->pivotX / $drawn->width, 'pivotY' => $drawn->pivotY / $drawn->height,
+      'visible' => $bounds === null ? null : [
+        'left' => ($drawn->pivotX - $bounds->x) * $pixelScale,
+        'right' => ($bounds->x + $bounds->width - $drawn->pivotX) * $pixelScale,
+        'top' => ($drawn->pivotY - $bounds->y) * $pixelScale,
+        'bottom' => ($bounds->y + $bounds->height - $drawn->pivotY) * $pixelScale]];
   }
 
   private static function getAvailableArtwork(BattlePresentationCatalog $catalog, string $id, bool $party, string $assetRoot): ?BattlerArtwork

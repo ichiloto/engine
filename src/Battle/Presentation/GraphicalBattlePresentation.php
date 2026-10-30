@@ -123,9 +123,13 @@ final class GraphicalBattlePresentation
     $ground = $this->staging->ground;
     $y = max($ground->top, min($ground->bottom, $point->y));
     $scale = $base->displayScale / $ground->getDepthScale($base->y) * $ground->getDepthScale($y);
+    $participant = $this->participants[spl_object_id($battler)];
+    $body = BattleFormationLayout::getStandingSize($participant['available'] ? $participant['art'] : null,
+      $participant['poses'], $participant['scale'], $this->scale,
+      $party ? null : $this->battle->troop->getStagePlace($battler), $this->assetRoot);
     return BattleStaging::fitMovedSlot($this->layout, $this->arena, $party,
       $this->participants[spl_object_id($battler)]['habitat'] ?? EnemyHabitat::LAND,
-      new BattlerSlot(max($left, min($right, $point->x)), $y, $base->width, $base->height, $scale));
+      new BattlerSlot(max($left, min($right, $point->x)), $y, $base->width, $base->height, $scale), $body);
   }
 
   private function getBaseSlot(CharacterInterface $battler): BattlerSlot

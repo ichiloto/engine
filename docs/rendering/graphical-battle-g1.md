@@ -489,13 +489,22 @@ where the UI's bottom windows begin, read by `GraphicalBattleHud` too).
   throughout. The party stands on land; each enemy stands where its
   `habitat` lives (`EnemyHabitat`: `land`, the default, `water` or `air`,
   authored on the enemy record), an air enemy over land or water. Each side
-  still keeps to its own area, using footing beyond it only when its habitat
-  has none inside (a land beast on a lake arena stands on the shore). Footing
+  keeps its visible body within its own area when fitting its feet onto that
+  habitat. Footing
   holds feet, not art: a tail may overhang the verge. Arranged ranks centre
   across their footing at the height they stand at, so a troop follows a
   road's line, keeping their lanes' spacing; an authored or theme place whose
   feet fall outside steps to the nearest footed height and across into it, its
-  perspective scale following. The polygons' edges count as footing. Data
+  perspective scale following. Placement solves footing and visible body
+  clearance together: it retains the requested height when feasible, otherwise
+  uses the nearest feasible height and column. Visible bounds come from the
+  current decoded art or idle crop, so transparent sheet padding does not move
+  a body away from valid ground. Pivots, calibrated body scale and authored
+  perspective are retained; the image frame still fits the whole canvas.
+  An impossible fit retains the existing placement and clearance diagnostics.
+  No authored footing retains the established placement/diagnostic behavior;
+  missing art retains the name anchor. Logical formation movement uses the
+  same body-aware footing projection. The polygons' edges count as footing. Data
   arenas author it as `'footing' => ['land' => points, 'water' => points]`,
   each a list of `['x' => , 'y' => ]` points (3 to 256) in
   `Data/Presentation/arenas.php`, edited on the Battle Arenas page of both

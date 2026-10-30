@@ -65,10 +65,10 @@ final readonly class BattleStaging
     $enemies = self::arrange($layout, false, $enemyBodies, $enemyPlaces, $ground, $footing, $enemyHabitats);
     $enemyCompression = self::getCompression($ground, $enemies);
     // The party stands on land; each troop member where its habitat lives.
-    $partySlots = array_map(static fn(BattleStageSlot $place): BattlerSlot => self::getFootedSlot($layout, true, $ground, $footing,
-      EnemyHabitat::LAND, $place->getSlotOn($ground, $partyCompression)), $party);
-    $enemySlots = array_map(static fn(BattleStageSlot $place, EnemyHabitat $habitat): BattlerSlot => self::getFootedSlot($layout, false,
-      $ground, $footing, $habitat, $place->getSlotOn($ground, $enemyCompression)), $enemies, $enemyHabitats);
+    $partySlots = array_map(static fn(BattleStageSlot $place, array $body): BattlerSlot => self::getFootedSlot($layout, true, $ground, $footing,
+      EnemyHabitat::LAND, $place->getSlotOn($ground, $partyCompression), $body), $party, $partyBodies);
+    $enemySlots = array_map(static fn(BattleStageSlot $place, EnemyHabitat $habitat, array $body): BattlerSlot => self::getFootedSlot($layout, false,
+      $ground, $footing, $habitat, $place->getSlotOn($ground, $enemyCompression), $body), $enemies, $enemyHabitats, $enemyBodies);
     return new self($ground, $partySlots, $enemySlots, $party, $enemies, $partyCompression, $enemyCompression);
   }
 
@@ -276,16 +276,31 @@ final readonly class BattleStaging
    * already on its footing, or one with no footing to keep to, is returned
    * as it is.
    */
-  /** Logical movement retains the arena's habitat-specific footing and perspective. */
+  /** Logical movement retains habitat, body clearance and perspective.
+   * @param array{width: float, height: float, pivotX?: float, pivotY?: float}|null $body Drawn size before slot depth.
+   */
   public static function fitMovedSlot(BattleCanvasLayout $layout, BattleArenaDefinition $arena, bool $party,
-    EnemyHabitat $habitat, BattlerSlot $slot): BattlerSlot
+    EnemyHabitat $habitat, BattlerSlot $slot, ?array $body = null): BattlerSlot
   {
-    return self::getFootedSlot($layout, $party, $layout->getGround($arena), $arena->footing ?? new BattleFooting(), $habitat, $slot);
+    return self::getFootedSlot($layout, $party, $layout->getGround($arena), $arena->footing ?? new BattleFooting(), $habitat, $slot, $body);
   }
 
   private static function getFootedSlot(BattleCanvasLayout $layout, bool $party, BattleGroundBand $ground, BattleFooting $footing,
-    EnemyHabitat $habitat, BattlerSlot $slot): BattlerSlot
+    EnemyHabitat $habitat, BattlerSlot $slot, ?array $body = null): BattlerSlot
   {
+    // A footing projection may need both axes to satisfy the body and habitat.
+    // With no authored footing, retain authored placements and their diagnostics.
+    if ($body !== null && $footing->isDeclared && (!array_key_exists('visible', $body) || $body['visible'] !== null)) {
+      $point = $footing->getFootedPoint($habitat, $slot->x, $slot->y, self::getBodyLimits($layout, $party, $ground, $slot, $body));
+      if ($point !== null) {
+        [$x, $y] = $point;
+        if (abs($x - $slot->x) < .000001 && abs($y - $slot->y) < .000001) { return $slot; }
+        $scale = $slot->displayScale / $ground->getDepthScale($slot->y) * $ground->getDepthScale($y);
+        return new BattlerSlot($x, $y, $slot->width, $slot->height, $scale);
+      }
+      // An impossible fit keeps the existing placement and clearance diagnostics;
+      // never shrink the body, cross habitats or change battle state to hide it.
+    }
     $run = $footing->getFootedRun($habitat, $slot->y, self::getSideRange($layout, $party));
     if ($run === null) { return $slot; }
     $y = max($ground->top, min($ground->bottom, $run[2]));
@@ -294,6 +309,42 @@ final readonly class BattleStaging
     if ($x === $slot->x && $y === $slot->y) { return $slot; }
     $scale = $slot->displayScale / $ground->getDepthScale($slot->y) * $ground->getDepthScale($y);
     return new BattlerSlot($x, $y, $slot->width, $slot->height, $scale);
+  }
+
+  /** Linear constraints on the feet, accounting for the body's pivot and perspective.
+   * @param array{width: float, height: float, pivotX?: float, pivotY?: float} $body
+   * @return list<array{0: float, 1: float, 2: float}>
+   */
+  private static function getBodyLimits(BattleCanvasLayout $layout, bool $party, BattleGroundBand $ground,
+    BattlerSlot $slot, array $body): array
+  {
+    [$left, $right] = self::getSideRange($layout, $party);
+    [$top, $bottom] = [0.0, $layout->getHudTop()];
+    foreach ([$layout->battlerArea, $party ? $layout->partyArea : $layout->enemyArea] as $area) {
+      if ($area === null) { continue; }
+      [$left, $right] = [max($left, $area->x), min($right, $area->x + $area->width)];
+      [$top, $bottom] = [max($top, $area->y), min($bottom, $area->y + $area->height)];
+    }
+    $multiplier = $slot->displayScale / $ground->getDepthScale($slot->y);
+    $slope = (1 - $ground->perspective) / $ground->depth * $multiplier;
+    $intercept = $multiplier - $slope * $ground->bottom;
+    $canvasLeft = $body['width'] * ($body['pivotX'] ?? .5);
+    $canvasRight = $body['width'] - $canvasLeft;
+    $canvasTop = $body['height'] * ($body['pivotY'] ?? 1.0);
+    $canvasBottom = $body['height'] - $canvasTop;
+    ['left' => $reachLeft, 'right' => $reachRight, 'top' => $reachTop, 'bottom' => $reachBottom] = $body['visible']
+      ?? ['left' => $canvasLeft, 'right' => $canvasRight, 'top' => $canvasTop, 'bottom' => $canvasBottom];
+    return [[0.0, 1.0, -$ground->top], [0.0, -1.0, $ground->bottom],
+      [1.0, -$reachLeft * $slope, -$left - $reachLeft * $intercept],
+      [-1.0, -$reachRight * $slope, $right - $reachRight * $intercept],
+      [0.0, 1 - $reachTop * $slope, -$top - $reachTop * $intercept],
+      [0.0, -1 - $reachBottom * $slope, $bottom - $reachBottom * $intercept],
+      // Transparent sheet padding may cross a side or HUD boundary. The image
+      // frame itself still fits the renderer's canvas.
+      [1.0, -$canvasLeft * $slope, -$canvasLeft * $intercept],
+      [-1.0, -$canvasRight * $slope, $layout->width - $canvasRight * $intercept],
+      [0.0, 1 - $canvasTop * $slope, -$canvasTop * $intercept],
+      [0.0, -1 - $canvasBottom * $slope, $layout->height - $canvasBottom * $intercept]];
   }
 
   /** @param list<BattleStageSlot> $places */
