@@ -9,6 +9,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandSchema;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicEffectTarget;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicScriptValidator;
 use Ichiloto\Engine\Cutscenes\Cinematics\CameraOperation;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicSubjectResolver;
@@ -776,6 +777,7 @@ class EventInterpreter
           $position,
           $screenSpace,
           isset($command['effect']) ? null : max(0.01, floatval($command['secondsPerFrame'] ?? 0.12)),
+          ($command['follow'] ?? false) ? new CinematicEffectTarget($this->gameScene, $target) : null,
         );
 
         if ($operation->isComplete) {

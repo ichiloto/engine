@@ -323,6 +323,13 @@ final class CinematicScriptValidator
     }
 
     self::validateSubject($target, $cinematicId, "$path/target", allowScreenPosition: true);
+    if (array_key_exists('follow', $command) && !is_bool($command['follow'])) {
+      throw self::failure($cinematicId, $path, 'field animation follow must be boolean.');
+    }
+    if (($command['follow'] ?? false) && !in_array(strtolower(trim(strval($target['kind'] ?? $target['subject'] ?? ''))),
+      array_diff(CinematicCommandSchema::SUBJECT_KINDS, ['position', 'screen_position', 'marker']), true)) {
+      throw self::failure($cinematicId, $path, 'following field effects require a live field subject.');
+    }
     self::validateOptionalDuration($command, ['secondsPerFrame'], $cinematicId, $path, positive: true);
   }
 

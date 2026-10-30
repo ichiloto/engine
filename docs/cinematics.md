@@ -583,6 +583,23 @@ Legacy `animation`/`id` records remain accepted with their exact consumer-owned
 `secondsPerFrame` (0.12 by default), including blank frames and the last frame's
 full hold. These compatibility records are not retired yet.
 
+An optional `follow => true` keeps a field effect on a selected live `player`,
+`party_actor`, `npc`, `world_object` or `staged_actor`. Its current world ground
+position and retained step motion drive the effect placement. The selected
+object, map/layer owner and cinematic generation are captured when the command
+starts; replacement, removal, hidden eligibility, transfer and cleanup end that
+binding before later cues. Fixed map/screen positions retain their existing
+snapshot behavior and reject `follow => true`. Party actor references resolve
+the current participating leader to the player, independently of permanent
+roster order. The effect never moves the subject or changes collision or saves.
+
+Artwork composition stays in the resource. An eye-flare pose can use an existing
+`stage_actor` subject binding and full-frame `FieldPoseAnimation`; the real actor
+owns position, facing and physical occupancy. Field effects own ground placement
+and their timeline's image extents/offsets. No actor-specific eye pixel is stored
+in the shared Engine. Editors consume `fieldAnimation` in the cinematic schema
+for the follow checkbox and its constrained subject choices.
+
 Each command owns one session. Parallel commands compose with one another and
 with map effects; completing or cancelling one removes only its effects.
 Finishing a timed narration/title clears only its own overlay, not a newer cue,

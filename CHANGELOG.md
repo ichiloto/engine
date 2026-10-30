@@ -25,6 +25,10 @@
 
 ### Added
 
+- Cinematic field effects can follow a current field subject's ground position
+  and step motion, with cancellation on subject/map/generation replacement.
+  Party actor targeting follows the participating leader during story splits.
+
 - Power-unlock showcases resolve current world powers and form techniques from
   their existing sources, then hold the event lane through each notice's
   acknowledgement. Crisis definitions may select a theme icon role. Deferred

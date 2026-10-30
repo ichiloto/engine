@@ -214,6 +214,13 @@ final class CinematicCommandSchema
         'defaults' => ['columns' => 1, 'rows' => 1, 'loop' => true, 'restFrame' => 0],
         'sourceRect' => 'optional sheet region; current image dimensions define its equal grid cells',
       ],
+      'fieldAnimation' => [
+        'followField' => 'follow',
+        'followDefault' => false,
+        'followSubjectKinds' => array_values(array_diff(self::SUBJECT_KINDS, ['position', 'screen_position', 'marker'])),
+        'ownership' => 'current field object, map/layers and cinematic generation; lost ownership cancels before later cues',
+        'coordinates' => 'current subject ground position and retained slide; timeline tracks own visual offsets and extent',
+      ],
       'movementRoute' => [
         'modes' => ['steps', 'waypoints', 'retrace'],
         'waypoints' => 'non-empty list: integer x/y (omitted axis retains current coordinate), or at kind/id with optional signed integer offset x/y; either may add an end facing',

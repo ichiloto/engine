@@ -23,8 +23,12 @@ final class FieldAnimationOperation implements EventPendingOperationInterface
     protected Vector2 $position,
     protected bool $screenSpace = false,
     ?float $secondsPerFrame = null,
+    protected readonly ?CinematicEffectTarget $target = null,
   )
   {
+    if ($target !== null && ($screenSpace || !$target->isCurrent())) {
+      throw new \InvalidArgumentException('A following field effect requires a current world subject.');
+    }
     if ($animation instanceof Animation) {
       $timeline = LegacyAnimationTimeline::compile($animation, includeFlash: false);
       // The field's rest treatment is its first frame, not the battle's final frame.
@@ -41,7 +45,7 @@ final class FieldAnimationOperation implements EventPendingOperationInterface
     }
     $this->session = new FieldEffectSession('cinematic-effect:' . spl_object_id($this),
       FieldEffectAnchor::createAtPosition($position), $timeline, $secondsPerFrame);
-    $this->presentation->presentEffect($this->session, $screenSpace);
+    $this->presentation->presentEffect($this->session, $screenSpace, $target);
     FieldEffectSession::playCues($this->session->playback->takeCurrentFrameCues());
   }
 
@@ -52,7 +56,9 @@ final class FieldAnimationOperation implements EventPendingOperationInterface
     }
 
     // Host cleanup (transfer/shutdown) cancels this owner instead of letting it reappear.
-    if (!$this->presentation->hasEffect($this->session->id)) { $this->cancel(); return true; }
+    if (!$this->presentation->hasEffect($this->session->id) || ($this->target !== null && !$this->target->isCurrent())) {
+      $this->cancel(); return true;
+    }
     $update = $this->session->update($deltaSeconds, Accessibility::prefersReducedMotion());
     FieldEffectSession::playCues($update->crossedCues);
 
