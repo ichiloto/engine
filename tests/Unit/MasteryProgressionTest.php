@@ -132,6 +132,8 @@ it('spends a node\'s price from the total and learns it at once, in any order th
   expect(array_map(static fn($skill): string => $skill->name, $guard->learned))->toBe(['Guard Up'])
     ->and(array_map(static fn($skill): string => $skill->name, $spark->learned))->toBe(['Spark'])
     ->and($hero->mastery->points)->toBe(10)
+    ->and($hero->mastery->spentPoints)->toBe(90)
+    ->and($hero->mastery->earnedPoints)->toBe(100)
     ->and($hero->spellbook->getLearnedSpells()[0]->name)->toBe('Spark')
     ->and(masteryStates($mastery, $hero))->toBe(['start' => 'learned', 'guard' => 'learned', 'spark' => 'learned', 'storm' => 'open']);
 });

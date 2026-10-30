@@ -125,3 +125,15 @@ it('declares an optional constrained starting-level policy in the shared command
   expect($field->key)->toBe('levelPolicy')->and($field->required)->toBeFalse()
     ->and($field->options)->toBe(['authored', 'partyAverage']);
 });
+
+it('starts authored free Mastery knowledge with known history and preserves unknown historical save spending', function () {
+  $source = $this->actors->require('actor.hero', 'testing fresh versus restored SP history');
+  $fresh = $source->createCharacter();
+  $fresh->mastery->addPoints(25);
+  $fresh->mastery->markLearned('free-node');
+  expect($fresh->mastery->points)->toBe(25)->and($fresh->mastery->spentPoints)->toBe(0)
+    ->and($fresh->mastery->earnedPoints)->toBe(25);
+  $restored = $source->createCharacter(['mastery' => ['points' => 15, 'learned' => ['legacy-node']]]);
+  expect($restored->mastery->points)->toBe(15)->and($restored->mastery->spentPoints)->toBeNull()
+    ->and($restored->mastery->earnedPoints)->toBeNull();
+});

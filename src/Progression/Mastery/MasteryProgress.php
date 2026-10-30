@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Ichiloto\Engine\Progression\Mastery;
 
 use InvalidArgumentException;
@@ -22,18 +24,42 @@ final class MasteryProgress implements JsonSerializable
    */
   public const array EXPERIENCE_KEYS = ['studying', 'progress', 'banked'];
 
+  /** Null preserves a legacy history whose past purchase prices were not saved. */
+  public private(set) ?int $spentPoints = null;
+
+  /** Current spendable balance; every debit records its actual amount. */
+  public int $points = 0 {
+    set {
+      if ($value < 0) { throw new InvalidArgumentException('A character cannot hold fewer than 0 Mastery points.'); }
+      $spent = $this->spentPoints;
+      if ($spent !== null && $value < $this->points) { $spent += $this->points - $value; }
+      if ($spent !== null && $value > PHP_INT_MAX - $spent) {
+        throw new InvalidArgumentException('Total earned Mastery points exceed the supported integer range.');
+      }
+      $this->spentPoints = $spent;
+      $this->points = $value;
+    }
+  }
+
+  /** Unspent and spent SP together, when their historical total is established. */
+  public ?int $earnedPoints {
+    get => $this->spentPoints === null ? null : $this->points + $this->spentPoints;
+  }
+
   /**
    * @param int $points The Mastery points (SP) the character holds, unspent.
    * @param list<string> $learned The nodes learned.
+   * @param int|null $spentPoints Historical SP spent; zero for a new character, null for unknown legacy history.
    */
   public function __construct(
-    public int $points = 0,
+    int $points = 0,
     public array $learned = [],
+    ?int $spentPoints = 0,
   )
   {
-    if ($points < 0) {
-      throw new InvalidArgumentException('A character cannot hold fewer than 0 Mastery points.');
-    }
+    if ($spentPoints !== null && $spentPoints < 0) { throw new InvalidArgumentException('Spent Mastery points cannot be negative.'); }
+    $this->spentPoints = $spentPoints;
+    $this->points = $points;
   }
 
   /**
@@ -49,7 +75,11 @@ final class MasteryProgress implements JsonSerializable
     }
     $learned = array_values(array_unique(array_filter(is_array($data['learned'] ?? null) ? $data['learned'] : [], 'is_string')));
 
-    return new self(max(0, intval($data['points'] ?? 0)), $learned);
+    $spent = array_key_exists('spentPoints', $data) ? $data['spentPoints'] : ($learned === [] ? 0 : null);
+    if ($spent !== null && (!is_int($spent) || $spent < 0)) {
+      throw new InvalidArgumentException('Spent Mastery points must be a non-negative integer or unknown (null).');
+    }
+    return new self(max(0, intval($data['points'] ?? 0)), $learned, $spent);
   }
 
   public function hasLearned(string $node): bool
@@ -71,15 +101,28 @@ final class MasteryProgress implements JsonSerializable
     if ($points < 0) {
       throw new InvalidArgumentException('Mastery point awards cannot be negative.');
     }
+    if ($points > PHP_INT_MAX - $this->points) {
+      throw new InvalidArgumentException('Mastery point awards exceed the supported integer range.');
+    }
     $this->points += $points;
+  }
+
+  /** Spends the actual paid price without revaluing any previously learned node. */
+  public function spendPoints(int $points): void
+  {
+    if ($points < 0 || $points > $this->points) {
+      throw new InvalidArgumentException('Mastery spending must fit the current non-negative point balance.');
+    }
+    $this->points -= $points;
   }
 
   /** @return array<string, mixed> */
   public function jsonSerialize(): array
   {
-    return array_filter([
+    $data = array_filter([
       'points' => $this->points,
       'learned' => $this->learned,
     ], static fn(mixed $value): bool => $value !== [] && $value !== 0);
+    return $data === [] && $this->spentPoints === 0 ? [] : [...$data, 'spentPoints' => $this->spentPoints];
   }
 }

@@ -74,7 +74,7 @@ final readonly class MasteryProgression
       $skill = $this->skills->findSkill($node->skill) ?? throw new MasteryRefusal(MasteryRefusalReason::UNKNOWN,
         sprintf('%s\'s mastery node %s teaches unknown skill %s.', $character->name, $node->id, $node->skill));
     }
-    $character->mastery->points -= (int)$node->cost;
+    $character->mastery->spendPoints((int)$node->cost);
     if ($skill !== null) {
       $character->learnSkill($skill);
     }
