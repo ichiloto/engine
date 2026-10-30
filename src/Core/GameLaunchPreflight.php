@@ -11,6 +11,8 @@ use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\Game\GameConfig;
+use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
@@ -19,6 +21,13 @@ use InvalidArgumentException;
 /** Project-backed validation before Game acquires native input or output. */
 final class GameLaunchPreflight
 {
+    /** The ordinary compatibility pipeline owns checkpoint decoding and migrated game state. */
+    public static function prepareCheckpoint(Game $game, GameLaunchContext $context): ?GameConfig
+    {
+        return $context->checkpoint === null ? null
+            : SaveManager::getInstance($game)->importIsolatedCheckpoint($context->checkpoint)->config;
+    }
+
     public static function validate(Game $game, GameLaunchContext $context): ?CinematicDefinition
     {
         $assets = realpath(getcwd() . '/assets');

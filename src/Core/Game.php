@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core;
 
+use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Ichiloto\Engine\Income\IncomeCatalog;
@@ -191,6 +192,7 @@ class Game implements CanRun, SubjectInterface
 
     private ?GameLaunchContext $pendingLaunchContext = null;
     private ?CinematicDefinition $pendingLaunchCinematic = null;
+    private ?GameConfig $pendingLaunchCheckpoint = null;
     private ?ProjectBattleTest $pendingLaunchBattleTest = null;
     private ?BattleTestTroopKeeper $pendingLaunchTroopKeeper = null;
     private ?string $launchDataRoot = null;
@@ -874,7 +876,7 @@ class Game implements CanRun, SubjectInterface
             Timers::setFrameTick($this->updateBlockedFrame(...), $this->presentBlockedFrame(...));
         }
 
-        if ($startupMode !== GameStartupMode::NEW_GAME) {
+        if ($startupMode !== GameStartupMode::NEW_GAME && $this->pendingLaunchCheckpoint === null) {
             $this->showSplashScreens();
         }
         $this->buildItemStore();
@@ -905,8 +907,14 @@ class Game implements CanRun, SubjectInterface
     {
         $context = $this->pendingLaunchContext;
         $cinematic = $this->pendingLaunchCinematic;
+        $checkpoint = $this->pendingLaunchCheckpoint;
         $this->pendingLaunchContext = null;
         $this->pendingLaunchCinematic = null;
+        $this->pendingLaunchCheckpoint = null;
+        if ($checkpoint !== null) {
+            $this->sceneManager->loadSavedGame($checkpoint);
+            return;
+        }
         if ($context?->battleTest !== null) {
             $this->pendingLaunchBattleTest = $context->battleTest;
             // The launching editor keeps the troops the test composes, through the launch's data root.
@@ -983,6 +991,7 @@ class Game implements CanRun, SubjectInterface
         try {
             if ($this->pendingLaunchContext !== null) {
                 $this->pendingLaunchCinematic = GameLaunchPreflight::validate($this, $this->pendingLaunchContext);
+                $this->pendingLaunchCheckpoint = GameLaunchPreflight::prepareCheckpoint($this, $this->pendingLaunchContext);
             }
         } catch (Throwable $error) {
             $this->clearPendingLaunch();
@@ -994,6 +1003,7 @@ class Game implements CanRun, SubjectInterface
     {
         $this->pendingLaunchContext = null;
         $this->pendingLaunchCinematic = null;
+        $this->pendingLaunchCheckpoint = null;
         $this->pendingLaunchBattleTest = null;
     }
 

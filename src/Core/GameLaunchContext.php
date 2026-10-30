@@ -23,7 +23,12 @@ final readonly class GameLaunchContext
         public ?string $cinematicId = null,
         public ?ProjectBattleTest $battleTest = null,
         public bool $keepTroops = false,
+        public ?string $checkpoint = null,
     ) {
+        if ($checkpoint !== null && ($dataRoot === null || $checkpoint === '' || $mode !== null
+            || $start !== null || $cinematicId !== null || $battleTest !== null || $keepTroops)) {
+            throw new InvalidArgumentException('A checkpoint launch requires an isolated dataRoot and no competing startup intent.');
+        }
         if ($keepTroops && ($battleTest === null || $dataRoot === null)) {
             throw new InvalidArgumentException('A battle test hands kept troops over through its data root; keepTroops needs both.');
         }
@@ -41,10 +46,10 @@ final readonly class GameLaunchContext
 
     public static function fromArray(array $data): self
     {
-        if (array_diff(array_keys($data), ['mode', 'dataRoot', 'start', 'cinematicId', 'battleTest', 'keepTroops']) !== []) {
+        if (array_diff(array_keys($data), ['mode', 'dataRoot', 'start', 'cinematicId', 'battleTest', 'keepTroops', 'checkpoint']) !== []) {
             throw new InvalidArgumentException('Unknown launch context option.');
         }
-        foreach (['mode', 'dataRoot', 'cinematicId'] as $key) {
+        foreach (['mode', 'dataRoot', 'cinematicId', 'checkpoint'] as $key) {
             if (array_key_exists($key, $data) && !is_string($data[$key])) {
                 throw new InvalidArgumentException("Launch $key must be a string when supplied.");
             }
@@ -63,7 +68,7 @@ final readonly class GameLaunchContext
             isset($data['start']) ? GameStartLocation::fromArray($data['start']) : null,
             $data['cinematicId'] ?? null,
             isset($data['battleTest']) ? ProjectBattleTest::fromArray($data['battleTest']) : null,
-            $data['keepTroops'] ?? false);
+            $data['keepTroops'] ?? false, $data['checkpoint'] ?? null);
     }
 
     /** Clear transport even on rejection, so it cannot leak to a child game. */
@@ -98,7 +103,7 @@ final readonly class GameLaunchContext
     /** Only the existing ArenaScene command may accompany battle intent. */
     public function validateOptions(array $options, ?GameStartupMode $otherMode): void
     {
-        if ($otherMode !== null && ($this->mode !== null || $this->battleTest !== null)) {
+        if ($otherMode !== null && ($this->mode !== null || $this->battleTest !== null || $this->checkpoint !== null)) {
             throw new InvalidArgumentException('Launch context cannot compete with another startup mode.');
         }
         if ($this->battleTest !== null && (isset($options[ArenaScene::SETUP_OPTION]) || isset($options[ArenaScene::KEEPER_OPTION])
@@ -108,6 +113,9 @@ final readonly class GameLaunchContext
         }
         if ($this->mode !== null && array_key_exists('starting_scene', $options)) {
             throw new InvalidArgumentException('An explicit start mode cannot be combined with starting_scene.');
+        }
+        if ($this->checkpoint !== null && array_key_exists('starting_scene', $options)) {
+            throw new InvalidArgumentException('A checkpoint launch cannot compete with starting_scene.');
         }
     }
 }

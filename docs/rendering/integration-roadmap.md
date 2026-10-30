@@ -4292,6 +4292,21 @@ Committed arrival precedes the asynchronous cinematic, and its existing owner
 resumes ordinary automatic-event evaluation. Startup instructions are consumed
 once; isolated settings, saves and logging retain their scoped storage lifetime.
 
+Checkpoint launch (30 October 2026) extends that same context with an explicit
+`checkpoint` path and required `dataRoot`, for example
+`{"dataRoot":"/absolute/fresh-playtest-data","checkpoint":"/absolute/checkpoint.iedata"}`.
+The source must be a canonical readable regular file. The existing fresh-root,
+outside-project and symlink checks remain unchanged. Before native acquisition,
+SaveManager decodes and migrates the selected bytes through its ordinary save
+compatibility pipeline, then copies them unchanged into isolated manual slot 1.
+SceneManager enters the ordinary saved-game restoration lifecycle with that
+configuration. No story flags, party state or authored starting position are
+fabricated. The source save and normal project data remain untouched. Checkpoint
+intent cannot accompany another mode, start, cinematic or battle-test intent.
+It is consumed once; subsequent New Game remains ordinary New Game. To resume
+an owned test checkpoint in another process, select that checkpoint and a new
+fresh data root. The caller owns the isolated settings, process and cleanup.
+
 The caller creates the dedicated canonical data directory outside the project,
 copies only settings and owns process/output cleanup. It must route PHP's early
 error log, stdout and stderr there before starting PHP; Engine cannot isolate

@@ -11,6 +11,10 @@
 
 ### Added
 
+- Explicit saved-checkpoint launch into fresh isolated playtest storage through
+  `GameLaunchContext`, the ordinary save compatibility pipeline and saved-game
+  scene lifecycle. Source saves and normal settings/data remain unchanged.
+
 - Equipment comparisons enhance the existing shop detail panel with the known roster's portraits,
   fading unaffected actors and focusing the current comparison. Existing Info cycles affected actors.
   Removed eligibility sentences, unaffected stat rows, signed deltas and identity text duplicated by

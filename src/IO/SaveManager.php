@@ -366,6 +366,26 @@ class SaveManager
     return $this->compatibilityPipeline->load($this->decodeSavePayload($path), $path, $this->getDestinationSlot($path));
   }
 
+  /** Import one selected checkpoint into isolated slot 1; the source is never written. */
+  public function importIsolatedCheckpoint(string $source): SavedGame
+  {
+    if ($this->isolatedDataRoot === null) {
+      throw new InvalidArgumentException('Checkpoint import requires an isolated launch data root.');
+    }
+    LaunchDataRoot::validate($this->isolatedDataRoot, Path::getCurrentWorkingDirectory());
+    if ($source === '' || str_contains($source, "\0") || realpath($source) !== $source
+      || is_link($source) || !is_file($source) || !is_readable($source)) {
+      throw new InvalidArgumentException('A checkpoint must be a canonical absolute readable regular save file.');
+    }
+    $destination = $this->getSlotPath(1);
+    $contents = $this->readSaveFile($source);
+    // Validate and migrate the captured bytes before creating a save or acquiring native resources.
+    $saved = $this->compatibilityPipeline->load($this->decodeSaveContents($contents, $source), $destination, 1);
+    $this->validateStoragePath($destination);
+    LocalDataFiles::writeAtomically($destination, $contents);
+    return $saved;
+  }
+
   private function getDestinationSlot(string $path): ?int
   {
     $name = pathinfo($path, PATHINFO_FILENAME);
@@ -531,6 +551,11 @@ class SaveManager
    */
   protected function decodeSavePayload(string $path): string
   {
+    return $this->decodeSaveContents($this->readSaveFile($path), $path);
+  }
+
+  private function readSaveFile(string $path): string
+  {
     try {
       $contents = LocalDataFiles::runFileOperation(static fn() => file_get_contents($path));
     } catch (RuntimeException $error) {
@@ -541,6 +566,11 @@ class SaveManager
       throw new CorruptSaveException(sprintf('Could not read save file: %s', $path));
     }
 
+    return $contents;
+  }
+
+  private function decodeSaveContents(string $contents, string $path): string
+  {
     if (! str_starts_with($contents, self::FILE_HEADER)) {
       throw new CorruptSaveException(sprintf('Invalid save file header: %s', $path));
     }
