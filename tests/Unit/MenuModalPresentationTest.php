@@ -681,3 +681,48 @@ it('batches default focus and primitive outline edges without changing any fille
   $label = array_find($frame->textLayers, fn($text) => $text->id === 'menu-modal-choice-0-text');
   expect($label->x + $label->bounds->width / 2)->toBe(190.0);
 })->with([false, true]);
+
+it('fits a notice portrait or semantic icon beside its text using the current theme', function (bool $art, bool $portrait) {
+  $data = [...modalMenuTheme($art), 'icons' => ['power.synthetic' => 'art.png']];
+  $theme = new MenuPresentationCatalog($this->root, $data);
+  $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('A new companion', 'A member joined the party.',
+    actorId: $portrait ? 'actor.0' : null, iconRole: $portrait ? null : 'power.synthetic');
+  $modal = new ModalPresentation($notice->title, $notice->message, ['OK'], 0, singleConfirmation: true, notice: $notice);
+  $frame = MenuModalPresentation::compose(new PresentationCanvas(1350, 720), $modal, $theme);
+  $images = array_values(array_filter($frame->images, static fn($image): bool =>
+    str_starts_with($image->id, $portrait ? 'menu-modal-notice-portrait' : 'menu-modal-notice-icon')
+      && !str_contains($image->id, '-frame')));
+  $layers = array_column($frame->textLayers, null, 'id');
+  expect($images)->not->toBeEmpty();
+  foreach ($images as $image) {
+    $image->destination->assertWithin(1350, 720);
+    expect($image->asset)->toBe('art.png')
+      ->and($image->destination->x + $image->destination->width)->toBeLessThanOrEqual($layers['menu-modal-message']->clipRect->x);
+  }
+  $button = $layers['menu-modal-choice-0-text'];
+  expect($button->clipRect->x + $button->clipRect->width / 2)->toBe(675.0);
+})->with([false, true])->with([false, true]);
+
+it('keeps a text notice readable when its theme has no optional artwork binding', function () {
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']);
+  $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('Power gained', 'An acquired technique.', iconRole: 'power.synthetic');
+  $frame = MenuModalPresentation::compose(new PresentationCanvas(1350, 720),
+    new ModalPresentation($notice->title, $notice->message, ['OK'], 0, singleConfirmation: true, notice: $notice), $theme);
+  expect(array_filter($frame->images, static fn($image): bool => str_contains($image->id, 'notice')))->toBeEmpty();
+  $layers = array_column($frame->textLayers, null, 'id');
+  expect(implode('', array_column($layers['menu-modal-message']->runs, 'text')))->toBe($notice->message)
+    ->and($layers['menu-modal-message']->clipRect->x + $layers['menu-modal-message']->clipRect->width / 2)->toBe(675.0);
+});
+
+it('plays a notice sound once on showing and keeps ordinary dismissal ownership', function () {
+  $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('New power', 'An unlocked technique.',
+    sound: SystemSound::NOTIFICATION);
+  $modal = new \Ichiloto\Engine\UI\Modal\NoticeModal($this->game, $notice);
+  $modal->show(); $modal->show();
+  expect($this->audio->sounds)->toBe([SystemSound::NOTIFICATION])->and($modal->isShowing())->toBeTrue();
+  $modal->hide();
+  expect($modal->isShowing())->toBeFalse();
+  $modal->show();
+  expect($this->audio->sounds)->toBe([SystemSound::NOTIFICATION, SystemSound::NOTIFICATION]);
+  $modal->hide();
+});

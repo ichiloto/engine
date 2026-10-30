@@ -10,6 +10,26 @@ Tales of Arise, Trails of Cold Steel III and Octopath Traveler. Motion was check
 FFXIII, FFXVI and Persona 5 Royal. The Game UI Database's terms forbid using its content for AI asset
 generation, so its screenshots are reference only and must never be fed to an image generator.
 
+## Dismissible acquisition notices
+
+`NoticeContent` supplies a heading, message, optional actor identity or semantic
+icon role, and an optional configured `SystemSound`. `NoticeModal` uses the
+existing paged information-modal lifecycle for input, dismissal, text retention
+and restoration. It plays its sound once when shown. Terminal presentation keeps
+the same heading and message; reduced motion uses the same stationary notice.
+
+`ModalManager::queueNotice()` preserves producer order with queued alerts and
+delivers at the normal frame boundary. Interrupted delivery retains the entry
+for retry. Graphical presentation resolves portraits and icon roles through the
+current shared menu theme. Portrait size, spacing, panels, typography, colours
+and buttons use existing theme metrics; the button label stays centred.
+Optional artwork can be replaced or omitted while the notice text remains.
+
+Gameplay owners supply actual recruitment or acquisition results. The view
+model holds presentation data. The recruitment lifecycle hook, cooperative
+cinematic showcase commands and saved first-use prompts are still in progress;
+this modal/queue API is their shared presentation foundation.
+
 ## Words
 
 - **Use established JRPG conventions for the same screen.** Study actual comparable screens before

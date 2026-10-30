@@ -27,7 +27,7 @@ class ModalManager implements CanUpdate, CanRender
    * @var Stack<ModalInterface> $modals The stack of modals.
    */
   protected Stack $modals;
-  /** @var list<array{message: string, title: string}> */
+  /** @var list<array{message: string, title: string, notice?: NoticeContent}> */
   protected array $pendingAlerts = [];
   /**
    * @var ModalInterface|null $currentModal The current modal.
@@ -78,12 +78,21 @@ class ModalManager implements CanUpdate, CanRender
     $this->pendingAlerts[] = ['message' => $message, 'title' => $title];
   }
 
+  /** Notices and alerts preserve one producer order and never re-enter scene input. */
+  public function queueNotice(NoticeContent $notice): void
+  {
+    $this->pendingAlerts[] = ['message' => $notice->message, 'title' => $notice->title, 'notice' => $notice];
+  }
+
   /** Called only at a normal frame boundary, never from the blocked-frame pump. */
   public function processPendingAlerts(): void
   {
     if ($this->currentModal !== null || $this->pendingAlerts === []) { return; }
     $alert = array_shift($this->pendingAlerts);
-    try { $this->showPendingAlert($alert['message'], $alert['title']); }
+    try {
+      if (isset($alert['notice'])) { $this->showPendingNotice($alert['notice']); }
+      else { $this->showPendingAlert($alert['message'], $alert['title']); }
+    }
     catch (\Throwable $error) {
       array_unshift($this->pendingAlerts, $alert);
       throw $error;
@@ -93,6 +102,14 @@ class ModalManager implements CanUpdate, CanRender
   protected function showPendingAlert(string $message, string $title): void
   {
     $modal = new PagedAlertModal($this->game, $message, $title);
+    $this->modals->push($modal);
+    try { $modal->open(); }
+    finally { $this->modals->pop(); }
+  }
+
+  protected function showPendingNotice(NoticeContent $notice): void
+  {
+    $modal = new NoticeModal($this->game, $notice);
     $this->modals->push($modal);
     try { $modal->open(); }
     finally { $this->modals->pop(); }

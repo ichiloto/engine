@@ -25,6 +25,10 @@
 
 ### Added
 
+- Shared dismissible notices with theme-bound portraits or icons, optional
+  configured sound, bounded information pages and ordered deferred delivery.
+  Ordinary modal dismissal/restoration and Terminal presentation are retained.
+
 - A read-only crisis-technique acquisition query resolves the current unlocked
   form independently of temporary battle activation, sharing combat's source
   conditions and catalog without changing resources or saves.
