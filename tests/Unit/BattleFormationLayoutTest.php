@@ -450,3 +450,44 @@ it('composes the canvas the battle draws at rest: the cropped background, then e
     ->and(array_map(static fn(CanvasImage $image): string => $image->id, $canvas->images))->toBe(['arena', 'enemy-1', 'party-0', 'enemy-0'])
     ->and([$canvas->width, $canvas->height])->toBe([1350, 720]);
 });
+
+
+it('shares measured arena scaling between runtime frames and previews at distinct foot rows', function (bool $reduced) {
+  ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));
+  $scale = new \Ichiloto\Engine\Battle\Presentation\BattleGroundScale(100, 600, 150 / 1.8);
+  $bindings = \Ichiloto\Engine\Battle\Presentation\BattleArenaBindings::getFromArray(['arenas' => ['measured' => [
+    'name' => 'Synthetic measured room', 'background' => ['image' => 'arena.png'],
+    'ground' => ['top' => 200, 'bottom' => 720, 'scaleReference' => $scale->toArray()],
+  ]]]);
+  $arena = $bindings->getDefinitions(1350, 720)['measured'];
+  $catalog = new BattlePresentationCatalog(['measured' => $arena], ['Hero' => $this->art], ['Creature' => $this->enemyArt],
+    ui: $this->layout, actorPoses: ['Hero' => $this->poses], defaultArena: 'measured', scale: $this->scale);
+  $slots = [formationSlot(200, 350, 200, 230), formationSlot(400, 600, 200, 230)];
+  $preview = BattleFormationLayout::compose($catalog, 'measured',
+    array_map(static fn($slot): array => ['enemyId' => 'Creature', 'slot' => $slot], $slots), ['Hero'], $this->root,
+    reducedMotion: $reduced);
+  expect($preview->enemies[0]->bounds->height)->toEqualWithDelta($preview->enemies[1]->bounds->height / 2, 1e-9)
+    ->and($preview->staging->ground->scaleReference)->toEqual($scale)
+    ->and($catalog->scale->referenceHeight)->toBe(150.0);
+  $party = new Party();
+  $hero = new Character('Hero', 1, new Stats(currentHp: 100, totalHp: 100));
+  $party->addMember($hero);
+  $enemies = [];
+  foreach ($slots as $index => $_) {
+    $enemy = new ReflectionClass(Enemy::class)->newInstanceWithoutConstructor();
+    foreach (['name' => 'Creature', 'level' => 1, 'stats' => new Stats(currentHp: 100, totalHp: 100),
+      'position' => new Vector2($index, 0)] as $key => $value) {
+      new ReflectionProperty(Enemy::class, $key)->setValue($enemy, $value);
+    }
+    $enemies[] = $enemy;
+  }
+  $battle = new BattleConfig($party, new Troop('Synthetic measured', $enemies, graphicalFormation: $slots));
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $frame = $presentation->frame();
+  foreach ($enemies as $index => $enemy) {
+    $image = array_find($frame->images, static fn($image): bool => $image->id === 'combatant-' . spl_object_id($enemy));
+    expect($image->destination)->toEqual($preview->enemies[$index]->image->destination)
+      ->and($presentation->getSlot($enemy)->displayScale)->toEqualWithDelta($scale->getDepthScale($slots[$index]->getSlotOn($preview->staging->ground)->y), 1e-9);
+  }
+  expect($hero->stats->currentHp)->toBe(100)->and($enemies[0]->stats->currentHp)->toBe(100);
+})->with([false, true]);

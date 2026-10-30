@@ -291,3 +291,24 @@ it('places every member of an eight-member graphical party through shared stagin
       ->and($slot->y)->toBeGreaterThanOrEqual(0)->toBeLessThanOrEqual($layout->getHudTop());
   }
 });
+
+
+it('uses measured depth after footing moves feet and keeps the body above the HUD', function () {
+  $scale = new \Ichiloto\Engine\Battle\Presentation\BattleGroundScale(100, 550, 100);
+  $ground = new BattleGround(250, 600, scaleReference: $scale);
+  $footing = new BattleFooting([[0, 500], [1350, 500], [1350, 600], [0, 600]]);
+  $layout = stagingLayout([new BattleStageSlot(1000, 300, 100, 200)], $ground);
+  $arena = stagingArena($ground, $footing);
+  $body = ['width' => 100.0, 'height' => 200.0, 'pivotY' => .9];
+  $staged = BattleStaging::stage($layout, $arena, [$body], [], []);
+  $slot = $staged->party[0];
+  expect($slot->y)->toBeGreaterThanOrEqual(500.0)
+    ->and($slot->displayScale)->toEqualWithDelta($scale->getDepthScale($slot->y), 1e-9)
+    ->and($slot->y + 20 * $slot->displayScale)->toBeLessThanOrEqual($layout->getHudTop() + 1e-6);
+  // Moving logical formation projects through the same calibrated body-footing constraints.
+  $moved = BattleStaging::fitMovedSlot($layout, $arena, true,
+    \Ichiloto\Engine\Entities\Enemies\EnemyHabitat::LAND,
+    new \Ichiloto\Engine\Battle\Presentation\BattlerSlot(1000, 590, 100, 200, $scale->getDepthScale(590)), $body);
+  expect($moved->displayScale)->toEqualWithDelta($scale->getDepthScale($moved->y), 1e-9)
+    ->and($moved->y + 20 * $moved->displayScale)->toBeLessThanOrEqual($layout->getHudTop() + 1e-6);
+});
