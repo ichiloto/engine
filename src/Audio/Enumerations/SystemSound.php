@@ -53,6 +53,8 @@ enum SystemSound: string
    * Played when a notification appears.
    */
   case NOTIFICATION = 'notification';
+  /** A real member joins the campaign party; projects may bind a short jingle. */
+  case PARTY_JOIN = 'party_join';
   /**
    * Played when a party member gains a level.
    */

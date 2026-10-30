@@ -24,6 +24,7 @@ final class EngineMessageTerms
     'battle.insufficient_resource' => ['default' => '%1 cannot use %2: not enough %3.', 'placeholders' => ['%1' => 'Actor name', '%2' => 'Action name', '%3' => 'Resource label'], 'description' => 'An action cannot execute because its resource is insufficient.'],
     'battle.insufficient_resource_selection' => ['default' => 'Not enough %5! %1 needs %2 %5, %3 has %4.', 'placeholders' => ['%1' => 'Action name', '%2' => 'Resource cost', '%3' => 'Actor name', '%4' => 'Current resource', '%5' => 'Resource label'], 'description' => 'An action cannot be selected because its resource is insufficient.'],
     'battle.level_gained' => ['default' => '%1 grew to %2 %3!', 'placeholders' => ['%1' => 'Character name', '%2' => 'Level label', '%3' => 'New level'], 'description' => 'A character gains a level after battle.'],
+    'party.member_joined' => ['default' => '%1 joined the party!', 'placeholders' => ['%1' => 'Character name'], 'description' => 'Shown for every real campaign party join.'],
     'confirm.quit' => ['default' => 'Are you sure you want to quit?', 'placeholders' => [], 'description' => 'Confirmation before exiting the game.'],
     'confirm.to_title' => ['default' => 'Return to title?', 'placeholders' => [], 'description' => 'Confirmation before returning to the title screen.'],
     'exp_next' => ['default' => 'To Next %1', 'placeholders' => ['%1' => 'Level label'], 'description' => 'Experience required for the next level.'],

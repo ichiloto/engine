@@ -22,6 +22,42 @@ use InvalidArgumentException;
  */
 class Party extends BattleGroup
 {
+  /** @var \WeakMap<self, list<CharacterInterface>>|null Transient joins are never serialized with a party. */
+  private static ?\WeakMap $pendingJoins = null;
+
+  #[\Override]
+  public function addMember(CharacterInterface $character): void
+  {
+    $alreadyPresent = in_array($character, $this->members->toArray(), true);
+    parent::addMember($character);
+    if (!$alreadyPresent) {
+      self::$pendingJoins ??= new \WeakMap();
+      self::$pendingJoins[$this] = [...(self::$pendingJoins[$this] ?? []), $character];
+    }
+  }
+
+  /** The next real join, including joins through average-level recruitment. */
+  public function getPendingJoin(): ?CharacterInterface
+  {
+    return self::$pendingJoins[$this][0] ?? null;
+  }
+
+  /** A presenter acknowledges only after its delivery queue owns the notice. */
+  public function acknowledgeJoin(CharacterInterface $character): void
+  {
+    if ($this->getPendingJoin() !== $character) { throw new \LogicException('Acknowledge party joins in producer order.'); }
+    $pending = self::$pendingJoins[$this];
+    array_shift($pending);
+    if ($pending === []) { unset(self::$pendingJoins[$this]); }
+    else { self::$pendingJoins[$this] = $pending; }
+  }
+
+  /** Initial roster construction, save hydration and scene shutdown own their boundary. */
+  public function clearPendingJoins(): void
+  {
+    if (self::$pendingJoins !== null) { unset(self::$pendingJoins[$this]); }
+  }
+
   /**
    * The maximum gold the party can have.
    */

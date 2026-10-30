@@ -483,26 +483,26 @@ it('skips files no available backend can decode', function () {
 
 /* System sounds */
 
-it('plays a system sound through its configured track', function () {
+it('plays a system sound through its configured track', function (SystemSound $sound) {
   $root = makeAudioAssetsRoot(['level-up.wav']);
   putAudioProjectConfig([
     'audio' => [
       'sfx' => true,
       'master_volume' => 50,
       'sounds' => [
-        'level_up' => "$root/level-up.wav",
+        $sound->value => "$root/level-up.wav",
       ],
     ],
   ]);
 
   $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
-  $manager->playSystemSound(SystemSound::LEVEL_UP);
+  $manager->playSystemSound($sound);
 
   expect($manager->spawnedCommands)->toHaveCount(1)
     ->and($manager->spawnedCommands[0])->toBe(['fake-player', '0.50', 'once', "$root/level-up.wav"]);
 
   $manager->shutdown();
-});
+})->with([SystemSound::LEVEL_UP, SystemSound::PARTY_JOIN]);
 
 it('switches and restores cinematic music through non-blocking authored fades', function () {
   putAudioProjectConfig(['audio' => ['music' => true, 'master_volume' => 100]]);

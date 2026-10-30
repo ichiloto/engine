@@ -27,7 +27,7 @@ class ModalManager implements CanUpdate, CanRender
    * @var Stack<ModalInterface> $modals The stack of modals.
    */
   protected Stack $modals;
-  /** @var list<array{message: string, title: string, notice?: NoticeContent}> */
+  /** @var list<array{message: string, title: string, notice?: NoticeContent, owner?: object}> */
   protected array $pendingAlerts = [];
   /**
    * @var ModalInterface|null $currentModal The current modal.
@@ -79,9 +79,22 @@ class ModalManager implements CanUpdate, CanRender
   }
 
   /** Notices and alerts preserve one producer order and never re-enter scene input. */
-  public function queueNotice(NoticeContent $notice): void
+  public function queueNotice(NoticeContent $notice, ?object $owner = null): void
   {
-    $this->pendingAlerts[] = ['message' => $notice->message, 'title' => $notice->title, 'notice' => $notice];
+    $this->pendingAlerts[] = ['message' => $notice->message, 'title' => $notice->title, 'notice' => $notice,
+      ...($owner === null ? [] : ['owner' => $owner])];
+  }
+
+  /** Releases one scene's queued notices while preserving other producers. */
+  public function cancelNotices(object $owner): void
+  {
+    $this->pendingAlerts = array_values(array_filter($this->pendingAlerts,
+      static fn(array $entry): bool => ($entry['owner'] ?? null) !== $owner));
+  }
+
+  public function hasPendingNotices(object $owner): bool
+  {
+    return array_any($this->pendingAlerts, static fn(array $entry): bool => ($entry['owner'] ?? null) === $owner);
   }
 
   /** Called only at a normal frame boundary, never from the blocked-frame pump. */

@@ -26,9 +26,31 @@ and buttons use existing theme metrics; the button label stays centred.
 Optional artwork can be replaced or omitted while the notice text remains.
 
 Gameplay owners supply actual recruitment or acquisition results. The view
-model holds presentation data. The recruitment lifecycle hook, cooperative
-cinematic showcase commands and saved first-use prompts are still in progress;
-this modal/queue API is their shared presentation foundation.
+model holds presentation data. Cooperative cinematic showcase commands and
+saved first-use prompts remain in progress.
+
+### Party recruitment lifecycle
+
+Supported joins converge on `Party::addMember()`, including `recruit_actor` and
+average-level recruitment. The party records each real join in a transient weak
+queue. Existing actor-factory duplicate protection remains. Initial roster
+construction and save hydration are cleared when a campaign acquires its party;
+notices add no saved fields or serialized callbacks.
+
+The campaign automatically queues the portrait and localized
+`messages.party.member_joined` text, with `%1` naming the member. Bind a short
+jingle through `audio.sounds.party_join` and its ordinary sound-volume setting.
+The message and portrait share actual actor identity across all consumers.
+No event author adds a separate announcement command.
+
+Field scripts hold before their next command and before cinematic completion
+until every owned join notice is acknowledged. Gameplay also waits between a
+batch's notices. Battle-event hosts retain their existing flow. Queue delivery
+acknowledges the party's pending entry only after the modal queue owns it.
+Scene shutdown or replacement cancels that scene's pending notices and joins;
+other producers' alerts and notices remain. `ModalManager::queueNotice()` takes
+an optional owner token for this lifecycle, with `hasPendingNotices()` and
+`cancelNotices()` querying and releasing only that token.
 
 ## Words
 

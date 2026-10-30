@@ -25,6 +25,11 @@
 
 ### Added
 
+- Automatic party-join notices use the recruited actor's portrait, localized
+  text and a configurable `party_join` jingle. Field scripts and gameplay pause
+  for acknowledgement; initial/load rosters stay quiet. Pending presentation is
+  transient and scene-owned, preserving other producers during cleanup.
+
 - Shared dismissible notices with theme-bound portraits or icons, optional
   configured sound, bounded information pages and ordered deferred delivery.
   Ordinary modal dismissal/restoration and Terminal presentation are retained.

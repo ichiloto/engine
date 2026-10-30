@@ -209,6 +209,8 @@ class EventInterpreter
     }
 
     for ($commandsThisTick = 0; $commandsThisTick < 1000; $commandsThisTick++) {
+      // A real join owns an acknowledgement before the next command or cinematic cleanup.
+      if ($this->host === $this->gameScene && $this->gameScene->awaitRecruitmentNotices()) { return; }
       if ($lane->hasFinishedFrames()) {
         $lane->complete();
         return;

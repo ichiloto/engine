@@ -729,6 +729,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
      * @var Party|null The party.
      */
     protected(set) ?Party $party = null;
+    private ?object $recruitmentNoticeOwner = null;
     /**
      * @var GameState The persistent world state (switches, variables, story
      * events, one-shot event completion).
@@ -964,6 +965,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     /** Project state has been prepared and restored before any campaign consumer runs. */
     protected function configureCampaign(GameConfig $config): void
     {
+        $this->releaseRecruitmentNotices();
         $this->mapManager = MapManager::getInstance($this->getGame(), $this);
 
         $this->initializeGameSceneStates();
@@ -986,6 +988,8 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
 
         $this->player = $this->createPlayer($this->config);
         $this->party = $this->config->party;
+        // Construction and hydration precede this campaign's real join lifecycle.
+        $this->beginRecruitmentNotices();
         $this->party->assertSummonAssignments((new SummonCutsceneLibrary())->load());
 
         // The quest manager must exist before the first map load so the
@@ -1286,6 +1290,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
             if ($this->isStopping || $this->sceneManager->currentScene !== $this) { return; }
         }
         $this->advanceFieldPresentation(max(0.0, Time::getDeltaTime()));
+        if ($this->awaitRecruitmentNotices()) { return; }
         parent::update();
         if ($this->isStopping || $this->sceneManager->currentScene !== $this || $this->sceneManager->hasSceneTransition()) {
             return;
@@ -1301,6 +1306,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         if ($this->isStopping || $this->sceneManager->currentScene !== $this || $this->sceneManager->hasSceneTransition()) {
             return;
         }
+        $this->queueRecruitmentNotices();
         $this->mapManager?->refreshMapKnowledge();
         if ($this->state instanceof FieldState) {
             // Dialogue outcomes and moving subjects change waymarks without a step.
@@ -1397,6 +1403,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $this->arrivalPresentationSince = null;
         $failure = null;
         foreach ([
+            fn() => $this->releaseRecruitmentNotices(),
             fn() => $this->releaseLocationHUDWindow(),
             fn() => $this->cinematicController?->shutdown(),
             fn() => $this->eventInterpreter?->failActiveSession('Event interrupted by field shutdown.'),
@@ -1417,6 +1424,44 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
 
         if ($failure !== null) {
             throw $failure;
+        }
+    }
+
+    /** Hydrated members are already known when a campaign acquires this owner. */
+    private function beginRecruitmentNotices(): void
+    {
+        $this->party?->clearPendingJoins();
+        $this->recruitmentNoticeOwner = new \stdClass();
+    }
+
+    /** Every recruitment path converges on Party::addMember, before display. */
+    protected function queueRecruitmentNotices(): void
+    {
+        if ($this->recruitmentNoticeOwner === null || $this->party === null) { return; }
+        $modals = ModalManager::getInstance($this->getGame());
+        while (($member = $this->party->getPendingJoin()) !== null) {
+            $modals->queueNotice(new \Ichiloto\Engine\UI\Modal\NoticeContent(
+                '', MessageCatalog::getTerm('party.member_joined', $member->name),
+                actorId: $member instanceof \Ichiloto\Engine\Entities\Character ? $member->actorId : null,
+                sound: \Ichiloto\Engine\Audio\Enumerations\SystemSound::PARTY_JOIN), $this->recruitmentNoticeOwner);
+            $this->party->acknowledgeJoin($member);
+        }
+    }
+
+    /** Hold gameplay and following script commands until every owned join is acknowledged. */
+    public function awaitRecruitmentNotices(): bool
+    {
+        if ($this->recruitmentNoticeOwner === null) { return false; }
+        $this->queueRecruitmentNotices();
+        return ModalManager::getInstance($this->getGame())->hasPendingNotices($this->recruitmentNoticeOwner);
+    }
+
+    private function releaseRecruitmentNotices(): void
+    {
+        if ($this->recruitmentNoticeOwner !== null) {
+            ModalManager::getInstance($this->getGame())->cancelNotices($this->recruitmentNoticeOwner);
+            $this->party?->clearPendingJoins();
+            $this->recruitmentNoticeOwner = null;
         }
     }
 
