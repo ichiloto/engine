@@ -37,7 +37,10 @@ abstract class BattleAction implements BattleActionInterface
     $this->gauges = $gauges;
     $this->formation = $formation;
     try { $this->execute($actor, $targets); }
-    finally { $this->reactions = null; $this->allowInterception = true; $this->gauges = null; $this->formation = null; }
+    finally {
+      $this->reactions = null; $this->allowInterception = true; $this->gauges = null; $this->formation = null;
+      $reactions->releaseInactiveCounters();
+    }
   }
   /** The command's targeting contract, shared by selection and execution. */
   public ItemScope $targetScope {

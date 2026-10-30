@@ -120,6 +120,37 @@ it('cancels a removed stance, an absent participant and a defeated owner without
   expect($owner->hasState('synthetic-decoy'))->toBeFalse();
 })->with(['removed', 'defeated', 'absent']);
 
+it('releases a prepared stance when another real command defeats its selected opponent', function () {
+  $owner = new Character('Owner', 0, new Stats(currentHp: 100));
+  $ally = new Character('Ally', 0, new Stats(currentHp: 100));
+  $foe = new Character('Foe', 0, new Stats(currentHp: 100, evasion: 0));
+  $reactions = new BattleReactions(SkillCatalog::fromSkills(['r.php' => createPreparedResponse()]));
+  $reactions->prepareCounter($owner, $foe, new CounterAttackRule('Synthetic reply'), StateRegistry::get('synthetic-decoy'));
+  $finish = new SkillBattleAction(new BasicSkill('Finisher', '', '', 0, 0,
+    invocation: new SkillInvocation(accuracy: 100), effects: [new HPDamageSkillEffect('10000', variance: 0,
+      resolutionKind: \Ichiloto\Engine\Battle\Resolution\ResolutionKind::TRUE_DAMAGE)]), random: new SeededCombatRandomSource(4));
+  $finish->executeWithReactions($ally, [$foe], $reactions);
+  expect($foe->isFighting)->toBeFalse()->and($owner->hasState('synthetic-decoy'))->toBeFalse()
+    ->and($reactions->takeResponses($foe))->toBe([]);
+});
+
+it('releases inactive or unrostered leases while preserving a later unrelated grant of the same state', function () {
+  $owner = new Character('Owner', 0, new Stats(currentHp: 100));
+  $foe = new Character('Foe', 0, new Stats(currentHp: 100));
+  $ally = new Character('Ally', 0, new Stats(currentHp: 100));
+  $reactions = new BattleReactions(SkillCatalog::fromSkills(['r.php' => createPreparedResponse()]));
+  $reactions->prepareCounter($owner, $foe, new CounterAttackRule('Synthetic reply'), StateRegistry::get('synthetic-decoy'));
+  $reactions->resolveTargets(new AttackAction('Attack'), $foe, [$ally], [$ally], [$foe]);
+  expect($owner->hasState('synthetic-decoy'))->toBeFalse();
+  $reactions->prepareCounter($owner, $foe, new CounterAttackRule('Synthetic reply'), StateRegistry::get('synthetic-decoy'));
+  $owner->removeState('synthetic-decoy');
+  $owner->addState(new State('synthetic-decoy', 'Unrelated grant'));
+  $replacement = $owner->states[0];
+  $reactions->beginTurn($ally);
+  $reactions->clear();
+  expect($owner->states)->toContain($replacement)->and($owner->hasState('synthetic-decoy'))->toBeTrue();
+});
+
 it('rejects preparation outside a battle before paying MP and releases the injected context after failure', function () {
   $owner = new Character('Owner', 0, new Stats(currentHp: 100, currentMp: 10));
   $foe = new Character('Foe', 0, new Stats(currentHp: 100));

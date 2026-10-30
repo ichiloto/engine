@@ -34,6 +34,7 @@ final class BattleReactions
 
   public function beginTurn(CharacterInterface $actor): void
   {
+    $this->releaseInactiveCounters();
     $this->turnOwner = $actor;
   }
 
@@ -69,6 +70,7 @@ final class BattleReactions
   public function resolveTargets(BattleAction $action, CharacterInterface $attacker, array $targets,
     array $party, array $troop): array
   {
+    $this->releaseInactiveCounters([...$party, ...$troop]);
     $counter = $this->findCounter($action, $attacker);
     if ($counter === null || !((in_array($attacker, $party, true) && in_array($counter->actor, $troop, true))
       || (in_array($attacker, $troop, true) && in_array($counter->actor, $party, true)))) { return $targets; }
@@ -106,6 +108,21 @@ final class BattleReactions
     foreach ($this->prepared as $counter) { $counter->releaseStance(); }
     $this->prepared = $this->responses = [];
     $this->turnOwner = null;
+  }
+
+  /** Release each expired lease's exact stance, including an opponent lost
+   * to another action. Gameplay owns cleanup; rendering only reads states.
+   * @param list<CharacterInterface>|null $participants Current roster when known.
+   */
+  public function releaseInactiveCounters(?array $participants = null): void
+  {
+    foreach ($this->prepared as $index => $counter) {
+      if ($counter->isActive() && ($participants === null
+        || (in_array($counter->actor, $participants, true) && in_array($counter->opponent, $participants, true)))) { continue; }
+      $counter->releaseStance();
+      unset($this->prepared[$index]);
+    }
+    $this->prepared = array_values($this->prepared);
   }
 
   private function findCounter(BattleAction $action, CharacterInterface $attacker): ?PreparedCounter

@@ -113,6 +113,11 @@ A battle-only skill selecting one living opponent may author:
 `skill` selects a response accepted by `CounterAttackRule`; `stateId` selects
 the user's battle-only stance. The battle owns the chosen opponent and exact
 stance instance. Removing or expiring that instance cancels its diversion.
+Inactive prepared stances are removed after commands and before a new turn;
+target resolution also releases leases whose participants left the current
+roster. This includes an opponent defeated by another command. Cleanup checks
+the exact granted instance, preserving a later unrelated grant of the same
+state. Rendering reads the surviving state and never performs gameplay cleanup.
 Another preparation by the same user replaces its prior preparation. The
 selected opponent's next damaging command redirects to the user, spends its
 ordinary cost, and produces one forced Miss. Its entire invocation, including
