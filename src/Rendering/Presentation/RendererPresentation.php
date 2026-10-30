@@ -173,6 +173,12 @@ final class RendererPresentation
     if ($canvas->composites !== [] && !$this->client->supports(RendererSessionConfig::CANVAS_COMPOSITING)) {
       throw new RendererProtocolException('Canvas raster operations require negotiated canvas_compositing support.');
     }
+    if (!$this->client->supports(RendererSessionConfig::CANVAS_IMAGE_ALPHA_FLIP)
+      && array_any($canvas->composites, static fn($composite): bool => array_any($composite->operations,
+        static fn($operation): bool => array_any($operation->data['masks'], static fn(array $mask): bool =>
+          ($mask['flipX'] ?? false) || ($mask['flipY'] ?? false))))) {
+      throw new RendererProtocolException('Mirrored image-alpha masks require negotiated canvas_image_alpha_flip support.');
+    }
     $compositeIds = array_fill_keys(array_column($canvas->composites, 'id'), true);
     $imageIds = array_fill_keys(array_column($canvas->images, 'id'), true);
     if (array_any($canvas->indicators, static fn($indicator) => !isset($imageIds[$indicator->imageId]) && isset($compositeIds[$indicator->imageId]))

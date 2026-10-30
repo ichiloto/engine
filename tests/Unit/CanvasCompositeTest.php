@@ -127,6 +127,29 @@ it('negotiates compositing before submission and keeps overlays above the entire
   expect(fn() => new RendererSessionConfig('Effects', __DIR__, requiredCapabilities: ['canvas_compositing']))->toThrow(InvalidArgumentException::class);
 });
 
+it('negotiates image-alpha mirroring independently and rejects non-boolean mirror flags', function () {
+  $fill = getCompositeTestFill();
+  $mask = ['type' => 'image_alpha', 'asset' => 'mask.png', 'destination' => getCompositeTestRect(), 'flipX' => true, 'flipY' => true];
+  $fill['masks'] = [$mask];
+  $canvas = new PresentationCanvas(100, 100, composites: [new CanvasComposite('mirror', 16, 16,
+    new CanvasRectangle(0, 0, 16, 16), [new CanvasCompositeOperation($fill)])]);
+  foreach ([false, true] as $supported) {
+    $caps = ['graphical_canvas', 'canvas_compositing', ...($supported ? ['canvas_image_alpha_flip'] : [])];
+    $transport = new FakeRendererTransport(); $client = new RendererClient($transport);
+    $client->start(new RendererSessionConfig('Masks', __DIR__, protocol: RendererProtocolVersion::V2, requiredCapabilities: $caps));
+    $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $caps]))];
+    $client->pump(); $presenter = new RendererPresentation($client, new RendererGridConfig(1, 1));
+    if (!$supported) { expect(fn() => $presenter->presentCanvas($canvas))->toThrow(RendererProtocolException::class, 'canvas_image_alpha_flip'); }
+    else { expect($presenter->presentCanvas($canvas))->toBeTrue(); }
+  }
+  foreach (['flipX', 'flipY'] as $axis) {
+    expect(fn() => new CanvasCompositeMask(array_replace($mask, [$axis => 1])))->toThrow(InvalidArgumentException::class);
+  }
+  $plain = new CanvasCompositeMask(array_replace($mask, ['flipX' => false, 'flipY' => false]));
+  expect($plain->data)->not->toHaveKeys(['flipX', 'flipY']);
+  expect(fn() => new RendererSessionConfig('Masks', __DIR__, requiredCapabilities: ['canvas_image_alpha_flip']))->toThrow(InvalidArgumentException::class);
+});
+
 it('preflights alpha and displaced PNG references rather than freezing their bytes or dimensions', function () {
   $root = __DIR__ . '/../Fixtures/Renderer';
   $image = new CanvasCompositeOperation(['type' => 'image', 'asset' => 'test-sprite.png', 'destination' => getCompositeTestRect(),

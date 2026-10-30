@@ -279,16 +279,16 @@ final class GraphicalBattlePresentation
   /** @param list<CanvasTextLayer> $ui */
   public function frame(?BattlePresentationState $field = null, array $ui = [], ?BattleHudSnapshot $hud = null,
     ?string $focus = null, ?float $now = null, bool $imageFlips = true, bool $compositing = true,
-    ?bool $reducedMotion = null): PresentationCanvas
+    ?bool $reducedMotion = null, bool $maskFlips = true, bool $imageTones = true): PresentationCanvas
   {
     $now ??= hrtime(true) / 1_000_000_000;
     $reducedMotion ??= Accessibility::prefersReducedMotion();
     try {
-      return $this->composeFrame($field, $ui, $hud, $focus, $now, true, $imageFlips, $compositing, $reducedMotion);
+      return $this->composeFrame($field, $ui, $hud, $focus, $now, true, $imageFlips, $compositing, $reducedMotion, $maskFlips, $imageTones);
     } catch (\InvalidArgumentException|RuntimeException $error) {
       // A failure in the base battlefield remains an error. Only optional pose
       // and effect composition can degrade, without losing combat or feedback.
-      $fallback = $this->composeFrame($field, $ui, $hud, $focus, $now, false, $imageFlips, $compositing, $reducedMotion);
+      $fallback = $this->composeFrame($field, $ui, $hud, $focus, $now, false, $imageFlips, $compositing, $reducedMotion, $maskFlips, $imageTones);
       $field?->getCommandPlayback()?->recordPresentationFailure($error);
       if (!isset($this->compositionDiagnostics[$error->getMessage()])) {
         Debug::warn('Optional battle poses/effects unavailable; retaining base battlefield: ' . $error->getMessage());
@@ -301,7 +301,7 @@ final class GraphicalBattlePresentation
   /** @param list<CanvasTextLayer> $ui */
   private function composeFrame(?BattlePresentationState $field, array $ui, ?BattleHudSnapshot $hud,
     ?string $focus, float $now, bool $includeOptionalArtwork, bool $imageFlips, bool $compositing,
-    bool $reducedMotion): PresentationCanvas
+    bool $reducedMotion, bool $maskFlips, bool $imageTones): PresentationCanvas
   {
     $playback = $field?->getCommandPlayback();
     $stageFrame = $includeOptionalArtwork && $playback !== null && !$playback->isCompleted
@@ -339,6 +339,12 @@ final class GraphicalBattlePresentation
     $bodies = [];
     $combatantImages = [];
     $conditionBattlers = [];
+    $conditionPlaybacks = [];
+    $commandTone = !$includeOptionalArtwork || $playback === null ? [] : BattleEffectTone::getMultipliers($playback, $reducedMotion);
+    if (!$imageTones && $commandTone !== []) {
+      $playback->recordPresentationFailure(new RuntimeException('Renderer cannot apply the authored battler image tone.'));
+      $commandTone = [];
+    }
     $groundAnchors = [];
     $partySides = [];
     $protectedCombatants = [];
@@ -412,7 +418,8 @@ final class GraphicalBattlePresentation
       $groundAnchors[$identity] = new Vector2($slot->x + ($bounds->x - $unmovedX), $slot->y + ($bounds->y - $unmovedY));
       $partySides[$identity] = $participant['party'];
       $image = new CanvasImage($image->id, $art->asset, $bounds, $image->layer, $art->sourceRect,
-        clipRect: $clip === null ? null : new CanvasRectangle($bounds->x, $clip->y, $bounds->width, $clip->height));
+        $image->opacity, $clip === null ? null : new CanvasRectangle($bounds->x, $clip->y, $bounds->width, $clip->height),
+        $image->brightness, $image->flipX, $image->flipY);
       // Overlays attach to the body as drawn this frame, following steps, recoil, shake and pose changes.
       $bodies[$identity] = $participant['available'] ? $this->locateBody($image, $identity) : $image->destination;
       $popups = array_filter($feedback, static fn(array $popup) => $popup['battler'] === $battler);
@@ -420,14 +427,23 @@ final class GraphicalBattlePresentation
       if (!$participant['party'] && $battler->isKnockedOut
         && ($defeat !== null ? !$defeat['visible'] : $popups === [])) { continue; }
       $conditionBattlers[$identity] = $battler;
+      $condition = $this->conditionEffects->createPlayback($battler, $field?->getPoseElapsedSeconds() ?? 0, $includeOptionalArtwork);
+      if ($condition !== null) { $conditionPlaybacks[$identity] = $condition; }
+      $conditionTone = $condition === null ? [] : BattleEffectTone::getMultipliers($condition, $reducedMotion);
+      if (!$imageTones && $conditionTone !== []) {
+        $condition->recordPresentationFailure(new RuntimeException('Renderer cannot apply the authored condition image tone.'));
+        $conditionTone = [];
+      }
       if ($participant['available']) {
-        $images[] = $combatantImages[$identity] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
+        $drawn = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
           $image->sourceRect, clipRect: $image->clipRect, opacity: $defeat['opacity'] ?? match (true) {
             $participant['party'] && $battler->isKnockedOut && !$usesKnockoutPose => 0.4,
             // Without a concede pose, the enemy's current artwork is held, subdued.
             !$participant['party'] && ($battler->hasConceded ?? false) && !$usesConcedePose => $this->defeatStyle->concededOpacity,
             default => 1,
-          });
+          }, brightness: $image->brightness, flipX: $image->flipX, flipY: $image->flipY);
+        $images[] = $combatantImages[$identity] = BattleEffectTone::applyToImage($drawn,
+          ($commandTone[$identity] ?? 1.0) * ($conditionTone[$identity] ?? 1.0));
         // Its contact follows its feet through steps, recoil and poses, and fades with it. Engine-drawn
         // contacts are composites; a ripple or burrow sheet is art and needs none.
         $profile = $participant['scale'];
@@ -440,6 +456,9 @@ final class GraphicalBattlePresentation
         if ($compositing) { array_push($composites, ...$surface['composites']); }
         if (($defeat['pulse'] ?? false) && $compositing && $includeOptionalArtwork) {
           try {
+            if (!$maskFlips && ($combatantImages[$identity]->flipX || $combatantImages[$identity]->flipY)) {
+              throw new RuntimeException('Renderer cannot mirror the defeat pulse image-alpha mask; fade remains.');
+            }
             $composites[] = \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageTint::compose(
               'enemy-defeat-' . $identity, $combatantImages[$identity], $defeat['color'], .6, $this->assetRoot);
           } catch (\Throwable $error) { $playback?->recordPresentationFailure($error); }
@@ -508,12 +527,9 @@ final class GraphicalBattlePresentation
     }
     $effects = null;
     $conditionAreas = [];
-    foreach ($conditionBattlers as $battler) {
-      $condition = $this->conditionEffects->createPlayback($battler, $field?->getPoseElapsedSeconds() ?? 0,
-        $includeOptionalArtwork);
-      if ($condition === null) { continue; }
+    foreach ($conditionPlaybacks as $condition) {
       $ambient = GraphicalBattleEffects::compose($condition, $this->layout, $bodies, $this->assetRoot,
-        $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors, $partySides);
+        $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors, $partySides, $maskFlips);
       array_push($images, ...$ambient->images);
       array_push($text, ...$ambient->textLayers);
       array_push($composites, ...$ambient->composites);
@@ -521,7 +537,7 @@ final class GraphicalBattlePresentation
     }
     if ($playback !== null && $includeOptionalArtwork) {
       $effects = GraphicalBattleEffects::compose($playback, $this->layout, $bodies, $this->assetRoot,
-        $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors, $partySides);
+        $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors, $partySides, $maskFlips);
       array_push($images, ...$effects->images);
       array_push($text, ...$effects->textLayers);
       array_push($composites, ...$effects->composites);

@@ -80,8 +80,8 @@ final class BattleConditionEffects
         throw new InvalidArgumentException('Condition effects require fixed looping presentation without cues or a stage.');
       }
       foreach ($timeline->playbackSegments as $segment) {
-        if (!in_array($segment['layer'], ['image', 'glyph', 'text'], true)) {
-          throw new InvalidArgumentException('Condition effects accept only attached image/glyph/text tracks, not flashes or shake.');
+        if (!in_array($segment['layer'], ['image', 'glyph', 'text', 'tone'], true)) {
+          throw new InvalidArgumentException('Condition effects accept attached image, glyph, text and tone tracks.');
         }
         foreach ($segment['drawCommands'] as $command) {
           if (!in_array($command['payload']['anchor'] ?? 'target', ['target', 'caster'], true)) {

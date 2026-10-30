@@ -30,7 +30,7 @@ final class GraphicalBattleEffects
    */
   public static function compose(BattleEffectPlayback $playback, BattleCanvasLayout $arena,
     array $bounds, string $assetRoot, bool $reducedMotion, array $battlerImages = [], bool $imageFlips = true,
-    bool $compositing = true, ?array $groundAnchors = null, array $partySides = []): PresentationCanvas
+    bool $compositing = true, ?array $groundAnchors = null, array $partySides = [], bool $maskFlips = true): PresentationCanvas
   {
     $groundAnchors ??= array_map(static fn(CanvasRectangle $box): Vector2 =>
       new Vector2($box->x + $box->width / 2, $box->y + $box->height), $bounds);
@@ -60,6 +60,7 @@ final class GraphicalBattleEffects
       }
     }
     foreach ($playback->getActiveSegments($reducedMotion) as $segment) {
+      if ($segment['layer'] === 'tone') { continue; } // Owned by the current battler image, preserving draw order.
       foreach ($segment['drawCommands'] as $command) {
         if (!($command['visible'] ?? true)) { continue; }
         $data = $command['payload'] ?? [];
@@ -208,6 +209,9 @@ final class GraphicalBattleEffects
     foreach ($tints as $identity => $layers) {
       if (!$compositing) { continue; }
       try {
+        if (!$maskFlips && ($battlerImages[$identity]->flipX || $battlerImages[$identity]->flipY)) {
+          throw new InvalidArgumentException('Renderer cannot mirror image-alpha masks for this battler tint.');
+        }
         $tint = CanvasImageTint::composeLayers('command-tint-' . $identity, $battlerImages[$identity], $layers, $assetRoot);
         $tintAreas[] = $tint->clipRect ?? $tint->destination;
         // Surface opacity cannot be distributed through overlapping operations.
@@ -234,7 +238,7 @@ final class GraphicalBattleEffects
     }
     if ($playback instanceof BattlerConditionEffect && !$hadConditionFailure && $playback->hasPresentationFailure) {
       return self::compose($playback, $arena, $bounds, $assetRoot, $reducedMotion, $battlerImages,
-        $imageFlips, $compositing, $groundAnchors);
+        $imageFlips, $compositing, $groundAnchors, $partySides, $maskFlips);
     }
     return new PresentationCanvas($arena->width, $arena->height, $images, textLayers: $text, composites: $composites,
       protectedAreas: [...$tintAreas,

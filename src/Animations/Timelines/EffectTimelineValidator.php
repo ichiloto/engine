@@ -77,7 +77,7 @@ final class EffectTimelineValidator
     $hasImages = $imageRestCovered = $stageRestCovered = false;
     foreach ($tracks as $track) {
       if (!is_array($track) || !is_string($track['id'] ?? null) || isset($ids[$track['id']])
-        || !in_array($track['type'] ?? null, ['image', 'glyph', 'text', ...($forBattle ? ['flash', 'shake'] : [])], true)) {
+        || !in_array($track['type'] ?? null, ['image', 'glyph', 'text', ...($forBattle ? ['flash', 'shake', 'tone'] : [])], true)) {
         throw new InvalidArgumentException("Effect {$id} has an invalid or duplicate track.");
       }
       EffectTimelineLibrary::assertId($track['id']);
@@ -101,7 +101,7 @@ final class EffectTimelineValidator
           throw new InvalidArgumentException("Effect {$id} toward turns a directional track; declare its facing too.");
         }
       }
-      if (in_array($track['type'] ?? '', ['glyph', 'text', 'flash', 'shake'], true)) {
+      if (in_array($track['type'] ?? '', ['glyph', 'text', 'flash', 'shake', 'tone'], true)) {
         if (array_diff(array_keys($track), ['id', 'type', 'anchor', 'keyframes', 'presentation', ...($forBattle ? ['facing', 'toward'] : [])]) !== []
           || !in_array($track['anchor'] ?? 'target', ['caster', 'target', 'screen'], true)
           || !is_array($track['keyframes'] ?? null) || !array_is_list($track['keyframes'])
@@ -115,6 +115,16 @@ final class EffectTimelineValidator
             throw new InvalidArgumentException("Effect {$id} has an invalid presentation keyframe range.");
           }
           self::validateKeyframe($id, $keyframe, $forSummon);
+          if ($track['type'] === 'tone') {
+            $payload = $keyframe['payload'] ?? [];
+            if (!in_array($track['anchor'] ?? 'target', ['caster', 'target'], true)
+              || array_diff(array_keys($keyframe), ['frame', 'duration', 'visible', 'payload']) !== []
+              || array_diff(array_keys($payload), ['brightness']) !== []
+              || (!is_int($payload['brightness'] ?? null) && !is_float($payload['brightness'] ?? null))
+              || !is_finite((float)($payload['brightness'] ?? NAN)) || $payload['brightness'] < 0 || $payload['brightness'] > 1) {
+              throw new InvalidArgumentException("Effect {$id} tone requires a battler anchor and brightness within 0..1.");
+            }
+          }
           if (isset($track['anchor'])) { $keyframe['payload']['anchor'] = $track['anchor']; }
           if (isset($track['facing'])) { $keyframe['payload']['facing'] = $track['facing']; }
           if (isset($track['toward'])) { $keyframe['payload']['toward'] = $track['toward']; }

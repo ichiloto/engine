@@ -2663,6 +2663,38 @@ it('composes an ordinary source-stage cut-in through the actual battle renderer 
   expect(array_column($presentation->frame($field)->images, 'id'))->toContain('arena');
 });
 
+it('retains current image geometry and draw order while state tones appear and disappear', function (bool $reduced) {
+  $root = createTestDirectory('state-tone-frame');
+  mkdir($root . '/graphical-canvas');
+  \Tests\Support\Rendering\writeTestPng($root . '/graphical-canvas/synthetic-320x180.png', 320, 180);
+  \Tests\Support\Rendering\writeTestPng($root . '/graphical-canvas/synthetic-143x181.png', 143, 181);
+  mkdir($root . '/Animations/shade', 0777, true);
+  file_put_contents($root . '/Animations/shade/shade.timeline.php', '<?php return ' . var_export([
+    'fps' => 10, 'lengthFrames' => 2, 'restFrame' => 1, 'playback' => 'loop', 'tracks' => [[
+      'id' => 'tone', 'type' => 'tone', 'anchor' => 'target', 'keyframes' => [
+        ['frame' => 0, 'payload' => ['brightness' => .7]], ['frame' => 1, 'payload' => ['brightness' => .15]],
+      ],
+    ]]], true) . ';');
+  ConfigStore::put(\Ichiloto\Engine\Util\Config\ProjectConfig::class, new PlaySettings([
+    'ui' => ['battle' => ['conditions' => ['states' => ['prepared' => 'shade']]]]]));
+  [$battle, $catalog, $hero] = graphicalBattleFixture();
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $root);
+  $base = $presentation->frame(reducedMotion: $reduced);
+  $before = graphicalCombatantImage($base, $hero);
+  $hero->addState(new \Ichiloto\Engine\Entities\States\State('prepared', 'Prepared', 'S'));
+  $frame = $presentation->frame(reducedMotion: $reduced);
+  $drawn = graphicalCombatantImage($frame, $hero);
+  expect($drawn->brightness)->toBe($reduced ? .15 : .7)
+    ->and($drawn->destination)->toEqual($before->destination)->and($drawn->sourceRect)->toEqual($before->sourceRect)
+    ->and($drawn->layer)->toBe($before->layer)
+    ->and(array_column($frame->images, 'id'))->toBe(array_column($base->images, 'id'))
+    ->and(count($frame->composites))->toBe(count($base->composites));
+  $limited = $presentation->frame(reducedMotion: $reduced, imageTones: false);
+  expect(graphicalCombatantImage($limited, $hero)->brightness)->toBe(1.0)->and($hero->hasState('prepared'))->toBeTrue();
+  $hero->removeState('prepared');
+  expect(graphicalCombatantImage($presentation->frame(), $hero)->brightness)->toBe(1.0);
+})->with([false, true]);
+
 it('projects one selected-group image through the actual battle frame at the recipients ground envelope', function (bool $reduced) {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $effect = new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($this->root)->compile('group-ground',

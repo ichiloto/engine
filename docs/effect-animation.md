@@ -908,13 +908,43 @@ their catalogs, preserve unrelated source and refuse unsupported edits before
 writing. This Engine slice does not implement those editors or admit assets.
 
 A condition timeline uses fixed authored fps, `playback => 'loop'`, optional
-`loopFrom`, a visible static `restFrame`, and battler-attached image/glyph/text
+`loopFrom`, a visible static `restFrame`, and battler-attached image/glyph/text/tone
 tracks. Existing target/caster anchors refer to the affected battler, with image
 head/center/feet/ground attachments and pivots unchanged. Screen/stage anchors,
 flash, shake and all cues (including audio and applyEffect) are rejected for
 persistent conditions. This prevents repeated gameplay/audio and flashing at
 rest. Multiple conditions compose independently, including clear-before-draw
 inside each condition, rather than erasing another condition's layers.
+
+An optional `tone` track changes the current battler image's intrinsic
+brightness. It retains crop, placement, opacity, clip, mirroring and draw order;
+replacing a pose or PNG needs no baked shadow copy. Each keyframe has `frame`,
+optional `duration`/`visible`, and an explicit brightness multiplier:
+
+```php
+['id' => 'shade', 'type' => 'tone', 'anchor' => 'target', 'presentation' => 'graphical',
+ 'keyframes' => [['frame' => 0, 'duration' => 24, 'payload' => [
+   'brightness' => .15,
+ ]]]]
+```
+
+Brightness is a finite number in0..1. Tone tracks accept target/caster anchors
+and no content, asset, offset or screen fields. They multiply the image's
+existing brightness through the shared CanvasImage contract and add no source
+assets or raster composite surfaces. Overlapping state/command tones multiply
+by stable combatant instance identity. The current condition clock and rest
+frame govern sampling; Terminal keeps its authored glyph/text or semantic label.
+Removal/interception/expiry/KO follows the real state, including the prepared
+counter's inactive-lease cleanup after commands. Presentation never mutates the
+lease or cures a state. A backend without canvas_image_tone reports the missing
+presentation and keeps the normal image, badges and gameplay.
+
+Separately, composited flashes that use mirrored image-alpha masks require
+negotiated canvas_image_alpha_flip plus compositing. The mask carries optional
+boolean flipX/flipY within its selected crop; false flags are omitted. A backend
+without that capability reports the unsupported mirrored flash and keeps poses,
+feedback and gameplay. Intrinsic tone tracks use the existing brightness feature
+and preserve mirroring without that extra raster-mask capability.
 
 The field's existing pause-aware pose clock supplies elapsed time. Conditions
 join its current loop phase when applied; sampling does not restart a private

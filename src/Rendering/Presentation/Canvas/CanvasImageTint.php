@@ -80,6 +80,8 @@ final class CanvasImageTint
     $height = (int)ceil($image->destination->height);
     $rectangle = ['x' => 0, 'y' => 0, 'width' => $width, 'height' => $height];
     $mask = ['type' => 'image_alpha', 'asset' => $image->asset, 'destination' => $rectangle];
+    if ($image->flipX) { $mask['flipX'] = true; }
+    if ($image->flipY) { $mask['flipY'] = true; }
     if ($image->sourceRect !== null) {
       $crop = $image->sourceRect;
       $mask['source'] = ['x' => $crop->x / $size['width'], 'y' => $crop->y / $size['height'],
