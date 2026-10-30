@@ -11,6 +11,11 @@
 
 ### Added
 
+- Tileset-owned graphical `layerOffsets`, inherited by maps and palette previews,
+  with explicit per-map overrides. Map and tileset offsets accept finite fractions
+  within half a field cell, including one source pixel at 48px tile size. Physical
+  occupancy, Terminal geometry, events and saved positions retain their coordinates.
+
 - Explicit saved-checkpoint launch into fresh isolated playtest storage through
   `GameLaunchContext`, the ordinary save compatibility pipeline and saved-game
   scene lifecycle. Source saves and normal settings/data remain unchanged.

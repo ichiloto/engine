@@ -33,7 +33,7 @@ final readonly class Tileset
   /** The key naming the piece shown for each type of place. */
   public const string PLACE_ICONS = 'placeIcons';
   private const array FIELDS = ['name', 'sheets', 'above', 'tables', 'pieces', 'kinds', 'stacks', 'missingArt', 'shadows',
-    TilesetAppearance::DATA_KEY, self::PLACE_ICONS, TilesetThicket::DATA_KEY];
+    TilesetAppearance::DATA_KEY, self::PLACE_ICONS, TilesetThicket::DATA_KEY, TileLayerOffset::DATA_KEY];
 
   /**
    * @param array<string, string> $sheets Asset-relative PNG paths keyed by sheet name.
@@ -48,6 +48,7 @@ final readonly class Tileset
    * @param array<string, string> $placeIcons The piece id a map drawn with this tileset shows for each place type
    *     id, so the icon over an entrance follows the type of the place it leads to.
    * @param array<string, TilesetThicket> $thickets Thickets, keyed by thicket id, in authored order.
+   * @param array<string, array{float|int, float|int}> $layerOffsets Default graphical offsets by tile layer role.
    */
   public function __construct(
     public string $id,
@@ -63,7 +64,9 @@ final readonly class Tileset
     public array $stacks = [],
     public array $placeIcons = [],
     public array $thickets = [],
+    array $layerOffsets = [],
   ) {
+    $this->layerOffsets = TileLayerOffset::readAll($layerOffsets, "Tileset {$id} " . TileLayerOffset::DATA_KEY);
     $byTile = [];
     foreach ($thickets as $thicket) {
       foreach ($thicket->tiles as $tile) {
@@ -80,6 +83,9 @@ final readonly class Tileset
 
   /** @var array<int, TilesetThicket> The thicket each tile is, by flag identity. */
   private array $thicketsByTile;
+
+  /** @var array<string, array{float, float}> Drawing defaults inherited by maps and palette previews. */
+  public array $layerOffsets;
 
   /**
    * The thicket a tile is, in any of its shapes: the one its terrain kind
@@ -223,7 +229,8 @@ final readonly class Tileset
       array_values(array_unique(array_map(static fn(TerrainKind $kind): string => $kind->layer, $kinds))));
     $placeIcons = self::readPlaceIcons($data[self::PLACE_ICONS] ?? [], $pieces, $stacks, $context);
     return new self($id, $data['name'], $sheets, $above, $tables, $pieces, $missingArt, $shadows, $appearance, $kinds, $stacks,
-      $placeIcons, $thickets);
+      $placeIcons, $thickets, TileLayerOffset::readAll($data[TileLayerOffset::DATA_KEY] ?? [],
+        "{$context} " . TileLayerOffset::DATA_KEY));
   }
 
   /**

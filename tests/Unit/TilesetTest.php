@@ -354,9 +354,66 @@ it('shifts a whole tile layer by half a field cell from the map data, never its 
     ->and([$tile['left'], $tile['top']])->toBe([24, -24])
     ->and(MapGraphics::readLayerOffsets(['lounge' => ['offset' => [0, 0]]], ['lounge'], 'home'))->toBe(['lounge' => [0.0, 0.0]])
     ->and(MapGraphics::readLayerOffsets(null, [], 'home'))->toBe([]);
-  foreach ([['sofa' => ['offset' => [0, 0.5]]], ['lounge' => ['offset' => [0, 1]]], ['lounge' => ['offset' => [0.25, 0]]],
+  foreach ([['sofa' => ['offset' => [0, 0.5]]], ['lounge' => ['offset' => [0, 1]]],
     ['lounge' => ['offset' => [0]]], ['lounge' => ['offset' => [0, 0], 'above' => true]], ['lounge' => []], 'lounge'] as $settings) {
     expect(fn() => MapGraphics::readLayerOffsets($settings, ['floor', 'lounge'], 'home'))->toThrow(InvalidArgumentException::class);
+  }
+});
+
+it('inherits tileset drawing offsets on every map and in palettes, with explicit map overrides', function () {
+  writeTilesetProject($this->root, extra: ", 'layerOffsets' => ['tabletop' => [1 / 48, -1 / 3], 'unused' => [0, 0.5]]");
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', '..')]);
+  $sources = ['01.tabletop.tiles.php' => MapGridSource::buildSource('5 0', 'TILES')];
+  $read = fn(string $id, ?array $settings = null): MapGraphics => MapGraphics::fromSources(
+    $sources, $id, 'home', $layers, $this->root, $settings);
+  $first = $read('first');
+  $second = $read('second');
+  $palette = new MapGraphics($first->tileset, $first->layers);
+  $offsets = ['tabletop' => [1 / 48, -1 / 3]];
+  expect($first->offsets)->toBe($offsets)
+    ->and($second->offsets)->toBe($offsets)
+    ->and($palette->offsets)->toBe($offsets)
+    ->and($read('override', ['tabletop' => ['offset' => [0, 0]]])->offsets)->toBe(['tabletop' => [0.0, 0.0]])
+    ->and($read('override', ['tabletop' => ['offset' => [-0.25, 0.125]]])->offsets)->toBe(['tabletop' => [-0.25, 0.125]])
+    ->and($first->tileset->layerOffsets)->toBe($offsets + ['unused' => [0.0, 0.5]]);
+
+  // Draw coordinates change while the tile grid and Terminal/physical layer keep their identity.
+  $world = PresentationWorld::getFromLayers($layers, 'map', $first, $this->root);
+  $definition = $world->operations[0]['value'];
+  $drawn = array_values(array_filter($world->operations, static fn(array $op): bool => $op['op'] === 'worldTiles'));
+  $cell = $drawn[0]['rows'][0]['cells'][0];
+  $tile = $definition['tileset']['tiles'][$cell['tile']];
+  expect([$cell['column'], $drawn[0]['rows'][0]['row']])->toBe([0, 0])
+    ->and([$tile['left'], $tile['top']])->toBe([1, -16])
+    ->and($first->layers[0]->readTiles())->toBe([[5, 0]])
+    ->and($layers->getComposedGrid())->toBe([['.', '.']]);
+
+  // A current, unsaved tileset is authoritative for the same map sources.
+  $replacement = Tileset::fromArray('home', ['name' => 'Replacement', 'sheets' => $first->tileset->sheets,
+    'layerOffsets' => ['tabletop' => [0, -0.25]]]);
+  $edited = MapGraphics::fromSources($sources, 'first', 'home', $layers, $this->root, tileset: $replacement);
+  expect($edited->offsets)->toBe(['tabletop' => [0.0, -0.25]])
+    ->and($first->offsets)->toBe($offsets);
+});
+
+it('validates bounded fractional offsets consistently for map settings and tileset roles', function () {
+  $source = ['name' => 'Offsets', 'sheets' => ['B' => 'Graphics/B.png']];
+  foreach ([[0, -0.5], [0.5, 0], [1 / 48, -1 / 3], [0.25, -0.125]] as $offset) {
+    $expected = array_map(floatval(...), $offset);
+    expect(Tileset::fromArray('test', $source + ['layerOffsets' => ['props' => $offset]])->layerOffsets)
+      ->toBe(['props' => $expected])
+      ->and(MapGraphics::readLayerOffsets(['props' => ['offset' => $offset]], ['props'], 'test'))
+      ->toBe(['props' => $expected]);
+  }
+  foreach ([[0, 0.50001], [-1, 0], [NAN, 0], [0, INF], ['0', 0], [true, 0], [0], ['x' => 0, 'y' => 0], null] as $offset) {
+    expect(fn() => Tileset::fromArray('test', $source + ['layerOffsets' => ['props' => $offset]]))
+      ->toThrow(InvalidArgumentException::class)
+      ->and(fn() => MapGraphics::readLayerOffsets(['props' => ['offset' => $offset]], ['props'], 'test'))
+      ->toThrow(InvalidArgumentException::class);
+  }
+  foreach ([['bad role' => [0, 0]], [0 => [0, 0]], 'props'] as $offsets) {
+    expect(fn() => Tileset::fromArray('test', $source + ['layerOffsets' => $offsets]))
+      ->toThrow(InvalidArgumentException::class);
   }
 });
 

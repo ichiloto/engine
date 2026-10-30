@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Tilesets\TileId;
+use Ichiloto\Engine\Rendering\Tilesets\TileLayerOffset;
 use Ichiloto\Engine\Rendering\Tilesets\Tileset;
 use Ichiloto\Engine\Rendering\Tilesets\TilesetPiece;
 use InvalidArgumentException;
@@ -25,9 +26,9 @@ final readonly class MapGraphics
     /** The tile layer setting naming the gameplay layer whose glyphs its tiles move with. */
     public const string MOVES_WITH_KEY = 'movesWith';
     /**
-     * A layer may be drawn this many field cells across or down from its grid,
-     * like a Tiled layer offset: half a cell lets art sit between the cells
-     * its terminal footprint allows. It never moves collision or events.
+     * Historical editor shortcuts. Offsets accept any finite fraction within
+     * TileLayerOffset::MAX_ABSOLUTE, independently of artwork pixel size.
+     * @deprecated Use TileLayerOffset's bound when validating or editing offsets.
      */
     public const array OFFSET_STEPS = [-0.5, 0.0, 0.5];
 
@@ -37,16 +38,23 @@ final readonly class MapGraphics
      * @param array<string, ?string> $owners The gameplay layer each tile layer belongs to, or null for none,
      *     by tile layer name ({@see resolveLayerOwners()}). A tile layer left out belongs to none.
      */
-    public function __construct(public Tileset $tileset, public array $layers, public array $offsets = [],
+    public function __construct(public Tileset $tileset, public array $layers, array $offsets = [],
         public array $owners = [])
     {
+        $names = array_fill_keys(array_map(static fn(MapTileLayer $layer): string => $layer->name, $layers), true);
+        $this->offsets = TileLayerOffset::readAll($offsets, 'Map tile layer offsets')
+            + array_intersect_key($tileset->layerOffsets, $names);
     }
+
+    /** @var array<string, array{float, float}> Effective offsets: explicit map values override tileset defaults. */
+    public array $offsets;
 
     /**
      * Reads the map data's tile layer settings: `'tileLayers' => ['lounge' =>
      * ['offset' => [0, -0.5]]]`, an offset across and down in field cells.
      * A layer's settings may also name the gameplay layer it moves with
-     * ({@see readLayersMovingWith()}); a layer without an offset has none.
+     * ({@see readLayersMovingWith()}). This reader returns explicit map values;
+     * construction resolves omitted values from the current tileset.
      *
      * @param list<string> $names The map's tile layer names.
      * @return array<string, array{float, float}>
@@ -72,17 +80,7 @@ final readonly class MapGraphics
             if (!array_key_exists('offset', $layer)) {
                 continue;
             }
-            if (!is_array($layer['offset']) || !array_is_list($layer['offset']) || count($layer['offset']) !== 2) {
-                throw new InvalidArgumentException("{$where} '{$name}' offset must be two numbers, across and down.");
-            }
-            $offset = [];
-            foreach ($layer['offset'] as $value) {
-                if ((!is_int($value) && !is_float($value)) || !in_array((float)$value, self::OFFSET_STEPS, true)) {
-                    throw new InvalidArgumentException("{$where} '{$name}' offsets by -0.5, 0 or 0.5 field cells on each axis.");
-                }
-                $offset[] = (float)$value;
-            }
-            $offsets[$name] = [$offset[0], $offset[1]];
+            $offsets[$name] = TileLayerOffset::fromArray($layer['offset'], "{$where} '{$name}' offset")->toArray();
         }
         return $offsets;
     }

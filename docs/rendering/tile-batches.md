@@ -59,7 +59,7 @@ layers of kind `tiles` own no glyphs, and `worldTiles` lists each row's
 `column` and catalog `tile`. A tile is one cell tall and may set its own
 `width` and `left` and `top` offsets from its cell's corner (in source pixels).
 The Engine sends every tile whole, one per cell, and uses `left` and `top`
-only for a map's half-cell layer offsets; it never sends `width`. When the
+for the effective graphical layer offsets; it never sends `width`. When the
 renderer advertises `tile_covers`, a `tiles` layer that belongs to a gameplay
 layer names it in `coversLayerId` (for example `"coversLayerId":"map:fixtures"`,
 on both draw bands of the tile layer); the Engine sends the field to no other
@@ -77,6 +77,29 @@ listed. A `shadows` layer paints like `tiles` but never hides a glyph. Other
 renderers receive none of it. The viewport's optional
 `tileFrame` selects each tile's frame `tileFrame % frames`, so water animates
 with a camera-only update.
+
+### Tileset-owned drawing offsets
+
+A tileset may declare `layerOffsets`, keyed by graphical tile layer role:
+
+```php
+'layerOffsets' => ['tabletop' => [0, -1 / 3], 'counter-face' => [0, 0.5]],
+```
+
+Every map and palette using that tileset inherits these drawing positions.
+`MapGraphics::$offsets` contains effective values for the layers present.
+An explicit map `tileLayers` offset overrides the corresponding default;
+`[0, 0]` explicitly draws a role on its grid. Omitting the map offset follows
+the current tileset. Source readers return explicit authored values so editors
+can preserve the distinction between an override and inheritance.
+
+Each axis accepts a finite number from -0.5 to 0.5 field cells, including
+fractions such as `1 / 48`. Composition rounds to the current tile size's source
+pixels. `TileLayerOffset` owns this validation for both map and tileset data.
+Offsets translate art and its graphical shadows. Terminal cells, tile identities,
+physical occupancy, events and saved positions retain their authored coordinates.
+This contract supplies role-wide drawing defaults; independently positioned pieces
+remain a separate authoring requirement in the integration roadmap.
 
 ## Optional tile coverage inspection
 

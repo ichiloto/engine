@@ -418,12 +418,14 @@ editing surface is owned by the GUI Editor plan. Related docs:
   and reusable pieces, not terminal glyphs, collision or renderer defaults.
   Intentional voids remain empty. Material changes and inner-corner alpha
   must be inspected together in the composed result.
-- **Layer offsets.** The map data may shift a whole tile layer by half a
-  field cell (half a tile) across or down, like a Tiled layer offset:
-  `'tileLayers' => ['lounge' => ['offset' => [0, -0.5]]]`. Art can then sit
-  between the cells its terminal footprint allows, such as a coffee table
-  centred between a sofa and a television. Offsets are -0.5, 0 or 0.5 and
-  never move collision or events.
+- **Layer offsets.** A tileset declares reusable graphical role offsets with
+  `'layerOffsets' => ['tabletop' => [0, -1 / 3]]`. Maps and palette previews
+  inherit them. An explicit map setting, such as
+  `'tileLayers' => ['tabletop' => ['offset' => [0, 0]]]`, overrides its role's
+  default. Each axis accepts a finite fraction between -0.5 and 0.5 field
+  cells. Composition rounds to source pixels for the current tile size.
+  Offsets move art and graphical shadows while collision, Terminal cells,
+  events and saved coordinates stay in their authored positions.
 - **Tiles belong to a gameplay layer.** Each tile layer belongs to at most
   one gameplay layer, so moving that layer's glyphs in an editor carries its
   tiles in the same cells, moving other layers leaves them, and its tiles
