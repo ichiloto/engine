@@ -173,6 +173,13 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         return $this->presentationContext;
     }
 
+    /** Active scene-owned UI; constructor-isolated hosts may have no presentation owner. */
+    public function getActiveFieldPresentations(): array
+    {
+        if ($this->presentationContext !== null) { return $this->presentationContext->getActivePresentations(); }
+        return isset($this->uiManager) ? $this->uiManager->getActivePresentations() : [];
+    }
+
     private function supportsScenePresentation(string $capability): bool
     {
         return $this->presentationContext !== null ? $this->presentationContext->supports($capability)

@@ -90,7 +90,7 @@ final class DialogueCameraFraming
     $scene = $this->scene;
     if ($scene->cinematicController?->active() === null) { $this->clear(); return; }
     $context = $scene->getPresentationContext();
-    $owners = $context !== null ? $context->getActivePresentations() : $scene->getUI()->getActivePresentations();
+    $owners = $scene->getActiveFieldPresentations();
     $owners = array_values(array_filter($owners, static fn($owner): bool => $owner instanceof DialoguePresentationProviderInterface));
     $lines = array_map(static fn($owner) => $owner->getDialogueSnapshot(), $owners);
     $line = $lines[0] ?? null;

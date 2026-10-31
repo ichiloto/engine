@@ -390,9 +390,10 @@ one.
 `CinematicRelativePosition` is the shared runtime/authoring boundary. It resolves
 the subject when staging begins or each route leg begins, reading its current
 map position. It never reads image dimensions, chooses a substitute cell or
-changes a real subject's transform. Independent visual staging retains its
-off-map capability; route destinations must be integral cells inside the map
-and pass the existing collision-aware planner. A target that disappears fails
+changes a real subject's transform. Independent subject-relative staging then
+checks visible physical floor through `CinematicStagePlacement`, as described
+below. Absolute visual staging keeps its authored coordinates; route destinations
+must be integral cells inside the map and pass the collision-aware planner. A target that disappears fails
 the command, preserving the event session's existing rollback/cleanup behavior.
 An already-started leg keeps its planned endpoint rather than chasing a moving
 target. Later legs read the subject's then-current position. Recorded returns
@@ -415,6 +416,17 @@ independent staged actor accepts one of the two, never both:
  'at' => ['kind' => 'world_object', 'id' => 'lamp-1'], 'offset' => ['x' => 3, 'y' => 1],
  'faceToward' => ['kind' => 'world_object', 'id' => 'lamp-1']],
 ```
+
+Independent subject-relative cast must stand on visible, unoccupied physical
+floor, including when `collision` is false. The preferred offset is used when
+valid. Otherwise Engine searches reachable floor within three walking steps of
+the anchor, in north/east/south/west order. Other visible cast reserve their cells
+regardless of their collision flag. A relocation emits a diagnostic; no available
+cell refuses staging before replacing actors or acquiring subjects. This removes
+unsafe off-map and solid-cell placement for independent relative actors. Real
+subject bindings and explicit world-object attachments retain their own physical
+ownership. Map occupancy remains the single collision authority.
+
 
 `CinematicFacing` is the shared runtime/authoring boundary. `faceToward` is
 resolved when the staging command or route leg begins, from the cell the

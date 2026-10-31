@@ -4,6 +4,10 @@
 
 ### Removed
 
+- Removed unsafe off-map, solid-cell and occupied-cell placement for independent
+  subject-relative cinematic cast. Valid preferred offsets are retained; bounded
+  visible floor selection and explicit refusal protect staging ownership.
+
 - Removed measured arena depth scaling: `ground.scaleReference`, `BattleGroundScale`,
   and their body-scaling/clearance projection. The existing `ground.perspective`
   setting remains; `1.0` keeps each battler's size constant across foot rows.

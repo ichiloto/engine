@@ -406,3 +406,15 @@ it('rejects untyped or unordered presentation owners', function ($owners) {
     $context = new ScenePresentationContext($this->grid, fn() => true, collectPresentations: fn() => $owners);
     expect(fn() => $context->getActivePresentations())->toThrow(InvalidArgumentException::class);
 })->with([[['not-a-provider']], [['owner' => new ContextDialogueOwnerProbe()]]]);
+
+
+it('exposes only installed scene presentation owners in isolated field hosts', function () {
+    $scene = new ContextFieldSceneProbe($this->root);
+    expect($scene->getActiveFieldPresentations())->toBe([]);
+    $owner = new ContextDialogueOwnerProbe();
+    $scene->setPresentationContext(new ScenePresentationContext($this->grid, fn() => false,
+        graphical: false, collectPresentations: fn() => [$owner]));
+    expect($scene->getActiveFieldPresentations())->toBe([$owner]);
+    $scene->setPresentationContext(null);
+    expect($scene->getActiveFieldPresentations())->toBe([]);
+});

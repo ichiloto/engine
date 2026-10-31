@@ -247,6 +247,12 @@ it('stages a map NPC hidden by its story conditions in its own glyph, sheet and 
   $gate = $npcs->findById('synthetic-gate');
   expect($npcs->canStageNpc($gate))->toBeFalse();
 
+  $map = makeBareScene(\Ichiloto\Engine\Field\MapManager::class);
+  new ReflectionProperty(\Ichiloto\Engine\Field\MapManager::class, 'gameScene')->setValue($map, $this->scene);
+  new ReflectionProperty(\Ichiloto\Engine\Field\MapManager::class, 'collisionMap')->setValue($map,
+    array_fill(0, 30, array_fill(0, 60, \Ichiloto\Engine\Events\Enumerations\CollisionType::NONE->value)));
+  new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
+
   $staged = $this->stage->add(['id' => 'closed-gate', 'appearance' => ['kind' => 'npc', 'id' => 'synthetic-gate'],
     'at' => ['kind' => 'npc', 'id' => 'synthetic-gate']]);
   $definition = $staged->getGraphicalSpriteDefinition();

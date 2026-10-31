@@ -80,6 +80,10 @@ final class CinematicStageManager
     $position = $attachment?->cell ?? (array_key_exists('at', $entry) ? CinematicRelativePosition::resolve($this->gameScene, $entry)
       : new Vector2(isset($entry['x']) ? intval($entry['x']) : ($independentActor?->position->x ?? 0),
         isset($entry['y']) ? intval($entry['y']) : ($independentActor?->position->y ?? 0)));
+    if ($subject === null && $attachment === null && array_key_exists('at', $entry)) {
+      $position = new CinematicStagePlacement($this->gameScene)->resolve($id, $position,
+        new CinematicSubjectResolver($this->gameScene)->position($entry['at']));
+    }
     $assetReference = trim(strval($entry['asset'] ?? '')) ?: null;
     $sprite = $entry['sprite'] ?? $appearance?->sprite ?? ($subject === null ? '@' : null);
 
