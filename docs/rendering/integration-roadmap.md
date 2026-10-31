@@ -29,21 +29,21 @@ actor placement remain unchanged. See the
 Game candidate `eb39794` qualifies current Lovehut, guidance/reunion and private
 bargain dialogue geometry and ownership through 39 checks / 3,056 assertions on
 Engine `002cd25`. Graphical qualification covers drawable subjects; Golden Inn
-`staged:nivira` still lacks its accepted bed-pose import. Full wired-sequence,
+`staged:nivira` awaits accepted bed-pose admission. Editor `ab23061` fixes the
+shared PNG import memory failure, so accepted artwork admission can proceed.
 Editor/native preview and player acceptance remain pending. Oversized casts
 produce a diagnostic for source staging corrections.
 
 The actual Game bootstrap exported the first Vax reading frame through
 `SceneFrameComposer` at 800×480 with retained world operations, current cast,
-viewport and dialogue canvas. UI Art's panel-only CPU helper cannot compose
-that full scene. Renderer/Claude owns the missing qualified offscreen capture
-path: reuse production retained-world preparation, tile covers/shadows, sprite
-anchor/lift/order, viewport clipping, text and canvas composition. The current
-world-overview raster is a map overview; it does not certify a full dialogue
-frame. Preserve the actual descriptor and coverage evidence in the existing
-hybrid showcase review. No image, full-scene visual acceptance or adapter
-installation is claimed. The shared Editor PNG import memory blocker remains
-an independent dependency for accepted artwork.
+viewport and dialogue canvas. Existing CPU panel helpers do not render the
+complete field scene. Andrew deferred offscreen capture tooling on 31 October:
+“Not now (Recommended)”, selecting “Drop it as a merge gate; you review by
+playing. Revisit later if we need automated screenshots.” Automated full-scene
+image proof is removed as a merge gate. Preserve existing descriptor and
+coverage evidence; qualify the scene through Andrew’s playtest. The separate
+merge decision remains with Andrew. No offscreen adapter, vendor edit or new
+capture backend is required for this delivery.
 
 ## World-power first-use presentation — 31 October 2026
 
