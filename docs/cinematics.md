@@ -482,7 +482,8 @@ subject identities; ordinary room population remains map-owned.
 
 `DialogueCameraFraming` reads current graphical sprite pivots, lifts and size,
 including the previous ground position while a retained step slides. Terminal
-framing uses its own text-box footprint and subject cells. Graphical scale and
+framing uses its own text-box footprint, sprite rows and display widths, including
+the player’s shape clipping. Graphical scale and
 artwork never determine Terminal geometry. Skits own their full presentation.
 
 The Camera owns a transient, signed projection origin for this frame. Empty

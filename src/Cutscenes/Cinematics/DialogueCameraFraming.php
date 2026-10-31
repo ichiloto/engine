@@ -11,6 +11,9 @@ use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Field\Npc;
+use Ichiloto\Engine\Field\Player;
+use Ichiloto\Engine\IO\Console\TerminalText;
 
 /** Scene-owned projection; UI and current subjects supply geometry, gameplay remains unchanged. */
 final class DialogueCameraFraming
@@ -47,9 +50,10 @@ final class DialogueCameraFraming
     foreach ($subjects as $subject) {
       $position = $view === null ? $subject->position : $subject->getGraphicalSpriteWorldPosition();
       $drawn = $view === null ? null : FieldSpriteBounds::findBounds($subject, $view, $this->scene->camera->getWorldOrigin());
-      $drawn = $drawn === null ? new FieldSpriteBounds($position->x, $position->y, $position->x + 1, $position->y + 1)
+      $drawn = $view === null ? $this->getTerminalBounds($subject)
+        : ($drawn === null ? new FieldSpriteBounds($position->x, $position->y, $position->x + 1, $position->y + 1)
         : new FieldSpriteBounds($drawn->left / FieldViewport::TILE_SIZE, $drawn->top / FieldViewport::TILE_SIZE,
-            $drawn->right / FieldViewport::TILE_SIZE, $drawn->bottom / FieldViewport::TILE_SIZE);
+            $drawn->right / FieldViewport::TILE_SIZE, $drawn->bottom / FieldViewport::TILE_SIZE));
       $id = $subject->getGraphicalSpriteId(); $prior = $this->samples[$id] ?? null; $sweep = null;
       if ($view !== null && !\Ichiloto\Engine\UI\Accessibility::prefersReducedMotion()
         && $subject->getGraphicalSpriteMotion() !== null && $prior !== null) {
@@ -63,6 +67,22 @@ final class DialogueCameraFraming
     }
     $this->samples = $next;
     return $bounds;
+  }
+
+  /** Terminal sprites retain their own rows, display widths and player shape clipping. */
+  private function getTerminalBounds(Player|Npc|StagedActor $subject): FieldSpriteBounds
+  {
+    $position = $subject->position; $offsetY = 0;
+    if ($subject instanceof Npc) { $rows = [$subject->getFieldTerminalSprite()]; }
+    elseif ($subject instanceof Player) {
+      $shape = $subject->getShape(); $offsetY = $shape->getY(); $rows = [];
+      for ($row = $offsetY; $row < $offsetY + $shape->getHeight(); $row++) {
+        $rows[] = TerminalText::sliceSymbols($subject->sprite[$row], $shape->getX(), $shape->getWidth());
+      }
+    } else { $rows = $subject->sprite; }
+    $width = max([1, ...array_map(TerminalText::displayWidth(...), $rows)]);
+    return new FieldSpriteBounds($position->x, $position->y + $offsetY,
+      $position->x + $width, $position->y + $offsetY + max(1, count($rows)));
   }
 
   public function update(): void
@@ -100,7 +120,7 @@ final class DialogueCameraFraming
       $bottom = $safe === null ? 0 : min($view->rows, floor(($safe->y + $safe->height - $offsetY) / $tile));
 
     } else {
-      // Terminal occlusion and subject cells are independent of graphical assets and scale.
+      // Terminal text footprints are independent of graphical assets and scale.
       $protected = array_map(static function ($owner): CanvasRectangle {
         $rect = $owner->getPresentationBounds();
         return new CanvasRectangle($rect->getX(), $rect->getY(), $rect->getWidth(), $rect->getHeight());

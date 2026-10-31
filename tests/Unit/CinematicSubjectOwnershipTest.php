@@ -1639,7 +1639,7 @@ it('declares staged-actor existence requirements consistently with runtime opera
 
 it('frames the real current conversation cast clear of dialogue in graphical and Terminal presentations', function (bool $graphical) {
   $this->scene->cinematicController->start(subjectOwnershipDefinition([['type' => 'wait', 'seconds' => 10]], [
-    'cast' => [['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide'], 'sprites2d' => characterSheetData()]],
+    'cast' => [['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide'], 'sprites2d' => characterSheetData(), 'sprite' => ['@@', '@@']]],
     'presentation' => ['conversation' => subjectConversation()],
   ]));
   $line = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueSnapshot('Hero', 'A line.', 'A line.',
@@ -1681,6 +1681,7 @@ it('frames the real current conversation cast clear of dialogue in graphical and
     }
   } else {
     foreach ($positions as $position) { expect($position->y + 1 - $origin['y'])->toBeLessThanOrEqual(4); }
+    expect($this->npc->position->y + 2 - $origin['y'])->toBeLessThanOrEqual(4);
   }
   if ($graphical) {
     $oldBounds = array_map(fn($subject) => \Ichiloto\Engine\Animations\Field\FieldSpriteBounds::findBounds($subject, $view, $origin),
