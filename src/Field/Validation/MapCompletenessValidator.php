@@ -78,7 +78,8 @@ final class MapCompletenessValidator
                 $issues[] = new MapValidationIssue($mapId, MapBedRule::RULE, $error->getMessage(), path: ['npcs']);
             }
         }
-        return [...$issues, ...self::validateCoverage($mapId, $data, $layers, $graphics, $assetRoot, $fieldCatalog, $requiresGraphics),
+        return [...$issues, ...MapNpcPlacementArtRule::inspect($mapId, $data, $assetRoot),
+            ...self::validateCoverage($mapId, $data, $layers, $graphics, $assetRoot, $fieldCatalog, $requiresGraphics),
             ...self::validateTerrainKinds($mapId, $data, $layers, $graphics)];
     }
 

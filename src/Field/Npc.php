@@ -62,8 +62,26 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
 {
   public private(set) ?NpcBed $bed = null;
   public private(set) ?NpcPlacementState $placementState = null;
+  private ?NpcPlacementPose $placementPose = null;
+  private readonly string $assetRoot;
 
-  public function bindPlacementState(NpcPlacementState $state): void { $this->placementState = $state; }
+  public function bindPlacementState(NpcPlacementState $state): void
+  {
+    $this->placementPose?->release();
+    $this->placementState = $state;
+    $this->placementPose = new NpcPlacementPose($state, $this->assetRoot, $this->graphicalSpriteId);
+  }
+
+  /** A settled destination may own a different look; movement and physical occupancy stay independent. */
+  public bool $usesPlacementPose {
+    get {
+      $placement = $this->placementState;
+      if ($placement === null || $this->walkAnimation->isSliding
+        || ($placement->definition->poses[$placement->selection] ?? null) === null) { return false; }
+      $target = $placement->position;
+      return $this->position->x == $target->x && $this->position->y == $target->y;
+    }
+  }
 
   public function bindBed(NpcBed $bed): void
   {
@@ -76,7 +94,7 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
     return $this->bed?->isOccupied ? $this->bed->definition->terminal : $this->sprite;
   }
 
-  public function releaseFieldPresentation(): void { $this->bed?->release(); }
+  public function releaseFieldPresentation(): void { $this->bed?->release(); $this->placementPose?->release(); }
   /** An NPC walks among its cell's foliage, unless drawn from an object sheet such as a chest. */
   public bool $standsInFoliage {
     get => !($this->bed?->isOccupied ?? false) && $this->graphicalSprites?->isObject === false;
@@ -161,6 +179,7 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
       $this->face($facing->getDirection());
     }
     $this->graphicalSpriteId = $graphicalSpriteId ?? 'npc:object:' . spl_object_id($this);
+    $this->assetRoot = $assetRoot ?? getcwd() . '/assets';
     $this->walkAnimation = new CharacterWalkAnimation();
     $this->graphicalAssetGuard = $graphicalSprites === null ? null : new CharacterSheetAssetGuard(
       $assetRoot ?? getcwd() . '/assets', $this->graphicalSpriteId,
@@ -181,6 +200,7 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
   public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
   {
     if ($this->bed?->isOccupied) { return $this->bed->getPlacement()['image'] ?? null; }
+    if ($this->usesPlacementPose) { return $this->placementPose?->getFrame($this->heading); }
     return $this->getOrdinaryGraphicalSpriteDefinition();
   }
 
@@ -201,6 +221,7 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
 
   public function getGraphicalSpriteMotion(): ?PresentationSpriteMotion
   {
+    if ($this->usesPlacementPose) { return null; }
     return $this->graphicalSprites === null ? null : $this->walkAnimation->getMotion($this->position);
   }
 
@@ -218,11 +239,20 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
   {
     $this->bed?->advance($seconds);
     $this->walkAnimation->advance($seconds);
+    $this->advancePlacementPose($seconds);
+  }
+
+  /** An inherited cinematic visual advances this same role while it owns the real NPC's presentation. */
+  public function advancePlacementPose(float $seconds): void
+  {
+    if (!$this->bed?->isOccupied && $this->usesPlacementPose) { $this->placementPose?->advance($seconds); }
+    else { $this->placementPose?->pause(); }
   }
 
   public function stopGraphicalAnimation(): void
   {
     $this->walkAnimation->stop();
+    $this->placementPose?->pause();
   }
 
   /** Whether speaking to this NPC can do anything: some page has lines or an action. */

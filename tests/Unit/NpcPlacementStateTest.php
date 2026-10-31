@@ -142,3 +142,153 @@ it('requires an explicit migration when source removes a saved named-placement c
     $state->setVariable(NpcPlacementSet::getStateKey('map', 'guide'), NpcPlacementSet::DEFAULT);
     expect(NpcPlacement::fromArray($entry, $state, 'map')->x)->toBe(1);
 });
+
+
+require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
+
+/** Synthetic replaceable art; all physical and saved placement state stays in the real NPC. */
+function withNamedPlacementArt(callable $check): void
+{
+    $root = createTestDirectory('ichiloto-placement-art-');
+    \Tests\Support\Rendering\writeCharacterSheetPng($root . '/assets/Walk.png');
+    \Tests\Support\Rendering\writeTestPng($root . '/assets/Rest.png', 8, 8);
+    \Tests\Support\Rendering\writeTestPng($root . '/assets/Replacement.png', 12, 12);
+    $cwd = getcwd(); $statics = [];
+    foreach ([\Ichiloto\Engine\Util\Debug::class, \Ichiloto\Engine\Util\Config\ConfigStore::class] as $class) {
+        $statics[$class] = new ReflectionClass($class)->getStaticProperties();
+    }
+    try {
+        chdir($root);
+        \Ichiloto\Engine\Util\Debug::configure(['log_directory' => $root]);
+        putSceneAudioConfig(['accessibility' => ['reducedMotion' => false]]);
+        $check($root);
+    } finally {
+        chdir($cwd);
+        foreach ($statics as $class => $values) {
+            foreach ($values as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
+        }
+    }
+}
+
+function namedPlacementArtEntry(): array
+{
+    $entry = namedPlacementEntry();
+    $entry['sprites2d'] = \Tests\Support\Rendering\characterSheetData('Walk.png');
+    $entry['placements']['arrived']['sprites2d'] = [
+        'asset' => 'Rest.png', 'cells' => ['width' => 2, 'height' => 2], 'layer' => 100,
+    ];
+    return $entry;
+}
+
+it('draws the current resting art at a committed named placement and reconstructs it without extra save state', function (): void {
+    withNamedPlacementArt(function (): void {
+        $scene = new NamedNpcPlacementScene(); $entry = namedPlacementArtEntry();
+        $scene->npcManager->configure([$entry]);
+        $npc = $scene->npcManager->findById('guide');
+        expect($npc->getGraphicalSpriteDefinition()->asset)->toBe('Walk.png');
+        $npc->restoreFieldTransform(new Vector2(4, 3), MovementHeading::WEST, $npc->sprite);
+        $npc->placementState->commitPlacement($scene, 'arrived');
+        $saved = $scene->gameState->toArray();
+        $frame = $npc->getGraphicalSpriteDefinition();
+        expect($frame->asset)->toBe('Rest.png')->and([$frame->width, $frame->height])->toBe([96, 96])
+            ->and($npc->getFieldTerminalSprite())->toBe($npc->sprite)
+            ->and([(int)$npc->position->x, (int)$npc->position->y])->toBe([4, 3])
+            ->and($scene->gameState->toArray())->toBe($saved);
+        $scene->gameState->setVariable(NpcPlacementSet::getStateKey($scene->currentMapId, 'guide'), 'default');
+        $npc->restoreFieldTransform(new Vector2(1, 2), MovementHeading::SOUTH, $npc->sprite);
+        expect($npc->getGraphicalSpriteDefinition()->asset)->toBe('Walk.png');
+
+        $restored = new NamedNpcPlacementScene();
+        new ReflectionProperty(GameScene::class, 'gameState')->setValue($restored, GameState::fromArray($saved));
+        $entry['placements']['arrived']['sprites2d']['asset'] = 'Replacement.png';
+        $restored->npcManager->configure([$entry]);
+        $loaded = $restored->npcManager->findById('guide');
+        expect($loaded->getGraphicalSpriteDefinition()->asset)->toBe('Replacement.png')
+            ->and($loaded->getFieldTerminalSprite())->toBe($loaded->sprite)
+            ->and($restored->gameState->toArray())->toBe($saved)
+            ->and([(int)$loaded->position->x, (int)$loaded->position->y])->toBe([4, 3]);
+    });
+});
+
+it('shares selected resting art with an inherited staged visual and restores it after explicit visual cleanup', function (): void {
+    withNamedPlacementArt(function (): void {
+        $scene = new NamedNpcPlacementScene(); $entry = namedPlacementArtEntry();
+        $scene->gameState->setVariable(NpcPlacementSet::getStateKey($scene->currentMapId, 'guide'), 'arrived');
+        $scene->npcManager->configure([$entry]); $npc = $scene->npcManager->findById('guide');
+        $state = $scene->gameState->toArray();
+        $inherited = $scene->cinematicStage->add(['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]);
+        expect($inherited->getGraphicalSpriteDefinition()->asset)->toBe('Rest.png');
+        $scene->cinematicStage->clear();
+        expect($npc->getGraphicalSpriteDefinition()->asset)->toBe('Rest.png');
+        $explicit = $scene->cinematicStage->add(['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide'],
+            'sprites2d' => ['asset' => 'Replacement.png', 'cells' => ['width' => 1, 'height' => 1], 'layer' => 100]]);
+        expect($explicit->getGraphicalSpriteDefinition()->asset)->toBe('Replacement.png');
+        $scene->cinematicStage->clear();
+        expect($npc->getGraphicalSpriteDefinition()->asset)->toBe('Rest.png')
+            ->and($scene->gameState->toArray())->toBe($state)
+            ->and($scene->npcManager->findById('guide'))->toBe($npc);
+    });
+});
+
+it('uses walking art during a placement route and returns to the selected art once settled', function (): void {
+    withNamedPlacementArt(function (): void {
+        $scene = new NamedNpcPlacementScene(); $entry = namedPlacementArtEntry();
+        $scene->gameState->setVariable(NpcPlacementSet::getStateKey($scene->currentMapId, 'guide'), 'arrived');
+        $scene->npcManager->configure([$entry]); $npc = $scene->npcManager->findById('guide');
+        $npc->restoreFieldTransform(new Vector2(3, 3), MovementHeading::WEST, $npc->sprite);
+        expect($npc->getGraphicalSpriteDefinition()->asset)->toBe('Walk.png');
+        $npc->restoreFieldTransform(new Vector2(4, 3), MovementHeading::EAST, $npc->sprite);
+        $npc->beginGraphicalStep(new \Ichiloto\Engine\Rendering\Sprites\CharacterStep(new Vector2(3, 3), new Vector2(4, 3), .2));
+        expect($npc->getGraphicalSpriteDefinition()->asset)->toBe('Walk.png');
+        $npc->advanceGraphicalAnimation(.3); $npc->stopGraphicalAnimation();
+        expect($npc->getGraphicalSpriteDefinition()->asset)->toBe('Rest.png')
+            ->and([(int)$npc->position->x, (int)$npc->position->y])->toBe([4, 3]);
+    });
+});
+
+
+it('advances one resting-pose clock through a real staged takeover and holds its reduced-motion frame', function (): void {
+    withNamedPlacementArt(function (): void {
+        $scene = new NamedNpcPlacementScene(); $entry = namedPlacementArtEntry();
+        $entry['placements']['arrived']['sprites2d']['animation'] = [
+            'columns' => 2, 'rows' => 1, 'frames' => [0, 1], 'fps' => 2, 'loop' => true, 'restFrame' => 1,
+        ];
+        $scene->gameState->setVariable(NpcPlacementSet::getStateKey($scene->currentMapId, 'guide'), 'arrived');
+        $scene->npcManager->configure([$entry]); $npc = $scene->npcManager->findById('guide');
+        expect($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
+        $staged = $scene->cinematicStage->add(['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]);
+        $scene->npcManager->advanceGraphicalAnimation(.5); // The hidden real visual must not advance twice.
+        $staged->advanceGraphicalAnimation(.5);
+        expect($staged->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(4);
+        $scene->cinematicStage->clear();
+        expect($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(4);
+        $scene->npcManager->advanceGraphicalAnimation(.5);
+        expect($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
+        putSceneAudioConfig(['accessibility' => ['reducedMotion' => true]]);
+        $scene->npcManager->advanceGraphicalAnimation(10);
+        expect($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(4);
+        putSceneAudioConfig(['accessibility' => ['reducedMotion' => false]]);
+        expect($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
+        $npc->releaseFieldPresentation();
+        expect($npc->getGraphicalSpriteDefinition())->toBeNull();
+    });
+});
+
+it('diagnoses unusable optional resting art while retaining physical placement, terminal appearance and saves', function (): void {
+    withNamedPlacementArt(function (string $root): void {
+        foreach ([['asset' => 'Missing.png', 'cells' => ['width' => 2, 'height' => 2]], 'invalid-role'] as $art) {
+            $scene = new NamedNpcPlacementScene(); $entry = namedPlacementArtEntry();
+            $entry['placements']['arrived']['sprites2d'] = $art;
+            $scene->gameState->setVariable(NpcPlacementSet::getStateKey($scene->currentMapId, 'guide'), 'arrived');
+            $scene->npcManager->configure([$entry]); $npc = $scene->npcManager->findById('guide');
+            $saved = $scene->gameState->toArray();
+            expect($npc->getGraphicalSpriteDefinition())->toBeNull()
+                ->and($npc->getFieldTerminalSprite())->toBe($npc->sprite)
+                ->and([(int)$npc->position->x, (int)$npc->position->y])->toBe([4, 3])
+                ->and($scene->gameState->toArray())->toBe($saved);
+            $issues = \Ichiloto\Engine\Field\Validation\MapNpcPlacementArtRule::inspect('synthetic', ['npcs' => [$entry]], $root . '/assets');
+            expect($issues)->toHaveCount(1)->and($issues[0]->path)->toBe(['npcs', 0, 'placements', 'arrived', 'sprites2d']);
+        }
+        expect(file_get_contents($root . '/warning.log'))->toContain('NPC placement', 'unavailable');
+    });
+});

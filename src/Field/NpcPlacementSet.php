@@ -6,16 +6,20 @@ namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Animations\Field\FieldPoseAnimation;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
+use Ichiloto\Engine\Rendering\Sprites\FieldSpriteRole;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use InvalidArgumentException;
 
 /** Stable source-owned destinations. Saves select a name; current source owns its geometry. */
 final readonly class NpcPlacementSet
 {
     public const string DEFAULT = 'default';
-    public const array FIELDS = ['x', 'y', 'facing'];
+    public const array FIELDS = ['x', 'y', 'facing', 'sprites2d'];
 
     /** @param array<string, array{x:int, y:int, facing:MovementHeading}> $placements */
-    private function __construct(public array $placements) {}
+    private function __construct(public array $placements, public array $poses = []) {}
 
     public static function fromEntry(array $entry): self
     {
@@ -41,13 +45,25 @@ final readonly class NpcPlacementSet
             throw new InvalidArgumentException('NPC placements must be a dictionary of stable placement ids.');
         }
         $placements = [self::DEFAULT => $default];
+        $poses = [];
         foreach ($variants as $id => $definition) {
             if (!is_string($id) || trim($id) !== $id || $id === '' || $id === self::DEFAULT || str_contains($id, "\0")) {
                 throw new InvalidArgumentException('NPC placement ids must be non-empty distinct names; default selects root x/y.');
             }
             $placements[$id] = $read($definition, $id, $default['facing']);
+            // Optional artwork never defines physical occupancy or the saved placement identity.
+            if (array_key_exists('sprites2d', $definition)) { $poses[$id] = $definition['sprites2d']; }
         }
-        return new self($placements);
+        return new self($placements, $poses);
+    }
+
+    /** Read selected optional art separately so unusable presentation cannot invalidate physical placement. */
+    public function getPose(string $id): GraphicalSpriteDefinition|CharacterSheet|FieldPoseAnimation|null
+    {
+        $data = $this->poses[$id] ?? null;
+        if ($data === null) { return null; }
+        if (!is_array($data)) { throw new InvalidArgumentException('NPC placement sprites2d requires a field role.'); }
+        return FieldSpriteRole::readDefinition($data);
     }
 
     public static function getStateKey(string $mapId, string $npcId): string

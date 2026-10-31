@@ -38,6 +38,11 @@
 
 ### Added
 
+- Named NPC placements may select replaceable static, character-sheet or animated resting art.
+  The existing saved placement id owns the selection; physical occupancy and Terminal glyphs remain unchanged.
+  Walking keeps its ordinary sheet, inherited cinematic visuals share the resting clock, and unusable
+  optional artwork produces diagnostics while preserving gameplay. Map validation checks every declared role.
+
 - Read-only project semantic input-action discovery includes the Engine's boot
   defaults for authoring selectors without installing or changing live input.
 

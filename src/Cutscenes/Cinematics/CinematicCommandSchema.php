@@ -178,6 +178,7 @@ final class CinematicCommandSchema
         'pickerScope' => 'Select current map NPC, then one of that NPC placements or default.',
         'persistence' => 'Saved stable placement id; current authored cells/facing resolve at load.',
         'commit' => 'Real subject must already occupy that clear destination; commit never teleports.',
+        'restingArt' => 'Optional sprites2d field role on a named placement; current authored art follows the saved stable selection while settled, with ordinary walking art on routes. Terminal glyphs and physical occupancy are unchanged.',
       ],
       'skitPlayback' => [
         'command' => 'play_skit',

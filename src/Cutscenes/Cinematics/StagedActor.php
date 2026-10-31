@@ -204,6 +204,8 @@ final class StagedActor implements ThicketSubjectInterface
   {
     if ($this->graphicalSprites === null && $this->subject?->subject instanceof Npc
       && $this->subject->subject->bed?->isOccupied) { $this->subject->subject->bed->advance($seconds); }
+    if ($this->graphicalSprites === null && $this->subject?->subject instanceof Npc
+      && !$this->walkAnimation->isSliding) { $this->subject->subject->advancePlacementPose($seconds); }
     $this->walkAnimation->advance($seconds);
     if ($this->isVisible) {
       $this->posePlayback?->advance($seconds, Accessibility::prefersReducedMotion());
@@ -214,7 +216,10 @@ final class StagedActor implements ThicketSubjectInterface
   private function getFrameDefinition(): ?GraphicalSpriteDefinition
   {
     if ($this->graphicalSprites === null && $this->subject?->subject instanceof Npc
-      && $this->subject->subject->bed?->isOccupied) { return $this->subject->subject->getGraphicalSpriteDefinition(); }
+      && ($this->subject->subject->bed?->isOccupied
+        || ($this->subject->subject->usesPlacementPose && !$this->walkAnimation->isSliding))) {
+      return $this->subject->subject->getGraphicalSpriteDefinition();
+    }
     if ($this->subject?->subject instanceof WorldObject) {
       return $this->worldObjectRole !== null ? $this->worldObjectRole->getFrame($this->subject->subject->definition->pivot)
         : $this->subject->subject->getGraphicalSpriteDefinition();

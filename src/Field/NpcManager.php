@@ -107,7 +107,7 @@ class NpcManager
         graphicalSprites: $graphicalSprites,
         graphicalSpriteId: 'npc:map:' . rawurlencode($mapId) . ':'
           . ($id !== '' ? 'id:' . rawurlencode($id) : 'entry:' . $index),
-        assetRoot: $graphicalSprites === null ? null
+        assetRoot: $graphicalSprites === null && ($placement->placements?->poses ?? []) === [] ? null
           : ($this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets'),
         directionFix: ($entry['directionFix'] ?? false) === true,
         facing: $placement->placements === null ? self::readFacing($entry)
