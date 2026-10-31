@@ -46,6 +46,8 @@ use RuntimeException;
  * and canvas-down y from its foot in standing-body units. A battler's optional
  * `strikePoint: ['x' => 0.5, 'y' => 0.5]` names contact within its current
  * visible body, normalized and mirrored with the drawn image.
+ * Move and return poses may add `entryFrames` and `exitFrames`: optional
+ * one-shot cell lists in the same sheet, timed at its fps outside the main movement.
  */
 final readonly class BattlerBindings
 {
@@ -55,7 +57,7 @@ final readonly class BattlerBindings
   private const array REFERENCE_KEYS = ['actor', 'height'];
   private const array BATTLER_KEYS = ['artwork', 'poses', 'scale', 'grounding', 'strikePoint'];
   private const array ARTWORK_KEYS = ['image', 'pivot'];
-  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan', 'bakedShadow', 'impactFrame', 'reach'];
+  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan', 'bakedShadow', 'impactFrame', 'reach', 'entryFrames', 'exitFrames'];
   private const array PIVOT_KEYS = ['x', 'y'];
   private const array PROFILE_KEYS = ['relativeSize', 'sourceSpan', 'horizontal'];
 
@@ -211,9 +213,21 @@ final readonly class BattlerBindings
         array_key_exists('bakedShadow', $pose) ? self::readBoolean($pose, 'bakedShadow', false, $at) : null,
         array_key_exists('impactFrame', $pose) ? self::readInteger($pose, 'impactFrame', 0, $at) : null,
         array_key_exists('reach', $pose) ? BattlePoseReach::fromArray($pose['reach'], "{$at}.reach") : null,
+        self::readSequenceFrames($pose, 'entryFrames', $at),
+        self::readSequenceFrames($pose, 'exitFrames', $at),
       );
     }
     return new BattlePoseSet($poses);
+  }
+
+  /** @return list<int> Cell validity and resource bounds are shared with code-owned poses. */
+  private static function readSequenceFrames(array $data, string $key, string $where): array
+  {
+    $frames = array_key_exists($key, $data) ? $data[$key] : [];
+    if (!is_array($frames) || !array_is_list($frames)) {
+      throw new InvalidArgumentException("{$where}.{$key}: expected a list of cell numbers.");
+    }
+    return $frames;
   }
 
   private static function buildProfile(mixed $data, string $where): BattlerScale

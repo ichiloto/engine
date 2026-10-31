@@ -13,7 +13,11 @@ use InvalidArgumentException;
 /** A still or animated battle pose. Sheet geometry is authoring intent, not cached PNG size. */
 final readonly class BattlerPose
 {
-  /** @param non-empty-list<int> $frames Source cells in playback order. */
+  /**
+   * @param non-empty-list<int> $frames Source cells in playback order.
+   * @param list<int> $entryFrames One-shot source cells before the main movement.
+   * @param list<int> $exitFrames One-shot source cells after the main movement.
+   */
   public function __construct(
     public string $asset,
     public int $columns = 1,
@@ -31,6 +35,8 @@ final readonly class BattlerPose
     public ?int $impactFrame = null,
     /** Foot-to-strike offset in current standing-body units, independent of pose sheet dimensions. */
     public ?BattlePoseReach $reach = null,
+    public array $entryFrames = [],
+    public array $exitFrames = [],
   ) {
     SpriteValidation::validateAssetPath($asset);
     if ($impactFrame !== null && ($loop || $impactFrame < 0 || $impactFrame >= count($frames))) {
@@ -44,6 +50,28 @@ final readonly class BattlerPose
       || min($pivotX, $pivotY) < 0 || max($pivotX, $pivotY) > 1) {
       throw new InvalidArgumentException('Battle poses require a bounded sheet, valid source frames, fps 1..120 and normalized pivots.');
     }
+    foreach (['entryFrames' => $entryFrames, 'exitFrames' => $exitFrames] as $name => $sequence) {
+      if (!array_is_list($sequence) || count($sequence) > 10000
+        || array_any($sequence, static fn($frame): bool => !is_int($frame) || $frame < 0 || $frame >= $columns * $rows)) {
+        throw new InvalidArgumentException("Battle pose {$name} requires a list of at most 10000 valid source cell numbers.");
+      }
+    }
+  }
+
+  /** @return list<int> Source cells on this sequence's independent clock. */
+  public function getSequenceFrames(BattlePoseSequence $sequence): array
+  {
+    return match ($sequence) {
+      BattlePoseSequence::MAIN => $this->frames,
+      BattlePoseSequence::ENTRY => $this->entryFrames,
+      BattlePoseSequence::EXIT => $this->exitFrames,
+    };
+  }
+
+  /** Authored duration of one pass, including repeated cell holds. */
+  public function getSequenceSeconds(BattlePoseSequence $sequence): float
+  {
+    return count($this->getSequenceFrames($sequence)) / $this->fps;
   }
 
   /** Includes the strike entry and its last authored hold. */
@@ -53,7 +81,8 @@ final readonly class BattlerPose
   }
 
   public function getArtwork(string $assetRoot, float $elapsedSeconds, bool $reducedMotion = false,
-    ?float $impactAtSeconds = null, ?float $durationSeconds = null): ?BattlerArtwork
+    ?float $impactAtSeconds = null, ?float $durationSeconds = null,
+    BattlePoseSequence $sequence = BattlePoseSequence::MAIN): ?BattlerArtwork
   {
     if (!is_finite($elapsedSeconds) || $elapsedSeconds < 0) {
       throw new InvalidArgumentException('Battle pose elapsed time must be finite and non-negative.');
@@ -64,16 +93,19 @@ final readonly class BattlerPose
     if ($durationSeconds !== null && (!is_finite($durationSeconds) || $durationSeconds <= 0)) {
       throw new InvalidArgumentException('An explicit pose duration must be finite and positive.');
     }
+    $frames = $this->getSequenceFrames($sequence);
+    if ($frames === []) { return null; }
+    $main = $sequence === BattlePoseSequence::MAIN;
     $size = PngAssetPreflight::getAvailableSize($assetRoot, $this->asset);
     if ($size === null) { return null; }
     if ($size['width'] % $this->columns !== 0 || $size['height'] % $this->rows !== 0) {
       throw new InvalidArgumentException('The current battler pose PNG does not divide into its authored sheet grid.');
     }
     $index = EffectPlaybackTiming::getFrameCountForElapsed($elapsedSeconds, 1 / $this->fps);
-    if (!$this->loop && $this->impactFrame === null && $durationSeconds !== null) {
-      $index = min(count($this->frames) - 1, EffectPlaybackTiming::getFrameCountForElapsed($elapsedSeconds, $durationSeconds / count($this->frames)));
+    if ($main && !$this->loop && $this->impactFrame === null && $durationSeconds !== null) {
+      $index = min(count($frames) - 1, EffectPlaybackTiming::getFrameCountForElapsed($elapsedSeconds, $durationSeconds / count($frames)));
     }
-    if (!$reducedMotion && $this->impactFrame !== null && $impactAtSeconds !== null) {
+    if ($main && !$reducedMotion && $this->impactFrame !== null && $impactAtSeconds !== null) {
       if ($elapsedSeconds < $impactAtSeconds) {
         // Preserve natural anticipation, hold its final entry, compress only a short lead-in.
         $duration = $this->impactFrame / $this->fps;
@@ -87,8 +119,8 @@ final readonly class BattlerPose
           $elapsedSeconds - $impactAtSeconds, 1 / $this->fps);
       }
     }
-    $source = $reducedMotion ? $this->restFrame : $this->frames[
-      $this->loop ? $index % count($this->frames) : min($index, count($this->frames) - 1)];
+    $source = $reducedMotion ? $this->restFrame : $frames[
+      $main && $this->loop ? $index % count($frames) : min($index, count($frames) - 1)];
     $width = intdiv($size['width'], $this->columns);
     $height = intdiv($size['height'], $this->rows);
     $crop = $this->columns * $this->rows === 1 ? null : new SpriteSourceRect(

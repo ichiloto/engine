@@ -26,6 +26,10 @@ final readonly class BattlePoseSet
         || (in_array($role, [BattlePoseRole::MOVE->value, BattlePoseRole::RETURNING->value], true) && $pose->impactFrame !== null)) {
         throw new InvalidArgumentException('Advance poses must loop; movement poses carry no action impact anchor.');
       }
+      if (($pose->entryFrames !== [] || $pose->exitFrames !== [])
+        && !in_array($role, [BattlePoseRole::MOVE->value, BattlePoseRole::RETURNING->value], true)) {
+        throw new InvalidArgumentException('Battle pose entry/exit sequences are supported only for move and return roles.');
+      }
     }
   }
 
