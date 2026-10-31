@@ -29,6 +29,8 @@ final readonly class BattlerPose
     public ?bool $bakedShadow = null,
     /** Index into playback entries, including repeated holds; aligns to target-phase start. */
     public ?int $impactFrame = null,
+    /** Foot-to-strike offset in current standing-body units, independent of pose sheet dimensions. */
+    public ?BattlePoseReach $reach = null,
   ) {
     SpriteValidation::validateAssetPath($asset);
     if ($impactFrame !== null && ($loop || $impactFrame < 0 || $impactFrame >= count($frames))) {

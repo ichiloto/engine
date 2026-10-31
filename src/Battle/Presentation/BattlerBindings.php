@@ -42,6 +42,10 @@ use RuntimeException;
  * and whether the Engine draws its contact shadow (`engine`), its artwork
  * paints one (`artwork`) or it has none (`none`). A pose may say its own art
  * paints a shadow (`bakedShadow`) where the battler's other art does not.
+ * A pose's optional `reach: ['x' => 0.6, 'y' => -0.4]` measures forward x
+ * and canvas-down y from its foot in standing-body units. A battler's optional
+ * `strikePoint: ['x' => 0.5, 'y' => 0.5]` names contact within its current
+ * visible body, normalized and mirrored with the drawn image.
  */
 final readonly class BattlerBindings
 {
@@ -49,9 +53,9 @@ final readonly class BattlerBindings
 
   private const array TOP_KEYS = ['reference', 'actors', 'enemies'];
   private const array REFERENCE_KEYS = ['actor', 'height'];
-  private const array BATTLER_KEYS = ['artwork', 'poses', 'scale', 'grounding'];
+  private const array BATTLER_KEYS = ['artwork', 'poses', 'scale', 'grounding', 'strikePoint'];
   private const array ARTWORK_KEYS = ['image', 'pivot'];
-  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan', 'bakedShadow', 'impactFrame'];
+  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan', 'bakedShadow', 'impactFrame', 'reach'];
   private const array PIVOT_KEYS = ['x', 'y'];
   private const array PROFILE_KEYS = ['relativeSize', 'sourceSpan', 'horizontal'];
 
@@ -64,6 +68,8 @@ final readonly class BattlerBindings
    * @param array<string, BattlerScale> $enemyProfiles
    * @param array<string, BattlerGrounding> $actorGrounding
    * @param array<string, BattlerGrounding> $enemyGrounding
+   * @param array<string, BattlerStrikePoint> $actorStrikePoints
+   * @param array<string, BattlerStrikePoint> $enemyStrikePoints
    */
   private function __construct(
     public array $actors,
@@ -76,6 +82,8 @@ final readonly class BattlerBindings
     public ?float $referenceHeight,
     public array $actorGrounding = [],
     public array $enemyGrounding = [],
+    public array $actorStrikePoints = [],
+    public array $enemyStrikePoints = [],
   ) {}
 
   public static function exists(string $assetRoot): bool
@@ -118,7 +126,7 @@ final readonly class BattlerBindings
     }
     $built = [];
     foreach (['actors', 'enemies'] as $side) {
-      $built[$side] = ['artwork' => [], 'poses' => [], 'scale' => [], 'grounding' => []];
+      $built[$side] = ['artwork' => [], 'poses' => [], 'scale' => [], 'grounding' => [], 'strikePoints' => []];
       foreach (self::requireMap($data[$side] ?? [], $side) as $id => $entry) {
         $where = "{$side}.{$id}";
         $id = self::requireIdentity($id, $where);
@@ -140,6 +148,9 @@ final readonly class BattlerBindings
           if (isset($entry['grounding'])) {
             $built[$side]['grounding'][$id] = BattlerGrounding::fromArray($entry['grounding'], "{$where}.grounding");
           }
+          if (array_key_exists('strikePoint', $entry)) {
+            $built[$side]['strikePoints'][$id] = BattlerStrikePoint::fromArray($entry['strikePoint'], "{$where}.strikePoint");
+          }
         } catch (InvalidArgumentException $error) {
           throw str_starts_with($error->getMessage(), $where) ? $error
             : new InvalidArgumentException("{$where}: {$error->getMessage()}", previous: $error);
@@ -149,7 +160,8 @@ final readonly class BattlerBindings
     return new self($built['actors']['artwork'], $built['enemies']['artwork'],
       $built['actors']['poses'], $built['enemies']['poses'],
       $built['actors']['scale'], $built['enemies']['scale'], $referenceActorId, $referenceHeight,
-      $built['actors']['grounding'], $built['enemies']['grounding']);
+      $built['actors']['grounding'], $built['enemies']['grounding'],
+      $built['actors']['strikePoints'], $built['enemies']['strikePoints']);
   }
 
   /** @return list<string> Every identity this file binds on one side. */
@@ -157,7 +169,8 @@ final readonly class BattlerBindings
   {
     return array_values(array_unique([...array_keys($party ? $this->actors : $this->enemies),
       ...array_keys($party ? $this->actorPoses : $this->enemyPoses),
-      ...array_keys($party ? $this->actorProfiles : $this->enemyProfiles)]));
+      ...array_keys($party ? $this->actorProfiles : $this->enemyProfiles),
+      ...array_keys($party ? $this->actorStrikePoints : $this->enemyStrikePoints)]));
   }
 
   private static function buildArtwork(mixed $data, string $assetRoot, string $where): BattlerArtwork
@@ -197,6 +210,7 @@ final readonly class BattlerBindings
         array_key_exists('scaleSpan', $pose) ? self::requireNumber($pose['scaleSpan'], "{$at}.scaleSpan") : null,
         array_key_exists('bakedShadow', $pose) ? self::readBoolean($pose, 'bakedShadow', false, $at) : null,
         array_key_exists('impactFrame', $pose) ? self::readInteger($pose, 'impactFrame', 0, $at) : null,
+        array_key_exists('reach', $pose) ? BattlePoseReach::fromArray($pose['reach'], "{$at}.reach") : null,
       );
     }
     return new BattlePoseSet($poses);
