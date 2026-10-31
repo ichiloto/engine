@@ -25,6 +25,8 @@ enum ActionMovement: string
       || $action->targetScope->number !== \Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber::ONE
       || $action->targetScope->side !== \Ichiloto\Engine\Entities\Enumerations\ItemScopeSide::ENEMY
       || ($action->targeting !== null && $action->targeting->shape !== \Ichiloto\Engine\Battle\Formation\BattleTargetShape::SCOPE)
+      || ($action instanceof \Ichiloto\Engine\Battle\Actions\SkillBattleAction
+        && $action->skill instanceof \Ichiloto\Engine\Entities\Skills\MagicSkill)
       || !in_array($role, [\Ichiloto\Engine\Battle\Presentation\BattlePoseRole::ATTACK, \Ichiloto\Engine\Battle\Presentation\BattlePoseRole::SKILL], true)
       || ($basic && in_array(ActionAnimationResolver::getAttackRole($actor), ['attack-bow', 'attack-crossbow', 'attack-gun'], true))) {
       throw new InvalidArgumentException('Run-to-target requires a single opposing melee recipient; ranged, area, item and magic actions use step.');

@@ -54,3 +54,16 @@ it('validates authored scope and shape before run travel regardless of current t
   }
   expect(fn() => ActionMovement::RUN_TO_TARGET->validateAction(new AttackAction('Attack'), $actor, [$actor]))->toThrow(InvalidArgumentException::class);
 });
+
+
+it('keeps magic on step when a crisis wrapper presents it under the Attack command', function () {
+  $actor = new Character('Synthetic', 1, new Stats(currentHp: 100, totalHp: 100));
+  $target = new Character('Other', 1, new Stats(currentHp: 100, totalHp: 100));
+  $ability = \Ichiloto\Engine\Battle\CrisisAbility::fromArray([
+    'name' => 'Synthetic', 'hpBelowPercent' => 10, 'variants' => [['skill' => 'Synthetic magic']],
+  ]);
+  $action = new \Ichiloto\Engine\Battle\Actions\CrisisSkillBattleAction(
+    new \Ichiloto\Engine\Entities\Skills\MagicSkill('Synthetic magic', '', '', 0, 0), $ability, 'Synthetic');
+  expect(\Ichiloto\Engine\Battle\Presentation\BattlePoseRole::getForAction($action))->toBe(\Ichiloto\Engine\Battle\Presentation\BattlePoseRole::ATTACK);
+  expect(fn() => ActionMovement::RUN_TO_TARGET->validateAction($action, $actor, [$target]))->toThrow(InvalidArgumentException::class);
+});
