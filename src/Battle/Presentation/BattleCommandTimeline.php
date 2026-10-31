@@ -47,7 +47,8 @@ final readonly class BattleCommandTimeline
   public function __construct(BattleTurnTimings $timings, ?CompiledEffectTimeline $source = null,
     ?CompiledEffectTimeline $target = null, ?CompiledEffectTimeline $terminalTarget = null,
     public bool $resultsOnly = false, bool $showAnnouncement = true, float $targetScale = EffectScale::DEFAULT,
-    public SourceEffectAnchor $sourceEffectAnchor = SourceEffectAnchor::SOURCE, ?BattlerPose $actionPose = null)
+    public SourceEffectAnchor $sourceEffectAnchor = SourceEffectAnchor::SOURCE, ?BattlerPose $actionPose = null,
+    public bool $movementPoses = false)
   {
     $targetScale = EffectScale::readValue($targetScale, 'Battle target effect scale');
     if ($resultsOnly) {
@@ -112,7 +113,7 @@ final readonly class BattleCommandTimeline
       ...($this->summon === null || $this->cinematicStage !== null ? [] : [
         'summon-out' => max(0, (int)($this->summon->transitionCache['out']['durationMs'] ?? 0)) / 1000,
       ]),
-      'reaction' => $timings->statChanges, 'return' => $timings->stepBack,
+      'reaction' => $timings->statChanges, ...($movementPoses ? ['recovery' => 0] : []), 'return' => $timings->stepBack,
       'finish' => $timings->turnOver] as $phase => $seconds) {
       if (!is_finite($seconds) || $seconds < 0) {
         throw new InvalidArgumentException('Battle command durations must be finite and non-negative.');
@@ -132,7 +133,9 @@ final readonly class BattleCommandTimeline
       if ($phase === 'target' && $actionPose?->impactFrame !== null) {
         $poseEnd = $cursor + (int)ceil($actionPose->getRecoverySeconds() * self::FPS);
       }
-      // Preserve movement, cues and damage clocks; only command completion waits for recovery.
+      // An authored walk home starts after anchored action recovery, preserving all impact/effect cues.
+      if ($phase === 'recovery') { $length = max(0, ($poseEnd ?? $cursor) - $cursor); }
+      // Without movement artwork, retain the existing overlapping return/completion timing.
       if ($phase === 'finish' && $poseEnd !== null) { $length = max($length, $poseEnd - $cursor); }
       $phases[$phase] = ['start' => $cursor, 'length' => $length];
       if ($length > 0) {

@@ -14,6 +14,8 @@ enum BattlePoseRole: string
 {
   case IDLE = 'idle';
   case ATTACK = 'attack';
+  case MOVE = 'move';
+  case RETURNING = 'return';
   case SKILL = 'skill';
   case MAGIC = 'magic';
   case SUMMON = 'summon';

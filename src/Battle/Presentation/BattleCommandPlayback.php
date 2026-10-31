@@ -101,10 +101,19 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $this->reactionFrames[spl_object_id($battler)] = $startFrame ?? $this->impactFrame ?? $this->session->currentFrame;
   }
 
-  public function getPoseRole(CharacterInterface $battler, ?BattlePoseSet $poses = null): BattlePoseRole
+  public function getPoseRole(CharacterInterface $battler, ?BattlePoseSet $poses = null, bool $reducedMotion = false): BattlePoseRole
   {
     $rest = BattlePoseRole::getRestingRole($battler);
     if ($this->cancelled || $this->isCompleted || $rest === BattlePoseRole::KNOCKOUT || $rest === BattlePoseRole::CONCEDE) { return $rest; }
+    if (!$reducedMotion && $this->plan->movementPoses && !$this->plan->resultsOnly && $battler === $this->actor
+      && !isset($this->reactions[spl_object_id($battler)])) {
+      $movement = match ($this->phase) {
+        'advance' => BattlePoseRole::MOVE,
+        'return' => $poses?->getPose(BattlePoseRole::RETURNING) !== null ? BattlePoseRole::RETURNING : BattlePoseRole::MOVE,
+        default => null,
+      };
+      if ($movement !== null && $poses?->getPose($movement) !== null) { return $movement; }
+    }
     if (($this->phase === 'return' || ($this->phase === 'finish'
       && $this->plan->actionPoseEndFrame !== null && $this->session->currentFrame < $this->plan->actionPoseEndFrame))
       && $battler === $this->actor
@@ -118,8 +127,12 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   }
 
   /** Pose animation reads the action playhead, never wall time or redraw count. */
-  public function getPoseElapsedSeconds(CharacterInterface $battler): float
+  public function getPoseElapsedSeconds(CharacterInterface $battler, ?BattlePoseRole $role = null): float
   {
+    if ($battler === $this->actor && in_array($role, [BattlePoseRole::MOVE, BattlePoseRole::RETURNING], true)
+      && in_array($this->phase, ['advance', 'return'], true)) {
+      return max(0, ($this->session->currentFrame - $this->plan->phases[$this->phase]['start']) / BattleCommandTimeline::FPS);
+    }
     $start = $this->reactionFrames[spl_object_id($battler)] ?? ($this->plan->phases['announce']['start'] ?? 0);
     return max(0, ($this->session->currentFrame - $start) / BattleCommandTimeline::FPS);
   }

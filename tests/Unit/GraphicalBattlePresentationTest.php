@@ -2799,3 +2799,37 @@ it('keeps the production runner alive through the last authored recovery entry a
   expect($playback->isCompleted)->toBeTrue()->and($hits)->toBe(1)
     ->and($playback->getPoseRole($hero, $poses))->toBe(BattlePoseRole::IDLE);
 })->with(\Ichiloto\Engine\Battle\Enumerations\BattlePace::cases())->with([false, true]);
+
+
+it('draws authored movement sheets on the real command runner phase clocks', function (bool $atb, bool $reduced, bool $separateReturn) {
+  $asset = 'graphical-canvas/synthetic-320x180.png';
+  $roles = [
+    'idle' => new BattlerPose($asset, columns: 4, frames: [3], restFrame: 3),
+    'skill' => new BattlerPose($asset, columns: 4, frames: [2], restFrame: 2),
+    'move' => new BattlerPose($asset, columns: 4, frames: [0,1], fps: 20),
+  ];
+  if ($separateReturn) { $roles['return'] = new BattlerPose($asset, columns: 4, frames: [1,0], fps: 20); }
+  [$engine, $context, $scene, $presentation, , $turn, $turnContext] = graphicalCommandRuntime($atb, $reduced, poses: new BattlePoseSet($roles));
+  $engine->run($context);
+  $field = $scene->ui->fieldWindow;
+  $playback = $field->getCommandPlayback();
+  expect($playback)->not->toBeNull()->and($playback->plan->movementPoses)->toBe(!$reduced);
+  $assertCell = function (int $cell) use ($presentation, $field, $turn): void {
+    $image = graphicalCombatantImage($presentation->frame($field), $turn->battler);
+    expect($image->sourceRect->x)->toBe($cell * 80);
+  };
+  $assertCell($reduced ? 3 : 0);
+  $playback->update(1 / 20);
+  $assertCell($reduced ? 3 : 1);
+  $announce = $playback->plan->phases['announce']['start'];
+  $playback->update(($announce - $playback->session->currentFrame) / 120);
+  $assertCell(2);
+  $home = $playback->plan->phases['return']['start'];
+  $playback->update(($home - $playback->session->currentFrame) / 120);
+  $assertCell($reduced ? 3 : ($separateReturn ? 1 : 0));
+  $playback->update(1 / 20);
+  $assertCell($reduced ? 3 : ($separateReturn ? 0 : 1));
+  $playback->update(10);
+  $assertCell(3);
+  $engine->actionExecutionState->exit($turnContext);
+})->with([false, true])->with([false, true])->with([false, true]);

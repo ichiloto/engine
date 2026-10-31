@@ -25,6 +25,12 @@
 
 ### Changed
 
+- Authored `move` and optional `return` battle roles loop on their movement
+  phase clocks and hand off to action/rest poses. For actors with these roles,
+  removed action-pose sliding during return: anchored recovery finishes before
+  the walk home. Impact and effect cues stay fixed; actors without movement
+  artwork, Terminal and reduced-motion presentations retain their prior paths.
+
 - On held-input sources, holding semantic Right over Attack reveals the live
   crisis technique; release or input reset restores Attack. Confirm opens its
   existing target selector, and cancel returns to the command. Removed the

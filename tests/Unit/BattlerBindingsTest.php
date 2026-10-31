@@ -149,3 +149,16 @@ it('reads an impact playback-entry index strictly through the shared pose bindin
     expect(fn() => BattlerBindings::getFromArray($data, $this->root))->toThrow(InvalidArgumentException::class);
   }
 });
+
+
+it('loads authored move and separate return sheets through the shared role contract', function () {
+  $pose = ['image' => 'Graphics/Wisp/Attack.png', 'columns' => 4, 'frames' => [0,1,2,3], 'fps' => 12];
+  ($this->bind)(['enemies' => ['Wisp' => [...$this->wisp, 'poses' => [
+    'move' => $pose, 'return' => [...$pose, 'frames' => [3,2,1,0]],
+  ]]]]);
+  $set = BattlePresentationCatalog::load($this->root)->enemyPoses['Wisp'];
+  expect($set->getPose(BattlePoseRole::MOVE)->frames)->toBe([0,1,2,3])
+    ->and($set->getPose(BattlePoseRole::RETURNING)->frames)->toBe([3,2,1,0])
+    ->and($set->getPose(BattlePoseRole::MOVE)->loop)->toBeTrue()
+    ->and($set->getPose(BattlePoseRole::RETURNING)->impactFrame)->toBeNull();
+});

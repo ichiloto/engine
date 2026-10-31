@@ -366,7 +366,7 @@ final class GraphicalBattlePresentation
       $bounds = $this->placeBaseArtwork($slot, $participant['available'] ? $art : null,
         $participant['poses'], $identity, $participant['scale']);
       $artworkScale = $participant['available'] ? $bounds->width / $art->width / $slot->displayScale : null;
-      $role = $playback?->getPoseRole($battler, $participant['poses']) ?? BattlePoseRole::getRestingRole($battler);
+      $role = $playback?->getPoseRole($battler, $participant['poses'], $reducedMotion) ?? BattlePoseRole::getRestingRole($battler);
       $pose = $includeOptionalArtwork ? $participant['poses']?->getPose($role) : null;
       $usesKnockoutPose = false;
       $usesConcedePose = false;
@@ -387,7 +387,7 @@ final class GraphicalBattlePresentation
         try {
           $posed = $pose->getArtwork($this->assetRoot,
             $playback !== null && $candidateRole === $role->value && $role !== BattlePoseRole::IDLE
-              ? $playback->getPoseElapsedSeconds($battler) : ($field?->getPoseElapsedSeconds() ?? 0), $reducedMotion,
+              ? $playback->getPoseElapsedSeconds($battler, $role) : ($field?->getPoseElapsedSeconds() ?? 0), $reducedMotion,
             impactAtSeconds: $playback !== null && $candidateRole === $role->value && $role === $playback->pose
               ? $playback->getPoseImpactSeconds($battler) : null);
           if ($posed === null) { throw new RuntimeException('Pose image is unavailable.'); }

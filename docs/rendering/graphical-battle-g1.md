@@ -1226,3 +1226,27 @@ bounded52column maximum. Name/status panels retain their76/100column origins.
 The full label remains in the snapshot; the shared presentation applies its
 existing viewport clipping at constrained sizes. Input identity and control hints
 remain separate from project artwork and move names.
+
+
+### Authored advance and return poses
+
+Battler bindings may supply `poses.move` and an optional `poses.return`. Both
+use the existing image/sheet/frame/fps/pivot/scale contract, loop throughout the
+movement phase and carry no impact anchor. A separate return sheet owns its
+backward-step or opposite-facing artwork; without one, return uses `move`.
+Missing movement artwork retains the existing resting presentation.
+
+The command runner selects these roles for graphical movement. Each phase starts
+its own pose clock at zero; pause freezes it, and cancellation, completion,
+knockout or concession release it. Advance hands off to the action role, and
+return hands off to the resting role. Target reactions retain their ownership.
+Reduced motion retains its current stationary/rest-frame presentation. Terminal
+uses its existing command lane.
+
+For an actor with movement artwork, the command timeline inserts only the
+remaining impact-anchored action recovery before return. This removes action-pose
+sliding during that actor's walk home and preserves the full authored recovery.
+Impact, announcement and effect cue times remain unchanged. Callers creating a
+command timeline outside the normal runner opt in with `movementPoses: true`
+when they have movement roles and normal graphical motion enabled. Actors with
+no movement role keep the existing overlapping return/completion timing.
