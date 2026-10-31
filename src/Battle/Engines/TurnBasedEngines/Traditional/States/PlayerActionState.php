@@ -16,7 +16,6 @@ use Ichiloto\Engine\Battle\BattleCommand;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Battle\BattleCommandOption;
 use Ichiloto\Engine\Battle\EscapePolicy;
-use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
@@ -57,9 +56,15 @@ class PlayerActionState extends TurnState
    * @var int The selected target index within the active target pool.
    */
   protected int $activeTargetIndex = -1;
+  private ?BattleCommandOption $heldAttackOption = null;
+  private bool $directAttackSelection = false;
   protected ?Character $activeCharacter {
     get {
-      return $this->engine->battleConfig->partyRoster->battlers[$this->activeCharacterIndex] ?? null;
+      $actor = $this->engine->battleConfig->partyRoster->battlers[$this->activeCharacterIndex] ?? null;
+      if ($actor !== null && !$actor instanceof Character) {
+        throw new \RuntimeException('Player command selection requires a playable Character.');
+      }
+      return $actor;
     }
   }
   /**
@@ -101,7 +106,25 @@ class PlayerActionState extends TurnState
       default => null,
     };
 
+    $this->synchronizeAttackAlternative($context);
     $this->handleActions($context);
+  }
+
+  /** Live held input affects only the highlighted command, never an already confirmed target choice. */
+  protected function synchronizeAttackAlternative(TurnStateExecutionContext $context): void
+  {
+    if ($this->selectionMode !== self::MODE_COMMAND) { return; }
+    $available = $this->activeCharacter !== null && Input::isHeldInputAvailable()
+      ? BattleCommandCatalog::getAvailableCrisisOption($this->activeCharacter, $context->party, $context->getGameState()) : null;
+    $this->heldAttackOption = $available !== null
+      && $this->getSelectedCommand($context)?->type === BattleCommandType::ATTACK && Input::isButtonHeld('right')
+        ? $available : null;
+    $window = $context->ui->commandWindow;
+    $window->setAttackAlternative($available?->label, $this->heldAttackOption !== null);
+    $window->setControlHints($available === null ? [BattleControlHints::getInfoHint()] : [
+      \Ichiloto\Engine\IO\ActionHints::resolve('right', $this->heldAttackOption === null
+        ? 'Hold: ' . $this->activeCharacter->crisisAbility->name : 'Release: ' . $this->getSelectedCommand($context)->name),
+    ]);
   }
 
   /**
@@ -160,7 +183,7 @@ class PlayerActionState extends TurnState
    */
   protected function handleTargetNavigation(TurnStateExecutionContext $context): void
   {
-    if ($this->getSelectedOption()?->action->targetScope->number !== ItemScopeNumber::ONE) {
+    if ($this->getSelectedOption($context)?->action->targetScope->number !== ItemScopeNumber::ONE) {
       return;
     }
 
@@ -225,8 +248,8 @@ class PlayerActionState extends TurnState
   {
     $infoText = match ($this->selectionMode) {
       self::MODE_COMMAND => $this->resolveCommandInfo($context),
-      self::MODE_SUBMENU => $this->resolveSelectedOptionInfo(),
-      self::MODE_TARGET => $this->resolveSelectedOptionInfo(true),
+      self::MODE_SUBMENU => $this->resolveSelectedOptionInfo($context),
+      self::MODE_TARGET => $this->resolveSelectedOptionInfo($context, true),
       default => null,
     };
 
@@ -260,9 +283,7 @@ class PlayerActionState extends TurnState
       return;
     }
 
-    /** @var TraditionalTurnBasedBattleEngine $engine */
-    $engine = $this->engine;
-    $ui = $engine->battleConfig->ui;
+    $ui = $context->ui;
 
     $this->selectionMode = self::MODE_COMMAND;
     $this->activeTargetIndex = -1;
@@ -271,9 +292,13 @@ class PlayerActionState extends TurnState
       $this->activeCharacter,
       $context->party,
       $context->getGameState(),
-      $engine->battleConfig->getEscapePolicy(),
+      $this->engine->battleConfig->getEscapePolicy(),
     );
+    $this->heldAttackOption = null;
+    $this->directAttackSelection = false;
+    $ui->commandWindow->setAttackAlternative(null);
     $ui->commandWindow->focus();
+    $this->synchronizeAttackAlternative($context);
     $ui->commandContextWindow->clear();
     $this->applyTargetingVisuals($context);
   }
@@ -355,13 +380,26 @@ class PlayerActionState extends TurnState
       $context->getGameState(),
     );
 
+    $this->directAttackSelection = false;
+    if ($command->type === BattleCommandType::ATTACK && Input::isHeldInputAvailable()) {
+      if ($this->heldAttackOption !== null) {
+        $options = [$this->heldAttackOption];
+        $this->directAttackSelection = true;
+      } else {
+        $options = array_values(array_filter($options, static fn(BattleCommandOption $option): bool =>
+          !$option->action instanceof \Ichiloto\Engine\Battle\Actions\CrisisSkillBattleAction));
+      }
+    }
     $this->selectionMode = self::MODE_SUBMENU;
     $this->activeTargetIndex = -1;
     $context->ui->commandWindow->setSelectionBlink(false);
     $context->ui->commandContextWindow->setMpBudget($this->activeCharacter->stats->currentMp);
     $context->ui->commandContextWindow->setItems($options, $command->name, $this->getEmptyMenuMessage($command->type));
     $context->ui->commandContextWindow->focus();
-    $this->applyTargetingVisuals($context);
+    if ($this->directAttackSelection) {
+      $context->ui->commandWindow->setControlHints([BattleControlHints::getInfoHint()]);
+      $this->selectSubmenuOption($context);
+    } else { $this->applyTargetingVisuals($context); }
   }
 
   /**
@@ -500,10 +538,12 @@ class PlayerActionState extends TurnState
    */
   protected function returnToCommandSelection(TurnStateExecutionContext $context): void
   {
+    $this->directAttackSelection = false;
     $this->selectionMode = self::MODE_COMMAND;
     $this->activeTargetIndex = -1;
     $context->ui->commandWindow->setSelectionBlink(true);
     $context->ui->commandContextWindow->clear();
+    $this->synchronizeAttackAlternative($context);
     $this->applyTargetingVisuals($context);
   }
 
@@ -515,6 +555,7 @@ class PlayerActionState extends TurnState
    */
   protected function returnToSubmenuSelection(TurnStateExecutionContext $context): void
   {
+    if ($this->directAttackSelection) { $this->returnToCommandSelection($context); return; }
     $this->selectionMode = self::MODE_SUBMENU;
     $this->activeTargetIndex = -1;
     $context->ui->commandContextWindow->setSelectionBlink(true);
@@ -675,7 +716,7 @@ class PlayerActionState extends TurnState
     $context->ui->fieldWindow->clearTroopFocus();
 
     if ($this->selectionMode === self::MODE_TARGET && $this->activeTargetIndex >= 0) {
-      $option = $this->getSelectedOption();
+      $option = $this->getSelectedOption($context);
       $pool = $option === null ? [] : $this->getSelectionPool($context, $option);
       $indexes = $this->getSelectableTargetIndexes($context);
       if ($option?->action->targetScope->number === ItemScopeNumber::ONE) {
@@ -725,7 +766,7 @@ class PlayerActionState extends TurnState
    */
   protected function resolveCommandInfo(TurnStateExecutionContext $context): ?string
   {
-    return $this->getSelectedCommand($context)?->type->helpText();
+    return $this->heldAttackOption?->description ?? $this->getSelectedCommand($context)?->type->helpText();
   }
 
   /**
@@ -733,9 +774,9 @@ class PlayerActionState extends TurnState
    *
    * @return BattleCommandOption|null The active submenu option.
    */
-  protected function getSelectedOption(): ?BattleCommandOption
+  protected function getSelectedOption(TurnStateExecutionContext $context): ?BattleCommandOption
   {
-    return $this->engine->battleConfig->ui->commandContextWindow->getActiveItem();
+    return $context->ui->commandContextWindow->getActiveItem();
   }
 
   /**
@@ -744,12 +785,12 @@ class PlayerActionState extends TurnState
    * @param bool $appendTargetHint Whether to append target-selection guidance.
    * @return string|null The option help text.
    */
-  protected function resolveSelectedOptionInfo(bool $appendTargetHint = false): ?string
+  protected function resolveSelectedOptionInfo(TurnStateExecutionContext $context, bool $appendTargetHint = false): ?string
   {
-    $selectedOption = $this->getSelectedOption();
+    $selectedOption = $this->getSelectedOption($context);
 
     if (! $selectedOption instanceof BattleCommandOption) {
-      $emptyMessage = $this->engine->battleConfig->ui->commandContextWindow->getEmptyMessage();
+      $emptyMessage = $context->ui->commandContextWindow->getEmptyMessage();
       return $emptyMessage !== '' ? $emptyMessage : null;
     }
 
@@ -779,7 +820,7 @@ class PlayerActionState extends TurnState
    */
   protected function getSelectableTargetIndexes(TurnStateExecutionContext $context): array
   {
-    $selectedOption = $this->getSelectedOption();
+    $selectedOption = $this->getSelectedOption($context);
 
     if (! $selectedOption instanceof BattleCommandOption || $this->activeCharacter === null) {
       return [];

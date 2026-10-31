@@ -378,3 +378,24 @@ it('rejects a battle result the canvas cannot hold instead of truncating it', fu
   expect(fn() => GraphicalBattleHud::compose(getHudTestLayout(), new BattleHudSnapshot(outcome: $long), null, 0, null, $theme))
     ->toThrow(RuntimeException::class, 'its window must wrap it');
 });
+
+
+it('fits the held technique beside a right affordance while keeping party panels fixed', function (): void {
+  $compose = static fn(string $label) => GraphicalBattleHud::compose(getHudTestLayout(), new BattleHudSnapshot(
+    commands: new BattleHudListSnapshot('Command', '', [new BattleHudRow(0, $label, true, hasAlternative: true)],
+      0, 0, 4, 1, 1, 1, preferredColumns: 26),
+    context: hudTestList('Attack', []), names: hudTestList('Name', ['Synthetic actor']),
+    status: new BattleHudStatusSnapshot('', '', [new BattleHudStatusRow(0, 9, 100, 0, 30)])), 'command', 0);
+  $ordinary = $compose('Attack'); $special = $compose('Long technique name');
+  foreach ([$ordinary, $special] as $frame) {
+    $layers = array_column($frame->textLayers, null, 'id');
+    expect($layers['hud-command-alternative-0']->runs[0]->text)->toBe('›')
+      ->and($layers['hud-submenu-title']->x)->toBe(276.0)
+      ->and($layers['hud-names-title']->x)->toBe(776.0);
+    foreach ($layers['hud-command-rows']->runs as $run) {
+      expect($run->text)->toBeIn(['Attack', 'Long technique name']);
+    }
+  }
+  $a = array_column($ordinary->textLayers, null, 'id'); $b = array_column($special->textLayers, null, 'id');
+  expect($a['hud-names-rows'])->toEqual($b['hud-names-rows'])->and($a['hud-hp-rows'])->toEqual($b['hud-hp-rows']);
+});

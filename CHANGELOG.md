@@ -19,6 +19,15 @@
 
 ### Changed
 
+- On held-input sources, holding semantic Right over Attack reveals the live
+  crisis technique; release or input reset restores Attack. Confirm opens its
+  existing target selector, and cancel returns to the command. Removed the
+  duplicate crisis entry from held-input Attack submenus; event-only Terminal
+  input retains that submenu. Ordinary authored basic attacks remain available.
+  The shared HUD fits technique labels beside a right affordance while party
+  panels stay fixed; command Info describes the revealed technique. MP and
+  actor/form activation are unchanged.
+
 - Anchored battle action poses finish their complete authored recovery at every
   pace. Only command completion extends; movement and damage timing are preserved.
 

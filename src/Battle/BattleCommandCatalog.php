@@ -171,13 +171,19 @@ final class BattleCommandCatalog
       ));
     }
 
+    $crisis = self::getAvailableCrisisOption($character, $party, $gameState);
+    if ($crisis !== null) { $options[] = $crisis; }
+    return $options;
+  }
+
+  /** One live actor/form technique, shared by held command selection and event-only submenus. */
+  public static function getAvailableCrisisOption(Character $character, ?Party $party = null,
+    ?GameState $gameState = null): ?BattleCommandOption
+  {
     $ability = $character->crisisAbility;
     $skill = $ability?->getAvailableSkill($character, $gameState, $party);
-    if ($skill !== null && $ability !== null) {
-      $action = new CrisisSkillBattleAction($skill, $ability, $character->actorId, $gameState, $party);
-      $options[] = self::createSkillOption($skill, $action);
-    }
-    return $options;
+    return $skill === null || $ability === null ? null : self::createSkillOption($skill,
+      new CrisisSkillBattleAction($skill, $ability, $character->actorId, $gameState, $party));
   }
 
   /**

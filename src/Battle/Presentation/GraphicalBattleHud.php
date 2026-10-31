@@ -67,7 +67,8 @@ final class GraphicalBattleHud
     $oy = ($arena->height - 36 * $pitch->cellHeight) / 2;
     $y = $arena->getHudTop();
     $height = BattleCanvasLayout::HUD_ROWS * $pitch->cellHeight;
-    foreach ([['command', $hud->commands, 0, 14], ['submenu', $hud->context, 14, 62], ['names', $hud->names, 76, 24]] as [$id, $list, $column, $columns]) {
+    $commandColumns = min(52, max(14, $hud->commands?->preferredColumns ?? 14));
+    foreach ([['command', $hud->commands, 0, $commandColumns], ['submenu', $hud->context, $commandColumns, 76 - $commandColumns], ['names', $hud->names, 76, 24]] as [$id, $list, $column, $columns]) {
       if ($list === null) { continue; }
       $x = $ox + $column * $pitch->cellWidth;
       $width = $columns * $pitch->cellWidth;
@@ -98,8 +99,13 @@ final class GraphicalBattleHud
             $icons[$row->iconRole], new CanvasRectangle($x + 40, $rowY + ($pitch->cellHeight - 16) / 2, 16, 16),
             1002, new CanvasRectangle($x + 40, $rowY, 16, $pitch->cellHeight)));
         }
+        $alternativeSpace = $row->hasAlternative ? 16 : 0;
         self::line($rowText, $id . '-row-' . $rowIndex, $row->label, $x + 40 + $iconSpace, $rowY,
-          $width - 48 - $iconSpace, $pitch->cellHeight, $color, cellWidth: $pitch->cellWidth);
+          $width - 48 - $iconSpace - $alternativeSpace, $pitch->cellHeight, $color, cellWidth: $pitch->cellWidth);
+        if ($row->hasAlternative) {
+          self::line($text, $id . '-alternative-' . $rowIndex, '›', $x + $width - 24, $rowY,
+            16, $pitch->cellHeight, $skin->colors['focus'], cellWidth: 8, centered: true);
+        }
       }
       self::column($text, $id . '-rows', $rowText);
       if ($list->rows === [] && $list->emptyMessage !== '') {

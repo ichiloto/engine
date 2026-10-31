@@ -27,7 +27,9 @@ final readonly class BattleHudListSnapshot
     public string $emptyMessage = '',
     /** @var list<ActionHint> What the panel's controls do, when its help shows controls. */
     public array $hints = [],
+    public int $preferredColumns = 14,
   ) {
+    if ($preferredColumns < 1) { throw new InvalidArgumentException('Battle HUD preferred width must be positive.'); }
     if (!array_is_list($rows) || $visibleRowCount < 0 || $visibleRowCount > 4 || count($rows) > $visibleRowCount) {
       throw new InvalidArgumentException('Battle HUD lists must fit their four-row viewport.');
     }

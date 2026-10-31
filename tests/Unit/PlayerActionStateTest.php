@@ -363,7 +363,13 @@ it('applies shared opening advantages only to the traditional first round', func
 })->with(['party', 'troop']);
 
 it('keeps authored enemy formations out of the player-party render zone', function () {
-  $fieldWindow = (new ReflectionClass(BattleFieldWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
+  $screen = createTargetingTestScreen(); $fieldWindow = $screen->fieldWindow;
+  $game = new ReflectionClass(GameTargetingTestProxy::class)->newInstanceWithoutConstructor();
+  $engine = new TraditionalTurnBasedBattleEngine($game);
+  $engine->configure(new TurnBasedBattleConfig(new Party(), new Troop('Geometry', []), $screen));
+  $scene = new ReflectionClass(\Ichiloto\Engine\Scenes\Battle\BattleScene::class)->newInstanceWithoutConstructor();
+  setTestProperty($scene, 'config', $engine->battleConfig); setTestProperty($screen, 'battleScene', $scene);
+  setTestProperty($fieldWindow, 'battleScreen', $screen);
   setTestProperty($fieldWindow, 'partyBattlerPositions', new PartyBattlerPositions());
 
   $wolf = createTargetingTestEnemy('Wolf');
@@ -529,6 +535,7 @@ class ActiveTimeBattleEngineCaptureProxy extends ActiveTimeBattleEngine
     CharacterInterface $battler,
     BattleAction $action,
     array $targets,
+    ?CharacterInterface $targetAnchor = null,
   ): void
   {
     $this->capturedBattler = $battler;
@@ -758,3 +765,84 @@ it('requires separate target confirmation for submenu commands and allows cancel
   'random any enemies' => [ItemScopeSide::ENEMY, ItemScopeNumber::RANDOM, ItemScopeStatus::ANY, [0, 1, 2]],
   'random living either side' => [ItemScopeSide::ENEMY_ALLY, ItemScopeNumber::RANDOM, ItemScopeStatus::ALIVE, [0, 1, 3, 4]],
 ])->with(['magic', 'skill', 'item']);
+
+
+require_once __DIR__ . '/../Support/Input/FakeHeldInputSource.php';
+
+it('reveals the live crisis technique only while semantic Right is held and confirms through normal targeting', function (bool $activeTime): void {
+  $statics = [];
+  foreach ([InputManager::class, ConfigStore::class] as $class) { $statics[$class] = new ReflectionClass($class)->getStaticProperties(); }
+  $cwd = getcwd(); $root = createTestDirectory('ichiloto-held-crisis-');
+  writeSkillRecords($root, new SpecialSkill('Synthetic long finisher', 'A test technique.', '', 0, 0));
+  try {
+    chdir($root); new ReflectionProperty(InputManager::class, 'eventManager')->setValue(null, null);
+    InputManager::setBindings(['right' => ['keys' => [KeyCode::d]], 'action' => ['keys' => [KeyCode::ENTER]]]);
+    $input = new \Tests\Support\Input\FakeHeldInputSource(); InputManager::setInputSource($input);
+    $game = new ReflectionClass(GameTargetingTestProxy::class)->newInstanceWithoutConstructor();
+    setTestProperty($game, 'audioManager', $this->createStub(AudioManager::class));
+    $actor = new Character('Synthetic actor', 1, new Stats(currentHp: 9, totalHp: 100, currentMp: 0, totalMp: 30),
+      abilityBook: new AbilityBook([new BasicSkill('Alternate strike', 'Another authored basic attack.', '', 0, 0)]),
+      actorId: 'synthetic-actor', crisisAbility: \Ichiloto\Engine\Battle\CrisisAbility::fromArray([
+        'name' => 'Surge', 'hpBelowPercent' => 10, 'variants' => [['skill' => 'Synthetic long finisher']],
+      ]));
+    $party = new Party(); $party->addMember($actor);
+    $troop = new Troop('Test', [createTargetingTestEnemy('Enemy')]); $screen = createTargetingTestScreen();
+    setTestProperty($screen->commandWindow, 'height', 6);
+    $screen->commandWindow->setTitle('Command');
+    $engine = $activeTime ? new ActiveTimeBattleEngineCaptureProxy($game) : new TraditionalTurnBasedBattleEngine($game);
+    $engine->configure($activeTime ? new ActiveTimeBattleConfig($party, $troop, $screen) : new TurnBasedBattleConfig($party, $troop, $screen));
+    $context = new TurnStateExecutionContext($game, $party, $troop, $screen, []); $turn = new Turn($actor); $context->setTurns([$turn]);
+    setTestProperty($engine, 'turnStateExecutionContext', $context);
+    $state = $activeTime ? new ActiveTimeFlowState($engine) : new PlayerActionState($engine);
+    setTestProperty($state, 'activeCharacterIndex', 0);
+    new ReflectionMethod($state, 'loadCharacterActions')->invoke($state, $context);
+    $refresh = function () use ($state, $context): void { InputManager::handleInput(); $state->update($context); };
+    $label = fn() => $screen->commandWindow->presentationSnapshot()->rows[0]->label;
+    $refresh(); expect($label())->toBe('Attack');
+    new ReflectionMethod($state, 'beginSubmenuSelection')->invoke($state, $context);
+    $nativeOptions = new ReflectionProperty(BattleCommandContextWindow::class, 'items')->getValue($screen->commandContextWindow);
+    expect(array_column($nativeOptions, 'label'))->toBe(['Attack', 'Alternate strike']);
+    new ReflectionMethod($state, 'returnToCommandSelection')->invoke($state, $context);
+    $input->press('physical-d', KeyCode::d); $refresh();
+    expect($label())->toBe('Synthetic long finisher')->and($screen->commandWindow->getActiveCommand()->type)->toBe(BattleCommandType::ATTACK)
+      ->and($actor->stats->currentMp)->toBe(0)->and($turn->action)->toBeNull()
+      ->and(new ReflectionMethod($state, 'resolveCommandInfo')->invoke($state, $context))->toBe('A test technique.');
+    $screen->commandWindow->selectNext(); $refresh();
+    expect($label())->toBe('Attack')->and($screen->commandWindow->getActiveCommand()->type)->not->toBe(BattleCommandType::ATTACK);
+    $screen->commandWindow->selectPrevious(); $refresh(); expect($label())->toBe('Synthetic long finisher');
+    $input->release('physical-d'); $refresh(); expect($label())->toBe('Attack');
+    $input->press('physical-d', KeyCode::d); $refresh();
+    $actor->stats->currentHp = 10; $refresh(); expect($label())->toBe('Attack'); // Strict boundary changes live.
+    $actor->stats->currentHp = 9; $refresh(); expect($label())->toBe('Synthetic long finisher');
+    $input->transitions[] = \Ichiloto\Engine\IO\KeyTransition::reset(); $refresh();
+    expect($label())->toBe('Attack'); // Lost focus/source cannot leave the special latched.
+    $input->press('physical-d', KeyCode::d); $refresh();
+    $input->press('confirm', KeyCode::ENTER); $refresh();
+    expect($state->getSelectionMode())->toBe('target')
+      ->and($screen->commandContextWindow->getActiveItem()->action)->toBeInstanceOf(\Ichiloto\Engine\Battle\Actions\CrisisSkillBattleAction::class)
+      ->and($turn->action)->toBeNull()->and($actor->stats->currentMp)->toBe(0);
+    $input->release('physical-d'); $refresh();
+    expect($state->getSelectionMode())->toBe('target');
+    $input->press('cancel', KeyCode::c); $refresh();
+    expect($state->getSelectionMode())->toBe('command');
+    expect($label())->toBe('Attack');
+    InputManager::setInputSource(new FakeInputSource(KeyCode::d)); $refresh();
+    new ReflectionMethod($state, 'beginSubmenuSelection')->invoke($state, $context);
+    expect($state->getSelectionMode())->toBe('submenu');
+    $screen->commandContextWindow->selectNext(); $screen->commandContextWindow->selectNext();
+    expect($screen->commandContextWindow->getActiveItem()->action)->toBeInstanceOf(\Ichiloto\Engine\Battle\Actions\CrisisSkillBattleAction::class);
+    InputManager::setInputSource($input);
+    new ReflectionMethod($state, 'returnToCommandSelection')->invoke($state, $context);
+    $input->press('physical-d', KeyCode::d); $refresh();
+    $input->press('confirm', KeyCode::ENTER); $refresh();
+    $input->release('physical-d')->release('confirm'); $refresh();
+    expect($state->getSelectionMode())->toBe('target')->and($turn->action)->toBeNull();
+    $input->press('confirm', KeyCode::ENTER); $refresh();
+    $queued = $activeTime ? $engine->capturedAction : $turn->action;
+    expect($queued)->toBeInstanceOf(\Ichiloto\Engine\Battle\Actions\CrisisSkillBattleAction::class)
+      ->and($queued->name)->toBe('Synthetic long finisher')->and($actor->stats->currentMp)->toBe(0);
+  } finally {
+    chdir($cwd);
+    foreach ($statics as $class => $values) { foreach ($values as $key => $value) { new ReflectionProperty($class, $key)->setValue(null, $value); } }
+  }
+})->with(['traditional' => false, 'active time' => true]);

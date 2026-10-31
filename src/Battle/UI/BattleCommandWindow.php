@@ -27,6 +27,8 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    * The height of the window.
    */
   const int HEIGHT = 6;
+  /** Space for a full technique name and a measured held-control hint. */
+  public const int ALTERNATIVE_WIDTH = 26;
   /**
    * The index of the active command.
    */
@@ -58,6 +60,25 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
   }
 
   protected int $totalCommands = 0;
+  private ?string $attackAlternativeLabel = null;
+  private bool $attackAlternativeSelected = false;
+
+  /** Only presentation changes; the command retains its Attack identity. */
+  public function setAttackAlternative(?string $label, bool $selected = false): void
+  {
+    if ($label === $this->attackAlternativeLabel && $selected === $this->attackAlternativeSelected) { return; }
+    $this->attackAlternativeLabel = $label;
+    $this->attackAlternativeSelected = $selected;
+    $this->updateContent();
+  }
+
+  private function getCommandLabel(BattleCommand|string $command): string
+  {
+    return $command instanceof BattleCommand && $command->type === BattleCommandType::ATTACK
+      && $this->attackAlternativeSelected && $this->attackAlternativeLabel !== null
+        ? $this->attackAlternativeLabel : (string)$command;
+  }
+
 
   public function getActiveCommand(): ?BattleCommand
   {
@@ -108,6 +129,9 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   public function blur(): void
   {
+    $this->attackAlternativeLabel = null;
+    $this->attackAlternativeSelected = false;
+    $this->setControlHints([BattleControlHints::getInfoHint()]);
     $this->blinkActiveSelection = false;
     $this->scrollOffset = 0;
     $this->activeCommandIndex = -1;
@@ -128,6 +152,8 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
 
   public function clear(): void
   {
+    $this->attackAlternativeLabel = null;
+    $this->attackAlternativeSelected = false;
     $this->commands = [];
     $this->activeCommandIndex = -1;
     $this->totalCommands = 0;
@@ -141,13 +167,17 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
     $visibleRowCount = min(self::HEIGHT - 2, $this->getVisibleRowCount());
     $rows = [];
     foreach (array_slice($this->commands, $this->scrollOffset, $visibleRowCount, true) as $index => $command) {
-      $rows[] = new BattleHudRow($index, (string) $command, $this->activeCommandIndex === $index);
+      $rows[] = new BattleHudRow($index, $this->getCommandLabel($command), $this->activeCommandIndex === $index,
+        hasAlternative: $command instanceof BattleCommand && $command->type === BattleCommandType::ATTACK
+          && $this->attackAlternativeLabel !== null);
     }
     [$currentPage, $totalPages] = $this->getPagination();
 
     return new BattleHudListSnapshot(
       $this->title, $this->help, $rows, $this->activeCommandIndex, $this->scrollOffset,
       $visibleRowCount, $this->totalCommands, $currentPage, $totalPages, hints: $this->getControlHints(),
+      preferredColumns: $this->attackAlternativeLabel === null ? self::WIDTH
+        : max(self::ALTERNATIVE_WIDTH, TerminalText::displayWidth($this->attackAlternativeLabel) + 7),
     );
   }
 
@@ -167,7 +197,8 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
 
     foreach (array_slice($this->commands, $this->scrollOffset, $visibleRowCount, true) as $index => $command) {
       $prefix = $this->activeCommandIndex === $index ? '>' : ' ';
-      $line = TerminalText::padRight("$prefix $command", $availableWidth);
+      $label = $this->getCommandLabel($command);
+      $line = TerminalText::padRight("$prefix $label", $availableWidth);
 
       if ($this->activeCommandIndex === $index) {
         $line = $this->battleScreen->styleSelectionLine($line, $this->blinkActiveSelection);

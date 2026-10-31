@@ -1201,3 +1201,28 @@ category's authored reading time, `ui.battle.announcement_seconds`; see
 [Summons](../summons.md)); effect length does not extend the banner. Both renderers share the same
 visibility clock; combat still resolves once at its authored impact. Cancelled
 and completed commands remove their owned announcement. Blank authored callouts stay silent.
+
+
+## Held crisis command selection
+
+The shared player-command state reads the semantic `right` action from a source
+that reports held/released controls. While Attack is highlighted, holding Right
+shows the actor's currently available crisis technique; release, focus reset or
+lost eligibility restores the ordinary Attack label. The same actor/form/HP/state
+query supplies event-only submenus and held selection. Reading availability never
+restores MP or spends a turn.
+
+Confirming the revealed technique enters its existing target selector. That
+confirmed choice stays selected during target navigation; cancelling returns to
+the command and its current held state. Terminal sources keep the Attack submenu
+because they report presses without physical release state. Held-input sources
+retain ordinary authored basic attack options in their submenu and expose the
+crisis through the held command.
+
+The command snapshot carries its measured preferred width and an alternative
+affordance. The graphical HUD borrows width from the context panel within their
+combined76columns, with a minimum26column command panel for a technique and a
+bounded52column maximum. Name/status panels retain their76/100column origins.
+The full label remains in the snapshot; the shared presentation applies its
+existing viewport clipping at constrained sizes. Input identity and control hints
+remain separate from project artwork and move names.
