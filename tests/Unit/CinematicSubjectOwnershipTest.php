@@ -1635,3 +1635,96 @@ it('declares staged-actor existence requirements consistently with runtime opera
   'hide staged actor' => ['hide_actor', 'hide'],
   'retryable actor cleanup' => ['remove_actor', 'remove'],
 ]);
+
+
+it('frames the real current conversation cast clear of dialogue in graphical and Terminal presentations', function (bool $graphical) {
+  $this->scene->cinematicController->start(subjectOwnershipDefinition([['type' => 'wait', 'seconds' => 10]], [
+    'cast' => [['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide'], 'sprites2d' => characterSheetData()]],
+    'presentation' => ['conversation' => subjectConversation()],
+  ]));
+  $line = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueSnapshot('Hero', 'A line.', 'A line.',
+    false, 0, 1, false, \Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition::BOTTOM);
+  $owner = new class($line) implements \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationProviderInterface,
+    \Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface {
+      public function __construct(private $line) {}
+      public function getDialogueSnapshot(): \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueSnapshot { return $this->line; }
+      public function getPresentationBounds(): Rect { return new Rect(0, 4, 24, 4); }
+      public function getPresentationPriority(): \Ichiloto\Engine\UI\Enumerations\PresentationPriority {
+        return \Ichiloto\Engine\UI\Enumerations\PresentationPriority::MODAL;
+      }
+  };
+  if ($graphical) {
+    mkdir($this->assetRoot . '/Data/Presentation', 0777, true);
+    file_put_contents($this->assetRoot . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
+      'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1'],
+    ], true) . ';');
+    $view = new FieldViewport(new \Ichiloto\Engine\Rendering\Transport\RendererGridConfig(135, 36, 10, 20));
+    new ReflectionProperty(GameScene::class, 'fieldViewport')->setValue($this->scene, $view);
+    $this->scene->camera->resizeViewport($view->columns, $view->rows);
+    new ReflectionProperty($this->player, 'position')->setValue($this->player, new Vector2(3, 14));
+    new ReflectionProperty($this->npc, 'position')->setValue($this->npc, new Vector2(7, 14));
+  }
+  $this->scene->cinematicController->prepareDialogue('Hero');
+  $positions = [clone $this->player->position, clone $this->npc->position];
+  $before = $this->scene->camera->captureState(); $world = $this->scene->camera->worldSpace;
+  $this->scene->getUI()->present($owner);
+  $framing = new \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming($this->scene); $framing->update();
+  expect($this->scene->camera->isFramed)->toBeTrue()->and($framing->diagnostic)->toBeNull();
+  $origin = $this->scene->camera->getWorldOrigin();
+  if ($graphical) {
+    $protected = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueScenePresentation($this->assetRoot)->getProtectedBounds($line, 1350, 720);
+    $safe = \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming::findSafeArea($protected, 1350, 720);
+    foreach ($this->scene->cinematicController->getFramingSubjects() as $subject) {
+      $bounds = \Ichiloto\Engine\Animations\Field\FieldSpriteBounds::findBounds($subject, $view, $origin);
+      expect($bounds->bottom - $origin['y'] * 48)->toBeLessThanOrEqual($safe->y + $safe->height)
+        ->and($bounds->top - $origin['y'] * 48)->toBeGreaterThanOrEqual($safe->y);
+    }
+  } else {
+    foreach ($positions as $position) { expect($position->y + 1 - $origin['y'])->toBeLessThanOrEqual(4); }
+  }
+  if ($graphical) {
+    $oldBounds = array_map(fn($subject) => \Ichiloto\Engine\Animations\Field\FieldSpriteBounds::findBounds($subject, $view, $origin),
+      $this->scene->cinematicController->getFramingSubjects());
+    $framing->clear();
+    foreach ([$this->player, $this->npc] as $subject) {
+      $from = clone $subject->position; $to = new Vector2($from->x, $from->y - 1);
+      if ($subject instanceof Player) {
+        expect($this->scene->moveAtPace(.3, fn() => $subject->tryMove(new Vector2(0, -1), $this->scene->camera, StepOrigin::SCRIPTED)))->toBeTrue();
+      } else {
+        new ReflectionProperty($subject, 'position')->setValue($subject, $to);
+        $step = new \Ichiloto\Engine\Rendering\Sprites\CharacterStep($from, $to, .3);
+        $subject->beginGraphicalStep($step); $this->stage->subjectMoved($subject, $step);
+      }
+    }
+    $framing->update(); $origin = $this->scene->camera->getWorldOrigin();
+    foreach ($oldBounds as $bounds) {
+      expect($bounds->bottom - $origin['y'] * 48)->toBeLessThanOrEqual($safe->y + $safe->height);
+    }
+    $positions = [clone $this->player->position, clone $this->npc->position];
+  }
+  expect([$this->player->position, $this->npc->position])->toEqual($positions)
+    ->and($this->scene->camera->worldSpace)->toBe($world)->and($this->scene->camera->captureState())->toEqual($before);
+  $this->scene->getUI()->dismiss($owner); $this->scene->getUI()->commitPresentationChanges(); $framing->update();
+  expect($this->scene->camera->isFramed)->toBeFalse()->and($this->scene->camera->captureState())->toEqual($before);
+})->with([false, true]);
+
+
+it('refreshes and releases cinematic framing through the actual text-box show and hide lifecycle', function () {
+  $this->scene->installField();
+  $game = $this->scene->getGame();
+  new ReflectionProperty(Game::class, 'sceneManager')->setValue($game, $this->scene->sceneManager);
+  new ReflectionProperty(\Ichiloto\Engine\Scenes\AbstractScene::class, 'eventManager')->setValue($this->scene, EventManager::getInstance($game));
+  new ReflectionMethod(\Ichiloto\Engine\Scenes\AbstractScene::class, 'initializeEventHandlers')->invoke($this->scene);
+  $this->scene->cinematicController->start(subjectOwnershipDefinition([['type' => 'wait', 'seconds' => 10]], [
+    'cast' => [['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]],
+    'presentation' => ['conversation' => subjectConversation()],
+  ]));
+  $this->scene->cinematicController->prepareDialogue('Hero');
+  $before = $this->scene->camera->captureState();
+  ConfigStore::put(\Ichiloto\Engine\Util\Config\PlaySettings::class, new \Ichiloto\Engine\Util\Config\PlaySettings(['width' => 24, 'height' => 8]));
+  $modal = new \Ichiloto\Engine\UI\Modal\TextBoxModal($game, 'An ordinary line.', 'Hero');
+  $modal->show();
+  expect($this->scene->camera->isFramed)->toBeTrue()->and($this->scene->getDialogueFramingDiagnostic())->toBeNull();
+  $modal->hide();
+  expect($this->scene->camera->isFramed)->toBeFalse()->and($this->scene->camera->captureState())->toEqual($before);
+});

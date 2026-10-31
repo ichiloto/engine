@@ -38,42 +38,33 @@ final class DialogueCanvasPresentation
         $padding = $m->panelPadding;
         $portrait = $layout->portrait;
         $gutter = $layout->gutter;
-        $textWidth = $width - 2 * ($margin + $padding) - $gutter;
+        $geometry = new DialoguePageGeometry($layout, $catalogue, $line->speaker, $line->position, $width, $height, $skit);
+        $textWidth = $geometry->textWidth;
         $columns = $layout->columns;
         if (count(MenuCanvas::wrap($line->page, $columns)) > $layout->proseRows) {
             throw new RuntimeException('Dialogue page exceeds its fixed reading area; the owner must paginate it.');
         }
         $textHeight = $layout->proseRows * $m->cellHeight;
-        $nameLines = $line->speaker === '' ? [] : MenuCanvas::wrap($line->speaker,
-            (int)floor(($textWidth - 32) / $m->cellWidth));
-        $nameHeight = count($nameLines) * $m->cellHeight + ($nameLines === [] ? 0 : 24);
+        $nameLines = $geometry->nameLines;
+        $nameHeight = $geometry->nameHeight;
         $helpHeight = $layout->helpHeight;
         $bodyHeight = $layout->bodyHeight;
-        $bottom = $skit ? 24 : 28;
-        $top = match ($skit ? WindowPosition::BOTTOM : $line->position) {
-            WindowPosition::TOP => 32 + max(0, $nameHeight - 12),
-            WindowPosition::MIDDLE => ($height - $bodyHeight) / 2,
-            WindowPosition::BOTTOM => $height - $bottom - $bodyHeight,
-        };
-        if ($top < max(0, $nameHeight - 12) || $top + $bodyHeight > $height) {
-            throw new RuntimeException('Dialogue content exceeds its readable viewport; terminal presentation retained.');
-        }
-        $box = new CanvasRectangle($margin, $top, $width - 2 * $margin, $bodyHeight);
+        $top = $geometry->body->y;
+        $box = $geometry->body;
         $images = $skit ? SkitCanvasPresentation::renderStage($view, $line, $catalogue, $box, $supportsImageTone) : [];
         $view->frame('dialogue-body', $box, 'dialogue');
         $view->protect($box);
-        $x = $margin + $padding + $gutter;
+        $x = $geometry->textX;
         if ($nameLines !== []) {
-            $nameWidth = min($textWidth, max(128, max(array_map(mb_strlen(...), $nameLines)) * $m->cellWidth + 32));
-            $plate = new CanvasRectangle($x, $top - $nameHeight + 12, $nameWidth, $nameHeight);
+            $plate = $geometry->nameplate;
+            $nameWidth = $plate->width;
             $view->frame('dialogue-nameplate', $plate, 'nameplate', 21);
             $view->protect($plate);
             $view->prose('dialogue-speaker', $line->speaker,
                 new CanvasRectangle($x + 16, $plate->y + 12, $nameWidth - 32, $nameHeight - 24), 'focus', HorizontalAlignment::CENTER);
         }
         if ($portrait !== null) {
-            $dock = new CanvasRectangle($margin + $padding, max(0, $top - 36), $compact ? 116 : 180,
-                min($compact ? 154 : 222, $bodyHeight + 8));
+            $dock = $geometry->portrait;
             $view->surface('dialogue-portrait-backing', new CanvasRectangle($dock->x + 8, $dock->y + 8,
                 $dock->width - 16, $dock->height - 16), 'panel', 20);
             $view->frame('dialogue-portrait-frame', $dock, 'portrait', 21);

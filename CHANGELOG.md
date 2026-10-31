@@ -28,6 +28,11 @@
 
 ### Added
 
+- Cinematic dialogue frames the current cast clear of its actual reading area.
+  Signed camera projection supports map-edge padding and small maps, preserves
+  authored camera ownership, and releases on dismissal or cleanup. Terminal
+  framing uses its own text and cell geometry.
+
 - Source-owned first-use world-power hints follow actual dash and passage-cue
   availability. Semantic controls and finite effects complete before their
   once-only presentation fact is saved; interrupted delivery can retry.

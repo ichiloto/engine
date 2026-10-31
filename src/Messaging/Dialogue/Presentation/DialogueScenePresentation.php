@@ -48,6 +48,21 @@ final class DialogueScenePresentation
         }
     }
 
+    /** Actual UI geometry, independent of typing progress and camera state. */
+    public function getProtectedBounds(DialogueSnapshot $line, int $width, int $height): ?array
+    {
+        if ($line->context->skitId !== null) { return null; }
+        try {
+            $this->loadCatalogue();
+            if ($this->catalogue?->theme === null) { return null; }
+            $layout = new DialoguePageLayout($this->catalogue, $line->speaker, $line->context, $line->help, $width, $line->interactive);
+            return new DialoguePageGeometry($layout, $this->catalogue, $line->speaker, $line->position, $width, $height)->getProtectedBounds();
+        } catch (Throwable $error) {
+            $this->report('Dialogue layout degraded to terminal: ' . $error->getMessage());
+            return null;
+        }
+    }
+
     private function loadCatalogue(): void
     {
         if (!$this->loaded) {

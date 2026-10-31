@@ -272,11 +272,14 @@ abstract class AbstractScene implements ConfigurableSceneInterface
           break;
 
         case ModalEventType::HIDE:
+        case ModalEventType::SHOW:
+          $this->refreshModalPresentation();
+          break;
+
         case ModalEventType::UPDATE:
         case ModalEventType::RENDER:
         case ModalEventType::ACTION:
         case ModalEventType::CONFIRM:
-        case ModalEventType::SHOW:
         case ModalEventType::CANCEL:
           // Do nothing
           break;
@@ -284,6 +287,9 @@ abstract class AbstractScene implements ConfigurableSceneInterface
     };
     $this->eventManager->addEventListener(EventType::MODAL, $this->modalEventHandler);
   }
+
+  /** Scenes may recompose their own presentation after an input owner's footprint changes. */
+  protected function refreshModalPresentation(): void {}
 
   protected function deregisterEventHandlers(): void
   {

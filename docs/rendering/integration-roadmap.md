@@ -18,6 +18,18 @@ and remaining engineering work, not release status.
 Headless PHP checks and macOS rendering checks do not establish Linux/WSLg or
 Windows support. Merging implementation does not create a package release.
 
+## Dialogue camera framing — 31 October 2026
+
+Shared dialogue geometry now reserves the body, portrait and nameplate area for
+current cinematic participants. Camera projection handles signed edge padding,
+small maps, retained step envelopes, multiple reading owners and cleanup;
+Terminal uses independent text/cell geometry. Physical map/collision/state and
+actor placement remain unchanged. See the
+[camera lifecycle contract](../cinematics.md#dialogue-safe-camera-framing).
+Full Game-source choreography, Editor/native preview consumption and player
+acceptance remain pending. Oversized casts produce a diagnostic for source
+staging corrections.
+
 ## World-power first-use presentation — 31 October 2026
 
 Controlled field updates now deliver source-owned first-use prompts and finite

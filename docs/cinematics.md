@@ -472,6 +472,38 @@ and presentation work may overlap. Reduced-motion mode jumps each motion to
 the same final camera state. Completion, skip, transfer, and failure cannot
 leave ordinary play with a stranded detached camera.
 
+## Dialogue-safe camera framing
+
+Active field cinematics reserve the actual dialogue body, nameplate and portrait
+area through `DialoguePageGeometry`, shared with the drawing path. The scene
+fits the current conversation participants and visible staged actors into a clear
+horizontal band. Semantic speaker groups retain their existing source and real
+subject identities; ordinary room population remains map-owned.
+
+`DialogueCameraFraming` reads current graphical sprite pivots, lifts and size,
+including the previous ground position while a retained step slides. Terminal
+framing uses its own text-box footprint and subject cells. Graphical scale and
+artwork never determine Terminal geometry. Skits own their full presentation.
+
+The Camera owns a transient, signed projection origin for this frame. Empty
+space at map edges and small maps provides framing room without adding physical
+cells or moving actors. Terrain, glyphs, sprites and retained worlds use the same
+origin. Normal camera position and player-follow ownership remain intact;
+authored camera movement continues within the cast-safe range. Native follow
+smoothing stands down while this explicit framing owns the projected origin.
+
+Actual text-box show/hide, cooperative field rendering and viewport changes
+refresh framing. Closing the reading surface releases its projection; map
+installation, cinematic cleanup and shutdown also release it. An older owner's
+cleanup cannot clear a newer frame. No camera framing is saved as world progress.
+
+A cast too large for the available reading viewport reports a staging diagnostic
+through `GameScene::getDialogueFramingDiagnostic()`. Authors can correct the
+physical choreography or reading viewport through their existing sources.
+Framing does not hide participants, alter collision, relocate the dialogue box
+or silently reduce the project's field scale. Complete Game-scene previews and
+native acceptance remain separate from Engine geometry/lifecycle checks.
+
 ## Presentation and audio
 
 ### Current graphical boundary

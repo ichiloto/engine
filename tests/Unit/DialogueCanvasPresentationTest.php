@@ -704,3 +704,20 @@ it('integrates active event-owned dialogue with the retained field and removes o
         }
     } finally { $runtime->shutdown(); }
 })->with([true, false]);
+
+
+it('shares the actual body nameplate and portrait bounds with camera reservations for every dialogue position', function () {
+  $catalogue = getDialogueTestCatalog($this->root);
+  foreach ([WindowPosition::TOP, WindowPosition::MIDDLE, WindowPosition::BOTTOM] as $position) {
+    $line = getDialogueTestLine(position: $position);
+    $layout = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePageLayout($catalogue, $line->speaker, $line->context, $line->help, 1350);
+    $geometry = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePageGeometry($layout, $catalogue, $line->speaker, $position, 1350, 720);
+    $canvas = DialogueCanvasPresentation::compose($line, $catalogue, 1350, 720);
+    foreach ($geometry->getProtectedBounds() as $bounds) { expect($canvas->getOverlayProtection())->toContainEqual($bounds); }
+    $safe = \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming::findSafeArea($geometry->getProtectedBounds(), 1350, 720);
+    expect($safe)->not->toBeNull();
+    foreach ($geometry->getProtectedBounds() as $bounds) {
+      expect($safe->y + $safe->height <= $bounds->y || $safe->y >= $bounds->y + $bounds->height)->toBeTrue();
+    }
+  }
+});

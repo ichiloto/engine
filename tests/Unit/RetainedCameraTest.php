@@ -8,6 +8,7 @@ use Ichiloto\Engine\IO\Console\NormalizedRow;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -257,3 +258,19 @@ it('retries undelivered retained frame spans even when the next render is unchan
   $draw();
   expect(TerminalText::stripAnsi(ob_get_contents()))->toContain('abcdefghijkl');
 })->with([true, false]);
+
+
+it('renders signed framing origins with the same map cells and padding as retained projection', function () {
+  $camera = new Camera(makeCameraTestScene(), 12, 4, worldSpace: ['abcdef', 'ghijkl']); $owner = new stdClass();
+  expect($camera->frameBounds($owner, new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(-1, -1, 6, 2),
+    new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(0, 0, 12, 3)))->toBeTrue();
+  Console::recomposeFrame($camera->renderMap(...));
+  $position = $camera->getScreenSpacePosition(new Vector2(0, 0));
+  expect(Console::charAt((int)$position->x, (int)$position->y))->toBe('a')
+    ->and(Console::charAt((int)$position->x + 5, (int)$position->y + 1))->toBe('l');
+  $camera->clearFraming($owner); $camera->worldSpace = array_fill(0, 9, 'abcdefghijkl');
+  expect($camera->frameBounds($owner, new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(0, 7, 3, 9),
+    new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(0, 0, 12, 2)))->toBeTrue();
+  Console::recomposeFrame($camera->renderMap(...));
+  expect($camera->getWorldOrigin()['y'])->toBe(7)->and(Console::charAt(0, 0))->toBe('a');
+});

@@ -19,6 +19,8 @@ final class CinematicConversation
     private ?string $previousSpeaker = null;
     private string $mapId;
     private ?string $activeGroup = null;
+    /** @var list<Player|Npc|StagedActor> Participants resolved by the last prepared line. */
+    private array $participants = [];
 
     public function __construct(private readonly GameScene $scene, private readonly array $definition)
     {
@@ -161,6 +163,7 @@ final class CinematicConversation
         foreach ($headings as $speaker => $heading) {
             if ($heading !== null) { $this->turnSubject($subjects[$speaker], $heading); }
         }
+        $this->participants = array_values($subjects);
         $this->previousSpeaker = $name;
         $this->scene->requestFieldPresentationReconciliation();
     }
@@ -170,7 +173,14 @@ final class CinematicConversation
     {
         if (!isset($this->definition['groups'][$id])) { throw new RuntimeException("Conversation group '$id' is not declared."); }
         $this->activeGroup = $id;
+        $this->participants = [];
         $this->previousSpeaker = null;
+    }
+
+    /** @return list<Player|Npc|StagedActor> */
+    public function getFramingSubjects(): array
+    {
+        return $this->mapId === $this->scene->currentMapId ? $this->participants : [];
     }
 
     private function resolveSubject(array $reference): Player|Npc|StagedActor

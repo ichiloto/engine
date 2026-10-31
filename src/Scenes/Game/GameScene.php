@@ -128,6 +128,7 @@ use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInter
 class GameScene extends AbstractScene implements PlayActivitySourceInterface, GraphicalSpriteProviderHostInterface, SpriteThicketHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface, \Ichiloto\Engine\Events\Interpreter\EventExecutionHostInterface, \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface
 {
     private ?FieldViewport $fieldViewport = null;
+    private ?\Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming $dialogueFraming = null;
     private ?ScenePresentationContext $presentationContext = null;
     /** @var array{columns: int, rows: int}|null Camera geometry before an isolated presentation was attached. */
     private ?array $presentationCameraSize = null;
@@ -215,6 +216,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $this->fieldViewport = $grid !== null && $this->getPresentationWorld() !== null
             ? new FieldViewport($grid, $zoom) : null;
         if ($context === null && $this->fieldViewport === null && $previous === null) {
+            $this->updateDialogueFraming();
             return;
         }
         $columns = $this->fieldViewport?->columns ?? $context?->grid->columns ?? Console::getWidth();
@@ -225,6 +227,33 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
                 $this->camera->resetPosition($this->player);
             }
         }
+        $this->updateDialogueFraming();
+    }
+
+    protected function refreshModalPresentation(): void
+    {
+        if (!$this->isStopping && $this->fieldState !== null && $this->state === $this->fieldState
+            && $this->cinematicController?->active() !== null) {
+            $this->synchronizeFieldViewport();
+            $this->fieldState->renderTheField();
+        }
+    }
+
+    public function getFieldViewport(): ?FieldViewport { return $this->fieldViewport; }
+
+    public function observeDialogueFramingSubjects(): void
+    {
+        ($this->dialogueFraming ??= new \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming($this))->observeSubjects();
+    }
+
+    public function clearDialogueFraming(): void { $this->dialogueFraming?->reset(); }
+    public function getDialogueFramingDiagnostic(): ?string { return $this->dialogueFraming?->diagnostic; }
+
+    private function updateDialogueFraming(): void
+    {
+        if ($this->cinematicController?->active() !== null) {
+            ($this->dialogueFraming ??= new \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming($this))->update();
+        } else { $this->clearDialogueFraming(); }
     }
 
     /** True while a graphical renderer presents the field instead of the terminal. */
@@ -259,7 +288,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         // A camera that follows the player scrolls with the player's step, not after it.
         return $this->fieldViewport->createViewport(array_values($this->viewportTextLayers), $sprites, $tiles,
             $world->id, $this->camera->getWorldOrigin(), $tileFrame,
-            $this->camera->followsPlayer ? $this->player?->getGraphicalSpriteId() : null, $this->fieldEdgeSpriteIds);
+            $this->camera->followsPlayer && !$this->camera->isFramed ? $this->player?->getGraphicalSpriteId() : null, $this->fieldEdgeSpriteIds);
     }
 
     public function getPresentationWorld(): ?PresentationWorld
