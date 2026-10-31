@@ -15,6 +15,7 @@ use Ichiloto\Engine\UI\Presentation\MenuCanvas;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Throwable;
+use Ichiloto\Engine\UI\Presentation\PresentationDeliveryReceipt;
 
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 
@@ -83,6 +84,8 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
   private array $presentationDiagnostics = [];
   /** @var list<string> Terminal contributions currently projected into the live canvas. */
   private array $fallbackPresentationLayers = [];
+  /** @var \WeakMap<NotificationInterface, PresentationDeliveryReceipt>|null */
+  private ?\WeakMap $deliveries = null;
 
   /**
    * NotificationManager constructor.
@@ -131,7 +134,7 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
   public function notify(NotificationInterface $notification): void
   {
     if (!NotificationContentPolicy::fitsToast($notification)) {
-      ModalManager::getInstance($this->game)->queueAlert($notification->getContentText(), $notification->getContentTitle());
+      $this->queueReadingAlert($notification);
       return;
     }
     $queueWasEmpty = ! $this->notifications->isNotEmpty();
@@ -143,6 +146,44 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
 
     if ($queueWasEmpty) {
       $this->openActiveNotification();
+    }
+  }
+
+  /** Track logical completion through ordinary toast delivery or promotion to a reading alert. */
+  public function notifyTracked(NotificationInterface $notification): PresentationDeliveryReceipt
+  {
+    $this->deliveries ??= new \WeakMap();
+    if (isset($this->deliveries[$notification])) { return $this->deliveries[$notification]; }
+    $delivery = new PresentationDeliveryReceipt();
+    $this->deliveries[$notification] = $delivery;
+    try { $this->notify($notification); }
+    catch (Throwable $error) {
+      try { $this->cancelDelivery($delivery); }
+      catch (Throwable $cleanup) { Debug::warn('Notification delivery cleanup: ' . $cleanup->getMessage()); }
+      throw $error;
+    }
+    return $delivery;
+  }
+
+  /** Cancel this producer's pending/displayed toast or promoted alert, preserving other producers. */
+  public function cancelDelivery(PresentationDeliveryReceipt $delivery): void
+  {
+    $delivery->cancel();
+    ModalManager::getInstance($this->game)->cancelDelivery($delivery);
+    $active = $this->getActiveNotification();
+    $removedActive = false;
+    $kept = [];
+    foreach ($this->notifications->toArray() as $notification) {
+      if (($this->deliveries[$notification] ?? null) === $delivery) {
+        $removedActive = $removedActive || $notification === $active;
+        unset($this->deliveries[$notification]);
+      } else { $kept[] = $notification; }
+    }
+    $this->notifications->clear();
+    foreach ($kept as $notification) { $this->notifications->enqueue($notification); }
+    if ($removedActive) {
+      try { $active?->erase(); }
+      finally { $this->openActiveNotification(); }
     }
   }
 
@@ -218,6 +259,12 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
     $activeNotification->update();
 
     if ($activeNotification->isFinished()) {
+      $delivery = $this->deliveries[$activeNotification] ?? null;
+      if ($delivery !== null) {
+        if ($this->game->hasStopped()) { $delivery->cancel(); }
+        else { $delivery->completeDelivery(); }
+        unset($this->deliveries[$activeNotification]);
+      }
       $this->notifications->dequeue();
       $this->openActiveNotification();
     }
@@ -292,11 +339,22 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
 
   private function promoteActiveNotification(NotificationInterface $notice): void
   {
-    ModalManager::getInstance($this->game)->queueAlert($notice->getContentText(), $notice->getContentTitle());
+    $this->queueReadingAlert($notice);
     $notice->erase();
     $notice->dismiss();
     $this->notifications->dequeue();
     $this->openActiveNotification();
+  }
+
+  private function queueReadingAlert(NotificationInterface $notice): void
+  {
+    $delivery = $this->deliveries[$notice] ?? null;
+    $modals = ModalManager::getInstance($this->game);
+    if ($delivery === null) { $modals->queueAlert($notice->getContentText(), $notice->getContentTitle()); }
+    else {
+      $modals->queueTrackedAlert($notice->getContentText(), $notice->getContentTitle(), $delivery);
+      unset($this->deliveries[$notice]);
+    }
   }
 
   private function reportPresentationProblem(string $message): void
@@ -316,6 +374,12 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
   {
     $notification = $this->getActiveNotification();
 
+    while ($notification !== null && ($this->deliveries[$notification] ?? null)?->isTerminal) {
+      unset($this->deliveries[$notification]);
+      $this->notifications->dequeue();
+      $notification = $this->getActiveNotification();
+    }
+
     if (! $notification instanceof NotificationInterface) {
       $this->graphicalPresentation = false;
       return;
@@ -330,6 +394,7 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
         $this->graphicalPresentation = $this->presentationTheme !== null;
       } catch (Throwable $error) { $this->reportPresentationProblem($error->getMessage()); }
     }
+    ($this->deliveries[$notification] ?? null)?->beginDelivery();
     $notification->open();
     $this->nextNotificationShowTime = Time::getTime() + $notification->getAnimationDuration() + $notification->getDuration();
   }

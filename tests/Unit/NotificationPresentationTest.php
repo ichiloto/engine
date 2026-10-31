@@ -41,6 +41,7 @@ use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\MenuModalPresentation;
 use Ichiloto\Engine\UI\Modal\ModalPresentation;
 use Ichiloto\Engine\UI\Modal\ModalManager;
+use Ichiloto\Engine\UI\Presentation\PresentationDeliveryState;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -59,6 +60,24 @@ final class NotificationPresentationGameProbe extends Game
 {
   public function __construct() {}
   public function __destruct() {}
+}
+
+final class TrackedNotificationAlertProbe extends ModalManager
+{
+  public array $delivered = [];
+  public bool $fail = false;
+  public ?Closure $duringDelivery = null;
+  public function __construct(Game $game)
+  {
+    $this->game = $game;
+    $this->modals = new \Assegai\Collections\Stack(\Ichiloto\Engine\UI\Interfaces\ModalInterface::class);
+  }
+  protected function showPendingAlert(string $message, string $title): void
+  {
+    ($this->duringDelivery ?? static fn() => null)();
+    if ($this->fail) { throw new RuntimeException('Interrupted tracked alert'); }
+    $this->delivered[] = [$message, $title];
+  }
 }
 
 interface NotificationCanvasSceneProbe extends SceneInterface, CanvasProviderInterface {}
@@ -111,6 +130,7 @@ beforeEach(function () {
     $caps = $supported ? [...MenuPresentationCatalog::CAPABILITIES, RendererSessionConfig::CANVAS_OVERLAY,
       RendererSessionConfig::CANVAS_COMPOSITING] : [];
     $this->transport = new FakeRendererTransport();
+    $this->transport->acknowledgeFrames = true;
     $this->transport->batches = [[RendererEvent::fromJson(json_encode(['type' => 'ready', 'protocol' => 2, 'capabilities' => $caps]))]];
     $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['not-launched']),
       $this->root, cellWidth: 10, cellHeight: 20, requiredCapabilities: $caps), $this->transport);
@@ -655,4 +675,72 @@ it('uses the real retained renderer path and removes its graphical surface after
   $this->runtime->present(null, $this->manager);
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames))->not->toHaveKey('canvas');
+});
+
+it('tracks toast completion only after it reaches the front and finishes its ordinary lifetime', function () {
+  $prior = new Notification($this->game, NotificationChannel::INFO, 'Prior', 'Other producer', 1, animationDuration: 0);
+  $this->manager->notify($prior);
+  $notice = new Notification($this->game, NotificationChannel::INFO, 'Power', 'Current prompt', .5, animationDuration: 0);
+  $delivery = $this->manager->notifyTracked($notice);
+  expect($delivery->state)->toBe(PresentationDeliveryState::QUEUED)->and($delivery->isComplete)->toBeFalse();
+  Time::setElapsedTime(1.01); $this->manager->update();
+  expect($delivery->state)->toBe(PresentationDeliveryState::PRESENTING)->and($delivery->isComplete)->toBeFalse();
+  Time::setElapsedTime(1.52); $this->manager->update();
+  expect($delivery->state)->toBe(PresentationDeliveryState::COMPLETED)->and($delivery->isComplete)->toBeTrue();
+});
+
+it('keeps a promoted long-form delivery pending through modal failure and acknowledges the exact full text once', function () {
+  $modals = new TrackedNotificationAlertProbe($this->game);
+  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $modals);
+  $body = str_repeat('Complete source description. ', 8);
+  $delivery = $this->manager->notifyTracked(new Notification($this->game, NotificationChannel::INFO, 'Power', $body));
+  expect($delivery->state)->toBe(PresentationDeliveryState::QUEUED);
+  $modals->duringDelivery = static function () use ($delivery) {
+    expect($delivery->state)->toBe(PresentationDeliveryState::PRESENTING)->and($delivery->isComplete)->toBeFalse();
+  };
+  $modals->fail = true;
+  expect(fn() => $modals->processPendingAlerts())->toThrow(RuntimeException::class)
+    ->and($delivery->state)->toBe(PresentationDeliveryState::QUEUED);
+  $modals->fail = false; $modals->processPendingAlerts(); $modals->processPendingAlerts();
+  expect($delivery->isComplete)->toBeTrue()->and($modals->delivered)->toBe([[$body, 'Power']]);
+});
+
+it('transfers an already-presenting toast receipt to an acknowledged surface when the viewport cannot fit it', function () {
+  ($this->startRenderer)();
+  $modals = new TrackedNotificationAlertProbe($this->game);
+  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $modals);
+  $delivery = $this->manager->notifyTracked(new Notification($this->game, NotificationChannel::INFO, 'Power', 'Complete prompt', animationDuration: 0));
+  expect($delivery->state)->toBe(PresentationDeliveryState::PRESENTING);
+  $this->manager->composePresentation(null, 30, 30);
+  expect($delivery->state)->toBe(PresentationDeliveryState::QUEUED)->and($delivery->isComplete)->toBeFalse();
+  $modals->processPendingAlerts();
+  expect($delivery->isComplete)->toBeTrue()->and($modals->delivered)->toBe([['Complete prompt', 'Power']]);
+});
+
+it('cancels only one producers toast or promoted alert and preserves the next producers delivery', function () {
+  $one = $this->manager->notifyTracked(new Notification($this->game, NotificationChannel::INFO, 'One', 'First', 1, animationDuration: 0));
+  $two = $this->manager->notifyTracked(new Notification($this->game, NotificationChannel::INFO, 'Two', 'Second', 1, animationDuration: 0));
+  $this->manager->cancelDelivery($two);
+  expect($two->state)->toBe(PresentationDeliveryState::CANCELLED)->and($one->state)->toBe(PresentationDeliveryState::PRESENTING);
+  $three = $this->manager->notifyTracked(new Notification($this->game, NotificationChannel::INFO, 'Three', 'Third', 1, animationDuration: 0));
+  $this->manager->cancelDelivery($one);
+  expect($one->isComplete)->toBeFalse()->and($one->state)->toBe(PresentationDeliveryState::CANCELLED)
+    ->and($three->state)->toBe(PresentationDeliveryState::PRESENTING);
+  Time::setElapsedTime(1.01); $this->manager->update();
+  expect($three->isComplete)->toBeTrue();
+  $modals = new TrackedNotificationAlertProbe($this->game);
+  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $modals);
+  $long = $this->manager->notifyTracked(new Notification($this->game, NotificationChannel::INFO, 'Long', str_repeat('Long body ', 30)));
+  $modals->queueAlert('Independent alert');
+  $this->manager->cancelDelivery($long); $modals->processPendingAlerts();
+  expect($long->state)->toBe(PresentationDeliveryState::CANCELLED)->and($modals->delivered)->toBe([['Independent alert', '']]);
+});
+
+it('leaves delivery incomplete when the application stops while the alert is open', function () {
+  $modals = new TrackedNotificationAlertProbe($this->game);
+  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $modals);
+  $delivery = $this->manager->notifyTracked(new Notification($this->game, NotificationChannel::INFO, 'Power', str_repeat('Long body ', 30)));
+  $modals->duringDelivery = function () { new ReflectionProperty(Game::class, 'terminalCleanedUp')->setValue($this->game, true); };
+  $modals->processPendingAlerts();
+  expect($delivery->state)->toBe(PresentationDeliveryState::CANCELLED)->and($delivery->isComplete)->toBeFalse();
 });

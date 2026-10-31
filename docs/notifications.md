@@ -25,6 +25,20 @@ the scene. Each page requires acknowledgement; full text and counts remain
 available. Producers should use concise wording rather than depend on automatic
 promotion for routine updates.
 
+## Delivery completion
+
+`NotificationManager::notifyTracked()` returns a transient
+`PresentationDeliveryReceipt`. It remains queued until the notice reaches the
+front, presents for its ordinary lifetime, and then completes. When complete
+text requires a reading alert, that same receipt completes after acknowledgement.
+A failed alert stays queued for retry; stopping the application cancels delivery.
+
+A producer may save its own once-only fact after `isComplete` becomes true.
+Calling `cancelDelivery()` cancels only that producer's toast or queued alert and
+preserves other producers' order. An alert already being read keeps normal modal
+ownership; cancellation leaves its receipt incomplete. The receipt itself adds
+no save fields. Existing `notify()` callers keep their ordinary delivery.
+
 ## Standard timing
 
 | Preset | Stationary hold |

@@ -25,6 +25,10 @@
 
 ### Added
 
+- Tracked notification delivery follows a toast through completion or promotion
+  to an acknowledged reading alert. Producer cancellation preserves other
+  notifications; retries and application shutdown leave completion accurate.
+
 - Field scripts can play owned standalone stage timelines alongside other
   cinematic lanes. Transparent stage backgrounds and image-free cover stages
   support scene dimming; existing opaque backgrounds and Terminal timing remain.

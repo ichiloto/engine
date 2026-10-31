@@ -11,6 +11,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Presentation\CreditsContent;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
+use Ichiloto\Engine\UI\Presentation\PresentationDeliveryReceipt;
 
 /**
  * Represents the modal manager.
@@ -27,7 +28,7 @@ class ModalManager implements CanUpdate, CanRender
    * @var Stack<ModalInterface> $modals The stack of modals.
    */
   protected Stack $modals;
-  /** @var list<array{message: string, title: string, notice?: NoticeContent, owner?: object}> */
+  /** @var list<array{message: string, title: string, notice?: NoticeContent, owner?: object, delivery?: PresentationDeliveryReceipt}> */
   protected array $pendingAlerts = [];
   /** Ownership remains pending while a deferred notice is on screen. */
   private ?object $activeNoticeOwner = null;
@@ -80,6 +81,24 @@ class ModalManager implements CanUpdate, CanRender
     $this->pendingAlerts[] = ['message' => $message, 'title' => $title];
   }
 
+  /** A toast may transfer its receipt here when its complete text needs acknowledgement. */
+  public function queueTrackedAlert(string $message, string $title = '', ?PresentationDeliveryReceipt $delivery = null): PresentationDeliveryReceipt
+  {
+    $delivery ??= new PresentationDeliveryReceipt();
+    if (!$delivery->isTerminal) {
+      $delivery->retryDelivery();
+      $this->pendingAlerts[] = ['message' => $message, 'title' => $title, 'delivery' => $delivery];
+    }
+    return $delivery;
+  }
+
+  public function cancelDelivery(PresentationDeliveryReceipt $delivery): void
+  {
+    $delivery->cancel();
+    $this->pendingAlerts = array_values(array_filter($this->pendingAlerts,
+      static fn(array $entry): bool => ($entry['delivery'] ?? null) !== $delivery));
+  }
+
   /** Notices and alerts preserve one producer order and never re-enter scene input. */
   public function queueNotice(NoticeContent $notice, ?object $owner = null): void
   {
@@ -105,13 +124,20 @@ class ModalManager implements CanUpdate, CanRender
   {
     if ($this->currentModal !== null || $this->pendingAlerts === []) { return; }
     $alert = array_shift($this->pendingAlerts);
+    $delivery = $alert['delivery'] ?? null;
+    if ($delivery !== null && !$delivery->beginDelivery()) { return; }
     $this->activeNoticeOwner = $alert['owner'] ?? null;
     try {
       if (isset($alert['notice'])) { $this->showPendingNotice($alert['notice']); }
       else { $this->showPendingAlert($alert['message'], $alert['title']); }
+      if ($delivery !== null) {
+        if ($this->game->hasStopped()) { $delivery->cancel(); }
+        else { $delivery->completeDelivery(); }
+      }
     }
     catch (\Throwable $error) {
-      array_unshift($this->pendingAlerts, $alert);
+      $delivery?->retryDelivery();
+      if ($delivery === null || !$delivery->isTerminal) { array_unshift($this->pendingAlerts, $alert); }
       throw $error;
     }
     finally { $this->activeNoticeOwner = null; }
