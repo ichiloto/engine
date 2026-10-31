@@ -17,6 +17,8 @@ final class CinematicController implements EventSessionCompletionTargetInterface
   protected bool $terminalOutcomeHandled = false;
   private ?string $cameraMapBefore = null;
   private ?CinematicConversation $conversation = null;
+  /** The active conversation phase, or the cinematic when no conversation is declared. */
+  public ?object $dialogueFramingScope { get => $this->conversation?->framingScope ?? $this->active; }
 
   public function __construct(protected GameScene $gameScene)
   {

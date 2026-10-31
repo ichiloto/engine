@@ -19,12 +19,15 @@ final class CinematicConversation
     private ?string $previousSpeaker = null;
     private string $mapId;
     private ?string $activeGroup = null;
+    /** One phase owns framing across all of its line gaps. */
+    public private(set) object $framingScope;
     /** @var list<Player|Npc|StagedActor> Participants resolved by the last prepared line. */
     private array $participants = [];
 
     public function __construct(private readonly GameScene $scene, private readonly array $definition)
     {
         self::validate($definition);
+        $this->framingScope = new \stdClass();
         $this->mapId = $scene->currentMapId;
         $this->activeGroup = $definition['initialGroup'] ?? null;
     }
@@ -126,6 +129,7 @@ final class CinematicConversation
         if ($this->mapId !== $this->scene->currentMapId) {
             $this->previousSpeaker = null;
             $this->mapId = $this->scene->currentMapId;
+            $this->framingScope = new \stdClass();
         }
         $others = array_values(array_diff(array_keys($bindings), [$name]));
         $addressee = $line['addressee'] ?? $group['addressees'][$name]
@@ -173,6 +177,7 @@ final class CinematicConversation
     {
         if (!isset($this->definition['groups'][$id])) { throw new RuntimeException("Conversation group '$id' is not declared."); }
         $this->activeGroup = $id;
+        $this->framingScope = new \stdClass();
         $this->participants = [];
         $this->previousSpeaker = null;
     }

@@ -21,6 +21,9 @@ final class DialogueCameraFraming
   private ?DialogueScenePresentation $dialogue = null;
   private ?string $assetRoot = null;
   private array $notes = [];
+  private ?object $scope = null;
+  private ?FieldSpriteBounds $safeArea = null;
+  private string $diagnosticKey = '';
   /** @var array<string,array{position: \Ichiloto\Engine\Core\Vector2, sweep: ?FieldSpriteBounds}> */
   private array $samples = [];
   public private(set) ?string $diagnostic = null;
@@ -31,11 +34,12 @@ final class DialogueCameraFraming
   {
     $this->scene->camera->clearFraming($this);
     $this->diagnostic = null;
+    $this->safeArea = null;
   }
 
   public function reset(): void
   {
-    $this->clear(); $this->samples = [];
+    $this->clear(); $this->samples = []; $this->scope = null;
   }
 
   /** Capture the admitted cast before the first cinematic command can move it. */
@@ -88,7 +92,9 @@ final class DialogueCameraFraming
   public function update(): void
   {
     $scene = $this->scene;
-    if ($scene->cinematicController?->active() === null) { $this->clear(); return; }
+    if ($scene->cinematicController?->active() === null) { $this->reset(); return; }
+    $scope = $scene->cinematicController->dialogueFramingScope;
+    if ($scope !== $this->scope) { $this->clear(); $this->scope = $scope; }
     $context = $scene->getPresentationContext();
     $owners = $scene->getActiveFieldPresentations();
     $owners = array_values(array_filter($owners, static fn($owner): bool => $owner instanceof DialoguePresentationProviderInterface));
@@ -97,8 +103,13 @@ final class DialogueCameraFraming
     $subjects = $scene->cinematicController->getFramingSubjects();
     $view = $scene->getFieldViewport();
     $bounds = $this->collectSubjectBounds($subjects, $view);
-    if ($line === null || array_any($lines, static fn($line): bool => $line->context->skitId !== null)
+    if (array_any($lines, static fn($line): bool => $line->context->skitId !== null)
       || $subjects === []) { $this->clear(); return; }
+    if ($line === null) {
+      if ($this->safeArea !== null) { $this->frameSubjects($bounds, $this->safeArea); }
+      return;
+    }
+    $this->diagnosticKey = $scene->currentMapId . ':' . $line->speaker;
     if ($view !== null) {
       $root = $context?->assetRoot ?? $scene->getGame()->getRendererRuntime()?->getAssetRoot();
       if ($root !== $this->assetRoot) {
@@ -130,14 +141,26 @@ final class DialogueCameraFraming
       $top = $safe?->y ?? 0; $bottom = $safe === null ? 0 : $safe->y + $safe->height;
 
     }
+    if ($bottom <= $top) { $this->reportFailure(); return; }
+    $this->safeArea = new FieldSpriteBounds(0, $top, $scene->camera->screen->getWidth(), $bottom);
+    $this->frameSubjects($bounds, $this->safeArea);
+  }
+
+  private function frameSubjects(array $bounds, FieldSpriteBounds $safeArea): void
+  {
     $group = FieldSpriteBounds::join($bounds);
-    if ($bottom <= $top || $group === null || !$scene->camera->frameBounds($this, $group,
-      new FieldSpriteBounds(0, $top, $scene->camera->screen->getWidth(), $bottom))) {
-      $this->clear();
-      $this->diagnostic = 'The current cinematic cast does not fit clear of the dialogue. Adjust its staging or reading viewport.';
-      $key = $scene->currentMapId . ':' . $line->speaker;
-      if (!isset($this->notes[$key])) { Debug::warn($this->diagnostic); $this->notes[$key] = true; }
+    if ($group === null || !$this->scene->camera->frameBounds($this, $group, $safeArea)) {
+      $this->reportFailure();
     } else { $this->diagnostic = null; }
+  }
+
+  private function reportFailure(): void
+  {
+    $this->clear();
+    $this->diagnostic = 'The current cinematic cast does not fit clear of the dialogue. Adjust its staging or reading viewport.';
+    if (!isset($this->notes[$this->diagnosticKey])) {
+      Debug::warn($this->diagnostic); $this->notes[$this->diagnosticKey] = true;
+    }
   }
 
   /** Largest full-width horizontal band clear of every actual UI protected rectangle. */

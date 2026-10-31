@@ -4,6 +4,12 @@
 
 ### Removed
 
+- Removed per-line cinematic camera release. A conversation phase retains its
+  framing across text-box gaps, waits and routes, then releases at the next
+  phase or cinematic cleanup. Cast changes keep a still-safe origin; explicit
+  camera movement remains authoritative. Fractional eased corrections remain
+  an open shared Renderer contract.
+
 - Removed the display-name `Overworld` save permission. Maps now declare
   `savePolicy: anywhere` or `save-points` (the default); existing save points
   remain usable. Maps using the former name-based rule need the explicit field.

@@ -112,3 +112,18 @@ it('keeps authored camera movement live within the cast-safe range and refuses i
   expect(fn() => $camera->frameBounds($owner, new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(1e12, 0, 1e12 + 1, 1), $safe))
     ->toThrow(InvalidArgumentException::class);
 });
+
+
+it('keeps an owned safe origin through small cast changes and honors an explicit camera move', function (): void {
+  $camera = new Camera(makeCameraTestScene(), 10, 8, worldSpace: array_fill(0, 60, str_repeat('.', 80)));
+  $owner = new stdClass(); $safe = new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(0, 0, 10, 6);
+  $camera->frameBounds($owner, new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(20, 20, 24, 24), $safe);
+  $held = $camera->getWorldOrigin();
+  $camera->frameBounds($owner, new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(19, 20, 23, 24), $safe);
+  expect($camera->getWorldOrigin())->toBe($held);
+  $camera->moveTo(18, 20);
+  $camera->frameBounds($owner, new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(19, 20, 23, 24), $safe);
+  expect($camera->getWorldOrigin())->toBe(['x' => 18, 'y' => 20]);
+  $camera->frameBounds($owner, new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(28, 20, 32, 24), $safe);
+  expect($camera->getWorldOrigin()['x'])->toBe(22); // Cast leaving the safe area still re-solves.
+});

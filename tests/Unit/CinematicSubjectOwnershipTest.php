@@ -1707,19 +1707,24 @@ it('frames the real current conversation cast clear of dialogue in graphical and
   expect([$this->player->position, $this->npc->position])->toEqual($positions)
     ->and($this->scene->camera->worldSpace)->toBe($world)->and($this->scene->camera->captureState())->toEqual($before);
   $this->scene->getUI()->dismiss($owner); $this->scene->getUI()->commitPresentationChanges(); $framing->update();
-  expect($this->scene->camera->isFramed)->toBeFalse()->and($this->scene->camera->captureState())->toEqual($before);
+  expect($this->scene->camera->isFramed)->toBeTrue()->and($this->scene->camera->getWorldOrigin())->toBe($origin);
+  $this->scene->eventInterpreter->failActiveSession('End synthetic conversation.'); $framing->update();
+  expect($this->scene->camera->isFramed)->toBeFalse()->and($this->scene->camera->followsPlayer)->toBeTrue()
+    ->and($this->scene->camera->position)->toEqual($this->scene->camera->positionForFocus($this->player->position));
 })->with([false, true]);
 
 
-it('refreshes and releases cinematic framing through the actual text-box show and hide lifecycle', function () {
+it('holds cinematic framing across text-box gaps and releases it at cinematic end', function () {
   $this->scene->installField();
   $game = $this->scene->getGame();
   new ReflectionProperty(Game::class, 'sceneManager')->setValue($game, $this->scene->sceneManager);
   new ReflectionProperty(\Ichiloto\Engine\Scenes\AbstractScene::class, 'eventManager')->setValue($this->scene, EventManager::getInstance($game));
   new ReflectionMethod(\Ichiloto\Engine\Scenes\AbstractScene::class, 'initializeEventHandlers')->invoke($this->scene);
+  $conversation = [...subjectConversation(), 'groups' => ['talk' => ['speakers' => ['Hero', 'Guide']],
+    'travel' => ['speakers' => []]], 'initialGroup' => 'talk'];
   $this->scene->cinematicController->start(subjectOwnershipDefinition([['type' => 'wait', 'seconds' => 10]], [
     'cast' => [['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]],
-    'presentation' => ['conversation' => subjectConversation()],
+    'presentation' => ['conversation' => $conversation],
   ]));
   $this->scene->cinematicController->prepareDialogue('Hero');
   $before = $this->scene->camera->captureState();
@@ -1727,7 +1732,15 @@ it('refreshes and releases cinematic framing through the actual text-box show an
   $modal = new \Ichiloto\Engine\UI\Modal\TextBoxModal($game, 'An ordinary line.', 'Hero');
   $modal->show();
   expect($this->scene->camera->isFramed)->toBeTrue()->and($this->scene->getDialogueFramingDiagnostic())->toBeNull();
+  $origin = $this->scene->camera->getWorldOrigin();
   $modal->hide();
+  expect($this->scene->camera->isFramed)->toBeTrue()->and($this->scene->camera->getWorldOrigin())->toBe($origin);
+  $next = new \Ichiloto\Engine\UI\Modal\TextBoxModal($game, 'The next line.', 'Guide');
+  $next->show(); expect($this->scene->camera->getWorldOrigin())->toBe($origin); $next->hide();
+  $this->scene->cinematicController->selectConversationGroup('travel');
+  $this->scene->synchronizeFieldViewport();
+  expect($this->scene->camera->isFramed)->toBeFalse();
+  $this->scene->eventInterpreter->failActiveSession('End synthetic conversation.');
   expect($this->scene->camera->isFramed)->toBeFalse()->and($this->scene->camera->captureState())->toEqual($before);
 });
 

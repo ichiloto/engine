@@ -173,7 +173,11 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         return $this->presentationContext;
     }
 
-    /** Active scene-owned UI; constructor-isolated hosts may have no presentation owner. */
+    /**
+     * Active scene-owned UI; constructor-isolated hosts may have no presentation owner.
+     * Both the UI registry and isolated context enforce this layered-owner contract.
+     * @return list<\Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface>
+     */
     public function getActiveFieldPresentations(): array
     {
         if ($this->presentationContext !== null) { return $this->presentationContext->getActivePresentations(); }

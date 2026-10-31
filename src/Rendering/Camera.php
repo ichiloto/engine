@@ -34,6 +34,8 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   protected(set) bool $followsPlayer = true;
   private ?object $framingOwner = null;
   private ?Vector2 $framingOrigin = null;
+  private int $positionRevision = 0;
+  private ?int $framingPositionRevision = null;
   public bool $isFramed { get => $this->framingOrigin !== null; }
   protected ?CameraStateSnapshot $detachedSnapshot = null;
   /** @var array<int, NormalizedRow> Current map only; discarded on source/policy changes. */
@@ -76,6 +78,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     }
 
     set {
+      $this->positionRevision++;
       $this->screen->setX($value->x);
       $this->screen->setY($value->y);
     }
@@ -505,11 +508,14 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     $minX = ceil($subjects->right - $safeArea->right); $maxX = floor($subjects->left - $safeArea->left);
     $minY = ceil($subjects->bottom - $safeArea->bottom); $maxY = floor($subjects->top - $safeArea->top);
     if ($minX > $maxX || $minY > $maxY) { $this->clearFraming($owner); return false; }
-    $origin = $this->getUnframedWorldOrigin();
+    $origin = $this->framingOwner === $owner && $this->framingOrigin !== null
+      && $this->framingPositionRevision === $this->positionRevision
+        ? $this->getWorldOrigin() : $this->getUnframedWorldOrigin();
     $x = clamp($origin['x'], $minX, $maxX); $y = clamp($origin['y'], $minY, $maxY);
     SpriteValidation::validateSigned32BitRange($x); SpriteValidation::validateSigned32BitRange($y);
     $this->framingOrigin = new Vector2($x, $y);
     $this->framingOwner = $owner;
+    $this->framingPositionRevision = $this->positionRevision;
     return true;
   }
 
