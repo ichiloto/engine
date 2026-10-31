@@ -1249,3 +1249,10 @@ troop can be met, one for a counted step, two for a danger tile on a map that
 counts every tile). Parts it leaves out are named in `ignored`. The field's
 `EncounterManager` counts the player's steps with it, and the Editor's walk
 measurement reads the same table, so both answer the same way.
+
+
+Project reachability and completeness analysis load `WorldAbilityCatalog` from
+their explicit asset root and pass it through condition-exclusion checks for
+arrivals, event/NPC speakers, beds and doorways. Detached analysis does not install
+or borrow a running game's catalogue. Lower-level map analysis accepts an explicit
+catalogue when its caller owns an in-memory project view.

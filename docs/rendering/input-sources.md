@@ -536,3 +536,15 @@ reset. Release permits a fresh press; physical focus reset and renderer session
 restart clear the quarantine. Ordinary repeats without a context reset remain
 available to menus. Event-only Terminal sources retain their existing bounded
 drain and cannot claim physical release knowledge.
+
+
+### Read-only project action discovery
+
+`InputManager::getProjectBindings($projectRoot)` reads that project's `input.php`
+and returns its semantic action bindings with the same missing-action defaults
+used at boot. `getBindingsWithDefaults($bindings)` offers the pure array form for
+an in-memory authoring draft. Both retain descriptions and controller metadata,
+explicit empty bindings and authored key ownership. They install no input source,
+change no live binding or working directory, and apply no player override. An
+invalid or missing project input file reports its source error. Editor hint
+selectors should use the returned action keys rather than a copied keyboard list.

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field\Validation;
 
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use BackedEnum;
 use Ichiloto\Engine\Animations\Field\FieldPresentationCatalog;
 use Ichiloto\Engine\Entities\Actions\ChestOpeningAction;
@@ -36,6 +37,7 @@ final class MapCompletenessValidator
         ?MapGraphics $graphics, string $assetRoot, callable $resolveInventoryReference,
         ?FieldPresentationCatalog $fieldCatalog = null, bool $requiresGraphics = false, ?MapPhysicalOccupancy $occupancy = null): array
     {
+        $worldAbilities = WorldAbilityCatalog::fromProject($assetRoot);
         if (array_any(is_array($data['npcs'] ?? null) ? $data['npcs'] : [], static fn(mixed $npc): bool => is_array($npc) && array_key_exists('placements', $npc))) {
             try {
                 if ($occupancy === null && array_key_exists(MapPhysicalOccupancy::DATA_KEY, $data)) {
@@ -48,8 +50,8 @@ final class MapCompletenessValidator
                 return [new MapValidationIssue($mapId, MapNpcPlacementRule::RULE, $error->getMessage(), path: ['npcs'])];
             }
         }
-        $issues = self::validateEvents($mapId, $data, $eventLayer);
-        $issues = [...$issues, ...self::validateDoorways($mapId, $data, $eventLayer, $layers, $assetRoot, $fieldCatalog, $graphics)];
+        $issues = self::validateEvents($mapId, $data, $eventLayer, $worldAbilities);
+        $issues = [...$issues, ...self::validateDoorways($mapId, $data, $eventLayer, $layers, $assetRoot, $fieldCatalog, $graphics, $worldAbilities)];
         foreach (is_array($data['events'] ?? null) ? $data['events'] : [] as $key => $event) {
             if (!is_array($event)) { continue; }
             $class = $event['class'] ?? null;
@@ -71,7 +73,7 @@ final class MapCompletenessValidator
                 if ($occupancy === null) { throw new InvalidArgumentException('Bed preflight requires the map\'s resolved physical occupancy.'); }
                 $fieldCatalog ??= FieldPresentationCatalog::load($assetRoot);
                 $objects = WorldObjectDefinition::readMap($data, $layers, $graphics, catalog: $fieldCatalog);
-                $issues = [...$issues, ...MapBedRule::inspect($mapId, $data, $objects, $occupancy->collisionGrid)];
+                $issues = [...$issues, ...MapBedRule::inspect($mapId, $data, $objects, $occupancy->collisionGrid, $worldAbilities)];
             } catch (InvalidArgumentException|RuntimeException $error) {
                 $issues[] = new MapValidationIssue($mapId, MapBedRule::RULE, $error->getMessage(), path: ['npcs']);
             }
@@ -129,7 +131,7 @@ final class MapCompletenessValidator
     }
 
     /** @return list<MapValidationIssue> */
-    public static function validateEvents(string $mapId, array $data, array $eventLayer): array
+    public static function validateEvents(string $mapId, array $data, array $eventLayer, ?WorldAbilityCatalog $worldAbilities = null): array
     {
         $result = MapEventResolver::inspect($data, $eventLayer, $mapId);
         $issues = $result->issues;
@@ -149,8 +151,8 @@ final class MapCompletenessValidator
                     $event['area']['cells'] ?? [], ['events', $marker ?? '']);
             }
         }
-        return [...$issues, ...MapEventSpeakerRule::inspect($mapId, $data, $result->events),
-            ...MapNpcInteractionRule::inspect($mapId, $data, $result->events)];
+        return [...$issues, ...MapEventSpeakerRule::inspect($mapId, $data, $result->events, $worldAbilities),
+            ...MapNpcInteractionRule::inspect($mapId, $data, $result->events, $worldAbilities)];
     }
 
     /** @return list<MapValidationIssue> */
@@ -177,8 +179,9 @@ final class MapCompletenessValidator
      * @return list<MapValidationIssue>
      */
     public static function validateDoorways(string $mapId, array $data, array $eventLayer, MapLayerSet $layers, string $assetRoot,
-        ?FieldPresentationCatalog $fieldCatalog = null, ?MapGraphics $graphics = null): array
+        ?FieldPresentationCatalog $fieldCatalog = null, ?MapGraphics $graphics = null, ?WorldAbilityCatalog $worldAbilities = null): array
     {
+        $worldAbilities ??= WorldAbilityCatalog::fromProject($assetRoot);
         $objects = is_array($data['worldObjects'] ?? null) ? $data['worldObjects'] : [];
         $doorPieces = $graphics !== null && array_any($graphics->tileset->pieces, static fn($piece): bool => $piece->doorway !== []);
         if ($objects === [] && !$doorPieces) { return []; }
@@ -189,7 +192,7 @@ final class MapCompletenessValidator
             $fieldCatalog = null;
         }
         return MapDoorwayRule::inspect($mapId, $data, MapEventResolver::inspect($data, $eventLayer, $mapId)->events,
-            $layers->getComposedGrid(), $fieldCatalog, $graphics);
+            $layers->getComposedGrid(), $fieldCatalog, $graphics, $worldAbilities);
     }
 
     /**

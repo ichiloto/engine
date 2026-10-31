@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field\Validation;
 
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Events\Triggers\CinematicEventTrigger;
 use Ichiloto\Engine\Events\Triggers\DialogueEventTrigger;
 use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
@@ -49,13 +50,13 @@ final class MapNpcInteractionRule
      * @param list<array> $events Resolved event definitions ({@see MapEventResolver}).
      * @return list<MapValidationIssue>
      */
-    public static function inspect(string $mapId, array $data, array $events): array
+    public static function inspect(string $mapId, array $data, array $events, ?WorldAbilityCatalog $worldAbilities = null): array
     {
-        return [...self::inspectPages($mapId, $data), ...self::inspectEvents($mapId, $data, $events)];
+        return [...self::inspectPages($mapId, $data, $worldAbilities), ...self::inspectEvents($mapId, $data, $events)];
     }
 
     /** @return list<MapValidationIssue> */
-    public static function inspectPages(string $mapId, array $data): array
+    public static function inspectPages(string $mapId, array $data, ?WorldAbilityCatalog $worldAbilities = null): array
     {
         $placements = MapEventSpeakerRule::readPlacements($data);
         $issues = [];
@@ -82,7 +83,7 @@ final class MapNpcInteractionRule
                     $issues = [...$issues, ...MapEventSpeakerRule::inspectSpeakers($mapId, $placements,
                         array_values(array_diff($page->speakers, [$placement->id])), null,
                         [...$placement->conditions, ...$page->conditions], $label, null, [...$path, $page->index, 'speakers'],
-                        'the page', $placement->name)];
+                        'the page', $placement->name, $worldAbilities)];
                 }
                 $shadow = self::findShadow($pages, $page);
                 if ($shadow !== null) {

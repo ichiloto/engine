@@ -139,13 +139,30 @@ class InputManager
     self::$config = self::getBindingsWithDefaults($bindings);
   }
 
+  /** Reads authored semantic actions and Engine defaults without installing input or player overrides. */
+  public static function getProjectBindings(string $projectRoot): array
+  {
+    $file = rtrim($projectRoot, '/\\') . '/input.php';
+    if (!is_file($file)) { throw new RuntimeException('Project input bindings do not exist: ' . $file); }
+    $bindings = (static fn(string $path): mixed => require $path)($file);
+    if (!is_array($bindings) || array_any($bindings, static fn(mixed $binding): bool => !is_array($binding))) {
+      throw new \InvalidArgumentException($file . ' must return an action-to-binding map.');
+    }
+    foreach (array_keys($bindings) as $action) {
+      if (!is_string($action) || trim($action) === '') {
+        throw new \InvalidArgumentException($file . ' must name each semantic action explicitly.');
+      }
+    }
+    return self::getBindingsWithDefaults($bindings);
+  }
+
   /**
    * Adds shared actions for older projects without claiming authored controls.
    *
    * @param array<string, array{description?: string, keys?: KeyCode[]}> $bindings
    * @return array<string, array{description?: string, keys?: KeyCode[]}>
    */
-  private static function getBindingsWithDefaults(array $bindings): array
+  public static function getBindingsWithDefaults(array $bindings): array
   {
     foreach ([
       'info' => ['Read the next Info page; wrap to the first.', [KeyCode::i, KeyCode::I]],

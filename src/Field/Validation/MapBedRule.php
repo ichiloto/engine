@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field\Validation;
 
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Core\WorldConditionExclusion;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Field\NpcBedDefinition;
@@ -16,7 +17,7 @@ final class MapBedRule
     public const string RULE = 'npc.bed';
 
     /** @param list<WorldObjectDefinition> $objects @return list<MapValidationIssue> */
-    public static function inspect(string $mapId, array $data, array $objects, array $collisions): array
+    public static function inspect(string $mapId, array $data, array $objects, array $collisions, ?WorldAbilityCatalog $worldAbilities = null): array
     {
         $issues = $claims = [];
         foreach (is_array($data['npcs'] ?? null) ? $data['npcs'] : [] as $index => $entry) {
@@ -41,7 +42,7 @@ final class MapBedRule
                 $conditions = is_array($entry['conditions'] ?? null) ? $entry['conditions'] : [];
                 $key = "$x:$y";
                 foreach ($claims[$key] ?? [] as $other) {
-                    if (!WorldConditionExclusion::proveExclusive($conditions, $other)) {
+                    if (!WorldConditionExclusion::proveExclusive($conditions, $other, $worldAbilities)) {
                         throw new InvalidArgumentException('Bed occupants sharing a slot need mutually exclusive presence conditions.');
                     }
                 }

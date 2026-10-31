@@ -396,3 +396,18 @@ it('feeds renderer keys into the unchanged Input facade and PHP bindings', funct
   ['up', KeyCode::UP, AxisName::VERTICAL, -1.0], ['w', KeyCode::w, AxisName::VERTICAL, -1.0],
   ['a', KeyCode::a, AxisName::HORIZONTAL, -1.0], ['enter', KeyCode::ENTER, AxisName::VERTICAL, 0.0],
 ]);
+
+
+it('queries authored project actions and shared defaults without changing live input or working directory', function () {
+  $root = createTestDirectory('semantic-action-query-');
+  file_put_contents($root . '/input.php', '<?php return ["custom_signal" => ["description" => "Signal", "keys" => [\Ichiloto\Engine\IO\Enumerations\KeyCode::i]]];');
+  $before = InputManager::getBindings(); $defaults = InputManager::getDefaultBindings(); $cwd = getcwd();
+  $source = file_get_contents($root . '/input.php');
+  $bindings = InputManager::getProjectBindings($root);
+  expect(array_keys($bindings))->toContain('custom_signal', 'dash', 'dialogue_auto', 'secondary_action', 'quick_save')
+    ->and($bindings['custom_signal']['keys'])->toBe([KeyCode::i])
+    ->and($bindings['info']['keys'])->not->toContain(KeyCode::i)
+    ->and(InputManager::getBindings())->toBe($before)->and(InputManager::getDefaultBindings())->toBe($defaults)
+    ->and(getcwd())->toBe($cwd)->and(file_get_contents($root . '/input.php'))->toBe($source)
+    ->and(InputManager::getBindingsWithDefaults(['dash' => ['keys' => []]])['dash']['keys'])->toBe([]);
+});

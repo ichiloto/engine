@@ -700,3 +700,41 @@ it('checks talk reachability at every source-owned named NPC destination', funct
   $problems = array_values(array_filter($report->problems, static fn($problem) => $problem->kind === ReachabilityProblemKind::UNREACHABLE_NPC));
   expect($problems)->toHaveCount(1)->and($problems[0]->message)->toContain('(2, 3)');
 });
+
+
+it('analyses world ability gates using its own project catalogue without installing global state', function (bool $otherInstalled) {
+  $catalogClass = \Ichiloto\Engine\Progression\WorldAbilityCatalog::class;
+  $prior = \Ichiloto\Engine\Util\Config\ConfigStore::has($catalogClass)
+    ? \Ichiloto\Engine\Util\Config\ConfigStore::get($catalogClass) : null;
+  \Ichiloto\Engine\Util\Config\ConfigStore::remove($catalogClass);
+  if ($otherInstalled) {
+    \Ichiloto\Engine\Util\Config\ConfigStore::put($catalogClass, new \Ichiloto\Engine\Progression\WorldAbilityCatalog([
+      ['id' => 'other', 'name' => 'Other project power'],
+    ]));
+  }
+  $beforeGlobal = $otherInstalled ? \Ichiloto\Engine\Util\Config\ConfigStore::get($catalogClass) : null;
+  try {
+    $assets = createTestDirectory('detached-power-reachability-') . '/assets';
+    mkdir($assets . '/Data', 0700, true);
+    file_put_contents($assets . '/Data/world-abilities.php', '<?php return ' . var_export([
+      ['id' => 'current', 'name' => 'Current power', 'conditions' => [['type' => 'switch', 'name' => 'current_granted']]],
+    ], true) . ';');
+    writeReachabilityMap($assets, 'room', ['...', '...'], ['   ', ' C '], ['events' => ['C' => [
+      'class' => \Ichiloto\Engine\Events\Triggers\DialogueEventTrigger::class,
+      'conditions' => [['type' => 'world_ability', 'name' => 'current']],
+      'data' => ['dialogue' => [['text' => 'Synthetic.']]],
+    ]]]);
+    file_put_contents($assets . '/Maps/collisions.php', '<?php return ["." => \Ichiloto\Engine\Events\Enumerations\CollisionType::NONE];');
+    file_put_contents($assets . '/Data/system.php', '<?php return ' . var_export([
+      'startingPositions' => ['player' => ['destinationMap' => 'room', 'spawnPoint' => ['x' => 0, 'y' => 0]]],
+    ], true) . ';');
+    $source = file_get_contents($assets . '/Data/world-abilities.php');
+    expect(ProjectReachability::analyze($assets)->reports['room']->isReachable(2, 1))->toBeTrue()
+      ->and(file_get_contents($assets . '/Data/world-abilities.php'))->toBe($source)
+      ->and(\Ichiloto\Engine\Util\Config\ConfigStore::has($catalogClass))->toBe($otherInstalled);
+    if ($otherInstalled) { expect(\Ichiloto\Engine\Util\Config\ConfigStore::get($catalogClass))->toBe($beforeGlobal); }
+  } finally {
+    $prior === null ? \Ichiloto\Engine\Util\Config\ConfigStore::remove($catalogClass)
+      : \Ichiloto\Engine\Util\Config\ConfigStore::put($catalogClass, $prior);
+  }
+})->with([false, true]);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field\Validation;
 
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Animations\Field\FieldPresentationCatalog;
 use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\WorldConditionExclusion;
@@ -53,7 +54,7 @@ final class MapDoorwayRule
      * @return list<MapValidationIssue>
      */
     public static function inspect(string $mapId, array $data, array $events, array $grid, ?FieldPresentationCatalog $catalog,
-        ?MapGraphics $graphics = null): array
+        ?MapGraphics $graphics = null, ?WorldAbilityCatalog $worldAbilities = null): array
     {
         $entries = is_array($data[WorldObjectDefinition::DATA_KEY] ?? null) ? $data[WorldObjectDefinition::DATA_KEY] : [];
         $entrances = [];
@@ -74,7 +75,7 @@ final class MapDoorwayRule
                 continue; // object.reference reports a malformed placement.
             }
             $meeting = array_values(array_filter($entrances, static fn(array $entrance): bool
-                => !WorldConditionExclusion::proveExclusive($placement->conditions, $entrance['conditions'])));
+                => !WorldConditionExclusion::proveExclusive($placement->conditions, $entrance['conditions'], $worldAbilities)));
             foreach ($meeting as $entrance) {
                 $hidden = array_values(array_filter($placement->cells, static fn(array $cell): bool
                     => $cell[1] < $placement->y && $entrance['area']->containsCell($cell[0], $cell[1])));

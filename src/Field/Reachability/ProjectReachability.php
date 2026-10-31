@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Field\Reachability;
 
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Assegai\Util\Path;
 use Closure;
 use Ichiloto\Engine\Core\CellArea;
@@ -60,6 +61,7 @@ final class ProjectReachability
    */
   public static function analyze(string $assetRoot, array $mapSources = [], ?Closure $loadTileset = null): self
   {
+    $worldAbilities = WorldAbilityCatalog::fromProject($assetRoot);
     $mapsDirectory = Path::join($assetRoot, 'Maps');
     $problems = [];
     $maps = [];
@@ -115,7 +117,7 @@ final class ProjectReachability
           'data' => $source['data'],
           'map' => MapReachability::readMap($mapId, $source['data'],
             MapCollisionResolver::resolveMap($source['layers'], $source['data'], $dictionary ?? [],
-              MapTerrainKinds::loadForMap($assetRoot, $source['data'], $loadTileset))->collisionGrid),
+              MapTerrainKinds::loadForMap($assetRoot, $source['data'], $loadTileset))->collisionGrid, $worldAbilities),
           'arrivals' => $arrivals,
           'edgeTriggers' => $edgeTriggers,
         ];

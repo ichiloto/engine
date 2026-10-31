@@ -11,6 +11,9 @@
 
 ### Changed
 
+- Detached project reachability and map completeness use their own world-power
+  catalogue through condition analysis, preserving the running project's state.
+
 - Semantic notification hints have a separate measured control row, preserving
   two-line instructions in a brief toast and the complete Terminal overlay.
 
@@ -27,6 +30,9 @@
   Editor consumers share `SkitPlaybackDefinition` for trigger and SFX fields.
 
 ### Added
+
+- Read-only project semantic input-action discovery includes the Engine's boot
+  defaults for authoring selectors without installing or changing live input.
 
 - Non-looping battle poses can align an authored impact entry to the command's
   target boundary, preserving strike and recovery speed across announcement lengths.

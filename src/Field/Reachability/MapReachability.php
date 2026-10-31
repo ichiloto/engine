@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Field\Reachability;
 
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\WorldConditionExclusion;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
@@ -52,6 +53,7 @@ final readonly class MapReachability
     private array $events = [],
     private array $edgeTriggers = [],
     private array $npcs = [],
+    private ?WorldAbilityCatalog $worldAbilities = null,
   )
   {
   }
@@ -64,7 +66,7 @@ final readonly class MapReachability
    * @param array<string, mixed> $data The map's data with resolved events ({@see \Ichiloto\Engine\Field\MapSourceReader}).
    * @param int[][] $collisions The map's collision grid, CollisionType values.
    */
-  public static function readMap(string $mapId, array $data, array $collisions): self
+  public static function readMap(string $mapId, array $data, array $collisions, ?WorldAbilityCatalog $worldAbilities = null): self
   {
     return new self(
       $mapId,
@@ -72,6 +74,7 @@ final readonly class MapReachability
       array_map(ReachabilityEvent::fromDefinition(...), (array) ($data['events'] ?? [])),
       array_map(MapTrigger::tryFromArray(...), array_values(array_filter((array) ($data['triggers'] ?? []), is_array(...)))),
       array_values(array_filter(array_map(NpcPlacement::fromArray(...), (array) ($data['npcs'] ?? [])))),
+      $worldAbilities,
     );
   }
 
@@ -225,7 +228,7 @@ final readonly class MapReachability
 
       foreach ($this->npcs as $npc) {
         if ($npc->id === null || $npc->wanders || ! in_array($npc->id, $event->speakers, true)
-          || WorldConditionExclusion::proveExclusive($event->conditions, $npc->conditions)) {
+          || WorldConditionExclusion::proveExclusive($event->conditions, $npc->conditions, $this->worldAbilities)) {
           continue;
         }
 
@@ -244,7 +247,7 @@ final readonly class MapReachability
 
       foreach ($entrances as $entrance) {
         if (! isset($this->collisions[$entrance->y][$entrance->x])
-          || WorldConditionExclusion::proveExclusive($event->conditions, $entrance->conditions)) {
+          || WorldConditionExclusion::proveExclusive($event->conditions, $entrance->conditions, $this->worldAbilities)) {
           continue;
         }
 

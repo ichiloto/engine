@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field\Validation;
 
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\WorldConditionExclusion;
 use Ichiloto\Engine\Events\MapEventDefinition;
@@ -61,7 +62,7 @@ final class MapEventSpeakerRule
      * @param list<array> $events Resolved event definitions ({@see MapEventResolver}), with area and effective conditions.
      * @return list<MapValidationIssue>
      */
-    public static function inspect(string $mapId, array $data, array $events): array
+    public static function inspect(string $mapId, array $data, array $events, ?WorldAbilityCatalog $worldAbilities = null): array
     {
         $placements = self::readPlacements($data);
         $issues = [];
@@ -77,7 +78,7 @@ final class MapEventSpeakerRule
             }
             $issues = [...$issues, ...self::inspectSpeakers($mapId, $placements, $speakers,
                 CellArea::fromArray($event['area'], 'Event area'), is_array($event['conditions'] ?? null) ? $event['conditions'] : [],
-                $marker === null ? 'This event' : "Event '{$marker}'", $marker, $path)];
+                $marker === null ? 'This event' : "Event '{$marker}'", $marker, $path, worldAbilities: $worldAbilities)];
         }
         return $issues;
     }
@@ -107,7 +108,7 @@ final class MapEventSpeakerRule
      * @return list<MapValidationIssue>
      */
     public static function inspectSpeakers(string $mapId, array $placements, array $speakers, ?CellArea $area, array $conditions,
-        string $label, ?string $marker, array $path, string $scene = 'the event', string $place = "the event's area"): array
+        string $label, ?string $marker, array $path, string $scene = 'the event', string $place = "the event's area", ?WorldAbilityCatalog $worldAbilities = null): array
     {
         $issues = [];
         foreach ($speakers as $id) {
@@ -117,7 +118,7 @@ final class MapEventSpeakerRule
                 continue;
             }
             $present = array_values(array_filter($placements[$id],
-                static fn(NpcPlacement $page): bool => !WorldConditionExclusion::proveExclusive($conditions, $page->conditions)));
+                static fn(NpcPlacement $page): bool => !WorldConditionExclusion::proveExclusive($conditions, $page->conditions, $worldAbilities)));
             if ($present === []) {
                 $issues[] = new MapValidationIssue($mapId, self::RULE,
                     "{$label} names speaker '{$id}', who is never present while {$scene} can run.",
