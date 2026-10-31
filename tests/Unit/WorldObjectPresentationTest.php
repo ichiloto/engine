@@ -138,12 +138,12 @@ function createWorldObjectSource(array $extra = []): array
 }
 
 /** A real prepared bed binding, with a solid bed and a clear standing exit. */
-function installWorldObjectBed(WorldObjectTestScene $scene, string $root, array $bed = [], bool $cover = false): \Ichiloto\Engine\Field\Npc
+function installWorldObjectBed(WorldObjectTestScene $scene, string $root, array $bed = [], bool $cover = false, array $covers = []): \Ichiloto\Engine\Field\Npc
 {
     $catalog = createResourceWorldObjectCatalog($root, ['attachments' => [
         ['id' => 'occupant', 'cell' => ['x' => 0, 'y' => 0], 'point' => ['x' => .5, 'y' => .25]],
     ], ...($cover ? ['bedCover2d' => ['asset' => 'Graphics/glow.png', 'cells' => ['width' => 3, 'height' => 4]]] : [])]);
-    $base = createWorldObjectPreparedMap([['id' => 'fixture', 'anchor' => ['x' => 1, 'y' => 1], 'resource' => 'whole']], catalog: $catalog);
+    $base = createWorldObjectPreparedMap([['id' => 'fixture', 'anchor' => ['x' => 1, 'y' => 1], 'resource' => 'whole', ...($covers !== [] ? ['covers' => $covers] : [])]], catalog: $catalog);
     $entry = ['id' => 'sleeper', 'name' => 'Sleeper', 'sprite' => 'S', 'x' => 2, 'y' => 1, 'movement' => 'wander',
         'bed' => array_replace(['object' => 'fixture', 'attachment' => 'occupant',
             'poses2d' => ['lying' => ['asset' => 'Graphics/energized.png'], 'sitting' => ['asset' => 'Graphics/glow.png']]], $bed)];
@@ -236,6 +236,28 @@ it('composes the bed, real occupant and covers once in the field, takeover and o
     expect(array_column($object->getPresentationWorldCanvas()->canvas->images, 'id'))->toBe(['base', 'cover'])
         ->and($this->scene->mapManager->getCollisionGrid()[1][1])->toBe(CollisionType::SOLID->value);
 });
+
+it('preserves synthetic bed glyph ownership across renderer capabilities', function (array $capabilities, bool $supported) {
+    $context = new ScenePresentationContext(new RendererGridConfig(12, 6, 10, 20),
+        static fn(string $capability): bool => in_array($capability, $capabilities, true),
+        assetRoot: $this->root . '/assets');
+    $this->scene->setPresentationContext($context);
+    $npc = installWorldObjectBed($this->scene, $this->root, cover: true,
+        covers: ['layer' => 'fixtures', 'cells' => [[1, 1]], 'tileLayers' => ['objects']]);
+    $object = $this->scene->mapManager->findWorldObject('fixture');
+
+    expect($this->scene->canPresentWorldCanvases())->toBe($supported)
+        ->and($object->getPresentationWorldCanvas() !== null)->toBe($supported)
+        ->and($object->hidesOwnedGlyphs())->toBe($supported)
+        ->and(getWorldObjectWireCells($this->scene->mapManager->getPresentationWorld())[1][1]['glyph'])->toBe($supported ? 'g' : 'o')
+        ->and($npc->bed->isOccupied)->toBeTrue()
+        ->and($this->scene->mapManager->canMoveTo(1, 1))->toBeFalse();
+})->with([
+    'neither compound capability' => [[], false],
+    'world canvas only' => [[RendererSessionConfig::WORLD_CANVAS], false],
+    'frame viewport only' => [[RendererSessionConfig::FRAME_VIEWPORT], false],
+    'both compound capabilities' => [[RendererSessionConfig::WORLD_CANVAS, RendererSessionConfig::FRAME_VIEWPORT], true],
+]);
 
 it('preflights bed slots and exits from actual sources before replacing any current map occupant', function (bool $blockedExit) {
     $field = ['resources' => ['simple-bed' => ['name' => 'Bed', 'pivot' => ['x' => .5, 'y' => 1],
