@@ -48,7 +48,8 @@ final readonly class BattleCommandTimeline
     ?CompiledEffectTimeline $target = null, ?CompiledEffectTimeline $terminalTarget = null,
     public bool $resultsOnly = false, bool $showAnnouncement = true, float $targetScale = EffectScale::DEFAULT,
     public SourceEffectAnchor $sourceEffectAnchor = SourceEffectAnchor::SOURCE, ?BattlerPose $actionPose = null,
-    public bool $movementPoses = false, public ?BattleTravelPlan $travel = null)
+    public bool $movementPoses = false, public ?BattleTravelPlan $travel = null,
+    ?BattlerPose $movePose = null, ?BattlerPose $returnPose = null)
   {
     $targetScale = EffectScale::readValue($targetScale, 'Battle target effect scale');
     if ($resultsOnly) {
@@ -101,7 +102,12 @@ final readonly class BattleCommandTimeline
     $phases = $cues = $segments = $restFrames = $restSegments = [];
     $targetImpactEnd = 0;
     $poseEnd = null;
-    foreach (['advance' => $travel === null ? $timings->stepForward : ($travel->isPossible ? $travel->advanceSeconds : 0), 'announce' => $timings->announcement,
+    $transition = static fn(?BattlerPose $pose, BattlePoseSequence $sequence, string $phase): array =>
+      $movementPoses && $pose !== null && $pose->getSequenceSeconds($sequence) > 0
+        ? [$phase => $pose->getSequenceSeconds($sequence)] : [];
+    foreach ([...$transition($movePose, BattlePoseSequence::ENTRY, 'enter-advance'),
+      'advance' => $travel === null ? $timings->stepForward : ($travel->isPossible ? $travel->advanceSeconds : 0),
+      ...$transition($movePose, BattlePoseSequence::EXIT, 'exit-advance'), 'announce' => $timings->announcement,
       'source' => $sourceEffectAnchor === SourceEffectAnchor::TARGET ? $timings->actionAnimation
         : ($sourceTiming?->durationSeconds ?? $timings->actionAnimation),
       ...($this->summon === null || $this->cinematicStage !== null ? [] : [
@@ -113,7 +119,10 @@ final readonly class BattleCommandTimeline
       ...($this->summon === null || $this->cinematicStage !== null ? [] : [
         'summon-out' => max(0, (int)($this->summon->transitionCache['out']['durationMs'] ?? 0)) / 1000,
       ]),
-      'reaction' => $timings->statChanges, ...($movementPoses || $travel !== null ? ['recovery' => 0] : []), 'return' => $travel === null ? $timings->stepBack : ($travel->isPossible ? $travel->returnSeconds : 0),
+      'reaction' => $timings->statChanges, ...($movementPoses || $travel !== null ? ['recovery' => 0] : []),
+      ...$transition($returnPose, BattlePoseSequence::ENTRY, 'enter-return'),
+      'return' => $travel === null ? $timings->stepBack : ($travel->isPossible ? $travel->returnSeconds : 0),
+      ...$transition($returnPose, BattlePoseSequence::EXIT, 'exit-return'),
       'finish' => $timings->turnOver] as $phase => $seconds) {
       if (!is_finite($seconds) || $seconds < 0) {
         throw new InvalidArgumentException('Battle command durations must be finite and non-negative.');

@@ -2846,8 +2846,8 @@ it('runs the actual command to contact and returns on distance clocks with fixed
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $moving = new BattlePoseSet([
     'attack' => new BattlerPose('graphical-canvas/synthetic-143x181.png', loop: false),
-    'move' => new BattlerPose('graphical-canvas/synthetic-320x180.png', columns: 4, frames: [0,1,2,3], fps: 20),
-    'return' => new BattlerPose('graphical-canvas/synthetic-320x180.png', columns: 4, frames: [0,1,2,3], fps: 20, loop: false),
+    'move' => new BattlerPose('graphical-canvas/synthetic-320x180.png', columns: 4, frames: [0,1,2,3], fps: 20, entryFrames: [3,2], exitFrames: [1]),
+    'return' => new BattlerPose('graphical-canvas/synthetic-320x180.png', columns: 4, frames: [0,1,2,3], fps: 20, loop: false, entryFrames: [1], exitFrames: [2,3]),
   ]);
   $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
     ui: $catalog->ui, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => $moving], enemyPoses: ['Twin' => $moving]);
@@ -2869,7 +2869,13 @@ it('runs the actual command to contact and returns on distance clocks with fixed
     movement: \Ichiloto\Engine\Animations\ActionMovement::RUN_TO_TARGET);
   $playback = $runner->playback; $plan = $playback->plan;
   expect($plan->travel === null)->toBe($reduced);
-  $runner->begin(); $runner->update($plan->phases['advance']['length'] / 240);
+  $runner->begin();
+  if (!$reduced) {
+    $entry = graphicalCombatantImage($presentation->frame($scene->ui->fieldWindow), $actor);
+    expect($playback->phase)->toBe('enter-advance')->and($entry->sourceRect->x)->toBe(240)
+      ->and($playback->getTravelOffset()->x)->toBe(0.0);
+  }
+  $runner->update(($plan->phases['advance']['start'] + $plan->phases['advance']['length'] / 2) / 120);
   $half = graphicalCombatantImage($presentation->frame($scene->ui->fieldWindow), $actor);
   $playback->pause(); $runner->update(10);
   expect(graphicalCombatantImage($presentation->frame($scene->ui->fieldWindow), $actor)->destination)->toEqual($half->destination);
@@ -2889,6 +2895,12 @@ it('runs the actual command to contact and returns on distance clocks with fixed
   expect($return->flipX)->toBe($strike->flipX)->and($return->flipY)->toBe($strike->flipY)->and($hits)->toBe(1);
   expect($playback->getPoseRole($actor, $moving, $reduced))->toBe($reduced ? BattlePoseRole::IDLE : BattlePoseRole::RETURNING);
   if (!$reduced) { expect($return->sourceRect)->not->toBeNull(); }
+  if (!$reduced) {
+    $runner->update(($plan->phases['exit-return']['start'] - $playback->session->currentFrame) / 120);
+    $land = graphicalCombatantImage($presentation->frame($scene->ui->fieldWindow), $actor);
+    expect($playback->phase)->toBe('exit-return')->and($land->sourceRect->x)->toBe(160)
+      ->and($playback->getTravelOffset()->x)->toBe(0.0)->and($land->flipX)->toBe($strike->flipX);
+  }
   $runner->update(10);
   expect($hits)->toBe(1)->and($playback->isCompleted)->toBeTrue()
     ->and(graphicalCombatantImage($presentation->frame($scene->ui->fieldWindow), $actor)->destination)->toEqual($rest->destination);

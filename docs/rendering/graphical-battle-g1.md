@@ -1238,6 +1238,17 @@ return remains supported for other authored movement styles. A separate return s
 backward-hop artwork; the battler keeps facing its target throughout travel. Without a return pose, return uses `move`.
 Missing movement artwork retains the existing resting presentation.
 
+A movement pose may also author optional `entryFrames` and `exitFrames`, source
+cell lists in the same image/grid at its existing fps. These play once on
+independent clocks. The command owns stationary `enter-advance` / `exit-advance`
+and `enter-return` / `exit-return` phases around the distance-based main run and
+return. Authors can stow before departure, prepare the action on arrival and
+finish a landing without repeating those transitions in the run loop. Empty
+lists omit those phases and preserve the previous timing. The main return's
+one-shot duration still follows travel distance; entry/exit retain their authored
+fps. `BattlePoseSequence` selects MAIN, ENTRY or EXIT explicitly. Other pose roles
+refuse movement-transition metadata through the shared binding validator.
+
 The command runner selects these roles for graphical movement. Each phase starts
 its own pose clock at zero; pause freezes it, and cancellation, completion,
 knockout or concession release it. Advance hands off to the action role, and

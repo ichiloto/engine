@@ -108,8 +108,8 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     if (!$reducedMotion && $this->plan->movementPoses && !$this->plan->resultsOnly && $battler === $this->actor
       && !isset($this->reactions[spl_object_id($battler)])) {
       $movement = match ($this->phase) {
-        'advance' => BattlePoseRole::MOVE,
-        'return' => $poses?->getPose(BattlePoseRole::RETURNING) !== null ? BattlePoseRole::RETURNING : BattlePoseRole::MOVE,
+        'advance', 'enter-advance', 'exit-advance' => BattlePoseRole::MOVE,
+        'return', 'enter-return', 'exit-return' => $poses?->getPose(BattlePoseRole::RETURNING) !== null ? BattlePoseRole::RETURNING : BattlePoseRole::MOVE,
         default => null,
       };
       if ($movement !== null && $poses?->getPose($movement) !== null) { return $movement; }
@@ -130,11 +130,24 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   public function getPoseElapsedSeconds(CharacterInterface $battler, ?BattlePoseRole $role = null): float
   {
     if ($battler === $this->actor && in_array($role, [BattlePoseRole::MOVE, BattlePoseRole::RETURNING], true)
-      && in_array($this->phase, ['advance', 'return'], true)) {
+      && in_array($this->phase, ['advance', 'return', 'enter-advance', 'exit-advance', 'enter-return', 'exit-return'], true)) {
       return max(0, ($this->session->currentFrame - $this->plan->phases[$this->phase]['start']) / BattleCommandTimeline::FPS);
     }
     $start = $this->reactionFrames[spl_object_id($battler)] ?? ($this->plan->phases['announce']['start'] ?? 0);
     return max(0, ($this->session->currentFrame - $start) / BattleCommandTimeline::FPS);
+  }
+
+  /** Stationary transition sequences are selected independently of the distance-based main sequence. */
+  public function getPoseSequence(CharacterInterface $battler, BattlePoseRole $role): BattlePoseSequence
+  {
+    if ($battler !== $this->actor || !in_array($role, [BattlePoseRole::MOVE, BattlePoseRole::RETURNING], true)) {
+      return BattlePoseSequence::MAIN;
+    }
+    return match ($this->phase) {
+      'enter-advance', 'enter-return' => BattlePoseSequence::ENTRY,
+      'exit-advance', 'exit-return' => BattlePoseSequence::EXIT,
+      default => BattlePoseSequence::MAIN,
+    };
   }
 
   /** A one-shot hop spans the whole current return distance/timing without looping. */
@@ -195,6 +208,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $frame = $this->session->currentFrame;
     $advance = $this->plan->phases['advance'];
     $return = $this->plan->phases['return'];
+    if ($frame <= $advance['start']) { return 0.0; }
     if ($frame < $advance['start'] + $advance['length']) {
       return ($frame - $advance['start']) / $advance['length'];
     }
