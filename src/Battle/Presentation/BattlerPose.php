@@ -51,7 +51,7 @@ final readonly class BattlerPose
   }
 
   public function getArtwork(string $assetRoot, float $elapsedSeconds, bool $reducedMotion = false,
-    ?float $impactAtSeconds = null): ?BattlerArtwork
+    ?float $impactAtSeconds = null, ?float $durationSeconds = null): ?BattlerArtwork
   {
     if (!is_finite($elapsedSeconds) || $elapsedSeconds < 0) {
       throw new InvalidArgumentException('Battle pose elapsed time must be finite and non-negative.');
@@ -59,12 +59,18 @@ final readonly class BattlerPose
     if ($impactAtSeconds !== null && (!is_finite($impactAtSeconds) || $impactAtSeconds < 0)) {
       throw new InvalidArgumentException('A pose impact time must be finite and non-negative.');
     }
+    if ($durationSeconds !== null && (!is_finite($durationSeconds) || $durationSeconds <= 0)) {
+      throw new InvalidArgumentException('An explicit pose duration must be finite and positive.');
+    }
     $size = PngAssetPreflight::getAvailableSize($assetRoot, $this->asset);
     if ($size === null) { return null; }
     if ($size['width'] % $this->columns !== 0 || $size['height'] % $this->rows !== 0) {
       throw new InvalidArgumentException('The current battler pose PNG does not divide into its authored sheet grid.');
     }
     $index = EffectPlaybackTiming::getFrameCountForElapsed($elapsedSeconds, 1 / $this->fps);
+    if (!$this->loop && $this->impactFrame === null && $durationSeconds !== null) {
+      $index = min(count($this->frames) - 1, EffectPlaybackTiming::getFrameCountForElapsed($elapsedSeconds, $durationSeconds / count($this->frames)));
+    }
     if (!$reducedMotion && $this->impactFrame !== null && $impactAtSeconds !== null) {
       if ($elapsedSeconds < $impactAtSeconds) {
         // Preserve natural anticipation, hold its final entry, compress only a short lead-in.

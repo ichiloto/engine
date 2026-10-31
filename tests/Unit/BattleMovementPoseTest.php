@@ -51,8 +51,31 @@ it('keeps movement artwork optional and yields to lifecycle and reduced-motion s
   expect($playback->getPoseRole($actor, $set))->toBe(BattlePoseRole::IDLE);
 });
 
-it('requires movement roles to loop without an impact anchor', function (string $role) {
-  expect(fn() => new BattlePoseSet([$role => new BattlerPose('walk.png', loop: false)]))
+it('requires looping advance and permits an authored one-shot return without impact anchors', function () {
+  expect(fn() => new BattlePoseSet(['move' => new BattlerPose('walk.png', loop: false)]))
     ->toThrow(InvalidArgumentException::class);
-  expect(new BattlePoseSet([$role => new BattlerPose('walk.png')]))->toBeInstanceOf(BattlePoseSet::class);
-})->with(['move', 'return']);
+  $hop = new BattlerPose('hop.png', loop: false);
+  expect((new BattlePoseSet(['return' => $hop]))->getPose(BattlePoseRole::RETURNING))->toBe($hop);
+  expect(fn() => new BattlePoseSet(['return' => new BattlerPose('hop.png', loop: false, impactFrame: 0)]))
+    ->toThrow(InvalidArgumentException::class);
+});
+
+it('fits every hop entry across the return phase at different travel durations', function (float $duration) {
+  $actor = new Character('Synthetic', 1, new Stats(currentHp: 100, totalHp: 100));
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, $duration, .1), movementPoses: true);
+  $playback = new BattleCommandPlayback($plan, $actor, [], BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
+  $hop = new BattlerPose('graphical-canvas/synthetic-320x180.png', columns: 4, frames: [0,1,2,3], fps: 120, loop: false);
+  $set = new BattlePoseSet(['return' => $hop]);
+  $root = dirname(__DIR__) . '/Fixtures/Renderer';
+  $start = $plan->phases['return']['start'];
+  foreach ([0, 1, 2, 3] as $entry) {
+    $frame = $start + (int)ceil($plan->phases['return']['length'] * $entry / 4);
+    $playback->update(($frame - $playback->session->currentFrame) / 120);
+    $art = $hop->getArtwork($root, $playback->getPoseElapsedSeconds($actor, BattlePoseRole::RETURNING),
+      durationSeconds: $playback->getPoseDurationSeconds($actor, BattlePoseRole::RETURNING));
+    expect($playback->getPoseRole($actor, $set))->toBe(BattlePoseRole::RETURNING)
+      ->and($art->sourceRect->x)->toBe($entry * 80);
+  }
+  $playback->update(($start + $plan->phases['return']['length'] - $playback->session->currentFrame) / 120);
+  expect($playback->getPoseRole($actor, $set))->toBe(BattlePoseRole::IDLE);
+})->with([.1, .4, 1.0]);

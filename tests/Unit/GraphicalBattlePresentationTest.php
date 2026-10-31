@@ -2808,15 +2808,16 @@ it('draws authored movement sheets on the real command runner phase clocks', fun
     'skill' => new BattlerPose($asset, columns: 4, frames: [2], restFrame: 2),
     'move' => new BattlerPose($asset, columns: 4, frames: [0,1], fps: 20),
   ];
-  if ($separateReturn) { $roles['return'] = new BattlerPose($asset, columns: 4, frames: [1,0], fps: 20); }
+  if ($separateReturn) { $roles['return'] = new BattlerPose($asset, columns: 4, frames: [1,0], fps: 20, loop: false); }
   [$engine, $context, $scene, $presentation, , $turn, $turnContext] = graphicalCommandRuntime($atb, $reduced, poses: new BattlePoseSet($roles));
   $engine->run($context);
   $field = $scene->ui->fieldWindow;
   $playback = $field->getCommandPlayback();
   expect($playback)->not->toBeNull()->and($playback->plan->movementPoses)->toBe(!$reduced);
-  $assertCell = function (int $cell) use ($presentation, $field, $turn): void {
+  $facing = graphicalCombatantImage($presentation->frame($field), $turn->battler)->flipX;
+  $assertCell = function (int $cell) use ($presentation, $field, $turn, $facing): void {
     $image = graphicalCombatantImage($presentation->frame($field), $turn->battler);
-    expect($image->sourceRect->x)->toBe($cell * 80);
+    expect($image->sourceRect->x)->toBe($cell * 80)->and($image->flipX)->toBe($facing);
   };
   $assertCell($reduced ? 3 : 0);
   $playback->update(1 / 20);
@@ -2827,7 +2828,14 @@ it('draws authored movement sheets on the real command runner phase clocks', fun
   $home = $playback->plan->phases['return']['start'];
   $playback->update(($home - $playback->session->currentFrame) / 120);
   $assertCell($reduced ? 3 : ($separateReturn ? 1 : 0));
-  $playback->update(1 / 20);
+  if ($separateReturn) {
+    $quarter = max(1, (int)floor($playback->plan->phases['return']['length'] / 4));
+    $playback->update($quarter / 120);
+    $assertCell($reduced ? 3 : 1);
+    $playback->update(((int)ceil($playback->plan->phases['return']['length'] / 2) - $quarter) / 120);
+  } else {
+    $playback->update(1 / 20);
+  }
   $assertCell($reduced ? 3 : ($separateReturn ? 0 : 1));
   $playback->update(10);
   $assertCell(3);

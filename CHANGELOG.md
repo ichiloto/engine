@@ -4,6 +4,10 @@
 
 ### Removed
 
+- Removed the mandatory return-pose loop. An authored one-shot hop fits its
+  entries across the return phase, preserving facing and handing off on landing.
+  Advance remains looping. Full run-to-target geometry is a separate open request.
+
 - Removed per-line cinematic camera release. A conversation phase retains its
   framing across text-box gaps, waits and routes, then releases at the next
   phase or cinematic cleanup. Cast changes keep a still-safe origin; explicit

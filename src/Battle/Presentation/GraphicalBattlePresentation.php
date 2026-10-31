@@ -389,7 +389,9 @@ final class GraphicalBattlePresentation
             $playback !== null && $candidateRole === $role->value && $role !== BattlePoseRole::IDLE
               ? $playback->getPoseElapsedSeconds($battler, $role) : ($field?->getPoseElapsedSeconds() ?? 0), $reducedMotion,
             impactAtSeconds: $playback !== null && $candidateRole === $role->value && $role === $playback->pose
-              ? $playback->getPoseImpactSeconds($battler) : null);
+              ? $playback->getPoseImpactSeconds($battler) : null,
+            durationSeconds: $playback !== null && $candidateRole === $role->value
+              ? $playback->getPoseDurationSeconds($battler, $role) : null);
           if ($posed === null) { throw new RuntimeException('Pose image is unavailable.'); }
           $posedBounds = BattleFormationLayout::getPosePlacement($slot, $posed, $artworkScale,
             $this->layout, $participant['scale'], $this->scale, $pose->scaleSpan, $participant['poses']);

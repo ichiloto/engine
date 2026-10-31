@@ -137,6 +137,13 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     return max(0, ($this->session->currentFrame - $start) / BattleCommandTimeline::FPS);
   }
 
+  /** A one-shot hop spans the whole current return distance/timing without looping. */
+  public function getPoseDurationSeconds(CharacterInterface $battler, BattlePoseRole $role): ?float
+  {
+    return $battler === $this->actor && $role === BattlePoseRole::RETURNING && $this->phase === 'return'
+      ? $this->plan->phases['return']['length'] / BattleCommandTimeline::FPS : null;
+  }
+
   /** The same command boundary anchors an action pose and its target-timed caster effect. */
   public function getPoseImpactSeconds(CharacterInterface $battler): ?float
   {

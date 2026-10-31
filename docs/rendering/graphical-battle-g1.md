@@ -1231,8 +1231,10 @@ remain separate from project artwork and move names.
 ### Authored advance and return poses
 
 Battler bindings may supply `poses.move` and an optional `poses.return`. Both
-use the existing image/sheet/frame/fps/pivot/scale contract, loop throughout the
-movement phase and carry no impact anchor. A separate return sheet owns its
+use the existing image/sheet/frame/fps/pivot/scale contract and carry no impact
+anchor. `move` loops throughout advance. A non-looping `return` spans the entire
+return phase once, fitting its frame entries to that phase duration. A looping
+return remains supported for other authored movement styles. A separate return sheet owns its
 backward-step or opposite-facing artwork; without one, return uses `move`.
 Missing movement artwork retains the existing resting presentation.
 

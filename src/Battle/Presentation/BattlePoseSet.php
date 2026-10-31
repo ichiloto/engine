@@ -22,9 +22,9 @@ final readonly class BattlePoseSet
       if (!is_string($role) || BattlePoseRole::tryFrom($role) === null || !$pose instanceof BattlerPose) {
         throw new InvalidArgumentException('Battle pose sets require known role names and typed pose definitions.');
       }
-      if (in_array($role, [BattlePoseRole::MOVE->value, BattlePoseRole::RETURNING->value], true)
-        && (!$pose->loop || $pose->impactFrame !== null)) {
-        throw new InvalidArgumentException('Battle movement poses must loop without an action impact anchor.');
+      if (($role === BattlePoseRole::MOVE->value && !$pose->loop)
+        || (in_array($role, [BattlePoseRole::MOVE->value, BattlePoseRole::RETURNING->value], true) && $pose->impactFrame !== null)) {
+        throw new InvalidArgumentException('Advance poses must loop; movement poses carry no action impact anchor.');
       }
     }
   }
