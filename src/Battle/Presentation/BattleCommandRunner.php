@@ -51,6 +51,7 @@ final class BattleCommandRunner
     ?CompiledEffectTimeline $terminalTarget = null,
     bool $resultsOnly = false,
     float $targetScale = \Ichiloto\Engine\Animations\EffectScale::DEFAULT,
+    \Ichiloto\Engine\Animations\SourceEffectAnchor $sourceEffectAnchor = \Ichiloto\Engine\Animations\SourceEffectAnchor::SOURCE,
   ) {
     $this->formatResult = Closure::fromCallable($formatResult);
     $this->presentCue = Closure::fromCallable($presentCue);
@@ -58,7 +59,7 @@ final class BattleCommandRunner
       $this->previousVitals[spl_object_id($battler)] = [$battler->stats->currentHp, $battler->stats->currentMp];
     }
     $this->playback = new BattleCommandPlayback(new BattleCommandTimeline($timings, $source, $target, $terminalTarget, $resultsOnly,
-      showAnnouncement: $announcement !== '', targetScale: $targetScale),
+      showAnnouncement: $announcement !== '', targetScale: $targetScale, sourceEffectAnchor: $sourceEffectAnchor),
       $actor, $targets, $resultsOnly ? BattlePoseRole::getRestingRole($actor) : BattlePoseRole::getForAction($action),
       function () use ($resolve): void {
         if (($refusal = $this->getExecutionRefusal()) !== null) {

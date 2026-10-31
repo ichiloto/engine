@@ -2724,3 +2724,33 @@ it('projects one selected-group image through the actual battle frame at the rec
   expect($hits)->toBe(1)
     ->and(array_filter($presentation->frame($field)->images, static fn($image): bool => str_ends_with($image->id, 'target-group')))->toBeEmpty();
 })->with([false, true]);
+
+
+it('draws the anchored action strike on the target boundary and recovery on return', function (bool $reduced, bool $partyActor) {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $pose = new BattlerPose('graphical-canvas/synthetic-320x180.png', columns: 4,
+    frames: [0,1,2,3], fps: 10, loop: false, impactFrame: 2, restFrame: 0);
+  $poses = new BattlePoseSet(['attack' => $pose]);
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $catalog->ui, defaultArena: $catalog->defaultArena,
+    actorPoses: ['Hero' => $poses], enemyPoses: ['Twin' => $poses]);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $field = graphicalBattleScene($battle, $presentation)->ui->fieldWindow;
+  ConfigStore::put(Ichiloto\Engine\Util\Config\ProjectConfig::class,
+    new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));
+  $actor = $partyActor ? $hero : $enemies[0];
+  $plan = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline(
+    new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, 2, .1, .1, .1, .3, .1));
+  $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $actor, [],
+    BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
+  $field->setCommandPlayback($playback);
+  $target = $plan->phases['target']['start'];
+  $playback->update(($target - 1) / 120);
+  expect(graphicalCombatantImage($presentation->frame($field), $actor)->sourceRect->x)->toBe($reduced ? 0 : 80);
+  $playback->update(1 / 120);
+  expect(graphicalCombatantImage($presentation->frame($field), $actor)->sourceRect->x)->toBe($reduced ? 0 : 160);
+  $playback->update(($plan->phases['return']['start'] - $target) / 120);
+  expect(graphicalCombatantImage($presentation->frame($field), $actor)->sourceRect->x)->toBe($reduced ? 0 : 240);
+  $playback->cancel();
+  expect($playback->getPoseRole($actor, $poses))->toBe(BattlePoseRole::IDLE);
+})->with([false, true])->with([false, true]);

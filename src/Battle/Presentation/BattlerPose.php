@@ -27,8 +27,13 @@ final readonly class BattlerPose
     public ?float $scaleSpan = null,
     /** Whether this pose's art paints its own shadow; null follows the battler's grounding. */
     public ?bool $bakedShadow = null,
+    /** Index into playback entries, including repeated holds; aligns to target-phase start. */
+    public ?int $impactFrame = null,
   ) {
     SpriteValidation::validateAssetPath($asset);
+    if ($impactFrame !== null && ($loop || $impactFrame < 0 || $impactFrame >= count($frames))) {
+      throw new InvalidArgumentException('An impact frame requires a non-looping pose and a valid playback-entry index.');
+    }
     if ($scaleSpan !== null) { BattlerScale::validateUnit($scaleSpan); }
     if ($columns < 1 || $rows < 1 || $columns > 64 || $rows > 64 || $fps < 1 || $fps > 120
       || !array_is_list($frames) || $frames === [] || count($frames) > 10000
@@ -39,10 +44,14 @@ final readonly class BattlerPose
     }
   }
 
-  public function getArtwork(string $assetRoot, float $elapsedSeconds, bool $reducedMotion = false): ?BattlerArtwork
+  public function getArtwork(string $assetRoot, float $elapsedSeconds, bool $reducedMotion = false,
+    ?float $impactAtSeconds = null): ?BattlerArtwork
   {
     if (!is_finite($elapsedSeconds) || $elapsedSeconds < 0) {
       throw new InvalidArgumentException('Battle pose elapsed time must be finite and non-negative.');
+    }
+    if ($impactAtSeconds !== null && (!is_finite($impactAtSeconds) || $impactAtSeconds < 0)) {
+      throw new InvalidArgumentException('A pose impact time must be finite and non-negative.');
     }
     $size = PngAssetPreflight::getAvailableSize($assetRoot, $this->asset);
     if ($size === null) { return null; }
@@ -50,6 +59,20 @@ final readonly class BattlerPose
       throw new InvalidArgumentException('The current battler pose PNG does not divide into its authored sheet grid.');
     }
     $index = EffectPlaybackTiming::getFrameCountForElapsed($elapsedSeconds, 1 / $this->fps);
+    if (!$reducedMotion && $this->impactFrame !== null && $impactAtSeconds !== null) {
+      if ($elapsedSeconds < $impactAtSeconds) {
+        // Preserve natural anticipation, hold its final entry, compress only a short lead-in.
+        $duration = $this->impactFrame / $this->fps;
+        $index = $duration > $impactAtSeconds
+          ? EffectPlaybackTiming::getFrameCountForElapsed($elapsedSeconds, $impactAtSeconds / max(1, $this->impactFrame))
+          : $index;
+        $index = min($index, max(0, $this->impactFrame - 1));
+        if ($this->impactFrame === 0) { $reducedMotion = true; }
+      } else {
+        $index = $this->impactFrame + EffectPlaybackTiming::getFrameCountForElapsed(
+          $elapsedSeconds - $impactAtSeconds, 1 / $this->fps);
+      }
+    }
     $source = $reducedMotion ? $this->restFrame : $this->frames[
       $this->loop ? $index % count($this->frames) : min($index, count($this->frames) - 1)];
     $width = intdiv($size['width'], $this->columns);

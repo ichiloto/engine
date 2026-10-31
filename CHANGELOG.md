@@ -28,6 +28,10 @@
 
 ### Added
 
+- Non-looping battle poses can align an authored impact entry to the command's
+  target boundary, preserving strike and recovery speed across announcement lengths.
+  Caster effects can select the same boundary through the shared action binding.
+
 - Cinematic dialogue frames the current cast clear of its actual reading area.
   Signed camera projection supports map-edge padding and small maps, preserves
   authored camera ownership, and releases on dismissal or cleanup. Terminal

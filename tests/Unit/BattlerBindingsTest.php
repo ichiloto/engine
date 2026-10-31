@@ -137,3 +137,15 @@ it('is absent until a project binds battlers as data', function () {
   expect(BattlerBindings::load($this->root))->toBeNull()
     ->and(array_keys(BattlePresentationCatalog::load($this->root)->actors))->toBe(['Hero']);
 });
+
+
+it('reads an impact playback-entry index strictly through the shared pose binding', function () {
+  $data = ['enemies' => ['Wisp' => $this->wisp]];
+  $data['enemies']['Wisp']['poses']['attack']['impactFrame'] = 2;
+  $binding = BattlerBindings::getFromArray($data, $this->root);
+  expect($binding->enemyPoses['Wisp']->getPose(BattlePoseRole::ATTACK)->impactFrame)->toBe(2);
+  foreach (['2', 4, -1] as $invalid) {
+    $data['enemies']['Wisp']['poses']['attack']['impactFrame'] = $invalid;
+    expect(fn() => BattlerBindings::getFromArray($data, $this->root))->toThrow(InvalidArgumentException::class);
+  }
+});

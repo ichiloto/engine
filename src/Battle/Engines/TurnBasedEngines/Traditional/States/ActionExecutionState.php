@@ -452,7 +452,10 @@ class ActionExecutionState extends TurnState
         }
       }, terminalTarget: $targetEffect !== $terminalTarget ? $terminalTarget : null,
       targetScale: $actionAnimation === null ? \Ichiloto\Engine\Animations\EffectScale::DEFAULT
-        : ActionAnimationResolver::getExplicitAnimationScale($action));
+        : ActionAnimationResolver::getExplicitAnimationScale($action),
+      sourceEffectAnchor: $context->ui->usesGraphicalField()
+        ? ($actionAnimation?->sourceEffectAnchor ?? \Ichiloto\Engine\Animations\SourceEffectAnchor::SOURCE)
+        : \Ichiloto\Engine\Animations\SourceEffectAnchor::SOURCE);
     $this->command->begin();
   }
 

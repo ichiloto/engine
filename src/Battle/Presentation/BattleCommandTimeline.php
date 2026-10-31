@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Animations\EffectScale;
+use Ichiloto\Engine\Animations\SourceEffectAnchor;
 use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
@@ -43,7 +44,8 @@ final readonly class BattleCommandTimeline
    */
   public function __construct(BattleTurnTimings $timings, ?CompiledEffectTimeline $source = null,
     ?CompiledEffectTimeline $target = null, ?CompiledEffectTimeline $terminalTarget = null,
-    public bool $resultsOnly = false, bool $showAnnouncement = true, float $targetScale = EffectScale::DEFAULT)
+    public bool $resultsOnly = false, bool $showAnnouncement = true, float $targetScale = EffectScale::DEFAULT,
+    public SourceEffectAnchor $sourceEffectAnchor = SourceEffectAnchor::SOURCE)
   {
     $targetScale = EffectScale::readValue($targetScale, 'Battle target effect scale');
     if ($resultsOnly) {
@@ -76,6 +78,9 @@ final readonly class BattleCommandTimeline
         $effect->defaults['restFrame'] ?? 0);
       $stageSegments[$lane] = $effect->playbackSegments;
     }
+    if ($sourceEffectAnchor === SourceEffectAnchor::TARGET && isset($stages['source'])) {
+      throw new InvalidArgumentException('A target-anchored source effect must use battlefield tracks, not a source cinematic stage.');
+    }
     $this->cinematicStages = $stages;
     $this->cinematicSegments = $stageSegments;
     $this->cinematicStage = $stages['target'] ?? null;
@@ -90,8 +95,10 @@ final readonly class BattleCommandTimeline
     $this->terminalTiming = $this->terminalTarget === null ? null
       : EffectPlaybackTiming::createForBattlePhase($this->terminalTarget, $timings->effectAnimation);
     $phases = $cues = $segments = $restFrames = $restSegments = [];
+    $targetImpactEnd = 0;
     foreach (['advance' => $timings->stepForward, 'announce' => $timings->announcement,
-      'source' => $sourceTiming?->durationSeconds ?? $timings->actionAnimation,
+      'source' => $sourceEffectAnchor === SourceEffectAnchor::TARGET ? $timings->actionAnimation
+        : ($sourceTiming?->durationSeconds ?? $timings->actionAnimation),
       ...($this->summon === null || $this->cinematicStage !== null ? [] : [
         'summon-in' => max(0, (int)($this->summon->transitionCache['in']['durationMs'] ?? 0)) / 1000,
         'summon-title' => trim(strval($this->summon->defaults['name'] ?? '')) === '' ? 0 : .8,
@@ -106,24 +113,36 @@ final readonly class BattleCommandTimeline
       if (!is_finite($seconds) || $seconds < 0) {
         throw new InvalidArgumentException('Battle command durations must be finite and non-negative.');
       }
-      $effect = match ($phase) { 'source' => $source, 'target' => $target, default => null };
-      $clock = match ($phase) { 'source' => $sourceTiming, 'target' => $targetTiming, default => null };
+      $clock = match ($phase) {
+        'source' => $sourceEffectAnchor === SourceEffectAnchor::TARGET ? null : $sourceTiming,
+        'target' => $targetTiming, default => null };
       $length = $phase === 'announce' && !$showAnnouncement ? 0
         : max(1, $clock?->getFrameBoundary($clock->totalFrames, self::FPS) ?? (int)ceil($seconds * self::FPS));
       if ($phase === 'target' && $this->terminalTiming !== null) {
         $length = max($length, $this->terminalTiming->getFrameBoundary($this->terminalTiming->totalFrames, self::FPS));
+      }
+      if ($phase === 'target') { $targetImpactEnd = $cursor + $length; }
+      if ($phase === 'target' && $sourceEffectAnchor === SourceEffectAnchor::TARGET && $sourceTiming !== null) {
+        $length = max($length, $sourceTiming->getFrameBoundary($sourceTiming->totalFrames, self::FPS));
       }
       $phases[$phase] = ['start' => $cursor, 'length' => $length];
       if ($length > 0) {
         $cues[] = ['id' => 'command-' . $phase, 'type' => 'commandPhase', 'frame' => $cursor,
           'payload' => ['phase' => $phase]];
       }
-      if ($effect !== null && $clock !== null) {
+      $effects = match ($phase) {
+        'source' => $sourceEffectAnchor === SourceEffectAnchor::SOURCE ? [['source', $source, $sourceTiming]] : [],
+        'target' => [...($sourceEffectAnchor === SourceEffectAnchor::TARGET ? [['source', $source, $sourceTiming]] : []),
+          ['target', $target, $targetTiming]],
+        default => [],
+      };
+      foreach ($effects as [$lane, $effect, $clock]) {
+        if ($effect === null || $clock === null) { continue; }
         $rest = clamp((int)($effect->defaults['restFrame'] ?? $clock->totalFrames - 1), 0, $clock->totalFrames - 1);
-        $restFrames[$phase] = $cursor + $clock->getFrameBoundary($rest, self::FPS);
-        $restSegments[$phase] = [];
+        $restFrames[$lane] = $cursor + $clock->getFrameBoundary($rest, self::FPS);
+        $restSegments[$phase] ??= [];
         foreach ($effect->playbackSegments as $segment) {
-          $copy = self::getAnchoredSegment($segment, $effect, $phase, $phase === 'target' ? $targetScale : EffectScale::DEFAULT);
+          $copy = self::getAnchoredSegment($segment, $effect, $lane, $lane === 'target' ? $targetScale : EffectScale::DEFAULT);
           $copy['startFrame'] = $cursor + $clock->getFrameBoundary($segment['startFrame'], self::FPS);
           $copy['endFrame'] = $cursor + $clock->getFrameBoundary($segment['endFrame'] + 1, self::FPS) - 1;
           if ($segment['startFrame'] <= $rest && $rest <= $segment['endFrame']) {
@@ -135,7 +154,7 @@ final readonly class BattleCommandTimeline
           $sourceFrame = $cue['frame'];
           $start = $clock->getFrameBoundary($sourceFrame, self::FPS);
           $cue['frame'] = $cursor + $start;
-          $cue['payload']['anchor'] ??= $phase === 'source' ? 'caster' : 'target';
+          $cue['payload']['anchor'] ??= $lane === 'source' ? 'caster' : 'target';
           if (isset($cue['payload']['durationFrames'])) {
             $cue['payload']['durationFrames'] = max(1,
               $clock->getFrameBoundary($sourceFrame + $cue['payload']['durationFrames'], self::FPS) - $start);
@@ -144,7 +163,7 @@ final readonly class BattleCommandTimeline
             $duration = $cue['payload']['durationFrames'] ?? max(1,
               $clock->getFrameBoundary($sourceFrame + ($cue['payload']['duration'] ?? 1), self::FPS) - $start);
             $segments[] = ['startFrame' => $cue['frame'], 'endFrame' => min($cursor + $length - 1, $cue['frame'] + $duration - 1),
-              'layer' => strtolower($cue['type']), 'drawCommands' => [['trackId' => $phase . '-cue-' . $cue['id'],
+              'layer' => strtolower($cue['type']), 'drawCommands' => [['trackId' => $lane . '-cue-' . $cue['id'],
                 'payload' => $cue['payload']]]];
           }
           $cues[] = $cue;
@@ -162,7 +181,7 @@ final readonly class BattleCommandTimeline
     // Summons retain their explicit cue/frame/end policy; ordinary effects may
     // author an impact cue. No cue means resolution at the target stage's end.
     $timing = $target?->defaults['effectTiming'] ?? null;
-    $impact = $phases['target']['start'] + $phases['target']['length'];
+    $impact = $targetImpactEnd;
     if (is_array($timing) && in_array($timing['mode'] ?? 'end', ['frame', 'explicit_frame'], true)) {
       $impact = min($impact, $phases['target']['start'] + $targetTiming->getFrameBoundary((int)($timing['frame'] ?? 0), self::FPS));
     } elseif (!is_array($timing) || ($timing['mode'] ?? 'end') === 'cue') {
@@ -224,7 +243,7 @@ final readonly class BattleCommandTimeline
     if ($clock === null || $frame < 0 || $frame >= $clock->totalFrames) { return null; }
     $offset = $clock->getFrameBoundary($frame, self::FPS);
     if ($offset >= $clock->getFrameBoundary($clock->totalFrames, self::FPS)) { return null; }
-    return $this->phases[$lane === 'terminal-target' ? 'target' : $lane]['start'] + $offset;
+    return $this->phases[$this->getPhaseForAuthoredLane($lane)]['start'] + $offset;
   }
 
   /** Null means this authored lane is inactive, even if paired fallback art is held. */
@@ -232,7 +251,7 @@ final readonly class BattleCommandTimeline
   {
     $clock = $this->getTimingForAuthoredLane($lane);
     if ($clock === null) { return null; }
-    $phase = $this->phases[$lane === 'terminal-target' ? 'target' : $lane];
+    $phase = $this->phases[$this->getPhaseForAuthoredLane($lane)];
     $offset = $frame - $phase['start'];
     if ($offset < 0 || $offset >= $phase['length']
       || $offset >= $clock->getFrameBoundary($clock->totalFrames, self::FPS)) { return null; }
@@ -245,6 +264,12 @@ final readonly class BattleCommandTimeline
     return ['source' => $this->getAuthoredFrameAtCommandFrame('source', $frame),
       'target' => $this->getAuthoredFrameAtCommandFrame('target', $frame),
       'terminal-target' => $this->getAuthoredFrameAtCommandFrame('terminal-target', $frame)];
+  }
+
+  private function getPhaseForAuthoredLane(string $lane): string
+  {
+    return $lane === 'terminal-target' || ($lane === 'source' && $this->sourceEffectAnchor === SourceEffectAnchor::TARGET)
+      ? 'target' : $lane;
   }
 
   private function getTimingForAuthoredLane(string $lane): ?EffectPlaybackTiming

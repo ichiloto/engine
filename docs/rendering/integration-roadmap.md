@@ -4465,3 +4465,19 @@ Engine delivery. Persistent state/reaction-owned shadow-decoy visuals and the
 newly exposed land-footing/full-body clearance limitation remain separate open
 Engine follow-ups. Actual current findings are retained in Game's 0158 action
 brief and 0242 clearance receipt in the agent channel.
+
+
+### Action pose impact anchor — shared delivery, 31 October 2026
+
+Non-looping battler poses declare an optional playback-list `impactFrame`.
+Graphical battle presentation aligns that entry to the actual command target
+boundary, holds natural anticipation for long announcements, compresses a short
+lead-in, and plays recovery through return at authored speed. Reduced motion
+uses the rest cell; Terminal and existing unanchored data retain their clocks.
+Animation source effects can explicitly select the same target anchor through
+`SourceEffectAnchor`, preserving caster attachment, effect cadence and target-owned
+combat resolution. See [action pose impact alignment](../effect-animation.md#action-pose-impact-alignment).
+Claude owns Editor selectors, source-preserving round trips and graphical preview
+consumption. Final Kaelion animation/crescent production, appearance approval and
+Game binding remain with their current owners. Native/player acceptance remains
+separate from synthetic timing and actual graphical-canvas checks.

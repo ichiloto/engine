@@ -2310,3 +2310,43 @@ this plan's Phases 1-4 follow it.
   of characters.
 - Per-tile terrain animation (A1) stays on the tile animation counter;
   character and object sheets animate through the character walk animation.
+
+
+### Action pose impact alignment
+
+A non-looping `BattlerPose` may declare `impactFrame`, a zero-based index into
+its `frames` playback list, including repeated cells used for holds. For example,
+`frames: [0, 1, 1, 2, 2, 3], fps: 20, loop: false, impactFrame: 3` anchors
+source cell 2 at the command's target-phase start. Plain battler bindings use
+that same `impactFrame` integer field. Looping poses and indices outside the
+playback list are rejected.
+
+The shared command playhead supplies elapsed time from announcement start and
+the target boundary. Anticipation runs at the authored fps, then holds the entry
+immediately before impact while a long announcement finishes. If the available
+lead-in is shorter than the authored anticipation, only anticipation is compressed
+to fit. Impact, held entries and recovery continue at the authored fps. A zero-index
+impact holds `restFrame` before the boundary. Anchored action recovery remains
+visible while the actor returns to its slot; completion, cancellation and actual
+reaction poses retain their normal ownership. Reduced motion shows `restFrame`.
+Unanchored poses and Terminal presentation retain their existing clocks.
+
+The action's numeric Animation binding may select `sourceEffectAnchor: 'target'`
+(`SourceEffectAnchor::TARGET` in PHP). Its `sourceEffect` then starts on this
+same target boundary and stays attached to the caster. Its authored frames,
+sound/flash cues, playback speed and source-track identity remain intact. The
+source phase keeps the configured anticipation budget; the target presentation
+lifetime accommodates the overlapping caster effect. Damage still follows the
+target effect's existing `effectTiming`, cue or original target-end policy;
+an overlapping caster effect does not move that resolution cue. For a hit at
+target start, author the target effect's existing frame-0 impact policy.
+`sourceEffectAnchor: 'source'` is the compatibility default and is omitted when
+serializing unchanged animation data. The target anchor supports battlefield
+tracks; a source cinematic stage requires its existing sequential source lane.
+
+Editor follow-up: expose the optional impact playback-entry selector with its
+non-looping validation, and the Source/Target source-effect anchor selector,
+through existing source-preserving save, undo and previews. Graphical pose previews
+must supply the actual command target boundary, using
+`BattleCommandPlayback::getPoseImpactSeconds`; static sheet inspection keeps its
+ordinary fps clock. No game-specific offset or per-render timer is needed.

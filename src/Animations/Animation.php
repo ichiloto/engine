@@ -43,6 +43,7 @@ final class Animation
     public ?string $sourceEffect = null,
     public ?string $targetEffect = null,
     array $roles = [],
+    public SourceEffectAnchor $sourceEffectAnchor = SourceEffectAnchor::SOURCE,
   )
   {
     if (!array_is_list($roles) || count($roles) !== count(array_unique($roles, SORT_REGULAR))) {
@@ -108,6 +109,8 @@ final class Animation
       $data['sourceEffect'] ?? null,
       $data['targetEffect'] ?? null,
       $data['roles'] ?? [],
+      array_key_exists('sourceEffectAnchor', $data)
+        ? SourceEffectAnchor::from($data['sourceEffectAnchor']) : SourceEffectAnchor::SOURCE,
     );
   }
 
@@ -241,6 +244,7 @@ final class Animation
       'maxFrames' => $this->maxFrames,
       ...($this->sourceEffect === null ? [] : ['sourceEffect' => $this->sourceEffect]),
       ...($this->targetEffect === null ? [] : ['targetEffect' => $this->targetEffect]),
+      ...($this->sourceEffectAnchor === SourceEffectAnchor::SOURCE ? [] : ['sourceEffectAnchor' => $this->sourceEffectAnchor->value]),
       ...($this->roles === [] ? [] : ['roles' => $this->roles]),
       'frames' => array_map(
         static fn(AnimationFrame $frame): array => $frame->toArray(),

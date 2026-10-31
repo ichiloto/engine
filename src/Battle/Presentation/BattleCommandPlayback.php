@@ -101,10 +101,14 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $this->reactionFrames[spl_object_id($battler)] = $startFrame ?? $this->impactFrame ?? $this->session->currentFrame;
   }
 
-  public function getPoseRole(CharacterInterface $battler): BattlePoseRole
+  public function getPoseRole(CharacterInterface $battler, ?BattlePoseSet $poses = null): BattlePoseRole
   {
     $rest = BattlePoseRole::getRestingRole($battler);
     if ($this->cancelled || $this->isCompleted || $rest === BattlePoseRole::KNOCKOUT || $rest === BattlePoseRole::CONCEDE) { return $rest; }
+    if ($this->phase === 'return' && $battler === $this->actor
+      && !isset($this->reactions[spl_object_id($battler)]) && $poses?->getPose($this->pose)?->impactFrame !== null) {
+      return $this->pose;
+    }
     if (!in_array($this->phase, ['advance', 'return', 'finish'], true)) {
       return $this->reactions[spl_object_id($battler)] ?? ($battler === $this->actor ? $this->pose : $rest);
     }
@@ -116,6 +120,15 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     $start = $this->reactionFrames[spl_object_id($battler)] ?? ($this->plan->phases['announce']['start'] ?? 0);
     return max(0, ($this->session->currentFrame - $start) / BattleCommandTimeline::FPS);
+  }
+
+  /** The same command boundary anchors an action pose and its target-timed caster effect. */
+  public function getPoseImpactSeconds(CharacterInterface $battler): ?float
+  {
+    if ($battler !== $this->actor || isset($this->reactionFrames[spl_object_id($battler)])
+      || !isset($this->plan->phases['target'], $this->plan->phases['announce'])) { return null; }
+    return max(0, ($this->plan->phases['target']['start'] - $this->plan->phases['announce']['start'])
+      / BattleCommandTimeline::FPS);
   }
 
   /** Drawing may hold a rest frame, but never seek the logical cue playhead. */
