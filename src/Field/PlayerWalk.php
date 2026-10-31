@@ -6,6 +6,7 @@ use Closure;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Rendering\FieldMetric;
+use InvalidArgumentException;
 
 /**
  * RPG Maker MZ's four-directional walking, for input that reports held keys.
@@ -23,6 +24,12 @@ use Ichiloto\Engine\Rendering\FieldMetric;
  * - From standing, a press faces and steps at once. While a step is still
  *   in progress a new direction waits for it to finish: a direction change
  *   grants no free step.
+ * - The next step is decided on the last update before the step in progress
+ *   ends, and begins when that step ends: the clock keeps its time. The
+ *   renderer draws each slide after the one before it, so it must receive
+ *   the next step before the slide in progress ends; deciding on the update
+ *   after the end would leave the character standing for part of a frame
+ *   whenever update timing or transport delay varied.
  * - A tap (pressed and released between updates, or during a step) is kept
  *   until the next step, so it is never lost; it cannot outrun walking.
  * - Blocked movement faces the direction and banks no time. After a stall at
@@ -31,6 +38,10 @@ use Ichiloto\Engine\Rendering\FieldMetric;
  *   battle or transfer) cancels walking. Keys pressed before or during it
  *   are stale: a direction still held when control returns must be pressed
  *   again.
+ * - A dash ({@see PlayerDash}) divides a step's time by its speed
+ *   multiplier, read when the step is decided. The step in progress keeps
+ *   its own time, so switching between walking and dashing changes the pace
+ *   from the next step on and the steps still chain end to end.
  *
  * Event-only input (the terminal) never uses this; it keeps stepping once
  * per key event, exactly as before.
@@ -60,9 +71,13 @@ final class PlayerWalk
    *
    * @param float $deltaSeconds Elapsed time since the previous field update.
    * @param Closure(Vector2, float): bool $step Commits one validated step lasting the given seconds; true when the player moved.
+   * @param float $speedMultiplier How many times faster than walking a step decided now goes: 1 walks, a dash is faster.
    */
-  public function update(float $deltaSeconds, Closure $step): void
+  public function update(float $deltaSeconds, Closure $step, float $speedMultiplier = 1.0): void
   {
+    if (! is_finite($speedMultiplier) || $speedMultiplier < 1.0) {
+      throw new InvalidArgumentException('A step goes at walking speed or faster: the speed multiplier must be a finite number of at least 1.');
+    }
     $resetThrough = InputManager::getLatestResetPressOrder();
     if ($resetThrough > $this->staleThrough) {
       // A reset also invalidates a tap and clock retained outside InputManager.
@@ -84,13 +99,15 @@ final class PlayerWalk
       $this->remaining = max(0.0, $this->remaining);
       return;
     }
-    if ($this->remaining > self::CLOCK_TOLERANCE_SECONDS) {
+    // The next update is expected after as long as this one took.
+    $lead = is_finite($deltaSeconds) ? max(0.0, $deltaSeconds) : 0.0;
+    if ($this->remaining > $lead + self::CLOCK_TOLERANCE_SECONDS) {
       return;
     }
 
     [$x, $y] = self::DIRECTIONS[$action];
     $direction = new Vector2($x, $y);
-    $seconds = $this->metric->getWalkSeconds($direction);
+    $seconds = $this->metric->getWalkSeconds($direction) / $speedMultiplier;
     $this->tap = null;
     $cancellations = $this->cancellations;
     $moved = $step($direction, $seconds);
@@ -98,8 +115,9 @@ final class PlayerWalk
       // The step handed control elsewhere (a transfer, a battle): it already cancelled walking.
       return;
     }
-    // Carry the overshoot so equal time walks equal distance at any update
-    // rate; never carry more than one step's debt.
+    // Carry the overshoot, or the time left of the step in progress, so equal
+    // time walks equal distance at any update rate; never carry more than one
+    // step's debt.
     $this->remaining = $moved ? max(0.0, $this->remaining + $seconds) : 0.0;
   }
 

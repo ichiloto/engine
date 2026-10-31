@@ -37,6 +37,9 @@ final class SkillEffectExecutor
     array $targets,
     string $actionId,
     string $executionId,
+    ?\Ichiloto\Engine\Battle\BattleReactions $reactions = null,
+    ?\Ichiloto\Engine\Battle\BattleGaugeControl $gauges = null,
+    ?\Ichiloto\Engine\Battle\Formation\BattleFormation $formation = null,
   ): CombatActionResult
   {
     $orderedTargetIds = [];
@@ -44,6 +47,10 @@ final class SkillEffectExecutor
     $secondaryByTarget = [];
     $resourcesByTarget = [];
     $rollLedger = new SkillRollLedger();
+    $groupContexts = [];
+    $groupEffects = array_values(array_filter($skill->effects, static fn($effect): bool =>
+      $effect instanceof \Ichiloto\Engine\Entities\Effects\SkillEffects\GroupSkillEffect));
+    foreach ($groupEffects as $effect) { $effect->validateContext($formation, $targets); }
 
     foreach ($targets as $target) {
       if (! $target instanceof CharacterInterface) {
@@ -62,9 +69,12 @@ final class SkillEffectExecutor
         $skill->invocation->hitScope,
         $skill->invocation->criticalScope,
         $rollLedger,
+        $reactions,
+        $gauges,
       );
 
       foreach ($skill->effects as $effect) {
+        if ($effect instanceof \Ichiloto\Engine\Entities\Effects\SkillEffects\GroupSkillEffect) { continue; }
         $applications = $effect->repeatsWithInvocation()
           ? max(1, $skill->invocation->repeat)
           : 1;
@@ -83,6 +93,7 @@ final class SkillEffectExecutor
         }
       }
 
+      $groupContexts[spl_object_id($target)][] = $context;
       foreach ($context->results() as $hit) {
         if (! isset($hitsByTarget[$hit->targetId])) {
           $orderedTargetIds[] = $hit->targetId;
@@ -103,6 +114,12 @@ final class SkillEffectExecutor
         ...$secondaryByTarget[$targetId],
         ...$context->secondaryOutcomes(),
       ];
+    }
+
+    $groupContext = new SkillGroupEffectContext($actor, $groupContexts, $this->random, $formation);
+    foreach ($groupEffects as $effect) { $effect->applyToGroup($groupContext); }
+    foreach ($groupContext->getOutcomes() as $targetId => $outcomes) {
+      $secondaryByTarget[$targetId] = [...($secondaryByTarget[$targetId] ?? []), ...$outcomes];
     }
 
     foreach ($resourcesByTarget as $targetId => $change) {

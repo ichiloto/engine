@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Messaging\Dialogue\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInterface;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\Interfaces\ModalPresentationProviderInterface;
 use Ichiloto\Engine\UI\Presentation\MenuCanvas;
@@ -23,6 +25,16 @@ final class DialogueScenePresentation
 
     public function __construct(private readonly string $assetRoot) {}
 
+    /**
+     * Whether the frame composer presents a scene's active UI owners (dialogue and modals) itself, over the
+     * scene's canvas. A scene canvas then leaves their Terminal cells out: an owner the composer cannot present
+     * graphically falls back, reported, to the whole Terminal frame, never to a Terminal box over artwork.
+     */
+    public static function composesSceneOwners(string $assetRoot): bool
+    {
+        return file_exists($assetRoot . '/' . DialoguePresentationCatalog::FILE);
+    }
+
     public function getPageLayout(string $speaker, DialogueContext $context, string $help, int $width,
         bool $interactive = true): ?DialoguePageLayout
     {
@@ -30,6 +42,21 @@ final class DialogueScenePresentation
             $this->loadCatalogue();
             return $this->catalogue?->theme === null ? null
                 : new DialoguePageLayout($this->catalogue, $speaker, $context, $help, $width, $interactive);
+        } catch (Throwable $error) {
+            $this->report('Dialogue layout degraded to terminal: ' . $error->getMessage());
+            return null;
+        }
+    }
+
+    /** Actual UI geometry, independent of typing progress and camera state. */
+    public function getProtectedBounds(DialogueSnapshot $line, int $width, int $height): ?array
+    {
+        if ($line->context->skitId !== null) { return null; }
+        try {
+            $this->loadCatalogue();
+            if ($this->catalogue?->theme === null) { return null; }
+            $layout = new DialoguePageLayout($this->catalogue, $line->speaker, $line->context, $line->help, $width, $line->interactive);
+            return new DialoguePageGeometry($layout, $this->catalogue, $line->speaker, $line->position, $width, $height)->getProtectedBounds();
         } catch (Throwable $error) {
             $this->report('Dialogue layout degraded to terminal: ' . $error->getMessage());
             return null;
@@ -63,14 +90,21 @@ final class DialogueScenePresentation
     {
         $fallback = null;
         try {
-            if (!file_exists($this->assetRoot . '/' . DialoguePresentationCatalog::FILE)) { return null; }
             $context = $scene instanceof ScenePresentationContextProviderInterface ? $scene->getPresentationContext() : null;
             $active = $context !== null ? $context->getActivePresentations() : $scene->getUI()->getActivePresentations();
             if ($active === []) { return null; }
             $embedded = $base?->presentationOwners ?? [];
+            if (!self::composesSceneOwners($this->assetRoot)) {
+                if (array_any($active, static fn($owner) =>
+                    !in_array(PresentationLayerPolicy::getUiLayerId($owner), $embedded, true))) {
+                    $this->report('Dialogue and modals have no graphical theme (no dialogue presentation catalogue); '
+                        . 'terminal presentation retained.');
+                }
+                return null;
+            }
             // Failed optional graphics must not conceal an unconverted modal behind an opaque scene.
             if ($base !== null && array_any($active, static fn($owner) =>
-                !in_array('ui:' . spl_object_id($owner), $embedded, true))) {
+                !in_array(PresentationLayerPolicy::getUiLayerId($owner), $embedded, true))) {
                 $fallback = new DialogueSurface(null, false);
             }
             if (!$supportsCanvas) {
@@ -79,7 +113,10 @@ final class DialogueScenePresentation
             }
             $this->loadCatalogue();
             $catalogue = $this->catalogue;
-            if ($catalogue?->theme === null) { return $fallback; }
+            if ($catalogue?->theme === null) {
+                $this->report('Dialogue presentation catalogue has no theme; terminal presentation retained.');
+                return $fallback;
+            }
             $canvas = $base;
             $excluded = [];
             $overlay = $base === null;
@@ -87,7 +124,7 @@ final class DialogueScenePresentation
             $dialogues = 0;
             // UIManager reports the input-owning top layer first; painting proceeds bottom to top.
             foreach (array_reverse($active) as $owner) {
-              $layerId = 'ui:' . spl_object_id($owner);
+              $layerId = PresentationLayerPolicy::getUiLayerId($owner);
               if (in_array($layerId, $embedded, true)) { $excluded[] = $layerId; continue; }
               if ($owner instanceof DialoguePresentationProviderInterface) {
                 $line = $owner->getDialogueSnapshot();
@@ -96,8 +133,11 @@ final class DialogueScenePresentation
                     $this->report('Renderer lacks canvas_overlay; field dialogue retains terminal presentation.');
                     return null;
                 }
-                if ($skit && !isset($catalogue->skits[$line->context->skitId]['background'])) {
-                    $this->report('Skit ' . $line->context->skitId . ' has no contextual background binding; using theme backing.');
+                // The skit's owner reports a backdrop nothing names; a named one the stage cannot show is reported here.
+                $backdrop = $skit ? $line->context->backdrop : null;
+                if ($backdrop !== null && PngAssetPreflight::getAvailableSize($catalogue->theme->assetRoot, $backdrop) === null) {
+                    $this->report('Skit ' . $line->context->skitId . ' backdrop ' . $backdrop
+                        . ' is missing or is not a PNG the renderer can show; using theme backing.');
                 }
                 if ($skit && !$supportsImageTone && $catalogue->skitStage->inactiveBrightness !== 1.0) {
                     $this->report('Renderer lacks canvas_image_tone; skit speaker emphasis retains scale without dimming.');
@@ -114,7 +154,10 @@ final class DialogueScenePresentation
                 }
                 $dialogues++;
               } elseif ($owner instanceof ModalPresentationProviderInterface) {
-                if ($canvas === null && !$supportsOverlay) { return $fallback; }
+                if ($canvas === null && !$supportsOverlay) {
+                    $this->report('Renderer lacks canvas_overlay; modals retain terminal presentation.');
+                    return $fallback;
+                }
                 $modal = $owner->getModalPresentation();
                 if ($modal === null) { throw new RuntimeException('Active modal has no graphical snapshot.'); }
                 $part = MenuModalPresentation::compose(new PresentationCanvas($base?->width ?? $width,

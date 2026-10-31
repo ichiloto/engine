@@ -126,12 +126,15 @@ if (! function_exists('confirm') ) {
    * @param string $message The message to show.
    * @param string $title The title of the dialog. Defaults to "Confirm".
    * @param int $width The width of the dialog. Defaults to 34.
+   * @param string $confirmLabel The confirming button's label, such as "Yes".
+   * @param string $cancelLabel The declining button's label, such as "No".
    * @return bool Whether the user confirmed or not.
    * @throws Exception If the game instance is not set.
    */
-  function confirm(string $message, string $title = 'Confirm', int $width = DEFAULT_DIALOG_WIDTH): bool
+  function confirm(string $message, string $title = 'Confirm', int $width = DEFAULT_DIALOG_WIDTH,
+    string $confirmLabel = 'OK', string $cancelLabel = 'Cancel'): bool
   {
-    return Console::confirm($message, $title, $width);
+    return Console::confirm($message, $title, $width, $confirmLabel, $cancelLabel);
   }
 }
 

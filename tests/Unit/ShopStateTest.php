@@ -55,7 +55,7 @@ it('uses action-appropriate quantity help for buying and selling', function (boo
     };
     $mode->previousMode = $selling ? new ShopInventorySelectionMode($state) : new ShopMerchandiseSelectionMode($state);
     $mode->enter();
-    expect($info->text)->toBe('Use the arrow keys to adjust the quantity of the item to ' . ($selling ? 'sell.' : 'purchase.'));
+    expect($info->text)->toBe('Choose how many to ' . ($selling ? 'sell.' : 'purchase.'));
   } finally {
     foreach ($before as $name => $value) {
       new ReflectionProperty(ConfigStore::class, $name)->setValue(null, $value);

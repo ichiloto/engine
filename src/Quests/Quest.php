@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Quests;
 
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Localization\Vocabulary;
+use Ichiloto\Engine\Progression\Mastery\MasteryVocabulary;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use InvalidArgumentException;
@@ -27,10 +28,14 @@ class Quest
    * @param string $description The journal description.
    * @param string $giver The quest giver's name.
    * @param QuestObjective[] $objectives The objectives, in order.
-   * @param array{gold?: int, experience?: int, items?: array<int, string|array{item: string, quantity?: int, price?: int}>} $rewards The completion rewards.
+   * @param array{gold?: int, experience?: int, skillPoints?: int, items?: array<int, string|array{item: string, quantity?: int, price?: int}>} $rewards The completion rewards.
    * @param array<int, array<string, mixed>> $prerequisites Conditions that must hold before the quest can be accepted (same shapes as event-trigger conditions, plus `['type' => 'quest', 'name' => ..., 'status' => 'completed'|'active']`).
    * @param bool $isOptional True for a side quest, which is offered to the
    * player and only entered in the journal if they accept it.
+   * @param list<QuestWaymark> $startWaymarks Where the quest starts: shown
+   * while it can start (not yet accepted, prerequisites holding) and each
+   * waymark's own conditions hold, so the player is led to its giver before
+   * it enters the journal.
    */
   public function __construct(
     protected(set) string $id,
@@ -41,8 +46,15 @@ class Quest
     protected(set) array $rewards = [],
     protected(set) array $prerequisites = [],
     protected(set) bool $isOptional = false,
+    protected(set) array $startWaymarks = [],
   )
   {
+    foreach ($this->startWaymarks as $waymark) {
+      if (! $waymark instanceof QuestWaymark) {
+        throw new InvalidArgumentException('Quest start waymarks must be QuestWaymark values.');
+      }
+    }
+    $this->startWaymarks = array_values($this->startWaymarks);
   }
 
   /**
@@ -82,6 +94,10 @@ class Quest
 
     if (($experience = intval($this->rewards['experience'] ?? 0)) > 0) {
       $parts[] = sprintf('%d %s', $experience, Vocabulary::getTerm('stats.exp', 'EXP'));
+    }
+
+    if (($skillPoints = intval($this->rewards['skillPoints'] ?? 0)) > 0) {
+      $parts[] = sprintf('%d %s', $skillPoints, MasteryVocabulary::getPointsLabel());
     }
 
     $itemStore = ConfigStore::has(ItemStore::class) ? ConfigStore::get(ItemStore::class) : null;
@@ -141,6 +157,10 @@ class Quest
     if (empty($objectives)) {
       throw new InvalidArgumentException(sprintf('Quest %s has no objectives.', $id));
     }
+    $startWaymarks = $data['startWaymarks'] ?? [];
+    if (! is_array($startWaymarks) || ! array_is_list($startWaymarks)) {
+      throw new InvalidArgumentException(sprintf('Quest %s start waymarks must be a list.', $id));
+    }
 
     return new self(
       $id,
@@ -151,6 +171,7 @@ class Quest
       is_array($data['rewards'] ?? null) ? $data['rewards'] : [],
       is_array($data['prerequisites'] ?? null) ? $data['prerequisites'] : [],
       (bool) ($data['optional'] ?? false),
+      array_map(QuestWaymark::fromArray(...), $startWaymarks),
     );
   }
 }

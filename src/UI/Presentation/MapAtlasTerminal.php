@@ -13,24 +13,33 @@ use Ichiloto\Engine\Localization\MessageCatalog;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\IO\Console\TerminalText;
 
 /** Shared physical atlas drawing. It reads knowledge supplied by gameplay. */
 final class MapAtlasTerminal
 {
     public static function getFocusHint(): string
     {
+        $controls=self::findControls(['up','right','down','left']);
+        $hint=TerminalControlText::formatControls($controls).' '.MessageCatalog::getTerm('map.focus');
+        $pages=self::findControls(['menu_page_previous','menu_page_next']);
+        return $hint.($pages===[] ? '' : TerminalControlText::SEPARATOR.TerminalControlText::formatControls($pages).' '.MessageCatalog::getTerm('map.cycle'));
+    }
+
+    /**
+     * The distinct bound controls of a group of actions, in order.
+     *
+     * @param list<string> $actions
+     * @return list<\Ichiloto\Engine\IO\ControlHint>
+     */
+    private static function findControls(array $actions): array
+    {
         $controls=[];
-        foreach (['up','right','down','left'] as $action) {
-            $hint=ActionHints::resolve($action,MessageCatalog::getTerm('map.focus'));
-            if ($hint->control!==null) { $controls[]=$hint->control->label; }
+        foreach ($actions as $action) {
+            $control=ActionHints::resolveControl($action);
+            if ($control!==null) { $controls[$control->family.'.'.$control->control]=$control; }
         }
-        $hint=($controls===[] ? 'Unbound' : implode('/',array_unique($controls))).':'.MessageCatalog::getTerm('map.focus');
-        $pages=[];
-        foreach (['menu_page_previous','menu_page_next'] as $action) {
-            $control=ActionHints::resolve($action,MessageCatalog::getTerm('map.cycle'))->control;
-            if ($control!==null) { $pages[]=$control->label; }
-        }
-        return $hint.($pages===[] ? '' : '  '.implode('/',array_unique($pages)).':'.MessageCatalog::getTerm('map.cycle'));
+        return array_values($controls);
     }
 
     public static function getMarkerSymbol(MapLandmarkKind $kind, bool $global = false, bool $places = false): string
@@ -60,10 +69,15 @@ final class MapAtlasTerminal
         return $base;
     }
 
-    /** @return list<string> Stable whole-map rows; a selected landmark takes priority in a cluster. */
+    /**
+     * @param list<\Ichiloto\Engine\Field\Waymarks\FieldWaymark> $waymarks Drawn over landmarks, under a selection and the player.
+     * @return list<string> Stable whole-map rows; a selected landmark takes priority in a cluster.
+     */
     public static function renderMap(MapOverview $overview, array $landmarks, Vector2 $player,
         MovementHeading $heading, int $width, int $height, int $selected = -1,
-        ?MapProjection $projection = null, bool $global = false, bool $drawOutlines = true): array
+        ?MapProjection $projection = null, bool $global = false, bool $drawOutlines = true,
+        array $waymarks = [], ?\Ichiloto\Engine\Animations\Field\FieldWaymarkStyle $waymarkStyle = null,
+        ?\Ichiloto\Engine\Animations\Field\FieldCueStyle $cueStyle = null): array
     {
         $projection ??= $overview->getTerminalProjection($width, $height);
         $raster = $overview->getTerminalRaster($width, $height, $projection,$drawOutlines);
@@ -94,6 +108,17 @@ final class MapAtlasTerminal
                     $occupied[$key] = false;
                 }
             }
+        }
+        $waymarkStyle ??= new \Ichiloto\Engine\Animations\Field\FieldWaymarkStyle();
+        foreach ($waymarks as $waymark) {
+            $cell = $waymark->anchor->cell;
+            if (!$projection->containsCell((int)$cell->x,(int)$cell->y)) { continue; }
+            $point = $projection->projectCell((int)$cell->x, (int)$cell->y);
+            $x = min($width - 1, (int) floor($point->x));
+            $y = min($height - 1, (int) floor($point->y));
+            if (($occupied["{$x}:{$y}"] ?? false) === true) { continue; }
+            $raster[$y][$x] = TerminalText::formatStyles($waymarkStyle->styleSymbol($cueStyle ?? new \Ichiloto\Engine\Animations\Field\FieldCueStyle()));
+            $occupied["{$x}:{$y}"] = false;
         }
         $playerX = (int) floor($player->x);
         $playerY = (int) floor($player->y);

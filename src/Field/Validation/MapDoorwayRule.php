@@ -1,0 +1,163 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Ichiloto\Engine\Field\Validation;
+
+use Ichiloto\Engine\Animations\Field\FieldPresentationCatalog;
+use Ichiloto\Engine\Core\CellArea;
+use Ichiloto\Engine\Core\WorldConditionExclusion;
+use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
+use Ichiloto\Engine\Field\Enumerations\DoorwayEntrance;
+use Ichiloto\Engine\Field\MapGraphics;
+use Ichiloto\Engine\Field\WorldObjectDefinition;
+use Ichiloto\Engine\Field\WorldObjectPlacement;
+use InvalidArgumentException;
+
+/**
+ * Painted doorways sit on their entrances, and entrances stay in front of the
+ * art drawn around them.
+ *
+ * An entrance is a transfer event. A world object's resource may declare the
+ * cells where its artwork paints a door ({@see \Ichiloto\Engine\Field\WorldObjectResource::$doorway})
+ * and where each door's entrance lies ({@see DoorwayEntrance}); each
+ * placement's doors must meet an entrance exactly as declared, so art and the
+ * authored map agree. A door entered from the front must also keep the
+ * entrance off its own painted cell. A world object draws over anything standing on the rows of its
+ * covered cells above its anchor row, its ground row, so no entrance may lie
+ * there. Both read authored cells only: image size, pixels and the draw
+ * layer decide nothing, and ordinary overhang above open floor stays legal.
+ * Objects and entrances whose conditions provably never hold together do not
+ * meet.
+ *
+ * A tileset piece may declare its doorway the same way
+ * ({@see \Ichiloto\Engine\Rendering\Tilesets\TilesetPiece::$doorway}); every
+ * copy of it standing whole on the map's tiles ({@see MapGraphics::findPieceStamps()})
+ * must meet its entrances so. A stamped piece is always drawn, so any entrance
+ * meets it whatever its conditions.
+ */
+final class MapDoorwayRule
+{
+    public const string RULE = 'object.doorway';
+
+    private function __construct()
+    {
+    }
+
+    /**
+     * @param array $data The map's authored data, for its world objects.
+     * @param list<array> $events Resolved event definitions ({@see MapEventResolver}).
+     * @param list<list<string>> $grid The physical grid the placements are read against.
+     * @param FieldPresentationCatalog|null $catalog Resources, when the map names any; unresolved resources are reported elsewhere.
+     * @param MapGraphics|null $graphics The map's tiles and tileset, whose stamped pieces may paint doors; null when it has none.
+     * @return list<MapValidationIssue>
+     */
+    public static function inspect(string $mapId, array $data, array $events, array $grid, ?FieldPresentationCatalog $catalog,
+        ?MapGraphics $graphics = null): array
+    {
+        $entries = is_array($data[WorldObjectDefinition::DATA_KEY] ?? null) ? $data[WorldObjectDefinition::DATA_KEY] : [];
+        $entrances = [];
+        foreach ($events as $event) {
+            $class = $event['class'] ?? null;
+            if (!is_string($class) || !is_a($class, TransferPlayerTrigger::class, true)) { continue; }
+            $entrances[] = [
+                'marker' => is_string($event['marker'] ?? null) ? $event['marker'] : null,
+                'area' => CellArea::fromArray($event['area'], 'Event area'),
+                'conditions' => is_array($event['conditions'] ?? null) ? $event['conditions'] : [],
+            ];
+        }
+        $issues = [];
+        foreach (array_is_list($entries) ? $entries : [] as $index => $entry) {
+            try {
+                $placement = WorldObjectPlacement::read(is_array($entry) ? $entry : [], $grid);
+            } catch (InvalidArgumentException) {
+                continue; // object.reference reports a malformed placement.
+            }
+            $meeting = array_values(array_filter($entrances, static fn(array $entrance): bool
+                => !WorldConditionExclusion::proveExclusive($placement->conditions, $entrance['conditions'])));
+            foreach ($meeting as $entrance) {
+                $hidden = array_values(array_filter($placement->cells, static fn(array $cell): bool
+                    => $cell[1] < $placement->y && $entrance['area']->containsCell($cell[0], $cell[1])));
+                if ($hidden === []) { continue; }
+                $label = $entrance['marker'] === null ? 'An entrance' : "Entrance '{$entrance['marker']}'";
+                $issues[] = new MapValidationIssue($mapId, self::RULE, sprintf(
+                    "%s at %d,%d stands behind world object '%s', whose ground row is %d: its artwork hides the player there.",
+                    $label, $hidden[0][0], $hidden[0][1], $placement->id, $placement->y,
+                ), $entrance['marker'], $hidden, ['events', $entrance['marker'] ?? ''],
+                    "Place the entrance on the object's ground row or in front of it, where its doorway meets the ground.");
+            }
+            $doorway = self::readDoorway($entry, $catalog);
+            if ($doorway === []) { continue; }
+            $off = [];
+            foreach ($doorway as $cell) {
+                $x = $placement->x + $cell['x'];
+                $y = $placement->y + $cell['y'];
+                [$entranceX, $entranceY] = $cell['entrance']->getEntranceCell($x, $y);
+                $entered = array_any($meeting, static fn(array $entrance): bool => $entrance['area']->containsCell($entranceX, $entranceY));
+                // A door painted on a solid face is entered from the front, never walked onto.
+                $onSolidDoor = $cell['entrance'] === DoorwayEntrance::FRONT
+                    && array_any($meeting, static fn(array $entrance): bool => $entrance['area']->containsCell($x, $y));
+                if (!$entered || $onSolidDoor) { $off[] = [$x, $y, $cell['entrance'], $onSolidDoor]; }
+            }
+            if ($off === []) { continue; }
+            [$x, $y, $relation, $onSolidDoor] = $off[0];
+            $issues[] = new MapValidationIssue($mapId, self::RULE, match (true) {
+                $onSolidDoor => sprintf("World object '%s' paints a door at %d,%d entered from the front, but an entrance lies on the door itself.",
+                    $placement->id, $x, $y),
+                $relation === DoorwayEntrance::FRONT => sprintf("World object '%s' paints a door at %d,%d entered from the front, with no entrance at %d,%d.",
+                    $placement->id, $x, $y, $x, $y + 1),
+                default => sprintf("World object '%s' paints its doorway at %d,%d, where no entrance is.", $placement->id, $x, $y),
+            }, cells: array_map(static fn(array $cell): array => [$cell[0], $cell[1]], $off), path: [WorldObjectDefinition::DATA_KEY, $index],
+                hint: "Place the object so each painted door meets its entrance as its resource declares, or correct the resource's doorway to match its art.");
+        }
+        return [...$issues, ...self::inspectPieceDoorways($mapId, $entrances, $graphics)];
+    }
+
+    /**
+     * Each stamped piece's painted doors against the map's entrances.
+     *
+     * @param list<array{marker: ?string, area: CellArea, conditions: array}> $entrances
+     * @return list<MapValidationIssue>
+     */
+    private static function inspectPieceDoorways(string $mapId, array $entrances, ?MapGraphics $graphics): array
+    {
+        $issues = [];
+        foreach ($graphics === null ? [] : $graphics->tileset->pieces as $piece) {
+            if ($piece->doorway === []) { continue; }
+            foreach ($graphics->findPieceStamps($piece) as [$left, $top]) {
+                $off = [];
+                foreach ($piece->doorway as $cell) {
+                    [$x, $y] = [$left + $cell['x'], $top + $cell['y']];
+                    [$entranceX, $entranceY] = $cell['entrance']->getEntranceCell($x, $y);
+                    $entered = array_any($entrances, static fn(array $entrance): bool => $entrance['area']->containsCell($entranceX, $entranceY));
+                    $onSolidDoor = $cell['entrance'] === DoorwayEntrance::FRONT
+                        && array_any($entrances, static fn(array $entrance): bool => $entrance['area']->containsCell($x, $y));
+                    if (!$entered || $onSolidDoor) { $off[] = [$x, $y, $cell['entrance'], $onSolidDoor]; }
+                }
+                if ($off === []) { continue; }
+                [$x, $y, $relation, $onSolidDoor] = $off[0];
+                $issues[] = new MapValidationIssue($mapId, self::RULE, match (true) {
+                    $onSolidDoor => sprintf("Piece '%s' at %d,%d paints a door at %d,%d entered from the front, but an entrance lies on the door itself.",
+                        $piece->id, $left, $top, $x, $y),
+                    $relation === DoorwayEntrance::FRONT => sprintf("Piece '%s' at %d,%d paints a door at %d,%d entered from the front, with no entrance at %d,%d.",
+                        $piece->id, $left, $top, $x, $y, $x, $y + 1),
+                    default => sprintf("Piece '%s' at %d,%d paints a door at %d,%d, where no entrance is.", $piece->id, $left, $top, $x, $y),
+                }, cells: array_map(static fn(array $cell): array => [$cell[0], $cell[1]], $off),
+                    hint: "Place an entrance at each door the piece paints, or correct the piece's doorway in its tileset to match its art.");
+            }
+        }
+        return $issues;
+    }
+
+    /** @return list<array{x: int, y: int, entrance: DoorwayEntrance}> */
+    private static function readDoorway(mixed $entry, ?FieldPresentationCatalog $catalog): array
+    {
+        $id = is_array($entry) ? ($entry['resource'] ?? null) : null;
+        if (!is_string($id) || $catalog === null) { return []; }
+        try {
+            return $catalog->getResource($id)->doorway;
+        } catch (InvalidArgumentException) {
+            return []; // object.reference reports an unknown resource.
+        }
+    }
+}

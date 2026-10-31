@@ -42,7 +42,7 @@ function getReferenceMapOwner(MapLayerSet $set, int $x, int $y): MapLayer
 {
     $gameplay = array_values(array_filter($set->layers, static fn(MapLayer $layer): bool => !$layer->decoration));
     for ($index = count($gameplay) - 1; $index > 0; $index--) {
-        if (TerminalText::stripAnsi($gameplay[$index]->grid[$y][$x] ?? ' ') !== ' ') { return $gameplay[$index]; }
+        if (TerminalText::stripAnsi($gameplay[$index]->getCellAt($x, $y) ?? ' ') !== ' ') { return $gameplay[$index]; }
     }
     return $gameplay[0];
 }
@@ -53,8 +53,8 @@ function getReferenceMapGrid(MapLayerSet $set): array
     $result = [];
     foreach ($set->layers as $layer) {
         if ($layer->decoration) { continue; }
-        if ($result === []) { $result = $layer->grid; continue; }
-        foreach ($layer->grid as $y => $row) {
+        if ($result === []) { $result = $layer->readGrid(); continue; }
+        foreach ($layer->readGrid() as $y => $row) {
             foreach ($row as $x => $cell) {
                 if (TerminalText::stripAnsi($cell) !== ' ') { $result[$y][$x] = $cell; }
             }
@@ -71,11 +71,11 @@ it('precomputes exact styled composition glyphs and sorted gameplay owners on ra
         new MapLayer('walls', 10, false, 'walls', "#\e[45m \e[0m \n\n  "),
     ]);
     expect($set->getComposedGrid())->toBe(getReferenceMapGrid($set))
-        ->and($set->gameplayOwners)->toBe([[2, 3, 1], [], [1, 3]]);
+        ->and($set->readGameplayOwners())->toBe([[2, 3, 1], [], [1, 3]]);
     foreach ($set->layers as $layer) {
-        foreach ($layer->grid as $y => $row) {
+        foreach ($layer->readGrid() as $y => $row) {
             foreach ($row as $x => $cell) {
-                expect($layer->glyphs[$y][$x])->toBe(TerminalText::stripAnsi($cell));
+                expect($layer->getGlyphAt($x, $y))->toBe(TerminalText::stripAnsi($cell));
             }
         }
     }
@@ -87,16 +87,16 @@ it('precomputes exact styled composition glyphs and sorted gameplay owners on ra
     // Derived arrays are values, not mutable aliases back into the authored map.
     $copy = $set->getComposedGrid();
     $copy[0][0] = 'changed';
-    $glyphs = $set->layers[1]->glyphs;
+    $glyphs = $set->layers[1]->readGlyphs();
     $glyphs[0][0] = 'changed';
     expect($set->getComposedGrid())->toBe(getReferenceMapGrid($set))
-        ->and($set->layers[1]->glyphs[0][0])->toBe(' ');
+        ->and($set->layers[1]->readGlyphs()[0][0])->toBe(' ');
 });
 
 it('retains legacy empty and ragged grids without padding or changing out-of-bounds fallback', function (string $text) {
     $layer = new MapLayer('terrain', 0, false, 'legacy', $text);
     $set = new MapLayerSet([$layer], legacy: true);
-    expect($set->getComposedGrid())->toBe($layer->grid)
+    expect($set->getComposedGrid())->toBe($layer->readGrid())
         ->and($set->getGameplayLayerAt(-1, -1))->toBe($layer)
         ->and($set->getGameplayLayerAt(999, 999))->toBe($layer);
 })->with(['', "x\nxx\n", "x\n\nx", "\e[44m \e[0m"]);
@@ -107,7 +107,7 @@ it('keeps visual ownership separate from pass-through collision resolution', fun
         new MapLayer('fixtures', 1, false, 'fixtures', 'ii '),
         new MapLayer('decoration', 2, true, 'decoration', 'www'),
     ]);
-    expect($set->gameplayOwners)->toBe([[1, 1, 0]])
+    expect($set->readGameplayOwners())->toBe([[1, 1, 0]])
         ->and(MapCollisionResolver::resolveLayers($set, [';' => CollisionType::ENCOUNTER,
             '#' => CollisionType::SOLID, ' ' => CollisionType::NONE,
             'fixtures' => ['i' => CollisionType::PASS_THROUGH]]))

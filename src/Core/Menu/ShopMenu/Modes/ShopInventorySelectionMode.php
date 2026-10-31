@@ -145,13 +145,17 @@ class ShopInventorySelectionMode extends ShopMenuMode
    */
   public function updateItemsInPossession(): void
   {
-    if ($activeItem = $this->state->mainPanel->activeItem) {
+    $activeItem = $this->state->mainPanel->activeItem;
+    $this->state->detailPanel->setItem($activeItem, $this->state->getGameScene()->party);
+    if ($activeItem !== null) {
       $this->state->detailPanel->possession = 0;
 
       if ($inventoryItem = $this->state->inventory->all->find(fn(InventoryItem $item) => $item->id === $activeItem->id) ) {
         $this->state->detailPanel->possession = $inventoryItem->quantity ?? 0;
       }
       $this->state->detailPanel->updateContent();
+    } else {
+      $this->state->detailPanel->clear();
     }
   }
 }

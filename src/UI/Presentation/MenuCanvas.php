@@ -5,15 +5,20 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\IO\ControlHint;
 use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
 
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextBatch;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\UI\Text\TextPage;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 use RuntimeException;
 
@@ -24,6 +29,8 @@ final class MenuCanvas
   private array $text = [];
   private array $fills = [];
   private array $protectedAreas = [];
+  /** @var list<CanvasComposite> Composites an owner's picture brings. */
+  private array $composites = [];
 
   /** Protect readable content or an entire critical control, not its decorative backing. */
   public function protect(CanvasRectangle $bounds): void
@@ -69,6 +76,30 @@ final class MenuCanvas
     }
   }
 
+  /**
+   * A picture an owner composed, such as a battle stage beside a menu's
+   * lists: its images and composites placed as given, each inside the
+   * canvas, the bounds protected.
+   *
+   * @param list<CanvasImage> $images
+   * @param list<CanvasComposite> $composites
+   */
+  public function picture(CanvasRectangle $bounds, array $images, array $composites = []): void
+  {
+    $bounds->assertWithin($this->width, $this->height);
+    foreach ($images as $image) {
+      if (!$image instanceof CanvasImage) { throw new RuntimeException('A menu picture is made of canvas images and composites.'); }
+      $image->destination->assertWithin($this->width, $this->height);
+      $this->images[] = $image;
+    }
+    foreach ($composites as $composite) {
+      if (!$composite instanceof CanvasComposite) { throw new RuntimeException('A menu picture is made of canvas images and composites.'); }
+      $composite->destination->assertWithin($this->width, $this->height);
+      $this->composites[] = $composite;
+    }
+    $this->protect($bounds);
+  }
+
   /** Decorative semantic roles are optional; a missing role is not an unknown item. */
   public function icon(string $id, string $role, CanvasRectangle $bounds, int $layer = 31): bool
   {
@@ -95,6 +126,88 @@ final class MenuCanvas
     $this->text[] = new CanvasTextLayer($id, 30, $bounds->x, $bounds->y,
       new RendererGridConfig((int)floor($bounds->width / $m->cellWidth), count($lines), $m->cellWidth, $m->cellHeight), $runs, $bounds);
     $this->protectText($this->text[array_key_last($this->text)]);
+  }
+
+  /** A measured detail page: prose lines, and label/value fields styled by the layout's MenuDetailStyle.
+   * Column arrangements flow each column from the band top. Lines sharing a column and one text pitch share a
+   * text layer. Returns each visible line's top, height and left edge in canvas pixels.
+   * @return list<array{y: float, height: int, x: float, width: float}>
+   */
+  public function details(string $id, MenuDetailLayout $layout, TextPage $page, CanvasRectangle $bounds): array
+  {
+    $m = $this->theme->metrics;
+    $row = $this->theme->rows->metrics;
+    $style = $layout->style;
+    $metrics = array_slice($layout->measureLines($m->cellHeight), $page->first, count($page->lines));
+    $lines = array_slice($layout->lines, $page->first, count($page->lines));
+    $columnTops = [];
+    $leadY = $bounds->y;
+    $positions = [];
+    foreach ($lines as $index => $line) {
+      $y = $line->band === null ? $leadY : ($columnTops[$line->band] ??= $leadY);
+      $positions[] = ['y' => $y, 'height' => $metrics[$index]['height'],
+        'x' => $bounds->x + $line->origin * $m->cellWidth, 'width' => $line->span === null ? $bounds->width : $line->span * $m->cellWidth];
+      if ($line->band === null) { $leadY += $metrics[$index]['height']; } else { $columnTops[$line->band] += $metrics[$index]['height']; }
+    }
+    $used = max([$leadY, ...array_values($columnTops)]) - $bounds->y;
+    if ($page->source !== $layout->source || $page->columns !== $layout->columns
+      || (!$layout->isColumnar && $page->rows > $bounds->height) || $used > $bounds->height
+      || $page->columns * $m->cellWidth > $bounds->width) {
+      throw new RuntimeException("Menu details {$id} page must match its measured viewport.");
+    }
+    $blocks = [];
+    foreach ($lines as $index => $line) {
+      ['y' => $y, 'height' => $height, 'x' => $x, 'width' => $width] = $positions[$index];
+      $box = new CanvasRectangle($x, $y, $width, $height);
+      $textY = $y + $metrics[$index]['top'];
+      if ($line->isHeading) { $this->renderDetailHeading("{$id}-{$index}-heading", $box, $style); }
+      $block = array_key_last($blocks);
+      if ($block === null || $blocks[$block]['x'] !== $x
+        || abs($blocks[$block]['y'] + count($blocks[$block]['lines']) * $m->cellHeight - $textY) > 0.001) {
+        $blocks[] = ['x' => $x, 'y' => $textY, 'width' => $width, 'lines' => []];
+        $block = array_key_last($blocks);
+      }
+      $blocks[$block]['lines'][] = $line;
+      foreach ($line->items as $item => $value) {
+        if ($value['role'] === null) { continue; }
+        $this->icon("{$id}-{$index}-icon-{$item}", $value['role'], new CanvasRectangle($x + $value['column'] * $m->cellWidth,
+          $textY, $style->iconCells * $m->cellWidth, $m->cellHeight));
+      }
+      // The data-record rule sits inside the record's last line, as rows keep theirs inside their height.
+      if ($line->closesField && $style->separators && $style->separatorText === '' && $row->separatorWidth > 0) {
+        $this->fill("{$id}-{$index}-separator", new CanvasRectangle($x, $y + $height - $row->separatorWidth,
+          $width, $row->separatorWidth), 'edge', 25, $row->recordSeparatorOpacity);
+      }
+    }
+    foreach ($blocks as $index => ['x' => $x, 'y' => $top, 'width' => $width, 'lines' => $blockLines]) {
+      $runs = [];
+      foreach ($blockLines as $line => $detail) {
+        if ($detail->label !== '') { $runs[] = new PresentationTextRun($line, 0, $detail->label, $this->theme->colors[$style->labelColor]); }
+        $values = $detail->items === [] ? [['column' => $detail->column, 'role' => null, 'text' => $detail->text]] : $detail->items;
+        foreach ($values as $value) {
+          if ($value['role'] === null && $value['text'] !== '') {
+            $runs[] = new PresentationTextRun($line, $value['column'], $value['text'], $this->theme->colors[$detail->color]);
+          }
+        }
+      }
+      if ($runs === []) { continue; }
+      $this->text[] = new CanvasTextLayer($index === 0 ? $id : "{$id}-{$index}", 30, $x, $top,
+        new RendererGridConfig((int)floor($width / $m->cellWidth), count($blockLines), $m->cellWidth, $m->cellHeight), $runs, $bounds);
+      $this->protectText($this->text[array_key_last($this->text)]);
+    }
+    return $positions;
+  }
+
+  /** A detail heading uses the theme's details.header artwork, else its heading colour role, else no backing. */
+  private function renderDetailHeading(string $id, CanvasRectangle $bounds, MenuDetailStyle $style): void
+  {
+    if (isset($this->theme->frames['details.header'])) { $this->frame($id, $bounds, 'details.header', 20); }
+    elseif ($style->headingBackground !== null) { $this->fill($id, $bounds, $style->headingBackground, 20); }
+    $rule = $this->theme->rows->metrics->separatorWidth;
+    if ($style->headingRuleColor !== null && $rule > 0) {
+      $this->fill($id . '-rule', new CanvasRectangle($bounds->x, $bounds->y + $bounds->height - $rule, $bounds->width, $rule),
+        $style->headingRuleColor, 21, $style->headingRuleOpacity);
+    }
   }
 
   /** Compact reading metadata occupies frame padding, not the prose viewport. */
@@ -160,7 +273,7 @@ final class MenuCanvas
       $stacked->composites, $stacked->protectedAreas, $stacked->presentationOwners, $stacked->labels, $stacked->viewportFit);
   }
 
-  public function portrait(string $actorId, CanvasRectangle $bounds, string $id = 'portrait'): void
+  public function portrait(string $actorId, CanvasRectangle $bounds, string $id = 'portrait', float $opacity = 1): void
   {
     $asset = $this->theme->portraits[$actorId] ?? null;
     if ($asset === null) { return; }
@@ -172,6 +285,9 @@ final class MenuCanvas
     $box = new CanvasRectangle($bounds->x + $inset, $bounds->y + $inset,
       $bounds->width - 2 * $inset, $bounds->height - 2 * $inset);
     $images = MenuIconRegistry::containAsset($this->theme->assetRoot, $id, $asset, $box, 22, $bounds);
+    $images = array_map(static fn(CanvasImage $image): CanvasImage => new CanvasImage($image->id,
+      $image->asset, $image->destination, $image->layer, $image->sourceRect, $image->opacity * $opacity,
+      $image->clipRect, $image->brightness, $image->flipX, $image->flipY), $images);
     array_push($this->images, ...$images);
     if ($images === []) { $this->fill($id . '-fallback', $box, 'panel', 22); }
   }
@@ -192,6 +308,79 @@ final class MenuCanvas
       $runs, $bounds);
     $this->protectText($this->text[array_key_last($this->text)]);
     return $height;
+  }
+
+  /**
+   * Single-line texts of one size: each item stands exactly at its anchor (its left edge, middle or
+   * right edge, by its alignment) and whatever falls outside the bounds is cut there. Items never
+   * wrap. Items that share a place on the cell lattice share one text layer, so a screen with many
+   * short labels of one size (a board's node names, a row of tabs) costs a few layers, not one each.
+   *
+   * @param list<array{text: string, x: float, y: float, color: string|PresentationColor, alignment?: HorizontalAlignment}> $items
+   *   A colour is a theme role, or a colour the theme supplies elsewhere (a discipline's accent).
+   * @param array{int, int} $cell The cell width and height, which set the text's size.
+   */
+  public function renderTexts(string $id, array $items, CanvasRectangle $bounds, array $cell, int $layer = 30, float $opacity = 1): void
+  {
+    [$cellWidth, $cellHeight] = $cell;
+    $groups = [];
+    foreach ($items as $item) {
+      $text = $item['text'];
+      $cells = TerminalText::displayWidth($text);
+      if ($cells === 0) { continue; }
+      $left = match ($item['alignment'] ?? HorizontalAlignment::LEFT) {
+        HorizontalAlignment::CENTER => $item['x'] - $cells * $cellWidth / 2,
+        HorizontalAlignment::RIGHT => $item['x'] - $cells * $cellWidth,
+        default => $item['x'],
+      };
+      $offsetX = round(fmod(fmod($left - $bounds->x, $cellWidth) + $cellWidth, $cellWidth), 2);
+      $offsetY = round(fmod(fmod($item['y'] - $bounds->y, $cellHeight) + $cellHeight, $cellHeight), 2);
+      $groups["{$offsetX}:{$offsetY}"][] = [$item, $left, $offsetX, $offsetY];
+    }
+    $index = 0;
+    foreach ($groups as $group) {
+      [, , $offsetX, $offsetY] = $group[0];
+      $originX = $bounds->x + $offsetX;
+      $originY = $bounds->y + $offsetY;
+      $columns = max(1, (int)ceil(($bounds->x + $bounds->width - $originX) / $cellWidth));
+      $rows = max(1, (int)ceil(($bounds->y + $bounds->height - $originY) / $cellHeight));
+      $columns = min($columns, (int)floor(($this->width - $originX) / $cellWidth));
+      $rows = min($rows, (int)floor(($this->height - $originY) / $cellHeight));
+      if ($columns < 1 || $rows < 1) { continue; }
+      $runs = [];
+      foreach ($group as [$item, $left]) {
+        $column = (int)round(($left - $originX) / $cellWidth);
+        $row = (int)round(($item['y'] - $originY) / $cellHeight);
+        $text = $item['text'];
+        if ($row < 0 || $row >= $rows || $column >= $columns || $column + TerminalText::displayWidth($text) <= 0) { continue; }
+        if ($column < 0) {
+          $text = mb_substr($text, -$column, null, 'UTF-8');
+          $column = 0;
+        }
+        $text = TerminalText::truncateToWidth($text, $columns - $column);
+        if ($text === '') { continue; }
+        $color = $item['color'];
+        $runs[] = new PresentationTextRun($row, $column, $text, $color instanceof PresentationColor ? $color : $this->theme->colors[$color]);
+      }
+      if ($runs === []) { continue; }
+      $this->text[] = new CanvasTextLayer($id . ($index++ === 0 ? '' : '-' . $index), $layer, $originX, $originY,
+        new RendererGridConfig($columns, $rows, $cellWidth, $cellHeight), $runs, $bounds, $opacity);
+      $this->protectText($this->text[array_key_last($this->text)]);
+    }
+  }
+
+  /** One single-line text of a size, at its anchor (see renderTexts). */
+  public function renderText(string $id, string $text, float $x, float $y, array $cell, string|PresentationColor $color = 'text',
+    HorizontalAlignment $alignment = HorizontalAlignment::LEFT, int $layer = 30): void
+  {
+    $width = max($cell[0], TerminalText::displayWidth($text) * $cell[0]);
+    $left = match ($alignment) {
+      HorizontalAlignment::CENTER => $x - $width / 2,
+      HorizontalAlignment::RIGHT => $x - $width,
+      default => $x,
+    };
+    $bounds = new CanvasRectangle(max(0, $left), max(0, $y), min($width, $this->width - max(0, $left)), min($cell[1], $this->height - max(0, $y)));
+    $this->renderTexts($id, [['text' => $text, 'x' => max(0, $left), 'y' => max(0, $y), 'color' => $color]], $bounds, $cell, $layer);
   }
 
   /** @return list<string> */
@@ -253,15 +442,37 @@ final class MenuCanvas
     array_push($this->protectedAreas, ...$canvas->getOverlayProtection());
   }
 
-  /** @param list<\Ichiloto\Engine\IO\ActionHint> $hints */
-  public function hints(string $id, array $hints, CanvasRectangle $bounds, bool $required = false): int
+  /**
+   * @param list<\Ichiloto\Engine\IO\ActionHint> $hints
+   * @param array{int, int}|null $cell A text cell for hints a screen sizes itself; the theme's otherwise.
+   */
+  public function hints(string $id, array $hints, CanvasRectangle $bounds, bool $required = false, ?array $cell = null): int
   {
-    $canvas = MenuActionHints::compose($this->width, $this->height, $id, $hints, $this->theme, $bounds, $required);
+    $this->place(MenuActionHints::compose($this->width, $this->height, $id, $hints, $this->theme, $bounds, $required, $cell));
+    return MenuActionHints::height($hints, $this->theme, $bounds->width, $required, $cell);
+  }
+
+  /**
+   * One control on its own, such as a dialogue's advance key: drawn by the shared control owner,
+   * centred vertically in its bounds. Returns the box it occupies.
+   *
+   * @param array{int, int}|null $cell A text cell for a control a screen sizes itself; the theme's otherwise.
+   */
+  public function renderControl(string $id, ?ControlHint $control, CanvasRectangle $bounds,
+    HorizontalAlignment $alignment = HorizontalAlignment::CENTER, ?array $cell = null): CanvasRectangle
+  {
+    $controls = new ControlGlyphPresentation($this->theme, $id, $cell);
+    $box = $controls->renderControl($id, $control, $bounds, $alignment);
+    $this->place($controls->compose($this->width, $this->height));
+    return $box;
+  }
+
+  /** Adds a part composed elsewhere with its own protected areas. */
+  private function place(PresentationCanvas $canvas): void
+  {
     array_push($this->images, ...$canvas->images);
     array_push($this->text, ...$canvas->textLayers);
-    foreach ($canvas->textLayers as $layer) { $this->protectText($layer); }
-    foreach ($canvas->images as $image) { $this->protect($image->destination); }
-    return MenuActionHints::height($hints, $this->theme, $bounds->width, $required);
+    foreach ($canvas->getOverlayProtection() as $area) { $this->protect($area); }
   }
 
   public function finish(): PresentationCanvas
@@ -271,9 +482,9 @@ final class MenuCanvas
     $this->compactRules();
     $this->text = CanvasTextBatch::compact($this->text);
     if (count($this->text) > StyledPresentationFrame::MAX_TEXT_LAYERS) { throw new RuntimeException('Menu composition exceeds the existing Canvas text-layer budget: ' . count($this->text)); }
-    CanvasImagePreflight::inspect($this->images, $this->theme->assetRoot);
+    CanvasImagePreflight::inspect($this->images, $this->theme->assetRoot, $this->composites);
     return new PresentationCanvas($this->width, $this->height, $this->images, textLayers: $this->text,
-      protectedAreas: $this->protectedAreas);
+      composites: $this->composites, protectedAreas: $this->protectedAreas);
   }
 
   private function protectText(CanvasTextLayer $layer): void

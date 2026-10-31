@@ -17,6 +17,7 @@ final readonly class BattleRewards
    * @param list<array{id: string, name: string, description: string, quantity: int, received?: int}> $items Drop quantities and actual inventory deltas.
    * @param array<string, string> $summary Only metrics actually supplied by combat.
    * @param list<array{title: string, description: string}> $specialRewards Explicit authored rewards, never inferred rarity.
+   * @param int $skillPointsPerMember The Mastery points (SP) each member earned with the EXP.
    */
   public function __construct(
     public int $experiencePerMember,
@@ -25,6 +26,7 @@ final readonly class BattleRewards
     public array $items = [],
     public array $summary = [],
     public array $specialRewards = [],
+    public int $skillPointsPerMember = 0,
   ) {
     $this->progression = array_map(static fn(ExperienceAwardResult|BattleProgression $award): BattleProgression =>
       $award instanceof BattleProgression ? $award : BattleProgression::fromAward($award), array_values($progression));

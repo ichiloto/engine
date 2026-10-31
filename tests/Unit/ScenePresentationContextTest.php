@@ -110,7 +110,7 @@ beforeEach(function () {
     $edges = array_fill_keys(FieldPresentationCatalog::DIRECTIONS, ['asset' => 'Graphics/edge.png']);
     $edges['east']['quarterTurns'] = 1;
     file_put_contents($this->root . '/Data/Presentation/field.php', '<?php return ' . var_export([
-        'cues' => ['bright-yellow' => ['effect' => 'energy', 'edges' => $edges]]], true) . ';');
+        'cues' => ['bright-yellow' => ['effect' => 'energy', 'pointer' => $edges]]], true) . ';');
     file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
         'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1']], true) . ';');
     $this->scene = new ContextFieldSceneProbe($this->root);
@@ -209,8 +209,11 @@ it('uses the host playhead for tiles and existing effect sessions without advanc
     $this->scene->setPresentationContext(($this->createContext)());
     $world = $this->scene->getPresentationWorld();
     $animated = makeBareScene(PresentationWorld::class);
-    new ReflectionMethod(PresentationWorld::class, '__construct')->invoke($animated,
-        $world->id, $world->operations, $world->textLayerIds, $world->estimatedSourceBytes, true);
+    // The same world, animated: every constructed part is the world's own except its animation.
+    new ReflectionMethod(PresentationWorld::class, '__construct')->invoke($animated, ...array_map(
+        static fn(ReflectionParameter $part): mixed => $part->name === 'animated' ? true
+            : new ReflectionProperty(PresentationWorld::class, $part->name)->getValue($world),
+        new ReflectionMethod(PresentationWorld::class, '__construct')->getParameters()));
     new ReflectionProperty(MapManager::class, 'presentationWorld')->setValue($this->scene->mapManager, $animated);
     $this->scene->fieldEffects->startEffect('attached', 'energy', FieldEffectAnchor::fromArray(['object' => 'player']));
     $this->scene->advanceFieldPresentation(0.25);
@@ -279,25 +282,24 @@ it('refuses invalid presentation deltas before mutation and does not advance a s
     expect(($this->compose)())->not->toEqual($before);
 });
 
-it('keeps story edge cues screen-pinned and degrades missing turns and image support through existing field rules', function () {
-    $cue = new ScriptEventTrigger(new Rect(100, 7, 1, 1), ['mode' => 'action', 'reusable' => false],
-        mapId: 'synthetic', marker: 'E', cue: ['symbol' => '!', 'color' => 'bright-yellow', 'kind' => 'story']);
-    $this->scene->fieldEffects->installMap('synthetic', [], null, [$cue]);
+it('keeps waymark edges screen-pinned and degrades missing turns and image support to glyph waymarks', function () {
+    $waymark = new Ichiloto\Engine\Field\Waymarks\FieldWaymark('w', Ichiloto\Engine\Field\Waymarks\FieldWaymarkRole::TARGET,
+        new Ichiloto\Engine\Field\Waymarks\FieldWaymarkAnchor(new Vector2(100, 7)), 'Go');
+    $this->scene->fieldEffects->installMap('synthetic', [], null, []);
     $this->scene->setPresentationContext(($this->createContext)());
+    $this->scene->fieldEffects->showWaymarks([$waymark]);
     $frame = ($this->compose)();
     $edge = array_find($frame->sprites, static fn($sprite) => str_ends_with($sprite->id, ':edge'));
     expect($edge)->not->toBeNull()->and($edge->quarterTurns)->toBe(1)
         ->and($frame->viewport->spriteIds)->not->toContain($edge->id)
         ->and($edge->x)->toBeGreaterThanOrEqual(0)->and($edge->x)->toBeLessThan($this->grid->columns);
-    $this->capabilities = fn($feature) => $feature !== RendererSessionConfig::SPRITE_QUARTER_TURNS;
-    $this->scene->setPresentationContext(($this->createContext)());
-    $degraded = ($this->compose)();
-    expect(array_column($degraded->sprites, 'id'))->not->toContain($edge->id)
-        ->and($degraded->sprites)->toHaveCount(2);
-    $this->capabilities = fn($feature) => $feature !== RendererSessionConfig::SPRITE_SOURCE_RECT;
-    $this->scene->setPresentationContext(($this->createContext)());
-    expect(($this->compose)()->sprites)->toHaveCount(1)->and($this->scene->fieldEffects->canPresentCue($cue))->toBeFalse()
-        ->and($this->scene->fieldEffects->count)->toBe(1);
+    foreach ([RendererSessionConfig::SPRITE_QUARTER_TURNS, RendererSessionConfig::SPRITE_SOURCE_RECT] as $missing) {
+        $this->capabilities = fn($feature) => $feature !== $missing;
+        $this->scene->setPresentationContext(($this->createContext)());
+        $degraded = ($this->compose)();
+        expect(array_filter(array_column($degraded->sprites, 'id'), static fn(string $id) => str_contains($id, 'waymark')))->toBe([])
+            ->and($this->scene->fieldEffects->canPresentWaymarks())->toBeFalse();
+    }
 });
 
 it('keeps Terminal previews image-free and never conceals the original cover or dialogue layers', function () {

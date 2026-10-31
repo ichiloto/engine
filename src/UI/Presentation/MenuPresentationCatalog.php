@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationTheme;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use InvalidArgumentException;
@@ -22,11 +23,18 @@ final readonly class MenuPresentationCatalog
     'focus' => [220, 232, 240], 'disabled' => [126, 137, 147], 'edge' => [162, 172, 182],
     'background' => [13, 18, 24], 'panel' => [24, 31, 40],
     'increase' => [118, 213, 159], 'decrease' => [237, 142, 142],
+    'objective' => [240, 196, 64],
+    // Quiet secondary text such as detail-field labels.
+    'muted' => [126, 137, 147],
   ];
 
   public MenuRowSkin $rows;
+  /** Label/value field presentation in detail sheets. */
+  public MenuDetailStyle $details;
   public MenuThemeMetrics $metrics;
   public ?MenuIconRegistry $icons;
+  /** @var array<string, ControlIconSet> Input device families (keyboard, a controller family) to how their controls look. */
+  public array $controls;
   /** @var array<string, PresentationColor> */
   public array $colors;
   /** @var array<string, MenuRowArtwork> */
@@ -36,10 +44,11 @@ final readonly class MenuPresentationCatalog
   public bool $showInputHints;
   public NotificationTheme $notifications;
   public MapAtlasTheme $atlas;
+  public MasteryTheme $mastery;
 
   public function __construct(public string $assetRoot, array $data)
   {
-    self::keys($data, ['schema', 'colors', 'metrics', 'rowMetrics', 'rowArtwork', 'frames', 'icons', 'cursor', 'portraits', 'showInputHints', 'notifications', 'atlas']);
+    self::keys($data, ['schema', 'colors', 'metrics', 'rowMetrics', 'rowArtwork', 'frames', 'icons', 'cursor', 'portraits', 'showInputHints', 'notifications', 'atlas', 'details', 'mastery', 'controls']);
     if (($data['schema'] ?? null) !== 'ichiloto.menu/1') {
       throw new InvalidArgumentException('Menu catalog requires schema ichiloto.menu/1.');
     }
@@ -50,6 +59,7 @@ final readonly class MenuPresentationCatalog
     self::keys($notificationData, ['width', 'maxWidth', 'margin', 'padding', 'iconSize', 'iconGap', 'textGap', 'maxHeightRatio', 'colors']);
     $this->notifications = new NotificationTheme(...$notificationData);
     $this->atlas = MapAtlasTheme::fromArray(self::map($data, 'atlas'));
+    $this->mastery = MasteryTheme::fromArray(self::map($data, 'mastery'));
     $colors = self::map($data, 'colors');
     self::keys($colors, array_keys(self::DEFAULT_COLORS));
     $palette = [];
@@ -65,11 +75,31 @@ final readonly class MenuPresentationCatalog
     $this->rows = new MenuRowSkin(array_intersect_key($palette, array_flip(MenuRowSkin::COLORS)),
       new MenuRowMetrics(...self::map($data, 'rowMetrics')), $art, $assetRoot);
     $this->frames = self::artwork(self::map($data, 'frames'), ['panel', 'quiet', 'portrait', 'dialogue', 'nameplate',
-      'slider.track', 'slider.thumb', 'scroll.track', 'scroll.thumb']);
+      'slider.track', 'slider.thumb', 'scroll.track', 'scroll.thumb', 'details.header']);
     $bindings = self::map($data, 'icons');
+    if (array_any(array_keys($bindings), static fn($role): bool => is_string($role) && str_starts_with($role, 'input.'))) {
+      throw new InvalidArgumentException('Control glyphs belong to the theme\'s controls sets, not its icons.');
+    }
+    $controls = [];
+    foreach (self::map($data, 'controls') as $family => $set) {
+      if (!is_string($family) || preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,47}$/D', $family) !== 1 || !is_array($set)) {
+        throw new InvalidArgumentException('Theme controls map input device families to control sets.');
+      }
+      $controls[$family] = ControlIconSet::createFromArray($set);
+      foreach ($controls[$family]->colors as $role) {
+        if (!isset($palette[$role])) { throw new InvalidArgumentException("Keycap colour role {$role} is not a theme colour."); }
+      }
+    }
+    $this->controls = $controls;
     $cursor = $data['cursor'] ?? null;
     if ($cursor !== null && !is_string($cursor)) { throw new InvalidArgumentException('Menu cursor must be a PNG path.'); }
     $this->icons = $bindings !== [] || $cursor !== null ? new MenuIconRegistry($assetRoot, $bindings, $cursor) : null;
+    $this->details = MenuDetailStyle::createFromArray(self::map($data, 'details'),
+      (int)ceil($this->rows->metrics->iconWidth / $this->metrics->cellWidth));
+    foreach (array_filter([$this->details->labelColor, $this->details->valueColor, $this->details->headingColor,
+      $this->details->headingBackground, $this->details->headingRuleColor]) as $role) {
+      if (!isset($palette[$role])) { throw new InvalidArgumentException("Menu details colour role {$role} is not a theme colour."); }
+    }
     $portraits = self::map($data, 'portraits');
     foreach ($portraits as $actorId => $asset) {
       if (!is_string($actorId) || $actorId === '' || !is_string($asset)) {
@@ -78,6 +108,19 @@ final readonly class MenuPresentationCatalog
       SpriteValidation::validateAssetPath($asset);
     }
     $this->portraits = $portraits;
+  }
+
+  /** How a family's controls look: the theme's set for it, or plain keycaps in the theme's colours. */
+  public function getControlSet(string $family): ControlIconSet
+  {
+    return $this->controls[$family] ?? new ControlIconSet();
+  }
+
+  /** The authored detail style with the icon roles whose artwork is available now; checked when composing, never at load. */
+  public function createDetailStyle(): MenuDetailStyle
+  {
+    return $this->details->withIconRoles(array_keys(array_filter($this->icons?->icons ?? [],
+      fn(string $asset): bool => PngAssetPreflight::getAvailableSize($this->assetRoot, $asset) !== null)));
   }
 
   public static function exists(string $assetRoot): bool

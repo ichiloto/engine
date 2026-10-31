@@ -40,6 +40,14 @@ final class BattleResultsContent
     return $rows;
   }
 
+  /** The party rows on the primary page the player is looking at. */
+  public static function getVisiblePartyRows(BattleResultsPlayback $playback): array
+  {
+    $rows = self::partyRows($playback->rewards);
+    $page = min($playback->scrollOffset, max(0, (int)ceil(count($rows) / 4) - 1));
+    return array_slice($rows, $page * 4, 4);
+  }
+
   public static function itemLines(BattleRewards $rewards): array
   {
     $lines = [];
@@ -114,7 +122,7 @@ final class BattleResultsContent
     assert($before !== null && $after !== null);
     $add($after->name, 'accent');
     if ($stage['kind'] === 'level') {
-      $add(Vocabulary::getTerm('stats.level', 'Level') . ' ' . $before->level . "  \u{2192}  " . $after->level, 'accent');
+      $add(Vocabulary::getTerm('stats.level_short') . ' ' . $before->level . "  \u{2192}  " . $after->level, 'accent');
       foreach ($after->stats as $stat => $value) {
         if (!array_key_exists($stat, $before->stats)) { continue; }
         $old = $before->stats[$stat];

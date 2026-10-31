@@ -20,6 +20,7 @@ class ShowDialogAction extends FieldAction
   public function execute(ActionContextInterface $context): void
   {
     foreach ($this->trigger->dialogue as $dialogue) {
+      $dialogue->prepareFieldPresentation($context->scene);
       $dialogue->show();
     }
 

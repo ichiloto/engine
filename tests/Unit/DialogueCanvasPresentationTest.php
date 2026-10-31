@@ -16,6 +16,7 @@ use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
@@ -52,7 +53,7 @@ function getDialogueTestCatalog(string $root, bool $warm = false): DialoguePrese
         'hero' => ['portrait' => 'hero.png', 'bust' => 'hero.png',
             'emotions' => ['Happy' => ['portrait' => 'happy.png', 'bust' => 'happy.png']]],
         'friend' => ['portrait' => 'hero.png', 'bust' => 'hero.png'],
-    ], $theme, ['Display Hero' => 'hero'], ['sample' => ['background' => 'background.png']]);
+    ], $theme, ['Display Hero' => 'hero']);
 }
 
 function getDialogueTestLine(string $speaker = 'Display Hero', ?DialogueContext $context = null,
@@ -158,6 +159,44 @@ it('keeps typing layout stable and only shows the ready cue after typing', funct
     expect($body($typing))->toEqual($body($complete))
         ->and(array_column($typing->images, 'id'))->not->toContain('dialogue-ready-1-1')
         ->and(array_column($complete->images, 'id'))->toContain('dialogue-ready-1-1');
+});
+
+/** The dialogue footer's controls: each one's name text layer, and the Auto button's label layer. */
+function getDialogueFooter(PresentationCanvas $canvas): array
+{
+    $layers = array_column($canvas->textLayers, null, 'id');
+    $name = fn(string $id) => isset($layers[$id]) ? implode('', array_column($layers[$id]->runs, 'text')) : null;
+    $auto = array_find($canvas->textLayers, fn($layer) => str_starts_with($layer->id, 'dialogue-auto-') && str_ends_with($layer->id, '-text'));
+    return ['advance' => $name('dialogue-advance'), 'auto' => $name('dialogue-auto-hint'),
+        'layers' => $layers, 'button' => $auto];
+}
+
+it('shows the advance key alone and the same while typing and waiting', function (bool $warm) {
+    InputManager::setBindings(['confirm' => ['keys' => [KeyCode::ENTER]], 'dialogue_auto' => ['keys' => [KeyCode::SPACE]]]);
+    $catalogue = getDialogueTestCatalog($this->root, $warm);
+    $typing = getDialogueFooter(DialogueCanvasPresentation::compose(getDialogueTestLine(printing: true), $catalogue));
+    $waiting = getDialogueFooter(DialogueCanvasPresentation::compose(getDialogueTestLine(), $catalogue));
+    expect($typing['advance'])->toBe('Enter')->and($waiting['advance'])->toBe('Enter')
+        ->and($typing['layers']['dialogue-advance'])->toEqual($waiting['layers']['dialogue-advance'])
+        ->and($typing['layers']['dialogue-advance-keycaps'])->toEqual($waiting['layers']['dialogue-advance-keycaps'])
+        ->and(array_map(fn($layer) => implode('', array_column($layer->runs, 'text')), $waiting['layers']))
+        ->not->toContain('Enter Continue', 'Enter Reveal');
+})->with([false, true]);
+
+it('shows a rebound advance key and keeps every footer control on the row centre line', function () {
+    InputManager::setBindings(['confirm' => ['keys' => [KeyCode::F]], 'dialogue_auto' => ['keys' => [KeyCode::X]]]);
+    $catalogue = getDialogueTestCatalog($this->root);
+    $footer = getDialogueFooter(DialogueCanvasPresentation::compose(getDialogueTestLine(), $catalogue));
+    $metrics = $catalogue->theme->metrics;
+    $centre = fn($layer) => $layer->y + $metrics->cellHeight / 2;
+    expect($footer['advance'])->toBe('F')->and($footer['auto'])->toBe('X')
+        ->and($centre($footer['layers']['dialogue-auto-hint']))->toBe($centre($footer['button']))
+        ->and($centre($footer['layers']['dialogue-advance']))->toBe($centre($footer['button']));
+    // The keys themselves are one text cell tall around those names.
+    foreach (['dialogue-auto-hint-keycaps', 'dialogue-advance-keycaps'] as $id) {
+        $key = $footer['layers'][$id];
+        expect($key->y + $key->grid->rows / 2)->toBe($centre($footer['button']));
+    }
 });
 
 it('removes content-driven height changes across pages speakers help and portrait availability', function (int $width, int $height) {
@@ -267,8 +306,9 @@ it('stages borderless busts with contextual backgrounds and removes redundant ca
     $context = new DialogueContext('hero', 'Happy', 'sample', 'A scene', 'Town', [
         ['actorId' => 'hero', 'name' => 'Hero', 'emotion' => 'Happy'],
         ['actorId' => 'friend', 'name' => 'Friend', 'emotion' => 'Neutral'],
-    ]);
+    ], 'background.png');
     $canvas = DialogueCanvasPresentation::compose(getDialogueTestLine('Hero', $context), getDialogueTestCatalog($this->root), $width, $height);
+    expect(array_find($canvas->images, fn($image) => $image->id === 'skit-background')->asset)->toBe('background.png');
     expect(array_column($canvas->images, 'id'))->toContain('skit-background', 'skit-bust-0', 'skit-bust-1')
         ->not->toContain('dialogue-portrait-1-1');
     $bust = array_find($canvas->images, fn($image) => $image->id === 'skit-bust-0');
@@ -292,7 +332,7 @@ it('stages borderless busts with contextual backgrounds and removes redundant ca
 it('joins busts to an unskinned dialogue panel without changing source artwork', function () {
     $base = getDialogueTestCatalog($this->root);
     $catalogue = new DialoguePresentationCatalog($base->actors,
-        new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']), skits: $base->skits);
+        new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']));
     $context = new DialogueContext('hero', skitId: 'sample', participants: [
         ['actorId' => 'hero', 'name' => 'Hero', 'emotion' => 'Neutral'],
     ]);
@@ -344,8 +384,7 @@ it('preserves image tone alpha and source geometry when composing a canvas overl
 
 it('allows games to configure emphasis and retains scaling without unsupported image tone', function () {
     $base = getDialogueTestCatalog($this->root);
-    $catalogue = new DialoguePresentationCatalog($base->actors, $base->theme, $base->speakers, $base->skits,
-        new SkitStageStyle(0.85, 0.45));
+    $catalogue = new DialoguePresentationCatalog($base->actors, $base->theme, $base->speakers, new SkitStageStyle(0.85, 0.45));
     $context = new DialogueContext('hero', skitId: 'sample', participants: [
         ['actorId' => 'hero', 'name' => 'Hero', 'emotion' => 'Neutral'],
         ['actorId' => 'friend', 'name' => 'Friend', 'emotion' => 'Neutral'],
@@ -378,7 +417,6 @@ it('honours negotiated image tone in scene composition and diagnoses its absence
     file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
         'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1'],
         'actors' => ['hero' => ['bust' => 'hero.png'], 'friend' => ['bust' => 'hero.png']],
-        'skits' => ['sample' => ['background' => 'background.png']],
     ], true) . ';');
     $context = new DialogueContext('hero', skitId: 'sample', participants: [
         ['actorId' => 'hero', 'name' => 'Hero', 'emotion' => 'Neutral'],
@@ -402,12 +440,34 @@ it('honours negotiated image tone in scene composition and diagnoses its absence
         ->toBe($supportsTone ? 0 : 1);
 })->with([true, false]);
 
+it('shows a named backdrop it can decode and reports one it cannot, once, on the theme backing', function (string $backdrop, bool $shown) {
+    mkdir($this->root . '/Data/Presentation', 0777, true);
+    file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
+        'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1'], 'actors' => ['hero' => ['bust' => 'hero.png']],
+    ], true) . ';');
+    $context = new DialogueContext('hero', skitId: 'sample', participants: [['actorId' => 'hero', 'name' => 'Hero', 'emotion' => 'Neutral']],
+        backdrop: $backdrop);
+    $owner = $this->getStubBuilder(TextBoxModal::class)->disableOriginalConstructor()->onlyMethods(['getDialogueSnapshot'])->getStub();
+    $owner->method('getDialogueSnapshot')->willReturn(getDialogueTestLine('Hero', $context));
+    $ui = $this->getStubBuilder(UIManager::class)->disableOriginalConstructor()->onlyMethods(['getActivePresentations'])->getStub();
+    $ui->method('getActivePresentations')->willReturn([$owner]);
+    $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getUI'])->getStub();
+    $scene->method('getUI')->willReturn($ui);
+    $presentation = new DialogueScenePresentation($this->root);
+    foreach (range(0, 1) as $iteration) {
+        $surface = $presentation->compose($scene, null, 1280, 720, true);
+        expect(array_any($surface->canvas->images, fn($image) => $image->id === 'skit-background'))->toBe($shown);
+    }
+    $log = $this->root . '/warning.log';
+    expect(is_file($log) ? substr_count(file_get_contents($log), 'backdrop ' . $backdrop . ' is missing') : 0)->toBe($shown ? 0 : 1);
+})->with([['background.png', true], ['Graphics/Skits/Missing.png', false]]);
+
 it('keeps larger casts readable in stable groups with the active speaker present', function () {
     $cast = array_map(fn($index) => ['actorId' => 'hero' . $index, 'name' => 'Actor ' . $index, 'emotion' => 'Neutral'], range(0, 7));
     $context = new DialogueContext('hero7', skitId: 'sample', skitTitle: 'Group scene', participants: $cast);
     $base = getDialogueTestCatalog($this->root);
     $catalogue = new DialoguePresentationCatalog(array_fill_keys(array_column($cast, 'actorId'), ['bust' => 'hero.png']),
-        $base->theme, skits: $base->skits);
+        $base->theme);
     $canvas = DialogueCanvasPresentation::compose(getDialogueTestLine('Actor 7', $context), $catalogue, 800, 480);
     $names = implode(' ', array_merge(...array_map(fn($layer) => array_column($layer->runs, 'text'), $canvas->textLayers)));
     $busts = array_values(array_filter($canvas->images, fn($image) => str_starts_with($image->id, 'skit-bust-')));
@@ -605,6 +665,7 @@ it('integrates active event-owned dialogue with the retained field and removes o
         'speakers' => ['Display Hero' => 'hero'],
     ], true) . ';');
     $peer = new FakeRendererTransport();
+    $peer->acknowledgeFrames = true;
     $capabilities = $graphical ? ['graphical_canvas', 'canvas_overlay', 'canvas_clip_opacity', 'sprite_source_rect'] : [];
     $peer->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $capabilities]))];
     $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['not-launched']), $this->root), $peer);
@@ -643,3 +704,20 @@ it('integrates active event-owned dialogue with the retained field and removes o
         }
     } finally { $runtime->shutdown(); }
 })->with([true, false]);
+
+
+it('shares the actual body nameplate and portrait bounds with camera reservations for every dialogue position', function () {
+  $catalogue = getDialogueTestCatalog($this->root);
+  foreach ([WindowPosition::TOP, WindowPosition::MIDDLE, WindowPosition::BOTTOM] as $position) {
+    $line = getDialogueTestLine(position: $position);
+    $layout = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePageLayout($catalogue, $line->speaker, $line->context, $line->help, 1350);
+    $geometry = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePageGeometry($layout, $catalogue, $line->speaker, $position, 1350, 720);
+    $canvas = DialogueCanvasPresentation::compose($line, $catalogue, 1350, 720);
+    foreach ($geometry->getProtectedBounds() as $bounds) { expect($canvas->getOverlayProtection())->toContainEqual($bounds); }
+    $safe = \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming::findSafeArea($geometry->getProtectedBounds(), 1350, 720);
+    expect($safe)->not->toBeNull();
+    foreach ($geometry->getProtectedBounds() as $bounds) {
+      expect($safe->y + $safe->height <= $bounds->y || $safe->y >= $bounds->y + $bounds->height)->toBeTrue();
+    }
+  }
+});

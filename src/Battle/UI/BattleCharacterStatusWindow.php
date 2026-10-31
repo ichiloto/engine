@@ -44,6 +44,7 @@ class BattleCharacterStatusWindow extends Window
    * @var Character[] The characters to display.
    */
   protected array $characters = [];
+  private int $firstVisibleIndex = 0;
   /**
    * @var float[] The optional ATB fill percentages.
    */
@@ -85,7 +86,15 @@ class BattleCharacterStatusWindow extends Window
    */
   public function setCharacters(array $characters): void
   {
-    $this->characters = array_slice($characters, 0, self::MAX_VISIBLE_CHARACTERS);
+    $this->characters = array_values($characters);
+    $this->firstVisibleIndex = min($this->firstVisibleIndex,
+      intdiv(max(0, count($characters) - 1), self::MAX_VISIBLE_CHARACTERS) * self::MAX_VISIBLE_CHARACTERS);
+    $this->updateContent();
+  }
+
+  public function setFirstVisibleIndex(int $index): void
+  {
+    $this->firstVisibleIndex = max(0, $index);
     $this->updateContent();
   }
 
@@ -117,7 +126,7 @@ class BattleCharacterStatusWindow extends Window
   {
     $rows = [];
     $showAtb = $this->usesAtbLayout();
-    foreach ($this->characters as $index => $character) {
+    foreach (array_slice($this->characters, $this->firstVisibleIndex, self::MAX_VISIBLE_CHARACTERS, true) as $index => $character) {
       $rows[] = $this->snapshotRow($index, $character, $showAtb ? ($this->atbPercentages[$index] ?? 0.0) : null);
     }
 
@@ -135,7 +144,7 @@ class BattleCharacterStatusWindow extends Window
     $content = [];
     $this->setTitle($this->formatHeaderLine($showAtb));
 
-    foreach ($this->characters as $index => $character) {
+    foreach (array_slice($this->characters, $this->firstVisibleIndex, self::MAX_VISIBLE_CHARACTERS, true) as $index => $character) {
       $content[] = $this->formatCharacterStats(
         $character,
         $showAtb ? ($this->atbPercentages[$index] ?? 0.0) : null

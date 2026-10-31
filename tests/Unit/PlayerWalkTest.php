@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
@@ -16,6 +17,7 @@ use Ichiloto\Engine\Events\Interpreter\EventExecutionStatus;
 use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
 use Ichiloto\Engine\Events\Interpreter\EventPresentationInterface;
 use Ichiloto\Engine\Events\MovementEvent;
+use Ichiloto\Engine\Field\DashSettings;
 use Ichiloto\Engine\Field\EncounterManager;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\Player;
@@ -59,6 +61,8 @@ final class PlayerWalkDriver
   public array $attempts = [];
   public ?Closure $blocks = null;
   public ?Closure $onStep = null;
+  /** The speed multiplier each update passes, as FieldState passes the player's dash. */
+  public float $speedMultiplier = 1.0;
   public readonly PlayerWalk $walk;
 
   public function __construct(public readonly FakeHeldInputSource $source, ?FieldMetric $metric = null)
@@ -87,7 +91,7 @@ final class PlayerWalkDriver
       $this->steps[] = [$this->time, (int)$direction->x, (int)$direction->y, $seconds];
       ($this->onStep)?->__invoke();
       return true;
-    });
+    }, $this->speedMultiplier);
     $this->time += $delta;
   }
 
@@ -99,8 +103,39 @@ final class PlayerWalkDriver
     }, $this->steps);
   }
 
-  /** @return list<int> Frame numbers (at 60 per second) of committed steps. */
+  /**
+   * @return list<int> Frame numbers (at 60 per second) at which committed
+   *     steps begin: when decided, or when the step before them ends.
+   */
   public function getFrames(): array
+  {
+    $frames = [];
+    $free = -INF;
+    foreach ($this->steps as [$time, , , $seconds]) {
+      $begin = max($time, $free);
+      $frames[] = (int)round($begin * 60);
+      $free = $begin + $seconds;
+    }
+    return $frames;
+  }
+
+  /**
+   * @return list<array{float, float}> Each committed step after the first: how long before it began it
+   *     was decided, and how long it lasts. A step begins when the one before it ends.
+   */
+  public function getLeads(): array
+  {
+    $leads = [];
+    $begin = $this->steps[0][0] ?? 0.0;
+    foreach (array_slice($this->steps, 1, preserve_keys: true) as $index => [$time, , , $seconds]) {
+      $begin += $this->steps[$index - 1][3];
+      $leads[] = [$begin - $time, $seconds];
+    }
+    return $leads;
+  }
+
+  /** @return list<int> Frame numbers (at 60 per second) of the updates that committed steps. */
+  public function getDecisionFrames(): array
   {
     return array_map(static fn(array $step): int => (int)round($step[0] * 60), $this->steps);
   }
@@ -167,7 +202,9 @@ it('counts OS repeats as neither presses nor extra movement', function () {
     $this->source->keys[] = KeyCode::DOWN;
     $this->driver->frame();
   }
-  expect($this->driver->getFrames())->toBe([0, 16]);
+  // The third step is decided on the update before the second ends.
+  expect($this->driver->getFrames())->toBe([0, 16, 32])
+    ->and($this->driver->getDecisionFrames())->toBe([0, 15, 31]);
 });
 
 it('keeps quick taps without letting them outrun walking', function () {
@@ -223,7 +260,7 @@ it('accepts a fresh press after a reset in the same update without reviving an e
   $this->source->press('left', KeyCode::LEFT);
   $this->driver->frame();
   expect($this->driver->getDirections())->toBe(['down', 'left'])
-    ->and($this->driver->getFrames())->toBe([0, 2]);
+    ->and($this->driver->getDecisionFrames())->toBe([0, 2]);
   $this->source->release('left');
   $this->driver->run(1.0);
   expect($this->driver->getDirections())->toBe(['down', 'left']);
@@ -285,6 +322,25 @@ it('walks equal distances in equal time at any update rate within one step', fun
   'irregular' => [[0.004, 0.021, 0.017, 0.033, 0.009, 0.016]],
 ]);
 
+it('decides each held step on the update before the one in progress ends, so it begins exactly as that one ends', function (float $frame) {
+  $this->source->press('down', KeyCode::DOWN);
+  $this->driver->run(3.0, $frame);
+  $steps = $this->driver->steps;
+  expect(count($steps))->toBeGreaterThan(10);
+  // The renderer draws each slide after the one before it, so the next step
+  // must reach it before the slide in progress ends: never at or after that
+  // end, never more than one update ahead of it.
+  foreach (array_slice(array_keys($steps), 1) as $index) {
+    $lead = $index * WALK_STEP - $steps[$index][0];
+    expect($lead)->toBeGreaterThan(1e-9)->toBeLessThanOrEqual($frame + 1e-9);
+  }
+})->with([
+  '60 per second' => [1 / 60],
+  '30 per second' => [1 / 30],
+  '144 per second' => [1 / 144],
+  '50 per second' => [1 / 50],
+]);
+
 it('walks both axes at one cell rate on the square field, from the metric alone', function () {
   $walked = static function (FieldMetric $metric, string $control, KeyCode $key, float $seconds): int {
     $source = new FakeHeldInputSource();
@@ -321,8 +377,9 @@ it('banks no burst while blocked and catches up at most one step after a stall',
   $this->driver->frame(2.0);
   $this->driver->run(20 / 60);
   // Two seconds of stall owe seven steps: the late update takes one, the next
-  // catches up one more, and walking then keeps its pace.
-  expect($this->driver->getFrames())->toBe([0, 1, 121, 137]);
+  // catches up one more, and walking then keeps its pace, deciding each step
+  // on the update before the one in progress ends.
+  expect($this->driver->getDecisionFrames())->toBe([0, 1, 121, 136]);
 });
 
 it('cancels walking whenever the field missed an update and treats earlier presses as stale', function () {
@@ -348,18 +405,64 @@ it('cancels walking whenever the field missed an update and treats earlier press
   expect($this->driver->steps)->toHaveCount(5);
 });
 
+it('dashes each held step in the walking time divided by the speed multiplier', function (float $multiplier, array $frames) {
+  $this->driver->speedMultiplier = $multiplier;
+  $this->source->press('down', KeyCode::DOWN);
+  $this->driver->run(40 / 60);
+  // Each step is decided on the update before the one in progress ends, so the last one listed begins as 40 frames end.
+  expect($this->driver->getFrames())->toBe($frames)
+    ->and(array_unique(array_column($this->driver->steps, 3)))->toBe([WALK_STEP / $multiplier]);
+})->with([
+  'RPG Maker double speed' => [2.0, [0, 8, 16, 24, 32, 40]],
+  'a quarter faster' => [1.25, [0, 13, 26, 38]],
+]);
+
+it('chains held steps end to end when the player starts and stops dashing mid-step', function (float $frame) {
+  $this->source->press('right', KeyCode::RIGHT);
+  $this->driver->run(0.5, $frame);
+  $walked = count($this->driver->steps);
+  $this->driver->speedMultiplier = 2.0;
+  $this->driver->run(0.5, $frame);
+  $dashed = count($this->driver->steps);
+  $this->driver->speedMultiplier = 1.0;
+  $this->driver->run(0.5, $frame);
+  $steps = array_column($this->driver->steps, 3);
+  // The step in progress keeps its time; the pace changes from the next step on.
+  expect(array_slice($steps, 0, $walked))->each->toBe(WALK_STEP)
+    ->and(array_slice($steps, $walked, $dashed - $walked))->each->toBe(WALK_STEP / 2)
+    ->and(array_slice($steps, $dashed))->each->toBe(WALK_STEP)
+    ->and($dashed - $walked)->toBeGreaterThan($walked);
+  // Every step is decided on the update before the one in progress ends, whatever either one's pace, so
+  // the renderer receives it while the slide before it is still drawn and draws it from that slide's end.
+  foreach ($this->driver->getLeads() as [$lead]) {
+    expect($lead)->toBeGreaterThan(1e-9)->toBeLessThanOrEqual($frame + 1e-9);
+  }
+})->with([
+  '60 per second' => [1 / 60],
+  '144 per second' => [1 / 144],
+  '50 per second' => [1 / 50],
+]);
+
+it('refuses a speed multiplier below walking speed', function (float $multiplier) {
+  $this->source->press('down', KeyCode::DOWN);
+  InputManager::handleInput();
+  expect(fn() => $this->driver->walk->update(1 / 60, static fn(): bool => true, $multiplier))
+    ->toThrow(InvalidArgumentException::class, 'speed multiplier');
+})->with([0.5, 0.0, -1.0, INF, NAN]);
+
 /** A field whose Player records the validated moves it is asked to make. */
 final class WalkingFieldScene extends GameScene
 {
   public function __construct()
   {
+    $this->gameState = new GameState();
     $this->camera = new class extends Camera { public function __construct() {} };
     $scene = $this;
     $this->player = new class($scene) extends Player {
       /** @var list<array{int, int, float}> */
       public array $moves = [];
       public function __construct(public GameScene $owner) { $this->position = new Vector2(5, 5); }
-      public function tryMove(Vector2 $direction, Camera $camera): bool
+      public function tryMove(Vector2 $direction, Camera $camera, StepOrigin $stepOrigin): bool
       {
         $this->moves[] = [(int)$direction->x, (int)$direction->y, $this->owner->getStepSeconds($direction)];
         $this->position->add($direction);
@@ -498,6 +601,7 @@ it('keeps held walking cardinal at a blocked corner and applies effects once per
       public function __destruct() {}
     };
     $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getGame'])->getStub();
+    new ReflectionProperty(GameScene::class, 'gameState')->setValue($scene, new GameState());
     $scene->method('getGame')->willReturn($game);
     $camera = new class extends Camera { public function __construct() {} };
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
@@ -525,7 +629,7 @@ it('keeps held walking cardinal at a blocked corner and applies effects once per
     new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
     $encounters = new class($scene) extends EncounterManager {
       public array $steps = [];
-      public function registerStep(?CollisionType $tile): void { $this->steps[] = $tile; }
+      public function registerStep(?CollisionType $tile, ?\Ichiloto\Engine\Core\Vector2 $position = null): void { $this->steps[] = $tile; }
     };
     new ReflectionProperty(GameScene::class, 'encounterManager')->setValue($scene, $encounters);
     $observer = new class implements ObserverInterface {
@@ -626,4 +730,173 @@ it('walks the field through the ordinary validated move with held input and step
   } finally {
     $delta->setValue(null, $previousDelta);
   }
+});
+
+/** Run a test with the project's dash rule, dash bound to Shift, and a player config, then restore the store. */
+function withDash(DashSettings $settings, array $player, Closure $test): void
+{
+  $store = new ReflectionProperty(ConfigStore::class, 'store');
+  $saved = $store->getValue();
+  $bindings = InputManager::getBindings();
+  $delta = new ReflectionProperty(Time::class, 'deltaTime');
+  $previousDelta = $delta->getValue();
+  ConfigStore::put(DashSettings::class, $settings);
+  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub($player));
+  InputManager::setBindings([...$bindings, 'dash' => ['keys' => [KeyCode::SHIFT]]]);
+  $delta->setValue(null, 1 / 60);
+  try {
+    $test();
+  } finally {
+    $store->setValue(null, $saved);
+    new ReflectionProperty(InputManager::class, 'config')->setValue(null, $bindings);
+    $delta->setValue(null, $previousDelta);
+  }
+}
+
+it('reads a live story unlock before timing each held field step', function () {
+  withDash(new DashSettings(true, 2.0, [['type' => 'event', 'name' => 'dash-earned']]), [], function () {
+    $scene = new WalkingFieldScene();
+    $field = new WalkingFieldState(new SceneStateContext($scene));
+    $this->source->press('shift', KeyCode::SHIFT)->press('down', KeyCode::DOWN);
+    foreach (range(1, 20) as $_) { InputManager::handleInput(); $field->navigate($scene); }
+    expect(array_unique(array_column($scene->player->moves, 2)))->toBe([WALK_STEP]);
+    $scene->gameState->recordStoryEvent('dash-earned');
+    $scene->player->moves = [];
+    foreach (range(1, 40) as $_) { InputManager::handleInput(); $field->navigate($scene); }
+    expect(array_unique(array_column($scene->player->moves, 2)))->toBe([WALK_STEP / 2]);
+  });
+});
+
+it('dashes the field step and its presentation while dash is held, and walks where the game, map or input offers no dash', function () {
+  $paces = static function (FieldState $state, GameScene $scene, int $frames): array {
+    $scene->player->moves = [];
+    foreach (range(1, $frames) as $_) { InputManager::handleInput(); $state->navigate($scene); }
+    return array_column($scene->player->moves, 2);
+  };
+  $fresh = function (): array {
+    $scene = new WalkingFieldScene();
+    InputManager::setInputSource($this->source = new FakeHeldInputSource());
+    return [new WalkingFieldState(new SceneStateContext($scene)), $scene];
+  };
+
+  withDash(new DashSettings(true, 2.0), [], function () use ($paces, $fresh) {
+    [$state, $scene] = $fresh();
+    $this->source->press('shift', KeyCode::SHIFT)->press('down', KeyCode::DOWN);
+    // Each step is one validated move, presented over the dashing time.
+    expect($paces($state, $scene, 20))->toBe(array_fill(0, 3, WALK_STEP / 2));
+    $this->source->release('shift');
+    expect($paces($state, $scene, 40))->toContain(WALK_STEP)->not->toContain(WALK_STEP / 2 + 1);
+
+    // A map that turns dashing off walks, Shift held or not.
+    [$state, $scene] = $fresh();
+    $map = new ReflectionClass(MapManager::class)->newInstanceWithoutConstructor();
+    new ReflectionProperty(MapManager::class, 'isDashingDisabled')->setValue($map, true);
+    new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $map);
+    $this->source->press('shift', KeyCode::SHIFT)->press('down', KeyCode::DOWN);
+    expect($paces($state, $scene, 20))->toBe([WALK_STEP, WALK_STEP]);
+
+    // The Terminal steps once per key event, dash or not: it reports no held control.
+    [$state, $scene] = $fresh();
+    InputManager::setInputSource(new FakeInputSource(KeyCode::SHIFT, KeyCode::DOWN, null, KeyCode::DOWN, KeyCode::RIGHT));
+    foreach (range(1, 5) as $_) { InputManager::handleInput(); $state->navigate($scene); }
+    expect(array_map(static fn(array $move): array => [$move[0], $move[1]], $scene->player->moves))
+      ->toBe([[0, 1], [0, 1], [1, 0]]);
+  });
+
+  // Always Dash dashes without holding dash; holding it walks.
+  withDash(new DashSettings(true, 2.0), ['field' => ['always_dash' => true]], function () use ($paces, $fresh) {
+    [$state, $scene] = $fresh();
+    $this->source->press('down', KeyCode::DOWN);
+    expect($paces($state, $scene, 20))->toBe(array_fill(0, 3, WALK_STEP / 2));
+    [$state, $scene] = $fresh();
+    $this->source->press('shift', KeyCode::SHIFT)->press('down', KeyCode::DOWN);
+    expect($paces($state, $scene, 20))->toBe([WALK_STEP, WALK_STEP]);
+  });
+
+  // A game without a dash walks, whatever is held or chosen.
+  withDash(new DashSettings(), ['field' => ['always_dash' => true]], function () use ($paces, $fresh) {
+    [$state, $scene] = $fresh();
+    $this->source->press('shift', KeyCode::SHIFT)->press('down', KeyCode::DOWN);
+    expect($paces($state, $scene, 20))->toBe([WALK_STEP, WALK_STEP]);
+  });
+});
+
+it('counts one encounter step, trigger and movement per dashed cell, as walking does, and arrivals keep field pace', function () {
+  $eventState = new ReflectionProperty(EventManager::class, 'instance')->getValue();
+  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
+  try {
+    withDash(new DashSettings(true, 2.0), [], function () {
+      $walk = function (bool $dash): array {
+        $game = new class extends Game {
+          public function __construct() {}
+          public function __destruct() {}
+        };
+        $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getGame'])->getStub();
+        new ReflectionProperty(GameScene::class, 'gameState')->setValue($scene, new GameState());
+        $scene->method('getGame')->willReturn($game);
+        new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, new class extends Camera { public function __construct() {} });
+        $map = $this->getStubBuilder(MapManager::class)->disableOriginalConstructor()->onlyMethods(['scrollMap'])->getStub();
+        $map->method('scrollMap')->willReturn(false);
+        new ReflectionProperty(MapManager::class, 'gameScene')->setValue($map, $scene);
+        new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map, array_fill(0, 3, array_fill(0, 40, CollisionType::NONE->value)));
+        new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $map);
+        $player = new class($scene) extends Player {
+          /** @var list<float> The step time an arrival's own work would walk at. */
+          public array $arrivalPaces = [];
+          public function __construct(GameScene $scene) {
+            parent::__construct($scene, 'Synthetic dasher', new Vector2(1, 1), new Rect(0, 0, 1, 1), ['@']);
+          }
+          public function render(): void {}
+          public function renderEventCues(): void {}
+          public function erasePlayer(Camera $camera, ?array $sprite = null): void {}
+          protected function renderLocationHUDWindow(): void {}
+          protected function handleTriggers(MovementEvent $event): void {
+            $this->arrivalPaces[] = $this->getGameScene()->getStepSeconds(Vector2::right());
+            parent::handleTriggers($event);
+          }
+        };
+        new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
+        $encounters = new class($scene) extends EncounterManager {
+          public int $steps = 0;
+          public function registerStep(?CollisionType $tile, ?Vector2 $position = null): void { $this->steps++; }
+        };
+        new ReflectionProperty(GameScene::class, 'encounterManager')->setValue($scene, $encounters);
+        $observer = new class implements ObserverInterface {
+          public int $steps = 0;
+          public function onNotify(object $entity, EventInterface $event): void { $this->steps++; }
+        };
+        $player->addObserver($observer);
+        $field = new WalkingFieldState(new SceneStateContext($scene));
+        InputManager::setInputSource($source = new FakeHeldInputSource());
+        if ($dash) { $source->press('shift', KeyCode::SHIFT); }
+        $source->press('right', KeyCode::RIGHT);
+        foreach (range(1, 48) as $_) { InputManager::handleInput(); $field->navigate($scene); }
+        $player->completeArrival();
+        return [(int)$player->position->x - 1, $encounters->steps, count($player->arrivalPaces), $observer->steps,
+          array_unique($player->arrivalPaces)];
+      };
+      [$walked, $walkEncounters, $walkTriggers, $walkMoves] = $walk(false);
+      [$dashed, $dashEncounters, $dashTriggers, $dashMoves, $paces] = $walk(true);
+      // Dashing covers twice the cells in the same time, give or take the step an update boundary shifts.
+      expect($walked)->toBeGreaterThan(2)->and($dashed)->toBeGreaterThanOrEqual(2 * $walked - 1)
+        ->and([$walkEncounters, $walkTriggers, $walkMoves])->toBe([$walked, $walked, $walked])
+        ->and([$dashEncounters, $dashTriggers, $dashMoves])->toBe([$dashed, $dashed, $dashed])
+        // What arriving sets off walks at field speed, never at the dash that arrived.
+        ->and($paces)->toBe([WALK_STEP]);
+    });
+  } finally {
+    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $eventState);
+  }
+});
+
+it('runs work set off by a move at field walking time, outside the pace of that move', function () {
+  $scene = new WalkingFieldScene();
+  $seen = [];
+  $scene->moveAtPace(0.05, static function () use ($scene, &$seen): bool {
+    $seen = [$scene->getStepSeconds(Vector2::right()),
+      $scene->runAtFieldPace(static fn(): float => $scene->getStepSeconds(Vector2::right())),
+      $scene->getStepSeconds(Vector2::down())];
+    return true;
+  });
+  expect($seen)->toBe([0.05, WALK_STEP, 0.05])->and($scene->getStepSeconds(Vector2::right()))->toBe(WALK_STEP);
 });

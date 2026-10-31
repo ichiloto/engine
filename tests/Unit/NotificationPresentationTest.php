@@ -41,6 +41,7 @@ use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\MenuModalPresentation;
 use Ichiloto\Engine\UI\Modal\ModalPresentation;
 use Ichiloto\Engine\UI\Modal\ModalManager;
+use Ichiloto\Engine\UI\Presentation\PresentationDeliveryState;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -59,6 +60,24 @@ final class NotificationPresentationGameProbe extends Game
 {
   public function __construct() {}
   public function __destruct() {}
+}
+
+final class TrackedNotificationAlertProbe extends ModalManager
+{
+  public array $delivered = [];
+  public bool $fail = false;
+  public ?Closure $duringDelivery = null;
+  public function __construct(Game $game)
+  {
+    $this->game = $game;
+    $this->modals = new \Assegai\Collections\Stack(\Ichiloto\Engine\UI\Interfaces\ModalInterface::class);
+  }
+  protected function showPendingAlert(string $message, string $title): void
+  {
+    ($this->duringDelivery ?? static fn() => null)();
+    if ($this->fail) { throw new RuntimeException('Interrupted tracked alert'); }
+    $this->delivered[] = [$message, $title];
+  }
 }
 
 interface NotificationCanvasSceneProbe extends SceneInterface, CanvasProviderInterface {}
@@ -111,6 +130,7 @@ beforeEach(function () {
     $caps = $supported ? [...MenuPresentationCatalog::CAPABILITIES, RendererSessionConfig::CANVAS_OVERLAY,
       RendererSessionConfig::CANVAS_COMPOSITING] : [];
     $this->transport = new FakeRendererTransport();
+    $this->transport->acknowledgeFrames = true;
     $this->transport->batches = [[RendererEvent::fromJson(json_encode(['type' => 'ready', 'protocol' => 2, 'capabilities' => $caps]))]];
     $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['not-launched']),
       $this->root, cellWidth: 10, cellHeight: 20, requiredCapabilities: $caps), $this->transport);
@@ -520,8 +540,8 @@ it('protects transformed actors prompts and screen HUD without treating terrain 
   $sprite = new PresentationSprite('actor', 'Icon.png', 10, 1, 48, 48, lift: 6);
   $text = new ConsolePresentationSnapshot(80, 30, [
     new PresentationTextLayer('world', 0, [new PresentationTextRun(0, 0, 'terrain')]),
-    new PresentationTextLayer('hud', 1000, [new PresentationTextRun(0, 0, 'Location')]),
-    new PresentationTextLayer(PresentationLayerPolicy::FIELD_PROMPT_ID, 1000, [new PresentationTextRun(0, 10, '!')]),
+    new PresentationTextLayer('hud', PresentationLayerPolicy::UI, [new PresentationTextRun(0, 0, 'Location')]),
+    new PresentationTextLayer(PresentationLayerPolicy::FIELD_PROMPT_ID, PresentationLayerPolicy::UI, [new PresentationTextRun(0, 10, '!')]),
   ]);
   $areas = NotificationPlacement::getProtectedAreas(null, $text, [$sprite], $grid, $viewport);
   expect($areas)->toHaveCount(3)->and(NotificationPlacement::isClear(new CanvasRectangle(960, 24, 40, 60), $areas))->toBeFalse()
@@ -655,4 +675,212 @@ it('uses the real retained renderer path and removes its graphical surface after
   $this->runtime->present(null, $this->manager);
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames))->not->toHaveKey('canvas');
+});
+
+it('tracks toast completion only after it reaches the front and finishes its ordinary lifetime', function () {
+  $prior = new Notification($this->game, NotificationChannel::INFO, 'Prior', 'Other producer', 1, animationDuration: 0);
+  $this->manager->notify($prior);
+  $notice = new Notification($this->game, NotificationChannel::INFO, 'Power', 'Current prompt', .5, animationDuration: 0);
+  $delivery = $this->manager->notifyTracked($notice);
+  expect($delivery->state)->toBe(PresentationDeliveryState::QUEUED)->and($delivery->isComplete)->toBeFalse();
+  Time::setElapsedTime(1.01); $this->manager->update();
+  expect($delivery->state)->toBe(PresentationDeliveryState::PRESENTING)->and($delivery->isComplete)->toBeFalse();
+  Time::setElapsedTime(1.52); $this->manager->update();
+  expect($delivery->state)->toBe(PresentationDeliveryState::COMPLETED)->and($delivery->isComplete)->toBeTrue();
+});
+
+it('keeps a promoted long-form delivery pending through modal failure and acknowledges the exact full text once', function () {
+  $modals = new TrackedNotificationAlertProbe($this->game);
+  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $modals);
+  $body = str_repeat('Complete source description. ', 8);
+  $delivery = $this->manager->notifyTracked(new Notification($this->game, NotificationChannel::INFO, 'Power', $body));
+  expect($delivery->state)->toBe(PresentationDeliveryState::QUEUED);
+  $modals->duringDelivery = static function () use ($delivery) {
+    expect($delivery->state)->toBe(PresentationDeliveryState::PRESENTING)->and($delivery->isComplete)->toBeFalse();
+  };
+  $modals->fail = true;
+  expect(fn() => $modals->processPendingAlerts())->toThrow(RuntimeException::class)
+    ->and($delivery->state)->toBe(PresentationDeliveryState::QUEUED);
+  $modals->fail = false; $modals->processPendingAlerts(); $modals->processPendingAlerts();
+  expect($delivery->isComplete)->toBeTrue()->and($modals->delivered)->toBe([[$body, 'Power']]);
+});
+
+it('transfers an already-presenting toast receipt to an acknowledged surface when the viewport cannot fit it', function () {
+  ($this->startRenderer)();
+  $modals = new TrackedNotificationAlertProbe($this->game);
+  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $modals);
+  $delivery = $this->manager->notifyTracked(new Notification($this->game, NotificationChannel::INFO, 'Power', 'Complete prompt', animationDuration: 0));
+  expect($delivery->state)->toBe(PresentationDeliveryState::PRESENTING);
+  $this->manager->composePresentation(null, 30, 30);
+  expect($delivery->state)->toBe(PresentationDeliveryState::QUEUED)->and($delivery->isComplete)->toBeFalse();
+  $modals->processPendingAlerts();
+  expect($delivery->isComplete)->toBeTrue()->and($modals->delivered)->toBe([['Complete prompt', 'Power']]);
+});
+
+it('cancels only one producers toast or promoted alert and preserves the next producers delivery', function () {
+  $one = $this->manager->notifyTracked(new Notification($this->game, NotificationChannel::INFO, 'One', 'First', 1, animationDuration: 0));
+  $two = $this->manager->notifyTracked(new Notification($this->game, NotificationChannel::INFO, 'Two', 'Second', 1, animationDuration: 0));
+  $this->manager->cancelDelivery($two);
+  expect($two->state)->toBe(PresentationDeliveryState::CANCELLED)->and($one->state)->toBe(PresentationDeliveryState::PRESENTING);
+  $three = $this->manager->notifyTracked(new Notification($this->game, NotificationChannel::INFO, 'Three', 'Third', 1, animationDuration: 0));
+  $this->manager->cancelDelivery($one);
+  expect($one->isComplete)->toBeFalse()->and($one->state)->toBe(PresentationDeliveryState::CANCELLED)
+    ->and($three->state)->toBe(PresentationDeliveryState::PRESENTING);
+  Time::setElapsedTime(1.01); $this->manager->update();
+  expect($three->isComplete)->toBeTrue();
+  $modals = new TrackedNotificationAlertProbe($this->game);
+  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $modals);
+  $long = $this->manager->notifyTracked(new Notification($this->game, NotificationChannel::INFO, 'Long', str_repeat('Long body ', 30)));
+  $modals->queueAlert('Independent alert');
+  $this->manager->cancelDelivery($long); $modals->processPendingAlerts();
+  expect($long->state)->toBe(PresentationDeliveryState::CANCELLED)->and($modals->delivered)->toBe([['Independent alert', '']]);
+});
+
+it('leaves delivery incomplete when the application stops while the alert is open', function () {
+  $modals = new TrackedNotificationAlertProbe($this->game);
+  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $modals);
+  $delivery = $this->manager->notifyTracked(new Notification($this->game, NotificationChannel::INFO, 'Power', str_repeat('Long body ', 30)));
+  $modals->duringDelivery = function () { new ReflectionProperty(Game::class, 'terminalCleanedUp')->setValue($this->game, true); };
+  $modals->processPendingAlerts();
+  expect($delivery->state)->toBe(PresentationDeliveryState::CANCELLED)->and($delivery->isComplete)->toBeFalse();
+});
+
+
+it('saves first-use completion after delivery and preserves once-only state through reload and rollback', function () {
+  $catalog = new \Ichiloto\Engine\Progression\WorldAbilityCatalog([['id' => 'power', 'name' => 'Power',
+    'conditions' => [['type' => 'switch', 'name' => 'granted']], 'firstUse' => ['message' => 'A short first-use hint.']]]);
+  $ability = $catalog->getAbility('power'); $state = new \Ichiloto\Engine\Core\GameState();
+  $prompts = new \Ichiloto\Engine\Progression\WorldAbilityPrompts($this->game);
+  expect($prompts->offer($ability, $catalog, $state))->toBeFalse();
+  $state->setSwitch('granted'); $before = $state->toArray();
+  expect($prompts->offer($ability, $catalog, $state))->toBeTrue()
+    ->and($state->hasSeenWorldAbilityPrompt('power'))->toBeFalse()
+    ->and($prompts->offer($ability, $catalog, $state))->toBeFalse();
+  $prompts->cancel();
+  expect($state->toArray())->toBe($before)->and($prompts->offer($ability, $catalog, $state))->toBeTrue();
+  Time::setElapsedTime(5); new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, .1);
+  $this->manager->update(); Time::setElapsedTime(5.5); $this->manager->update(); $prompts->update();
+  expect($state->hasSeenWorldAbilityPrompt('power'))->toBeTrue()->and($state->getSwitch('granted'))->toBeTrue();
+  $restored = \Ichiloto\Engine\Core\GameState::fromArray($state->toArray());
+  expect($prompts->offer($ability, $catalog, $restored))->toBeFalse();
+  $restored->restoreSnapshot($before);
+  expect($restored->hasSeenWorldAbilityPrompt('power'))->toBeFalse();
+});
+
+it('uses the semantic control profile for first-use hints and leaves unavailable controls unseen', function () {
+  $savedHints = new ReflectionClass(\Ichiloto\Engine\IO\ActionHints::class)->getStaticProperties();
+  try {
+    \Ichiloto\Engine\IO\ActionHints::useProvider(new class implements \Ichiloto\Engine\IO\ActionHintProvider {
+      public function controlForAction(string $action): ?\Ichiloto\Engine\IO\ControlHint { return null; }
+    });
+    $catalog = new \Ichiloto\Engine\Progression\WorldAbilityCatalog([['id' => 'run-power', 'name' => 'Run',
+      'firstUse' => ['hints' => [['action' => 'dash', 'label' => 'Hold to run']]]]]);
+    $state = new \Ichiloto\Engine\Core\GameState();
+    $prompts = new \Ichiloto\Engine\Progression\WorldAbilityPrompts($this->game);
+    expect($prompts->offer($catalog->getAbility('run-power'), $catalog, $state))->toBeFalse();
+    \Ichiloto\Engine\IO\ActionHints::useProvider(new class implements \Ichiloto\Engine\IO\ActionHintProvider {
+      public function controlForAction(string $action): ?\Ichiloto\Engine\IO\ControlHint {
+        return new \Ichiloto\Engine\IO\ControlHint('gamepad', 'B', 'B');
+      }
+    });
+    expect($prompts->offer($catalog->getAbility('run-power'), $catalog, $state))->toBeTrue();
+    $notice = new \Ichiloto\Engine\Messaging\Notifications\ActionHintNotification($this->game, 'Run', 'Move faster.',
+      $catalog->getAbility('run-power')->firstUse->getActionHints());
+    expect($notice->getContentText())->toBe("Move faster.\n[B] Hold to run");
+    $notice->open(); $notice->update();
+    $surface = NotificationCanvasPresentation::compose($notice, $this->theme, 1350, 720);
+    expect(notificationCanvasText($surface->canvas))->toContain('Move faster.', 'Hold to run');
+    foreach ($surface->canvas->textLayers as $layer) {
+      expect($layer->y + $layer->grid->rows * $layer->grid->cellHeight)->toBeLessThanOrEqual($surface->bounds->y + $surface->bounds->height);
+    }
+    $prompts->cancel(); expect($state->hasSeenWorldAbilityPrompt('run-power'))->toBeFalse();
+  } finally {
+    foreach ($savedHints as $key => $value) { new ReflectionProperty(\Ichiloto\Engine\IO\ActionHints::class, $key)->setValue(null, $value); }
+  }
+});
+
+it('does not save a first-use reading prompt when the application stops before acknowledgement', function () {
+  $catalog = new \Ichiloto\Engine\Progression\WorldAbilityCatalog([['id' => 'power', 'name' => 'Power',
+    'firstUse' => ['message' => str_repeat('Full source instruction. ', 12)]]]);
+  $state = new \Ichiloto\Engine\Core\GameState();
+  $prompts = new \Ichiloto\Engine\Progression\WorldAbilityPrompts($this->game);
+  $modals = new TrackedNotificationAlertProbe($this->game);
+  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $modals);
+  $prompts->offer($catalog->getAbility('power'), $catalog, $state);
+  $modals->duringDelivery = function () { new ReflectionProperty(Game::class, 'terminalCleanedUp')->setValue($this->game, true); };
+  $modals->processPendingAlerts(); $prompts->update();
+  expect($state->hasSeenWorldAbilityPrompt('power'))->toBeFalse();
+});
+
+
+it('offers passage instruction only inside the actual cue range and cancels across field ownership changes', function () {
+  $old = ConfigStore::has(\Ichiloto\Engine\Progression\WorldAbilityCatalog::class)
+    ? ConfigStore::get(\Ichiloto\Engine\Progression\WorldAbilityCatalog::class) : null;
+  try {
+    $catalog = new \Ichiloto\Engine\Progression\WorldAbilityCatalog([['id' => 'sense', 'name' => 'Sense',
+      'firstUse' => ['message' => 'A passage is nearby.']]]);
+    ConfigStore::put(\Ichiloto\Engine\Progression\WorldAbilityCatalog::class, $catalog);
+    $state = new \Ichiloto\Engine\Core\GameState();
+    $passage = \Ichiloto\Engine\Events\Triggers\EventTriggerFactory::create([
+      'class' => \Ichiloto\Engine\Events\Triggers\PassageEventTrigger::class, 'marker' => 'P',
+      'area' => ['cells' => [[4, 1]]], 'engagement' => 'facing', 'data' => ['reusable' => false, 'mode' => 'action'],
+      'conditions' => [['type' => 'world_ability', 'name' => 'sense']], 'cue' => ['symbol' => '!', 'maxDistance' => 2],
+    ], 'synthetic-room');
+    $passage->bind($state);
+    $player = new ReflectionClass(\Ichiloto\Engine\Field\Player::class)->newInstanceWithoutConstructor();
+    $events = new \Assegai\Collections\ItemList(\Ichiloto\Engine\Events\Triggers\EventTrigger::class);
+    $events->add($passage);
+    new ReflectionProperty($player, 'events')->setValue($player, $events);
+    new ReflectionProperty($player, 'position')->setValue($player, new \Ichiloto\Engine\Core\Vector2(0, 1));
+    $scene = $this->createStub(GameScene::class); $ui = $this->createStub(\Ichiloto\Engine\UI\UIManager::class);
+    $ui->method('getActivePresentations')->willReturn([]); $scene->method('getUI')->willReturn($ui);
+    new ReflectionProperty($scene, 'gameState')->setValue($scene, $state);
+    new ReflectionProperty($scene, 'player')->setValue($scene, $player);
+    $prompts = new \Ichiloto\Engine\Progression\WorldAbilityPrompts($this->game);
+    $prompts->updateForScene($scene);
+    expect($player->getSensedPassages())->toBe([]);
+    new ReflectionProperty($player, 'position')->setValue($player, new \Ichiloto\Engine\Core\Vector2(2, 1));
+    $prompts->updateForScene($scene);
+    expect($player->getSensedPassages())->toBe([$passage]);
+    $prompts->cancel(); expect($state->hasSeenWorldAbilityPrompt('sense'))->toBeFalse();
+    $prompts->updateForScene($scene);
+    Time::setElapsedTime(5); $this->manager->update(); Time::setElapsedTime(5.5); $this->manager->update();
+    $prompts->updateForScene($scene);
+    expect($state->hasSeenWorldAbilityPrompt('sense'))->toBeTrue()->and($passage->isComplete)->toBeFalse();
+  } finally {
+    $old === null ? ConfigStore::remove(\Ichiloto\Engine\Progression\WorldAbilityCatalog::class)
+      : ConfigStore::put(\Ichiloto\Engine\Progression\WorldAbilityCatalog::class, $old);
+  }
+});
+
+
+it('keeps a revoked power prompt unseen and retries from the current availability source', function () {
+  $catalog = new \Ichiloto\Engine\Progression\WorldAbilityCatalog([['id' => 'power', 'name' => 'Power',
+    'conditions' => [['type' => 'switch', 'name' => 'granted']], 'firstUse' => ['message' => 'A short hint.']]]);
+  $state = new \Ichiloto\Engine\Core\GameState(); $state->setSwitch('granted');
+  $prompts = new \Ichiloto\Engine\Progression\WorldAbilityPrompts($this->game);
+  expect($prompts->offer($catalog->getAbility('power'), $catalog, $state))->toBeTrue();
+  $state->setSwitch('granted', false); $prompts->update();
+  expect($state->hasSeenWorldAbilityPrompt('power'))->toBeFalse();
+  $state->setSwitch('granted');
+  expect($prompts->offer($catalog->getAbility('power'), $catalog, $state))->toBeTrue();
+  $prompts->cancel();
+});
+
+
+it('keeps two prose rows and their semantic control row in one complete in-place notification', function () {
+  $message = 'A short instruction on one line.' . "\n" . 'Its second line remains visible.';
+  $hint = new \Ichiloto\Engine\IO\ActionHint('dash', 'Hold to move', new \Ichiloto\Engine\IO\ControlHint('gamepad', 'B', 'B'));
+  $notice = new \Ichiloto\Engine\Messaging\Notifications\ActionHintNotification($this->game, 'Movement', $message, [$hint]);
+  $delivery = $this->manager->notifyTracked($notice); Time::setElapsedTime(.31); $this->manager->update(); $this->manager->render();
+  expect($delivery->state)->toBe(PresentationDeliveryState::PRESENTING)
+    ->and(implode('', Console::getBuffer()))->toContain('Its second line remains visible.', '[B] Hold to move');
+  $surface = NotificationCanvasPresentation::compose($notice, $this->theme, 1350, 720);
+  expect(notificationCanvasText($surface->canvas))->toContain('Its second line remains visible.', 'Hold to move');
+  foreach ($surface->canvas->textLayers as $layer) {
+    expect($layer->y + $layer->grid->rows * $layer->grid->cellHeight)->toBeLessThanOrEqual($surface->bounds->y + $surface->bounds->height);
+  }
+  $this->manager->cancelDelivery($delivery);
+  $oversized = new \Ichiloto\Engine\Messaging\Notifications\ActionHintNotification($this->game, 'Movement', $message . "\nThird prose row.", [$hint]);
+  expect(\Ichiloto\Engine\Messaging\Notifications\NotificationContentPolicy::fitsToast($oversized))->toBeFalse();
 });

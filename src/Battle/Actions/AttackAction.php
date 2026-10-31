@@ -18,16 +18,20 @@ class AttackAction extends BattleAction
    */
   public function execute(Actor $actor, array $targets): void
   {
-    if ($actor->isKnockedOut) {
+    if (! $actor->isFighting) {
       return;
     }
 
     $actorView = new BattlerBattleView($actor);
     $executionId = $this->nextExecutionId();
+    if ($this->allowInterception && ($miss = $this->reactions?->intercept($this, $actor, $targets, 'attack', $executionId, $this->resolver)) !== null) {
+      $this->lastResult = $miss;
+      return;
+    }
     $targetResults = [];
 
     foreach ($targets as $target) {
-      if (! $target instanceof Actor || $target->isKnockedOut) {
+      if (! $target instanceof Actor || ! $target->isFighting) {
         continue;
       }
 

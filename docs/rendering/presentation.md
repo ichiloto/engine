@@ -135,6 +135,15 @@ its baseline with the latest desired text, sprites, canvas, world and viewport.
 Intermediate desired versions are coalesced. Continuous changes therefore do not
 restart the cold upload forever, and no partial candidate replaces the old scene.
 
+Delivery is also bounded by whole frames. While the renderer has not acknowledged
+`MAX_FRAMES_IN_FLIGHT` completely queued frames, a present call queues nothing:
+changes stay desired state, and the first call after an acknowledgement sends one
+frame holding only their net difference from the last delivered frame. Superseded
+intermediate frames are never queued, so the frame answering a key press waits
+behind at most that many frames, however slow the renderer is. Responsiveness takes
+priority over showing every sampled animation step. A reset after rejection,
+resize, timeout or a new session is never held.
+
 The producer's named limits are independent of the transport's larger capacity:
 
 | `RetainedPresentation` limit | Value |
@@ -144,6 +153,7 @@ The producer's named limits are independent of the transport's larger capacity:
 | `MAX_SEND_PACKETS`, packet and zero-wait I/O-pass limits per call | 32 each |
 | `MAX_PENDING_WRITE_BYTES`, pending-byte high-water mark | 1 MiB |
 | `MAX_IN_FLIGHT`, unacknowledged-packet window | 32 |
+| `MAX_FRAMES_IN_FLIGHT`, unacknowledged complete frames | 2 |
 | `MAX_MESSAGE_BYTES` / `ENVELOPE_RESERVE_BYTES` | 4 MiB / 4 KiB |
 
 Operations are indivisible, so a call may cross its byte target by one packet.
@@ -173,7 +183,10 @@ Once upload/recovery is complete, unchanged desired state queues nothing.
 
 `RetainedPresentation` stores desired text, sprite, canvas and world state per
 session. Stable IDs identify elements; explicit `order` preserves equal-layer
-ordering. New elements and changed metadata use `put`; removals use `remove`.
+ordering. Orders are sparse ranks, relative within one order space (each canvas
+kind, text layers, and sprites with field canvases together). A surviving element
+keeps its rank when another is inserted, removed or moved, so only the changed
+element is sent. New elements and changed metadata use `put`; removals use `remove`.
 An existing screen text layer sends `textRows` containing only changed rows.
 Each listed row replaces that layer's entire sparse row; `runs:[]` removes it.
 Unlisted rows and elements remain. Sprites and canvas elements are compared by

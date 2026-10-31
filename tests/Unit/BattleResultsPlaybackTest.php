@@ -157,3 +157,75 @@ it('rejects invalid playback time and invalid page geometry', function () {
 it('keeps newlines but strips C0 and C1 controls before native cell projection', function () {
   expect(BattleResultsContent::wrap("a\t b\u{0085}c\nsecond\x01 line", 40))->toBe(['a  bc', 'second line']);
 });
+
+it('counts only while a visible EXP gauge moves, and stops at its final value or when completed early', function () {
+  $counting = new BattleResultsPlayback(new BattleRewards(260, 0, [playbackAward()]));
+  $states = [];
+  foreach ([0.5, 0.5, 1.0, 0.2] as $delta) {
+    $counting->update($delta);
+    $states[] = $counting->isCounting;
+  }
+  // Before the gauges start, while they move, after the last value lands but before the page completes.
+  expect($states)->toBe([false, true, true, false])->and($counting->isComplete())->toBeFalse();
+
+  $skipped = new BattleResultsPlayback(new BattleRewards(260, 0, [playbackAward()]));
+  $skipped->update(1.2);
+  expect($skipped->isCounting)->toBeTrue();
+  $skipped->confirm();
+  expect($skipped->isCounting)->toBeFalse();
+});
+
+it('does not count where nothing visible animates', function (BattleRewards $rewards, bool $reducedMotion, bool $animatesCounts) {
+  $playback = new BattleResultsPlayback($rewards, $reducedMotion, $animatesCounts);
+  $playback->update(1.2);
+  expect($playback->isCounting)->toBeFalse();
+})->with([
+  'terminal projection' => [new BattleRewards(260, 0, [playbackAward()]), false, false],
+  'reduced motion' => [new BattleRewards(260, 0, [playbackAward()]), true, true],
+  'no EXP gained' => [new BattleRewards(0, 0, [playbackAward(from: 120, to: 120)]), false, true],
+  'already at the level cap' => [new BattleRewards(100, 0, [playbackAward(from: 500, to: 600)]), false, true],
+  'only an off-page member gains' => [new BattleRewards(100, 0, [playbackAward('a', 500, 600), playbackAward('b', 500, 600),
+    playbackAward('c', 500, 600), playbackAward('d', 500, 600), playbackAward('e')]), false, true],
+]);
+
+it('holds one EXP tally while results count and releases it on finish, early completion and close', function () {
+  $manager = makeCounterTickManager(bindsExpTally: true);
+  $rewards = new BattleRewards(260, 0, [playbackAward()]);
+  $finishing = new BattleResultsPlayback($rewards, counterSound: $manager->counterSound);
+  $other = new BattleResultsPlayback($rewards, counterSound: $manager->counterSound);
+  $frame = static function (float $delta, BattleResultsPlayback ...$playbacks) use ($manager): void {
+    foreach ($playbacks as $playback) { $playback->update($delta); }
+    $manager->update();
+  };
+
+  $frame(0.5, $finishing, $other);
+  expect($manager->counterSound->isPlaying)->toBeFalse();
+  $frame(0.5, $finishing, $other);
+  $frame(0.5, $finishing, $other);
+  expect($manager->counterSound->isPlaying)->toBeTrue()->and(listSpawnedSoundFiles($manager))->toBe(['tally.wav']);
+
+  // Completing one count early leaves the other one ticking.
+  $other->confirm();
+  expect($manager->counterSound->isPlaying)->toBeTrue();
+  $frame(0.7, $finishing);
+  expect($finishing->isCounting)->toBeFalse()->and($manager->counterSound->isPlaying)->toBeFalse()
+    ->and($manager->spawnedPlaybacks[0]->isRunning)->toBeFalse();
+
+  $closing = new BattleResultsPlayback($rewards, counterSound: $manager->counterSound);
+  $frame(1.2, $closing);
+  expect($manager->counterSound->isPlaying)->toBeTrue();
+  $closing->releaseCounterTick();
+  expect($manager->counterSound->isPlaying)->toBeFalse()->and(listSpawnedSoundFiles($manager))->toBe(['tally.wav', 'tally.wav']);
+  $manager->shutdown();
+});
+
+it('plays no EXP tally for results while sound effects are muted', function () {
+  $manager = makeCounterTickManager(['sfx' => false, 'master_volume' => 100], bindsExpTally: true);
+  $playback = new BattleResultsPlayback(new BattleRewards(260, 0, [playbackAward()]), counterSound: $manager->counterSound);
+  foreach ([1.0, 0.3, 0.3] as $delta) {
+    $playback->update($delta);
+    $manager->update();
+  }
+  expect($manager->spawnedCommands)->toBe([]);
+  $manager->shutdown();
+});

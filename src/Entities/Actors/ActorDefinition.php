@@ -4,9 +4,11 @@ namespace Ichiloto\Engine\Entities\Actors;
 
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Battle\CounterAttackRule;
+use Ichiloto\Engine\Battle\CrisisAbilityCatalog;
 use Ichiloto\Engine\Entities\Enumerations\WeaponType;
 use Ichiloto\Engine\Entities\Stats\StatKey;
 use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
+use Ichiloto\Engine\Progression\ExperienceAwarder;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Util\Debug;
@@ -47,7 +49,9 @@ final class ActorDefinition
     }
 
     $this->id = $id;
+    InitialEquipment::fromArray($data['initialEquipment'] ?? [], $source);
     CounterAttackRule::fromArray($data['counterAttack'] ?? null);
+    CrisisAbilityCatalog::requireReference($data['crisisAbility'] ?? null);
     if (($data['attackStyle'] ?? null) !== null) {
       try {
         WeaponType::require($data['attackStyle']);
@@ -117,8 +121,11 @@ final class ActorDefinition
    *
    * @param array<string, mixed> $savedState
    */
-  public function createCharacter(array $savedState = [], ?string $savePath = null): Character
+  public function createCharacter(array $savedState = [], ?string $savePath = null, ?int $startingLevel = null): Character
   {
+    if ($startingLevel !== null && ($startingLevel < 1 || $savedState !== [])) {
+      throw new \InvalidArgumentException('A starting level must be positive and applies only to a new actor.');
+    }
     $variantId = $this->resolveVariantId($savedState, $savePath);
     $data = $this->data;
     $data['actorId'] = $this->id;
@@ -126,10 +133,21 @@ final class ActorDefinition
     $data['naturalVariantId'] = $variantId;
 
     $character = Character::fromArray($data);
+    if ($startingLevel !== null) {
+      $level = min($startingLevel, $character->maxLevel);
+      $experience = $character->getLevelExperienceThresholds()[$level]
+        ?? throw new \InvalidArgumentException('The actor experience curve has no threshold for its starting level.');
+      $character->addExperience($experience - $character->currentExp);
+    }
 
     if ($savedState !== []) {
       $character->restoreMutableState($savedState);
+    } else {
+      InitialEquipment::fromArray($data['initialEquipment'] ?? [], $this->source)->equipCharacter($character);
     }
+    // A new or restored character knows every role skill of their level and
+    // stands where their Mastery Map says, even if a save predates either.
+    ExperienceAwarder::reconcileAutomaticRoleSkills($character);
 
     return $character;
   }
@@ -153,7 +171,7 @@ final class ActorDefinition
         throw new InvalidArgumentException('A graphical field role requires images.field2d with a character sheet definition.');
       }
       $sheet = CharacterSheet::fromArray($role);
-      if ($sheet->layer < PresentationLayerPolicy::WORLD || $sheet->layer >= PresentationLayerPolicy::UI) {
+      if ($sheet->layer < PresentationLayerPolicy::WORLD || $sheet->layer >= PresentationLayerPolicy::FIELD_GUIDANCE) {
         throw new InvalidArgumentException('A graphical field role requires a world layer (0..999).');
       }
       $this->fieldArtwork = $sheet;

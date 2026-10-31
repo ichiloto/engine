@@ -4,6 +4,8 @@ namespace Ichiloto\Engine\IO\Console;
 
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Symfony\Component\Console\Formatter\OutputFormatter;
+use Symfony\Component\Console\Output\AnsiColorMode;
+use Symfony\Component\Console\Terminal;
 use Throwable;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 
@@ -170,9 +172,66 @@ final class TerminalText
     return array_map(static fn(array $cell): string => $cell['prefix'] . $cell['symbol'] . $cell['suffix'], self::parseSourceCells($text));
   }
 
+  /**
+   * Composes one literal source cell inside its independently owned style.
+   * Formatter delimiters and a trailing backslash must never become markup
+   * or escape a generated closing tag. For those literals, Symfony resolves
+   * the style to equivalent ANSI boundaries while the glyph stays literal.
+   * This uses the existing formatter grammar without changing its escaping.
+   */
+  public static function composeSourceCell(string $symbol, string $prefix = '', string $suffix = ''): string
+  {
+    if (preg_match('/\A\X\z/u', $symbol) !== 1 || preg_match('/[\x00-\x1f\x7f]/u', $symbol) === 1) {
+      throw new \InvalidArgumentException('A source cell contains one printable literal grapheme.');
+    }
+    if (strpbrk($symbol, '<>\\') === false) { return $prefix . $symbol . $suffix; }
+
+    $style = self::resolveSourceStyle($prefix, $suffix);
+    // Even an unstyled delimiter needs a boundary, so adjacent cells cannot
+    // accidentally join into a formatter tag or escape one another's tags.
+    return ($style['prefix'] === '' ? Color::RESET->value : $style['prefix']) . $symbol
+      . ($style['suffix'] === '' ? Color::RESET->value : $style['suffix']);
+  }
+
+  /** Resolve authored wrappers through the existing formatter, independently
+   * of host display capability, without accepting literal text as a style.
+   * @return array{prefix: string, suffix: string} Truecolour ANSI boundaries; empty for an unstyled cell.
+   */
+  public static function resolveSourceStyle(string $prefix, string $suffix): array
+  {
+    // This is persisted source, independent of the host's display capability.
+    // Symfony resolves authored hex colours when constructing a style. Scope
+    // its supported colour mode to this synchronous formatting call only.
+    $mode = Terminal::getColorMode();
+    Terminal::setColorMode(AnsiColorMode::Ansi24);
+    try {
+      $formatter = clone self::getFormatter();
+      $formatter->getStyleStack()->reset();
+      $marker = "\u{E000}";
+      $parts = explode($marker, $formatter->format($prefix . $marker . $suffix));
+    } finally {
+      Terminal::setColorMode($mode);
+    }
+    if (count($parts) !== 2 || preg_replace(self::ANSI_PATTERN, '', $parts[0] . $parts[1]) !== '') {
+      throw new \InvalidArgumentException('A source cell style contains unsupported literal text or controls.');
+    }
+    return ['prefix' => $parts[0], 'suffix' => $parts[1]];
+  }
+
   /** @return list<array{symbol: string, prefix: string, suffix: string}> Exact source parts for shared authoring consumers. */
   public static function parseSourceCells(string $text): array
   {
+    if ($text === '') { return []; }
+    if (strpbrk($text, "<\\\e") === false) {
+      $glyphs = null;
+      if (preg_match('/[^\x20-\x7e]/', $text) === 0) { $glyphs = str_split($text); }
+      elseif (preg_match('/\p{Cc}/u', $text) === 0 && preg_match_all('/\X/u', $text, $plain) !== false) {
+        $glyphs = $plain[0];
+      }
+      if ($glyphs !== null) {
+        return array_map(static fn(string $glyph): array => ['symbol' => $glyph, 'prefix' => '', 'suffix' => ''], $glyphs);
+      }
+    }
     $previous = self::$formatter;
     self::$formatter = clone self::getFormatter();
     self::$formatter->getStyleStack()->reset();
@@ -181,19 +240,23 @@ final class TerminalText
       self::$formatter->getStyleStack()->reset();
       if ($expected === []) { return []; }
       $ansi = substr(self::ANSI_PATTERN, 1, -1);
-      preg_match_all('/' . $ansi . '|<[^<>]*>|\X/u', $text, $matches, PREG_OFFSET_CAPTURE);
-      $frames = $stack = $cells = [];
+      preg_match_all('/' . $ansi . '|<[^<>\x1b]*>|\X/u', $text, $matches, PREG_OFFSET_CAPTURE);
+      $frames = $stack = $cells = $styleKeys = [];
       $controls = '';
       $hasAnsi = false;
       foreach ($matches[0] ?? [] as [$token, $sourceOffset]) {
-        if (preg_match(self::ANSI_PATTERN, $token) === 1) {
+        if ($token[0] === "\e" && preg_match(self::ANSI_PATTERN, $token) === 1) {
           $controls .= $token;
           $hasAnsi = true;
           continue;
         }
         $closing = str_starts_with($token, '</');
-        $key = str_starts_with($token, '<')
-          ? self::getSourceStyleKey($closing ? '<' . substr($token, 2) : $token) : null;
+        $key = null;
+        if (str_starts_with($token, '<')) {
+          $tag = $closing ? '<' . substr($token, 2) : $token;
+          if (!array_key_exists($tag, $styleKeys)) { $styleKeys[$tag] = self::getSourceStyleKey($tag); }
+          $key = $styleKeys[$tag];
+        }
         if (!$closing && $key !== null) {
           $stack[] = count($frames);
           $frames[] = ['open' => $token, 'close' => '</>', 'key' => $key];
@@ -234,9 +297,10 @@ final class TerminalText
       // spelling and authored ANSI controls are never replaced or inferred.
       foreach (array_reverse($stack) as $frame) { $controls .= $frames[$frame]['close']; }
       $controls .= $ansiClose;
-      $result = [];
+      $result = $verified = [];
       foreach ($cells as $index => $cell) {
-        if ($hasAnsi && $cell['frames'] === [] && ($expected[$index] ?? null) === self::stripAnsi($expected[$index] ?? '')) {
+        if ($hasAnsi && $cell['frames'] === [] && strpbrk($cell['glyph'], '<>\\') === false
+          && ($expected[$index] ?? null) === self::stripAnsi($expected[$index] ?? '')) {
           $prefix = $suffix = '';
         } elseif ($hasAnsi) {
           // Replay authored controls, plus any missing closing boundary.
@@ -249,11 +313,17 @@ final class TerminalText
           foreach (array_reverse($cell['frames']) as $frame) { $suffix .= $frames[$frame]['close']; }
         }
         $source = $prefix . $cell['glyph'] . $suffix;
-        self::$formatter->getStyleStack()->reset();
-        $shown = self::visibleSymbols($source);
-        if (count($shown) !== 1 || !isset($expected[$index])
-          || \Normalizer::normalize($shown[0]) !== \Normalizer::normalize($expected[$index])) {
-          throw new \InvalidArgumentException('Terminal source row cannot be split into independent authored cells without changing its presentation. Keep this source intact; no cells were produced.');
+        $proof = strlen($source) . ':' . $source . ($expected[$index] ?? '');
+        // Repeated floor/wall cells in one row share an exact source/display
+        // proof. Keep validation identical while formatting each distinct pair once.
+        if (!isset($verified[$proof])) {
+          self::$formatter->getStyleStack()->reset();
+          $shown = self::visibleSymbols($source);
+          if (count($shown) !== 1 || !isset($expected[$index])
+            || \Normalizer::normalize($shown[0]) !== \Normalizer::normalize($expected[$index])) {
+            throw new \InvalidArgumentException('Terminal source row cannot be split into independent authored cells without changing its presentation. Keep this source intact; no cells were produced.');
+          }
+          $verified[$proof] = true;
         }
         $result[] = ['symbol' => $cell['glyph'], 'prefix' => $prefix, 'suffix' => $suffix];
       }
@@ -680,6 +750,14 @@ final class TerminalText
   /**
    * Converts supported Symfony formatter tags to ANSI codes.
    *
+   * The formatter reads tags left to right, and its style stack carries over
+   * from one call to the next, so formatting a text in consecutive pieces cut
+   * between tags gives exactly what formatting it whole gives. For text that
+   * is not ASCII the formatter finds each tag by measuring the whole text up
+   * to it, so a long styled row (a world map row) costs its length for every
+   * tag it holds; formatted piece by piece ({@see splitFormatterPieces()}),
+   * each tag costs only the length of its own piece.
+   *
    * @param string $text The text to normalize.
    * @return string The normalized text.
    */
@@ -691,10 +769,45 @@ final class TerminalText
 
     try {
       LatencyTrace::record('terminal.format');
-      return self::getFormatter()->format($text);
+      $formatter = self::getFormatter();
+      $formatted = '';
+      foreach (self::splitFormatterPieces($text) as $piece) {
+        $formatted .= $formatter->format($piece);
+      }
+      return $formatted;
     } catch (Throwable) {
       return $text;
     }
+  }
+
+  /**
+   * Cuts a text after each unescaped closing tag `</>` that ends a grapheme
+   * of its own, so no piece starts with a character the formatter would have
+   * joined to the tag (a combining mark measures as part of the `>`). Text
+   * that is ASCII or not UTF-8 stays whole: the formatter reads it bytewise
+   * already.
+   *
+   * @return list<string> The pieces, in order; together they are the text.
+   */
+  private static function splitFormatterPieces(string $text): array
+  {
+    if (! preg_match('/[\x80-\xFF]/', $text) || ! preg_match('//u', $text)) {
+      return [$text];
+    }
+    $pieces = [];
+    $start = $offset = 0;
+    $length = strlen($text);
+    while (($at = strpos($text, '</>', $offset)) !== false) {
+      $end = $offset = $at + 3;
+      if ($end === $length || ($at > 0 && $text[$at - 1] === '\\')
+        || preg_match('/\G\X/u', $text, $grapheme, 0, $end - 1) !== 1 || $grapheme[0] !== '>') {
+        continue;
+      }
+      $pieces[] = substr($text, $start, $end - $start);
+      $start = $end;
+    }
+    $pieces[] = substr($text, $start);
+    return $pieces;
   }
 
   /**

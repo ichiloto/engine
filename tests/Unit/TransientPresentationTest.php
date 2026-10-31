@@ -173,7 +173,12 @@ beforeEach(function () {
   $this->transport = new FakeRendererTransport();
   $this->presenter = new RendererPresentation(new RendererClient($this->transport), new RendererGridConfig(80, 24));
   Timers::clear();
-  Timers::setFrameTick(null, fn() => $this->presenter->present(Console::presentationSnapshot()));
+  // A responsive renderer acknowledges each frame it is sent, so none is held behind it.
+  Timers::setFrameTick(null, function () {
+    $sent = $this->presenter->present(Console::presentationSnapshot());
+    if ($sent) { $this->transport->acknowledgeLatestFrame($this->presenter); }
+    return $sent;
+  });
   ob_start();
 });
 
@@ -541,7 +546,7 @@ it('presents fresh direct modal select and typewriter content in a sparse modal 
   $modal->open();
   expect($this->transport->sent)->not->toBeEmpty();
   $layers = RetainedFrameState::replay($this->transport->sent)[0]['textLayers'];
-  expect($layers)->toHaveCount(2)->and($layers[1]['layer'])->toBe(1020)
+  expect($layers)->toHaveCount(2)->and($layers[1]['layer'])->toBe(PresentationLayerPolicy::UI + PresentationPriority::MODAL->value)
     ->and(implode('', array_column($layers[1]['runs'], 'text')))->toContain($expected);
   expect(Console::presentationSnapshot()->textLayers)->toHaveCount(1);
 })->with([['modal', 'Fresh modal'], ['select', '> Second'], ['text', 'Fresh dialogue']]);
@@ -569,11 +574,11 @@ it('derives UIManager layers from existing priorities and safely nests direct mo
   $elements->add($element);
   new ReflectionProperty(UIManager::class, 'uiElements')->setValue($ui, $elements);
   $ui->render();
-  expect(Console::presentationSnapshot()->textLayers[1]->layer)->toBe(1010);
+  expect(Console::presentationSnapshot()->textLayers[1]->layer)->toBe(PresentationLayerPolicy::UI + PresentationPriority::FIELD_HUD->value);
   $game = new TransientGameFixture();
   $modal = new TransientModal($game, 'Modal', rect: new Rect(5, 5, 30, 5));
   PresentationLayerPolicy::ui($modal, $modal->render(...));
-  expect(array_column(Console::presentationSnapshot()->textLayers, 'layer'))->toBe([0, 1010, 1020]);
+  expect(array_column(Console::presentationSnapshot()->textLayers, 'layer'))->toBe([0, PresentationLayerPolicy::UI + PresentationPriority::FIELD_HUD->value, PresentationLayerPolicy::UI + PresentationPriority::MODAL->value]);
 });
 
 it('wraps the existing notification renderer above PHP UI without changing its draw arguments', function () {

@@ -7,6 +7,10 @@ use Ichiloto\Engine\Battle\BattleRewards;
 use Ichiloto\Engine\Battle\CounterAttackProvider;
 use Ichiloto\Engine\Battle\CounterAttackRule;
 use Ichiloto\Engine\Battle\HasCounterAttacks;
+use Ichiloto\Engine\Battle\InherentAttack;
+use Ichiloto\Engine\Battle\InherentAttacker;
+use Ichiloto\Engine\Battle\Insight\HasRevealedFacts;
+use Ichiloto\Engine\Battle\Insight\RevealableBattler;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Inventory\Accessory;
@@ -16,6 +20,7 @@ use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\States\HasStates;
 use Ichiloto\Engine\Entities\States\HasStatStages;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
+use Ichiloto\Engine\Entities\Skills\BasicSkill;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeIdentity;
 
@@ -24,16 +29,85 @@ use Ichiloto\Engine\Progress\Knowledge\KnowledgeIdentity;
  *
  * @package Ichiloto\Engine\Entities\Enemies
  */
-class Enemy implements CharacterInterface, CounterAttackProvider
+class Enemy implements CharacterInterface, CounterAttackProvider, InherentAttacker, RevealableBattler
 {
   use HasStates;
   use HasStatStages;
   use HasCounterAttacks;
+  // What the player has learned about this foe in the battle it fights.
+  use HasRevealedFacts;
 
   public bool $isKnockedOut {
     get {
       return $this->stats->currentHp <= 0;
     }
+  }
+
+  /**
+   * Whether a battle event made this enemy concede. A conceded enemy counts
+   * as defeated for victory and rewards, but it is not knocked out: it stays
+   * on screen in its conceding presentation instead of fading away.
+   */
+  protected(set) bool $hasConceded = false;
+
+  /** @inheritDoc */
+  public bool $isFighting {
+    get => ! $this->isKnockedOut && ! $this->hasConceded;
+  }
+
+  /**
+   * The share of maximum HP, 0..99, that battle damage cannot take this
+   * enemy below. The troop authors it, so a battle event can end the fight
+   * before an ordinary knockout. 0 lets damage knock the enemy out.
+   */
+  protected(set) int $knockoutFloorPercent = 0;
+
+  /**
+   * @inheritDoc
+   *
+   * Rounded down, so an enemy held at its floor is always at or below the
+   * same share of its HP, which is how an event page's HP condition reads it.
+   */
+  public int $knockoutFloor {
+    get => $this->knockoutFloorPercent === 0 || $this->hasConceded ? 0
+      : max(1, intdiv($this->stats->totalHp * $this->knockoutFloorPercent, 100));
+  }
+
+  /**
+   * Sets the troop-authored knockout floor for this battle instance.
+   *
+   * @param int $percent The share of maximum HP, 0..99.
+   */
+  public function setKnockoutFloorPercent(int $percent): void
+  {
+    if ($percent < 0 || $percent > 99) {
+      throw new \InvalidArgumentException('An enemy knockout floor must be a share of maximum HP from 0 to 99.');
+    }
+
+    // A share under 1 HP could only be reached at 0 HP, which the floor exists to prevent.
+    if ($percent > 0 && $this->stats->totalHp * $percent < 100) {
+      throw new \InvalidArgumentException(sprintf('A %d%% knockout floor of %s\'s %d maximum HP is less than 1 HP; raise it.',
+        $percent, $this->name, $this->stats->totalHp));
+    }
+
+    $this->knockoutFloorPercent = $percent;
+  }
+
+  /**
+   * Makes a fighting enemy concede: it stops acting and being targeted and
+   * counts as defeated, without the knockout treatment.
+   *
+   * @return bool True when the enemy conceded now; false when it was already out of the fight.
+   */
+  public function concede(): bool
+  {
+    if (! $this->isFighting) {
+      return false;
+    }
+
+    $this->hasConceded = true;
+
+    return true;
   }
 
   /**
@@ -46,6 +120,10 @@ class Enemy implements CharacterInterface, CounterAttackProvider
   protected(set) array $image = [];
   /** Stable project-authored knowledge subject, when this enemy has one. */
   protected(set) ?string $knowledgeSubjectId = null;
+  /** The basic skill this enemy attacks with when no pattern applies; null keeps the built-in attack. */
+  protected(set) ?BasicSkill $attackSkill = null;
+  /** Where it lives: land, water or air, which decides where a graphical battle stands it. */
+  protected(set) EnemyHabitat $habitat = EnemyHabitat::LAND;
 
   /**
    * Enemy constructor.
@@ -60,6 +138,8 @@ class Enemy implements CharacterInterface, CounterAttackProvider
    * @param array<string, float> $stateResistances Per-state infliction multipliers (0 grants immunity).
    * @param array<string, float> $elementAffinities Elemental damage multipliers (2.0 weak, 0.5 resist, 0 null, negative absorbs).
    * @param string|null $knowledgeSubjectId Stable project-owned knowledge subject ID.
+   * @param BasicSkill|null $attackSkill The basic skill it attacks with when no pattern applies.
+   * @param EnemyHabitat $habitat Where it lives: land, water or air.
    */
   public function __construct(
     protected(set) string $name,
@@ -74,8 +154,11 @@ class Enemy implements CharacterInterface, CounterAttackProvider
     array $elementAffinities = [],
     ?string $knowledgeSubjectId = null,
     ?CounterAttackRule $counterAttack = null,
+    ?BasicSkill $attackSkill = null,
+    EnemyHabitat $habitat = EnemyHabitat::LAND,
   )
   {
+    $this->habitat = $habitat;
     foreach ($actionPatterns as $pattern) {
       if ($pattern instanceof ActionPattern) {
         $this->actionPatterns[] = $pattern;
@@ -84,6 +167,7 @@ class Enemy implements CharacterInterface, CounterAttackProvider
 
     $this->setStateResistances($stateResistances);
     $this->counterAttack = $counterAttack;
+    $this->attackSkill = InherentAttack::requireBattleUsable($attackSkill, 'enemy');
     $this->setElementAffinities($elementAffinities);
     $this->knowledgeSubjectId = $knowledgeSubjectId === null || trim($knowledgeSubjectId) === ''
       ? null
@@ -152,6 +236,7 @@ class Enemy implements CharacterInterface, CounterAttackProvider
       'actionPatterns' => $this->actionPatterns,
       'knowledgeSubjectId' => $this->knowledgeSubjectId,
       'counterAttack' => $this->counterAttack?->toArray(),
+      'habitat' => $this->habitat->value,
     ];
   }
 
@@ -201,6 +286,7 @@ class Enemy implements CharacterInterface, CounterAttackProvider
         $this->{$key} = match($key) {
           'stats' => is_array($value) ? Stats::fromArray($value) : $value,
           'counterAttack' => CounterAttackRule::fromArray($value),
+          'habitat' => $value instanceof EnemyHabitat ? $value : EnemyHabitat::resolve($value),
           default => $value
         };
       }

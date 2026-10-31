@@ -3,6 +3,9 @@
 namespace Ichiloto\Engine\Entities\Inventory\Items;
 
 use Ichiloto\Engine\Entities\Effects\EffectFactory;
+use Ichiloto\Engine\Entities\Effects\ResurrectionEffect;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
 use Ichiloto\Engine\Entities\Enumerations\ItemUserType;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Interfaces\EffectInterface;
@@ -18,6 +21,25 @@ use ReflectionException;
 class Item extends InventoryItem
 {
   protected(set) ?int $animationId = null;
+  /** How large the bound animation's target effect plays; see {@see \Ichiloto\Engine\Animations\EffectScale}. */
+  protected(set) float $animationScale = \Ichiloto\Engine\Animations\EffectScale::DEFAULT;
+
+  /**
+   * @var ItemScopeStatus The life status the item's targets must have. An
+   * authored scope states it; an item authored without a scope side reaches
+   * the fallen when it resurrects and the living otherwise.
+   */
+  public ItemScopeStatus $targetStatus {
+    get {
+      if ($this->scope->side !== ItemScopeSide::NONE) {
+        return $this->scope->status;
+      }
+
+      return array_any($this->effects, static fn($effect): bool => $effect instanceof ResurrectionEffect)
+        ? ItemScopeStatus::DEAD
+        : ItemScopeStatus::ALIVE;
+    }
+  }
 
   /**
    * The Item constructor.
@@ -33,6 +55,7 @@ class Item extends InventoryItem
    * @param ItemScope $scope The scope.
    * @param Occasion $occasion The occasion.
    * @param EffectInterface[] $effects
+   * @param float $animationScale How large the bound animation's target effect plays.
    */
   public function __construct(
     string $name,
@@ -53,9 +76,11 @@ class Item extends InventoryItem
     string $availability = 'ordinary',
     ?string $acquisitionPolicy = null,
     ?int $animationId = null,
+    float $animationScale = \Ichiloto\Engine\Animations\EffectScale::DEFAULT,
   )
   {
     $this->animationId = $animationId;
+    $this->animationScale = \Ichiloto\Engine\Animations\EffectScale::readValue($animationScale);
     // $consumable is deliberately not promoted here: InventoryItem already
     // owns that property, and re-promoting it would let the parent
     // constructor below reset it to the parent's default, silently marking
@@ -121,6 +146,7 @@ class Item extends InventoryItem
       strval($data['availability'] ?? 'ordinary'),
       isset($data['acquisitionPolicy']) ? strval($data['acquisitionPolicy']) : null,
       isset($data['animationId']) ? intval($data['animationId']) : null,
+      \Ichiloto\Engine\Animations\EffectScale::readValue($data['animationScale'] ?? null),
     );
   }
 
@@ -152,5 +178,6 @@ class Item extends InventoryItem
     $this->occasion = $prototype->occasion;
     $this->effects = $prototype->effects;
     $this->animationId = $prototype->animationId;
+    $this->animationScale = $prototype->animationScale;
   }
 }

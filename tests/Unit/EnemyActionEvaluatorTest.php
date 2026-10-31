@@ -179,3 +179,34 @@ it('does not substitute self when the opposing side has no eligible recipients',
   [$action, $targets] = EnemyActionEvaluator::chooseAction($enemy, [$fallen], [$enemy], 1, 1);
   expect($action)->toBeInstanceOf(AttackAction::class)->and($targets)->toBe([]);
 });
+
+it('falls back to the enemy inherent attack: its authored attack skill, or the built-in attack', function () {
+  $strike = new BasicSkill('Tail Lash', '', '', 0, 0, new ItemScope(), Occasion::BATTLE_SCREEN, new SkillInvocation());
+  $party = [new Character('Hero', 0, new Stats(currentHp: 50, totalHp: 50))];
+  $plain = makePatternEnemy();
+  $armed = makePatternEnemy();
+  (new ReflectionProperty(Enemy::class, 'attackSkill'))->setValue($armed, $strike);
+
+  [$builtIn, $builtInTargets] = EnemyActionEvaluator::chooseAction($plain, $party, [$plain], 1, 1);
+  [$authored, $authoredTargets] = EnemyActionEvaluator::chooseAction($armed, $party, [$armed], 1, 1);
+
+  expect($builtIn)->toBeInstanceOf(AttackAction::class)
+    ->and($authored)->toBeInstanceOf(SkillBattleAction::class)
+    ->and($authored->skill)->toBe($strike)
+    ->and($builtInTargets)->toBe($party)
+    ->and($authoredTargets)->toBe($party);
+});
+
+
+it('queues a line anchor from current eligible instances and skips patterns whose row is empty', function () {
+  $line = new BasicSkill('Line', '', '', 0, 0, occasion: Occasion::BATTLE_SCREEN,
+    battleTargeting: new \Ichiloto\Engine\Battle\Formation\BattleTargeting(\Ichiloto\Engine\Battle\Formation\BattleTargetShape::LINE));
+  $row = new BasicSkill('Back row', '', '', 0, 0, new ItemScope(number: ItemScopeNumber::ALL), Occasion::BATTLE_SCREEN,
+    battleTargeting: new \Ichiloto\Engine\Battle\Formation\BattleTargeting(\Ichiloto\Engine\Battle\Formation\BattleTargetShape::BACK_ROW));
+  $enemy = makePatternEnemy(new ActionPattern($line, 5, new ActionCondition()), new ActionPattern($row, 9, new ActionCondition()));
+  $players = [new Character('Twin', 1, new Stats()), new Character('Twin', 1, new Stats())];
+  $formation = new \Ichiloto\Engine\Battle\Formation\BattleFormation($players, [$enemy]);
+  [$action, $anchors] = EnemyActionEvaluator::chooseAction($enemy, $players, [$enemy], 1, 1,
+    random: new \Ichiloto\Engine\Battle\Resolution\SeededCombatRandomSource(1), formation: $formation);
+  expect($action->skill)->toBe($line)->and($anchors)->toHaveCount(1)->and(in_array($anchors[0], $players, true))->toBeTrue();
+});

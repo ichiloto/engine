@@ -803,7 +803,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     }
 
     if ($this->currentScene instanceof GameScene && $battleResult !== null) {
-      $this->currentScene->resumeEventAfterBattle($battleResult);
+      $this->currentScene->concludeBattle($battleResult);
     }
   }
 

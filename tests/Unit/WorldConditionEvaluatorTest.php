@@ -36,6 +36,7 @@ it('publishes the complete stable condition vocabulary', function () {
     'variable',
     'item',
     'key_item',
+    'world_ability',
   ]);
 });
 

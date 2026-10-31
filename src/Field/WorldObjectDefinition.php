@@ -13,6 +13,7 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Sprites\FieldSpriteRole;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
+use Ichiloto\Engine\Rendering\Tilesets\TileAppearance;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 
@@ -38,6 +39,8 @@ final readonly class WorldObjectDefinition
         public ?WorldObjectTerminalPresentation $terminal = null,
         public array $terminalFootprint = [],
         public array $conditions = [],
+        public ?TileAppearance $appearance = null,
+        public array $tilePresentation = [],
     ) {}
 
     /**
@@ -55,26 +58,27 @@ final readonly class WorldObjectDefinition
         }
         $objects = $claimed = $terminalOwners = [];
         foreach ($entries as $entry) {
-            if (!is_array($entry) || array_diff(array_keys($entry), ['id', 'anchor', 'resource', 'pivot', 'sprites2d', 'variants', 'covers', 'label', 'terminal', 'conditions']) !== []) {
-                throw new InvalidArgumentException('A world object accepts id, anchor, conditions, covers, a sign label and either resource or inline pivot/sprites2d/variants.');
+            if (!is_array($entry) || array_diff(array_keys($entry), ['id', 'anchor', 'resource', 'pivot', 'sprites2d', 'variants', 'covers', 'label', 'terminal', 'conditions', 'appearance', 'tiles2d']) !== []) {
+                throw new InvalidArgumentException('A world object accepts id, anchor, conditions, covers, tiles2d, a sign label and either resource or inline pivot/sprites2d/variants.');
             }
             $placement = WorldObjectPlacement::read($entry, $layers->getComposedGrid());
+            $tilePresentation = WorldObjectTiles::read(array_key_exists('tiles2d', $entry) ? $entry['tiles2d'] : [], $placement, $layers, $graphics, $tileOwners);
             $id = $placement->id;
             $conditions = $placement->conditions;
             if (isset($objects[$id])) { throw new InvalidArgumentException("Duplicate world object id '{$id}'."); }
             $anchor = ['x' => $placement->x, 'y' => $placement->y];
             $resource = null;
             if (array_key_exists('resource', $entry)) {
-                if (array_intersect(array_keys($entry), ['pivot', 'sprites2d', 'variants']) !== []) {
-                    throw new InvalidArgumentException("World object '{$id}' resource references cannot include inline pivot, sprites2d or variants.");
+                if (array_intersect(array_keys($entry), ['pivot', 'sprites2d', 'variants', 'appearance']) !== []) {
+                    throw new InvalidArgumentException("World object '{$id}' resource references cannot include inline pivot, sprites2d, variants or appearance.");
                 }
                 WorldObjectResource::assertId($entry['resource']);
                 $resource = ($catalog ?? new FieldPresentationCatalog())->getResource($entry['resource']);
-            } elseif (!is_array($entry['pivot'] ?? null) || !array_key_exists('sprites2d', $entry)) {
-                throw new InvalidArgumentException("World object '{$id}' requires an explicit pivot and sprites2d role (or null).");
+            } elseif (!is_array($entry['pivot'] ?? null) || (!array_key_exists('sprites2d', $entry) && $tilePresentation === [])) {
+                throw new InvalidArgumentException("World object '{$id}' requires an explicit pivot and sprites2d role (or null), or nonempty tiles2d.");
             }
             $pivot = $resource?->pivot ?? PresentationSpritePivot::fromArray($entry['pivot']);
-            $sprites = $resource !== null ? $resource->sprites : self::readSprites($entry['sprites2d']);
+            $sprites = $resource !== null ? $resource->sprites : self::readSprites($entry['sprites2d'] ?? null);
             $terminal = WorldObjectTerminalPresentation::read($entry['terminal'] ?? null);
             $label = null;
             if ($resource?->sign !== null) {
@@ -115,7 +119,7 @@ final readonly class WorldObjectDefinition
                 $layer = array_find($layers->layers, static fn(MapLayer $layer): bool => $layer->name === $layerName);
                 foreach ($rows as $y => $cells) {
                     foreach ($cells as $x => $_) {
-                        $terminalFootprint[] = ['x' => $x, 'y' => $y, 'layer' => $layerName, 'symbol' => $layer->grid[$y][$x]];
+                        $terminalFootprint[] = ['x' => $x, 'y' => $y, 'layer' => $layerName, 'symbol' => $layer->getCellAt($x, $y)];
                     }
                 }
             }
@@ -135,7 +139,13 @@ final readonly class WorldObjectDefinition
                     $terminalOwners[$y][$x] = true;
                 }
             }
-            foreach ($coverage as $kind => $names) {
+            $ownership = $coverage;
+            foreach ($tilePresentation as $name => $rows) {
+                foreach ($rows as $y => $cells) {
+                    foreach ($cells as $x => $_) { $ownership['tiles'][$name][$y][$x] = true; }
+                }
+            }
+            foreach ($ownership as $kind => $names) {
                 foreach ($names as $name => $rows) {
                     foreach ($rows as $y => $cells) {
                         foreach ($cells as $x => $_) {
@@ -148,7 +158,8 @@ final readonly class WorldObjectDefinition
                 }
             }
             $objects[$id] = new self($id, $anchor['x'], $anchor['y'], $pivot, $sprites, $parsed,
-                $coverageResolved ? $coverage : [], $resource, $label, $terminal, $terminalFootprint, $conditions);
+                $coverageResolved ? $coverage : [], $resource, $label, $terminal, $terminalFootprint, $conditions,
+                $resource?->appearance ?? (array_key_exists('appearance', $entry) ? TileAppearance::parse($entry['appearance']) : null), $tilePresentation);
         }
         return array_values($objects);
     }
@@ -166,6 +177,19 @@ final readonly class WorldObjectDefinition
             if (WorldConditionEvaluator::allHold($variant['conditions'], $state, $party)) { return $variant; }
         }
         return ['id' => null, 'sprites' => $this->sprites, 'terminal' => $this->terminal];
+    }
+
+    /** Shared by runtime and authoring after availability/selected-role resolution.
+     * Tile layers hide their own glyphs only when usable; explicit absent image variants retain their claims.
+     */
+    public function shouldHideOwnedGlyphs(bool $drawable, bool $hasSelectedRole): bool
+    {
+        if ($this->tilePresentation !== [] && $this->sprites === null) { return false; }
+        if ($drawable) { return true; }
+        if ($this->resource?->sign !== null || ($this->resource !== null && $this->sprites instanceof GraphicalSpriteDefinition)) {
+            return false;
+        }
+        return !$hasSelectedRole;
     }
 
     private static function requireId(mixed $id): string

@@ -58,6 +58,14 @@ files independently of menu capacity. No Game setting is needed for 30 slots.
 Editor controls for authoring this project setting are not implemented here;
 source-preserving settings authoring remains in the Editor owner's lane.
 
+Arriving on a save point cell (`?` collision) runs the event script named by
+`config.php` `save.point_script`, as a `common_event` would, so a game can heal,
+pay out held income or speak there. Without one, the Engine shows its own save
+point notice, reworded through the `save.point_prompt` and `save.point_title`
+Terms (a blank prompt is silent). The script id is validated as a stable id;
+the Editor offers it from the project's event scripts in Configuration.
+**Removed:** the hard-coded English save point alert text.
+
 `SaveManager::getSaveSlots()` remains the numbered-only writable Save catalog.
 Developer `config.php` options `save.autosave` (default false) and
 `save.quicksave` (default true, preserving the existing Quick Save capability)
@@ -304,8 +312,8 @@ to 2, add exactly one `1 -> 2` step, retain all older steps, then raise
 
 ### Declared map shifts
 
-A step may declare position edits, `mapShifts`, `mapRemovals` and/or `relocations`,
-instead of `class` (a class or declared edits, never both).
+A step may declare position edits, `mapShifts`, `mapRemovals`, `relocations`
+and/or `mapRetirements`, instead of `class` (a class or declared edits, never both).
 It records blank rows or columns inserted into a map, so no generated PHP
 class is needed:
 
@@ -382,17 +390,98 @@ its coordinates. Map aliases apply as for shifts. The cells and landing are
 frozen in the manifest: choose a landing that is open floor, free of events and
 NPCs and reachable, because loading a save never consults the mutable map.
 
-A step may combine `mapShifts`, `mapRemovals` and `relocations`; shifts apply
-first, then removals, then relocations, each list in authored order regardless
-of PHP key order. A move belongs to the step that introduced it: never add edits
-to an earlier step, since saves already past that version will not run it again.
+### Declared map retirements
+
+When a map is retired and its places now stand on another map, a step
+declares `mapRetirements`, so saves standing on the retired map move to the
+matching place on its successor without a project class:
+
+```php
+[
+  'from' => 69,
+  'to' => 70,
+  'mapRetirements' => [
+    [
+      'map' => 'overworld',
+      'into' => 'continent',
+      'landings' => [
+        ['x' => 0, 'y' => 0, 'width' => 60, 'height' => 61, 'to' => [12, 40]],
+        ['x' => 60, 'y' => 0, 'width' => 40, 'height' => 61, 'to' => [88, 31]],
+      ],
+      'to' => [30, 30],
+    ],
+  ],
+]
+```
+
+`map` is the retired map ID and `into` the map its saves move to, both
+non-empty. `to` is the `[x, y]` landing on `into` for a save no
+landing holds. `landings` is optional; when present it is a non-empty list of
+rectangles in the retired map's coordinates, each with a non-negative `x` and
+`y`, a positive `width` and `height`, and its own `to` landing on `into`. A
+save whose map is `map` moves onto `into` at the `to` of the first rectangle
+holding its cell, or else at the entry's `to`. Map aliases apply to the save
+and to `map`, as for shifts.
+
+A retired map's places may have been split across several maps, such as a
+region whose outlying field became a map of its own. A landing then names its
+own `map`, the successor holding that part of the old places, and a save it
+holds lands there; a landing without `map` lands on `into`. A landing's `map`
+is a non-empty string and may not be the retired map unless the map retires
+into itself:
+
+```php
+'landings' => [
+  ['x' => 140, 'y' => 0, 'width' => 81, 'height' => 41, 'map' => 'high-reach', 'to' => [2, 22]],
+  ['x' => 0, 'y' => 0, 'width' => 30, 'height' => 20, 'to' => [139, 126]],
+],
+```
+
+A map may retire into itself, when its old layout is redrawn under the same
+ID: `map` and `into` name one map, the rectangles are in the old layout's
+coordinates and the landings in the new one's. Every save made on the map
+before the step moves, since it stood on the old layout.
+
+The landings are frozen in the manifest: choose open floor on the map each
+lands on, free of events and NPCs and reachable, because loading a save never
+consults the mutable map. Later steps that edit a successor move landed saves
+as they move any other save on it.
+
+Retirement carries what belongs to the places: a save that visited the
+retired map has visited `into`, wherever the save stands, so the region map
+keeps showing where the player has been. Only `into` takes over the retired
+identity, so only it inherits the visit; a save landing on another successor
+stands on it, and standing there visits it as any arrival does. The retired
+map's own entry stays.
+
+A retirement does not alias the retired map to `into`. A map alias says two
+IDs name one map, so every earlier step's edits on the retired map would also
+move saves standing on `into`, and every one-shot event `map:marker` would
+read as `into:marker`, completing whichever event of `into` shares the marker.
+A one-shot event that moved to another map follows it through an explicit
+`one_shot_events` alias, such as `overworld:Q` to `high-reach:Q`. Completed
+events of the retired map that no alias names stay under the retired map and
+match nothing.
+
+A step may combine `mapShifts`, `mapRemovals`, `relocations` and
+`mapRetirements`; shifts apply first, then removals, then relocations, then
+retirements, each list in authored order regardless of PHP key order, so a
+retirement reads the position its step has already moved. A move belongs to
+the step that introduced it: never add edits to an earlier step, since saves
+already past that version will not run it again.
 
 `ContentReferenceCategory` is the shared runtime/editor vocabulary: maps,
 one-shot events, quests, actors, items, equipment, abilities, spells,
-summons, states, story events, enemies, and achievements. Alias entries use a
-list of `from`/`to` pairs so contradictory duplicate sources remain visible
-to validation. Chains resolve deterministically; self-aliases and cycles are
-invalid. No rename is inferred.
+summons, states, story events, enemies, achievements and knowledge subjects.
+Alias entries use a list of `from`/`to` pairs so contradictory duplicate
+sources remain visible to validation. Chains resolve deterministically;
+self-aliases and cycles are invalid. No rename is inferred.
+
+A `knowledge_subjects` alias retires a subject into its successor, for
+instance when two field records turn out to describe one species. A save that
+holds progress for both keeps one record: the deeper depth, every observation
+and report, and the outcomes of both added together, since each counted
+different encounters.
 
 Actor definitions must declare a non-empty string `data.id`. Display-name and
 filename lookup aliases have been removed: only IDs resolve definitions, so two

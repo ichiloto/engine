@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\UI\Modal;
 
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 
@@ -103,7 +105,7 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface, Mo
    * @param string $title The title of the modal.
    * @param Rect $rect The rectangle of the modal.
    * @param array $buttons The buttons of the modal.
-   * @param string|null $help The help of the modal.
+   * @param string|null $help The help of the modal; null shows its Cancel control.
    * @param BorderPackInterface $borderPack The border pack of the modal.
    */
   public function __construct(
@@ -121,10 +123,11 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface, Mo
     public string $title = '',
     protected(set) Rect $rect = new Rect(0, 0, DEFAULT_DIALOG_WIDTH, DEFAULT_DIALOG_HEIGHT),
     public array $buttons = ['OK'],
-    protected ?string $help = 'c:cancel',
+    protected ?string $help = null,
     public BorderPackInterface $borderPack = new DefaultBorderPack()
   )
   {
+    $this->help ??= TerminalControlText::formatHint(ActionHints::resolve('cancel', 'Cancel'));
     $this->observers = new ItemList(ObserverInterface::class);
     $this->staticObservers = new ItemList(StaticObserverInterface::class);
     $this->eventManager = EventManager::getInstance($this->game);

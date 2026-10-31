@@ -71,13 +71,17 @@ final class CinematicStageManager
     }
 
     $subject = isset($entry['subject']) ? $this->resolveSubject($entry['subject']) : null;
+    $appearance = isset($entry['appearance']) ? $this->resolveAppearance($entry['appearance']) : null;
     $previous = $this->actors[$id] ?? null;
     $independentActor = $subject === null && $previous?->subject === null ? $previous : null;
-    $position = array_key_exists('at', $entry) ? CinematicRelativePosition::resolve($this->gameScene, $entry)
+    // A replacement staged without a new place keeps its attachment, as it keeps its cell.
+    $attachment = array_key_exists('at', $entry) ? CinematicRelativePosition::resolveAttachment($this->gameScene, $entry)
+      : (isset($entry['x']) || isset($entry['y']) ? null : $independentActor?->attachment);
+    $position = $attachment?->cell ?? (array_key_exists('at', $entry) ? CinematicRelativePosition::resolve($this->gameScene, $entry)
       : new Vector2(isset($entry['x']) ? intval($entry['x']) : ($independentActor?->position->x ?? 0),
-        isset($entry['y']) ? intval($entry['y']) : ($independentActor?->position->y ?? 0));
+        isset($entry['y']) ? intval($entry['y']) : ($independentActor?->position->y ?? 0)));
     $assetReference = trim(strval($entry['asset'] ?? '')) ?: null;
-    $sprite = $entry['sprite'] ?? ($subject === null ? '@' : null);
+    $sprite = $entry['sprite'] ?? $appearance?->sprite ?? ($subject === null ? '@' : null);
 
     if ($assetReference !== null) {
       $sprite ??= '@';
@@ -89,10 +93,14 @@ final class CinematicStageManager
     }
 
     $sprite = $sprite === null ? null : (is_array($sprite) ? array_values(array_map('strval', $sprite)) : [strval($sprite)]);
-    $facing = isset($entry['facing'])
-      ? (MovementHeading::tryFrom(ucfirst(strtolower(strval($entry['facing'])))) ?? MovementHeading::SOUTH)
-      : ($independentActor?->facing ?? MovementHeading::SOUTH);
-    $graphicalSprites = isset($entry['sprites2d']) ? self::getGraphicalSprites($entry['sprites2d']) : null;
+    $facing = CinematicFacing::resolve($this->gameScene, $entry, $position)
+      ?? $independentActor?->facing ?? $appearance?->heading ?? MovementHeading::SOUTH;
+    $graphicalSprites = isset($entry['sprites2d']) ? self::getGraphicalSprites($entry['sprites2d'])
+      : $appearance?->getGraphicalCharacterSheet();
+    // The NPC keeps one glyph per heading; a staged look keeps rows per heading.
+    $directionalSprites = is_array($entry['sprites'] ?? null) ? $entry['sprites']
+      : array_map(static fn(mixed $glyph): array => array_values(array_map('strval', (array)$glyph)),
+        $appearance?->directionalSprites ?? []);
     $suppressed = $subject !== null ? [spl_object_id($subject) => $subject] : [];
     foreach ($entry['suppress'] ?? [] as $reference) {
       $other = $this->resolveSubject($reference);
@@ -118,7 +126,7 @@ final class CinematicStageManager
       position: $position,
       isVisible: ($entry['visible'] ?? true) !== false,
       hasCollision: boolval($entry['collision'] ?? $independentActor?->hasCollision ?? false),
-      directionalSprites: is_array($entry['sprites'] ?? null) ? $entry['sprites'] : [],
+      directionalSprites: $directionalSprites,
       facing: $facing,
       assetReference: $assetReference,
       graphicalSprites: $graphicalSprites,
@@ -126,6 +134,8 @@ final class CinematicStageManager
       suppressedSubjects: array_values($leases),
       assetRoot: $subject !== null || $graphicalSprites instanceof CharacterSheet || $graphicalSprites instanceof FieldPoseAnimation
         ? $this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() : null,
+      attachment: $attachment,
+      hasAuthoredFacing: CinematicFacing::isDeclared($entry) || ($independentActor?->hasAuthoredFacing ?? false),
     );
     if ($this->animationPaused) { $actor->pauseGraphicalAnimation(); }
     ($this->actors[$id] ?? null)?->releaseVisual();
@@ -138,9 +148,13 @@ final class CinematicStageManager
   /** Shared runtime/authoring boundary for real-subject presentation ownership. */
   public static function validateBinding(array $entry): void
   {
-    if (array_key_exists('at', $entry) || array_key_exists('offset', $entry)) { CinematicRelativePosition::validate($entry); }
+    if (array_key_exists('at', $entry) || array_key_exists('offset', $entry)) { CinematicRelativePosition::validate($entry, true); }
+    CinematicFacing::validate($entry);
     if (array_key_exists('replace', $entry) && !is_bool($entry['replace'])) {
       throw new \InvalidArgumentException('Staged actor replace must be boolean.');
+    }
+    if (array_key_exists('appearance', $entry)) {
+      self::validateAppearance($entry);
     }
     if (!array_key_exists('subject', $entry)) {
       if (array_key_exists('suppress', $entry)) {
@@ -149,7 +163,7 @@ final class CinematicStageManager
       return;
     }
     if (($entry['collision'] ?? false) !== false
-      || array_intersect(['x', 'y', 'facing', 'at', 'offset'], array_keys($entry)) !== []) {
+      || array_intersect(['x', 'y', 'at', 'offset', ...CinematicFacing::FIELDS], array_keys($entry)) !== []) {
       throw new \InvalidArgumentException('A bound visual inherits real position/facing and cannot add collision.');
     }
     $suppressed = array_key_exists('suppress', $entry) ? $entry['suppress'] : [];
@@ -163,6 +177,31 @@ final class CinematicStageManager
         throw new \InvalidArgumentException('Real subject requires kind player, npc or world_object, with a stable id for npc/world_object.');
       }
     }
+  }
+
+  /** An appearance names the one map subject whose authored look the actor wears; nothing else gives it a look. */
+  private static function validateAppearance(array $entry): void
+  {
+    $appearance = $entry['appearance'];
+    if (!is_array($appearance) || array_is_list($appearance) || array_diff(array_keys($appearance), ['kind', 'id']) !== []
+      || !in_array($appearance['kind'] ?? null, CinematicCommandSchema::STAGED_ACTOR_APPEARANCE_KINDS, true)
+      || !is_string($appearance['id'] ?? null) || trim($appearance['id']) === '') {
+      throw new \InvalidArgumentException(sprintf('Staged actor appearance requires kind %s and a stable id.',
+        implode('|', CinematicCommandSchema::STAGED_ACTOR_APPEARANCE_KINDS)));
+    }
+    $others = array_values(array_intersect(['sprite', 'sprites', 'sprites2d', 'asset', 'subject'], array_keys($entry)));
+    if ($others !== []) {
+      throw new \InvalidArgumentException(sprintf('A staged actor wearing an appearance takes its whole look from it; remove %s.',
+        implode(', ', $others)));
+    }
+  }
+
+  /** The map NPC's authored look stays readable while its story conditions hide it from the field. */
+  private function resolveAppearance(array $reference): Npc
+  {
+    return $this->gameScene->npcManager?->findById($reference['id'])
+      ?? throw new RuntimeException(sprintf('Staged actor appearance NPC "%s" is not on map "%s".',
+        $reference['id'], $this->gameScene->currentMapId));
   }
 
   private function resolveSubject(array $reference): Player|Npc|WorldObject
@@ -203,7 +242,7 @@ final class CinematicStageManager
       if (!$actor->ownsPresentation()) { continue; }
       foreach ($actor->suppressedSubjects as $lease) {
         if ($lease->subject === $subject) {
-          return !$actor->isVisible || $actor->getGraphicalSpriteDefinition() !== null;
+          return !$actor->isVisible || $actor->getGraphicalSpriteDefinition() !== null || $actor->getPresentationWorldCanvas() !== null;
         }
       }
     }
@@ -220,11 +259,12 @@ final class CinematicStageManager
     }
   }
 
-  public function subjectStopped(Player|Npc|WorldObject $subject): void
+  /** The subject stands: at once, or once the steps it took have shown. */
+  public function subjectStopped(Player|Npc|WorldObject $subject, bool $afterSlide = false): void
   {
     foreach ($this->actors as $actor) {
       if ($actor->subject?->subject === $subject) {
-        $actor->stopGraphicalAnimation();
+        $actor->stopGraphicalAnimation($afterSlide);
       }
     }
   }
@@ -289,6 +329,11 @@ final class CinematicStageManager
   public function find(string $id): ?StagedActor
   {
     return $this->actors[trim($id)] ?? null;
+  }
+
+  public function findSubjectVisual(Player|Npc|WorldObject $subject): ?StagedActor
+  {
+    return array_find($this->actors, static fn(StagedActor $actor): bool => $actor->subject?->subject === $subject && $actor->ownsPresentation());
   }
 
   public function require(string $id): StagedActor

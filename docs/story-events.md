@@ -14,10 +14,126 @@ suspend the session and continue it through the regular game loop.
 
 These scripts are story events or reusable Common Events. First-class
 Cinematics add cast, camera, presentation, safe-skip, and final-state metadata
-while hosting this same interpreter and session model. Skits remain optional
-party conversations, and Summons remain compiled frame timelines. See
+while hosting this same interpreter and session model. Skits present portrait
+conversations through exploration prompts or story scripts; Summons use compiled frame timelines. See
 [Cinematic cutscenes](cinematics.md) for the asset taxonomy and cinematic
 runtime contract.
+
+## Shared world abilities
+
+Exploration abilities live in `assets/Data/world-abilities.php`. The optional
+file returns a list of records:
+
+```php
+return [[
+  'id' => 'dash',
+  'name' => 'Dash',
+  'description' => 'Move faster while holding the dash control.',
+  'iconRole' => 'power.dash',
+  'conditions' => [['type' => 'switch', 'name' => 'movement_power_granted']],
+]];
+```
+
+Consumers reference that definition through the shared condition vocabulary:
+`['type' => 'world_ability', 'name' => 'dash']`. Existing dash settings, trigger
+conditions and cue conditions all accept it. The definition owns availability,
+name, description and optional semantic icon role; existing switches, variables,
+events and party/quest data continue to own saved facts. Abilities may depend on
+other abilities. The catalog rejects unknown dependencies and cycles before
+evaluation, including negated cycles.
+
+`WorldAbilityCatalog::getUnlockedAbilities()` projects current definitions in
+authored order for acquisition presentation. Its dependency memo is scoped to
+one query and cleared on completion or failure. Changed world state reaches
+the next query immediately. Availability queries add no grant flags or saved
+presentation state. The showcase and first-use consumers read this same catalog.
+
+The application loads the current catalog before evaluating project content.
+Detached tools use `WorldAbilityCatalog::fromProject(assetRoot)` and pass the
+result as `worldAbilities:` to `WorldConditionEvaluator::allHold()`, or install
+that exact catalog in the existing project `ConfigStore`. Runtime catalogs are
+read-only; source edits use the Editor's source-preserving paths. The Editor
+must offer current ability IDs through a selector and validate references.
+Changing a source file requires loading the new catalog; no permanent source
+cache is used. Existing games without this file retain their current rules.
+
+`WorldConditionExclusion::proveExclusive()` accepts the same optional catalog.
+It expands the predicates implied by a positive ability. A negated ability with
+one predicate implies that predicate's inverse; a negated conjunction stays a
+disjunction. Detached validation must use its own project's catalog. Runtime
+evaluation and exclusion trim condition types consistently with validation.
+
+### Power showcase
+
+After changing the world facts that unlock a power, a field script may present
+its actual current definition:
+
+```php
+['type' => 'show_power_unlocks',
+ 'abilities' => [['ability' => 'dash']],
+ 'actor' => 'actor.hero',
+ 'includeCrisis' => true,
+ 'announcement' => 'The authored transformation announcement.'],
+```
+
+The selected world abilities appear in list order. `includeCrisis` appends the
+actor's current unlocked form technique, even while its battle activation is
+inactive. Names and descriptions come from the power/skill sources. World
+abilities and crisis definitions may bind an optional semantic `iconRole` in
+the current theme; a crisis definition without it uses the actor's portrait.
+The optional announcement precedes the powers. Locked, missing or duplicate
+power references fail before queuing presentation. This command changes no
+resources, learned skills or saved world facts.
+
+`NoticeSequenceOperation` holds its event lane through each acknowledgement,
+using the normal deferred modal queue and shared themed/terminal notice.
+Ownership remains pending during active delivery. A delivery failure retains
+the queued notice for retry; cancellation removes only that operation's queued
+notices. The surrounding cinematic owns retry/completion and its temporary
+stage effects. Editors select `world_ability` references from the current
+catalog and actor references from the actor catalog. The command declaration
+exports both reference kinds. Transformation effects remain separately owned by the cinematic.
+
+## Saved first-use prompts
+
+A world ability may declare `firstUse` alongside its existing source fields:
+
+```php
+'firstUse' => [
+  'message' => 'Move faster.',
+  'hints' => [['action' => 'dash', 'label' => 'Hold to run']],
+  // Optional finite timeline ID, selected through the asset catalog:
+  'effect' => 'power-first-use',
+],
+```
+
+The controlled field update offers prompts from positive `world_ability`
+requirements of usable dash settings and available closed-passage cues. Dash
+requires held-input support, unlocked settings and a map that permits dashing.
+Passages use their existing cue conditions, cardinal sensing distance and
+visible cue cell; the existing Action interaction opens the passage.
+Rendering never offers a prompt or writes its saved state.
+
+`WorldAbilityPrompts` owns one transient delivery at a time. Semantic hints use
+`ActionHints` and the current control profile. Terminal text retains readable
+control labels; graphical notifications reuse themed control glyphs. An
+unavailable control leaves the prompt unseen. Optional effects use a finite
+`FieldEffectManager` session, with completion and cancellation tied to that
+exact handle. Looping timelines are refused. Failed sources are diagnosed once
+per field ownership interval and remain unseen.
+
+`GameState.worldAbilityPrompts` records the power ID after every requested
+presentation component completes. Toast-to-reading-alert promotion waits for
+acknowledgement. Map transfers, menus, scene changes, quit, revoked availability
+and cancelled playback keep interrupted prompts unseen. Old saves start with
+an empty prompt record; power availability, resources and passage completion
+retain their existing owners. Additive presentation facts round-trip through
+normal state snapshots and rollback.
+
+GUI authoring must preserve `firstUse`, select semantic actions and finite
+animation identities through the existing catalogs, and round-trip the fields
+through the source-preserving writer. This authoring work remains pending with
+the Editor owner. The runtime contract does not establish Editor completion.
 
 ## Map trigger
 
@@ -101,9 +217,14 @@ no class-specific facing field or presentation-driven collision is needed.
 ### Events on objects
 
 Set root-level `'engagement' => 'facing'` to place the event marker on the object
-itself. The player engages it from outside the event area, facing an immediately
-adjacent marker cell. Solid object cells work: interaction does not require
-walking onto them. Exact marker cells define reach, including disconnected or
+itself. The player engages it facing an immediately adjacent marker cell, or
+standing on one of its cells. Collision alone decides whether a cell can be
+stood on: a solid object answers only from beside it, while an object lying on
+walkable ground (a lamp on the floor, tracks in the dirt) also answers while the
+player stands on it, whichever way the player faces. Solid object cells work:
+interaction does not require walking onto them. A faced transfer or other entry
+effect on a walkable cell happens on stepping onto that cell, as with `inside`;
+map reachability treats such a transfer's cells as an exit. Exact marker cells define reach, including disconnected or
 multi-cell objects; gaps, diagonals and cells farther away are excluded. Object
 reach stops at the faced cell and does not extend across NPC talk counters.
 
@@ -254,6 +375,128 @@ and retain nested command/page data. Those controls and round-trip acceptance ar
 not delivered by this runtime slice. Existing artwork replacement remains owned
 by the shared catalog and PNG checks, without frozen hashes or dimensions.
 
+### Field conversation facing
+
+A cinematic binds its conversation speakers to selected field subjects once in its
+definition. This is separate from portrait artwork identity:
+
+```php
+'presentation' => ['initial' => 'field', 'conversation' => [
+  'speakers' => [
+    'hero' => ['kind' => 'player'],
+    'guide' => ['kind' => 'staged_actor', 'id' => 'guide-look'],
+  ],
+]],
+```
+
+The `text` command's `speaker => 'hero'` selects a bound key independently of
+its display `name`; two people may share a display label. A conversation may
+instead explicitly bind exact display-name keys for existing lines. An omitted
+`speaker` then selects that exact key. At each line, listeners
+face the speaker. The speaker faces an authored addressee, the previous other
+speaker, or the sole other participant. Group scenes can select a default per
+speaker with `addressees => ['hero' => 'guide']`; a line may select another bound
+speaker with `addressee => 'witness'`. An initial group line without an addressee
+keeps the speaker's heading. Empty names and unbound off-field voices leave field
+headings alone. Subject positions are resolved when the line starts.
+
+`facing` or `faceToward` on a line overrides that speaker's automatic turn.
+The conversation's `facing` map supplies persistent overrides by speaker, using
+the same facing fields. Explicit staged-actor facing and NPC `directionFix` also
+take precedence over automatic turns. Active movement retains its heading;
+an explicit line turn must wait for that subject's route to finish. Resolve
+speaker references through the current player, NPC or staged-actor picker and
+select addressees from the bound speakers. Never infer subject ids from text,
+filenames or artwork.
+
+The same preparation runs for ordinary NPC/dialogue pages during the active
+cinematic. Specialized dialogue `show()` methods retain their existing API.
+Bound stage subjects turn their real occupant, so Terminal directional glyphs
+and graphical character-sheet rows agree. Turning changes no position or
+collision. Existing cinematic leases restore real transforms on failure; current
+map identity and eligibility still govern cleanup. Duplicate real-subject
+aliases and missing participants fail before any heading changes. Cleanup clears
+the conversation context, and portrait-only Skits keep their own presentation.
+
+`CinematicCommandSchema::export()['conversationFacing']` exposes these fields and
+reference sources. Editor controls and project scene bindings remain separate
+delivery steps.
+
+Continuous scenes declare phase groups alongside their complete speaker map:
+
+```php
+'groups' => [
+  'private' => ['speakers' => ['hero', 'guide']],
+  'reunion' => ['speakers' => ['hero', 'guest', 'friend'],
+    'addressees' => ['hero' => 'guest']],
+  'offscreen' => ['speakers' => []],
+],
+'initialGroup' => 'private',
+```
+
+`['type' => 'select_conversation_group', 'group' => 'reunion']` switches the owned
+conversation context and clears prior turn-taking. Only selected participants
+resolve or turn. Each group owns its addressee/facing defaults. Empty groups
+suspend field participation. Map changes reset previous-speaker memory; the
+selected phase continues until the next explicit selection or cinematic cleanup.
+Editor group fields select the current cinematic's declared group ids. This
+supports disappearances, private exchanges and map travel within one timeline.
+
+### Bed occupants and posture changes
+
+An ordinary map NPC can bind a bed world object and its resource's named logical
+attachment. Its usual `x` and `y` declare the clear standing exit:
+
+```php
+['id' => 'guest', 'name' => 'Guest', 'x' => 6, 'y' => 4,
+ 'sprites2d' => ['sheet' => 'People/Guest.png'],
+ 'bed' => ['object' => 'guest-bed', 'attachment' => 'occupant', 'posture' => 'lying',
+   'poses2d' => [
+     'lying' => ['asset' => 'People/Guest-Lying.png'],
+     'sitting' => ['asset' => 'People/Guest-Sitting.png'],
+   ],
+   'transitions2d' => ['standing' => ['asset' => 'People/Guest-Getting-Up.png',
+     'animation' => ['columns' => 3, 'frames' => [0, 1, 2], 'fps' => 8, 'loop' => false]]],
+   'terminal' => '▣']],
+```
+
+The bed resource supplies its base `sprites2d`, an `occupant` attachment with
+independent logical `cell` and normalized graphical `point`, and foreground
+`bedCover2d` artwork sharing its pivot. The ordinary map occupancy owns the solid
+bed cells and clear exit. `MapBedRule::inspect` checks those physical facts and
+exclusive shared-slot occupants before map installation. The in-memory
+`MapCompletenessValidator::validate` takes an optional resolved physical occupancy
+snapshot for legacy maps and reads explicit occupancy directly when present.
+
+The real NPC is present from map entry, at its bed attachment when occupied.
+It keeps its identity, pages, conditions and collision. Movement and wandering
+are blocked while in bed. Its current field role and occupied-bed glyph remain
+available to an existing-subject cinematic takeover. Directional character-sheet
+roles use the NPC heading; image and pose-animation roles use their authored art.
+
+`set_bed_posture` selects a current-map `npc` and native posture value `lying`,
+`sitting` or `standing`. It uses an optional target-posture transition role, its
+clip duration, or explicit finite `seconds` within 0..30. Zero-duration changes
+and reduced-motion transitions commit immediately. Timed transitions yield to
+the field loop and own the NPC's movement. Cancellation keeps the previous pose
+and saved state. Standing checks the exit at the beginning and again at commit.
+Committed posture writes update the cinematic transform baseline, so a later
+failure preserves a consistent saved posture and position.
+
+Posture saves in the existing world-state variables under
+`npc-bed:<encoded map id>:<encoded NPC id>`. Reload resolves current authored bed
+and exit geometry. Artwork reads and rendering advance no gameplay state.
+The bed, current occupant and covers form one world canvas in that order, with
+ordinary and staged subject ownership retained. Terminal and consumers lacking
+world-canvas support retain field glyphs. Missing artwork remains diagnostic.
+Current canvas children support mirrors; a quarter-turned compound piece needs
+shared canvas child rotation support and currently reports that capability gap.
+
+`CinematicCommandSchema::export()['bedOccupancy']` exports the shared placement,
+posture, pose, resource, persistence and validation contract. Editor pickers,
+resource/pose editing, project artwork, native scene qualification and visual
+approval remain delivery steps with their owners.
+
 ### Session states
 
 `EventExecutionStatus` distinguishes:
@@ -285,9 +528,11 @@ also reports unknown commands before playtesting from the same authoritative
 `EventInterpreter::COMMAND_TYPES` vocabulary.
 
 `recover_party` is the generic stable-checkpoint recovery command. It restores
-HP, MP, and AP for every travelling member and clears battle-only states. It
-does not change equipment, inventory, experience, party order, persistent
-states, or story state.
+HP, MP, and AP for every travelling member, clears battle-only states and
+cures the persistent states authored as `curedByRest` (an inn stay cures the
+same states). It does not change equipment, inventory, experience, party
+order, persistent states authored with `curedByRest => false`, or story
+state.
 
 ## Movement routes
 
@@ -345,6 +590,13 @@ set the NPC's heading or transform after the talk turn (a `move_route` turn or
 step, even one toward the player, or cinematic staging that was restored),
 when a cinematic still stages the NPC as the conversation ends, or when the
 NPC has left the current map.
+
+Set `'facing' => 'north'` (`north`, `east`, `south` or `west`, any case;
+default `south`) for the heading an NPC stands with when its map loads, such
+as a clerk facing the door a desk is approached from. The base `sprite` is the
+south look; another heading shows its directional glyph and sheet row. Talking
+turns it and turns it back to this heading like any other, and an unknown
+value reads as south (`NpcManager::readFacing()`).
 
 Set `'directionFix' => true` (RPG Maker's Direction Fix; a bool, default
 `false`) to keep an NPC's heading when it is talked to; it neither turns nor
@@ -464,6 +716,60 @@ interpreter runs commands registered in `ScriptCommandRegistry`: the Engine's
 own, and any a project declares. A registered command works wherever a script
 does: map triggers, NPC conversations, Common Events and cinematics.
 
+Field scripts can recruit a project actor through the same catalogue and
+factory used by game start and save restoration:
+
+```php
+['type' => 'recruit_actor', 'actor' => 'actor.traveller'],
+['type' => 'recruit_actor', 'actor' => 'actor.archer', 'levelPolicy' => 'partyAverage'],
+['type' => 'recruit_actor', 'actor' => 'actor.archer', 'levelPolicy' => 'partyAverage',
+  'spPolicy' => 'partyAverageEstimatedEarned'],
+```
+
+`Party::recruitActor()` appends a fully constructed character once by stable
+actor identity. Repeating the command, including after save/load, keeps the
+existing character's resources, growth, equipment and roster position. Different
+actors may share a display name. The existing frontline capacity is unchanged;
+an appended recruit beyond it is a reserve. Invalid references or factory errors
+leave the roster unchanged. The command is field-only; changing a running battle's
+roster is excluded. Its required Actor field uses the Editor's resource picker.
+The optional Starting Level picker selects `authored` (the default) or
+`partyAverage`. The latter uses the permanent roster, including reserves,
+before adding the recruit and rounds the average level down. It requires a
+nonempty party. The actor factory uses the recruit's own experience curve,
+maximum level, stat growth and automatic role skills. Repeating recruitment
+keeps an owned actor's progress. Story flags, dialogue and art remain project data.
+
+The optional Starting SP picker (`spPolicy`, `RecruitmentPointPolicy`) selects
+`authored`, `partyAverageEarned` or `partyAverageEstimatedEarned`. The first
+retains the existing starting balance. The others grant the recruit the permanent
+roster's average total earned SP, rounded down before recruitment. Current
+spendable balances of existing members remain unchanged. Recorded earned totals
+combine unspent points and actual spending, so changing node prices does not
+recalculate history.
+
+`partyAverageEarned` requires established histories. The explicit estimated mode
+initializes an unknown legacy history from the current prices of its learned
+historical nodes, once, and retains that baseline on save/load. Spending after
+the journal begins is recorded separately while the older baseline remains
+unknown; those purchases keep their actual paid amounts, and later free grants
+are excluded from the historical estimate. A missing map or unknown or
+unpriced historical node produces a diagnostic before recruiting or changing
+any existing member. Projects resolve such historical content through their
+content migration. The estimate is an authored policy choice; it is never
+silently applied by the default recruitment path. Completed/repeated recruitment
+preserves acquired progress and grants no second award.
+
+Actor data can declare first-creation equipment by semantic slot and stable item
+identity, for example `initialEquipment: ['weapon' => 'equipment.short-bow']`.
+The factory equips independent catalogue instances after applying the actor's
+class and starting level. Slot/type mismatches, unresolved references and class
+restrictions reject construction before recruitment changes the roster. The
+existing `equipment` field continues to describe hydrated equipment slots.
+Starting loadouts apply to new characters; saved equipment, including empty
+slots, is restored without re-granting or resetting initial gear. Changes to a
+starting loadout therefore affect future recruits and new games.
+
 The Engine registers two services, so an NPC can own the interaction a
 trigger tile used to stand in for:
 
@@ -551,6 +857,49 @@ validation applies the same checks. Authored cinematic skips reject
 registered commands conservatively, as they do Common Events, since the
 Engine cannot prove a project command safe to skip.
 
+## Party capacity and temporary groups
+
+`assets/Data/system.php` owns `battle.partySize`, an integer from 1 to 8.
+Projects without this field retain the existing default of three active
+battlers. The saved Party owns its current capacity; changing it never removes
+actors, equipment, growth, inventory or summon assignments.
+
+Field scripts can author:
+
+```php
+['type' => 'set_party_size', 'size' => 8],
+['type' => 'select_party', 'members' => [['actor' => 'actor.scout']]],
+// Transfers and battles use the selected original actor, including field menus.
+['type' => 'regroup_party'],
+```
+
+`select_party` accepts 1–8 distinct permanent actor IDs in participation order.
+The Editor exposes Actor pickers for its members. Selection replaces the current
+group atomically; it does not nest groups. `regroup_party` is idempotent and
+restores access to the permanent roster in its existing order. It keeps the
+current battle capacity. A solo story sequence normally needs only selection,
+so regrouping retains the project's normal capacity without a paired size edit.
+
+Present members and frontline capacity are separate: the first `partySize`
+present members fight; other present members are reserves. Separated members
+cannot lead, be field targets or enter through reserve promotion. They retain
+the existing travelling-roster experience policy. A split and its current size
+survive normal Save, Quick Save and Continue. Existing active-session save
+restrictions still apply; party commands do not serialize a suspended scene.
+
+Runtime APIs are `Party::setBattleSize()`, `selectParticipants()` and
+`regroupParticipants()`. `participants` reads the current field group;
+`members` retains permanent ownership. Save compatibility resolves selected
+actor IDs using the same project aliases as saved actors. Invalid, missing or
+ambiguous selections fail instead of silently changing participants.
+
+Terminal formations support all eight combatants. Battle name/vital panels
+share the selected actor's four-row page, keeping members five through eight
+accessible on both presentations. Graphical themes may author up to eight
+formation slots or use the existing automatic arrangement. An explicit formation
+with too few slots is diagnosed; it is not silently substituted. Battle Test
+supports eight members and preserves its configured frontline size.
+
 ## Save safety
 
 Active execution sessions are deliberately in-memory only. They do not enter
@@ -577,3 +926,65 @@ lanes are available through the first-class Cinematic contract described in
 [Cinematic cutscenes](cinematics.md). The Engine exposes validation-facing
 schemas, but the corresponding first-class TUI authoring surface is a separate
 Editor gate.
+
+
+### Shared Skit playback validation
+
+`Field\SkitPlaybackDefinition::fromArray($skit, $context)` reads a Skit's
+`trigger` and named `sounds` fields for runtime and Editor consumers. It returns
+an immutable typed trigger (`prompt` by default, or `script`) and SFX references.
+The reader performs no file resolution, writes or playback. The Editor retains
+project-resource validation and source-preserving edits around this shared reader.
+
+`SkitManager::loadSkits()` requires each file to return a unique non-empty string
+id and a non-empty list of beats with string text, then checks those playback
+fields. A malformed file, duplicate id or PHP loading failure raises an error
+naming the file and reason. Silent skipping and duplicate-id overwrites have
+been removed. A missing Skits directory still means the project has no Skits.
+
+
+### Persistent real-NPC placements
+
+A real NPC may declare named `placements` alongside its ordinary root x/y:
+
+```php
+'id' => 'guide', 'name' => 'Guide', 'x' => 2, 'y' => 3, 'facing' => 'south',
+'placements' => [
+  'after-arrival' => ['x' => 8, 'y' => 5, 'facing' => 'west'],
+],
+```
+
+The root coordinates are the reserved `default` placement. Each name selects
+current physical x/y and optional cardinal facing; omitted facing inherits the
+root heading. Names require stable NPC identity. Source preflight checks every
+destination against resolved physical floor. Static reachability checks talking
+at every authored destination. Saves store only the selected name, so current
+source geometry remains authoritative after map edits.
+
+Route the real NPC through the existing movement system, then run:
+
+```php
+['type' => 'commit_npc_placement', 'npc' => 'guide', 'placement' => 'after-arrival'],
+```
+
+The command verifies the same present map/NPC identity, exclusive movement
+ownership, reached destination, physical floor and current occupants. It commits
+one existing GameState variable `npc-placement:<encoded map>:<encoded NPC>` and
+updates only that subject's cinematic restore baseline. It never teleports.
+Cancelled routes leave the prior saved selection and existing transform lease
+intact. Later cleanup after a successful commit retains the committed transform.
+Map reload resolves the selected name and current heading; missing saved names,
+removed placement catalogs and overlapping present NPCs raise explicit source or
+migration errors before map installation. Select `default` after physically
+returning there to commit the root placement.
+
+A bed occupant must stand before committing a standing destination. Its named
+placement then owns the current standing exit used on a later bed transition;
+the bed's physical attachment remains independent. Placement commands preserve
+ordinary NPC identity, pages, presence, movement and artwork. Named placements
+change physical field position equally in Terminal and graphical presentation.
+
+Editor authoring consumes `CinematicCommandSchema::export()['npcPlacements']`:
+select a current-map NPC, then one of that NPC's names or `default` through the
+`npc_placement` reference picker. Preserve PHP source, validation and undo. Editor
+controls and Game scene binding remain their owners' integration work.

@@ -30,8 +30,8 @@ final class BattlePartyRoster
   public function promoteReservesAfterWipeout(): bool
   {
     if ($this->policy !== ReservePolicy::REPLACE_AFTER_WIPEOUT || !$this->isDefeated) { return false; }
-    $reserves = array_slice(array_values(array_filter($this->party->members->toArray(),
-      static fn(CharacterInterface $member): bool => !$member->isKnockedOut)), 0, Party::BATTLE_SIZE);
+    $reserves = array_slice(array_values(array_filter($this->party->participants->toArray(),
+      static fn(CharacterInterface $member): bool => !$member->isKnockedOut)), 0, $this->party->battleSize);
     if ($reserves === []) { return false; }
     $this->activeMembers = $reserves;
     return true;

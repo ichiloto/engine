@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Entities\Inventory\Equipment;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 
 use Ichiloto\Engine\Core\Menu\ShopMenu\Modes\PurchaseConfirmationMode;
 use Ichiloto\Engine\Core\Menu\ShopMenu\Modes\SelectShopMenuCommandMode;
@@ -121,6 +122,59 @@ final class ShopMenuPresentation
       $possession = (string)$state->detailPanel->possession;
       $view->rows('shop-details', [new MenuRow('possession', Vocabulary::getTerm('shop.possession', 'Possession'), [new MenuRowValue($possession)])],
         self::layout($theme, self::inset($detailBox, $p), [new MenuRowColumn(mb_strlen($possession))]));
+      $comparisonTop = $detailBox->y + $p + $m->rowHeight + $m->sectionGap;
+      $detailContent = self::inset($detailBox, $p);
+      $columns = self::layout($theme, $detailContent)->textCells($theme->rows->metrics);
+      $comparisonWidth = $columns * $m->cellWidth;
+      $comparisonX = $detailContent->x + $detailContent->width - $theme->rows->metrics->padding - $comparisonWidth;
+      $profiles = array_values(array_filter($state->detailPanel->getComparisonProfiles(),
+        static fn(array $profile): bool => isset($theme->portraits[$profile['id']])
+          && PngAssetPreflight::getAvailableSize($theme->assetRoot, $theme->portraits[$profile['id']]) !== null));
+      if ($profiles !== []) {
+        $size = min($m->portraitSize, 2 * $m->rowHeight, $comparisonWidth);
+        $perRow = max(1, (int)floor(($comparisonWidth + $m->sectionGap) / ($size + $m->sectionGap)));
+        foreach ($profiles as $index => $profile) {
+          $view->portrait($profile['id'], new CanvasRectangle(
+            $comparisonX + ($index % $perRow) * ($size + $m->sectionGap),
+            $comparisonTop + intdiv($index, $perRow) * ($size + $m->sectionGap), $size, $size),
+            'shop-profile-' . $index, $profile['affected'] ? 1 : .3);
+          if ($profile['id'] === $state->detailPanel->getCurrentComparisonActorId()) {
+            $view->renderOutline('shop-profile-focus', new CanvasRectangle(
+              $comparisonX + ($index % $perRow) * ($size + $m->sectionGap),
+              $comparisonTop + intdiv($index, $perRow) * ($size + $m->sectionGap), $size, $size), 'focus', 1, 24);
+          }
+        }
+        $comparisonTop += (int)ceil(count($profiles) / $perRow) * ($size + $m->sectionGap);
+      }
+      $rows = max(1, (int)floor(($detailBox->y + $detailBox->height - $p - $comparisonTop) / $m->rowHeight));
+      $showIdentity = !in_array($state->detailPanel->getCurrentComparisonActorId(), array_column($profiles, 'id'), true);
+      $comparison = $state->detailPanel->getComparisonPage($columns, $rows, $showIdentity);
+      if ($comparison !== null) {
+        $more = $comparison['page']->total > count($comparison['page']->lines);
+        $comparisonHints = [ActionHints::resolve('info', 'More stats')];
+        $hintHeightInDetail = MenuActionHints::height($comparisonHints, $theme, $comparisonWidth);
+        $footerHeight = $more ? $m->cellHeight + $hintHeightInDetail : 0;
+        if ($more) { $comparison = $state->detailPanel->getComparisonPage($columns, max(1, $rows - (int)ceil($footerHeight / $m->rowHeight)), $showIdentity); }
+        $texts = [];
+        foreach ($comparison['lines'] as $row => $line) {
+          foreach ($line['cells'] as $value) {
+            if ($value['text'] === '') { continue; }
+            $texts[] = ['text' => $value['text'], 'color' => $value['color'],
+              'x' => $comparisonX + $value['x'] * $m->cellWidth,
+              'y' => $comparisonTop + $row * $m->rowHeight + ($m->rowHeight - $m->cellHeight) / 2];
+          }
+        }
+        $view->renderTexts('shop-comparison-content', $texts,
+          new CanvasRectangle($comparisonX, $comparisonTop, $comparisonWidth, count($comparison['lines']) * $m->rowHeight),
+          [$m->cellWidth, $m->cellHeight]);
+        if ($more) {
+          $footerY = $detailBox->y + $detailBox->height - $p - $footerHeight;
+          $view->textLines('shop-comparison-range', [['text' => $comparison['page']->range(), 'color' => 'muted']],
+            new CanvasRectangle($comparisonX, $footerY, $comparisonWidth, $m->cellHeight));
+          if ($hintHeightInDetail > 0) { $view->hints('shop-comparison-info', $comparisonHints,
+            new CanvasRectangle($comparisonX, $footerY + $m->cellHeight, $comparisonWidth, $hintHeightInDetail)); }
+        }
+      }
     }
     if ($hintHeight > 0) {
       $view->hints('shop-hints', $hints, new CanvasRectangle($list->x,

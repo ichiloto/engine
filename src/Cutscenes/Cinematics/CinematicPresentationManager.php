@@ -29,7 +29,7 @@ final class CinematicPresentationManager
   private ?DialogueScenePresentation $dialoguePresentation = null;
   private ?string $dialogueAssetRoot = null;
   private bool $hasGraphicalOverlay = false;
-  /** @var array<string, array{session: FieldEffectSession, screenSpace: bool}> */
+  /** @var array<string, array{session: FieldEffectSession, screenSpace: bool, target: ?CinematicEffectTarget}> */
   private array $effects = [];
   /** @var array<string, array{session: CinematicStageSession}> */
   private array $stages = [];
@@ -73,10 +73,10 @@ final class CinematicPresentationManager
     return $this->hasGraphicalOverlay ? ['cinematic-overlay'] : [];
   }
 
-  public function presentEffect(FieldEffectSession $session, bool $screenSpace = false): void
+  public function presentEffect(FieldEffectSession $session, bool $screenSpace = false, ?CinematicEffectTarget $target = null): void
   {
     if (isset($this->effects[$session->id])) { $this->effects[$session->id]['session']->playback->pause(); }
-    $this->effects[$session->id] = ['session' => $session, 'screenSpace' => $screenSpace];
+    $this->effects[$session->id] = ['session' => $session, 'screenSpace' => $screenSpace, 'target' => $target];
   }
 
   public function hasEffect(string $id): bool { return isset($this->effects[$id]); }
@@ -161,11 +161,15 @@ final class CinematicPresentationManager
   public function getEffectSprites(?FieldViewport $viewport): array
   {
     if ($viewport === null) { return []; }
+    $reducedMotion = Accessibility::prefersReducedMotion();
     $sprites = [];
     foreach ($this->effects as $effect) {
-      $position = $effect['session']->anchor->cell;
+      $target = $effect['target'];
+      if ($target !== null && !$target->isCurrent()) { continue; }
+      $position = $target?->getGraphicalPosition() ?? $effect['session']->anchor->cell;
       if ($position === null) { continue; }
-      foreach ($effect['session']->getSprites($position, Accessibility::prefersReducedMotion()) as $sprite) {
+      foreach ($effect['session']->getSprites($position, $reducedMotion,
+        $reducedMotion ? null : $target?->subject->getGraphicalSpriteMotion()) as $sprite) {
         if (!$effect['screenSpace']) { $sprites[] = $sprite; continue; }
         $definition = $sprite->getGraphicalSpriteDefinition();
         $point = $sprite->getGraphicalSpriteWorldPosition();
@@ -247,7 +251,9 @@ final class CinematicPresentationManager
   {
     $presentation = $this->gameScene->isGraphicalFieldPresented() ? EffectPresentation::GRAPHICAL : EffectPresentation::TERMINAL;
     foreach ($this->effects as $effect) {
-      $position = $effect['session']->anchor->cell;
+      $target = $effect['target'];
+      if ($target !== null && !$target->isCurrent()) { continue; }
+      $position = $target?->getPosition() ?? $effect['session']->anchor->cell;
       if ($position === null) { continue; }
       $origin = $effect['screenSpace'] ? $position : $this->gameScene->camera->getScreenSpacePosition($position);
       Console::withLayer($effect['session']->id, fn() => $effect['session']->renderText(

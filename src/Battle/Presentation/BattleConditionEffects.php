@@ -66,7 +66,7 @@ final class BattleConditionEffects
     if (!is_finite($seconds) || $seconds < 0) { throw new InvalidArgumentException('Condition time must be finite and non-negative.'); }
     $entries = $this->slots->assign($battler, BattlerConditions::getEntries($battler),
       static fn(array $entry): int => TerminalText::displayWidth($entry['glyph']) + 1);
-    return $battler->isKnockedOut || $entries === [] ? null : new BattlerConditionEffect($battler, $entries, $this, $seconds, $useBindings);
+    return !$battler->isFighting || $entries === [] ? null : new BattlerConditionEffect($battler, $entries, $this, $seconds, $useBindings);
   }
 
   public function getTimeline(string $key, bool $terminal): ?CompiledEffectTimeline
@@ -80,8 +80,8 @@ final class BattleConditionEffects
         throw new InvalidArgumentException('Condition effects require fixed looping presentation without cues or a stage.');
       }
       foreach ($timeline->playbackSegments as $segment) {
-        if (!in_array($segment['layer'], ['image', 'glyph', 'text'], true)) {
-          throw new InvalidArgumentException('Condition effects accept only attached image/glyph/text tracks, not flashes or shake.');
+        if (!in_array($segment['layer'], ['image', 'glyph', 'text', 'tone'], true)) {
+          throw new InvalidArgumentException('Condition effects accept attached image, glyph, text and tone tracks.');
         }
         foreach ($segment['drawCommands'] as $command) {
           if (!in_array($command['payload']['anchor'] ?? 'target', ['target', 'caster'], true)) {

@@ -169,6 +169,10 @@ the declaration is refused; legacy glyph-only sites use explicit map effects.
 
 Behind tracks use the shared ground-effect band, characters keep their
 existing row order, and front tracks remain below above-character tile layers.
+Guidance effects (the action prompt, event and NPC cues and waymarks) draw in
+the field guidance band instead, over every map layer and character: what they
+draw behind their marks with the cue plates, the rest over them
+(`PresentationLayerPolicy::FIELD_GUIDANCE`).
 Reduced-motion field playback holds the authored rest frame. Loops stay still;
 once effects retire after their authored lifetime. This follows Andrew's
 October field brief and does not change summons' final-frame policy.
@@ -177,16 +181,53 @@ original terminal glyph or static tile and log a diagnostic, not a gameplay
 failure.
 
 `Data/Presentation/field.php` owns `cues`, keyed by terminal color, each with
-an `effect` id and optional `edges` keyed by eight compass directions.
-Each edge names an asset-relative PNG and optional clockwise `quarterTurns`
-(0..3). These pinned sprites are excluded from camera follow. Quarter-turn
-support is an optional renderer drawing capability, not a native effect clock.
-An event's explicit `cue.kind` is `story` or `route`. Only story cues produce
-edge arrows; omitted kinds remain unclassified, physical-only, pending author
-review. Color never implies kind. Existing cue conditions and terminal styling
-remain authoritative and unchanged.
-Unavailable edge images or quarter-turn support retain the cell's cue artwork
-and log a note; they do not suppress an otherwise usable cue effect.
+an `effect` id (the upright cue mark), an optional `plate` image drawn behind
+that colour's marks, and optional `pointer` images keyed by
+eight compass directions. Each pointer names an asset-relative PNG and an
+optional clockwise `quarterTurns` (0..3); a straight and a diagonal image with
+quarter turns cover all eight. An edge marker is composed, never baked: the
+upright mark (with the cue plate) sits inside the view and only the pointer
+turns, on the outward side. Older `edges`, which rotated a mark baked into
+one image, are refused with a message to split them. These pinned sprites are
+excluded from camera follow. Quarter-turn support is an optional renderer
+drawing capability, not a native effect clock. Pointers belong to objective
+waymarks: the binding whose colour matches the game's `waymarks.color` draws
+waymark marks and their edge markers (see
+[Waymarks](quests.md#waymarks-where-an-objective-sends-the-player)). Cues
+themselves always stay at their authored cells. An event's explicit `cue.kind`
+(`story` or `route`) remains authored classification; since 20 October 2026 a
+story cue no longer draws its own edge arrow, because quest objectives own
+off-screen guidance. Color never implies kind.
+A binding without all eight usable pointer images (or a renderer that cannot
+rotate them) leaves waymarks as terminal glyphs and logs a note once.
+
+`cueStyle` keeps every cue mark readable on any ground, as each game chooses:
+
+```php
+'cueStyle' => [
+  'bob' => ['height' => 3, 'seconds' => 1.2],     // logical pixels and seconds; held still under reduced motion; drawn at display rate by a sprite_bob renderer
+  'pointerSpacing' => ['x' => 24, 'y' => 30],     // logical pixels from an edge mark's centre to its pointer
+  'overlap' => ['opacity' => 0.4, 'seconds' => 0.2], // opacity while the player's sprite overlaps a mark, and its fade; 1 keeps marks opaque
+  'terminal' => ['background' => 'black', 'bold' => true],
+],
+```
+
+The mark's outline is part of its artwork and each colour names its own
+plate, so new art drops in by changing the cue binding's effect, plate or
+pointer data only. In the Terminal every cue glyph (event
+cues, waymark marks and edge arrows) takes the style's background cell and
+bold. Engine defaults: no bob, pointer spacing 24 across and 30 up or down (a tall mark needs more), opacity
+0.4 under the player with a 0.2 second fade, and a black, bold Terminal cell.
+
+Guidance is UI: no mark ever moves to make way for the player or any other
+field sprite. While the player's sprite overlaps a mark (its plate, mark or
+edge pointer), the whole mark eases to the overlap opacity, and back once the
+player moves off, so the player shows beneath it. A renderer advertising
+`sprite_fade` draws the fade at display rate; reduced motion switches without
+the fade, and other renderers keep marks opaque. Guidance the player carries,
+the action prompt, never fades. In the Terminal a glyph keeps its cell; where
+the player stands on it, the player shows and the glyph returns when the
+player moves on.
 
 The initial field subset did not include battle playback; its current shared
 runtime and outstanding acceptance are recorded below. Still outstanding for
@@ -522,10 +563,32 @@ The pivot is a finite normalized point in the selected sheet cell (0..1 on
 each axis), independent of the PNG's current resolution. `ground` attaches
 that point to the subject's stable ground pivot, following actual advance,
 recoil and shake, rather than the current posed rectangle or its transparency.
-`head` uses the current artwork's top centre. Explicit attachment is refused
+`head` uses the top centre of the battler's drawn body (below). Explicit attachment is refused
 on screen anchors; the image pivot remains usable there. Mirroring reflects
 the pivot too. Viewport boundaries crop source pixels at unchanged density
 instead of translating the image away from its attachment.
+
+Battle image tracks can use `anchor => target-group` to draw one image for
+the command's exact selected recipients. Current visible bodies and stable
+projected ground anchors supply the geometry; equal names remain separate
+identities and duplicate references are collected once. Center/head attachment
+uses the combined body bounds. Ground attachment uses the midpoint across the
+selected ground points at their nearest depth. `BattleEffectTargetGroup`
+retains every identity/ground point plus the left/right/far/near envelope for
+depth-aware consumers; it never selects targets or resolves combat.
+
+For one area composition covering those recipients, add `span => true`,
+`attachment => ground` and `fit => contain`. The image's authored cells define
+its minimum size; it grows uniformly to cover the ground-point spread plus the
+current visible-body reach around their actual pivots. Aspect ratio, normalized
+image pivot, offsets, sheet crop and front/behind layering remain intact.
+Different recipient depths remain in the geometry; the image ground origin is
+the nearest edge, rather than an invented flat row or the first target.
+`span => false` retains fixed image sizing. The span option is refused on
+individual, screen and stage tracks or with stretch fit. Viewport clipping
+retains source density and the anchored origin. A missing selected ground/body
+is a reported presentation failure; combat remains command-owned. Paired
+Terminal tracks retain their existing independent content and admission.
 
 Last Legend's approved blue preparation and green healing sheets use their
 ring centres as pivots and `ground` attachment on caster and target respectively.
@@ -580,6 +643,17 @@ Screen anchors and non-directional track types refuse `facing`. Radial impacts,
 healing and other undirected effects omit it. No actor-name or artwork-path
 inference is involved. Terminal playback mirrors its small glyph strokes and
 offsets, not graphical poses or full-screen flourishes.
+
+A directional track may also declare `toward => recipient|opponents` (track level,
+battle only, with `facing`; `EffectFacingTarget::cases()` lists it for authoring).
+`recipient`, the default, is the turn described above. `opponents` turns the track
+toward the anchored battler's opponents whatever side its caster stands on: a ward
+raised in front of its recipient faces that recipient's enemies when an ally casts
+it from either side or the battler casts it on itself. `BattleEffectDirection::getOpponentsSign`
+owns the side convention (the party faces west, the troop east) for command advance
+and these tracks alike. GPUI passes each combatant's side from its formation; Terminal
+reads it from the battler's party or troop membership. A subject with neither keeps the
+authored facing. Last Legend's Barrier ward (`battle-barrier`) is the first consumer.
 
 Battle image keyframes additionally accept boolean `flipX` and `flipY`. These
 mirror the selected source cell, not the entire sheet or its destination. The
@@ -724,10 +798,31 @@ build to the right of the reserved overhead cursor slot, then wrap upward at the
 configured column limit. They stay attached to the presented combatant instance.
 Their actual bounds protect them from notification and feedback overlays.
 `BattleHeadAttachmentLayout` reserves every supported cursor motion envelope,
-including while selection is absent, and all battler bounds before placing
-badges. Existing semantic slots are retained before new conditions are assigned;
-adding or curing a condition never recenters or renumbers the remaining badges.
-Edge fallbacks use separate free cells. Insufficient space is an explicit error.
+including while selection is absent, before placing badges. Each semantic slot has
+a home cell in the head rows; a badge never covers a cursor envelope, another badge
+or its own battler, while another battler's body may stand behind it, as battlers
+stand behind one another. A badge whose home is taken keeps its last place beside
+the head while that stays free and returns home once it frees, so it never drifts
+away from its battler. Adding or curing a condition never recenters or renumbers
+the remaining badges. Edge fallbacks use the nearest separate free cells.
+Insufficient space is an explicit error.
+
+#### One anchor: the drawn body
+
+Every battle overlay attaches to the battler's drawn body: the visible pixels of
+the artwork it draws this frame, after crop, scale, mirroring, surface clip and
+command advance, recoil or shake. The target cursor, condition badges, target
+names, result popups and effect `head`/`center`/`feet` attachments all read it;
+`ground` attachment and contact shadows use the ground pivot. Production canvases
+carry transparent padding that differs per pose (a crouched afflicted pose leaves
+far more empty canvas above the head than idle), so the whole image rectangle is
+never an overlay anchor. `PngAssetBounds` reads the visible extent from the current
+PNG, keyed by a content hash, so replaced artwork needs no duplicated metadata.
+When GD or the pixels are unavailable, overlays fall back to the image rectangle
+with a logged diagnostic. Formation clearance diagnostics place the cursor on
+the same body. Names and popups take a place beside their own body first, over a
+neighbour's body when only that keeps them beside it, and otherwise the nearest
+free place, never the first free place found across the field.
 These are battlefield badges, not extra icons in the cramped status HUD.
 
 ### Show Gameplay Instead Of Narrating It
@@ -813,13 +908,43 @@ their catalogs, preserve unrelated source and refuse unsupported edits before
 writing. This Engine slice does not implement those editors or admit assets.
 
 A condition timeline uses fixed authored fps, `playback => 'loop'`, optional
-`loopFrom`, a visible static `restFrame`, and battler-attached image/glyph/text
+`loopFrom`, a visible static `restFrame`, and battler-attached image/glyph/text/tone
 tracks. Existing target/caster anchors refer to the affected battler, with image
 head/center/feet/ground attachments and pivots unchanged. Screen/stage anchors,
 flash, shake and all cues (including audio and applyEffect) are rejected for
 persistent conditions. This prevents repeated gameplay/audio and flashing at
 rest. Multiple conditions compose independently, including clear-before-draw
 inside each condition, rather than erasing another condition's layers.
+
+An optional `tone` track changes the current battler image's intrinsic
+brightness. It retains crop, placement, opacity, clip, mirroring and draw order;
+replacing a pose or PNG needs no baked shadow copy. Each keyframe has `frame`,
+optional `duration`/`visible`, and an explicit brightness multiplier:
+
+```php
+['id' => 'shade', 'type' => 'tone', 'anchor' => 'target', 'presentation' => 'graphical',
+ 'keyframes' => [['frame' => 0, 'duration' => 24, 'payload' => [
+   'brightness' => .15,
+ ]]]]
+```
+
+Brightness is a finite number in0..1. Tone tracks accept target/caster anchors
+and no content, asset, offset or screen fields. They multiply the image's
+existing brightness through the shared CanvasImage contract and add no source
+assets or raster composite surfaces. Overlapping state/command tones multiply
+by stable combatant instance identity. The current condition clock and rest
+frame govern sampling; Terminal keeps its authored glyph/text or semantic label.
+Removal/interception/expiry/KO follows the real state, including the prepared
+counter's inactive-lease cleanup after commands. Presentation never mutates the
+lease or cures a state. A backend without canvas_image_tone reports the missing
+presentation and keeps the normal image, badges and gameplay.
+
+Separately, composited flashes that use mirrored image-alpha masks require
+negotiated canvas_image_alpha_flip plus compositing. The mask carries optional
+boolean flipX/flipY within its selected crop; false flags are omitted. A backend
+without that capability reports the unsupported mirrored flash and keeps poses,
+feedback and gameplay. Intrinsic tone tracks use the existing brightness feature
+and preserve mirroring without that extra raster-mask capability.
 
 The field's existing pause-aware pose clock supplies elapsed time. Conditions
 join its current loop phase when applied; sampling does not restart a private
@@ -851,8 +976,10 @@ defeat ceremony are independent of G3; headless API acceptance is not native
 visual/audio or production-art acceptance. See
 [graphical-battle-g1.md](rendering/graphical-battle-g1.md#battlefield-conditions-and-enemy-defeat).
 
-The catalog's `ui` owns shared canvas dimensions, party slots and feedback
-safe area; each troop enemy's `graphicalPlacement` owns its slot. Arena scenes
+The catalog's `ui` owns shared canvas dimensions, the party formation and
+feedback safe area; each troop enemy's `graphicalPlacement` owns its stage
+place, and the arena's ground decides where both stand
+([staging](rendering/graphical-battle-g1.md#arena-ground-and-staging)). Arena scenes
 own only a display name, background and optional skin. Effects follow the
 actual combatant instance, not an arena-side troop override; see the
 [formation contract and ownership audit](rendering/graphical-battle-g1.md#troop-owned-graphical-formation).
@@ -1148,10 +1275,22 @@ supports clearing it. Skill Ctrl+G follows the explicit id even after a rename.
 Saved inventory instances resolve the current item definition's animation;
 the artwork binding is not frozen into a save.
 
+The same bindings accept an optional `animationScale` (0.25 to 4.0, default
+1.0): how large the animation's target effect plays, as a multiple of the size
+its timeline authors. One timeline serves every grade of a spell; Freeze I and
+Blizzard bind the same animation at different scales. The scale applies to the
+target lane's image tracks only: cell boxes and cell offsets grow or shrink
+together, so each image keeps its pivot on its anchor or ground point. The
+caster (source) effect, glyph and text tracks, and the terminal presentation
+keep their authored size, because terminal glyphs cannot be resized without
+distortion. Records omit the default. The Editor edits it as Effect Scale beside
+the Animation picker, and its battle effect preview plays each binding at its
+scale. Role-selected attacks play their effect as authored.
+
 A null skill reference uses an explicitly declared semantic animation default,
 not its display name. `ActionAnimationResolver::getSupportedRoles()` supplies
 the closed role list for validation and Editor selectors: `attack`, `skill`,
-`restorative`, `attack-unarmed`, and `attack-<type>` for every `WeaponType`.
+`restorative`, `buff`, `debuff`, `attack-unarmed`, and `attack-<type>` for every `WeaponType`.
 Both AttackAction and BasicSkill without an explicit id use the actor's current
 equipped weapon type, otherwise the actor's authored `attackStyle`, otherwise
 `attack-unarmed`. Actor data may declare `attackStyle` as a `WeaponType` or its
@@ -1161,7 +1300,11 @@ bonus. It is rebuilt from current actor data when loading saves, never serialize
 as mutable state. Equipping a different weapon type overrides it; removing that
 upgrade restores the base style. Unclassified equipped weapons and non-equipment
 creatures use neutral `attack`, not an inferred blade. No class/name inference.
-Other skills retain restorative/buff-magic or generic-skill defaults. Explicit
+Restorative magic uses the `restorative` role; enhancement (`buff`) and affliction
+(`debuff`) magic use their own roles, so an unbound buff no longer borrows the healing
+look and an unbound debuff no longer borrows the generic skill strike (removed
+October 21, 2026: buff magic previously defaulted to `restorative`, debuff magic to
+`skill`). Other skills retain the generic-skill default. Explicit
 skill/item ids remain authoritative. Missing or duplicate role bindings are
 diagnosed and omit only that effect; they never silently substitute a slash.
 
@@ -1254,9 +1397,27 @@ retain their higher application-owned priority above stage images and covers.
 `EffectTimelineLibrary::loadStage` and `compileStage` admit standalone graphical
 stages independently of battle/summon profiles. They require fixed, once-only
 playback, stage-image tracks, no cues and a safe reduced-motion rest frame.
+Standalone cover-only stages may have an empty track list. Field/battle image
+admission retains its existing nonempty-track rule. Image-bearing stages still
+require image content at their reduced-motion rest frame.
 `CinematicStageSession` takes an explicit asset root and consumer duration;
 `advanceTo` accepts monotonic elapsed time, while `getCanvas` is read-only.
 Backward preview seek requires a fresh session or pure stage projection.
+
+An explicit `stage.background => null` makes the stage an overlay on the current
+scene. Omission retains its existing opaque black background. Authored cover
+keys still own colour, opacity and the transparent final frame; reduced motion
+retains its existing cover suppression. Cover-only overlays allocate a shared
+one-pixel composite fill and need no generated image or duplicate field canvas.
+
+The shared field command `play_stage` selects a `stage_timeline` and explicit
+nonnegative `seconds`. It runs cooperatively in sequence/parallel lanes and
+releases only its own session. Zero seconds completes immediately. Terminal
+keeps the same authored duration without inspecting graphical artwork. Active
+map/generation cleanup cancels the owned graphical session. Editors use the
+existing stage timeline selector, preserve explicit null backgrounds and permit
+cover-only sources through the shared validator. Audio and gameplay stay in
+the surrounding ordinary commands; standalone stages carry no cues.
 
 An inn may select a stable timeline ID through `InnOffer::presentation`; absent
 or null uses the optional `graphics.inn.presentation` project setting. The
@@ -1395,11 +1556,13 @@ summon/stage/real-engine suites pass 239 tests / 3,325 assertions; scoped source
 static analysis is clean.
 
 Command ownership is independent of the skill catalogue and artwork. Actor
-definitions may select `attackSkill` by catalogue reference: it must be a
-battle-usable `BasicSkill`. The actor's current definition owns that inherent
-attack, including after restoring an old save; it is not mutable save data.
-Absence uses the Engine's built-in `AttackAction`, not an arbitrary catalogue
-entry or a name-based guess. Additional attacks must be learned BasicSkills.
+and enemy definitions may select `attackSkill` by catalogue reference: it must
+be a battle-usable `BasicSkill`. The actor's current definition owns that
+inherent attack, including after restoring an old save; it is not mutable save
+data. Absence uses the Engine's built-in `AttackAction`, not an arbitrary
+catalogue entry or a name-based guess. `Battle\InherentAttack` builds that
+action for every path that makes a battler simply attack: an enemy with no
+usable action pattern, and the battle simulator and its previews. Additional attacks must be learned BasicSkills.
 The Skill menu contains only learned, battle-usable special abilities; summon
 actions stay in Summon/Petition, and spells in Magic. Defining a skill never
 grants it to actors. Enemy action patterns and explicit sandbox loadouts retain

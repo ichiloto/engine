@@ -8,12 +8,13 @@ use function Tests\Support\Rendering\writeTestPng;
 
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
-function createRetainedBenchmarkProject(string $project, ?int $tileSize, int $width, int $height): void
+function createRetainedBenchmarkProject(string $project, ?int $tileSize, int $width, int $height, bool $alternating = false): void
 {
     $assets = $project . '/assets';
     $map = $assets . '/Maps/fixture';
     mkdir($map . '/layers', 0777, true);
-    $rows = implode("\n", array_fill(0, $height, str_repeat('.', $width)));
+    $row = $alternating ? substr(str_repeat('X.', $width), 0, $width) : str_repeat('.', $width);
+    $rows = implode("\n", array_fill(0, $height, $row));
     file_put_contents($map . '/layers/00.terrain.map.php', MapGridSource::buildSource($rows, 'BENCHMARK_MAP'));
     $data = ['name' => 'Synthetic benchmark'];
     if ($tileSize !== null) {
@@ -94,7 +95,7 @@ afterEach(function () {
 it('benchmarks current retained worlds with eight viewport-only scrolls and an unchanged no-op',
     function (?int $tileSize, int $width, int $height, bool $staged) {
         $project = $this->benchmarkDirectory . '/project';
-        createRetainedBenchmarkProject($project, $tileSize, $width, $height);
+        createRetainedBenchmarkProject($project, $tileSize, $width, $height, $staged);
         $before = getRetainedBenchmarkProjectHashes($project);
         $process = runRetainedBenchmarkProcess($project);
         expect($process['exit'])->toBe(0, $process['stderr'])

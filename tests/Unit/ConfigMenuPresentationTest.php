@@ -178,16 +178,44 @@ it('keeps adjustment clamping wrapping persistence and semantic cancel in the ex
   expect($this->config->get('audio.master_volume'))->toBe(0);
   configPresentationKey($this->menu, KeyCode::RIGHT);
   expect($this->config->get('audio.master_volume'))->toBe(5)
-    ->and(getConfigTextPosition(ConfigMenuPresentation::compose($this->menu, $theme), 'Volume set to 5%.')['color'])
+    ->and(getConfigTextPosition(ConfigMenuPresentation::compose($this->menu, $theme), 'Master Volume set to 5%.')['color'])
     ->toBe($theme->colors['disabled']);
   configPresentationKey($this->menu, KeyCode::DOWN);
-  expect($this->menu->getStatusMessage())->toBeNull();
+  expect($this->menu->getStatusMessage())->toBeNull()->and($this->menu->selection->getActiveSetting()->key)->toBe('music_volume');
+  // A bus volume the game leaves out starts at full, stops there, and steps down from it.
+  configPresentationKey($this->menu, KeyCode::RIGHT);
+  expect($this->config->get('audio.music_volume'))->toBe(100);
+  configPresentationKey($this->menu, KeyCode::LEFT);
+  expect($this->config->get('audio.music_volume'))->toBe(95)->and($this->config->get('audio.master_volume'))->toBe(5);
+  while ($this->menu->selection->getActiveSetting()->key !== 'music') { configPresentationKey($this->menu, KeyCode::DOWN); }
   configPresentationKey($this->menu, KeyCode::LEFT);
   expect($this->config->get('audio.music'))->toBeTrue();
   configPresentationKey($this->menu, KeyCode::X);
   expect($this->config->get('audio.music'))->toBeFalse();
   configPresentationKey($this->menu, KeyCode::Q);
-  expect($this->backs)->toBe(1)->and($this->config->writes)->toBe(5);
+  expect($this->backs)->toBe(1)->and($this->config->writes)->toBe(7);
+});
+
+it('plays the cursor at the new level when a volume changes, so the player hears the choice', function () {
+  $root = makeAudioAssetsRoot(['cursor.wav']);
+  foreach (['sfx' => true, 'master_volume' => 80, 'sfx_volume' => 50, 'sounds' => ['cursor' => "$root/cursor.wav"]] as $key => $value) {
+    $this->config->set("audio.$key", $value);
+  }
+  $audio = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+  new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, $audio);
+  while ($this->menu->selection->getActiveSetting()->key !== 'sfx_volume') { configPresentationKey($this->menu, KeyCode::DOWN); }
+  $moves = count($audio->spawnedCommands);
+
+  configPresentationKey($this->menu, KeyCode::LEFT);
+  configPresentationKey($this->menu, KeyCode::LEFT);
+  configPresentationKey($this->menu, KeyCode::UP);
+  configPresentationKey($this->menu, KeyCode::UP);
+  configPresentationKey($this->menu, KeyCode::RIGHT);
+
+  // Master 80% of Effects 45%, then 40%; moving keeps that level; Master 85% then raises it.
+  expect(array_column(array_slice($audio->spawnedCommands, $moves), 1))->toBe(['0.36', '0.32', '0.32', '0.32', '0.34'])
+    ->and($this->config->get('audio.sfx_volume'))->toBe(40)->and($this->config->get('audio.master_volume'))->toBe(85);
+  $audio->shutdown();
 });
 
 it('shows plain session-only save feedback without resizing or inventing rollback', function () {
@@ -278,8 +306,8 @@ it('uses chevrons for controllable values without borrowing comparison or unknow
   $data['icons'] = ['unknown' => 'arrow.png', 'comparison.previous' => 'arrow.png', 'comparison.next' => 'arrow.png'];
   $frame = ConfigMenuPresentation::compose($this->menu, new MenuPresentationCatalog($this->root, $data));
   expect($frame->images)->toBeEmpty()
-    ->and(configPresentationText($frame)['config-previous-0'])->toBe("\u{2039}")
-    ->and(configPresentationText($frame)['config-next-0'])->toBe("\u{203A}");
+    ->and(configPresentationText($frame)['config-previous-0'])->toMatch('/^\x{2039}+$/u')
+    ->and(configPresentationText($frame)['config-next-0'])->toMatch('/^\x{203A}+$/u');
   $small = ConfigMenuPresentation::compose($this->menu, new MenuPresentationCatalog($this->root, $data), width: 960, height: 540);
   expect(configPresentationText($small)['config-scroll-up'])->toBe("\u{2227}")
     ->and(configPresentationText($small)['config-scroll-down'])->toBe("\u{2228}");

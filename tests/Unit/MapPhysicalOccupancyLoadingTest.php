@@ -228,7 +228,7 @@ it('keeps real graphical layer sheet and offset changes independent of resolved 
         $after = $manager->prepareMap('test/physical');
         expect($after->tiles)->toBe($before->tiles)
             ->and($after->collisions)->toBe($before->collisions)
-            ->and($after->graphics->layers[0]->tiles)->toBe([[4, 0], [0, 1]])
+            ->and($after->graphics->layers[0]->readTiles())->toBe([[4, 0], [0, 1]])
             ->and($after->graphics->offsets)->toBe(['floor' => [0.5, -0.5]])
             ->and($after->graphics->tileset->getUsableSheets($root . '/assets')['tileSize'])->toBe(4)
             ->and($after->graphics->tileset->isAbove(1))->toBeTrue();
@@ -237,10 +237,64 @@ it('keeps real graphical layer sheet and offset changes independent of resolved 
             $terminalEdit = $manager->prepareMap('test/physical');
             expect($terminalEdit->tiles)->not->toBe($after->tiles)
                 ->and($terminalEdit->collisions)->toBe($after->collisions)
-                ->and($terminalEdit->graphics->layers[0]->tiles)->toBe($after->graphics->layers[0]->tiles)
+                ->and($terminalEdit->graphics->layers[0]->readTiles())->toBe($after->graphics->layers[0]->readTiles())
                 ->and($terminalEdit->graphics->offsets)->toBe($after->graphics->offsets);
         }
     } finally {
         chdir($workingDirectory);
     }
 })->with([false, true]);
+
+it('loads a map painted in terrain kinds with its kinds\' passage and encounter terrain, and leaves other maps alone', function () {
+    [$root, $paths, $grid, $manager, $scene, $camera, $player] = createOccupancyLoadingFixture(true, ".^\n~.");
+    mkdir($root . '/assets/Data/Tilesets', 0700, true);
+    file_put_contents($root . '/assets/Data/Tilesets/kinds.php', '<?php return ' . var_export(['name' => 'Kinds',
+        'sheets' => ['A1' => 'Graphics/A1.png', 'A2' => 'Graphics/A2.png'], 'kinds' => [
+            'meadow' => ['name' => 'Meadow', 'layer' => 'terrain', 'glyph' => '<fg=green>.</>', 'art' => ['layer' => 'ground', 'tile' => 2816],
+                'passage' => 'walk', 'encounters' => 'meadow', 'atlas' => 'ground'],
+            'peaks' => ['name' => 'Peaks', 'layer' => 'terrain', 'glyph' => '<fg=white>^</>', 'art' => ['awaiting' => true], 'passage' => 'solid', 'atlas' => 'highland'],
+        ]], true) . ';');
+    // The game's dictionary says otherwise for both glyphs; the kinds decide them on the map that opts in.
+    $manager->dictionary = ['.' => CollisionType::SOLID, '^' => CollisionType::NONE, '~' => CollisionType::SOLID];
+    $workingDirectory = getcwd();
+    chdir($root);
+    try {
+        file_put_contents($paths['data'], '<?php return ' . var_export(['tileset' => 'kinds'], true) . ';');
+        expect($manager->prepareMap('test/physical')->collisions)->toBe([[1, 0], [1, 1]]);
+
+        file_put_contents($paths['data'], '<?php return ' . var_export(['tileset' => 'kinds', 'terrainKinds' => true], true) . ';');
+        $prepared = $manager->prepareMap('test/physical');
+        expect($prepared->collisions)->toBe([[7, 1], [1, 7]])
+            ->and($prepared->encounterTerrain?->getTerrainAt(0, 0))->toBe('meadow')
+            ->and($prepared->encounterTerrain?->getTerrainAt(1, 0))->toBeNull()
+            ->and($prepared->overview?->terrain?->getRole(1, 0))->toBe('highland');
+
+        file_put_contents($paths['data'], '<?php return ' . var_export(['tileset' => 'missing', 'terrainKinds' => true], true) . ';');
+        expect(fn() => $manager->prepareMap('test/physical'))
+            ->toThrow(InvalidArgumentException::class, 'tileset missing cannot be read, so its passage is unknown');
+    } finally {
+        chdir($workingDirectory);
+    }
+});
+
+
+it('resolves saved named NPC destinations before installation and refuses blocked or overlapping current destinations', function () {
+    [$root, $paths, $grid, $manager, $scene] = createOccupancyLoadingFixture(text: "....\n....\n....");
+    new ReflectionProperty(GameScene::class, 'npcManager')->setValue($scene, new \Ichiloto\Engine\Field\NpcManager($scene));
+    $entry = ['id' => 'arriving', 'name' => 'Arriving', 'x' => 0, 'y' => 0,
+        'placements' => ['meeting' => ['x' => 3, 'y' => 1]]];
+    $data = ['id' => 'test/physical', 'npcs' => [$entry]];
+    file_put_contents($paths['data'], '<?php return ' . var_export($data, true) . ';');
+    $scene->gameState->setVariable(\Ichiloto\Engine\Field\NpcPlacementSet::getStateKey('test/physical', 'arriving'), 'meeting');
+    $prepared = $manager->prepareMap('test/physical');
+    expect((int)$prepared->npcs[0]->position->x)->toBe(3)
+        ->and((int)$prepared->npcs[0]->position->y)->toBe(1)->and($scene->npcManager->npcs)->toBe([]);
+    $data['npcs'][] = ['id' => 'other', 'name' => 'Other', 'x' => 3, 'y' => 1];
+    file_put_contents($paths['data'], '<?php return ' . var_export($data, true) . ';');
+    expect(fn() => $manager->prepareMap('test/physical'))->toThrow(InvalidArgumentException::class, 'overlaps');
+    $data['npcs'] = [$entry];
+    file_put_contents($paths['data'], '<?php return ' . var_export($data, true) . ';');
+    file_put_contents($grid, \Ichiloto\Engine\Field\MapGridSource::buildSource("....\n...#\n....", 'MAP'));
+    expect(fn() => $manager->prepareMap('test/physical'))->toThrow(InvalidArgumentException::class, 'clear physical floor')
+        ->and($scene->npcManager->npcs)->toBe([]);
+});

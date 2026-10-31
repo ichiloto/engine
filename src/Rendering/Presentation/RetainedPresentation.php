@@ -16,7 +16,14 @@ use Closure;
 use Throwable;
 use LogicException;
 
-/** Sender-owned desired state; delivery generations never depend on frame cadence. */
+/**
+ * Sender-owned desired state; delivery generations never depend on frame cadence.
+ *
+ * Delivery is bounded by whole frames: while the renderer still owes acknowledgements for
+ * MAX_FRAMES_IN_FLIGHT frames, newer changes stay desired state and the next frame carries only
+ * their net difference from the last delivered one. Superseded intermediate frames are never
+ * queued, so the frame answering an input never waits behind stale ones.
+ */
 final class RetainedPresentation
 {
     public const int CHUNK_BYTES = 32768;
@@ -26,6 +33,7 @@ final class RetainedPresentation
     public const int SEND_BUDGET_BYTES = 1048576;
     public const int MAX_SEND_PACKETS = 32;
     public const int MAX_IN_FLIGHT = 32;
+    public const int MAX_FRAMES_IN_FLIGHT = 2;
     public const int MAX_PENDING_WRITE_BYTES = 1048576;
     private int $generation = 0;
     private int $frame = 0;
@@ -41,7 +49,7 @@ final class RetainedPresentation
     /** @var list<PresentationWorldCanvas> */
     private array $worldCanvases = [];
     private readonly object $frameOwner;
-    /** @var list<array<string, mixed>> */
+    /** @var list<array<string, mixed>|RetainedWorldUpload> A queued world is built as it is sent. */
     private array $operations = [];
     private bool $viewportChanged = false;
     private int $invalidation = 0;
@@ -50,6 +58,18 @@ final class RetainedPresentation
     private ?float $pendingSince = null;
     private ?RetainedUpload $upload = null;
     private ?RetainedUpload $reconcile = null;
+    /** The last fully queued transaction: what the renderer shows once it drains its input. */
+    private ?RetainedUpload $delivered = null;
+    /** @var list<int> Final generations of fully queued frames the renderer has not consumed yet. */
+    private array $framesInFlight = [];
+    /** @var array<int, PresentationWorld|null> The world of each fully queued frame, by final generation, until it is shown. */
+    private array $queuedWorlds = [];
+    /**
+     * The world of the newest frame the renderer acknowledged as shown: a world map streams over many
+     * game ticks, so a scene can know when its arrival is actually on screen. Null before any frame
+     * or after the session restarts.
+     */
+    public private(set) ?PresentationWorld $presentedWorld = null;
     private bool $coalesced = false;
     private int $windowBase = 0;
     private int $pendingWriteBytes = 0;
@@ -117,7 +137,7 @@ final class RetainedPresentation
         if ($this->world !== $frame->world) {
             if ($this->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id]; }
             $this->world = $frame->world;
-            if ($this->world !== null) { array_push($this->operations, ...$this->getWorldOperations($this->world)); }
+            if ($this->world !== null) { $this->operations[] = $this->getWorldUpload($this->world); }
         }
         foreach ($this->values['text'] ?? [] as $id => $_) {
             if (!isset($frame->values['text'][$id])) { $this->operations[] = ['op' => 'remove', 'kind' => 'text', 'id' => (string)$id]; }
@@ -146,19 +166,25 @@ final class RetainedPresentation
             $this->progressGeneration = $generation;
             $this->pendingSince = $this->getTime();
         }
-        if ($presented) { $this->acknowledgedGeneration = max($this->acknowledgedGeneration, $generation); }
+        if ($presented) {
+            $this->acknowledgedGeneration = max($this->acknowledgedGeneration, $generation);
+            foreach ($this->queuedWorlds as $final => $world) {
+                if ($final > $generation) { break; }
+                $this->presentedWorld = $world;
+                unset($this->queuedWorlds[$final]);
+            }
+        }
+        $this->framesInFlight = array_values(array_filter($this->framesInFlight,
+            fn(int $final): bool => $final > $this->progressGeneration));
         if ($this->acknowledgedGeneration === $this->generation) { $this->pendingSince = null; }
     }
 
-    /**
-     * A world's upload for this session: tile covers and shadows only for a renderer that negotiated them.
-     *
-     * @return list<array<string, mixed>>
-     */
-    private function getWorldOperations(PresentationWorld $world): array
+    /** A world's upload for this session: tile covers and shadows only for a renderer that negotiated them. */
+    private function getWorldUpload(PresentationWorld $world): RetainedWorldUpload
     {
-        return $world->getOperations($this->client->supports(RendererSessionConfig::TILE_COVERS),
-            $this->client->supports(RendererSessionConfig::TILE_SHADOWS));
+        return new RetainedWorldUpload($world, $this->client->supports(RendererSessionConfig::TILE_COVERS),
+            $this->client->supports(RendererSessionConfig::TILE_SHADOWS),
+            $this->client->supports(RendererSessionConfig::WORLD_ROW_RUNS));
     }
 
     private function getTime(): float { return $this->clock === null ? hrtime(true) / 1_000_000_000 : ($this->clock)(); }
@@ -169,11 +195,14 @@ final class RetainedPresentation
         $this->reset = true;
         $this->invalidation++;
         $this->pendingSince = null;
-        $this->upload = $this->reconcile = null;
+        $this->upload = $this->reconcile = $this->delivered = null;
+        $this->framesInFlight = [];
+        $this->queuedWorlds = [];
         $this->coalesced = false;
         $this->generation = max($this->generation, $expectedGeneration ?? 0);
         $this->windowBase = $this->generation;
         if ($newSession) {
+            $this->presentedWorld = null;
             $this->warnedUnsupportedPivot = false;
             $this->generation = $this->acknowledgedGeneration = $this->progressGeneration = 0;
             $this->windowBase = $this->pendingWriteBytes = 0;
@@ -210,21 +239,32 @@ final class RetainedPresentation
         if ($world !== $this->world) {
             if ($this->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id]; }
             $this->world = $world;
-            if ($world !== null) { array_push($this->operations, ...$this->getWorldOperations($world)); }
+            if ($world !== null) { $this->operations[] = $this->getWorldUpload($world); }
         }
         $this->updateText($text);
         $lift = $this->client->supports(RendererSessionConfig::SPRITE_LIFT);
         $turns = $this->client->supports(RendererSessionConfig::SPRITE_QUARTER_TURNS);
         $pivot = $this->client->supports(RendererSessionConfig::SPRITE_PIVOT);
+        $bob = $this->client->supports(RendererSessionConfig::SPRITE_BOB);
+        $fade = $this->client->supports(RendererSessionConfig::SPRITE_FADE);
+        $thicket = $this->client->supports(RendererSessionConfig::SPRITE_THICKET);
         if (!$pivot && !$this->warnedUnsupportedPivot && array_any($sprites, static fn($sprite): bool =>
             $sprite->pivot !== null && ($sprite->pivot->x !== .5 || $sprite->pivot->y !== 1.0))) {
             Debug::warn('Renderer lacks sprite_pivot; field images retain bottom-center placement.');
             $this->warnedUnsupportedPivot = true;
         }
+        // Sprites and field canvases share one order space.
+        $keys = array_map(static fn($subject): string => ($subject instanceof PresentationSprite ? 'sprite:' : 'world_canvas:')
+            . $subject->id, $subjects);
+        $previous = [];
+        foreach (['sprite', 'world_canvas'] as $kind) {
+            foreach ($this->values[$kind] ?? [] as $id => $value) { $previous[$kind . ':' . $id] = $value['order']; }
+        }
+        $orders = RetainedOrder::getStableOrders($keys, $previous);
         $spriteValues = $groupValues = [];
-        foreach ($subjects as $order => $subject) {
-            $value = [...($subject instanceof PresentationSprite ? $subject->toArray($lift, $turns, $pivot)
-                : $subject->toArray()), 'order' => $order];
+        foreach ($subjects as $index => $subject) {
+            $value = [...($subject instanceof PresentationSprite ? $subject->toArray($lift, $turns, $pivot, $bob, $fade, $thicket)
+                : $subject->toArray()), 'order' => $orders[$keys[$index]]];
             if ($subject instanceof PresentationSprite) { $spriteValues[] = $value; }
             else { $groupValues[] = $value; }
         }
@@ -248,7 +288,7 @@ final class RetainedPresentation
         if ($this->world !== $world) {
             if ($this->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id]; }
             $this->world = $world;
-            if ($world !== null) { array_push($this->operations, ...$this->getWorldOperations($world)); }
+            if ($world !== null) { $this->operations[] = $this->getWorldUpload($world); }
         }
         $this->replaceValues('text', []);
         $this->textRows = [];
@@ -286,9 +326,12 @@ final class RetainedPresentation
     private function replaceValues(string $kind, array $items, bool $preserveOrder = false): void
     {
         $next = [];
-        foreach ($items as $order => $value) {
+        $orders = $preserveOrder ? [] : RetainedOrder::getStableOrders(array_values(array_unique(array_map(
+            static fn(array $value): string => (string)$value['id'], $items))), array_map(
+            static fn(array $value): int => $value['order'], $this->values[$kind] ?? []));
+        foreach ($items as $value) {
             $id = $value['id'];
-            $value['order'] = $preserveOrder ? $value['order'] : $order;
+            $value['order'] = $preserveOrder ? $value['order'] : $orders[$id];
             $next[$id] = $value;
             if (($this->values[$kind][$id] ?? null) !== $value) { $this->put($kind, $id, $value); }
         }
@@ -336,7 +379,8 @@ final class RetainedPresentation
             $this->operations[] = ['op' => 'remove', 'kind' => 'text', 'id' => (string)$id];
             unset($this->textRows[$id], $this->values['text'][$id]);
         }
-        $orders = $ids === null ? [] : array_flip($ids);
+        $orders = $ids === null ? [] : RetainedOrder::getStableOrders(array_map(strval(...), array_values($ids)),
+            array_map(static fn(array $value): int => $value['order'], $this->values['text'] ?? []));
         foreach ($layers as $layer) {
             $id = $layer['id'];
             $old = $this->values['text'][$id] ?? null;
@@ -379,13 +423,20 @@ final class RetainedPresentation
         }
         if ($this->upload !== null) {
             $this->coalesced = $this->coalesced || $this->operations !== [] || $this->viewportChanged;
-        } elseif ($this->reconcile !== null) {
+        } elseif ($this->reconcile !== null && !$this->isHoldingFrames()) {
             $this->reconcileChanges($this->reconcile);
             $this->reconcile = null;
         }
-        if ($this->upload === null && !$this->reset && $this->operations === [] && !$this->viewportChanged) { return false; }
+        if ($this->upload === null && !$this->reset && $this->reconcile === null && $this->operations === []
+            && !$this->viewportChanged) { return false; }
+        if ($this->upload === null && !$this->reset && $this->isHoldingFrames()) {
+            // Keep desired state only; the next frame reconciles against what the renderer will show.
+            $this->reconcile ??= $this->delivered ?? throw new LogicException('Frames in flight require their delivered baseline.');
+            LatencyTrace::record('presentation.frame.held', ['frames_in_flight' => count($this->framesInFlight)]);
+            return false;
+        }
         if ($this->upload === null && $this->reset) {
-            $this->operations = $this->world === null ? [] : $this->getWorldOperations($this->world);
+            $this->operations = $this->world === null ? [] : [$this->getWorldUpload($this->world)];
             foreach ($this->values as $kind => $items) {
                 foreach ($items as $id => $value) {
                     if ($kind === 'text') { $this->putText((string)$id); }
@@ -437,6 +488,9 @@ final class RetainedPresentation
                 $this->pendingSince ??= $this->getTime();
                 $this->pendingWriteBytes = $this->client->getPendingWriteBytes();
                 if ($this->upload->advance()) {
+                    $this->framesInFlight[] = $this->generation;
+                    $this->queuedWorlds[$this->generation] = $this->upload->world;
+                    $this->delivered = $this->upload;
                     if ($this->coalesced) { $this->reconcile = $this->upload; }
                     $this->upload = null;
                     LatencyTrace::record('presentation.frame.queued', ['frame' => $this->frame, 'generation' => $this->generation]);
@@ -451,6 +505,8 @@ final class RetainedPresentation
         }
         return $sent > 0;
     }
+
+    private function isHoldingFrames(): bool { return count($this->framesInFlight) >= self::MAX_FRAMES_IN_FLIGHT; }
 
     private function serviceTransport(): void
     {
@@ -474,7 +530,7 @@ final class RetainedPresentation
         $this->operations = [];
         if ($this->world !== $baseline->world) {
             if ($baseline->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $baseline->world->id]; }
-            if ($this->world !== null) { array_push($this->operations, ...$this->getWorldOperations($this->world)); }
+            if ($this->world !== null) { $this->operations[] = $this->getWorldUpload($this->world); }
         }
         foreach (array_unique([...array_keys($this->values), ...array_keys($baseline->values)]) as $kind) {
             foreach ($this->values[$kind] ?? [] as $id => $value) {

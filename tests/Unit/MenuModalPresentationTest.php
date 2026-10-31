@@ -547,6 +547,52 @@ it('batches only fully visible nonoverlapping text without changing paint positi
   expect(CanvasTextBatch::compact($overlapping))->toBe($overlapping);
 });
 
+it('packs solid fills onto pixel lattices only when over budget, painting the same pixels in the same order', function () {
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']);
+  $fill = static fn(string $id, CanvasRectangle $box, string $color, int $layer = 40): CanvasTextLayer => new CanvasTextLayer($id, $layer,
+    $box->x, $box->y, new RendererGridConfig(1, 1, (int)ceil($box->width), (int)ceil($box->height)),
+    [new PresentationTextRun(0, 0, ' ', background: $theme->colors[$color])], $box);
+  $layers = [];
+  for ($i = 0; $i < 40; $i++) {
+    // A slider: its track, then its fill painted over it.
+    $layers[] = $fill("track-$i", new CanvasRectangle(10, $i * 12, 100, 8), 'edge');
+    $layers[] = $fill("fill-$i", new CanvasRectangle(10, $i * 12 + 3, 50.25 + $i, 2), 'accent');
+  }
+  // Glyphs over one track keep it, and the fill over it, where they were.
+  $layers[] = new CanvasTextLayer('glyph', 40, 20, 0, new RendererGridConfig(1, 1, 8, 8),
+    [new PresentationTextRun(0, 0, 'x', $theme->colors['text'])]);
+  $paint = static function (array $layers): array {
+    $pixels = [];
+    foreach ($layers as $text) {
+      foreach ($text->runs as $run) {
+        if ($run->background === null) { continue; }
+        $box = $text->clipRect ?? $text->bounds;
+        for ($cell = 0; $cell < mb_strlen($run->text); $cell++) {
+          $x0 = $text->x + ($run->column + $cell) * $text->grid->cellWidth;
+          $y0 = $text->y + $run->row * $text->grid->cellHeight;
+          for ($y = (int)floor($y0); $y < $y0 + $text->grid->cellHeight; $y++) {
+            for ($x = (int)floor($x0); $x < $x0 + $text->grid->cellWidth; $x++) {
+              if ($x + 0.5 >= $box->x && $x + 0.5 < $box->x + $box->width && $y + 0.5 >= $box->y && $y + 0.5 < $box->y + $box->height) {
+                $pixels["$x:$y"] = $run->background->toArray();
+              }
+            }
+          }
+        }
+      }
+    }
+    ksort($pixels);
+    return $pixels;
+  };
+
+  $packed = CanvasTextBatch::compact($layers);
+  $ids = array_column($packed, 'id');
+
+  expect(count($packed))->toBeLessThanOrEqual(64)->and($paint($packed))->toBe($paint($layers))
+    ->and($ids)->toContain('track-0', 'fill-0', 'glyph')
+    ->and(array_filter($packed, fn($text) => $text->grid->cellWidth === 1 && $text->grid->cellHeight === 1))->not->toBeEmpty()
+    ->and(CanvasTextBatch::compact(array_slice($layers, 0, 64)))->toBe(array_slice($layers, 0, 64));
+});
+
 it('stacks quantity chevrons to the right while independently centering the value and Continue', function (bool $art, int $amount) {
   $data = [...modalMenuTheme(false), 'showInputHints' => false];
   if ($art) {
@@ -635,3 +681,48 @@ it('batches default focus and primitive outline edges without changing any fille
   $label = array_find($frame->textLayers, fn($text) => $text->id === 'menu-modal-choice-0-text');
   expect($label->x + $label->bounds->width / 2)->toBe(190.0);
 })->with([false, true]);
+
+it('fits a notice portrait or semantic icon beside its text using the current theme', function (bool $art, bool $portrait) {
+  $data = [...modalMenuTheme($art), 'icons' => ['power.synthetic' => 'art.png']];
+  $theme = new MenuPresentationCatalog($this->root, $data);
+  $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('A new companion', 'A member joined the party.',
+    actorId: $portrait ? 'actor.0' : null, iconRole: $portrait ? null : 'power.synthetic');
+  $modal = new ModalPresentation($notice->title, $notice->message, ['OK'], 0, singleConfirmation: true, notice: $notice);
+  $frame = MenuModalPresentation::compose(new PresentationCanvas(1350, 720), $modal, $theme);
+  $images = array_values(array_filter($frame->images, static fn($image): bool =>
+    str_starts_with($image->id, $portrait ? 'menu-modal-notice-portrait' : 'menu-modal-notice-icon')
+      && !str_contains($image->id, '-frame')));
+  $layers = array_column($frame->textLayers, null, 'id');
+  expect($images)->not->toBeEmpty();
+  foreach ($images as $image) {
+    $image->destination->assertWithin(1350, 720);
+    expect($image->asset)->toBe('art.png')
+      ->and($image->destination->x + $image->destination->width)->toBeLessThanOrEqual($layers['menu-modal-message']->clipRect->x);
+  }
+  $button = $layers['menu-modal-choice-0-text'];
+  expect($button->clipRect->x + $button->clipRect->width / 2)->toBe(675.0);
+})->with([false, true])->with([false, true]);
+
+it('keeps a text notice readable when its theme has no optional artwork binding', function () {
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']);
+  $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('Power gained', 'An acquired technique.', iconRole: 'power.synthetic');
+  $frame = MenuModalPresentation::compose(new PresentationCanvas(1350, 720),
+    new ModalPresentation($notice->title, $notice->message, ['OK'], 0, singleConfirmation: true, notice: $notice), $theme);
+  expect(array_filter($frame->images, static fn($image): bool => str_contains($image->id, 'notice')))->toBeEmpty();
+  $layers = array_column($frame->textLayers, null, 'id');
+  expect(implode('', array_column($layers['menu-modal-message']->runs, 'text')))->toBe($notice->message)
+    ->and($layers['menu-modal-message']->clipRect->x + $layers['menu-modal-message']->clipRect->width / 2)->toBe(675.0);
+});
+
+it('plays a notice sound once on showing and keeps ordinary dismissal ownership', function () {
+  $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('New power', 'An unlocked technique.',
+    sound: SystemSound::NOTIFICATION);
+  $modal = new \Ichiloto\Engine\UI\Modal\NoticeModal($this->game, $notice);
+  $modal->show(); $modal->show();
+  expect($this->audio->sounds)->toBe([SystemSound::NOTIFICATION])->and($modal->isShowing())->toBeTrue();
+  $modal->hide();
+  expect($modal->isShowing())->toBeFalse();
+  $modal->show();
+  expect($this->audio->sounds)->toBe([SystemSound::NOTIFICATION, SystemSound::NOTIFICATION]);
+  $modal->hide();
+});

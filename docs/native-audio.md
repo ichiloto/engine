@@ -45,6 +45,13 @@ component is not installed. Related docs: [audio.md](audio.md),
   - native Windows has no audio: the backends refuse it outright.
 - Speech has an owned channel (`playSpeech`, `stopSpeech`,
   `isSpeechPlaying`) and optional music ducking, built on the same players.
+- The buses exist in PHP as `AudioBus` (Music, Effects, Voice) beneath the
+  master volume. Each has a player switch and a player volume
+  (`audio.<bus>` and `audio.<bus>_volume`), and every sound plays at master
+  times bus times its own volume. Config and the title Options offer all
+  four volumes; a game authors where each starts. The command-line players
+  apply a volume change by restarting the player (seek-capable music at its
+  position, loops at once, speech on the next line).
 
 ## The model
 
@@ -113,8 +120,12 @@ honours the same settings as far as its players allow.
 1. Introduce the output seam inside `AudioManager` and move the existing
    players behind it as the command-line output, with no behaviour change.
 2. Buses as a concept in PHP: every play call names its bus; settings map
-   to bus volumes.
-3. Independent Voice setting and per-bus volumes in the Config menu.
+   to bus volumes. Done inside `AudioManager`: music, sound effects, loops
+   and speech each play on their `AudioBus`. The output seam (item 1) will
+   carry the bus to its output.
+3. Independent Voice setting and per-bus volumes in the Config menu. Done:
+   Voice is independent, and Config and the title Options offer Master,
+   Music, Sound Effects and Voice volumes.
 
 ### Phase 1 - The native component
 

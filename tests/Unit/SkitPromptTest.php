@@ -148,7 +148,7 @@ it('keeps a framed Terminal prompt through repaint and removes only its own cont
   $before = Console::presentationSnapshot();
   $layer = array_column($before->textLayers, null, 'id')[SkitPromptPresentation::LAYER];
   expect(array_column($layer->runs, 'row'))->toContain(21, 22)
-    ->and(implode('', array_column($layer->runs, 'text')))->toContain('Persistent conversation', 'K: Watch skit', '┌', '┐', '│', '└', '┘');
+    ->and(implode('', array_column($layer->runs, 'text')))->toContain('Persistent conversation', '[K] Watch skit', '┌', '┐', '│', '└', '┘');
   foreach ($layer->runs as $run) {
     expect($run->column)->toBeGreaterThanOrEqual(0)
       ->and($run->column + TerminalText::displayWidth($run->text))->toBeLessThanOrEqual($width);

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Game;
 
 use Ichiloto\Engine\IO\Saves\SaveFeatures;
+use Ichiloto\Engine\Localization\MessageCatalog;
 use Ichiloto\Engine\Animations\Field\FieldEffectManager;
 use Ichiloto\Engine\Rendering\Sprites\ScreenSpaceSpriteProviderInterface;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
@@ -38,20 +39,44 @@ use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Field\PlayerGraphicalSubject;
 use Ichiloto\Engine\Field\PlayerPresentationConfig;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderHostInterface;
+use Ichiloto\Engine\Rendering\Sprites\SpriteThicketHostInterface;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteThicket;
+use Ichiloto\Engine\Field\MapThickets;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Events\Triggers\EventTrigger;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
+use Ichiloto\Engine\Core\Interfaces\PlayActivitySourceInterface;
+use Ichiloto\Engine\Core\PlayActivity;
+use Ichiloto\Engine\Income\IncomeCatalog;
+use Ichiloto\Engine\Income\IncomeLedger;
+use Ichiloto\Engine\Income\IncomeService;
+use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
 use Ichiloto\Engine\Scenes\Game\States\AbilityMenuState;
+use Ichiloto\Engine\Scenes\Game\States\MasteryMenuState;
 use Ichiloto\Engine\Field\EncounterManager;
+use Ichiloto\Engine\Field\FieldConditions;
 use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\Field\SkitManager;
 use Ichiloto\Engine\Progress\AchievementManager;
 use Ichiloto\Engine\Progress\Bestiary;
+use Ichiloto\Engine\Core\WorldConditionEvaluator;
+use Ichiloto\Engine\Field\MapRoute;
+use Ichiloto\Engine\Field\MapSubjectGates;
+use Ichiloto\Engine\Field\Waymarks\FieldWaymark;
+use Ichiloto\Engine\Field\Waymarks\FieldWaymarkResolver;
+use Ichiloto\Engine\Field\Waymarks\FieldWaymarkTerminalPresenter;
+use Ichiloto\Engine\Field\Waymarks\LiveFieldWaymarkLocator;
+use Ichiloto\Engine\Quests\ActiveQuestWaymark;
+use Ichiloto\Engine\Quests\Story\StoryIndex;
+use Ichiloto\Engine\Quests\Story\StoryWayfinder;
+use Ichiloto\Engine\Quests\QuestWaymarkSubject;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgress;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService;
@@ -100,9 +125,10 @@ use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInter
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface
+class GameScene extends AbstractScene implements PlayActivitySourceInterface, GraphicalSpriteProviderHostInterface, SpriteThicketHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface, \Ichiloto\Engine\Events\Interpreter\EventExecutionHostInterface, \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface
 {
     private ?FieldViewport $fieldViewport = null;
+    private ?\Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming $dialogueFraming = null;
     private ?ScenePresentationContext $presentationContext = null;
     /** @var array{columns: int, rows: int}|null Camera geometry before an isolated presentation was attached. */
     private ?array $presentationCameraSize = null;
@@ -114,6 +140,9 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     protected(set) ?FieldEffectManager $fieldEffects = null;
     /** @var list<string> Sprite identities fixed to the screen, not camera follow. */
     private array $fieldEdgeSpriteIds = [];
+    private ?FieldWaymarkTerminalPresenter $waymarkPresenter = null;
+    /** Leads on the story path where no authored objective does. */
+    private ?StoryWayfinder $storyWayfinder = null;
 
     /** Attach an isolated host's presentation selection without acquiring runtime input, UI or a renderer process. */
     public function setPresentationContext(?ScenePresentationContext $context): void
@@ -150,6 +179,13 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             : (isset($this->sceneManager) && $this->getGame()->getRendererRuntime()?->supports($capability) === true);
     }
 
+    /** Compound field subjects require both existing canvas and viewport capabilities. */
+    public function canPresentWorldCanvases(): bool
+    {
+        return $this->supportsScenePresentation(RendererSessionConfig::WORLD_CANVAS)
+            && $this->supportsScenePresentation(RendererSessionConfig::FRAME_VIEWPORT);
+    }
+
     /** Resolve camera dimensions before any field producer draws into Console. */
     public function synchronizeFieldViewport(): void
     {
@@ -159,7 +195,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->fieldEffects?->setCapabilities(
             $this->supportsScenePresentation(RendererSessionConfig::SPRITE_SOURCE_RECT)
                 && $this->supportsScenePresentation(RendererSessionConfig::FRAME_VIEWPORT),
-            $this->supportsScenePresentation(RendererSessionConfig::SPRITE_QUARTER_TURNS));
+            $this->supportsScenePresentation(RendererSessionConfig::SPRITE_QUARTER_TURNS),
+            $this->supportsScenePresentation(RendererSessionConfig::SPRITE_BOB),
+            $this->supportsScenePresentation(RendererSessionConfig::FIELD_MOTION)
+                && $this->supportsScenePresentation(RendererSessionConfig::PINNED_SPRITE_MOTION));
         $requested = ConfigStore::has(ProjectConfig::class)
             ? config(ProjectConfig::class, 'graphics.field.zoom', FieldViewport::DEFAULT_ZOOM) : FieldViewport::DEFAULT_ZOOM;
         $zoom = FieldViewport::DEFAULT_ZOOM;
@@ -177,6 +216,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->fieldViewport = $grid !== null && $this->getPresentationWorld() !== null
             ? new FieldViewport($grid, $zoom) : null;
         if ($context === null && $this->fieldViewport === null && $previous === null) {
+            $this->updateDialogueFraming();
             return;
         }
         $columns = $this->fieldViewport?->columns ?? $context?->grid->columns ?? Console::getWidth();
@@ -187,6 +227,33 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
                 $this->camera->resetPosition($this->player);
             }
         }
+        $this->updateDialogueFraming();
+    }
+
+    protected function refreshModalPresentation(): void
+    {
+        if (!$this->isStopping && $this->fieldState !== null && $this->state === $this->fieldState
+            && $this->cinematicController?->active() !== null) {
+            $this->synchronizeFieldViewport();
+            $this->fieldState->renderTheField();
+        }
+    }
+
+    public function getFieldViewport(): ?FieldViewport { return $this->fieldViewport; }
+
+    public function observeDialogueFramingSubjects(): void
+    {
+        ($this->dialogueFraming ??= new \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming($this))->observeSubjects();
+    }
+
+    public function clearDialogueFraming(): void { $this->dialogueFraming?->reset(); }
+    public function getDialogueFramingDiagnostic(): ?string { return $this->dialogueFraming?->diagnostic; }
+
+    private function updateDialogueFraming(): void
+    {
+        if ($this->cinematicController?->active() !== null) {
+            ($this->dialogueFraming ??= new \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming($this))->update();
+        } else { $this->clearDialogueFraming(); }
     }
 
     /** True while a graphical renderer presents the field instead of the terminal. */
@@ -221,7 +288,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         // A camera that follows the player scrolls with the player's step, not after it.
         return $this->fieldViewport->createViewport(array_values($this->viewportTextLayers), $sprites, $tiles,
             $world->id, $this->camera->getWorldOrigin(), $tileFrame,
-            $this->camera->followsPlayer ? $this->player?->getGraphicalSpriteId() : null, $this->fieldEdgeSpriteIds);
+            $this->camera->followsPlayer && !$this->camera->isFramed ? $this->player?->getGraphicalSpriteId() : null, $this->fieldEdgeSpriteIds);
     }
 
     public function getPresentationWorld(): ?PresentationWorld
@@ -275,7 +342,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             $this->gameState === null ? [] : ($this->mapManager->mapKnowledge?->getVisibleLandmarks($this->gameState,$this->party) ?? []),
             $this->player->position->x,$this->player->position->y,$this->player->heading,
             $this->mapManager->atlasDefinition?->global ?? false,
-            terminalView:$this->mapManager->atlasDefinition?->terminalView ?? 'floorplan');
+            terminalView:$this->mapManager->atlasDefinition?->terminalView ?? 'floorplan',
+            waymarks:$this->getFieldWaymarks());
     }
 
     /** Isolated previews must explicitly bind their own session, never borrow the live Game transport. */
@@ -294,9 +362,13 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
 
     public function getPresentationWorldCanvases(): array
     {
-        if (!$this->hasGraphicalFieldPresentation()) { return []; }
+        if (!$this->hasGraphicalFieldPresentation() || !$this->canPresentWorldCanvases()) { return []; }
         $origin = $this->camera->getWorldOrigin();
         $groups = [];
+        foreach ($this->cinematicStage?->all() ?? [] as $actor) {
+            $group = $actor->getPresentationWorldCanvas();
+            if ($group !== null) { $groups[] = $group->createProjected($origin['x'], $origin['y']); }
+        }
         foreach ($this->mapManager?->getWorldObjects() ?? [] as $object) {
             if ($this->cinematicStage?->suppresses($object) ?? false) { continue; }
             $group = $object->getPresentationWorldCanvas();
@@ -381,6 +453,26 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     private int $fieldMusicHolds = 0;
     private bool $fieldMusicIsExplicitSilence = false;
 
+    /** The thickets of the current map's graphics, read again when the map's graphics change. */
+    private ?MapThickets $mapThickets = null;
+
+    /**
+     * How the current map's foliage hides a character standing in a cell
+     * ({@see MapThickets}); only a renderer that negotiated sprite_thicket is
+     * sent it. Under reduced motion it hides without rustling.
+     */
+    public function findSpriteThicketAt(Vector2 $cell): ?PresentationSpriteThicket
+    {
+        $graphics = $this->mapManager?->graphics;
+        if ($graphics === null) {
+            return null;
+        }
+        if ($this->mapThickets?->graphics !== $graphics) {
+            $this->mapThickets = new MapThickets($graphics);
+        }
+        return $this->mapThickets->findSpriteThicketAt((int)$cell->x, (int)$cell->y, Accessibility::prefersReducedMotion());
+    }
+
     public function getGraphicalSpriteProviders(): iterable
     {
         $this->fieldEdgeSpriteIds = [];
@@ -390,14 +482,18 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
                 yield $this->player;
             }
             foreach ($this->cinematicStage?->all() ?? [] as $actor) {
-                yield $actor;
+                if (!$actor->isComposedInBed() && $actor->getPresentationWorldCanvas() === null) { yield $actor; }
             }
-            yield from $this->npcManager?->getGraphicalSpriteProviders() ?? [];
+            foreach ($this->npcManager?->getGraphicalSpriteProviders() ?? [] as $npc) {
+                if (!($npc->bed?->isOccupied && $npc->bed->getPresentationWorldCanvas() !== null)) { yield $npc; }
+            }
             foreach ($this->mapManager?->getWorldObjects() ?? [] as $object) {
                 if (!($this->cinematicStage?->suppresses($object) ?? false)) { yield $object; }
             }
             foreach ([...($this->fieldEffects?->getSprites($this->getFieldObjectSpriteProviders(), $this->fieldViewport,
-                $this->camera->getWorldOrigin(), Accessibility::prefersReducedMotion(), $this->canPresentFieldGuidance()) ?? []),
+                $this->camera->getWorldOrigin(), Accessibility::prefersReducedMotion(), $this->canPresentFieldGuidance(),
+                $this->player?->getGraphicalSpriteId(),
+                $this->camera->followsPlayer ? $this->player?->getGraphicalSpriteMotion() : null) ?? []),
                 ...($this->cinematicPresentation?->getEffectSprites($this->fieldViewport) ?? [])] as $effect) {
                 if ($effect instanceof ScreenSpaceSpriteProviderInterface) {
                     $this->fieldEdgeSpriteIds[] = $effect->getGraphicalSpriteId();
@@ -426,6 +522,136 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         return !$this->isStopping && $this->cinematicController?->active() === null;
     }
 
+    /**
+     * The quest waymarks to follow now: those of incomplete objectives whose
+     * own conditions hold, and whose event or NPC is there to be used as its
+     * map authors it (an event's conditions and cue, an NPC's presence).
+     * Where none of them leads on the story path, the story wayfinder adds
+     * what takes the next step ({@see StoryWayfinder}).
+     *
+     * @return list<ActiveQuestWaymark>
+     */
+    public function getActiveWaymarks(): array
+    {
+        $active = $this->questManager?->getActiveWaymarks() ?? [];
+        if ($this->mapManager === null || $this->questManager === null) {
+            return $active;
+        }
+        if (array_any($active, static fn(ActiveQuestWaymark $entry): bool
+            => in_array($entry->waymark->subject, [QuestWaymarkSubject::EVENT, QuestWaymarkSubject::NPC], true))) {
+            $gates = $this->mapManager->getProjectMapIndex()->gates;
+            $active = array_values(array_filter($active, fn(ActiveQuestWaymark $entry): bool => match ($entry->waymark->subject) {
+                QuestWaymarkSubject::EVENT => $gates->allowsEvent($entry->waymark->map, $entry->waymark->subjectId, $this->gameState, $this->party),
+                QuestWaymarkSubject::NPC => $gates->allowsNpc($entry->waymark->map, $entry->waymark->subjectId, $this->gameState, $this->party),
+                default => true,
+            }));
+        }
+        $this->storyWayfinder ??= new StoryWayfinder(fn(): StoryIndex => $this->mapManager->getStoryIndex(),
+            fn(): MapSubjectGates => $this->mapManager->getProjectMapIndex()->gates);
+        return [...$active, ...$this->storyWayfinder->findGapWaymarks($active, $this->questManager->quests,
+            $this->questManager->log, $this->gameState, $this->party)];
+    }
+
+    /**
+     * The objective waymarks on the active map, derived now from the quest
+     * log and world state: targets here and exits toward targets elsewhere.
+     *
+     * @return list<FieldWaymark>
+     */
+    public function getFieldWaymarks(): array
+    {
+        if ($this->mapManager === null || $this->player === null || $this->currentMapId === '') {
+            return [];
+        }
+        $active = $this->getActiveWaymarks();
+        if ($active === []) { return []; }
+        $elsewhere = array_any($active, fn(ActiveQuestWaymark $entry): bool => $entry->waymark->map !== $this->currentMapId);
+        return FieldWaymarkResolver::resolve($active, $this->currentMapId, new LiveFieldWaymarkLocator($this),
+            $elsewhere ? $this->mapManager->getProjectMapIndex()->routes : null, $this->canUseRoute(...));
+    }
+
+    /**
+     * A route counts while its event is available (for an NPC page, while
+     * talking to the NPC runs that page) and any secret landmark claiming it
+     * has been revealed.
+     */
+    private function canUseRoute(MapRoute $route): bool
+    {
+        if ($route->npcId !== null && $route->npcPage !== null && $this->mapManager !== null
+            && !$this->mapManager->getProjectMapIndex()->gates->allowsNpcPage($route->source, $route->npcId, $route->npcPage,
+                $this->gameState, $this->party)) {
+            return false;
+        }
+        return WorldConditionEvaluator::allHold($route->conditions, $this->gameState, $this->party)
+            && (!$route->secret || $route->landmarkId === null
+                || $this->gameState->hasRevealedLandmark($route->source, $route->landmarkId));
+    }
+
+    /**
+     * Draws the Terminal cues of available, incomplete map events while the
+     * field shows guidance, each on its own layer; graphical cue art replaces
+     * a cue's glyph where the graphical field presents it.
+     *
+     * Event-layer marker letters remain editor-only identities. A cue exists
+     * only when an author deliberately opts a trigger into player guidance.
+     *
+     * @param iterable<EventTrigger> $events
+     */
+    public function renderEventCues(iterable $events): void
+    {
+        foreach ($events as $event) {
+            $cueLayer = 'event-cue:' . ($event->mapId ?? '') . ':' . ($event->marker ?? '');
+            if (!$this->canPresentFieldGuidance() || !$event->shouldRenderCue($this->player?->position)
+                || ($this->isGraphicalFieldPresented() && $this->fieldEffects?->canPresentCue($event))) {
+                Console::removeLayer($cueLayer);
+                continue;
+            }
+            Console::withLayer($cueLayer, function () use ($event): void {
+                foreach ($event->cue->findVisiblePositions($event->area, $this->player?->position) as $position) {
+                    $this->camera->renderOnScreen([$this->fieldEffects?->cueStyle->styleGlyph($event->cue->symbol,
+                        $event->cue->color) ?? $event->cue->styledSymbol()], $position);
+                }
+            }, PresentationLayerPolicy::WORLD);
+        }
+    }
+
+    /**
+     * Draws waymark glyphs while the field shows guidance. Graphical waymark
+     * art replaces the glyphs where the game binds it.
+     *
+     * @param bool $force Redraw even when unchanged, as a recomposed frame requires.
+     */
+    public function renderFieldWaymarks(bool $force = false): void
+    {
+        $this->waymarkPresenter ??= new FieldWaymarkTerminalPresenter();
+        $this->waymarkPresenter->draw($this->camera, $this->findWaymarkPlacements(), $force);
+    }
+
+    /** Redraws waymark glyphs only when dialogue outcomes or moving subjects changed them. */
+    private function refreshFieldWaymarks(): void
+    {
+        $this->waymarkPresenter ??= new FieldWaymarkTerminalPresenter();
+        $placements = $this->findWaymarkPlacements();
+        if (!$this->waymarkPresenter->isShowing($placements)) {
+            Console::updateFrame(fn() => $this->waymarkPresenter->draw($this->camera, $placements));
+        }
+    }
+
+    /** @return list<array{x: int, y: int, text: string}> Empty while glyph waymarks are hidden. */
+    private function findWaymarkPlacements(): array
+    {
+        $graphicalArt = $this->isGraphicalFieldPresented() && ($this->fieldEffects?->canPresentWaymarks() ?? false);
+        if ($this->player === null || $this->fieldEffects === null || !$this->canPresentFieldGuidance() || $graphicalArt
+            || !($this->state instanceof FieldState)) {
+            return [];
+        }
+        return FieldWaymarkTerminalPresenter::place($this->getFieldWaymarks(), $this->fieldEffects->waymarkStyle,
+            $this->camera->getScreenSpacePosition(...), $this->camera->screen->getWidth(), $this->camera->screen->getHeight(),
+            $this->camera->getScreenSpacePosition($this->player->position), [...$this->player->getCuedEventMarkers(),
+                ...array_fill_keys(array_map(static fn($npc): string => FieldWaymarkTerminalPresenter::OBJECT_KEY
+                    . $npc->getGraphicalSpriteId(), $this->npcManager?->listCuedNpcs() ?? []), true)],
+            $this->fieldEffects->cueStyle);
+    }
 
     private function hasGraphicalFieldPresentation(): bool
     {
@@ -474,6 +700,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      * @var AbilityMenuState|null The ability menu state.
      */
     protected(set) ?AbilityMenuState $abilityMenuState = null;
+    /**
+     * @var MasteryMenuState|null The Mastery Map menu state.
+     */
+    protected(set) ?MasteryMenuState $masteryMenuState = null;
     /**
      * @var SummonsMenuState|null The summon-assignment menu state.
      */
@@ -528,6 +758,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      * @var Party|null The party.
      */
     protected(set) ?Party $party = null;
+    private ?object $recruitmentNoticeOwner = null;
     /**
      * @var GameState The persistent world state (switches, variables, story
      * events, one-shot event completion).
@@ -541,6 +772,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      * @var EncounterManager|null The random-encounter manager.
      */
     protected(set) ?EncounterManager $encounterManager = null;
+    /**
+     * @var FieldConditions|null The party's conditions acting while the player walks.
+     */
+    protected(set) ?FieldConditions $fieldConditions = null;
     /**
      * @var NpcManager|null The field NPC manager.
      */
@@ -561,6 +796,18 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     protected(set) bool $hasDeferredAutoSave = false;
     /** Whether the destination map still needs its automatic entry triggers evaluated. */
     protected bool $hasPendingAutomaticTriggerEvaluation = false;
+    /**
+     * Seconds an arrival waits for the renderer to show its map before the field goes on and the wait is
+     * reported. A slow upload stays well inside it; reaching it means the renderer is not showing the map.
+     */
+    public const float ARRIVAL_PRESENTATION_LIMIT_SECONDS = 30.0;
+    /** When the latest transfer's map began waiting to be shown by the renderer; null once it is on screen. */
+    private ?float $arrivalPresentationSince = null;
+    /**
+     * True while the renderer has not yet shown the map the player just arrived on. The field holds its
+     * time meanwhile: arrival events, story sessions and input wait, so nothing happens off screen.
+     */
+    public bool $isAwaitingArrivalPresentation { get => $this->arrivalPresentationSince !== null; }
     /** Prevent teardown callbacks from starting fresh field work. */
     public private(set) bool $isStopping = false;
     /**
@@ -577,6 +824,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     protected(set) Bestiary $bestiary;
     /** Generic player-earned field knowledge and reports. */
     protected(set) KnowledgeProgressService $knowledge;
+    /** The campaign's scheduled income; runs nothing when the project declares no schedules. */
+    protected(set) ?IncomeService $income = null;
     /**
      * @var string[] The currently recorded story-event flags.
      */
@@ -745,6 +994,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     /** Project state has been prepared and restored before any campaign consumer runs. */
     protected function configureCampaign(GameConfig $config): void
     {
+        $this->releaseRecruitmentNotices();
         $this->mapManager = MapManager::getInstance($this->getGame(), $this);
 
         $this->initializeGameSceneStates();
@@ -767,6 +1017,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
 
         $this->player = $this->createPlayer($this->config);
         $this->party = $this->config->party;
+        // Construction and hydration precede this campaign's real join lifecycle.
+        $this->beginRecruitmentNotices();
         $this->party->assertSummonAssignments((new SummonCutsceneLibrary())->load());
 
         // The quest manager must exist before the first map load so the
@@ -774,6 +1026,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->questManager = new QuestManager($this->getGame(), $this);
         $this->questManager->hydrate($this->config->questLog);
         $this->encounterManager = new EncounterManager($this);
+        $this->fieldConditions = new FieldConditions($this);
         $this->npcManager = new NpcManager($this);
         $this->cinematicStage = new CinematicStageManager($this);
         $this->cinematicController = new CinematicController($this);
@@ -787,6 +1040,14 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->skitManager = new SkitManager($this);
         $this->achievementManager = new AchievementManager($this->getGame(), $this);
         $this->achievementManager->hydrate($this->config->achievements);
+        $incomeCatalog = ConfigStore::has(IncomeCatalog::class) ? ConfigStore::get(IncomeCatalog::class) : null;
+        $this->income = new IncomeService(
+            $incomeCatalog instanceof IncomeCatalog ? $incomeCatalog : new IncomeCatalog(),
+            IncomeLedger::fromArray($this->config->income),
+            $this->gameState,
+            $this->party,
+            $this->showIncomeNotice(...),
+        );
         $catalog = ConfigStore::get(KnowledgeCatalog::class);
         $catalog = $catalog instanceof KnowledgeCatalog ? $catalog : KnowledgeCatalog::empty();
         $this->knowledge = new KnowledgeProgressService(
@@ -845,6 +1106,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->equipmentMenuState = new EquipmentMenuState($this->sceneStateContext);
         $this->itemMenuState = new ItemMenuState($this->sceneStateContext);
         $this->abilityMenuState = new AbilityMenuState($this->sceneStateContext);
+        $this->masteryMenuState = new MasteryMenuState($this->sceneStateContext);
         $this->summonsMenuState = new SummonsMenuState($this->sceneStateContext);
         $this->questMenuState = new QuestMenuState($this->sceneStateContext);
         $this->recordsMenuState = new RecordsMenuState($this->sceneStateContext);
@@ -984,6 +1246,27 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         }
     }
 
+    /**
+     * Runs work that belongs to no move in progress (what arriving at a cell
+     * sets off: an event, a cinematic, a transfer) at field walking time. A
+     * pace belongs to its own move; nothing it sets off inherits it, so a
+     * dashing step never hurries an actor that walks at field speed.
+     *
+     * @template T
+     * @param Closure(): T $work
+     * @return T
+     */
+    public function runAtFieldPace(Closure $work): mixed
+    {
+        $previous = $this->stepPace;
+        $this->stepPace = null;
+        try {
+            return $work();
+        } finally {
+            $this->stepPace = $previous;
+        }
+    }
+
     /** How long a step with this displacement takes to show: the current pace, or field walking time. */
     public function getStepSeconds(Vector2 $displacement): float
     {
@@ -1036,15 +1319,28 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             if ($this->isStopping || $this->sceneManager->currentScene !== $this) { return; }
         }
         $this->advanceFieldPresentation(max(0.0, Time::getDeltaTime()));
+        if ($this->awaitRecruitmentNotices()) { return; }
         parent::update();
         if ($this->isStopping || $this->sceneManager->currentScene !== $this || $this->sceneManager->hasSceneTransition()) {
             return;
+        }
+        if ($this->isAwaitingArrivalPresentation) {
+            if ($this->awaitArrivalPresentation()) { return; }
+            $this->evaluatePendingAutomaticTriggers();
+            if ($this->isStopping || $this->sceneManager->currentScene !== $this || $this->sceneManager->hasSceneTransition()) {
+                return;
+            }
         }
         $this->state->execute($this->sceneStateContext);
         if ($this->isStopping || $this->sceneManager->currentScene !== $this || $this->sceneManager->hasSceneTransition()) {
             return;
         }
+        $this->queueRecruitmentNotices();
         $this->mapManager?->refreshMapKnowledge();
+        if ($this->state instanceof FieldState) {
+            // Dialogue outcomes and moving subjects change waymarks without a step.
+            $this->refreshFieldWaymarks();
+        }
         $this->refreshFieldMusic();
     }
 
@@ -1062,8 +1358,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         // The action prompt lasts while the player can act, so it opens once per approach.
         $this->fieldEffects?->showActionPrompt(($this->player?->isActionPromptOverSprite ?? false)
             ? $this->player->getGraphicalSpriteId() : null);
+        $this->fieldEffects?->showWaymarks($this->hasGraphicalFieldPresentation() ? $this->getFieldWaymarks() : []);
+        $this->fieldEffects?->showNpcCues($this->hasGraphicalFieldPresentation() ? ($this->npcManager?->listCuedNpcs() ?? []) : []);
         $this->fieldEffects?->update($seconds, Accessibility::prefersReducedMotion(),
-            $this->getFieldObjectSpriteProviders(), $this->canPresentFieldGuidance());
+            $this->getFieldObjectSpriteProviders(), $this->canPresentFieldGuidance(), $this->player?->position);
     }
 
     /**
@@ -1131,8 +1429,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->cancelPendingSavedGameResume();
         $this->hasDeferredAutoSave = false;
         $this->hasPendingAutomaticTriggerEvaluation = false;
+        $this->arrivalPresentationSince = null;
         $failure = null;
         foreach ([
+            fn() => $this->releaseRecruitmentNotices(),
             fn() => $this->releaseLocationHUDWindow(),
             fn() => $this->cinematicController?->shutdown(),
             fn() => $this->eventInterpreter?->failActiveSession('Event interrupted by field shutdown.'),
@@ -1153,6 +1453,44 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
 
         if ($failure !== null) {
             throw $failure;
+        }
+    }
+
+    /** Hydrated members are already known when a campaign acquires this owner. */
+    private function beginRecruitmentNotices(): void
+    {
+        $this->party?->clearPendingJoins();
+        $this->recruitmentNoticeOwner = new \stdClass();
+    }
+
+    /** Every recruitment path converges on Party::addMember, before display. */
+    protected function queueRecruitmentNotices(): void
+    {
+        if ($this->recruitmentNoticeOwner === null || $this->party === null) { return; }
+        $modals = ModalManager::getInstance($this->getGame());
+        while (($member = $this->party->getPendingJoin()) !== null) {
+            $modals->queueNotice(new \Ichiloto\Engine\UI\Modal\NoticeContent(
+                '', MessageCatalog::getTerm('party.member_joined', $member->name),
+                actorId: $member instanceof \Ichiloto\Engine\Entities\Character ? $member->actorId : null,
+                sound: \Ichiloto\Engine\Audio\Enumerations\SystemSound::PARTY_JOIN), $this->recruitmentNoticeOwner);
+            $this->party->acknowledgeJoin($member);
+        }
+    }
+
+    /** Hold gameplay and following script commands until every owned join is acknowledged. */
+    public function awaitRecruitmentNotices(): bool
+    {
+        if ($this->recruitmentNoticeOwner === null) { return false; }
+        $this->queueRecruitmentNotices();
+        return ModalManager::getInstance($this->getGame())->hasPendingNotices($this->recruitmentNoticeOwner);
+    }
+
+    private function releaseRecruitmentNotices(): void
+    {
+        if ($this->recruitmentNoticeOwner !== null) {
+            ModalManager::getInstance($this->getGame())->cancelNotices($this->recruitmentNoticeOwner);
+            $this->party?->clearPendingJoins();
+            $this->recruitmentNoticeOwner = null;
         }
     }
 
@@ -1204,6 +1542,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             achievements: $this->achievementManager?->toArray() ?? [],
             bestiary: [],
             knowledge: isset($this->knowledge) ? $this->knowledge->progress->toArray() : [],
+            income: $this->income?->ledger->toArray() ?? [],
             projectState: $this->getGame()->getProjectStateRegistry()->captureSnapshot(),
         );
     }
@@ -1290,6 +1629,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         // The destination is already validated; its music resolves on commit.
         $this->currentMapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $location->mapFilename) ?: $location->mapFilename;
         $this->mapManager->applyPreparedMap($destination, $this->player);
+        // A graphical renderer shows the new map only once its world has streamed in.
+        $this->arrivalPresentationSince = Time::getTime();
 
         if ($transition !== null) {
             // The field is drawn behind the configured cover, then revealed.
@@ -1337,6 +1678,29 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->evaluatePendingAutomaticTriggers();
     }
 
+    /**
+     * Holds the field while the renderer has not shown the map the player arrived on. A world map streams
+     * to the renderer over many ticks; meanwhile the window still shows the map left behind, so an arrival
+     * cinematic, a continuing story session or a step would happen out of sight. A terminal, or a map the
+     * renderer draws as plain text, shows the arrival at once and never holds.
+     *
+     * @return bool Whether the field still holds this tick; once it does not, the arrival is shown.
+     */
+    protected function awaitArrivalPresentation(): bool
+    {
+        if ($this->arrivalPresentationSince === null) { return false; }
+        $runtime = $this->presentationContext === null && isset($this->sceneManager) ? $this->getGame()->getRendererRuntime() : null;
+        $world = $runtime !== null && $this->isGraphicalFieldPresented() ? $this->getPresentationWorld() : null;
+        if ($world !== null && $runtime->presentedWorld !== $world) {
+            $waited = Time::getTime() - $this->arrivalPresentationSince;
+            if ($waited < self::ARRIVAL_PRESENTATION_LIMIT_SECONDS) { return true; }
+            Debug::warn(sprintf('The renderer had not shown map "%s" %.1f seconds after the player arrived; the field goes on without it.',
+                $this->currentMapId, $waited));
+        }
+        $this->arrivalPresentationSince = null;
+        return false;
+    }
+
     /** Recheck the current map and position after the existing event owner releases control. */
     public function requestAutomaticTriggerEvaluation(): void
     {
@@ -1347,6 +1711,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     protected function evaluatePendingAutomaticTriggers(): void
     {
         if ($this->isStopping || ! $this->hasPendingAutomaticTriggerEvaluation || $this->hasUnstableEventSession()) {
+            return;
+        }
+        // Arrival events begin once the player can see where they arrived; the hold's release evaluates them.
+        if ($this->awaitArrivalPresentation()) {
             return;
         }
         if ($this->configuringSavedGame || $this->resumingSavedGame
@@ -1461,12 +1829,110 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     }
 
     /**
+     * Takes a finished battle back into the campaign: counts a won battle
+     * for income, then resumes the script that started it, if any.
+     */
+    public function concludeBattle(BattleResult $result): void
+    {
+        if ($result->outcome() === 'victory') {
+            $this->income?->recordBattleWon();
+        }
+        $this->resumeEventAfterBattle($result);
+    }
+
+    /**
+     * The player has stepped onto a save point: the project's save point
+     * script runs (`save.point_script`), or the Engine's save point notice
+     * shows when the project names none.
+     */
+    public function arriveAtSavePoint(): void
+    {
+        $script = SaveFeatures::getSavePointScript();
+        if ($script !== null) {
+            $this->eventInterpreter?->run([['type' => 'common_event', 'id' => $script]], 'save-point:' . $script);
+            return;
+        }
+        $prompt = MessageCatalog::resolveTerm('save.point_prompt', allowEmpty: true);
+        if ($prompt !== '') {
+            alert($prompt, get_engine_message('save.point_title'));
+        }
+    }
+
+    /** The campaign's income, for the income script commands. */
+    public function requireIncome(): IncomeService
+    {
+        return $this->income ?? throw new \RuntimeException('Income is unavailable before a campaign starts.');
+    }
+
+    /** @inheritDoc */
+    public function getPlayActivity(): PlayActivity
+    {
+        if (ModalManager::getInstance($this->getGame())->currentModal !== null) {
+            return PlayActivity::PAUSED;
+        }
+        return match (true) {
+            $this->state instanceof CutsceneState => PlayActivity::PRESENTING,
+            $this->state instanceof DialogueState, $this->state instanceof OverworldState => PlayActivity::PLAYING,
+            // A running event owns the field: the game is presenting, not waiting on the player.
+            $this->state instanceof FieldState => $this->hasUnstableEventSession() ? PlayActivity::PRESENTING : PlayActivity::PLAYING,
+            default => PlayActivity::PAUSED,
+        };
+    }
+
+    /**
+     * Counts one frame of the campaign's active play, whatever scene the
+     * frame belonged to. Scenes that cannot say what the player is doing
+     * count as paused.
+     *
+     * @param float $seconds The frame's length.
+     * @param SceneInterface|null $currentScene The scene that ran the frame.
+     */
+    public function advanceActivePlay(float $seconds, ?SceneInterface $currentScene): void
+    {
+        if ($this->income === null || !$this->income->isEnabled) {
+            return;
+        }
+        $activity = $currentScene instanceof PlayActivitySourceInterface ? $currentScene->getPlayActivity() : PlayActivity::PAUSED;
+        $this->income->advanceActivePlay($seconds, $activity, InputManager::getSecondsSinceInput());
+    }
+
+    private function showIncomeNotice(string $title, string $text): void
+    {
+        try {
+            notify($this->getGame(), NotificationChannel::INFO, $title, $text, NotificationDuration::MEDIUM);
+        } catch (Throwable $error) {
+            Debug::warn('An income notice could not be shown: ' . $error->getMessage());
+        }
+    }
+
+    /**
      * Cancels a scripted battle continuation when normal defeat goes to the
      * game-over scene.
      */
     public function failEventAfterBattle(string $message): void
     {
         $this->eventInterpreter?->failActiveSession($message);
+    }
+
+    /** Field scripts own the map, the player and the camera. */
+    public function getEventScope(): \Ichiloto\Engine\Events\Interpreter\EventExecutionScope
+    {
+        return \Ichiloto\Engine\Events\Interpreter\EventExecutionScope::FIELD;
+    }
+
+    public function getEventWorldState(): GameState
+    {
+        return $this->gameState;
+    }
+
+    public function getEventParty(): ?Party
+    {
+        return $this->party;
+    }
+
+    public function getBattleControl(): ?\Ichiloto\Engine\Battle\Events\BattleEventControlInterface
+    {
+        return null;
     }
 
     /**
@@ -1520,6 +1986,12 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             $this->hasDeferredAutoSave = false;
             $this->autoSave();
         }
+    }
+
+    /** Event dialogue closes over the field, so the field redraws. */
+    public function restoreAfterEventOverlay(): void
+    {
+        $this->restoreFieldAfterOverlay();
     }
 
     /**

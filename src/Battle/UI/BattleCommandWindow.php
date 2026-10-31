@@ -83,12 +83,13 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
 
     parent::__construct(
       'Command',
-      'i:Info',
+      '',
       $position,
       self::WIDTH,
       self::HEIGHT,
       $this->battleScreen->borderPack
     );
+    $this->setControlHints([BattleControlHints::getInfoHint()]);
   }
 
   /**
@@ -146,7 +147,7 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
 
     return new BattleHudListSnapshot(
       $this->title, $this->help, $rows, $this->activeCommandIndex, $this->scrollOffset,
-      $visibleRowCount, $this->totalCommands, $currentPage, $totalPages,
+      $visibleRowCount, $this->totalCommands, $currentPage, $totalPages, hints: $this->getControlHints(),
     );
   }
 

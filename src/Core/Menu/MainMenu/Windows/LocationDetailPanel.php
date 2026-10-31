@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core\Menu\MainMenu\Windows;
 
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Entities\PartyLocation;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -59,10 +60,9 @@ class LocationDetailPanel extends Window
    */
   public function setLocation(string $name, string $region): void
   {
-    $paddedName = sprintf("%{$this->contentWidth}s", $name);
-    $regionName = sprintf("%{$this->contentWidth}s", $region);
-
-    $this->setContent([$paddedName, $regionName]);
+    $location = new PartyLocation($name, $region);
+    $this->setContent(array_map(fn(string $line): string => sprintf("%{$this->contentWidth}s", $line),
+      $location->displayNames));
     $this->render();
   }
 }

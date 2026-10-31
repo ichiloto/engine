@@ -12,28 +12,89 @@ namespace Ichiloto\Engine\Rendering\Tilesets;
  */
 final class AutotileShape
 {
+  /** How an autotile connects to its neighbours: floors by sides and corners, walls by sides, waterfalls across. */
+  private const int FLOOR = 0;
+  private const int WALL = 1;
+  private const int WATERFALL = 2;
+  /** The kind of a cell without an autotile, which matches no autotile's kind. */
+  private const int NO_KIND = -1;
+
   /**
    * @param list<list<int>> $layer Tile identities by row and cell.
    * @return list<list<int>> The same layer with every autotile's shape resolved.
    */
   public static function resolveLayer(array $layer): array
   {
-    $resolved = $layer;
-    foreach ($layer as $y => $row) {
-      foreach ($row as $x => $id) {
-        if (!TileId::isAutotile($id)) {
+    return iterator_to_array(self::yieldRows($layer));
+  }
+
+  /**
+   * The same shapes as {@see resolveLayer()}, one row at a time: rows are
+   * read as they are needed, and only a row and the two beside it are held,
+   * so a world map's layer is never held whole to be shaped. Each row's
+   * kinds are read once as it arrives, so shaping a cell compares its
+   * neighbours' kinds directly.
+   *
+   * @param iterable<int, list<int>> $rows Tile identities by row and cell, rows in order from 0.
+   * @return \Generator<int, list<int>> Each row with every autotile's shape resolved, keyed by row.
+   */
+  public static function yieldRows(iterable $rows): \Generator
+  {
+    $window = $kinds = $kindOf = $connections = $floors = [];
+    $emit = static function (int $y) use (&$window, &$kinds, &$connections, &$floors): array {
+      $resolved = $window[$y];
+      $row = $kinds[$y];
+      $above = $kinds[$y - 1] ?? null;
+      $below = $kinds[$y + 1] ?? null;
+      foreach ($row as $x => $kind) {
+        if ($kind === self::NO_KIND) {
           continue;
         }
-        $kind = TileId::getKind($id);
-        $same = static fn(int $dx, int $dy): bool => self::isSameKind($layer, $x + $dx, $y + $dy, $kind);
-        $resolved[$y][$x] = TileId::getAutotileId($kind, match (true) {
-          TileId::isWaterfall($id) => self::getWaterfallShape($same),
-          TileId::isWall($id) => self::getWallShape($same),
-          default => self::getFloorShape($same),
-        });
+        $id = $window[$y][$x];
+        // Beyond the map edge counts as the same kind.
+        $w = ($row[$x - 1] ?? $kind) === $kind;
+        $e = ($row[$x + 1] ?? $kind) === $kind;
+        $connection = $connections[$id] ??= match (true) {
+          TileId::isWaterfall($id) => self::WATERFALL,
+          TileId::isWall($id) => self::WALL,
+          default => self::FLOOR,
+        };
+        if ($connection === self::WATERFALL) {
+          $resolved[$x] = TileId::getAutotileId($kind, (int)!$w | (int)!$e << 1);
+          continue;
+        }
+        $n = ($above[$x] ?? $kind) === $kind;
+        $s = ($below[$x] ?? $kind) === $kind;
+        if ($connection === self::WALL) {
+          $resolved[$x] = TileId::getAutotileId($kind, (int)!$w | (int)!$n << 1 | (int)!$e << 2 | (int)!$s << 3);
+          continue;
+        }
+        $ne = ($above[$x + 1] ?? $kind) !== $kind;
+        $se = ($below[$x + 1] ?? $kind) !== $kind;
+        $sw = ($below[$x - 1] ?? $kind) !== $kind;
+        $nw = ($above[$x - 1] ?? $kind) !== $kind;
+        // A floor's shape depends only on its eight neighbours, so each arrangement is chosen once.
+        $neighbours = (int)$n | (int)$e << 1 | (int)$s << 2 | (int)$w << 3 | (int)$ne << 4 | (int)$se << 5 | (int)$sw << 6 | (int)$nw << 7;
+        $resolved[$x] = TileId::getAutotileId($kind, $floors[$neighbours] ??= self::getFloorShape($n, $e, $s, $w, $ne, $se, $sw, $nw));
       }
+      return $resolved;
+    };
+    $last = null;
+    foreach ($rows as $y => $row) {
+      $window[$y] = $row;
+      $kinds[$y] = [];
+      foreach ($row as $x => $id) {
+        $kinds[$y][$x] = $kindOf[$id] ??= TileId::isAutotile($id) ? TileId::getKind($id) : self::NO_KIND;
+      }
+      if ($last !== null) {
+        yield $last => $emit($last);
+        unset($window[$last - 1], $kinds[$last - 1]);
+      }
+      $last = $y;
     }
-    return $resolved;
+    if ($last !== null) {
+      yield $last => $emit($last);
+    }
   }
 
   /**
@@ -47,11 +108,9 @@ final class AutotileShape
     return $neighbour === null || (TileId::isAutotile($neighbour) && TileId::getKind($neighbour) === $kind);
   }
 
-  /** @param callable(int, int): bool $same */
-  private static function getFloorShape(callable $same): int
+  /** A floor's shape from whether each side continues it and whether each corner breaks it. */
+  private static function getFloorShape(bool $n, bool $e, bool $s, bool $w, bool $ne, bool $se, bool $sw, bool $nw): int
   {
-    [$n, $e, $s, $w] = [$same(0, -1), $same(1, 0), $same(0, 1), $same(-1, 0)];
-    [$ne, $se, $sw, $nw] = [!$same(1, -1), !$same(1, 1), !$same(-1, 1), !$same(-1, -1)];
     return match (true) {
       $n && $e && $s && $w => (int)$nw | (int)$ne << 1 | (int)$se << 2 | (int)$sw << 3,
       !$w && $n && $e && $s => 16 + (int)$ne + ((int)$se << 1),
@@ -70,17 +129,5 @@ final class AutotileShape
       $w && !$n && !$e && !$s => 45,
       default => 46,
     };
-  }
-
-  /** @param callable(int, int): bool $same */
-  private static function getWallShape(callable $same): int
-  {
-    return (int)!$same(-1, 0) | (int)!$same(0, -1) << 1 | (int)!$same(1, 0) << 2 | (int)!$same(0, 1) << 3;
-  }
-
-  /** @param callable(int, int): bool $same */
-  private static function getWaterfallShape(callable $same): int
-  {
-    return (int)!$same(-1, 0) | (int)!$same(1, 0) << 1;
   }
 }

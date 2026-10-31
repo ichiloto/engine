@@ -118,12 +118,12 @@ it('composes unsaved world data projected sprites groups and viewport without ch
     ->and($frame->viewport->worldCanvasIds)->toBe(['ground-effect', 'sign'])
     ->and($frame->viewport->follow)->toBe($viewport->follow)
     ->and([$frame->viewport->worldOriginX, $frame->viewport->worldOriginY])->toBe([3, 2])
-    ->and($this->captures)->toBe([[['object', 'authoring-overlay'], ['map:terrain']]])
-    ->and(array_column($frame->snapshot->textLayers, 'id'))->toBe(['edge', 'sign', 'terminal-only', 'notice'])
+    ->and($this->captures)->toBe([[['edge', 'object', 'authoring-overlay'], ['map:terrain']]])
+    ->and(array_column($frame->snapshot->textLayers, 'id'))->toBe(['sign', 'terminal-only', 'notice'])
     ->and($this->source->viewportInputs)->toBe([[$frame->snapshot, [$sprites[1], $sprites[0]], []]])
     ->and($this->source->sprites)->toBe($sprites)->and($this->source->groups)->toBe($groups)
     ->and($this->source->viewport)->toBe($viewport)->and($viewport->worldCanvasIds)->toBe([])
-    ->and($this->layers->layers[0]->glyphs[4][7])->toBe('X');
+    ->and($this->layers->layers[0]->getGlyphAt(7, 4))->toBe('X');
 });
 
 it('uses current in-memory edits and removes deleted subjects rather than caching an authored map', function () {
@@ -165,7 +165,7 @@ it('keeps source overlays optional and notifications above them with the same Te
   $frame = $this->composer->composeFrame($this->source, $this->grid,
     fn($feature) => $overlay || $feature !== RendererSessionConfig::CANVAS_OVERLAY, $this->capture, $notices);
   expect($this->source->refreshes)->toBe($overlay ? 1 : 0)
-    ->and($this->captures[0][0])->toBe($overlay ? ['object', 'authoring-overlay', 'notice'] : ['object', 'notice'])
+    ->and($this->captures[0][0])->toBe($overlay ? ['edge', 'object', 'authoring-overlay', 'notice'] : ['edge', 'object', 'notice'])
     ->and(array_column($frame->screenOverlay->textLayers, 'id'))->toBe($overlay ? ['cover', 'notice'] : ['notice']);
   if ($overlay) {
     expect($frame->screenOverlay->textLayers[1]->layer)->toBeGreaterThan($frame->screenOverlay->textLayers[0]->layer);
@@ -205,20 +205,25 @@ it('passes detached retained text changes to the existing viewport contract with
   $changes = new ConsolePresentationChanges(8, 4, false);
   $frame = $this->composer->composeFrame($this->source, $this->grid, fn($feature) => true,
     function (array $excluded, array $worldLayers) use ($changes) {
-      expect($excluded)->toBe(['object', 'authoring-overlay'])->and($worldLayers)->toBe(['map:terrain']);
+      expect($excluded)->toBe(['edge', 'object', 'authoring-overlay'])->and($worldLayers)->toBe(['map:terrain']);
       return $changes;
     });
   expect($frame->snapshot)->toBe($changes)->and($this->source->viewportInputs[0][0])->toBe($changes);
 });
 
-it('retains off-grid sprites for clipping without excluding Terminal edge cells', function () {
+it('retains off-grid sprites for clipping and never shows their subjects terminal glyphs in their place', function () {
   $this->source->sprites = [new PresentationSprite('left', 'a.png', -1, 1, 48, 48),
     new PresentationSprite('top', 'a.png', 1, -1, 48, 48), new PresentationSprite('right', 'a.png', 8, 1, 48, 48),
     new PresentationSprite('bottom', 'a.png', 1, 4, 48, 48), new PresentationSprite('corner', 'a.png', 7, 3, 48, 48)];
   $this->source->viewport = null;
   $this->source->groups = [];
+  // A two-cell terminal glyph whose subject stands one cell past the left edge leaves its tail at column 0.
+  $this->text = [new PresentationTextLayer('left', 1, [new PresentationTextRun(1, 0, ')')]),
+    new PresentationTextLayer('terminal-only', 1, [new PresentationTextRun(1, 0, '#')])];
   $frame = $this->composer->composeFrame($this->source, $this->grid, fn($feature) => true, $this->capture);
-  expect($frame->sprites)->toHaveCount(5)->and($this->captures[0][0])->toBe(['corner', 'authoring-overlay']);
+  expect($frame->sprites)->toHaveCount(5)
+    ->and($this->captures[0][0])->toBe(['top', 'left', 'right', 'corner', 'bottom', 'authoring-overlay'])
+    ->and(array_column($frame->snapshot->textLayers, 'id'))->toBe(['terminal-only']);
 });
 
 it('rejects unsupported world canvas capabilities instead of dropping authored groups', function (string $missing) {

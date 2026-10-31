@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Quests;
 
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Localization\Vocabulary;
@@ -118,7 +119,10 @@ class QuestManager
   }
 
   /**
-   * Restores the quest log from persisted state.
+   * Restores the quest log from persisted state. An active quest whose
+   * objectives are all met completes, quietly, as it would have when the
+   * last one was met: a save can hold one when the content now asks less of
+   * the quest than when it was saved (an objective removed or lowered).
    *
    * @param array<string, mixed> $data The persisted log data.
    * @return void
@@ -127,6 +131,12 @@ class QuestManager
   {
     $this->log = QuestLog::fromArray($data);
     $this->refreshStatefulObjectives(quiet: true);
+
+    foreach ($this->activeQuests() as $quest) {
+      if ($this->isQuestSatisfied($quest)) {
+        $this->completeQuest($quest, quiet: true);
+      }
+    }
   }
 
   /**
@@ -287,6 +297,94 @@ class QuestManager
     }
 
     return $this->log->getProgress($quest->id)[$objectiveIndex] ?? 0;
+  }
+
+  /**
+   * Lists the waymarks the player should follow now: those of every active
+   * quest, in journal order, then those leading to where a quest that can
+   * start now starts, in authored order. Derived from the quest log and
+   * world state on each call, so it is correct straight after a load or a
+   * long break.
+   *
+   * @return list<ActiveQuestWaymark>
+   */
+  public function getActiveWaymarks(): array
+  {
+    $gameState = $this->gameScene->gameState;
+    $party = $this->gameScene->party;
+
+    return [
+      ...self::selectActiveWaymarks($this->activeQuests(), $this->log, $gameState, $party),
+      ...self::selectStartWaymarks($this->quests, $this->log, $gameState, $party),
+    ];
+  }
+
+  /**
+   * Selects the start waymarks of quests that can start now: not yet
+   * accepted, or finished, with every prerequisite holding. Each shows
+   * while its own conditions hold. Its objective index is -1, since it
+   * leads to the quest's start rather than one of its objectives.
+   *
+   * @param array<int|string, Quest> $quests Every quest, in authored order.
+   * @return list<ActiveQuestWaymark>
+   */
+  public static function selectStartWaymarks(array $quests, QuestLog $log, GameState $gameState, ?Party $party = null): array
+  {
+    $selected = [];
+
+    foreach ($quests as $quest) {
+      if ($quest->startWaymarks === [] || $log->isActive($quest->id) || $log->isCompleted($quest->id)
+        || ! WorldConditionEvaluator::allHold($quest->prerequisites, $gameState, $party, $log)) {
+        continue;
+      }
+
+      // Spoiler-safe: the quest is not in the journal yet, so its name and objectives stay unsaid.
+      $label = get_engine_message($quest->isOptional ? 'quest.side_quest_waymark' : 'quest.story_waymark');
+
+      foreach ($quest->startWaymarks as $waymarkIndex => $waymark) {
+        if ($waymark->holds($gameState, $party, $log)) {
+          $selected[] = new ActiveQuestWaymark($quest->id, -1, $waymarkIndex, $waymark, $label, $quest->isOptional);
+        }
+      }
+    }
+
+    return $selected;
+  }
+
+  /**
+   * Selects the waymarks of incomplete objectives whose own conditions hold.
+   *
+   * @param array<int, Quest> $quests The active quests, in journal order.
+   * @return list<ActiveQuestWaymark>
+   */
+  public static function selectActiveWaymarks(array $quests, QuestLog $log, GameState $gameState, ?Party $party = null): array
+  {
+    $selected = [];
+
+    foreach ($quests as $quest) {
+      if (! $log->isActive($quest->id)) {
+        continue;
+      }
+
+      $progress = $log->getProgress($quest->id);
+
+      foreach ($quest->objectives as $objectiveIndex => $objective) {
+        if (($progress[$objectiveIndex] ?? 0) >= $objective->quantity || $objective->waymarks === []) {
+          continue;
+        }
+
+        $label = $objective->displayDescription($gameState, $party);
+
+        foreach ($objective->waymarks as $waymarkIndex => $waymark) {
+          if ($waymark->holds($gameState, $party, $log)) {
+            $selected[] = new ActiveQuestWaymark($quest->id, $objectiveIndex, $waymarkIndex, $waymark, $label,
+              $quest->isOptional);
+          }
+        }
+      }
+    }
+
+    return $selected;
   }
 
   /** Resolves one objective's current spoiler-safe journal text. */
@@ -454,11 +552,11 @@ class QuestManager
       $party->credit($gold);
     }
 
-    if (($experience = intval($quest->rewards['experience'] ?? 0)) > 0) {
-      $progressionResults = ExperienceAwarder::awardParty($party, $experience);
-    } else {
-      $progressionResults = [];
-    }
+    $experience = max(0, intval($quest->rewards['experience'] ?? 0));
+    $skillPoints = max(0, intval($quest->rewards['skillPoints'] ?? 0));
+    $progressionResults = $experience > 0 || $skillPoints > 0
+      ? ExperienceAwarder::awardParty($party, $experience, $skillPoints)
+      : [];
 
     $itemReferences = array_values(array_filter(
       (array) ($quest->rewards['items'] ?? []),
@@ -489,7 +587,7 @@ class QuestManager
       }
 
       $line = get_engine_message('quest.level_gained', $result->character->name,
-        Vocabulary::getTerm('stats.level', 'level'), $result->newLevel);
+        Vocabulary::getTerm('stats.level'), $result->newLevel);
       $learned = $result->learnedSkills();
 
       if ($learned !== []) {

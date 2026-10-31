@@ -234,7 +234,7 @@ it('retires a completed command after a failed final frame without replaying com
 })->with([false, true]);
 
 
-it('removes the action callout after its announcement phase while ordinary and summon actions continue', function (bool $graphical, bool $summon) {
+it('ends ordinary callouts before source animation and overlaps summon callouts until their visibility expires', function (bool $graphical, bool $summon) {
   [, $original] = createTargetExecutionFixture(false, $graphical, $this->createStub(AudioManager::class));
   $screen = new CommandCleanupScreen($graphical);
   $screen->announcement = null;
@@ -247,7 +247,8 @@ it('removes the action callout after its announcement phase while ordinary and s
     function () use (&$resolved): void { $resolved++; }, static fn() => [], static fn() => null);
   $runner->begin();
   $runner->update(.2);
-  expect($screen->announcement)->toBe('Action name')->and($resolved)->toBe(0);
+  expect($screen->announcement)->toBe('Action name')->and($resolved)->toBe(0)
+    ->and($runner->playback->phase)->toBe($summon ? 'source' : 'announce');
   $runner->update(.42);
   expect($runner->playback->phase)->toBe('source')->and($screen->announcement)->toBeNull()
     ->and($runner->playback->isCompleted)->toBeFalse()->and($resolved)->toBe(0);
@@ -257,3 +258,25 @@ it('removes the action callout after its announcement phase while ordinary and s
   expect($runner->playback->isCompleted)->toBeTrue()->and($resolved)->toBe(1);
   $runner->dispose();
 })->with([false, true])->with([false, true]);
+
+
+it('lets an authored summon message replace the callout without the callout timer clearing its replacement', function () {
+  [, $original] = createTargetExecutionFixture(false, false, $this->createStub(AudioManager::class));
+  $screen = new CommandCleanupScreen(false);
+  $context = new TurnStateExecutionContext($original->game, $original->party, $original->troop, $screen, []);
+  $target = new \Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene('visitor', '', fps: 10,
+    cueSchedule: [['id' => 'caption', 'type' => 'showMessage', 'frame' => 1, 'payload' => ['text' => 'Authored caption']]],
+    defaults: ['lengthFrames' => 50]);
+  $runner = new BattleCommandRunner($context, $context->partyRoster->battlers[0], [], null, 'Action name',
+    new BattleTurnTimings(.1, .5, .1, .1, .1, .1, .1), null, $target,
+    static fn() => null, static fn() => [], static function ($cue) use ($screen): void {
+      if ($cue['type'] === 'showMessage') { $screen->showMessage($cue['payload']['text']); }
+    });
+  $runner->begin();
+  $runner->update(.35);
+  expect($screen->announcement)->toBe('Authored caption');
+  $runner->update(.5);
+  expect($screen->announcement)->toBe('Authored caption');
+  $runner->dispose();
+  expect($screen->announcement)->toBeNull();
+});

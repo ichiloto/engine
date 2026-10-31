@@ -3,12 +3,17 @@
 namespace Ichiloto\Engine\Entities;
 
 use Exception;
+use Ichiloto\Engine\Entities\Effects\AddStateEffect;
 use Ichiloto\Engine\Battle\BattleCommand;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Battle\BattleCommandLoadout;
 use Ichiloto\Engine\Battle\CounterAttackProvider;
 use Ichiloto\Engine\Battle\CounterAttackRule;
+use Ichiloto\Engine\Battle\CrisisAbility;
+use Ichiloto\Engine\Battle\CrisisAbilityCatalog;
 use Ichiloto\Engine\Battle\HasCounterAttacks;
+use Ichiloto\Engine\Battle\InherentAttack;
+use Ichiloto\Engine\Battle\InherentAttacker;
 use Ichiloto\Engine\Battle\Resolution\ElementalAffinityResolver;
 use Ichiloto\Engine\Entities\Abilities\AbilityBook;
 use Ichiloto\Engine\Entities\Enumerations\WeaponType;
@@ -33,11 +38,13 @@ use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationScore;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Skills\BasicSkill;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
+use Ichiloto\Engine\Entities\Skills\SkillTargetPolicy;
 use Ichiloto\Engine\Entities\Magic\Spellbook;
 use Ichiloto\Engine\Entities\Roles\CharacterRole;
 use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\Entities\Stats\EntityStatCapPolicy;
 use Ichiloto\Engine\Entities\Stats\PermanentGrowthLedger;
+use Ichiloto\Engine\Progression\Mastery\MasteryProgress;
 use Ichiloto\Engine\Entities\Stats\PermanentStatModifier;
 use Ichiloto\Engine\Entities\Stats\StatKey;
 use Ichiloto\Engine\Entities\Stats\StatResolution;
@@ -51,13 +58,14 @@ use Ichiloto\Engine\Exceptions\PersistentStateRestoreException;
 use Ichiloto\Engine\Exceptions\SummonAssignmentException;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveHydrationContext;
 use InvalidArgumentException;
+use LogicException;
 
 /**
  * The Character class.
  *
  * @package Ichiloto\Engine\Entities
  */
-class Character implements CharacterInterface, CanEquip, CounterAttackProvider
+class Character implements CharacterInterface, CanEquip, CounterAttackProvider, InherentAttacker
 {
   use HasStates {
     getElementMultiplier as private getBaseElementMultiplier;
@@ -68,6 +76,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
   public function __clone(): void
   {
     $this->stats = clone $this->stats;
+    $this->mastery = clone $this->mastery;
     $this->cloneStateInstances();
   }
 
@@ -85,6 +94,16 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
     get {
       return ! $this->isConscious;
     }
+  }
+
+  /** @inheritDoc */
+  public bool $isFighting {
+    get => ! $this->isKnockedOut;
+  }
+
+  /** @inheritDoc Party members have no authored knockout floor. */
+  public int $knockoutFloor {
+    get => 0;
   }
 
   /**
@@ -206,6 +225,8 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
   protected(set) ?WeaponType $attackStyle = null;
   /** Project-owned inherent attack; catalogue membership alone never grants an action. */
   protected(set) ?BasicSkill $attackSkill = null;
+  /** Project-owned crisis rules; availability is derived from live resources and states. */
+  protected(set) ?CrisisAbility $crisisAbility = null;
   /**
    * @var string[] The ids of the summons assigned to this character.
    */
@@ -266,6 +287,8 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
   protected(set) array $actorNaturalAdjustments = [];
   /** Saved acquired permanent growth; never contains equipment or temporary effects. */
   protected(set) PermanentGrowthLedger $permanentGrowth;
+  /** What this character has done on their Mastery Map; the map itself is the project's data. */
+  public MasteryProgress $mastery;
   /** Optional stable identity of a project-defined runtime-selectable natural variant. */
   protected(set) ?string $naturalVariantId = null;
   /** Stable project actor identity; distinct from the mutable display name. */
@@ -324,21 +347,21 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
     ?WeaponType $attackStyle = null,
     ?BasicSkill $attackSkill = null,
     ?CounterAttackRule $counterAttack = null,
+    ?CrisisAbility $crisisAbility = null,
   )
   {
     $this->maxLevel = $maxLevel;
     $this->currentExp = $currentExp;
     $this->equipment = $equipment;
     $this->attackStyle = $attackStyle;
-    if ($attackSkill !== null && !in_array($attackSkill->occasion, [Occasion::ALWAYS, Occasion::BATTLE_SCREEN], true)) {
-      throw new InvalidArgumentException('The actor attackSkill must be usable in battle.');
-    }
-    $this->attackSkill = $attackSkill;
+    $this->attackSkill = InherentAttack::requireBattleUsable($attackSkill, 'actor');
     $this->counterAttack = $counterAttack;
+    $this->crisisAbility = $crisisAbility;
     $this->abilityBook = $abilityBook ?? new AbilityBook();
     $this->spellbook = $spellbook ?? new Spellbook();
     $this->actorNaturalAdjustments = self::normalizeNaturalAdjustments($actorNaturalAdjustments);
     $this->permanentGrowth = $permanentGrowth ?? new PermanentGrowthLedger();
+    $this->mastery = new MasteryProgress();
     $this->naturalVariantId = ($naturalVariantId !== null && trim($naturalVariantId) !== '')
       ? trim($naturalVariantId)
       : null;
@@ -420,6 +443,8 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
       ($data['attackStyle'] ?? null) === null ? null : WeaponType::require($data['attackStyle']),
       self::resolveAttackSkill($data['attackSkill'] ?? null),
       CounterAttackRule::fromArray($data['counterAttack'] ?? null),
+      ($crisisReference = CrisisAbilityCatalog::requireReference($data['crisisAbility'] ?? null)) === null
+        ? null : CrisisAbilityCatalog::fromProject()->getAbility($crisisReference),
     );
 
     // Actors reference a class by name (`'class' => 'Vanguard'`); the role
@@ -525,22 +550,37 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
    */
   public function assignEquipment(string $slotName, ?Equipment $equipment): bool
   {
-    foreach ($this->equipment as $slot) {
-      if ($slot->name !== $slotName) {
-        continue;
-      }
-      if ($equipment !== null && (! $this->canEquip($equipment) || $slot->acceptsType !== $equipment::class
-        || $slot->semanticSlot !== $equipment->semanticSlot)) {
-        return false;
-      }
+    $slot = $this->findAssignableEquipmentSlot($slotName, $equipment);
+    if ($slot === null) { return false; }
+    $slot->equipment = $equipment;
+    $this->adjustStatTotals();
+    return true;
+  }
 
-      $slot->equipment = $equipment;
-      $this->adjustStatTotals();
-
-      return true;
+  /** A read-only replacement preview through the same eligibility, growth and cap rules as assignment. */
+  public function previewEquipmentStats(string $slotName, ?Equipment $equipment): ?Stats
+  {
+    $slot = $this->findAssignableEquipmentSlot($slotName, $equipment);
+    if ($slot === null) { return null; }
+    $resolved = $this->resolveStatsWithEquipment($this->equipmentContributions($slot, $equipment));
+    $preview = clone $this->effectiveStats;
+    foreach (StatKey::cases() as $stat) {
+      $property = $stat->statsProperty();
+      $preview->$property = $resolved[$stat->value]->effectiveValue;
     }
+    $preview->currentHp = $preview->currentHp;
+    $preview->currentMp = $preview->currentMp;
+    return $preview;
+  }
 
-    return false;
+  private function findAssignableEquipmentSlot(string $slotName, ?Equipment $equipment): ?EquipmentSlot
+  {
+    foreach ($this->equipment as $slot) {
+      if ($slot->name !== $slotName) { continue; }
+      return $equipment !== null && (!$this->canEquip($equipment) || $slot->acceptsType !== $equipment::class
+        || $slot->semanticSlot !== $equipment->semanticSlot) ? null : $slot;
+    }
+    return null;
   }
 
   /**
@@ -654,6 +694,9 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
   }
 
   /**
+   * Uses an item on this character from the field menu, telling the player
+   * what happened.
+   *
    * @param InventoryItem $item
    * @param int $quantity
    * @inheritDoc
@@ -661,25 +704,100 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
    */
   public function use(InventoryItem $item, int $quantity = 1): void
   {
-    if (! $this->canUseItem($item) ) {
-      alert(sprintf('%s cannot be used.', $item->name));
+    $refusal = $this->getItemUseRefusal($item);
+
+    if ($refusal !== null) {
+      alert($refusal);
       return;
     }
 
     assert($item instanceof Item);
-    for ($uses = 0; $uses < $quantity; $uses++) {
-      if ($item->quantity < 1) {
-        alert(sprintf('%s is out of stock.', $item->name));
-        return;
-      }
+    $this->applyItem($item, $quantity);
+    alert(get_engine_message('item.used', $item->name, $this->name));
+  }
 
+  /**
+   * Explains why an item cannot be used on this character from the field
+   * menu now: equipment is never used, the item's occasion must allow the
+   * menu, this character must have the life status the item reaches, and the
+   * item must change something (a Potion at full HP or an Antidote on a
+   * healthy character would only be wasted).
+   *
+   * @param InventoryItem $item The item.
+   * @return string|null Why it cannot be used, or null when it can.
+   */
+  public function getItemUseRefusal(InventoryItem $item): ?string
+  {
+    if (! $item instanceof Item || ! $this->canUseItem($item)) {
+      return get_engine_message('item.cannot_use', $item->name);
+    }
+
+    if ($item->quantity < 1) {
+      return get_engine_message('item.out_of_stock', $item->name);
+    }
+
+    if (! in_array($item->occasion, [Occasion::ALWAYS, Occasion::MENU_SCREEN], true)) {
+      return get_engine_message('item.wrong_occasion', $item->name);
+    }
+
+    if (! SkillTargetPolicy::matchesStatus($this, $item->targetStatus) || ! $this->wouldItemChange($item)) {
+      return get_engine_message('item.no_effect', $item->name, $this->name);
+    }
+
+    return null;
+  }
+
+  /**
+   * Applies up to the given quantity of an item to this character, one unit
+   * at a time, consuming only the units that change something.
+   *
+   * @param Item $item The item.
+   * @param int $quantity The most units to use.
+   * @return int The units used.
+   */
+  public function applyItem(Item $item, int $quantity = 1): int
+  {
+    $used = 0;
+
+    while ($used < $quantity && $this->getItemUseRefusal($item) === null) {
       foreach ($item->effects as $effect) {
         $effect->apply($this);
       }
 
       $item->quantity--;
+      $used++;
     }
-    alert(sprintf("Used %s on %s", $item->name, $this->name));
+
+    return $used;
+  }
+
+  /**
+   * Determines whether an item's effects would change this character, by
+   * applying them to a copy; nothing here changes.
+   *
+   * @param Item $item The item.
+   * @return bool True when HP, MP, stats or states would change.
+   */
+  private function wouldItemChange(Item $item): bool
+  {
+    $probe = clone $this;
+    $before = $probe->captureItemTargetCondition();
+
+    foreach ($item->effects as $effect) {
+      if ($effect instanceof AddStateEffect) { $effect->applyForPreview($probe); }
+      else { $effect->apply($probe); }
+    }
+
+    return $probe->captureItemTargetCondition() !== $before;
+  }
+
+  /** Captures the values an item can change, detached from the live objects. */
+  private function captureItemTargetCondition(): string
+  {
+    return serialize([
+      $this->stats->jsonSerialize(),
+      array_map(static fn(StateInstance $instance): array => [$instance->state->id, $instance->remainingTurns], $this->states),
+    ]);
   }
 
   /**
@@ -832,7 +950,12 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
   /** @param array<string, int> $temporary @return array<string, StatResolution> */
   public function resolveStats(bool $includeEquipment = true, array $temporary = []): array
   {
-    $equipment = $includeEquipment ? $this->equipmentContributions() : [];
+    return $this->resolveStatsWithEquipment($includeEquipment ? $this->equipmentContributions() : [], $temporary);
+  }
+
+  /** @param array<string, int> $equipment @param array<string, int> $temporary @return array<string, StatResolution> */
+  private function resolveStatsWithEquipment(array $equipment, array $temporary = []): array
+  {
     $resolved = [];
 
     foreach (StatKey::cases() as $stat) {
@@ -895,7 +1018,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
   }
 
   /** @return array<string, int> */
-  private function equipmentContributions(): array
+  private function equipmentContributions(?EquipmentSlot $replacementSlot = null, ?Equipment $replacement = null): array
   {
     $totals = array_fill_keys(array_map(
       static fn(StatKey $stat): string => $stat->value,
@@ -903,7 +1026,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
     ), 0);
 
     foreach ($this->equipment as $slot) {
-      $changes = $slot->equipment?->parameterChanges;
+      $changes = ($slot === $replacementSlot ? $replacement : $slot->equipment)?->parameterChanges;
 
       if ($changes === null) {
         continue;
@@ -1097,6 +1220,23 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
   }
 
   /**
+   * Replaces the raw save array retained during compatibility processing, so
+   * a project content migration can convert it before the character is
+   * hydrated from it.
+   *
+   * @param array<string, mixed> $data The converted save array.
+   * @throws LogicException When the character is not awaiting save hydration.
+   */
+  public function replaceDeferredSaveData(array $data): void
+  {
+    if ($this->deferredSaveData === null) {
+      throw new LogicException(sprintf('%s is not awaiting save hydration; only a loading save can be converted.', $this->name));
+    }
+
+    $this->deferredSaveData = $data;
+  }
+
+  /**
    * Completes Character hydration after content compatibility has been
    * applied to the raw save array.
    *
@@ -1162,6 +1302,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
     $this->permanentGrowth = PermanentGrowthLedger::fromArray(
       is_array($data['permanentGrowth'] ?? null) ? $data['permanentGrowth'] : []
     );
+    $this->mastery = MasteryProgress::fromArray(is_array($data['mastery'] ?? null) ? $data['mastery'] : []);
     $this->summons = self::normalizeSummonAssignments($data['summons'] ?? []);
 
     $savedRole = $data['role'] ?? $data['class'] ?? null;
@@ -1221,7 +1362,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
     $roleName = null;
 
     foreach ($data as $key => $value) {
-      if (in_array($key, ['states', 'battleCommandLoadout', 'attackStyle', 'attackSkill', 'counterAttack'], true)) {
+      if (in_array($key, ['states', 'battleCommandLoadout', 'attackStyle', 'attackSkill', 'counterAttack', 'crisisAbility'], true)) {
         continue;
       }
 
@@ -1241,6 +1382,11 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
         $this->spellbook = is_array($value)
           ? Spellbook::fromArray($value)
           : ($value instanceof Spellbook ? $value : new Spellbook());
+        continue;
+      }
+
+      if ($key === 'mastery') {
+        $this->mastery = is_array($value) ? MasteryProgress::fromArray($value) : new MasteryProgress();
         continue;
       }
 
@@ -1353,17 +1499,9 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
 
   private static function resolveAttackSkill(mixed $reference): ?BasicSkill
   {
-    if ($reference === null) {
-      return null;
-    }
-    if (!is_string($reference) || trim($reference) === '') {
-      throw new InvalidArgumentException('The actor attackSkill must be a non-empty skill reference.');
-    }
-    $skill = SkillCatalog::getProjectCatalog()->findSkill($reference);
-    if (!$skill instanceof BasicSkill) {
-      throw new InvalidArgumentException(sprintf('The actor attackSkill "%s" must reference a catalogued BasicSkill.', $reference));
-    }
-    return $skill;
+    return $reference === null
+      ? null
+      : InherentAttack::resolveSkill($reference, SkillCatalog::getProjectCatalog(), 'actor');
   }
 
   /**
@@ -1390,6 +1528,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
         static fn(StateInstance $instance): array => [
           'id' => $instance->state->id,
           'remainingTurns' => $instance->remainingTurns,
+          ...($instance->fieldSteps > 0 ? ['fieldSteps' => $instance->fieldSteps] : []),
         ],
         array_values(array_filter(
           $this->states,
@@ -1397,6 +1536,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
         ))
       ),
       'permanentGrowth' => $this->permanentGrowth->jsonSerialize(),
+      'mastery' => $this->mastery->jsonSerialize(),
       ...($this->naturalVariantId !== null ? ['naturalVariantId' => $this->naturalVariantId] : []),
     ];
   }
@@ -1458,7 +1598,18 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
         ));
       }
 
-      $this->states[] = new StateInstance($state, $remainingTurns);
+      $fieldSteps = $entry['fieldSteps'] ?? 0;
+
+      if (! is_int($fieldSteps) || $fieldSteps < 0) {
+        throw new PersistentStateRestoreException(sprintf(
+          'Persistent state "%s" has an invalid fieldSteps value.',
+          $stateId
+        ));
+      }
+
+      // A state re-authored with fewer steps acts on the next step, never skips a turn.
+      $limit = $state->fieldTickSteps === null ? 0 : $state->fieldTickSteps - 1;
+      $this->states[] = new StateInstance($state, $remainingTurns, min($fieldSteps, $limit));
     }
   }
 
@@ -1503,5 +1654,18 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
   {
     $this->stats->currentHp = $this->stats->totalHp;
     $this->stats->currentMp = $this->stats->totalMp;
+  }
+
+  /**
+   * Recovers the character as a rest does (an inn stay or a full party
+   * recovery): HP and MP are restored and the states authored as cured by
+   * rest are removed. AP and other states are unchanged.
+   *
+   * @return void
+   */
+  public function recoverFromRest(): void
+  {
+    $this->restoreVitals();
+    $this->removeRestCurableStates();
   }
 }

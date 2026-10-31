@@ -27,6 +27,11 @@ final class KeyHoldState
   /** Presses at or before the last reset cannot survive in a consumer's pending intent. */
   private int $resetThrough = 0;
 
+  /** Whether any control is physically held now. */
+  public bool $isAnyKeyHeld {
+    get => $this->held !== [];
+  }
+
   /** Start a new input update: previous press edges are no longer edges. */
   public function beginUpdate(): void
   {

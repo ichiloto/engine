@@ -9,7 +9,8 @@ use Ichiloto\Engine\Battle\Presentation\BattleScale;
 use Ichiloto\Engine\Battle\Presentation\BattlerArtwork;
 use Ichiloto\Engine\Battle\Presentation\BattlerPose;
 use Ichiloto\Engine\Battle\Presentation\BattlerScale;
-use Ichiloto\Engine\Battle\Presentation\BattlerSlot;
+use Ichiloto\Engine\Battle\Presentation\BattleGround;
+use Ichiloto\Engine\Battle\Presentation\BattleStageSlot;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattlePresentation;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
@@ -27,6 +28,12 @@ use Ichiloto\Engine\Util\Debug;
 
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
+/** A synthetic place standing at a canvas height on this file's ground, which reaches the canvas's bottom edge. */
+function formationSlot(float $x, float $y, float $width, float $height, float $displayScale = 1.0): BattleStageSlot
+{
+  return getStageSlot($x, $y, $width, $height, $displayScale, groundBottom: 720);
+}
+
 beforeEach(function () {
   $this->statics = [];
   foreach ([Debug::class, ConfigStore::class] as $class) {
@@ -38,9 +45,10 @@ beforeEach(function () {
   foreach (['arena' => [240, 120], 'hero' => [100, 200], 'idle' => [200, 200], 'enemy' => [160, 100]] as $id => $size) {
     \Tests\Support\Rendering\writeTestPng($this->root . '/' . $id . '.png', ...$size);
   }
-  $this->slot = new BattlerSlot(300, 350, 200, 230);
-  $this->layout = new BattleCanvasLayout(1350, 720,
-    partySlots: [new BattlerSlot(1000, 300, 200, 230), new BattlerSlot(1150, 500, 200, 230)]);
+  $this->slot = formationSlot(300, 350, 200, 230);
+  // Ground to the canvas's bottom edge, so synthetic places keep their canvas heights anywhere on it.
+  $this->layout = new BattleCanvasLayout(1350, 720, ground: new BattleGround(bottom: 720),
+    partySlots: [formationSlot(1000, 300, 200, 230), formationSlot(1150, 500, 200, 230)]);
   $this->arena = new BattleArenaDefinition('A synthetic scene',
     new CanvasImage('arena', 'arena.png', new CanvasRectangle(0, 0, 1350, 720)));
   $this->art = new BattlerArtwork('hero.png', 100, 200, 50, 190);
@@ -91,7 +99,7 @@ it('shares idle placement with battles without constructing a battle for the pre
 })->with([false, true]);
 
 it('keeps repeated enemy identities distinct and exposes calibrated body axes independently of slot limits', function () {
-  $second = new BattlerSlot(500, 450, 50, 60);
+  $second = formationSlot(500, 450, 50, 60);
   $preview = BattleFormationLayout::compose($this->catalog, null,
     [['enemyId' => 'Creature', 'slot' => $this->slot], ['enemyId' => 'Creature', 'slot' => $second]], ['Hero'], $this->root);
   expect($preview->enemies)->toHaveCount(2)
@@ -104,21 +112,21 @@ it('keeps repeated enemy identities distinct and exposes calibrated body axes in
 it('names overlapping preview members without renumbering slots whose optional artwork is missing', function () {
   if (!function_exists('imagecreatefrompng')) { $this->markTestSkipped('Optional visible-pixel diagnostics require GD.'); }
   $preview = BattleFormationLayout::compose($this->catalog, null, [
-    ['enemyId' => 'Missing', 'slot' => new BattlerSlot(100, 100, 200, 230)],
+    ['enemyId' => 'Missing', 'slot' => formationSlot(100, 100, 200, 230)],
     ['enemyId' => 'Creature', 'slot' => $this->slot],
     ['enemyId' => 'Creature', 'slot' => $this->slot],
   ], ['Hero'], $this->root);
   $before = serialize($preview);
   $issues = $preview->getClearanceDiagnostics($this->root);
-  expect($issues['enemies'][1])->toBe(['Visible artwork overlaps battler Creature (enemy member 3).'])
-    ->and($issues['enemies'][2])->toBe(['Visible artwork overlaps battler Creature (enemy member 2).'])
+  expect($issues['enemies'][1])->toBe(['Stands on the same ground as battler Creature (enemy member 3).'])
+    ->and($issues['enemies'][2])->toBe(['Stands on the same ground as battler Creature (enemy member 2).'])
     ->and($issues['enemies'][0])->not->toBeEmpty()->and(serialize($preview))->toBe($before);
 });
 
 it('logs formation conflicts with live display names and distinct member ordinals rather than image ids', function () {
   if (!function_exists('imagecreatefrompng')) { $this->markTestSkipped('Optional visible-pixel diagnostics require GD.'); }
   $layout = new BattleCanvasLayout(1350, 720, partySlots: $this->layout->partySlots,
-    battlerArea: new CanvasRectangle(0, 0, 1350, 720));
+    battlerArea: new CanvasRectangle(0, 0, 1350, 720), ground: $this->layout->ground);
   $catalog = new BattlePresentationCatalog(['scene' => $this->arena], ['Hero' => $this->art],
     ['Creature' => $this->enemyArt], ui: $layout, actorPoses: ['Hero' => $this->poses],
     defaultArena: 'scene', scale: $this->scale);
@@ -134,14 +142,15 @@ it('logs formation conflicts with live display names and distinct member ordinal
     }
     $enemies[] = $enemy;
   }
-  $overlap = new BattlerSlot(1000, 300, 200, 230);
+  // On the party of one's own ground: the formation's front slot.
+  $overlap = formationSlot(1150, 500, 200, 230);
   $battle = new BattleConfig($party, new Troop('Synthetic', $enemies, graphicalFormation: [$overlap, $overlap]));
   $before = serialize($battle);
   GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
   $warnings = file_get_contents($this->root . '/logs/warning.log');
   expect($warnings)->toContain('Battle formation Display hero (party slot 1)',
     'Battle formation Creature (enemy member 1)', 'Battle formation Creature (enemy member 2)',
-    'overlaps battler Display hero (party slot 1)', 'overlaps battler Creature (enemy member 2)')
+    'same ground as battler Display hero (party slot 1)', 'same ground as battler Creature (enemy member 2)')
     ->not->toContain('combatant-')->and(serialize($battle))->toBe($before);
 });
 
@@ -161,9 +170,9 @@ it('shares slot-owned depth across runtime, previews and every role regardless o
     $set = new BattlePoseSet($roles);
     $ids = ['Hero', 'Second', 'Third'];
     $sets = array_fill_keys($ids, $set);
-    $layout = new BattleCanvasLayout(1350, 720, partySlots: [
-      new BattlerSlot(900, 300, 200, 230), new BattlerSlot(1100, 450, 200, 230),
-      new BattlerSlot(900, 550, 200, 230, displayScale: 1.05),
+    $layout = new BattleCanvasLayout(1350, 720, ground: new BattleGround(bottom: 720), partySlots: [
+      formationSlot(900, 300, 200, 230), formationSlot(1100, 450, 200, 230),
+      formationSlot(900, 550, 200, 230, displayScale: 1.05),
     ]);
     $scale = $scaled ? new BattleScale('Hero', 150, array_fill_keys($ids, new BattlerScale(1, .75))) : null;
     if ($poseOnly) { unlink($this->root . '/hero.png'); }
@@ -177,7 +186,7 @@ it('shares slot-owned depth across runtime, previews and every role regardless o
       $preview = BattleFormationLayout::compose($catalog, null, [], $order, $this->root, reducedMotion: $reduced);
       $before = serialize($battle);
       foreach ($party->members as $index => $actor) {
-        $slot = $layout->partySlots[$index];
+        $slot = $presentation->getSlot($actor);
         expect($preview->party[$index]->ground)->toEqual(new Vector2($slot->x, $slot->y))
           ->and($preview->party[$index]->bodySpan)->toBe($scaled ? 150 * $slot->displayScale : null);
         $idleImage = array_find($presentation->frame()->images,
@@ -256,7 +265,7 @@ it('diagnoses unavailable optional idle art and retains the same base placement 
   else { \Tests\Support\Rendering\writeTestPng($this->root . '/idle.png', 201, 200); }
   $member = BattleFormationLayout::compose($this->catalog, null, [], ['Hero'], $this->root)->party[0];
   expect($member->image->asset)->toBe('hero.png')->and($member->diagnostics)->not->toBeEmpty()
-    ->and($member->bounds)->toEqual($this->layout->partySlots[0]->placeAtScale($this->art, 1));
+    ->and($member->bounds)->toEqual($member->slot->placeAtScale($this->art, 1));
 })->with([false, true]);
 
 it('keeps missing-art identities and ground/body metadata without generating substitute artwork', function () {
@@ -272,7 +281,7 @@ it('keeps missing-art identities and ground/body metadata without generating sub
 
 it('never calibrates absent pixels against a body profile or legacy display width', function (bool $registered, bool $scaled) {
   unlink($this->root . '/enemy.png');
-  $slot = new BattlerSlot(30, 40, 100, 60);
+  $slot = formationSlot(30, 40, 100, 60);
   $scale = $scaled ? new BattleScale('Hero', 150, ['Hero' => new BattlerScale(1, .75)],
     ['Creature' => new BattlerScale(.6, .01, horizontal: true)]) : null;
   $catalog = new BattlePresentationCatalog(['scene' => $this->arena], ['Hero' => $this->art],
@@ -287,7 +296,7 @@ it('never calibrates absent pixels against a body profile or legacy display widt
   $preview = BattleFormationLayout::compose($catalog, null,
     [['enemyId' => 'Creature', 'slot' => $slot]], [], $this->root)->enemies[0];
   $canvas = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root)->frame();
-  expect($preview->bounds)->toEqual($slot->placeAtScale(BattleFormationLayout::getUnavailableArtwork(), 1))
+  expect($preview->bounds)->toEqual($preview->slot->placeAtScale(BattleFormationLayout::getUnavailableArtwork(), 1))
     ->and($preview->image)->toBeNull()->and($preview->ground)->toEqual(new Vector2(30, 40))
     ->and($preview->bodySpan)->toBe($scaled ? 90.0 : null)
     ->and(array_filter($canvas->images, static fn($image) => str_starts_with($image->id, 'combatant-')))->toBeEmpty()
@@ -306,12 +315,12 @@ it('fits uncalibrated pose-only pixels rather than borrowing the name fallback s
   $canvas = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root)->frame();
   $image = array_find($canvas->images, static fn($image) => $image->id === 'combatant-' . spl_object_id($hero));
   $idle = $poses->getPose(\Ichiloto\Engine\Battle\Presentation\BattlePoseRole::IDLE)->getArtwork($this->root, 0, false);
-  expect($preview->bounds)->toEqual($this->layout->partySlots[0]->place($idle, $width))
+  expect($preview->bounds)->toEqual($preview->slot->place($idle, $width))
     ->and($image->destination)->toEqual($preview->bounds)->and($image->asset)->toBe('idle.png');
 })->with([null, 80.0]);
 
 it('keeps absent-art names usable at canvas edges without changing the authored anchor', function (int $x, int $y) {
-  $slot = new BattlerSlot($x, $y, 100, 60);
+  $slot = formationSlot($x, $y, 100, 60);
   $catalog = new BattlePresentationCatalog(['scene' => $this->arena], ['Hero' => $this->art], [],
     ui: $this->layout, defaultArena: 'scene', scale: $this->scale);
   $preview = BattleFormationLayout::compose($catalog, null,
@@ -334,7 +343,8 @@ it('keeps missing-art targets selectable at canvas edges without attaching a cur
   $cursor = new \Ichiloto\Engine\Battle\Presentation\BattleTargetCursor(
     array_fill_keys(['above', 'left', 'right'], $textures['target']));
   $skin = new \Ichiloto\Engine\Battle\Presentation\BattleUiSkin($textures, $colors, $cursor);
-  $layout = new BattleCanvasLayout(1350, 720, skin: $skin, feedbackArea: new CanvasRectangle(0, 80, 1350, 452));
+  $layout = new BattleCanvasLayout(1350, 720, skin: $skin, feedbackArea: new CanvasRectangle(0, 80, 1350, 452),
+    ground: new BattleGround(bottom: 720));
   $catalog = new BattlePresentationCatalog(['scene' => $this->arena], ['Hero' => $this->art], [],
     ui: $layout, defaultArena: 'scene', scale: $this->scale);
   $enemy = new ReflectionClass(Enemy::class)->newInstanceWithoutConstructor();
@@ -349,7 +359,7 @@ it('keeps missing-art targets selectable at canvas edges without attaching a cur
     public function getQueuedBattlers(): array { return [$this->target]; }
   };
   $battle = new BattleConfig(new Party(), new Troop('Synthetic', [$enemy],
-    graphicalFormation: [new BattlerSlot($x, $y, 100, 60)]));
+    graphicalFormation: [formationSlot($x, $y, 100, 60)]));
   $canvas = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root)->frame($field, focus: 'target');
   expect(serialize($canvas->textLayers))->toContain('Creature', 'Queued')
     ->and(array_filter($canvas->images, static fn($image) => str_starts_with($image->id, 'target-cursor-')))->toBeEmpty()
@@ -377,7 +387,7 @@ it('uses existing contain fit when a legacy registered width cannot fit the canv
   $catalog = new BattlePresentationCatalog(['scene' => $this->arena], ['Hero' => $this->art], [],
     ui: $this->layout, actorPoses: ['Hero' => new BattlePoseSet([], 2000)], defaultArena: 'scene');
   $member = BattleFormationLayout::compose($catalog, null, [], ['Hero'], $this->root)->party[0];
-  expect($member->bounds)->toEqual($this->layout->partySlots[0]->place($this->art))
+  expect($member->bounds)->toEqual($member->slot->place($this->art))
     ->and($member->diagnostics)->not->toBeEmpty()->and($member->bodySpan)->toBeNull();
 });
 
@@ -398,3 +408,78 @@ it('can preview a plain canvas without choosing or writing an arena into a troop
     ->and($preview->arenaChoices)->toBe([])->and($preview->party[0]->image)->not->toBeNull()
     ->and(array_map('file_get_contents', glob($this->root . '/*.png')))->toBe($before);
 });
+
+it('composes the canvas the battle draws at rest: the cropped background, then each battler back to front', function () {
+  // A background cropped from a larger sheet, as an arena may declare one, and a party drawn from a pose sheet.
+  $arena = new BattleArenaDefinition('A cropped scene', new CanvasImage('arena', 'arena.png', new CanvasRectangle(0, 0, 1350, 720),
+    sourceRect: new \Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect(20, 10, 200, 100)));
+  // A theme that draws contact shadows under battlers' feet.
+  $layout = new BattleCanvasLayout(1350, 720, ground: new BattleGround(bottom: 720), partySlots: $this->layout->partySlots,
+    shadow: new \Ichiloto\Engine\Battle\Presentation\BattlerShadowStyle(\Ichiloto\Engine\Rendering\Presentation\PresentationColor::rgb(0, 0, 0)));
+  $catalog = new BattlePresentationCatalog(['scene' => $arena], ['Hero' => $this->art], ['Creature' => $this->enemyArt],
+    ui: $layout, actorPoses: ['Hero' => $this->poses], defaultArena: 'scene', scale: $this->scale);
+  // The second member stands further back than the first, so the battle draws it first.
+  $near = formationSlot(300, 600, 200, 230);
+  $far = formationSlot(500, 420, 200, 230);
+  $preview = BattleFormationLayout::compose($catalog, 'scene',
+    [['enemyId' => 'Creature', 'slot' => $near], ['enemyId' => 'Creature', 'slot' => $far]], ['Hero'], $this->root);
+  $party = new Party();
+  $party->addMember(new Character('Hero', 1, new Stats(currentHp: 100, totalHp: 100)));
+  $enemies = [];
+  foreach ([0, 1] as $index) {
+    $enemy = new ReflectionClass(Enemy::class)->newInstanceWithoutConstructor();
+    foreach (['name' => 'Creature', 'level' => 1, 'stats' => new Stats(currentHp: 100, totalHp: 100),
+      'position' => new Vector2(1, 1)] as $key => $value) {
+      new ReflectionProperty(Enemy::class, $key)->setValue($enemy, $value);
+    }
+    $enemies[] = $enemy;
+  }
+  $battle = new BattleConfig($party, new Troop('Synthetic', $enemies, graphicalFormation: [$near, $far]));
+  $frame = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root)->frame();
+  $describe = static fn(array $images): array => array_map(static fn(CanvasImage $image): array => [$image->asset,
+    $image->destination, $image->sourceRect, $image->flipX, $image->flipY, $image->opacity], $images);
+
+  $canvas = $preview->composeCanvas();
+  $contacts = static fn(array $composites): array => array_map(static fn($composite): array => [$composite->destination,
+    $composite->layer, $composite->operations], $composites);
+  expect($describe($canvas->images))->toEqual($describe($frame->images))
+    // Where each battler meets the ground, a shadow here, is drawn as the battle draws it.
+    ->and($contacts($canvas->composites))->toEqual($contacts($frame->composites))
+    ->and($canvas->composites)->not->toBe([])
+    ->and($canvas->images[0]->sourceRect)->toEqual($arena->background->sourceRect)
+    ->and(array_map(static fn(CanvasImage $image): string => $image->id, $canvas->images))->toBe(['arena', 'enemy-1', 'party-0', 'enemy-0'])
+    ->and([$canvas->width, $canvas->height])->toBe([1350, 720]);
+});
+
+it('keeps uniform battler size across foot rows in runtime and preview frames', function (bool $reduced) {
+  ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));
+  $slots = [formationSlot(200, 350, 200, 230), formationSlot(400, 600, 200, 230)];
+  $preview = BattleFormationLayout::compose($this->catalog, 'scene',
+    array_map(static fn($slot): array => ['enemyId' => 'Creature', 'slot' => $slot], $slots), ['Hero'], $this->root,
+    reducedMotion: $reduced);
+  expect($preview->enemies[0]->bounds->height)->toEqual($preview->enemies[1]->bounds->height)
+    ->and($preview->enemies[0]->bounds->width)->toEqual($preview->enemies[1]->bounds->width);
+  $party = new Party();
+  $hero = new Character('Hero', 1, new Stats(currentHp: 100, totalHp: 100));
+  $party->addMember($hero);
+  $enemies = [];
+  foreach ($slots as $index => $_) {
+    $enemy = new ReflectionClass(Enemy::class)->newInstanceWithoutConstructor();
+    foreach (['name' => 'Creature', 'level' => 1, 'stats' => new Stats(currentHp: 100, totalHp: 100),
+      'position' => new Vector2($index, 0), 'imagePath' => 'synthetic.txt',
+      'rewards' => new \Ichiloto\Engine\Battle\BattleRewards(0, 0, [])] as $key => $value) {
+      new ReflectionProperty(Enemy::class, $key)->setValue($enemy, $value);
+    }
+    $enemies[] = $enemy;
+  }
+  $battle = new BattleConfig($party, new Troop('Synthetic uniform formation', $enemies, graphicalFormation: $slots));
+  $before = serialize($battle);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $this->catalog, $this->root);
+  $frame = $presentation->frame();
+  foreach ($enemies as $index => $enemy) {
+    $image = array_find($frame->images, static fn($image): bool => $image->id === 'combatant-' . spl_object_id($enemy));
+    expect($image->destination)->toEqual($preview->enemies[$index]->image->destination)
+      ->and($presentation->getSlot($enemy)->displayScale)->toBe(1.0);
+  }
+  expect(serialize($battle))->toBe($before);
+})->with([false, true]);

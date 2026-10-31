@@ -59,8 +59,14 @@ interface AudioBackendInterface
   /**
    * Builds the argv list used to play the given file.
    *
+   * The volume is a linear amplitude gain: 0.5 halves the waveform (about
+   * -6 dB) and 1.0 plays the file as authored. Each backend converts it to
+   * its own player's volume scale, so the same value sounds the same through
+   * every player. A game that plays music through one player and sound
+   * effects through another keeps its authored balance between them.
+   *
    * @param string $filePath The absolute path of the audio file.
-   * @param float $volume The normalized playback volume between 0.0 and 1.0.
+   * @param float $volume The linear playback gain between 0.0 and 1.0.
    * @param bool $loop Whether the player should loop the track natively. Only
    *   honoured when supportsNativeLooping() returns true.
    * @param float $startAtSeconds The offset to start playback from. Only

@@ -17,10 +17,12 @@ use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\Enumerations\MovementEventType;
 use Ichiloto\Engine\Events\MovementEvent;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
+use Ichiloto\Engine\Events\Triggers\PassageEventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTriggerContext;
 use Ichiloto\Engine\Events\Interfaces\AutomaticEventTriggerInterface;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\InputManager;
@@ -30,7 +32,7 @@ use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
-use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
+use Ichiloto\Engine\Rendering\Sprites\ThicketSubjectInterface;
 use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
@@ -45,8 +47,12 @@ use RuntimeException;
  *
  * @package Ichiloto\Engine\Field
  */
-class Player extends GameObject implements GraphicalSpriteProviderInterface
+class Player extends GameObject implements ThicketSubjectInterface
 {
+  /** The party's leader walks among its cell's foliage, unless drawn from an object sheet. */
+  public bool $standsInFoliage {
+    get => $this->getGraphicalCharacterSheet()?->isObject === false;
+  }
   private ?CharacterWalkAnimation $walkAnimation = null;
   /**
    * @var Closure(): void|null What a committed step does on arrival (its
@@ -236,14 +242,23 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   {
     $arrival = $this->pendingArrival;
     $this->pendingArrival = null;
-    $arrival?->__invoke();
+    if ($arrival === null) {
+      return;
+    }
+    // Held walking runs a step's arrival inside the next step's pace; what
+    // arriving sets off walks at its own.
+    ($this->scene ?? null) instanceof GameScene ? $this->scene->runAtFieldPace($arrival) : $arrival();
   }
 
-  public function stopGraphicalAnimation(): void
+  /**
+   * Stand: at once, or once the steps taken have shown (movement refused
+   * while the step before it still slides).
+   */
+  public function stopGraphicalAnimation(bool $afterSlide = false): void
   {
-    $this->walkAnimation?->stop();
+    $afterSlide ? $this->walkAnimation?->stopAfterSlide() : $this->walkAnimation?->stop();
     if (($this->scene ?? null) instanceof GameScene) {
-      $this->scene->cinematicStage?->subjectStopped($this);
+      $this->scene->cinematicStage?->subjectStopped($this, $afterSlide);
     }
   }
 
@@ -310,23 +325,27 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function move(Vector2 $direction, Camera $camera): void
   {
-    $this->tryMove($direction, $camera);
+    $this->tryMove($direction, $camera, StepOrigin::PLAYER_INPUT);
   }
 
   /**
    * Attempts a real field movement and reports whether it succeeded.
    *
-   * Player input keeps using {@see move()}; story routes use this result so
-   * a collision becomes a controlled script failure instead of an endless
-   * wait or a silently skipped step.
+   * Story routes use this result so a collision becomes a controlled script
+   * failure instead of an endless wait or a silently skipped step.
+   *
+   * Every step runs its destination's triggers. Only a player-controlled step
+   * advances step-driven systems (walking conditions, random encounters) and
+   * shows the save point notice; scripted movement never counts as walking.
    *
    * @param Vector2 $direction The cardinal movement vector.
    * @param Camera $camera The field camera.
+   * @param StepOrigin $stepOrigin Whether the player or a script moves the player.
    * @return bool True when the player moved.
    * @throws NotFoundException If the scene is not set.
    * @throws OutOfBounds If the destination is out of bounds.
    */
-  public function tryMove(Vector2 $direction, Camera $camera): bool
+  public function tryMove(Vector2 $direction, Camera $camera, StepOrigin $stepOrigin): bool
   {
     // Clone: $this->position is mutated by the move below, so holding a
     // reference would make the movement event report an origin equal to its
@@ -354,8 +373,10 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     $previousHeading = $this->heading;
     $this->updatePlayerSprite($direction);
 
+    // Refused movement stands once the step in progress has shown: walking
+    // decides each step just before the one in progress ends.
     if (! $this->getGameScene()->mapManager->canMoveTo(intval($destination->x), intval($destination->y), $collisionType) ) {
-      $this->stopGraphicalAnimation();
+      $this->stopGraphicalAnimation(afterSlide: true);
       if ($previousHeading !== $this->heading) { $this->reconcileFacingEvents(); }
       $this->render();
       return false;
@@ -366,8 +387,8 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     // A conditioned event with a blocked message is an authored field gate,
     // not merely an advisory notification. Reject entry before mutating the
     // player position, advancing encounters, or notifying movement observers.
-    if ($this->isMovementBlockedByUnavailableEvent($event)) {
-      $this->stopGraphicalAnimation();
+    if ($this->isMovementBlockedByEvent($event)) {
+      $this->stopGraphicalAnimation(afterSlide: true);
       if ($previousHeading !== $this->heading) { $this->reconcileFacingEvents(); }
       $this->render();
       return false;
@@ -396,15 +417,38 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     // The step is committed; what reaching the cell does waits until the
     // player is seen to arrive, so a dialogue, notice, battle or transfer
     // never cuts the slide short. Without a slide it happens at once.
-    $this->pendingArrival = function () use ($event, $collisionType): void {
+    $this->pendingArrival = function () use ($event, $collisionType, $stepOrigin, $destination): void {
       $this->handleTriggers($event);
-      $this->getGameScene()->encounterManager?->registerStep($collisionType);
-      if ($this->getGameScene()->mapManager->isAtSavePoint) {
-        alert("Access the Menu to save your progress.", 'Save Point');
+      if ($stepOrigin === StepOrigin::PLAYER_INPUT && !$this->registerWalkingStep($collisionType, $destination)) {
+        return;
       }
       $this->notify($this->getGameScene(), $event);
     };
     $this->completeArrival();
+
+    return true;
+  }
+
+  /**
+   * Advances what counts the player's own walking once a player-controlled
+   * step arrives.
+   *
+   * @param CollisionType|null $collisionType The collision type of the cell stepped onto.
+   * @param Vector2 $destination The cell stepped onto.
+   * @return bool True when the party walks on; false when a walking condition ended the game.
+   */
+  private function registerWalkingStep(?CollisionType $collisionType, Vector2 $destination): bool
+  {
+    $scene = $this->getGameScene();
+    // A party that falls to a walking condition meets no encounter.
+    if ($scene->fieldConditions?->registerStep() === false) {
+      return false;
+    }
+    $scene->income?->recordStep();
+    $scene->encounterManager?->registerStep($collisionType, $destination);
+    if ($scene->mapManager->isAtSavePoint) {
+      $scene->arriveAtSavePoint();
+    }
 
     return true;
   }
@@ -459,7 +503,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   }
 
   /**
-   * Determines whether an unavailable event rejects the attempted entry.
+   * Determines whether an event's access policy rejects the attempted entry.
    *
    * A non-empty whenBlocked message makes the event area fail closed while
    * its conditions do not hold. Movement from inside the area remains
@@ -468,27 +512,23 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    * @param MovementEvent $movementEvent The attempted movement.
    * @return bool True when the movement must not update field state.
    */
-  protected function isMovementBlockedByUnavailableEvent(MovementEvent $movementEvent): bool
+  protected function isMovementBlockedByEvent(MovementEvent $movementEvent): bool
   {
     $blockingEvent = null;
+    $explanation = '';
 
     /** @var EventTrigger $event */
     foreach ($this->events as $event) {
       $eventId = spl_object_id($event);
-      $destinationIsInside = $event->area->contains($movementEvent->destination);
-
-      if (! $destinationIsInside || $event->isComplete || $event->isAvailable() || $event->whenBlocked === null) {
+      $refusal = $event->getEntryRefusal($movementEvent->origin, $movementEvent->destination);
+      if ($refusal === null) {
         unset($this->announcedBlockedEvents[$eventId]);
         continue;
       }
-
-      // Never trap a player whose save already places them inside a gate.
-      // The transition from outside to inside is the authoritative boundary.
-      if ($event->area->contains($movementEvent->origin)) {
-        continue;
+      if ($blockingEvent === null) {
+        $blockingEvent = $event;
+        $explanation = $refusal;
       }
-
-      $blockingEvent ??= $event;
     }
 
     if ($blockingEvent === null) {
@@ -497,9 +537,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
 
     $eventId = spl_object_id($blockingEvent);
 
-    if (! isset($this->announcedBlockedEvents[$eventId])) {
+    if ($explanation !== '' && ! isset($this->announcedBlockedEvents[$eventId])) {
       $this->announcedBlockedEvents[$eventId] = true;
-      $this->announceBlockedEvent($blockingEvent->whenBlocked);
+      $this->announceBlockedEvent($explanation);
     }
 
     return true;
@@ -565,9 +605,12 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   private function enterEventWhenReady(EventTrigger $event, EventTriggerContext $context): bool
   {
     if ($event instanceof AutomaticEventTriggerInterface && $event->runsAutomatically()
-      && !$event->sessionIsActive && $this->getGameScene()->hasUnstableEventSession()) {
+      && !$event->sessionIsActive) {
+      // Completion can be synchronous. Request the next scan before entry so
+      // every owner hands off overlapping or newly eligible arrivals, including
+      // initial/load entry. An existing owner never queues its own replay.
       $this->getGameScene()->requestAutomaticTriggerEvaluation();
-      return false;
+      if ($this->getGameScene()->hasUnstableEventSession()) { return false; }
     }
     $this->eventManager->activeEvents->add($event);
     $event->enter($context);
@@ -901,6 +944,27 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     return null;
   }
 
+  /** @return list<PassageEventTrigger> Available closed passages whose cue range reaches the player. */
+  public function getSensedPassages(): array
+  {
+    return array_values(array_filter($this->events->toArray(), fn(EventTrigger $event): bool =>
+      $event instanceof PassageEventTrigger && $event->shouldRenderCue($this->position)));
+  }
+
+  /** Finds a current-map event by its stable marker letter. */
+  public function findEventByMarker(string $marker): ?EventTrigger
+  {
+    $marker = trim($marker);
+
+    foreach ($this->events as $event) {
+      if ($event->marker === $marker) {
+        return $event;
+      }
+    }
+
+    return null;
+  }
+
   /**
    * Renders authored cues for available, incomplete map events.
    *
@@ -909,25 +973,29 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function renderEventCues(): void
   {
-    /** @var EventTrigger $event */
+    $this->getGameScene()->renderEventCues($this->events);
+
+    // Waymarks are field guidance too; recomposed frames rebuild their layer here.
+    $this->getGameScene()->renderFieldWaymarks(force: true);
+  }
+
+  /**
+   * The markers of events whose own cue shows now, which stand in for a
+   * waymark on the same event while it is on screen.
+   *
+   * @return array<string, true>
+   */
+  public function getCuedEventMarkers(): array
+  {
+    $markers = [];
+
     foreach ($this->events as $event) {
-      $cueLayer = 'event-cue:' . ($event->mapId ?? '') . ':' . ($event->marker ?? '');
-      if (!$this->getGameScene()->canPresentFieldGuidance() || ! $event->shouldRenderCue()) {
-        Console::removeLayer($cueLayer);
-        continue;
+      if ($event->marker !== null && $event->shouldRenderCue($this->position)) {
+        $markers[$event->marker] = true;
       }
-
-      if ($this->getGameScene()->isGraphicalFieldPresented() && $this->getGameScene()->fieldEffects?->canPresentCue($event)) {
-        Console::removeLayer($cueLayer);
-        continue;
-      }
-
-      Console::withLayer($cueLayer, function () use ($event): void {
-        foreach ($event->cue->findPositions($event->area) as $position) {
-          $this->scene->camera->renderOnScreen([$event->cue->styledSymbol()], $position);
-        }
-      }, PresentationLayerPolicy::WORLD);
     }
+
+    return $markers;
   }
 
   /**
@@ -1171,6 +1239,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   public function interact(): void
   {
     $this->stopGraphicalAnimation();
+    // Conditions can change while standing still. Resolve faced Action events
+    // at the input edge, without starting automatic arrivals.
+    $this->reconcileFacingEvents(includeAutomatic: false);
     if ($this->availableAction === null && $this->talkToFacingNpc()) {
       return;
     }

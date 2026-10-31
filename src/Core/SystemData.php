@@ -52,6 +52,14 @@ readonly class SystemData
     return $this->battle->opening;
   }
 
+  private static function validatePartySize(mixed $value): int
+  {
+    if (!is_int($value) || $value < 1 || $value > \Ichiloto\Engine\Entities\Party::MAX_BATTLE_SIZE) {
+      throw new \InvalidArgumentException('battle.partySize must be an integer between 1 and 8.');
+    }
+    return $value;
+  }
+
   private static function normalizeBattleSettings(mixed $battleData): object
   {
     $battleArray = is_array($battleData) ? $battleData : [];
@@ -62,6 +70,7 @@ readonly class SystemData
     EncounterAdvantage::validateChances($preemptive, $ambush);
 
     return json_decode(json_encode([
+      'partySize' => self::validatePartySize($battleArray['partySize'] ?? \Ichiloto\Engine\Entities\Party::BATTLE_SIZE),
       'engine' => BattleEngineType::fromValue($battleArray['engine'] ?? null)->value,
       'opening' => [
         'preemptiveChancePercent' => $preemptive,

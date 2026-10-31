@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Animations\EffectScale;
 use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
@@ -17,23 +18,34 @@ final readonly class BattleCommandTimeline
 {
   public const int FPS = 120;
   public CompiledEffectTimeline $timeline;
+  /** Announcement is a visibility interval that overlaps summon source/cutscene phases. */
   public array $phases;
   /** @var array<string, int> Reduced-motion inspection frames on the command lane. */
   public array $restFrames;
   /** @var array<string, list<array>> Original rest art, even when pacing skips that frame. */
   public array $restSegments;
   public ?SummonCompiledCutscene $summon;
+  /** Legacy target-stage access; source stages use the same lane-owned inspection methods below. */
   public ?CinematicStage $cinematicStage;
+  /** @var array<string, CinematicStage> Each effect lane owns its own stage and authored clock. */
+  private array $cinematicStages;
+  /** @var array<string, list<array>> Unshifted authored segments for each stage. */
+  private array $cinematicSegments;
   public ?CompiledEffectTimeline $terminalTarget;
   public array $terminalSegments;
   public ?EffectPlaybackTiming $terminalTiming;
   private ?EffectPlaybackTiming $sourceTiming;
   private ?EffectPlaybackTiming $targetTiming;
 
+  /**
+   * @param float $targetScale The action binding's size for the target effect's images
+   *   ({@see \Ichiloto\Engine\Animations\EffectScale}); the source effect and terminal glyphs keep their authored size.
+   */
   public function __construct(BattleTurnTimings $timings, ?CompiledEffectTimeline $source = null,
     ?CompiledEffectTimeline $target = null, ?CompiledEffectTimeline $terminalTarget = null,
-    public bool $resultsOnly = false, bool $showAnnouncement = true)
+    public bool $resultsOnly = false, bool $showAnnouncement = true, float $targetScale = EffectScale::DEFAULT)
   {
+    $targetScale = EffectScale::readValue($targetScale, 'Battle target effect scale');
     if ($resultsOnly) {
       if (!is_finite($timings->statChanges) || $timings->statChanges < 0) {
         throw new InvalidArgumentException('Battle result duration must be finite and non-negative.');
@@ -41,6 +53,7 @@ final readonly class BattleCommandTimeline
       $length = max(1, (int)ceil($timings->statChanges * self::FPS));
       $this->summon = $this->terminalTarget = $this->terminalTiming = null;
       $this->cinematicStage = null;
+      $this->cinematicStages = $this->cinematicSegments = [];
       $this->sourceTiming = $this->targetTiming = null;
       $this->terminalSegments = [];
       $this->restFrames = $this->restSegments = [];
@@ -56,9 +69,16 @@ final readonly class BattleCommandTimeline
     }
     $cursor = 0;
     $this->summon = $target instanceof SummonCompiledCutscene ? $target : null;
-    $this->cinematicStage = isset($this->summon->defaults['stage'])
-      ? CinematicStage::fromArray($this->summon->defaults['stage'], $this->summon->defaults['lengthFrames'],
-        $this->summon->defaults['restFrame'] ?? 0) : null;
+    $stages = $stageSegments = [];
+    foreach (['source' => $source, 'target' => $target] as $lane => $effect) {
+      if (!is_array($effect?->defaults['stage'] ?? null)) { continue; }
+      $stages[$lane] = CinematicStage::fromArray($effect->defaults['stage'], $effect->defaults['lengthFrames'],
+        $effect->defaults['restFrame'] ?? 0);
+      $stageSegments[$lane] = $effect->playbackSegments;
+    }
+    $this->cinematicStages = $stages;
+    $this->cinematicSegments = $stageSegments;
+    $this->cinematicStage = $stages['target'] ?? null;
     $this->terminalTarget = $target?->hasTerminalContent ? null : $terminalTarget;
     $this->terminalSegments = array_map(
       static fn(array $segment): array => self::getAnchoredSegment($segment, $terminalTarget, 'target'),
@@ -103,7 +123,7 @@ final readonly class BattleCommandTimeline
         $restFrames[$phase] = $cursor + $clock->getFrameBoundary($rest, self::FPS);
         $restSegments[$phase] = [];
         foreach ($effect->playbackSegments as $segment) {
-          $copy = self::getAnchoredSegment($segment, $effect, $phase);
+          $copy = self::getAnchoredSegment($segment, $effect, $phase, $phase === 'target' ? $targetScale : EffectScale::DEFAULT);
           $copy['startFrame'] = $cursor + $clock->getFrameBoundary($segment['startFrame'], self::FPS);
           $copy['endFrame'] = $cursor + $clock->getFrameBoundary($segment['endFrame'] + 1, self::FPS) - 1;
           if ($segment['startFrame'] <= $rest && $rest <= $segment['endFrame']) {
@@ -130,7 +150,14 @@ final readonly class BattleCommandTimeline
           $cues[] = $cue;
         }
       }
-      $cursor += $length;
+      // Staged actions and summons start as their callout appears. Reading time
+      // owns visibility while each authored lane keeps its own clock.
+      if ($phase !== 'announce' || ($this->summon === null && $stages === [])) { $cursor += $length; }
+    }
+    if (($this->summon !== null || $stages !== []) && $showAnnouncement) {
+      $cues[] = ['id' => 'command-announcement-end', 'type' => 'commandAnnouncementEnd',
+        'frame' => min($phases['announce']['start'] + $phases['announce']['length'], $phases['finish']['start']),
+        'payload' => []];
     }
     // Summons retain their explicit cue/frame/end policy; ordinary effects may
     // author an impact cue. No cue means resolution at the target stage's end.
@@ -160,8 +187,34 @@ final readonly class BattleCommandTimeline
   /** Inspection uses the same authored clock as stage images and combat cues. */
   public function getCinematicStageFrame(int $frame, bool $reducedMotion = false): ?CinematicStageFrame
   {
-    $authored = $this->getAuthoredFrameAtCommandFrame('target', $frame);
-    return $authored === null ? null : $this->cinematicStage?->getFrame($authored, $reducedMotion);
+    $lane = $this->getActiveCinematicLane($frame);
+    return $lane === null ? null : $this->cinematicStages[$lane]->getFrame(
+      $this->getAuthoredFrameAtCommandFrame($lane, $frame), $reducedMotion);
+  }
+
+  /** @return list<array> The active stage's original segments, using the same authored clock as its frame. */
+  public function getCinematicStageSegments(int $frame): array
+  {
+    $lane = $this->getActiveCinematicLane($frame);
+    return $lane === null ? [] : $this->cinematicSegments[$lane];
+  }
+
+  public function hasCinematicStage(string $lane): bool
+  {
+    return isset($this->cinematicStages[$lane]);
+  }
+
+  public function hasCinematicStages(): bool
+  {
+    return $this->cinematicStages !== [];
+  }
+
+  private function getActiveCinematicLane(int $frame): ?string
+  {
+    foreach ($this->cinematicStages as $lane => $stage) {
+      if ($this->getAuthoredFrameAtCommandFrame($lane, $frame) !== null) { return $lane; }
+    }
+    return null;
   }
 
   /** Boundaries never preview a cue early; fast authored frames may share a command tick. */
@@ -204,12 +257,17 @@ final readonly class BattleCommandTimeline
     };
   }
 
-  private static function getAnchoredSegment(array $segment, CompiledEffectTimeline $effect, string $phase): array
+  /** A scaled lane stamps its image commands; glyphs and text keep their cells, which cannot resize without distortion. */
+  private static function getAnchoredSegment(array $segment, CompiledEffectTimeline $effect, string $phase,
+    float $scale = EffectScale::DEFAULT): array
   {
     foreach ($segment['drawCommands'] as &$command) {
       $command['trackId'] = $phase . '-' . ($command['trackId'] ?? 'track');
       $command['payload']['anchor'] ??= $effect instanceof SummonCompiledCutscene && $segment['layer'] !== 'image'
         ? 'legacy-screen' : ($phase === 'source' ? 'caster' : 'target');
+      if ($segment['layer'] === 'image' && !EffectScale::playsAuthoredSize($scale)) {
+        $command['payload']['scale'] = $scale;
+      }
     }
     unset($command);
     return $segment;

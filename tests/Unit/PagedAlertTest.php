@@ -39,6 +39,12 @@ class AlertDeliveryProbe extends ModalManager
         $this->delivered[] = [$message, $title];
     }
 
+    protected function showPendingNotice(\Ichiloto\Engine\UI\Modal\NoticeContent $notice): void
+    {
+        if ($this->fail) { throw new RuntimeException('Interrupted delivery'); }
+        $this->delivered[] = $notice;
+    }
+
     public function releaseActiveModal(): void { $this->modals->pop(); }
 }
 
@@ -107,4 +113,41 @@ it('preserves a queued alert after delivery is interrupted', function () {
     $manager->fail = false;
     $manager->processPendingAlerts();
     expect($manager->delivered)->toBe([['Full body', 'Title']]);
+});
+
+it('preserves notice and alert producer order and retries an interrupted notice without losing it', function () {
+    $manager = new AlertDeliveryProbe($this->game);
+    $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('Member joined', 'A companion.', actorId: 'actor.synthetic');
+    $manager->queueAlert('First body', 'First');
+    $manager->queueNotice($notice);
+    $manager->queueAlert('Last body', 'Last');
+    $manager->processPendingAlerts();
+    $manager->fail = true;
+    expect(fn() => $manager->processPendingAlerts())->toThrow(RuntimeException::class, 'Interrupted delivery');
+    $manager->fail = false;
+    $manager->processPendingAlerts(); $manager->processPendingAlerts(); $manager->processPendingAlerts();
+    expect($manager->delivered)->toBe([['First body', 'First'], $notice, ['Last body', 'Last']]);
+});
+
+it('uses ordinary confirmation and text fields for a notice in every presentation', function () {
+    $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('New power', 'An unlocked technique.', iconRole: 'power.synthetic');
+    $modal = new \Ichiloto\Engine\UI\Modal\NoticeModal($this->game, $notice);
+    expect($modal->title)->toBe($notice->title)->and($modal->message)->toBe($notice->message)
+      ->and($modal->getModalPresentation()->notice)->toBe($notice)
+      ->and($modal->getModalPresentation()->singleConfirmation)->toBeTrue()
+      ->and($modal->getModalPresentation()->choices)->toBe(['OK']);
+});
+
+it('refuses ambiguous or empty notice content', function (array $args) {
+    expect(fn() => new \Ichiloto\Engine\UI\Modal\NoticeContent(...$args))->toThrow(InvalidArgumentException::class);
+})->with([[['', '']], [['Title', 'Text', '']], [['Title', 'Text', ' actor']], [['Title', 'Text', null, '']],
+    [['Title', 'Text', 'actor', 'power']]]);
+
+it('retains long notice content across the existing bounded acknowledgement pages', function () {
+    $lines = array_map(static fn(int $i): string => 'Acquisition detail ' . $i, range(1, 24));
+    $modal = new \Ichiloto\Engine\UI\Modal\NoticeModal($this->game,
+      new \Ichiloto\Engine\UI\Modal\NoticeContent('New power', implode("\n", $lines)));
+    $pages = new ReflectionProperty(PagedAlertModal::class, 'pages')->getValue($modal);
+    expect(explode("\n", implode("\n", $pages)))->toBe($lines)
+      ->and($modal->getModalPresentation()->choices)->toBe(['Next']);
 });

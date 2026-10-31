@@ -32,6 +32,9 @@ final readonly class SaveContentResolver
       $data['achievements'] ?? []
     );
     $data['bestiary'] = $this->resolveBestiary($data['bestiary'] ?? []);
+    if (array_key_exists('knowledge', $data)) {
+      $data['knowledge'] = $this->resolveKnowledge($data['knowledge']);
+    }
 
     $config->applySaveCompatibilityData($data);
     $this->resolveParty($config);
@@ -91,6 +94,69 @@ final readonly class SaveContentResolver
     return $bestiary;
   }
 
+  /**
+   * Resolves saved knowledge progress by subject. Two saved subjects that now
+   * name one (a retired subject aliased to its successor) become one record:
+   * the deeper depth, every observation and report, and their outcomes added
+   * together, because each side counted different encounters.
+   *
+   * @param mixed $rawKnowledge
+   */
+  private function resolveKnowledge(mixed $rawKnowledge): mixed
+  {
+    if (! is_array($rawKnowledge) || ! is_array($rawKnowledge['subjects'] ?? null)) {
+      return $rawKnowledge;
+    }
+
+    $subjects = [];
+
+    foreach ($rawKnowledge['subjects'] as $subjectId => $entry) {
+      if (! is_string($subjectId) || ! is_array($entry)) {
+        continue;
+      }
+
+      $subjectId = $this->identity(ContentReferenceCategory::KNOWLEDGE_SUBJECT, $subjectId);
+      $subjects[$subjectId] = is_array($subjects[$subjectId] ?? null)
+        ? self::mergeKnowledgeSubject($subjects[$subjectId], $entry)
+        : $entry;
+    }
+
+    ksort($subjects);
+    $rawKnowledge['subjects'] = $subjects;
+
+    return $rawKnowledge;
+  }
+
+  /**
+   * @param array<string, mixed> $kept
+   * @param array<string, mixed> $folded
+   * @return array<string, mixed>
+   */
+  private static function mergeKnowledgeSubject(array $kept, array $folded): array
+  {
+    $kept['depth'] = max(intval($kept['depth'] ?? 0), intval($folded['depth'] ?? 0));
+
+    foreach (['observations', 'reports'] as $key) {
+      $kept[$key] = array_replace(
+        is_array($folded[$key] ?? null) ? $folded[$key] : [],
+        is_array($kept[$key] ?? null) ? $kept[$key] : [],
+      );
+    }
+
+    $outcomes = is_array($kept['outcomes'] ?? null) ? $kept['outcomes'] : [];
+
+    foreach (is_array($folded['outcomes'] ?? null) ? $folded['outcomes'] : [] as $outcomeId => $count) {
+      if (is_string($outcomeId)) {
+        $outcomes[$outcomeId] = intval($outcomes[$outcomeId] ?? 0) + max(0, intval($count));
+      }
+    }
+
+    ksort($outcomes);
+    $kept['outcomes'] = $outcomes;
+
+    return $kept;
+  }
+
   private function resolveParty(GameConfig $config): void
   {
     foreach ($config->party->inventory->all->toArray() as $item) {
@@ -148,6 +214,11 @@ final readonly class SaveContentResolver
         $member->completeDeferredSaveHydration($raw);
       }
     }
+    $selection = $config->party->getSelectedActorIds();
+    if ($selection !== null) {
+      $config->party->selectParticipants($this->identityList(ContentReferenceCategory::ACTOR, $selection));
+    }
+    $config->party->setBattleSize($config->party->battleSize);
   }
 
   /** @param array<string, mixed> $savedState */

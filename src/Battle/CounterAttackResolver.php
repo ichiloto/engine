@@ -74,13 +74,15 @@ final class CounterAttackResolver
     $actor = $response->actor;
     return $actor instanceof CounterAttackProvider
       && $this->canRespond($actor, $response->target, $party, $troop)
-      && in_array($response->rule, $actor->getCounterAttackRules(), true)
+      && ($response->prepared === null ? in_array($response->rule, $actor->getCounterAttackRules(), true)
+        : ($response->prepared->consumed && $response->prepared->actor === $actor
+          && $response->prepared->opponent === $response->target && $response->prepared->rule === $response->rule))
       && $actor->stats->currentMp >= $response->action->skill->cost;
   }
 
   private function canRespond(CharacterInterface $actor, CharacterInterface $target, array $party, array $troop): bool
   {
-    return !$actor->isKnockedOut && !$target->isKnockedOut
+    return $actor->isFighting && $target->isFighting
       && $actor instanceof CounterAttackProvider && $actor->getActionBlockingState() === null
       && ((in_array($actor, $party, true) && in_array($target, $troop, true))
         || (in_array($actor, $troop, true) && in_array($target, $party, true)));

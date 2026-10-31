@@ -12,13 +12,17 @@ use Throwable;
  */
 final readonly class SaveCompatibilityManifest
 {
-  /** Declarative position edit keys of a migration step, in the order they apply. */
-  private const array DECLARED_POSITION_EDITS = ['mapShifts', 'mapRemovals', 'relocations'];
+  /**
+   * Declarative edit keys of a migration step, in the order they apply:
+   * edits that keep a save on its map, then retirements that move it to
+   * another map.
+   */
+  private const array DECLARED_POSITION_EDITS = ['mapShifts', 'mapRemovals', 'relocations', 'mapRetirements'];
 
   /**
    * @param array<string, array<string, string>> $aliases
    * @param array<string, array<string, true>> $tombstones
-   * @param array<int, class-string<ContentMigrationInterface>|list<SavedPositionEdit>> $migrations
+   * @param array<int, class-string<ContentMigrationInterface>|list<SavedPositionEdit|MapRetirement>> $migrations
    */
   private function __construct(
     public string $projectId,
@@ -375,7 +379,7 @@ final readonly class SaveCompatibilityManifest
 
   /**
    * @param mixed $rawMigrations
-   * @return array<int, class-string<ContentMigrationInterface>|list<SavedPositionEdit>>
+   * @return array<int, class-string<ContentMigrationInterface>|list<SavedPositionEdit|MapRetirement>>
    */
   private static function normalizeMigrations(mixed $rawMigrations, int $contentVersion, string $source): array
   {
@@ -464,12 +468,12 @@ final readonly class SaveCompatibilityManifest
    * the runtime and the Editor's validation share.
    *
    * A step declares a project migration `class`, or declared position edits,
-   * never both kinds. Shifts apply before removals, then relocations, each
-   * list in authored order.
+   * never both kinds. Shifts apply before removals, then relocations, then
+   * retirements, each list in authored order.
    *
    * @param array<mixed> $entry The migration step.
    * @param string $where Where the step is, for error messages.
-   * @return list<SavedPositionEdit>|null The edits, or null for a class step.
+   * @return list<SavedPositionEdit|MapRetirement>|null The edits, or null for a class step.
    * @throws InvalidSaveCompatibilityManifestException When the step is malformed.
    */
   public static function readDeclaredPositionEdits(array $entry, string $where): ?array
@@ -482,7 +486,7 @@ final readonly class SaveCompatibilityManifest
 
     if ($hasClass === ($declared !== [])) {
       throw new InvalidSaveCompatibilityManifestException(sprintf(
-        '%s must declare either a class or declared position edits (mapShifts, mapRemovals, relocations), not both or neither.',
+        '%s must declare either a class or declared position edits (mapShifts, mapRemovals, relocations, mapRetirements), not both or neither.',
         $where
       ));
     }
@@ -506,6 +510,7 @@ final readonly class SaveCompatibilityManifest
           'mapShifts' => MapShift::fromArray($rawEdit, $entryWhere),
           'mapRemovals' => MapRemoval::createFromArray($rawEdit, $entryWhere),
           'relocations' => PositionRelocation::fromArray($rawEdit, $entryWhere),
+          'mapRetirements' => MapRetirement::createFromArray($rawEdit, $entryWhere),
         };
       }
     }

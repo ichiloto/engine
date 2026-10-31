@@ -9,6 +9,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandSchema;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicEffectTarget;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicScriptValidator;
 use Ichiloto\Engine\Cutscenes\Cinematics\CameraOperation;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicSubjectResolver;
@@ -52,17 +53,22 @@ class EventInterpreter
   public const array COMMAND_TYPES = CinematicCommandSchema::COMMAND_TYPES;
 
   protected ?EventExecutionSession $activeSession = null;
+  /** Where sessions run: the field scene unless another host is given. */
+  protected EventExecutionHostInterface $host;
   protected(set) ?EventExecutionSession $lastSession = null;
 
   /**
    * @param ScriptCommandCatalog|null $scriptCommands The registered commands; the project's when omitted.
+   * @param EventExecutionHostInterface|null $host Where sessions run; the field scene when omitted.
    */
   public function __construct(
     protected GameScene $gameScene,
     protected ?EventPresentationInterface $presentation = null,
     protected ?ScriptCommandCatalog $scriptCommands = null,
+    ?EventExecutionHostInterface $host = null,
   )
   {
+    $this->host = $host ?? $gameScene;
     $this->presentation ??= new ModalEventPresentation($gameScene);
   }
 
@@ -124,7 +130,7 @@ class EventInterpreter
       ? $this->gameScene->currentMapId
       : null;
     $this->activeSession = new EventExecutionSession($commands, $scriptId, $completionTarget, $origin);
-    $this->gameScene->onEventSessionStarted($this->activeSession);
+    $this->host->onEventSessionStarted($this->activeSession);
 
     return $this->activeSession;
   }
@@ -204,6 +210,8 @@ class EventInterpreter
     }
 
     for ($commandsThisTick = 0; $commandsThisTick < 1000; $commandsThisTick++) {
+      // A real join owns an acknowledgement before the next command or cinematic cleanup.
+      if ($this->host === $this->gameScene && $this->gameScene->awaitRecruitmentNotices()) { return; }
       if ($lane->hasFinishedFrames()) {
         $lane->complete();
         return;
@@ -369,8 +377,14 @@ class EventInterpreter
     array $command,
   ): EventCommandResult
   {
-    $gameState = $this->gameScene->gameState;
+    $gameState = $this->host->getEventWorldState();
+    $party = $this->host->getEventParty();
     $type = strval($command['type'] ?? '');
+    $scope = $this->host->getEventScope();
+
+    if (in_array($type, self::COMMAND_TYPES, true) && ! $scope->allowsBuiltInCommand($type)) {
+      throw new RuntimeException(sprintf('"%s" cannot run in %s.', $type, $scope->getLabel()));
+    }
 
     switch ($type) {
       case 'text':
@@ -378,6 +392,9 @@ class EventInterpreter
         $session->claimPresentation($lane);
         $text = strval($command['text'] ?? '');
         $speaker = strval($command['name'] ?? '');
+        if ($scope === EventExecutionScope::FIELD) {
+          $this->gameScene->cinematicController?->prepareDialogue($speaker, $command);
+        }
         if ($this->presentation instanceof EventDialoguePresentationInterface) {
           $this->presentation->beginDialogue($text, $speaker, $context);
         } else {
@@ -432,8 +449,8 @@ class EventInterpreter
         $itemStore = ConfigStore::get(ItemStore::class);
         $quantity = max(1, intval($command['quantity'] ?? 1));
 
-        if ($itemStore instanceof ItemStore && $this->gameScene->party) {
-          $this->gameScene->party->addItems(...$itemStore->instantiate(
+        if ($itemStore instanceof ItemStore && $party) {
+          $party->addItems(...$itemStore->instantiate(
             strval($command['item'] ?? ''),
             $quantity,
             'granting an item from a story event command',
@@ -442,20 +459,37 @@ class EventInterpreter
         return EventCommandResult::COMPLETED;
 
       case 'give_gold':
-        $this->gameScene->party?->credit(intval($command['amount'] ?? 0));
+        $party?->credit(intval($command['amount'] ?? 0));
         return EventCommandResult::COMPLETED;
 
       case 'recover_party':
-        foreach ($this->gameScene->party?->members->toArray() ?? [] as $member) {
-          $member->restoreVitals();
-          $member->stats->currentAp = $member->stats->totalAp;
+        foreach ($party?->participants->toArray() ?? [] as $member) {
           $member->clearBattleStates();
+          $member->recoverFromRest();
+          $member->stats->currentAp = $member->stats->totalAp;
         }
         return EventCommandResult::COMPLETED;
 
       case 'play_sound':
         play_sound(strval($command['sound'] ?? ''));
         return EventCommandResult::COMPLETED;
+
+      case 'play_skit':
+        $skitId = $command['skit'] ?? null;
+        if (!is_string($skitId) || trim($skitId) === '') { throw new RuntimeException('play_skit requires a Skit reference.'); }
+        if (!$this->presentation instanceof EventPlayedDialoguePresentationInterface) {
+          throw new RuntimeException('play_skit requires a cooperative conversation presentation.');
+        }
+        $manager = $this->gameScene->skitManager ?? throw new RuntimeException('play_skit requires the field Skit manager.');
+        $session->claimPresentation($lane);
+        try { $operation = $manager->beginSkitPlayback($skitId, $this->presentation); }
+        catch (Throwable $error) { $session->releasePresentation($lane); throw $error; }
+        if ($operation === null) {
+          $session->releasePresentation($lane);
+          return EventCommandResult::COMPLETED;
+        }
+        $lane->yieldFor($command, ['kind' => 'skit'], $operation);
+        return EventCommandResult::YIELDED;
 
       case 'play_music':
         play_music(strval($command['music'] ?? ''), boolval($command['loop'] ?? true));
@@ -743,6 +777,7 @@ class EventInterpreter
           $position,
           $screenSpace,
           isset($command['effect']) ? null : max(0.01, floatval($command['secondsPerFrame'] ?? 0.12)),
+          ($command['follow'] ?? false) ? new CinematicEffectTarget($this->gameScene, $target) : null,
         );
 
         if ($operation->isComplete) {
@@ -814,6 +849,11 @@ class EventInterpreter
     $catalog = $this->scriptCommands ?? ScriptCommandRegistry::getCatalog();
     $definition = $catalog->findDefinition($type)
       ?? throw new RuntimeException($this->unknownCommandDiagnostic($session, $lane, $type));
+    $scope = $this->host->getEventScope();
+
+    if (! $definition->runsIn($scope)) {
+      throw new RuntimeException(sprintf('"%s" cannot run in %s.', $type, $scope->getLabel()));
+    }
     $problems = $definition->findProblems($command);
 
     if ($problems !== []) {
@@ -821,7 +861,7 @@ class EventInterpreter
     }
 
     $outcome = $catalog->createHandler($type)->execute(
-      new ScriptCommandContext($this->gameScene, $session->scriptId, $session->origin),
+      new ScriptCommandContext($this->gameScene, $session->scriptId, $session->origin, $this->host->getBattleControl()),
       $command,
     );
 
@@ -1020,6 +1060,7 @@ class EventInterpreter
         return false;
       }
 
+      if ($type === 'play_skit') { $session->releasePresentation($lane); }
       $lane->completePendingCommand();
       return true;
     }
@@ -1050,7 +1091,7 @@ class EventInterpreter
     $session->complete();
     $this->lastSession = $session;
     $this->activeSession = null;
-    $this->gameScene->onEventSessionFinished($session, true);
+    $this->host->onEventSessionFinished($session, true);
   }
 
   protected function fail(string $message, ?Throwable $throwable = null): void
@@ -1068,7 +1109,9 @@ class EventInterpreter
       'cancel operations' => fn() => $session->fail($message),
       'release lanes' => fn() => $session->cancelLanes(),
       'reset presentation' => fn() => $this->presentation->reset(),
-      'clear cinematic presentation' => fn() => $this->gameScene->cinematicPresentation?->clear(),
+      // A battle page must never clear the presentation of the field script suspended behind its battle.
+      'clear cinematic presentation' => fn() => $this->host->getEventScope() === EventExecutionScope::FIELD
+        ? $this->gameScene->cinematicPresentation?->clear() : null,
       'notify failure target' => fn() => $session->completionTarget?->onEventSessionFailed($this->gameScene, $session),
     ] as $step => $cleanup) {
       try {
@@ -1081,7 +1124,7 @@ class EventInterpreter
     $this->lastSession = $session;
     $this->activeSession = null;
     try {
-      $this->gameScene->onEventSessionFinished($session, false);
+      $this->host->onEventSessionFinished($session, false);
     } catch (Throwable $failure) {
       $diagnostics[] = sprintf('Event session %d failure cleanup (finish scene): %s', $session->id, $failure->getMessage());
     }
@@ -1107,8 +1150,8 @@ class EventInterpreter
   {
     return WorldConditionEvaluator::allHold(
       $conditions,
-      $this->gameScene->gameState,
-      $this->gameScene->party,
+      $this->host->getEventWorldState(),
+      $this->host->getEventParty(),
     );
   }
 

@@ -14,6 +14,8 @@ use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\UI\Presentation\MenuCanvas;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\MenuTextLayout;
+use Ichiloto\Engine\UI\Presentation\MenuActionHints;
+use Ichiloto\Engine\Messaging\Notifications\Interfaces\ActionHintNotificationInterface;
 
 /** Live text in the existing panel skin. Never truncates counts, titles or notification bodies. */
 final class NotificationCanvasPresentation
@@ -39,9 +41,12 @@ final class NotificationCanvasPresentation
       $columns = (int)floor(($w - 2 * $padding - $iconSpace) / $cw);
       if ($columns < 1) { continue; }
       $title = new MenuTextLayout($notice->getContentTitle(), $columns);
-      $body = new MenuTextLayout($notice->getContentText(), $columns);
+      $body = new MenuTextLayout($notice instanceof ActionHintNotificationInterface ? $notice->getPromptText() : $notice->getContentText(), $columns);
+      $hints = $notice instanceof ActionHintNotificationInterface ? $notice->getActionHints() : [];
+      $hintHeight = $hints === [] ? 0 : MenuActionHints::height($hints, $theme, $columns * $cw, required: true);
       if (count($title->lines) > 1 || count($body->lines) > 2) { continue; }
-      $h = $layout->getHeight(count($title->lines), count($body->lines), $hasIcon);
+      $h = $layout->getHeight(count($title->lines), count($body->lines), $hasIcon)
+        + ($hintHeight > 0 ? $style->textGap + $hintHeight : 0);
       if ($h > $layout->heightLimit) { continue; }
       $box = $layout->getBounds($w, $h);
       $view = new MenuCanvas($theme, $width, $height, background: false);
@@ -67,6 +72,18 @@ final class NotificationCanvasPresentation
         $text[] = new CanvasTextLayer($id . '-' . $kind, 30, $x, $y,
           new RendererGridConfig($columns, count($textLayout->lines), $cw, $ch), $runs, $box, $opacity);
         $y += count($textLayout->lines) * $ch + $style->textGap;
+      }
+      if ($hintHeight > 0) {
+        $hintCanvas = MenuActionHints::compose($width, $height, $id . '-hints', $hints, $theme,
+          new CanvasRectangle($x, $y, $columns * $cw, $hintHeight), required: true);
+        foreach ($hintCanvas->images as $image) {
+          $images[] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
+            $image->sourceRect, $image->opacity * $opacity, $box, $image->brightness);
+        }
+        foreach ($hintCanvas->textLayers as $layer) {
+          $text[] = new CanvasTextLayer($layer->id, $layer->layer, $layer->x, $layer->y,
+            $layer->grid, $layer->runs, $box, $layer->opacity * $opacity);
+        }
       }
       return new NotificationSurface(new PresentationCanvas($width, $height, $images, textLayers: $text,
         protectedAreas: [$box]), $box);

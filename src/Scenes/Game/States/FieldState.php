@@ -11,6 +11,11 @@ use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Entities\Actions\FieldActionContext;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
+use Ichiloto\Engine\Field\PlayerDash;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
+use Ichiloto\Engine\Progression\WorldAbilityPrompts;
+use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Field\PlayerWalk;
 use Ichiloto\Engine\Field\FieldActionRegistry;
 use Ichiloto\Engine\Field\SkitPrompt;
@@ -48,6 +53,7 @@ use Ichiloto\Engine\Util\Debug;
 class FieldState extends GameSceneState implements CanvasOverlayProviderInterface
 {
     private ?PlayerWalk $walk = null;
+    private ?WorldAbilityPrompts $worldAbilityPrompts = null;
     private ?SkitPromptPresentation $skitPromptPresentation = null;
     /** Invalidates movement across ownership handoffs, even without held input or a missed update. */
     protected(set) int $movementGeneration = 0;
@@ -97,7 +103,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         return [SkitPromptPresentation::LAYER];
     }
 
-    public function exit(): void { Console::removeOverlay(SkitPromptPresentation::LAYER); }
+    public function exit(): void { $this->worldAbilityPrompts?->cancel(); Console::removeOverlay(SkitPromptPresentation::LAYER); }
     public function suspend(): void
     {
         $this->cancelWalking();
@@ -112,6 +118,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
     /** Invalidate in-flight movement and stop walking; earlier presses must be pressed again. */
     public function cancelWalking(): void
     {
+        $this->worldAbilityPrompts?->cancel();
         $this->movementGeneration++;
         $this->playerWalk->cancel();
     }
@@ -203,6 +210,13 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         if ($movementGeneration !== $this->movementGeneration) {
             return;
         }
+
+        if ($this->worldAbilityPrompts === null
+            && ConfigStore::has(WorldAbilityCatalog::class)
+            && WorldAbilityCatalog::getProjectCatalog()->hasFirstUsePrompts) {
+            $this->worldAbilityPrompts = new WorldAbilityPrompts($scene->getGame());
+        }
+        $this->worldAbilityPrompts?->updateForScene($scene);
 
         $this->handleActions($scene);
 
@@ -344,9 +358,11 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
     protected function handleNavigation(GameScene $scene): void
     {
         if (Input::isHeldInputAvailable()) {
-            // The walk's clock and the step's presentation share one duration.
+            // The walk's clock and the step's presentation share one duration, a dash's included.
             $this->playerWalk->update(Time::getDeltaTime(), static fn(Vector2 $direction, float $seconds): bool
-                => $scene->moveAtPace($seconds, static fn(): bool => $scene->player->tryMove($direction, $scene->camera)));
+                => $scene->moveAtPace($seconds, static fn(): bool => $scene->player->tryMove($direction, $scene->camera, StepOrigin::PLAYER_INPUT)),
+                PlayerDash::getSpeedMultiplier($scene->mapManager?->isDashingDisabled ?? false,
+                    $scene->gameState, $scene->party));
             return;
         }
 

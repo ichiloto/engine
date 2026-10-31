@@ -53,6 +53,7 @@ class TurnInitState extends TurnState
 
     $this->updateUI($context);
     $this->setState($firstStrike === EncounterAdvantage::TROOP ? $this->engine->enemyActionState : $this->engine->playerActionState);
+    $context->runTurnStartEvents();
   }
 
   /**
@@ -68,7 +69,7 @@ class TurnInitState extends TurnState
     /** @var CharacterInterface[] $battlers */
     $battlers = array_values(array_filter(
       [...$context->partyRoster->battlers, ...$context->troop->members->toArray()],
-      fn(CharacterInterface $battler) => ! $battler->isKnockedOut
+      fn(CharacterInterface $battler) => $battler->isFighting
         && ! ($excludedSide === 'troop' && $battler instanceof \Ichiloto\Engine\Entities\Enemies\Enemy)
         && ! ($excludedSide === 'party' && ! $battler instanceof \Ichiloto\Engine\Entities\Enemies\Enemy)
     ));

@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
@@ -295,7 +296,7 @@ afterEach(function () {
 it('completes transfer writes after real destination commit before automatic events and removes automatic transfer autosave', function () {
     $scene = createTransferTriggerScene(destinationAuto: true);
     $trigger = $scene->player->findTrigger('T');
-    expect($scene->player->tryMove(Vector2::right(), $scene->camera))->toBeTrue();
+    expect($scene->player->tryMove(Vector2::right(), $scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue();
     $phases = array_column($scene->journal, 'phase');
     expect($phases)->toBe(['prepare', 'before-commit', 'committed', 'rendered', 'callback',
         'write:event:boundary_crossed', 'write:variable:crossings', 'finalize', 'event-start',
@@ -324,20 +325,20 @@ it('completes transfer writes after real destination commit before automatic eve
 it('persists one-shot completion under source identity and restores it on return', function () {
     $scene = createTransferTriggerScene(['reusable' => false]);
     $original = $scene->player->findTrigger('T');
-    $scene->player->tryMove(Vector2::right(), $scene->camera);
+    $scene->player->tryMove(Vector2::right(), $scene->camera, StepOrigin::PLAYER_INPUT);
     expect($original->isComplete)->toBeTrue()
         ->and($scene->gameState->isEventComplete('test/source', 'T'))->toBeTrue()
         ->and($scene->gameState->isEventComplete('test/destination', 'T'))->toBeFalse()
         ->and($scene->player->findTrigger('T')->isComplete)->toBeFalse()
         ->and($scene->gameState->toArray()['completedEvents'])->toBe(['test/source:T' => true]);
-    expect($scene->player->tryMove(Vector2::right(), $scene->camera))->toBeTrue()
-        ->and($scene->player->tryMove(Vector2::right(), $scene->camera))->toBeTrue()
+    expect($scene->player->tryMove(Vector2::right(), $scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
+        ->and($scene->player->tryMove(Vector2::right(), $scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
         ->and($scene->currentMapId)->toBe('test/source');
     $restored = $scene->player->findTrigger('T');
     expect($restored)->not->toBe($original)->and($restored->isComplete)->toBeTrue();
     $requests = $scene->transferRequests;
     $saves = count($scene->saves->snapshots);
-    expect($scene->player->tryMove(Vector2::right(), $scene->camera))->toBeTrue()
+    expect($scene->player->tryMove(Vector2::right(), $scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
         ->and($scene->currentMapId)->toBe('test/source')
         ->and($scene->transferRequests)->toBe($requests)
         ->and($scene->committedCallbacks)->toBe(2)
@@ -349,13 +350,13 @@ it('applies variable writes once per reusable pass while story writes stay idemp
     $scene = createTransferTriggerScene($data);
     for ($pass = 1; $pass <= 2; $pass++) {
         $trigger = $scene->player->findTrigger('T');
-        expect($scene->player->tryMove(Vector2::right(), $scene->camera))->toBeTrue()
+        expect($scene->player->tryMove(Vector2::right(), $scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
             ->and($scene->currentMapId)->toBe('test/destination')
             ->and($scene->gameState->getVariable('crossings'))->toBe($pass)
             ->and($scene->committedCallbacks)->toBe(2 * $pass - 1)
             ->and($trigger->isComplete)->toBeFalse();
-        expect($scene->player->tryMove(Vector2::right(), $scene->camera))->toBeTrue()
-            ->and($scene->player->tryMove(Vector2::right(), $scene->camera))->toBeTrue()
+        expect($scene->player->tryMove(Vector2::right(), $scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
+            ->and($scene->player->tryMove(Vector2::right(), $scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
             ->and($scene->currentMapId)->toBe('test/source');
     }
     expect($scene->gameState->storyEvents)->toBe(['boundary_crossed'])
@@ -371,7 +372,7 @@ it('does not write or complete when movement cannot activate a transfer', functi
         $blocker === 'gate' ? 'Synthetic route is locked.' : null, solidEntry: $blocker === 'collision');
     $trigger = $scene->player->findTrigger('T');
     $before = $scene->gameState->toArray();
-    expect($scene->player->tryMove(Vector2::right(), $scene->camera))->toBe($moves)
+    expect($scene->player->tryMove(Vector2::right(), $scene->camera, StepOrigin::PLAYER_INPUT))->toBe($moves)
         ->and($scene->transferRequests)->toBe(0)
         ->and($scene->committedCallbacks)->toBe(0)
         ->and($scene->gameState->toArray())->toBe($before)
@@ -393,7 +394,7 @@ it('refuses invalid destination sources without callback writes completion or au
     $trigger = $scene->player->findTrigger('T');
     $before = $scene->gameState->toArray();
     $tiles = $scene->mapManager->tileMap;
-    $scene->player->tryMove(Vector2::right(), $scene->camera);
+    $scene->player->tryMove(Vector2::right(), $scene->camera, StepOrigin::PLAYER_INPUT);
     expect($scene->transferRequests)->toBe(1)
         ->and($scene->committedCallbacks)->toBe(0)
         ->and($scene->failures)->toHaveCount(1)

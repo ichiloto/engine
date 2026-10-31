@@ -3,6 +3,7 @@
 
 declare(strict_types=1);
 
+use Ichiloto\Engine\Field\SkitBackdrop;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -33,9 +34,9 @@ try {
     if (isset($options['help'])) {
         echo "Usage: php tools/gpui-dialogue-preview.php --renderer=PATH --asset-root=PATH --snapshot=JSON\n"
             . "  [--width=1280 --height=720 --duration=20]\n"
-            . "  [--background=ASSET_ROOT_RELATIVE_PNG] Preview-only skit artwork; never writes bindings.\n"
+            . "  [--background=ASSET_ROOT_RELATIVE_PNG] Preview-only skit backdrop; never writes bindings.\n"
             . "Snapshot: speaker, text, optional actorId/emotion/position/visibleText/printing/auto,\n"
-            . "skitId/skitTitle/location/participants and bindings. Silent fixture; closes automatically.\n";
+            . "skitId/skitTitle/location/participants/backdrop and bindings. Silent fixture; closes automatically.\n";
         exit(0);
     }
     $renderer = $options['renderer'] ?? '';
@@ -67,8 +68,14 @@ try {
         unset($binding);
         InputManager::setBindings($bindings);
     }
+    if (isset($options['background']) && ($data['skitId'] ?? null) === null) {
+        throw new InvalidArgumentException('A background preview requires a skit snapshot and an asset-root-relative PNG.');
+    }
+    // A skit snapshot carries the backdrop its place resolved; a proposed one replaces it in this process only.
+    $backdrop = isset($options['background']) ? $options['background'] : ($data['backdrop'] ?? null);
+    if ($backdrop !== null) { $backdrop = SkitBackdrop::validateAsset($backdrop, 'The previewed backdrop'); }
     $context = new DialogueContext($data['actorId'] ?? null, $data['emotion'] ?? 'Neutral', $data['skitId'] ?? null,
-        $data['skitTitle'] ?? '', $data['location'] ?? '', $data['participants'] ?? []);
+        $data['skitTitle'] ?? '', $data['location'] ?? '', $data['participants'] ?? [], $backdrop);
     $line = new DialogueSnapshot($data['speaker'], $data['text'], $data['visibleText'] ?? $data['text'],
         $data['printing'] ?? false, 0, 1, $data['auto'] ?? false,
         isset($data['position']) ? (array_find(WindowPosition::cases(), fn($position) => $position->name === $data['position'])
@@ -76,12 +83,6 @@ try {
     // Compose before opening a window, so invalid artwork/layout never leaves a test window behind.
     $catalogue = DialoguePresentationCatalog::load($root);
     if (isset($options['background'])) {
-        if ($context->skitId === null || !is_string($options['background'])) {
-            throw new InvalidArgumentException('A background preview requires a skit snapshot and an asset-root-relative PNG.');
-        }
-        $catalogue = new DialoguePresentationCatalog($catalogue->actors, $catalogue->theme, $catalogue->speakers,
-            array_replace($catalogue->skits, [$context->skitId => ['background' => $options['background']]]),
-            $catalogue->skitStage, $catalogue->resources);
         if (PngAssetPreflight::getAvailableSize($root, $options['background']) === null) {
             throw new InvalidArgumentException('The proposed background must decode within the asset root before preview.');
         }

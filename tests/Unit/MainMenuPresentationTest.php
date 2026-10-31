@@ -798,7 +798,7 @@ it('wraps live labels and semantic hints without overlapping records or descript
   $text = mainMenuPresentationText($frame);
   expect($text['main-command-0-text'])->toBe($label)->and($text['main-info-value'])->toBe($description)
     ->and($text['main-party-0-identity-text'])->toBe($member->name)
-    ->and($text['main-hints'])->toContain(' ' . $controlLabel . ' : Confirm', ' ' . $controlLabel . ' : Cancel')->not->toContain('ESC')
+    ->and($text['main-hints'])->toContain($controlLabel . ' Confirm', $controlLabel . ' Cancel')->not->toContain('ESC')
     ->and($source->keys)->toBe([KeyCode::ENTER]);
   $layers = array_column($frame->textLayers, null, 'id');
   $hints = $layers['main-hints'];
@@ -812,8 +812,8 @@ it('wraps live labels and semantic hints without overlapping records or descript
   ActionHints::useProvider(null);
   InputManager::setBindings([]);
   $frame = $this->state->canvas($theme);
-  $expected = 'Unbound: Confirm  Unbound: Cancel';
-  if (isset(mainMenuPresentationText($frame)['main-party-pager-counter'])) { $expected .= '   Page Up : Prev   Page Down : Next'; }
+  $expected = 'Unbound ConfirmUnbound Cancel';
+  if (isset(mainMenuPresentationText($frame)['main-party-pager-counter'])) { $expected .= 'PgUp PrevPgDn Next'; }
   expect(mainMenuPresentationText($frame)['main-hints'])->toBe($expected);
 })->with([false, true]);
 
@@ -821,12 +821,11 @@ it('refreshes compact hints and profile glyphs on the real four-party menu witho
   InputManager::setBindings(['confirm' => ['keys' => [KeyCode::SPACE, KeyCode::ENTER]],
     'cancel' => ['keys' => [KeyCode::C, KeyCode::c, KeyCode::ESCAPE]]]);
   $data = mainMenuPresentationTheme($alternative);
-  $data['icons']['input.profile-one.confirm'] = 'surface.png';
-  $data['icons']['input.profile-two.confirm'] = 'focus.png';
+  $data['controls'] = ['profile-one' => ['glyphs' => ['confirm' => 'surface.png']], 'profile-two' => ['glyphs' => ['confirm' => 'focus.png']]];
   $theme = new MenuPresentationCatalog($this->root, $data);
   $this->state->mainMenu->setActiveItemByLabel('Order');
   $frame = $this->state->canvas($theme);
-  expect(mainMenuPresentationText($frame)['main-hints'])->toBe(' Enter : Confirm   Escape : Cancel');
+  expect(mainMenuPresentationText($frame)['main-hints'])->toBe('Enter ConfirmEsc Cancel');
   $provider = new class implements ActionHintProvider {
     public function __construct(public string $family = 'profile-one') {}
     public function controlForAction(string $action): ?ControlHint { return new ControlHint($this->family, $action, 'Primary ' . $action); }
@@ -841,7 +840,7 @@ it('refreshes compact hints and profile glyphs on the real four-party menu witho
     $frame = $this->state->canvas($theme);
     expect(count($frame->textLayers))->toBeLessThanOrEqual(64)
       ->and(mainMenuPresentationText($frame))->toHaveKeys(['main-party-0-identity-text', 'main-party-3-identity-text'])
-      ->and(mainMenuPresentationText($frame)['main-hints'])->toBe(': Confirm   Primary cancel : Cancel')
+      ->and(mainMenuPresentationText($frame)['main-hints'])->toBe(' ConfirmPrimary cancel Cancel')
       ->and(array_column(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'main-hints-control-')), 'asset'))->toBe([$asset])
       ->and($this->state->getPresentationMode())->toBe($mode)->and(InputManager::getBindings())->toBe($bindings)
       ->and($source->keys)->toBe([KeyCode::ENTER]);
@@ -854,7 +853,7 @@ it('refreshes compact hints and profile glyphs on the real four-party menu witho
     ->and($this->state->getPresentationMode())->toBeInstanceOf(MainMenuPartyOrderMode::class);
   ActionHints::useProvider(null);
   InputManager::setBinding('cancel', [KeyCode::Q]);
-  expect(mainMenuPresentationText($this->state->canvas($theme))['main-hints'])->toBe(' Enter : Confirm   Q : Cancel');
+  expect(mainMenuPresentationText($this->state->canvas($theme))['main-hints'])->toBe('Enter ConfirmQ Cancel');
 })->with([false, true]);
 
 it('contains replacement portraits using current PNG facts and preserves valid unique instances', function () {
@@ -885,7 +884,7 @@ it('uses shared Config when themed and overlays alerts without changing the acti
   expect($configFrame)->not->toBeNull();
   $configRuns = array_merge(...array_map(fn($layer) => array_column($layer->runs, 'text'), $configFrame->textLayers));
   expect($this->state->getPresentationMode())->toBeInstanceOf(MainMenuConfigMode::class)
-    ->and($configRuns)->toContain('Config', 'Volume', '75%', 'Sets the master volume for music, sound effects and voice.', 'Cancel');
+    ->and($configRuns)->toContain('Config', 'Master Volume', '75%', 'Sets the master volume for music, sound effects and voice.', 'Cancel');
   $config = $this->state->getPresentationMode()->getConfigMenu();
   InputManager::setBindings([...InputManager::getBindings(), 'down' => ['keys' => [KeyCode::DOWN]]]);
   mainMenuPresentationKey(KeyCode::DOWN, $this->state);
@@ -939,7 +938,7 @@ it('connects in-game Save to the shared themed canvas and modal lifecycle withou
   expect($this->scene->getPresentationCanvas())->toBeNull();
   $terminal = new ReflectionProperty($state, 'helpWindow')->getValue($state);
   expect(implode(' ', $terminal->getContent()))->toContain('Rest Point', '01:00:00')
-    ->and($terminal->getHelp())->toContain('Enter: Save', 'Escape: Back');
+    ->and($terminal->getHelp())->toContain('[Enter] Save', '[Esc] Back');
 
   $themeData = mainMenuPresentationTheme($alternative);
   file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export($themeData, true) . ';');
@@ -1169,3 +1168,50 @@ it('replaces only the unavailable main menu portrait and retains other cards and
   mainMenuPresentationPng($this->root . '/broken.png', 33, 55);
   expect(array_column($this->scene->getPresentationCanvas()->images, 'asset'))->toContain('broken.png');
 });
+
+it('shows each member\'s conditions beside their resources in both renderers', function (bool $alternative) {
+  mainMenuPresentationPng($this->root . '/venom.png', 31, 47);
+  $member = $this->party->members->toArray()[1];
+  $member->addState(new \Ichiloto\Engine\Entities\States\State('venom', 'Venom', 'V', 'Saps HP.', label: 'VNM'));
+  $member->addState(new \Ichiloto\Engine\Entities\States\State('daze', 'Daze', '', '', label: 'DZE'));
+  $theme = mainMenuPresentationTheme($alternative);
+  $theme['icons']['status.state.venom'] = 'venom.png';
+  $frame = $this->state->canvas(new MenuPresentationCatalog($this->root, $theme));
+  $layers = array_column($frame->textLayers, null, 'id');
+  $hp = $layers['main-party-1-resources-hp-text'];
+  $badges = array_values(array_filter($frame->images, fn($image) => $image->asset === 'venom.png'));
+  $labels = array_values(array_filter($frame->textLayers, fn($layer) => str_starts_with($layer->id, 'main-party-1-conditions-')));
+
+  expect($badges)->toHaveCount(1)
+    ->and(array_column($labels[0]->runs, 'text'))->toBe(['DZE'])
+    ->and($badges[0]->destination->x)->toBeGreaterThanOrEqual($hp->clipRect->x + $hp->clipRect->width)
+    ->and($labels[0]->x)->toBeGreaterThan($badges[0]->destination->x)
+    ->and(array_filter(array_column($frame->textLayers, 'id'), fn($id) => str_contains($id, 'main-party-0-conditions')))->toBe([]);
+
+  $this->state->characterSelectionMenu->refreshMembers();
+  $panels = new ReflectionProperty($this->state->characterSelectionMenu, 'characterPanels')->getValue($this->state->characterSelectionMenu);
+  expect(TerminalText::stripAnsi($panels[1]->getContent()[0]))->toContain('Actor 1  V DZE')
+    ->and(TerminalText::stripAnsi($panels[0]->getContent()[0]))->not->toContain('DZE');
+})->with([false, true]);
+
+
+it('shares distinct location names between terminal summaries and both graphical themes without changing map data', function (string $name, string $region, array $expected) {
+  $location = new PartyLocation($name, $region);
+  $this->party->location = $location;
+  new ReflectionProperty($this->state, 'locationDetailPanel')->getValue($this->state)->setLocation($name, $region);
+  expect($location->displayNames)->toBe($expected)
+    ->and($location->prettyLocation)->toBe(implode(' - ', array_reverse($expected)))
+    ->and($location->name)->toBe($name)->and($location->region)->toBe($region)
+    ->and($this->state->getPresentationSummaries()['location']['lines'])->toBe($expected);
+  foreach ([false, true] as $alternative) {
+    $frame = $this->state->canvas(new MenuPresentationCatalog($this->root, mainMenuPresentationTheme($alternative)));
+    expect(mainMenuPresentationText($frame)['main-location-value'] ?? '')->toBe(implode('', $expected));
+  }
+})->with([
+  'same place and region' => ['Synthetic Port', 'Synthetic Port', ['Synthetic Port']],
+  'distinct region' => ['Synthetic Port', 'Synthetic Coast', ['Synthetic Port', 'Synthetic Coast']],
+  'region only' => ['', 'Synthetic Coast', ['Synthetic Coast']],
+  'place only' => ['Synthetic Port', '', ['Synthetic Port']],
+  'no label' => ['', '', []],
+  'display whitespace' => [' Synthetic Port ', 'Synthetic Port', ['Synthetic Port']],
+]);

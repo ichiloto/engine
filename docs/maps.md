@@ -24,7 +24,78 @@ their data and event files. This legacy format remains supported. An existing
 but empty or invalid `layers/` directory is an error, not a request to fall back
 to the legacy grid.
 
+## Field-image appearance and passage diagnostics
+
+A field presentation resource or inline world object can declare optional
+`appearance`: `ground`, `water`, `barrier` or `overhead`, using `TileAppearance`.
+A resource owns this value for all its placements; a placement cannot override
+it. Omission retains legacy image-based inspection. Invalid values are refused.
+
+`MapPassageAgreementRule` uses this declaration when inspecting opaque art.
+Floors and overhead trim do not imply a ground obstacle; water, barriers and
+unclassified images retain obstruction checks on their ground rows. Ground art
+covering solid physical cells still exposes invisible walls. This diagnostic
+annotation never changes physical occupancy, rendering, events or saves.
+
+## Literal source cells
+
+`TerminalText::composeSourceCell($symbol, $prefix, $suffix)` composes a literal
+grapheme with its independent style. Use it when authoring glyphs; concatenating
+a styled backslash directly before a formatter closing tag changes its meaning.
+For formatter delimiters and backslashes the helper resolves the existing style
+to equivalent ANSI boundaries, retaining literal glyph bytes without NULs or a
+second escape grammar. Regular source style spelling remains unchanged.
+Authored hex colours are serialized as 24-bit ANSI independently of the host's
+terminal capabilities. The display formatter's colour mode is restored after
+source composition, including failures.
+`resolveSourceStyle($prefix, $suffix)` exposes those same host-independent
+`prefix`/`suffix` ANSI boundaries without inserting a glyph. Empty wrappers
+produce empty boundaries; literal text in a style is refused. Consumers use
+this resolver instead of changing their own formatter colour modes.
+`parseSourceCells` and `getSourceSymbols` keep those boundaries independently
+composable, including literal characters that would otherwise form a tag.
+Plain printable rows use an ASCII/grapheme fast path. Styled rows reuse exact
+style and source/display proofs within the row; acceptance and source spelling
+remain the shared parser's responsibility.
+
 ## Grid source format
+
+### Named local areas
+
+Map data can declare logical territories independently of artwork, collision,
+minimap discovery or whole-map region labels:
+
+```php
+'areas' => [[
+  'id' => 'survey-reach',
+  'area' => ['cells' => [[12, 8], [13, 8], [13, 9]]],
+]],
+```
+
+Each stable lowercase id owns one exact, nonempty set of physical cells. A
+rectangle can use `area => ['x'=>12, 'y'=>8, 'width'=>2, 'height'=>3]`. There
+are at most 256 declarations; ids and cells cannot repeat, and every cell must
+exist in the physical grid, including on ragged maps. Unknown fields, missing
+areas and invalid bounds are errors. Rectangle bounds are checked before the
+cell set is expanded.
+
+An event can use `subject => ['kind'=>'area', 'id'=>'survey-reach']` instead of
+painted marker cells or an inline area. Those three geometry owners are mutually
+exclusive. Existing engagement, conditions and one-time event identity still
+apply. An automatic event runs through the ordinary Player lifecycle on entry
+and when a new or restored field starts inside its area; the area itself grants
+no quest progress, rewards or story flags. The event's authored commands own
+those outcomes. This supports local arrival flags without treating entry into
+the entire map as entry into one district.
+
+A landmark can use `anchor => ['area'=>'survey-reach']`; learning its name does
+not run the event or change its eligibility. A random encounter entry can be
+limited to areas with `'areas' => ['survey-reach']` (see Random encounters). `MapAreaCatalog` owns declaration
+validation, and `MapEventDefinition::SUBJECT_KINDS` exports supported subject
+kinds for authoring. Runtime and unsaved source validation use the same catalog.
+`MapLandmarkAnchors::readMap` requires the physical grid when named areas exist;
+its fourth reference table is `areas`. Editing territory moves its consumers
+through references, with no independent copied geometry.
 
 ### Read-only validation of unsaved maps
 
@@ -35,7 +106,13 @@ geometry and event-subject resolution as file-backed loading and returns
 event areas have been resolved; do not pass already-normalized subject events
 back as declarations with an independent `area`.
 
-`ProjectReachability::analyze($assetRoot, $mapSources = [])` checks a current
+Hosts installing in-memory map source through `MapManager::installMapSource`
+may supply a lazy field-catalogue loader alongside graphics and tile layers.
+Resource-backed world objects then resolve against the host's current catalogue.
+File-backed runtime loads retain the project-file catalogue path. The same map
+validation and object preparation apply before scene mutation.
+
+`ProjectReachability::analyze($assetRoot, $mapSources = [], $loadTileset = null)` checks a current
 in-memory view without saving or copying maps. Overrides are keyed by map ID:
 
 ```php
@@ -45,6 +122,12 @@ in-memory view without saving or copying maps. Overrides are keyed by map ID:
   'old/room' => null, // removed from this view
 ]
 ```
+
+An optional tileset reader accepts a stable tileset ID and returns its current
+`Tileset`. It is used for every map painted in terrain kinds, including maps
+whose declarations have not changed, so staged catalogue edits participate in
+reachability and safe-save planning. Reader failures remain unreadable-map
+diagnostics. Without a reader, tilesets are loaded from the saved assets.
 
 An override replaces disk source, including new maps that have no directory
 yet. Null removes a map from the validation view. Other maps, project startup
@@ -101,6 +184,190 @@ two placements are not part of it, so standing there triggers nothing and an
 unavailable event's `whenBlocked` gate only stops steps onto its own cells.
 A cue shows on each separate placement. Cinematics that name a marker as a
 subject use its first cell in reading order, the top-left of a rectangle.
+An NPC's pages take the same `cue` (symbol, colour, conditions, optional
+kind and `maxDistance`), read by the same validator; the NPC shows the cue of the page talking
+would run, in the cell above itself (see [NPC pages](#npc-pages)).
+Quest waymarks name markers the same way and mark each placement; see
+[Waymarks](quests.md#waymarks-where-an-objective-sends-the-player) for how
+objectives are marked on the field, the local map and the world map, and how
+the next exit toward another map is chosen.
+
+### Opening passages
+
+`PassageEventTrigger` owns a permanent opening operated through the ordinary
+Action interaction. Author it on walkable physical floor, with `engagement =>
+'facing'`, `data.mode => 'action'` and `data.reusable => false`. The map id and
+event marker are its saved identity. Entry from outside stays blocked until
+the opening action completes. A player already inside can move out.
+
+```php
+'P' => [
+  'class' => PassageEventTrigger::class,
+  'engagement' => 'facing',
+  'conditions' => [['type' => 'switch', 'name' => 'sense-passages']],
+  'cue' => ['symbol' => '!', 'maxDistance' => 2],
+  'data' => ['mode' => 'action', 'reusable' => false],
+],
+```
+
+Root conditions control whether the Action interaction and cue are available.
+Sensing displays the marker; Action completes the opening. Optional inline
+`script` commands or a selected `scriptId` can present the reveal. An empty
+opening script completes directly. A failed script leaves the passage closed.
+`whenBlocked` supplies an optional explanation; its absence keeps refused
+movement quiet. Completion uses existing `completedEvents`, survives reload and
+map visits, and keeps the opening after the sensing condition changes.
+
+Concealing artwork belongs to a world object. Give that object's visibility the
+negated `map_event` condition for this map and marker; its graphical and terminal
+presentations then retire together when the passage opens. Keep the physical
+floor walkable and use the event as the closed-access owner. Runtime preparation
+and Editor validation refuse permanently blocked floor under an opening passage.
+Artwork replacement never changes physical occupancy.
+
+For a wall disguise, use the wall's tile identity in `tiles2d`. Available object
+tiles replace the corresponding graphical layer cells before neighbour shaping,
+custom corner joins and tileset shadows are computed. The field and map overview
+use this same composition. The object can omit `sprites2d` when it supplies tiles:
+
+```php
+'worldObjects' => [[
+  'id' => 'concealed-wall',
+  'anchor' => ['x' => 4, 'y' => 3],
+  'pivot' => ['x' => .5, 'y' => 1],
+  'tiles2d' => ['walls' => [['x' => 4, 'y' => 3, 'tile' => 5888]]],
+  'conditions' => [['type' => 'map_event', 'name' => 'house/hall', 'marker' => 'P', 'negate' => true]],
+  'terminal' => '|',
+]],
+```
+
+`tiles2d` names existing graphical layers and lists absolute map `x`, `y` and
+integer `tile` identities. Zero clears a tile. Every cell must belong to the
+object's explicit `covers.cells` footprint, or its anchor when `covers` is
+omitted. The total limit is 256 tile contributions per object; duplicate claims
+and overlapping ownership between objects are refused. Contributions may share
+the same object's covered source cells. Declared layer identities are validated
+even when optional artwork is unavailable; terminal presentation remains usable.
+
+An unavailable object contributes no tiles and no longer suppresses its covered
+source tiles or glyphs. An available object's explicit null sprite variant keeps
+its source coverage, preserving authored removal states. Opening the passage
+retires its tile disguise; the underlying floor and neighbouring shadows are
+recomposed from the same saved completion. Staging an object temporarily
+suppresses its tile contribution through the existing cinematic ownership.
+Passage-agreement validation reads unconditional object contributions and source
+coverage through the same shown-row iterator as rendering. It retains the
+existing baseline policy for conditional objects. Warnings never change physical
+occupancy. Runtime and authoring share
+`WorldObjectDefinition::shouldHideOwnedGlyphs(drawable, hasSelectedRole)` after
+evaluating availability and resolving the selected presentation; this preserves
+terminal fallback when optional art or tile sheets cannot draw.
+No new renderer capability is required: composed tiles and shadows use the
+existing retained-world protocol. Shared Editor tile selection and source
+round trips are tracked in the rendering integration roadmap.
+
+For a secret minimap passage, anchor an explicit `kind => 'passage'` landmark to
+this event, set `secret => true`, and use its `map_event` completion as the
+`revealConditions`. The same completion controls route access. Undescribed
+opening passages create no automatic marker. Each independent opening needs its
+own event marker; disconnected placements of one event share completion.
+
+Cue `maxDistance` is an optional integer from 0 to 64 logical cardinal steps.
+Each separate placement measures from its own cue cell. Outside that range it
+shows no cue. Omission preserves unlimited cue range. Both graphical and terminal
+presenters use the logical player position, and NPC cues support the same range.
+The shared Editor offers Opening Passage and cue-range controls with ordinary
+source-preserving save, undo and redo. Game conditions own which ability senses
+a passage; the Engine carries no game-specific character or story rule.
+
+### Event speakers
+
+An event names the people who speak its lines with `speakers`, a list of 1..8
+distinct stable NPC ids on the same map:
+
+```php
+'H' => [
+  'class' => ScriptEventTrigger::class,
+  'speakers' => ['analysis-supervisor'],
+  'data' => ['mode' => 'auto', 'reusable' => false, 'scriptId' => 'assessment-briefing'],
+],
+```
+
+Speakers are authored identity; nothing infers them from a line's name, and
+they change no runtime behaviour. `MapEventSpeakerRule` (rule `event.speaker`,
+part of `MapCompletenessValidator::validateEvents`) requires the player to see
+who talks: every page of a speaker that may show while the event can run must
+stand on or within one cell of the event's area, in any direction, with a
+wandering page's whole wander area there, and at least one page must be able
+to show. A page may show unless its conditions and the event's effective
+conditions (subject conditions included) provably exclude each other
+(`Core\WorldConditionExclusion`, the same proof the Editor uses for NPC
+phases sharing a tile). A speaker who is not an NPC on the map, is never
+present, wanders freely or stands away is reported with the cells where they
+stand. A scene that walks people into place is authored as pages conditioned on
+that phase, standing where the scene needs them, so the rule reads the map
+without running scripts.
+
+A scene the player starts by action and an NPC delivers belongs to that NPC.
+`MapNpcInteractionRule` (rule `event.npc-interaction`, also part of
+`validateEvents`) reports a script, Cinematic or dialogue event in `action`
+mode that names NPC speakers: the player would have to find its cell, while
+talking to the NPC says something else. Move it onto the first speaker's
+pages. Scenes that start on arrival (`auto`) are not conversations, and an
+event bound to a world object is that object's interaction (a terminal, a
+reception counter) and one bound to a named area is that place's (a safe
+position, a gap a creature holds); their speakers answer for them. Shop and
+inn events stay with the counter or fixture they are authored on; a page
+offers either service with the `shop` and `inn` script commands when the
+NPC should own it.
+
+### NPC pages
+
+An NPC's ordered `dialogue` variants are its interaction pages, as RPG
+Maker's event pages. Talking runs the first page whose `conditions` hold and
+which has not retired, so the most advanced story state goes first and an
+unconditional page last:
+
+```php
+'npcs' => [[
+  'id' => 'field-supervisor',
+  'name' => 'Supervisor Ilyan',
+  'x' => 55, 'y' => 11,
+  'dialogue' => [
+    [
+      'id' => 'first-assignment',
+      'conditions' => [['type' => 'event', 'name' => 'blood_sample_submitted'],
+        ['type' => 'event', 'name' => 'assignment_issued', 'negate' => true]],
+      'cue' => ['symbol' => '!', 'color' => 'bright-yellow'],
+      'scriptId' => 'garden-of-roads-assignment',
+      'reusable' => false,
+    ],
+    ['lines' => [['name' => 'Supervisor Ilyan', 'text' => 'Use the east deployment gate.']]],
+  ],
+]],
+```
+
+A page shows its `lines`, then runs at most one action: inline `script`
+commands, the shared script `scriptId` (`assets/Events/<id>.php`, run as a
+Common Event, the files map script events use) or the Cinematic
+`cinematicId`. Its `sets` apply when it finishes, before the NPC's own
+`sets`. Its `cue` is the NPC's guidance while it is the page talking would
+run, so a waymark on the NPC appears and retires with that cue. A page with
+`reusable` false retires once its action completes; it needs a stable `id`,
+and its completion is saved as the one-shot event `{map}:{npcId}/{pageId}`,
+so moving a one-shot map event onto a page maps the old `{map}:{marker}`
+identity there through `aliases.one_shot_events`. `speakers` names the
+other NPCs its scene stages; each must stand beside the NPC whenever the page
+can run, as event speakers stand beside their event.
+
+A plain list of lines, or a top-level `script` (which replaces any
+dialogue), is one unconditional page, and only that shorthand carries its
+`cue` on the NPC itself. `NpcPages` reads pages for the field, waymarks,
+routes and validation alike. The rule `npc.page` reports malformed pages,
+dialogue a top-level script hides, a page an earlier reusable page always
+pre-empts (its authored conditions include all of the earlier page's) and a
+staged speaker away from the NPC. A reusable page whose script transfers is
+a route, used by talking to the NPC while it is the page talking runs.
 
 ## Active-map landmarks and discovery
 
@@ -522,7 +789,17 @@ return [
 ```
 
 A named section overrides the flat dictionary for that layer; otherwise the
-flat entry applies. Unknown glyphs remain solid. Resolution walks gameplay
+flat entry applies. Unknown glyphs remain solid. A glyph is looked up by its
+own entry first and then by its ASCII transliteration, so entries beyond
+ASCII such as `▲` or `♣` apply as authored.
+
+A map painted in its tileset's terrain kinds (`'terrainKinds' => true`)
+reads each kind layer through a section composed from the kinds: every kind's
+glyph gets the collision its passage and encounters give (`SOLID`,
+`ENCOUNTER` or `NONE`). The dictionary's own section for that layer may repeat
+a kind's glyph only with the same collision; a different one refuses the map,
+naming both, since a kind owns its glyph's passage on its layer. See the
+layered tilemaps plan, Stage 7. Resolution walks gameplay
 layers from top to bottom, skipping upper spaces and `PASS_THROUGH` symbols.
 The first remaining glyph supplies the collision result. If no layer supplies
 a result, the cell is solid; `PASS_THROUGH` is never a final collision value.
@@ -581,7 +858,34 @@ through. Each map's report lists:
 - a talkable NPC no reachable cell reaches, beside it or across one counter cell by the
   same rule the field talks by, whose lines nobody can read;
 - an arrival naming a map the project does not have, and a map the field
-  cannot read.
+  cannot read;
+- an interaction the player meets from the wrong side, a warning rather than a
+  blocker (see below).
+
+### Approach sides
+
+Interactions should face the way the player comes in. For every interaction
+(an action event that is faced, such as a desk or terminal, or that names
+speakers; transfers and automatic events are routes and scenes, not
+interactions), `MapReachability::findDetouredApproaches()` walks from each
+arrival into the map to the fewest-steps cell where the player first stands
+at the event's subject: on or beside its cells from any side, or where they
+can speak to one of its speakers by the field's talk rule. When the nearest
+cell where the event actually answers (its engagement and authored facing) is
+more than `MapReachability::APPROACH_DETOUR_TOLERANCE` (one) steps further,
+the player has reached the subject behind or beside it and must walk round.
+`ProjectReachability` reports one `DETOURED_APPROACH` problem per event, naming
+the arrival with the longest walk round, the cell the player naturally reaches,
+the extra steps and the cell where the event answers. Arrivals carry the
+conditions of the event or NPC that sends the player
+(`ReachabilityEntrance::$conditions`), so an arrival that cannot happen while
+the event runs is skipped, by the same `WorldConditionExclusion` proof the
+speaker rule uses; speakers present while the event runs block their cells.
+`AutomaticEventTriggerInterface::determineRunsAutomatically()` reads a
+trigger's mode from its authored data, so the analysis tells automatic events
+apart without building triggers. Fix a finding where the room is designed:
+turn the desk and its speaker toward the arrival path, move the event's cells
+to the side the player reaches, or allow its facing from that side.
 
 `MapReachability` runs the same analysis on one map's collision grid, events
 and NPCs, for tests with synthetic maps. Its bounded candidate cells use
@@ -590,6 +894,19 @@ runtime interaction and the action prompt. The Editor's `ReachabilityValidator`
 delegates to `ProjectReachability`; authoring validation therefore uses the same
 one-cell rule, including whether an NPC's scripted transfer can run. This does
 not rewrite existing layouts or make graphical counter art a collision source.
+
+### Walks between cells
+
+`MapReachability::findRoute($from, $to)` gives a shortest walk between two
+cells under the same movement rules: every cell from the first to the last, or
+null when the player cannot get there. It never passes through a cell that
+takes the player off the map, though it may begin or end on one
+(`isLeavingMapAt()`), and of the equally short walks it keeps its heading
+wherever it can, so it turns as seldom as a player holding a direction.
+`describeStandingProblem()` says why a cell cannot be stood on (outside the
+map, solid, or where a fixed NPC stands). `MapReachability::readMap()` reads a
+map's resolved events, edge triggers and NPCs the way `ProjectReachability`
+does. The Editor's walk measurement (`map.measure`) is built on these.
 
 ## Editing and migration
 
@@ -709,6 +1026,64 @@ return [
 Maps sharing a region are the same place as far as the player is concerned,
 and the map screen draws them together.
 
+What a project authors for a whole region lives in the optional
+`Data/regions.php` (`RegionCatalog`, schema `ichiloto.regions/1`), one record
+per region keyed by its name exactly as maps write it. A record may name the
+region's `skitBackdrop`, which skits show on any of its maps that names none
+(see the skits plan, Backdrops Follow The Place). A map's own `skitBackdrop`
+(an asset-root-relative PNG) wins over its region's.
+
+## Map roles
+
+A map may name what it is to the world in its data's `role`, one of the
+project's roles in `Data/map-roles.php`. A role has a localized name and,
+optionally, `leadsTo`: the roles its maps' transfers may lead to. A role
+without `leadsTo` leads anywhere.
+
+```php
+return ['schema' => 'ichiloto.map-roles/1', 'roles' => [
+    'overworld' => ['name' => ['message' => 'map_roles.overworld.name', 'default' => 'Overworld'],
+        'leadsTo' => ['overworld', 'outside', 'dungeon']],
+    'outside' => ['name' => ['message' => 'map_roles.outside.name', 'default' => 'Outside']],
+    'interior' => ['name' => ['message' => 'map_roles.interior.name', 'default' => 'Interior']],
+]];
+```
+
+The Engine defines no roles and enforces none at runtime: a game's travel
+rules are its own authored data. `MapRoleCatalog` validates the catalog (at
+most 64 roles, stable ids, destinations that are roles), reads a map's role
+with `readMapRole()` and answers `allowsDestination()`; the Editor's
+validation applies it to every route `MapRouteGraph::readMap()` finds.
+
+## Place types
+
+A map may name the type of the place it belongs to in its data's
+`placeType`, one of the project's types in `Data/place-types.php`, each with a
+localized name: a city, a town, a village, a castle, an outpost, an inn, a
+shrine, a cave, a wild area, or whatever a game names. A place type is the
+scale and nature of the whole place, so a player can tell a larger settlement
+from a single building on the world map. It differs from the map's role (what
+one map is to travel) and from a landmark's category (what a building inside a
+place offers).
+
+```php
+return ['schema' => 'ichiloto.place-types/1', 'types' => [
+    'town' => ['name' => ['message' => 'place_types.town.name', 'default' => 'Town']],
+    'outpost' => ['name' => ['message' => 'place_types.outpost.name', 'default' => 'Outpost']],
+]];
+```
+
+A tileset gives each type the piece a map drawn with it shows over an
+entrance into a place of that type, in `placeIcons` (see the graphical field
+guide). `PlaceTypeCatalog` validates the catalog (at most 64 types, stable
+ids) and reads a map's type with `readMapPlaceType()`.
+`Validation\MapPlaceIconRule` holds every entrance on a map whose tileset
+declares place icons to its destination's type: the type's piece stands whole
+over the entrance, in its tiles and its terminal glyphs (`place.icon`), and a
+place icon over a way into a map naming no type is reported (`place.untyped`).
+The findings are warnings. The Engine defines no type and changes nothing at
+runtime.
+
 ## The map screen
 
 The `map` action (M by default) opens the entire active map with the player's
@@ -815,5 +1190,62 @@ often:
 Weights are relative, so a `Bat x 2` above is met roughly five times as often
 as `Great Wolf` twice. A map with no `encounters` key never rolls one.
 
+Only steps the player takes count. A move route, cinematic or other scripted
+movement of the player still runs the triggers of every cell it reaches, but
+never advances encounters, walking conditions such as poison, or anything else
+that counts the player's walking (`Field\Enumerations\StepOrigin`).
+
 The engine warns when a map declares `encounters` in a shape it cannot read,
 because a silent no-op is indistinguishable from a design decision.
+
+### Encounters limited to terrain
+
+On a map painted in terrain kinds, a troop can live on some terrain: its
+entry names the encounter terrains of the map's kinds it is met on, such as
+`'Bog Toads' => ['weight' => 3, 'terrains' => ['wetland']]`. A cell's terrain
+comes from the kind its glyph names, by the same top-down walk as collision
+(`MapEncounterTerrain`); whether a step counts stays the cell's collision. A
+troop naming a terrain no kind of the map meets is never met (the engine
+warns, and Editor validation reports it). Terrains combine with `areas`: a
+troop limited to both is met only on its terrains inside its areas.
+
+### Encounters limited to named areas
+
+A troop can live in part of a map: its entry names the map's named `areas`
+(see Named local areas) it is met in.
+
+```php
+'encounters' => [
+  'troops' => [
+    'Roost Bats' => ['weight' => 3, 'areas' => ['east-roost', 'shaft-roost']],
+    'Store Rats' => ['weight' => 2, 'areas' => ['supply-nook']],
+    'Road Wolves' => 1, // anywhere the map counts steps
+  ],
+  'rate' => 24,
+  'tiles' => 'any',
+],
+```
+
+A troop with `areas` is met only while the player stands in one of them; a
+troop without is met anywhere the map counts steps. A step where no troop can
+be met does not count toward the next encounter, so a map whose troops all
+live in areas is quiet between them and `rate` is the average number of
+counted steps inside those areas. The danger-tile rule still applies first:
+with `'tiles' => 'encounter'`, only danger tiles inside an area count.
+
+`areas` is a nonempty list of unique area ids. An entry whose scope cannot be
+read, or that names an area the map does not declare, is never met (the
+engine warns): reading it as the whole map would put the troop where its
+author kept it out. `EncounterManager::getTroopWeightsAt()` reports the troops
+a cell offers.
+
+### The encounter table
+
+`EncounterTable::readBlock($encounters, $areas, $terrain)` reads a map's block
+once into what it means: the troops met and where, the average steps between
+encounters (`averageStepsBetween`, fifteen when `rate` is missing) and how much
+each step counts (`getStepWeight()`: none where the step does not count or no
+troop can be met, one for a counted step, two for a danger tile on a map that
+counts every tile). Parts it leaves out are named in `ignored`. The field's
+`EncounterManager` counts the player's steps with it, and the Editor's walk
+measurement reads the same table, so both answer the same way.

@@ -120,6 +120,7 @@ final class GraphicalBattleFeedback
       BattleFeedbackRole::WEAK => [11, 22, 'damage'],
       BattleFeedbackRole::RESIST, BattleFeedbackRole::NULL => [11, 22, 'mp'],
       BattleFeedbackRole::ABSORB => [11, 22, 'healing'],
+      BattleFeedbackRole::REVEAL => [11, 22, 'focus'],
       BattleFeedbackRole::MISS => [17, 34, 'text'],
       BattleFeedbackRole::DAMAGE => $critical ? [24, 48, 'damage'] : [20, 40, 'damage'],
       BattleFeedbackRole::HEAL => [20, 40, 'healing'],

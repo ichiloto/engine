@@ -22,6 +22,9 @@ class SkillBattleAction extends BattleAction implements ExecutionEligibility
   public ItemScope $targetScope {
     get { return clone $this->skill->scope; }
   }
+  public ?\Ichiloto\Engine\Battle\Formation\BattleTargeting $targeting {
+    get => $this->skill->battleTargeting;
+  }
 
   /**
    * @param Skill $skill The skill wrapped by this battle action.
@@ -38,7 +41,7 @@ class SkillBattleAction extends BattleAction implements ExecutionEligibility
 
   public function getExecutionRefusal(Actor $actor): ?string
   {
-    if ($actor->isKnockedOut) {
+    if (! $actor->isFighting) {
       return sprintf('%s cannot act while knocked out.', $actor->name);
     }
     return $actor->stats->currentMp < $this->skill->cost
@@ -56,15 +59,30 @@ class SkillBattleAction extends BattleAction implements ExecutionEligibility
       return;
     }
 
+    foreach ($this->skill->effects as $effect) {
+      if ($effect instanceof \Ichiloto\Engine\Entities\Effects\SkillEffects\GroupSkillEffect) {
+        $effect->validateContext($this->formation, $targets);
+      }
+      if ($effect instanceof \Ichiloto\Engine\Entities\Effects\SkillEffects\PrepareCounterSkillEffect) {
+        $effect->validate($this->reactions);
+      }
+    }
     $actor->stats->currentMp -= $this->skill->cost;
     $executionId = $this->nextExecutionId();
     $actionId = 'skill.' . trim(strtolower(preg_replace('/[^a-z0-9]+/i', '-', $this->skill->name) ?? ''), '-');
+    if ($this->allowInterception && ($miss = $this->reactions?->intercept($this, $actor, $targets, $actionId, $executionId, $this->resolver)) !== null) {
+      $this->lastResult = $miss;
+      return;
+    }
     $this->lastResult = $this->effectExecutor->execute(
       $this->skill,
       $actor,
       $targets,
       $actionId,
       $executionId,
+      $this->reactions,
+      $this->gauges,
+      $this->formation,
     );
   }
 }

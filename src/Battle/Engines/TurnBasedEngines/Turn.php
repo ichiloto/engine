@@ -26,6 +26,8 @@ class Turn
    * @var CharacterInterface[] The targets of the action.
    */
   public array $targets = [];
+  /** The selected instance anchors a line even if formation changes while this action waits. */
+  public ?CharacterInterface $targetAnchor = null;
 
   /**
    * Turn constructor.
@@ -62,7 +64,10 @@ class Turn
       return;
     }
 
-    $this->action->execute($this->battler, $this->targets);
+    $this->action->executeWithReactions($this->battler, $this->targets,
+      $context->battleConfig->getReactions($context->engine->random),
+      gauges: $context->engine instanceof \Ichiloto\Engine\Battle\BattleGaugeControl ? $context->engine : null,
+      formation: $context->battleConfig->formation);
 
     $this->complete();
   }
@@ -82,7 +87,7 @@ class Turn
   {
     if ($this->endStateEvents !== null) { return $this->endStateEvents; }
     $this->endStateEvents = [];
-    if (!$this->battler->isKnockedOut && method_exists($this->battler, 'tickStates')) {
+    if ($this->battler->isFighting && method_exists($this->battler, 'tickStates')) {
       $this->endStateEvents = $this->battler->tickStates();
     }
     $this->complete();

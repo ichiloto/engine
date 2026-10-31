@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Battle\Actions;
 
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
+use Ichiloto\Engine\Entities\Effects\AddStateEffect;
 use Ichiloto\Engine\Battle\Resolution\CombatActionResult;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
 use Ichiloto\Engine\Battle\Resolution\CombatResourceChange;
@@ -11,9 +13,9 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as Actor;
 use Ichiloto\Engine\Entities\Effects\HPRecoveryEffect;
 use Ichiloto\Engine\Entities\Effects\BaseEffect;
 use Ichiloto\Engine\Entities\Effects\MPRecoveryEffect;
+use Ichiloto\Engine\Entities\Effects\RemoveStateEffect;
 use Ichiloto\Engine\Entities\Effects\ResurrectionEffect;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
-use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
 use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
@@ -31,18 +33,11 @@ class ItemBattleAction extends BattleAction implements ExecutionEligibility
         $this->item->scope->status, $this->item->scope->randomNumber);
       if ($scope->side !== ItemScopeSide::NONE) { return $scope; }
 
-      // Legacy recovery items omitted a scope. Explicit authored scopes win.
-      foreach ($this->item->effects as $effect) {
-        if ($effect instanceof ResurrectionEffect) {
-          $scope->side = ItemScopeSide::ALLY;
-          $scope->status = ItemScopeStatus::DEAD;
-          break;
-        }
-        if ($effect instanceof HPRecoveryEffect || $effect instanceof MPRecoveryEffect) {
-          $scope->side = ItemScopeSide::ALLY;
-          $scope->status = ItemScopeStatus::ALIVE;
-          break;
-        }
+      // Legacy recovery and cure items omitted a scope. Explicit authored scopes win.
+      if (array_any($this->item->effects, static fn($effect): bool => $effect instanceof ResurrectionEffect
+        || $effect instanceof HPRecoveryEffect || $effect instanceof MPRecoveryEffect || $effect instanceof RemoveStateEffect)) {
+        $scope->side = ItemScopeSide::ALLY;
+        $scope->status = $this->item->targetStatus;
       }
       return $scope;
     }
@@ -57,14 +52,15 @@ class ItemBattleAction extends BattleAction implements ExecutionEligibility
   public function __construct(
     protected(set) Item $item,
     protected(set) ?Inventory $inventory = null,
+    ?CombatRandomSource $random = null,
   )
   {
-    parent::__construct($item->name);
+    parent::__construct($item->name, random: $random);
   }
 
   public function getExecutionRefusal(Actor $actor): ?string
   {
-    if ($actor->isKnockedOut) {
+    if (! $actor->isFighting) {
       return sprintf('%s cannot act while knocked out.', $actor->name);
     }
     $quantity = $this->inventory?->getQuantityById($this->item->id) ?? $this->item->quantity;
@@ -96,17 +92,21 @@ class ItemBattleAction extends BattleAction implements ExecutionEligibility
 
       $change = new CombatResourceChange();
       $hits = [];
+      $secondary = [];
       foreach ($this->item->effects as $effect) {
         $hp = $target->stats->currentHp;
         $mp = $target->stats->currentMp;
         $previousResult = $effect instanceof BaseEffect ? $effect->lastResult : null;
-        $effect->apply($target);
+        if ($effect instanceof AddStateEffect) {
+          $effect->apply($target, $this->random, $target === $actor || $this->reactions?->turnOwner === $target);
+          $secondary[] = ['type' => 'state', 'id' => $effect->stateId, 'applied' => $effect->lastApplied];
+        } else { $effect->apply($target); }
         $change = $change->accumulate(CombatResourceChange::measure($target, $hp, $mp));
         if ($effect instanceof BaseEffect && $effect->lastResult !== null && $effect->lastResult !== $previousResult) {
           $hits[] = $effect->lastResult;
         }
       }
-      $results[] = new CombatTargetResult(CombatResolver::identity($target), $hits, resourceChange: $change);
+      $results[] = new CombatTargetResult(CombatResolver::identity($target), $hits, $secondary, $change);
     }
 
     $this->lastResult = new CombatActionResult('item.' . $this->item->id, $this->nextExecutionId(),

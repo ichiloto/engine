@@ -251,7 +251,7 @@ class BattleFieldWindow extends Window implements \Ichiloto\Engine\Battle\Presen
     $topMargin = $this->battleScreen->screenDimensions->getTop();
 
     $position = new Vector2($leftMargin, $topMargin);
-    $this->partyBattlerPositions = new PartyBattlerPositions();
+    $this->partyBattlerPositions = PartyBattlerPositions::createForSize(max(1, count($this->battleScreen->partyBattlers)));
 
     parent::__construct(
       '',
@@ -288,8 +288,10 @@ class BattleFieldWindow extends Window implements \Ichiloto\Engine\Battle\Presen
   protected function renderTroopBattler(Enemy $battler): void
   {
     if ($this->battleScreen->usesGraphicalField()) { return; }
-    $spriteData = \Ichiloto\Engine\Battle\Presentation\EnemyDefeatStyle::applyTerminalTreatment($battler->image,
-      $this->commandPlayback?->getEnemyDefeatTreatment($battler, \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion()));
+    $spriteData = $battler->hasConceded
+      ? \Ichiloto\Engine\Battle\Presentation\EnemyDefeatStyle::applyTerminalConcession($battler->image)
+      : \Ichiloto\Engine\Battle\Presentation\EnemyDefeatStyle::applyTerminalTreatment($battler->image,
+        $this->commandPlayback?->getEnemyDefeatTreatment($battler, \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion()));
     $position = $this->getTroopPresentedPosition($battler);
     $x = $this->position->x + $position->x;
     $y = $this->position->y + $position->y;
@@ -380,12 +382,12 @@ class BattleFieldWindow extends Window implements \Ichiloto\Engine\Battle\Presen
 
   private function getTerminalEffects(): TerminalBattleEffects
   {
-    return new TerminalBattleEffects($this->partyBattlerPositions, $this->position, $this->width, $this->height);
+    return new TerminalBattleEffects($this->partyBattlerPositions, $this->position, $this->width, $this->height, $this->battleScreen->getBattleConfig());
   }
 
   private function getTerminalGeometry(): TerminalBattleEffects
   {
-    return new TerminalBattleEffects($this->partyBattlerPositions);
+    return new TerminalBattleEffects($this->partyBattlerPositions, battle: $this->battleScreen->getBattleConfig());
   }
 
   /**
@@ -561,7 +563,7 @@ class BattleFieldWindow extends Window implements \Ichiloto\Engine\Battle\Presen
     foreach ($this->queuedTroopTargets as $index => $count) {
       $battler = $troopMembers[$index] ?? null;
 
-      if (! $battler instanceof Enemy || $battler->isKnockedOut || $count < 1) {
+      if (! $battler instanceof Enemy || ! $battler->isFighting || $count < 1) {
         continue;
       }
 
@@ -1078,6 +1080,16 @@ class BattleFieldWindow extends Window implements \Ichiloto\Engine\Battle\Presen
     $y = $this->position->y + $position->y + intdiv(count($battler->image), 2);
 
     $this->renderTrackedTargetIndicator($marker, $x, $y);
+
+    // A foe whose HP has been revealed shows it beneath itself while it is targeted.
+    $hp = \Ichiloto\Engine\Battle\Presentation\BattlerInsight::getTargetLine($battler);
+    if ($hp !== null) {
+      $label = $this->formatIndicator($hp);
+      $spriteWidth = $this->getTroopVisibleSpriteWidth($battler, $position);
+      $this->renderTrackedTargetIndicator($label,
+        $this->position->x + $position->x + max(0, intdiv(max(0, $spriteWidth - TerminalText::displayWidth($label)), 2)),
+        $this->position->y + $position->y + count($battler->image));
+    }
   }
 
   /**

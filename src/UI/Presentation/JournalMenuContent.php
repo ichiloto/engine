@@ -19,7 +19,7 @@ final readonly class JournalMenuContent
     public int $index,
     public string $emptyText,
     public string $entryKey,
-    public string $detailText,
+    public MenuDetailSheet $details,
     public string $previewText,
     public bool $detailsOpen,
     public bool $journal,

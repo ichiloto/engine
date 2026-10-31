@@ -2,8 +2,11 @@
 
 namespace Ichiloto\Engine\Core;
 
+use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Audio\FieldMusicCatalog;
+use Ichiloto\Engine\Income\IncomeCatalog;
+use Ichiloto\Engine\Localization\WordForms;
 use Assegai\Collections\ItemList;
 use Assegai\Util\Path;
 use Error;
@@ -42,6 +45,8 @@ use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\IO\LaunchDataRoot;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Scenes\Arena\BattleTestTroopKeeper;
+use Ichiloto\Engine\Scenes\Arena\LaunchTroopHandOver;
 use Ichiloto\Engine\Scenes\Arena\ProjectBattleTest;
 use Ichiloto\Engine\Rendering\Launch\ApplicationIcon;
 use Ichiloto\Engine\Rendering\Launch\RendererLaunchIntent;
@@ -62,6 +67,8 @@ use Ichiloto\Engine\UI\Windows\DebugWindow;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Progression\ProgressionSettings;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
+use Ichiloto\Engine\Field\DashSettings;
 use Ichiloto\Engine\Util\Config\InputConfig;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\PlayerSettings;
@@ -186,7 +193,9 @@ class Game implements CanRun, SubjectInterface
 
     private ?GameLaunchContext $pendingLaunchContext = null;
     private ?CinematicDefinition $pendingLaunchCinematic = null;
+    private ?GameConfig $pendingLaunchCheckpoint = null;
     private ?ProjectBattleTest $pendingLaunchBattleTest = null;
+    private ?BattleTestTroopKeeper $pendingLaunchTroopKeeper = null;
     private ?string $launchDataRoot = null;
     private bool $launchPrepared = false;
     private ?GameStartupMode $resolvedStartupMode = null;
@@ -548,12 +557,18 @@ class Game implements CanRun, SubjectInterface
         ProjectFormat::assertSupported(config(AppConfig::class, ProjectFormat::KEY));
         ConfigStore::put(PlayerSettings::class, new PlayerSettings(dataRoot: $this->launchDataRoot));
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
+        // The project's word forms reach the inflector before any name is inflected.
+        WordForms::fromProject()->registerExceptions();
         ConfigStore::put(FieldMusicCatalog::class, FieldMusicCatalog::fromProject());
+        ConfigStore::put(IncomeCatalog::class, IncomeCatalog::fromProject());
+        ConfigStore::put(WorldAbilityCatalog::class, WorldAbilityCatalog::fromProject());
 
         ConfigStore::put(InputConfig::class, new InputConfig());
         ConfigStore::remove(ProgressionSettings::class);
         $systemPayload = asset('Data/system.php', true);
         ConfigStore::put(ProgressionSettings::class, ProgressionSettings::fromSystemData($systemPayload));
+        ConfigStore::remove(DashSettings::class);
+        ConfigStore::put(DashSettings::class, DashSettings::fromSystemData($systemPayload));
         ElementRegistry::configure(is_array($systemPayload['elements'] ?? null) ? $systemPayload['elements'] : []);
         ConfigStore::put(ActorStore::class, new ActorStore());
         $actorStore = ConfigStore::get(ActorStore::class);
@@ -863,7 +878,7 @@ class Game implements CanRun, SubjectInterface
             Timers::setFrameTick($this->updateBlockedFrame(...), $this->presentBlockedFrame(...));
         }
 
-        if ($startupMode !== GameStartupMode::NEW_GAME) {
+        if ($startupMode !== GameStartupMode::NEW_GAME && $this->pendingLaunchCheckpoint === null) {
             $this->showSplashScreens();
         }
         $this->buildItemStore();
@@ -894,14 +909,24 @@ class Game implements CanRun, SubjectInterface
     {
         $context = $this->pendingLaunchContext;
         $cinematic = $this->pendingLaunchCinematic;
+        $checkpoint = $this->pendingLaunchCheckpoint;
         $this->pendingLaunchContext = null;
         $this->pendingLaunchCinematic = null;
+        $this->pendingLaunchCheckpoint = null;
+        if ($checkpoint !== null) {
+            $this->sceneManager->loadSavedGame($checkpoint);
+            return;
+        }
         if ($context?->battleTest !== null) {
             $this->pendingLaunchBattleTest = $context->battleTest;
+            // The launching editor keeps the troops the test composes, through the launch's data root.
+            $this->pendingLaunchTroopKeeper = $context->keepTroops && $context->dataRoot !== null
+                ? new LaunchTroopHandOver($context->dataRoot) : null;
             try {
                 $this->sceneManager->loadScene(ArenaScene::class);
             } finally {
                 $this->pendingLaunchBattleTest = null;
+                $this->pendingLaunchTroopKeeper = null;
             }
             return;
         }
@@ -955,11 +980,20 @@ class Game implements CanRun, SubjectInterface
         return $test;
     }
 
+    /** Who keeps the troops a launched battle test composes, once; none when the launch keeps none. */
+    public function consumeLaunchTroopKeeper(): ?BattleTestTroopKeeper
+    {
+        $keeper = $this->pendingLaunchTroopKeeper;
+        $this->pendingLaunchTroopKeeper = null;
+        return $keeper;
+    }
+
     protected function preflightLaunchContext(): void
     {
         try {
             if ($this->pendingLaunchContext !== null) {
                 $this->pendingLaunchCinematic = GameLaunchPreflight::validate($this, $this->pendingLaunchContext);
+                $this->pendingLaunchCheckpoint = GameLaunchPreflight::prepareCheckpoint($this, $this->pendingLaunchContext);
             }
         } catch (Throwable $error) {
             $this->clearPendingLaunch();
@@ -971,6 +1005,7 @@ class Game implements CanRun, SubjectInterface
     {
         $this->pendingLaunchContext = null;
         $this->pendingLaunchCinematic = null;
+        $this->pendingLaunchCheckpoint = null;
         $this->pendingLaunchBattleTest = null;
     }
 
@@ -1233,6 +1268,11 @@ SPLASH_SCREEN;
         $this->sceneManager->update();
         if ($this->terminalCleanedUp) {
             return;
+        }
+        // Active play belongs to the campaign, whichever scene ran this frame.
+        $campaign = $this->sceneManager->findScene(GameScene::class);
+        if ($campaign instanceof GameScene) {
+            $campaign->advanceActivePlay(Time::getDeltaTime(), $this->sceneManager->currentScene);
         }
 
         $this->modalManager->processPendingAlerts();

@@ -205,6 +205,7 @@ class ShopState extends GameSceneState implements CanvasProviderInterface
     $this->syncInfoSelection();
     if ($this->handleMenuInfoInput($this->infoPanel?->text ?? '',
       columns: max(1, ($this->infoPanel?->getContentWidth() ?? 1) - 2))) {
+      if ($this->detailPanel?->advanceComparison()) { $this->detailPanel->updateContent(); }
       return;
     }
     $this->mode->update();

@@ -22,7 +22,7 @@ final class EffectTimelineValidator
     if ($forStage && ($forBattle || $forSummon)) {
       throw new InvalidArgumentException('Standalone stage admission is independent of battle and summon profiles.');
     }
-    $acceptsStage = $forSummon || $forStage;
+    $acceptsStage = $forBattle || $forSummon || $forStage;
     EffectTimelineLibrary::assertId($id);
     if (is_array($data) && array_key_exists('presentations', $data)) {
       $variants = $data['presentations'];
@@ -70,14 +70,14 @@ final class EffectTimelineValidator
       throw new InvalidArgumentException('A caller-owned stage presentation needs a stage and once playback.');
     }
     $tracks = $data['tracks'] ?? null;
-    if (!is_array($tracks) || !array_is_list($tracks) || (!$forSummon && $tracks === []) || count($tracks) > 32) {
+    if (!is_array($tracks) || !array_is_list($tracks) || (!$forSummon && !$forStage && $tracks === []) || count($tracks) > 32) {
       throw new InvalidArgumentException("Effect {$id} needs a list of 1..32 tracks.");
     }
     $ids = $normalized = [];
     $hasImages = $imageRestCovered = $stageRestCovered = false;
     foreach ($tracks as $track) {
       if (!is_array($track) || !is_string($track['id'] ?? null) || isset($ids[$track['id']])
-        || !in_array($track['type'] ?? null, ['image', 'glyph', 'text', ...($forBattle ? ['flash', 'shake'] : [])], true)) {
+        || !in_array($track['type'] ?? null, ['image', 'glyph', 'text', ...($forBattle ? ['flash', 'shake', 'tone'] : [])], true)) {
         throw new InvalidArgumentException("Effect {$id} has an invalid or duplicate track.");
       }
       EffectTimelineLibrary::assertId($track['id']);
@@ -95,8 +95,14 @@ final class EffectTimelineValidator
         || ($track['anchor'] ?? 'target') === 'screen')) {
         throw new InvalidArgumentException("Effect {$id} facing requires an east/west battle image or glyph anchored to a battler.");
       }
-      if (in_array($track['type'] ?? '', ['glyph', 'text', 'flash', 'shake'], true)) {
-        if (array_diff(array_keys($track), ['id', 'type', 'anchor', 'keyframes', 'presentation', ...($forBattle ? ['facing'] : [])]) !== []
+      if (array_key_exists('toward', $track)) {
+        EffectFacingTarget::parse($track['toward']);
+        if (!array_key_exists('facing', $track)) {
+          throw new InvalidArgumentException("Effect {$id} toward turns a directional track; declare its facing too.");
+        }
+      }
+      if (in_array($track['type'] ?? '', ['glyph', 'text', 'flash', 'shake', 'tone'], true)) {
+        if (array_diff(array_keys($track), ['id', 'type', 'anchor', 'keyframes', 'presentation', ...($forBattle ? ['facing', 'toward'] : [])]) !== []
           || !in_array($track['anchor'] ?? 'target', ['caster', 'target', 'screen'], true)
           || !is_array($track['keyframes'] ?? null) || !array_is_list($track['keyframes'])
           || $track['keyframes'] === [] || count($track['keyframes']) > 10000) {
@@ -109,8 +115,19 @@ final class EffectTimelineValidator
             throw new InvalidArgumentException("Effect {$id} has an invalid presentation keyframe range.");
           }
           self::validateKeyframe($id, $keyframe, $forSummon);
+          if ($track['type'] === 'tone') {
+            $payload = $keyframe['payload'] ?? [];
+            if (!in_array($track['anchor'] ?? 'target', ['caster', 'target'], true)
+              || array_diff(array_keys($keyframe), ['frame', 'duration', 'visible', 'payload']) !== []
+              || array_diff(array_keys($payload), ['brightness']) !== []
+              || (!is_int($payload['brightness'] ?? null) && !is_float($payload['brightness'] ?? null))
+              || !is_finite((float)($payload['brightness'] ?? NAN)) || $payload['brightness'] < 0 || $payload['brightness'] > 1) {
+              throw new InvalidArgumentException("Effect {$id} tone requires a battler anchor and brightness within 0..1.");
+            }
+          }
           if (isset($track['anchor'])) { $keyframe['payload']['anchor'] = $track['anchor']; }
           if (isset($track['facing'])) { $keyframe['payload']['facing'] = $track['facing']; }
+          if (isset($track['toward'])) { $keyframe['payload']['toward'] = $track['toward']; }
         }
         unset($keyframe);
         usort($track['keyframes'], static fn(array $a, array $b): int => $a['frame'] <=> $b['frame']);
@@ -120,12 +137,12 @@ final class EffectTimelineValidator
           if (!$forSummon && $keyframe['frame'] <= $end) { throw new InvalidArgumentException("Effect {$id} presentation track has overlapping keyframes."); }
           $end = $keyframe['frame'] + ($keyframe['duration'] ?? 1) - 1;
         }
-        unset($track['facing']);
+        unset($track['facing'], $track['toward']);
         $normalized[] = \Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneTrack::fromArray($track)->toArray();
         continue;
       }
       if (!is_array($track) || array_diff(array_keys($track), ['id', 'type', 'asset', 'sheet', 'cells', 'fit', 'depth', 'keyframes',
-        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'attachment'] : []),
+        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment', 'span'] : []),
         ...($acceptsStage ? ['placement', 'zIndex'] : []), ...($forStage ? ['anchor'] : [])]) !== []
         || ($track['type'] ?? null) !== 'image' || !is_string($track['id'] ?? null)) {
         throw new InvalidArgumentException("Effect {$id} currently accepts image tracks with id, asset, sheet, cells, depth and keyframes.");
@@ -158,8 +175,14 @@ final class EffectTimelineValidator
       if (!in_array($depth, ['behind', 'front'], true)) { throw new InvalidArgumentException("Effect {$id} depth must be behind or front."); }
       $fit = \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageFit::parse(
         array_key_exists('fit', $track) ? $track['fit'] : 'stretch');
-      if (isset($track['anchor']) && !in_array($track['anchor'], ['caster', 'target', 'screen', ...($acceptsStage ? ['stage'] : [])], true)) {
+      if (isset($track['anchor']) && !in_array($track['anchor'], ['caster', 'target', 'screen',
+        ...($forBattle ? ['target-group'] : []), ...($acceptsStage ? ['stage'] : [])], true)) {
         throw new InvalidArgumentException("Effect {$id} has an invalid image anchor.");
+      }
+      if (array_key_exists('span', $track) && (!is_bool($track['span'])
+        || ($track['anchor'] ?? null) !== 'target-group'
+        || ($track['attachment'] ?? 'center') !== 'ground' || $fit->value !== 'contain')) {
+        throw new InvalidArgumentException("Effect {$id} span requires a target-group ground image with contain fit and a boolean value.");
       }
       if (array_key_exists('attachment', $track)) {
         EffectImageAttachment::parse($track['attachment']);
@@ -208,8 +231,10 @@ final class EffectTimelineValidator
             'cells' => $cells, 'depth' => $depth, ...(isset($track['fit']) ? ['fit' => $fit->value] : []),
             ...(!isset($track['anchor']) ? [] : ['anchor' => $track['anchor']]),
             ...(!isset($track['attachment']) ? [] : ['attachment' => $track['attachment']]),
+            ...(!array_key_exists('span', $track) ? [] : ['span' => $track['span']]),
             ...(!isset($track['pivot']) ? [] : ['pivot' => $track['pivot']]),
             ...(!isset($track['facing']) ? [] : ['facing' => $track['facing']]),
+            ...(!isset($track['toward']) ? [] : ['toward' => $track['toward']]),
             ...(!array_key_exists('flipX', $frame) ? [] : ['flipX' => $frame['flipX']]),
             ...(!array_key_exists('flipY', $frame) ? [] : ['flipY' => $frame['flipY']]),
             ...(!$onStage ? [] : ['placement' => $placement, 'zIndex' => $zIndex,
@@ -234,7 +259,7 @@ final class EffectTimelineValidator
     if ($hasImages && !$imageRestCovered) {
       throw new InvalidArgumentException("Effect {$id} image sequence has no authored rest presentation.");
     }
-    if ($stage !== null && !$stageRestCovered) {
+    if ($stage !== null && !$stageRestCovered && !($forStage && $tracks === [])) {
       throw new InvalidArgumentException('Cinematic stage needs image content at its safe reduced-motion frame.');
     }
     $cues = $data['cues'] ?? [];
@@ -284,7 +309,7 @@ final class EffectTimelineValidator
       'visible', 'zIndex', 'payload', ...($forSummon ? ['blendMode', 'easing'] : [])]) !== [] || !is_array($frame['payload'] ?? [])) {
       throw new InvalidArgumentException("Effect {$id} has an invalid presentation keyframe payload.");
     }
-    if (array_intersect(array_keys($frame['payload'] ?? []), ['facing', 'flipX', 'flipY']) !== []) {
+    if (array_intersect(array_keys($frame['payload'] ?? []), ['facing', 'toward', 'flipX', 'flipY']) !== []) {
       throw new InvalidArgumentException("Effect {$id} orientation belongs to the track, not an untyped glyph payload.");
     }
     foreach (['content', 'assetId', 'color'] as $key) {

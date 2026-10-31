@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
@@ -64,6 +65,9 @@ final class NpcGraphicalTestScene extends GameScene
   {
     $this->gameState = new GameState();
     $this->party = new Party();
+    $this->uiManager = new class($this->testGame) extends \Ichiloto\Engine\UI\UIManager {
+      public function __construct(Game $game) { parent::__construct($game); }
+    };
     $this->currentMapId = 'Village/Plaza';
     $this->camera = new Camera($this, 24, 8, worldSpace: array_fill(0, 12, str_repeat('.', 32)));
     $this->mapManager = makeBareScene(MapManager::class);
@@ -226,7 +230,7 @@ it('blocks the occupied NPC anchor at 23 5 while allowing the adjacent cell at 2
   expect($this->scene->mapManager->canMoveTo(22, 5))->toBeTrue()
     ->and($this->scene->mapManager->canMoveTo(23, 5, $collision))->toBeFalse()
     ->and($collision)->toBe(CollisionType::NPC)
-    ->and($player->tryMove(Vector2::right(), $this->scene->camera))->toBeFalse()
+    ->and($player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeFalse()
     ->and([$player->position->x, $player->position->y])->toBe([22.0, 5.0])
     ->and($player->heading)->toBe(MovementHeading::EAST)
     ->and($this->manager->moveNpcById('mother', Vector2::left()))->toBeFalse()
@@ -338,19 +342,19 @@ it('defers prepared NPC field occupancy at a restored saved player cell until or
       ->and(mb_substr(RetainedFrameState::getTextRows($frame, 24, 8)[$entry['y']], $entry['x'], 1))->toBe($playerGlyph);
   }
 
-  expect($this->scene->player->tryMove(Vector2::left(), $this->scene->camera))->toBeTrue()
+  expect($this->scene->player->tryMove(Vector2::left(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
     ->and($this->manager->visibleNpcs())->toBe([$npc])
     ->and($this->manager->getGraphicalSpriteProviders())->toBe([$npc])
     ->and($this->manager->npcAt($entry['x'], $entry['y']))->toBe($npc)
     ->and($this->scene->mapManager->canMoveTo($entry['x'], $entry['y'], $collision))->toBeFalse()
     ->and($collision)->toBe(CollisionType::NPC)
     ->and(Console::charAt($entry['x'], $entry['y']))->toBe($sprite)
-    ->and($this->scene->player->tryMove(Vector2::right(), $this->scene->camera))->toBeFalse()
+    ->and($this->scene->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeFalse()
     ->and($this->manager->findById($npc->id))->toBe($npc)
     ->and([$npc->position->x, $npc->position->y])->toBe([(float)$entry['x'], (float)$entry['y']])
     ->and($npc->heading)->toBe($heading)->and($npc->directionFix)->toBeTrue()
-    ->and($npc->conditions)->toBe($entry['conditions'])->and($npc->script)->toBe($entry['script'])
-    ->and($npc->dialogue)->toBe($entry['dialogue'])->and($npc->wanderArea)->toBe($entry['wanderArea']);
+    ->and($npc->conditions)->toBe($entry['conditions'])->and($npc->pages)->toEqual(\Ichiloto\Engine\Field\NpcPages::fromEntry($entry))
+    ->and($npc->wanderArea)->toBe($entry['wanderArea']);
   if ($graphical) {
     $this->runtime->present($this->scene);
     $frames = RetainedFrameState::replay($this->transport->sent);
@@ -373,7 +377,7 @@ it('defers condition activation under the player and uses ordinary reconciliatio
   $this->scene->player->position->y = 4;
   $this->scene->camera->detach();
   if ($graphical) { $this->runtime->start('Deferred conditional NPC', 24, 8); }
-  expect($this->scene->player->tryMove(Vector2::right(), $this->scene->camera))->toBeTrue();
+  expect($this->scene->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue();
   $this->scene->gameState->setSwitch('npc_present', true);
   $this->scene->renderPresentationOverlay();
   expect($this->manager->visibleNpcs())->toBe([])
@@ -381,7 +385,7 @@ it('defers condition activation under the player and uses ordinary reconciliatio
     ->and($this->manager->getGraphicalSpriteProviders())->toBe([])
     ->and($this->manager->findById('guide'))->toBe($this->npc)
     ->and(Console::charAt(7, 4))->not->toBe('G')->and($field->redraws)->toBe(1);
-  expect($this->scene->player->tryMove(Vector2::left(), $this->scene->camera))->toBeTrue()
+  expect($this->scene->player->tryMove(Vector2::left(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
     ->and($this->manager->visibleNpcs())->toBe([$this->npc])
     ->and($this->manager->getGraphicalSpriteProviders())->toBe([$this->npc])
     ->and(Console::charAt(7, 4))->toBe('G');
@@ -389,8 +393,8 @@ it('defers condition activation under the player and uses ordinary reconciliatio
   $this->scene->gameState->setSwitch('npc_present', false);
   $this->scene->renderPresentationOverlay();
   expect(Console::charAt(7, 4))->toBe('.')
-    ->and($this->scene->player->tryMove(Vector2::right(), $this->scene->camera))->toBeTrue()
-    ->and($this->scene->player->tryMove(Vector2::left(), $this->scene->camera))->toBeTrue()
+    ->and($this->scene->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
+    ->and($this->scene->player->tryMove(Vector2::left(), $this->scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
     ->and($this->manager->visibleNpcs())->toBe([])
     ->and($this->manager->getGraphicalSpriteProviders())->toBe([]);
   $this->scene->gameState->setSwitch('npc_present', true);
@@ -543,14 +547,17 @@ it('runs NPC event routes with independent step timing facing collision and idle
   $route = new MovementRouteRunner($this->scene, ['subject' => 'npc', 'npcId' => 'guide',
     'steps' => [['direction' => 'right', 'count' => 3]], 'secondsPerStep' => 0.08]);
   // On the east row (row 2), each 48-pixel step carries the cycle 1.6 patterns on (one per 30
-  // pixels): halfway through each step it shows patterns 2, 0, then 2.
+  // pixels): halfway through each step it shows patterns 2, 0, then 2. Each step begins
+  // once the one before it has shown.
   expect($route->update(0))->toBeFalse()->and($npc->position->x)->toBe(8.0);
   $this->manager->advanceGraphicalAnimation(0.04);
   expect($npc->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(['x' => 8, 'y' => 12, 'width' => 4, 'height' => 6])
     ->and($this->manager->findById('other')->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(4);
+  $this->manager->advanceGraphicalAnimation(0.04);
   expect($route->update(0.08))->toBeFalse()->and($npc->position->x)->toBe(9.0);
   $this->manager->advanceGraphicalAnimation(0.04);
   expect($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
+  $this->manager->advanceGraphicalAnimation(0.04);
   expect($route->update(0.08))->toBeTrue()->and($npc->position->x)->toBe(10.0);
   $this->manager->advanceGraphicalAnimation(0.04);
   expect($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(8);
@@ -716,6 +723,85 @@ it('lifts a character NPC for renderers that negotiated sprite_lift but never an
   } finally {
     $runtime->shutdown();
   }
+});
+
+/** Grove foliage, a synthetic thicket, over the cells listed on a 32 x 12 field. */
+function installNpcTestThickets(GameScene $scene, array $cells): void
+{
+  $tileset = Ichiloto\Engine\Rendering\Tilesets\Tileset::fromArray('grove', ['name' => 'Grove', 'sheets' => ['A2' => 'Graphics/A2.png'],
+    'thickets' => ['grove' => ['name' => 'Grove', 'depth' => 20, 'opacity' => 0]],
+    'kinds' => ['grove' => ['name' => 'Grove', 'layer' => 'terrain', 'glyph' => '<fg=green>♣</>', 'art' => ['layer' => 'features', 'tile' => 2912],
+      'passage' => 'walk', 'atlas' => 'vegetation', 'thicket' => 'grove']]]);
+  $rows = array_fill(0, 12, array_fill(0, 32, 0));
+  foreach ($cells as [$x, $y]) { $rows[$y][$x] = 2912; }
+  $layer = new Ichiloto\Engine\Field\MapTileLayer('features', 1, 'graphics/01.features.tiles.php',
+    implode("\n", array_map(static fn(array $row): string => implode(' ', $row), $rows)));
+  new ReflectionProperty(MapManager::class, 'graphics')->setValue($scene->mapManager, new Ichiloto\Engine\Field\MapGraphics($tileset, [$layer]));
+}
+
+it('hides the player and character NPCs in their cells\' thickets for a renderer that draws them, never an object NPC', function () {
+  writeCharacterSheetPng($this->root . '/!Chest.png', 4, 6);
+  $this->manager->configure([getNpcTestEntry(), getNpcTestEntry(['id' => 'chest', 'x' => 10,
+    'sprites2d' => characterSheetData('!Chest.png')])]);
+  $hero = new Player($this->scene, 'hero', new Vector2(2, 2), new Rect(0, 0, 1, 1), ['P'], MovementHeading::SOUTH, [],
+    Ichiloto\Engine\Rendering\Sprites\CharacterSheet::fromArray(characterSheetData(NPC_TEST_SHEET)), $this->root);
+  new ReflectionProperty(Player::class, 'isActive')->setValue($hero, true);
+  new ReflectionProperty(GameScene::class, 'player')->setValue($this->scene, $hero);
+  // The guide stands in the grove beside the chest's; the player, in the grove at (2, 2).
+  installNpcTestThickets($this->scene, [[2, 2], [7, 4], [10, 4]]);
+  $thickets = static fn(array $frame): array => array_combine(array_column($frame['sprites'], 'asset'),
+    array_map(static fn(array $sprite): ?array => $sprite['thicket'] ?? null, $frame['sprites']));
+  $present = function (array $capabilities): array {
+    $transport = new FakeRendererTransport();
+    $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
+      'capabilities' => ['sprite_source_rect', 'tile_batches', ...$capabilities]]))];
+    $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']),
+      $this->root, protocol: RendererProtocolVersion::V2), $transport);
+    try {
+      $runtime->start('Thickets', 24, 8);
+      $runtime->present($this->scene);
+      $frames = RetainedFrameState::replay($transport->sent);
+      return $frames[array_key_last($frames)];
+    } finally {
+      $runtime->shutdown();
+    }
+  };
+  $player = static fn(array $frame): ?array => array_values(array_filter($frame['sprites'],
+    static fn(array $sprite): bool => $sprite['id'] === 'player'))[0]['thicket'] ?? null;
+  $npcs = static fn(array $frame): array => array_map(static fn(array $sprite): ?array => $sprite['thicket'] ?? null,
+    array_column(array_filter($frame['sprites'], static fn(array $sprite): bool => $sprite['id'] !== 'player'), null, 'asset'));
+
+  // A renderer that never negotiated sprite_thicket draws every character whole, as before.
+  $plain = $present([]);
+  expect($player($plain))->toBeNull()
+    ->and($npcs($plain))->toBe([NPC_TEST_SHEET => null, '!Chest.png' => null]);
+
+  $hidden = $present(['sprite_thicket']);
+  $grove = ['depth' => 20, 'opacity' => 0.0, 'rustle' => ['layer' => 'tiles:features']];
+  expect($player($hidden))->toBe($grove)
+    ->and($npcs($hidden))->toBe([NPC_TEST_SHEET => $grove, '!Chest.png' => null]);
+
+  // An NPC that walks out of the grove is drawn whole from that step, which slides it there.
+  expect($this->manager->moveNpcById('guide', Vector2::left()))->toBeTrue();
+  $out = $present(['sprite_thicket', 'field_motion']);
+  expect($npcs($out)[NPC_TEST_SHEET])->toBeNull()
+    ->and(array_column($out['sprites'], 'motion', 'asset')[NPC_TEST_SHEET] ?? null)->toBe(['duration' => 16 / 60]);
+
+  // Reduced motion keeps every character hidden, with the foliage held still.
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => true], 'ui' => ['hud' => ['location' => false]]]);
+  expect($player($present(['sprite_thicket'])))->toBe(['depth' => 20, 'opacity' => 0.0]);
+});
+
+it('stands cinematic cast in their cells\' foliage, but never an object sheet', function () {
+  writeCharacterSheetPng($this->root . '/!Chest.png', 4, 6);
+  $cast = static fn(mixed $art): Ichiloto\Engine\Cutscenes\Cinematics\StagedActor => new Ichiloto\Engine\Cutscenes\Cinematics\StagedActor(
+    'cast', ['C'], new Vector2(1, 1), graphicalSprites: $art);
+
+  expect($cast(Ichiloto\Engine\Rendering\Sprites\CharacterSheet::fromArray(characterSheetData(NPC_TEST_SHEET)))->standsInFoliage)->toBeTrue()
+    ->and($cast(Ichiloto\Engine\Rendering\Sprites\CharacterSheet::fromArray(characterSheetData('!Chest.png')))->standsInFoliage)->toBeFalse()
+    ->and($cast(new Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition('pose.png', 48, 48))->standsInFoliage)->toBeTrue()
+    ->and($cast(null)->standsInFoliage)->toBeFalse()
+    ->and($this->npc->standsInFoliage)->toBeTrue();
 });
 
 /** Stands the player on a tile and faces it one way, as field movement leaves it. */
@@ -1047,3 +1133,15 @@ it('shows the action prompt only for an NPC that has something to say', function
   $player->refreshTalkTarget();
   expect($player->canAct)->toBeFalse();
 });
+
+it('stands an NPC with its authored facing until something turns it', function (array $extra, MovementHeading $heading, string $sprite) {
+  $this->manager->configure([getNpcTestEntry([...$extra, 'conditions' => []])]);
+  $npc = $this->manager->findById('guide');
+
+  expect($npc->heading)->toBe($heading)->and($npc->sprite)->toBe($sprite);
+})->with([
+  'default' => [[], MovementHeading::SOUTH, 'G'],
+  'north' => [['facing' => 'north'], MovementHeading::NORTH, 'N'],
+  'west, any case' => [['facing' => ' West '], MovementHeading::WEST, 'W'],
+  'unknown reads as south' => [['facing' => 'up'], MovementHeading::SOUTH, 'G'],
+]);

@@ -81,3 +81,9 @@ it('preserves the opt-in wrapping guard and invalid-width diagnostics', function
     ->and(fn() => MenuCanvas::wrap('Text', 0))->toThrow(RuntimeException::class)
     ->and(fn() => MenuTextWrap::lines("\xFF", 5))->toThrow(InvalidArgumentException::class);
 });
+
+it('fits wrapped text into a number of lines and shows any cut with an ellipsis', function () {
+  expect(MenuTextWrap::fitLines('One two three', 7, 2))->toBe(['One two', ' three'])
+    ->and(MenuTextWrap::fitLines('One two three four five', 7, 2))->toBe(['One two', " three\u{2026}"])
+    ->and(MenuTextWrap::fitLines('One two three', 7, 1))->toBe(["One tw\u{2026}"]);
+});

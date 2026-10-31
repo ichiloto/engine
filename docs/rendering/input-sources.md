@@ -12,6 +12,20 @@ GPUI from a game, change project configuration, or render a graphical game frame
 
 ## Contract and normalization
 
+### Story-gated dashing
+
+`system.dash.conditions` accepts the shared world-condition list. The field
+movement owner evaluates it against the current `GameState` and party before
+each held step. A locked gate uses walking speed. Empty conditions preserve
+the project's unconditional dash rule. Project and map dash restrictions still
+apply. The System database authors the condition list through the shared
+condition editor.
+
+Player control bindings and Always Dash preferences remain player-owned. A
+story gate does not rewrite them; the stored preference takes effect when the
+gate opens. Existing saved story state supplies the gate facts through the
+normal load path.
+
 `IO\InputSources\InputSourceInterface` has two methods:
 
 ```php
@@ -73,23 +87,72 @@ an A release; `isKeyUp()` still requires a following no-input sample.
 ## Action hint presentation
 
 `ActionHints` resolves semantic actions to display-only `ActionHint` and
-`ControlHint` values. By default it reads the live `InputBindings` on every
-redraw. Compact hints show one bound control: Enter for confirm and Escape for
-cancel/back when those keys are actually bound, otherwise the first bound key.
-This does not remove aliases or change input handling. The Controls screen keeps
-the complete binding list through `describeKeys()`.
+`ControlHint` values. `ActionHints::resolveControl()` resolves an action's
+control alone, for a key that shows without a label (dialogue's advance key);
+`resolve()` uses it, so every hint reads the active display provider. By
+default it reads the live `InputBindings` on every redraw. Compact hints show
+one bound control: Enter for confirm and Escape for cancel/back when those keys
+are actually bound, otherwise the first bound key. This does not remove aliases
+or change input handling. The Controls screen keeps the complete binding list
+through `InputBindings::getControlsForAction()`.
 
-The shared menu hint painter uses optional theme icon roles such as
-`input.keyboard.ENTER`, with readable keycap labels when no matching image is
-supplied. Action labels, control identity and artwork remain separate. Main Menu,
-Equipment and Status consume the same mechanism; legacy window help strings
-elsewhere have not all been migrated.
+`ControlHint::keyboard()` is the one mapping from keys to their displayed names,
+as a keycap reads: Enter, Esc, Space, PgUp, Shift+Tab, and arrow symbols (↑ ↓ ←
+→). `describeKeys()` and every hint use it.
 
-Themes may set `showInputHints` to false to omit persistent graphical helper
-strips and their reserved layout space without changing actions or bindings.
-The default remains true for compatibility. Themes can use the dedicated
-Controls lookup while retaining useful action descriptions in menus and dialogs.
-Controls exposes all aliases, not only the compact primary key.
+### One owner draws every control
+
+`UI\Presentation\ControlGlyphPresentation` is the graphical owner of how a
+control looks; `UI\Presentation\TerminalControlText` is the Terminal owner.
+Hint strips (`MenuActionHints`), the Controls lookup, the dialogue footer and
+every other screen draw controls through them and never print a key's name
+themselves. A screen that shows a single control uses
+`MenuCanvas::renderControl()`, which centres the control vertically in its
+bounds, on the same centre line as a button label in the same row.
+
+- Graphical: a control shows its family's glyph image when the theme's control
+  set has one; otherwise a keycap one text cell tall, with the control's name
+  centred on it. An action without a control reads "Unbound", with no keycap.
+- Terminal: a keycap is the name in brackets ("[Enter]"); a hint is its keycap
+  and label ("[Enter] Select", "[Q]/[E] Suits"); hints on a help line are
+  separated by two spaces.
+
+### Control icon sets in the theme
+
+A menu theme (`Data/Presentation/menus.php`) supplies one control set per input
+device family under `controls`. The family is the `ControlHint` family the
+active display provider reports (`keyboard` for the keyboard), so the active
+device chooses the set and no screen changes when it does.
+
+```php
+'controls' => [
+  'keyboard' => [
+    // Optional key frame artwork, nine-sliced so its width follows the key's name.
+    'keycap' => ['asset' => 'Graphics/UI/Controls/Keycap.png', 'cuts' => [8, 8, 8, 10]],
+    // Optional theme colour roles for the Engine-drawn key and the name.
+    'colors' => ['face' => 'selected', 'edge' => 'edge', 'highlight' => 'edge', 'lip' => 'panel', 'label' => 'text'],
+    // Optional whole-glyph images for particular keys.
+    'glyphs' => ['UP' => 'Graphics/UI/Controls/Up.png'],
+  ],
+  // A controller family supplies a glyph per button; a button without one shows a keycap.
+  'gamepad.example' => ['glyphs' => ['face-south' => 'Graphics/UI/Controls/Example/A.png']],
+],
+```
+
+Every field is optional. A family without a set, and a keyboard set without
+`keycap` artwork, draws keys with the Engine: a rounded key with a one-pixel
+highlight along the top and a darker lip along the bottom (`lip`, 2 pixels by
+default), in the theme's colours. Engine-drawn keys share sparse pixel layers,
+so a strip of hints costs one or two layers. Glyph and keycap images are read
+from the current PNG; a missing or unreadable one is reported once and the
+control falls back to its keycap. Control artwork belongs in `controls`; the
+general `icons` map rejects `input.*` roles.
+
+Adding a controller later needs only a display provider that reports its family
+and a `controls` entry with its glyphs. Themes may set `showInputHints` to false
+to omit persistent graphical helper strips and their reserved layout space
+without changing actions or bindings; screens that need a hint (the dialogue
+footer, Controls, skit prompts) still draw it.
 
 A PHP input context can supply an `ActionHintProvider` and replace its display
 profile without changing menu composition or dispatching input. That is a
@@ -101,12 +164,11 @@ input, handle focus/disconnection and keyboard/controller coexistence, and keep
 device glyph changes independent of actions, focus and selection. Merely having
 a controller connected must not make hints unusable for a keyboard player.
 
-Remaining rollout belongs with semantic input migration: audit each legacy help
-owner against the keys/actions its controller actually accepts, then reuse these
-descriptors for terminal text and native glyphs. Do not globally replace strings
-with misleading remappable hints for a controller that still reads fixed keys.
-Editor authoring of icon-role paths must use the same project asset selection and
-safe round-trip contract as other presentation artwork.
+A help line for a screen that reads fixed keys names those keys through the same
+owners (`ControlHint::keyboard(KeyCode::R)`), so it never shows a remappable
+hint for a key its controller does not remap.
+Editor authoring of control set paths must use the same project asset selection
+and safe round-trip contract as other presentation artwork.
 
 ## TerminalInputSource
 
@@ -256,6 +318,15 @@ new events:
 
 The control names the physical key independently of its text: case, Shift and
 Caps Lock change `key`, never `control` (Tab and Shift-Tab are control `tab`).
+
+`modifier_controls` is a second subscription over `key_transitions`. With it,
+Shift held alone is a control of its own: the renderer reports a press
+(`{"type":"key","key":"shift","control":"shift","repeat":false}`) when Shift
+goes down and a `key_release` for `shift` when it comes up, so a binding such
+as dash can hold it. Shift still changes the `key` other controls type, and
+other modifiers stay chord modifiers, never controls. A Shift identity in a
+session without the subscription is a protocol error. The Game's GPUI session
+requires both subscriptions.
 The renderer tracks held controls itself, because GPUI's `is_held` is false
 for keys macOS routes through text input (the arrows): a key-down for a held
 control is a repeat and creates no press. A key-up releases its control
@@ -333,8 +404,14 @@ second) over square 48-pixel cells, so every step, across or down, takes
 before field zoom, device scale and window fit, so none of those change
 gameplay speed. From standing, a press faces and steps at once. While a step
 is in progress a new direction waits for it: a direction change grants no free
-step. A tap is kept for the next step and cannot outrun walking. Blocked
-movement faces the wall each update and banks no time. The step clock carries
+step. The next step is decided on the last update before the step in progress
+ends and begins when that step ends: the renderer draws each slide after the
+one before it, so it must receive the next step while the slide in progress is
+still drawn, whatever the update timing and transport delay. The previous
+step's arrival runs when the next is decided, at most one update before its
+slide ends. A tap is kept for the next step and cannot outrun walking. Blocked
+movement faces the wall each update and banks no time; refused while a step
+still slides, the player walks into that cell and stands once it has shown. The step clock carries
 its overshoot, so equal time walks equal distance at any update interval up to
 one step: the count differs by at most one step. After a stall at most one step
 catches up. Any update the field did not control (a menu, dialogue, cinematic,
@@ -343,7 +420,52 @@ direction still held when control returns must be pressed again.
 
 Event-only input keeps its one step per key event with its own timing. Route
 timing is unchanged: a route step presents over its own `secondsPerStep`
-through `GameScene::moveAtPace()`, and wander steps walk at field speed.
+through `GameScene::moveAtPace()`, and wander steps walk at field speed. A
+pace belongs to its own move only: what a step's arrival sets off (an event,
+a cinematic, a transfer) runs through `GameScene::runAtFieldPace()`, so it
+never inherits the pace of the step that arrived.
+
+### Dash (implemented)
+
+RPG Maker's dash, Final Fantasy V's Sprint: while the semantic `dash` action
+is held, each held step takes the walking time divided by the project's speed
+multiplier. `Field\PlayerDash` decides it when `PlayerWalk` decides the step,
+and `PlayerWalk` uses that one duration for its clock and the step's
+presentation, so the renderer slides each step at its declared duration and
+nothing in the renderer chooses a speed. The step in progress keeps its own
+time: starting or stopping a dash changes the pace from the next step on, and
+held steps still chain end to end, each decided on the update before the one
+in progress ends. The walk animation advances by distance travelled, one
+pattern per 30 field pixels, so it plays faster as the dash goes faster.
+
+- Authored per game in `Data/system.php`, edited in the Editor's Database >
+  System: `'dash' => ['enabled' => true, 'speedMultiplier' => 2.0]`. A project
+  without `dash` has no dash. The multiplier is greater than 1 and at most 4
+  (`DashSettings::MAX_SPEED_MULTIPLIER`), so a step lasts at least 4 frames at
+  60 updates per second; 2 is RPG Maker's.
+- A map turns dashing off for itself with `'disableDashing' => true` in its
+  data (the map Inspector's Disable Dashing switch), as RPG Maker's Disable Dashing does.
+  Cinematics, routes and events move characters at their own authored paces
+  and never read the dash.
+- Always Dash is a player option in Config and the title Options, stored in
+  player settings at `field.always_dash`; the project's `config.php` may author
+  its first value. With it on, the player dashes unless `dash` is held.
+- `dash` defaults to Shift when nothing else claims it, reported through
+  `modifier_controls`, and is remappable in Controls. Its controller identity,
+  B or Circle (`face_east`), is reserved data, as the other controller
+  identities are. Controls and hints draw it through the shared keycap owners.
+- Encounters and every other step-driven system count steps, not time: each
+  dashed step is one validated `Player::tryMove()`, so a dashed cell counts
+  exactly as a walked one.
+- The Terminal has no dash. It reports key events and never a held control,
+  so it cannot tell that a dash key is held, and it walks one validated step
+  per key event at the keyboard's own repeat rate, with no step duration for a
+  dash to shorten. Controls and the option lists leave Dash and Always Dash
+  out there (`PlayerDash::isAvailable()`), as they leave out Quick Save in a
+  game without it.
+- A held-state reset (focus loss, a menu or dialogue reset) releases Shift
+  with every other control; a dash still held when control returns must be
+  pressed again.
 
 ### Planned
 
@@ -358,7 +480,8 @@ through `GameScene::moveAtPace()`, and wander steps walk at field speed.
   documented four-direction facing rule.
 - Physical controllers, controller libraries, analog magnitude (partial walk
   speed), device identity and hot-plug remain planned; they must report
-  normalized controls, not synthetic keyboard presses.
+  normalized controls, not synthetic keyboard presses. A controller dash binds
+  the reserved `face_east` identity once such a source exists.
 - Enhanced terminal key reporting remains outside this delivery.
 
 ### Acceptance

@@ -18,7 +18,7 @@ final class CinematicCommandSchema
 {
   public const array BASE_COMMAND_TYPES = [
     'text', 'choice', 'wait', 'set_switch', 'set_variable', 'record_event',
-    'give_item', 'give_gold', 'recover_party', 'play_sound', 'play_music',
+    'give_item', 'give_gold', 'recover_party', 'play_sound', 'play_music', 'play_skit',
     'accept_quest', 'knowledge', 'move_player', 'move_route', 'transfer',
     'start_battle', 'branch',
   ];
@@ -34,6 +34,13 @@ final class CinematicCommandSchema
     ...self::BASE_COMMAND_TYPES,
     ...self::CINEMATIC_COMMAND_TYPES,
   ];
+
+  /**
+   * Commands whose actorId/id must identify an existing staged actor.
+   * CinematicStageManager::show() and ::hide() require it; ::remove()
+   * accepts an absent actor so cleanup remains safe on retries.
+   */
+  public const array EXISTING_STAGED_ACTOR_COMMANDS = ['show_actor', 'hide_actor'];
 
   public const array BLOCK_TYPES = ['sequence', 'parallel'];
   public const array NESTED_BLOCK_SHAPES = [
@@ -59,9 +66,18 @@ final class CinematicCommandSchema
     'failure' => 'retryable_without_completion_writes',
   ];
   public const array STAGED_ACTOR_FIELDS = [
-    'id', 'sprite', 'asset', 'x', 'y', 'facing', 'visible', 'collision', 'sprites', 'sprites2d',
-    'subject', 'suppress', 'replace', 'at', 'offset',
+    'id', 'sprite', 'asset', 'x', 'y', 'facing', 'faceToward', 'visible', 'collision', 'sprites', 'sprites2d',
+    'subject', 'suppress', 'replace', 'at', 'offset', 'appearance',
   ];
+  /** Map subjects whose authored look a staged actor can wear. */
+  public const array STAGED_ACTOR_APPEARANCE_KINDS = ['npc'];
+  /**
+   * The fields that give a staged actor its graphical look: its own art, the
+   * subject it stands for, or the map NPC whose look it wears. An actor
+   * staged with none of them is drawn by its terminal glyph in a graphical
+   * field, which reports it as a fallback.
+   */
+  public const array STAGED_ACTOR_GRAPHICAL_FIELDS = ['sprites2d', 'subject', 'appearance'];
   public const array RELATIVE_POSITION_FIELDS = ['at', 'offset'];
   public const array SKIP_POLICIES = ['forbidden', 'authored'];
   public const array FINALIZER_COMMAND_TYPES = [
@@ -94,7 +110,7 @@ final class CinematicCommandSchema
     'id', 'name', 'description', 'moveName', 'wielders', 'lore', 'element',
     'strengths', 'weaknesses', 'attributes', 'version', 'linkedSummonId',
     'linkedActionId', 'tags', 'playback', 'transitionIn', 'transitionOut',
-    'effectTiming', 'targetPresentation', 'authoring', 'availability',
+    'effectTiming', 'targetPresentation', 'authoring', 'availability', 'elementAffinities', 'effectiveAgainst',
   ];
   public const array SUMMON_TIMELINE_FIELDS = [
     'formatVersion', 'fps', 'lengthFrames', 'restFrame', 'presentations', 'stage', 'tracks', 'cues', 'editor',
@@ -116,12 +132,65 @@ final class CinematicCommandSchema
       'nestedBlockShapes' => self::NESTED_BLOCK_SHAPES,
       'subjectKinds' => self::SUBJECT_KINDS,
       'cameraOperations' => self::CAMERA_OPERATIONS,
+      'bedOccupancy' => [
+        'npcField' => 'bed',
+        'fields' => \Ichiloto\Engine\Field\NpcBedDefinition::FIELDS,
+        'postures' => array_column(\Ichiloto\Engine\Field\Enumerations\BedPosture::cases(), 'value'),
+        'referenceSources' => ['object' => 'current map worldObjects', 'attachment' => 'selected object resource attachments'],
+        'standingExit' => 'ordinary NPC x/y; in-bed physical cell derives from the selected logical attachment',
+        'resourceCoverField' => 'bedCover2d',
+        'poseRoles' => ['lying', 'sitting'],
+        'transitionRoles' => ['lying', 'sitting', 'standing'],
+        'command' => 'set_bed_posture',
+        'commandNpcReference' => 'npc',
+        'persistence' => 'world-state variable npc-bed:<encoded map id>:<encoded NPC id>; posture values only',
+        'validation' => 'MapBedRule::inspect consumes resolved physical occupancy; MapCompletenessValidator accepts that same occupancy snapshot',
+        'composition' => 'bed base, real occupant and foreground covers form one world canvas; terminal uses an occupied-bed cell',
+      ],
+      'conversationFacing' => [
+        'definitionField' => 'presentation.conversation',
+        'fields' => ['speakers', 'addressees', 'facing', 'groups', 'initialGroup'],
+        'groups' => 'phase ids with selected speaker keys and group-owned addressees/facing; an empty group suspends field participation',
+        'groupSelection' => ['command' => 'select_conversation_group', 'referenceField' => 'group', 'referenceKind' => 'conversation_group'],
+        'speakers' => 'stable conversation keys bound to selected current field subjects; exact display-name aliases may be authored as keys',
+        'subjectKinds' => CinematicConversation::SUBJECT_KINDS,
+        'addressees' => 'optional per-speaker selections from the bound speakers',
+        'lineFields' => ['speaker', 'addressee', ...CinematicFacing::FIELDS],
+        'speakerSelection' => 'speaker selects a bound key independently of name; omitted speaker uses an explicitly matching display-name key',
+        'default' => 'listeners face the speaker; speaker faces the configured addressee, previous other speaker, or sole other participant; an initial group address needs an authored addressee to turn the speaker',
+        'overrides' => 'line facing, conversation facing, explicit staged facing and NPC directionFix preserve authored direction',
+        'lifecycle' => 'current positions at line start; real subject leases restore on failure; cleared at cinematic cleanup',
+        'authoring' => 'pick subjects from the current map/cast and addressees from the bound speakers',
+      ],
       'textPresentation' => [
         'fields' => DialogueContext::TEXT_FIELDS,
         'emotion' => ['type' => 'non-empty string', 'default' => DialogueContext::DEFAULT_EMOTION,
           'source' => 'case-sensitive expression key on the existing speaker identity in DialoguePresentationCatalog'],
         'speaker' => 'name remains authored display text; existing catalog speaker aliases resolve artwork identity',
         'missingArtwork' => 'existing expression, Neutral and base-role fallback; no required portrait',
+      ],
+      'npcPlacements' => [
+        'mapField' => 'npcs[].placements',
+        'reader' => \Ichiloto\Engine\Field\NpcPlacementSet::class,
+        'fields' => \Ichiloto\Engine\Field\NpcPlacementSet::FIELDS,
+        'defaultId' => \Ichiloto\Engine\Field\NpcPlacementSet::DEFAULT,
+        'command' => 'commit_npc_placement',
+        'pickerScope' => 'Select current map NPC, then one of that NPC placements or default.',
+        'persistence' => 'Saved stable placement id; current authored cells/facing resolve at load.',
+        'commit' => 'Real subject must already occupy that clear destination; commit never teleports.',
+      ],
+      'skitPlayback' => [
+        'command' => 'play_skit',
+        'referenceField' => 'skit',
+        'referenceSource' => 'assets/Data/Skits/*.php:id',
+        'definitionReader' => \Ichiloto\Engine\Field\SkitPlaybackDefinition::class,
+        'invalidSource' => 'load error naming the file and reason; no skipped or overwritten definitions',
+        'triggers' => array_column(\Ichiloto\Engine\Field\Enumerations\SkitTrigger::cases(), 'value'),
+        'defaultTrigger' => 'prompt',
+        'soundCues' => ['open', 'close'],
+        'soundReferences' => 'ordinary AudioManager SFX references; select current project sound assets',
+        'completion' => 'skit_seen:id after every beat; already seen completes immediately',
+        'interruption' => 'owned dialogue/voice cleanup; unseen content stays retryable',
       ],
       'cinematicDefinitionFields' => self::CINEMATIC_DEFINITION_FIELDS,
       'cinematicEventTrigger' => [
@@ -132,6 +201,8 @@ final class CinematicCommandSchema
         'completion' => self::CINEMATIC_TRIGGER_COMPLETION,
       ],
       'stagedActorFields' => self::STAGED_ACTOR_FIELDS,
+      'existingStagedActorCommands' => self::EXISTING_STAGED_ACTOR_COMMANDS,
+      'stagedActorGraphicalFields' => self::STAGED_ACTOR_GRAPHICAL_FIELDS,
       'stagedPoseAnimation' => [
         'field' => 'sprites2d.animation',
         'fields' => FieldPoseAnimation::FIELDS,
@@ -143,9 +214,16 @@ final class CinematicCommandSchema
         'defaults' => ['columns' => 1, 'rows' => 1, 'loop' => true, 'restFrame' => 0],
         'sourceRect' => 'optional sheet region; current image dimensions define its equal grid cells',
       ],
+      'fieldAnimation' => [
+        'followField' => 'follow',
+        'followDefault' => false,
+        'followSubjectKinds' => array_values(array_diff(self::SUBJECT_KINDS, ['position', 'screen_position', 'marker'])),
+        'ownership' => 'current field object, map/layers and cinematic generation; lost ownership cancels before later cues',
+        'coordinates' => 'current subject ground position and retained slide; timeline tracks own visual offsets and extent',
+      ],
       'movementRoute' => [
         'modes' => ['steps', 'waypoints', 'retrace'],
-        'waypoints' => 'non-empty list: integer x/y (omitted axis retains current coordinate), or at kind/id with optional signed integer offset x/y',
+        'waypoints' => 'non-empty list: integer x/y (omitted axis retains current coordinate), or at kind/id with optional signed integer offset x/y; either may add an end facing',
         'planning' => 'deterministic cardinal path per authored waypoint, bounded by current map; no replan after a blocked step',
         'remember' => 'unique session-local id; cinematic real player or NPC only',
         'retrace' => 'consume completed recorded path once from the original endpoint, then restore entry facing',
@@ -157,12 +235,29 @@ final class CinematicCommandSchema
         'offset' => 'optional signed integer x/y cells within -16384..16384, omitted axes zero',
         'consumers' => ['move_route.waypoints', 'stage_actor'],
         'resolution' => 'current subject position at command or route leg start; no independent x/y or real-subject binding',
+        'attachment' => 'stage_actor only: at.attachment names an attachment declared by the world_object\'s resource; '
+          . 'the terminal shows the visual on the attachment cell and graphical art is centred on its point of the current artwork; no offset; the visual cannot move',
+      ],
+      'endFacing' => [
+        'fields' => CinematicFacing::FIELDS,
+        'cardinals' => CinematicFacing::CARDINALS,
+        'subjectKinds' => CinematicRelativePosition::SUBJECT_KINDS,
+        'consumers' => ['move_route.waypoints', 'stage_actor'],
+        'resolution' => 'facing is fixed; faceToward turns along the longer axis toward the subject (an even split faces vertically) from the staged cell, resolved at command or route leg start; on the subject itself the heading is kept',
+        'exclusive' => 'facing and faceToward are never declared together; a bound visual declares neither',
       ],
       'stagedActorBinding' => [
         'subject' => ['kind' => 'player|npc|world_object', 'id' => 'required for npc/world_object'],
         'suppress' => 'additional real subject references sharing this visual',
         'replace' => 'explicitly replace an existing visual without resetting captured transforms',
         'movement' => 'route a real player/NPC; world-object anchors are fixed; bound visuals have no independent transform or collision',
+      ],
+      'stagedActorAppearance' => [
+        'kinds' => self::STAGED_ACTOR_APPEARANCE_KINDS,
+        'id' => 'required stable map NPC id on the cinematic\'s current map',
+        'look' => 'the NPC\'s terminal glyph, directional glyphs, graphical character sheet and heading, read even while its conditions hide it',
+        'ownership' => 'an independent staged actor that owns its own place, facing, visibility and collision; it never binds or suppresses the NPC',
+        'exclusive' => 'appearance is the only look: no sprite, sprites, sprites2d, asset or subject beside it',
       ],
       'skipPolicies' => self::SKIP_POLICIES,
       'finalizerCommandTypes' => self::FINALIZER_COMMAND_TYPES,

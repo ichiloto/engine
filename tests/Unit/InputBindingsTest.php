@@ -100,8 +100,8 @@ it('lists the rebindable actions with their keys', function () {
   // Back is deliberately absent: escape is how every screen is left,
   // including the rebinding screen.
   expect($actions)->toBe(['action', 'up', 'info', 'menu_page_previous', 'menu_page_next', 'map_view', 'map_size', 'map_zoom', 'map_recenter', 'dialogue_auto', 'secondary_action', 'quick_save'])
-    ->and($bindings->describeKeys('action'))->toBe('SPACE, ENTER')
-    ->and($bindings->describeKeys('up'))->toBe('UP, W')
+    ->and($bindings->describeKeys('action'))->toBe('Space, Enter')
+    ->and($bindings->describeKeys('up'))->toBe('↑, W')
     ->and($bindings->describeKeys('info'))->toBe('i, I');
 });
 
@@ -186,9 +186,9 @@ it('selects one currently bound primary control while Controls retains every ali
   expect($bindings->primaryKey('confirm'))->toBe(KeyCode::ENTER)
     ->and($bindings->primaryKey('cancel'))->toBe(KeyCode::ESCAPE)
     ->and($bindings->primaryKey('back'))->toBe(KeyCode::ESCAPE)
-    ->and($bindings->describeKeys('cancel'))->toBe('C, c, ESCAPE')
-    ->and($bindings->describeKeys('confirm'))->toBe('SPACE, ENTER')
-    ->and($bindings->controlForAction('cancel')->label)->toBe('Escape');
+    ->and($bindings->describeKeys('cancel'))->toBe('C, c, Esc')
+    ->and($bindings->describeKeys('confirm'))->toBe('Space, Enter')
+    ->and($bindings->controlForAction('cancel')->label)->toBe('Esc');
   $bindings->rebind('cancel', KeyCode::Q);
   expect($bindings->primaryKey('cancel'))->toBe(KeyCode::Q)
     ->and($bindings->controlForAction('cancel')->control)->toBe('Q')

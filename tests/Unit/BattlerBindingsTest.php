@@ -69,6 +69,18 @@ it('joins the battlers code registers, under the one scale reference', function 
     ->and($catalog->scale->getProfile('Hero', true))->toEqual(new BattlerScale(1, .75));
 });
 
+it('binds how a battler meets the surface: its elevation, its contact, and art that paints its own shadow', function () {
+  ($this->bind)(['enemies' => ['Wisp' => [...$this->wisp, 'grounding' => ['elevation' => .4, 'contactWidth' => 1.2],
+    'poses' => ['knockout' => ['image' => 'Graphics/Wisp/Attack.png', 'bakedShadow' => true]]],
+    'Ember' => [...$this->wisp, 'grounding' => ['bakedShadow' => true]]]]);
+  $catalog = BattlePresentationCatalog::load($this->root);
+
+  expect($catalog->enemyGrounding['Wisp']->toArray())->toBe(['elevation' => .4, 'contactWidth' => 1.2])
+    ->and($catalog->enemyPoses['Wisp']->getPose(BattlePoseRole::KNOCKOUT)->bakedShadow)->toBeTrue()
+    ->and($catalog->enemyGrounding['Ember']->bakedShadow)->toBeTrue()
+    ->and($catalog->actorGrounding)->toBe([]);
+});
+
 it('loads code ownership separately so unsaved binding edits can be validated without disk mutations', function () {
   ($this->bind)(['enemies' => ['Wisp' => $this->wisp]]);
   $before = file_get_contents($this->root . '/' . BattlerBindings::FILE);

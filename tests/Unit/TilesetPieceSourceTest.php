@@ -139,7 +139,7 @@ it('writes exact independently authored markup through a synthetic map source co
   $terrain = new MapLayer('terrain', 0, false, 'terrain', "...\n...");
   $types = ['.' => CollisionType::NONE, 'a' => CollisionType::SOLID, 'b' => CollisionType::COUNTER,
     'c' => CollisionType::PASS_THROUGH];
-  expect($placed->grid)->toBe($piece->grid)->and($placed->glyphs)->toBe($piece->glyphs)
+  expect($placed->readGrid())->toBe($piece->grid)->and($placed->readGlyphs())->toBe($piece->glyphs)
     ->and(MapCollisionResolver::resolveLayers(new MapLayerSet([$terrain, $placed]), $types))
     ->toBe(MapCollisionResolver::resolveLayers(new MapLayerSet([$terrain, $original]), $types));
 });

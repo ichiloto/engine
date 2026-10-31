@@ -1,13 +1,16 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandSchema;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicController;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicFacing;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicPresentationManager;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
 use Ichiloto\Engine\Entities\Party;
@@ -221,6 +224,180 @@ function subjectOwnershipDefinition(array $commands = [], array $data = []): Cin
     'cast' => [subjectOwnershipCast(['suppress' => [['kind' => 'player']]])]], $data),
     $commands ?: [['type' => 'wait', 'seconds' => 10]]);
 }
+
+function subjectConversation(array $extra = []): array
+{
+  return array_replace(['speakers' => ['Hero' => ['kind' => 'player'],
+    'Guide' => ['kind' => 'staged_actor', 'id' => 'guide-look']]], $extra);
+}
+
+it('exports constrained conversation references and rejects malformed bindings before a cinematic starts', function (array $conversation) {
+  expect(fn() => subjectOwnershipDefinition([['type' => 'wait', 'seconds' => 1]],
+    ['presentation' => ['conversation' => $conversation]]))->toThrow(InvalidArgumentException::class);
+  expect(CinematicCommandSchema::export()['conversationFacing']['subjectKinds'])->toBe(['player', 'npc', 'staged_actor']);
+})->with([
+  'empty speakers' => [['speakers' => []]],
+  'unsupported subject' => [['speakers' => ['Hero' => ['kind' => 'world_object', 'id' => 'table']]]],
+  'missing subject id' => [['speakers' => ['Guide' => ['kind' => 'npc']]]],
+  'unknown addressee' => [subjectConversation(['addressees' => ['Hero' => 'Unknown']])],
+  'self addressee' => [subjectConversation(['addressees' => ['Hero' => 'Hero']])],
+  'unknown facing speaker' => [subjectConversation(['facing' => ['Unknown' => ['facing' => 'west']]])],
+  'invalid fixed facing' => [subjectConversation(['facing' => ['Guide' => ['facing' => 'sideways']]])],
+]);
+
+it('leaves an active route in charge of headings and refuses competing authored turns before changing other participants', function () {
+  $this->stage->configure([['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]]);
+  $session = $this->scene->eventInterpreter->start([['type' => 'wait', 'seconds' => 10]]);
+  $session->claimMovementSubject($this->player);
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, subjectConversation());
+  $conversation->prepareLine('Hero');
+  expect($this->player->heading)->toBe(MovementHeading::SOUTH)->and($this->npc->heading)->toBe(MovementHeading::WEST);
+  $this->npc->face(new Vector2(0, 1));
+  expect(fn() => $conversation->prepareLine('Hero', ['facing' => 'north']))->toThrow(RuntimeException::class);
+  expect($this->player->heading)->toBe(MovementHeading::SOUTH)->and($this->npc->heading)->toBe(MovementHeading::SOUTH);
+  $session->releaseMovementSubject($this->player);
+  $conversation->prepareLine('Hero');
+  expect($this->player->heading)->toBe(MovementHeading::EAST);
+});
+
+it('turns a staged speaker and its listener on the real text boundary and restores their headings after interruption', function () {
+  $cast = [['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]];
+  $definition = subjectOwnershipDefinition([['type' => 'text', 'name' => 'Guide', 'text' => 'Synthetic speech.']],
+    ['cast' => $cast, 'presentation' => ['conversation' => subjectConversation()]]);
+  $positions = [clone $this->player->position, clone $this->npc->position];
+  $initial = [$this->player->heading, $this->npc->heading];
+  $this->scene->cinematicController->start($definition);
+  expect($this->npc->heading)->toBe(MovementHeading::WEST)
+    ->and($this->player->heading)->toBe(MovementHeading::EAST)
+    ->and($this->stage->require('guide-look')->facing)->toBe(MovementHeading::WEST)
+    ->and($this->player->position)->toEqual($positions[0])->and($this->npc->position)->toEqual($positions[1]);
+  $this->scene->eventInterpreter->failActiveSession('Synthetic interruption.');
+  expect([$this->player->heading, $this->npc->heading])->toBe($initial);
+});
+
+it('prepares ordinary dialogue pages through the same active cinematic bindings without changing their show contract', function () {
+  $definition = subjectOwnershipDefinition([['type' => 'wait', 'seconds' => 10]],
+    ['cast' => [['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]],
+      'presentation' => ['conversation' => subjectConversation()]]);
+  $this->scene->cinematicController->start($definition);
+  $dialogue = \Ichiloto\Engine\Messaging\Dialogue\Dialogue::fromArray(['name' => 'Guide', 'text' => 'Synthetic page.', 'facing' => 'north']);
+  $dialogue->prepareFieldPresentation($this->scene);
+  expect($this->npc->heading)->toBe(MovementHeading::NORTH)
+    ->and($this->player->heading)->toBe(MovementHeading::EAST)
+    ->and(new ReflectionMethod($dialogue, 'show')->getNumberOfParameters())->toBe(0);
+  $this->scene->eventInterpreter->failActiveSession('End synthetic page.');
+  $before = [$this->player->heading, $this->npc->heading];
+  $dialogue->prepareFieldPresentation($this->scene);
+  expect([$this->player->heading, $this->npc->heading])->toBe($before);
+});
+
+it('preserves explicit staged facing while other speakers still face that actor', function () {
+  $this->stage->configure([['id' => 'guide-look', 'sprite' => '@', 'x' => 8, 'y' => 4, 'facing' => 'north']]);
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, subjectConversation());
+  $conversation->prepareLine('Guide');
+  expect($this->stage->require('guide-look')->facing)->toBe(MovementHeading::NORTH)
+    ->and($this->player->heading)->toBe(MovementHeading::EAST);
+  $conversation->prepareLine('Guide', ['facing' => 'south']);
+  expect($this->stage->require('guide-look')->facing)->toBe(MovementHeading::SOUTH);
+});
+
+it('uses current positions, group addressees, turn taking and explicit listener overrides', function () {
+  $this->stage->configure([['id' => 'guide-look', 'x' => 8, 'y' => 4], ['id' => 'third', 'x' => 3, 'y' => 1]]);
+  $bindings = subjectConversation();
+  $bindings['speakers']['Witness'] = ['kind' => 'staged_actor', 'id' => 'third'];
+  $bindings['addressees'] = ['Hero' => 'Witness'];
+  $bindings['facing'] = ['Guide' => ['facing' => 'south']];
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, $bindings);
+  $conversation->prepareLine('Hero');
+  expect($this->player->heading)->toBe(MovementHeading::NORTH)
+    ->and($this->stage->require('third')->facing)->toBe(MovementHeading::SOUTH)
+    ->and($this->stage->require('guide-look')->facing)->toBe(MovementHeading::SOUTH);
+  $conversation->prepareLine('Witness');
+  expect($this->stage->require('third')->facing)->toBe(MovementHeading::SOUTH);
+  $this->stage->move('third', new Vector2(0, 5));
+  $conversation->prepareLine('Hero', ['addressee' => 'Witness']);
+  expect($this->player->heading)->toBe(MovementHeading::SOUTH)
+    ->and($this->stage->require('third')->facing)->toBe(MovementHeading::NORTH);
+});
+
+it('keeps narration and off-field dialogue from changing participant headings', function () {
+  $this->stage->configure([['id' => 'guide-look', 'x' => 8, 'y' => 4]]);
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, subjectConversation());
+  $before = [$this->player->heading, $this->stage->require('guide-look')->facing];
+  $conversation->prepareLine('');
+  $conversation->prepareLine('Remote voice');
+  expect([$this->player->heading, $this->stage->require('guide-look')->facing])->toBe($before);
+});
+
+it('selects distinct stable speakers that share one display label without guessing from their names', function () {
+  $this->stage->configure([['id' => 'left', 'x' => 1, 'y' => 4], ['id' => 'above', 'x' => 3, 'y' => 1]]);
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, ['speakers' => [
+    'hero' => ['kind' => 'player'], 'first' => ['kind' => 'staged_actor', 'id' => 'left'],
+    'second' => ['kind' => 'staged_actor', 'id' => 'above']]]);
+  $conversation->prepareLine('Bully', ['speaker' => 'first', 'addressee' => 'hero']);
+  expect($this->player->heading)->toBe(MovementHeading::WEST);
+  $conversation->prepareLine('Bully', ['speaker' => 'second', 'addressee' => 'hero']);
+  expect($this->player->heading)->toBe(MovementHeading::NORTH);
+  expect(fn() => $conversation->prepareLine('Bully', ['speaker' => 'unknown']))->toThrow(RuntimeException::class);
+});
+
+it('scopes participation to an owned conversation group across private exchanges, disappearing NPCs and map changes', function () {
+  $bindings = ['speakers' => ['hero' => ['kind' => 'player'], 'guide' => ['kind' => 'npc', 'id' => 'guide'],
+    'witness' => ['kind' => 'staged_actor', 'id' => 'later-witness']],
+    'groups' => ['first' => ['speakers' => ['hero', 'guide']], 'private' => ['speakers' => ['hero', 'witness']],
+      'silent' => ['speakers' => []]], 'initialGroup' => 'first'];
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, $bindings);
+  $conversation->prepareLine('Hero', ['speaker' => 'hero']);
+  expect($this->npc->heading)->toBe(MovementHeading::WEST)->and($this->player->heading)->toBe(MovementHeading::EAST);
+  $this->scene->gameState->setSwitch('departed', true);
+  $this->scene->changeMapIdentity('another-map');
+  $this->stage->configure([['id' => 'later-witness', 'x' => 3, 'y' => 1]]);
+  $conversation->selectGroup('private');
+  $conversation->prepareLine('Witness', ['speaker' => 'witness']);
+  expect($this->player->heading)->toBe(MovementHeading::NORTH)
+    ->and($this->stage->require('later-witness')->facing)->toBe(MovementHeading::SOUTH)
+    ->and($this->npc->heading)->toBe(MovementHeading::WEST);
+  expect(fn() => $conversation->prepareLine('Guide', ['speaker' => 'guide']))->toThrow(RuntimeException::class);
+  $conversation->selectGroup('silent');
+  $before = $this->player->heading;
+  $conversation->prepareLine('Remote voice');
+  expect($this->player->heading)->toBe($before);
+});
+
+it('selects a conversation phase through the real command without resetting the cinematic or its stage', function () {
+  $conversation = ['speakers' => ['hero' => ['kind' => 'player'], 'guide' => ['kind' => 'npc', 'id' => 'guide']],
+    'groups' => ['before' => ['speakers' => []], 'talk' => ['speakers' => ['hero', 'guide']]], 'initialGroup' => 'before'];
+  $definition = subjectOwnershipDefinition([
+    ['type' => 'select_conversation_group', 'group' => 'talk'],
+    ['type' => 'text', 'name' => 'Hero', 'speaker' => 'hero', 'text' => 'Synthetic exchange.'],
+  ], ['cast' => [], 'presentation' => ['conversation' => $conversation]]);
+  $session = $this->scene->cinematicController->start($definition);
+  expect($session->failureMessage)->toBeNull()->and($session->status)->toBe(EventExecutionStatus::YIELDED)
+    ->and($this->npc->heading)->toBe(MovementHeading::WEST)->and($this->player->heading)->toBe(MovementHeading::EAST);
+  $this->scene->eventInterpreter->failActiveSession('Synthetic phase end.');
+});
+
+it('resolves every participant before turning and rejects duplicate real-subject aliases', function (bool $duplicate) {
+  $this->stage->configure([['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]]);
+  $bindings = subjectConversation();
+  $bindings['speakers']['Other'] = ['kind' => 'npc', 'id' => $duplicate ? 'guide' : 'missing'];
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, $bindings);
+  $before = [$this->player->heading, $this->npc->heading];
+  expect(fn() => $conversation->prepareLine('Hero', ['addressee' => 'Guide']))->toThrow(RuntimeException::class);
+  expect([$this->player->heading, $this->npc->heading])->toBe($before);
+})->with([false, true]);
+
+it('respects direction-fixed real occupants without changing physical occupancy or presentation identity', function () {
+  $this->scene->npcManager->configure([['id' => 'guide', 'name' => 'Guide', 'sprite' => 'N',
+    'x' => 7, 'y' => 4, 'directionFix' => true, 'facing' => 'north']]);
+  $npc = $this->scene->npcManager->findById('guide');
+  $this->stage->configure([['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]]);
+  $conversation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicConversation($this->scene, subjectConversation());
+  $conversation->prepareLine('Hero');
+  expect($npc->heading)->toBe(MovementHeading::NORTH)
+    ->and($this->stage->require('guide-look')->subject->subject)->toBe($npc)
+    ->and($this->player->heading)->toBe(MovementHeading::EAST);
+});
 
 function makeSubjectOwnershipLoopCast(array $extra = []): array
 {
@@ -473,7 +650,7 @@ it('suppresses paired ordinary art and direct redraws without hiding collision o
   $this->player->erase();
   expect(Console::charAt(7, 4))->toBe('@')->and($this->scene->restoredTiles)->toBe([]);
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   expect($actor->position->x)->toBe(8.0)->and($actor->facing)->toBe(MovementHeading::EAST)
     ->and(Console::charAt(8, 4))->not->toBe('E')->and($this->scene->restoredTiles)->toBe([]);
   $this->stage->advanceGraphicalAnimation(0.08);
@@ -487,7 +664,7 @@ it('suppresses paired ordinary art and direct redraws without hiding collision o
 
 it('animates real player routes independently of its ordinary graphical provider', function () {
   $actor = $this->stage->add(subjectOwnershipCast(['subject' => ['kind' => 'player']]));
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   $this->stage->advanceGraphicalAnimation(0.08);
   // East is the sheet's third direction row; the first stride shows walking pattern 2.
   expect($actor->getGraphicalSpriteDefinition()->asset)->toBe(characterSheetData()['sheet'])
@@ -495,7 +672,11 @@ it('animates real player routes independently of its ordinary graphical provider
     ->and($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(96)
     ->and($actor->position->x)->toBe(4.0);
   $this->scene->mapManager->blocked = true;
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
+  // Refused while the step still slides, the player stands once that step has shown.
+  expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(96)
+    ->and($actor->position->x)->toBe(4.0);
+  $this->stage->advanceGraphicalAnimation(16 / 60 - 0.08);
   expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(48)
     ->and($actor->position->x)->toBe(4.0);
   expect(fn() => $this->stage->move('pose', Vector2::right()))->toThrow(RuntimeException::class, 'real subject');
@@ -576,7 +757,7 @@ it('inherits each omitted renderer role independently from its real subject', fu
   } else {
     expect($actor->getGraphicalSpriteDefinition())->toEqual($ordinaryGraphics);
   }
-  $kind === 'player' ? $this->player->tryMove(Vector2::right(), $this->scene->camera)
+  $kind === 'player' ? $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT)
     : $this->scene->npcManager->moveNpcById('guide', Vector2::right());
   $this->stage->advanceGraphicalAnimation(0.08);
   $expectedTerminal = $overrides['sprites']['east'] ?? (isset($overrides['sprite']) ? [$overrides['sprite']] : (array)$subject->sprite);
@@ -608,7 +789,7 @@ it('replaces explicit bound roles with live subject inheritance without discardi
   writeTestPng($this->assetRoot . '/pose.png', 32, 48);
   $old = $this->stage->add(subjectOwnershipCast(['subject' => ['kind' => 'player'], 'sprite' => 'P',
     'sprites2d' => ['asset' => 'pose.png']]));
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   $inherited = $this->stage->add(['id' => $old->id, 'replace' => true, 'subject' => ['kind' => 'player']]);
   expect($inherited->subject)->toBe($old->subject)->and($old->isVisible)->toBeFalse()
     ->and($inherited->sprite)->toBe($this->player->sprite)
@@ -660,7 +841,7 @@ it('keeps inherited graphical art when the interpreter applies a terminal-only b
 
 it('releases a replaced paired participant while retaining its failure recovery', function () {
   $this->stage->add(subjectOwnershipCast(['suppress' => [['kind' => 'player']]]));
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   $this->stage->add(subjectOwnershipCast(['replace' => true]));
   expect($this->stage->suppresses($this->player))->toBeFalse()
     ->and($this->player->getGraphicalSpriteDefinition())->not->toBeNull();
@@ -717,7 +898,7 @@ it('reserves ownership across temporary eligibility changes rather than creating
 it('restores failure transforms but retains committed transforms and story outcomes', function () {
   $session = $this->scene->startCinematic(subjectOwnershipDefinition());
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   $this->stage->commitSubjectTransforms($this->npc);
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
   $this->scene->gameState->setSwitch('outcome', true);
@@ -738,7 +919,7 @@ it('keeps intentional transforms on successful completion and rejects stale call
   $first = $this->scene->startCinematic(subjectOwnershipDefinition());
   $old = $this->stage->require('pose');
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   $this->scene->eventInterpreter->update(10);
   expect($first->status)->toBe(EventExecutionStatus::COMPLETED)
     ->and($this->npc->position->x)->toBe(8.0)->and($this->player->position->x)->toBe(4.0);
@@ -794,7 +975,7 @@ it('restores and releases map-local leases before transfer and makes held refere
 it('clears the source-map lease before the real transfer path assigns destination coordinates', function () {
   $this->scene->startCinematic(subjectOwnershipDefinition());
   $old = $this->stage->require('pose');
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
   $this->scene->mapManager->onLoad = function (string $filename, Player $player): void {
     expect($filename)->toBe('map-b')->and($player->position->x)->toBe(18.0)
@@ -938,6 +1119,62 @@ it('resolves each relative route leg when it begins and retraces only the path a
     ->and($this->player->heading)->toBe(MovementHeading::SOUTH);
   if (!$reduced) { expect($visited)->toContain([8, 4])->not->toContain([9, 4], [4, 4]); }
 })->with([false, true]);
+
+it('leaves a waypoint route facing what its waypoint names, whatever its last step was', function (array $waypoint, string $subject, array $cell, MovementHeading $heading) {
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => false]]);
+  $route = ['type' => 'move_route', 'secondsPerStep' => .1, 'waypoints' => [$waypoint]];
+  CinematicScriptValidator::validate([$route]);
+  $session = $this->scene->startCinematic(subjectOwnershipDefinition([
+    $subject === 'npc' ? [...$route, 'subject' => 'npc', 'npcId' => 'guide'] : $route,
+  ], ['cast' => []]));
+  for ($tick = 0; $tick < 60 && $this->scene->hasUnstableEventSession(); $tick++) {
+    $this->scene->eventInterpreter->update(.1);
+  }
+  $mover = $subject === 'npc' ? $this->npc : $this->player;
+  expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and([(int) $mover->position->x, (int) $mover->position->y])->toBe($cell)
+    ->and($mover->heading)->toBe($heading);
+})->with([
+  // From (3, 4) the last step into (6, 6) is east or south; the guide at (7, 4) lies north along the longer axis.
+  'player toward an npc' => [['at' => ['kind' => 'npc', 'id' => 'guide'], 'offset' => ['x' => -1, 'y' => 2],
+    'faceToward' => ['kind' => 'npc', 'id' => 'guide']], 'player', [6, 6], MovementHeading::NORTH],
+  'player with a fixed facing' => [['x' => 5, 'y' => 4, 'facing' => 'south'], 'player', [5, 4], MovementHeading::SOUTH],
+  'npc toward the player' => [['x' => 7, 'y' => 6, 'faceToward' => ['kind' => 'player']], 'npc', [7, 6], MovementHeading::WEST],
+  'turn in place' => [['x' => 3, 'y' => 4, 'faceToward' => ['kind' => 'npc', 'id' => 'guide']], 'player', [3, 4], MovementHeading::EAST],
+]);
+
+it('stages an independent actor facing a subject from its staged cell', function () {
+  $north = $this->stage->add(['id' => 'below-guide', 'sprite' => 'B', 'x' => 7, 'y' => 8, 'faceToward' => ['kind' => 'npc', 'id' => 'guide']]);
+  $east = $this->stage->add(['id' => 'beside-player', 'sprite' => 'E', 'at' => ['kind' => 'player'], 'offset' => ['x' => -2],
+    'faceToward' => ['kind' => 'player']]);
+  $kept = $this->stage->add(['id' => 'on-guide', 'sprite' => 'G', 'at' => ['kind' => 'npc', 'id' => 'guide'],
+    'faceToward' => ['kind' => 'npc', 'id' => 'guide']]);
+  expect($north->facing)->toBe(MovementHeading::NORTH)->and($east->facing)->toBe(MovementHeading::EAST)
+    ->and($kept->facing)->toBe(MovementHeading::SOUTH)
+    ->and(CinematicFacing::getHeadingToward(new Vector2(0, 0), new Vector2(2, -2)))->toBe(MovementHeading::NORTH)
+    ->and(CinematicFacing::getHeadingToward(new Vector2(0, 0), new Vector2(-3, 2)))->toBe(MovementHeading::WEST);
+});
+
+it('rejects contradictory or malformed end facings in both runtime and authoring', function (array $facing) {
+  $stage = ['type' => 'stage_actor', 'id' => 'companion', 'sprite' => 'C', 'x' => 1, 'y' => 1, ...$facing];
+  $route = ['type' => 'move_route', 'waypoints' => [['x' => 1, ...$facing]]];
+  expect(fn() => CinematicScriptValidator::validate([$stage]))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => $this->stage->add($stage))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => CinematicScriptValidator::validate([$route]))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => MovementRouteRunner::validatePathOptions($route))->toThrow(\Ichiloto\Engine\Exceptions\MovementRouteException::class);
+})->with([
+  [['facing' => 'up']],
+  [['facing' => 'north', 'faceToward' => ['kind' => 'player']]],
+  [['faceToward' => 'player']],
+  [['faceToward' => ['kind' => 'npc']]],
+  [['faceToward' => ['kind' => 'screen_position', 'x' => 1, 'y' => 1]]],
+  [['faceToward' => ['kind' => 'player', 'offset' => ['x' => 1]]]],
+]);
+
+it('keeps a bound visual on its real subject heading', function () {
+  expect(fn() => $this->stage->add(['id' => 'bound', 'subject' => ['kind' => 'player'], 'faceToward' => ['kind' => 'npc', 'id' => 'guide']]))
+    ->toThrow(InvalidArgumentException::class, 'inherits real position/facing');
+});
 
 it('refuses missing relative subjects and blocked destinations before a route can mutate the field', function () {
   $before = [$this->player->position->x, $this->player->position->y, $this->scene->gameState->toArray()];
@@ -1181,7 +1418,7 @@ it('restores temporary transforms before direct interpreter skip and preserves t
     'finalizer' => [['type' => 'move_player', 'x' => 19, 'y' => 6],
       ['type' => 'set_variable', 'name' => 'count', 'value' => 1], ['type' => 'camera', 'operation' => 'attach']]]));
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   expect($this->scene->eventInterpreter->skipActiveCinematic())->toBeTrue()
     ->and($session->status)->toBe(EventExecutionStatus::COMPLETED)
     ->and($this->npc->position->x)->toBe(7.0)->and($this->player->position->x)->toBe(19.0)
@@ -1199,7 +1436,7 @@ it('preserves finalizer moves and story writes when a later finalizer command fa
       ['type' => 'set_switch', 'name' => 'ratified', 'value' => true],
       ['type' => 'set_switch', 'name' => 'inject-failure', 'value' => true]]]));
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
-  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $this->player->tryMove(Vector2::right(), $this->scene->camera, StepOrigin::PLAYER_INPUT);
   if ($skip) {
     expect($this->scene->skipCinematic())->toBeFalse();
   } else {
@@ -1381,3 +1618,114 @@ it('uses ordinary recording through actual NPC talk and map trigger entry points
   expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
     ->and(fn() => $session->movementRoute('approach'))->toThrow(RuntimeException::class);
 })->with([false, true]);
+
+
+it('declares staged-actor existence requirements consistently with runtime operations', function (string $command, string $operation) {
+  $requiresActor = in_array($command, CinematicCommandSchema::EXISTING_STAGED_ACTOR_COMMANDS, true);
+  if ($requiresActor) {
+    expect(fn() => $this->stage->$operation('retry-owned-actor'))
+      ->toThrow(RuntimeException::class, 'Staged actor "retry-owned-actor" was not found.');
+  } else {
+    $this->stage->$operation('retry-owned-actor');
+    $this->stage->$operation('retry-owned-actor');
+    expect($this->stage->find('retry-owned-actor'))->toBeNull();
+  }
+})->with([
+  'show staged actor' => ['show_actor', 'show'],
+  'hide staged actor' => ['hide_actor', 'hide'],
+  'retryable actor cleanup' => ['remove_actor', 'remove'],
+]);
+
+
+it('frames the real current conversation cast clear of dialogue in graphical and Terminal presentations', function (bool $graphical) {
+  $this->scene->cinematicController->start(subjectOwnershipDefinition([['type' => 'wait', 'seconds' => 10]], [
+    'cast' => [['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide'], 'sprites2d' => characterSheetData(), 'sprite' => ['@@', '@@']]],
+    'presentation' => ['conversation' => subjectConversation()],
+  ]));
+  $line = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueSnapshot('Hero', 'A line.', 'A line.',
+    false, 0, 1, false, \Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition::BOTTOM);
+  $owner = new class($line) implements \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationProviderInterface,
+    \Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface {
+      public function __construct(private $line) {}
+      public function getDialogueSnapshot(): \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueSnapshot { return $this->line; }
+      public function getPresentationBounds(): Rect { return new Rect(0, 4, 24, 4); }
+      public function getPresentationPriority(): \Ichiloto\Engine\UI\Enumerations\PresentationPriority {
+        return \Ichiloto\Engine\UI\Enumerations\PresentationPriority::MODAL;
+      }
+  };
+  if ($graphical) {
+    mkdir($this->assetRoot . '/Data/Presentation', 0777, true);
+    file_put_contents($this->assetRoot . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
+      'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1'],
+    ], true) . ';');
+    $view = new FieldViewport(new \Ichiloto\Engine\Rendering\Transport\RendererGridConfig(135, 36, 10, 20));
+    new ReflectionProperty(GameScene::class, 'fieldViewport')->setValue($this->scene, $view);
+    $this->scene->camera->resizeViewport($view->columns, $view->rows);
+    new ReflectionProperty($this->player, 'position')->setValue($this->player, new Vector2(3, 14));
+    new ReflectionProperty($this->npc, 'position')->setValue($this->npc, new Vector2(7, 14));
+  }
+  $this->scene->cinematicController->prepareDialogue('Hero');
+  $positions = [clone $this->player->position, clone $this->npc->position];
+  $before = $this->scene->camera->captureState(); $world = $this->scene->camera->worldSpace;
+  $this->scene->getUI()->present($owner);
+  $framing = new \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming($this->scene); $framing->update();
+  expect($this->scene->camera->isFramed)->toBeTrue()->and($framing->diagnostic)->toBeNull();
+  $origin = $this->scene->camera->getWorldOrigin();
+  if ($graphical) {
+    $protected = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueScenePresentation($this->assetRoot)->getProtectedBounds($line, 1350, 720);
+    $safe = \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming::findSafeArea($protected, 1350, 720);
+    foreach ($this->scene->cinematicController->getFramingSubjects() as $subject) {
+      $bounds = \Ichiloto\Engine\Animations\Field\FieldSpriteBounds::findBounds($subject, $view, $origin);
+      expect($bounds->bottom - $origin['y'] * 48)->toBeLessThanOrEqual($safe->y + $safe->height)
+        ->and($bounds->top - $origin['y'] * 48)->toBeGreaterThanOrEqual($safe->y);
+    }
+  } else {
+    foreach ($positions as $position) { expect($position->y + 1 - $origin['y'])->toBeLessThanOrEqual(4); }
+    expect($this->npc->position->y + 2 - $origin['y'])->toBeLessThanOrEqual(4);
+  }
+  if ($graphical) {
+    $oldBounds = array_map(fn($subject) => \Ichiloto\Engine\Animations\Field\FieldSpriteBounds::findBounds($subject, $view, $origin),
+      $this->scene->cinematicController->getFramingSubjects());
+    $framing->clear();
+    foreach ([$this->player, $this->npc] as $subject) {
+      $from = clone $subject->position; $to = new Vector2($from->x, $from->y - 1);
+      if ($subject instanceof Player) {
+        expect($this->scene->moveAtPace(.3, fn() => $subject->tryMove(new Vector2(0, -1), $this->scene->camera, StepOrigin::SCRIPTED)))->toBeTrue();
+      } else {
+        new ReflectionProperty($subject, 'position')->setValue($subject, $to);
+        $step = new \Ichiloto\Engine\Rendering\Sprites\CharacterStep($from, $to, .3);
+        $subject->beginGraphicalStep($step); $this->stage->subjectMoved($subject, $step);
+      }
+    }
+    $framing->update(); $origin = $this->scene->camera->getWorldOrigin();
+    foreach ($oldBounds as $bounds) {
+      expect($bounds->bottom - $origin['y'] * 48)->toBeLessThanOrEqual($safe->y + $safe->height);
+    }
+    $positions = [clone $this->player->position, clone $this->npc->position];
+  }
+  expect([$this->player->position, $this->npc->position])->toEqual($positions)
+    ->and($this->scene->camera->worldSpace)->toBe($world)->and($this->scene->camera->captureState())->toEqual($before);
+  $this->scene->getUI()->dismiss($owner); $this->scene->getUI()->commitPresentationChanges(); $framing->update();
+  expect($this->scene->camera->isFramed)->toBeFalse()->and($this->scene->camera->captureState())->toEqual($before);
+})->with([false, true]);
+
+
+it('refreshes and releases cinematic framing through the actual text-box show and hide lifecycle', function () {
+  $this->scene->installField();
+  $game = $this->scene->getGame();
+  new ReflectionProperty(Game::class, 'sceneManager')->setValue($game, $this->scene->sceneManager);
+  new ReflectionProperty(\Ichiloto\Engine\Scenes\AbstractScene::class, 'eventManager')->setValue($this->scene, EventManager::getInstance($game));
+  new ReflectionMethod(\Ichiloto\Engine\Scenes\AbstractScene::class, 'initializeEventHandlers')->invoke($this->scene);
+  $this->scene->cinematicController->start(subjectOwnershipDefinition([['type' => 'wait', 'seconds' => 10]], [
+    'cast' => [['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]],
+    'presentation' => ['conversation' => subjectConversation()],
+  ]));
+  $this->scene->cinematicController->prepareDialogue('Hero');
+  $before = $this->scene->camera->captureState();
+  ConfigStore::put(\Ichiloto\Engine\Util\Config\PlaySettings::class, new \Ichiloto\Engine\Util\Config\PlaySettings(['width' => 24, 'height' => 8]));
+  $modal = new \Ichiloto\Engine\UI\Modal\TextBoxModal($game, 'An ordinary line.', 'Hero');
+  $modal->show();
+  expect($this->scene->camera->isFramed)->toBeTrue()->and($this->scene->getDialogueFramingDiagnostic())->toBeNull();
+  $modal->hide();
+  expect($this->scene->camera->isFramed)->toBeFalse()->and($this->scene->camera->captureState())->toEqual($before);
+});

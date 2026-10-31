@@ -83,9 +83,31 @@ it('copies plain tiles from the two eight-column halves of their sheet', functio
   expect(getPieceRects(TileComposer::compose(1, 48)[0]))->toBe([[48, 0, 48, 48, 0, 0]])
     ->and(getPieceRects(TileComposer::compose(9, 48)[0]))->toBe([[48, 48, 48, 48, 0, 0]])
     ->and(getPieceRects(TileComposer::compose(130, 48)[0]))->toBe([[480, 0, 48, 48, 0, 0]])
-    ->and(TileComposer::compose(1536 + 3, 48)[0][0]->sheet)->toBe(TilesetSheet::A5)
+    ->and(TileComposer::compose(1536 + 3, 48)[0][0]->sheet)->toBe(TilesetSheet::A5->value)
     ->and(fn() => TileComposer::compose(0, 48))->toThrow(InvalidArgumentException::class)
     ->and(fn() => TileComposer::compose(1, 47))->toThrow(InvalidArgumentException::class);
+});
+
+it('names the plain tile at every cell of a sheet image as the composer draws it back', function () {
+  foreach ([TilesetSheet::A5, TilesetSheet::B, TilesetSheet::C, TilesetSheet::D, TilesetSheet::E] as $sheet) {
+    $seen = [];
+    for ($row = 0; $row < $sheet->getRows(); $row++) {
+      for ($column = 0; $column < $sheet->getColumns(); $column++) {
+        $tile = TileId::getPlainTileAt($sheet, $column, $row);
+        $seen[$tile] = true;
+        expect(TileId::getPlainTileCell($tile))->toBe([$sheet, $column, $row]);
+        expect(TileId::getSheet($tile))->toBe($sheet);
+        if ($tile !== TileId::EMPTY) {
+          expect(getPieceRects(TileComposer::compose($tile, 48)[0]))->toBe([[$column * 48, $row * 48, 48, 48, 0, 0]]);
+        }
+      }
+    }
+    expect($seen)->toHaveCount($sheet->getColumns() * $sheet->getRows());
+  }
+  expect(TileId::getPlainTileAt(TilesetSheet::C, 8, 12))->toBe(480)
+    ->and(fn() => TileId::getPlainTileAt(TilesetSheet::A2, 0, 0))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => TileId::getPlainTileAt(TilesetSheet::B, 16, 0))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => TileId::getPlainTileAt(TilesetSheet::A5, 8, 0))->toThrow(InvalidArgumentException::class);
 });
 
 it('assembles autotiles from the quarters RPG Maker chooses for each shape', function () {
@@ -164,7 +186,7 @@ it('loads a tileset and uses only sheets whose images fit their RPG Maker layout
 it('reads map tile layers as literal cells matching the map and refuses anything else', function () {
   $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', "....\n....")]);
   $layer = new MapTileLayer('floor', 1, 'floor', "2816 0 10 10\n  0 0  10 0 \n");
-  expect($layer->tiles)->toBe([[2816, 0, 10, 10], [0, 0, 10, 0]])
+  expect($layer->readTiles())->toBe([[2816, 0, 10, 10], [0, 0, 10, 0]])
     ->and($layer->getEntries())->toBe([['2816', '0', '10', '10'], ['0', '0', '10', '0']])
     ->and($layer->getUsedIds())->toBe([2816, 10]);
   $layer->assertMatches($layers);
@@ -198,7 +220,7 @@ it('reads unsaved tile layer sources through the same parser and diagnostics as 
 
   expect($read([$map . '/graphics/01.floor.tiles.php' => $floor, $map . '/graphics/05.furniture.tiles.php' => $furniture]))
     ->toEqual(MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root, $settings))
-    ->and(array_map(static fn(MapTileLayer $layer): array => [$layer->name, $layer->path, $layer->tiles], $edited->layers))->toBe([
+    ->and(array_map(static fn(MapTileLayer $layer): array => [$layer->name, $layer->path, $layer->readTiles()], $edited->layers))->toBe([
       ['floor', 'home/graphics/01.floor.tiles.php', [[2816, 2816, 2816, 2816], [2816, 2816, 0, 0]]],
       ['furniture', 'home/graphics/05.furniture.tiles.php', [[5, 0, 0, 0], [0, 0, 0, 1]]],
     ])
@@ -219,6 +241,57 @@ it('reads unsaved tile layer sources through the same parser and diagnostics as 
     ->and(fn() => $read(array_combine(array_map(static fn(int $order): string => sprintf('%02d.layer%d.tiles.php', $order, $order),
       range(1, MapGraphics::MAX_LAYERS + 1)), array_fill(0, MapGraphics::MAX_LAYERS + 1, $floor))))
     ->toThrow(InvalidArgumentException::class, 'Map home has more than ' . MapGraphics::MAX_LAYERS . ' tile layers.');
+});
+
+it('composes graphics with the supplied current tileset without replacing it with the saved definition', function () {
+  writeTilesetProject($this->root, extra: ", 'pieces' => ['floor' => ['name' => 'Floor', 'layer' => 'terrain', 'glyphs' => ['.'], 'tiles' => ['floor' => ['1']]]]");
+  $path = $this->root . '/Data/Tilesets/home.php';
+  $saved = file_get_contents($path);
+  $map = $this->root . '/Maps/home';
+  mkdir($map . '/graphics', 0777, true);
+  $source = MapGridSource::buildSource('1', 'TILES');
+  file_put_contents($map . '/graphics/01.floor.tiles.php', $source);
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', '.'),
+    new MapLayer('fixtures', 2, false, 'fixtures', '=')]);
+  $current = Tileset::fromArray('home', ['name' => 'Current', 'sheets' => ['B' => 'Graphics/Tilesets/B.png'],
+    'pieces' => ['counter' => ['name' => 'Counter', 'layer' => 'fixtures', 'glyphs' => ['='], 'tiles' => ['floor' => ['1']]]]]);
+  $graphics = MapGraphics::fromSources(['01.floor.tiles.php' => $source], 'home', 'home', $layers, $this->root, tileset: $current);
+
+  expect($graphics->tileset)->toBe($current)
+    ->and($graphics->owners)->toBe(['floor' => 'fixtures'])
+    ->and(MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root, tileset: $current))->toEqual($graphics)
+    ->and(MapGraphics::fromSources(['01.floor.tiles.php' => $source], 'home', 'home', $layers, $this->root)->owners)
+    ->toBe(['floor' => 'terrain'])
+    ->and(file_get_contents($path))->toBe($saved)
+    ->and($layers->getComposedGrid())->toBe([['=']]);
+});
+
+it('reads current graphics before a supplied tileset has any saved file', function () {
+  $map = $this->root . '/Maps/home';
+  mkdir($map . '/graphics', 0777, true);
+  $source = MapGridSource::buildSource('1', 'TILES');
+  file_put_contents($map . '/graphics/01.floor.tiles.php', $source);
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', '.')]);
+  $current = new Tileset('home', 'Current', ['B' => 'Graphics/Tilesets/B.png']);
+  expect(MapGraphics::fromSources(['01.floor.tiles.php' => $source], 'home', 'home', $layers, $this->root, tileset: $current)->tileset)
+    ->toBe($current)
+    ->and(MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root, tileset: $current)->tileset)->toBe($current)
+    ->and(is_dir($this->root . '/Data'))->toBeFalse()
+    ->and(fn() => MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root))
+    ->toThrow(InvalidArgumentException::class, 'Tileset home was not found');
+});
+
+it('refuses a supplied tileset belonging to another map palette', function () {
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', '.')]);
+  $other = new Tileset('other', 'Other', ['B' => 'Graphics/B.png']);
+  expect(fn() => MapGraphics::fromSources([], 'home', 'home', $layers, $this->root, tileset: $other))
+    ->toThrow(InvalidArgumentException::class, "Map home declares tileset 'home' but received tileset 'other'.")
+    ->and(fn() => MapGraphics::loadFromDirectory($this->root . '/Maps/home', 'home', 'home', $layers, $this->root, tileset: $other))
+    ->toThrow(InvalidArgumentException::class, "Map home declares tileset 'home' but received tileset 'other'.")
+    ->and(fn() => MapGraphics::fromSources([], 'home', null, $layers, $this->root, tileset: $other))
+    ->toThrow(InvalidArgumentException::class)
+    ->and(fn() => MapGraphics::loadFromDirectory($this->root . '/Maps/home', 'home', null, $layers, $this->root, tileset: $other))
+    ->toThrow(InvalidArgumentException::class);
 });
 
 it('uploads the tileset, tile layers in their draw bands and glyph-free rows with the world', function () {
@@ -281,9 +354,66 @@ it('shifts a whole tile layer by half a field cell from the map data, never its 
     ->and([$tile['left'], $tile['top']])->toBe([24, -24])
     ->and(MapGraphics::readLayerOffsets(['lounge' => ['offset' => [0, 0]]], ['lounge'], 'home'))->toBe(['lounge' => [0.0, 0.0]])
     ->and(MapGraphics::readLayerOffsets(null, [], 'home'))->toBe([]);
-  foreach ([['sofa' => ['offset' => [0, 0.5]]], ['lounge' => ['offset' => [0, 1]]], ['lounge' => ['offset' => [0.25, 0]]],
+  foreach ([['sofa' => ['offset' => [0, 0.5]]], ['lounge' => ['offset' => [0, 1]]],
     ['lounge' => ['offset' => [0]]], ['lounge' => ['offset' => [0, 0], 'above' => true]], ['lounge' => []], 'lounge'] as $settings) {
     expect(fn() => MapGraphics::readLayerOffsets($settings, ['floor', 'lounge'], 'home'))->toThrow(InvalidArgumentException::class);
+  }
+});
+
+it('inherits tileset drawing offsets on every map and in palettes, with explicit map overrides', function () {
+  writeTilesetProject($this->root, extra: ", 'layerOffsets' => ['tabletop' => [1 / 48, -1 / 3], 'unused' => [0, 0.5]]");
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', '..')]);
+  $sources = ['01.tabletop.tiles.php' => MapGridSource::buildSource('5 0', 'TILES')];
+  $read = fn(string $id, ?array $settings = null): MapGraphics => MapGraphics::fromSources(
+    $sources, $id, 'home', $layers, $this->root, $settings);
+  $first = $read('first');
+  $second = $read('second');
+  $palette = new MapGraphics($first->tileset, $first->layers);
+  $offsets = ['tabletop' => [1 / 48, -1 / 3]];
+  expect($first->offsets)->toBe($offsets)
+    ->and($second->offsets)->toBe($offsets)
+    ->and($palette->offsets)->toBe($offsets)
+    ->and($read('override', ['tabletop' => ['offset' => [0, 0]]])->offsets)->toBe(['tabletop' => [0.0, 0.0]])
+    ->and($read('override', ['tabletop' => ['offset' => [-0.25, 0.125]]])->offsets)->toBe(['tabletop' => [-0.25, 0.125]])
+    ->and($first->tileset->layerOffsets)->toBe($offsets + ['unused' => [0.0, 0.5]]);
+
+  // Draw coordinates change while the tile grid and Terminal/physical layer keep their identity.
+  $world = PresentationWorld::getFromLayers($layers, 'map', $first, $this->root);
+  $definition = $world->operations[0]['value'];
+  $drawn = array_values(array_filter($world->operations, static fn(array $op): bool => $op['op'] === 'worldTiles'));
+  $cell = $drawn[0]['rows'][0]['cells'][0];
+  $tile = $definition['tileset']['tiles'][$cell['tile']];
+  expect([$cell['column'], $drawn[0]['rows'][0]['row']])->toBe([0, 0])
+    ->and([$tile['left'], $tile['top']])->toBe([1, -16])
+    ->and($first->layers[0]->readTiles())->toBe([[5, 0]])
+    ->and($layers->getComposedGrid())->toBe([['.', '.']]);
+
+  // A current, unsaved tileset is authoritative for the same map sources.
+  $replacement = Tileset::fromArray('home', ['name' => 'Replacement', 'sheets' => $first->tileset->sheets,
+    'layerOffsets' => ['tabletop' => [0, -0.25]]]);
+  $edited = MapGraphics::fromSources($sources, 'first', 'home', $layers, $this->root, tileset: $replacement);
+  expect($edited->offsets)->toBe(['tabletop' => [0.0, -0.25]])
+    ->and($first->offsets)->toBe($offsets);
+});
+
+it('validates bounded fractional offsets consistently for map settings and tileset roles', function () {
+  $source = ['name' => 'Offsets', 'sheets' => ['B' => 'Graphics/B.png']];
+  foreach ([[0, -0.5], [0.5, 0], [1 / 48, -1 / 3], [0.25, -0.125]] as $offset) {
+    $expected = array_map(floatval(...), $offset);
+    expect(Tileset::fromArray('test', $source + ['layerOffsets' => ['props' => $offset]])->layerOffsets)
+      ->toBe(['props' => $expected])
+      ->and(MapGraphics::readLayerOffsets(['props' => ['offset' => $offset]], ['props'], 'test'))
+      ->toBe(['props' => $expected]);
+  }
+  foreach ([[0, 0.50001], [-1, 0], [NAN, 0], [0, INF], ['0', 0], [true, 0], [0], ['x' => 0, 'y' => 0], null] as $offset) {
+    expect(fn() => Tileset::fromArray('test', $source + ['layerOffsets' => ['props' => $offset]]))
+      ->toThrow(InvalidArgumentException::class)
+      ->and(fn() => MapGraphics::readLayerOffsets(['props' => ['offset' => $offset]], ['props'], 'test'))
+      ->toThrow(InvalidArgumentException::class);
+  }
+  foreach ([['bad role' => [0, 0]], [0 => [0, 0]], 'props'] as $offsets) {
+    expect(fn() => Tileset::fromArray('test', $source + ['layerOffsets' => $offsets]))
+      ->toThrow(InvalidArgumentException::class);
   }
 });
 
@@ -405,6 +535,12 @@ it('finds the glyphs the graphical field still shows, by the layer each tile cov
     ->and($cells(new MapGraphics($graphics->tileset, [])))->toBe(['0:=:fixtures', '1:=:fixtures', '2:=:fixtures', '3:=:fixtures', '4:=:fixtures'])
     ->and(new MapGraphics($graphics->tileset, [])->getShownGlyphCells(new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', ' .')]), $this->root))
     ->toBe([['x' => 1, 'y' => 0, 'glyph' => '.', 'layer' => 'terrain']]);
+
+  // The uploaded world shows the same cells by the same rule: the renderer's covers decide, not the authoring tools.
+  $world = static fn(MapGraphics $graphics): array => array_map(static fn(array $cell): string =>
+    "{$cell['x']}:{$cell['glyph']}:{$cell['layerId']}", PresentationWorld::getFromLayers($layers, 'home', $graphics, $root)->getGlyphCells());
+  expect($world($graphics))->toBe(['0:=:map:fixtures', '3:=:map:fixtures', '4:=:map:fixtures'])
+    ->and($world(new MapGraphics($graphics->tileset, [])))->toHaveCount(5);
 });
 
 it('names the plain tile that marks missing art, from one of its own sheets', function () {
@@ -561,7 +697,8 @@ it('derives wall shadows on the cell to the right from the current tiles, never 
   // Painting the run one cell further, or erasing it, moves or removes its shadow with no other edit.
   expect($shadowsOf("1 1 1 0 0\n0 0 1 0 1")[1])->toBe([0 => [3]])
     ->and($shadowsOf("0 0 0 0 0\n7 0 0 0 0")[1])->toBe([1 => [1]])
-    ->and($shadowsOf("0 0 0 0 0\n0 0 0 0 0")[0]->tileShadows)->toBeNull();
+    ->and($shadowsOf("0 0 0 0 0\n0 0 0 0 0")[0]->getOperations(true, true))
+    ->toBe($shadowsOf("0 0 0 0 0\n0 0 0 0 0")[0]->getOperations(true));
   $operations = $world->getOperations(true, true);
   $value = $operations[0]['value'];
   $shadow = $value['tileset']['tiles'][array_key_last($value['tileset']['tiles'])];

@@ -18,12 +18,18 @@ final readonly class CanvasCompositeMask
       default => throw new InvalidArgumentException('Unsupported composite mask.'),
     };
     CanvasCompositeValues::validateKeys($data, ['type', ...$required],
-      ['invert', $type === 'image_alpha' ? 'source' : 'feather']);
+      ['invert', ...($type === 'image_alpha' ? ['source', 'flipX', 'flipY'] : ['feather'])]);
     $result = ['type' => $type, 'invert' => CanvasCompositeValues::getBoolean($data['invert'] ?? false)];
     if ($type === 'image_alpha') {
       $result['asset'] = CanvasCompositeValues::getAsset($data['asset']);
       $result['destination'] = CanvasCompositeValues::getRectangle($data['destination']);
       if (isset($data['source'])) { $result['source'] = CanvasCompositeValues::getRectangle($data['source'], true); }
+      foreach (['flipX', 'flipY'] as $axis) {
+        if (array_key_exists($axis, $data)) {
+          $flip = CanvasCompositeValues::getBoolean($data[$axis]);
+          if ($flip) { $result[$axis] = true; }
+        }
+      }
     } else {
       $result['feather'] = CanvasCompositeValues::getNumber($data['feather'] ?? 0, 0, 4096);
       if ($type === 'polygon') {

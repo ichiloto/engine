@@ -45,9 +45,16 @@ final class MenuModalPresentation
     $width = (int)floor(min($base->width * 2 / 3 - 2 * $p, $naturalWidth) / $m->cellWidth) * $m->cellWidth;
     $x = ($base->width - $width) / 2;
     $cells = (int)floor($width / $m->cellWidth);
+    $notice = $modal->notice;
+    $hasPortrait = $notice?->actorId !== null && isset($theme->portraits[$notice->actorId]);
+    $hasIcon = $notice?->iconRole !== null && isset($theme->icons?->icons[$notice->iconRole]);
+    $artSize = $hasPortrait || $hasIcon ? min($m->portraitSize, $width / 3) : 0;
+    $messageX = $x + ($artSize > 0 ? $artSize + $gap : 0);
+    $messageWidth = $width - ($messageX - $x);
+    $messageCells = max(1, (int)floor($messageWidth / $m->cellWidth));
     $titleHeight = $modal->title === '' ? 0 : count(MenuCanvas::wrap($modal->title, $cells)) * $m->cellHeight;
-    $messageHeight = $modal->message === '' ? 0 : count(MenuCanvas::wrap($modal->message, $cells)) * $m->cellHeight;
-    $bodyHeight = $modal->singleConfirmation ? max($messageHeight, 3 * $m->cellHeight) : $messageHeight;
+    $messageHeight = $modal->message === '' ? 0 : count(MenuCanvas::wrap($modal->message, $messageCells)) * $m->cellHeight;
+    $bodyHeight = max($artSize, $modal->singleConfirmation ? max($messageHeight, 3 * $m->cellHeight) : $messageHeight);
     $quantityHeight = $modal->quantity === null ? 0 : 2 * $m->cellHeight + $gap;
     $hints = [ActionHints::resolve('confirm', 'Confirm'), ActionHints::resolve('cancel', 'Cancel')];
     $hintHeight = MenuActionHints::height($hints, $theme, $width);
@@ -85,9 +92,14 @@ final class MenuModalPresentation
         alignment: HorizontalAlignment::CENTER);
     }
     $y += $titleHeight + $gap;
+    if ($artSize > 0) {
+      $artBox = new CanvasRectangle($x, $y + ($bodyHeight - $artSize) / 2, $artSize, $artSize);
+      if ($hasPortrait) { $view->portrait($notice->actorId, $artBox, 'menu-modal-notice-portrait'); }
+      elseif ($hasIcon) { $view->icon('menu-modal-notice-icon', $notice->iconRole, $artBox); }
+    }
     if ($messageHeight > 0) {
       $view->prose('menu-modal-message', $modal->message,
-        new CanvasRectangle($x, $y + ($bodyHeight - $messageHeight) / 2, $width, $messageHeight),
+        new CanvasRectangle($messageX, $y + ($bodyHeight - $messageHeight) / 2, $messageWidth, $messageHeight),
         alignment: $modal->singleConfirmation || $messageHeight === $m->cellHeight
           ? HorizontalAlignment::CENTER : HorizontalAlignment::LEFT);
     }

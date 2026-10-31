@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\Core\{Rect,Vector2};
 use Ichiloto\Engine\Field\{MapAtlasDocument,MapAtlasView};
 use Ichiloto\Engine\IO\{ActionHints,Input,InputManager};
@@ -32,6 +33,8 @@ class LocalMapState extends GameSceneState implements CanvasProviderInterface
     private array $globalOptions = [];
     private int $globalIndex = 0;
     private ?string $presentationDiagnostic = null;
+    /** @var array{map: string, waymarks: list<\Ichiloto\Engine\Field\Waymarks\FieldWaymark>}|null */
+    private ?array $globalWaymarks = null;
 
     public function getPresentationCanvas(): ?PresentationCanvas
     {
@@ -58,7 +61,7 @@ class LocalMapState extends GameSceneState implements CanvasProviderInterface
         InputManager::consumeCurrentInput();
         $this->selected=-1; $this->detailPage=0;
         $scene=$this->getGameScene();
-        $this->globalBinding=null; $this->globalDocument=null; $this->view=null;
+        $this->globalBinding=null; $this->globalDocument=null; $this->view=null; $this->globalWaymarks=null;
         $this->showGlobal=$scene->mapManager?->atlasDefinition?->global ?? false;
         try { $this->globalBinding=$scene->mapManager?->resolveGlobalAtlas($scene->currentMapId); }
         catch (\Throwable $error) { Debug::warn('Map world reference is unavailable: '.$error->getMessage()); }
@@ -152,8 +155,27 @@ class LocalMapState extends GameSceneState implements CanvasProviderInterface
                 $scene->mapManager->atlasDefinition?->global ?? false,
                 terminalView:$scene->mapManager->atlasDefinition?->terminalView ?? 'floorplan');
         }
-        return new MapAtlasSnapshot($snapshot->name,$snapshot->worldId,$snapshot->overview,$snapshot->subjects,
-            $snapshot->landmarks,$snapshot->playerX,$snapshot->playerY,$snapshot->heading,$snapshot->global,$canSwitch,$snapshot->terminalView);
+        return $snapshot->with($canSwitch,$this->showGlobal && $this->globalDocument!==null
+            ? $this->getGlobalWaymarks() : $scene->getFieldWaymarks());
+    }
+
+    /**
+     * Objectives on the open world map. Neither quests nor the world change
+     * while the map is open, so each world map resolves them once.
+     *
+     * @return list<\Ichiloto\Engine\Field\Waymarks\FieldWaymark>
+     */
+    private function getGlobalWaymarks(): array
+    {
+        $scene=$this->getGameScene();
+        $document=$this->globalDocument;
+        if ($document===null || $scene->mapManager===null) { return []; }
+        if ($this->globalWaymarks===null || $this->globalWaymarks['map']!==$document->id) {
+            $this->globalWaymarks=['map'=>$document->id,'waymarks'=>\Ichiloto\Engine\Field\Waymarks\MapAtlasWaymarks::find(
+                $document,$scene->getActiveWaymarks(),$scene->mapManager->resolveGlobalAtlas(...),
+                $scene->gameState,$scene->party)];
+        }
+        return $this->globalWaymarks['waymarks'];
     }
 
     protected function getVisibleLandmarks(): array
@@ -177,12 +199,11 @@ class LocalMapState extends GameSceneState implements CanvasProviderInterface
         $actions+=['map_recenter'=>'map.recenter','back'=>'map.close'];
         $hints=[];
         foreach ($actions as $action=>$term) {
-            $hint=ActionHints::resolve($action,MessageCatalog::getTerm($term));
-            $hints[]=($hint->control?->label ?? 'Unbound').':'.$hint->label;
+            $hints[]=TerminalControlText::formatHint(ActionHints::resolve($action,MessageCatalog::getTerm($term)));
         }
         $hints[]=str_replace(MessageCatalog::getTerm('map.focus'),MessageCatalog::getTerm('map.scroll'),MapAtlasTerminal::getFocusHint());
         Console::recomposeFrame(function() use($hints): void {
-            $this->window->setHelp(implode('  ',$hints));
+            $this->window->setHelp(implode(TerminalControlText::SEPARATOR,$hints));
             $this->window->setContent($this->buildContent($this->window->getContentWidth(),$this->window->getContentHeight()));
             $this->window->render();
         });
@@ -198,12 +219,17 @@ class LocalMapState extends GameSceneState implements CanvasProviderInterface
         $this->selected=max(-1,min(count($landmarks)-1,$this->selected));
         $mapHeight=min(256,$height-5); $mapWidth=min(512,$width);
         $projection=$this->view->getProjection($snapshot->overview,new Rect(0,0,$mapWidth,$mapHeight),false,$snapshot->global);
+        $style=$this->getGameScene()->fieldEffects?->waymarkStyle;
         $map=MapAtlasTerminal::renderMap($snapshot->overview,$landmarks,new Vector2($snapshot->playerX,$snapshot->playerY),
-            $snapshot->heading,$mapWidth,$mapHeight,$this->selected,$projection,$snapshot->global,$snapshot->terminalView==='floorplan');
+            $snapshot->heading,$mapWidth,$mapHeight,$this->selected,$projection,$snapshot->global,$snapshot->terminalView==='floorplan',
+            $snapshot->waymarks,$style,$this->getGameScene()->fieldEffects?->cueStyle);
         $rows=[TerminalText::padCenter('N',$width),...$map];
         $legend=$snapshot->overview->terrain!==null
             ? MapAtlasTerminal::getTerrainLegend($snapshot->overview,$snapshot->global,$snapshot->terminalView==='places')
             : MessageCatalog::getTerm($snapshot->global ? 'map.global_symbols' : ($snapshot->terminalView==='places' ? 'map.place_symbols' : 'map.symbols'));
+        if ($snapshot->waymarks!==[]) {
+            $legend=($style?->symbol ?? '!').' '.MessageCatalog::getTerm('map.objective').'   '.$legend;
+        }
         $rows[]=TerminalText::truncateToWidth($legend,$width);
         $focused=$landmarks[$this->selected] ?? null;
         $detail=$focused===null ? ($snapshot->playerX<0 ? MessageCatalog::getTerm('map.position_unmarked') : '') : MapAtlasTerminal::getLandmarkLabel($focused)

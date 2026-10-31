@@ -33,6 +33,7 @@ final class BattleCommandRunner
   private ?string $executionRefusal = null;
   private bool $resultsPresented = false;
   private bool $resultsPending = false;
+  private bool $announcementVisible = false;
 
   /** @param list<CharacterInterface> $targets */
   public function __construct(
@@ -49,6 +50,7 @@ final class BattleCommandRunner
     callable $presentCue,
     ?CompiledEffectTimeline $terminalTarget = null,
     bool $resultsOnly = false,
+    float $targetScale = \Ichiloto\Engine\Animations\EffectScale::DEFAULT,
   ) {
     $this->formatResult = Closure::fromCallable($formatResult);
     $this->presentCue = Closure::fromCallable($presentCue);
@@ -56,7 +58,7 @@ final class BattleCommandRunner
       $this->previousVitals[spl_object_id($battler)] = [$battler->stats->currentHp, $battler->stats->currentMp];
     }
     $this->playback = new BattleCommandPlayback(new BattleCommandTimeline($timings, $source, $target, $terminalTarget, $resultsOnly,
-      showAnnouncement: $announcement !== ''),
+      showAnnouncement: $announcement !== '', targetScale: $targetScale),
       $actor, $targets, $resultsOnly ? BattlePoseRole::getRestingRole($actor) : BattlePoseRole::getForAction($action),
       function () use ($resolve): void {
         if (($refusal = $this->getExecutionRefusal()) !== null) {
@@ -101,6 +103,7 @@ final class BattleCommandRunner
   public function dispose(): void
   {
     $this->disposed = true;
+    $this->announcementVisible = false;
     $this->playback->cancel();
     $field = $this->context->ui->fieldWindow;
     if ($field->getCommandPlayback() === $this->playback) {
@@ -154,25 +157,46 @@ final class BattleCommandRunner
       } else { $this->showResults(); }
       return;
     }
+    if ($cue['type'] === 'commandAnnouncementEnd') {
+      if ($this->announcementVisible) { $this->context->ui->hideMessage(); }
+      $this->announcementVisible = false;
+      return;
+    }
     if ($cue['type'] !== 'commandPhase') {
+      // An authored message replaces the callout and owns its own lifetime.
+      if (strtolower($cue['type']) === 'showmessage'
+        && trim(strval($cue['payload']['text'] ?? $cue['payload']['message'] ?? '')) !== '') {
+        $this->announcementVisible = false;
+      }
       ($this->presentCue)($cue);
       return;
     }
     switch ($cue['payload']['phase']) {
       case 'source':
-        // The callout owns only its readable announcement phase, not the action animation.
-        $this->context->ui->hideMessage();
-        break;
-      case 'target':
-        if ($this->playback->plan->cinematicStage === null) { break; }
-      case 'summon-in':
-        if ($this->context->ui->usesGraphicalField()) {
+        if ($this->playback->plan->summon === null && !$this->playback->plan->hasCinematicStages()) {
+          $this->context->ui->hideMessage();
+        }
+        if ($this->playback->plan->hasCinematicStage('source') && $this->context->ui->usesGraphicalField()) {
           $this->hidControls = true;
           $this->context->ui->hideControls();
-          $this->context->ui->hideMessage();
+        }
+        break;
+      case 'target':
+        if (!$this->playback->plan->hasCinematicStage('target')) {
+          if ($this->hidControls && $this->playback->plan->hasCinematicStage('source')) {
+            $this->context->ui->showControls();
+            $this->hidControls = false;
+          }
+          break;
+        }
+      case 'summon-in':
+        if ($this->context->ui->usesGraphicalField() && !$this->hidControls) {
+          $this->hidControls = true;
+          $this->context->ui->hideControls();
         }
         break;
       case 'announce':
+        $this->announcementVisible = true;
         $this->context->ui->showMessage($this->announcement);
         break;
       case 'reaction':

@@ -41,6 +41,28 @@ return [
 - `name` is the summon's identity (the "[ IFRIT ]" title card).
 - `moveName` is what the battle log announces when the summon acts. Without
   it, the summon name is announced instead.
+- The action `linkedActionId` names is paced as a summon, whatever it is
+  called: its move stays visible for the summon announcement time while
+  casting and the cutscene begin, 4.2 s at the slow animation pace (2.8 s
+  medium, 1.68 s fast), ending sooner if the command finishes. The info box
+  overlays the opening cutscene, including a graphical stage's fade/cover;
+  its reading time adds no wait before playback. The beats before and after the summon's own sequence (stepping
+  forward, the cast, the results, stepping back) are paced as an attack's,
+  and the sequence plays at its authored length.
+- A project authors the reading time per action category and pace in
+  `config.php`, under `ui.battle.announcement_seconds`, from 0.1 s to 10 s
+  (`BattlePacing::getAnnouncementSeconds()`); the Editor's Configuration lists
+  every one with the Engine's time:
+
+```php
+'ui' => ['battle' => ['announcement_seconds' => [
+  'summon' => ['slow' => 4.2, 'medium' => 2.8, 'fast' => 1.68],
+]]],
+```
+
+  The categories are `physical_attack`, `basic_magic`, `high_magic` and
+  `summon` (`BattleActionCategory`). Changing a reading time changes nothing
+  else in the turn.
 
 ### Codex fields
 
@@ -368,6 +390,25 @@ in the command catalogue. Authoring tools should obtain preview and
 definition field names from `CinematicCommandSchema::export()` instead of
 copying them.
 
+### Elemental affinities
+
+A summon declares its defensive affinities with the same contract enemies use,
+element identity to damage multiplier, validated against the project's element
+list, and the elements its move is effective against:
+
+```php
+'elementAffinities' => ['Fire' => 0.25, 'Water' => 1.5],
+'effectiveAgainst' => ['Ice'],
+```
+
+Both are written only when recorded. An absent key means not recorded, and the
+Summons menu says so ("Not recorded") rather than showing an empty row. A
+recorded map leaves unlisted elements neutral, as for enemies, so its empty
+tiers mean none. The earlier free-text `strengths` and
+`weaknesses` lists still load and still show (as Effective against and
+Weaknesses) until a summon's source is migrated; they are not validated, so a
+name outside the element list shows as written.
+
 ### The in-game Summons menu
 
 Any project with at least one currently available summon gets a summon-management entry
@@ -377,8 +418,10 @@ The initial character picker and assignment by confirming the reading view
 are removed.
 
 Selecting a summon offers **Info** and, when a current member can hold it,
-**Assign**. Info is a separate scrollable reading view containing lore, move,
-element, attributes, strengths and weaknesses. Confirming it never changes
+**Assign**. Info is a separate scrollable reading view in the shared detail
+sheet: the name and lore as prose, then a Move section (move name, description
+and Effective against), a Profile section (element and authored attributes)
+and a Resistances section with every affinity tier. Confirming it never changes
 ownership. Assign lists only current party members accepted by the Party
 assignment service. Choosing a new holder moves an exclusive contract through
 `Party::reassignSummon()` atomically; choosing its current holder releases it.

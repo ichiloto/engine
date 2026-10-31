@@ -31,12 +31,17 @@ use RuntimeException;
  *         'poses' => ['attack' => ['image' => 'Graphics/Hero/Attack.png', 'columns' => 4, 'frames' => [0, 1, 2, 3],
  *           'fps' => 12, 'loop' => false, 'restFrame' => 0, 'pivot' => ['x' => 0.5, 'y' => 0.9], 'scaleSpan' => 0.7]],
  *         'scale' => ['relativeSize' => 1, 'sourceSpan' => 0.7, 'horizontal' => false],
+ *         'grounding' => ['hover' => 0.4, 'shadow' => 'engine', 'shadowWidth' => 1.1, 'shadowOpacity' => 0.8],
  *       ]],
  *       'enemies' => [...the same per identity...],
  *     ];
  *
  * An identity needs artwork, poses or both. `image` is required wherever
- * artwork or a pose appears; a pivot defaults to bottom centre.
+ * artwork or a pose appears; a pivot defaults to bottom centre. `grounding`
+ * says how the battler meets the ground ({@see BattlerGrounding}): its hover
+ * and whether the Engine draws its contact shadow (`engine`), its artwork
+ * paints one (`artwork`) or it has none (`none`). A pose may say its own art
+ * paints a shadow (`bakedShadow`) where the battler's other art does not.
  */
 final readonly class BattlerBindings
 {
@@ -44,9 +49,9 @@ final readonly class BattlerBindings
 
   private const array TOP_KEYS = ['reference', 'actors', 'enemies'];
   private const array REFERENCE_KEYS = ['actor', 'height'];
-  private const array BATTLER_KEYS = ['artwork', 'poses', 'scale'];
+  private const array BATTLER_KEYS = ['artwork', 'poses', 'scale', 'grounding'];
   private const array ARTWORK_KEYS = ['image', 'pivot'];
-  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan'];
+  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan', 'bakedShadow'];
   private const array PIVOT_KEYS = ['x', 'y'];
   private const array PROFILE_KEYS = ['relativeSize', 'sourceSpan', 'horizontal'];
 
@@ -57,6 +62,8 @@ final readonly class BattlerBindings
    * @param array<string, BattlePoseSet> $enemyPoses
    * @param array<string, BattlerScale> $actorProfiles
    * @param array<string, BattlerScale> $enemyProfiles
+   * @param array<string, BattlerGrounding> $actorGrounding
+   * @param array<string, BattlerGrounding> $enemyGrounding
    */
   private function __construct(
     public array $actors,
@@ -67,6 +74,8 @@ final readonly class BattlerBindings
     public array $enemyProfiles,
     public ?string $referenceActorId,
     public ?float $referenceHeight,
+    public array $actorGrounding = [],
+    public array $enemyGrounding = [],
   ) {}
 
   public static function exists(string $assetRoot): bool
@@ -109,7 +118,7 @@ final readonly class BattlerBindings
     }
     $built = [];
     foreach (['actors', 'enemies'] as $side) {
-      $built[$side] = ['artwork' => [], 'poses' => [], 'scale' => []];
+      $built[$side] = ['artwork' => [], 'poses' => [], 'scale' => [], 'grounding' => []];
       foreach (self::requireMap($data[$side] ?? [], $side) as $id => $entry) {
         $where = "{$side}.{$id}";
         $id = self::requireIdentity($id, $where);
@@ -128,6 +137,9 @@ final readonly class BattlerBindings
           if (isset($entry['scale'])) {
             $built[$side]['scale'][$id] = self::buildProfile($entry['scale'], "{$where}.scale");
           }
+          if (isset($entry['grounding'])) {
+            $built[$side]['grounding'][$id] = BattlerGrounding::fromArray($entry['grounding'], "{$where}.grounding");
+          }
         } catch (InvalidArgumentException $error) {
           throw str_starts_with($error->getMessage(), $where) ? $error
             : new InvalidArgumentException("{$where}: {$error->getMessage()}", previous: $error);
@@ -136,7 +148,8 @@ final readonly class BattlerBindings
     }
     return new self($built['actors']['artwork'], $built['enemies']['artwork'],
       $built['actors']['poses'], $built['enemies']['poses'],
-      $built['actors']['scale'], $built['enemies']['scale'], $referenceActorId, $referenceHeight);
+      $built['actors']['scale'], $built['enemies']['scale'], $referenceActorId, $referenceHeight,
+      $built['actors']['grounding'], $built['enemies']['grounding']);
   }
 
   /** @return list<string> Every identity this file binds on one side. */
@@ -182,6 +195,7 @@ final readonly class BattlerBindings
         $pivotX,
         $pivotY,
         array_key_exists('scaleSpan', $pose) ? self::requireNumber($pose['scaleSpan'], "{$at}.scaleSpan") : null,
+        array_key_exists('bakedShadow', $pose) ? self::readBoolean($pose, 'bakedShadow', false, $at) : null,
       );
     }
     return new BattlePoseSet($poses);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Localization\Vocabulary;
+use Ichiloto\Engine\Progression\Mastery\MasteryVocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasGlyphEffects;
@@ -24,6 +25,8 @@ use RuntimeException;
 final class GraphicalBattleResults
 {
   private const BASE_LAYER = 10000;
+  /** Where the reward totals sit, by how many there are: EXP and gold, or EXP, SP and gold. */
+  private const array TOTAL_ROWS = [2 => [207, 241], 3 => [196, 222, 248]];
   private array $images = [];
   private array $text = [];
   private float $opacity;
@@ -133,7 +136,7 @@ final class GraphicalBattleResults
     $this->line('rewards-title', Vocabulary::getTerm('battle.rewards', 'REWARDS'), 856, 168, 414, 11, 22, 'accent');
     $this->line('summary-title', Vocabulary::getTerm('battle.summary', 'BATTLE SUMMARY'), 856, 508, 414, 11, 22, 'accent');
     $rewards = $this->playback->rewards;
-    $rows = $this->page(BattleResultsContent::partyRows($rewards), 4);
+    $rows = BattleResultsContent::getVisiblePartyRows($this->playback);
     foreach ($rows as $slot => $row) {
       $actor = $row['actor'];
       $award = $rewards->progression[$actor];
@@ -146,7 +149,7 @@ final class GraphicalBattleResults
         $this->line('party-name-' . $slot . '-' . $line, $name, 196, $y + $line * 28,
           $row['nameColumns'] * 14, 14, 28, 'text', alpha: $alpha);
       }
-      $this->line('party-level-' . $slot, Vocabulary::getTerm('stats.level_short', Vocabulary::getTerm('stats.level', 'Lv')) . ' ' . $progress['level'], 680, $y, 98, 13, 26, 'accent', 'right', $alpha);
+      $this->line('party-level-' . $slot, Vocabulary::getTerm('stats.level_short') . ' ' . $progress['level'], 680, $y, 98, 13, 26, 'accent', 'right', $alpha);
       $gain = $award->experienceAwarded > 0 ? '+' . $award->experienceAwarded : '';
       $this->line('party-gain-' . $slot, $gain, 778 - $row['gainWidth'], $y + 28,
         $row['gainWidth'], 13, 26, 'positive', 'right', $alpha);
@@ -163,9 +166,16 @@ final class GraphicalBattleResults
       }
       $this->line('party-markers-' . $slot, implode(' / ', $markers), 196, $y + 80, 582, 9, 18, 'accent', alpha: $alpha);
     }
-    $this->total('experience', Vocabulary::getTerm('battle.experience_per_member',
-      Vocabulary::getTerm('stats.exp', 'EXP') . ' / MEMBER'), $rewards->experiencePerMember, 207);
-    $this->total('gold', Vocabulary::getTerm('currency.name', 'Gold'), $rewards->gold, 241);
+    // EXP, then SP when the battle gave any, then gold, in the band above the item list.
+    $totals = [['experience', Vocabulary::getTerm('battle.experience_per_member',
+      Vocabulary::getTerm('stats.exp', 'EXP') . ' / MEMBER'), $rewards->experiencePerMember]];
+    if ($rewards->skillPointsPerMember > 0) {
+      $totals[] = ['skill-points', MasteryVocabulary::getPointsLabel() . ' / MEMBER', $rewards->skillPointsPerMember];
+    }
+    $totals[] = ['gold', Vocabulary::getTerm('currency.name', 'Gold'), $rewards->gold];
+    foreach ($totals as $index => [$id, $label, $value]) {
+      $this->total($id, $label, $value, self::TOTAL_ROWS[count($totals)][$index]);
+    }
     $this->line('items-title', Vocabulary::getTerm('command.item', 'ITEMS'), 856, 278, 414, 11, 22, 'muted');
     $items = BattleResultsContent::itemLines($rewards);
     if ($items === []) { $this->line('items-empty', 'None', 856, 308, 414, 13, 26, 'muted'); }

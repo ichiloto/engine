@@ -22,6 +22,7 @@ final readonly class MenuRowLayout
     public int $cellWidth = 10,
     public int $cellHeight = 24,
     public bool $wrapText = false,
+    public bool $ellipsis = false,
   ) {
     new RendererGridConfig(1, 1, $cellWidth, $cellHeight);
     if ($rowHeight < $cellHeight || $rowHeight > RendererGridConfig::MAX_CELL_SIZE || !array_is_list($columns)) {
@@ -49,16 +50,34 @@ final readonly class MenuRowLayout
     return MenuTextWrap::lines($text, $cells);
   }
 
+  /**
+   * A row's label as its lines: on one line, cut with an ellipsis only when
+   * it cannot fit, in a list of one-line rows ($ellipsis); else as text is
+   * laid out ({@see lines()}).
+   *
+   * @return non-empty-list<string>
+   */
+  public function labelLines(string $text, int $cells): array
+  {
+    return $this->ellipsis ? [MenuTextWrap::ellipsize($text, max(1, $cells))] : $this->lines($text, $cells);
+  }
+
+  /** A value's lines in its column: a labelled column's figure takes the cells after the label. */
+  public function valueLines(string $text, MenuRowColumn $column): array
+  {
+    return $this->lines($text, $column->getFigureCells());
+  }
+
   public function heightFor(MenuRow $row, MenuRowMetrics $metrics, bool $hasIcon): int
   {
     $iconCells = $hasIcon ? (int)ceil($metrics->iconWidth / $this->cellWidth) + $metrics->gapCells : 0;
     $cells = $row->kind->isAction()
       ? (int)floor(($this->viewport->width - 2 * ($metrics->padding + $iconCells * $this->cellWidth)) / $this->cellWidth)
       : $this->textCells($metrics) - $this->valueCells($metrics) - $iconCells;
-    $lines = count($this->lines($row->label, $cells));
+    $lines = count($row->kind->isAction() ? $this->lines($row->label, $cells) : $this->labelLines($row->label, $cells));
     foreach ($row->values as $index => $value) {
       $column = $this->columns[$index] ?? throw new InvalidArgumentException('Menu value column missing.');
-      $lines = max($lines, count($this->lines($value->text, $column->cells)));
+      $lines = max($lines, count($this->valueLines($value->text, $column)));
     }
     return $this->rowHeight + ($lines - 1) * $this->cellHeight;
   }
@@ -70,7 +89,7 @@ final readonly class MenuRowLayout
 
   public function valueCells(MenuRowMetrics $metrics): int
   {
-    return array_sum(array_map(fn(MenuRowColumn $column) => $column->cells + $metrics->gapCells, $this->columns));
+    return array_sum(array_map(fn(MenuRowColumn $column) => $column->cells + ($column->gap ?? $metrics->gapCells), $this->columns));
   }
 
   public function assertFits(MenuRowMetrics $metrics, bool $hasSeparateTreatment = false): void

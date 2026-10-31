@@ -20,7 +20,7 @@ class GameState
 {
   /**
    * @var \Closure|null Observer invoked as `($kind, $name)` after a write,
-   * where `$kind` is `switch`, `variable`, or `event`. Never serialized —
+   * where `$kind` identifies the changed world or presentation fact. Never serialized —
    * the owning scene re-wires it on load.
    */
   public ?\Closure $onChange = null;
@@ -46,6 +46,18 @@ class GameState
   protected array $visitedMaps = [];
   /** @var array<string, array<string, true>> Learned landmark ids, scoped to their owning map. */
   protected array $knownLandmarks = [];
+
+  /** @var array<string,true> Delivered first-use prompts, separate from power availability. */
+  private array $worldAbilityPrompts = [];
+
+  public function hasSeenWorldAbilityPrompt(string $id): bool { return isset($this->worldAbilityPrompts[$id]); }
+
+  public function markWorldAbilityPromptSeen(string $id): void
+  {
+    if (trim($id) === '' || $this->hasSeenWorldAbilityPrompt($id)) { return; }
+    $this->worldAbilityPrompts[$id] = true;
+    $this->onChange?->__invoke('ability_prompt', $id);
+  }
 
   /** Explicit play revelation and physical approach share the same persistent knowledge. */
   public function revealLandmark(string $mapId, string $landmarkId): void
@@ -235,7 +247,7 @@ class GameState
   }
 
   /**
-   * @return array{switches: array<string, bool>, variables: array<string, int|float|string>, storyEvents: string[], completedEvents: array<string, true>, visitedMaps: array<string, true>, knownLandmarks: array<string, array<string, true>>}
+   * @return array{switches: array<string, bool>, variables: array<string, int|float|string>, storyEvents: string[], completedEvents: array<string, true>, visitedMaps: array<string, true>, knownLandmarks: array<string, array<string, true>>, worldAbilityPrompts: array<string,true>}
    */
   public function toArray(): array
   {
@@ -246,6 +258,7 @@ class GameState
       'completedEvents' => $this->completedEvents,
       'visitedMaps' => $this->visitedMaps,
       'knownLandmarks' => $this->knownLandmarks,
+      'worldAbilityPrompts' => $this->worldAbilityPrompts,
     ];
   }
 
@@ -266,6 +279,7 @@ class GameState
     $this->completedEvents = $restored->completedEvents;
     $this->visitedMaps = $restored->visitedMaps;
     $this->knownLandmarks = $restored->knownLandmarks;
+    $this->worldAbilityPrompts = $restored->worldAbilityPrompts;
   }
 
   /**
@@ -314,6 +328,10 @@ class GameState
       foreach ($entries as $landmarkId => $known) {
         if (is_string($landmarkId) && $known === true) { $state->revealLandmark($mapId, $landmarkId); }
       }
+    }
+
+    foreach (is_array($data['worldAbilityPrompts'] ?? null) ? $data['worldAbilityPrompts'] : [] as $id => $seen) {
+      if ((is_string($id) || is_int($id)) && $seen === true) { $state->markWorldAbilityPromptSeen((string)$id); }
     }
 
     return $state;

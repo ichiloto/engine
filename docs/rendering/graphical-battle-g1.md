@@ -276,7 +276,7 @@ Example structure (generic geometry and placeholder paths, not game artwork):
 <?php
 declare(strict_types=1);
 
-use Ichiloto\Engine\Battle\Presentation\{BattleArenaDefinition, BattleCanvasLayout, BattlePresentationCatalog, BattlerArtwork, BattlerSlot};
+use Ichiloto\Engine\Battle\Presentation\{BattleArenaDefinition, BattleCanvasLayout, BattleGround, BattlePresentationCatalog, BattlerArtwork, BattleStageSlot};
 use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasImage, CanvasRectangle};
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 
@@ -285,6 +285,7 @@ return new BattlePresentationCatalog(
     'arena.example' => new BattleArenaDefinition(
       name: 'Example clearing',
       background: new CanvasImage('arena', 'Graphics/Battle/arena.png', new CanvasRectangle(0, 0, 1350, 720)),
+      ground: new BattleGround(top: 300),
     ),
   ],
   actors: [
@@ -299,16 +300,19 @@ return new BattlePresentationCatalog(
   ui: new BattleCanvasLayout(1350, 720,
     skin: require __DIR__ . '/battle-ui.php',
     feedbackArea: new CanvasRectangle(0, 80, 1350, 452),
-    partySlots: [new BattlerSlot(969, 265, 143, 181)]),
+    partySlots: [new BattleStageSlot(969, 0, 143, 181)],
+    groundGap: 20),
   defaultArena: 'arena.example',
 );
 ```
 
-`BattleCanvasLayout` owns canvas dimensions, the compatibility UI grid, party
-slots and feedback safe area. Its skin is optional; a skinned layout requires
-an explicit feedback safe area. `BattleArenaDefinition` is a scene only: a
-display `name`, `background`, and optional `skin`. It no longer extends the
-layout or owns enemy/party positions. A scene skin changes treatment without
+`BattleCanvasLayout` owns canvas dimensions, the compatibility UI grid, the
+party formation, the theme's ground defaults and formation spacing, and the
+feedback safe area. Its skin is optional; a skinned layout requires
+an explicit feedback safe area. `BattleArenaDefinition` is a scene: a
+display `name`, `background`, optional `skin`, and the optional `ground` its
+picture shows (see [Arena Ground And Staging](#arena-ground-and-staging)). It
+does not extend the layout or own enemy/party positions. A scene skin changes treatment without
 changing shared geometry. Preflight checks its background against the shared
 canvas, validates PNGs and capabilities before battle-entry effects, and refuses
 unusable optional graphics without cancelling combat.
@@ -330,6 +334,40 @@ Mixed random tables can select a scene on an individual map-owned choice:
   'rate' => 22,
 ],
 ```
+
+Random battles follow where they start. A map's `battleArenas` rules pick the
+arena for a named area, for an encounter terrain, or for a terrain within an
+area, and an arena in `arenas.php` may stand for a region with `variants`, the
+arena drawn for each encounter terrain a battle there can start on:
+
+```php
+'encounters' => [
+  'battleArena' => 'arena.central-road',
+  'battleArenas' => [
+    ['area' => 'garden-fringe', 'battleArena' => 'arena.garden-fields'],
+    ['area' => 'garden-fringe', 'terrain' => 'wetland', 'battleArena' => 'arena.garden-marsh'],
+    ['terrain' => 'desert', 'battleArena' => 'arena.dunes'],
+  ],
+  // ...
+],
+// arenas.php
+'arena.central-road' => [..., 'variants' => ['woodland' => 'arena.road-woodland', 'grassland' => 'arena.central-road']],
+```
+
+`EncounterTable::resolveBattleArenaAt($troop, $cell)` decides: a troop's own
+arena as authored; else the cell's area-and-terrain rule, area rule, terrain
+rule; else the map's arena; else the default. A terrain rule picks its arena
+outright. Every other choice carries the cell's encounter terrain as the
+`battleTerrain` setting, and `BattlePresentationCatalog::resolveArenaVariant()`
+draws the arena's variant for it. A variant may name its own arena when the
+picture already shows that terrain. A missing variant draws the arena's own
+background and is logged; `Field\EncounterArenaCoverage` lists every arena and
+terrain a map's battles meet with the missing ones, for the Editor's validation
+and a game's tests. Thicket terrain kinds carry their encounter terrain, so a
+battle started in a thicket refines by it. Event and boss battles name no
+terrain and keep their authored arenas. Rules that name an undeclared area,
+a terrain the map's kinds do not meet, neither, or a repeated scope are left
+out and named in the table's `ignored`.
 
 `Field\EncounterEntry::getFromValue()` reads numeric legacy weights and structured
 rows; `getBattleSettings($mapSettings)` selects entry settings over common map
@@ -361,40 +399,213 @@ identity is added. Targets and feedback refer to the actual PHP object.
 ### Troop-Owned Graphical Formation
 
 Arena-side `enemySlots` and `enemySlotsByTroop` are removed, not retained as
-compatibility overrides. Each troop enemy in `Data/troops.php` owns its
-graphical placement beside its unchanged terminal position:
+compatibility overrides. Each troop enemy in `Data/troops.php` may own its
+graphical place beside its unchanged terminal position:
 
 ```php
 ['enemy' => 'Existing Enemy Catalog Key', 'position' => [15, 7],
  'graphicalPlacement' => [
-   'x' => 375, 'y' => 467, 'width' => 173, 'height' => 197,
+   'x' => 375, 'depth' => 120, 'width' => 173, 'height' => 197,
  ]],
 ```
 
-These are `BattlerSlot` pivot destination and maximum contain dimensions in
-shared canvas units, not terminal cells or copied source-image dimensions.
-Exactly four numeric finite keys are accepted: positions nonnegative,
-dimensions positive, each at most 16384. `Troop::fromArray($data, $source)`
-diagnoses invalid optional data with its troop/enemy source path, preserves the
-combatants and terminal positions, and records a refusal for graphical
-preflight. Absence is allowed for terminal-only content but not inferred from
-terminal coordinates. Canvas bounds and complete participant coverage are
-checked during graphical preparation.
+These are `BattleStageSlot` values in shared canvas units: `x` is the column
+the feet stand on, `depth` how far back from the arena ground's near edge, and
+width/height the movement and legacy contain limits, with optional
+`displayScale`. They are not terminal cells or copied source-image
+dimensions. A placement written with a fixed canvas `y` (the contract before
+20 October 2026) is refused with what to do: place the member again.
+`Troop::fromArray($data, $source)` diagnoses invalid optional data with its
+troop/enemy source path, preserves the combatants and terminal positions, and
+records a refusal for graphical preflight. A member without a placement is
+arranged by the battle ([staging](#arena-ground-and-staging)); placements are
+never inferred from terminal coordinates.
 
-`Troop::getGraphicalSlot($enemy): ?BattlerSlot` associates the authored slot
+`Troop::getStagePlace($enemy): ?BattleStageSlot` associates the authored place
 with the actual instantiated Enemy object. Sorting, removing a defeated enemy,
-or having repeated enemies of one type cannot reassign a survivor's placement.
-The association survives ordinary serialization without adding a save schema.
-Party placement belongs to the shared layout and follows the active frontline.
-Any valid troop formation can be prepared against any valid scene; neither
-selection nor geometry depends on troop names.
+or having repeated enemies of one type cannot reassign a survivor's place; the
+battle's staged slots are keyed by instance too. The association survives
+ordinary serialization without adding a save schema. Party placement belongs
+to the shared layout and follows the active frontline. Any valid troop
+formation stands on any valid scene; neither selection nor geometry depends on
+troop names.
 
-Claude owns Editor work: source-preserving graphicalPlacement round trips
-through existing troop editing transactions/undo; arena reference pickers from
-getArenaChoices(); validate battleArena keys in map encounters and scripted
-battle commands. Refuse unsupported PHP edits before writing. Do not add a
-mandatory graphical authoring workflow to the TUI or flatten authored catalogs.
-Runtime support does not claim this authoring work is complete.
+The Editor authors placements source-preservingly through troop transactions:
+Align writes the Engine's arrangement for every member, Arrange Automatically
+clears every placement, and the GUI editor's canvas drops a member at a column
+and depth on the previewed arena's ground, each one undo step. Arenas are
+authored as data (`Data/Presentation/arenas.php`, Battle Arenas in the GUI
+editor). The TUI keeps no mandatory graphical workflow.
+
+### Arena Ground And Staging
+
+Andrew, 20 October 2026, on GPUI battles: "in GPUI we have to think about the
+background and how characters place vs the horizon. We are often leaving too
+much space between the Battle UI's menu (bottom of screen) and the lowest
+placed battler." Formations were absolute canvas points shared by every arena,
+so on many backgrounds the back of the party stood near the horizon while the
+front left an empty strip above the battle UI.
+
+Each arena declares the ground its picture shows as `BattleGround(top,
+bottom, perspective)`: `top` is the far edge battlers may stand on (just below
+the horizon or walkable edge), `bottom` the near edge, and `perspective` the
+display scale of a battler on the far edge relative to one on the near edge,
+linear between. Every field is optional: an arena inherits the layout's
+`ground` (the theme's default ground), and the layout's own defaults are the
+battler area's top (or the canvas top) and the battle UI's top less the
+theme's `groundGap` (`BattleCanvasLayout::getHudTop()` is the one owner of
+where the UI's bottom windows begin, read by `GraphicalBattleHud` too).
+`BattleCanvasLayout::getGround($arena)` resolves a `BattleGroundBand`.
+
+`BattleStaging::stage()` stands one battle's formations on that ground:
+
+- A stage place's depth is measured back from the near edge, so a formation
+  keeps its shape on every arena. A side deeper than the ground is compressed
+  in depth as a whole, keeping its shape; nobody stands in front of the near
+  edge or beyond the far edge.
+- The party uses the layout's `partySlots` (stage places, back to front); a
+  smaller frontline takes the front-most slots. A layout without party slots
+  has its party arranged like a troop.
+- Troop members with a place keep it; the rest are arranged by
+  `BattleStaging::arrange()`: a staggered echelon from back (first member) to
+  front (last), each rank stepping back by `BattleFormationSpacing::depth`
+  times the nearer battler's drawn height and alternating between an inner
+  lane and an outer lane `lateral` times their mean drawn width beyond it,
+  fitted and centred across the side's area by the art's real extent either
+  side of its feet. The arrangement centres its depth on the middle of the
+  theme's party formation (`partySlots`), so the two sides face each other
+  across the field and a lone enemy stands mid-field; larger troops spread
+  back and forward around that middle, at least as deep and as wide as the
+  party formation stands, so a pair of small creatures uses the field as the
+  party does rather than huddling. The middle is the formation's, not the
+  frontline's, so a troop aligned in an editor stands where the battle would
+  arrange it whatever the party's size. Without party slots both sides start
+  from the near edge alike. A battler whose art reaches below the battler area (a
+  creature's body under its waterline) stands that much further back. Spacing
+  follows the current artwork, so replaced art re-spaces itself.
+- An arena may mark its picture's footing (`BattleFooting`): a polygon of
+  canvas points for its land (a road's dirt rather than its grass verge,
+  rocks or fences) and one for its water. An arena marking neither is land
+  throughout. The party stands on land; each enemy stands where its
+  `habitat` lives (`EnemyHabitat`: `land`, the default, `water` or `air`,
+  authored on the enemy record), an air enemy over land or water. Each side
+  keeps its visible body within its own area when fitting its feet onto that
+  habitat. Footing
+  holds feet, not art: a tail may overhang the verge. Arranged ranks centre
+  across their footing at the height they stand at, so a troop follows a
+  road's line, keeping their lanes' spacing; an authored or theme place whose
+  feet fall outside steps to the nearest footed height and across into it, its
+  perspective scale following. Placement solves footing and visible body
+  clearance together: it retains the requested height when feasible, otherwise
+  uses the nearest feasible height and column. Visible bounds come from the
+  current decoded art or idle crop, so transparent sheet padding does not move
+  a body away from valid ground. Pivots, calibrated body scale and authored
+  perspective are retained; the image frame still fits the whole canvas.
+  An impossible fit retains the existing placement and clearance diagnostics.
+  No authored footing retains the established placement/diagnostic behavior;
+  missing art retains the name anchor. Logical formation movement uses the
+  same body-aware footing projection. The polygons' edges count as footing. Data
+  arenas author it as `'footing' => ['land' => points, 'water' => points]`,
+  each a list of `['x' => , 'y' => ]` points (3 to 256) in
+  `Data/Presentation/arenas.php`, edited on the Battle Arenas page of both
+  editors. `BattleFooting::hasFootingFor()` says whether a habitat has
+  anywhere to stand, which the Editor's validation checks for every
+  encounter's arena.
+- Battlers are drawn back to front by where their feet stand, so a nearer
+  battler covers one behind it.
+
+`GraphicalBattlePresentation::getSlot($battler)` and `getStaging()` expose the
+staged `BattlerSlot`s; base art, poses, cursors, condition slots, feedback,
+effects, defeat and concession treatments all read these, so they follow the
+ground without their own geometry. `BattleFormationLayout::compose()` stages
+previews through the same rule and returns its `staging`. The Terminal battle,
+combat, saves and terminal positions never read any of it; richer staging
+(animated poses, overlapping effects, summons) builds on the same slots.
+
+Use `ground.perspective: 1.0` for uniform battler size across foot rows. The
+arena backdrop supplies its composition independently of battler calibration.
+
+Clearance (`BattleFormationClearance`) now reports battlers standing on the
+same ground: two footings (the lowest 12% of visible art across its middle
+60%) that overlap. It no longer reports art that merely overlaps another
+battler's, which a staged field needs; art outside the authored areas and a
+target cursor with no room are still reported. Diagnostics never move
+battlers.
+
+### Surface Contact And Elevation
+
+Andrew, 21 October 2026: "can we have a shadow system for battlers. That way
+we don't have to keep worrying about including it in the art", and "we need to
+consider semi-submerged characters like Loch Ness (or perhaps in future we'll
+have monsters that are half submerged in the ground like a mole). These
+obviously won't have shadow." Every battler's feet point stays on the surface
+line, where staging, footing, effects and its contact meet the ground
+(`BattlerGroundContact`, shared by the battle and every formation preview):
+
+- Elevation, signed, in reference heights (`BattlerGrounding::$elevation` in
+  battlers.php `grounding`): positive raises the body over its feet, zero
+  stands, negative sinks it that far below the surface line and the art below
+  the line is clipped (`CanvasImage::$clipRect`), so a creature rises out of
+  water or pokes out of the ground without art painted half-buried. An air
+  enemy without its own takes the theme's `airElevation`; a knocked-out
+  battler lies on the ground.
+- Contact (`BattlerContact`): `shadow`, `ripple`, `burrow` or `none`, what is
+  drawn where it meets the surface. Without its own choice: negative elevation
+  in water ripples, negative on land burrows, everything else casts a shadow.
+- A grounded battler's shadow follows where its art actually meets the
+  ground, read every frame from the image as drawn (pose, crop, mirroring,
+  command movement) by `PngAssetBounds::getGroundContact()`, the same reader
+  battle overlays attach through, cached per content revision and crop, so
+  replaced art needs no metadata. The art's lower edge is each column's
+  lowest solid pixel. In a three-quarter view the ground recedes up the
+  screen, so a contact further back stands higher: every column whose lower
+  edge lies within a depth of the lowest one touches the ground, that depth
+  being the theme's ground perspective (`flatness`, a footprint's height over
+  its width) times the art's solid width. Both feet of a wide or staggered
+  stance, the back feet, belly and front feet of a long four-legged body, a
+  tail lying low, a robe's hem and a lying knockout pose all count; a tail,
+  cloak or weapon held up above the ground does not. Andrew, 26 October 2026:
+  "The shadow of the common Drheko is wrong." The earlier reader laid a
+  plank under the art's lower edge and kept only what it touched, which in a
+  three-quarter view is the nearest feet alone, leaving the Drheko's back
+  legs, belly and tail unshaded.
+  The shadow (layer 90, under every body) uses an axis-aligned radial body
+  ellipse spanning those contacts, plus smaller radial pools under each foot.
+  Its opacity falls to zero across the theme's softness band. The previous
+  filled convex hull is removed: staggered contacts change the ellipse's extent
+  without shearing it into an opaque polygon. Each foot retains a darker,
+  soft core. Andrew, 22 October 2026, on the earlier single ellipse at the feet
+  point: "a circle doesn't quite work for the guys as their wide leg stance
+  make them look like they are hovering". A battler in the air, or art that
+  cannot be read (no GD, an unreadable file), keeps one ellipse at its feet
+  point sized by its body footprint, shrinking and fading with height.
+- The theme styles it (`BattleCanvasLayout::$shadow`, a `BattlerShadowStyle`:
+  colour, strength, softness, how far it reaches past each foot (`width`),
+  how flat each foot's ellipse is (`contactFlatness`), its core's strength
+  (`contactCore`), and the airborne ellipse's footprint share, flatness and
+  fade), with each arena's strength and colour (`'shadow' => ['strength' =>
+  1.3, 'color' => '#1a120c']` in arenas.php). No theme style draws no shadows.
+- Ripples and burrows are the surface reacting where a sunk body breaks it,
+  not decals over it (Andrew rejected overlays: "Both seem fake and overlay
+  the character"). Each (`BattleSurfaceEffect` in the theme's
+  `BattleContactEffects`) has an optional back layer drawn behind the body
+  (layer 95: water or earth rising around it) and an optional front lip
+  drawn over its surface line (layer 101), each a sprite sheet
+  (`BattlerPose`) with its pivot on the surface line, sized to the body's
+  drawn width; two aligned sheets share one placement. Until art exists the
+  Engine draws a quiet placeholder in the theme's colours: a faint ring
+  behind the body and a thin lip along its front edge only, never across it.
+- A battler scales its contact's width and strength (`contactWidth`,
+  `contactOpacity`). Art that paints its own shadow is declared
+  (`'bakedShadow' => true`): the Engine draws no second one and the art keeps
+  the height it was painted at, so an elevation or another contact on it is
+  refused until the art is shadow-free. A pose may say the same of its own
+  art (`'bakedShadow' => true` on the pose, or `false` for a clean pose of a
+  battler otherwise declared), so a clean idle casts the Engine's shadow while
+  a knockout that paints its own does not; the pose shown decides.
+- Contacts follow the feet through steps, recoil, poses, knockouts and
+  concession and fade with the battler. A renderer without composites draws
+  no Engine-drawn contacts; the Terminal battle never reads any of it.
 
 ### Ownership Audit And Game Migration (2026-10-02)
 
@@ -491,7 +702,8 @@ remains intact. Editor work and native cross-platform acceptance remain separate
 
 Whole-image `BattlerArtwork` dimensions come from the current PNG and pivots
 scale with replacement dimensions. Explicit atlas regions retain source-pixel
-geometry relative to their crop. `BattlerSlot(x, y, width, height, displayScale: 1.0)` gives the
+geometry relative to their crop. The staged `BattlerSlot(x, y, width, height, displayScale: 1.0)` (a stage place
+stood on the arena's ground, perspective included in its display scale) gives the
 graphical pivot destination and movement/legacy contain dimensions. The catalog's
 optional `BattleScale` owns a shared reference actor, reference body height and
 identity-keyed actor/enemy proportions. `BattlerScale` calibrates that body unit
@@ -553,6 +765,13 @@ header preflight does not claim to validate compressed pixel data or await paint
 `BattleCharacterStatusWindow`, `BattleMessageWindow` and `BattleResultWindow`
 footprints from the canonical Console snapshot. Explicit named Console overlays
 retain their ownership and order. Pause state supplies its existing label.
+A skinned battle draws every one of those windows itself through
+`BattleHudSnapshot`, so none reaches the canvas as Terminal cells; a window that
+still would is reported through the battle's `PresentationFallbackReport`. UI
+owner layers (`ui:*`: dialogue and modals) are left to the frame composer when
+the project has a dialogue presentation catalogue, which themes them over the
+battle or falls back, reported, to the whole Terminal frame. Without that
+catalogue their Terminal cells are still projected, and that is reported.
 Unowned base cells, battlefield borders and terminal battler glyphs are not
 admitted. `BattleFieldWindow` selects the graphical path before constructing
 terminal battlers, selection art, damage placement or deferred G2/G3 animation
@@ -769,6 +988,16 @@ presentation time from a blocked scene. A new battle discards the prior Results
 session. All configured PNGs receive pre-entry path/crop validation; resource
 budgets apply to concurrently displayed families, not the whole catalog.
 
+Every result without the full Results screen (escape, defeat, and victory when
+the project has no `results` skin or the canvas cannot hold it) reads from
+`BattleResultWindow::presentationSnapshot()` and is drawn by `GraphicalBattleHud`
+in the battle skin's framed `panel`, centred in the band above the battlefield
+and below any visible battle message, sized to its content. Its controls show as
+keys alone at the panel's foot, drawn by `ControlGlyphPresentation` from the menu
+theme, with a page count when the window has pages. Without a menu theme the keys
+read as `[Key]` text and that is reported. A result too long for the panel or the
+canvas is an error; the window owns wrapping and pagination.
+
 Terminal results keep a fixed panel and paginate its measured content viewport.
 Party Progress names are left aligned and their level/EXP values are right aligned,
 using the same right edge as Level Up stats. Labels and values remain separate
@@ -853,10 +1082,12 @@ bindings are reused; no new artwork or game-owned drawing is required.
 The old keyboard-specific instruction and hardcoded help labels are removed.
 Hints resolve the same semantic actions used by input and obey `showInputHints`.
 Terminal retains its windows and resolves its readable controls from that same
-hint snapshot. Contract text uses `TextViewport` for complete scrolling in both
-presentations, removing the old silent 23-line truncation. Navigation, eligibility,
-exclusive tenancy, assignment, release, modal feedback and save identity remain
-owned by the existing state and party services.
+hint snapshot. Info is a `MenuDetailSheet` (see below): the name and lore read as
+prose; Move (its name, then its description), Element, the authored attributes,
+Strong vs and Weak vs are label/value fields. It scrolls through `TextViewport`
+in both presentations, without the old silent 23-line truncation. Navigation,
+eligibility, exclusive tenancy, assignment, release, modal feedback and save
+identity remain owned by the existing state and party services.
 
 
 Andrew’s subsequent 2026-10-18 review removes the wielder list entirely, including
@@ -869,12 +1100,104 @@ Future characters and roles remain in authored eligibility data without being
 shown in the list, contract or footer. Already open party-wide definitions keep
 their established view-only access. No gameplay rule or saved assignment changes.
 
+### Shared detail sheets
+
+Reading views that mix prose with labelled values use one Engine component,
+`MenuDetailSheet`, in every renderer: Summons Info, the quest journal, Records,
+and the Magic and Abilities Terminal detail panels. Owners supply sections of
+`MenuDetailEntry` values and state what each is: prose, a heading, or a field
+holding text, a number or an icon list (`MenuDetailIcon`: an icon role and the
+name shown where the icon is not drawn). Owners never format labels, colons,
+padding or alignment. Fields in a section share one label column. An empty
+icon list is a real answer ("none") and keeps its row.
+
+A `MenuDetailStyle` decides how entries look (approved Summons Info Revision 2,
+21 October 2026). No presentation adds colons to labels, in any renderer. Only
+numbers align right; words and icon lists align left at the label column's
+edge. Canvas reads the style from the menu theme's optional `details` block;
+omitted keys keep the Engine default:
+
+```php
+'details' => [
+  'labelSuffix' => '',             // text attached to each label (none by design)
+  'gapCells' => 1,                 // cells between the label column and values
+  'minLabelCells' => 0,            // label column floor, kept only while a useful value column remains
+  'minValueCells' => 12,           // narrower values stack under their label
+  'valueAlignment' => ['text' => 'left', 'number' => 'right', 'icons' => 'left'],
+  'valuePlacement' => ['text' => 'beside', 'number' => 'beside', 'icons' => 'beside'], // or 'below'
+  'stackWrappedValues' => false,   // a value needing two or more lines stacks under its label
+  'stackedIndentCells' => 2,
+  'stackedValueAlignment' => 'left',
+  'labelColor' => 'text',          // theme colour roles; Last Legend uses 'muted'
+  'valueColor' => 'text',          // for values the owner does not colour
+  'separators' => true,            // close each record with the data-record rule
+  'separatorText' => '',           // text-cell renderers: a rule line of this text instead
+  'recordMinHeight' => 0,          // minimum record height in pixels; text centres in it
+  'emptyValueText' => null,        // known-empty icon list; null uses vocabulary details.none ("None")
+  'showIconNames' => true,         // names follow drawn icons
+  'iconGapCells' => 2,
+  'headingColor' => 'accent',
+  'headingBackground' => null,     // colour role behind headings
+  'headingRuleColor' => null,      // colour role of a rule under each heading
+  'headingRuleOpacity' => 1.0,
+  'headingMinHeight' => 0,
+  'columns' => 1,                  // headed sections may share columns
+  'columnGapCells' => 3,
+  'minColumnCells' => 30,
+],
+```
+
+Sections before the first heading (lead prose) span the sheet. With `columns`
+above 1, the headed sections split, in order, into the columns that keep the
+tallest column shortest, but only when the whole sheet then fits its viewport;
+otherwise every section stacks and the owner scrolls. A heading draws the
+theme's `details.header` frame artwork when bound, else its background colour,
+plus its rule. Icon lists draw each role the theme binds to available artwork
+(`icons`), sized by the row icon box and followed by the name; any other icon
+shows its name. Availability is checked when composing
+(`MenuPresentationCatalog::createDetailStyle()`), never when the theme loads.
+The theme palette has a `muted` role for quiet secondary text.
+
+The Canvas record rule is the theme's data-record separator (`edge` colour,
+row-metric width and `recordSeparatorOpacity`), drawn inside the record's last
+line, as wide as its column. Prose never has a rule. Canvas pages by pixels
+through a `MenuDetailViewport` (columns, height, cell height), showing only
+whole lines. Panel padding is the theme's `metrics.panelPadding`.
+
+Terminal uses `MenuDetailStyle::createTerminal()`: rows instead of pixels, a
+22-cell label column with a 3-cell gap, a `TerminalMenuRow::RULE` line after
+each record, headings as a black strip with yellow text, element names instead
+of icons, "None" for a known-empty list, and the reading range on the Info
+footer's second line. The game's graphical theme never changes the Terminal
+presentation. Single Terminal fields outside a sheet, such as the Status
+screen's, use `TerminalMenuRow::composeField()`, also without colons.
+
+The sheet's source text anchors the owner's `TextViewport` reading position, so
+scrolling survives reflow between renderers. Labels for engine-named fields come
+from project vocabulary through `Vocabulary::getLabel()`.
+
+Elemental affinities read through `ElementalAffinityDetails`, shared by Summons
+Info and any later enemy Assess screen. `ElementalAffinityTier` classifies each
+multiplier exactly as combat does (`ElementalAffinityResolver::classify`):
+weakness above 1, lesser resistance below 1, greater resistance at or below
+half, immunity at 0, absorption below 0. Every tier keeps its row. Element icons
+use the roles `element.<identity>`, lowercased; the effective-against row lists
+elements the same way. Affinities a summon's source omits read "Not recorded"
+(vocabulary `affinities.unrecorded`), distinct from a recorded empty tier.
+
 
 ### Brief action callouts
 
-Action-name messages are removed when the shared announcement phase ends,
-before source/cast or summon animation continues. The existing authored pacing
-and `BattleTurnTimings::announcement` own their readable duration; effect length
-does not extend the banner. This removes the old whole-action message hold for
-both renderers without changing action resolution, animation clocks, result
-feedback or input. Blank authored callouts stay silent.
+Ordinary action-name messages are removed when the shared announcement phase
+ends, before source/cast animation continues. A summon's announcement is a
+concurrent visibility interval: casting and its cutscene start while the action
+name is displayed. Its info box composes above the full-screen cinematic and
+opening cover; battle controls stay hidden. The reading duration adds no
+pre-cutscene pause and expires on its own command clock or at command finish.
+An authored message can replace the callout without its timer clearing that
+replacement. The existing authored pacing
+and `BattleTurnTimings::announcement` own their readable duration (each action
+category's authored reading time, `ui.battle.announcement_seconds`; see
+[Summons](../summons.md)); effect length does not extend the banner. Both renderers share the same
+visibility clock; combat still resolves once at its authored impact. Cancelled
+and completed commands remove their owned announcement. Blank authored callouts stay silent.

@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Rect;
@@ -15,6 +16,7 @@ use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
 use Ichiloto\Engine\Events\Interpreter\EventPresentationInterface;
 use Ichiloto\Engine\Events\MovementEvent;
 use Ichiloto\Engine\Field\EncounterManager;
+use Ichiloto\Engine\Field\FieldConditions;
 use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\MapManager;
@@ -124,13 +126,18 @@ beforeEach(function () {
   $this->encounters = new class($this->scene) extends EncounterManager {
     public array $steps = [];
     public ?Closure $onStep = null;
-    public function registerStep(?CollisionType $tile): void
+    public function registerStep(?CollisionType $tile, ?\Ichiloto\Engine\Core\Vector2 $position = null): void
     {
       $this->steps[] = $tile;
       ($this->onStep)?->__invoke();
     }
   };
   new ReflectionProperty(GameScene::class, 'encounterManager')->setValue($this->scene, $this->encounters);
+  $this->conditions = new class($this->scene) extends FieldConditions {
+    public int $steps = 0;
+    public function registerStep(): bool { $this->steps++; return true; }
+  };
+  new ReflectionProperty(GameScene::class, 'fieldConditions')->setValue($this->scene, $this->conditions);
   $this->observer = new class implements ObserverInterface {
     public array $steps = [];
     public ?Closure $onArrival = null;
@@ -191,10 +198,10 @@ it('rejects the next move when a deferred arrival hands off control without losi
   };
   $this->source->press('up', KeyCode::UP);
   InputManager::handleInput();
-  expect($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue()
+  expect($this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
     ->and($this->observer->steps)->toBe([]);
   // The next paced move flushes the preceding slide's arrival synchronously.
-  expect($this->player->tryMove(Vector2::right(), $this->camera))->toBeFalse()
+  expect($this->player->tryMove(Vector2::right(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeFalse()
     ->and([$this->player->position->x, $this->player->position->y])->toBe([3.0, 4.0]);
   $this->player->advanceGraphicalAnimation(2.0);
   $this->player->completeArrival();
@@ -209,8 +216,8 @@ it('does not carry a deferred move onto a relocated field position', function ()
   $this->observer->onArrival = function (): void {
     $this->scene->relocatePlayer(new Vector2(6, 6));
   };
-  expect($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue()
-    ->and($this->player->tryMove(Vector2::right(), $this->camera))->toBeFalse()
+  expect($this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
+    ->and($this->player->tryMove(Vector2::right(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeFalse()
     ->and([$this->player->position->x, $this->player->position->y])->toBe([6.0, 6.0])
     ->and($this->observer->steps)->toBe([[3.0, 5.0, 3.0, 4.0]]);
 });
@@ -218,8 +225,8 @@ it('does not carry a deferred move onto a relocated field position', function ()
 it('rechecks event ownership in a lightweight scene without a field controller', function () {
   new ReflectionProperty(GameScene::class, 'fieldState')->setValue($this->scene, null);
   $this->observer->onArrival = fn() => $this->interpreter->run([['type' => 'text', 'text' => 'Synthetic owner']]);
-  expect($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue()
-    ->and($this->player->tryMove(Vector2::right(), $this->camera))->toBeFalse()
+  expect($this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
+    ->and($this->player->tryMove(Vector2::right(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeFalse()
     ->and([$this->player->position->x, $this->player->position->y])->toBe([3.0, 4.0])
     ->and($this->scene->hasUnstableEventSession())->toBeTrue()->and($this->observer->steps)->toHaveCount(1);
 });
@@ -229,15 +236,15 @@ it('does not carry a deferred move into a newly loaded map', function () {
   $this->map->expects($this->once())->method('prepareMap')->with('synthetic-destination')->willReturn($prepared);
   $this->map->expects($this->once())->method('applyPreparedMap')->with($prepared, $this->player);
   $this->observer->onArrival = fn() => $this->scene->loadMap('synthetic-destination', $this->player);
-  expect($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue()
-    ->and($this->player->tryMove(Vector2::right(), $this->camera))->toBeFalse()
+  expect($this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
+    ->and($this->player->tryMove(Vector2::right(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeFalse()
     ->and($this->scene->currentMapId)->toBe('synthetic-destination')
     ->and([$this->player->position->x, $this->player->position->y])->toBe([3.0, 4.0])
     ->and($this->observer->steps)->toHaveCount(1);
 });
 
 it('does not use the current frame input after an arrival event immediately returns control', function (bool $held) {
-  expect($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue();
+  expect($this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue();
   $this->observer->onArrival = function (): void {
     $this->observer->onArrival = null;
     $this->interpreter->run([['type' => 'wait', 'seconds' => 0]]);
@@ -305,7 +312,7 @@ it('allows scripted cinematic moves after ownership has already changed', functi
   expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
     ->and([$this->player->position->x, $this->player->position->y])->toBe([5.0, 5.0])
     ->and($this->player->triggers)->toBe([[4.0, 5.0], [5.0, 5.0]])
-    ->and($this->encounters->steps)->toHaveCount(2)->and($this->observer->steps)->toHaveCount(2);
+    ->and($this->encounters->steps)->toBe([])->and($this->observer->steps)->toHaveCount(2);
 })->with(['ordinary arrivals' => [false], 'arrivals reset field input' => [true]]);
 
 it('allows an arrival-owned reentrant cinematic route but rejects the superseded outer move', function () {
@@ -317,8 +324,8 @@ it('allows an arrival-owned reentrant cinematic route but rejects the superseded
     ));
     $this->interpreter->update(0.1);
   };
-  expect($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue()
-    ->and($this->player->tryMove(Vector2::up(), $this->camera))->toBeFalse()
+  expect($this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
+    ->and($this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeFalse()
     ->and([$this->player->position->x, $this->player->position->y])->toBe([4.0, 4.0]);
   foreach (range(1, 10) as $_) {
     $this->scene->advanceFieldPresentation(0.1);
@@ -327,8 +334,34 @@ it('allows an arrival-owned reentrant cinematic route but rejects the superseded
   }
   expect([$this->player->position->x, $this->player->position->y])->toBe([5.0, 4.0])
     ->and($this->player->triggers)->toBe([[3.0, 4.0], [4.0, 4.0], [5.0, 4.0]])
-    ->and($this->encounters->steps)->toHaveCount(3)->and($this->observer->steps)->toHaveCount(3);
+    // Only the outer input step walked; the route the arrival started is scripted.
+    ->and($this->encounters->steps)->toHaveCount(1)->and($this->observer->steps)->toHaveCount(3);
 });
+
+it('counts only player-controlled steps toward encounters and walking conditions', function (string $owner) {
+  expect($this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue();
+  $this->player->advanceGraphicalAnimation(2.0);
+  $this->player->completeArrival();
+  expect($this->encounters->steps)->toBe([CollisionType::ENCOUNTER])->and($this->conditions->steps)->toBe(1);
+
+  $route = [['type' => 'move_route', 'secondsPerStep' => 0.1, 'steps' => [['direction' => 'right', 'count' => 3]]]];
+  $session = $owner === 'cinematic'
+    ? $this->interpreter->runCinematic(CinematicDefinition::fromArrays(
+      ['id' => 'scripted-danger-route', 'name' => 'Synthetic scripted route'], $route))
+    : $this->interpreter->run($route);
+  foreach (range(1, 10) as $_) {
+    $this->scene->advanceFieldPresentation(0.1);
+    $this->player->completeArrival();
+    $this->interpreter->update(0.1);
+  }
+
+  // Every cell is a danger tile: the route still arrives and runs each cell's triggers, but never walks.
+  expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and([$this->player->position->x, $this->player->position->y])->toBe([6.0, 4.0])
+    ->and($this->player->triggers)->toBe([[3.0, 4.0], [4.0, 4.0], [5.0, 4.0], [6.0, 4.0]])
+    ->and($this->observer->steps)->toHaveCount(4)
+    ->and($this->encounters->steps)->toBe([CollisionType::ENCOUNTER])->and($this->conditions->steps)->toBe(1);
+})->with(['cinematic', 'event script']);
 
 it('keeps instant terminal and reduced-motion committed steps and their arrivals exactly once', function (bool $reduced) {
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['accessibility' => ['reducedMotion' => $reduced]]));

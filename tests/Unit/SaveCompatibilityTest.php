@@ -79,6 +79,23 @@ class RecordingPostResolutionContentVersion0To1 implements ContentMigrationInter
   }
 }
 
+/** A synthetic project migration: Mastery EXP progress becomes points before the character hydrates. */
+class ConvertingMasteryContentVersion0To1 implements ContentMigrationInterface
+{
+  public function migrate(array $payload): array
+  {
+    $config = $payload['config'] ?? null;
+    foreach ($config instanceof GameConfig ? $config->party->members->toArray() : [] as $member) {
+      $raw = $member->getDeferredSaveData();
+      $mastery = is_array($raw['mastery'] ?? null) ? $raw['mastery'] : [];
+      $experience = intval($mastery['banked'] ?? 0) + array_sum(is_array($mastery['progress'] ?? null) ? $mastery['progress'] : []);
+      $member->replaceDeferredSaveData([...$raw, 'mastery' => ['points' => intdiv($experience, 5), 'learned' => $mastery['learned'] ?? []]]);
+    }
+
+    return $payload;
+  }
+}
+
 class SaveCompatibilitySceneStub extends GameScene
 {
   public function __construct(private GameConfig $snapshot)
@@ -346,6 +363,27 @@ it('offers content migrations a post-resolution phase only after actors hydrate'
 
   expect(RecordingPostResolutionContentVersion0To1::$actorWasDeferred)->toBeTrue()
     ->and(RecordingPostResolutionContentVersion0To1::$actorWasHydrated)->toBeTrue();
+
+  cleanupCompatibilityManager($manager);
+});
+
+it('lets a content migration convert a loading character\'s saved data before it hydrates', function () {
+  $slug = 'save-compatibility-character-conversion-' . uniqid();
+  $manager = new SaveManager(new SaveCompatibilityTestGame(), "./tests/Support/Data/{$slug}", "./tests/Support/Data/{$slug}/quick",
+    makeCompatibilityManifest(['contentVersion' => 1, 'migrations' => [['from' => 0, 'to' => 1, 'class' => ConvertingMasteryContentVersion0To1::class]]]));
+  $path = $manager->getSlotPath(1);
+  $legacy = serialize(['studying' => 'spark', 'progress' => ['spark' => 40], 'banked' => 15, 'learned' => ['cut']]);
+  $payload = serialize(['slot' => makeCompatibilitySlot($path), 'config' => makeCompatibilityConfig()]);
+  $marker = 's:7:"mastery";a:0:{}';
+  expect(substr_count($payload, $marker))->toBe(1);
+  if (! is_dir(dirname($path))) { mkdir(dirname($path), 0777, true); }
+  file_put_contents($path, 'IED1' . gzencode(str_replace($marker, 's:7:"mastery";' . $legacy, $payload), 9));
+
+  $hero = $manager->loadSaveFile($path)->config->party->members->toArray()[0];
+
+  expect($hero->mastery->points)->toBe(11)
+    ->and($hero->mastery->learned)->toBe(['cut'])
+    ->and(fn() => $hero->replaceDeferredSaveData([]))->toThrow(LogicException::class, 'not awaiting save hydration');
 
   cleanupCompatibilityManager($manager);
 });
@@ -711,6 +749,292 @@ it('rejects malformed declarative relocation migrations', function (array $entry
   'a landing on a moved cell' => [['relocations' => [['map' => 'a', 'cells' => [[1, 1]], 'to' => [1, 1]]]], 'is one of the cells it moves players off'],
 ]);
 
+/** Loads a legacy save standing on a map through a manifest, returning the loaded config. */
+function loadRetirementSave(SaveCompatibilityManifest $manifest, string $mapId, array $position, array $visited = []): GameConfig
+{
+  $path = '/tmp/ichiloto-map-retirement.iedata';
+  $config = makeCompatibilityConfig($mapId);
+  $data = $config->getSaveCompatibilityData();
+  $data['playerPosition'] = new Vector2(...$position);
+  $data['gameState'] = ['visitedMaps' => $visited];
+  $config->applySaveCompatibilityData($data);
+
+  return new SaveCompatibilityPipeline($manifest)->load(serialize(['slot' => makeCompatibilitySlot($path), 'config' => $config]), $path)->config;
+}
+
+it('moves a save on a retired map onto its destination at the first landing holding it', function (string $mapId, array $position, string $expectedMap, array $expected) {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 2,
+    'migrations' => [
+      [
+        'from' => 0, 'to' => 1,
+        'mapRetirements' => [
+          [
+            'map' => 'west', 'into' => 'continent',
+            'landings' => [
+              ['x' => 0, 'y' => 0, 'width' => 4, 'height' => 4, 'to' => [10, 2]],
+              ['x' => 2, 'y' => 2, 'width' => 6, 'height' => 6, 'to' => [20, 5]],
+            ],
+            'to' => [30, 9],
+          ],
+        ],
+      ],
+      [
+        'from' => 1, 'to' => 2,
+        'mapShifts' => [['map' => 'continent', 'axis' => 'y', 'at' => 5, 'by' => 1]],
+      ],
+    ],
+    'aliases' => ['maps' => [['from' => 'old-west', 'to' => 'west']]],
+  ]);
+
+  $loaded = loadRetirementSave($manifest, $mapId, $position);
+
+  expect($loaded->mapId)->toBe($expectedMap)
+    ->and([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual($expected);
+})->with([
+  'inside the first landing' => ['west', [1, 1], 'continent', [10, 2]],
+  'where both landings overlap, the first wins' => ['west', [3, 3], 'continent', [10, 2]],
+  'inside only the second landing, then a later shift on the destination' => ['west', [6, 6], 'continent', [20, 6]],
+  'outside every landing falls back to to' => ['west', [40, 40], 'continent', [30, 10]],
+  'a fractional position lands by its cell' => ['west', [3.5, 0.5], 'continent', [10, 2]],
+  'a renamed retired map follows its alias' => ['old-west', [1, 1], 'continent', [10, 2]],
+  'another map is untouched' => ['forest', [1, 1], 'forest', [1, 1]],
+  'the destination itself keeps its saves' => ['continent', [1, 1], 'continent', [1, 1]],
+]);
+
+it('applies a step\'s shifts, removals and relocations to the retired map before retiring it', function () {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [[
+      'from' => 0, 'to' => 1,
+      'mapRetirements' => [['map' => 'west', 'into' => 'continent',
+        'landings' => [['x' => 0, 'y' => 5, 'width' => 3, 'height' => 1, 'to' => [7, 7]]], 'to' => [1, 1]]],
+      'relocations' => [['map' => 'west', 'cells' => [[2, 4]], 'to' => [2, 5]]],
+      'mapShifts' => [['map' => 'west', 'axis' => 'y', 'at' => 2, 'by' => 2]],
+    ]],
+  ]);
+
+  // (2, 2) shifts to (2, 4), relocates to (2, 5), then retires through the landing holding (2, 5).
+  $loaded = loadRetirementSave($manifest, 'west', [2, 2]);
+
+  expect($loaded->mapId)->toBe('continent')
+    ->and([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual([7, 7]);
+});
+
+it('lands a save on the successor its landing names when a retired map was split across maps', function (array $position, string $expectedMap, array $expected) {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 2,
+    'migrations' => [
+      ['from' => 0, 'to' => 1, 'mapRetirements' => [[
+        'map' => 'garden', 'into' => 'continent',
+        'landings' => [
+          ['x' => 0, 'y' => 0, 'width' => 5, 'height' => 5, 'map' => 'reach', 'to' => [2, 3]],
+          ['x' => 5, 'y' => 0, 'width' => 5, 'height' => 5, 'to' => [40, 41]],
+        ],
+        'to' => [50, 51],
+      ]]],
+      ['from' => 1, 'to' => 2, 'mapShifts' => [['map' => 'reach', 'axis' => 'x', 'at' => 0, 'by' => 1]]],
+    ],
+  ]);
+
+  $loaded = loadRetirementSave($manifest, 'garden', $position, ['garden' => true]);
+
+  // The successor's later edits follow the save; the visit carries to into, which took over the retired identity.
+  expect($loaded->mapId)->toBe($expectedMap)
+    ->and([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual($expected)
+    ->and($loaded->gameState['visitedMaps'])->toBe(['garden' => true, 'continent' => true]);
+})->with([
+  'in the part another successor took' => [[1, 1], 'reach', [3, 3]],
+  'in a landing without a map' => [[6, 1], 'continent', [40, 41]],
+  'outside every landing' => [[30, 30], 'continent', [50, 51]],
+]);
+
+it('reads every place a retirement lands saves on, the fallback first and each once', function () {
+  $retirement = SaveCompatibilityManifest::readDeclaredPositionEdits(
+    ['from' => 0, 'to' => 1, 'mapRetirements' => [[
+      'map' => 'garden', 'into' => 'continent',
+      'landings' => [
+        ['x' => 0, 'y' => 0, 'width' => 5, 'height' => 5, 'map' => 'reach', 'to' => [2, 3]],
+        ['x' => 5, 'y' => 0, 'width' => 5, 'height' => 5, 'to' => [2, 3]],
+        ['x' => 0, 'y' => 5, 'width' => 5, 'height' => 5, 'map' => 'reach', 'to' => [2, 3]],
+      ],
+      'to' => [50, 51],
+    ]]], 'test')[0];
+
+  expect($retirement->getLandingPlaces())->toBe([
+      ['map' => 'continent', 'cell' => [50, 51]],
+      ['map' => 'reach', 'cell' => [2, 3]],
+      ['map' => 'continent', 'cell' => [2, 3]],
+    ]);
+});
+
+it('keeps a landing on a map redrawn under its own identity', function () {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [['from' => 0, 'to' => 1, 'mapRetirements' => [[
+      'map' => 'world', 'into' => 'world',
+      'landings' => [['x' => 0, 'y' => 0, 'width' => 4, 'height' => 4, 'map' => 'world', 'to' => [9, 9]]],
+      'to' => [1, 1],
+    ]]]],
+  ]);
+
+  $loaded = loadRetirementSave($manifest, 'world', [2, 2]);
+
+  expect($loaded->mapId)->toBe('world')
+    ->and([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual([9, 9]);
+});
+
+it('carries a visit to a retired map to its destination, wherever the save stands', function () {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [[
+      'from' => 0, 'to' => 1,
+      'mapRetirements' => [
+        ['map' => 'west', 'into' => 'continent', 'to' => [1, 1]],
+        ['map' => 'east', 'into' => 'continent', 'to' => [9, 1]],
+      ],
+    ]],
+    'aliases' => ['maps' => [['from' => 'old-west', 'to' => 'west']]],
+  ]);
+
+  $inTown = loadRetirementSave($manifest, 'town', [3, 3], ['town' => true, 'old-west' => true]);
+  $unvisited = loadRetirementSave($manifest, 'town', [3, 3], ['town' => true]);
+
+  expect($inTown->mapId)->toBe('town')
+    ->and([$inTown->playerPosition->x, $inTown->playerPosition->y])->toEqual([3, 3])
+    ->and($inTown->gameState['visitedMaps'])->toBe(['town' => true, 'west' => true, 'continent' => true])
+    ->and($unvisited->gameState['visitedMaps'])->toBe(['town' => true]);
+});
+
+it('leaves a retired map\'s one-shot events its own unless an event alias moves them', function () {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [[
+      'from' => 0, 'to' => 1,
+      'mapRetirements' => [['map' => 'west', 'into' => 'continent', 'to' => [1, 1]]],
+    ]],
+    'aliases' => ['one_shot_events' => [['from' => 'west:Q', 'to' => 'reach:Q']]],
+  ]);
+  $path = '/tmp/ichiloto-map-retirement-events.iedata';
+  $config = makeCompatibilityConfig('west');
+  $data = $config->getSaveCompatibilityData();
+  $data['gameState'] = ['completedEvents' => ['west:Q' => true, 'west:A' => true]];
+  $config->applySaveCompatibilityData($data);
+
+  $loaded = new SaveCompatibilityPipeline($manifest)->load(serialize(['slot' => makeCompatibilitySlot($path), 'config' => $config]), $path)->config;
+
+  expect($loaded->gameState['completedEvents'])->toBe(['reach:Q' => true, 'west:A' => true]);
+});
+
+it('retires a save once, so loading it again changes nothing', function () {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [['from' => 0, 'to' => 1, 'mapRetirements' => [['map' => 'west', 'into' => 'continent', 'to' => [4, 4]]]]],
+  ]);
+  $path = '/tmp/ichiloto-map-retirement-once.iedata';
+  $pipeline = new SaveCompatibilityPipeline($manifest);
+  $loaded = loadRetirementSave($manifest, 'west', [1, 1]);
+  $current = serialize([
+    'schemaVersion' => 1, 'contentVersion' => 1, 'projectId' => 'ichiloto/test-project',
+    'payload' => ['slot' => makeCompatibilitySlot($path), 'config' => $loaded],
+  ]);
+
+  $reloaded = $pipeline->load($current, $path)->config;
+
+  expect($reloaded->mapId)->toBe('continent')
+    ->and([$reloaded->playerPosition->x, $reloaded->playerPosition->y])->toEqual([4, 4]);
+});
+
+it('moves a place through a step as a save would, for tooling that follows a landing', function () {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [[
+      'from' => 0, 'to' => 1,
+      'mapShifts' => [['map' => 'continent', 'axis' => 'x', 'at' => 0, 'by' => 1]],
+      'mapRetirements' => [
+        ['map' => 'west', 'into' => 'continent', 'to' => [4, 4]],
+        ['map' => 'continent', 'into' => 'world', 'landings' => [['x' => 4, 'y' => 4, 'width' => 1, 'height' => 1, 'to' => [8, 8]]], 'to' => [0, 0]],
+      ],
+    ]],
+  ]);
+  $migration = $manifest->createMigrationFrom(0);
+
+  // The shift on continent comes before west retires onto it, so only the later retirement moves the landing.
+  expect($migration->movePlace('west', new Vector2(1, 1)))->toEqual(['mapId' => 'world', 'position' => new Vector2(8, 8)])
+    ->and($migration->movePlace('forest', new Vector2(1, 1)))->toEqual(['mapId' => 'forest', 'position' => new Vector2(1, 1)]);
+});
+
+it('retires a map into itself, moving each save made on its old layout to that place on the new one', function (string $mapId, array $position, array $expected) {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [['from' => 0, 'to' => 1, 'mapRetirements' => [[
+      'map' => 'world', 'into' => 'world',
+      'landings' => [['x' => 0, 'y' => 0, 'width' => 10, 'height' => 10, 'to' => [120, 80]]],
+      'to' => [150, 95],
+    ]]]],
+    'aliases' => ['maps' => [['from' => 'old-world', 'to' => 'world']]],
+  ]);
+
+  $loaded = loadRetirementSave($manifest, $mapId, $position);
+
+  expect($loaded->mapId)->toBe('world')
+    ->and([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual($expected);
+})->with([
+  'inside a landing' => ['world', [3, 4], [120, 80]],
+  'elsewhere on the old layout' => ['world', [40, 12], [150, 95]],
+  'under its old alias' => ['old-world', [3, 4], [120, 80]],
+]);
+
+it('rejects malformed declarative map retirements', function (mixed $retirements, string $message, array $aliases = []) {
+  expect(fn() => makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [['from' => 0, 'to' => 1, 'mapRetirements' => $retirements]],
+    'aliases' => $aliases,
+  ]))->toThrow(InvalidSaveCompatibilityManifestException::class, $message);
+})->with([
+  'empty list' => [[], 'mapRetirements must be a non-empty list'],
+  'keyed list' => [['a' => ['map' => 'a', 'into' => 'b', 'to' => [0, 0]]], 'non-empty list'],
+  'not an entry' => [['a'], 'must be an array with map, into, to and optional landings'],
+  'empty map' => [[['map' => ' ', 'into' => 'b', 'to' => [0, 0]]], 'map must be a non-empty string'],
+  'non-string map' => [[['map' => 1, 'into' => 'b', 'to' => [0, 0]]], 'map must be a non-empty string'],
+  'empty destination' => [[['map' => 'a', 'into' => '', 'to' => [0, 0]]], 'into must be a non-empty string'],
+  'missing fallback' => [[['map' => 'a', 'into' => 'b']], 'to must be [x, y]'],
+  'negative fallback' => [[['map' => 'a', 'into' => 'b', 'to' => [0, -1]]], 'non-negative integers'],
+  'string fallback' => [[['map' => 'a', 'into' => 'b', 'to' => ['0', 0]]], 'non-negative integers'],
+  'empty landings' => [[['map' => 'a', 'into' => 'b', 'landings' => [], 'to' => [0, 0]]], 'landings must be a non-empty list'],
+  'keyed landings' => [[['map' => 'a', 'into' => 'b', 'landings' => ['w' => ['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'to' => [0, 0]]], 'to' => [0, 0]]],
+    'landings must be a non-empty list'],
+  'a landing not an array' => [[['map' => 'a', 'into' => 'b', 'landings' => [1], 'to' => [0, 0]]], 'landings[0] must be an array with x, y, width, height, to and an optional map'],
+  'a negative origin' => [[['map' => 'a', 'into' => 'b', 'landings' => [['x' => -1, 'y' => 0, 'width' => 1, 'height' => 1, 'to' => [0, 0]]], 'to' => [0, 0]]],
+    'landings[0] x must be a non-negative integer'],
+  'a string origin' => [[['map' => 'a', 'into' => 'b', 'landings' => [['x' => 0, 'y' => '0', 'width' => 1, 'height' => 1, 'to' => [0, 0]]], 'to' => [0, 0]]],
+    'landings[0] y must be a non-negative integer'],
+  'a zero width' => [[['map' => 'a', 'into' => 'b', 'landings' => [['x' => 0, 'y' => 0, 'width' => 0, 'height' => 1, 'to' => [0, 0]]], 'to' => [0, 0]]],
+    'landings[0] width must be a positive integer'],
+  'a missing height' => [[['map' => 'a', 'into' => 'b', 'landings' => [['x' => 0, 'y' => 0, 'width' => 1, 'to' => [0, 0]]], 'to' => [0, 0]]],
+    'landings[0] height must be a positive integer'],
+  'a malformed landing cell' => [[['map' => 'a', 'into' => 'b', 'landings' => [['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'to' => [0]]], 'to' => [0, 0]]],
+    'landings[0] to must be [x, y]'],
+  'an empty landing map' => [[['map' => 'a', 'into' => 'b', 'landings' => [['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'map' => ' ', 'to' => [0, 0]]], 'to' => [0, 0]]],
+    'landings[0] map must be a non-empty string'],
+  'a landing back onto the retired map' => [[['map' => 'a', 'into' => 'b', 'landings' => [['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'map' => 'a', 'to' => [0, 0]]], 'to' => [0, 0]]],
+    'landings[0] map a is the retired map'],
+  'a later landing malformed' => [[['map' => 'a', 'into' => 'b', 'landings' => [
+    ['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'to' => [0, 0]],
+    ['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'to' => [0, -2]],
+  ], 'to' => [0, 0]]], 'landings[1] to must be [x, y]'],
+]);
+
+it('refuses to mix map retirements and a project migration class', function () {
+  expect(fn() => makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [[
+      'from' => 0, 'to' => 1, 'class' => RecordingContentVersion0To1::class,
+      'mapRetirements' => [['map' => 'a', 'into' => 'b', 'to' => [0, 0]]],
+    ]],
+  ]))->toThrow(InvalidSaveCompatibilityManifestException::class, 'must declare either a class or declared position edits (mapShifts, mapRemovals, relocations, mapRetirements)');
+});
+
 it('resolves actor aliases before reconstructing current project definitions', function () {
   $slug = 'save-compatibility-actor-alias-' . uniqid();
   $actorStore = new ActorStore(dirname(__DIR__) . '/Fixtures/Actors');
@@ -1030,4 +1354,68 @@ it('applies persistent-state aliases during complete save loading and fails on t
     StateRegistry::reset();
     chdir($originalDirectory);
   }
+});
+
+it('folds an aliased knowledge subject into its successor, keeping what each side earned', function () {
+  $manifest = makeCompatibilityManifest(['aliases' => ['knowledge_subjects' => [['from' => 'creature.old-wolf', 'to' => 'creature.wolf']]]]);
+  $config = makeCompatibilityConfig();
+  $config->applySaveCompatibilityData([...$config->getSaveCompatibilityData(), 'knowledge' => ['subjects' => [
+    'creature.old-wolf' => ['depth' => 2, 'observations' => ['tracks' => ['seen' => true]], 'outcomes' => ['encountered' => 3, 'defeated' => 2], 'reports' => []],
+    'creature.rat' => ['depth' => 1, 'observations' => [], 'outcomes' => ['encountered' => 1], 'reports' => []],
+    'creature.wolf' => ['depth' => 1, 'observations' => ['howl' => ['seen' => true]], 'outcomes' => ['encountered' => 2, 'escaped' => 1], 'reports' => []],
+  ]]]);
+
+  $subjects = new SaveContentResolver($manifest, '/saves/knowledge.iedata')->resolve($config)->getSaveCompatibilityData()['knowledge']['subjects'];
+
+  expect(array_keys($subjects))->toBe(['creature.rat', 'creature.wolf'])
+    ->and($subjects['creature.wolf']['depth'])->toBe(2)
+    ->and($subjects['creature.wolf']['outcomes'])->toBe(['defeated' => 2, 'encountered' => 5, 'escaped' => 1])
+    ->and(array_keys($subjects['creature.wolf']['observations']))->toEqualCanonicalizing(['howl', 'tracks'])
+    ->and($subjects['creature.rat']['outcomes'])->toBe(['encountered' => 1]);
+});
+
+it('refuses a save holding a tombstoned knowledge subject', function () {
+  $manifest = makeCompatibilityManifest(['tombstones' => ['knowledge_subjects' => ['creature.removed']]]);
+  $config = makeCompatibilityConfig();
+  $config->applySaveCompatibilityData([...$config->getSaveCompatibilityData(), 'knowledge' => ['subjects' => [
+    'creature.removed' => ['depth' => 1, 'observations' => [], 'outcomes' => [], 'reports' => []],
+  ]]]);
+
+  expect(fn() => new SaveContentResolver($manifest, '/saves/knowledge.iedata')->resolve($config))
+    ->toThrow(RuntimeException::class, 'creature.removed');
+});
+
+
+it('restores selected participation and capacity through the actual save pipeline', function () {
+  $config = makeCompatibilityConfig();
+  $config->party->addMember(new Character('Companion', 0, new Stats(currentHp: 63, totalHp: 100)));
+  $config->party->setBattleSize(8);
+  $config->party->selectParticipants(['Companion']);
+  $config->applySaveCompatibilityData([...$config->getSaveCompatibilityData(), 'gameState' => ['flags' => ['searchStarted' => true]]]);
+  $pipeline = new SaveCompatibilityPipeline(makeCompatibilityManifest());
+  $path = '/saves/synthetic-split.iedata';
+  $saved = serialize($pipeline->createEnvelope(makeCompatibilitySlot($path), $config));
+  $loaded = $pipeline->load($saved, $path)->config;
+  expect($loaded->party->battleSize)->toBe(8)
+    ->and(array_column($loaded->party->participants->toArray(), 'actorId'))->toBe(['Companion'])
+    ->and($loaded->party->leader->stats->currentHp)->toBe(63)
+    ->and($loaded->gameState['flags']['searchStarted'])->toBeTrue()
+    ->and(array_column($loaded->party->members->toArray(), 'actorId'))->toBe(['Hero', 'Companion']);
+  $loaded->party->regroupParticipants();
+  $again = $pipeline->load(serialize($pipeline->createEnvelope(makeCompatibilitySlot($path), $loaded)), $path)->config;
+  expect($again->party->getSelectedActorIds())->toBeNull()
+    ->and(array_column($again->party->participants->toArray(), 'actorId'))->toBe(['Hero', 'Companion']);
+});
+
+
+it('migrates a selected actor reference with the permanent saved actor', function () {
+  $config = makeCompatibilityConfig();
+  $config->party->selectParticipants(['Hero']);
+  $manifest = makeCompatibilityManifest(['aliases' => ['actors' => [['from' => 'Hero', 'to' => 'Renamed']]]]);
+  $pipeline = new SaveCompatibilityPipeline($manifest);
+  $path = '/saves/synthetic-party-alias.iedata';
+  $loaded = $pipeline->load(serialize($pipeline->createEnvelope(makeCompatibilitySlot($path), $config)), $path)->config;
+  expect($loaded->party->getSelectedActorIds())->toBe(['Renamed'])
+    ->and($loaded->party->leader->actorId)->toBe('Renamed')
+    ->and($loaded->party->leader)->toBe($loaded->party->members[0]);
 });

@@ -18,11 +18,15 @@ class MainMenuSettingsManager extends SettingsManager
     {
         return [
             'volume',
+            'music_volume',
+            'sfx_volume',
+            'voice_volume',
             'music',
             'sfx',
             'voice',
             'dialogue_speed',
             'dialogue_auto',
+            'always_dash',
             'notification_duration',
             'cursor_memory',
             'battle_message_pace',

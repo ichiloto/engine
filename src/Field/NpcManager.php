@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\IO\Console\Console;
@@ -50,17 +51,22 @@ class NpcManager
    */
   public function configure(array $entries): void
   {
-    $this->applyPreparedNpcs($this->prepareNpcs($entries, $this->gameScene->currentMapId));
+    $objects = array_map(static fn(WorldObject $object): WorldObjectDefinition => $object->definition,
+      iterator_to_array($this->gameScene->mapManager?->getWorldObjects() ?? new \EmptyIterator()));
+    $this->applyPreparedNpcs($this->prepareNpcs($entries, $this->gameScene->currentMapId, $objects));
   }
 
   /** Builds a destination's NPC list without changing the current map. */
-  public function prepareNpcs(array $entries, string $mapId): array
+  public function prepareNpcs(array $entries, string $mapId, array $worldObjects = []): array
   {
     $npcs = [];
     $ids = [];
 
     foreach (array_values($entries) as $index => $entry) {
-      $placement = NpcPlacement::fromArray($entry);
+      if (is_array($entry) && array_key_exists('placements', $entry) && !isset($this->gameScene->gameState)) {
+        throw new RuntimeException('Named NPC placements require the current world state.');
+      }
+      $placement = NpcPlacement::fromArray($entry, isset($this->gameScene->gameState) ? $this->gameScene->gameState : null, $mapId);
 
       if ($placement === null) {
         continue;
@@ -82,14 +88,18 @@ class NpcManager
       }
 
       $graphicalSprites = $this->loadGraphicalSprites($entry, $mapId, $id !== '' ? $id : "entry:$index ($name)");
-      $npcs[] = new Npc(
+      try {
+        $pages = NpcPages::fromEntry($entry);
+      } catch (InvalidArgumentException $error) {
+        throw new RuntimeException(sprintf('NPC "%s" on map "%s": %s', $id !== '' ? $id : $name, $mapId, $error->getMessage()), previous: $error);
+      }
+      $npc = new Npc(
         name: $name,
         sprite: strval($entry['sprite'] ?? '@'),
         position: new Vector2($placement->x, $placement->y),
         wanders: $placement->wanders,
         wanderArea: $wanderArea,
-        dialogue: array_values(array_filter((array) ($entry['dialogue'] ?? []), is_array(...))),
-        script: array_values(array_filter((array) ($entry['script'] ?? []), is_array(...))),
+        pages: $pages,
         conditions: $placement->conditions,
         sets: array_values(array_filter((array) ($entry['sets'] ?? []), is_array(...))),
         id: $id !== '' ? $id : null,
@@ -100,16 +110,64 @@ class NpcManager
         assetRoot: $graphicalSprites === null ? null
           : ($this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets'),
         directionFix: ($entry['directionFix'] ?? false) === true,
+        facing: $placement->placements === null ? self::readFacing($entry)
+          : $placement->placements->placements[$placement->placements->readSelection($this->gameScene->gameState, $mapId, $id)]['facing'],
       );
+      if (isset($this->gameScene->gameState)) {
+        $npc->bind($mapId, $this->gameScene->gameState, $this->gameScene->party);
+      }
+      if ($placement->placements !== null) {
+        $npc->bindPlacementState(new NpcPlacementState($placement->placements, $npc, $this->gameScene->gameState, $mapId, $id));
+      }
+      if (array_key_exists('bed', $entry)) {
+        if (!isset($this->gameScene->gameState)) { throw new RuntimeException('NPC beds require the current world state.'); }
+        $bed = NpcBedDefinition::fromArray($entry['bed']);
+        [$object, $attachment] = $bed->resolveObject($worldObjects);
+        $npc->bindBed(new NpcBed($bed, $npc, $object, $attachment, new Vector2($placement->x, $placement->y),
+          $this->gameScene->gameState, $mapId,
+          $this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets', $this->gameScene));
+      }
+      $npcs[] = $npc;
     }
 
+    $this->validatePreparedPlacements($npcs);
     return $npcs;
+  }
+
+  /** Current saved choices may not install overlapping real NPCs. */
+  private function validatePreparedPlacements(array $npcs): void
+  {
+    if (!array_any($npcs, static fn(Npc $npc): bool => $npc->placementState !== null)) { return; }
+    $claims = [];
+    foreach ($npcs as $npc) {
+      if (!$this->conditionsHold($npc->conditions)) { continue; }
+      $key = (int)$npc->position->x . ':' . (int)$npc->position->y;
+      foreach ($claims[$key] ?? [] as $other) {
+        if ($npc->placementState !== null || $other->placementState !== null) {
+          throw new InvalidArgumentException('A saved NPC placement overlaps another present NPC; correct current source or migrate its selection.');
+        }
+      }
+      $claims[$key][] = $npc;
+    }
+  }
+
+  /**
+   * Reads the heading an NPC entry stands with: `facing`, one of the cardinal
+   * names in any case. Absent or unknown reads as south, the field's default;
+   * the Editor reports an unknown value.
+   */
+  public static function readFacing(array $entry): MovementHeading
+  {
+    $facing = is_string($entry['facing'] ?? null) ? MovementHeading::tryFrom(ucfirst(strtolower(trim($entry['facing'])))) : null;
+
+    return $facing === null || $facing === MovementHeading::NONE ? MovementHeading::SOUTH : $facing;
   }
 
   /** @param Npc[] $npcs */
   public function applyPreparedNpcs(array $npcs): void
   {
     $this->stopGraphicalAnimation();
+    foreach ($this->npcs as $npc) { if (!in_array($npc, $npcs, true)) { $npc->releaseFieldPresentation(); } }
     $this->npcs = $npcs;
   }
 
@@ -124,8 +182,8 @@ class NpcManager
         throw new InvalidArgumentException('sprites2d must be a character sheet definition array.');
       }
       $sprites = CharacterSheet::fromArray($entry['sprites2d']);
-      if ($sprites->layer < PresentationLayerPolicy::WORLD || $sprites->layer >= PresentationLayerPolicy::UI) {
-        throw new InvalidArgumentException('Automatic Game world sprites require layers 0..999; UI layers are reserved.');
+      if ($sprites->layer < PresentationLayerPolicy::WORLD || $sprites->layer >= PresentationLayerPolicy::FIELD_GUIDANCE) {
+        throw new InvalidArgumentException('Automatic Game world sprites require layers 0..999; guidance and UI layers are reserved.');
       }
       return $sprites;
     } catch (InvalidArgumentException $error) {
@@ -139,6 +197,14 @@ class NpcManager
   public function getGraphicalSpriteProviders(): array
   {
     return array_values(array_filter($this->npcs, $this->isPresentationVisible(...)));
+  }
+
+  public function findBedOccupant(string $objectId): ?Npc
+  {
+    $occupants = array_values(array_filter($this->npcs, fn(Npc $npc): bool => $npc->bed?->isOccupied
+      && $npc->bed->definition->objectId === $objectId && $this->isFieldVisible($npc)));
+    if (count($occupants) > 1) { throw new RuntimeException('More than one current NPC occupies the same bed.'); }
+    return $occupants[0] ?? null;
   }
 
   /** Called alongside the Player/staged-actor tick, including during event routes. */
@@ -192,7 +258,7 @@ class NpcManager
     $now = Time::getTime();
 
     foreach ($this->visibleNpcs() as $npc) {
-      if (! $npc->wanders) {
+      if (! $npc->wanders || $npc->bed?->isOccupied) {
         continue;
       }
 
@@ -226,9 +292,41 @@ class NpcManager
   {
     if ($this->isPresentationVisible($npc)) {
       Console::withLayer($npc->getGraphicalSpriteId(), function () use ($npc): void {
-        $this->gameScene->camera->renderOnScreen([$npc->sprite], $npc->position);
+        $this->gameScene->camera->renderOnScreen([$npc->getFieldTerminalSprite()], $npc->position);
       });
     }
+    $this->renderCue($npc);
+  }
+
+  /**
+   * Draws an NPC's cue glyph in the cell above it while the cue shows,
+   * unless graphical cue art draws it. The glyph follows the NPC as it moves.
+   */
+  private function renderCue(Npc $npc): void
+  {
+    $layer = 'npc-cue:' . $npc->getGraphicalSpriteId();
+    Console::removeLayer($layer);
+    if ($npc->cue === null || !$this->shouldRenderCue($npc)
+      || ($this->gameScene->isGraphicalFieldPresented() && ($this->gameScene->fieldEffects?->canPresentNpcCue($npc) ?? false))) {
+      return;
+    }
+    $glyph = $this->gameScene->fieldEffects?->cueStyle->styleGlyph($npc->cue->symbol, $npc->cue->color) ?? $npc->cue->styledSymbol();
+    Console::withLayer($layer, fn() => $this->gameScene->camera->renderOnScreen([$glyph],
+      new Vector2($npc->position->x, $npc->position->y - 1)), PresentationLayerPolicy::WORLD);
+  }
+
+  /** Whether an NPC's cue shows now: the NPC is on the field, guidance shows and the cue's own conditions hold. */
+  public function shouldRenderCue(Npc $npc): bool
+  {
+    return $npc->cue !== null && $this->isPresentationVisible($npc) && $this->gameScene->canPresentFieldGuidance()
+      && $npc->cue->isInRange($npc->position, $this->gameScene->player?->position)
+      && $this->conditionsHold($npc->cue->conditions);
+  }
+
+  /** @return list<Npc> The NPCs whose cues show now. */
+  public function listCuedNpcs(): array
+  {
+    return array_values(array_filter($this->npcs, $this->shouldRenderCue(...)));
   }
 
   /**
@@ -269,6 +367,14 @@ class NpcManager
     return null;
   }
 
+  /** Finds a stable-id NPC only while its conditions place it on the map. */
+  public function findPresentById(string $id): ?Npc
+  {
+    $npc = $this->findById($id);
+
+    return $npc !== null && $this->conditionsHold($npc->conditions) ? $npc : null;
+  }
+
   /**
    * Moves a stable-id NPC one cardinal tile using current passability.
    */
@@ -289,7 +395,8 @@ class NpcManager
     $player = $this->gameScene->player;
 
     if (
-      ! $this->gameScene->mapManager->canMoveTo($destinationX, $destinationY)
+      $npc->bed?->isOccupied
+      || ! $this->gameScene->mapManager->canMoveTo($destinationX, $destinationY)
       || ($player !== null
         && intval($player->position->x) === $destinationX
         && intval($player->position->y) === $destinationY)

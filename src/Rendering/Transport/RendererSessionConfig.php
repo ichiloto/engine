@@ -23,12 +23,15 @@ final readonly class RendererSessionConfig
   public const string CANVAS_OVERLAY = 'canvas_overlay';
   public const string CANVAS_IMAGE_TONE = 'canvas_image_tone';
   public const string CANVAS_IMAGE_FLIP = 'canvas_image_flip';
+  public const string CANVAS_IMAGE_ALPHA_FLIP = 'canvas_image_alpha_flip';
   public const string CANVAS_CLIP_OPACITY = 'canvas_clip_opacity';
   public const string CANVAS_GLYPH_EFFECTS = 'canvas_glyph_effects';
   public const string CANVAS_COMPOSITING = 'canvas_compositing';
   public const string MAP_OVERVIEW = 'map_overview';
   public const string MAP_OVERVIEW_VIEWPORT = 'map_overview_viewport';
   public const string CANVAS_COMPOSITE_INDICATORS = 'canvas_composite_indicators';
+  /** A composite stroke may be dashed: one operation draws every dash of a line. */
+  public const string CANVAS_STROKE_DASHES = 'canvas_stroke_dashes';
   public const string WINDOW_ACTIVATION = 'window_activation';
   public const string FRAME_VIEWPORT = 'frame_viewport';
   /** Retained field sprites may slide between cells and the camera may follow one of them. */
@@ -37,12 +40,32 @@ final readonly class RendererSessionConfig
   public const string TILE_COVERS = 'tile_covers';
   /** A world's tiles may be filled shapes, and its `shadows` layers paint them without hiding glyphs. */
   public const string TILE_SHADOWS = 'tile_shadows';
+  public const string WORLD_ROW_RUNS = 'world_row_runs';
   /** Retained field sprites may be drawn a lift above the cell that places and orders them. */
   public const string SPRITE_LIFT = 'sprite_lift';
+  /** Retained field sprites may declare a bob the renderer draws at display rate on its field clock. */
+  public const string SPRITE_BOB = 'sprite_bob';
+  /** Retained field sprites may declare an opacity the renderer eases to at display rate on its field clock. */
+  public const string SPRITE_FADE = 'sprite_fade';
+  /**
+   * Retained field sprites may declare the thicket that hides their lower part, which the renderer draws behind
+   * the foliage, changes along their slides and rustles at display rate.
+   */
+  public const string SPRITE_THICKET = 'sprite_thicket';
+  /**
+   * Retained screen-pinned field sprites with a motion slide on screen from where they are drawn to their new
+   * placement, on the field clock and together with the camera slide that starts in the same frame.
+   */
+  public const string PINNED_SPRITE_MOTION = 'pinned_sprite_motion';
   /** Event subscription: key press, release and reset transitions with a stable control identity. */
   public const string KEY_TRANSITIONS = 'key_transitions';
+  /**
+   * Event subscription over key_transitions: Shift alone is a held control (`shift`), pressed and released as
+   * the modifier goes down and up, so a binding such as dash can hold it.
+   */
+  public const string MODIFIER_CONTROLS = 'modifier_controls';
   /** Event extensions change the event stream, so a session receives them only by requiring them. */
-  public const array EVENT_SUBSCRIPTIONS = [self::WINDOW_ACTIVATION, self::KEY_TRANSITIONS];
+  public const array EVENT_SUBSCRIPTIONS = [self::WINDOW_ACTIVATION, self::KEY_TRANSITIONS, self::MODIFIER_CONTROLS];
   public string $assetRoot;
 
   /** Drawing features may be advertised without making them mandatory at startup. */
@@ -50,8 +73,8 @@ final readonly class RendererSessionConfig
   {
     return $this->protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY,
-        self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
-        self::SPRITE_LIFT, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
+        self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::CANVAS_IMAGE_ALPHA_FLIP, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS, self::WORLD_ROW_RUNS,
+        self::SPRITE_LIFT, self::SPRITE_BOB, self::SPRITE_FADE, self::SPRITE_THICKET, self::PINNED_SPRITE_MOTION, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
         self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT,
         ...array_values(array_intersect(self::EVENT_SUBSCRIPTIONS, $this->requiredCapabilities))]
       : $this->requiredCapabilities;
@@ -73,8 +96,8 @@ final readonly class RendererSessionConfig
     if ($icon !== null) { ApplicationIcon::assertAssetPath($icon); }
     $allowed = $protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
-        self::CANVAS_COMPOSITING, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
-        self::SPRITE_LIFT, self::KEY_TRANSITIONS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
+        self::CANVAS_COMPOSITING, self::CANVAS_IMAGE_ALPHA_FLIP, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS, self::WORLD_ROW_RUNS,
+        self::SPRITE_LIFT, self::SPRITE_BOB, self::SPRITE_FADE, self::SPRITE_THICKET, self::PINNED_SPRITE_MOTION, self::KEY_TRANSITIONS, self::MODIFIER_CONTROLS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
         self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT]
       : [self::SPRITE_SOURCE_RECT];
     foreach ($requiredCapabilities as $capability) {
@@ -86,9 +109,10 @@ final readonly class RendererSessionConfig
       && !in_array(self::MAP_OVERVIEW,$requiredCapabilities,true)) {
       throw new InvalidArgumentException('Map overview viewports require map_overview.');
     }
-    if (array_intersect([self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS], $requiredCapabilities) !== []
+    if (array_intersect([self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::CANVAS_IMAGE_ALPHA_FLIP],
+        $requiredCapabilities) !== []
       && array_diff([self::GRAPHICAL_CANVAS, self::CANVAS_COMPOSITING], $requiredCapabilities) !== []) {
-      throw new InvalidArgumentException('Map overviews and composite indicators require graphical_canvas and canvas_compositing.');
+      throw new InvalidArgumentException('Extended composite capabilities require graphical_canvas and canvas_compositing.');
     }
     if ((in_array(self::CANVAS_CLIP_OPACITY, $requiredCapabilities, true) || in_array(self::CANVAS_GLYPH_EFFECTS, $requiredCapabilities, true)
       || in_array(self::CANVAS_COMPOSITING, $requiredCapabilities, true) || in_array(self::CANVAS_OVERLAY, $requiredCapabilities, true)
@@ -104,6 +128,10 @@ final readonly class RendererSessionConfig
     if (in_array(self::CANVAS_LABEL_INSTANCES, $requiredCapabilities, true)
       && array_diff([self::GRAPHICAL_CANVAS, self::CANVAS_LABELS, self::TEXT_LAYOUT], $requiredCapabilities) !== []) {
       throw new InvalidArgumentException('Canvas label instances require graphical_canvas, canvas_labels and text_layout.');
+    }
+    if (in_array(self::MODIFIER_CONTROLS, $requiredCapabilities, true)
+      && !in_array(self::KEY_TRANSITIONS, $requiredCapabilities, true)) {
+      throw new InvalidArgumentException('Modifier controls require key_transitions.');
     }
     if (!array_is_list($requiredCapabilities) || count(array_unique($requiredCapabilities)) !== count($requiredCapabilities)) {
       throw new InvalidArgumentException('Renderer required capabilities must be a unique list of supported capability names.');

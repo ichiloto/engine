@@ -10,7 +10,7 @@ use Throwable;
 /** Validated project-owned subject, mapping, and report definitions. */
 final class KnowledgeCatalog implements ConfigInterface
 {
-  /** @var array<string, true> */
+  /** @var array<string, KnowledgeRecordType> */
   private array $recordTypes = [];
   /** @var array<string, KnowledgeSubject> */
   private array $subjects = [];
@@ -48,6 +48,12 @@ final class KnowledgeCatalog implements ConfigInterface
     usort($subjects, static fn(KnowledgeSubject $a, KnowledgeSubject $b): int => [$a->displayOrder, $a->displayName] <=> [$b->displayOrder, $b->displayName]);
 
     return $subjects;
+  }
+
+  /** The kind of record a subject is, by the type's id. */
+  public function getRecordType(string $id): ?KnowledgeRecordType
+  {
+    return $this->recordTypes[trim($id)] ?? null;
   }
 
   public function subject(string $id): ?KnowledgeSubject
@@ -101,7 +107,7 @@ final class KnowledgeCatalog implements ConfigInterface
       $id = 'legacy.enemy.' . $base . '-' . $suffix;
     }
 
-    $this->recordTypes['legacy-enemy'] = true;
+    $this->recordTypes['legacy-enemy'] ??= new KnowledgeRecordType('legacy-enemy');
     $subject = new KnowledgeSubject($id, 'legacy-enemy', $enemyName, $enemyName);
     $this->subjects[$id] = $subject;
     $this->enemyMappings[strtolower($enemyName)] = $id;
@@ -133,8 +139,9 @@ final class KnowledgeCatalog implements ConfigInterface
   {
     $this->assertNoPrivateTruth($data);
 
-    foreach ((array) ($data['recordTypes'] ?? []) as $type) {
-      $this->recordTypes[KnowledgeIdentity::require(strval($type), 'record type')] = true;
+    foreach ((array) ($data['recordTypes'] ?? []) as $entry) {
+      $type = KnowledgeRecordType::fromEntry($entry);
+      $this->recordTypes[$type->id] = $type;
     }
 
     foreach ((array) ($data['subjects'] ?? []) as $entry) {
@@ -163,7 +170,8 @@ final class KnowledgeCatalog implements ConfigInterface
         $id,
         $type,
         $this->requiredText($entry['displayName'] ?? null, "subject {$id} display name"),
-        $this->requiredText($entry['quickCard'] ?? null, "subject {$id} quick card"),
+        // A card may wait for its writer; the record still lists and counts.
+        $this->optionalText($entry['quickCard'] ?? null) ?? '',
         $this->optionalText($entry['deepCard'] ?? null),
         $this->optionalText($entry['family'] ?? null),
         $this->optionalText($entry['species'] ?? null),
@@ -173,6 +181,7 @@ final class KnowledgeCatalog implements ConfigInterface
         $this->stableIds($entry['observations'] ?? [], 'observation'),
         intval($entry['displayOrder'] ?? 0),
         (bool) ($entry['hidden'] ?? false),
+        $this->optionalText($entry['summon'] ?? null),
       );
     }
 

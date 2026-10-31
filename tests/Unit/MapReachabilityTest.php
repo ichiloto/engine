@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Core\CellArea;
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Field\InteractionReach;
@@ -73,6 +74,40 @@ it('validates reachable approaches to solid object events with their allowed hea
   expect($report->isReachable(1, 0))->toBeFalse()
     ->and($report->problems === [])->toBe($reachable);
 })->with(['all approaches' => [[], true], 'from below' => [['North'], true], 'from above' => [['South'], false]]);
+
+it('answers whether an event can be used from the cells it answers on, not from its own solid cells', function (array $facing, bool $usable) {
+  // A two-cell desk on solid cells, open floor below and an enclosed nook above: the player never stands on it.
+  $desk = ReachabilityEvent::fromDefinition(['class' => ChestEventTrigger::class, 'marker' => 'D',
+    'area' => ['cells' => [[1, 1], [2, 1]]], 'engagement' => 'facing', 'facing' => $facing]);
+  $map = new MapReachability('desk-room', reachabilityGrid(['#..#', '####', '....']), [$desk]);
+  $report = $map->analyze([new ReachabilityEntrance(0, 2, 'door')]);
+  expect($report->isAnyReachable($desk->area))->toBeFalse()
+    ->and($report->canEngage($desk))->toBe($usable)
+    ->and($report->problems === [])->toBe($usable);
+})->with([
+  'from any side' => [[], true],
+  'from the floor below' => [['North'], true],
+  'only from the enclosed nook above' => [['South'], false],
+]);
+
+it('reaches a faced object whose own walkable cell is the only approach', function () {
+  // The object sits at the end of a one-cell-wide dead end: no adjacent cell faces it, but it can be stood on.
+  $event = new ReachabilityEvent(CellArea::fromCells([[1, 0]]), ChestEventTrigger::class, 'C',
+    EventEngagement::FACING, [MovementHeading::SOUTH]);
+  $report = new MapReachability('walkable-object', reachabilityGrid(['#.#', '#.#']), [$event])
+    ->analyze([new ReachabilityEntrance(1, 1, 'door')]);
+  expect($event->getStandingArea()->containsCell(1, 0))->toBeTrue()
+    ->and($report->problems)->toBe([]);
+});
+
+it('treats the walkable cells of a faced transfer as an exit', function () {
+  $transfer = new ReachabilityEvent(CellArea::fromCells([[1, 1]]), TransferPlayerTrigger::class, 'T', EventEngagement::FACING);
+  $chest = new ReachabilityEvent(CellArea::fromCells([[1, 2]]), ChestEventTrigger::class, 'C');
+  // The only way to the chest passes over the transfer's walkable cell, which leaves the map first.
+  $report = new MapReachability('walkable-transfer', reachabilityGrid(['#.#', '#.#', '#.#']), [$transfer, $chest])
+    ->analyze([new ReachabilityEntrance(1, 0, 'door')]);
+  expect($report->problems)->not->toBe([]);
+});
 
 it('rejects distant or enclosed object events despite nearby floor or area gaps', function () {
   $event = new ReachabilityEvent(CellArea::fromCells([[1, 0], [3, 0]]), ChestEventTrigger::class,
@@ -492,4 +527,176 @@ it('reads a door marker painted in two places as one event on exactly those cell
   } finally {
     removeReachabilityProject($root);
   }
+});
+
+// An office entered through a door at (1, 0); the officer stands at (3, 2)
+// behind a two-cell desk at (3, 3)-(4, 3):
+//   #.#####
+//   #.....#
+//   #..@..#
+//   #..==.#
+//   #.....#
+//   #.....#
+//   #######
+function approachOffice(array $event, array $npcConditions = []): MapReachability
+{
+  $definition = [...['class' => \Ichiloto\Engine\Events\Triggers\ScriptEventTrigger::class, 'marker' => 'C',
+    'area' => ['cells' => [[3, 3], [4, 3]]], 'engagement' => 'facing', 'speakers' => ['officer'],
+    'data' => ['mode' => 'action', 'scriptId' => 'inspection']], ...$event];
+
+  return new MapReachability('office', reachabilityGrid(['#.#####', '#.....#', '#.....#', '#..==.#', '#.....#', '#.....#', '#######']),
+    [ReachabilityEvent::fromDefinition($definition)], [],
+    [reachabilityNpc(['id' => 'officer', 'name' => 'Officer', 'x' => 3, 'y' => 2, 'conditions' => $npcConditions])]);
+}
+
+it('reports an interaction the player reaches from behind and must walk round to use', function () {
+  $problems = approachOffice(['facing' => ['North']])->findDetouredApproaches([new ReachabilityEntrance(1, 0, 'the north door')]);
+
+  expect(reachabilityProblems($problems))->toBe([
+    'detoured_approach: Arriving from the north door, the player first reaches event C (ScriptEventTrigger) at (3, 3) on (3, 1), beside its speaker Officer, where it does not answer, and walks 3 more steps round to (3, 4) to use it.',
+  ])->and($problems[0]->kind->isBlocking())->toBeFalse();
+});
+
+it('accepts an interaction met on a side where it answers, or within one step of it', function (array $event, int $x, int $y) {
+  expect(approachOffice($event)->findDetouredApproaches([new ReachabilityEntrance($x, $y, 'a door')]))->toBe([]);
+})->with([
+  'arriving in front of the desk' => [['facing' => ['North']], 1, 5],
+  'answering from every side' => [['facing' => []], 1, 0],
+  'facing the arrival path' => [['facing' => ['South'], 'speakers' => []], 1, 0],
+]);
+
+it('skips automatic events and arrivals that cannot happen while the event runs', function () {
+  $office = approachOffice(['facing' => ['North'], 'data' => ['mode' => 'auto', 'scriptId' => 'inspection']]);
+  $gated = approachOffice(['facing' => ['North'], 'conditions' => [['type' => 'event', 'name' => 'inspected', 'negate' => true]]]);
+
+  expect($office->findDetouredApproaches([new ReachabilityEntrance(1, 0, 'the north door')]))->toBe([])
+    ->and($gated->findDetouredApproaches([new ReachabilityEntrance(1, 0, 'the north door after inspection',
+      [['type' => 'event', 'name' => 'inspected']])]))->toBe([])
+    ->and($gated->findDetouredApproaches([new ReachabilityEntrance(1, 0, 'the north door')]))->toHaveCount(1);
+});
+
+it('reads a speaker absent while the event runs as neither contact nor obstacle', function () {
+  $problems = approachOffice(['facing' => ['North'], 'conditions' => [['type' => 'event', 'name' => 'opened']]],
+    [['type' => 'event', 'name' => 'opened', 'negate' => true]])->findDetouredApproaches([new ReachabilityEntrance(1, 0, 'the north door')]);
+
+  // Without the officer the player stands on her cell, at the desk's empty north side, and still walks round it.
+  expect(reachabilityProblems($problems))->toBe([
+    'detoured_approach: Arriving from the north door, the player first reaches event C (ScriptEventTrigger) at (3, 3) on (3, 2), where it does not answer, and walks 2 more steps round to (3, 4) to use it.',
+  ]);
+});
+
+it('reports a detoured approach through the project analysis, naming the arrival', function () {
+  $assets = createTestDirectory('approach-reachability-project-') . '/assets';
+  mkdir($assets . '/Data', 0777, true);
+  writeReachabilityMap($assets, 'office', ['#.#####', '#.....#', '#.....#', '#..==.#', '#.....#', '#######'],
+    ['       ', '       ', '       ', '   CC  ', '       ', '       '], ['events' => ['C' => [
+      'class' => \Ichiloto\Engine\Events\Triggers\DialogueEventTrigger::class, 'engagement' => 'facing', 'facing' => ['North'],
+      'data' => ['dialogue' => [['text' => 'Ready.']]],
+    ]]]);
+  file_put_contents($assets . '/Maps/collisions.php', '<?php return ["." => \Ichiloto\Engine\Events\Enumerations\CollisionType::NONE, "#" => \Ichiloto\Engine\Events\Enumerations\CollisionType::SOLID, "=" => \Ichiloto\Engine\Events\Enumerations\CollisionType::COUNTER];');
+  file_put_contents($assets . '/Data/system.php', '<?php return ' . var_export([
+    'startingPositions' => ['player' => ['destinationMap' => 'office', 'spawnPoint' => ['x' => 1, 'y' => 0]]],
+  ], true) . ';');
+
+  expect(reachabilityProblems(ProjectReachability::analyze($assets)->getAllProblems()))->toBe([
+    'detoured_approach: Arriving from the starting position, the player first reaches event C (DialogueEventTrigger) at (3, 3) on (3, 2), where it does not answer, and walks 2 more steps round to (3, 4) to use it.',
+  ]);
+});
+
+it('finds the shortest walk round walls and NPCs, turning as seldom as it can', function () {
+  //   ......
+  //   .###..
+  //   ...N..   a fixed NPC at (3, 2)
+  $map = new MapReachability('yard', reachabilityGrid(['......', '.###..', '......']), [], [], [reachabilityNpc(['x' => 3, 'y' => 2])]);
+  $route = $map->findRoute([0, 2], [5, 2]);
+
+  expect(count($route) - 1)->toBe(9)
+    ->and($route[0])->toBe([0, 2])
+    ->and(end($route))->toBe([5, 2])
+    ->and(array_any($route, static fn(array $cell): bool => $cell === [3, 2] || $cell[1] === 1 && $cell[0] >= 1 && $cell[0] <= 3))->toBeFalse();
+  // Each step moves one cell in one heading.
+  foreach (array_slice($route, 1) as $index => [$x, $y]) {
+    [$px, $py] = $route[$index];
+    expect(abs($x - $px) + abs($y - $py))->toBe(1);
+  }
+  // Up the west side, along the top and down the east side: three turns, never a staircase.
+  expect($route)->toBe([[0, 2], [0, 1], [0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [4, 1], [4, 2], [5, 2]]);
+});
+
+it('walks to a transfer but never through one, and starts from one the player arrives on', function () {
+  $map = new MapReachability('hall', reachabilityGrid(['.....']),
+    [new ReachabilityEvent(CellArea::fromRect(new Rect(2, 0, 1, 1)), TransferPlayerTrigger::class, 'A')]);
+
+  expect($map->findRoute([0, 0], [2, 0]))->toBe([[0, 0], [1, 0], [2, 0]])
+    ->and($map->findRoute([0, 0], [4, 0]))->toBeNull()
+    ->and($map->findRoute([2, 0], [4, 0]))->toBe([[2, 0], [3, 0], [4, 0]])
+    ->and($map->isLeavingMapAt(2, 0))->toBeTrue()
+    ->and($map->isLeavingMapAt(3, 0))->toBeFalse();
+});
+
+it('says why the player cannot stand on a cell', function () {
+  $map = new MapReachability('room', reachabilityGrid(['.#.']), [], [], [reachabilityNpc(['x' => 2, 'y' => 0])]);
+
+  expect($map->describeStandingProblem(0, 0))->toBeNull()
+    ->and($map->describeStandingProblem(1, 0))->toBe('on a cell the player cannot stand on')
+    ->and($map->describeStandingProblem(2, 0))->toBe('where an NPC stands')
+    ->and($map->describeStandingProblem(9, 0))->toBe('outside the map')
+    ->and($map->findRoute([0, 0], [2, 0]))->toBeNull()
+    ->and($map->findRoute([0, 0], [0, 0]))->toBe([[0, 0]]);
+});
+
+it('reads a map source as the project analysis does', function () {
+  $map = MapReachability::readMap('hall', [
+    'events' => [['class' => TransferPlayerTrigger::class, 'marker' => 'A', 'area' => ['cells' => [[1, 0]]]]],
+    'npcs' => [['name' => 'Guard', 'x' => 2, 'y' => 1, 'dialogue' => [['text' => 'Halt.']]]],
+  ], reachabilityGrid(['...', '...']));
+
+  expect($map->isLeavingMapAt(1, 0))->toBeTrue()
+    ->and($map->describeStandingProblem(2, 1))->toBe('where an NPC stands')
+    ->and($map->findRoute([0, 0], [1, 0]))->toBe([[0, 0], [1, 0]])
+    // The door leaves the map and the guard stands in the only other way east.
+    ->and($map->findRoute([0, 0], [2, 0]))->toBeNull();
+});
+
+
+it('reads staged terrain dependencies for saved maps and reports failed readers without a disk fallback', function () {
+  $root = createTestDirectory('staged-reachability-');
+  $assets = $root . '/assets';
+  mkdir($assets . '/Data', 0700, true);
+  writeReachabilityMap($assets, 'room', ['...'], ['   '], [
+    'terrainKinds' => true, 'tileset' => 'draft',
+    'occupancy' => [[CollisionType::NONE, CollisionType::NONE, CollisionType::NONE]],
+  ]);
+  file_put_contents($assets . '/Data/system.php', '<?php return ' . var_export([
+    'startingPositions' => ['player' => ['destinationMap' => 'room', 'spawnPoint' => ['x' => 0, 'y' => 0], 'spawnSprite' => ['South']]],
+  ], true) . ';');
+  $tileset = Ichiloto\Engine\Rendering\Tilesets\Tileset::fromArray('draft', [
+    'name' => 'Draft', 'sheets' => ['A2' => 'Graphics/Draft.png'],
+    'kinds' => ['floor' => ['name' => 'Floor', 'layer' => 'ground', 'glyph' => '<fg=green>.</>', 'art' => ['awaiting' => true], 'passage' => 'walk', 'atlas' => 'ground']],
+  ]);
+  $reads = [];
+  $reader = static function (string $id) use ($tileset, &$reads): Ichiloto\Engine\Rendering\Tilesets\Tileset {
+    $reads[] = $id;
+    return $tileset;
+  };
+  $project = ProjectReachability::analyze($assets, [], $reader);
+  expect(array_keys($project->reports))->toBe(['room'])
+    ->and($project->reports['room']->isReachable(2, 0))->toBeTrue()
+    ->and($project->getAllProblems())->toBe([])
+    ->and($reads)->toBe(['draft'])
+    ->and(is_dir($assets . '/Data/Tilesets'))->toBeFalse();
+  $failed = ProjectReachability::analyze($assets, [], static function (string $id): never { throw new RuntimeException('Staged terrain is invalid.'); });
+  expect($failed->reports)->toBe([])
+    ->and(implode(' ', reachabilityProblems($failed->getAllProblems())))->toContain('Staged terrain is invalid.');
+});
+
+
+it('checks talk reachability at every source-owned named NPC destination', function () {
+  $npc = reachabilityNpc(['id' => 'traveller', 'x' => 1, 'y' => 1,
+    'placements' => ['arrived' => ['x' => 2, 'y' => 3]]]);
+  $report = (new MapReachability('named', reachabilityGrid(['.....', '.....', '#####', '##.##', '#####']), npcs: [$npc]))
+    ->analyze([new ReachabilityEntrance(0, 0, 'entry')]);
+  expect($report->canSpeakTo(1, 1))->toBeTrue()->and($report->canSpeakTo(2, 3))->toBeFalse();
+  $problems = array_values(array_filter($report->problems, static fn($problem) => $problem->kind === ReachabilityProblemKind::UNREACHABLE_NPC));
+  expect($problems)->toHaveCount(1)->and($problems[0]->message)->toContain('(2, 3)');
 });

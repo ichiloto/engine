@@ -14,8 +14,10 @@ use Ichiloto\Engine\Battle\BattleCommandType;
  * says. Focus moves from the troop list down into the party, into one
  * member's actor, level and equipment, and into a list of what a slot can
  * hold, and back out again with cancel. Where arenas are offered (a
- * graphical renderer draws them), left and right on the troop list choose
- * the one fights take place in.
+ * graphical renderer draws them), left and right on the troop list, and in
+ * the composer, choose the one fights take place in. After the troops, a
+ * row composes a test troop ({@see TestTroopComposer}), to fight and,
+ * where someone keeps troops, keep.
  */
 final class ArenaSetupEditor
 {
@@ -23,9 +25,13 @@ final class ArenaSetupEditor
   public const string PARTY = 'party';
   public const string MEMBER = 'member';
   public const string CHOOSER = 'chooser';
+  public const string COMPOSER = 'composer';
   /** Confirm on the troop list asks for a fight; cancel there asks to leave. */
   public const string FIGHT = 'fight';
   public const string QUIT = 'quit';
+  /** The composer asks to fight its test troop, or to keep it as a troop. */
+  public const string FIGHT_TEST = 'fight-test';
+  public const string KEEP = 'keep';
 
   public private(set) string $focus = self::TROOPS;
   public private(set) int $troopIndex = 0;
@@ -43,14 +49,33 @@ final class ArenaSetupEditor
    */
   public function __construct(
     public private(set) BattleTestSetup $setup,
-    private readonly int $troopCount,
+    private int $troopCount,
     private readonly array $actorIds,
     private readonly Closure $slotsFor,
     private readonly Closure $choicesFor,
     private readonly Closure $maxLevelFor,
     private readonly ?Closure $loadoutChoicesFor = null,
     private readonly array $arenaKeys = [],
+    public readonly ?TestTroopComposer $composer = null,
   ) {}
+
+  /** The rows of the troop list: the troops, then composing a test troop where it can be. */
+  public int $troopRows {
+    get => $this->troopCount + ($this->composer === null ? 0 : 1);
+  }
+
+  /** Whether the cursor is on the troop list's row that composes a test troop. */
+  public bool $onComposeRow {
+    get => $this->composer !== null && $this->troopIndex === $this->troopCount;
+  }
+
+  /** The troops changed (one was kept); the cursor stays on the same row, or the last. */
+  public function setTroopCount(int $count): void
+  {
+    $composing = $this->onComposeRow;
+    $this->troopCount = max(0, $count);
+    $this->troopIndex = $composing ? $this->troopRows - 1 : max(0, min($this->troopRows - 1, $this->troopIndex));
+  }
 
   /** Whether fights here may be given an arena. */
   public bool $offersArenas {
@@ -102,9 +127,10 @@ final class ArenaSetupEditor
   public function moveVertical(int $step): void
   {
     match ($this->focus) {
-      self::TROOPS => $this->troopIndex + $step >= $this->troopCount && $step > 0
+      self::TROOPS => $this->troopIndex + $step >= $this->troopRows && $step > 0
         ? $this->enterParty()
-        : $this->troopIndex = max(0, min($this->troopCount - 1, $this->troopIndex + $step)),
+        : $this->troopIndex = max(0, min($this->troopRows - 1, $this->troopIndex + $step)),
+      self::COMPOSER => $this->composer?->moveVertical($step),
       self::PARTY => $this->memberIndex + $step < 0
         ? $this->focus = self::TROOPS
         : $this->memberIndex = min(BattleTestSetup::MAX_MEMBERS - 1, $this->memberIndex + $step),
@@ -116,7 +142,7 @@ final class ArenaSetupEditor
   /** Left and right change the arena on the troop list, and the member's actor or level. */
   public function moveHorizontal(int $step): void
   {
-    if ($this->focus === self::TROOPS) {
+    if ($this->focus === self::TROOPS || ($this->focus === self::COMPOSER && !($this->composer?->moveHorizontal($step) ?? false))) {
       $this->stepArena($step);
 
       return;
@@ -140,12 +166,22 @@ final class ArenaSetupEditor
     $this->setup = $this->setup->withMember($this->memberIndex, $member->withLevel($level));
   }
 
-  /** @return self::FIGHT|null A fight to start, when confirm asks for one. */
+  /** @return self::FIGHT|self::FIGHT_TEST|self::KEEP|null A fight to start or a troop to keep, when confirm asks for one. */
   public function confirm(): ?string
   {
     switch ($this->focus) {
       case self::TROOPS:
+        if ($this->onComposeRow) {
+          $this->focus = self::COMPOSER;
+          return null;
+        }
         return $this->troopCount > 0 ? self::FIGHT : null;
+      case self::COMPOSER:
+        return match ($this->composer?->confirm()) {
+          TestTroopComposer::FIGHT => self::FIGHT_TEST,
+          TestTroopComposer::KEEP => self::KEEP,
+          default => null,
+        };
       case self::PARTY:
         // An empty place becomes a new member, the first actor not yet in the party.
         if ($this->member === null) {
@@ -198,6 +234,9 @@ final class ArenaSetupEditor
     switch ($this->focus) {
       case self::TROOPS:
         return self::QUIT;
+      case self::COMPOSER:
+        if ($this->composer?->cancel() === TestTroopComposer::LEAVE) { $this->focus = self::TROOPS; }
+        break;
       case self::PARTY:
         $this->focus = self::TROOPS;
         break;
@@ -215,7 +254,7 @@ final class ArenaSetupEditor
   /** Selects a troop by its place in the list, such as one named at launch. */
   public function selectTroop(int $index): void
   {
-    $this->troopIndex = max(0, min($this->troopCount - 1, $index));
+    $this->troopIndex = max(0, min($this->troopRows - 1, $index));
     $this->focus = self::TROOPS;
   }
 

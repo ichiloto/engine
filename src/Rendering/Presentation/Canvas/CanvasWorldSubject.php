@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Rendering\Presentation\Canvas;
 
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use InvalidArgumentException;
 
@@ -22,7 +23,7 @@ final readonly class CanvasWorldSubject
         if (min($x, $y) < 0 || max($x, $y) >= 16384 || min($width, $height) < 1 || max($width, $height) > 16384
             || !is_finite($widthCells) || !is_finite($heightCells) || min($widthCells, $heightCells) <= 0
             || max($widthCells, $heightCells) > 1024 || !is_finite($liftCells) || $liftCells < 0 || $liftCells > 1024
-            || $layer < -1 || $layer >= 1000 || $quarterTurns < 0 || $quarterTurns > 3) {
+            || !PresentationLayerPolicy::isFieldWorldLayer($layer) || $quarterTurns < 0 || $quarterTurns > 3) {
             throw new InvalidArgumentException('Overview subjects require bounded map anchors, positive dimensions, layer -1..999 and valid presentation lift/turn.');
         }
         $this->images = CanvasValidation::orderedList($images, CanvasImage::class, 1024);

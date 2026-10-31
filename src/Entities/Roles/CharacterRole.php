@@ -41,6 +41,8 @@ readonly class CharacterRole
    * @param ParameterCurveGenerator|null $totalEvasionCurveGenerator
    * @param WeaponType[] $allowedWeaponTypes The weapon types this role may equip; empty allows all.
    * @param ArmorType[] $allowedArmorTypes The armor types this role may equip; empty allows all.
+   * @param list<string> $curriculum The Mastery nodes the role recommends, by node id, in the order it recommends them.
+   *   A curriculum guides; it never limits what a character with the role can learn.
    */
   public function __construct(
     protected Character             $character,
@@ -60,6 +62,7 @@ readonly class CharacterRole
     ?ParameterCurveGenerator        $totalEvasionCurveGenerator = null,
     public array                    $allowedWeaponTypes = [],
     public array                    $allowedArmorTypes = [],
+    public array                    $curriculum = [],
   )
   {
     $this->totalHpCurveGenerator = $totalHpCurveGenerator ?? new ParameterCurveGenerator($this->character->level, $this->character->stats->totalHp, 500, 40);

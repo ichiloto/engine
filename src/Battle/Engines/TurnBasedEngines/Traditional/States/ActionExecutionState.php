@@ -23,6 +23,10 @@ use Ichiloto\Engine\Battle\CounterAttack;
 use Ichiloto\Engine\Battle\CounterAttackResolver;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedEngine;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
+use Ichiloto\Engine\Battle\BattleConfusion;
+use Ichiloto\Engine\Battle\Insight\RevealFact;
+use Ichiloto\Engine\Battle\Presentation\BattlerInsight;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\RevealSkillEffect;
 use Ichiloto\Engine\Battle\BattleTargetPolicy;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnExecutionContext;
@@ -71,6 +75,7 @@ class ActionExecutionState extends TurnState
     $this->endingTurn = false;
     $this->counterQueue = [];
     $this->executingCounter = false;
+    $this->engine->battleConfig->getReactions($this->engine->random);
     $this->getCounterAttackResolver()->validateBattlers([
       ...$context->partyRoster->battlers, ...$context->troop->members->toArray()]);
     $context->resetTurnCursor();
@@ -93,9 +98,10 @@ class ActionExecutionState extends TurnState
       Console::updateFrame(fn() => $this->updateTurn($context));
       if ($this->command?->playback->isCompleted) {
         if (!$this->endingTurn && !$this->executingCounter && !$this->command->playback->isCancelled) {
-          $this->counterQueue = $this->getCounterAttackResolver()->resolveResponses(
+          $this->counterQueue = [...$this->engine->battleConfig->reactions->takeResponses($this->command->playback->actor),
+            ...$this->getCounterAttackResolver()->resolveResponses(
             $this->command->result, $this->command->playback->actor, $this->command->playback->targets,
-            $context->partyRoster->battlers, $context->troop->members->toArray());
+            $context->partyRoster->battlers, $context->troop->members->toArray())];
         }
         if ($this->command->playback->isCancelled) { $this->counterQueue = []; }
         $this->disposeCommand($context);
@@ -112,6 +118,7 @@ class ActionExecutionState extends TurnState
       $this->disposeCommand($context);
       $this->counterQueue = [];
       $this->executingCounter = false;
+      $this->engine->battleConfig?->reactions->clear();
       throw $error;
     }
   }
@@ -130,11 +137,12 @@ class ActionExecutionState extends TurnState
       return;
     }
 
-    if ($turn->battler->isKnockedOut) {
+    if (! $turn->battler->isFighting) {
       $context->advanceTurn();
       $this->transitionToResolutionIfNeeded($context);
       return;
     }
+    $this->engine->battleConfig->reactions->beginTurn($turn->battler);
 
     // A guard raised last round protects until this battler acts again.
     if (method_exists($turn->battler, 'stopGuarding')) {
@@ -150,7 +158,17 @@ class ActionExecutionState extends TurnState
       return;
     }
 
-    if ($turn->action instanceof SkillBattleAction
+    $party = $context->partyRoster->battlers;
+    $troop = $context->troop->members->toArray();
+    $isPartyActor = in_array($turn->battler, $party, true);
+    // A confused battler (Fog, Dazed) may lose track of friend and foe and attack whoever is nearest to hand.
+    $confused = BattleConfusion::resolve($turn->battler, $isPartyActor ? $party : $troop, $isPartyActor ? $troop : $party,
+      $this->engine->random);
+    if ($confused !== null) {
+      [$turn->action, $turn->targets] = $confused;
+    }
+
+    if ($confused === null && $turn->action instanceof SkillBattleAction
       && BattleCommandCatalog::isSummonActionId($turn->action->skill->name)
       && (! $turn->battler instanceof Character
         || ! BattleCommandCatalog::canUseSummonAction(
@@ -165,16 +183,16 @@ class ActionExecutionState extends TurnState
       return;
     }
 
-    $party = $context->partyRoster->battlers;
-    $troop = $context->troop->members->toArray();
-    $isPartyActor = in_array($turn->battler, $party, true);
-    $targets = BattleTargetPolicy::resolveTargets(
+    // A confused attack keeps the battler it fell on, whichever side that is.
+    $targets = $confused !== null ? $turn->targets : BattleTargetPolicy::resolveTargets(
       $turn->action?->targetScope ?? new \Ichiloto\Engine\Entities\ItemScope(),
       $turn->battler,
       $isPartyActor ? $party : $troop,
       $isPartyActor ? $troop : $party,
-      $turn->targets,
+      $turn->targetAnchor === null ? $turn->targets : [$turn->targetAnchor],
       $this->engine->random,
+      $this->engine->battleConfig->formation,
+      $turn->action?->targeting,
     );
 
     if (empty($targets)) {
@@ -182,6 +200,10 @@ class ActionExecutionState extends TurnState
       return;
     }
 
+    if ($turn->action !== null) {
+      $targets = $this->engine->battleConfig->reactions->resolveTargets($turn->action, $turn->battler,
+        $targets, $party, $troop);
+    }
     $turn->targets = $targets;
 
     $actionName = $turn->action?->name ?? 'Attack';
@@ -224,7 +246,10 @@ class ActionExecutionState extends TurnState
         $response->action->name, function () use ($context, $response): void {
           if ($this->getCounterAttackResolver()->canExecute($response,
             $context->partyRoster->battlers, $context->troop->members->toArray())) {
-            $response->action->execute($response->actor, [$response->target]);
+            $response->action->executeWithReactions($response->actor, [$response->target],
+              $this->engine->battleConfig->reactions, allowInterception: false,
+              gauges: $this->engine instanceof \Ichiloto\Engine\Battle\BattleGaugeControl ? $this->engine : null,
+              formation: $this->engine->battleConfig->formation);
           }
         });
       return true;
@@ -237,7 +262,7 @@ class ActionExecutionState extends TurnState
   {
     $this->endingTurn = true;
     $battler = $turn->battler;
-    if (!method_exists($battler, 'tickStates') || $battler->states === [] || $battler->isKnockedOut) {
+    if (!method_exists($battler, 'tickStates') || $battler->states === [] || ! $battler->isFighting) {
       $turn->resolveEndStateTicks();
       $this->finishTurn($context);
       return;
@@ -270,6 +295,8 @@ class ActionExecutionState extends TurnState
     $this->endingTurn = false;
     $context->advanceTurn();
     $this->transitionToResolutionIfNeeded($context);
+    // The next state waits for the troop's due event pages; a conceding enemy leaves the fight before it updates.
+    $context->runTurnEndEvents();
   }
 
   /** @param array<int, array{state: object, hpDelta: int, expired: bool}> $events */
@@ -345,6 +372,13 @@ class ActionExecutionState extends TurnState
   ): void
   {
     $timings = $context->ui->getPacing()->getTurnTimings($action);
+    $resolveAction = function () use ($resolveAction, $action, $context, $targets): void {
+      // Reusable actions retain history; only a result this resolution produces is recorded.
+      $previous = $action?->lastResult;
+      $resolveAction();
+      $result = $action?->lastResult;
+      if ($result !== null && $result !== $previous) { $this->recordRevealedFacts($context, $targets, $result); }
+    };
     if ($action instanceof ExecutionEligibility && $action->getExecutionRefusal($actor) !== null) {
       $this->command = new BattleCommandRunner($context, $actor, $targets, $action, '',
         $timings, null, null, $resolveAction, $this->buildStatChangePopupLines(...), static function (): void {});
@@ -401,18 +435,68 @@ class ActionExecutionState extends TurnState
       $summonCutscene instanceof SummonCompiledCutscene, array_filter([$sourceEffect, $targetEffect]));
     $this->command = new BattleCommandRunner($context, $actor, $targets, $action, $announcement,
       $timings, $sourceEffect, $targetEffect, $resolveAction, $this->buildStatChangePopupLines(...),
-      function (array $cue) use ($context, $focusTarget, $presentationSound): void {
+      function (array $cue) use ($context, $focusTarget, $presentationSound, $targets): void {
         if ($cue['type'] === 'commandPhase' && $cue['payload']['phase'] === 'source'
           && $presentationSound instanceof SystemSound) {
           $context->game->audioManager->playSystemSound($presentationSound);
         } elseif ($cue['type'] === 'commandResult') {
           $this->playDamageFeedbackSound($context, $cue['payload']['target'],
             $cue['payload']['previousHp'], $cue['payload']['result']);
+          // One foe read: its facts fill the Info window while the result shows.
+          if (count($targets) === 1 && self::hasRevealedFacts($cue['payload']['result'])
+            && ($info = BattlerInsight::getInfo($cue['payload']['target'])) !== '') {
+            $context->ui->showMessage($info);
+          }
         } elseif ($cue['type'] !== 'commandPhase') {
           $this->handleSummonCue($context, $focusTarget, $cue, $cue['frame'], Accessibility::prefersReducedMotion());
         }
-      }, terminalTarget: $targetEffect !== $terminalTarget ? $terminalTarget : null);
+      }, terminalTarget: $targetEffect !== $terminalTarget ? $terminalTarget : null,
+      targetScale: $actionAnimation === null ? \Ichiloto\Engine\Animations\EffectScale::DEFAULT
+        : ActionAnimationResolver::getExplicitAnimationScale($action));
     $this->command->begin();
+  }
+
+  /**
+   * Records each fact a reveal uncovered for the kind of foe it was
+   * uncovered on, so the foe's record shows it after the battle.
+   *
+   * @param CharacterInterface[] $targets The action's recipients.
+   */
+  protected function recordRevealedFacts(TurnStateExecutionContext $context, array $targets,
+    \Ichiloto\Engine\Battle\Resolution\CombatActionResult $result): void
+  {
+    $knowledge = $context->getKnowledge();
+    if ($knowledge === null) { return; }
+    $byIdentity = [];
+    foreach ($targets as $target) { $byIdentity[CombatResolver::identity($target)] = $target; }
+    foreach ($result->targets as $outcome) {
+      $enemy = $byIdentity[$outcome->targetId] ?? null;
+      if (! $enemy instanceof Enemy) { continue; }
+      foreach ($outcome->secondaryOutcomes as $secondary) {
+        $fact = $secondary['type'] === RevealSkillEffect::OUTCOME && $secondary['applied']
+          ? RevealFact::tryFrom($secondary['id']) : null;
+        if ($fact !== null) {
+          try { $knowledge->recordEnemyReveal($enemy, $fact); }
+          catch (\InvalidArgumentException $error) { Debug::warn('Revealed facts were not recorded: ' . $error->getMessage()); }
+        }
+      }
+    }
+  }
+
+  /** Whether a target's result revealed at least one fact. */
+  protected static function hasRevealedFacts(?CombatTargetResult $result): bool
+  {
+    return array_any($result?->secondaryOutcomes ?? [], static fn(array $outcome): bool =>
+      $outcome['type'] === RevealSkillEffect::OUTCOME && $outcome['applied']);
+  }
+
+  /** Whether a target's result tried to reveal facts and the roll failed. */
+  protected static function hasFailedReveal(?CombatTargetResult $result): bool
+  {
+    $reveals = array_filter($result?->secondaryOutcomes ?? [], static fn(array $outcome): bool =>
+      $outcome['type'] === RevealSkillEffect::OUTCOME);
+
+    return $reveals !== [] && ! array_any($reveals, static fn(array $outcome): bool => $outcome['applied']);
   }
 
   /**
@@ -951,6 +1035,13 @@ class ActionExecutionState extends TurnState
 
     if ($target->isKnockedOut) {
       $lines[] = ['text' => 'KO', 'color' => Color::YELLOW, 'role' => BattleFeedbackRole::KO];
+    }
+
+    // A reveal shows the HP it read over the foe; a failed one is a miss.
+    if (self::hasRevealedFacts($result) && ($hp = BattlerInsight::getTargetLine($target)) !== null) {
+      $lines[] = ['text' => $hp, 'color' => Color::LIGHT_CYAN, 'role' => BattleFeedbackRole::REVEAL];
+    } elseif (self::hasFailedReveal($result)) {
+      $lines[] = ['text' => 'MISS', 'color' => Color::WHITE, 'role' => BattleFeedbackRole::MISS];
     }
 
     if (empty($lines) && $result === null) {

@@ -127,8 +127,9 @@ it('fills corner maps to a thin rim without location text or menu spacing',funct
 it('exposes exactly the atlas icon roles for shared theme authoring',function() {
     $categories=new \Ichiloto\Engine\Field\MapCategoryCatalog(['guild'=>['name'=>['message'=>'map_categories.guild.name','default'=>'Guild'],'base'=>'organization']]);
     $roles=MapAtlasPresentation::listIconRoles($categories);
-    expect($roles)->toContain(MapAtlasPresentation::PLAYER_ICON_ROLE,'map.category.guild','map.category.inn','map.category.home')
-        ->and($roles)->toHaveCount(11)->and(array_unique($roles))->toBe($roles);
+    expect($roles)->toContain(MapAtlasPresentation::PLAYER_ICON_ROLE,'map.category.guild','map.category.inn','map.category.home',
+            MapAtlasPresentation::OBJECTIVE_ICON_ROLE,MapAtlasPresentation::OBJECTIVE_ROUTE_ICON_ROLE)
+        ->and($roles)->toHaveCount(13)->and(array_unique($roles))->toBe($roles);
     foreach(MapLandmarkKind::cases() as $kind) { expect($roles)->toContain($kind->getIconRole()); }
     expect(\Ichiloto\Engine\Field\MapCategoryCatalog::getIconRole('guild'))->toBe('map.category.guild')
         ->and(fn()=>\Ichiloto\Engine\Field\MapCategoryCatalog::getIconRole('../invalid'))->toThrow(InvalidArgumentException::class);

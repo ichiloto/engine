@@ -9,6 +9,9 @@ namespace Ichiloto\Engine\Audio\Enumerations;
  * Games opt in per sound by declaring a track for the corresponding
  * `audio.sounds.<value>` key in their project config; sounds without a
  * configured track are silent. The enum value doubles as the config key.
+ * Each sound also has its own authored volume, `audio.sound_volumes.<value>`
+ * (0 to 100, scaled by the master and Effects volumes), so a dense sound
+ * can sit under the music without the game editing the file.
  *
  * @package Ichiloto\Engine\Audio\Enumerations
  */
@@ -50,10 +53,32 @@ enum SystemSound: string
    * Played when a notification appears.
    */
   case NOTIFICATION = 'notification';
+  /** A real member joins the campaign party; projects may bind a short jingle. */
+  case PARTY_JOIN = 'party_join';
   /**
    * Played when a party member gains a level.
    */
   case LEVEL_UP = 'level_up';
+  /**
+   * Loops while an on-screen number counts up or down (a points countdown),
+   * and for any kind of count whose own loop the game leaves unbound. The
+   * track should be a seamless loop; one counting loop plays however many
+   * counts run together and stops when the last one ends.
+   */
+  case COUNTER = 'counter';
+  /**
+   * Loops while battle results dispense experience points (the EXP gauges
+   * and level fills), in place of the counter. A game that binds no track
+   * for it hears the counter instead. The track should be a seamless loop.
+   */
+  case EXP_TALLY = 'exp_tally';
+
+  /** The authored volume a sound plays at when its project leaves it out. */
+  public const int DEFAULT_VOLUME = 100;
+  /** The quietest authored volume: the sound is silent. */
+  public const int MIN_VOLUME = 0;
+  /** The loudest authored volume: the sound plays at the Effects gain. */
+  public const int MAX_VOLUME = 100;
 
   /**
    * Returns the project config path holding this sound's track.
@@ -63,5 +88,15 @@ enum SystemSound: string
   public function getConfigPath(): string
   {
     return "audio.sounds.$this->value";
+  }
+
+  /**
+   * Returns the project config path holding this sound's authored volume.
+   *
+   * @return string The config path, e.g. "audio.sound_volumes.counter".
+   */
+  public function getVolumeConfigPath(): string
+  {
+    return "audio.sound_volumes.$this->value";
   }
 }

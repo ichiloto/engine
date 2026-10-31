@@ -6,7 +6,9 @@ namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+use Ichiloto\Engine\Rendering\Tilesets\TerrainKind;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
+use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -14,6 +16,14 @@ use RuntimeException;
 final readonly class BattlePresentationCatalog
 {
   public const string FILE = 'Data/Presentation/battle.php';
+  /** The battle setting naming the arena a battle is fought on. */
+  public const string ARENA_SETTING = 'battleArena';
+  /**
+   * The battle setting naming the encounter terrain a battle started on, which
+   * the arena's terrain variants refine its picture by. A battle with none
+   * (an event or boss battle) is drawn on its arena as authored.
+   */
+  public const string TERRAIN_SETTING = 'battleTerrain';
   /** @var array<string, BattleArenaDefinition> Authored scene identities. */
   public array $arenas;
   /** @var array<string, BattlerArtwork> Actor IDs. */
@@ -24,15 +34,28 @@ final readonly class BattlePresentationCatalog
   public array $actorPoses;
   /** @var array<string, BattlePoseSet> EnemyStore catalog keys. */
   public array $enemyPoses;
+  /** @var array<string, BattlerGrounding> How actors meet the ground: hover and contact shadow. */
+  public array $actorGrounding;
+  /** @var array<string, BattlerGrounding> How enemies meet the ground: hover and contact shadow. */
+  public array $enemyGrounding;
 
   public function __construct(array $arenas, array $actors, array $enemies, public ?BattleCanvasLayout $ui = null,
     public ?BattleResultsSkin $results = null, public ?BattlePauseSkin $pause = null,
     array $actorPoses = [], array $enemyPoses = [], public ?string $defaultArena = null,
-    public ?BattleScale $scale = null)
+    public ?BattleScale $scale = null, array $actorGrounding = [], array $enemyGrounding = [])
   {
+    $this->actorGrounding = self::catalog($actorGrounding, BattlerGrounding::class);
+    $this->enemyGrounding = self::catalog($enemyGrounding, BattlerGrounding::class);
     $this->arenas = self::catalog($arenas, BattleArenaDefinition::class);
     if ($defaultArena !== null && !isset($this->arenas[$defaultArena])) {
       throw new InvalidArgumentException("Unknown default battle arena: {$defaultArena}");
+    }
+    foreach ($this->arenas as $id => $arena) {
+      foreach ($arena->variants as $terrain => $variant) {
+        if (!isset($this->arenas[$variant])) {
+          throw new InvalidArgumentException("Battle arena {$id} draws {$terrain} on {$variant}, which is no battle arena.");
+        }
+      }
     }
     $this->actors = self::catalog($actors, BattlerArtwork::class);
     $this->enemies = self::catalog($enemies, BattlerArtwork::class);
@@ -56,14 +79,46 @@ final readonly class BattlePresentationCatalog
     }
   }
 
+  /**
+   * The arena a battle is drawn on: the one it names, or the default; on a
+   * terrain the arena has a variant for, that variant. A battle that started
+   * on a terrain its arena has no variant for is drawn on the arena itself,
+   * and the missing variant is logged, never passed over in silence.
+   */
   public function getArenaFor(BattleConfig $battle): ?BattleArenaDefinition
   {
-    $key = array_key_exists('battleArena', $battle->settings) ? $battle->settings['battleArena'] : $this->defaultArena;
-    if ($key === null && !array_key_exists('battleArena', $battle->settings)) { return null; }
+    $key = array_key_exists(self::ARENA_SETTING, $battle->settings) ? $battle->settings[self::ARENA_SETTING] : $this->defaultArena;
+    if ($key === null && !array_key_exists(self::ARENA_SETTING, $battle->settings)) { return null; }
     if (!is_string($key)) {
       throw new InvalidArgumentException('battleArena must be a string arena key.');
     }
-    return $this->getArena($key);
+    $terrain = $battle->settings[self::TERRAIN_SETTING] ?? null;
+    if ($terrain !== null && (!is_string($terrain) || preg_match(TerrainKind::ENCOUNTER_PATTERN, $terrain) !== 1)) {
+      throw new InvalidArgumentException('battleTerrain must be an encounter terrain id.');
+    }
+    $choice = $this->resolveArenaVariant($key, $terrain);
+    if ($choice->isMissingVariant) {
+      Debug::warn(sprintf('Battle arena %s has no %s variant; the battle is drawn on its own background. Add the variant in %s.',
+        $key, $terrain, BattleArenaBindings::FILE));
+    }
+    return $this->getArena($choice->key);
+  }
+
+  /**
+   * Which arena draws a battle named on this arena that started on this
+   * encounter terrain: the arena's variant for it, or the arena itself, with
+   * whether that is because the variant is missing.
+   *
+   * @param string|null $terrain The encounter terrain, or null for a battle that started on none.
+   */
+  public function resolveArenaVariant(string $key, ?string $terrain): BattleArenaChoice
+  {
+    $arena = $this->getArena($key);
+    if ($terrain === null) {
+      return new BattleArenaChoice($key, null, false);
+    }
+    $variant = $arena->variants[$terrain] ?? null;
+    return $variant === null ? new BattleArenaChoice($key, $terrain, true) : new BattleArenaChoice($variant, $terrain, false);
   }
 
   public function getArena(string $key): BattleArenaDefinition
@@ -98,7 +153,38 @@ final readonly class BattlePresentationCatalog
     $catalog = self::loadCode($assetRoot);
     if ($catalog === null) { return null; }
     $bindings = BattlerBindings::load($assetRoot);
-    return $bindings === null ? $catalog : $catalog->bindBattlers($bindings);
+    $catalog = $bindings === null ? $catalog : $catalog->bindBattlers($bindings);
+    $arenas = BattleArenaBindings::load($assetRoot);
+    return $arenas === null ? $catalog : $catalog->bindArenas($arenas);
+  }
+
+  /**
+   * This catalog with arenas bound as data ({@see BattleArenaBindings})
+   * beside those its code registers. Each arena identity, and the default
+   * arena, has one owner: one named in both is refused, never overridden.
+   *
+   * @throws InvalidArgumentException When code and data both own an arena or the default, or no layout can draw them.
+   */
+  public function bindArenas(BattleArenaBindings $bindings): self
+  {
+    if ($bindings->arenas === []) {
+      return $bindings->defaultArena === null ? $this
+        : throw new InvalidArgumentException(BattleArenaBindings::FILE . ' names a default arena it does not declare.');
+    }
+    $ui = $this->ui ?? throw new InvalidArgumentException(BattleArenaBindings::FILE
+      . ' declares arenas, but ' . self::FILE . ' gives no battle canvas layout to draw them on.');
+    $shared = array_values(array_intersect(array_keys($bindings->arenas), array_keys($this->arenas)));
+    if ($shared !== []) {
+      throw new InvalidArgumentException(sprintf('%s %s declared both in %s and in %s; one of them must own it.',
+        implode(', ', $shared), count($shared) === 1 ? 'is' : 'are', self::FILE, BattleArenaBindings::FILE));
+    }
+    if ($bindings->defaultArena !== null && $this->defaultArena !== null) {
+      throw new InvalidArgumentException(sprintf('The default battle arena is named both in %s and in %s; one of them must own it.',
+        self::FILE, BattleArenaBindings::FILE));
+    }
+    return new self([...$this->arenas, ...$bindings->getDefinitions($ui->width, $ui->height)], $this->actors, $this->enemies,
+      $this->ui, $this->results, $this->pause, $this->actorPoses, $this->enemyPoses,
+      $this->defaultArena ?? $bindings->defaultArena, $this->scale, $this->actorGrounding, $this->enemyGrounding);
   }
 
   /** Load the validated code-owned catalog so editors can bind proposed, unsaved data. */
@@ -155,7 +241,8 @@ final readonly class BattlePresentationCatalog
     );
     return new self($this->arenas, [...$this->actors, ...$bindings->actors], [...$this->enemies, ...$bindings->enemies],
       $this->ui, $this->results, $this->pause, [...$this->actorPoses, ...$bindings->actorPoses],
-      [...$this->enemyPoses, ...$bindings->enemyPoses], $this->defaultArena, $scale);
+      [...$this->enemyPoses, ...$bindings->enemyPoses], $this->defaultArena, $scale,
+      [...$this->actorGrounding, ...$bindings->actorGrounding], [...$this->enemyGrounding, ...$bindings->enemyGrounding]);
   }
 
   /**

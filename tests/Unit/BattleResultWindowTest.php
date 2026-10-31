@@ -1,5 +1,7 @@
 <?php
 
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
+use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Battle\Presentation\BattleProgression;
 use Ichiloto\Engine\Battle\Presentation\BattleRewards;
@@ -45,6 +47,17 @@ function makeBattleResultTestScreen(): BattleScreen
   return $screen;
 }
 
+
+beforeEach(function () {
+  $this->savedInput = new ReflectionClass(InputManager::class)->getStaticProperties();
+  InputManager::setBindings(['action' => ['keys' => [KeyCode::ENTER]], 'up' => ['keys' => [KeyCode::UP]],
+    'down' => ['keys' => [KeyCode::DOWN]]]);
+});
+
+afterEach(function () {
+  foreach ($this->savedInput as $name => $value) { new ReflectionProperty(InputManager::class, $name)->setValue(null, $value); }
+});
+
 it('reveals battle rewards sequentially', function () {
   $window = new BattleResultWindowTestProxy(makeBattleResultTestScreen());
   $result = new BattleResult(
@@ -61,7 +74,7 @@ it('reveals battle rewards sequentially', function () {
   expect(implode("\n", $window->getContent()))->toContain('Experience gained:')
     ->not->toContain('123')
     ->not->toContain('Gold found:')
-    ->and($window->getHelp())->toBe('enter:Fast Forward');
+    ->and($window->getHelp())->toBe('[Enter] Fast Forward');
 
   $window->advance();
 
@@ -80,7 +93,7 @@ it('reveals battle rewards sequentially', function () {
 
   expect(implode("\n", $window->getContent()))->toContain('Item drops: Potion')
     ->and($window->isComplete())->toBeTrue()
-    ->and($window->getHelp())->toBe('enter:Continue');
+    ->and($window->getHelp())->toBe('[Enter] Continue');
 });
 
 it('keeps every structured loot row reachable instead of truncating the result', function () {
@@ -118,13 +131,13 @@ it('hides the terminal action hint while its replacement is input locked', funct
   $playback = new BattleResultsPlayback(new BattleRewards(0, 0, []));
   $window = new BattleResultWindowTestProxy(makeBattleResultTestScreen());
   $window->displayPlayback($playback);
-  expect($window->getHelp())->toBe('enter:Complete');
+  expect($window->getHelp())->toBe('[Enter] Complete');
   $playback->confirm();
   $window->displayPlayback($playback);
   expect($window->getHelp())->toBe('');
   $playback->update(0.33);
   $window->displayPlayback($playback);
-  expect($window->getHelp())->toBe('enter:Continue');
+  expect($window->getHelp())->toBe('[Enter] Continue');
 });
 
 it('left aligns party names and right aligns progression across the complete content width', function () {
@@ -136,7 +149,7 @@ it('left aligns party names and right aligns progression across the complete con
   $value = 'Lv 1 -> 2  +50 EXP';
   expect($window->getContent()[0])->toBe('EXP per member: 50   Gold: 200 G')
     ->and($window->getContent()[1])->toBe('Party Progress')
-    ->and($window->getHelp())->toBe('enter:Continue up/down:Page 1/2');
+    ->and($window->getHelp())->toBe('[Enter] Continue  [↑]/[↓] Page 1/2');
   foreach ($names as $index => $name) {
     $label = $name . ':';
     expect($window->getContent()[$index + 2])->toBe($label . str_repeat(' ',
@@ -190,7 +203,7 @@ it('preserves oversized identities and values on fixed pages when the party grow
   for ($page = 0; $page < $playback->pageCount(); $page++) {
     $window->displayPlayback($playback);
     expect($window->getBounds())->toEqual($bounds)->and($window->getContent())->toHaveCount(6)
-      ->and($window->getHelp())->toBe(sprintf('enter:Continue up/down:Page %d/%d', $page + 1, $playback->pageCount()));
+      ->and($window->getHelp())->toBe(sprintf('[Enter] Continue  [↑]/[↓] Page %d/%d', $page + 1, $playback->pageCount()));
     foreach ($window->getContent() as $line) {
       expect(TerminalText::displayWidth($line))->toBeLessThanOrEqual($window->getContentWidth());
     }

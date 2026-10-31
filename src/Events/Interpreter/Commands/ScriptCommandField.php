@@ -39,6 +39,7 @@ final readonly class ScriptCommandField
     public array $fields = [],
     public int|float|null $minimum = null,
     public string $description = '',
+    public int|float|null $maximum = null,
   )
   {
   }
@@ -125,9 +126,14 @@ final readonly class ScriptCommandField
     }
 
     $minimum = $declaration['minimum'] ?? null;
+    $maximum = $declaration['maximum'] ?? null;
+    if ($maximum !== null && ((!is_int($maximum) && !is_float($maximum)) || !in_array($kind, [ScriptCommandFieldKind::INTEGER, ScriptCommandFieldKind::NUMBER, ScriptCommandFieldKind::LIST], true))) {
+      throw new InvalidArgumentException("{$where} ({$key}) needs a numeric maximum for a number or list field.");
+    }
+    if ($minimum !== null && $maximum !== null && $minimum > $maximum) { throw new InvalidArgumentException("{$where} has an inverted range."); }
 
     if ($minimum !== null) {
-      if (! in_array($kind, [ScriptCommandFieldKind::INTEGER, ScriptCommandFieldKind::NUMBER], true)) {
+      if (! in_array($kind, [ScriptCommandFieldKind::INTEGER, ScriptCommandFieldKind::NUMBER, ScriptCommandFieldKind::LIST], true)) {
         throw new InvalidArgumentException("{$where} ({$key}) declares a minimum but is not a number field.");
       }
 
@@ -146,6 +152,7 @@ final readonly class ScriptCommandField
       $fields,
       $minimum,
       trim(strval($declaration['description'] ?? '')),
+      $maximum,
     );
   }
 
@@ -242,6 +249,9 @@ final readonly class ScriptCommandField
         }
       }
     }
+    if ($this->reference === ScriptCommandReference::TROOP_MEMBER) {
+      return is_int($value) && $value >= 0 ? [] : [sprintf('"%s" must name a troop member by its index.', $path)];
+    }
     return is_string($value) ? [] : [sprintf('"%s" must be text.', $path)];
   }
 
@@ -270,9 +280,9 @@ final readonly class ScriptCommandField
   /** @return list<string> */
   private function findMinimumProblems(int|float $value, string $path): array
   {
-    return $this->minimum !== null && $value < $this->minimum
-      ? [sprintf('"%s" must be at least %s.', $path, $this->minimum)]
-      : [];
+    if ($this->minimum !== null && $value < $this->minimum) { return [sprintf('"%s" must be at least %s.', $path, $this->minimum)]; }
+    return $this->maximum !== null && $value > $this->maximum
+      ? [sprintf('"%s" must be at most %s.', $path, $this->maximum)] : [];
   }
 
   /** @return list<string> */
@@ -286,7 +296,7 @@ final readonly class ScriptCommandField
       return $this->required ? [sprintf('"%s" needs at least one entry.', $path)] : [];
     }
 
-    $problems = [];
+    $problems = $this->findMinimumProblems(count($value), $path);
 
     foreach ($value as $index => $entry) {
       $entryPath = sprintf('%s[%d]', $path, $index + 1);

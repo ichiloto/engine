@@ -60,6 +60,12 @@ require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
+/** A battler's own image in a frame, wherever depth ordering put it. */
+function graphicalCombatantImage(\Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas $frame, object $battler): ?CanvasImage
+{
+  return array_find($frame->images, static fn($image): bool => $image->id === 'combatant-' . spl_object_id($battler));
+}
+
 function graphicalBattleFixture(bool $skinned = false, bool $directionalCursor = false, float $partyDepth = 1.0): array
 {
   $party = new Party();
@@ -75,7 +81,7 @@ function graphicalBattleFixture(bool $skinned = false, bool $directionalCursor =
     $enemies[] = $enemy;
   }
   $battle = new BattleConfig($party, new Troop('Twins', $enemies, graphicalFormation:
-    [new BattlerSlot(375, 467, 173, 197), new BattlerSlot(497, 233, 197, 119)]), entryExecutionId: 'fixture-entry');
+    [getStageSlot(375, 467, 173, 197), getStageSlot(497, 233, 197, 119)]), entryExecutionId: 'fixture-entry');
   $art = new BattlerArtwork('graphical-canvas/synthetic-143x181.png', 143, 181, 71.5, 181);
   $skin = null;
   if ($skinned) {
@@ -91,11 +97,68 @@ function graphicalBattleFixture(bool $skinned = false, bool $directionalCursor =
     new CanvasImage('arena', 'graphical-canvas/synthetic-320x180.png', new CanvasRectangle(0, 0, 1350, 720)));
   $layout = new BattleCanvasLayout(1350, 720, skin: $skin,
     feedbackArea: new CanvasRectangle(0, 80, 1350, 452),
-    partySlots: [new BattlerSlot(969, 265, 143, 181, $partyDepth), new BattlerSlot(1137, 383, 137, 179, $partyDepth),
-      new BattlerSlot(969, 501, 151, 183, $partyDepth)]);
+    partySlots: [getStageSlot(969, 265, 143, 181, $partyDepth), getStageSlot(1137, 383, 137, 179, $partyDepth),
+      getStageSlot(969, 501, 151, 183, $partyDepth)]);
   return [$battle, new BattlePresentationCatalog(['arena.test' => $arena], ['Hero' => $art], ['Twin' => $art],
     ui: $layout, defaultArena: 'arena.test'), $hero, $enemies];
 }
+
+it('lies a contact shadow under every battler\'s feet, under a hovering flier\'s risen body, and none without compositing', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  new ReflectionProperty(Enemy::class, 'habitat')->setValue($enemies[0], \Ichiloto\Engine\Entities\Enemies\EnemyHabitat::AIR);
+  $layout = $catalog->ui;
+  $shaded = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: new BattleCanvasLayout(1350, 720, feedbackArea: $layout->feedbackArea, partySlots: $layout->partySlots,
+      shadow: new \Ichiloto\Engine\Battle\Presentation\BattlerShadowStyle(PresentationColor::rgb(0, 0, 0)), airElevation: .5),
+    defaultArena: 'arena.test');
+  $plain = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $shaded, $this->root);
+  $frame = $presentation->frame();
+  $shadows = array_column(array_filter($frame->composites, static fn($composite) => str_starts_with($composite->id, 'contact-')), null, 'id');
+  $image = static fn($frame, $battler) => array_column($frame->images, null, 'id')['combatant-' . spl_object_id($battler)];
+
+  expect(array_keys($shadows))->toEqualCanonicalizing(array_map(static fn($battler) => 'contact-' . spl_object_id($battler), [$hero, ...$enemies]));
+  foreach ([$hero, ...$enemies] as $battler) {
+    $slot = $presentation->getSlot($battler);
+    $shadow = $shadows['contact-' . spl_object_id($battler)];
+    // On the ground at the feet, under the bodies.
+    expect($shadow->destination->x + $shadow->destination->width / 2)->toEqualWithDelta($slot->x, .5)
+      ->and($shadow->destination->y + $shadow->destination->height / 2)->toEqualWithDelta($slot->y, .5)
+      ->and($shadow->layer)->toBeLessThan($image($frame, $battler)->layer);
+  }
+  // The flier's body rises by half its slot height; the grounded twin's does not move.
+  $flier = $presentation->getSlot($enemies[0]);
+  expect($image($plain->frame(), $enemies[0])->destination->y - $image($frame, $enemies[0])->destination->y)
+    ->toEqualWithDelta(min($image($plain->frame(), $enemies[0])->destination->y, .5 * $flier->height * $flier->displayScale), .000001)
+    ->and($image($frame, $enemies[1])->destination)->toEqual($image($plain->frame(), $enemies[1])->destination)
+    ->and($plain->frame()->composites)->toBeEmpty()
+    ->and(array_filter($presentation->frame(compositing: false)->composites, static fn($composite) => str_starts_with($composite->id, 'contact-')))
+    ->toBeEmpty();
+});
+
+it('sinks a water creature below the surface line, hiding the art beneath it, and ripples the water at its feet', function () {
+  [$battle, $catalog, , $enemies] = graphicalBattleFixture();
+  foreach ($enemies as $enemy) {
+    new ReflectionProperty(Enemy::class, 'habitat')->setValue($enemy, \Ichiloto\Engine\Entities\Enemies\EnemyHabitat::WATER);
+  }
+  $sunk = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies, ui: $catalog->ui, defaultArena: 'arena.test',
+    enemyGrounding: ['Twin' => new \Ichiloto\Engine\Battle\Presentation\BattlerGrounding(elevation: -.25)]);
+  $plain = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root)->frame();
+  $presentation = GraphicalBattlePresentation::prepare($battle, $sunk, $this->root);
+  $frame = $presentation->frame();
+  foreach ($enemies as $enemy) {
+    $slot = $presentation->getSlot($enemy);
+    $id = 'combatant-' . spl_object_id($enemy);
+    $image = array_column($frame->images, null, 'id')[$id];
+    $ripple = array_column($frame->composites, null, 'id')['contact-' . spl_object_id($enemy) . '-front'];
+    // Sunk a quarter of its slot's height, only the art above the surface line shows; the ripple's lip lies over it there.
+    expect($image->destination->y - array_column($plain->images, null, 'id')[$id]->destination->y)
+      ->toEqualWithDelta(.25 * $slot->height * $slot->displayScale, .000001)
+      ->and($image->clipRect->y + $image->clipRect->height)->toEqualWithDelta($slot->y, .000001)
+      ->and($ripple->layer)->toBeGreaterThan($image->layer)
+      ->and($ripple->destination->y + $ripple->destination->height / 2)->toEqualWithDelta($slot->y, .5);
+  }
+});
 
 it('retains enemy artwork through feedback then pulses or fades and clears without render side effects', function (bool $reduced) {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture(true);
@@ -345,7 +408,7 @@ it('removes acting markers and labels while preserving command advance and retur
   $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
   $field = graphicalBattleScene($battle, $presentation)->ui->fieldWindow;
   $actor = $party ? $hero : $enemies[0];
-  $slot = $party ? $catalog->ui->partySlots[0] : $battle->troop->getGraphicalSlot($actor);
+  $slot = $presentation->getSlot($actor);
   $reference = $party ? $catalog->actors['Hero'] : $catalog->enemies['Twin'];
   $base = $slot->place($reference);
   $id = 'combatant-' . spl_object_id($actor);
@@ -423,7 +486,7 @@ it('inherits one reference body scale across every pose and sheet frame for eith
   $field = graphicalBattleScene($battle, $presentation)->ui->fieldWindow;
   $battler = $party ? $hero : $enemies[0];
   $reference = $party ? $catalog->actors['Hero'] : $catalog->enemies['Twin'];
-  $slot = $party ? $catalog->ui->partySlots[0] : $battle->troop->getGraphicalSlot($battler);
+  $slot = $presentation->getSlot($battler);
   $baseScale = $displayWidth === null ? min($slot->width / $reference->width, $slot->height / $reference->height)
     : $displayWidth / $reference->width;
   foreach (BattlePoseRole::cases() as $role) {
@@ -517,7 +580,7 @@ it('orients source and target strokes and ground attachments independently of as
     new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $layout = new BattleCanvasLayout(1350, 720,
-    partySlots: [new BattlerSlot(450, 265, 143, 181)]);
+    partySlots: [getStageSlot(450, 265, 143, 181)]);
   $poses = new BattlePoseSet([
     'idle' => new BattlerPose('graphical-canvas/synthetic-143x181.png'),
     'attack' => new BattlerPose('graphical-canvas/synthetic-320x180.png', columns: 2, frames: [0, 1],
@@ -553,7 +616,7 @@ it('orients source and target strokes and ground attachments independently of as
       $recipientImage = array_find($canvas->images, fn($image) => $image->id === 'combatant-' . spl_object_id($recipient));
       $mirror = !$enemyActs;
       $authoredFlip = $reduced || $frame === 1;
-      $slot = $recipient === $hero ? $layout->partySlots[0] : $battle->troop->getGraphicalSlot($recipient);
+      $slot = $presentation->getSlot($recipient);
       $groundX = $slot->x + ($recipient === $actor && !$reduced
         ? ($enemyActs ? 1 : -1) * $slot->width * .25 * $playback->getAdvanceFraction() : 0);
       $x = $ground ? $groundX : $recipientImage->destination->x + $recipientImage->destination->width / 2;
@@ -580,7 +643,7 @@ it('keeps a statically registered creature the same size in differently sized fo
     enemyPoses: ['Twin' => new BattlePoseSet([], displayWidth: 90)]);
   $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
   foreach ($enemies as $enemy) {
-    $slot = $battle->troop->getGraphicalSlot($enemy);
+    $slot = $presentation->getSlot($enemy);
     $image = array_find($presentation->frame()->images,
       fn($image) => $image->id === 'combatant-' . spl_object_id($enemy));
     expect($image->destination->width)->toBe(90.0)
@@ -630,7 +693,9 @@ it('selects each supplied command pose in both real battle engines and returns t
       ->and($image->asset)->toBe($expected->asset)->and($image->sourceRect)->toEqual($expected->sourceRect)
       ->and($image->destination->width)->toBe($baseline->destination->width)
       ->and($battler->stats->currentMp)->toBe(10);
-    new ReflectionProperty(Ichiloto\Engine\Core\Time::class, 'deltaTime')->setValue(null, 10);
+    // Step past this command's own plan, whose length follows its action's pacing.
+    new ReflectionProperty(Ichiloto\Engine\Core\Time::class, 'deltaTime')->setValue(null,
+      $playback->plan->timeline->defaults['lengthFrames'] / 120 + 1);
     $engine->run($context);
     $rest = array_column($presentation->frame($field)->images, null, 'id')[$identity];
     $restRole = $role === 'guard' ? BattlePoseRole::GUARD : BattlePoseRole::ENHANCED;
@@ -666,7 +731,7 @@ it('uses every persistent supplied pose and recovers immediately after cure revi
     $image = array_find($presentation->frame($field)->images, fn($image) => $image->id === 'combatant-' . spl_object_id($hero));
     $art = $poses->getPose($role)->getArtwork($this->root, 0, $reduced);
     expect($image->sourceRect)->toEqual($art->sourceRect)->and($image->opacity)->toBe(1.0)
-      ->and($image->destination->y + $art->pivotY * ($image->destination->width / $art->width))->toBe(265.0);
+      ->and($image->destination->y + $art->pivotY * ($image->destination->width / $art->width))->toBe($presentation->getSlot($hero)->y);
   };
   $assertRole(BattlePoseRole::IDLE);
   $hero->addState(new \Ichiloto\Engine\Entities\States\State('venom', 'Venom'));
@@ -729,7 +794,7 @@ it('keeps registered base scale and ground anchor when every optional resting im
   if ($knockout) { $hero->stats->currentHp = 0; }
   $image = array_find($presentation->frame()->images, fn($image) => $image->id === 'combatant-' . spl_object_id($hero));
   $art = $catalog->actors['Hero'];
-  $slot = $catalog->ui->partySlots[0];
+  $slot = $presentation->getSlot($hero);
   expect($image->asset)->toBe($art->asset)
     ->and($image->destination)->toEqual($slot->place($art, 192))
     ->and($image->destination->x + $image->destination->width * $art->pivotX / $art->width)->toBe($slot->x)
@@ -942,12 +1007,14 @@ it('uses registered base scale for optional geometry and diagnoses unusable regi
   $posed = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies, ui: $catalog->ui, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => $set]);
   $presentation = GraphicalBattlePresentation::prepare($battle, $posed, $this->root);
   $image = array_find($presentation->frame()->images, fn($image) => $image->id === 'combatant-' . spl_object_id($hero));
-  $scale = $width === 120.0 ? 120 / 143 : 1;
+  $slot = $presentation->getSlot($hero);
+  // An unusable width falls back to the base art's contain fit in its slot.
+  $scale = $width === 120.0 ? 120 / 143 : min($slot->width / 143, $slot->height / 181);
   expect($image->asset)->toBe('graphical-canvas/synthetic-320x180.png')
     ->and($image->destination->width / 320)->toEqualWithDelta($scale, .000001)
     ->and($image->destination->height / 180)->toEqualWithDelta($scale, .000001)
-    ->and($image->destination->x + 160 * $scale)->toEqualWithDelta(969, .000001)
-    ->and($image->destination->y + 162 * $scale)->toEqualWithDelta(265, .000001);
+    ->and($image->destination->x + 160 * $scale)->toEqualWithDelta($slot->x, .000001)
+    ->and($image->destination->y + 162 * $scale)->toEqualWithDelta($slot->y, .000001);
   if ($width === 16000.0) {
     expect(file_get_contents($this->logRoot . '/warning.log'))->toContain('Registered base battler placement unavailable');
   }
@@ -990,7 +1057,7 @@ it('diagnoses combined optional effect budgets while retaining the base frame an
     }
     $frame = $presentation->frame($scene->ui->fieldWindow, $ui);
     $base = array_find($frame->images, fn($image) => $image->id === 'combatant-' . spl_object_id($hero));
-    $slot = $catalog->ui->partySlots[0];
+    $slot = $presentation->getSlot($hero);
     $registered = $slot->place($catalog->actors['Hero'], 192);
     $expected = new CanvasRectangle($registered->x - $slot->width * .25 * $playback->getAdvanceFraction(),
       $registered->y, $registered->width, $registered->height);
@@ -1433,6 +1500,84 @@ it('composes Results over the frozen real battlefield without changing awarded g
     ->and($hero->currentExp)->toBe($awardedExperience);
 });
 
+it('plays the EXP tally while graphical Results count EXP, never for the terminal projection, and stops on close', function (bool $graphical) {
+  [$battle, $catalog, $hero] = graphicalBattleFixture(true);
+  $scene = graphicalBattleScene($battle, GraphicalBattlePresentation::prepare($battle, $catalog, $this->root));
+  if ($graphical) { new ReflectionProperty(BattleScene::class, 'resultsSkin')->setValue($scene, graphicalResultsFixtureSkin()); }
+  $scene->result = new BattleResult('Victory', rewards: new BattleRewards(10000, 42, [ExperienceAwarder::award($hero, 10000)]));
+  $manager = makeCounterTickManager(bindsExpTally: true);
+  $instance = new ReflectionProperty(Ichiloto\Engine\Audio\AudioManager::class, 'instance');
+  $previous = $instance->getValue();
+  $instance->setValue(null, $manager);
+  try {
+    $scene->beginResults();
+    $scene->resultsPlayback->update(1.2);
+    $manager->update();
+    expect($scene->resultsPlayback->animatesCounts)->toBe($graphical)
+      ->and($manager->counterSound->isPlaying)->toBe($graphical)
+      ->and(listSpawnedSoundFiles($manager))->toBe($graphical ? ['tally.wav'] : []);
+    $scene->endResults();
+    expect($manager->counterSound->isPlaying)->toBeFalse()
+      ->and(array_filter($manager->spawnedPlaybacks, static fn($player) => $player->isRunning))->toBe([]);
+  } finally {
+    $instance->setValue(null, $previous);
+    $manager->shutdown();
+  }
+})->with(['graphical' => true, 'terminal' => false]);
+
+it('sounds the EXP tally under the victory music while native Results count EXP on the macOS players', function () {
+  [$battle, $catalog, $hero] = graphicalBattleFixture(true);
+  $scene = graphicalBattleScene($battle, GraphicalBattlePresentation::prepare($battle, $catalog, $this->root));
+  new ReflectionProperty(BattleScene::class, 'resultsSkin')->setValue($scene, graphicalResultsFixtureSkin());
+  $scene->result = new BattleResult('Victory', rewards: new BattleRewards(10000, 42, [ExperienceAwarder::award($hero, 10000)]));
+  $fanfare = makeAudioAssetsRoot(['fanfare.mp3']) . '/fanfare.mp3';
+  // macOS: one-shot sounds play through afplay; music and loops prefer mpv, whose volume is cubic.
+  $manager = makeCounterTickManager(['sfx' => true, 'music' => true, 'master_volume' => 75,
+    'bgm' => ['victory' => $fanfare], 'sound_volumes' => ['exp_tally' => 30]], bindsExpTally: true,
+    backends: [new Ichiloto\Engine\Audio\Backends\AfplayBackend(), new Ichiloto\Engine\Audio\Backends\MpvBackend()]);
+  $instance = new ReflectionProperty(Ichiloto\Engine\Audio\AudioManager::class, 'instance');
+  $previous = $instance->getValue();
+  $instance->setValue(null, $manager);
+  $delta = new ReflectionProperty(Ichiloto\Engine\Core\Time::class, 'deltaTime');
+  $oldDelta = $delta->getValue();
+  $victory = new Ichiloto\Engine\Scenes\Battle\States\BattleVictoryState(new Ichiloto\Engine\Scenes\SceneStateContext($scene));
+  // One game frame: the scene updates its count, then the audio manager is pumped.
+  $runFrames = static function (float $seconds) use ($victory, $manager): void {
+    for ($elapsed = 0.0; $elapsed < $seconds - 1e-9; $elapsed += 0.05) { $victory->execute(); $manager->update(); }
+  };
+  // The gain a player applies: mpv cubes its volume fraction.
+  $gainOf = static fn(array $command): float => ((float)substr($command[4], strlen('--volume=')) / 100) ** 3;
+  try {
+    $scene->setState($victory);
+    $delta->setValue(null, 0.05);
+    $runFrames(0.5);
+    expect($manager->counterSound->isPlaying)->toBeFalse()->and(listSpawnedSoundFiles($manager))->toBe(['fanfare.mp3']);
+    $runFrames(0.6);
+    [$music, $tally] = $manager->spawnedCommands;
+    expect($scene->resultsPlayback->isCounting)->toBeTrue()
+      ->and($manager->counterSound->isPlaying)->toBeTrue()
+      ->and(listSpawnedSoundFiles($manager))->toBe(['fanfare.mp3', 'tally.wav'])
+      ->and($tally[0])->toBe('mpv')->and($tally)->toContain('--loop-file=inf')
+      // Master 75 under the tally's own 30: the same gain afplay would apply to a one-shot sound.
+      ->and($gainOf($tally))->toEqualWithDelta(0.75 * 0.30, 0.002)
+      ->and($gainOf($music))->toEqualWithDelta(0.75, 0.002)
+      ->and($gainOf($tally) / $gainOf($music))->toEqualWithDelta(0.30, 0.005);
+    // The count ends before Continue: the tally stops with it, without a respawn.
+    $runFrames(1.5);
+    expect($scene->resultsPlayback->isCounting)->toBeFalse()
+      ->and($scene->resultsPlayback->isFinished())->toBeFalse()
+      ->and($manager->counterSound->isPlaying)->toBeFalse()
+      ->and(listSpawnedSoundFiles($manager))->toBe(['fanfare.mp3', 'tally.wav'])
+      ->and($manager->spawnedPlaybacks[1]->isRunning)->toBeFalse();
+    $victory->exit();
+    expect($scene->resultsPlayback)->toBeNull()->and($manager->counterSound->isPlaying)->toBeFalse();
+  } finally {
+    $delta->setValue(null, $oldDelta);
+    $instance->setValue(null, $previous);
+    $manager->shutdown();
+  }
+});
+
 it('keeps victory input presentation-only and finishes the exit without an extra confirmation', function () {
   [$battle, $catalog, $hero] = graphicalBattleFixture(true);
   $scene = graphicalBattleScene($battle, GraphicalBattlePresentation::prepare($battle, $catalog, $this->root));
@@ -1485,7 +1630,10 @@ it('resolves pivots and contain sizes in independent fractional canvas units', f
   [$battle, $catalog] = graphicalBattleFixture();
   $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
   $canvas = $presentation->frame();
-  expect($canvas->images[1]->destination->toArray())->toBe(['x' => 897.5, 'y' => 84.0, 'width' => 143.0, 'height' => 181.0]);
+  // A party of one stands in the formation's front slot, (969, 501) containing 151x183.
+  $scale = 183 / 181;
+  expect(graphicalCombatantImage($canvas, $battle->party->members[0])->destination->toArray())
+    ->toBe(['x' => 969 - 71.5 * $scale, 'y' => 501 - 181 * $scale, 'width' => 143 * $scale, 'height' => 183.0]);
   Console::syncDimensions(80, 24);
   expect($presentation->frame()->toArray())->toBe($canvas->toArray());
 });
@@ -1541,16 +1689,32 @@ it('keeps the same troop formation across every background and after roster reor
   expect(array_slice($presentation->frame()->images, 1))->toEqual(array_slice($before->images, 1));
 });
 
-it('refuses missing or out-of-bounds troop placements without fabricating defaults', function (array $slots, string $error) {
+it('refuses out-of-bounds troop placements without fabricating defaults', function () {
   [$fixture, $catalog, , $enemies] = graphicalBattleFixture();
-  $battle = new BattleConfig($fixture->party, new Troop('Twins', $enemies, graphicalFormation: $slots));
-  expect(fn() => GraphicalBattlePresentation::prepare($battle, $catalog, $this->root))->toThrow($error)
+  $battle = new BattleConfig($fixture->party, new Troop('Twins', $enemies,
+    graphicalFormation: [getStageSlot(1400, 400, 100, 100), getStageSlot(530, 470, 120, 100)]));
+  expect(fn() => GraphicalBattlePresentation::prepare($battle, $catalog, $this->root))->toThrow(InvalidArgumentException::class)
     ->and($battle->entryRulesEvaluated())->toBeFalse();
-})->with([
-  'none' => [[], RuntimeException::class],
-  'missing member' => [[new BattlerSlot(350, 400, 100, 100), null], RuntimeException::class],
-  'out of canvas' => [[new BattlerSlot(1400, 400, 100, 100), new BattlerSlot(530, 470, 120, 100)], InvalidArgumentException::class],
-]);
+});
+
+it('arranges troop members nobody placed beside the placed ones, on the ground, without moving the placed', function () {
+  [$fixture, $catalog, , $enemies] = graphicalBattleFixture();
+  $placed = getStageSlot(200, 560, 100, 100);
+  $battle = new BattleConfig($fixture->party, new Troop('Twins', $enemies, graphicalFormation: [$placed, null]));
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $ground = $presentation->getStaging()->ground;
+  [$first, $second] = array_map($presentation->getSlot(...), $enemies);
+  expect([$first->x, $first->y])->toBe([200.0, 560.0])
+    ->and($second->y)->toBeGreaterThanOrEqual($ground->top)->toBeLessThanOrEqual($ground->bottom)
+    ->and(hypot($second->x - $first->x, $second->y - $first->y))->toBeGreaterThan(1.0);
+  $unplaced = new BattleConfig($fixture->party, new Troop('Twins', $enemies));
+  $arranged = GraphicalBattlePresentation::prepare($unplaced, $catalog, $this->root);
+  // The arranged troop faces the party: its formation centres on the middle of the theme's party formation.
+  $depths = array_map(fn($place) => $place->depth, $arranged->getStaging()->enemyPlaces);
+  $slots = $catalog->ui->partySlots;
+  expect((min($depths) + max($depths)) / 2)->toEqualWithDelta(array_sum(array_map(fn($slot) => $slot->depth, $slots)) / count($slots), .001);
+});
+
 
 it('degrades an explicit arena without a catalog to the terminal presentation and never blocks combat', function (bool $native) {
   [$fixture] = graphicalBattleFixture();
@@ -1578,7 +1742,7 @@ it('keeps repeated enemy instance IDs through target reorder feedback and remova
   $first = $presentation->frame($field);
   $ids = array_map(fn($image) => $image->id, $first->images);
   expect(array_unique($ids))->toHaveCount(4)
-    ->and(array_column($first->indicators, 'id'))->toBe([
+    ->and(array_column($first->indicators, 'id'))->toEqualCanonicalizing([
       'selected-' . spl_object_id($enemies[0]), 'selected-' . spl_object_id($enemies[1]),
     ]);
   $field->focusTroopBattlers([0, 1]);
@@ -1755,13 +1919,19 @@ it('retains graphical battlers and named targetable fallbacks when another artwo
 
 it('moves a party target cursor beside the actor when the action banner covers its head', function () {
   [$battle, $catalog] = graphicalBattleFixture(skinned: true, directionalCursor: true);
+  // The formation's back slot, whose head the banner covers.
+  $ui = $catalog->ui;
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: new BattleCanvasLayout($ui->width, $ui->height, $ui->uiGrid->cellWidth, $ui->uiGrid->cellHeight, $ui->skin,
+      $ui->feedbackArea, [$ui->partySlots[0]], $ui->battlerArea, $ui->enemyArea, $ui->partyArea),
+    defaultArena: $catalog->defaultArena);
   $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
   $scene = graphicalBattleScene($battle, $presentation);
   $scene->ui->fieldWindow->focusPartyBattler(0);
   $scene->ui->showMessage('Cure');
   $frame = $presentation->frame($scene->ui->fieldWindow, [], BattleHudSnapshot::fromScreen($scene->ui), 'target', 0);
   $cursor = array_values(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'target-cursor-')))[0];
-  $hero = $frame->images[1]->destination;
+  $hero = graphicalCombatantImage($frame, $battle->party->members[0])->destination;
   expect($cursor->destination->x + $cursor->destination->width)->toBe($hero->x - 6)
     ->and($cursor->destination->y)->toBeGreaterThanOrEqual(80.0);
 });
@@ -1818,12 +1988,12 @@ it('removes implicit reserve fallback from rendering and only changes roster at 
   foreach (array_slice($members, 0, 3) as $member) { $member->stats->currentHp = 0; }
   $frame = $presentation->frame();
   expect($frame->images)->toHaveCount(6)
-    ->and(array_column(array_slice($frame->images, 1, 3), 'id'))->toBe(array_map(
-      static fn($member): string => 'combatant-' . spl_object_id($member), array_slice($members, 0, 3)))
+    ->and(array_map(static fn($member): ?string => graphicalCombatantImage($frame, $member)?->id, array_slice($members, 0, 3)))
+      ->toBe(array_map(static fn($member): string => 'combatant-' . spl_object_id($member), array_slice($members, 0, 3)))
     ->and($battle->partyRoster->promoteReservesAfterWipeout())->toBe($replace);
   $frame = $presentation->frame();
   expect($frame->images)->toHaveCount($replace ? 4 : 6);
-  if ($replace) { expect($frame->images[1]->id)->toBe('combatant-' . spl_object_id($members[3])); }
+  if ($replace) { expect(graphicalCombatantImage($frame, $members[3]))->not->toBeNull(); }
 })->with(['default defeat' => false, 'explicit replacement' => true]);
 
 it('replaces a real battle canvas with the normal scene frame through the shared runtime', function () {
@@ -2026,10 +2196,27 @@ it('requires crop capability and removes party KO captions without changing heal
   $hero->stats->currentHp = 0;
   $scene->ui->fieldWindow->focusPartyBattlers([0]);
   $frame = $presentation->frame($scene->ui->fieldWindow);
-  expect($frame->images[1]->opacity)->toBe(0.4)
+  expect(graphicalCombatantImage($frame, $hero)->opacity)->toBe(0.4)
     ->and(array_any($frame->textLayers, fn($layer) => array_any($layer->runs, fn($run) => $run->text === 'KO')))->toBeFalse()
     ->and($frame->indicators)->toHaveCount(1)
     ->and($hero->stats->currentHp)->toBe(0);
+});
+
+it('shows an enemy\'s own concede pose when it yields, and dims its resting art when it has none', function () {
+  [$battle, $catalog, , $enemies] = graphicalBattleFixture();
+  $pose = new \Ichiloto\Engine\Battle\Presentation\BattlerPose('graphical-canvas/synthetic-320x180.png', pivotY: .9);
+  $withPose = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies, ui: $catalog->ui,
+    defaultArena: $catalog->defaultArena, enemyPoses: ['Twin' => new \Ichiloto\Engine\Battle\Presentation\BattlePoseSet(['concede' => $pose])]);
+  [$yielding, $other] = $enemies;
+  expect($yielding->concede())->toBeTrue();
+  $posed = graphicalCombatantImage(GraphicalBattlePresentation::prepare($battle, $withPose, $this->root)->frame(), $yielding);
+  $dimmed = graphicalCombatantImage(GraphicalBattlePresentation::prepare($battle, $catalog, $this->root)->frame(), $yielding);
+  expect($posed->asset)->toBe($pose->asset)->and($posed->opacity)->toBe(1.0)
+    ->and($dimmed->asset)->toBe($catalog->enemies['Twin']->asset)
+    ->and($dimmed->opacity)->toBe(\Ichiloto\Engine\Battle\Presentation\EnemyDefeatStyle::createFromConfig()->concededOpacity)
+    ->and($dimmed->opacity)->toBeLessThan(1.0)
+    // The member still fighting keeps its own art at full strength either way.
+    ->and(graphicalCombatantImage(GraphicalBattlePresentation::prepare($battle, $withPose, $this->root)->frame(), $other)->opacity)->toBe(1.0);
 });
 
 it('shows registered knockout artwork without KO captions and restores idle artwork after revival', function (bool $reducedMotion, bool $skinned) {
@@ -2044,8 +2231,8 @@ it('shows registered knockout artwork without KO captions and restores idle artw
   $scene = graphicalBattleScene($battle, $presentation);
   $hero->stats->currentHp = 0;
   $knockout = $presentation->frame($scene->ui->fieldWindow);
-  $image = $knockout->images[1];
-  $expected = $catalog->ui->partySlots[0]->placeAtScale($pose->getArtwork($this->root, 0, $reducedMotion),
+  $image = graphicalCombatantImage($knockout, $hero);
+  $expected = $presentation->getSlot($hero)->placeAtScale($pose->getArtwork($this->root, 0, $reducedMotion),
     200 / $catalog->actors['Hero']->width);
   expect($image->asset)->toBe($pose->asset)
     ->and($image->opacity)->toBe(1.0)
@@ -2055,9 +2242,9 @@ it('shows registered knockout artwork without KO captions and restores idle artw
 
   $hero->stats->currentHp = 50;
   $revived = $presentation->frame($scene->ui->fieldWindow);
-  expect($revived->images[1]->id)->toBe($image->id)
-    ->and($revived->images[1]->asset)->toBe($catalog->actors['Hero']->asset)
-    ->and($revived->images[1]->opacity)->toBe(1.0)
+  expect(graphicalCombatantImage($revived, $hero)->id)->toBe($image->id)
+    ->and(graphicalCombatantImage($revived, $hero)->asset)->toBe($catalog->actors['Hero']->asset)
+    ->and(graphicalCombatantImage($revived, $hero)->opacity)->toBe(1.0)
     ->and(array_any($revived->textLayers, fn($layer) => array_any($layer->runs, fn($run) => $run->text === 'KO')))->toBeFalse()
     ->and($hero->stats->currentHp)->toBe(50);
 })->with([false, true])->with([false, true]);
@@ -2095,8 +2282,8 @@ it('diagnoses an unregistered knockout pose once while preserving the readable b
   $hero->stats->currentHp = 0;
   foreach (range(1, 3) as $_) {
     $frame = $presentation->frame($scene->ui->fieldWindow);
-    expect($frame->images[1]->asset)->toBe($catalog->actors['Hero']->asset)
-      ->and($frame->images[1]->opacity)->toBe(0.4)
+    expect(graphicalCombatantImage($frame, $hero)->asset)->toBe($catalog->actors['Hero']->asset)
+      ->and(graphicalCombatantImage($frame, $hero)->opacity)->toBe(0.4)
       ->and($hero->stats->currentHp)->toBe(0);
   }
   expect(substr_count(file_get_contents($this->logRoot . '/warning.log'), 'No battle pose registered for Hero: knockout'))->toBe(1);
@@ -2164,7 +2351,7 @@ it('prepares a best-effort graphical battle when artwork changed under its autho
     new SpriteSourceRect(0, 0, 200, 260));
   $catalog = new BattlePresentationCatalog($catalog->arenas, ['Hero' => $stale], $catalog->enemies, ui: $catalog->ui, defaultArena: $catalog->defaultArena);
   $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
-  $hero = $presentation->frame()->images[1];
+  $hero = graphicalCombatantImage($presentation->frame(), $battle->party->members[0]);
   expect(str_starts_with($hero->id, 'combatant-'))->toBeTrue()
     ->and($hero->sourceRect->toArray())->toBe(['x' => 0, 'y' => 0, 'width' => 143, 'height' => 181]);
 });
@@ -2175,7 +2362,7 @@ it('renders the whole image when the authored crop no longer exists in it', func
     new SpriteSourceRect(150, 0, 50, 50));
   $catalog = new BattlePresentationCatalog($catalog->arenas, ['Hero' => $gone], $catalog->enemies, ui: $catalog->ui, defaultArena: $catalog->defaultArena);
   $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
-  $hero = $presentation->frame()->images[1];
+  $hero = graphicalCombatantImage($presentation->frame(), $battle->party->members[0]);
   expect($hero->sourceRect->toArray())->toBe(['x' => 0, 'y' => 0, 'width' => 143, 'height' => 181]);
 });
 
@@ -2194,7 +2381,7 @@ it('accepts replacement images at the same asset path without changing character
       copy($this->root . '/' . $replacement, $root . '/hero.png');
       $frame = GraphicalBattlePresentation::prepare($battle, $catalog, $root)->frame();
       CanvasImagePreflight::inspect($frame->images, $root);
-      $image = $frame->images[1];
+      $image = graphicalCombatantImage($frame, $hero);
       $image->destination->assertWithin($frame->width, $frame->height);
       expect($image->asset)->toBe('hero.png')
         ->and($image->id)->toBe('combatant-' . spl_object_id($hero))
@@ -2229,7 +2416,7 @@ it('retains a prepared reference scale through live resolution replacements with
       copy($this->root . '/' . $replacement, $root . '/hero.png');
       $frame = $presentation->frame();
       CanvasImagePreflight::inspect($frame->images, $root);
-      $image = $frame->images[1];
+      $image = graphicalCombatantImage($frame, $hero);
       $size = PngAssetPreflight::getAvailableSize($root, 'hero.png');
       expect($image->destination->height * .75)->toEqualWithDelta(100, .000001)
         ->and($image->destination->width / $size['width'])
@@ -2299,3 +2486,241 @@ it('keeps a prepared battle usable as individual background battler and target a
     rmdir($root);
   }
 });
+
+/** Every glyph a canvas draws, joined, for asserting what reads on screen. */
+function graphicalBattleCanvasText(PresentationCanvas $canvas): string
+{
+  return implode("\n", array_map(fn($layer) => implode('', array_column(array_filter($layer->runs,
+    fn($run) => $run->foreground !== null), 'text')), $canvas->textLayers));
+}
+
+it('draws escape and defeat results as the themed graphical battle panel, never their Terminal window', function (string $title, array $lines, bool $keys) {
+  [$battle, $catalog, $hero] = graphicalBattleFixture(skinned: true);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $scene = graphicalBattleScene($battle, $presentation);
+  $theme = createTestDirectory('ichiloto-battle-outcome-');
+  if ($keys) {
+    mkdir($theme . '/Data/Presentation', 0700, true);
+    file_put_contents($theme . '/Data/Presentation/menus.php', '<?php return ' . var_export(['schema' => 'ichiloto.menu/1'], true) . ';');
+  }
+  new ReflectionProperty(GraphicalBattlePresentation::class, 'controls')->setValue($presentation,
+    \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog::load($theme));
+  new ReflectionProperty(GraphicalBattlePresentation::class, 'controlsRead')->setValue($presentation, true);
+  $scene->ui->hideControls();
+  $scene->result = new BattleResult($title, $lines);
+  $scene->resultWindow = new \Ichiloto\Engine\Battle\UI\BattleResultWindow($scene->ui);
+  $scene->resultWindow->display($scene->result);
+  // The Terminal keeps its result window, help line and all.
+  expect(implode('', Console::snapshot()->rows))->toContain($title)->toContain('Continue');
+  $frame = $scene->getPresentationCanvas();
+  $text = graphicalBattleCanvasText($frame);
+  $outcome = array_values(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'hud-outcome')));
+  $hero = array_find($frame->images, fn($image) => $image->id === 'combatant-' . spl_object_id($hero))->destination;
+  $top = min(array_map(fn($image) => $image->destination->y, $outcome));
+  $bottom = max(array_map(fn($image) => $image->destination->y + $image->destination->height, $outcome));
+  $left = min(array_map(fn($image) => $image->destination->x, $outcome));
+  $right = max(array_map(fn($image) => $image->destination->x + $image->destination->width, $outcome));
+  expect($outcome)->not->toBeEmpty()
+    ->and(array_filter($frame->textLayers, fn($layer) => str_starts_with($layer->id, 'battle-ui-')))->toBe([])
+    ->and($text)->toContain($title, ...$lines)->not->toContain('Continue')->not->toContain('═')->not->toContain('║')
+    ->and($keys ? $text : '')->not->toContain('[Space]')
+    // The party stays in view.
+    ->and($bottom <= $hero->y || $top >= $hero->y + $hero->height || $right <= $hero->x || $left >= $hero->x + $hero->width)->toBeTrue()
+    ->and(count($frame->textLayers))->toBeLessThanOrEqual(\Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame::MAX_TEXT_LAYERS)
+    ->and($scene->presentationFallbacks->getReportedMessages())->toBe($keys ? []
+      : ['Battle result controls read as text: the project has no menu theme to draw keycaps.']);
+  expect(file_exists($this->logRoot . '/warning.log') && str_contains(file_get_contents($this->logRoot . '/warning.log'), 'Battle result controls'))
+    ->toBe(!$keys);
+})->with([
+  'escape' => ['Escaped', ['The party slipped away!'], true],
+  'defeat' => ['Defeat', ['The party has been wiped out.'], true],
+  'escape without a menu theme' => ['Escaped', ['The party slipped away!'], false],
+]);
+
+it('leaves themed battle modals to the frame composer and reports a modal it must draw in Terminal cells', function (bool $themed) {
+  [$battle, $catalog] = graphicalBattleFixture(skinned: true);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $scene = graphicalBattleScene($battle, $presentation);
+  $root = createTestDirectory('ichiloto-battle-modal-');
+  if ($themed) {
+    mkdir($root . '/Data/Presentation', 0700, true);
+    file_put_contents($root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
+      'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1']], true) . ';');
+  }
+  $scene->getGame()->useRendererRuntime(new RendererRuntime(
+    new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $root), new FakeRendererTransport()));
+  $modal = new stdClass();
+  \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::ui($modal, fn() => Console::write('MODAL OVER BATTLE', 40, 15));
+  $ui = BattleCanvasUiAdapter::collect($scene, $presentation->layout);
+  $text = implode('', array_map(fn($layer) => implode('', array_column($layer->runs, 'text')), $ui));
+  if ($themed) {
+    expect($text)->not->toContain('MODAL OVER BATTLE')->and($scene->presentationFallbacks->getReportedMessages())->toBe([]);
+  } else {
+    expect($text)->toContain('MODAL OVER BATTLE')
+      ->and($scene->presentationFallbacks->getReportedMessages())->toHaveCount(1)
+      ->and(file_get_contents($this->logRoot . '/warning.log'))->toContain('Battle dialogue and modals have no graphical theme');
+  }
+})->with(['themed' => true, 'without a dialogue theme' => false]);
+
+
+it('stacks the live action announcement above a full-screen summon and its opaque opening cover', function (bool $skinned, bool $reduced) {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture($skinned);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $field = graphicalBattleScene($battle, $presentation)->ui->fieldWindow;
+  $summon = new \Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene('visitor', '', fps: 10,
+    defaults: ['lengthFrames' => 100, 'restFrame' => 0, 'stage' => [
+      'canvas' => ['width' => 400, 'height' => 300], 'startFrame' => 0, 'restoreFrame' => 99,
+      'camera' => [['id' => 'camera', 'frame' => 0, 'focus' => ['x' => 200, 'y' => 150], 'zoom' => 1]],
+      'covers' => [['id' => 'opening', 'frame' => 0, 'color' => 'black', 'opacity' => 1, 'easing' => 'hold'],
+        ['id' => 'end', 'frame' => 99, 'color' => 'black', 'opacity' => 0]],
+    ]]);
+  $plan = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline(
+    new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, 4, .1, .1, .1, .1, .1), target: $summon);
+  $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $hero, $enemies,
+    BattlePoseRole::SUMMON, static function (): void { throw new RuntimeException('Rendering must not resolve combat.'); }, static fn() => null);
+  $playback->begin();
+  $playback->update(($plan->phases['target']['start'] + 1) / 120);
+  $field->setCommandPlayback($playback);
+  $ui = $skinned ? [] : [new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer('callout', 1000, 20, 20,
+    new \Ichiloto\Engine\Rendering\Transport\RendererGridConfig(20, 1, 10, 20),
+    [new \Ichiloto\Engine\Rendering\Presentation\PresentationTextRun(0, 0, 'Skyfall')])];
+  $canvas = $presentation->frame($field, $ui, new BattleHudSnapshot(message: 'Skyfall'), reducedMotion: $reduced);
+  $cover = array_find($canvas->composites, static fn($item) => $item->id === 'cinematic-stage-cover');
+  $callout = array_find($canvas->textLayers, static fn($layer) => array_any($layer->runs,
+    static fn($run) => str_contains($run->text, 'Skyfall')));
+  expect(array_column($canvas->composites, 'id'))->toContain('cinematic-stage-background');
+  if ($reduced) { expect($cover)->toBeNull(); }
+  else { expect($cover)->not->toBeNull()->and($cover->opacity)->toBe(1.0); }
+  expect($callout)->not->toBeNull()->and($callout->layer)->toBeGreaterThan(max(array_column($canvas->composites, 'layer')))
+    ->and(array_column($canvas->images, 'id'))->not->toContain('arena', 'combatant-' . spl_object_id($hero))
+    ->and($playback->presentationFailure)->toBeNull();
+  $cleared = $presentation->frame($field, [], new BattleHudSnapshot(), reducedMotion: $reduced);
+  expect($cleared->textLayers)->toBeEmpty()->and($cleared->composites)->not->toBeEmpty();
+})->with([false, true])->with([false, true]);
+
+
+it('projects a formation permutation through actual combatant images without changing authored staging or combat state', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $before = array_map($presentation->getSlot(...), $enemies);
+  $positions = array_map(static fn($enemy) => clone $enemy->position, $enemies);
+  $battle->formation->shufflePositions($enemies, new class implements \Ichiloto\Engine\Battle\Resolution\CombatRandomSource {
+    public function nextInt(int $minimum, int $maximum): int { return $minimum; }
+  });
+  $logical = array_map($battle->formation->getPosition(...), $enemies);
+  $frame = $presentation->frame();
+  foreach ($enemies as $index => $enemy) {
+    $slot = $presentation->getSlot($enemy);
+    expect([$slot->x, $slot->y])->toEqual([$before[1 - $index]->x, $before[1 - $index]->y])
+      ->and([$slot->width, $slot->height])->toEqual([$before[$index]->width, $before[$index]->height])
+      ->and(graphicalCombatantImage($frame, $enemy))->not->toBeNull()
+      ->and($enemy->position)->toEqual($positions[$index])->and($enemy->stats->currentHp)->toBe(100);
+  }
+  $presentation->frame();
+  expect(array_map($battle->formation->getPosition(...), $enemies))->toEqual($logical);
+});
+
+it('places a newly occupied logical front position within the themed side and arena ground', function () {
+  [$source, $catalog, , $enemies] = graphicalBattleFixture();
+  $troop = new Troop('Rows', $enemies, graphicalFormation: array_map($source->troop->getStagePlace(...), $enemies),
+    battlePositions: [new \Ichiloto\Engine\Battle\Formation\BattlePosition(\Ichiloto\Engine\Battle\Formation\BattleRow::BACK, 0),
+      new \Ichiloto\Engine\Battle\Formation\BattlePosition(\Ichiloto\Engine\Battle\Formation\BattleRow::FRONT, 0)]);
+  $battle = new BattleConfig($source->party, $troop);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $before = $presentation->getSlot($enemies[0]);
+  $battle->formation->moveToFront([$enemies[0]]);
+  $moved = $presentation->getSlot($enemies[0]);
+  expect($moved->x)->toBeGreaterThan($before->x)->toBeLessThanOrEqual($catalog->ui->width / 2)
+    ->and($moved->y)->toBeGreaterThanOrEqual($presentation->getStaging()->ground->top)->toBeLessThanOrEqual($presentation->getStaging()->ground->bottom)
+    ->and(graphicalCombatantImage($presentation->frame(), $enemies[0]))->not->toBeNull();
+});
+
+
+it('composes an ordinary source-stage cut-in through the actual battle renderer without a summon binding', function () {
+  [$battle, $catalog, $hero] = graphicalBattleFixture();
+  $source = ['fps' => 10, 'lengthFrames' => 5, 'restFrame' => 1,
+    'stage' => ['canvas' => ['width' => 320, 'height' => 180], 'startFrame' => 0, 'restoreFrame' => 4,
+      'camera' => [['id' => 'wide', 'frame' => 0, 'focus' => ['x' => 160, 'y' => 90], 'zoom' => 1]]],
+    'tracks' => [['id' => 'portrait', 'type' => 'image', 'asset' => 'test-sprite.png', 'anchor' => 'stage',
+      'placement' => ['position' => ['x' => 160, 'y' => 160], 'size' => ['width' => 32, 'height' => 48]],
+      'keyframes' => [['frame' => 0, 'duration' => 4]]]]];
+  $compiled = new \Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator($this->root)
+    ->compile('ordinary-stage', $source, forBattle: true);
+  $plan = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline(
+    new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, .5, .1, .1, .1, .1, .1), source: $compiled);
+  $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $hero, [],
+    BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $field = graphicalBattleScene($battle, $presentation)->ui->fieldWindow;
+  $field->setCommandPlayback($playback);
+  $tick = $plan->getCommandFrameForAuthoredFrame('source', 1);
+  $playback->update($tick / \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline::FPS);
+  $canvas = $presentation->frame($field);
+  expect($plan->summon)->toBeNull()
+    ->and(array_column($canvas->images, 'id'))->toContain('cinematic-stage-portrait')->not->toContain('arena')
+    ->and($playback->presentationFailure)->toBeNull();
+  $playback->cancel();
+  expect(array_column($presentation->frame($field)->images, 'id'))->toContain('arena');
+});
+
+it('retains current image geometry and draw order while state tones appear and disappear', function (bool $reduced) {
+  $root = createTestDirectory('state-tone-frame');
+  mkdir($root . '/graphical-canvas');
+  \Tests\Support\Rendering\writeTestPng($root . '/graphical-canvas/synthetic-320x180.png', 320, 180);
+  \Tests\Support\Rendering\writeTestPng($root . '/graphical-canvas/synthetic-143x181.png', 143, 181);
+  mkdir($root . '/Animations/shade', 0777, true);
+  file_put_contents($root . '/Animations/shade/shade.timeline.php', '<?php return ' . var_export([
+    'fps' => 10, 'lengthFrames' => 2, 'restFrame' => 1, 'playback' => 'loop', 'tracks' => [[
+      'id' => 'tone', 'type' => 'tone', 'anchor' => 'target', 'keyframes' => [
+        ['frame' => 0, 'payload' => ['brightness' => .7]], ['frame' => 1, 'payload' => ['brightness' => .15]],
+      ],
+    ]]], true) . ';');
+  ConfigStore::put(\Ichiloto\Engine\Util\Config\ProjectConfig::class, new PlaySettings([
+    'ui' => ['battle' => ['conditions' => ['states' => ['prepared' => 'shade']]]]]));
+  [$battle, $catalog, $hero] = graphicalBattleFixture();
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $root);
+  $base = $presentation->frame(reducedMotion: $reduced);
+  $before = graphicalCombatantImage($base, $hero);
+  $hero->addState(new \Ichiloto\Engine\Entities\States\State('prepared', 'Prepared', 'S'));
+  $frame = $presentation->frame(reducedMotion: $reduced);
+  $drawn = graphicalCombatantImage($frame, $hero);
+  expect($drawn->brightness)->toBe($reduced ? .15 : .7)
+    ->and($drawn->destination)->toEqual($before->destination)->and($drawn->sourceRect)->toEqual($before->sourceRect)
+    ->and($drawn->layer)->toBe($before->layer)
+    ->and(array_column($frame->images, 'id'))->toBe(array_column($base->images, 'id'))
+    ->and(count($frame->composites))->toBe(count($base->composites));
+  $limited = $presentation->frame(reducedMotion: $reduced, imageTones: false);
+  expect(graphicalCombatantImage($limited, $hero)->brightness)->toBe(1.0)->and($hero->hasState('prepared'))->toBeTrue();
+  $hero->removeState('prepared');
+  expect(graphicalCombatantImage($presentation->frame(), $hero)->brightness)->toBe(1.0);
+})->with([false, true]);
+
+it('projects one selected-group image through the actual battle frame at the recipients ground envelope', function (bool $reduced) {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $effect = new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($this->root)->compile('group-ground',
+    ['fps' => 24, 'lengthFrames' => 24, 'restFrame' => 0, 'tracks' => [[
+      'id' => 'plume', 'type' => 'image', 'asset' => 'test-sprite.png',
+      'anchor' => 'target-group', 'attachment' => 'ground', 'fit' => 'contain', 'span' => true,
+      'pivot' => ['x' => .5, 'y' => 1.0], 'keyframes' => [['frame' => 0, 'duration' => 24]],
+    ]]], true);
+  $plan = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline(
+    new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect);
+  $hits = 0;
+  $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $hero, $enemies,
+    BattlePoseRole::ATTACK, function () use (&$hits) { $hits++; }, static fn() => null);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $field = graphicalBattleScene($battle, $presentation)->ui->fieldWindow;
+  $field->setCommandPlayback($playback);
+  $playback->update($plan->phases['target']['start'] / 120);
+  $canvas = $presentation->frame($field, reducedMotion: $reduced);
+  $images = array_values(array_filter($canvas->images, static fn($image): bool => str_ends_with($image->id, 'target-group')));
+  $slots = array_map($presentation->getSlot(...), $enemies);
+  $x = array_column($slots, 'x'); $y = array_column($slots, 'y');
+  expect($images)->toHaveCount(1)
+    ->and($images[0]->destination->x + $images[0]->destination->width / 2)->toEqualWithDelta((min($x) + max($x)) / 2, 1e-6)
+    ->and($images[0]->destination->y + $images[0]->destination->height)->toEqualWithDelta(max($y), 1e-6)
+    ->and($playback->presentationFailure)->toBeNull()->and($hits)->toBe(0);
+  $playback->update(100);
+  expect($hits)->toBe(1)
+    ->and(array_filter($presentation->frame($field)->images, static fn($image): bool => str_ends_with($image->id, 'target-group')))->toBeEmpty();
+})->with([false, true]);

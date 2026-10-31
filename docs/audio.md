@@ -15,6 +15,9 @@ Scene themes live in the project config:
   'master_volume' => 70,
   'music' => true,
   'sfx' => true,
+  'music_volume' => 100,  // each bus's starting volume, 0 to 100
+  'sfx_volume' => 100,
+  'voice_volume' => 100,
   'bgm' => [
     'title' => 'title-theme',        // plays on the title screen
     'battle' => 'clash-of-steel',    // plays during battles
@@ -196,12 +199,23 @@ Games opt in per sound by declaring a track under `audio.sounds`:
     'enemy_collapse' => 'enemy-down',
     'item_get' => 'item-get',
     'shop' => 'coin',
+    'counter' => 'counter-tick-loop',
+    'exp_tally' => 'exp-tally-loop',
+  ],
+  // Optional: each sound's own volume, 0 to 100, under the master volume.
+  'sound_volumes' => [
+    'counter' => 35,
+    'exp_tally' => 30,
   ],
 ],
 ```
 
 Sounds without a configured track are silent. The available keys are the
-cases of `Ichiloto\Engine\Audio\Enumerations\SystemSound`.
+cases of `Ichiloto\Engine\Audio\Enumerations\SystemSound`. Every sound also
+reads `audio.sound_volumes.<key>` (default 100), which scales it under the
+master and Effects volumes (see [Volumes and buses](#volumes-and-buses)), so
+a dense sound can sit under the music without editing the file. The Editor's Configuration category offers both the track (chosen from
+the project's SFX folder) and the volume for every system sound.
 
 The engine fires these at its built-in interaction points: cursor movement,
 confirm and cancel across every menu surface (title, main menu, item, shop,
@@ -213,6 +227,55 @@ sound for defeated enemies), chest loot, and saving. An animation's authored
 frame sound takes precedence over its generic action-category cue, and summon
 timelines own their audiovisual presentation. Dialogue boxes deliberately stay
 silent when advancing text.
+
+### The counter tick
+
+`counter` is a looping sound for numbers that count on screen. Its track
+should be a seamless loop. It is shared through `$audioManager->counterSound`
+(`CounterSound`): a count calls `holdTick($owner, $kind)` on each frame its
+displayed value moves and `releaseTick($owner)` when the count finishes, is
+completed early, or its screen closes. However many counts run together, one
+loop plays, and it stops when the last holder releases it.
+
+Each count names its kind with `Ichiloto\Engine\Audio\Enumerations\CountKind`,
+and each kind loops its own system sound, so a game can give each kind of
+count its own loop:
+
+| Kind | System sound | Counts |
+| --- | --- | --- |
+| `CountKind::GENERAL` (the default) | `counter` | The Mastery SP total, gold, any other count |
+| `CountKind::EXPERIENCE` | `exp_tally` | Battle results EXP gauges and level fills |
+
+A kind whose sound the game binds no track to plays `counter` instead.
+`CounterSound` owns that fallback; a count never chooses a sound itself. A
+bound track that cannot play (a missing file, an unsupported format) stays
+silent with a warning in the log, rather than hiding behind the counter.
+
+One loop plays even when counts of different kinds overlap. The sounding count
+keeps it: the kind already playing goes on while any count of that kind still
+holds the tick. When the last count of that kind lets go and others still
+hold it, the loop changes to the kind of the earliest remaining holder. Kinds
+that resolve to the same sound (an EXP count in a game without an EXP tally,
+beside a general count) share one uninterrupted loop. A hold that is not renewed
+before the next audio update lapses there, so a screen torn down without a
+release, or a count frozen under a blocking modal, cannot leave the tick
+playing. Counts that do not animate (the terminal projection, reduced motion)
+show their final value and never hold the tick.
+
+Battle results hold it as an EXP count while their EXP gauges visibly count,
+level fills included (`BattleResultsPlayback::$isCounting`). The Mastery menu
+holds it as a general count while its drawn SP total moves on its graphical
+canvas: draining while Learn is held (`MasteryLearnHold::isDrainingAt()`) and
+counting down after a two-press learn (`MasteryPointsCount::isCountingAt()`),
+checked from the menu's own update and only on frames where
+`MenuCanvasState::$isMenuCanvasShown` and motion is not reduced. It releases it
+when the total stops, the hold is let go, the character changes or the menu
+closes. Battle results show gold at its final value, so gold holds nothing
+today; a gold count that animates would hold the tick as a general count. A
+new counting presentation adopts the same two calls with its own kind rather
+than playing or stopping the sound itself. A new kind of count adds a
+`CountKind` case and its `SystemSound`, which the Editor's Configuration then
+offers with its own track and volume rows.
 
 ## Direct playback (custom systems)
 
@@ -254,6 +317,16 @@ already installed on the host, detected once at startup.
 | `aplay`  | Linux                | wav                     | ALSA last resort                   |
 | `afplay` | macOS                | wav, mp3, m4a, aiff     | ships with macOS                   |
 
+On macOS, one-shot sounds play through `afplay`, while music and looping
+sounds prefer `mpv` or `ffplay` when installed. Every volume the engine
+computes (master volume times bus volume times a sound's own volume) is a
+linear gain, and each
+backend converts it to its player's own scale: `mpv` and `paplay` control
+volume cubically, so they receive the cube root of the gain. The same setting
+therefore plays at the same level through every player, and the authored
+balance between music, loops and one-shot sounds holds whichever players are
+installed.
+
 If none of these are installed — or a particular file's format is not supported
 by any installed player — every audio call degrades to a silent no-op (logged
 once to the debug log, never spammed) and the game remains fully playable.
@@ -282,6 +355,38 @@ assets/
       menu-select.wav   <- playSoundEffect('menu-select')
 ```
 
+## Volumes and buses
+
+Every sound plays on one bus (`Ichiloto\Engine\Audio\Enumerations\AudioBus`):
+**Music** (background music), **Effects** (sound effects, system sounds and
+their loops, the counter tick and EXP tally among them) or **Voice** (speech).
+A sound plays at
+
+```text
+master volume x bus volume x the sound's own volume
+```
+
+each from 0 to 100, so the player sets the balance between music, effects and
+voices without changing any sound's authored level. The bus volumes default to
+100, which plays a bus at the master volume unchanged.
+
+The player changes Master Volume, Music Volume, Sound Effects Volume and Voice
+Volume in Config and the title Options, beside the Music, Sound Effects and
+Voice switches. The game's `config.php` authors where each starts; the player's
+choices are kept in `.data/player-settings.json`, never in `config.php`. A
+player file saved before the bus volumes existed keeps its master volume and
+switches, and each bus starts at the game's authored volume. A bus volume the
+player has not moved follows the authored one when the game changes it. The
+Editor's Configuration offers each authored volume with its range.
+
+Changing a volume in either menu plays the cursor sound after the change, at
+the new level, so Sound Effects Volume and Master Volume are heard as chosen.
+A Music Volume change applies to the music already playing as a master volume
+change does (below), and a running loop restarts at its new level at once.
+`AudioManager::getBusGain()` reports a bus's master-times-bus gain,
+`getBusVolume()` its own volume and `isBusEnabled()` its switch. A sound whose
+gain is zero starts no player.
+
 ## Project settings
 
 The manager honours the same project config keys the title options menu edits,
@@ -289,13 +394,17 @@ and it honours them live — no restart required:
 
 | Key                   | Default | Effect                                        |
 |-----------------------|---------|-----------------------------------------------|
-| `audio.music`         | `false` | Toggling off stops BGM; on resumes the track. |
-| `audio.sfx`           | `false` | Gates sound effects only.                     |
-| `audio.voice`         | `true`  | Independent voice acting toggle in Config and title Options. |
+| `audio.music`         | `false` | Music switch: off stops BGM; on resumes the track. |
+| `audio.sfx`           | `false` | Effects switch: gates sound effects only.     |
+| `audio.voice`         | `true`  | Voice switch, independent of Effects, in Config and title Options. |
 | `audio.voice_music_duck` | `1.0` | Skit speech BGM multiplier, clamped to 0-1; 1 leaves music unchanged. |
-| `audio.master_volume` | `75`    | 0–100; changes restart BGM at the new volume. |
+| `audio.master_volume` | `75`    | 0 to 100, above every bus; changes restart BGM at the new volume. |
+| `audio.music_volume`  | `100`   | 0 to 100, the Music bus; changes restart BGM at the new volume. |
+| `audio.sfx_volume`    | `100`   | 0 to 100, the Effects bus; running loops follow it at once. |
+| `audio.voice_volume`  | `100`   | 0 to 100, the Voice bus; the next spoken line plays at it. |
 
-Note that music and SFX default to **off**, matching the title options menu;
+A volume that is not a number plays at its default, with one warning in the
+log. Music and SFX default to **off**, matching the title options menu;
 enable them in the game's project config to ship with sound on.
 
 ## Speech
@@ -310,7 +419,9 @@ Manager shutdown stops both channels. General speech references use the normal
 audio resolver with `Audio/Voice` as the conventional directory; skit basenames
 use the stricter directory contract in [skits.md](skits.md#runtime-contract).
 
-Speech respects its independent `audio.voice` gate and zero master volume.
+Speech respects its independent `audio.voice` gate and plays at the master
+volume times `audio.voice_volume`; a zero gain plays no line. A line already
+speaking keeps the level it started at.
 SFX mute no longer mutes voice acting. Muting Voice during playback stops the line on the next update or query;
 unmuting does not resume an interrupted line. Missing files, unsupported
 formats, spawn failures and unsuccessful process exits produce diagnostics;
@@ -342,3 +453,14 @@ such; for the rest the manager respawns the player when the track ends, from
 `update()` in the game loop. A track whose player dies repeatedly right after
 spawning is abandoned after three attempts so a broken file can never put the
 game loop into a respawn storm.
+
+Looping sound effects (`startSoundEffectLoop()`, `startSystemSoundLoop()`)
+return an owned `SoundEffectLoop` handle. The manager prefers a player that
+loops natively (`mpv`, `ffplay`); with only `afplay` it respawns the player
+each time the loop ends, which leaves a gap of up to one frame between passes.
+A loop sounds only while `audio.sfx` is on and its gain (master times Effects
+times its own volume) is above zero, follows a changed master or Effects
+volume at once, and resumes by itself when they come back. `stop()` on the handle ends the player
+at once; `shutdown()` stops every loop. A player that fails (a non-zero exit,
+or a native looper that ends on its own) leaves its loop silent instead of
+respawning it every frame.

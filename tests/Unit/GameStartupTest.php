@@ -72,8 +72,14 @@ final class StartupGameProbe extends Game
 final class StartupFieldProbe extends GameScene
 {
     public array $received = [];
+    public array $savedConfigurations = [];
     public function __construct(private Game $owner) {}
     public function configure(SceneConfigurationInterface $config): void { $this->received[] = $config; }
+    public function configureSavedGame(GameConfig $config): void
+    {
+        $this->savedConfigurations[] = $config;
+        $this->configure($config);
+    }
     public function getGame(): Game { return $this->owner; }
     public function createSnapshot(int $playTimeSeconds = 0): GameConfig { return $this->received[array_key_last($this->received)]; }
     public function configureOccupancy(GameConfig $config, array $npcs): void
@@ -166,11 +172,12 @@ beforeEach(function () {
     chdir($this->root);
     $this->statics = [];
     foreach ([ConfigStore::class, GameLoader::class, SceneManager::class, MapManager::class, QuestManager::class,
-        Time::class, AchievementManager::class, Debug::class] as $class) {
+        Time::class, AchievementManager::class, Debug::class, SaveManager::class] as $class) {
         $this->statics[$class] = new ReflectionClass($class)->getStaticProperties();
     }
     new ReflectionProperty(QuestManager::class, 'current')->setValue(null, null);
     new ReflectionProperty(MapManager::class, 'instance')->setValue(null, null);
+    new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, null);
     $this->manager = new StartupScenesProbe();
     $this->game = new StartupGameProbe($this->manager);
     new ReflectionProperty(SceneManager::class, 'game')->setValue($this->manager, $this->game);
@@ -668,4 +675,83 @@ it('does not leave the current scene when new-game data is invalid', function ()
         ->and($this->manager->loads)->toBe([])
         ->and($this->manager->currentScene)->toBe($current)
         ->and($current->received)->toBe([]);
+});
+
+function writeLaunchCheckpoint(string $root, GameConfig $config, bool $legacy = false, string $project = 'fixture.launch'): string
+{
+    file_put_contents($root . '/ichiloto.json', json_encode(['id' => 'fixture.launch']));
+    file_put_contents($root . '/assets/Data/save-compatibility.php', '<?php return ["contentVersion" => 0];');
+    $path = $root . '/checkpoint.iedata';
+    $slot = new \Ichiloto\Engine\IO\Saves\SaveSlot(3, $path, false, 'Fixture', 'Existing leader', 7, 532, 1234);
+    $payload = $legacy ? ['slot' => $slot, 'config' => $config]
+        : new \Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityPipeline(
+            SaveCompatibilityManifest::fromArray($project, ['contentVersion' => 0]))->createEnvelope($slot, $config);
+    file_put_contents($path, 'IED1' . gzencode(serialize($payload)));
+    return $path;
+}
+
+it('imports and resumes a selected checkpoint through saved-game startup in fresh isolated storage', function (bool $legacy) {
+    writeLaunchMap($this->root);
+    $config = $this->loader->loadNewGame(new GameStartLocation('region/field', 0, 1));
+    $snapshot = $config->getSaveCompatibilityData();
+    $snapshot['events'] = ['checkpoint-story-complete'];
+    $snapshot['playTimeSeconds'] = 532;
+    $config->applySaveCompatibilityData($snapshot);
+    $source = writeLaunchCheckpoint($this->root, $config, $legacy);
+    $bytes = file_get_contents($source);
+    $data = realpath(createTestDirectory('launch-checkpoint-'));
+    file_put_contents($data . '/player-settings.json', '{"audio":{"music":false,"sfx":false,"voice":false,"master_volume":0}}');
+    $context = GameLaunchContext::fromArray(['checkpoint' => $source, 'dataRoot' => $data]);
+    $this->game->beginLaunch($context);
+    $received = $this->manager->field->savedConfigurations[0];
+    expect($this->manager->loads)->toBe([GameScene::class])
+        ->and($received->events)->toBe($config->events)
+        ->and($received->playTimeSeconds)->toBe(532)
+        ->and(serialize($received->party))->toBe(serialize($config->party))
+        ->and($received->mapId)->toBe('region/field')
+        ->and(file_get_contents($source))->toBe($bytes)
+        ->and(file_get_contents($data . '/saves/file-01.iedata'))->toBe($bytes)
+        ->and(file_get_contents($this->root . '/.data/normal-save.iedata'))->toBe('untouched save sentinel')
+        ->and(file_get_contents($data . '/player-settings.json'))->toContain('"music":false')
+        ->and(new ReflectionProperty(Game::class, 'pendingLaunchCheckpoint')->getValue($this->game))->toBeNull();
+    // The import does not relax the fresh-root guard for a later process.
+    expect(fn() => LaunchDataRoot::validate($data, $this->root))->toThrow(InvalidArgumentException::class);
+    $this->game->beginAt(GameStartupMode::NEW_GAME);
+    expect($this->manager->field->savedConfigurations)->toHaveCount(1)
+        ->and($this->manager->field->received)->toHaveCount(2);
+})->with([false, true]);
+
+it('rejects invalid or foreign checkpoint data before any scene or isolated save is created', function (string $kind, string $exception) {
+    writeLaunchMap($this->root);
+    $config = $this->loader->loadNewGame(new GameStartLocation('region/field', 0, 1));
+    $source = writeLaunchCheckpoint($this->root, $config, project: $kind === 'foreign' ? 'another.project' : 'fixture.launch');
+    if ($kind === 'corrupt') { file_put_contents($source, 'IED1invalid-gzip'); }
+    if ($kind === 'symlink') { symlink($source, $source . '.link'); $source .= '.link'; }
+    $bytes = file_get_contents($source);
+    $data = realpath(createTestDirectory('launch-checkpoint-rejected-'));
+    expect(fn() => $this->game->beginLaunch(new GameLaunchContext(dataRoot: $data, checkpoint: $source)))
+        ->toThrow($exception);
+    expect($this->manager->loads)->toBe([])
+        ->and(is_dir($data . '/saves'))->toBeFalse()
+        ->and(file_get_contents($source))->toBe($bytes)
+        ->and(new ReflectionProperty(Game::class, 'pendingLaunchContext')->getValue($this->game))->toBeNull()
+        ->and(new ReflectionProperty(Game::class, 'pendingLaunchCheckpoint')->getValue($this->game))->toBeNull();
+})->with([
+    ['foreign', \Ichiloto\Engine\Exceptions\WrongProjectSaveException::class],
+    ['corrupt', \Ichiloto\Engine\Exceptions\CorruptSaveException::class],
+    ['symlink', InvalidArgumentException::class],
+]);
+
+it('requires isolated storage and exclusive intent for checkpoint launch', function () {
+    foreach ([['checkpoint' => '/checkpoint.iedata'], ['checkpoint' => '/checkpoint.iedata', 'dataRoot' => '/data', 'mode' => 'new-game'],
+        ['checkpoint' => '/checkpoint.iedata', 'dataRoot' => '/data', 'mode' => 'title'],
+        ['checkpoint' => '/checkpoint.iedata', 'dataRoot' => '/data', 'battleTest' => []],
+        ['checkpoint' => 3, 'dataRoot' => '/data']] as $input) {
+        expect(fn() => GameLaunchContext::fromArray($input))->toThrow(InvalidArgumentException::class);
+    }
+    $context = new GameLaunchContext(dataRoot: '/data', checkpoint: '/checkpoint.iedata');
+    expect(fn() => $context->validateOptions([], GameStartupMode::TITLE))->toThrow(InvalidArgumentException::class)
+        ->and(fn() => $context->validateOptions(['starting_scene' => 0], null))->toThrow(InvalidArgumentException::class);
+    $ordinary = new SaveManager($this->game, compatibilityManifest: SaveCompatibilityManifest::fromArray('fixture.launch', ['contentVersion' => 0]));
+    expect(fn() => $ordinary->importIsolatedCheckpoint('/checkpoint.iedata'))->toThrow(InvalidArgumentException::class);
 });

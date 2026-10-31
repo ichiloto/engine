@@ -11,6 +11,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Presentation\CreditsContent;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
+use Ichiloto\Engine\UI\Presentation\PresentationDeliveryReceipt;
 
 /**
  * Represents the modal manager.
@@ -27,8 +28,10 @@ class ModalManager implements CanUpdate, CanRender
    * @var Stack<ModalInterface> $modals The stack of modals.
    */
   protected Stack $modals;
-  /** @var list<array{message: string, title: string}> */
+  /** @var list<array{message: string, title: string, notice?: NoticeContent, owner?: object, delivery?: PresentationDeliveryReceipt}> */
   protected array $pendingAlerts = [];
+  /** Ownership remains pending while a deferred notice is on screen. */
+  private ?object $activeNoticeOwner = null;
   /**
    * @var ModalInterface|null $currentModal The current modal.
    */
@@ -78,21 +81,79 @@ class ModalManager implements CanUpdate, CanRender
     $this->pendingAlerts[] = ['message' => $message, 'title' => $title];
   }
 
+  /** A toast may transfer its receipt here when its complete text needs acknowledgement. */
+  public function queueTrackedAlert(string $message, string $title = '', ?PresentationDeliveryReceipt $delivery = null): PresentationDeliveryReceipt
+  {
+    $delivery ??= new PresentationDeliveryReceipt();
+    if (!$delivery->isTerminal) {
+      $delivery->retryDelivery();
+      $this->pendingAlerts[] = ['message' => $message, 'title' => $title, 'delivery' => $delivery];
+    }
+    return $delivery;
+  }
+
+  public function cancelDelivery(PresentationDeliveryReceipt $delivery): void
+  {
+    $delivery->cancel();
+    $this->pendingAlerts = array_values(array_filter($this->pendingAlerts,
+      static fn(array $entry): bool => ($entry['delivery'] ?? null) !== $delivery));
+  }
+
+  /** Notices and alerts preserve one producer order and never re-enter scene input. */
+  public function queueNotice(NoticeContent $notice, ?object $owner = null): void
+  {
+    $this->pendingAlerts[] = ['message' => $notice->message, 'title' => $notice->title, 'notice' => $notice,
+      ...($owner === null ? [] : ['owner' => $owner])];
+  }
+
+  /** Releases one scene's queued notices while preserving other producers. */
+  public function cancelNotices(object $owner): void
+  {
+    $this->pendingAlerts = array_values(array_filter($this->pendingAlerts,
+      static fn(array $entry): bool => ($entry['owner'] ?? null) !== $owner));
+  }
+
+  public function hasPendingNotices(object $owner): bool
+  {
+    return $this->activeNoticeOwner === $owner
+      || array_any($this->pendingAlerts, static fn(array $entry): bool => ($entry['owner'] ?? null) === $owner);
+  }
+
   /** Called only at a normal frame boundary, never from the blocked-frame pump. */
   public function processPendingAlerts(): void
   {
     if ($this->currentModal !== null || $this->pendingAlerts === []) { return; }
     $alert = array_shift($this->pendingAlerts);
-    try { $this->showPendingAlert($alert['message'], $alert['title']); }
+    $delivery = $alert['delivery'] ?? null;
+    if ($delivery !== null && !$delivery->beginDelivery()) { return; }
+    $this->activeNoticeOwner = $alert['owner'] ?? null;
+    try {
+      if (isset($alert['notice'])) { $this->showPendingNotice($alert['notice']); }
+      else { $this->showPendingAlert($alert['message'], $alert['title']); }
+      if ($delivery !== null) {
+        if ($this->game->hasStopped()) { $delivery->cancel(); }
+        else { $delivery->completeDelivery(); }
+      }
+    }
     catch (\Throwable $error) {
-      array_unshift($this->pendingAlerts, $alert);
+      $delivery?->retryDelivery();
+      if ($delivery === null || !$delivery->isTerminal) { array_unshift($this->pendingAlerts, $alert); }
       throw $error;
     }
+    finally { $this->activeNoticeOwner = null; }
   }
 
   protected function showPendingAlert(string $message, string $title): void
   {
     $modal = new PagedAlertModal($this->game, $message, $title);
+    $this->modals->push($modal);
+    try { $modal->open(); }
+    finally { $this->modals->pop(); }
+  }
+
+  protected function showPendingNotice(NoticeContent $notice): void
+  {
+    $modal = new NoticeModal($this->game, $notice);
     $this->modals->push($modal);
     try { $modal->open(); }
     finally { $this->modals->pop(); }
@@ -159,11 +220,14 @@ class ModalManager implements CanUpdate, CanRender
    * @param string $message The message to display.
    * @param string $title The title of the alert.
    * @param int $width The width of the alert.
+   * @param string $confirmLabel The confirming button's label, such as "Yes".
+   * @param string $cancelLabel The declining button's label, such as "No".
    * @return bool The result of the confirmation.
    */
-  public function confirm(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): bool
+  public function confirm(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH,
+    string $confirmLabel = 'OK', string $cancelLabel = 'Cancel'): bool
   {
-    $this->modals->push(new ConfirmModal($this->game, $message, $title, $width));
+    $this->modals->push(new ConfirmModal($this->game, $message, $title, $width, $confirmLabel, $cancelLabel));
     $result = $this->modals->peek()->open();
     $this->modals->pop();
 

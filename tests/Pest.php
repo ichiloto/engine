@@ -12,6 +12,8 @@ use Ichiloto\Engine\UI\UIManager;
 use Tests\Support\PassiveGame;
 
 require_once __DIR__ . '/Support/PassiveGame.php';
+require_once __DIR__ . '/Support/BattleStageFixtures.php';
+require_once __DIR__ . '/Support/AudioTestDoubles.php';
 
 /*
 |--------------------------------------------------------------------------
@@ -340,7 +342,8 @@ class RecordingAudioManager extends AudioManager
     $this->bgmPath = null;
   }
 
-  public function playSoundEffect(string $path): void
+  /** One-shot sounds and system sounds both arrive here, by their track. */
+  protected function playSoundEffectAtVolume(string $path, float $volume): void
   {
     $this->calls[] = ['playSoundEffect', $path];
   }

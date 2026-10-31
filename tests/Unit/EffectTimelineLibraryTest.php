@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Animations\Timelines\EffectFacingTarget;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineCompiler;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
@@ -286,3 +287,22 @@ it('refuses unsupported or gameplay-owning field cues rather than silently dropp
   expect(fn() => $this->effects->compile('field', $data))
     ->toThrow(InvalidArgumentException::class, 'field presentation cue');
 })->with(['impact' => 'applyEffect', 'message' => 'showMessage', 'flash' => 'flash', 'shake' => 'shake']);
+
+it('carries what a directional battle track turns toward and refuses it without a facing', function () {
+  $this->imageSequence['tracks'][0] += ['facing' => 'west', 'toward' => 'opponents', 'anchor' => 'target'];
+  $image = $this->effects->compile('ward', $this->imageSequence, true);
+  expect($image->playbackSegments[0]['drawCommands'][0]['payload'])->toMatchArray(['facing' => 'west', 'toward' => 'opponents']);
+  $this->terminalSequence['tracks'][0] += ['facing' => 'west', 'toward' => 'opponents'];
+  $glyph = $this->effects->compile('ward', $this->terminalSequence, true, EffectPresentation::TERMINAL);
+  expect($glyph->playbackSegments[0]['drawCommands'][0]['payload'])->toMatchArray(['facing' => 'west', 'toward' => 'opponents'])
+    ->and(EffectFacingTarget::cases())->toHaveCount(2);
+  foreach (['enemies', '', null, 1] as $toward) {
+    $bad = $this->imageSequence;
+    $bad['tracks'][0]['toward'] = $toward;
+    expect(fn() => $this->effects->compile('bad-toward', $bad, true))->toThrow(InvalidArgumentException::class);
+  }
+  $bad = $this->imageSequence;
+  unset($bad['tracks'][0]['facing']);
+  expect(fn() => $this->effects->compile('undirected-toward', $bad, true))->toThrow(InvalidArgumentException::class, 'facing')
+    ->and(fn() => $this->effects->compile('field-toward', $this->imageSequence))->toThrow(InvalidArgumentException::class);
+});

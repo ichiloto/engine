@@ -1,6 +1,6 @@
 <?php
 
-it('previews a different skit background while preserving non-actor speaker bindings', function () {
+it('previews a different skit backdrop over the snapshot\'s while preserving non-actor speaker bindings', function () {
     $directory = sys_get_temp_dir() . '/dialogue-preview-' . bin2hex(random_bytes(6));
     mkdir($directory . '/Data/Presentation', 0777, true);
     $chunk = static fn($type, $data) => pack('N', strlen($data)) . $type . $data . pack('N', crc32($type . $data));
@@ -12,13 +12,12 @@ it('previews a different skit background while preserving non-actor speaker bind
         'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1'],
         'resources' => ['innkeeper-art' => ['portrait' => 'speaker.png', 'bust' => 'speaker.png']],
         'speakers' => ['Innkeeper' => 'innkeeper-art'],
-        'skits' => ['sample' => ['background' => 'background.png']],
     ], true) . ';';
     file_put_contents($cataloguePath, $catalogue);
     $snapshot = $directory . '/snapshot.json';
     file_put_contents($snapshot, json_encode([
         'speaker' => 'Innkeeper', 'text' => 'Welcome.', 'actorId' => 'innkeeper-art',
-        'skitId' => 'sample', 'participants' => [
+        'skitId' => 'sample', 'backdrop' => 'background.png', 'participants' => [
             ['actorId' => 'innkeeper-art', 'name' => 'Innkeeper', 'emotion' => 'Neutral'],
         ],
     ], JSON_THROW_ON_ERROR));

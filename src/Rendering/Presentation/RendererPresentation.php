@@ -36,6 +36,9 @@ final class RendererPresentation
 
   public function hasPendingUpload(): bool { return $this->retained->hasPendingUpload(); }
 
+  /** The world of the newest frame the renderer has shown. */
+  public ?PresentationWorld $presentedWorld { get => $this->retained->presentedWorld; }
+
   public function acknowledge(int $generation, bool $presented): void { $this->retained->acknowledge($generation, $presented); }
 
   public function captureFrame(): RetainedFrame { return $this->retained->captureFrame(); }
@@ -170,6 +173,12 @@ final class RendererPresentation
     if ($canvas->composites !== [] && !$this->client->supports(RendererSessionConfig::CANVAS_COMPOSITING)) {
       throw new RendererProtocolException('Canvas raster operations require negotiated canvas_compositing support.');
     }
+    if (!$this->client->supports(RendererSessionConfig::CANVAS_IMAGE_ALPHA_FLIP)
+      && array_any($canvas->composites, static fn($composite): bool => array_any($composite->operations,
+        static fn($operation): bool => array_any($operation->data['masks'], static fn(array $mask): bool =>
+          ($mask['flipX'] ?? false) || ($mask['flipY'] ?? false))))) {
+      throw new RendererProtocolException('Mirrored image-alpha masks require negotiated canvas_image_alpha_flip support.');
+    }
     $compositeIds = array_fill_keys(array_column($canvas->composites, 'id'), true);
     $imageIds = array_fill_keys(array_column($canvas->images, 'id'), true);
     if (array_any($canvas->indicators, static fn($indicator) => !isset($imageIds[$indicator->imageId]) && isset($compositeIds[$indicator->imageId]))
@@ -185,6 +194,11 @@ final class RendererPresentation
         static fn($operation) => $operation->data['type'] === 'world' && isset($operation->data['source'])))
       && !$this->client->supports(RendererSessionConfig::MAP_OVERVIEW_VIEWPORT)) {
       throw new RendererProtocolException('World map source windows require negotiated map_overview_viewport support.');
+    }
+    if (array_any($canvas->composites, static fn($composite) => array_any($composite->operations,
+        static fn($operation) => isset($operation->data['dash'])))
+      && !$this->client->supports(RendererSessionConfig::CANVAS_STROKE_DASHES)) {
+      throw new RendererProtocolException('Dashed composite strokes require negotiated canvas_stroke_dashes support.');
     }
     if ($canvas->labels !== [] && (!$this->client->supports(RendererSessionConfig::CANVAS_LABELS)
       || !$this->client->supports(RendererSessionConfig::TEXT_LAYOUT))) {

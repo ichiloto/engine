@@ -31,6 +31,30 @@ final class InteractionReach
   }
 
   /**
+   * Finds every cell the player can talk to the NPC on a cell from: beside
+   * it, or across one counter cell, as {@see findTalkCell()} reaches it.
+   *
+   * @param Closure(int, int): bool $isCounterAt Whether a cell is a counter.
+   * @param Closure(int, int): bool $hasNpcAt Whether an NPC stands on a cell.
+   * @return list<array{int, int}>
+   */
+  public static function findTalkCells(int $npcX, int $npcY, Closure $isCounterAt, Closure $hasNpcAt): array
+  {
+    $cells = [];
+    foreach ([[0, -1], [1, 0], [0, 1], [-1, 0]] as [$dx, $dy]) {
+      for ($distance = 1; $distance <= self::MAX_COUNTER_CELLS + 1; $distance++) {
+        $x = $npcX + $dx * $distance;
+        $y = $npcY + $dy * $distance;
+        if (self::findTalkCell($x, $y, -$dx, -$dy, $isCounterAt, $hasNpcAt) === [$npcX, $npcY]) {
+          $cells[] = [$x, $y];
+        }
+      }
+    }
+
+    return $cells;
+  }
+
+  /**
    * Finds the cell of the NPC the player reaches from a cell, facing a
    * cardinal unit heading.
    *

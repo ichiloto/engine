@@ -9,6 +9,7 @@ use Ichiloto\Engine\Audio\Backends\FfplayBackend;
 use Ichiloto\Engine\Audio\Backends\Mpg123Backend;
 use Ichiloto\Engine\Audio\Backends\MpvBackend;
 use Ichiloto\Engine\Audio\Backends\PaplayBackend;
+use Ichiloto\Engine\Audio\Enumerations\AudioBus;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Audio\Interfaces\AudioBackendInterface;
 use Ichiloto\Engine\Core\Game;
@@ -28,10 +29,14 @@ use Throwable;
  * file or format cannot be handled, every call degrades to a silent no-op so
  * games remain fully playable without sound.
  *
- * The manager honours the project audio settings exposed in the title options
- * menu (`audio.music`, `audio.sfx` and `audio.master_volume`) live: toggling
- * music off stops the current track and toggling it back on resumes it. A
- * master volume change never restarts the track from the top: seek-capable
+ * Every sound plays on an {@see AudioBus} (Music, Effects or Voice) beneath
+ * the master volume: it plays at the master volume times its bus volume
+ * times its own authored volume. The manager honours the bus switches
+ * (`audio.music`, `audio.sfx`, `audio.voice`), the bus volumes
+ * (`audio.music_volume`, `audio.sfx_volume`, `audio.voice_volume`) and
+ * `audio.master_volume` live: toggling music off stops the current track and
+ * toggling it back on resumes it. A master or music volume change never
+ * restarts the track from the top: seek-capable
  * players (mpv, ffplay) are respawned at the current track position, and
  * players that cannot seek (afplay, aplay, paplay, mpg123) keep playing
  * untouched and pick up the new volume on their next natural respawn.
@@ -39,6 +44,13 @@ use Throwable;
  * Background music loops by default. Backends that cannot loop natively are
  * respawned by update() whenever the track ends, which is why update() must be
  * pumped from the game loop.
+ *
+ * Sound effects play once, or loop through an owned SoundEffectLoop handle
+ * (the counter tick is one, shared through CounterSound). A loop prefers a
+ * player that loops by itself (mpv, ffplay); on a player that cannot
+ * (afplay) update() respawns it each time it ends. Loops follow the Effects
+ * switch and the master and Effects volumes live, and end when their holder
+ * stops them or audio shuts down.
  *
  * Player processes never outlive the game: besides the explicit shutdown()
  * hook on the engine's quit path, the manager registers a shutdown function
@@ -51,23 +63,22 @@ use Throwable;
 class AudioManager implements CanUpdate
 {
   /**
-   * The project config path of the music toggle.
+   * The config path of the Voice bus switch ({@see AudioBus::VOICE}).
    */
-  protected const string CONFIG_MUSIC_ENABLED = 'audio.music';
-  /**
-   * The project config path of the sound effect toggle.
-   */
-  protected const string CONFIG_SFX_ENABLED = 'audio.sfx';
   public const string CONFIG_VOICE_ENABLED = 'audio.voice';
   public const string VOICE_DIRECTORY = 'Voice';
   /**
-   * The project config path of the master volume (0-100).
+   * The config path of the master volume (0-100), above every bus.
    */
-  protected const string CONFIG_MASTER_VOLUME = 'audio.master_volume';
+  public const string CONFIG_MASTER_VOLUME = 'audio.master_volume';
   /**
-   * The master volume assumed when the project config does not specify one.
+   * The master volume a game plays at when its config authors none.
    */
-  protected const int DEFAULT_MASTER_VOLUME = 75;
+  public const int DEFAULT_MASTER_VOLUME = 75;
+  /** The quietest volume a setting holds: silent. */
+  public const int MIN_VOLUME = 0;
+  /** The loudest volume a setting holds: the sound at its full level. */
+  public const int MAX_VOLUME = 100;
   /**
    * The maximum number of simultaneously playing sound effects. Requests
    * beyond the cap are dropped to avoid spawning a process storm.
@@ -124,7 +135,7 @@ class AudioManager implements CanUpdate
    *
    * @var AudioBackendInterface[]
    */
-  protected array $backends;
+  protected array $backends = [];
 
   /**
    * The handle of the running background music process, if any.
@@ -195,6 +206,31 @@ class AudioManager implements CanUpdate
   protected array $sfxPlaybacks = [];
 
   /**
+   * The held sound effect loops, keyed by handle object ID, each with its
+   * running player (null while silent), the volume that player was spawned
+   * with, and whether the loop failed and stays silent.
+   *
+   * @var array<int, array{loop: SoundEffectLoop, playback: ?AudioPlayback, volume: float, hasFailed: bool}>
+   */
+  protected array $sfxLoops = [];
+
+  /**
+   * The counter tick shared by every on-screen count.
+   *
+   * @var CounterSound
+   */
+  public CounterSound $counterSound {
+    get => $this->counter ??= new CounterSound($this);
+  }
+
+  /**
+   * The counter tick, created the first time it is used.
+   *
+   * @var CounterSound|null
+   */
+  private ?CounterSound $counter = null;
+
+  /**
    * The warning keys that have already been logged, to avoid log spam from
    * per-frame or repeated calls.
    *
@@ -251,7 +287,7 @@ class AudioManager implements CanUpdate
         $this->warnOnce("speech-format:$resolved", "No available audio player supports voice: $resolved");
         return null;
       }
-      $playback = $this->spawn($backend->buildCommand($resolved, $this->getMasterVolume(), false));
+      $playback = $this->spawn($backend->buildCommand($resolved, $this->getBusGain(AudioBus::VOICE), false));
       if ($playback === null) {
         $this->releaseSpeechDucking();
         $this->warnOnce("speech-spawn:$resolved", "Failed to start voice playback: $resolved");
@@ -311,7 +347,7 @@ class AudioManager implements CanUpdate
 
   protected function isSpeechEnabled(): bool
   {
-    return boolval($this->getProjectSetting(self::CONFIG_VOICE_ENABLED, true)) && $this->getMasterVolume() > 0.0;
+    return $this->isBusEnabled(AudioBus::VOICE) && $this->getBusGain(AudioBus::VOICE) > 0.0;
   }
 
   protected function getBackgroundMusicVolume(): float
@@ -326,7 +362,7 @@ class AudioManager implements CanUpdate
         $factor = 1.0;
       }
     }
-    return $this->getMasterVolume() * $factor;
+    return $this->getBusGain(AudioBus::MUSIC) * $factor;
   }
 
   /**
@@ -439,7 +475,7 @@ class AudioManager implements CanUpdate
     $this->bgmLoops = $loop;
     $this->bgmRapidFailureCount = 0;
 
-    if ($this->isMusicEnabled()) {
+    if ($this->isBusEnabled(AudioBus::MUSIC)) {
       $this->startBgmPlayback();
     }
   }
@@ -510,7 +546,22 @@ class AudioManager implements CanUpdate
    */
   public function playSoundEffect(string $path): void
   {
-    if (! $this->isSupported || ! $this->areSoundEffectsEnabled()) {
+    $this->playSoundEffectAtVolume($path, 1.0);
+  }
+
+  /**
+   * Plays a sound effect once on the Effects bus at its own volume, scaled by
+   * the master and Effects volumes.
+   *
+   * @param string $path The path of the sound effect.
+   * @param float $volume The sound's own volume between 0.0 and 1.0.
+   * @return void
+   */
+  protected function playSoundEffectAtVolume(string $path, float $volume): void
+  {
+    $gain = $this->getBusGain(AudioBus::EFFECTS) * $this->clampSoundVolume($volume);
+
+    if (! $this->isSupported || ! $this->isBusEnabled(AudioBus::EFFECTS) || $gain <= 0.0) {
       return;
     }
 
@@ -534,11 +585,165 @@ class AudioManager implements CanUpdate
       return;
     }
 
-    $playback = $this->spawn($backend->buildCommand($resolvedPath, $this->getMasterVolume(), false));
+    $playback = $this->spawn($backend->buildCommand($resolvedPath, $gain, false));
 
     if ($playback !== null) {
       $this->sfxPlaybacks[] = $playback;
     }
+  }
+
+  /**
+   * Starts looping the given sound effect until the returned handle is
+   * stopped.
+   *
+   * The path resolves as for playSoundEffect(). A player that loops by itself
+   * is preferred; otherwise update() respawns the player each time the track
+   * ends. The loop plays on the Effects bus: it sounds only while sound
+   * effects are enabled and its volume is above zero, follows the master and
+   * Effects volumes live, and resumes by itself when they come back.
+   *
+   * @param string $path The path of the looping sound effect.
+   * @param float $volume The loop's own volume between 0.0 and 1.0, scaled
+   *   by the master and Effects volumes.
+   * @return SoundEffectLoop|null The owned loop, or null when audio is
+   *   unsupported or the file cannot be found or played.
+   */
+  public function startSoundEffectLoop(string $path, float $volume = 1.0): ?SoundEffectLoop
+  {
+    if (! $this->isSupported) {
+      return null;
+    }
+
+    $resolvedPath = $this->resolveAudioPath($path, self::SFX_DIRECTORY);
+
+    if ($resolvedPath === null) {
+      $this->warnOnce("sfx-missing:$path", "Sound effect file not found: $path");
+      return null;
+    }
+
+    if ($this->selectBackend($resolvedPath, true) === null) {
+      $this->warnOnce("sfx-format:$resolvedPath", "No available audio player supports: $resolvedPath");
+      return null;
+    }
+
+    $loop = new SoundEffectLoop($this, $resolvedPath, $this->clampSoundVolume($volume));
+    $this->sfxLoops[spl_object_id($loop)] = ['loop' => $loop, 'playback' => null, 'volume' => 0.0, 'hasFailed' => false];
+    $this->updateSoundEffectLoop(spl_object_id($loop));
+
+    return $loop;
+  }
+
+  /**
+   * Starts looping one of the engine's system sounds at its authored volume.
+   *
+   * @param SystemSound $sound The system sound to loop.
+   * @return SoundEffectLoop|null The owned loop, or null when the project
+   *   configures no track for the sound or it cannot be played.
+   */
+  public function startSystemSoundLoop(SystemSound $sound): ?SoundEffectLoop
+  {
+    $track = $this->getSystemSoundTrack($sound);
+
+    return $track === null ? null : $this->startSoundEffectLoop($track, $this->getSystemSoundVolume($sound));
+  }
+
+  /**
+   * Whether the project binds a track to a system sound.
+   *
+   * @param SystemSound $sound The system sound.
+   * @return bool True when `audio.sounds.<sound>` names a track.
+   */
+  public function hasSystemSoundTrack(SystemSound $sound): bool
+  {
+    return $this->getSystemSoundTrack($sound) !== null;
+  }
+
+  /**
+   * Stops a sound effect loop and ends its player process. Safe to call more
+   * than once.
+   *
+   * @param SoundEffectLoop $loop The loop to stop.
+   * @return void
+   */
+  public function stopSoundEffectLoop(SoundEffectLoop $loop): void
+  {
+    $id = spl_object_id($loop);
+
+    if (($this->sfxLoops[$id]['loop'] ?? null) !== $loop) {
+      return;
+    }
+
+    $this->sfxLoops[$id]['playback']?->stop();
+    unset($this->sfxLoops[$id]);
+  }
+
+  /**
+   * Whether this manager still holds the given loop.
+   *
+   * @param SoundEffectLoop $loop The loop.
+   * @return bool True until the loop is stopped.
+   */
+  public function hasSoundEffectLoop(SoundEffectLoop $loop): bool
+  {
+    return ($this->sfxLoops[spl_object_id($loop)]['loop'] ?? null) === $loop;
+  }
+
+  /**
+   * Whether a player process is sounding the given loop right now.
+   *
+   * @param SoundEffectLoop $loop The loop.
+   * @return bool True while its player runs.
+   */
+  public function isSoundEffectLoopAudible(SoundEffectLoop $loop): bool
+  {
+    return $this->hasSoundEffectLoop($loop)
+      && ($this->sfxLoops[spl_object_id($loop)]['playback']?->isRunning ?? false);
+  }
+
+  /**
+   * Returns a system sound's authored volume.
+   *
+   * @param SystemSound $sound The system sound.
+   * @return float The volume between 0.0 and 1.0, before the master and
+   *   Effects volumes.
+   */
+  public function getSystemSoundVolume(SystemSound $sound): float
+  {
+    return $this->readVolumeSetting($sound->getVolumeConfigPath(), SystemSound::DEFAULT_VOLUME);
+  }
+
+  /**
+   * Returns a bus's volume, before the master volume.
+   *
+   * @param AudioBus $bus The bus.
+   * @return float The volume between 0.0 and 1.0.
+   */
+  public function getBusVolume(AudioBus $bus): float
+  {
+    return $this->readVolumeSetting($bus->getVolumeConfigPath(), AudioBus::DEFAULT_VOLUME);
+  }
+
+  /**
+   * Returns the gain a sound at its full authored volume plays at on a bus:
+   * the master volume times the bus volume.
+   *
+   * @param AudioBus $bus The bus.
+   * @return float The gain between 0.0 and 1.0.
+   */
+  public function getBusGain(AudioBus $bus): float
+  {
+    return $this->getMasterVolume() * $this->getBusVolume($bus);
+  }
+
+  /**
+   * Returns whether a bus's switch is on.
+   *
+   * @param AudioBus $bus The bus.
+   * @return bool True when the bus plays.
+   */
+  public function isBusEnabled(AudioBus $bus): bool
+  {
+    return boolval($this->getProjectSetting($bus->getEnabledConfigPath(), $bus->isEnabledByDefault()));
   }
 
   /**
@@ -553,13 +758,26 @@ class AudioManager implements CanUpdate
    */
   public function playSystemSound(SystemSound $sound): void
   {
-    $track = $this->getProjectSetting($sound->getConfigPath(), null);
+    $track = $this->getSystemSoundTrack($sound);
 
-    if (! is_string($track) || trim($track) === '') {
+    if ($track === null) {
       return;
     }
 
-    $this->playSoundEffect(trim($track));
+    $this->playSoundEffectAtVolume($track, $this->getSystemSoundVolume($sound));
+  }
+
+  /**
+   * Returns the track a project configures for a system sound.
+   *
+   * @param SystemSound $sound The system sound.
+   * @return string|null The track reference, or null when the sound is silent.
+   */
+  protected function getSystemSoundTrack(SystemSound $sound): ?string
+  {
+    $track = $this->getProjectSetting($sound->getConfigPath(), null);
+
+    return is_string($track) && trim($track) !== '' ? trim($track) : null;
   }
 
   /**
@@ -569,6 +787,8 @@ class AudioManager implements CanUpdate
   {
     $this->isSpeechPlaying();
     $this->reapFinishedSoundEffects();
+    $this->counterSound->update();
+    $this->updateSoundEffectLoops();
     $this->updateBackgroundMusic();
 
     if ($this->cinematicMusicSession?->updateFinalization(Time::getDeltaTime())) {
@@ -586,6 +806,11 @@ class AudioManager implements CanUpdate
     $this->speechSequence = null;
     $this->stopBackgroundMusic();
     $this->stopSpeech();
+    $this->counterSound->stopTick();
+
+    foreach ($this->sfxLoops as $entry) {
+      $entry['loop']->stop();
+    }
 
     foreach ($this->sfxPlaybacks as $playback) {
       $playback->stop();
@@ -692,7 +917,7 @@ class AudioManager implements CanUpdate
       return;
     }
 
-    if (! $this->isMusicEnabled()) {
+    if (! $this->isBusEnabled(AudioBus::MUSIC)) {
       // Music was disabled in the options. Keep the track pending so that
       // re-enabling music resumes it.
       $this->stopBgmPlayback();
@@ -703,7 +928,7 @@ class AudioManager implements CanUpdate
       $currentVolume = $this->getBackgroundMusicVolume();
 
       if (abs($currentVolume - $this->bgmVolume) > PHP_FLOAT_EPSILON) {
-        $this->applyMasterVolumeToBgm($currentVolume);
+        $this->applyVolumeToBackgroundMusic($currentVolume);
       }
 
       return;
@@ -739,7 +964,8 @@ class AudioManager implements CanUpdate
   }
 
   /**
-   * Applies a changed master volume to the running background music.
+   * Applies a changed master or music volume, or voice ducking, to the
+   * running background music.
    *
    * The player process volume is fixed at spawn time, so an immediate change
    * needs a respawn. Seek-capable players are respawned at the current track
@@ -748,10 +974,10 @@ class AudioManager implements CanUpdate
    * jarring — and simply pick up the new volume on their next natural respawn
    * (end-of-track loop or track change).
    *
-   * @param float $currentVolume The new normalized master volume.
+   * @param float $currentVolume The new normalized music gain.
    * @return void
    */
-  protected function applyMasterVolumeToBgm(float $currentVolume): void
+  protected function applyVolumeToBackgroundMusic(float $currentVolume): void
   {
     $backend = $this->bgmPath !== null
       ? $this->selectBackend($this->bgmPath, $this->bgmLoops)
@@ -762,7 +988,7 @@ class AudioManager implements CanUpdate
         $this->warnOnce('speech-duck-unavailable', 'Live voice ducking is unavailable on this audio backend; music is not restarted.');
       }
       // Acknowledge the change without restarting; the next spawn reads the
-      // master volume fresh.
+      // volumes fresh.
       $this->bgmVolume = $currentVolume;
       return;
     }
@@ -868,6 +1094,91 @@ class AudioManager implements CanUpdate
   {
     $this->bgmPlayback?->stop();
     $this->bgmPlayback = null;
+  }
+
+  /**
+   * Keeps every held sound effect loop in step with the settings.
+   *
+   * @return void
+   */
+  protected function updateSoundEffectLoops(): void
+  {
+    foreach (array_keys($this->sfxLoops) as $id) {
+      $this->updateSoundEffectLoop($id);
+    }
+  }
+
+  /**
+   * Keeps one loop sounding while sound effects are on and its gain (master
+   * times Effects times its own volume) is above zero, silent otherwise. A
+   * changed gain respawns the player; a
+   * player that cannot loop by itself is respawned when its track ends. A
+   * player that fails (a non-zero exit, or a native looper ending on its
+   * own) leaves the loop silent rather than respawning it every frame.
+   *
+   * @param int $id The loop's key in the loop list.
+   * @return void
+   */
+  protected function updateSoundEffectLoop(int $id): void
+  {
+    $entry = $this->sfxLoops[$id];
+    $loop = $entry['loop'];
+    $playback = $entry['playback'];
+    $volume = $this->getBusGain(AudioBus::EFFECTS) * $loop->volume;
+
+    if ($entry['hasFailed'] || ! $this->isBusEnabled(AudioBus::EFFECTS) || $volume <= 0.0) {
+      $playback?->stop();
+      $this->sfxLoops[$id]['playback'] = null;
+      return;
+    }
+
+    $backend = $this->selectBackend($loop->path, true);
+
+    if ($playback !== null) {
+      if ($playback->isRunning) {
+        if (abs($volume - $entry['volume']) <= PHP_FLOAT_EPSILON) {
+          return;
+        }
+        // A player's volume is fixed when it spawns; a short loop simply restarts.
+        $playback->stop();
+      } else {
+        $playback->stop();
+
+        if (($playback->exitCode ?? 0) !== 0 || $backend === null || $backend->supportsNativeLooping()) {
+          $this->warnOnce("sfx-loop-failed:$loop->path", "Looping sound effect stopped unexpectedly: $loop->path");
+          $this->sfxLoops[$id]['playback'] = null;
+          $this->sfxLoops[$id]['hasFailed'] = true;
+          return;
+        }
+      }
+    }
+
+    if ($backend === null) {
+      $this->sfxLoops[$id]['playback'] = null;
+      $this->sfxLoops[$id]['hasFailed'] = true;
+      return;
+    }
+
+    $playback = $this->spawn($backend->buildCommand($loop->path, $volume, $backend->supportsNativeLooping()));
+
+    if ($playback === null) {
+      $this->warnOnce("sfx-loop-spawn:$loop->path", "Failed to start the audio player for: $loop->path");
+    }
+
+    $this->sfxLoops[$id]['playback'] = $playback;
+    $this->sfxLoops[$id]['volume'] = $volume;
+    $this->sfxLoops[$id]['hasFailed'] = $playback === null;
+  }
+
+  /**
+   * Clamps a sound's own volume to the normalized range.
+   *
+   * @param float $volume The requested volume.
+   * @return float The volume between 0.0 and 1.0; 0.0 when not finite.
+   */
+  protected function clampSoundVolume(float $volume): float
+  {
+    return is_finite($volume) ? clamp($volume, 0.0, 1.0) : 0.0;
   }
 
   /**
@@ -981,35 +1292,35 @@ class AudioManager implements CanUpdate
   }
 
   /**
-   * Whether background music is enabled in the project settings.
-   *
-   * @return bool True when music is enabled.
-   */
-  protected function isMusicEnabled(): bool
-  {
-    return boolval($this->getProjectSetting(self::CONFIG_MUSIC_ENABLED, false));
-  }
-
-  /**
-   * Whether sound effects are enabled in the project settings.
-   *
-   * @return bool True when sound effects are enabled.
-   */
-  protected function areSoundEffectsEnabled(): bool
-  {
-    return boolval($this->getProjectSetting(self::CONFIG_SFX_ENABLED, false));
-  }
-
-  /**
    * Returns the normalized master volume.
    *
    * @return float The master volume between 0.0 and 1.0.
    */
-  protected function getMasterVolume(): float
+  public function getMasterVolume(): float
   {
-    $volume = intval($this->getProjectSetting(self::CONFIG_MASTER_VOLUME, self::DEFAULT_MASTER_VOLUME));
+    return $this->readVolumeSetting(self::CONFIG_MASTER_VOLUME, self::DEFAULT_MASTER_VOLUME);
+  }
 
-    return clamp($volume, 0, 100) / 100;
+  /**
+   * Reads a volume setting from 0 to 100 as a gain from 0.0 to 1.0: the
+   * master volume, a bus volume or a sound's own volume. A value that is not
+   * a finite number plays at the default, with one warning in the log.
+   *
+   * @param string $path The config path.
+   * @param int $default The volume when the setting is left out or unreadable.
+   * @return float The gain between 0.0 and 1.0.
+   */
+  protected function readVolumeSetting(string $path, int $default): float
+  {
+    $volume = $this->getProjectSetting($path, $default);
+
+    if (! is_int($volume) && ! is_float($volume) || ! is_finite((float)$volume)) {
+      $this->warnOnce("volume:$path", sprintf('%s must be a number from %d to %d; it plays at %d.',
+        $path, self::MIN_VOLUME, self::MAX_VOLUME, $default));
+      $volume = $default;
+    }
+
+    return (float)clamp((float)$volume, self::MIN_VOLUME, self::MAX_VOLUME) / self::MAX_VOLUME;
   }
 
   /**

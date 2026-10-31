@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Settings;
 
 use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Audio\Enumerations\AudioBus;
+use Ichiloto\Engine\Field\PlayerDash;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
@@ -28,10 +30,10 @@ use RuntimeException;
 class SettingsCatalog
 {
   /**
-   * The master volume bounds and granularity.
+   * The volume bounds and granularity, shared by the master and bus volumes.
    */
-  protected const int MIN_VOLUME = 0;
-  protected const int MAX_VOLUME = 100;
+  protected const int MIN_VOLUME = AudioManager::MIN_VOLUME;
+  protected const int MAX_VOLUME = AudioManager::MAX_VOLUME;
   protected const int VOLUME_STEP = 5;
 
   /**
@@ -44,11 +46,18 @@ class SettingsCatalog
     $settings = [
       new GameSetting(
         'volume',
-        'Volume',
+        'Master Volume',
         'Sets the master volume for music, sound effects and voice.',
         $this->buildVolumeChoices(),
         wraps: false,
       ),
+      ...array_map(fn(AudioBus $bus): GameSetting => new GameSetting(
+        $bus->getVolumeSettingKey(),
+        self::getBusVolumeLabel($bus),
+        self::getBusVolumeDescription($bus),
+        $this->buildVolumeChoices(),
+        wraps: false,
+      ), AudioBus::cases()),
       new GameSetting(
         'music',
         'Music',
@@ -57,7 +66,7 @@ class SettingsCatalog
       ),
       new GameSetting(
         'sfx',
-        'SFX',
+        'Sound Effects',
         'Turns sound effects on or off.',
         ['Off' => false, 'On' => true],
       ),
@@ -85,6 +94,12 @@ class SettingsCatalog
         'Advances dialogue after voice or reading time until switched off.',
         ['Off' => false, 'On' => true],
       ),
+      ...(PlayerDash::isAvailable() ? [new GameSetting(
+        'always_dash',
+        'Always Dash',
+        'Dash without holding Dash; hold Dash to walk.',
+        ['Off' => false, 'On' => true],
+      )] : []),
       new GameSetting(
         'cursor_memory',
         'Cursor Memory',
@@ -178,13 +193,15 @@ class SettingsCatalog
    */
   public function read(string $key): mixed
   {
+    if ($bus = self::findVolumeBus($key)) {
+      return $this->readVolume($bus->getVolumeConfigPath(), AudioBus::DEFAULT_VOLUME);
+    }
+    if ($bus = AudioBus::tryFrom($key)) {
+      return boolval(config(ProjectConfig::class, $bus->getEnabledConfigPath(), $bus->isEnabledByDefault()));
+    }
+
     return match ($key) {
-      'volume' => $this->snapVolumeToStep(
-        intval(config(ProjectConfig::class, 'audio.master_volume', 75))
-      ),
-      'music' => boolval(config(ProjectConfig::class, 'audio.music', false)),
-      'sfx' => boolval(config(ProjectConfig::class, 'audio.sfx', false)),
-      'voice' => boolval(config(ProjectConfig::class, AudioManager::CONFIG_VOICE_ENABLED, true)),
+      'volume' => $this->readVolume(AudioManager::CONFIG_MASTER_VOLUME, AudioManager::DEFAULT_MASTER_VOLUME),
       'dialogue_auto' => boolval(config(ProjectConfig::class, DialoguePlayback::CONFIG_AUTO, false)),
       'dialogue_speed' => config(
         ProjectConfig::class,
@@ -193,6 +210,7 @@ class SettingsCatalog
       ),
       'notification_duration' => Accessibility::notificationDurationScale(),
       'cursor_memory' => boolval(config(ProjectConfig::class, 'ui.cursor.memory', false)),
+      'always_dash' => boolval(config(ProjectConfig::class, PlayerDash::CONFIG_ALWAYS_DASH, false)),
       'battle_message_pace' => config(ProjectConfig::class, 'ui.battle.message_pace', 'slow'),
       'battle_animation_pace' => config(
         ProjectConfig::class,
@@ -221,17 +239,24 @@ class SettingsCatalog
   {
     $config = ConfigStore::get(ProjectConfig::class);
 
+    if ($bus = self::findVolumeBus($key)) {
+      $this->writePath($config, $bus->getVolumeConfigPath(), intval($value));
+      return;
+    }
+    if ($bus = AudioBus::tryFrom($key)) {
+      $this->writePath($config, $bus->getEnabledConfigPath(), boolval($value));
+      return;
+    }
+
     match ($key) {
-      'volume' => $this->writePath($config, 'audio.master_volume', intval($value)),
-      'music' => $this->writePath($config, 'audio.music', boolval($value)),
-      'sfx' => $this->writePath($config, 'audio.sfx', boolval($value)),
-      'voice' => $this->writePath($config, AudioManager::CONFIG_VOICE_ENABLED, boolval($value)),
+      'volume' => $this->writePath($config, AudioManager::CONFIG_MASTER_VOLUME, intval($value)),
       'dialogue_auto' => $this->writePath($config, DialoguePlayback::CONFIG_AUTO, boolval($value)),
       // Two paths, because dialogue speed was authored under both and a
       // project may read either.
       'dialogue_speed' => $this->writeBoth($config, ['ui.dialogue.speed', 'ui.dialogue.message.speed'], intval($value)),
       'notification_duration' => $this->writePath($config, 'accessibility.notificationDurationScale', max(0.1, floatval($value))),
       'cursor_memory' => $this->writePath($config, 'ui.cursor.memory', boolval($value)),
+      'always_dash' => $this->writePath($config, PlayerDash::CONFIG_ALWAYS_DASH, boolval($value)),
       'battle_message_pace' => $this->writePath($config, 'ui.battle.message_pace', strval($value)),
       'battle_animation_pace' => $this->writePath($config, 'ui.battle.animation_pace', strval($value)),
       'selection_color' => $this->writeBoth(
@@ -294,7 +319,62 @@ class SettingsCatalog
   }
 
   /**
-   * Builds the selectable master volume steps, labelled as percentages.
+   * Returns the bus whose volume a setting key names, or null.
+   *
+   * @param string $key The setting key.
+   * @return AudioBus|null The bus, e.g. Music for "music_volume".
+   */
+  private static function findVolumeBus(string $key): ?AudioBus
+  {
+    return array_find(AudioBus::cases(), static fn(AudioBus $bus): bool => $bus->getVolumeSettingKey() === $key);
+  }
+
+  /**
+   * Returns a bus volume's label in the Options and Config menus.
+   *
+   * @param AudioBus $bus The bus.
+   * @return string The label.
+   */
+  private static function getBusVolumeLabel(AudioBus $bus): string
+  {
+    return match ($bus) {
+      AudioBus::MUSIC => 'Music Volume',
+      AudioBus::EFFECTS => 'Sound Effects Volume',
+      AudioBus::VOICE => 'Voice Volume',
+    };
+  }
+
+  /**
+   * Returns a bus volume's description in the Options and Config menus.
+   *
+   * @param AudioBus $bus The bus.
+   * @return string The description.
+   */
+  private static function getBusVolumeDescription(AudioBus $bus): string
+  {
+    return match ($bus) {
+      AudioBus::MUSIC => 'Sets how loud the music plays.',
+      AudioBus::EFFECTS => 'Sets how loud sound effects play.',
+      AudioBus::VOICE => 'Sets how loud voices play.',
+    };
+  }
+
+  /**
+   * Reads a volume setting as its nearest selectable step.
+   *
+   * @param string $path The config path.
+   * @param int $default The volume when the setting is left out or not a number.
+   * @return int The selectable volume.
+   */
+  private function readVolume(string $path, int $default): int
+  {
+    $volume = config(ProjectConfig::class, $path, $default);
+
+    return $this->snapVolumeToStep(is_int($volume) || is_float($volume) && is_finite($volume) ? intval(round($volume)) : $default);
+  }
+
+  /**
+   * Builds the selectable volume steps, labelled as percentages.
    *
    * @return array<string, int> The volume choices keyed by display label.
    */

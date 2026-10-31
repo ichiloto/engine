@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field;
 
+use Ichiloto\Engine\Core\PackedGrid;
 use InvalidArgumentException;
 
 /** The ordered authored layers, shared by runtime and authoring tools. */
@@ -13,8 +14,8 @@ final readonly class MapLayerSet
     public array $layers;
     /** @var non-empty-list<MapLayer> */
     private array $gameplayLayers;
-    /** @var list<list<int>> Topmost gameplay owner, indexed into the sorted layers. */
-    public array $gameplayOwners;
+    /** Topmost gameplay owner of each cell, indexed into the sorted layers. */
+    private PackedGrid $owners;
     /** @var list<list<string>> */
     private array $composedGrid;
 
@@ -37,33 +38,38 @@ final readonly class MapLayerSet
         $this->layers = array_values($layers);
         $this->gameplayLayers = array_values(array_filter($layers, static fn(MapLayer $layer): bool => !$layer->decoration));
         if (!$legacy) {
-            $width = count($layers[0]->grid[0] ?? []);
-            if ($width === 0) {
+            if ($layers[0]->getRowLength(0) === 0) {
                 throw new InvalidArgumentException("Layer {$layers[0]->path} must not be empty.");
             }
             foreach ($layers as $layer) {
-                $this->assertMatchingGrid($layer->grid, "Layer {$layer->path}");
+                $this->assertMatchingLayer($layer);
             }
         }
-        $result = $owners = [];
+        $gameplay = [];
         foreach ($this->layers as $index => $layer) {
-            if ($layer->decoration) { continue; }
-            if ($result === []) {
-                $result = $layer->grid;
-                foreach ($result as $y => $row) { $owners[$y] = array_fill(0, count($row), $index); }
-                continue;
-            }
-            foreach ($layer->grid as $y => $row) {
-                foreach ($row as $x => $cell) {
-                    if ($layer->glyphs[$y][$x] !== ' ') {
-                        $result[$y][$x] = $cell;
-                        $owners[$y][$x] = $index;
+            if (!$layer->decoration) { $gameplay[$index] = $layer; }
+        }
+        $baseIndex = array_key_first($gameplay);
+        $base = $gameplay[$baseIndex];
+        $grid = $owners = [];
+        // Row by row, so no layer's whole grid is ever built to compose them.
+        for ($y = 0; $y < $base->height; $y++) {
+            $row = $base->getRowCells($y);
+            $owned = array_fill(0, count($row), $baseIndex);
+            foreach ($gameplay as $index => $layer) {
+                if ($index === $baseIndex) { continue; }
+                foreach ($layer->getRowGlyphs($y) as $x => $glyph) {
+                    if ($glyph !== ' ') {
+                        $row[$x] = $layer->getCellAt($x, $y);
+                        $owned[$x] = $index;
                     }
                 }
             }
+            $grid[] = $row;
+            $owners[] = $owned;
         }
-        $this->composedGrid = $result;
-        $this->gameplayOwners = $owners;
+        $this->composedGrid = $grid;
+        $this->owners = PackedGrid::fromRows($owners);
     }
 
     /** @return list<list<string>> */
@@ -73,22 +79,45 @@ final readonly class MapLayerSet
     }
 
 
+    /** @return list<list<int>> Each cell's topmost gameplay owner, indexed into the sorted layers, built for the caller. */
+    public function readGameplayOwners(): array
+    {
+        return $this->owners->readRows();
+    }
+
     public function getGameplayLayerAt(int $x, int $y): MapLayer
     {
-        $index = $this->gameplayOwners[$y][$x] ?? null;
+        $index = $this->owners->getValueAt($x, $y);
         return $index === null ? $this->gameplayLayers[0] : $this->layers[$index];
+    }
+
+    /** @return list<MapLayer> The topmost gameplay layer of each cell in a row, as {@see getGameplayLayerAt()} gives it; empty outside the map. */
+    public function getRowGameplayLayers(int $y): array
+    {
+        return array_map(fn(int $index): MapLayer => $this->layers[$index], $this->owners->getRowValues($y));
     }
 
     /** @param array<int, string[]> $grid */
     public function assertMatchingGrid(array $grid, string $context): void
     {
-        $base = $this->layers[0]->grid;
-        if (count($grid) !== count($base)) {
-            throw new InvalidArgumentException($context . ' must have ' . count($base) . ' rows.');
+        $this->assertMatchingRows(count($grid), static fn(int $y): int => count($grid[$y] ?? []), $context);
+    }
+
+    private function assertMatchingLayer(MapLayer $layer): void
+    {
+        $this->assertMatchingRows($layer->height, $layer->getRowLength(...), "Layer {$layer->path}");
+    }
+
+    /** @param \Closure(int): int $rowLength */
+    private function assertMatchingRows(int $height, \Closure $rowLength, string $context): void
+    {
+        $base = $this->layers[0];
+        if ($height !== $base->height) {
+            throw new InvalidArgumentException($context . ' must have ' . $base->height . ' rows.');
         }
-        foreach ($base as $rowIndex => $row) {
-            if (count($grid[$rowIndex] ?? []) !== count($row)) {
-                throw new InvalidArgumentException($context . " row {$rowIndex} must be " . count($row) . ' tiles wide.');
+        for ($y = 0; $y < $base->height; $y++) {
+            if ($rowLength($y) !== $base->getRowLength($y)) {
+                throw new InvalidArgumentException($context . " row {$y} must be " . $base->getRowLength($y) . ' tiles wide.');
             }
         }
     }

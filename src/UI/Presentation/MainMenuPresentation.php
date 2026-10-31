@@ -83,7 +83,7 @@ final class MainMenuPresentation
         $footer->width - 2 * $footerHorizontalPadding, $hintHeight));
     }
 
-    $members = $state->party->members->toArray();
+    $members = $state->party->participants->toArray();
     $cardPadding = $layout['cardPadding'];
     $heights = $layout['heights'];
     $pages = $layout['pagination'];
@@ -150,7 +150,7 @@ final class MainMenuPresentation
     $cardInsets = ($theme->frames['panel'] ?? null)?->borderInsets($theme->assetRoot,
       new CanvasRectangle(0, 0, self::PARTY_WIDTH, 140));
     $cardPadding = $cardInsets === null ? $verticalPadding : (int)ceil(max($verticalPadding, $cardInsets[1], $cardInsets[3]));
-    $members = $state->party->members->toArray();
+    $members = $state->party->participants->toArray();
     $heights = [];
     for ($index = 0; $index < max(4, count($members)); $index++) {
       $heights[] = self::recordHeight($members[$index] ?? null, $theme, $cardPadding);
@@ -202,6 +202,12 @@ final class MainMenuPresentation
     $view->rows($id . '-resources', $rows, self::getResourceLayout($theme,
       new CanvasRectangle($identityBox->x, $resourceY, $identityBox->width,
         $box->y + $box->height - $verticalPadding - $resourceY), $rows));
+    // Conditions sit beside the resources they affect.
+    $conditionsX = $identityBox->x + min(self::RESOURCE_WIDTH, $identityBox->width) + $m->sectionGap;
+    if ($conditionsX < $identityBox->x + $identityBox->width) {
+      MenuConditions::renderBadges($view, $id . '-conditions', $member, new CanvasRectangle($conditionsX, $resourceY,
+        $identityBox->x + $identityBox->width - $conditionsX, $box->y + $box->height - $verticalPadding - $resourceY));
+    }
   }
 
   private static function recordHeight(?Character $member, MenuPresentationCatalog $theme, int $verticalPadding): int
@@ -223,7 +229,7 @@ final class MainMenuPresentation
   {
     $stats = $member->effectiveStats;
     return [new MenuRow('role', 'Role', [new MenuRowValue($member->role->name)]),
-      new MenuRow('level', Vocabulary::getTerm('stats.level', 'Lv'), [new MenuRowValue((string)$member->level)]),
+      new MenuRow('level', Vocabulary::getTerm('stats.level_short'), [new MenuRowValue((string)$member->level)]),
       new MenuRow('hp', Vocabulary::getTerm('stats.hp', 'HP'), [new MenuRowValue($stats->currentHp . ' / ' . $stats->totalHp)]),
       new MenuRow('mp', Vocabulary::getTerm('stats.mp', 'MP'), [new MenuRowValue($stats->currentMp . ' / ' . $stats->totalMp)])];
   }

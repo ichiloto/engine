@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Assegai\Collections\Stack;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes\EquipmentMenuCommandSelectionMode;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes\EquipmentSelectionMode;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes\EquipmentSlotSelectionMode;
@@ -146,6 +147,8 @@ beforeEach(function () {
   $this->party->addMember($this->actor);
   $this->party->addMember($this->other);
   new ReflectionProperty($this->scene, 'party')->setValue($this->scene, $this->party);
+  // A game scene in play always holds its game state; the Equipment menu reads it for summon availability.
+  new ReflectionProperty($this->scene, 'gameState')->setValue($this->scene, new GameState());
   $this->equipped = new Weapon('Owner Staff', 'A complete current equipment description.', '/', 10,
     parameterChanges: new ParameterChanges(attack: 5), equipmentType: WeaponType::STAFF, id: 'weapon.current');
   $this->candidate = new Weapon('Other Staff', 'A different candidate.', '/', 10,
@@ -488,6 +491,18 @@ it('wraps complete long labels and follows the actual candidate index in a finit
   expect(implode('', characterMenuText($status)['status-name']))->toBe($this->actor->name);
 });
 
+it('keeps the graphical Status whole for any actor name, cutting a name only when no room is left', function () {
+  $theme = new MenuPresentationCatalog($this->root, characterMenuTheme(false));
+  $name = trim(str_repeat('Endless ', 40));
+  new ReflectionProperty($this->actor, 'name')->setValue($this->actor, $name);
+  $status = CharacterMenuPresentation::status($this->actor, $theme);
+  $shown = implode('', characterMenuText($status)['status-name']);
+  $ids = array_column($status->textLayers, 'id');
+  expect($shown)->toEndWith("\u{2026}")
+    ->and($name)->toStartWith(rtrim(mb_substr($shown, 0, -1)))
+    ->and($ids)->toContain('status-conditions-title', 'status-conditions-none');
+});
+
 it('uses optional state delegation and restores the same active menu after a modal frame', function () {
   characterMenuWriteTheme($this->root, characterMenuTheme(true));
   $this->runtime = characterMenuRuntime($this->root, MenuPresentationCatalog::CAPABILITIES);
@@ -578,7 +593,7 @@ it('retains terminal source data and full description while native overflow diag
   $status->character = $this->actor;
   $status->enter();
   $terminal = TerminalText::stripAnsi(implode("\n", Console::getBuffer()));
-  expect($terminal)->toContain('First Actor', 'Current EXP:', 'To Next Level:', 'Owner Staff', 'AP:');
+  expect($terminal)->toContain('First Actor', 'Current EXP', 'To Next Level', 'Owner Staff', 'AP');
 });
 
 it('omits an unconfigured portrait frame rather than substituting the panel artwork', function () {
@@ -705,7 +720,7 @@ it('refreshes both menu footers from live semantic rebindings without consuming 
     foreach (['equipment' => $this->state->canvas($theme),
       'status' => CharacterMenuPresentation::status($this->actor, $theme)] as $id => $canvas) {
       $hint = array_column($canvas->textLayers, null, 'id')[$id . '-hints'];
-      expect(implode('', array_column($hint->runs, 'text')))->toBe(' ' . ControlHint::keyboard($next)->label . ' : Next   Page Up : Prev   End : Back');
+      expect(implode('', array_column($hint->runs, 'text')))->toBe(ControlHint::keyboard($next)->label . ' NextPgUp PrevEnd Back');
     }
     expect(InputManager::getBindings())->toBe($effective)->and($source->keys)->toBe([KeyCode::TAB])
       ->and($this->state->currentMode())->toBe($mode)->and($this->state->character)->toBe($this->actor);
@@ -728,7 +743,7 @@ it('consults the shared display provider for each Equipment and Status redraw wi
     foreach (['equipment' => $this->state->canvas($theme),
       'status' => CharacterMenuPresentation::status($this->actor, $theme)] as $id => $frame) {
       $hint = array_column($frame->textLayers, null, 'id')[$id . '-hints'];
-      expect(implode('', array_column($hint->runs, 'text')))->toBe(" $family : Next   $family : Prev   $family : Back");
+      expect(implode('', array_column($hint->runs, 'text')))->toBe("$family Next$family Prev$family Back");
     }
     expect($this->state->currentMode())->toBe($mode)->and($this->state->character)->toBe($this->actor)
       ->and(InputManager::getBindings())->toBe($bindings)->and($source->keys)->toBe([KeyCode::TAB]);
@@ -744,7 +759,7 @@ it('shows the existing cycling aliases for missing or empty bindings without inv
   foreach (['equipment' => $this->state->canvas($theme),
     'status' => CharacterMenuPresentation::status($this->actor, $theme)] as $id => $canvas) {
     $hint = array_column($canvas->textLayers, null, 'id')[$id . '-hints'];
-    expect(implode('', array_column($hint->runs, 'text')))->toBe(' Tab : Next   Shift+Tab : Prev  Unbound: Back');
+    expect(implode('', array_column($hint->runs, 'text')))->toBe('Tab NextShift+Tab PrevUnbound Back');
   }
   foreach ([KeyCode::TAB, KeyCode::SHIFT_TAB] as $index => $key) {
     InputManager::setInputSource(new FakeInputSource($key));
@@ -774,7 +789,7 @@ it('reserves wrapped footer height separately from descriptions and body records
         fn($layer) => $layer->id === $id . '-info' || str_starts_with($layer->id, $id . '-info-')));
       $footerTop = min(array_map(fn($layer) => $layer->clipRect->y, $footer));
       expect($hint->grid->rows)->toBeGreaterThan(1)
-        ->and(implode('', array_column($hint->runs, 'text')))->toContain(' ' . $labels . ' : Next', ' ' . $labels . ' : Prev', ' ' . $labels . ' : Back')
+        ->and(implode('', array_column($hint->runs, 'text')))->toContain($labels . ' Next', $labels . ' Prev', $labels . ' Back')
         ->and($hint->y)->toBeGreaterThanOrEqual($footerTop + $theme->metrics->panelPadding)
         ->and($hint->y + $hint->grid->rows * $hint->grid->cellHeight)->toBeLessThanOrEqual(710 - $theme->metrics->panelPadding);
       foreach ($layers as $layer) {

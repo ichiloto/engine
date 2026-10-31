@@ -281,8 +281,10 @@ it('accepts an empty dialogue catalogue placeholder and displays the registered 
   $game = new VoiceTestGame();
   $skits = new VoiceTestSkits(new VoiceTestScene($game));
   $skits->runSkit(['speed'=>20, 'beats'=>[['actor'=>'hero','text'=>'Hello']]]);
+  // The placeholder itself is no problem; the only report is the skit's missing backdrop.
+  $warnings = array_values(array_filter(explode(PHP_EOL, (string) @file_get_contents($this->voiceTemp.'/warning.log'))));
   expect($skits->shown[0][0]['speaker'])->toBe('Current Name')
-    ->and(is_file($this->voiceTemp.'/warning.log'))->toBeFalse();
+    ->and($warnings)->toHaveCount(1)->and($warnings[0])->toContain('Skit sample on map', 'shows no backdrop');
 });
 
 it('keeps legacy skits and missing optional presentation playable and marks them seen', function () {
@@ -367,15 +369,15 @@ it('preserves authored help while appending live rebound Auto hints without dupl
   InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource(null, KeyCode::x, null));
   $modal = new VoiceTestTextBox($game, 'A line still typing.', help:'Remember the blue door.', playback:$flow);
   $modal->show();
-  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto off');
+  expect($modal->getHelp())->toBe('Remember the blue door. [x] Auto Off  [Enter]');
   InputManager::handleInput(); $modal->update();
-  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto off');
+  expect($modal->getHelp())->toBe('Remember the blue door. [x] Auto Off  [Enter]');
   InputManager::handleInput(); $modal->update();
-  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto on');
+  expect($modal->getHelp())->toBe('Remember the blue door. [x] Auto On  [Enter]');
   InputManager::handleInput(); $modal->update();
-  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto on');
+  expect($modal->getHelp())->toBe('Remember the blue door. [x] Auto On  [Enter]');
   $modal->updateContent();
-  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto on');
+  expect($modal->getHelp())->toBe('Remember the blue door. [x] Auto On  [Enter]');
   $modal->hide();
 });
 

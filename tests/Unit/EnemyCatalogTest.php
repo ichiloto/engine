@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Entities\Enemies\Enemy;
+use Ichiloto\Engine\Entities\Enemies\EnemyHabitat;
 use Ichiloto\Engine\Entities\Enemies\EnemyCatalog;
 use Ichiloto\Engine\Entities\Enemies\EnemyRecord;
 use Ichiloto\Engine\Entities\Enumerations\ActionConditionType;
@@ -70,7 +71,7 @@ function fullEnemyRecord(string $name = 'Blob'): array
       'maxHp' => 40, 'maxMp' => 6, 'attack' => 9, 'defence' => 4, 'magicAttack' => 3,
       'magicDefence' => 5, 'speed' => 7, 'grace' => 2, 'evasion' => 1,
     ],
-    'rewards' => ['experience' => 12, 'gold' => 30],
+    'rewards' => ['experience' => 12, 'gold' => 30, 'skillPoints' => 3],
     'actionPatterns' => [
       ['skill' => 'Nip', 'rating' => 5],
       ['skill' => 'Brace', 'rating' => 7, 'condition' => ['type' => 'HP', 'range' => [0, 50]]],
@@ -81,6 +82,8 @@ function fullEnemyRecord(string $name = 'Blob'): array
     'stateResistances' => ['poison' => 0.5],
     'elementAffinities' => ['Fire' => 2.0, 'Water' => -1.0],
     'knowledgeSubjectId' => 'creature.blob',
+    'attackSkill' => 'Nip',
+    'habitat' => 'water',
   ];
 }
 
@@ -125,6 +128,8 @@ it('builds an enemy from its record, resolving skills through the shared catalog
       ->and($blob->getElementMultiplier('fire'))->toBe(2.0)
       ->and($blob->stateResistances)->toBe(['poison' => 0.5])
       ->and($blob->knowledgeSubjectId)->toBe('creature.blob')
+      // Its inherent attack is the catalogue's skill too.
+      ->and($blob->attackSkill)->toBe($skills->findSkill('Nip'))
       ->and($catalog->getSourceFile('Blob'))->toBe('Enemies/blob.php');
   });
 });
@@ -134,11 +139,18 @@ it('writes back exactly the record it read', function () {
     $skills = SkillCatalog::load($assets);
     $minimal = fullEnemyRecord();
     unset($minimal['actionPatterns'], $minimal['position'], $minimal['battleAnimation'],
-      $minimal['stateResistances'], $minimal['elementAffinities'], $minimal['knowledgeSubjectId']);
+      $minimal['stateResistances'], $minimal['elementAffinities'], $minimal['knowledgeSubjectId'], $minimal['attackSkill'],
+      $minimal['habitat'], $minimal['rewards']['skillPoints']);
 
     foreach ([fullEnemyRecord(), $minimal] as $record) {
       expect(EnemyRecord::writeEnemy(EnemyRecord::readEnemy($record, $skills)))->toBe($record);
     }
+    // An enemy without a habitat lives on land, as every enemy stood before habitats.
+    // An enemy without Mastery points gives none, as every enemy did before them.
+    expect(EnemyRecord::readEnemy($minimal, $skills)->rewards->skillPoints)->toBe(0)
+      ->and(EnemyRecord::readEnemy(fullEnemyRecord(), $skills)->rewards->skillPoints)->toBe(3);
+    expect(EnemyRecord::readEnemy($minimal, $skills)->habitat)->toBe(EnemyHabitat::LAND)
+      ->and(EnemyRecord::readEnemy(fullEnemyRecord(), $skills)->habitat)->toBe(EnemyHabitat::WATER);
   });
 });
 
@@ -167,6 +179,13 @@ it('reports a broken record against its file and keeps the other enemies', funct
     array_replace(fullEnemyRecord('Broken'), ['actionPatterns' => [['skill' => 'Nip', 'rating' => 5, 'condition' => ['type' => 'Moon']]]]),
     'actionPatterns.0.condition.type "Moon"',
   ],
+  'unknown attack skill' => [
+    array_replace(fullEnemyRecord('Broken'), ['attackSkill' => 'Roar']),
+    'The enemy attackSkill "Roar" must reference a catalogued BasicSkill',
+  ],
+  'unknown habitat' => [array_replace(fullEnemyRecord('Broken'), ['habitat' => 'lava']), 'field "habitat" must be one of: land, water, air'],
+  'negative Mastery points' => [array_replace(fullEnemyRecord('Broken'), ['rewards' => ['experience' => 1, 'gold' => 1, 'skillPoints' => -2]]),
+    'rewards.skillPoints must be a whole number of 0 or more'],
   'missing sprite' => [array_replace(fullEnemyRecord('Broken'), ['imagePath' => 'ghost']), 'ghost'],
 ]);
 

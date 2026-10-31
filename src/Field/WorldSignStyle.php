@@ -9,6 +9,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Rendering\Presentation\Text\TextMeasurement;
@@ -29,7 +30,7 @@ final readonly class WorldSignStyle
     \Ichiloto\Engine\Rendering\Presentation\Text\ProjectTextCatalog::assertRoleId($fontRole);
     if (strlen($asset) > 4096 || min($left, $right) < 0 || max($left, $right) > CanvasValidation::MAX_EXTENT
       || !in_array($density, [1, 2], true) || $minimumWidth < 1 || $minimumWidth > $maximumWidth
-      || $maximumWidth > 8192 || $layer < -1 || $layer >= 1000
+      || $maximumWidth > 8192 || !PresentationLayerPolicy::isFieldWorldLayer($layer)
       || ($repeatWidth !== null && ($repeatWidth < 1 || $repeatWidth > CanvasValidation::MAX_EXTENT))
       || !array_is_list($padding) || count($padding) !== 4
       || array_any($padding, static fn($v) => !is_int($v) || $v < 0 || $v > 8192)

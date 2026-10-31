@@ -23,6 +23,7 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Skills\SkillEffectContext;
 use Ichiloto\Engine\Entities\Skills\SkillInvocation;
+use Ichiloto\Engine\Entities\Skills\SkillRecord;
 use Ichiloto\Engine\Entities\Skills\SkillResolutionScope;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Entities\Stats;
@@ -350,4 +351,82 @@ it('matches seeded live and simulator resolution at the typed action boundary', 
   expect($live->lastResult?->hits()[0]->actualHpLost)->toBe($simulated->hits()[0]->actualHpLost)
     ->and($live->lastResult?->hits()[0]->hitRoll)->toBe($simulated->hits()[0]->hitRoll)
     ->and($live->lastResult?->hits()[0]->criticalRoll)->toBe($simulated->hits()[0]->criticalRoll);
+});
+
+it('lets a physical skill carry an element through the target affinity', function () {
+  // A synthetic special skill read from record data as the Editor writes it: an element, no resolution override.
+  $skill = SkillRecord::readSkill([
+    'kind' => 'special',
+    'name' => 'Synthetic Edge',
+    'description' => 'A synthetic element-bearing physical strike.',
+    'icon' => '/',
+    'cost' => 0,
+    'cooldown' => 0,
+    'occasion' => 'Battle Screen',
+    'scope' => ['side' => 'Enemy', 'number' => 'One', 'status' => 'Alive'],
+    'invocation' => ['message' => '%2', 'speed' => 0, 'accuracy' => 0, 'repeat' => 1, 'apGain' => 0],
+    'effects' => [['type' => 'hp_damage', 'formula' => '$user->stats->attack * 2', 'variance' => 0.0, 'element' => 'Light']],
+  ]);
+  // Every roll lands on its highest value: no variance spread and no critical.
+  $random = new class implements CombatRandomSource {
+    public function nextInt(int $minimum, int $maximum): int
+    {
+      return $maximum;
+    }
+  };
+  $hits = [];
+
+  foreach (['neutral' => null, 'weak' => 2.0, 'resist' => 0.5] as $name => $multiplier) {
+    $actor = foundationBattler('Actor', new Stats(currentHp: 100, totalHp: 100, attack: 40, magicAttack: 0));
+    // Defence 60 mitigates a physical hit by 20%; with no Magic Defence a magical resolution would mitigate nothing.
+    $target = foundationBattler($name, new Stats(currentHp: 500, totalHp: 500, defence: 60, magicDefence: 0));
+    if ($multiplier !== null) {
+      $target->setElementAffinities(['Light' => $multiplier]);
+    }
+    $action = new SkillBattleAction($skill, random: $random);
+    $action->execute($actor, [$target]);
+    $hits[$name] = $action->lastResult?->hits()[0];
+  }
+
+  expect($skill)->toBeInstanceOf(SpecialSkill::class)
+    ->and(array_map(static fn($hit): ResolutionKind => $hit->kind, $hits))
+    ->toBe(array_fill_keys(['neutral', 'weak', 'resist'], ResolutionKind::PHYSICAL_DAMAGE))
+    ->and(array_map(static fn($hit): int => $hit->offensiveInput, $hits))->toBe(['neutral' => 40, 'weak' => 40, 'resist' => 40])
+    ->and(array_map(static fn($hit): int => $hit->defensiveInput, $hits))->toBe(['neutral' => 60, 'weak' => 60, 'resist' => 60])
+    ->and(array_map(static fn($hit): ?string => $hit->element, $hits))->toBe(['neutral' => 'Light', 'weak' => 'Light', 'resist' => 'Light'])
+    ->and($hits['neutral']->elementalOutcome)->toBe(ElementalOutcome::NORMAL)
+    ->and($hits['weak']->elementalOutcome)->toBe(ElementalOutcome::WEAK)
+    ->and($hits['resist']->elementalOutcome)->toBe(ElementalOutcome::RESIST)
+    ->and(array_map(static fn($hit): int => $hit->actualHpLost, $hits))->toBe(['neutral' => 64, 'weak' => 128, 'resist' => 32]);
+});
+
+
+it('supports authored protection piercing with true damage while preserving ordinary protection and encounter floors', function () {
+  $actor = foundationBattler('Actor', new Stats(currentHp: 100));
+  $target = foundationBattler('Target', new Stats(currentHp: 100, totalHp: 100, defence: 999, magicDefence: 999));
+  $target->beginGuarding();
+  $target->addState(\Ichiloto\Engine\Entities\States\State::fromArray(['id' => 'barrier', 'name' => 'Barrier', 'damageTakenRate' => 0]));
+  $effect = new HPDamageSkillEffect('$target->stats->currentHp', variance: 0, resolutionKind: ResolutionKind::TRUE_DAMAGE);
+  $context = new SkillEffectContext($actor, $target, random: sequenceRandom(100, 100, 100));
+  $effect->apply($context);
+  expect($target->stats->currentHp)->toBe(100);
+  $piercing = new HPDamageSkillEffect('$target->stats->currentHp', variance: 0, resolutionKind: ResolutionKind::TRUE_DAMAGE, ignoresProtection: true);
+  $piercing->apply(new SkillEffectContext($actor, $target, random: sequenceRandom(100, 100, 100)));
+  expect($target->stats->currentHp)->toBe(0);
+  $target->stats->currentHp = 100;
+  $target->setKnockoutFloorPercent(1);
+  $piercing->apply(new SkillEffectContext($actor, $target, random: sequenceRandom(100, 100, 100)));
+  expect($target->stats->currentHp)->toBe(1);
+});
+
+it('retains ordinary protection in historical damage effects and strictly reads the optional piercing flag', function () {
+  $effect = new HPDamageSkillEffect('5');
+  Closure::bind(function (): void { unset($this->ignoresProtection); }, $effect, HPDamageSkillEffect::class)();
+  expect(unserialize(serialize($effect))->ignoresProtection)->toBeFalse();
+  $skill = new SpecialSkill('Pierce', '', '', 0, 0, effects: [new HPDamageSkillEffect('5', ignoresProtection: true)]);
+  $data = SkillRecord::writeSkill($skill);
+  expect($data['effects'][0]['ignoresProtection'])->toBeTrue()
+    ->and(SkillRecord::readSkill($data)->effects[0]->ignoresProtection)->toBeTrue();
+  $data['effects'][0]['ignoresProtection'] = 'true';
+  expect(fn() => SkillRecord::readSkill($data))->toThrow(InvalidArgumentException::class);
 });

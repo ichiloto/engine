@@ -240,6 +240,16 @@ changes an existing staged visual while preserving the subject lease.
 For an unbound replacement, each omitted x/y, facing and collision field retains
 its current value; explicit zero coordinates and `collision => false` are overrides.
 
+An independent staged actor may instead wear a map NPC's look:
+`appearance => ['kind' => 'npc', 'id' => '...']` gives it that NPC's terminal glyph,
+directional glyphs, character sheet and heading, read from the NPC even while its
+conditions hide it from the field. It is the actor's whole look, so `sprite`,
+`sprites`, `sprites2d`, `asset` and `subject` are refused beside it; place it with
+`at => ['kind' => 'npc', 'id' => '...']` to stand where that NPC stands. This stages
+something the story has already removed, such as a barrier a cutaway shows cleared,
+with the art its map owns: one staged actor per NPC, none bound or suppressed, and
+no second registration of the same sheet in the cinematic.
+
 ### Map-Owned World Object Leases
 
 `subject => ['kind' => 'world_object', 'id' => 'instrument']` binds a temporary
@@ -357,10 +367,25 @@ offset. Independent staged actors use the same `at`/`offset` shape:
 `at` supports `player`, `npc`, `world_object`, `staged_actor`, `party_actor` and
 `marker` through `CinematicSubjectResolver`. Named subjects require their stable
 ID; the player and current leading party actor need no ID. The reference contains
-only `kind` and optional `id`. Offset axes are signed integer cells within
+only `kind`, optional `id` and, for a staged visual, optional `attachment`. Offset axes are signed integer cells within
 -16384..16384; omitted axes are zero. An explicit null or empty offset is invalid.
 Do not also declare independent x/y coordinates. Real-subject bound visuals
 still inherit their real transform and cannot declare `at` or an offset.
+
+An independent staged visual may sit on a feature of a world object's art
+instead: `at` adds `attachment`, the id of an attachment the object's
+resource declares (see Graphical Field). The terminal shows the visual on
+the attachment's cell; graphical art is centred on the attachment's point of
+the object's current artwork, so replaced art carries it along. It takes no
+offset and cannot move. A replacement staged without a new place keeps its
+attachment. Only staged visuals accept an attachment; route waypoints refuse
+one.
+
+```php
+['type' => 'stage_actor', 'id' => 'relay-pulse', 'sprite' => '*',
+ 'at' => ['kind' => 'world_object', 'id' => 'relay', 'attachment' => 'aerial'],
+ 'sprites2d' => ['asset' => 'Graphics/Effects/Pulse.png', 'layer' => 150]],
+```
 
 `CinematicRelativePosition` is the shared runtime/authoring boundary. It resolves
 the subject when staging begins or each route leg begins, reading its current
@@ -372,6 +397,34 @@ the command, preserving the event session's existing rollback/cleanup behavior.
 An already-started leg keeps its planned endpoint rather than chasing a moving
 target. Later legs read the subject's then-current position. Recorded returns
 retrace the actual successful path, with no new save state.
+
+#### End facing
+
+A walking character keeps the heading of its last step. A staged position says
+which way its character faces once it is there: `facing` names a cardinal
+(`north`, `east`, `south`, `west`), and `faceToward` names a map subject with the
+same `kind`/`id` reference as `at`. Any waypoint, absolute or relative, and any
+independent staged actor accepts one of the two, never both:
+
+```php
+['type' => 'move_route', 'subject' => 'player',
+ 'waypoints' => [['at' => ['kind' => 'world_object', 'id' => 'lamp-1'],
+                  'offset' => ['x' => -3, 'y' => 1],
+                  'faceToward' => ['kind' => 'world_object', 'id' => 'lamp-1']]]],
+['type' => 'stage_actor', 'id' => 'companion', 'sprite' => 'C',
+ 'at' => ['kind' => 'world_object', 'id' => 'lamp-1'], 'offset' => ['x' => 3, 'y' => 1],
+ 'faceToward' => ['kind' => 'world_object', 'id' => 'lamp-1']],
+```
+
+`CinematicFacing` is the shared runtime/authoring boundary. `faceToward` is
+resolved when the staging command or route leg begins, from the cell the
+character stands on there: it turns along the longer axis toward the subject's
+current cell, and an even split faces north or south. A character standing on
+its subject keeps its heading. A waypoint's facing is one turn after the leg's
+last step, also when the leg needs no step. Recorded returns retrace only steps
+and still restore the entry facing. Bound visuals inherit their real subject's
+heading and declare neither field; turn the real player or NPC with its route.
+Ordinary NPC scripts and map-event routes accept the same waypoint fields.
 
 ```php
 ['type' => 'move_route', 'subject' => 'player', 'remember' => 'approach',
@@ -418,6 +471,39 @@ Timed operations yield inside their lane, so camera, actor, dialogue, audio,
 and presentation work may overlap. Reduced-motion mode jumps each motion to
 the same final camera state. Completion, skip, transfer, and failure cannot
 leave ordinary play with a stranded detached camera.
+
+## Dialogue-safe camera framing
+
+Active field cinematics reserve the actual dialogue body, nameplate and portrait
+area through `DialoguePageGeometry`, shared with the drawing path. The scene
+fits the current conversation participants and visible staged actors into a clear
+horizontal band. Semantic speaker groups retain their existing source and real
+subject identities; ordinary room population remains map-owned.
+
+`DialogueCameraFraming` reads current graphical sprite pivots, lifts and size,
+including the previous ground position while a retained step slides. Terminal
+framing uses its own text-box footprint, sprite rows and display widths, including
+the player’s shape clipping. Graphical scale and
+artwork never determine Terminal geometry. Skits own their full presentation.
+
+The Camera owns a transient, signed projection origin for this frame. Empty
+space at map edges and small maps provides framing room without adding physical
+cells or moving actors. Terrain, glyphs, sprites and retained worlds use the same
+origin. Normal camera position and player-follow ownership remain intact;
+authored camera movement continues within the cast-safe range. Native follow
+smoothing stands down while this explicit framing owns the projected origin.
+
+Actual text-box show/hide, cooperative field rendering and viewport changes
+refresh framing. Closing the reading surface releases its projection; map
+installation, cinematic cleanup and shutdown also release it. An older owner's
+cleanup cannot clear a newer frame. No camera framing is saved as world progress.
+
+A cast too large for the available reading viewport reports a staging diagnostic
+through `GameScene::getDialogueFramingDiagnostic()`. Authors can correct the
+physical choreography or reading viewport through their existing sources.
+Framing does not hide participants, alter collision, relocate the dialogue box
+or silently reduce the project's field scale. Complete Game-scene previews and
+native acceptance remain separate from Engine geometry/lifecycle checks.
 
 ## Presentation and audio
 
@@ -530,6 +616,23 @@ Legacy `animation`/`id` records remain accepted with their exact consumer-owned
 `secondsPerFrame` (0.12 by default), including blank frames and the last frame's
 full hold. These compatibility records are not retired yet.
 
+An optional `follow => true` keeps a field effect on a selected live `player`,
+`party_actor`, `npc`, `world_object` or `staged_actor`. Its current world ground
+position and retained step motion drive the effect placement. The selected
+object, map/layer owner and cinematic generation are captured when the command
+starts; replacement, removal, hidden eligibility, transfer and cleanup end that
+binding before later cues. Fixed map/screen positions retain their existing
+snapshot behavior and reject `follow => true`. Party actor references resolve
+the current participating leader to the player, independently of permanent
+roster order. The effect never moves the subject or changes collision or saves.
+
+Artwork composition stays in the resource. An eye-flare pose can use an existing
+`stage_actor` subject binding and full-frame `FieldPoseAnimation`; the real actor
+owns position, facing and physical occupancy. Field effects own ground placement
+and their timeline's image extents/offsets. No actor-specific eye pixel is stored
+in the shared Engine. Editors consume `fieldAnimation` in the cinematic schema
+for the follow checkbox and its constrained subject choices.
+
 Each command owns one session. Parallel commands compose with one another and
 with map effects; completing or cancelling one removes only its effects.
 Finishing a timed narration/title clears only its own overlay, not a newer cue,
@@ -537,6 +640,14 @@ sibling effects or a
 transition cover. Explicit clear, failure, transfer and shutdown release owned
 sessions. Cinematic commands reject looping timelines, whose lifetime belongs
 to the map rather than a blocking command lane.
+
+`play_stage` is a registered field command for a standalone cue-free stage:
+`['type' => 'play_stage', 'stage' => 'transformation-dim', 'seconds' => 1.5]`.
+It uses the shared stage timeline/session and can run beside a field animation
+or sound lane. An explicit null stage background supports transparent overlays;
+the existing default remains opaque black. See
+[caller-owned stages](effect-animation.md#caller-owned-rest-stages-local-g4-foundation-october-7)
+for cover-only sources, Terminal timing and Editor authoring.
 
 Field timelines currently present glyph/text/image tracks and `playSound` cues.
 Terminal and graphical sequences may have independent timing, selected before

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Util\Config;
 
 use BackedEnum;
+use Ichiloto\Engine\Field\PlayerDash;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\IO\LaunchDataRoot;
@@ -19,11 +20,13 @@ final class PlayerSettings extends AbstractConfig
 {
   public const array PATHS = [
     'audio.master_volume', 'audio.music', 'audio.sfx', 'audio.voice',
+    'audio.music_volume', 'audio.sfx_volume', 'audio.voice_volume',
     'ui.dialogue.auto', 'ui.dialogue.speed', 'ui.dialogue.message.speed',
     'accessibility.notificationDurationScale', 'ui.cursor.memory',
     'ui.battle.message_pace', 'ui.battle.animation_pace',
     'ui.menu.selection_color', 'ui.battle.selection_color',
     'ui.hud.location', 'ui.hud.map_size', 'ui.transitions.style', 'ui.transitions.battle',
+    PlayerDash::CONFIG_ALWAYS_DASH,
   ];
 
   private readonly string $filename;

@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Core\GameState;
@@ -295,7 +296,7 @@ class EventTestPlayer extends Player
     $this->eventManager = EventManager::getInstance(new EventTestGame());
   }
 
-  public function tryMove(Vector2 $direction, Camera $camera): bool
+  public function tryMove(Vector2 $direction, Camera $camera, StepOrigin $stepOrigin): bool
   {
     $scene = $this->scene ?? null;
     $destinationX = intval($this->position->x + $direction->x);
@@ -314,7 +315,7 @@ class EventTestPlayer extends Player
 
   public function tryFieldMove(Vector2 $direction, Camera $camera): bool
   {
-    return parent::tryMove($direction, $camera);
+    return parent::tryMove($direction, $camera, StepOrigin::PLAYER_INPUT);
   }
 
   public function face(Vector2 $direction, Camera $camera): void
@@ -480,6 +481,67 @@ function makeEventRuntime(): array
   return [$scene, $interpreter, $presentation];
 }
 
+it('reveals an adjacent sensed passage through Action and restores its opening from the normal saved event state', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($scene->mapManager, $scene);
+  $player = new EventTestPlayer(new Vector2(0, 0));
+  $scene->installPlayer($player);
+  $source = ['class' => \Ichiloto\Engine\Events\Triggers\PassageEventTrigger::class,
+    'marker' => 'P', 'area' => ['cells' => [[1, 0]]], 'engagement' => 'facing',
+    'conditions' => [['type' => 'switch', 'name' => 'sense']],
+    'cue' => ['symbol' => '!', 'maxDistance' => 2],
+    'data' => ['reusable' => false, 'mode' => 'action']];
+  $restore = new ReflectionMethod(MapManager::class, 'createEventTriggers');
+  [$trigger] = $restore->invoke($scene->mapManager, [$source], 'test-passage');
+  $player->addTrigger($trigger);
+  expect($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeFalse()
+    ->and($player->availableAction)->toBeNull()->and($player->blockedMessages)->toBe([])
+    ->and($player->getCuedEventMarkers())->toBe([]);
+  $scene->gameState->setSwitch('sense');
+  expect($player->position->x)->toBe(0.0)
+    ->and($player->getCuedEventMarkers())->toBe(['P' => true])
+    ->and($player->availableAction)->toBeNull();
+  // Acquiring the ability in place requires no extra walking or turning.
+  $player->interact();
+  $interpreter->update(0.1);
+  expect($trigger->isComplete)->toBeTrue()
+    ->and($scene->gameState->isEventComplete('test-passage', 'P'))->toBeTrue()
+    ->and($player->getCuedEventMarkers())->toBe([])
+    ->and($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeTrue();
+  $scene->gameState->restoreSnapshot(GameState::fromArray($scene->gameState->toArray())->toArray());
+  [$reloaded] = $restore->invoke($scene->mapManager, [$source], 'test-passage');
+  expect($reloaded->isComplete)->toBeTrue()
+    ->and($reloaded->getEntryRefusal(new Vector2(0, 0), new Vector2(1, 0)))->toBeNull();
+});
+
+it('keeps a passage blocked when its opening script fails', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $trigger = new \Ichiloto\Engine\Events\Triggers\PassageEventTrigger(new Rect(1, 0, 1, 1),
+    ['reusable' => false, 'mode' => 'action', 'script' => [['type' => 'unknown-passage-command']]],
+    mapId: 'test-passage', marker: 'P', engagement: \Ichiloto\Engine\Events\Enumerations\EventEngagement::FACING);
+  $trigger->bind($scene->gameState, $scene->party);
+  $trigger->startSession($scene);
+  $interpreter->update(0.1);
+  expect($trigger->isComplete)->toBeFalse()
+    ->and($scene->gameState->isEventComplete('test-passage', 'P'))->toBeFalse()
+    ->and($trigger->getEntryRefusal(new Vector2(0, 0), new Vector2(1, 0)))->toBe('');
+});
+
+it('applies the same logical proximity range to an NPC page cue without disabling conversation', function () {
+  [$scene] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(0, 0));
+  $scene->installPlayer($player);
+  $npcs = new NpcManager($scene);
+  $npcs->configure([['id' => 'guide', 'name' => 'Guide', 'sprite' => 'G', 'x' => 4, 'y' => 0,
+    'dialogue' => [['lines' => [['text' => 'Here.']], 'cue' => ['symbol' => '!', 'maxDistance' => 2]]]]]);
+  $npc = $npcs->findById('guide');
+  expect($npcs->shouldRenderCue($npc))->toBeFalse();
+  $player->position->x = 2;
+  expect($npcs->shouldRenderCue($npc))->toBeTrue()->and($npc->currentPage?->isTalkable)->toBeTrue();
+  $player->position->x = 1;
+  expect($npcs->shouldRenderCue($npc))->toBeFalse()->and($npc->currentPage?->isTalkable)->toBeTrue();
+});
+
 /** Save settings are project-relative; the disposable project owns every generated save. */
 function makeEventTestSaveManager(string $projectRoot, SaveCompatibilityManifest $manifest): SaveManager
 {
@@ -601,6 +663,20 @@ it('recovers every travelling member without changing roster order', function ()
     ->and([$reserve->stats->currentHp, $reserve->stats->currentMp, $reserve->stats->currentAp])->toBe([80, 30, 6])
     ->and(array_map(static fn(Character $member): string => $member->name, $scene->party->members->toArray()))
     ->toBe(['First', 'Reserve']);
+});
+
+it('cures only rest-curable and battle-only states when recovering the party', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $member = new Character('Bearer', 0, new Stats(currentHp: 5, totalHp: 100));
+  $member->addState(new \Ichiloto\Engine\Entities\States\State('venom', 'Venom', persistsAfterBattle: true));
+  $member->addState(new \Ichiloto\Engine\Entities\States\State('curse', 'Curse', persistsAfterBattle: true, curedByRest: false));
+  $member->addState(new \Ichiloto\Engine\Entities\States\State('daze', 'Daze', curedByRest: false));
+  $scene->party->addMember($member);
+
+  $interpreter->run([['type' => 'recover_party']], 'rest-cure');
+
+  expect(array_map(static fn($instance): string => $instance->state->id, $member->states))->toBe(['curse'])
+    ->and($member->stats->currentHp)->toBe(100);
 });
 
 it('fails closed on an unknown top-level command and permits a corrected trigger retry', function () {
@@ -1255,13 +1331,143 @@ it('starts an automatic script at the initial field position', function () {
     ->and($scene->gameState->isEventComplete('map-a', 'A'))->toBeTrue();
 });
 
+it('chains overlapping initial automatic owners without another player step or replay after interruption', function (string $kind, string $timing) {
+  $commands = [
+    ['type' => 'set_variable', 'name' => 'owner_starts', 'op' => 'add', 'value' => 1],
+    ...($timing === 'immediate' ? [] : [['type' => 'wait', 'seconds' => 1]]),
+    ['type' => 'record_event', 'name' => 'owner_finished'],
+  ];
+  $root = makeCinematicTriggerProject('initial-owner', $commands);
+  $prior = getcwd(); chdir($root);
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $player = new EventTestPlayer(new Vector2(1, 0));
+    $scene->installPlayer($player); $scene->installCinematicRuntime();
+    $dependent = new ScriptEventTrigger(new Rect(1, 0, 1, 1),
+      ['mode' => 'auto', 'reusable' => false, 'script' => [
+        ['type' => 'set_variable', 'name' => 'dependent_rewards', 'op' => 'add', 'value' => 1],
+      ]], conditions: [['type' => 'event', 'name' => 'owner_finished']], mapId: 'map-a', marker: 'D');
+    $class = $kind === 'cinematic' ? CinematicEventTrigger::class : ScriptEventTrigger::class;
+    $owner = new $class(new Rect(1, 0, 1, 1),
+      ['mode' => 'auto', 'reusable' => false] + ($kind === 'cinematic'
+        ? ['cinematicId' => 'initial-owner'] : ['script' => $commands]),
+      sets: [['type' => 'variable', 'name' => 'owner_rewards', 'op' => 'add', 'value' => 1]], mapId: 'map-a', marker: 'A');
+    $arrival = new ScriptEventTrigger(new Rect(1, 0, 1, 1),
+      ['mode' => 'auto', 'reusable' => false, 'script' => [
+        ['type' => 'set_variable', 'name' => 'arrival_rewards', 'op' => 'add', 'value' => 1],
+      ]], mapId: 'map-a', marker: 'B');
+    // The dependent event precedes the owner that makes it available.
+    foreach ([$dependent, $owner, $arrival] as $trigger) {
+      $trigger->bind($scene->gameState, $scene->party); $player->addTrigger($trigger);
+    }
+    $player->evaluateAutomaticTriggersAtCurrentPosition();
+    if ($timing !== 'immediate') {
+      expect($scene->hasUnstableEventSession())->toBeTrue()
+        ->and($scene->gameState->getVariable('arrival_rewards'))->toBe(0);
+      if ($timing === 'interrupted') { $interpreter->failActiveSession('Injected initial-owner interruption.'); }
+      else { $interpreter->update(2); }
+    }
+    expect($scene->hasUnstableEventSession())->toBeFalse()
+      ->and($scene->gameState->getVariable('owner_starts'))->toBe(1)
+      ->and($scene->gameState->getVariable('owner_rewards'))->toBe($timing === 'interrupted' ? 0 : 1)
+      ->and($scene->gameState->getVariable('dependent_rewards'))->toBe($timing === 'interrupted' ? 0 : 1)
+      ->and($scene->gameState->getVariable('arrival_rewards'))->toBe(1)
+      ->and($arrival->isComplete)->toBeTrue()
+      ->and($scene->gameState->isEventComplete('map-a', 'B'))->toBeTrue()
+      ->and([$player->position->x, $player->position->y])->toBe([1.0, 0.0]);
+    $saved = $scene->gameState->toArray();
+    $player->evaluateAutomaticTriggersAtCurrentPosition(); $interpreter->update(2);
+    expect($scene->gameState->toArray())->toBe($saved);
+    if ($timing === 'interrupted') {
+      expect($owner->isComplete)->toBeFalse()->and($player->hasActiveEvent($owner))->toBeTrue();
+      $player->tryFieldMove(Vector2::right(), $scene->camera);
+      $player->tryFieldMove(Vector2::left(), $scene->camera);
+      $interpreter->update(2);
+      expect($owner->isComplete)->toBeTrue()
+        ->and($scene->gameState->getVariable('owner_starts'))->toBe(2)
+        ->and($scene->gameState->getVariable('owner_rewards'))->toBe(1)
+        ->and($scene->gameState->getVariable('dependent_rewards'))->toBe(1)
+        ->and($scene->gameState->getVariable('arrival_rewards'))->toBe(1);
+    }
+  } finally { chdir($prior); }
+})->with(['script', 'cinematic'])->with(['immediate', 'yielded', 'interrupted']);
+
+it('rechecks overlapping initial arrivals after the prior owner changes position or eligibility', function (bool $leave) {
+  [$scene, $interpreter] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(1, 0)); $scene->installPlayer($player);
+  $scene->gameState->setSwitch('arrival_available', true);
+  $owner = new ScriptEventTrigger(new Rect(1, 0, 1, 1),
+    ['mode' => 'auto', 'reusable' => false, 'script' => [['type' => 'wait', 'seconds' => 1]]],
+    mapId: 'map-a', marker: 'A');
+  $arrival = new ScriptEventTrigger(new Rect(1, 0, 1, 1),
+    ['mode' => 'auto', 'reusable' => false, 'script' => [['type' => 'record_event', 'name' => 'arrival_finished']]],
+    conditions: [['type' => 'switch', 'name' => 'arrival_available']], mapId: 'map-a', marker: 'B');
+  foreach ([$owner, $arrival] as $trigger) {
+    $trigger->bind($scene->gameState, $scene->party); $player->addTrigger($trigger);
+  }
+  $player->evaluateAutomaticTriggersAtCurrentPosition();
+  if ($leave) { $player->tryFieldMove(Vector2::right(), $scene->camera); }
+  else { $scene->gameState->setSwitch('arrival_available', false); }
+  $interpreter->update(2);
+  expect($owner->isComplete)->toBeTrue()->and($scene->hasUnstableEventSession())->toBeFalse()
+    ->and($scene->gameState->hasStoryEvent('arrival_finished'))->toBeFalse()
+    ->and($arrival->isComplete)->toBeFalse()->and($player->hasActiveEvent($arrival))->toBeFalse();
+})->with(['left before completion' => true, 'condition changed before completion' => false]);
+
+it('uses named territories for automatic entry and restored presence without repeating earned progress', function (string $arrival) {
+  [$scene] = makeEventRuntime();
+  $state = new GameState();
+  $state->setSwitch('survey_active', $arrival !== 'inactive');
+  $state->setVariable('unrelated_progress', 7);
+  if ($arrival === 'completed') { $state->recordStoryEvent('survey_arrived'); }
+  (new ReflectionProperty(GameScene::class, 'gameState'))->setValue($scene, GameState::fromArray($state->toArray()));
+  $starts = ['west' => [0, 1], 'east' => [3, 1], 'north' => [1, 0], 'south' => [1, 2],
+    'gap' => [2, 2]];
+  $player = new EventTestPlayer(new Vector2(...($starts[$arrival] ?? [1, 1])));
+  $scene->installPlayer($player);
+  $map = ['areas' => [['id' => 'survey-reach', 'area' => ['cells' => [[1, 1], [2, 1], [3, 3]]]]],
+    'events' => ['A' => ['class' => ScriptEventTrigger::class,
+      'subject' => ['kind' => 'area', 'id' => 'survey-reach'],
+      'conditions' => [['type' => 'switch', 'name' => 'survey_active'],
+        ['type' => 'event', 'name' => 'survey_arrived', 'negate' => true]],
+      'data' => ['mode' => 'auto', 'reusable' => false, 'script' => [
+        ['type' => 'record_event', 'name' => 'survey_arrived'],
+        ['type' => 'set_variable', 'name' => 'arrival_count', 'op' => 'add', 'value' => 1],
+      ]]]]];
+  $definition = \Ichiloto\Engine\Field\MapSourceReader::resolveEvents($map, array_fill(0, 4, array_fill(0, 4, ' ')))[0];
+  $trigger = \Ichiloto\Engine\Events\Triggers\EventTriggerFactory::create($definition, 'map-a');
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+  $player->evaluateAutomaticTriggersAtCurrentPosition();
+  if (isset($starts[$arrival]) && $arrival !== 'gap') {
+    expect($scene->gameState->hasStoryEvent('survey_arrived'))->toBeFalse();
+    $direction = match ($arrival) { 'west' => Vector2::right(), 'east' => Vector2::left(),
+      'north' => Vector2::down(), 'south' => Vector2::up() };
+    expect($player->tryFieldMove($direction, $scene->camera))->toBeTrue();
+  }
+  $shouldRun = !in_array($arrival, ['gap', 'completed', 'inactive'], true);
+  expect($scene->gameState->hasStoryEvent('survey_arrived'))->toBe($shouldRun || $arrival === 'completed')
+    ->and($scene->gameState->getVariable('arrival_count'))->toBe($shouldRun ? 1 : 0)
+    ->and($scene->gameState->getVariable('unrelated_progress'))->toBe(7);
+  $saved = $scene->gameState->toArray();
+  $restored = GameState::fromArray($saved);
+  $again = \Ichiloto\Engine\Events\Triggers\EventTriggerFactory::create($definition, 'map-a');
+  $again->bind($restored, $scene->party);
+  $player->removeEventTriggers();
+  (new ReflectionProperty(GameScene::class, 'gameState'))->setValue($scene, $restored);
+  $player->addTrigger($again);
+  $player->evaluateAutomaticTriggersAtCurrentPosition();
+  expect($restored->toArray())->toBe($saved)
+    ->and($restored->getVariable('arrival_count'))->toBe($shouldRun ? 1 : 0);
+})->with(['west', 'east', 'north', 'south', 'restored inside', 'gap', 'completed', 'inactive']);
+
 it('defers NPC conversation writes and prevents duplicate rewards while its script is active', function () {
   [$scene, $interpreter] = makeEventRuntime();
   $npc = new \Ichiloto\Engine\Field\Npc(
     name: 'Guide',
     sprite: 'G',
     position: new Vector2(2, 2),
-    script: [['type' => 'wait', 'seconds' => 0.1]],
+    pages: \Ichiloto\Engine\Field\NpcPages::fromEntry(['script' => [['type' => 'wait', 'seconds' => 0.1]]]),
     sets: [['type' => 'variable', 'name' => 'npc_reward_count', 'op' => 'add', 'value' => 1]],
     id: 'guide',
   );
@@ -1276,6 +1482,106 @@ it('defers NPC conversation writes and prevents duplicate rewards while its scri
 
   expect($scene->gameState->getVariable('npc_reward_count'))->toBe(1)
     ->and($interpreter->hasActiveSession())->toBeFalse();
+});
+
+it('runs the NPC page talking selects: its shared script, its writes, then retires a one-shot page and shows the next cue', function () {
+  $root = createTestDirectory('npc-page-script-');
+  mkdir($root . '/assets/Events', 0o777, true);
+  file_put_contents($root . '/assets/Events/first-assignment.php', <<<'PHP'
+<?php
+return [
+  ['type' => 'wait', 'seconds' => 0.1],
+  ['type' => 'record_event', 'name' => 'assignment_heard'],
+];
+PHP);
+  $previousDirectory = getcwd();
+  chdir($root);
+
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $npcs = new NpcManager($scene);
+    $npcs->configure([[
+      'id' => 'supervisor', 'name' => 'Supervisor', 'sprite' => 'S', 'x' => 5, 'y' => 5,
+      'dialogue' => [
+        ['id' => 'assignment', 'conditions' => [['type' => 'event', 'name' => 'sample_taken']],
+          'scriptId' => 'first-assignment', 'reusable' => false, 'sets' => [['type' => 'event', 'name' => 'assignment_issued']],
+          'cue' => ['symbol' => '!', 'color' => 'bright-yellow']],
+        ['conditions' => [['type' => 'event', 'name' => 'assignment_issued']],
+          'lines' => [['name' => 'Supervisor', 'text' => 'Report to the field post.']]],
+        ['lines' => [['name' => 'Supervisor', 'text' => 'See the physician first.']]],
+      ],
+    ]]);
+    $npc = $npcs->findById('supervisor');
+
+    expect($npc->cue)->toBeNull()->and($npc->currentPage?->index)->toBe(2);
+    $scene->gameState->recordStoryEvent('sample_taken');
+    expect($npc->cue?->symbol)->toBe('!')->and($npc->currentPage?->id)->toBe('assignment');
+
+    $npc->talk($scene);
+    expect($interpreter->hasActiveSession())->toBeTrue()
+      ->and($scene->gameState->hasStoryEvent('assignment_issued'))->toBeFalse();
+    $interpreter->update(0.1);
+
+    expect($scene->gameState->hasStoryEvent('assignment_heard'))->toBeTrue()
+      ->and($scene->gameState->hasStoryEvent('assignment_issued'))->toBeTrue()
+      ->and($scene->gameState->isEventComplete('map-a', 'supervisor/assignment'))->toBeTrue()
+      ->and($npc->currentPage?->index)->toBe(1)
+      ->and($npc->cue)->toBeNull();
+  } finally {
+    chdir($previousDirectory);
+  }
+});
+
+it('plays an NPC page Cinematic and completes the page only when the Cinematic does', function () {
+  $root = makeCinematicTriggerProject('listening-stone', [
+    ['type' => 'wait', 'seconds' => 0.1],
+    ['type' => 'record_event', 'name' => 'stone_heard'],
+  ]);
+  $prior = getcwd();
+  chdir($root);
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $scene->installCinematicRuntime();
+    $npc = new \Ichiloto\Engine\Field\Npc('Liora', 'L', new Vector2(2, 2), id: 'liora',
+      pages: \Ichiloto\Engine\Field\NpcPages::fromEntry(['id' => 'liora', 'dialogue' => [
+        ['id' => 'stone', 'cinematicId' => 'listening-stone', 'reusable' => false, 'sets' => [['type' => 'event', 'name' => 'stone_page_done']]],
+        ['lines' => [['name' => 'Liora', 'text' => 'It is quiet now.']]],
+      ]]));
+    $npc->bind('map-a', $scene->gameState, $scene->party);
+
+    $npc->talk($scene);
+    expect($scene->gameState->hasStoryEvent('stone_page_done'))->toBeFalse()
+      ->and($npc->conversationIsActive)->toBeTrue();
+    $interpreter->update(0.1);
+
+    expect($scene->gameState->hasStoryEvent('stone_heard'))->toBeTrue()
+      ->and($scene->gameState->hasStoryEvent('stone_page_done'))->toBeTrue()
+      ->and($npc->conversationIsActive)->toBeFalse()
+      ->and($npc->currentPage?->index)->toBe(1);
+  } finally {
+    chdir($prior);
+  }
+});
+
+it('carries a one-shot cell event completion from an old save onto the NPC page that replaced it', function () {
+  $manifest = SaveCompatibilityManifest::fromArray('npc-pages', ['contentVersion' => 0, 'aliases' => [
+    'one_shot_events' => [['from' => 'map-a:L', 'to' => 'map-a:supervisor/assignment']],
+  ]]);
+  // Saved mid-sequence: the sample was taken and the old cell event L had already run.
+  $saved = ['storyEvents' => ['sample_taken'], 'completedEvents' => ['map-a:L' => true]];
+  $restored = [];
+  foreach ($saved['completedEvents'] as $identity => $value) {
+    $restored[$manifest->resolveOneShotEvent($identity, 'old.save')] = $value;
+  }
+  $state = GameState::fromArray([...$saved, 'completedEvents' => $restored]);
+  $pages = \Ichiloto\Engine\Field\NpcPages::fromEntry(['id' => 'supervisor', 'dialogue' => [
+    ['id' => 'assignment', 'conditions' => [['type' => 'event', 'name' => 'sample_taken']], 'script' => [['type' => 'wait', 'seconds' => 0.1]],
+      'reusable' => false],
+    ['lines' => [['name' => 'Supervisor', 'text' => 'Report to the field post.']]],
+  ]]);
+
+  expect($pages->selectPage('map-a', $state)?->index)->toBe(1)
+    ->and($pages->selectPage('map-a', GameState::fromArray($saved))?->id)->toBe('assignment');
 });
 
 it('executes player and stable-id NPC routes step by step including facing', function () {
@@ -1710,7 +2016,7 @@ it('forwards map encounter arenas and clears their binding when maps change', fu
   try {
     [$scene] = makeEventRuntime();
     $manager = new class($scene) extends Ichiloto\Engine\Field\EncounterManager {
-      public function trigger(): void { $this->startEncounter(); }
+      public function trigger(): void { $this->startEncounter($this->troopWeights); }
     };
     $map = ['troops' => ['Technical Troop' => 1], 'rate' => 12];
     $manager->configure($map + ['battleArena' => 'arena.road']);
@@ -1743,10 +2049,10 @@ it('dispatches selected encounter scenes without leaking row settings into other
     [$scene] = makeEventRuntime();
     $manager = new class($scene) extends Ichiloto\Engine\Field\EncounterManager {
       public string $choice = 'Technical Troop';
-      public function trigger(): void { $this->startEncounter(); }
+      public function trigger(): void { $this->startEncounter($this->troopWeights); }
       public function getWeights(): array { return $this->troopWeights; }
-      protected function pickTroopName(): ?string {
-        return array_key_exists($this->choice, $this->troopWeights) ? $this->choice : null;
+      protected function pickTroopName(array $weights): ?string {
+        return array_key_exists($this->choice, $weights) ? $this->choice : null;
       }
     };
     $manager->configure([

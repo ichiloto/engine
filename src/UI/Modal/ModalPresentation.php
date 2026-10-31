@@ -15,13 +15,16 @@ final readonly class ModalPresentation
   /** @param non-empty-list<string> $choices */
   public function __construct(public string $title, public string $message, array $choices,
     public int $activeIndex, public bool $vertical = false, public bool $singleConfirmation = false,
-    public ?QuantityPresentation $quantity = null)
+    public ?QuantityPresentation $quantity = null, public ?NoticeContent $notice = null)
   {
     if (!array_is_list($choices) || $choices === [] || !isset($choices[$activeIndex])) {
       throw new InvalidArgumentException('Modal presentation requires choices and a valid owner-selected index.');
     }
     if ($singleConfirmation && ($vertical || count($choices) !== 1)) {
       throw new InvalidArgumentException('A single-confirmation presentation requires one horizontal choice.');
+    }
+    if ($notice !== null && (!$singleConfirmation || $quantity !== null)) {
+      throw new InvalidArgumentException('A notice requires a single confirmation without quantity controls.');
     }
     $copy = [];
     foreach ($choices as $choice) {

@@ -49,7 +49,7 @@ final readonly class ProjectBattleTest
    */
   public static function fromArray(array $data): self
   {
-    $unknown = array_diff(array_keys($data), ['troop', 'members', 'arena']);
+    $unknown = array_diff(array_keys($data), ['troop', 'members', 'arena', 'battleSize']);
     if ($unknown !== []) {
       throw new InvalidArgumentException('A project battle test has no ' . implode(', ', $unknown) . '.');
     }
@@ -58,8 +58,9 @@ final readonly class ProjectBattleTest
       throw new InvalidArgumentException('A project battle test\'s troop is a troop name.');
     }
     if (array_key_exists('members', $data)) {
-      return new self($troop, BattleTestSetup::fromArray(array_intersect_key($data, ['members' => true, 'arena' => true])));
+      return new self($troop, BattleTestSetup::fromArray(array_intersect_key($data, ['members' => true, 'arena' => true, 'battleSize' => true])));
     }
+    if (array_key_exists('battleSize', $data)) { throw new InvalidArgumentException('A battle test capacity requires an explicit member list.'); }
     $arena = $data['arena'] ?? null;
     if ($arena !== null && (!is_string($arena) || trim($arena) === '')) {
       throw new InvalidArgumentException('A project battle test\'s arena is an arena key.');
@@ -108,10 +109,11 @@ final readonly class ProjectBattleTest
    * @param list<mixed>|null $startingParty The starting party's actor references, or null to read them.
    * @throws InvalidArgumentException When no party can be set up.
    */
-  public function createSetup(ActorStore $actors, ?array $startingParty = null): BattleTestSetup
+  public function createSetup(ActorStore $actors, ?array $startingParty = null, ?int $battleSize = null): BattleTestSetup
   {
-    return $this->setup ?? ($startingParty === null
+    if ($this->setup !== null) { return $battleSize === null ? $this->setup : $this->setup->withBattleSize($battleSize); }
+    return ($startingParty === null
       ? BattleTestSetup::getFromStartingParty($actors)
-      : BattleTestSetup::getFromPartyReferences($actors, $startingParty))->withArena($this->arena);
+      : BattleTestSetup::getFromPartyReferences($actors, $startingParty, $battleSize ?? \Ichiloto\Engine\Entities\Party::BATTLE_SIZE))->withArena($this->arena);
   }
 }

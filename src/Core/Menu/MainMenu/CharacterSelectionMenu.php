@@ -2,12 +2,14 @@
 
 namespace Ichiloto\Engine\Core\Menu\MainMenu;
 
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\CharacterPanel;
 use Ichiloto\Engine\Core\Menu\Menu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\UI\Text\TerminalConditions;
 use Ichiloto\Engine\UI\Windows\Window;
 
 /**
@@ -20,7 +22,7 @@ class CharacterSelectionMenu extends Menu
   /**
    * The default help text shown beneath the character panels.
    */
-  public const string DEFAULT_HELP_TEXT = 'Use the arrow keys to select a character.';
+  public const string DEFAULT_HELP_TEXT = 'Select a character.';
   /**
    * The total number of panels.
    */
@@ -101,11 +103,12 @@ class CharacterSelectionMenu extends Menu
 
     $this->helpWindow = new Window(
       '',
-      'c:Cancel',
+      '',
       new Vector2($this->rect->getX(), $this->rect->getY() + (self::PANEL_HEIGHT * self::TOTAL_PANELS)),
       $this->rect->getWidth(),
       4
     );
+    $this->helpWindow->setControlHints([ActionHints::resolve('cancel', 'Cancel')]);
     $this->refreshMembers();
     $this->setHelpText($this->helpText);
   }
@@ -250,7 +253,7 @@ class CharacterSelectionMenu extends Menu
     $scene = $this->getScene();
     assert($scene instanceof GameScene);
 
-    $this->partyMembers = $scene->party->members->toArray();
+    $this->partyMembers = $scene->party->participants->toArray();
 
     foreach ($this->characterPanels as $index => $panel) {
       $member = $this->partyMembers[$index] ?? null;
@@ -261,7 +264,8 @@ class CharacterSelectionMenu extends Menu
           $member->level,
           "{$member->effectiveStats->currentHp} / {$member->effectiveStats->totalHp}",
           "{$member->effectiveStats->currentMp} / {$member->effectiveStats->totalMp}",
-          $member->role->name
+          $member->role->name,
+          TerminalConditions::composeBadges($member),
         );
         continue;
       }

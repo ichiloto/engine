@@ -53,9 +53,13 @@ final readonly class MapAtlasTerrain
         return $parsed;
     }
 
-    public static function readMap(array $map, MapLayerSet $layers): ?self
+    /** A map painted in terrain kinds shows its kinds' atlas roles ({@see MapTerrainKinds::composeAtlasTerrain()}). */
+    public static function readMap(array $map, MapLayerSet $layers, ?MapTerrainKinds $kinds = null): ?self
     {
+        MapTerrainKinds::assertSupplied($map, $kinds, 'Atlas terrain');
         $declaration=MapAtlasDefinition::readMap($map)->terrain;
+        if ($kinds!==null) { $declaration=$kinds->composeAtlasTerrain($declaration,array_map(
+            static fn(MapLayer $layer): string=>$layer->name,array_filter($layers->layers,static fn(MapLayer $layer): bool=>!$layer->decoration))); }
         if ($declaration===[]) { return null; }
         $known=array_column($layers->layers,null,'name');
         foreach (array_keys($declaration) as $name) {
@@ -72,7 +76,7 @@ final readonly class MapAtlasTerrain
     {
         $role=null;
         foreach ($this->bindings as [$layer,$binding]) {
-            $glyph=$layer->glyphs[$y][$x] ?? null;
+            $glyph=$layer->getGlyphAt($x,$y);
             if ($glyph===null) { continue; }
             $next=$binding['symbols'][$glyph] ?? ($glyph!==' ' ? ($binding['default'] ?? null) : null);
             if ($next!==null) { $role=$next; }

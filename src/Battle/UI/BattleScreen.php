@@ -79,6 +79,11 @@ class BattleScreen implements CanRender, CanUpdate
   }
   /** @var list<CharacterInterface> */
   public array $partyBattlers { get => $this->battleScene->partyBattlers; }
+
+  public function getBattleConfig(): ?\Ichiloto\Engine\Scenes\Battle\BattleConfig
+  {
+    return isset($this->battleScene) ? $this->battleScene->config : null;
+  }
   /**
    * @var Troop The troop in the battle scene.
    */

@@ -57,6 +57,7 @@ final class CinematicScriptValidator
 
       match ($type) {
         'text' => self::validateText($command, $cinematicId, $commandPath),
+        'play_skit' => self::validateStableReference($command, 'skit', $cinematicId, $commandPath),
         'sequence' => self::validateRequiredBlock($command, 'commands', $cinematicId, "$commandPath/sequence"),
         'parallel' => self::validateParallel($command, $cinematicId, $commandPath),
         'branch' => self::validateBranch($command, $cinematicId, $commandPath),
@@ -87,6 +88,11 @@ final class CinematicScriptValidator
       DialogueContext::getFromText($command);
     } catch (InvalidArgumentException $error) {
       throw self::failure($cinematicId, "$path/emotion", $error->getMessage());
+    }
+    try {
+      CinematicConversation::validateLine($command);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, "$path/facing", $error->getMessage());
     }
   }
 
@@ -259,9 +265,9 @@ final class CinematicScriptValidator
       throw self::failure($cinematicId, $path, 'staged actor id is required.');
     }
 
-    if (! array_key_exists('subject', $entry)
+    if (! array_key_exists('subject', $entry) && ! array_key_exists('appearance', $entry)
       && ! array_key_exists('sprite', $entry) && trim(strval($entry['asset'] ?? '')) === '') {
-      throw self::failure($cinematicId, $path, 'staged actor requires a sprite or asset reference.');
+      throw self::failure($cinematicId, $path, 'staged actor requires a sprite, asset reference or appearance.');
     }
 
     foreach (['x', 'y'] as $coordinate) {
@@ -276,10 +282,10 @@ final class CinematicScriptValidator
       }
     }
 
-    if (array_key_exists('facing', $entry)
-      && ! in_array(strtolower(trim(strval($entry['facing']))), ['north', 'south', 'east', 'west'], true)
-    ) {
-      throw self::failure($cinematicId, $path, 'staged actor facing must be north, south, east, or west.');
+    try {
+      CinematicFacing::validate($entry);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, $path, 'staged actor ' . lcfirst($error->getMessage()));
     }
   }
 
@@ -317,6 +323,13 @@ final class CinematicScriptValidator
     }
 
     self::validateSubject($target, $cinematicId, "$path/target", allowScreenPosition: true);
+    if (array_key_exists('follow', $command) && !is_bool($command['follow'])) {
+      throw self::failure($cinematicId, $path, 'field animation follow must be boolean.');
+    }
+    if (($command['follow'] ?? false) && !in_array(strtolower(trim(strval($target['kind'] ?? $target['subject'] ?? ''))),
+      array_diff(CinematicCommandSchema::SUBJECT_KINDS, ['position', 'screen_position', 'marker']), true)) {
+      throw self::failure($cinematicId, $path, 'following field effects require a live field subject.');
+    }
     self::validateOptionalDuration($command, ['secondsPerFrame'], $cinematicId, $path, positive: true);
   }
 

@@ -41,6 +41,8 @@ use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Modal\PromptModal;
 use Ichiloto\Engine\UI\Presentation\JournalMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\MenuDetailStyle;
+use Ichiloto\Engine\UI\Presentation\MenuDetailViewport;
 use Ichiloto\Engine\UI\Text\TextViewport;
 use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -220,7 +222,7 @@ it('keeps owner content and focus identical through two themes within serialized
   foreach ([false, true] as $details) {
     if ($details) { journalMenuKey($state, KeyCode::ENTER); }
     $content = $state->getPresentationContent();
-    $page = $state->getPresentationPage(...JournalMenuPresentation::pageSize($content, $theme));
+    $page = $state->getPresentationPage(JournalMenuPresentation::pageSize($content, $theme));
     $frame = JournalMenuPresentation::compose($content, $theme, $page);
     $text = journalMenuText($frame);
     expect($content->detailsOpen)->toBe($details)->and(implode('', $text))
@@ -246,8 +248,12 @@ it('reaches complete long quest and earned report text in terminal and graphical
     $page = new ReflectionProperty($state, 'displayedPage')->getValue($state);
     foreach ($page->lines as $line => $text) { $seen[$page->first + $line] = $text; }
     if ($graphical) {
+      // Canvas draws field labels and values as separate aligned runs over the same measured lines.
+      $layout = $state->getPresentationContent()->details->layout($page->columns,
+        (new MenuPresentationCatalog($this->root, journalMenuTheme()))->details);
       $painted = array_filter(journalMenuText($frame), fn($id) => $id === 'journal-text' || str_starts_with($id, 'journal-text-'), ARRAY_FILTER_USE_KEY);
-      expect(implode('', $painted))->toBe(implode('', $page->lines));
+      expect(implode('', $painted))->toBe(implode('', array_map(fn($line) => $line->label . $line->text,
+        array_slice($layout->lines, $page->first, count($page->lines)))));
     }
     else {
       $panel = new ReflectionProperty($state, $records ? 'infoPanel' : 'listPanel')->getValue($state);
@@ -258,9 +264,12 @@ it('reaches complete long quest and earned report text in terminal and graphical
     journalMenuKey($state, KeyCode::DOWN);
   }
   ksort($seen);
-  expect(array_values($seen))->toBe(array_column(TextViewport::wrap($page->source, $page->columns), 1))
+  $style = $graphical ? (new MenuPresentationCatalog($this->root, journalMenuTheme()))->details : MenuDetailStyle::createTerminal();
+  $suffix = $style->labelSuffix;
+  expect(array_values($seen))->toBe(array_column($state->getPresentationContent()->details
+      ->layout($page->columns, $style)->getWrappedLines(), 1))
     ->and(implode('', $seen))->toContain('Authored line 001')->toContain('Authored line 060')
-    ->toContain($records ? 'FINAL REPORT DETAIL' : 'Reward: 123 G, 456 EXP, Reward Tonic x3');
+    ->toMatch($records ? '/FINAL REPORT DETAIL/' : '/Reward' . preg_quote($suffix, '/') . ' +123 G, 456 EXP, Reward Tonic x3/');
   expect($state->getPresentationContent()->index)->toBe(0);
   journalMenuKey($state, KeyCode::ESCAPE);
   expect($state->getPresentationContent()->detailsOpen)->toBeFalse()->and($this->returnState->entries)->toBe(0);
@@ -270,22 +279,23 @@ it('reaches complete long quest and earned report text in terminal and graphical
 
 it('keeps secret and discovery masking and resets reading when earned content changes', function () {
   $state = journalMenuOwner($this, true);
-  expect($state->getPresentationContent()->detailText)->toContain('Quick source card.')->not->toContain('Authored line');
+  expect($state->getPresentationContent()->details->text)->toContain('Quick source card.')->not->toContain('Authored line');
   journalMenuKey($state, KeyCode::Q);
   $secret = $state->getPresentationContent();
-  expect($secret->rows[0]['label'])->toBe('???')->and($secret->detailText)->not->toContain('SECRET')->not->toContain('PRIVATE');
+  expect($secret->rows[0]['label'])->toBe('???')->and($secret->details->text)->not->toContain('SECRET')->not->toContain('PRIVATE');
   journalMenuKey($state, KeyCode::DOWN);
   journalMenuKey($state, KeyCode::ENTER);
   journalMenuKey($state, KeyCode::DOWN);
-  expect($state->getPresentationPage(104, 4)->first)->toBeGreaterThan(0);
+  expect($state->getPresentationPage(new MenuDetailViewport(104, 4))->first)->toBeGreaterThan(0);
   journalMenuKey($state, KeyCode::Q);
   expect($state->getPresentationContent()->detailsOpen)->toBeFalse()->and($state->getPresentationContent()->index)->toBe(0);
   $this->knowledge->unlockReport('place.known', 'report.known', 'fixture');
   $state->resume();
-  expect($state->getPresentationPage(104, 4)->first)->toBe(0)
-    ->and($state->getPresentationContent()->detailText)->toContain('Authored line 060')->toContain('Earned Report')->not->toContain('UNEARNED');
+  expect($state->getPresentationPage(new MenuDetailViewport(104, 4))->first)->toBe(0)
+    ->and($state->getPresentationContent()->details->text)->toContain('Authored line 060')->toContain('Earned Report')->not->toContain('UNEARNED');
   $this->knowledge->withdrawReport('place.known', 'report.known', 'fixture');
-  expect($state->getPresentationContent()->detailText)->toContain('Withdrawn: Report summary.');
+  $withdrawn = array_find($state->getPresentationContent()->details->getEntries(), fn($entry) => $entry->label === 'Withdrawn');
+  expect($withdrawn?->text)->toBe('Report summary.');
 });
 
 it('follows long lists preserves same selection on back and retains completed tab semantics', function () {
@@ -301,10 +311,10 @@ it('follows long lists preserves same selection on back and retains completed ta
   expect($state->getPresentationContent()->index)->toBe(35);
   $this->quests->log->markCompleted('quest.35');
   journalMenuKey($state, KeyCode::TAB);
-  expect($state->getPresentationContent()->tabIndex)->toBe(1)->and($state->getPresentationContent()->detailText)->toContain('[Complete] Ask the witness. (2/2)');
+  expect($state->getPresentationContent()->tabIndex)->toBe(1)->and($state->getPresentationContent()->details->text)->toContain('[Complete] Ask the witness. (2/2)');
   $this->flags->setSwitch('reveal', true);
   $state->resume();
-  expect($state->getPresentationContent()->detailText)->toContain('SECRET REVEALED TARGET')->not->toContain('Ask the witness.');
+  expect($state->getPresentationContent()->details->text)->toContain('SECRET REVEALED TARGET')->not->toContain('Ask the witness.');
 });
 
 it('consumes confirm and back once even when a binding also drives navigation', function (bool $records) {
@@ -313,7 +323,7 @@ it('consumes confirm and back once even when a binding also drives navigation', 
     'cancel' => ['keys' => [KeyCode::UP]], 'up' => ['keys' => [KeyCode::UP]]]);
   journalMenuKey($state, KeyCode::DOWN);
   expect($state->getPresentationContent()->detailsOpen)->toBeTrue()->and($state->getPresentationContent()->index)->toBe(0)
-    ->and($state->getPresentationPage(100, 4)->first)->toBe(0);
+    ->and($state->getPresentationPage(new MenuDetailViewport(100, 4))->first)->toBe(0);
   journalMenuKey($state, KeyCode::UP);
   expect($state->getPresentationContent()->detailsOpen)->toBeFalse()->and($this->returnState->entries)->toBe(0);
 })->with([false, true]);
@@ -324,7 +334,7 @@ it('submits through the existing renderer and retains reading position around su
   $state = journalMenuOwner($this, $records);
   journalMenuKey($state, KeyCode::ENTER);
   journalMenuKey($state, KeyCode::DOWN);
-  $before = $state->getPresentationPage(100, 4);
+  $before = $state->getPresentationPage(new MenuDetailViewport(100, 4));
   expect($this->runtime->present($this->scene))->toBeTrue();
   expect(array_filter(RetainedFrameState::replay($this->transport->sent), fn($frame) => isset($frame['canvas'])))->not->toBeEmpty();
   $stack = new ReflectionProperty($this->game->modalManager, 'modals')->getValue($this->game->modalManager);
@@ -339,7 +349,7 @@ it('submits through the existing renderer and retains reading position around su
   $prompt = new PromptModal($this->game, 'Actual prompt', 'Prompt');
   $stack->push($prompt);
   new ReflectionProperty($prompt, 'isShowing')->setValue($prompt, true);
-  expect($this->scene->getPresentationCanvas())->toBeNull()->and($state->getPresentationPage(100, 4))->toEqual($before);
+  expect($this->scene->getPresentationCanvas())->toBeNull()->and($state->getPresentationPage(new MenuDetailViewport(100, 4)))->toEqual($before);
   $stack->pop();
   expect($this->scene->getPresentationCanvas())->toBeInstanceOf(PresentationCanvas::class)
     ->and($state->getPresentationContent()->detailsOpen)->toBeTrue()->and($this->scene->state)->toBe($state);
@@ -367,7 +377,7 @@ it('handles empty tabs without synthetic records or detail focus and resumes aft
   journalMenuKey($state, KeyCode::ENTER);
   $content = $state->getPresentationContent();
   $theme = new MenuPresentationCatalog($this->root, journalMenuTheme());
-  $frame = JournalMenuPresentation::compose($content, $theme, $state->getPresentationPage(...JournalMenuPresentation::pageSize($content, $theme)));
+  $frame = JournalMenuPresentation::compose($content, $theme, $state->getPresentationPage(JournalMenuPresentation::pageSize($content, $theme)));
   expect($content->rows)->toBeEmpty()->and($content->detailsOpen)->toBeFalse()
     ->and(implode('', journalMenuText($frame)))->toContain($content->emptyText)->not->toContain('View details');
   expect(array_filter($frame->textLayers, fn($layer) => str_starts_with($layer->id, 'journal-entry')))->toBeEmpty();
@@ -385,18 +395,18 @@ it('marks long localized list previews and keeps their full values readable with
   $state = journalMenuOwner($this, false);
   $theme = new MenuPresentationCatalog($this->root, journalMenuTheme($alternative));
   $content = $state->getPresentationContent();
-  $page = $state->getPresentationPage(...JournalMenuPresentation::pageSize($content, $theme, 960, 540));
+  $page = $state->getPresentationPage(JournalMenuPresentation::pageSize($content, $theme, 960, 540));
   $frame = JournalMenuPresentation::compose($content, $theme, $page, width: 960, height: 540);
   expect(implode('', array_filter(journalMenuText($frame), fn($id) => str_starts_with($id, 'journal-entry-0-'), ARRAY_FILTER_USE_KEY)))->toContain('...')
-    ->and($content->detailText)->toContain($name)->toContain($quest->giver)->toContain('Objective 30 (0/1)');
+    ->and($content->details->text)->toContain($name)->toContain($quest->giver)->toContain('Objective 30 (0/1)');
   journalMenuPng($this->root . '/surface.png', 79, 43);
   $second = JournalMenuPresentation::compose($content, $theme, $page, width: 960, height: 540);
   expect($second->toArray()['width'])->toBe(960)->and(journalMenuText($second))->toBe(journalMenuText($frame));
   journalMenuKey($state, KeyCode::ENTER);
   $reading = new ReflectionProperty($state, 'reading')->getValue($state);
   $snapshot = clone $reading;
-  $state->getPresentationPage(40, 3);
-  $state->getPresentationPage(100, 20);
+  $state->getPresentationPage(new MenuDetailViewport(40, 3));
+  $state->getPresentationPage(new MenuDetailViewport(100, 20));
   expect($reading)->toEqual($snapshot);
 })->with([false, true]);
 
@@ -411,7 +421,7 @@ it('keeps quest navigation visible while independently presenting structured sec
   foreach ([[1350, 720], [960, 540], [1600, 900]] as [$width, $height]) {
     $content = $state->getPresentationContent();
     $size = JournalMenuPresentation::pageSize($content, $theme, $width, $height);
-    $frame = JournalMenuPresentation::compose($content, $theme, $state->getPresentationPage(...$size), width: $width, height: $height);
+    $frame = JournalMenuPresentation::compose($content, $theme, $state->getPresentationPage($size), width: $width, height: $height);
     $labels = journalMenuText($frame);
     expect(implode('', $labels))->toContain('Quest 0')->toContain('Description');
     $list = array_find($frame->textLayers, fn($layer) => str_starts_with($layer->id, 'journal-entry-0-') && $layer->runs[0]->foreground !== null);
@@ -422,12 +432,12 @@ it('keeps quest navigation visible while independently presenting structured sec
   }
   journalMenuKey($state, KeyCode::ENTER);
   $content = $state->getPresentationContent();
-  $frame = JournalMenuPresentation::compose($content, $theme, $state->getPresentationPage(...JournalMenuPresentation::pageSize($content, $theme)));
+  $frame = JournalMenuPresentation::compose($content, $theme, $state->getPresentationPage(JournalMenuPresentation::pageSize($content, $theme)));
   expect(array_filter(journalMenuText($frame), fn($id) => str_starts_with($id, 'journal-entry-0-'), ARRAY_FILTER_USE_KEY))->not->toBeEmpty()
     ->and(implode('', journalMenuText($frame)))->toContain('Description')->toContain('Objectives')->toContain('Rewards');
   expect(array_keys(array_filter(journalMenuText($frame), fn($id) => str_starts_with($id, 'journal-marker-'), ARRAY_FILTER_USE_KEY)))->toBeEmpty();
   $unknownOnly = new MenuPresentationCatalog($this->root, [...journalMenuTheme(), 'icons' => ['unknown' => 'surface.png']]);
-  $plain = JournalMenuPresentation::compose($content, $unknownOnly, $state->getPresentationPage(...JournalMenuPresentation::pageSize($content, $unknownOnly)));
+  $plain = JournalMenuPresentation::compose($content, $unknownOnly, $state->getPresentationPage(JournalMenuPresentation::pageSize($content, $unknownOnly)));
   expect($plain->images)->toBeEmpty()->and(implode('', journalMenuText($plain)))->toContain("\u{25CB}")->toContain('Objectives');
 })->with([false, true]);
 
@@ -456,7 +466,7 @@ it('bounds dense journal layers and measures wrapped category tabs', function (a
   $state = journalMenuOwner($this, false);
   $theme = new MenuPresentationCatalog($this->root, [...journalMenuTheme(), 'metrics' => $metrics]);
   $content = $state->getPresentationContent();
-  $page = $state->getPresentationPage(...JournalMenuPresentation::pageSize($content, $theme, $width, $height));
+  $page = $state->getPresentationPage(JournalMenuPresentation::pageSize($content, $theme, $width, $height));
   $frame = JournalMenuPresentation::compose($content, $theme, $page, width: $width, height: $height);
   expect(count($frame->textLayers))->toBeLessThanOrEqual(64)->and($frame->toArray()['width'])->toBe($width)
     ->and(implode('', journalMenuText($frame)))->toContain('Completed (0)')->toContain('Objectives');
@@ -483,3 +493,40 @@ it('keeps journal text and healthy artwork when a panel frame is unavailable', f
   expect($state->getPresentationContent()->detailsOpen)->toBeTrue()
     ->and($this->scene->getPresentationCanvas())->toBeInstanceOf(PresentationCanvas::class);
 })->with([false, true]);
+
+it('names record types by their authored label and reads a summon record from its Summon Info', function () {
+  $cwd = getcwd();
+  mkdir($this->root . '/assets/Cutscenes/Summons/wisp', 0777, true);
+  file_put_contents($this->root . '/assets/Cutscenes/Summons/wisp/wisp.data.php', '<?php return ' . var_export([
+    'id' => 'wisp', 'name' => 'Synthetic Wisp', 'lore' => 'Synthetic summon lore.', 'moveName' => 'Synthetic Flare',
+    'description' => 'Synthetic move description.', 'element' => 'Fire',
+  ], true) . ';');
+  file_put_contents($this->root . '/assets/Cutscenes/Summons/wisp/wisp.timeline.php', '<?php return ' . var_export([
+    'fps' => 10, 'lengthFrames' => 1, 'tracks' => [['id' => 'mark', 'type' => 'glyph', 'keyframes' => [['frame' => 0, 'duration' => 1, 'content' => '*']]]],
+  ], true) . ';');
+  $this->knowledge = new KnowledgeProgressService(new KnowledgeCatalog([
+    'recordTypes' => ['place', ['id' => 'summon', 'label' => 'Synthetic Spirits']],
+    'subjects' => [
+      ['id' => 'place.known', 'recordType' => 'place', 'displayName' => 'Known Place', 'quickCard' => 'Quick source card.'],
+      // Its card waits for its writer; the summon's own information is its body.
+      ['id' => 'summon.wisp', 'recordType' => 'summon', 'displayName' => 'Wisp', 'summon' => 'wisp', 'displayOrder' => 10],
+    ],
+  ]));
+  foreach (['place.known', 'summon.wisp'] as $id) { $this->knowledge->discoverSubject($id); }
+  new ReflectionProperty($this->scene, 'knowledge')->setValue($this->scene, $this->knowledge);
+  try {
+    chdir($this->root);
+    $state = journalMenuOwner($this, true);
+    $content = $state->getPresentationContent();
+    expect(array_column($content->rows, 'label'))->toBe(['Known Place', 'Wisp'])
+      ->and($content->rows[0]['values'][0])->toBe('place')
+      ->and($content->rows[1]['values'][0])->toBe('Synthetic Spirits');
+    journalMenuKey($state, KeyCode::DOWN);
+    $details = $state->getPresentationContent()->details;
+    expect(array_find($details->getEntries(), fn($entry) => $entry->label === 'Type')?->text)->toBe('Synthetic Spirits')
+      ->and($details->text)->toContain('Synthetic summon lore.', 'Synthetic Flare', 'Synthetic move description.')
+      ->and($details->text)->not->toContain('Quick source card.');
+  } finally {
+    chdir($cwd);
+  }
+});

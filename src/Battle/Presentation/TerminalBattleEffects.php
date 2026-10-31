@@ -20,14 +20,18 @@ use RuntimeException;
 final class TerminalBattleEffects
 {
   private const int TROOP_STEP_X_OFFSET = 3;
-  private const int TROOP_ZONE_LEFT = 2;
+  // The focus marker stands two cells left of a troop sprite, inside the border.
+  private const int TROOP_ZONE_LEFT = 3;
+  // The target badge takes the row above a troop sprite, inside the border.
+  private const int TROOP_ZONE_TOP = 2;
   private const int BATTLE_SIDE_GAP = 3;
   private const int LEGACY_SCREEN_INSET = 2;
   private readonly PartyBattlerPositions $positions;
   private readonly Vector2 $origin;
 
   public function __construct(?PartyBattlerPositions $positions = null, ?Vector2 $origin = null,
-    private readonly int $width = 135, private readonly int $height = 30)
+    private readonly int $width = 135, private readonly int $height = 30,
+    private readonly ?\Ichiloto\Engine\Scenes\Battle\BattleConfig $battle = null)
   {
     if ($width < 1 || $height < 1) { throw new InvalidArgumentException('Terminal battle dimensions must be positive.'); }
     $this->positions = $positions ?? new PartyBattlerPositions();
@@ -36,12 +40,24 @@ final class TerminalBattleEffects
 
   public function getPartyIdlePosition(int $index): Vector2
   {
-    return clone ($this->positions->idlePositions[$index] ?? throw new RuntimeException('Invalid party battler position.'));
+    return $this->projectPartyPosition($index, $this->positions->idlePositions);
   }
 
   public function getPartyActivePosition(int $index): Vector2
   {
-    return clone ($this->positions->activePositions[$index] ?? throw new RuntimeException('Invalid party battler active position.'));
+    return $this->projectPartyPosition($index, $this->positions->activePositions);
+  }
+
+  private function projectPartyPosition(int $index, array $positions): Vector2
+  {
+    $base = $positions[$index] ?? throw new RuntimeException('Invalid party battler position.');
+    $member = $this->battle?->partyRoster->battlers[$index] ?? null;
+    if ($member === null || $this->battle->formation->getPosition($member) == $this->battle->formation->getInitialPosition($member)) { return clone $base; }
+    $anchors = [];
+    foreach ($this->battle->partyRoster->battlers as $i => $battler) { $anchors[] = ['battler' => $battler, 'point' => $positions[$i]]; }
+    $point = BattleFormationProjection::project($this->battle->formation, $member, $anchors, 6, max(1, count($member->images->battle) + 1));
+    return new Vector2((int) clamp($point->x, $this->getPartyZoneLeft(), $this->width - max(1, self::getSpriteWidth($member->images->battle))),
+      (int) clamp($point->y, 1, max(1, $this->height - count($member->images->battle))));
   }
 
   public static function isCommandAdvanced(CharacterInterface $battler, ?BattleCommandPlayback $playback,
@@ -59,6 +75,17 @@ final class TerminalBattleEffects
   }
 
   public function getTroopIdlePosition(Enemy $battler): Vector2
+  {
+    $base = $this->getTroopBaseIdlePosition($battler);
+    if ($this->battle === null || $this->battle->formation->getPosition($battler) == $this->battle->formation->getInitialPosition($battler)) { return $base; }
+    $anchors = array_map(fn(Enemy $member): array => ['battler' => $member, 'point' => $this->getTroopBaseIdlePosition($member)], $this->battle->troop->members->toArray());
+    $point = BattleFormationProjection::project($this->battle->formation, $battler, $anchors, -6, max(1, count($battler->image) + 1));
+    $maximum = max(self::TROOP_ZONE_LEFT, $this->getPartyZoneLeft() - self::BATTLE_SIDE_GAP - self::TROOP_STEP_X_OFFSET - max(1, self::getSpriteWidth($battler->image)));
+    return new Vector2((int) clamp($point->x, self::TROOP_ZONE_LEFT, $maximum),
+      (int) clamp($point->y, self::TROOP_ZONE_TOP, max(self::TROOP_ZONE_TOP, $this->height - count($battler->image))));
+  }
+
+  private function getTroopBaseIdlePosition(Enemy $battler): Vector2
   {
     // Reserve the enemy step as well as the party's active positions before fitting art.
     $maximumX = max(self::TROOP_ZONE_LEFT, $this->getPartyZoneLeft() - self::BATTLE_SIDE_GAP
@@ -83,6 +110,89 @@ final class TerminalBattleEffects
   {
     return min(array_map(static fn(Vector2 $position): int => intval($position->x),
       [...$this->positions->idlePositions, ...$this->positions->activePositions]));
+  }
+
+  /**
+   * Where a new troop member stands on the terminal field: the free place
+   * nearest the middle of the troop's zone, so a first member stands in its
+   * middle and later ones gather beside the members already there. A place
+   * is free when the sprite, with the name row above it, fits the zone and
+   * keeps one cell clear of every member's; a row counts as tall as two
+   * columns, as the terminal draws them. With no free place it is the place
+   * the sprite overlaps least, so an author can move it from there.
+   *
+   * @param list<array{position: Vector2, sprite: list<string>}> $members Those standing already.
+   * @param list<string> $sprite The new member's sprite rows.
+   */
+  public function findTroopPlace(array $members, array $sprite): Vector2
+  {
+    $height = max(1, count($sprite));
+    [$left, $top, $right, $bottom] = $this->getTroopZone($sprite);
+    if ($right < $left || $bottom < $top) { return new Vector2($left, max(0, min($top, $this->height - $height))); }
+    $taken = array_map(static fn(array $member): array => self::getTroopFootprint($member['position'], $member['sprite']), $members);
+    $centre = [($left + $right) / 2, ($top + $bottom) / 2];
+    $best = null;
+    for ($y = $top; $y <= $bottom; $y++) {
+      for ($x = $left; $x <= $right; $x++) {
+        $mine = self::getTroopFootprint(new Vector2($x, $y), $sprite);
+        $overlap = array_sum(array_map(static fn(array $other): int => self::getOverlap($mine, $other, 1), $taken));
+        $distance = hypot($x - $centre[0], 2 * ($y - $centre[1]));
+        if ($best === null || [$overlap, $distance] < [$best[0], $best[1]]) { $best = [$overlap, $distance, $x, $y]; }
+      }
+    }
+    return new Vector2($best[2], $best[3]);
+  }
+
+  /**
+   * What an authored terminal position leaves out on the field: the target
+   * badge row above the sprite, the focus marker beside it, the step towards
+   * the party, or the bottom border. The battle still runs, so these are for
+   * authors to correct, not a reason to refuse the troop.
+   *
+   * @param list<string> $sprite The member's sprite rows.
+   * @return list<string> The problems in plain words; empty when the place fits.
+   */
+  public function getTroopPlaceProblems(Vector2 $position, array $sprite): array
+  {
+    [$left, $top, $right, $bottom] = $this->getTroopZone($sprite);
+    [$x, $y] = [intval($position->x), intval($position->y)];
+    return array_values(array_filter([
+      $y < $top ? 'leaves no room above it for its target badge' : null,
+      $x < $left ? 'leaves no room beside it for the focus marker' : null,
+      $x > $right ? 'reaches the party\'s side when it steps forward' : null,
+      $y > $bottom ? 'crosses the bottom of the battlefield' : null,
+    ]));
+  }
+
+  /**
+   * The places a sprite's top-left cell may take: inside the border with the
+   * focus marker beside it and a badge row above it, clear of its step
+   * towards the party.
+   *
+   * @param list<string> $sprite
+   * @return array{int, int, int, int} Left, top, right and bottom, inclusive.
+   */
+  private function getTroopZone(array $sprite): array
+  {
+    return [self::TROOP_ZONE_LEFT, self::TROOP_ZONE_TOP,
+      $this->getPartyZoneLeft() - self::BATTLE_SIDE_GAP - self::TROOP_STEP_X_OFFSET - max(1, self::getSpriteWidth($sprite)),
+      $this->height - 1 - max(1, count($sprite))];
+  }
+
+  /** @return array{int, int, int, int} The cells a member's sprite and name row take: left, top, right and bottom, inclusive. */
+  private static function getTroopFootprint(Vector2 $position, array $sprite): array
+  {
+    $x = intval($position->x);
+    $y = intval($position->y);
+    return [$x, $y - 1, $x + max(1, self::getSpriteWidth($sprite)) - 1, $y + max(1, count($sprite)) - 1];
+  }
+
+  /** The cells two footprints share once each is grown by a margin. @param array{int, int, int, int} $one @param array{int, int, int, int} $two */
+  private static function getOverlap(array $one, array $two, int $margin): int
+  {
+    $width = min($one[2], $two[2] + $margin) - max($one[0], $two[0] - $margin) + 1;
+    $height = min($one[3], $two[3] + $margin) - max($one[1], $two[1] - $margin) + 1;
+    return max(0, $width) * max(0, $height);
   }
 
   public function getTroopAvailableWidth(Vector2 $position): int
@@ -121,7 +231,7 @@ final class TerminalBattleEffects
       'y' => intval($this->origin->y + $position->y) - 1] + $identity;
   }
 
-  /** @return array{x: int, y: int}|null */
+  /** @return array{x: int, y: int, partyIndex?: int, troopIndex?: int}|null */
   public function getAnimationOrigin(CharacterInterface $battler, AnimationTargetPosition $position,
     array $party, array $troop, ?BattleCommandPlayback $playback = null, bool $reducedMotion = false): ?array
   {
@@ -133,11 +243,12 @@ final class TerminalBattleEffects
     if ($anchor === null) { return null; }
     $sprite = $battler instanceof Character ? $battler->images->battle : $battler->image;
     $height = max(1, count($sprite));
+    // The battler's membership travels with its point, for effects that face its opponents.
     return ['x' => $anchor['x'], 'y' => $anchor['y'] + 1 + match ($position) {
       AnimationTargetPosition::HEAD => 0,
       AnimationTargetPosition::FEET => $height - 1,
       default => intdiv($height, 2),
-    }];
+    }] + array_diff_key($anchor, ['x' => true, 'y' => true]);
   }
 
   /** Logical field coordinates are one-based, matching the live field's indicators. */
@@ -190,8 +301,10 @@ final class TerminalBattleEffects
           $casterOrigin = $resolveOrigin($playback->actor, AnimationTargetPosition::CENTER);
           $recipientOrigin = $recipient === null ? null
             : $resolveOrigin($recipient, AnimationTargetPosition::CENTER);
-          $oriented = $screen || $casterOrigin === null || $recipientOrigin === null ? $command
-            : BattleEffectDirection::orientCommand($command, $casterOrigin['x'], $recipientOrigin['x']);
+          $oriented = $screen ? $command : BattleEffectDirection::orientForSubject($command, $casterOrigin['x'] ?? null,
+            $recipientOrigin['x'] ?? null, match (true) {
+              isset($origin['partyIndex']) => true, isset($origin['troopIndex']) => false, default => null,
+            });
           array_push($draws, ...self::getCommandDraws($oriented, $origin));
         }
       }

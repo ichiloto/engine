@@ -25,8 +25,8 @@ final class CombatResolver
       CombatCalibration::HIT_CHANCE_FLOOR,
       CombatCalibration::HIT_CHANCE_CEILING,
     ));
-    $hitRoll = $guaranteed ? null : ($request->hitRollOverride ?? $random->nextInt(1, 100));
-    $hit = $guaranteed || $hitRoll <= $hitChance;
+    $hitRoll = $guaranteed || $request->forcedMissReason !== null ? null : ($request->hitRollOverride ?? $random->nextInt(1, 100));
+    $hit = $request->forcedMissReason === null && ($guaranteed || $hitRoll <= $hitChance);
     $offensive = match ($request->kind) {
       ResolutionKind::PHYSICAL_DAMAGE => $actor->stats->attack,
       ResolutionKind::MAGICAL_DAMAGE => $actor->stats->magicAttack,
@@ -45,7 +45,7 @@ final class CombatResolver
         self::identity($request->actor),
         self::identity($request->target),
         false,
-        'accuracyRoll',
+        $request->forcedMissReason ?? 'accuracyRoll',
         $request->rawMagnitude,
         $request->kind,
         $offensive,
@@ -89,6 +89,11 @@ final class CombatResolver
     $afterCritical = $critical ? $afterMitigation * $request->criticalMultiplier : $afterMitigation;
     $guardApplied = $request->guardEligible && $request->kind->isDamage() && ($request->target->isGuarding ?? false);
     $afterGuard = $guardApplied ? $afterCritical * CombatCalibration::GUARD_FACTOR : $afterCritical;
+    // Protective states (Barrier) scale every hit a guard could block; a rate of 0 blocks it outright.
+    $protection = $request->guardEligible && $request->kind->isDamage() && method_exists($request->target, 'getDamageTakenRate')
+      ? $request->target->getDamageTakenRate()
+      : 1.0;
+    $afterGuard *= $protection;
     $affinity = $request->kind->isDamage()
       ? ElementalAffinityResolver::forTarget($request->target, $request->element)
       : ['outcome' => ElementalOutcome::NORMAL, 'multiplier' => 1.0];
@@ -96,7 +101,7 @@ final class CombatResolver
     $roundedMagnitude = intval(round(abs($resolved), 0, PHP_ROUND_HALF_UP));
 
     if ($request->kind->isDamage() && $affinity['outcome'] !== ElementalOutcome::NULL
-      && $affinity['outcome'] !== ElementalOutcome::ABSORB) {
+      && $affinity['outcome'] !== ElementalOutcome::ABSORB && $protection > 0.0) {
       $roundedMagnitude = max($request->minimumDamage, $roundedMagnitude);
     }
 
@@ -111,9 +116,11 @@ final class CombatResolver
 
     if ($requestedChange < 0) {
       $requestedDamage = abs($requestedChange);
-      $actualLost = min(max(0, $preHp), $requestedDamage);
-      $overkill = max(0, $requestedDamage - max(0, $preHp));
-      $request->target->stats->currentHp = max(0, $preHp - $requestedDamage);
+      // An authored knockout floor holds HP above zero; damage never heals a battler already below it.
+      $floor = min(max(0, $preHp), max(0, $request->target->knockoutFloor));
+      $actualLost = min(max(0, $preHp - $floor), $requestedDamage);
+      $overkill = $requestedDamage - $actualLost;
+      $request->target->stats->currentHp = max($floor, $preHp - $requestedDamage);
     } elseif ($requestedChange > 0) {
       $headroom = max(0, $request->target->stats->totalHp - $preHp);
       $actualRestored = min($headroom, $requestedChange);

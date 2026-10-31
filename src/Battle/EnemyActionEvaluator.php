@@ -2,7 +2,6 @@
 
 namespace Ichiloto\Engine\Battle;
 
-use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\NativeCombatRandomSource;
@@ -19,17 +18,20 @@ use Ichiloto\Engine\Entities\Skills\Skill;
  * RPG-Maker semantics: every pattern whose condition holds (and whose skill
  * the enemy can afford) is a candidate; among candidates, patterns rated
  * within 2 of the best stay in the pool and are picked weighted by
- * `rating - (best - 3)`.
+ * `rating - (best - 3)`. The chosen action rolls with the caller's random
+ * source, so a seeded caller (the battle simulator) replays the same fight.
  *
  * @package Ichiloto\Engine\Battle
  */
 class EnemyActionEvaluator
 {
   /**
-   * Chooses an enemy action and resolves its targets from authored patterns.
+   * Chooses an enemy action and its recipients from authored patterns.
+   * A line action returns its selected anchor; execution resolves the current line around it.
    *
    * The enemy's "enemy" scope points at the player party, while ally scope
-   * points at its own troop. A basic attack is used when no pattern is usable.
+   * points at its own troop. When no pattern is usable the enemy uses its
+   * inherent attack: its authored attackSkill, or the built-in attack.
    *
    * @param CharacterInterface $enemy The acting enemy.
    * @param CharacterInterface[] $partyTargets The player battlers, including KO targets.
@@ -47,6 +49,7 @@ class EnemyActionEvaluator
     int $maxPartyLevel,
     ?callable $switchLookup = null,
     ?CombatRandomSource $random = null,
+    ?\Ichiloto\Engine\Battle\Formation\BattleFormation $formation = null,
   ): array
   {
     $random ??= new NativeCombatRandomSource();
@@ -56,19 +59,19 @@ class EnemyActionEvaluator
       $usable = self::filterUsablePatterns($patterns, $enemy, $roundNumber, $maxPartyLevel, $switchLookup);
       $usable = array_values(array_filter($usable, static fn(ActionPattern $pattern): bool =>
         $pattern->skill instanceof Skill && BattleTargetPolicy::getEligibleTargets(
-          $pattern->skill->scope, $enemy, $troopTargets, $partyTargets) !== []));
+          $pattern->skill->scope, $enemy, $troopTargets, $partyTargets, $formation, $pattern->skill->battleTargeting) !== []));
       $pattern = self::pickPattern($usable, $random);
 
       if ($pattern !== null && $pattern->skill instanceof Skill) {
         return [
-          new SkillBattleAction($pattern->skill),
-          self::resolveTargets($enemy, $pattern->skill, $partyTargets, $troopTargets, $random),
+          new SkillBattleAction($pattern->skill, random: $random),
+          self::resolveTargets($enemy, $pattern->skill, $partyTargets, $troopTargets, $random, $formation),
         ];
       }
     }
 
-    $action = new AttackAction('Attack');
-    $eligible = BattleTargetPolicy::getEligibleTargets($action->targetScope, $enemy, $troopTargets, $partyTargets);
+    $action = InherentAttack::createAction($enemy, random: $random);
+    $eligible = BattleTargetPolicy::getEligibleTargets($action->targetScope, $enemy, $troopTargets, $partyTargets, $formation, $action->targeting);
     return [$action, $eligible === [] ? [] : [$eligible[$random->nextInt(0, count($eligible) - 1)]]];
   }
 
@@ -221,11 +224,13 @@ class EnemyActionEvaluator
     array $partyTargets,
     array $troopTargets,
     CombatRandomSource $random,
+    ?\Ichiloto\Engine\Battle\Formation\BattleFormation $formation = null,
   ): array
   {
     $action = new SkillBattleAction($skill);
-    $pool = BattleTargetPolicy::getEligibleTargets($action->targetScope, $enemy, $troopTargets, $partyTargets);
+    $pool = BattleTargetPolicy::getEligibleTargets($action->targetScope, $enemy, $troopTargets, $partyTargets, $formation, $action->targeting);
     $preferred = $pool === [] ? [] : [$pool[$random->nextInt(0, count($pool) - 1)]];
-    return BattleTargetPolicy::resolveTargets($action->targetScope, $enemy, $troopTargets, $partyTargets, $preferred, $random);
+    if ($action->targeting?->shape === \Ichiloto\Engine\Battle\Formation\BattleTargetShape::LINE) { return $preferred; }
+    return BattleTargetPolicy::resolveTargets($action->targetScope, $enemy, $troopTargets, $partyTargets, $preferred, $random, $formation, $action->targeting);
   }
 }

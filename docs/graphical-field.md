@@ -80,12 +80,21 @@ editing surface is owned by the GUI Editor plan. Related docs:
   every step, across or down, covers one 48-pixel cell in 16/60 s. While a direction is held the
   player keeps walking one committed cell at a time, and the renderer slides
   each character between cells over its step, with the camera following the
-  player. The terminal keeps stepping once per key event, unchanged.
+  player. Each slide follows the one before it at the step's own pace, drawn
+  on whole device pixels. The terminal keeps stepping once per key event,
+  unchanged.
 - As in RPG Maker, what reaching a cell does happens once the player is seen
   to arrive: its touch events, encounter step, save point notice and movement
   observers wait for the slide, so a dialogue, battle or transfer never cuts
   it short. The step itself (position, collision) is committed at once, and a
   step without a slide (the terminal, reduced motion) arrives immediately.
+- A transfer arrives once the renderer shows the new map. A world map streams to
+  the renderer over many ticks while the window still shows the map left behind,
+  so the field holds its time until the renderer acknowledges a frame of the
+  destination world: arrival events (an arrival cinematic), a story session
+  continuing after its transfer and input wait. The terminal, and a map drawn as
+  plain text, never hold. A hold past 30 seconds lets the field go on and is
+  logged as a warning naming the map.
 - A character stands on its one cell: its 48 x 48 frame is bottom-centred
   on the cell and fills it exactly, as in RPG Maker. There are no authored width, height
   or anchor values for field characters, and none are accepted. Field
@@ -97,9 +106,44 @@ editing surface is owned by the GUI Editor plan. Related docs:
   Engine derives the lift from the sheet's name, never from its image, and
   sends it only to renderers advertising `sprite_lift`; other renderers
   place the character on its cell exactly as before.
+- Guidance marks move at display rate. A renderer advertising `sprite_bob`
+  is told a cue's bob once (height and seconds) and draws its rise and fall
+  on its own field clock, every mark and plate on the same curve; the game
+  leaves the bob off under reduced motion. Other renderers receive the
+  whole-pixel rise each frame, as before. An edge marker is pinned to the
+  screen at its exact pixel (cell, lift and pivot). For a renderer
+  advertising `pinned_sprite_motion` it carries the motion of the step the
+  camera scrolls with (or of its moving subject), and the renderer slides it
+  from where it is drawn to its new place on the camera's clock, so it keeps
+  pace with the field instead of jumping when the step is committed.
+- Guidance never moves for a field sprite. While the player's sprite
+  overlaps a mark, the game declares the cue style's overlap opacity to a
+  renderer advertising `sprite_fade`, which eases the whole mark to it at
+  display rate and back when the player moves off; under reduced motion the
+  opacity switches without the fade.
 - Depth is row order: within a draw band, a character in a lower row draws
   in front of one above it, with stable ties. A lift never changes it: a
   character is ordered by its cell, not by where it is drawn.
+- A character in a thicket ([tileset thickets](#tilesets)) is drawn hidden
+  in its foliage, as classic JRPGs hide a walker in a forest or tall grass.
+  The game decides from the cell a character occupies, the cell its step
+  slides it into: the player, NPCs and cinematic cast (`ThicketSubjectInterface`)
+  stand in their cell's foliage; object characters (`!` sheets), world
+  objects, art held on a world object's attachment and guidance do not.
+  Party followers, when the Engine has them, are field characters the same
+  way. It sends the hiding with the sprite (`thicket`: `depth` logical
+  pixels up from the drawn feet, `opacity` of the hidden part, 0 masking it,
+  and a `rustle` naming the retained world layer whose tile in that cell is
+  the foliage) only to renderers advertising `sprite_thicket`; other
+  renderers draw the whole character as before. The renderer changes the
+  hiding along the step's slide: stepping across, each part of the
+  character is hidden by the foliage of the cell it is over, the edge
+  moving with the slide; stepping up or down, it sinks into a thicket or
+  rises out of it over the step. While a character slides through foliage
+  that rustles it parts that cell's own foliage art around it at display
+  rate, closing as the step ends. Under reduced motion the game sends no rustle and steps do not
+  slide, so the hiding changes at once. The terminal, collision, movement
+  speed and encounters never see thickets.
 
 ## Tilesets
 
@@ -110,13 +154,23 @@ editing surface is owned by the GUI Editor plan. Related docs:
 - Autotiles (A1 to A4) compose each tile from 24 x 24 quarter pieces
   according to its neighbours, exactly as RPG Maker does, so edges,
   corners, ends and junctions need no hand-placed variants.
+- A terrain kind may draw its edges on the corners between cells from a
+  corner sheet of its own instead, so diagonals and bends are smooth
+  ([corner-edged kinds](layered-tilemaps.md#corner-edged-kinds),
+  [corner sheet layout](corner-sheets.md)). Its autotile stays the cell's
+  identity.
 - Tile identities follow RPG Maker MZ's numbering (B from 0, C from 256,
   D from 512, E from 768, A5 from 1536, A1 from 2048, A2 from 2816, A3 from
   4352, A4 from 5888), with the autotile shape carried in the identity.
+  `TileId::getPlainTileAt()` and `getPlainTileCell()` map a plain tile to its
+  cell on its sheet's image and back: A5 eight cells across, B to E sixteen
+  across in two halves of eight, the left half's 128 tiles first.
 - RPG Maker's per-tile passage settings do not apply: passage comes from
   the map's shared [physical occupancy](maps.md#physical-occupancy). Only an
   undeclared map uses glyph-keyed compatibility; neither tile selection nor
-  drawing priority changes physical cells. Its "above characters" priority
+  drawing priority changes physical cells. On a map painted in terrain kinds
+  the kind, never its tile, decides: its glyph's collision feeds that same
+  compatibility path. Its "above characters" priority
   is kept as a purely graphical draw band.
 - A tileset may name its missing-art tile (`missingArt`), a plain tile on
   one of its sheets that marks a cell whose art nobody can yet infer. It
@@ -128,6 +182,33 @@ editing surface is owned by the GUI Editor plan. Related docs:
   the band's `width` as a fraction of a cell and its
   `opacity`. Its look belongs to the tileset because it matches that art's
   lighting. A tileset without `shadows` casts none.
+- A tileset may say what its tiles show at ground level (`appearance`), for
+  validation alone: `'appearance' => ['barrier' => ['C', 1544, 7], 'ground'
+  => ['A5']]`. Each class (`ground`, `water`, `barrier`, `overhead`: art
+  over the player or a light decoration that says nothing about the ground)
+  lists whole sheets and flag identities, as shadow casters do. A tile's own
+  entry comes first, then `above` (overhead) and `tables` (barrier), then its
+  sheet's entry, then RPG Maker's sheet kinds: A1 water, A2 ground, A3
+  barrier, A4 ground on its tops and barrier on its wall faces. A5 and B to E
+  hold anything and have no default; a cell showing such a tile is not
+  judged until it is classified. The game ignores `appearance` and it never
+  changes passage ([look and passage](#look-and-passage)).
+- A tileset may declare its thickets (`thickets`), the foliage characters
+  walk through hidden, like RPG Maker's bush flag but per foliage type with
+  its depth: `'thickets' => ['woodland' => ['name' => 'Woodland', 'depth' =>
+  20, 'opacity' => 0.0], 'reeds' => ['name' => 'Reeds', 'depth' => 10,
+  'opacity' => 0.5, 'tiles' => [1544]]]`. `depth` is the field pixels of a
+  character hidden, up from its feet (1 to 48, one cell); `opacity` draws
+  the hidden part masked (0) or see-through (below 1); `rustle` (true unless
+  authored false) parts the foliage around a walker. A terrain kind names
+  the thicket its own autotile is (`'thicket' => 'woodland'`), and a
+  thicket's `tiles` list the flag identities of other tiles that are one;
+  a tile is one thicket, and a kind's autotile is decided by its kind. A
+  character is hidden by the deepest thicket among the tiles its cell
+  shows, the uppermost tile layer's when equally deep, so it hides where
+  foliage art is drawn and nowhere else. A corner-edged kind's art lies on
+  the corners between cells, so its thicket hides without a rustle. Authored
+  in the GUI editor's Database > Tilesets (Thickets, and a kind's Thicket).
 
 ## Graphical map data
 
@@ -164,11 +245,67 @@ editing surface is owned by the GUI Editor plan. Related docs:
   `PASS_THROUGH` is a legacy layer rule, not a final physical cell. Absence
   means no recipe; an explicit null declaration, invalid type or mismatched
   geometry refuses. A connected piece uses one cell independently of its
-  drawn shape. Glyph/art placement never applies this recipe automatically.
-  The GUI edits it through the existing record/source/history service and
-  saves the tileset before selecting it in the Collision tool. An explicit
-  footprint stamp changes only declared map occupancy as one undo step;
-  every non-null cell must fit, including on ragged maps, or nothing changes.
+  drawn shape. Glyph/art placement never applies this recipe automatically:
+  an editor applies it with a placement only when the author asks
+  (`pieces.place` with `footprint`, the GUI's With its collision), in the same
+  undo step, and only on a map with declared occupancy. The GUI edits it
+  through the existing record/source/history service and saves the tileset
+  before selecting it in the Collision tool. An explicit footprint stamp
+  changes only declared map occupancy as one undo step; every non-null cell
+  must fit, including on ragged maps, or nothing changes. Removing a placed
+  copy with its footprint gives those cells the collision the terminal layers
+  left there resolve to, the legacy reading Separate collision captures.
+- **Painted doors.** A stamped piece whose art paints doors, such as a
+  building, declares its `doorway` in the same form as a world object's
+  resource (below): relative x/y cells from its top-left cell with an
+  optional `entrance`. A door entered on its opening (`'on'`, the default)
+  may not be solid in the piece's own `occupancy`. The doorway needs nonzero
+  tiles, by which `MapGraphics::findPieceStamps()` finds every copy standing
+  whole on a map; each copy's doors must meet that map's entrances (see
+  Doorways and entrances). `MapGraphics::findPieceStampsCovering()` answers
+  the same rule for the copies over one cell, which is how editors select a
+  placed building. A connected piece paints no doors.
+- **Terrain kinds.** A tileset may declare `kinds`, the terrain a classic
+  world map is painted in (grassland, woodland, mountains, water), keyed by
+  kind id: a `name`, the gameplay `layer` its `glyph` (one coloured cell) goes
+  on, its autotile `art` (`['layer' => 'ground', 'tile' => 2816]`, or
+  `['awaiting' => true]` while its art is still to be drawn), its `passage`
+  (`walk` or `solid`), its `encounters` terrain, its `atlas` role, for a
+  feature the `ground` kind it stands on, and `keeps`. Each kind is placed
+  through a one-cell piece that writes its glyph and its autotile with its
+  ground's, so it shares every piece behaviour. Only a map that opts in with
+  `'terrainKinds' => true` uses them; there, passage and encounters come from
+  the kinds through the existing collision dictionary or declared occupancy,
+  and a kind's autotile shows what its passage says. The contract, refusals
+  and the collision decision are in the layered tilemaps plan, Stage 7.
+- **Place icons.** A tileset may declare `placeIcons`, the piece a map
+  drawn with it shows for each place type (`Data/place-types.php`, see the
+  maps guide), keyed by type id: `'placeIcons' => ['town' => 'walled-town',
+  'outpost' => 'watchtower']`. Each is one of its own pieces stamped whole
+  with tiles. Validation (`MapPlaceIconRule`) holds the piece over every
+  entrance to its destination's type, so changing a type's piece here is
+  reported at every entrance that still shows the old one.
+- **Stacks.** A tileset may declare `stacks`, tile layers whose tiles
+  overlap, keyed by stack id: `'stacks' => ['relief' => ['layers' =>
+  ['relief-1', 'relief-2', 'relief-3', 'relief-4']]]`, bottom to top. A piece
+  whose tiles go on a stack's first layer stacks. It declares no `effect`,
+  `keeps` or `doorway`. A decoration, such as a peak over a solid mountain
+  kind, has space glyphs and no `occupancy`, so it never changes passage,
+  encounters or atlas roles. An obstacle standing on walkable ground, such as
+  a hill crest's mound, declares its ground footprint like any object: glyphs
+  on a gameplay layer above the terrain kinds, never the kinds' own layer,
+  and the matching `occupancy`. Each of its tiles draws one piece cell, so
+  the objects a cell holds are read back from its tiles. Editors lay
+  each of its tiles into the cell's stack in depth order
+  (`TilesetStack::layTile`): further south by the piece's bottom row, then
+  further east by its centre column, draws in front, as the field orders
+  characters, and a cell holds at most one tile per stack layer. Peaks and
+  hill crests over a world map's mountain and hill kinds are stacked pieces,
+  their art overhanging the footprint into one flank column each side. Each
+  stacked tile belongs to its piece's gameplay layer: a stack whose pieces
+  all name one layer is owned by it, and one whose pieces name several, as
+  the World tileset's peaks (terrain) and hill crests (fixtures) do, belongs
+  to none, so its tiles cover every glyph beneath them.
 - **Independent underlays.** A stamped piece may declare `keeps`, a list of
   tile layers whose existing tiles remain beneath it, for example
   `'keeps' => ['walls']` for a window that can sit on any wall material.
@@ -281,12 +418,14 @@ editing surface is owned by the GUI Editor plan. Related docs:
   and reusable pieces, not terminal glyphs, collision or renderer defaults.
   Intentional voids remain empty. Material changes and inner-corner alpha
   must be inspected together in the composed result.
-- **Layer offsets.** The map data may shift a whole tile layer by half a
-  field cell (half a tile) across or down, like a Tiled layer offset:
-  `'tileLayers' => ['lounge' => ['offset' => [0, -0.5]]]`. Art can then sit
-  between the cells its terminal footprint allows, such as a coffee table
-  centred between a sofa and a television. Offsets are -0.5, 0 or 0.5 and
-  never move collision or events.
+- **Layer offsets.** A tileset declares reusable graphical role offsets with
+  `'layerOffsets' => ['tabletop' => [0, -1 / 3]]`. Maps and palette previews
+  inherit them. An explicit map setting, such as
+  `'tileLayers' => ['tabletop' => ['offset' => [0, 0]]]`, overrides its role's
+  default. Each axis accepts a finite fraction between -0.5 and 0.5 field
+  cells. Composition rounds to source pixels for the current tile size.
+  Offsets move art and graphical shadows while collision, Terminal cells,
+  events and saved coordinates stay in their authored positions.
 - **Tiles belong to a gameplay layer.** Each tile layer belongs to at most
   one gameplay layer, so moving that layer's glyphs in an editor carries its
   tiles in the same cells, moving other layers leaves them, and its tiles
@@ -305,9 +444,15 @@ editing surface is owned by the GUI Editor plan. Related docs:
   The engine resolves them from neighbouring cells of the same kind for
   authoring tools, and composes each shape from quarter tiles when
   presenting. Map edges count as the same kind, as in RPG Maker.
-- **Draw bands.** Tile layer `NN` draws at `-100 + NN`, the same band as the
-  terminal layers, below characters. Tiles listed in `above` draw at
-  `900 + NN`, above characters and below the interface.
+- **Draw bands.** `PresentationLayerPolicy` owns every band. Tile layer
+  `NN` draws at `-100 + NN`, the same band as the terminal layers, below
+  characters. Tiles listed in `above` draw at `900 + NN`, above characters.
+  An order is two digits, so the highest tile any map can author draws at
+  999, inside the field world. Field guidance (the action prompt, event and
+  NPC cues, quest waymarks and their edge markers) has its own band from
+  1000, over every map layer and character whatever the map's tiles, and
+  the interface starts at 1100. Characters, world objects, signs and field
+  effects are refused in the guidance band.
 - **Glyph fallback.** A cell shows the terminal glyph of the gameplay layer
   that owns it, the topmost one with a glyph there, unless a tile of its own
   covers that layer: a tile of a tile layer that belongs to that gameplay
@@ -340,6 +485,23 @@ editing surface is owned by the GUI Editor plan. Related docs:
 - **Animation.** A1 water cycles RPG Maker's frames (water 0, 1, 2, 1;
   waterfalls 0, 1, 2) on one counter advancing every 30/60 seconds, as
   RPG Maker does. Reduced motion holds the first frame.
+- **Compact wire rows.** A peer advertising `world_row_runs` accepts repeated
+  owner cells and contiguous identical tile spans as runs. Every glyph, style,
+  owner, tile and gap expands to the same ordinary cells under the same limits.
+  Streaming chooses the smaller encoding per row; older peers keep ordinary
+  rows. This reduces large-map transfer bytes without changing map geometry,
+  source state, artwork or arrival ownership.
+- **Compilation reuse.** Immutable authored layer grids, parsed tile grids and
+  compiled worlds share a process-local cache capped at 512 KiB of compressed
+  snapshots and 32 entries. Live objects have weak references, so leaving a map
+  releases its expanded memory. A snapshot can expand to at most 64 MiB. Lookups
+  read current source bytes, complete presentation inputs and current artwork
+  bytes; same-size edits with unchanged timestamps still invalidate reuse.
+  Artwork hashes are internal invalidation facts and impose no identity or
+  admission requirement on replaceable art. Data PHP, events, NPCs and gameplay
+  state are loaded fresh. A changed or evicted map compiles normally; first
+  preparation and native arrival remain synchronous, so reuse does not promise
+  an instant first visit to a large map.
 - **Retained upload.** The world carries the cell size, and the tileset:
   its sheets, tile size and a catalog of the tile identities the map uses,
   each as frames of pieces copied from a sheet into the tile. Tile layers
@@ -374,6 +536,30 @@ trunk base), and an existing `sprites2d` draw role. An optional authoring-only
 `CollisionType` cases; `PASS_THROUGH`, duplicate offsets and more than 256 cells
 refuse. Omission means no recipe, not inferred collision.
 
+An optional `doorway` names, as a list of 1..16 distinct relative x/y cells
+from a placement's anchor, where the artwork paints a door, and for each one
+where its entrance lies (`entrance`, a `DoorwayEntrance` value). `'on'`, the
+default, is an opening the player walks onto, such as a cave mouth or an open
+archway. `'front'` is a door painted on a solid face, such as an overworld
+town's, entered RPG Maker style from the walkable cell directly in front of
+it, below it on the map. Any other value refuses. It describes the art; the
+authored map stays authoritative, so the art conforms to the map's entrances
+and never the reverse (see Doorways and entrances below). Omission declares
+no door.
+
+Optional `attachments` name features of the artwork where visuals attach,
+such as an aerial a signal pulses on: a list of 1..16 entries with a stable
+lowercase `id`, the terminal `cell` that shows the feature, as x/y relative
+to a placement's anchor, and its `point` on the artwork, normalized x/y in
+0..1 of the drawn image like the pivot. A staged visual placed on one
+(`at` with `attachment`, see Cinematics) shows on the cell in the terminal
+and is centred on the point of the object's current art in the graphical
+field. Replacing or re-cropping the art means updating the point once in the
+resource; every visual on the feature follows, and no event or cinematic
+holds a cell or pixel for it. While the object draws no art, the cell
+presents the visual in the graphical field too. Effects on map ground stay
+cell-anchored.
+
 ```php
 // Data/Presentation/field.php (asset-root-relative)
 return ['resources' => [
@@ -384,6 +570,9 @@ return ['resources' => [
       'cells' => ['width' => 3, 'height' => 4]],
     'occupancyStamp' => [['x' => 0, 'y' => 0,
       'type' => \Ichiloto\Engine\Events\Enumerations\CollisionType::SOLID]],
+    'doorway' => [['x' => 0, 'y' => 0, 'entrance' => 'front']],
+    'attachments' => [['id' => 'chimney', 'cell' => ['x' => 1, 'y' => -2],
+      'point' => ['x' => 0.8, 'y' => 0.1]]],
   ],
 ]];
 
@@ -455,8 +644,9 @@ optional `marker`, exact `cells`, authored `path` and `hint`. These are readines
 errors; drafts remain saveable. A graphical project passes `requiresGraphics:
 true`; a Terminal-only game needs no graphical assets.
 
-`validateEvents`, `validateChestReward` and `validateCoverage` are the narrow
-entry points used by inspectors. `validate` combines them without a running
+`validateEvents` (event areas, definitions and speakers), `validateDoorways`,
+`validateChestReward` and `validateCoverage` are the narrow entry points used
+by inspectors. `validate` combines them without a running
 scene or global configuration. `MapEventResolver::inspect` retains all area and
 subject defects; runtime `MapSourceReader::resolveEvents` requires that result
 to be valid. Coverage uses the Engine's tile ownership, current image admission
@@ -474,8 +664,69 @@ the old behavior that could complete an empty chest, debit gold or truncate a
 fractional amount. The chest stays closed and reports its existing player-safe
 message, with detailed `chest.reward` diagnostics in the log.
 
+### Doorways and entrances
+
+`MapDoorwayRule` (rule `object.doorway`, part of `validate`) keeps entrances
+visible. An entrance is a `TransferPlayerTrigger` event. A world object draws
+over anything standing on its covered cells in rows above its anchor row, its
+ground row, since the field orders subjects by ground row. So an entrance
+cell inside an object's `covers` above that row is an error: the player would
+vanish under the art there. A placement whose resource declares a `doorway`
+must meet an entrance exactly as each door declares: on the door cell for
+`'on'`, and on the cell below it for `'front'`, whose door cell itself must
+hold no entrance. A door drawn one cell off in any direction reports. Each
+copy of a tileset piece that declares a `doorway` and stands whole on the
+map's tiles is held to the same rule; a stamped piece is always drawn, so any
+entrance meets it whatever its conditions. Both
+read authored cells only. Image size, pixels and draw layers decide nothing, an object without
+`covers` claims only its anchor, and overhang above open floor or ordinary
+events stays legal. An object and an entrance whose conditions provably never
+hold together (`WorldConditionExclusion`) do not meet. The fix moves the
+entrance to the front of the art, or the art to the entrance; never a raised
+layer, a blocker derived from the image or a moved collision cell.
+
+### Look and passage
+
+`MapPassageAgreementRule` (rules `passage.invisible-wall`,
+`passage.walk-through`, `passage.footprint` and `passage.unjudged`, through
+`MapCompletenessValidator::validatePassageAgreement`) compares what a map with
+graphics shows with what its collision lets the player do, cell by cell.
+Collision is read through `MapCollisionResolver::resolveMap`, so declared
+occupancy and glyph-keyed compatibility are judged alike; graphics stay
+independent of it, and nothing here changes either. It warns about:
+
+- a solid cell that shows only walkable ground: no obstacle tile, no art drawn
+  over the player and no world object art standing in its middle;
+- a walkable cell whose topmost ground-claiming tile is water or a barrier, or
+  that a world object's opaque art covers by at least 60% on the object's
+  ground rows;
+- a world object whose art covers less than half of its solid cells' area and
+  leaves some of them bare. Its solid cells are its `covers` cells and its
+  resource's `occupancyStamp`, where collision blocks movement, without its
+  painted doorway. A slender post standing in its cell leaves nothing bare.
+
+Art covers a cell when it stands in the cell's middle, where the player stops
+(opaque pixels in the central quarter of its columns on a quarter of its
+rows), so a sliver of a building along a cell's edge is not taken for the
+building. Coverage is read from the current PNG each time, placed as the field
+draws the object; nothing about the image is stored, so replacing it needs no
+update. A tile's class comes from its tileset's `appearance`. A cell is not
+judged when what it shows is unknown: an unclassified tile, a terminal glyph
+still showing, an NPC, or art that cannot be read (`passage.unjudged`).
+Entrances and painted doorways belong to the doorway rule above, art above an
+object's top ground row is ordinary overhang, a conditional object's art does
+not count as shown (it is absent at times), and a walkable pocket walled in on
+every side with no event or NPC in it, as a terminal map draws a wall's face,
+is never walked through. A tile layer drawn half a cell off counts as an
+obstacle over every cell it overlaps but never makes a cell a walk-through.
+
+Findings are warnings: artists own composition, so a map with them plays,
+saves and loads unchanged. The Editor reports them in validation and the GUI
+editor's collision view marks every cell (see the Editor manual).
+
 These checks resolve declared identities and cells. They cannot infer an
-inspection subject or a local speaker from dialogue prose. Story referents and
+inspection subject or a local speaker from dialogue prose; speakers are
+declared on the event (see [maps](maps.md#event-speakers)). Story referents and
 mandatory quest approach contracts require explicit authored references and a
 content audit; they are not silently treated as verified by this API.
 An unavailable placement removes its presentation override, restoring any
