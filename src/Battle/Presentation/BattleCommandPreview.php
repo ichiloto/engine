@@ -25,7 +25,7 @@ final class BattleCommandPreview
   public function __construct(BattleConfig $battle, public readonly BattleCommandTimeline $plan,
     private readonly CharacterInterface $actor, private readonly array $targets,
     private readonly BattlePoseRole $pose, ?BattlePresentationCatalog $catalog = null, string $assetRoot = '',
-    public readonly EffectPresentation $presentation = EffectPresentation::GRAPHICAL)
+    public readonly EffectPresentation $presentation = EffectPresentation::GRAPHICAL, ?GraphicalBattlePresentation $graphical = null)
   {
     $participants = [...$battle->partyRoster->battlers, ...$battle->troop->members->toArray()];
     if (!in_array($actor, $participants, true) || $targets === []
@@ -36,7 +36,7 @@ final class BattleCommandPreview
       throw new InvalidArgumentException('A graphical battle preview requires its presentation catalog.');
     }
     $this->graphical = $presentation === EffectPresentation::TERMINAL ? null
-      : GraphicalBattlePresentation::prepare($battle, $catalog, $assetRoot);
+      : ($graphical ?? GraphicalBattlePresentation::prepare($battle, $catalog, $assetRoot));
     $this->terminal = new TerminalBattlePresentation($battle, conditionEffects: BattleConditionEffects::createFromConfig(
       new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($assetRoot === '' ? getcwd() . '/assets' : $assetRoot)));
     $this->terminalComposer = new TerminalPresentationComposer();
@@ -60,6 +60,9 @@ final class BattleCommandPreview
     // Traversal preserves phase/cue order, but its callbacks have no game or audio side effects.
     $playback = new BattleCommandPlayback($this->plan, $this->actor, $this->targets, $this->pose,
       static function (): void {}, static function (array $cue) use (&$cues): void { $cues[] = $cue; });
+    if ($this->plan->travel !== null && !$this->plan->travel->isPossible) {
+      $playback->recordPresentationFailure(new \RuntimeException('Battle run-to-target could not reach contact: ' . $this->plan->travel->failure->value));
+    }
     $playback->begin();
     $seconds = $frame / BattleCommandTimeline::FPS;
     $playback->update($seconds);

@@ -37,7 +37,7 @@ use Ichiloto\Engine\Cutscenes\Presentation\CinematicStagePresentation;
 /** Holds identity/layout, not combat state. Generating a frame has no gameplay effects. */
 final class GraphicalBattlePresentation
 {
-  /** @var array<int, array{battler: CharacterInterface, party: bool, image: CanvasImage, art: BattlerArtwork, available: bool, poses: ?BattlePoseSet, scale: ?BattlerScale, grounding: ?BattlerGrounding, habitat: ?EnemyHabitat}> */
+  /** @var array<int, array{battler: CharacterInterface, party: bool, image: CanvasImage, art: BattlerArtwork, available: bool, poses: ?BattlePoseSet, scale: ?BattlerScale, grounding: ?BattlerGrounding, habitat: ?EnemyHabitat, strikePoint: ?BattlerStrikePoint}> */
   private array $participants = [];
   private array $poseDiagnostics = [];
   private array $compositionDiagnostics = [];
@@ -109,6 +109,77 @@ final class GraphicalBattlePresentation
   public function getPose(CharacterInterface $battler, BattlePoseRole $role): ?BattlerPose
   {
     return ($this->participants[spl_object_id($battler)]['poses'] ?? null)?->getPose($role);
+  }
+
+  /** Snapshots current drawn geometry once; the same planner serves runtime and Editor inspection. */
+  public function planActionTravel(CharacterInterface $actor, array $targets, \Ichiloto\Engine\Battle\BattleAction $action,
+    float $poseElapsedSeconds = 0, bool $imageFlips = true): BattleTravelPlan
+  {
+    \Ichiloto\Engine\Animations\ActionMovement::RUN_TO_TARGET->validateAction($action, $actor, $targets);
+    $target = $targets[0];
+    $sourceId = spl_object_id($actor); $targetId = spl_object_id($target);
+    $source = $this->participants[$sourceId] ?? throw new RuntimeException('Travel source is absent from the battlefield.');
+    $recipient = $this->participants[$targetId] ?? throw new RuntimeException('Travel target is absent from the battlefield.');
+    if ($source['party'] === $recipient['party']) { throw new \InvalidArgumentException('Melee travel requires opposing sides.'); }
+    $canvas = $this->frame(new BattlePresentationSnapshot(poseElapsedSeconds: $poseElapsedSeconds), reducedMotion: false);
+    $images = [];
+    foreach ($this->participants as $id => $participant) {
+      $image = array_find($canvas->images, static fn(CanvasImage $image): bool => $image->id === 'combatant-' . $id);
+      if ($image === null) { continue; }
+      $body = PngAssetBounds::getVisibleBounds($this->assetRoot, $image)['bounds'];
+      if ($body === null) { continue; }
+      $slot = $this->getSlot($participant['battler']);
+      $images[$id] = ['image' => $image, 'body' => $body, 'foot' => new Vector2($slot->x, $slot->y)];
+    }
+    if (!isset($images[$sourceId], $images[$targetId])) { throw new RuntimeException('Travel needs current visible source and target artwork.'); }
+    $from = $images[$sourceId]; $to = $images[$targetId];
+    $sign = $to['foot']->x === $from['foot']->x ? BattleEffectDirection::getOpponentsSign($source['party'])
+      : ($to['foot']->x < $from['foot']->x ? -1 : 1);
+    $mirror = $sign !== BattleEffectDirection::getOpponentsSign($source['party']);
+    if ($mirror && !$imageFlips) { throw new RuntimeException('This renderer cannot keep the travelling battler facing its target.'); }
+    $body = $from['body'];
+    if ($mirror) { $body = new CanvasRectangle(2 * $from['foot']->x - $body->x - $body->width, $body->y, $body->width, $body->height); }
+    $footing = BattleFormationClearance::getFooting($body);
+    $unit = $this->scale === null || $source['scale'] === null ? $body->height
+      : $this->scale->referenceHeight * $source['scale']->relativeSize * $this->getSlot($actor)->displayScale;
+    $pose = $source['poses']?->getPose(BattlePoseRole::getForAction($action));
+    $reach = $pose?->reach?->getCanvasOffset($unit) ?? new Vector2(
+      max(0, $sign < 0 ? $from['foot']->x - $body->x : $body->x + $body->width - $from['foot']->x), 0);
+    // Every authored movement/action cell fits the arena, while only the standing footing occupies ground.
+    $envelope = $this->getTravelEnvelope($actor, $body, $mirror, BattlePoseRole::getForAction($action));
+    $strike = $recipient['strikePoint']?->getCanvasPosition($to['body'], $to['image']->flipX, $to['image']->flipY);
+    return BattleTravelPlanner::plan(new BattleTravelSubject($from['foot'], $envelope, $footing),
+      new BattleTravelSubject($to['foot'], $to['body'], BattleFormationClearance::getFooting($to['body'])),
+      $this->layout->battlerArea ?? new CanvasRectangle(0, 0, $this->layout->width, $this->layout->getHudTop()),
+      $reach, array_values(array_map(static fn(array $entry): CanvasRectangle => BattleFormationClearance::getFooting($entry['body']),
+        array_diff_key($images, [$sourceId => true, $targetId => true]))), $strike,
+      $this->layout->advanceSpeed, $this->layout->returnSpeed, $sign);
+  }
+
+  private function getTravelEnvelope(CharacterInterface $actor, CanvasRectangle $body, bool $mirror, BattlePoseRole $role): CanvasRectangle
+  {
+    $participant = $this->participants[spl_object_id($actor)];
+    $slot = $this->getSlot($actor);
+    $base = $this->placeBaseArtwork($slot, $participant['art'], $participant['poses'], spl_object_id($actor), $participant['scale']);
+    $pixelScale = $base->width / $participant['art']->width / $slot->displayScale;
+    $left = $body->x; $top = $body->y; $right = $left + $body->width; $bottom = $top + $body->height;
+    foreach (array_unique([$role->value, BattlePoseRole::MOVE->value, BattlePoseRole::RETURNING->value]) as $key) {
+      $pose = $participant['poses']?->getPose(BattlePoseRole::from($key));
+      if ($pose === null) { continue; }
+      foreach (array_keys(array_unique($pose->frames)) as $entry) {
+        $art = $pose->getArtwork($this->assetRoot, $entry / $pose->fps);
+        if ($art === null) { throw new RuntimeException('Travel pose artwork is unavailable: ' . $pose->asset); }
+        $bounds = BattleFormationLayout::getPosePlacement($slot, $art, $pixelScale, $this->layout,
+          $participant['scale'], $this->scale, $pose->scaleSpan, $participant['poses']);
+        if ($mirror) { $bounds = new CanvasRectangle(2 * $slot->x - $bounds->x - $bounds->width, $bounds->y, $bounds->width, $bounds->height); }
+        $visible = PngAssetBounds::getVisibleBounds($this->assetRoot, new CanvasImage('travel-envelope', $art->asset,
+          $bounds, sourceRect: $art->sourceRect, flipX: $mirror))['bounds'];
+        if ($visible === null) { throw new RuntimeException('Travel pose has no visible body.'); }
+        $left = min($left, $visible->x); $top = min($top, $visible->y);
+        $right = max($right, $visible->x + $visible->width); $bottom = max($bottom, $visible->y + $visible->height);
+      }
+    }
+    return new CanvasRectangle($left, $top, $right - $left, $bottom - $top);
   }
 
   /** Where a participant stands: its frontline slot, or its troop place on this arena's ground. */
@@ -225,7 +296,8 @@ final class GraphicalBattlePresentation
           'image' => new CanvasImage('combatant-' . $identity, $art->asset, new CanvasRectangle(0, 0, 1, 1), 100, $art->sourceRect),
           'art' => $art, 'available' => $available, 'poses' => $poses, 'scale' => $profile,
           'grounding' => ($party ? $catalog->actorGrounding : $catalog->enemyGrounding)[$key] ?? null,
-          'habitat' => $member instanceof Enemy ? $member->habitat : null];
+          'habitat' => $member instanceof Enemy ? $member->habitat : null,
+          'strikePoint' => ($party ? $catalog->actorStrikePoints : $catalog->enemyStrikePoints)[$key] ?? null];
       }
     }
     if ($layout->partySlots !== [] && count($battle->partyRoster->battlers) > count($layout->partySlots)) {
@@ -354,7 +426,7 @@ final class GraphicalBattlePresentation
     $groundAnchors = [];
     $partySides = [];
     $protectedCombatants = [];
-    foreach ($this->getDrawOrder($frontline, $enemies) as $identity => $participant) {
+    foreach ($this->getDrawOrder($frontline, $enemies, $playback, $reducedMotion) as $identity => $participant) {
       $battler = $participant['battler'];
       $image = $participant['image'];
       $index = array_search($battler, $participant['party'] ? $frontline : $enemies, true);
@@ -416,20 +488,24 @@ final class GraphicalBattlePresentation
       $contact = BattlerGroundContact::getContact($participant['grounding'], $participant['habitat'], $elevation, $shownPose);
       [$bounds, $clip] = BattlerGroundContact::place($bounds, BattlerGroundContact::getOffset($elevation, $slot, $this->scale),
         $slot->y, $this->layout);
-      $advance = !$reducedMotion && $playback?->actor === $battler ? $playback->getAdvanceFraction() : 0;
+      $travel = !$reducedMotion && $playback?->actor === $battler ? $playback->plan->travel : null;
+      $mirror = $travel?->isPossible && $travel->facingSign !== BattleEffectDirection::getOpponentsSign($participant['party']);
+      if ($mirror) { $bounds = new CanvasRectangle(2 * $slot->x - $bounds->x - $bounds->width, $bounds->y, $bounds->width, $bounds->height); }
+      $offset = $travel !== null ? $playback->getTravelOffset() : new Vector2(0, 0);
+      $advance = $travel === null && !$reducedMotion && $playback?->actor === $battler ? $playback->getAdvanceFraction() : 0;
       $recoil = ($playback?->getRecoilFraction($battler, $reducedMotion) ?? 0)
         + ($playback?->getShakeFraction($battler, $reducedMotion) ?? 0);
       $unmovedX = $bounds->x;
       $unmovedY = $bounds->y;
-      $bounds = new CanvasRectangle(clamp($bounds->x + $slot->width * $recoil
+      $bounds = new CanvasRectangle(clamp($bounds->x + $offset->x + $slot->width * $recoil
         + BattleEffectDirection::getOpponentsSign($participant['party']) * $slot->width * .25 * $advance,
         0, max(0, $this->layout->width - $bounds->width)),
-        clamp($bounds->y, 0, max(0, $this->layout->height - $bounds->height)), $bounds->width, $bounds->height);
+        clamp($bounds->y + $offset->y, 0, max(0, $this->layout->height - $bounds->height)), $bounds->width, $bounds->height);
       $groundAnchors[$identity] = new Vector2($slot->x + ($bounds->x - $unmovedX), $slot->y + ($bounds->y - $unmovedY));
       $partySides[$identity] = $participant['party'];
       $image = new CanvasImage($image->id, $art->asset, $bounds, $image->layer, $art->sourceRect,
-        $image->opacity, $clip === null ? null : new CanvasRectangle($bounds->x, $clip->y, $bounds->width, $clip->height),
-        $image->brightness, $image->flipX, $image->flipY);
+        $image->opacity, $clip === null ? null : new CanvasRectangle($bounds->x, $clip->y + $offset->y, $bounds->width, $clip->height),
+        $image->brightness, $mirror ? !$image->flipX : $image->flipX, $image->flipY);
       // Overlays attach to the body as drawn this frame, following steps, recoil, shake and pose changes.
       $bodies[$identity] = $participant['available'] ? $this->locateBody($image, $identity) : $image->destination;
       $popups = array_filter($feedback, static fn(array $popup) => $popup['battler'] === $battler);
@@ -584,11 +660,16 @@ final class GraphicalBattlePresentation
    *
    * @return array<int, array> Identity => participant.
    */
-  private function getDrawOrder(array $frontline, array $enemies): array
+  private function getDrawOrder(array $frontline, array $enemies, ?BattleCommandPlayback $playback = null, bool $reducedMotion = false): array
   {
     $standing = array_filter($this->participants, static fn(array $participant): bool =>
       in_array($participant['battler'], $participant['party'] ? $frontline : $enemies, true));
-    $order = BattleStaging::getDrawOrder(array_map(fn(array $participant): BattlerSlot => $this->getSlot($participant['battler']), $standing));
+    $order = BattleStaging::getDrawOrder(array_map(function (array $participant) use ($playback, $reducedMotion): BattlerSlot {
+      $slot = $this->getSlot($participant['battler']);
+      if ($reducedMotion || $playback?->actor !== $participant['battler'] || $playback->plan->travel === null) { return $slot; }
+      $offset = $playback->getTravelOffset();
+      return new BattlerSlot($slot->x + $offset->x, $slot->y + $offset->y, $slot->width, $slot->height, $slot->displayScale);
+    }, $standing));
     return array_combine($order, array_map(static fn(int $identity): array => $standing[$identity], $order));
   }
 

@@ -11,6 +11,8 @@ final class Animation
 {
   /** @var list<string> Explicit command defaults, independent of display names. */
   public readonly array $roles;
+  /** Declared default also preserves historical serialized animation objects. */
+  public ActionMovement $movement = ActionMovement::STEP;
   /**
    * @var array<int, AnimationFrame> $frames
    */
@@ -44,6 +46,7 @@ final class Animation
     public ?string $targetEffect = null,
     array $roles = [],
     public SourceEffectAnchor $sourceEffectAnchor = SourceEffectAnchor::SOURCE,
+    ActionMovement $movement = ActionMovement::STEP,
   )
   {
     if (!array_is_list($roles) || count($roles) !== count(array_unique($roles, SORT_REGULAR))) {
@@ -57,6 +60,7 @@ final class Animation
       $validatedRoles[] = $role;
     }
     $this->roles = $validatedRoles;
+    $this->movement = $movement;
     foreach ([$sourceEffect, $targetEffect] as $effect) {
       if ($effect !== null) { \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary::assertId($effect); }
     }
@@ -111,6 +115,7 @@ final class Animation
       $data['roles'] ?? [],
       array_key_exists('sourceEffectAnchor', $data)
         ? SourceEffectAnchor::from($data['sourceEffectAnchor']) : SourceEffectAnchor::SOURCE,
+      ActionMovement::readAnimation($data),
     );
   }
 
@@ -246,6 +251,7 @@ final class Animation
       ...($this->targetEffect === null ? [] : ['targetEffect' => $this->targetEffect]),
       ...($this->sourceEffectAnchor === SourceEffectAnchor::SOURCE ? [] : ['sourceEffectAnchor' => $this->sourceEffectAnchor->value]),
       ...($this->roles === [] ? [] : ['roles' => $this->roles]),
+      ...($this->movement === ActionMovement::STEP ? [] : ['movement' => $this->movement->value]),
       'frames' => array_map(
         static fn(AnimationFrame $frame): array => $frame->toArray(),
         $this->getFrames()

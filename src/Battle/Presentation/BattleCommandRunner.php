@@ -52,6 +52,7 @@ final class BattleCommandRunner
     bool $resultsOnly = false,
     float $targetScale = \Ichiloto\Engine\Animations\EffectScale::DEFAULT,
     \Ichiloto\Engine\Animations\SourceEffectAnchor $sourceEffectAnchor = \Ichiloto\Engine\Animations\SourceEffectAnchor::SOURCE,
+    \Ichiloto\Engine\Animations\ActionMovement $movement = \Ichiloto\Engine\Animations\ActionMovement::STEP,
   ) {
     $this->formatResult = Closure::fromCallable($formatResult);
     $this->presentCue = Closure::fromCallable($presentCue);
@@ -59,12 +60,25 @@ final class BattleCommandRunner
       $this->previousVitals[spl_object_id($battler)] = [$battler->stats->currentHp, $battler->stats->currentMp];
     }
     $pose = $resultsOnly ? BattlePoseRole::getRestingRole($actor) : BattlePoseRole::getForAction($action);
+    $travel = null;
+    $travelFailure = null;
+    if (!$resultsOnly && !Accessibility::prefersReducedMotion() && $this->context->ui->usesGraphicalField()
+      && $movement === \Ichiloto\Engine\Animations\ActionMovement::RUN_TO_TARGET && $action !== null) {
+      try { $travel = $this->context->ui->planActionTravel($actor, $targets, $action); }
+      catch (\InvalidArgumentException|\RuntimeException $error) {
+        $travelFailure = $error;
+        $travel = new BattleTravelPlan([], 0, 0, 1, 600, 900, BattleTravelFailure::PRESENTATION_UNAVAILABLE);
+      }
+      if ($travel !== null && !$travel->isPossible) {
+        $travelFailure ??= new \RuntimeException('Battle run-to-target could not reach contact: ' . $travel->failure->value);
+      }
+    }
     $this->playback = new BattleCommandPlayback(new BattleCommandTimeline($timings, $source, $target, $terminalTarget, $resultsOnly,
       showAnnouncement: $announcement !== '', targetScale: $targetScale, sourceEffectAnchor: $sourceEffectAnchor,
       actionPose: $resultsOnly ? null : $this->context->ui->getActionPose($actor, $pose),
       movementPoses: !$resultsOnly && !\Ichiloto\Engine\UI\Accessibility::prefersReducedMotion()
         && ($this->context->ui->getActionPose($actor, BattlePoseRole::MOVE) !== null
-          || $this->context->ui->getActionPose($actor, BattlePoseRole::RETURNING) !== null)),
+          || $this->context->ui->getActionPose($actor, BattlePoseRole::RETURNING) !== null), travel: $travel),
       $actor, $targets, $pose,
       function () use ($resolve): void {
         if (($refusal = $this->getExecutionRefusal()) !== null) {
@@ -78,6 +92,7 @@ final class BattleCommandRunner
         $result = $this->action?->lastResult;
         $this->commandResult = $result !== $previousResult ? $result : null;
       }, $this->handleCue(...), EnemyDefeatStyle::createFromConfig());
+    if ($travelFailure !== null) { $this->playback->recordPresentationFailure($travelFailure); }
   }
 
   public function begin(): void

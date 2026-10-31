@@ -46,8 +46,14 @@ readonly class BattleCanvasLayout
     public ?BattlerShadowStyle $shadow = null,
     public float $airElevation = 0.0,
     public BattleContactEffects $contactEffects = new BattleContactEffects(),
+    /** Logical canvas units per second, independent of action/effect pacing. */
+    public float $advanceSpeed = 600.0,
+    public float $returnSpeed = 900.0,
   ) {
     new PresentationCanvas($width, $height);
+    if (!is_finite($advanceSpeed) || $advanceSpeed <= 0 || !is_finite($returnSpeed) || $returnSpeed <= 0) {
+      throw new InvalidArgumentException('Battle travel speeds must be finite and positive.');
+    }
     $feedbackArea?->assertWithin($width, $height);
     $battlerArea?->assertWithin($width, $height);
     $enemyArea?->assertWithin($width, $height);
@@ -105,6 +111,6 @@ readonly class BattleCanvasLayout
       : new self($this->width, $this->height, $this->uiGrid->cellWidth, $this->uiGrid->cellHeight,
         $arena->skin, $this->feedbackArea, $this->partySlots, $this->battlerArea, $this->enemyArea, $this->partyArea,
         $this->ground, $this->groundGap, $this->spacing, $this->shadow, $this->airElevation,
-        $this->contactEffects);
+        $this->contactEffects, $this->advanceSpeed, $this->returnSpeed);
   }
 }

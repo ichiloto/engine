@@ -1235,7 +1235,7 @@ use the existing image/sheet/frame/fps/pivot/scale contract and carry no impact
 anchor. `move` loops throughout advance. A non-looping `return` spans the entire
 return phase once, fitting its frame entries to that phase duration. A looping
 return remains supported for other authored movement styles. A separate return sheet owns its
-backward-step or opposite-facing artwork; without one, return uses `move`.
+backward-hop artwork; the battler keeps facing its target throughout travel. Without a return pose, return uses `move`.
 Missing movement artwork retains the existing resting presentation.
 
 The command runner selects these roles for graphical movement. Each phase starts
@@ -1252,3 +1252,40 @@ Impact, announcement and effect cue times remain unchanged. Callers creating a
 command timeline outside the normal runner opt in with `movementPoses: true`
 when they have movement roles and normal graphical motion enabled. Actors with
 no movement role keep the existing overlapping return/completion timing.
+
+
+### Run-to-target action bindings
+
+An animation binding may author `movement: 'run-to-target'`; omission keeps
+`step`. Bind separate single-target melee actions and area/ranged actions to
+separate animation records, reusing their effect timelines. Selection still uses
+`ActionAnimationResolver`; movement does not change skill identity, targeting,
+resources, damage or saves. Single enemy scope and scope-shaped targeting are
+required; magic, items, line/area actions and ranged basic attacks retain `step`.
+
+`BattlerPose::reach` (`reach: ['x' => ..., 'y' => ...]`) describes forward and
+canvas-down contact offsets from the feet in standing-body units. The current
+reference height, actor body profile and slot depth convert that unit to canvas
+coordinates; without reference calibration, the current visible standing height
+supplies the unit. Omitted reach uses the standing body's forward edge at foot
+height. Per-battler `strikePoint` uses normalized coordinates within the current
+visible target body, following drawn mirroring. Omission uses its near visible
+edge. Both values belong to the existing battler binding and Editor controls.
+
+Before graphical playback, current formation anchors, decoded visible bodies
+and `BattleFormationClearance::getFooting()` produce one `BattleTravelPlan`.
+Its continuous route avoids other ground footings and the target footing;
+its arena envelope includes every authored action/run/return cell. Outbound
+and return traverse the same path by arc length. `BattleCanvasLayout` owns
+configurable `advanceSpeed` and `returnSpeed` in logical canvas units per second
+(default 600/900). Their distance-based phases round up to command frames.
+The action's impact cue and full recovery follow the approach; combat resolves
+once through the existing lane. Drawing, depth order, ground effects and body
+attachments follow the travel offset. Logical formation and saved positions stay
+with gameplay. Return retains target-facing artwork and its one-shot phase clock.
+
+An impossible exact contact reports a presentation failure and plays the command
+in place. It never substitutes another stopping point or a short step. Reduced
+motion skips travel, and Terminal keeps its existing command clock. The Editor's
+battle-effect preview prepares the same geometry and plan, with source-preserving
+movement/reach/strike-point editing, undo and validated saves.

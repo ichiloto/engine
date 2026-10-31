@@ -177,6 +177,18 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     return \Ichiloto\Engine\Animations\Timelines\EffectSegmentComposition::compose($segments, $presentation);
   }
 
+  /** Ground-anchor displacement on the command clock; returning retraces the outbound route without turning. */
+  public function getTravelOffset(): \Ichiloto\Engine\Core\Vector2
+  {
+    $travel = $this->plan->travel;
+    if ($travel === null || !$travel->isPossible || $this->cancelled || $this->isCompleted) {
+      return new \Ichiloto\Engine\Core\Vector2(0, 0);
+    }
+    $start = $travel->getPositionAtProgress(0.0);
+    $point = $travel->getPositionAtProgress($this->getAdvanceFraction());
+    return new \Ichiloto\Engine\Core\Vector2($point->x - $start->x, $point->y - $start->y);
+  }
+
   public function getAdvanceFraction(): float
   {
     if ($this->cancelled || $this->plan->resultsOnly) { return 0; }

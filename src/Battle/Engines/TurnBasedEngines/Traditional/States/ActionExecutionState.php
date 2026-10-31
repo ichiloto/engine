@@ -455,7 +455,8 @@ class ActionExecutionState extends TurnState
         : ActionAnimationResolver::getExplicitAnimationScale($action),
       sourceEffectAnchor: $context->ui->usesGraphicalField()
         ? ($actionAnimation?->sourceEffectAnchor ?? \Ichiloto\Engine\Animations\SourceEffectAnchor::SOURCE)
-        : \Ichiloto\Engine\Animations\SourceEffectAnchor::SOURCE);
+        : \Ichiloto\Engine\Animations\SourceEffectAnchor::SOURCE,
+      movement: $actionAnimation?->movement ?? \Ichiloto\Engine\Animations\ActionMovement::STEP);
     $this->command->begin();
   }
 

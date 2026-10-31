@@ -11,5 +11,6 @@ enum BattleTravelFailure: string
   case START_OCCUPIED = 'start-occupied';
   case CONTACT_OCCUPIED = 'contact-occupied';
   case NO_ROUTE = 'no-route';
+  case PRESENTATION_UNAVAILABLE = 'presentation-unavailable';
   case CAPACITY = 'capacity';
 }
