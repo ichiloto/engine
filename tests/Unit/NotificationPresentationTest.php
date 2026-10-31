@@ -744,3 +744,125 @@ it('leaves delivery incomplete when the application stops while the alert is ope
   $modals->processPendingAlerts();
   expect($delivery->state)->toBe(PresentationDeliveryState::CANCELLED)->and($delivery->isComplete)->toBeFalse();
 });
+
+
+it('saves first-use completion after delivery and preserves once-only state through reload and rollback', function () {
+  $catalog = new \Ichiloto\Engine\Progression\WorldAbilityCatalog([['id' => 'power', 'name' => 'Power',
+    'conditions' => [['type' => 'switch', 'name' => 'granted']], 'firstUse' => ['message' => 'A short first-use hint.']]]);
+  $ability = $catalog->getAbility('power'); $state = new \Ichiloto\Engine\Core\GameState();
+  $prompts = new \Ichiloto\Engine\Progression\WorldAbilityPrompts($this->game);
+  expect($prompts->offer($ability, $catalog, $state))->toBeFalse();
+  $state->setSwitch('granted'); $before = $state->toArray();
+  expect($prompts->offer($ability, $catalog, $state))->toBeTrue()
+    ->and($state->hasSeenWorldAbilityPrompt('power'))->toBeFalse()
+    ->and($prompts->offer($ability, $catalog, $state))->toBeFalse();
+  $prompts->cancel();
+  expect($state->toArray())->toBe($before)->and($prompts->offer($ability, $catalog, $state))->toBeTrue();
+  Time::setElapsedTime(5); new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, .1);
+  $this->manager->update(); Time::setElapsedTime(5.5); $this->manager->update(); $prompts->update();
+  expect($state->hasSeenWorldAbilityPrompt('power'))->toBeTrue()->and($state->getSwitch('granted'))->toBeTrue();
+  $restored = \Ichiloto\Engine\Core\GameState::fromArray($state->toArray());
+  expect($prompts->offer($ability, $catalog, $restored))->toBeFalse();
+  $restored->restoreSnapshot($before);
+  expect($restored->hasSeenWorldAbilityPrompt('power'))->toBeFalse();
+});
+
+it('uses the semantic control profile for first-use hints and leaves unavailable controls unseen', function () {
+  $savedHints = new ReflectionClass(\Ichiloto\Engine\IO\ActionHints::class)->getStaticProperties();
+  try {
+    \Ichiloto\Engine\IO\ActionHints::useProvider(new class implements \Ichiloto\Engine\IO\ActionHintProvider {
+      public function controlForAction(string $action): ?\Ichiloto\Engine\IO\ControlHint { return null; }
+    });
+    $catalog = new \Ichiloto\Engine\Progression\WorldAbilityCatalog([['id' => 'run-power', 'name' => 'Run',
+      'firstUse' => ['hints' => [['action' => 'dash', 'label' => 'Hold to run']]]]]);
+    $state = new \Ichiloto\Engine\Core\GameState();
+    $prompts = new \Ichiloto\Engine\Progression\WorldAbilityPrompts($this->game);
+    expect($prompts->offer($catalog->getAbility('run-power'), $catalog, $state))->toBeFalse();
+    \Ichiloto\Engine\IO\ActionHints::useProvider(new class implements \Ichiloto\Engine\IO\ActionHintProvider {
+      public function controlForAction(string $action): ?\Ichiloto\Engine\IO\ControlHint {
+        return new \Ichiloto\Engine\IO\ControlHint('gamepad', 'B', 'B');
+      }
+    });
+    expect($prompts->offer($catalog->getAbility('run-power'), $catalog, $state))->toBeTrue();
+    $notice = new \Ichiloto\Engine\Messaging\Notifications\ActionHintNotification($this->game, 'Run', 'Move faster.',
+      $catalog->getAbility('run-power')->firstUse->getActionHints());
+    expect($notice->getContentText())->toBe("Move faster.\nB Hold to run");
+    $notice->open(); $notice->update();
+    $surface = NotificationCanvasPresentation::compose($notice, $this->theme, 1350, 720);
+    expect(notificationCanvasText($surface->canvas))->toContain('Move faster.', 'Hold to run');
+    foreach ($surface->canvas->textLayers as $layer) {
+      expect($layer->y + $layer->grid->rows * $layer->grid->cellHeight)->toBeLessThanOrEqual($surface->bounds->y + $surface->bounds->height);
+    }
+    $prompts->cancel(); expect($state->hasSeenWorldAbilityPrompt('run-power'))->toBeFalse();
+  } finally {
+    foreach ($savedHints as $key => $value) { new ReflectionProperty(\Ichiloto\Engine\IO\ActionHints::class, $key)->setValue(null, $value); }
+  }
+});
+
+it('does not save a first-use reading prompt when the application stops before acknowledgement', function () {
+  $catalog = new \Ichiloto\Engine\Progression\WorldAbilityCatalog([['id' => 'power', 'name' => 'Power',
+    'firstUse' => ['message' => str_repeat('Full source instruction. ', 12)]]]);
+  $state = new \Ichiloto\Engine\Core\GameState();
+  $prompts = new \Ichiloto\Engine\Progression\WorldAbilityPrompts($this->game);
+  $modals = new TrackedNotificationAlertProbe($this->game);
+  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $modals);
+  $prompts->offer($catalog->getAbility('power'), $catalog, $state);
+  $modals->duringDelivery = function () { new ReflectionProperty(Game::class, 'terminalCleanedUp')->setValue($this->game, true); };
+  $modals->processPendingAlerts(); $prompts->update();
+  expect($state->hasSeenWorldAbilityPrompt('power'))->toBeFalse();
+});
+
+
+it('offers passage instruction only inside the actual cue range and cancels across field ownership changes', function () {
+  $old = ConfigStore::has(\Ichiloto\Engine\Progression\WorldAbilityCatalog::class)
+    ? ConfigStore::get(\Ichiloto\Engine\Progression\WorldAbilityCatalog::class) : null;
+  try {
+    $catalog = new \Ichiloto\Engine\Progression\WorldAbilityCatalog([['id' => 'sense', 'name' => 'Sense',
+      'firstUse' => ['message' => 'A passage is nearby.']]]);
+    ConfigStore::put(\Ichiloto\Engine\Progression\WorldAbilityCatalog::class, $catalog);
+    $state = new \Ichiloto\Engine\Core\GameState();
+    $passage = \Ichiloto\Engine\Events\Triggers\EventTriggerFactory::create([
+      'class' => \Ichiloto\Engine\Events\Triggers\PassageEventTrigger::class, 'marker' => 'P',
+      'area' => ['cells' => [[4, 1]]], 'engagement' => 'facing', 'data' => ['reusable' => false, 'mode' => 'action'],
+      'conditions' => [['type' => 'world_ability', 'name' => 'sense']], 'cue' => ['symbol' => '!', 'maxDistance' => 2],
+    ], 'synthetic-room');
+    $passage->bind($state);
+    $player = new ReflectionClass(\Ichiloto\Engine\Field\Player::class)->newInstanceWithoutConstructor();
+    $events = new \Assegai\Collections\ItemList(\Ichiloto\Engine\Events\Triggers\EventTrigger::class);
+    $events->add($passage);
+    new ReflectionProperty($player, 'events')->setValue($player, $events);
+    new ReflectionProperty($player, 'position')->setValue($player, new \Ichiloto\Engine\Core\Vector2(0, 1));
+    $scene = $this->createStub(GameScene::class); $ui = $this->createStub(\Ichiloto\Engine\UI\UIManager::class);
+    $ui->method('getActivePresentations')->willReturn([]); $scene->method('getUI')->willReturn($ui);
+    new ReflectionProperty($scene, 'gameState')->setValue($scene, $state);
+    new ReflectionProperty($scene, 'player')->setValue($scene, $player);
+    $prompts = new \Ichiloto\Engine\Progression\WorldAbilityPrompts($this->game);
+    $prompts->updateForScene($scene);
+    expect($player->getSensedPassages())->toBe([]);
+    new ReflectionProperty($player, 'position')->setValue($player, new \Ichiloto\Engine\Core\Vector2(2, 1));
+    $prompts->updateForScene($scene);
+    expect($player->getSensedPassages())->toBe([$passage]);
+    $prompts->cancel(); expect($state->hasSeenWorldAbilityPrompt('sense'))->toBeFalse();
+    $prompts->updateForScene($scene);
+    Time::setElapsedTime(5); $this->manager->update(); Time::setElapsedTime(5.5); $this->manager->update();
+    $prompts->updateForScene($scene);
+    expect($state->hasSeenWorldAbilityPrompt('sense'))->toBeTrue()->and($passage->isComplete)->toBeFalse();
+  } finally {
+    $old === null ? ConfigStore::remove(\Ichiloto\Engine\Progression\WorldAbilityCatalog::class)
+      : ConfigStore::put(\Ichiloto\Engine\Progression\WorldAbilityCatalog::class, $old);
+  }
+});
+
+
+it('keeps a revoked power prompt unseen and retries from the current availability source', function () {
+  $catalog = new \Ichiloto\Engine\Progression\WorldAbilityCatalog([['id' => 'power', 'name' => 'Power',
+    'conditions' => [['type' => 'switch', 'name' => 'granted']], 'firstUse' => ['message' => 'A short hint.']]]);
+  $state = new \Ichiloto\Engine\Core\GameState(); $state->setSwitch('granted');
+  $prompts = new \Ichiloto\Engine\Progression\WorldAbilityPrompts($this->game);
+  expect($prompts->offer($catalog->getAbility('power'), $catalog, $state))->toBeTrue();
+  $state->setSwitch('granted', false); $prompts->update();
+  expect($state->hasSeenWorldAbilityPrompt('power'))->toBeFalse();
+  $state->setSwitch('granted');
+  expect($prompts->offer($catalog->getAbility('power'), $catalog, $state))->toBeTrue();
+  $prompts->cancel();
+});

@@ -17,6 +17,7 @@ use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\Enumerations\MovementEventType;
 use Ichiloto\Engine\Events\MovementEvent;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
+use Ichiloto\Engine\Events\Triggers\PassageEventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTriggerContext;
 use Ichiloto\Engine\Events\Interfaces\AutomaticEventTriggerInterface;
 use Ichiloto\Engine\Exceptions\NotFoundException;
@@ -941,6 +942,13 @@ class Player extends GameObject implements ThicketSubjectInterface
     }
 
     return null;
+  }
+
+  /** @return list<PassageEventTrigger> Available closed passages whose cue range reaches the player. */
+  public function getSensedPassages(): array
+  {
+    return array_values(array_filter($this->events->toArray(), fn(EventTrigger $event): bool =>
+      $event instanceof PassageEventTrigger && $event->shouldRenderCue($this->position)));
   }
 
   /** Finds a current-map event by its stable marker letter. */

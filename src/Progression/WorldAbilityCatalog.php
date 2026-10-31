@@ -62,6 +62,10 @@ final class WorldAbilityCatalog implements ConfigInterface
   /** @return array<array-key,WorldAbility> */
   public function getAbilities(): array { return $this->abilities; }
 
+  public bool $hasFirstUsePrompts {
+    get => array_any($this->abilities, static fn(WorldAbility $ability): bool => $ability->firstUse !== null);
+  }
+
   public function get(string $path, mixed $default = null): mixed { return $this->abilities[$path] ?? $default; }
   public function has(string $path): bool { return isset($this->abilities[$path]); }
   public function set(string $path, mixed $value): void
@@ -93,6 +97,21 @@ final class WorldAbilityCatalog implements ConfigInterface
     } finally {
       if (--$this->queryDepth === 0) { $this->queryResults = []; }
     }
+  }
+
+  /** Consumer conditions are a conjunction: only positive power requirements explain a usable feature.
+   * @return list<WorldAbility>
+   */
+  public function getRequiredAbilities(array $conditions): array
+  {
+    $selected = [];
+    foreach ($conditions as $condition) {
+      if (trim($condition['type'] ?? '') !== WorldConditionType::WORLD_ABILITY->value
+        || ($condition['negate'] ?? false)) { continue; }
+      $ability = $this->getAbility(trim($condition['name']));
+      $selected[$ability->id] = $ability;
+    }
+    return array_values($selected);
   }
 
   /** @param array<array-key,true> $active @param array<array-key,true> $visited */

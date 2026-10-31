@@ -18,6 +18,17 @@ and remaining engineering work, not release status.
 Headless PHP checks and macOS rendering checks do not establish Linux/WSLg or
 Windows support. Merging implementation does not create a package release.
 
+## World-power first-use presentation — 31 October 2026
+
+Controlled field updates now deliver source-owned first-use prompts and finite
+field effects, persisting completion after delivery. Dash and passage cues
+share the existing world-ability identity and availability. Current semantic
+control hints, Terminal labels, reduced-motion timing, cancellation and
+save/rollback behavior have focused local coverage. See
+[the source and lifecycle contract](../story-events.md#saved-first-use-prompts).
+Editor selectors and source-preserving firstUse round trips, production artwork
+admission, full-scene preview and native player acceptance remain pending.
+
 ## Open playtest defects — 18 October 2026
 
 These are current reported defects and required follow-through. Each remains

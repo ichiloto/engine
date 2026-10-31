@@ -25,6 +25,10 @@
 
 ### Added
 
+- Source-owned first-use world-power hints follow actual dash and passage-cue
+  availability. Semantic controls and finite effects complete before their
+  once-only presentation fact is saved; interrupted delivery can retry.
+
 - Tracked notification delivery follows a toast through completion or promotion
   to an acknowledged reading alert. Producer cancellation preserves other
   notifications; retries and application shutdown leave completion accurate.

@@ -130,3 +130,22 @@ it('preserves quoted numeric resource identities through graph validation and lo
   ]);
   expect($catalog->getAbility('2')->id)->toBe('2')->and($catalog->isUnlocked('2', new GameState()))->toBeTrue();
 });
+
+
+it('selects positive consumer power references without turning negated requirements into first-use prompts', function () {
+  $catalog = new WorldAbilityCatalog([['id' => 'a', 'name' => 'A'], ['id' => 'b', 'name' => 'B']]);
+  $selected = $catalog->getRequiredAbilities([
+    ['type' => 'world_ability', 'name' => 'a'], ['type' => 'world_ability', 'name' => 'a'],
+    ['type' => 'world_ability', 'name' => 'b', 'negate' => true], ['type' => 'switch', 'name' => 'other'],
+  ]);
+  expect(array_map(fn($power) => $power->id, $selected))->toBe(['a']);
+});
+
+it('validates first-use source and reads old saves with no presentation facts', function () {
+  foreach ([[], ['hints' => ['dash']], ['hints' => [['action' => '', 'label' => 'Run']]], ['effect' => '../outside']] as $source) {
+    expect(fn() => new WorldAbilityCatalog([['id' => 'a', 'name' => 'A', 'firstUse' => $source]]))->toThrow(InvalidArgumentException::class);
+  }
+  $state = GameState::fromArray(['switches' => ['a' => true], 'worldAbilityPrompts' => ['a' => false, 'b' => 'true']]);
+  expect($state->hasSeenWorldAbilityPrompt('a'))->toBeFalse()->and($state->hasSeenWorldAbilityPrompt('b'))->toBeFalse()
+    ->and($state->getSwitch('a'))->toBeTrue();
+});

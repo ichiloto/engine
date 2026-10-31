@@ -39,6 +39,11 @@ preserves other producers' order. An alert already being read keeps normal modal
 ownership; cancellation leaves its receipt incomplete. The receipt itself adds
 no save fields. Existing `notify()` callers keep their ordinary delivery.
 
+`ActionHintNotification` carries typed semantic hints. Graphical composition
+measures and draws them with the existing control-glyph presenter, including
+its opacity and clipping; Terminal and promoted alerts retain readable control
+labels. Ordinary notification interfaces stay compatible.
+
 ## Standard timing
 
 | Preset | Stationary hold |

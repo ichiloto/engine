@@ -630,3 +630,33 @@ it('draws a route cue at each separate placement of its trigger', function () {
     ->and($manager->canPresentCue($cue))->toBeTrue()
     ->and(array_values(array_unique(array_map(static fn(Vector2 $at): string => "{$at->x},{$at->y}", $positions))))->toBe(['9,3', '2,7']);
 });
+
+
+it('returns finite effect handles and preserves replacement ownership during cancellation', function () {
+  mkdir($this->root . '/Animations/once');
+  file_put_contents($this->root . '/Animations/once/once.timeline.php', '<?php return ' . var_export(createFieldTimelineData('once', 3), true) . ';');
+  $manager = new FieldEffectManager($this->root); $anchor = FieldEffectAnchor::createAtPosition(new Vector2(2, 3));
+  expect(fn() => $manager->startOneShotEffect('hint', 'energy', $anchor))->toThrow(InvalidArgumentException::class);
+  $one = $manager->startOneShotEffect('hint', 'once', $anchor);
+  $replacement = $manager->startOneShotEffect('hint', 'once', $anchor);
+  $manager->stopEffect($one);
+  expect($one->playback->isPaused)->toBeTrue()->and($replacement->playback->isPaused)->toBeFalse();
+  $manager->update(2, true);
+  expect($replacement->playback->isCompleted)->toBeTrue();
+  $cancelled = $manager->startOneShotEffect('hint', 'once', $anchor); $manager->clear();
+  expect($cancelled->playback->isPaused)->toBeTrue()->and($cancelled->playback->isCompleted)->toBeFalse();
+});
+
+
+it('records effect-only first-use delivery after finite playback and retries interrupted presentation', function () {
+  mkdir($this->root . '/Animations/once');
+  file_put_contents($this->root . '/Animations/once/once.timeline.php', '<?php return ' . var_export(createFieldTimelineData('once', 3), true) . ';');
+  $game = new class extends \Ichiloto\Engine\Core\Game { public function __construct() {} public function __destruct() {} };
+  $catalog = new \Ichiloto\Engine\Progression\WorldAbilityCatalog([['id' => 'sense', 'name' => 'Sense', 'firstUse' => ['effect' => 'once']]]);
+  $prompts = new \Ichiloto\Engine\Progression\WorldAbilityPrompts($game); $state = new GameState();
+  $manager = new FieldEffectManager($this->root); $anchor = FieldEffectAnchor::createAtPosition(new Vector2(2, 3));
+  expect($prompts->offer($catalog->getAbility('sense'), $catalog, $state, effects: $manager, anchor: $anchor))->toBeTrue();
+  $manager->clear(); $prompts->update(); expect($state->hasSeenWorldAbilityPrompt('sense'))->toBeFalse();
+  expect($prompts->offer($catalog->getAbility('sense'), $catalog, $state, effects: $manager, anchor: $anchor))->toBeTrue();
+  $manager->update(2, true); $prompts->update(); expect($state->hasSeenWorldAbilityPrompt('sense'))->toBeTrue();
+});

@@ -321,18 +321,39 @@ final class FieldEffectManager
     return 'npc-cue-' . $npc->getGraphicalSpriteId() . ':' . ($npc->cue?->color ?? '');
   }
 
-  public function startEffect(string $id, string $effect, FieldEffectAnchor $anchor): void
+  public function startEffect(string $id, string $effect, FieldEffectAnchor $anchor): ?FieldEffectSession
   {
-    try {
-      $timeline = $this->library->load($effect, presentation: $this->presentation);
-      if (isset($this->sessions[$id])) { $this->sessions[$id]->playback->pause(); }
-      $this->sessions[$id] = new FieldEffectSession('field-effect:' . $this->mapId . ':' . $id, $anchor,
-        $timeline);
-      if ($this->supported === false) {
-        $this->note('capability', 'This renderer cannot draw field effects; the original glyphs and tiles remain.');
-      }
-    } catch (Throwable $error) {
+    try { return $this->createEffectSession($id, $effect, $anchor); }
+    catch (Throwable $error) {
       $this->note('effect:' . $effect, "Field effect {$effect} is unusable; its original glyph or tile remains: " . $error->getMessage());
+      return null;
+    }
+  }
+
+  /** A finite producer needs a real completion handle; failure stays explicit. */
+  public function startOneShotEffect(string $id, string $effect, FieldEffectAnchor $anchor): FieldEffectSession
+  {
+    return $this->createEffectSession($id, $effect, $anchor, oneShot: true);
+  }
+
+  private function createEffectSession(string $id, string $effect, FieldEffectAnchor $anchor, bool $oneShot = false): FieldEffectSession
+  {
+    $timeline = $this->library->load($effect, presentation: $this->presentation);
+    $session = new FieldEffectSession('field-effect:' . $this->mapId . ':' . $id, $anchor, $timeline);
+    if ($oneShot && $session->playback->isLooping) { throw new InvalidArgumentException('A first-use effect must finish; looping effects cannot acknowledge delivery.'); }
+    if (isset($this->sessions[$id])) { $this->sessions[$id]->playback->pause(); }
+    $this->sessions[$id] = $session;
+    if ($this->supported === false) {
+      $this->note('capability', 'This renderer cannot draw field effects; the original glyphs and tiles remain.');
+    }
+    return $session;
+  }
+
+  /** Release only this handle, even after another producer replaced its session id. */
+  public function stopEffect(FieldEffectSession $session): void
+  {
+    foreach ($this->sessions as $id => $current) {
+      if ($current === $session) { $this->removeEffect($id); return; }
     }
   }
 

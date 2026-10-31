@@ -46,8 +46,7 @@ evaluation, including negated cycles.
 authored order for acquisition presentation. Its dependency memo is scoped to
 one query and cleared on completion or failure. Changed world state reaches
 the next query immediately. Availability queries add no grant flags or saved
-presentation state. This source/query foundation precedes the cinematic
-showcase and first-use prompt wiring.
+presentation state. The showcase and first-use consumers read this same catalog.
 
 The application loads the current catalog before evaluating project content.
 Detached tools use `WorldAbilityCatalog::fromProject(assetRoot)` and pass the
@@ -93,8 +92,48 @@ the queued notice for retry; cancellation removes only that operation's queued
 notices. The surrounding cinematic owns retry/completion and its temporary
 stage effects. Editors select `world_ability` references from the current
 catalog and actor references from the actor catalog. The command declaration
-exports both reference kinds. Transformation effects and saved first-use
-prompts remain separate work.
+exports both reference kinds. Transformation effects remain separately owned by the cinematic.
+
+## Saved first-use prompts
+
+A world ability may declare `firstUse` alongside its existing source fields:
+
+```php
+'firstUse' => [
+  'message' => 'Move faster.',
+  'hints' => [['action' => 'dash', 'label' => 'Hold to run']],
+  // Optional finite timeline ID, selected through the asset catalog:
+  'effect' => 'power-first-use',
+],
+```
+
+The controlled field update offers prompts from positive `world_ability`
+requirements of usable dash settings and available closed-passage cues. Dash
+requires held-input support, unlocked settings and a map that permits dashing.
+Passages use their existing cue conditions, cardinal sensing distance and
+visible cue cell; the existing Action interaction opens the passage.
+Rendering never offers a prompt or writes its saved state.
+
+`WorldAbilityPrompts` owns one transient delivery at a time. Semantic hints use
+`ActionHints` and the current control profile. Terminal text retains readable
+control labels; graphical notifications reuse themed control glyphs. An
+unavailable control leaves the prompt unseen. Optional effects use a finite
+`FieldEffectManager` session, with completion and cancellation tied to that
+exact handle. Looping timelines are refused. Failed sources are diagnosed once
+per field ownership interval and remain unseen.
+
+`GameState.worldAbilityPrompts` records the power ID after every requested
+presentation component completes. Toast-to-reading-alert promotion waits for
+acknowledgement. Map transfers, menus, scene changes, quit, revoked availability
+and cancelled playback keep interrupted prompts unseen. Old saves start with
+an empty prompt record; power availability, resources and passage completion
+retain their existing owners. Additive presentation facts round-trip through
+normal state snapshots and rollback.
+
+GUI authoring must preserve `firstUse`, select semantic actions and finite
+animation identities through the existing catalogs, and round-trip the fields
+through the source-preserving writer. This authoring work remains pending with
+the Editor owner. The runtime contract does not establish Editor completion.
 
 ## Map trigger
 

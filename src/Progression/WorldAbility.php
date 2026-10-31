@@ -12,7 +12,7 @@ final readonly class WorldAbility
 {
   /** @param list<array<string,mixed>> $conditions */
   public function __construct(public string $id, public string $name, public string $description = '',
-    public array $conditions = [], public ?string $iconRole = null)
+    public array $conditions = [], public ?string $iconRole = null, public ?WorldAbilityFirstUse $firstUse = null)
   {
     foreach ([$id, $name, ...($iconRole === null ? [] : [$iconRole])] as $value) {
       if (trim($value) === '' || $value !== trim($value)) {
@@ -25,13 +25,15 @@ final readonly class WorldAbility
 
   public static function fromArray(mixed $data): self
   {
-    if (!is_array($data) || array_diff(array_keys($data), ['id', 'name', 'description', 'conditions', 'iconRole']) !== []
+    if (!is_array($data) || array_diff(array_keys($data), ['id', 'name', 'description', 'conditions', 'iconRole', 'firstUse']) !== []
       || !is_string($data['id'] ?? null) || !is_string($data['name'] ?? null)
       || (isset($data['description']) && !is_string($data['description']))
       || (isset($data['conditions']) && !is_array($data['conditions']))
-      || (isset($data['iconRole']) && !is_string($data['iconRole']))) {
-      throw new InvalidArgumentException('A world ability declares id, name, optional description, conditions and iconRole.');
+      || (isset($data['iconRole']) && !is_string($data['iconRole']))
+      || (isset($data['firstUse']) && !is_array($data['firstUse']))) {
+      throw new InvalidArgumentException('A world ability declares id, name, optional description, conditions, iconRole and firstUse.');
     }
-    return new self($data['id'], $data['name'], $data['description'] ?? '', $data['conditions'] ?? [], $data['iconRole'] ?? null);
+    return new self($data['id'], $data['name'], $data['description'] ?? '', $data['conditions'] ?? [], $data['iconRole'] ?? null,
+      isset($data['firstUse']) ? WorldAbilityFirstUse::fromArray($data['firstUse']) : null);
   }
 }
