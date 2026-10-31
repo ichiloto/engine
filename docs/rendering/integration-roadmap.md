@@ -26,9 +26,24 @@ small maps, retained step envelopes, multiple reading owners and cleanup;
 Terminal uses independent text/cell geometry. Physical map/collision/state and
 actor placement remain unchanged. See the
 [camera lifecycle contract](../cinematics.md#dialogue-safe-camera-framing).
-Full Game-source choreography, Editor/native preview consumption and player
-acceptance remain pending. Oversized casts produce a diagnostic for source
-staging corrections.
+Game candidate `eb39794` qualifies current Lovehut, guidance/reunion and private
+bargain dialogue geometry and ownership through 39 checks / 3,056 assertions on
+Engine `002cd25`. Graphical qualification covers drawable subjects; Golden Inn
+`staged:nivira` still lacks its accepted bed-pose import. Full wired-sequence,
+Editor/native preview and player acceptance remain pending. Oversized casts
+produce a diagnostic for source staging corrections.
+
+The actual Game bootstrap exported the first Vax reading frame through
+`SceneFrameComposer` at 800×480 with retained world operations, current cast,
+viewport and dialogue canvas. UI Art's panel-only CPU helper cannot compose
+that full scene. Renderer/Claude owns the missing qualified offscreen capture
+path: reuse production retained-world preparation, tile covers/shadows, sprite
+anchor/lift/order, viewport clipping, text and canvas composition. The current
+world-overview raster is a map overview; it does not certify a full dialogue
+frame. Preserve the actual descriptor and coverage evidence in the existing
+hybrid showcase review. No image, full-scene visual acceptance or adapter
+installation is claimed. The shared Editor PNG import memory blocker remains
+an independent dependency for accepted artwork.
 
 ## World-power first-use presentation — 31 October 2026
 
