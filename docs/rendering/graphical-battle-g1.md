@@ -1275,7 +1275,9 @@ edge. Both values belong to the existing battler binding and Editor controls.
 Before graphical playback, current formation anchors, decoded visible bodies
 and `BattleFormationClearance::getFooting()` produce one `BattleTravelPlan`.
 Its continuous route avoids other ground footings and the target footing;
-its arena envelope includes every authored action/run/return cell. Outbound
+its travel envelope includes the standing body and every authored run/return cell.
+Inactive attack-pose overhang uses its established action-phase presentation
+extent and does not constrain the run from its home position. Outbound
 and return traverse the same path by arc length. `BattleCanvasLayout` owns
 configurable `advanceSpeed` and `returnSpeed` in logical canvas units per second
 (default 600/900). Their distance-based phases round up to command frames.

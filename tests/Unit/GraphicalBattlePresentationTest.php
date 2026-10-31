@@ -2963,3 +2963,29 @@ it('uses authored pose reach and target strike point on the same runtime impact 
     ->and($slot->y + $offset->y + $reach->y)->toEqualWithDelta($expected->y, 1e-6)
     ->and($presentation->frame(new \Ichiloto\Engine\Battle\Presentation\BattlePresentationSnapshot($playback)))->not->toBeNull();
 });
+
+it('keeps inactive attack overhang out of the running start envelope', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $root = createTestDirectory('phase-owned-travel-envelope');
+  foreach (['graphical-canvas/synthetic-320x180.png', 'graphical-canvas/synthetic-143x181.png'] as $asset) {
+    \Tests\Support\Rendering\writeTestPng($root . '/' . $asset, str_contains($asset, '320x180') ? 320 : 143,
+      str_contains($asset, '320x180') ? 180 : 181);
+  }
+  \Tests\Support\Rendering\writeTestPng($root . '/high-strike.png', 100, 440);
+  $attack = new BattlerPose('high-strike.png', loop: false);
+  $layout = new BattleCanvasLayout(1350, 720, partySlots: $catalog->ui->partySlots,
+    battlerArea: new CanvasRectangle(0, 80, 1350, 520));
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $layout, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => new BattlePoseSet(['attack' => $attack])]);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $root);
+  $travel = $presentation->planActionTravel($hero, [$enemies[0]], new AttackAction('Contact'));
+  expect($travel->isPossible)->toBeTrue();
+  $plan = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline(
+    new \Ichiloto\Engine\Battle\BattleTurnTimings(.1,.1,.1,.1,.1,.1,.1), travel: $travel);
+  $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $hero, [$enemies[0]], BattlePoseRole::ATTACK,
+    static fn() => null, static fn() => null);
+  $playback->begin(); $playback->update($plan->phases['target']['start'] / 120);
+  $image = graphicalCombatantImage($presentation->frame(new \Ichiloto\Engine\Battle\Presentation\BattlePresentationSnapshot($playback)), $hero);
+  expect($image->asset)->toBe('high-strike.png')->and($image->destination->y)->toBeGreaterThanOrEqual(0)
+    ->toBeLessThan($layout->battlerArea->y)->and($playback->presentationFailure)->toBeNull();
+});

@@ -145,8 +145,8 @@ final class GraphicalBattlePresentation
     $pose = $source['poses']?->getPose(BattlePoseRole::getForAction($action));
     $reach = $pose?->reach?->getCanvasOffset($unit) ?? new Vector2(
       max(0, $sign < 0 ? $from['foot']->x - $body->x : $body->x + $body->width - $from['foot']->x), 0);
-    // Every authored movement/action cell fits the arena, while only the standing footing occupies ground.
-    $envelope = $this->getTravelEnvelope($actor, $body, $mirror, BattlePoseRole::getForAction($action));
+    // Movement cells fit the standing area; action-phase weapon overhang retains its existing presentation extent.
+    $envelope = $this->getTravelEnvelope($actor, $body, $mirror);
     $strike = $recipient['strikePoint']?->getCanvasPosition($to['body'], $to['image']->flipX, $to['image']->flipY);
     return BattleTravelPlanner::plan(new BattleTravelSubject($from['foot'], $envelope, $footing),
       new BattleTravelSubject($to['foot'], $to['body'], BattleFormationClearance::getFooting($to['body'])),
@@ -156,14 +156,14 @@ final class GraphicalBattlePresentation
       $this->layout->advanceSpeed, $this->layout->returnSpeed, $sign);
   }
 
-  private function getTravelEnvelope(CharacterInterface $actor, CanvasRectangle $body, bool $mirror, BattlePoseRole $role): CanvasRectangle
+  private function getTravelEnvelope(CharacterInterface $actor, CanvasRectangle $body, bool $mirror): CanvasRectangle
   {
     $participant = $this->participants[spl_object_id($actor)];
     $slot = $this->getSlot($actor);
     $base = $this->placeBaseArtwork($slot, $participant['art'], $participant['poses'], spl_object_id($actor), $participant['scale']);
     $pixelScale = $base->width / $participant['art']->width / $slot->displayScale;
     $left = $body->x; $top = $body->y; $right = $left + $body->width; $bottom = $top + $body->height;
-    foreach (array_unique([$role->value, BattlePoseRole::MOVE->value, BattlePoseRole::RETURNING->value]) as $key) {
+    foreach ([BattlePoseRole::MOVE->value, BattlePoseRole::RETURNING->value] as $key) {
       $pose = $participant['poses']?->getPose(BattlePoseRole::from($key));
       if ($pose === null) { continue; }
       foreach (array_keys(array_unique($pose->frames)) as $entry) {
