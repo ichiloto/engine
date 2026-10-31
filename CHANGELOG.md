@@ -4,6 +4,10 @@
 
 ### Removed
 
+- Removed the display-name `Overworld` save permission. Maps now declare
+  `savePolicy: anywhere` or `save-points` (the default); existing save points
+  remain usable. Maps using the former name-based rule need the explicit field.
+
 - Removed unsafe off-map, solid-cell and occupied-cell placement for independent
   subject-relative cinematic cast. Valid preferred offsets are retained; bounded
   visible floor selection and explicit refusal protect staging ownership.

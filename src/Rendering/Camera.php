@@ -82,7 +82,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   }
 
   /**
-   * @var string[] The world space.
+   * @var array<int, string|array<int, string>> Literal source rows or their parsed cell arrays.
    */
   public array $worldSpace = [] {
     get {

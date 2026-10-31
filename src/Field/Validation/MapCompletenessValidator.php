@@ -51,6 +51,10 @@ final class MapCompletenessValidator
             }
         }
         $issues = self::validateEvents($mapId, $data, $eventLayer, $worldAbilities);
+        try { \Ichiloto\Engine\Field\MapSavePolicy::readMap($data); }
+        catch (InvalidArgumentException $error) {
+            $issues[] = new MapValidationIssue($mapId, 'map.save-policy', $error->getMessage(), path: ['savePolicy']);
+        }
         $issues = [...$issues, ...self::validateDoorways($mapId, $data, $eventLayer, $layers, $assetRoot, $fieldCatalog, $graphics, $worldAbilities)];
         foreach (is_array($data['events'] ?? null) ? $data['events'] : [] as $key => $event) {
             if (!is_array($event)) { continue; }

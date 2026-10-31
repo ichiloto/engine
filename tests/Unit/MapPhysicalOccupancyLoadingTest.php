@@ -298,3 +298,27 @@ it('resolves saved named NPC destinations before installation and refuses blocke
     expect(fn() => $manager->prepareMap('test/physical'))->toThrow(InvalidArgumentException::class, 'clear physical floor')
         ->and($scene->npcManager->npcs)->toBe([]);
 });
+
+
+it('uses the authored map save policy under every display name and keeps save-point access', function (): void {
+    [$root, $paths, $grid, $manager, $scene, $camera, $player] = createOccupancyLoadingFixture(text: '.');
+    foreach ([['Maanda', 'anywhere', true], ['Renamed continent', 'anywhere', true],
+        ['Overworld', 'save-points', false], ['Ordinary room', null, false]] as [$name, $policy, $allowed]) {
+        $data = ['name' => $name]; if ($policy !== null) { $data['savePolicy'] = $policy; }
+        file_put_contents($paths['data'], '<?php return ' . var_export($data, true) . ';');
+        $prepared = $manager->prepareMap('test/physical');
+        $manager->applyPreparedMap($prepared, $player);
+        expect($manager->canSave)->toBe($allowed)->and($scene->party->location->name)->toBe($name);
+        $manager->isAtSavePoint = true;
+        expect($manager->canSave)->toBeTrue();
+        $manager->isAtSavePoint = false;
+    }
+    $before = [$manager->canSave, $scene->party->location, $camera->worldSpace];
+    foreach ([null, false, 'overworld', 'Anywhere', []] as $invalid) {
+        file_put_contents($paths['data'], '<?php return ' . var_export(['savePolicy' => $invalid], true) . ';');
+        foreach (['prepareMap', 'readMapDataFromFile'] as $reader) {
+            expect(fn() => $manager->$reader('test/physical'))->toThrow(InvalidArgumentException::class, 'savePolicy')
+                ->and([$manager->canSave, $scene->party->location, $camera->worldSpace])->toBe($before);
+        }
+    }
+});

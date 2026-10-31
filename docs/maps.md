@@ -24,6 +24,16 @@ their data and event files. This legacy format remains supported. An existing
 but empty or invalid `layers/` directory is an error, not a request to fall back
 to the legacy grid.
 
+## Saving
+
+Map data declares `savePolicy`: `anywhere` allows saving throughout that map;
+`save-points` permits saving at the existing save-point cells. Omission selects
+`save-points`. The current map owns this permission; its name and region remain
+presentation. Existing maps relying on the former display name `Overworld` must
+explicitly author `savePolicy => 'anywhere'` to retain saving throughout the map.
+Invalid values are refused during destination preparation before changing the
+active map. Save files and save-point collision behavior are unchanged.
+
 ## Field-image appearance and passage diagnostics
 
 A field presentation resource or inline world object can declare optional

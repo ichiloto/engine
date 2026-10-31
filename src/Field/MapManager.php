@@ -134,25 +134,11 @@ class MapManager implements CanRenderAt
    * @var bool Whether the player is at a save point.
    */
   public bool $isAtSavePoint = false;
-  /**
-   * @var bool Whether the player can save the game.
-   */
+  /** The current source map's permission, installed with its geometry. */
+  public private(set) MapSavePolicy $savePolicy = MapSavePolicy::SAVE_POINTS;
+  /** Whether the player can save under the map policy or at a save point. */
   public bool $canSave {
-    get {
-      $canSave = false;
-
-      // Are we at a save point?
-      if ($this->isAtSavePoint) {
-        $canSave = true;
-      }
-
-      // Are we in the overworld?
-      if ($this->location->name === 'Overworld') {
-        $canSave = true;
-      }
-
-      return $canSave;
-    }
+    get => $this->isAtSavePoint || $this->savePolicy === MapSavePolicy::ANYWHERE;
   }
 
   /**
@@ -321,6 +307,7 @@ class MapManager implements CanRenderAt
     $map = $source['data'];
     MapAtlasDefinition::readMap($map);
     DashSettings::readMapDisablesDashing($map);
+    MapSavePolicy::readMap($map);
     [$collisions, $dictionary] = $this->resolveSourceCollisions($source);
     $mapTriggers = [];
     foreach ($map['triggers'] ?? [] as $trigger) {
@@ -399,6 +386,7 @@ class MapManager implements CanRenderAt
   public function applyPreparedMap(PreparedMap $prepared, Player $player): void
   {
     $map = $prepared->data;
+    $savePolicy = MapSavePolicy::readMap($map);
     $this->tileMap = $prepared->tiles;
     $this->layers = $prepared->layers;
     $this->graphics = $prepared->graphics;
@@ -415,6 +403,7 @@ class MapManager implements CanRenderAt
     $this->overview = $prepared->overview;
     $this->atlasDefinition = MapAtlasDefinition::readMap($map);
     $this->isDashingDisabled = DashSettings::readMapDisablesDashing($map);
+    $this->savePolicy = $savePolicy;
     $this->skitBackdropBinding = SkitBackdrop::readMapBinding($map);
     $this->lastKnowledgePosition = null;
     $this->installWorldObjects($prepared->worldObjects, $mapId);
@@ -1034,6 +1023,7 @@ class MapManager implements CanRenderAt
    */
   private function installMapGeometry(array $prepared): array
   {
+    $savePolicy = MapSavePolicy::readMap($prepared['data']);
     $landmarks = MapLandmarkCatalog::readMap($prepared['data'], $prepared['tiles'], MapCategoryCatalog::load($this->getAssetRoot()));
     $overview = new MapOverview($prepared['tiles'], $prepared['occupancy']?->collisionGrid,
       MapAtlasTerrain::readMap($prepared['data'],$prepared['layers'],$prepared['kinds']));
@@ -1044,6 +1034,7 @@ class MapManager implements CanRenderAt
     $this->mapKnowledge = new MapKnowledge(strval($prepared['data']['id'] ?? ''), $landmarks);
     $this->overview = $overview;
     $this->atlasDefinition = MapAtlasDefinition::readMap($prepared['data']);
+    $this->savePolicy = $savePolicy;
     $this->lastKnowledgePosition = null;
     $this->installWorldObjects($prepared['worldObjects'], strval($prepared['data']['id'] ?? ''));
     $this->clearPresentationWorld();
