@@ -11,6 +11,9 @@
 
 ### Changed
 
+- Semantic notification hints have a separate measured control row, preserving
+  two-line instructions in a brief toast and the complete Terminal overlay.
+
 - Replaced filled convex-hull battler shadows with radial body ellipses and
   smaller soft foot-contact pools. Current artwork still determines ground
   contacts; theme softness and arena colour/strength remain configurable.

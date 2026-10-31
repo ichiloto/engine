@@ -428,7 +428,7 @@ class Notification implements GraphicalNotificationInterface
       }
     }
 
-    $this->content = array_slice($lines, 0, max(1, self::HEIGHT - 2));
+    $this->content = array_slice($lines, 0, NotificationContentPolicy::getContentRowLimit($this));
     $this->window->setContent($this->content);
   }
 
@@ -511,7 +511,7 @@ class Notification implements GraphicalNotificationInterface
     return match ($direction) {
       NotificationSlideDirection::LEFT => new Vector2(-self::WIDTH, $this->position->y),
       NotificationSlideDirection::RIGHT => new Vector2(get_screen_width(), $this->position->y),
-      NotificationSlideDirection::UP => new Vector2($this->position->x, -self::HEIGHT),
+      NotificationSlideDirection::UP => new Vector2($this->position->x, -$this->window->getHeight()),
       NotificationSlideDirection::DOWN => new Vector2($this->position->x, get_screen_height()),
       NotificationSlideDirection::NONE => clone $this->position,
     };

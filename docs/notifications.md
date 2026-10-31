@@ -41,8 +41,10 @@ no save fields. Existing `notify()` callers keep their ordinary delivery.
 
 `ActionHintNotification` carries typed semantic hints. Graphical composition
 measures and draws them with the existing control-glyph presenter, including
-its opacity and clipping; Terminal and promoted alerts retain readable control
-labels. Ordinary notification interfaces stay compatible.
+its opacity and clipping. One semantic-control row has its own budget alongside
+the ordinary two prose rows. Terminal rendering retains that row in its complete
+overlay, using the shared bracketed-control formatter; promoted alerts retain
+those same readable labels. Ordinary notification interfaces stay compatible.
 
 ## Standard timing
 

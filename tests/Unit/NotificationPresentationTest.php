@@ -786,7 +786,7 @@ it('uses the semantic control profile for first-use hints and leaves unavailable
     expect($prompts->offer($catalog->getAbility('run-power'), $catalog, $state))->toBeTrue();
     $notice = new \Ichiloto\Engine\Messaging\Notifications\ActionHintNotification($this->game, 'Run', 'Move faster.',
       $catalog->getAbility('run-power')->firstUse->getActionHints());
-    expect($notice->getContentText())->toBe("Move faster.\nB Hold to run");
+    expect($notice->getContentText())->toBe("Move faster.\n[B] Hold to run");
     $notice->open(); $notice->update();
     $surface = NotificationCanvasPresentation::compose($notice, $this->theme, 1350, 720);
     expect(notificationCanvasText($surface->canvas))->toContain('Move faster.', 'Hold to run');
@@ -865,4 +865,22 @@ it('keeps a revoked power prompt unseen and retries from the current availabilit
   $state->setSwitch('granted');
   expect($prompts->offer($catalog->getAbility('power'), $catalog, $state))->toBeTrue();
   $prompts->cancel();
+});
+
+
+it('keeps two prose rows and their semantic control row in one complete in-place notification', function () {
+  $message = 'A short instruction on one line.' . "\n" . 'Its second line remains visible.';
+  $hint = new \Ichiloto\Engine\IO\ActionHint('dash', 'Hold to move', new \Ichiloto\Engine\IO\ControlHint('gamepad', 'B', 'B'));
+  $notice = new \Ichiloto\Engine\Messaging\Notifications\ActionHintNotification($this->game, 'Movement', $message, [$hint]);
+  $delivery = $this->manager->notifyTracked($notice); Time::setElapsedTime(.31); $this->manager->update(); $this->manager->render();
+  expect($delivery->state)->toBe(PresentationDeliveryState::PRESENTING)
+    ->and(implode('', Console::getBuffer()))->toContain('Its second line remains visible.', '[B] Hold to move');
+  $surface = NotificationCanvasPresentation::compose($notice, $this->theme, 1350, 720);
+  expect(notificationCanvasText($surface->canvas))->toContain('Its second line remains visible.', 'Hold to move');
+  foreach ($surface->canvas->textLayers as $layer) {
+    expect($layer->y + $layer->grid->rows * $layer->grid->cellHeight)->toBeLessThanOrEqual($surface->bounds->y + $surface->bounds->height);
+  }
+  $this->manager->cancelDelivery($delivery);
+  $oversized = new \Ichiloto\Engine\Messaging\Notifications\ActionHintNotification($this->game, 'Movement', $message . "\nThird prose row.", [$hint]);
+  expect(\Ichiloto\Engine\Messaging\Notifications\NotificationContentPolicy::fitsToast($oversized))->toBeFalse();
 });
