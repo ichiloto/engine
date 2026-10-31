@@ -18,6 +18,8 @@ use Ichiloto\Engine\Cutscenes\Presentation\CinematicStageFrame;
 final readonly class BattleCommandTimeline
 {
   public const int FPS = 120;
+  /** Exclusive completion boundary for the selected impact-anchored action pose. */
+  public ?int $actionPoseEndFrame;
   public CompiledEffectTimeline $timeline;
   /** Announcement is a visibility interval that overlaps summon source/cutscene phases. */
   public array $phases;
@@ -45,10 +47,11 @@ final readonly class BattleCommandTimeline
   public function __construct(BattleTurnTimings $timings, ?CompiledEffectTimeline $source = null,
     ?CompiledEffectTimeline $target = null, ?CompiledEffectTimeline $terminalTarget = null,
     public bool $resultsOnly = false, bool $showAnnouncement = true, float $targetScale = EffectScale::DEFAULT,
-    public SourceEffectAnchor $sourceEffectAnchor = SourceEffectAnchor::SOURCE)
+    public SourceEffectAnchor $sourceEffectAnchor = SourceEffectAnchor::SOURCE, ?BattlerPose $actionPose = null)
   {
     $targetScale = EffectScale::readValue($targetScale, 'Battle target effect scale');
     if ($resultsOnly) {
+      $this->actionPoseEndFrame = null;
       if (!is_finite($timings->statChanges) || $timings->statChanges < 0) {
         throw new InvalidArgumentException('Battle result duration must be finite and non-negative.');
       }
@@ -96,6 +99,7 @@ final readonly class BattleCommandTimeline
       : EffectPlaybackTiming::createForBattlePhase($this->terminalTarget, $timings->effectAnimation);
     $phases = $cues = $segments = $restFrames = $restSegments = [];
     $targetImpactEnd = 0;
+    $poseEnd = null;
     foreach (['advance' => $timings->stepForward, 'announce' => $timings->announcement,
       'source' => $sourceEffectAnchor === SourceEffectAnchor::TARGET ? $timings->actionAnimation
         : ($sourceTiming?->durationSeconds ?? $timings->actionAnimation),
@@ -125,6 +129,11 @@ final readonly class BattleCommandTimeline
       if ($phase === 'target' && $sourceEffectAnchor === SourceEffectAnchor::TARGET && $sourceTiming !== null) {
         $length = max($length, $sourceTiming->getFrameBoundary($sourceTiming->totalFrames, self::FPS));
       }
+      if ($phase === 'target' && $actionPose?->impactFrame !== null) {
+        $poseEnd = $cursor + (int)ceil($actionPose->getRecoverySeconds() * self::FPS);
+      }
+      // Preserve movement, cues and damage clocks; only command completion waits for recovery.
+      if ($phase === 'finish' && $poseEnd !== null) { $length = max($length, $poseEnd - $cursor); }
       $phases[$phase] = ['start' => $cursor, 'length' => $length];
       if ($length > 0) {
         $cues[] = ['id' => 'command-' . $phase, 'type' => 'commandPhase', 'frame' => $cursor,
@@ -195,6 +204,7 @@ final readonly class BattleCommandTimeline
     $cues[] = ['id' => 'command-impact', 'type' => 'commandImpact', 'frame' => $impact, 'payload' => []];
     usort($cues, static fn(array $a, array $b): int => [$a['frame'], $a['type'] === 'commandImpact' ? 0 : 1]
       <=> [$b['frame'], $b['type'] === 'commandImpact' ? 0 : 1]);
+    $this->actionPoseEndFrame = $poseEnd;
     $this->phases = $phases;
     $this->restFrames = $restFrames;
     $this->restSegments = $restSegments;

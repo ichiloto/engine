@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Battle\UI;
 
 use Ichiloto\Engine\Battle\BattlePacing;
+use Ichiloto\Engine\Battle\Presentation\BattlerPose;
+use Ichiloto\Engine\Battle\Presentation\BattlePoseRole;
 use Ichiloto\Engine\Battle\UI\States\BattleScreenState;
 use Ichiloto\Engine\Battle\UI\States\PlayerActionState;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
@@ -343,6 +345,11 @@ class BattleScreen implements CanRender, CanUpdate
   public function usesGraphicalField(): bool
   {
     return isset($this->battleScene) && $this->battleScene->graphicalPresentation !== null;
+  }
+
+  public function getActionPose(CharacterInterface $battler, BattlePoseRole $role): ?BattlerPose
+  {
+    return isset($this->battleScene) ? $this->battleScene->graphicalPresentation?->getPose($battler, $role) : null;
   }
 
   /** Only these owned windows may supply the temporary graphical UI. */

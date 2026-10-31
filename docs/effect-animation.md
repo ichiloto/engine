@@ -2327,8 +2327,11 @@ immediately before impact while a long announcement finishes. If the available
 lead-in is shorter than the authored anticipation, only anticipation is compressed
 to fit. Impact, held entries and recovery continue at the authored fps. A zero-index
 impact holds `restFrame` before the boundary. Anchored action recovery remains
-visible while the actor returns to its slot; completion, cancellation and actual
-reaction poses retain their normal ownership. Reduced motion shows `restFrame`.
+visible while the actor returns to its slot. Command completion waits for the
+selected pose's full post-impact playback, including its final held entry.
+Movement, announcement, effect and damage cues keep their original timings;
+only the finish interval extends when the configured pace is too short. Pausing
+freezes that recovery, and cancellation or actual reaction poses retain ownership. Reduced motion shows `restFrame`.
 Unanchored poses and Terminal presentation retain their existing clocks.
 
 The action's numeric Animation binding may select `sourceEffectAnchor: 'target'`
@@ -2350,3 +2353,11 @@ through existing source-preserving save, undo and previews. Graphical pose previ
 must supply the actual command target boundary, using
 `BattleCommandPlayback::getPoseImpactSeconds`; static sheet inspection keeps its
 ordinary fps clock. No game-specific offset or per-render timer is needed.
+
+
+Command preview hosts pass their selected `BattlerPose` as the optional
+`BattleCommandTimeline::actionPose` argument, just as the production runner reads
+it from the active battle presentation. `actionPoseEndFrame` is its exclusive
+recovery boundary; `BattlerPose::getRecoverySeconds()` includes all playback
+entries from impact to the final hold. Results-only and unanchored poses add no
+recovery interval. Terminal-only hosts supply no graphical pose.

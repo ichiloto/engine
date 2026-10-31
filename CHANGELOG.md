@@ -15,6 +15,9 @@
 
 ### Changed
 
+- Anchored battle action poses finish their complete authored recovery at every
+  pace. Only command completion extends; movement and damage timing are preserved.
+
 - Detached project reachability and map completeness use their own world-power
   catalogue through condition analysis, preserving the running project's state.
 

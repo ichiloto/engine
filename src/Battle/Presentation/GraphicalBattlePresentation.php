@@ -105,6 +105,12 @@ final class GraphicalBattlePresentation
     return $drawn->destination;
   }
 
+  /** Selected project-authored pose metadata also owns its command recovery lifetime. */
+  public function getPose(CharacterInterface $battler, BattlePoseRole $role): ?BattlerPose
+  {
+    return ($this->participants[spl_object_id($battler)]['poses'] ?? null)?->getPose($role);
+  }
+
   /** Where a participant stands: its frontline slot, or its troop place on this arena's ground. */
   public function getSlot(CharacterInterface $battler): BattlerSlot
   {

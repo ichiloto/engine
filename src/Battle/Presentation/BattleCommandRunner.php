@@ -58,9 +58,11 @@ final class BattleCommandRunner
     foreach ([$actor, ...$targets] as $battler) {
       $this->previousVitals[spl_object_id($battler)] = [$battler->stats->currentHp, $battler->stats->currentMp];
     }
+    $pose = $resultsOnly ? BattlePoseRole::getRestingRole($actor) : BattlePoseRole::getForAction($action);
     $this->playback = new BattleCommandPlayback(new BattleCommandTimeline($timings, $source, $target, $terminalTarget, $resultsOnly,
-      showAnnouncement: $announcement !== '', targetScale: $targetScale, sourceEffectAnchor: $sourceEffectAnchor),
-      $actor, $targets, $resultsOnly ? BattlePoseRole::getRestingRole($actor) : BattlePoseRole::getForAction($action),
+      showAnnouncement: $announcement !== '', targetScale: $targetScale, sourceEffectAnchor: $sourceEffectAnchor,
+      actionPose: $resultsOnly ? null : $this->context->ui->getActionPose($actor, $pose)),
+      $actor, $targets, $pose,
       function () use ($resolve): void {
         if (($refusal = $this->getExecutionRefusal()) !== null) {
           $this->executionRefusal = $refusal;

@@ -94,3 +94,22 @@ it('round trips the explicit caster effect anchor while preserving old animation
     ->and(Animation::fromArray($bound->toArray())->sourceEffectAnchor)->toBe(SourceEffectAnchor::TARGET);
   expect(fn() => Animation::fromArray([...$old->toArray(), 'sourceEffectAnchor' => 'invented']))->toThrow(ValueError::class);
 });
+
+
+it('waits for full anchored recovery without changing movement, announcement, effects or damage timing', function (float $announcement, bool $show) {
+  $pose = new BattlerPose('pose.png', columns: 4, frames: [0,1,1,...array_fill(0, 17, 2),3],
+    fps: 20, loop: false, impactFrame: 3);
+  $timings = new BattleTurnTimings(.1, $announcement, .1, .1, .1, .1, .1);
+  $ordinary = new BattleCommandTimeline($timings, showAnnouncement: $show);
+  $plan = new BattleCommandTimeline($timings, showAnnouncement: $show, actionPose: $pose);
+  expect($pose->getRecoverySeconds())->toBe(.9);
+  foreach (['advance','announce','source','target','reaction','return'] as $phase) {
+    expect($plan->phases[$phase])->toBe($ordinary->phases[$phase]);
+  }
+  expect(array_column($plan->timeline->cueSchedule, 'frame', 'id'))
+    ->toBe(array_column($ordinary->timeline->cueSchedule, 'frame', 'id'))
+    ->and($plan->actionPoseEndFrame)->toBe($plan->phases['target']['start'] + 108)
+    ->and($plan->timeline->defaults['lengthFrames'])->toBe($plan->actionPoseEndFrame)
+    ->and((new BattleCommandTimeline($timings, actionPose: new BattlerPose('still.png')))->actionPoseEndFrame)->toBeNull()
+    ->and((new BattleCommandTimeline($timings, resultsOnly: true, actionPose: $pose))->actionPoseEndFrame)->toBeNull();
+})->with([0.0, .2, 4.0])->with([false, true]);

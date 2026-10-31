@@ -2754,3 +2754,48 @@ it('draws the anchored action strike on the target boundary and recovery on retu
   $playback->cancel();
   expect($playback->getPoseRole($actor, $poses))->toBe(BattlePoseRole::IDLE);
 })->with([false, true])->with([false, true]);
+
+
+it('keeps the production runner alive through the last authored recovery entry at every pace', function (
+  \Ichiloto\Engine\Battle\Enumerations\BattlePace $pace, bool $reduced) {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $pose = new BattlerPose('graphical-canvas/synthetic-320x180.png', columns: 4,
+    frames: [0,1,1,...array_fill(0, 17, 2),3], fps: 20, loop: false, impactFrame: 3, restFrame: 0);
+  $poses = new BattlePoseSet(['attack' => $pose]);
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $catalog->ui, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => $poses]);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $scene = graphicalBattleScene($battle, $presentation);
+  ConfigStore::put(Ichiloto\Engine\Util\Config\ProjectConfig::class,
+    new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));
+  $context = new \Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext(
+    $scene->getGame(), $battle->party, $battle->troop, $scene->ui, []);
+  $action = new AttackAction('Synthetic strike');
+  $timings = new \Ichiloto\Engine\Battle\BattlePacing(animationPace: $pace)->getTurnTimings($action);
+  $ordinary = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline($timings);
+  $hits = 0;
+  $runner = new \Ichiloto\Engine\Battle\Presentation\BattleCommandRunner($context, $hero, [$enemies[0]],
+    $action, 'Synthetic strike', $timings, null, null,
+    function () use (&$hits) { $hits++; }, static fn() => '', static fn() => null);
+  $playback = $runner->playback; $plan = $playback->plan;
+  $scene->ui->fieldWindow->setCommandPlayback($playback);
+  expect($scene->ui->getActionPose($hero, BattlePoseRole::ATTACK))->toBe($pose)
+    ->and($plan->phases['return'])->toBe($ordinary->phases['return'])
+    ->and($plan->phases['finish']['start'])->toBe($ordinary->phases['finish']['start'])
+    ->and($plan->timeline->defaults['lengthFrames'])->toBe(max($ordinary->timeline->defaults['lengthFrames'], $plan->actionPoseEndFrame));
+  $last = $plan->actionPoseEndFrame - 1;
+  $playback->update($last / 120);
+  expect($playback->isCompleted)->toBeFalse()->and($hits)->toBe(1)
+    ->and($playback->getPoseRole($hero, $poses))->toBe(BattlePoseRole::ATTACK)
+    ->and(graphicalCombatantImage($presentation->frame($scene->ui->fieldWindow), $hero)->sourceRect->x)
+    ->toBe($reduced ? 0 : 240);
+  // Returning to the slot keeps its original speed, including when recovery extends beyond it.
+  $returned = $plan->phases['return']['start'] + $plan->phases['return']['length'];
+  if ($last >= $returned) { expect($playback->getAdvanceFraction())->toBe(0.0); }
+  $elapsed = $playback->getPoseElapsedSeconds($hero);
+  $playback->pause(); $playback->update(5);
+  expect($playback->getPoseElapsedSeconds($hero))->toBe($elapsed)->and($hits)->toBe(1);
+  $playback->resume(); $playback->update(5);
+  expect($playback->isCompleted)->toBeTrue()->and($hits)->toBe(1)
+    ->and($playback->getPoseRole($hero, $poses))->toBe(BattlePoseRole::IDLE);
+})->with(\Ichiloto\Engine\Battle\Enumerations\BattlePace::cases())->with([false, true]);

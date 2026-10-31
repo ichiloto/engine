@@ -44,6 +44,12 @@ final readonly class BattlerPose
     }
   }
 
+  /** Includes the strike entry and its last authored hold. */
+  public function getRecoverySeconds(): float
+  {
+    return $this->impactFrame === null ? 0.0 : (count($this->frames) - $this->impactFrame) / $this->fps;
+  }
+
   public function getArtwork(string $assetRoot, float $elapsedSeconds, bool $reducedMotion = false,
     ?float $impactAtSeconds = null): ?BattlerArtwork
   {

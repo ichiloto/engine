@@ -105,7 +105,9 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     $rest = BattlePoseRole::getRestingRole($battler);
     if ($this->cancelled || $this->isCompleted || $rest === BattlePoseRole::KNOCKOUT || $rest === BattlePoseRole::CONCEDE) { return $rest; }
-    if ($this->phase === 'return' && $battler === $this->actor
+    if (($this->phase === 'return' || ($this->phase === 'finish'
+      && $this->plan->actionPoseEndFrame !== null && $this->session->currentFrame < $this->plan->actionPoseEndFrame))
+      && $battler === $this->actor
       && !isset($this->reactions[spl_object_id($battler)]) && $poses?->getPose($this->pose)?->impactFrame !== null) {
       return $this->pose;
     }
