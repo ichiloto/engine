@@ -91,3 +91,22 @@ it('sends a slide once with its step and never makes a standing sprite resend', 
   expect(fn() => $legacy->present($snapshot, [fieldMotionSprite(3, 5, 16 / 60)]))
     ->toThrow(RendererProtocolException::class, 'field_motion');
 });
+
+
+it('negotiates stationary camera motion independently and preserves it through retained frames', function () {
+  [$transport, $presentation] = fieldMotionPresentation(['frame_viewport', 'camera_motion']);
+  $snapshot = new ConsolePresentationSnapshot(20, 10, []);
+  $motion = new \Ichiloto\Engine\Rendering\Presentation\PresentationCameraMotion('stationary', .2);
+  $view = new PresentationViewport(1, 0, 0, new CanvasRectangle(0, 0, 20, 10),
+    worldId: 'field', worldOriginX: -2, worldOriginY: 4, cameraMotion: $motion);
+  $prepared = $presentation->prepareFrame($snapshot, viewport: $view);
+  expect($prepared->viewport['cameraMotion'])->toBe($motion->toArray())
+    ->and($presentation->presentFrame($prepared))->toBeTrue()
+    ->and($presentation->presentFrame($prepared))->toBeFalse();
+  $wire = $transport->sent[0]->payload['viewport'];
+  expect($wire['cameraMotion'])->toBe($motion->toArray())
+    ->and($wire['worldOrigin'])->toBe(['column' => -2, 'row' => 4]);
+  [, $unsupported] = fieldMotionPresentation(['frame_viewport', 'field_motion']);
+  expect(fn() => $unsupported->present($snapshot, viewport: $view))->toThrow(RendererProtocolException::class, 'camera_motion')
+    ->and(fn() => $unsupported->presentFrame($prepared))->toThrow(RendererProtocolException::class, 'camera_motion');
+});

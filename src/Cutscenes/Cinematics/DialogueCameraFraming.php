@@ -18,6 +18,7 @@ use Ichiloto\Engine\IO\Console\TerminalText;
 /** Scene-owned projection; UI and current subjects supply geometry, gameplay remains unchanged. */
 final class DialogueCameraFraming
 {
+  private const float TRANSITION_SECONDS = 0.2;
   private ?DialogueScenePresentation $dialogue = null;
   private ?string $assetRoot = null;
   private array $notes = [];
@@ -32,7 +33,7 @@ final class DialogueCameraFraming
 
   public function clear(): void
   {
-    $this->scene->camera->clearFraming($this);
+    $this->scene->camera->clearFraming($this, $this->getMotionSeconds());
     $this->diagnostic = null;
     $this->safeArea = null;
   }
@@ -146,10 +147,15 @@ final class DialogueCameraFraming
     $this->frameSubjects($bounds, $this->safeArea);
   }
 
+  private function getMotionSeconds(): float
+  {
+    return $this->scene->canPresentCameraMotion() ? self::TRANSITION_SECONDS : 0.0;
+  }
+
   private function frameSubjects(array $bounds, FieldSpriteBounds $safeArea): void
   {
     $group = FieldSpriteBounds::join($bounds);
-    if ($group === null || !$this->scene->camera->frameBounds($this, $group, $safeArea)) {
+    if ($group === null || !$this->scene->camera->frameBounds($this, $group, $safeArea, $this->getMotionSeconds())) {
       $this->reportFailure();
     } else { $this->diagnostic = null; }
   }

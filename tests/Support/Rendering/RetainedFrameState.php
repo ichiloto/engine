@@ -16,6 +16,7 @@ final class RetainedFrameState
   /** World ID / owner layer ID / row / column / complete glyph cell. */
   private array $worldGlyphRows = [];
   /** World ID / tile layer ID / row / column / complete tile cell. */
+  private array $worldTileRows = [];
   private ?array $viewport = null;
 
   /** @param list<RendererMessage> $messages @return list<array<string, mixed>> */
@@ -50,7 +51,7 @@ final class RetainedFrameState
       throw new RuntimeException('Retained generations must advance exactly once per packet.');
     }
     if ($payload['reset']) {
-      $this->values = $this->textRows = $this->worldGlyphRows = [];
+      $this->values = $this->textRows = $this->worldGlyphRows = $this->worldTileRows = [];
       $this->viewport = null;
     }
     foreach ($payload['operations'] as $operation) {
@@ -64,13 +65,13 @@ final class RetainedFrameState
             foreach ($operation['value']['runs'] as $run) { $this->textRows[$id][$run['row']][] = $run; }
           }
           if ($kind === 'world') {
-            unset($this->worldGlyphRows[$id]);
+            unset($this->worldGlyphRows[$id], $this->worldTileRows[$id]);
           }
           break;
         case 'remove':
           unset($this->values[$operation['kind']][$id]);
           if ($operation['kind'] === 'text') { unset($this->textRows[$id]); }
-          if ($operation['kind'] === 'world') { unset($this->worldGlyphRows[$id]); }
+          if ($operation['kind'] === 'world') { unset($this->worldGlyphRows[$id], $this->worldTileRows[$id]); }
           break;
         case 'textRows':
           if (!isset($this->values['text'][$id])) { throw new RuntimeException('Cannot patch an absent text layer.'); }
@@ -80,6 +81,7 @@ final class RetainedFrameState
           }
           break;
         case 'worldRows':
+        case 'worldRowRuns':
           if (!isset($this->values['world'][$id])) { throw new RuntimeException('Cannot patch an absent world.'); }
           foreach ($operation['rows'] as $row) {
             // A composed glyph row replaces all old owners, including newly empty cells.
@@ -87,9 +89,26 @@ final class RetainedFrameState
               unset($this->worldGlyphRows[$id][$layerId][$row['row']]);
               if ($this->worldGlyphRows[$id][$layerId] === []) { unset($this->worldGlyphRows[$id][$layerId]); }
             }
-            foreach ($row['cells'] as $column => $cell) {
+            $cells = $row['cells'] ?? [];
+            foreach ($row['runs'] ?? [] as $run) {
+              array_push($cells, ...array_fill(0, $run['count'], $run['cell']));
+            }
+            foreach ($cells as $column => $cell) {
               $this->worldGlyphRows[$id][$cell['ownerLayerId']][$row['row']][$column] = $cell;
             }
+          }
+          break;
+        case 'worldTiles':
+        case 'worldTileRuns':
+          if (!isset($this->values['world'][$id])) { throw new RuntimeException('Cannot patch an absent world.'); }
+          foreach ($operation['rows'] as $row) {
+            $cells = $row['cells'] ?? [];
+            foreach ($row['runs'] ?? [] as $run) {
+              for ($offset = 0; $offset < $run['count']; $offset++) {
+                $cells[] = ['column' => $run['column'] + $offset, 'tile' => $run['tile']];
+              }
+            }
+            $this->worldTileRows[$id][$operation['layerId']][$row['row']] = array_column($cells, null, 'column');
           }
           break;
 
@@ -128,7 +147,8 @@ final class RetainedFrameState
     if ($groups !== []) { $frame['worldCanvases'] = $groups; }
     if ($this->viewport !== null) { $frame['viewport'] = $this->viewport; }
     foreach ($this->values['world'] ?? [] as $id => $world) {
-      $frame['worlds'][$id] = [...$world, 'glyphRows' => $this->worldGlyphRows[$id] ?? []];
+      $frame['worlds'][$id] = [...$world, 'glyphRows' => $this->worldGlyphRows[$id] ?? [],
+        'tileRows' => $this->worldTileRows[$id] ?? []];
     }
     return $frame;
   }

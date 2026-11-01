@@ -59,6 +59,7 @@ final class RendererPresentation
 
   public function presentFrame(RetainedFrame $frame, ?PresentationCanvas $screenOverlay = null): bool
   {
+    $this->validateCameraMotion($frame->viewport);
     $this->validateWorldCanvases($frame->worldCanvases);
     if ($frame->canvas !== null) { $this->validateCanvas($frame->canvas, $frame->canvasIsOverlay); }
     if ($screenOverlay !== null) {
@@ -106,6 +107,7 @@ final class RendererPresentation
     if ($tileBatches !== []) {
       throw new RendererProtocolException('Stateless tile batches have been removed. Supply retained world layers instead.');
     }
+    $this->validateCameraMotion($viewport);
     $slides = $viewport?->follow !== null || array_any($sprites, static fn($sprite): bool => $sprite->motion !== null);
     if ($slides && !$this->client->supports(RendererSessionConfig::FIELD_MOTION)) {
       throw new RendererProtocolException('Sprite slides and camera follow require negotiated field_motion support.');
@@ -134,6 +136,14 @@ final class RendererPresentation
       ...array_map(static fn($group) => $group->canvas, $worldCanvases)]);
     return $prepare ? $this->retained->prepareFrame($snapshot, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases)
       : $this->retained->present($snapshot, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases);
+  }
+
+  private function validateCameraMotion(PresentationViewport|array|null $viewport): void
+  {
+    $hasMotion = $viewport instanceof PresentationViewport ? $viewport->cameraMotion !== null : isset($viewport['cameraMotion']);
+    if ($hasMotion && !$this->client->supports(RendererSessionConfig::CAMERA_MOTION)) {
+      throw new RendererProtocolException('Camera transitions require negotiated camera_motion support.');
+    }
   }
 
   /** Graphical frames do not require a Console snapshot or use its cell dimensions. */

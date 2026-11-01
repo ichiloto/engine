@@ -99,6 +99,36 @@ For bottom_center, feet are `((x + 0.5) * cellWidth, (y + 1) * cellHeight)`;
 the image top-left is feet minus `(width / 2, height)`. GPUI uses logical pixels
 (macOS points), applying display scaling itself.
 
+## Explicit camera transitions
+
+Protocol v2 negotiates `camera_motion` independently of `field_motion`.
+`PresentationViewport` may carry
+`cameraMotion: {id: string, duration: number, easing: "linear" | "smoothstep"}`
+alongside its required `worldId` and signed `worldOrigin`. The origin is the
+logical target. IDs are nonempty, control-free UTF-8 strings of at most 256
+bytes; duration is finite seconds greater than zero and at most 60.
+`PresentationCameraMotion` and `CameraMotionEasing` own this PHP value contract.
+
+The renderer starts a fresh ID from the origin currently drawn on its field
+clock. Repeated IDs retain their world, target, duration and easing. A fresh ID
+retargets an interrupted transition. Explicit camera motion takes precedence
+over sprite-follow camera motion; sprites retain their own movement. Removing
+the descriptor snaps to the declared origin. A first viewport, world replacement
+or session reset starts at its declared origin.
+
+`SceneFrameComposer` omits this optional descriptor for unsupported sessions and
+reduced-motion settings, preserving the logical origin and selected content.
+Follow removal and world-canvas selection preserve the independent descriptor.
+Direct presenter submissions carrying it require the negotiated capability.
+Retained uploads carry the viewport atomically with the presented frame.
+
+Dialogue framing emits 0.2-second smoothstep corrections and a return transition
+when its own lease closes. Explicit positioning, world installation and viewport
+replacement clear stale automatic transitions. PHP owns targets and lifecycle;
+native display interpolation does not move actors or change collision or saves.
+Native integration and exact edge-guidance reprojection are tracked separately
+in the existing rendering roadmap.
+
 ## Shared client and sequencing
 
 Create one `RendererPresentation` per renderer session using the same client and

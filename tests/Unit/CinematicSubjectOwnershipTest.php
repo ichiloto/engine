@@ -1638,7 +1638,7 @@ it('declares staged-actor existence requirements consistently with runtime opera
 ]);
 
 
-it('frames the real current conversation cast clear of dialogue in graphical and Terminal presentations', function (bool $graphical) {
+it('frames the real current conversation cast clear of dialogue in graphical and Terminal presentations', function (bool $graphical, bool $cameraMotion) {
   $this->scene->cinematicController->start(subjectOwnershipDefinition([['type' => 'wait', 'seconds' => 10]], [
     'cast' => [['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide'], 'sprites2d' => characterSheetData(), 'sprite' => ['@@', '@@']]],
     'presentation' => ['conversation' => subjectConversation()],
@@ -1665,13 +1665,22 @@ it('frames the real current conversation cast clear of dialogue in graphical and
     new ReflectionProperty($this->player, 'position')->setValue($this->player, new Vector2(3, 14));
     new ReflectionProperty($this->npc, 'position')->setValue($this->npc, new Vector2(7, 14));
   }
+  if ($cameraMotion) {
+    $context = new \Ichiloto\Engine\Rendering\Presentation\ScenePresentationContext(
+      $view->grid, fn($capability) => true, collectPresentations: fn() => $this->scene->getUI()->getActivePresentations(),
+      assetRoot: $this->assetRoot);
+    new ReflectionProperty(GameScene::class, 'presentationContext')->setValue($this->scene, $context);
+  }
   $this->scene->cinematicController->prepareDialogue('Hero');
   $positions = [clone $this->player->position, clone $this->npc->position];
   $before = $this->scene->camera->captureState(); $world = $this->scene->camera->worldSpace;
   $this->scene->getUI()->present($owner);
-  $framing = new \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming($this->scene); $framing->update();
+  $framing = new \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming($this->scene);
+  new ReflectionProperty(GameScene::class, 'dialogueFraming')->setValue($this->scene, $framing);
+  $framing->update();
   expect($this->scene->camera->isFramed)->toBeTrue()->and($framing->diagnostic)->toBeNull();
   $origin = $this->scene->camera->getWorldOrigin();
+  expect($this->scene->camera->presentationMotion !== null)->toBe($cameraMotion);
   if ($graphical) {
     $protected = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueScenePresentation($this->assetRoot)->getProtectedBounds($line, 1350, 720);
     $safe = \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming::findSafeArea($protected, 1350, 720);
@@ -1706,12 +1715,16 @@ it('frames the real current conversation cast clear of dialogue in graphical and
   }
   expect([$this->player->position, $this->npc->position])->toEqual($positions)
     ->and($this->scene->camera->worldSpace)->toBe($world)->and($this->scene->camera->captureState())->toEqual($before);
+  $heldMotion = $this->scene->camera->presentationMotion;
   $this->scene->getUI()->dismiss($owner); $this->scene->getUI()->commitPresentationChanges(); $framing->update();
   expect($this->scene->camera->isFramed)->toBeTrue()->and($this->scene->camera->getWorldOrigin())->toBe($origin);
+  expect($this->scene->camera->presentationMotion)->toBe($heldMotion);
   $this->scene->eventInterpreter->failActiveSession('End synthetic conversation.'); $framing->update();
   expect($this->scene->camera->isFramed)->toBeFalse()->and($this->scene->camera->followsPlayer)->toBeTrue()
-    ->and($this->scene->camera->position)->toEqual($this->scene->camera->positionForFocus($this->player->position));
-})->with([false, true]);
+    ->and($this->scene->camera->position)->toEqual($this->scene->camera->positionForFocus($this->player->position))
+    ->and($this->scene->camera->presentationMotion !== null)->toBe($cameraMotion);
+  if ($cameraMotion) { expect($this->scene->camera->presentationMotion->id)->not->toBe($heldMotion->id); }
+})->with([[false, false], [true, false], [true, true]]);
 
 
 it('holds cinematic framing across text-box gaps and releases it at cinematic end', function () {

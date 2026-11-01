@@ -20,6 +20,19 @@ Windows support. Merging implementation does not create a package release.
 
 ## Dialogue camera framing — 31 October 2026
 
+1 November: the PHP `camera_motion` contract, optional capability adaptation,
+retained viewport preservation and 0.2-second smooth dialogue correction/return
+are implemented. Cinematic cleanup restores logical ownership before releasing
+the framing lease. Synthetic lifecycle, independent-capability, reduced-motion,
+signed-origin and world-canvas checks qualify this PHP slice. Native consumption
+landed separately in Renderer `914ae39`; no in-game visual acceptance is claimed.
+
+Remaining integration: exact world-anchored edge-guidance projection across
+clamped/unclamped camera movement (the current native pinned-sprite ride is an
+approximation), the authored `CameraOperation` consumer for the Lehu city reveal,
+and the complete Game/Editor/native presentation checks. These remain required
+Milestone 4 work; automatic dialogue framing does not complete the city reveal.
+
 Shared dialogue geometry now reserves the body, portrait and nameplate area for
 current cinematic participants. Camera projection handles signed edge padding,
 small maps, retained step envelopes, multiple reading owners and cleanup;

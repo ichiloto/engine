@@ -506,9 +506,16 @@ authored camera movement continues within the cast-safe range. Native follow
 smoothing stands down while this explicit framing owns the projected origin.
 
 Actual text-box show/hide, cooperative field rendering and viewport changes
-refresh framing. Closing the reading surface releases its projection; map
-installation, cinematic cleanup and shutdown also release it. An older owner's
-cleanup cannot clear a newer frame. No camera framing is saved as world progress.
+refresh framing. The cinematic keeps its current cast-safe projection between
+lines. Changing the conversation scope, map installation, cinematic cleanup and
+shutdown release it. An older owner's cleanup cannot clear a newer frame.
+No camera framing is saved as world progress.
+
+With negotiated `camera_motion`, graphical corrections and the return to the
+restored logical camera use 0.2-second smoothstep transitions. Cinematic cleanup
+restores subject transforms and logical camera ownership before releasing its
+framing lease. Unsupported and reduced-motion presentations use immediate
+logical framing. Terminal framing keeps its existing geometry and timing.
 
 A cast too large for the available reading viewport reports a staging diagnostic
 through `GameScene::getDialogueFramingDiagnostic()`. Authors can correct the

@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Rendering\Presentation;
 
 use Closure;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
+use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
@@ -113,6 +114,9 @@ final class SceneFrameComposer
     $viewport = $scene instanceof FrameViewportProviderInterface
       ? $scene->getPresentationViewport($snapshot, $sprites, []) : null;
     if (!$slides) { $viewport = $viewport?->withoutFollow(); }
+    if (!$supports(RendererSessionConfig::CAMERA_MOTION) || Accessibility::prefersReducedMotion()) {
+      $viewport = $viewport?->withoutCameraMotion();
+    }
     $groups = $scene instanceof WorldCanvasProviderInterface ? $scene->getPresentationWorldCanvases() : [];
     if ($groups !== []) {
       if (!$supports(RendererSessionConfig::WORLD_CANVAS) || !$supports(RendererSessionConfig::FRAME_VIEWPORT)) {

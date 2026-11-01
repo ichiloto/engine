@@ -31,6 +31,7 @@ final readonly class PresentationViewport
     public ?PresentationViewportFollow $follow = null,
     /** Atomic local canvases receiving the same camera, zoom and clip as selected field sprites. */
     public array $worldCanvasIds = [],
+    public ?PresentationCameraMotion $cameraMotion = null,
   ) {
     if ($tileFrame < 0) {
       throw new InvalidArgumentException('Viewport tileFrame must be nonnegative.');
@@ -48,6 +49,9 @@ final readonly class PresentationViewport
         }
         $seen[$id] = true;
       }
+    }
+    if ($cameraMotion !== null && $worldId === null) {
+      throw new InvalidArgumentException('A camera transition requires a field world.');
     }
     if ($worldCanvasIds !== [] && $worldId === null) {
       throw new InvalidArgumentException('World canvas membership requires a field world.');
@@ -101,21 +105,30 @@ final readonly class PresentationViewport
       ...($this->worldId === null ? [] : ['worldId' => $this->worldId,
         'worldOrigin' => ['column' => $this->worldOriginX, 'row' => $this->worldOriginY]]),
       ...($this->tileFrame === 0 ? [] : ['tileFrame' => $this->tileFrame]),
-      ...($this->follow === null ? [] : ['follow' => $this->follow->toArray()])];
+      ...($this->follow === null ? [] : ['follow' => $this->follow->toArray()]),
+      ...($this->cameraMotion === null ? [] : ['cameraMotion' => $this->cameraMotion->toArray()])];
   }
 
-  /** The same viewport with a camera that snaps, for renderers that cannot slide it. */
+  /** Preserve explicit camera transitions while removing sprite-follow tracking. */
   public function withoutFollow(): self
   {
     return $this->follow === null ? $this : new self($this->scale, $this->x, $this->y, $this->clipRect,
       $this->textLayerIds, $this->spriteIds, $this->tileBatchIds, $this->worldId, $this->worldOriginX,
-      $this->worldOriginY, $this->tileFrame, worldCanvasIds: $this->worldCanvasIds);
+      $this->worldOriginY, $this->tileFrame, worldCanvasIds: $this->worldCanvasIds, cameraMotion: $this->cameraMotion);
+  }
+
+  /** Keep the logical target and all selected content while removing optional camera interpolation. */
+  public function withoutCameraMotion(): self
+  {
+    return $this->cameraMotion === null ? $this : new self($this->scale, $this->x, $this->y, $this->clipRect,
+      $this->textLayerIds, $this->spriteIds, $this->tileBatchIds, $this->worldId, $this->worldOriginX,
+      $this->worldOriginY, $this->tileFrame, $this->follow, $this->worldCanvasIds);
   }
 
   /** Preserve the selected field transform while selecting its already-projected local canvases. */
   public function selectWorldCanvases(array $ids): self
   {
     return new self($this->scale, $this->x, $this->y, $this->clipRect, $this->textLayerIds, $this->spriteIds,
-      $this->tileBatchIds, $this->worldId, $this->worldOriginX, $this->worldOriginY, $this->tileFrame, $this->follow, $ids);
+      $this->tileBatchIds, $this->worldId, $this->worldOriginX, $this->worldOriginY, $this->tileFrame, $this->follow, $ids, $this->cameraMotion);
   }
 }

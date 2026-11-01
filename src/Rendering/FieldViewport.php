@@ -9,6 +9,7 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTileBatch;
 use Ichiloto\Engine\Rendering\Presentation\PresentationViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationViewportFollow;
+use Ichiloto\Engine\Rendering\Presentation\PresentationCameraMotion;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
@@ -48,7 +49,8 @@ final readonly class FieldViewport
    */
   public function createViewport(array|ConsolePresentationSnapshot|ConsolePresentationChanges $text, array $sprites, array $tiles = [],
     ?string $worldId = null, array $worldOrigin = ['x' => 0, 'y' => 0], int $tileFrame = 0,
-    ?string $followSpriteId = null, array $screenSpriteIds = [], array $worldCanvasIds = []): PresentationViewport
+    ?string $followSpriteId = null, array $screenSpriteIds = [], array $worldCanvasIds = [],
+    ?PresentationCameraMotion $cameraMotion = null): PresentationViewport
   {
     if ($text instanceof ConsolePresentationSnapshot) { $text = $text->textLayers; }
     elseif ($text instanceof ConsolePresentationChanges) {
@@ -67,6 +69,6 @@ final readonly class FieldViewport
       max(0, ($width - $this->columns * self::TILE_SIZE * $this->zoom) / 2),
       max(0, ($height - $this->rows * self::TILE_SIZE * $this->zoom) / 2),
       new CanvasRectangle(0, 0, $width, $height), $textLayerIds, $spriteIds, array_column($tiles, 'id'),
-      $worldId, $worldOrigin['x'], $worldOrigin['y'], $tileFrame, $follow, $worldCanvasIds);
+      $worldId, $worldOrigin['x'], $worldOrigin['y'], $tileFrame, $follow, $worldCanvasIds, $cameraMotion);
   }
 }

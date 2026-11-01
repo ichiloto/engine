@@ -74,6 +74,7 @@ final class CompositionSceneProbe extends GameScene implements WorldCanvasProvid
   public ?string $followId = 'actor';
   public array $screenIds = ['screen-effect'];
   public bool $invalidMembership = false;
+  public ?\Ichiloto\Engine\Rendering\Presentation\PresentationCameraMotion $cameraMotion = null;
   private array $textMembers = [];
   public function __construct(public RendererGridConfig $grid, UIManager $ui)
   {
@@ -103,7 +104,7 @@ final class CompositionSceneProbe extends GameScene implements WorldCanvasProvid
     }
     $viewport = $this->world === null ? null : new FieldViewport($this->grid)->createViewport(array_values($this->textMembers),
       $sprites, $tiles, $this->world->id, $this->camera->getWorldOrigin(), $this->tileFrame,
-      $this->followId, $this->screenIds);
+      $this->followId, $this->screenIds, cameraMotion: $this->cameraMotion);
     return $this->invalidMembership ? new PresentationViewport(1, 0, 0, $viewport->clipRect,
       spriteIds: ['not-in-frame']) : $viewport;
   }
@@ -278,7 +279,7 @@ it('prepares the same retained field from full snapshots and reset changes witho
   $actorPut = array_find($wire['operations'], fn($operation) => $operation['op'] === 'put'
     && $operation['kind'] === 'sprite' && $operation['id'] === 'actor');
   expect($worldPut['id'])->toBe($full->world->id)
-    ->and(array_column($wire['operations'], 'op'))->toContain('worldRows')
+    ->and(array_any($wire['operations'], fn($operation) => in_array($operation['op'], ['worldRows', 'worldRowRuns'], true)))->toBeTrue()
     ->and($actorPut['value']['sourceRect'])->toBe($this->actor->definition->sourceRect->toArray())
     ->and($actorPut['value']['motion'])->toBe($this->actor->motion->toArray());
   $preview->acknowledge(1, true);
@@ -508,3 +509,34 @@ it('reports dialogue and modals it cannot theme instead of leaving them in Termi
   'without a catalogue' => [null, 'no dialogue presentation catalogue'],
   'with a catalogue that has no theme' => [['schema' => 'ichiloto.dialogue/1'], 'catalogue has no theme'],
 ]);
+
+
+it('adapts explicit camera motion independently and preserves world-canvas membership', function () {
+  $motion = new \Ichiloto\Engine\Rendering\Presentation\PresentationCameraMotion('framing', .2);
+  $this->scene->cameraMotion = $motion;
+  $this->scene->groups = [new PresentationWorldCanvas('sign', 7, 4,
+    new PresentationSpritePivot(.5, 1), new PresentationCanvas(48, 24), 10)->createProjected(3, 2)];
+  $supported = $this->composer->composeFrame($this->scene, $this->grid,
+    fn($feature) => $feature !== RendererSessionConfig::FIELD_MOTION, $this->capture);
+  expect($supported->viewport->cameraMotion)->toBe($motion)->and($supported->viewport->follow)->toBeNull()
+    ->and($supported->viewport->worldCanvasIds)->toBe(['sign']);
+  $unsupported = $this->composer->composeFrame($this->scene, $this->grid,
+    fn($feature) => $feature !== RendererSessionConfig::CAMERA_MOTION, $this->capture);
+  expect($unsupported->viewport->cameraMotion)->toBeNull()->and($unsupported->viewport->follow)->not->toBeNull()
+    ->and($unsupported->viewport->worldOriginX)->toBe($supported->viewport->worldOriginX)
+    ->and($unsupported->viewport->worldCanvasIds)->toBe(['sign']);
+
+  $store = \Ichiloto\Engine\Util\Config\ConfigStore::class;
+  $configClass = \Ichiloto\Engine\Util\Config\ProjectConfig::class;
+  $prior = $store::has($configClass) ? $store::get($configClass) : null;
+  try {
+    $store::put($configClass, new class extends \Ichiloto\Engine\Util\Config\ProjectConfig {
+      protected function load(): array { return ['accessibility' => ['reducedMotion' => true]]; }
+    });
+    $reduced = $this->composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture);
+    expect($reduced->viewport->cameraMotion)->toBeNull()->and($reduced->viewport->worldCanvasIds)->toBe(['sign']);
+  } finally {
+    if ($prior === null) { $store::remove($configClass); }
+    else { $store::put($configClass, $prior); }
+  }
+});

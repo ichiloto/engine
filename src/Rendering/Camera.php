@@ -4,6 +4,8 @@ namespace Ichiloto\Engine\Rendering;
 
 use Ichiloto\Engine\Core\GameObject;
 use Ichiloto\Engine\Animations\Field\FieldSpriteBounds;
+use Ichiloto\Engine\Rendering\Presentation\PresentationCameraMotion;
+use Ichiloto\Engine\Rendering\Presentation\CameraMotionEasing;
 use InvalidArgumentException;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
@@ -36,6 +38,8 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   private ?Vector2 $framingOrigin = null;
   private int $positionRevision = 0;
   private ?int $framingPositionRevision = null;
+  private static int $motionSequence = 0;
+  public private(set) ?PresentationCameraMotion $presentationMotion = null;
   public bool $isFramed { get => $this->framingOrigin !== null; }
   protected ?CameraStateSnapshot $detachedSnapshot = null;
   /** @var array<int, NormalizedRow> Current map only; discarded on source/policy changes. */
@@ -78,6 +82,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     }
 
     set {
+      $this->presentationMotion = null;
       $this->positionRevision++;
       $this->screen->setX($value->x);
       $this->screen->setY($value->y);
@@ -97,7 +102,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
       // behind its setter and leave the retained rows stale.
       $this->worldSpace = array_map(static fn($row) => is_array($row)
         ? array_map(static fn($symbol) => $symbol, $row) : $row, $value);
-      $this->framingOwner = null; $this->framingOrigin = null;
+      $this->framingOwner = null; $this->framingOrigin = null; $this->presentationMotion = null;
       $this->normalizedRows = [];
       $this->stringRowSymbols = [];
       $this->normalizationPolicy = null;
@@ -397,6 +402,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
   public function detach(): void
   {
+    $this->presentationMotion = null;
     if ($this->followsPlayer) {
       $this->detachedSnapshot = $this->captureState();
     }
@@ -406,6 +412,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
   public function attach(?Player $player = null): void
   {
+    $this->presentationMotion = null;
     $this->player = $player ?? $this->player;
     $this->followsPlayer = true;
 
@@ -491,8 +498,13 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   }
 
   /** Fit current drawn bounds into a logical-cell safe area, preserving camera/gameplay ownership. */
-  public function frameBounds(object $owner, FieldSpriteBounds $subjects, FieldSpriteBounds $safeArea): bool
+  public function frameBounds(object $owner, FieldSpriteBounds $subjects, FieldSpriteBounds $safeArea,
+    float $motionSeconds = 0.0, CameraMotionEasing $easing = CameraMotionEasing::SMOOTHSTEP): bool
   {
+    $this->assertMotionSeconds($motionSeconds);
+    $before = $this->getWorldOrigin();
+    $authoredMovement = $this->framingPositionRevision !== null
+      && $this->framingPositionRevision !== $this->positionRevision;
     foreach ([$subjects, $safeArea] as $bounds) {
       foreach ([$bounds->left, $bounds->top, $bounds->right, $bounds->bottom] as $value) {
         if (!is_finite($value)) { throw new InvalidArgumentException('Camera framing bounds must be finite.'); }
@@ -516,14 +528,38 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     $this->framingOrigin = new Vector2($x, $y);
     $this->framingOwner = $owner;
     $this->framingPositionRevision = $this->positionRevision;
+    $this->updatePresentationMotion($before, $authoredMovement ? 0.0 : $motionSeconds, $easing);
     return true;
   }
 
   /** Closing an older overlay never releases a newer owner's view. */
-  public function clearFraming(object $owner): void
+  public function clearFraming(object $owner, float $motionSeconds = 0.0,
+    CameraMotionEasing $easing = CameraMotionEasing::SMOOTHSTEP): void
   {
+    $this->assertMotionSeconds($motionSeconds);
     if ($this->framingOwner !== $owner) { return; }
+    $before = $this->getWorldOrigin();
     $this->framingOrigin = null; $this->framingOwner = null;
+    $this->framingPositionRevision = null;
+    $this->updatePresentationMotion($before, $motionSeconds, $easing);
+  }
+
+  private function assertMotionSeconds(float $seconds): void
+  {
+    if (!is_finite($seconds) || $seconds < 0.0 || $seconds > PresentationCameraMotion::MAX_SECONDS) {
+      throw new InvalidArgumentException('Camera motion duration must be finite and from zero to 60 seconds.');
+    }
+  }
+
+  /** The renderer retains a descriptor until it is replaced or explicitly removed. */
+  private function updatePresentationMotion(array $before, float $seconds, CameraMotionEasing $easing): void
+  {
+    if ($seconds === 0.0) { $this->presentationMotion = null; return; }
+    $current = $this->presentationMotion;
+    if ($before === $this->getWorldOrigin()
+      && ($current === null || ($current->seconds === $seconds && $current->easing === $easing))) { return; }
+    if (self::$motionSequence === PHP_INT_MAX) { throw new \OverflowException('Camera transition ID sequence exhausted.'); }
+    $this->presentationMotion = new PresentationCameraMotion('camera-motion-' . ++self::$motionSequence, $seconds, $easing);
   }
 
   /** Map installation/provider validates this before bypassing terminal map drawing. */
@@ -602,6 +638,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   public function resetPosition(Player $player): void
   {
+    $before = $this->getWorldOrigin();
     $x = 0;
     $y = 0;
     $maxX = max(0, $this->worldSpaceWidth - $this->screen->getWidth());
@@ -617,6 +654,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
     $this->screen->setX($x);
     $this->screen->setY($y);
+    if ($before !== $this->getWorldOrigin()) { $this->presentationMotion = null; }
   }
 
   /**
@@ -628,7 +666,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   public function resizeViewport(int $width, int $height): void
   {
-    $this->framingOwner = null; $this->framingOrigin = null;
+    $this->framingOwner = null; $this->framingOrigin = null; $this->presentationMotion = null;
     $this->width = max(1, $width);
     $this->height = max(1, $height);
     $this->screen->setWidth($this->width);

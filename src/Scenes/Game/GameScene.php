@@ -190,6 +190,13 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
             : (isset($this->sceneManager) && $this->getGame()->getRendererRuntime()?->supports($capability) === true);
     }
 
+    /** Explicit graphical camera transitions use their own negotiated capability. */
+    public function canPresentCameraMotion(): bool
+    {
+        return $this->fieldViewport !== null && !Accessibility::prefersReducedMotion()
+            && $this->supportsScenePresentation(RendererSessionConfig::CAMERA_MOTION);
+    }
+
     /** Compound field subjects require both existing canvas and viewport capabilities. */
     public function canPresentWorldCanvases(): bool
     {
@@ -299,7 +306,8 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         // A camera that follows the player scrolls with the player's step, not after it.
         return $this->fieldViewport->createViewport(array_values($this->viewportTextLayers), $sprites, $tiles,
             $world->id, $this->camera->getWorldOrigin(), $tileFrame,
-            $this->camera->followsPlayer && !$this->camera->isFramed ? $this->player?->getGraphicalSpriteId() : null, $this->fieldEdgeSpriteIds);
+            $this->camera->followsPlayer && !$this->camera->isFramed ? $this->player?->getGraphicalSpriteId() : null, $this->fieldEdgeSpriteIds,
+            cameraMotion: $this->canPresentCameraMotion() ? $this->camera->presentationMotion : null);
     }
 
     public function getPresentationWorld(): ?PresentationWorld

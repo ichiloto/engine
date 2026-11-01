@@ -167,7 +167,6 @@ final class CinematicController implements EventSessionCompletionTargetInterface
 
   protected function cleanup(bool $restoreTransforms = true): void
   {
-    $this->gameScene->clearDialogueFraming();
     $this->gameScene->cinematicStage?->clear($restoreTransforms);
     $this->gameScene->cinematicPresentation?->clear();
 
@@ -176,6 +175,8 @@ final class CinematicController implements EventSessionCompletionTargetInterface
     } elseif ($this->cameraBefore !== null) {
       $this->gameScene->camera->restoreState($this->cameraBefore);
     }
+    // Restore the logical camera first, then release the projection towards its final target.
+    $this->gameScene->clearDialogueFraming();
 
     $this->active = null;
     $this->conversation = null;
