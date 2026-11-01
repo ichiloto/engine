@@ -4482,10 +4482,20 @@ Do not create a second stage schema. Verify flat and paired sources and the
 existing animation source/target pickers against Engine runtime selection.
 Art is preparing the ten authored Awakening move/form variants against this
 contract; no bespoke action art or native final acceptance is claimed by this
-Engine delivery. Persistent state/reaction-owned shadow-decoy visuals and the
-newly exposed land-footing/full-body clearance limitation remain separate open
-Engine follow-ups. Actual current findings are retained in Game's 0158 action
-brief and 0242 clearance receipt in the agent channel.
+Engine delivery. The later state-owned condition `tone` contract and prepared
+counter cleanup provide Shadow Gambit's persistent shadowy appearance. The
+normal Game binds `condition-shadow-gambit` through `ui.battle.conditions`;
+current-source normal/reduced tests cover interception, owner KO and selected-foe
+KO with brightness restoration, one miss/counter and unchanged MP (Game's
+30 October 05:34 receipt). Bespoke lure/counter poses and native/player review
+remain open. The earlier 01:58 missing-runtime finding is historical.
+
+The earlier 02:42 Secret Lake footing/body-clearance regression predates the
+shared uniform-row/reference-size changes. Game's later 30 October 17:26
+installed-source qualification covers every current actor slot and authored
+troop with the shared formation composer; its sampled normal/reduced full-UI
+frames have no clearance diagnostics. Richer action poses and travel retain
+their own current clearance checks and native/player acceptance.
 
 
 ### Action pose impact anchor — shared delivery, 31 October 2026
