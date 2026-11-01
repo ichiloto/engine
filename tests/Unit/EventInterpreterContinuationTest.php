@@ -378,6 +378,8 @@ class EventTestGameScene extends GameScene
   public bool $refuseTransfers = false;
   public int $cameraScrollRecompositions = 0;
   public bool $canRecomposeCameraScroll = false;
+  public bool $cameraMotionAvailable = false;
+  public function canPresentCameraMotion(): bool { return $this->cameraMotionAvailable; }
 
   public function __construct(public EventTestSceneManager $testSceneManager = new EventTestSceneManager())
   {
@@ -3238,6 +3240,105 @@ it('pans, tracks moving staged subjects, shakes within bounds and resets the cam
 
   expect($shake?->status)->toBe(EventExecutionStatus::COMPLETED)
     ->and($scene->camera->followsPlayer)->toBeTrue();
+});
+
+it('keeps authored pan timing and logical samples while optionally retaining one graphical destination', function (bool $graphical) {
+  [$scene, $interpreter] = makeEventRuntime();
+  $scene->cameraMotionAvailable = $graphical;
+  $session = $interpreter->run([
+    ['type' => 'camera', 'operation' => 'pan', 'target' => ['kind' => 'position', 'x' => 30, 'y' => 20], 'seconds' => 1.0],
+    ['type' => 'record_event', 'name' => 'pan_finished'],
+  ], 'retained-pan');
+  $motion = $scene->camera->presentationMotion;
+  expect($motion !== null)->toBe($graphical)
+    ->and($scene->camera->position)->toEqual(new Vector2(0, 0))
+    ->and($scene->camera->getWorldOrigin())->toBe($graphical ? ['x' => 21, 'y' => 16] : ['x' => 0, 'y' => 0]);
+  $interpreter->update(.5);
+  expect($session->status)->toBe(EventExecutionStatus::YIELDED)
+    ->and($scene->camera->position)->toEqual(new Vector2(11, 8))
+    ->and($scene->camera->presentationMotion)->toBe($motion)
+    ->and($scene->gameState->hasStoryEvent('pan_finished'))->toBeFalse();
+  $interpreter->update(.5);
+  expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->camera->position)->toEqual(new Vector2(21, 16))
+    ->and($scene->camera->hasTransition)->toBeFalse()
+    ->and($scene->gameState->hasStoryEvent('pan_finished'))->toBeTrue();
+})->with([false, true]);
+
+it('segments long authored pans within the native duration limit and carries route overflow', function () {
+  [$scene, $interpreter] = makeEventRuntime(); $scene->cameraMotionAvailable = true;
+  $session = $interpreter->run([
+    ['type' => 'camera', 'operation' => 'pan', 'target' => ['kind' => 'position', 'x' => 30, 'y' => 20], 'seconds' => 121.0],
+  ], 'long-retained-pan');
+  $first = $scene->camera->presentationMotion;
+  expect($first->seconds)->toBe(60.0);
+  $interpreter->update(60.0); $second = $scene->camera->presentationMotion;
+  expect($second->id)->not->toBe($first->id)->and($second->seconds)->toBe(60.0)
+    ->and($scene->camera->position)->toEqual(new Vector2(10, 8));
+  $interpreter->update(60.0); $last = $scene->camera->presentationMotion;
+  expect($last->id)->not->toBe($second->id)->and($last->seconds)->toBe(1.0)
+    ->and($session->status)->toBe(EventExecutionStatus::YIELDED);
+  $interpreter->update(1.0);
+  expect($session->status)->toBe(EventExecutionStatus::COMPLETED);
+
+  $route = $interpreter->run([['type' => 'camera', 'operation' => 'route', 'points' => [
+    ['kind' => 'position', 'x' => 20, 'y' => 10, 'seconds' => 1],
+    ['kind' => 'position', 'x' => 40, 'y' => 25, 'seconds' => 1],
+  ]]], 'retained-route');
+  $id = $scene->camera->presentationMotion->id;
+  $interpreter->update(1.25);
+  expect($route->status)->toBe(EventExecutionStatus::YIELDED)
+    ->and($scene->camera->presentationMotion->id)->not->toBe($id)
+    ->and($scene->camera->presentationMotion->seconds)->toBe(.75)
+    ->and($scene->camera->getWorldOrigin())->toBe(['x' => 31, 'y' => 21])
+    ->and($scene->camera->position)->toEqual(new Vector2(16, 10));
+  $interpreter->update(.75);
+  expect($route->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->camera->position)->toEqual(new Vector2(31, 21));
+});
+
+it('resumes a camera destination after resize and snaps safely when presentation support is lost', function () {
+  [$scene, $interpreter] = makeEventRuntime(); $scene->cameraMotionAvailable = true;
+  $session = $interpreter->run([['type' => 'camera', 'operation' => 'pan',
+    'target' => ['kind' => 'position', 'x' => 30, 'y' => 20], 'seconds' => 2]], 'resize-retained-pan');
+  $first = $scene->camera->presentationMotion;
+  $interpreter->update(.5); $scene->camera->resizeViewport(20, 10);
+  expect($scene->camera->presentationMotion)->toBeNull();
+  $interpreter->update(.25);
+  expect($scene->camera->presentationMotion->id)->not->toBe($first->id)
+    ->and($scene->camera->presentationMotion->seconds)->toBe(1.25);
+  $scene->cameraMotionAvailable = false; $interpreter->update(.25);
+  expect($scene->camera->presentationMotion)->toBeNull()->and($scene->camera->hasTransition)->toBeFalse()
+    ->and($session->status)->toBe(EventExecutionStatus::YIELDED);
+  $interpreter->update(1.0);
+  expect($session->status)->toBe(EventExecutionStatus::COMPLETED);
+});
+
+it('starts only the remaining pan after its first presented-world baseline becomes available', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $session = $interpreter->run([['type' => 'camera', 'operation' => 'pan',
+    'target' => ['kind' => 'position', 'x' => 30, 'y' => 20], 'seconds' => 1]], 'cold-world-pan');
+  $interpreter->update(.25);
+  expect($scene->camera->presentationMotion)->toBeNull();
+  $scene->cameraMotionAvailable = true; $interpreter->update(.25);
+  expect($scene->camera->presentationMotion->seconds)->toBe(.5)
+    ->and($scene->camera->position)->toEqual(new Vector2(11, 8));
+  $interpreter->update(.5);
+  expect($session->status)->toBe(EventExecutionStatus::COMPLETED);
+});
+
+it('applies the final camera state when reduced motion is enabled during a retained pan', function () {
+  [$scene, $interpreter] = makeEventRuntime(); $scene->cameraMotionAvailable = true;
+  $session = $interpreter->run([['type' => 'camera', 'operation' => 'pan',
+    'target' => ['kind' => 'position', 'x' => 30, 'y' => 20], 'seconds' => 2]], 'reduced-retained-pan');
+  $interpreter->update(.25);
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => true]]);
+  try {
+    $interpreter->update(.01);
+    expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->camera->position)->toEqual(new Vector2(21, 16))
+      ->and($scene->camera->presentationMotion)->toBeNull()->and($scene->camera->hasTransition)->toBeFalse();
+  } finally { ConfigStore::remove(ProjectConfig::class); }
 });
 
 it('preserves camera follow ownership and detach history through a shake', function (bool $detached, string $ending) {

@@ -103,3 +103,61 @@ it('rejects invalid framing durations before changing logical or presentation st
       ->and($camera->captureState())->toEqual($before);
   }
 });
+
+it('owns a projected destination separately from sampled logical state and respects framing cleanup', function () {
+  $camera = new Camera(makeCameraTestScene(), 10, 8, worldSpace: array_fill(0, 60, str_repeat('.', 80)));
+  $owner = new stdClass(); $reader = new stdClass();
+  $target = new Vector2(30, 20);
+  $camera->beginTransition($owner, $target, 2.0);
+  $motion = $camera->presentationMotion;
+  $target->x = 70;
+  $camera->updateTransition($owner, new Vector2(15, 10), 1.0);
+  expect($camera->position)->toEqual(new Vector2(15, 10))
+    ->and($camera->getWorldOrigin())->toBe(['x' => 30, 'y' => 20])
+    ->and($camera->getScreenSpacePosition(new Vector2(32, 22)))->toEqual(new Vector2(2, 2))
+    ->and($camera->captureState()->position)->toEqual(new Vector2(15, 10))
+    ->and($camera->presentationMotion)->toBe($motion);
+  $camera->frameBounds($reader, new FieldSpriteBounds(20, 20, 24, 24), new FieldSpriteBounds(0, 0, 10, 6), .2);
+  $readingMotion = $camera->presentationMotion;
+  expect($camera->getWorldOrigin())->toBe(['x' => 20, 'y' => 20])
+    ->and($readingMotion->seconds)->toBe(1.0);
+  $camera->updateTransition($owner, new Vector2(22, 15), .5);
+  $camera->frameBounds($reader, new FieldSpriteBounds(20, 20, 24, 24), new FieldSpriteBounds(0, 0, 10, 6), .2);
+  expect($camera->presentationMotion)->toBe($readingMotion);
+  $camera->clearFraming($reader, .2);
+  expect($camera->getWorldOrigin())->toBe(['x' => 30, 'y' => 20])
+    ->and($camera->presentationMotion->seconds)->toBe(.5);
+  $camera->updateTransition($owner, new Vector2(30, 20), 0.0);
+  $last = $camera->presentationMotion; $camera->endTransition($owner);
+  expect($camera->presentationMotion)->toBe($last)->and($camera->hasTransition)->toBeFalse();
+});
+
+it('prevents old transition samples and cleanup from changing a newer destination', function () {
+  $camera = new Camera(makeCameraTestScene(), 10, 8, worldSpace: array_fill(0, 60, str_repeat('.', 80)));
+  $old = new stdClass(); $next = new stdClass();
+  $camera->beginTransition($old, new Vector2(10, 10), 1.0);
+  $camera->beginTransition($next, new Vector2(20, 20), 2.0);
+  $motion = $camera->presentationMotion;
+  expect($camera->updateTransition($old, new Vector2(5, 5), .5))->toBeFalse();
+  $camera->endTransition($old, snap: true);
+  expect($camera->ownsTransition($next))->toBeTrue()->and($camera->presentationMotion)->toBe($motion)
+    ->and($camera->position)->toEqual(new Vector2(0, 0));
+  $camera->resizeViewport(12, 9);
+  expect($camera->hasTransition)->toBeFalse()->and($camera->presentationMotion)->toBeNull();
+});
+
+it('rejects malformed transition inputs before changing an owned view or logical sample', function () {
+  $camera = new Camera(makeCameraTestScene(), 10, 8, worldSpace: array_fill(0, 60, str_repeat('.', 80)));
+  $owner = new stdClass(); $camera->beginTransition($owner, new Vector2(20, 20), 1.0);
+  $before = $camera->captureState(); $motion = $camera->presentationMotion;
+  foreach ([-1.0, INF, NAN, 61.0] as $duration) {
+    expect(fn() => $camera->beginTransition(new stdClass(), new Vector2(10, 10), $duration))->toThrow(InvalidArgumentException::class);
+  }
+  $invalidTarget = new Vector2(0, 10);
+  $invalidTarget->x = NAN;
+  expect(fn() => $camera->beginTransition(new stdClass(), $invalidTarget, 1))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => $camera->updateTransition($owner, new Vector2(INF, 10), .5))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => $camera->updateTransition($owner, new Vector2(5, 5), 2))->toThrow(InvalidArgumentException::class)
+    ->and($camera->captureState())->toEqual($before)->and($camera->presentationMotion)->toBe($motion)
+    ->and($camera->ownsTransition($owner))->toBeTrue();
+});

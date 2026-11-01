@@ -193,8 +193,12 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     /** Explicit graphical camera transitions use their own negotiated capability. */
     public function canPresentCameraMotion(): bool
     {
-        return $this->fieldViewport !== null && !Accessibility::prefersReducedMotion()
-            && $this->supportsScenePresentation(RendererSessionConfig::CAMERA_MOTION);
+        if ($this->fieldViewport === null || Accessibility::prefersReducedMotion()
+            || !$this->supportsScenePresentation(RendererSessionConfig::CAMERA_MOTION)) { return false; }
+        if ($this->presentationContext !== null) { return true; }
+        $world = $this->getPresentationWorld();
+        // A new world's first viewport establishes its origin; it cannot animate from the old map.
+        return $world !== null && $this->getGame()->getRendererRuntime()?->presentedWorld?->id === $world->id;
     }
 
     /** Compound field subjects require both existing canvas and viewport capabilities. */

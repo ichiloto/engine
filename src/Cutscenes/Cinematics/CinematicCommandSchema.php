@@ -50,7 +50,10 @@ final class CinematicCommandSchema
     'choice' => ['options', 'option' => ['text', 'then'], 'cancel'],
   ];
   public const array SUBJECT_KINDS = ['player', 'party_actor', 'npc', 'world_object', 'staged_actor', 'position', 'screen_position', 'marker'];
-  public const array CAMERA_OPERATIONS = ['detach', 'attach', 'reset', 'focus', 'pan', 'route', 'track', 'shake', 'restore'];
+  public const array CAMERA_OPERATIONS = [CinematicCameraOperation::DETACH->value, CinematicCameraOperation::ATTACH->value,
+    CinematicCameraOperation::RESET->value, CinematicCameraOperation::FOCUS->value, CinematicCameraOperation::PAN->value,
+    CinematicCameraOperation::ROUTE->value, CinematicCameraOperation::TRACK->value, CinematicCameraOperation::SHAKE->value,
+    CinematicCameraOperation::RESTORE->value];
   public const array CINEMATIC_DEFINITION_FIELDS = [
     'id', 'name', 'description', 'version', 'authoring', 'startMap',
     'presentation', 'cast', 'skip', 'checkpoints', 'finalizer',

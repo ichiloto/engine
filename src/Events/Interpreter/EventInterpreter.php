@@ -691,6 +691,7 @@ class EventInterpreter
           $this->gameScene->camera,
           new CinematicSubjectResolver($this->gameScene),
           $command,
+          $this->gameScene->canPresentCameraMotion(...),
         );
 
         if ($operation->isComplete) {

@@ -484,6 +484,23 @@ and presentation work may overlap. Reduced-motion mode jumps each motion to
 the same final camera state. Completion, skip, transfer, and failure cannot
 leave ordinary play with a stranded detached camera.
 
+With `camera_motion`, `pan` and each `route` point retain one graphical
+destination while PHP continues sampling the same logical camera positions and
+owning command completion. All projected field content uses that destination;
+the native field clock interpolates from the currently drawn origin. Repeated
+PHP samples retain the transition ID. A long operation uses successive segments
+of at most 60 seconds, preserving its authored total duration. Route overflow
+starts the next segment with the remaining point duration. Dialogue framing
+combines its safe interval with the destination and returns to that destination
+when its lease closes. Older transition owners cannot release newer ones.
+
+Unsupported presentation keeps PHP's existing sampled interpolation. Reduced
+motion cancels retained interpolation and applies the same final state. Resize
+clears stale projection; a live operation resumes its remaining segment. `focus`,
+`track` and `shake` retain their existing operations. Seekable Editor previews
+use PHP-sampled camera positions until a controllable native field-clock contract
+can follow pause, step and seek; native preview acceptance remains open.
+
 ## Dialogue-safe camera framing
 
 Active field cinematics reserve the actual dialogue body, nameplate and portrait

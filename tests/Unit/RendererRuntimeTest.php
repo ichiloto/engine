@@ -48,6 +48,18 @@ require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
+/** Delivery-focused fixtures acknowledge the last shown frame before expecting another. */
+function acknowledgeRuntimePresentation(RendererRuntime $runtime, FakeRendererTransport $transport): void
+{
+  $frames = array_values(array_filter($transport->sent,
+    fn($message) => $message->type === \Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType::FRAME));
+  if ($frames === []) { return; }
+  $last = end($frames)->payload;
+  $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'frame_ack',
+    'generation' => $last['generation'], 'frame' => $last['frame'], 'presented' => $last['present']], JSON_THROW_ON_ERROR))];
+  $runtime->pump();
+}
+
 /** Real Game loop/quit/input policy without project bootstrap or a physical terminal. */
 final class RendererRuntimeGameProbe extends Game
 {
@@ -124,6 +136,35 @@ it('opts in exactly once and shares input and presentation on one session', func
   $this->runtime->shutdown();
   $this->runtime->shutdown();
   expect(InputManager::getInputSource())->toBe($this->previous)->and($this->transport->shutdowns)->toBe(1);
+});
+
+it('enables runtime camera transitions after the current world is actually presented', function () {
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["frame_viewport","camera_motion"]}')];
+  $this->runtime->start('Camera readiness', 12, 4);
+  $game = new RendererRuntimeGameProbe(); $game->useRendererRuntime($this->runtime);
+  $world = PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('ground', 0, false, 'ground', '....')]), 'first');
+  $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()
+    ->onlyMethods(['getGame', 'getPresentationWorld'])->getStub();
+  new ReflectionProperty(\Ichiloto\Engine\Scenes\AbstractScene::class, 'sceneManager')->setValue($scene,
+    new ReflectionClass(SceneManager::class)->newInstanceWithoutConstructor());
+  $scene->method('getGame')->willReturn($game);
+  $scene->method('getPresentationWorld')->willReturnCallback(function () use (&$world) { return $world; });
+  new ReflectionProperty(GameScene::class, 'fieldViewport')->setValue($scene,
+    new \Ichiloto\Engine\Rendering\FieldViewport(new \Ichiloto\Engine\Rendering\Transport\RendererGridConfig(12, 4)));
+  expect($scene->canPresentCameraMotion())->toBeFalse();
+  $presenter = new ReflectionProperty(RendererRuntime::class, 'presentation')->getValue($this->runtime);
+  $presenter->present(new \Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot(12, 4, []), viewport:
+    new \Ichiloto\Engine\Rendering\Presentation\PresentationViewport(1, 0, 0, new CanvasRectangle(0, 0, 120, 80), worldId: 'first'), world: $world);
+  expect($scene->canPresentCameraMotion())->toBeFalse();
+  $generation = end($this->transport->sent)->payload['generation'];
+  $this->transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'frame_ack',
+    'generation' => $generation, 'frame' => 1, 'presented' => true], JSON_THROW_ON_ERROR))];
+  $this->runtime->pump();
+  expect($scene->canPresentCameraMotion())->toBeTrue();
+  $world = PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('ground', 0, false, 'ground', '####')]), 'first');
+  expect($scene->canPresentCameraMotion())->toBeTrue();
+  $world = PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('ground', 0, false, 'ground', '....')]), 'next');
+  expect($scene->canPresentCameraMotion())->toBeFalse();
 });
 
 it('prepares project text through the shared runtime broker without changing its retained frame', function () {
@@ -656,6 +697,7 @@ it('presents the same field ownership from real Game renders and blocked ticks w
   $game->tickWhileBlocked();
   Console::endFrame();
   expect($this->transport->sent)->toHaveCount(2);
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
   $sceneManager->currentScene = null;
   $game->tickWhileBlocked();
   expect(RetainedFrameState::replay($this->transport->sent)[2]['sprites'])->toBe([]);
@@ -687,6 +729,7 @@ it('presents layered field ownership through the real field runtime and clears i
   new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
   Console::recomposeFrame($map->render(...));
   $terminal = Console::snapshot();
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
   expect($this->runtime->present($scene))->toBeTrue();
   $frames = RetainedFrameState::replay($this->transport->sent);
   $world = end($frames)['worlds']['map'];
@@ -695,21 +738,25 @@ it('presents layered field ownership through the real field runtime and clears i
     ->and($world['glyphRows']['map:floor'][0][2]['glyph'])->toBe(' ')
     ->and(Console::snapshot())->toEqual($terminal);
   Console::withLayer('dialogue', fn() => Console::write('Talk', 0, 3), \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI + 20);
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
   $this->runtime->present($scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames)['worlds']['map'])->toBe($world)
     ->and(array_column(end($this->transport->sent)->payload['operations'], 'op'))->not->toContain('worldTiles', 'worldRows');
   new ReflectionProperty(GameScene::class, 'state')->setValue($scene, makeBareScene(\Ichiloto\Engine\Scenes\Game\States\MainMenuState::class));
   Console::recomposeFrame(fn() => Console::write('Menu', 0, 0));
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
   $this->runtime->present($scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames))->not->toHaveKey('worlds');
   new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
   Console::recomposeFrame($map->render(...));
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
   $this->runtime->present($scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames)['worlds']['map'])->toBe($world)
     ->and(Console::snapshot())->toEqual($terminal);
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
   $this->runtime->present(null);
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames))->not->toHaveKey('worlds');
@@ -751,6 +798,7 @@ it('uses the same field eligibility for the terrain world and Player and clears 
       'sourceRect' => ['x' => 256, 'y' => 0, 'width' => 256, 'height' => 256]]]);
   Console::recomposeFrame(fn()=>$map->render());
   $terminal = Console::snapshot();
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
   expect($this->runtime->present($scene))->toBeTrue();
   $frames = RetainedFrameState::replay($this->transport->sent);
   $world = $frames[0]['worlds']['map'];
@@ -759,6 +807,7 @@ it('uses the same field eligibility for the terrain world and Player and clears 
     ->and($frames[0]['sprites'][0]['sourceRect']['x'])->toBe(256)
     ->and(Console::snapshot())->toEqual($terminal);
   Console::withLayer('dialogue',fn()=>Console::write('Talk',0,3),\Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI + 20);
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
   expect($this->runtime->present($scene))->toBeTrue();
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames)['worlds']['map'])->toBe($world)
@@ -767,17 +816,20 @@ it('uses the same field eligibility for the terrain world and Player and clears 
   new ReflectionProperty(GameScene::class,'cinematicController')->setValue($scene,$cinematic);
   new ReflectionProperty($cinematic,'active')->setValue($cinematic,
     makeBareScene(\Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition::class));
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
   $this->runtime->present($scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames)['worlds']['map'])->toBe($world);
   expect(iterator_to_array($scene->getGraphicalSpriteProviders()))->toBe([$player, $cast]);
   new ReflectionProperty($cinematic,'active')->setValue($cinematic,null);
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
   $this->runtime->present($scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames)['worlds']['map'])->toBe($world);
   // Actual background restoration removes old named Player history.
   Console::withLayer('player',fn()=>Console::write('@',1,1));
   $map->renderBackgroundTile(1,1);
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
   $this->runtime->present($scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames)['worlds']['map']['glyphRows']['map:terrain'][1][1]['glyph'])->toBe(';')
@@ -790,17 +842,20 @@ it('uses the same field eligibility for the terrain world and Player and clears 
   new ReflectionProperty(Player::class,'isActive')->setValue($player,true);
   Console::recomposeFrame(fn()=>Console::write('Menu',0,0));
   new ReflectionProperty(GameScene::class,'state')->setValue($scene,makeBareScene(\Ichiloto\Engine\Scenes\Game\States\MainMenuState::class));
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
   $this->runtime->present($scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames))->not->toHaveKey('worlds')->and(end($frames)['sprites'])->toBe([]);
   new ReflectionProperty(GameScene::class,'state')->setValue($scene,$field);
   Console::recomposeFrame(fn()=>$map->render());
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
   $this->runtime->present($scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames)['worlds']['map'])->toBe($world);
   // A rebuilt world for the same map carries the same cells.
   new ReflectionMethod(MapManager::class, 'clearPresentationWorld')->invoke($map);
   Console::recomposeFrame(fn()=>$map->render());
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
   $this->runtime->present($scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames)['worlds']['map']['glyphRows'])->toBe($world['glyphRows']);

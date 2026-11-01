@@ -40,6 +40,10 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   private ?int $framingPositionRevision = null;
   private static int $motionSequence = 0;
   public private(set) ?PresentationCameraMotion $presentationMotion = null;
+  private ?CameraTransition $transition = null;
+  /** @var array{float, float, float, float}|null Cast-safe origin interval. */
+  private ?array $framingRange = null;
+  public bool $hasTransition { get => $this->transition !== null; }
   public bool $isFramed { get => $this->framingOrigin !== null; }
   protected ?CameraStateSnapshot $detachedSnapshot = null;
   /** @var array<int, NormalizedRow> Current map only; discarded on source/policy changes. */
@@ -82,6 +86,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     }
 
     set {
+      $this->transition = null;
       $this->presentationMotion = null;
       $this->positionRevision++;
       $this->screen->setX($value->x);
@@ -103,6 +108,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
       $this->worldSpace = array_map(static fn($row) => is_array($row)
         ? array_map(static fn($symbol) => $symbol, $row) : $row, $value);
       $this->framingOwner = null; $this->framingOrigin = null; $this->presentationMotion = null;
+      $this->transition = null; $this->framingRange = null;
       $this->normalizedRows = [];
       $this->stringRowSymbols = [];
       $this->normalizationPolicy = null;
@@ -402,6 +408,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
   public function detach(): void
   {
+    $this->transition = null;
     $this->presentationMotion = null;
     if ($this->followsPlayer) {
       $this->detachedSnapshot = $this->captureState();
@@ -412,6 +419,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
   public function attach(?Player $player = null): void
   {
+    $this->transition = null;
     $this->presentationMotion = null;
     $this->player = $player ?? $this->player;
     $this->followsPlayer = true;
@@ -476,10 +484,9 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   public function getScreenSpacePosition(Vector2 $worldSpacePosition): Vector2
   {
-    $renderOffset = $this->getRenderOffset();
-    $screenSpaceX = $worldSpacePosition->x - $this->screen->getX() + $renderOffset->x;
-    $screenSpaceY = $worldSpacePosition->y - $this->screen->getY() + $renderOffset->y;
-    return new Vector2($screenSpaceX, $screenSpaceY);
+    $offset = $this->getRenderOffset();
+    return new Vector2($worldSpacePosition->x - $this->screen->getX() + $offset->x,
+      $worldSpacePosition->y - $this->screen->getY() + $offset->y);
   }
 
   /** Signed logical-cell origin; retained world projection needs no per-cell vectors. */
@@ -491,10 +498,58 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
   private function getUnframedWorldOrigin(): array
   {
+    $position = $this->transition?->targetPosition ?? $this->position;
     return [
-      'x' => (int)$this->screen->getX() - intdiv(max(0, (int)$this->screen->getWidth() - $this->worldSpaceWidth), 2),
-      'y' => (int)$this->screen->getY() - intdiv(max(0, (int)$this->screen->getHeight() - $this->worldSpaceHeight), 2),
+      'x' => (int)$position->x - intdiv(max(0, (int)$this->screen->getWidth() - $this->worldSpaceWidth), 2),
+      'y' => (int)$position->y - intdiv(max(0, (int)$this->screen->getHeight() - $this->worldSpaceHeight), 2),
     ];
+  }
+
+  public function ownsTransition(object $owner): bool { return $this->transition?->owner === $owner; }
+
+  /** The destination projects all graphical layers while PHP keeps sampling logical camera state. */
+  public function beginTransition(object $owner, Vector2 $targetPosition, float $seconds,
+    CameraMotionEasing $easing = CameraMotionEasing::LINEAR): void
+  {
+    if (!is_finite($targetPosition->x) || !is_finite($targetPosition->y)) {
+      throw new InvalidArgumentException('A camera destination must be finite.');
+    }
+    $transition = new CameraTransition($owner, $this->clampPosition($targetPosition), $seconds, $easing);
+    $before = $this->getWorldOrigin();
+    $this->transition = $transition;
+    $this->positionRevision++;
+    $this->reframeTransition();
+    $this->updatePresentationMotion($before, $seconds, $easing, forceNew: true);
+  }
+
+  public function updateTransition(object $owner, Vector2 $logicalPosition, float $remainingSeconds): bool
+  {
+    $transition = $this->transition;
+    if ($transition === null || $transition->owner !== $owner) { return false; }
+    if (!is_finite($logicalPosition->x) || !is_finite($logicalPosition->y)) {
+      throw new InvalidArgumentException('A camera sample must be finite.');
+    }
+    $transition->setRemainingSeconds($remainingSeconds);
+    $position = $this->clampPosition($logicalPosition);
+    $this->screen->setX($position->x); $this->screen->setY($position->y);
+    return true;
+  }
+
+  public function endTransition(object $owner, bool $snap = false): void
+  {
+    if (!$this->ownsTransition($owner)) { return; }
+    $before = $this->getWorldOrigin();
+    $this->transition = null;
+    $this->reframeTransition();
+    if ($snap || $before !== $this->getWorldOrigin()) { $this->presentationMotion = null; }
+  }
+
+  private function reframeTransition(): void
+  {
+    if ($this->framingOrigin === null || $this->framingRange === null) { return; }
+    [$minX, $maxX, $minY, $maxY] = $this->framingRange;
+    $origin = $this->getUnframedWorldOrigin();
+    $this->framingOrigin = new Vector2(clamp($origin['x'], $minX, $maxX), clamp($origin['y'], $minY, $maxY));
   }
 
   /** Fit current drawn bounds into a logical-cell safe area, preserving camera/gameplay ownership. */
@@ -526,9 +581,11 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     $x = clamp($origin['x'], $minX, $maxX); $y = clamp($origin['y'], $minY, $maxY);
     SpriteValidation::validateSigned32BitRange($x); SpriteValidation::validateSigned32BitRange($y);
     $this->framingOrigin = new Vector2($x, $y);
+    $this->framingRange = [$minX, $maxX, $minY, $maxY];
     $this->framingOwner = $owner;
     $this->framingPositionRevision = $this->positionRevision;
-    $this->updatePresentationMotion($before, $authoredMovement ? 0.0 : $motionSeconds, $easing);
+    $this->updatePresentationMotion($before, $this->transition?->remainingSeconds ?? ($authoredMovement ? 0.0 : $motionSeconds),
+      $this->transition?->easing ?? $easing, keepTiming: $this->transition !== null);
     return true;
   }
 
@@ -540,8 +597,10 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     if ($this->framingOwner !== $owner) { return; }
     $before = $this->getWorldOrigin();
     $this->framingOrigin = null; $this->framingOwner = null;
+    $this->framingRange = null;
     $this->framingPositionRevision = null;
-    $this->updatePresentationMotion($before, $motionSeconds, $easing);
+    $this->updatePresentationMotion($before, $this->transition?->remainingSeconds ?? $motionSeconds,
+      $this->transition?->easing ?? $easing, keepTiming: $this->transition !== null);
   }
 
   private function assertMotionSeconds(float $seconds): void
@@ -552,12 +611,13 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   }
 
   /** The renderer retains a descriptor until it is replaced or explicitly removed. */
-  private function updatePresentationMotion(array $before, float $seconds, CameraMotionEasing $easing): void
+  private function updatePresentationMotion(array $before, float $seconds, CameraMotionEasing $easing,
+    bool $keepTiming = false, bool $forceNew = false): void
   {
     if ($seconds === 0.0) { $this->presentationMotion = null; return; }
     $current = $this->presentationMotion;
-    if ($before === $this->getWorldOrigin()
-      && ($current === null || ($current->seconds === $seconds && $current->easing === $easing))) { return; }
+    if (!$forceNew && $before === $this->getWorldOrigin()
+      && ($current === null || $keepTiming || ($current->seconds === $seconds && $current->easing === $easing))) { return; }
     if (self::$motionSequence === PHP_INT_MAX) { throw new \OverflowException('Camera transition ID sequence exhausted.'); }
     $this->presentationMotion = new PresentationCameraMotion('camera-motion-' . ++self::$motionSequence, $seconds, $easing);
   }
@@ -638,6 +698,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   public function resetPosition(Player $player): void
   {
+    if ($this->transition !== null) { $this->transition = null; $this->presentationMotion = null; }
     $before = $this->getWorldOrigin();
     $x = 0;
     $y = 0;
@@ -667,6 +728,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   public function resizeViewport(int $width, int $height): void
   {
     $this->framingOwner = null; $this->framingOrigin = null; $this->presentationMotion = null;
+    $this->transition = null; $this->framingRange = null;
     $this->width = max(1, $width);
     $this->height = max(1, $height);
     $this->screen->setWidth($this->width);
@@ -709,17 +771,12 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   protected function getRenderOffset(): Vector2
   {
-    if ($this->framingOrigin !== null) {
-      return new Vector2($this->screen->getX() - $this->framingOrigin->x, $this->screen->getY() - $this->framingOrigin->y);
+    if ($this->framingOrigin === null && $this->transition === null) {
+      return new Vector2(intdiv(max(0, (int)$this->screen->getWidth() - $this->worldSpaceWidth), 2),
+        intdiv(max(0, (int)$this->screen->getHeight() - $this->worldSpaceHeight), 2));
     }
-    $x = $this->worldSpaceWidth < $this->screen->getWidth()
-      ? intdiv($this->screen->getWidth() - $this->worldSpaceWidth, 2)
-      : 0;
-    $y = $this->worldSpaceHeight < $this->screen->getHeight()
-      ? intdiv($this->screen->getHeight() - $this->worldSpaceHeight, 2)
-      : 0;
-
-    return new Vector2(max(0, $x), max(0, $y));
+    $origin = $this->getWorldOrigin();
+    return new Vector2($this->screen->getX() - $origin['x'], $this->screen->getY() - $origin['y']);
   }
 
   /**

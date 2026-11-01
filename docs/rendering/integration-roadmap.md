@@ -27,10 +27,18 @@ the framing lease. Synthetic lifecycle, independent-capability, reduced-motion,
 signed-origin and world-canvas checks qualify this PHP slice. Native consumption
 landed separately in Renderer `914ae39`; no in-game visual acceptance is claimed.
 
+Authored `pan`/`route` now keep a fixed retained graphical destination while
+PHP owns logical samples, segment timing and completion. Native segments remain
+within 60 seconds without restricting authored durations; route overflow carries
+the remaining duration. Resizing, reduced motion and lease cleanup are covered.
+The Editor currently withholds wall-clock camera interpolation so pause, step
+and seek retain accurate PHP-sampled views. A controllable native field clock is
+required for smooth camera playback at the Editor playhead.
+
 Remaining integration: exact world-anchored edge-guidance projection across
 clamped/unclamped camera movement (the current native pinned-sprite ride is an
-approximation), the authored `CameraOperation` consumer for the Lehu city reveal,
-and the complete Game/Editor/native presentation checks. These remain required
+approximation), the controllable preview clock, the authored Lehu reveal scene
+and complete Game/Editor/native presentation checks. These remain required
 Milestone 4 work; automatic dialogue framing does not complete the city reveal.
 
 Shared dialogue geometry now reserves the body, portrait and nameplate area for
