@@ -21,6 +21,8 @@ final readonly class RendererSessionConfig
   public const string TILE_BATCHES = 'tile_batches';
   public const string GRAPHICAL_CANVAS = 'graphical_canvas';
   public const string CANVAS_OVERLAY = 'canvas_overlay';
+  /** Canvas crops and their transforms use the prepared-region budget. */
+  public const string CANVAS_REGION_BUDGET = 'canvas_region_budget';
   public const string CANVAS_IMAGE_TONE = 'canvas_image_tone';
   public const string CANVAS_IMAGE_FLIP = 'canvas_image_flip';
   public const string CANVAS_IMAGE_ALPHA_FLIP = 'canvas_image_alpha_flip';
@@ -74,7 +76,7 @@ final readonly class RendererSessionConfig
   public function getNegotiableCapabilities(): array
   {
     return $this->protocol === RendererProtocolVersion::V2
-      ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY,
+      ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_REGION_BUDGET, self::CANVAS_CLIP_OPACITY,
         self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::CANVAS_IMAGE_ALPHA_FLIP, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::CAMERA_MOTION, self::TILE_COVERS, self::TILE_SHADOWS, self::WORLD_ROW_RUNS,
         self::SPRITE_LIFT, self::SPRITE_BOB, self::SPRITE_FADE, self::SPRITE_THICKET, self::PINNED_SPRITE_MOTION, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
         self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT,
@@ -97,7 +99,7 @@ final readonly class RendererSessionConfig
   {
     if ($icon !== null) { ApplicationIcon::assertAssetPath($icon); }
     $allowed = $protocol === RendererProtocolVersion::V2
-      ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
+      ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_REGION_BUDGET, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
         self::CANVAS_COMPOSITING, self::CANVAS_IMAGE_ALPHA_FLIP, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::CAMERA_MOTION, self::TILE_COVERS, self::TILE_SHADOWS, self::WORLD_ROW_RUNS,
         self::SPRITE_LIFT, self::SPRITE_BOB, self::SPRITE_FADE, self::SPRITE_THICKET, self::PINNED_SPRITE_MOTION, self::KEY_TRANSITIONS, self::MODIFIER_CONTROLS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
         self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT]

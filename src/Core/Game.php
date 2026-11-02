@@ -800,6 +800,14 @@ class Game implements CanRun, SubjectInterface
      */
     public function run(): void
     {
+        \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight::runForSession(
+            fn(string $capability): bool => $this->rendererRuntime?->supports($capability) ?? false,
+            $this->runSession(...),
+        );
+    }
+
+    private function runSession(): void
+    {
         try {
             $framePacing = new FramePacing($this->options['fps'] ?? DEFAULT_FPS);
             $this->start();

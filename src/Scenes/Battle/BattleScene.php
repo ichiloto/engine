@@ -33,6 +33,7 @@ use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerAct
 use Ichiloto\Engine\Rendering\Presentation\PresentationFallbackReport;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Battle\Entry\BattleEntryRuleCatalog;
 use Ichiloto\Engine\Battle\Entry\BattleEntryRuleRunner;
@@ -98,8 +99,24 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
     if ($this->resultsSkin !== null && $layout !== null) {
       $field = array_values(array_filter(BattleCanvasUiAdapter::collect($this, $layout, true),
         static fn($layer) => $layer->id === 'battle-field'));
-      $this->resultsBattlefield = $this->graphicalPresentation?->frame()
-        ?? new PresentationCanvas($layout->width, $layout->height, textLayers: $field);
+      $runtime = $this->getGame()->getRendererRuntime();
+      try {
+        CanvasImagePreflight::runForSession(
+          fn(string $capability): bool => $runtime?->supports($capability) ?? false,
+          function () use ($layout, $field, $runtime, $rewards): void {
+            $battlefield = $this->graphicalPresentation?->frame()
+              ?? new PresentationCanvas($layout->width, $layout->height, textLayers: $field);
+            if ($runtime !== null) {
+              $this->resultsSkin = GraphicalBattleResults::prepare($this->resultsSkin, $runtime->getAssetRoot(),
+                $battlefield->images, $rewards);
+            }
+            $this->resultsBattlefield = $battlefield;
+          });
+      } catch (Throwable $failure) {
+        $message = 'Results artwork unavailable; retaining terminal results: ' . $failure->getMessage();
+        $this->presentationFallbacks->report($message, $failure);
+        $this->resultsBattlefield = null;
+      }
     }
     // Only the graphical results animate their counts; the terminal projection shows final values.
     $this->resultsPlayback = new BattleResultsPlayback($rewards, Accessibility::prefersReducedMotion(),
@@ -423,6 +440,14 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
       throw new RuntimeException('Invalid configuration type.');
     }
 
+    $runtime = $this->getGame()->getRendererRuntime();
+    CanvasImagePreflight::runForSession(
+      fn(string $capability): bool => $runtime?->supports($capability) ?? false,
+      fn() => $this->configureBattle($config));
+  }
+
+  private function configureBattle(BattleConfig $config): void
+  {
     $presentation = null;
     $layout = null;
     $resultsSkin = null;
@@ -452,7 +477,8 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
             }
             GraphicalBattlePause::preflight($pauseSkin, $runtime->getAssetRoot(), $presentation?->frame()->images ?? []);
           } catch (Throwable $failure) {
-            Debug::warn('Pause artwork unavailable; retaining the default pause menu: ' . $failure->getMessage());
+            (new PresentationFallbackReport())->report(
+              'Pause artwork unavailable; retaining the default pause menu: ' . $failure->getMessage(), $failure);
             $pauseSkin = null;
           }
         }
@@ -465,12 +491,12 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
               RendererSessionConfig::CANVAS_CLIP_OPACITY, RendererSessionConfig::CANVAS_GLYPH_EFFECTS] as $capability) {
               if (!$runtime->supports($capability)) { throw new RuntimeException('Results require negotiated ' . $capability); }
             }
-            $resultsSkin = GraphicalBattleResults::prepare($resultsSkin, $runtime->getAssetRoot(),
-              $presentation?->frame()->images ?? [],
-              array_map(static fn(Character $member): string => $member->actorId, $config->party->members->toArray()));
+            $resultsSkin = GraphicalBattleResults::prepareCatalog($resultsSkin, $runtime->getAssetRoot(),
+              $presentation?->frame()->images ?? []);
           }
         } catch (Throwable $failure) {
-          Debug::warn('Results artwork unavailable; retaining terminal results: ' . $failure->getMessage());
+          $message = 'Results artwork unavailable; retaining terminal results: ' . $failure->getMessage();
+          (new PresentationFallbackReport())->report($message, $failure);
           $resultsSkin = null;
         }
         if ($presentation === null && $layout !== null) {

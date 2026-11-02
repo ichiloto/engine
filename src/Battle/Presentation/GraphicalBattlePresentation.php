@@ -40,7 +40,6 @@ final class GraphicalBattlePresentation
   /** @var array<int, array{battler: CharacterInterface, party: bool, image: CanvasImage, art: BattlerArtwork, available: bool, poses: ?BattlePoseSet, scale: ?BattlerScale, grounding: ?BattlerGrounding, habitat: ?EnemyHabitat, strikePoint: ?BattlerStrikePoint}> */
   private array $participants = [];
   private array $poseDiagnostics = [];
-  private array $compositionDiagnostics = [];
   private readonly BattleConditionEffects $conditionEffects;
   private readonly BattleHeadAttachmentLayout $headAttachments;
   private readonly EnemyDefeatStyle $defeatStyle;
@@ -368,10 +367,8 @@ final class GraphicalBattlePresentation
       // and effect composition can degrade, without losing combat or feedback.
       $fallback = $this->composeFrame($field, $ui, $hud, $focus, $now, false, $imageFlips, $compositing, $reducedMotion, $maskFlips, $imageTones);
       $field?->getCommandPlayback()?->recordPresentationFailure($error);
-      if (!isset($this->compositionDiagnostics[$error->getMessage()])) {
-        Debug::warn('Optional battle poses/effects unavailable; retaining base battlefield: ' . $error->getMessage());
-        $this->compositionDiagnostics[$error->getMessage()] = true;
-      }
+      $this->fallbacks->report('Optional battle poses/effects unavailable; retaining base battlefield: '
+        . $error->getMessage(), $error);
       return $fallback;
     }
   }

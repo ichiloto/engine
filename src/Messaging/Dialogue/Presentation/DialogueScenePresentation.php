@@ -43,7 +43,7 @@ final class DialogueScenePresentation
             return $this->catalogue?->theme === null ? null
                 : new DialoguePageLayout($this->catalogue, $speaker, $context, $help, $width, $interactive);
         } catch (Throwable $error) {
-            $this->report('Dialogue layout degraded to terminal: ' . $error->getMessage());
+            $this->report('Dialogue layout degraded to terminal: ' . $error->getMessage(), $error);
             return null;
         }
     }
@@ -58,7 +58,7 @@ final class DialogueScenePresentation
             $layout = new DialoguePageLayout($this->catalogue, $line->speaker, $line->context, $line->help, $width, $line->interactive);
             return new DialoguePageGeometry($layout, $this->catalogue, $line->speaker, $line->position, $width, $height)->getProtectedBounds();
         } catch (Throwable $error) {
-            $this->report('Dialogue layout degraded to terminal: ' . $error->getMessage());
+            $this->report('Dialogue layout degraded to terminal: ' . $error->getMessage(), $error);
             return null;
         }
     }
@@ -80,7 +80,7 @@ final class DialogueScenePresentation
             $canvas = DialogueCanvasPresentation::compose($line, $this->catalogue, $width, $height);
             return MenuCanvas::overlay(new PresentationCanvas($width, $height), $canvas, $this->catalogue->theme);
         } catch (Throwable $error) {
-            $this->report('Dialogue presentation degraded to terminal: ' . $error->getMessage());
+            $this->report('Dialogue presentation degraded to terminal: ' . $error->getMessage(), $error);
             return null;
         }
     }
@@ -171,13 +171,16 @@ final class DialogueScenePresentation
             }
             return $changed && $canvas !== null ? new DialogueSurface($canvas, $overlay, $excluded) : null;
         } catch (Throwable $error) {
-            $this->report('Dialogue presentation degraded to terminal: ' . $error->getMessage());
+            $this->report('Dialogue presentation degraded to terminal: ' . $error->getMessage(), $error);
             return $fallback;
         }
     }
 
-    private function report(string $message): void
+    private function report(string $message, ?Throwable $cause = null): void
     {
-        if (!isset($this->diagnostics[$message])) { Debug::warn($message); $this->diagnostics[$message] = true; }
+        if (!isset($this->diagnostics[$message])) {
+            (new \Ichiloto\Engine\Rendering\Presentation\PresentationFallbackReport())->report($message, $cause);
+            $this->diagnostics[$message] = true;
+        }
     }
 }

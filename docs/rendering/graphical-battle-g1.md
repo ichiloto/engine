@@ -1027,11 +1027,27 @@ ignored until the incoming action is fully visible. Reduced motion switches
 directly; terminal hides the hint during the lock. Labels remain independently
 centred and buttons use steady focus without oscillating list cursors.
 
-Shared `CanvasImagePreflight` budgets full decoded sources and guarded regions.
-Canonical paths deduplicate sources; crop identity deduplicates regions.
-Opacity/clipping do not remove referenced source cost. Budget the actual
-battle/HUD plus at most four Primary portraits or one event bust, not the
-catalogue union. Future crossfades must account for both stages.
+Shared `CanvasImagePreflight` follows the owning host's negotiated session.
+With optional `canvas_region_budget`, canvas images cost their guarded crops,
+plus each distinct brightness/flip variant. Whole composite-operation assets
+still cost their full decoded sources. Without that capability, all distinct
+PNGs retain the older full-source charge. Canonical paths deduplicate sources;
+crop and transform identity deduplicate regions. Opacity, clipping and display
+size do not reduce these charges. Per-PNG path, format and resource checks remain.
+
+Game execution and RendererRuntime presentation scope the actual live session;
+SceneFrameComposer scopes its explicit host, including isolated Editor previews.
+Nested hosts restore the preceding scope even on failure. An unscoped caller
+uses the older strict accounting. A preview never borrows the live Game session.
+
+Startup prepares the replaceable catalogue and base frame. Once rewards exist,
+Results budgets the actual four-card pages from BattleResultsContent, including
+continued-name cards, and individual event busts over the final battlefield.
+Catalog-only preflight without reward rows conservatively checks possible page
+edges. Rewards and terminal fallback remain available if presentation fails.
+Future crossfades must account for both stages. Measured budget rejections include
+charged totals and the largest sources/regions; fallback reports log them once
+as errors. Missing optional artwork retains its ordinary warning.
 
 Per-snapshot source and region limits remain 64 MiB independently, with 1024
 sources and 4096 regions. Cache eviction removes cache ownership, not live

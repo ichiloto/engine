@@ -513,3 +513,76 @@ it('fits all-missing Results textures over a full four-member HUD without droppi
     expect($frame->images)->toBe([])->and(resultsFrameText($frame))->toContain('Continue', 'Hero 4', 'Member 0', 'Battle won', '16%', '100%');
   } finally { rmdir($root); }
 });
+
+
+it('preflights the actual reward cards instead of impossible sliding portrait windows', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-results-pages-' . bin2hex(random_bytes(4));
+  mkdir($root);
+  $png = static fn(string $name, int $w, int $h) => file_put_contents($root . '/' . $name,
+    "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', $w, $h));
+  try {
+    foreach (resultsSkinFixture()->textures as $texture) { $png($texture->asset, 8, 8); }
+    $portraits = [];
+    foreach (range(1, 6) as $i) {
+      $side = in_array($i, [4, 5], true) ? 3000 : 64;
+      $png('actor-' . $i . '.png', $side, $side);
+      $portraits['actor-' . $i] = ['menu' => new CanvasNineSlice('actor-' . $i . '.png', new SpriteSourceRect(0, 0, $side, $side))];
+    }
+    $skin = resultsSkinFixture($portraits);
+    expect(fn() => GraphicalBattleResults::preflight($skin, $root))->toThrow(RuntimeException::class, '64 MiB');
+    expect(GraphicalBattleResults::prepare($skin, $root, [], resultsGraphicalFacts(6)))->toBeInstanceOf(BattleResultsSkin::class);
+    // A continued name consumes another card, so the very same two large portraits can then share a page.
+    $facts = resultsGraphicalFacts(6);
+    $progression = $facts->progression;
+    $award = $progression[0];
+    $after = new ProgressionSnapshot($award->after->actorId, str_repeat('Long name ', 10),
+      2, 150, 3, [1 => 0, 2 => 100, 3 => 300], ['maxHp' => 110]);
+    $progression[0] = new BattleProgression(150, $award->before, $after);
+    $continued = new BattleRewards(150, 123, $progression);
+    expect(fn() => GraphicalBattleResults::prepare($skin, $root, [], $continued))->toThrow(RuntimeException::class, '64 MiB');
+  } finally {
+    foreach (glob($root . '/*') ?: [] as $path) { unlink($path); }
+    rmdir($root);
+  }
+});
+
+it('keeps five and six member graphical Results over large animation sheets on a capable session', function (int $members) {
+  $root = sys_get_temp_dir() . '/ichiloto-results-regions-' . bin2hex(random_bytes(4));
+  mkdir($root);
+  $png = static fn(string $name, int $w, int $h) => file_put_contents($root . '/' . $name,
+    "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', $w, $h));
+  try {
+    foreach (resultsSkinFixture()->textures as $texture) { $png($texture->asset, 8, 8); }
+    $portraits = [];
+    foreach (range(1, $members) as $i) {
+      $png('actor-' . $i . '.png', 1254, 1254);
+      $portraits['actor-' . $i] = ['menu' => new CanvasNineSlice('actor-' . $i . '.png', new SpriteSourceRect(0, 0, 1254, 1254))];
+    }
+    $images = [];
+    foreach (['idle.png', 'action.png'] as $name) {
+      $png($name, 4096, 4096);
+      $images[] = new CanvasImage($name, $name, new CanvasRectangle(0, 0, 200, 200),
+        sourceRect: new SpriteSourceRect(0, 0, 800, 800));
+    }
+    $skin = resultsSkinFixture($portraits);
+    $facts = resultsGraphicalFacts($members);
+    expect(fn() => GraphicalBattleResults::prepare($skin, $root, $images, $facts))->toThrow(RuntimeException::class, '64 MiB');
+    CanvasImagePreflight::runForSession(static fn(string $cap): bool => true, function () use ($skin, $images, $facts, $root): void {
+      $prepared = GraphicalBattleResults::prepare($skin, $root, $images, $facts);
+      $playback = new BattleResultsPlayback($facts, true);
+      $playback->update(10);
+      $canvas = new PresentationCanvas(1350, 720, $images);
+      foreach ([0, 1] as $page) {
+        if ($page > 0) { $playback->navigate(1); }
+        $frame = GraphicalBattleResults::frame($canvas, $prepared, $playback);
+        $budget = CanvasImagePreflight::inspect($frame->images, $root);
+        expect(array_sum($budget['sources']))->toBeGreaterThan(CanvasImagePreflight::MAX_BYTES)
+          ->and(array_sum($budget['regions']))->toBeLessThan(CanvasImagePreflight::MAX_BYTES)
+          ->and(resultsFrameText($frame))->toContain('VICTORY', 'Hero ' . ($page ? 5 : 1));
+      }
+    });
+  } finally {
+    foreach (glob($root . '/*') ?: [] as $path) { unlink($path); }
+    rmdir($root);
+  }
+})->with([5, 6]);

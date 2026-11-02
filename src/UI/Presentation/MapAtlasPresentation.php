@@ -56,7 +56,8 @@ final class MapAtlasPresentation
             return self::compose($snapshot, $this->theme, $width, $height, $size, $selected, $detailPage,$mapView);
         } catch (Throwable $error) {
             if (!isset($this->diagnostics[$error->getMessage()])) {
-                Debug::warn('Map atlas retains Terminal presentation: ' . $error->getMessage());
+                (new \Ichiloto\Engine\Rendering\Presentation\PresentationFallbackReport())->report(
+                  'Map atlas retains Terminal presentation: ' . $error->getMessage(), $error);
                 $this->diagnostics[$error->getMessage()] = true;
             }
             return null;

@@ -38,23 +38,31 @@ final class GraphicalBattleResults
 
   /** Validate the catalog, but budget only concurrently displayed families.
    * @param list<CanvasImage> $battlefield
-   * @param list<string>|null $actorIds Party order, including reserves; null checks the whole catalog.
+   * @param list<string>|BattleRewards|null $actorIds Actual rewards select the measured pages; an ID list checks every possible four-actor window.
    * @return array<string, int> Catalog source costs, not a concurrent frame budget.
    */
-  public static function preflight(BattleResultsSkin $skin, string $root, array $battlefield = [], ?array $actorIds = null): array
+  public static function preflight(BattleResultsSkin $skin, string $root, array $battlefield = [], array|BattleRewards|null $actorIds = null): array
   {
     return self::preflightPrepared($skin->withCurrentImages($root), $root, $battlefield, $actorIds);
   }
 
+  /** Startup validates art and the base frame; rewards do not exist until the battle finishes. */
+  public static function prepareCatalog(BattleResultsSkin $skin, string $root, array $battlefield = []): BattleResultsSkin
+  {
+    $skin = $skin->withCurrentImages($root);
+    self::preflightPrepared($skin, $root, $battlefield, []);
+    return $skin;
+  }
+
   /** Resolve replaceable whole images once for the disposable Results presentation. */
-  public static function prepare(BattleResultsSkin $skin, string $root, array $battlefield = [], ?array $actorIds = null): BattleResultsSkin
+  public static function prepare(BattleResultsSkin $skin, string $root, array $battlefield = [], array|BattleRewards|null $actorIds = null): BattleResultsSkin
   {
     $skin = $skin->withCurrentImages($root);
     self::preflightPrepared($skin, $root, $battlefield, $actorIds);
     return $skin;
   }
 
-  private static function preflightPrepared(BattleResultsSkin $skin, string $root, array $battlefield, ?array $actorIds): array
+  private static function preflightPrepared(BattleResultsSkin $skin, string $root, array $battlefield, array|BattleRewards|null $actorIds): array
   {
     foreach (['panel' => [754, 502], 'quiet' => [470, 164], 'track' => [582, 12],
       'selector' => [16, 16], 'portrait' => [96, 96], 'exp' => [578, 8],
@@ -76,15 +84,28 @@ final class GraphicalBattleResults
       ...$textures, ...array_values($skin->icons),
     ])];
     CanvasImagePreflight::inspect($base, $root);
-    $actorIds ??= array_keys($skin->portraits);
-    foreach ($actorIds as $index => $id) {
-      // Primary pages show at most four consecutive actors. Continued names may shift page edges.
+    if ($actorIds instanceof BattleRewards) {
+      // Long names can continue onto another card. Use exactly the same rows as drawing/navigation.
+      $pages = [];
+      foreach (array_chunk(BattleResultsContent::partyRows($actorIds), 4) as $rows) {
+        $pages[] = array_values(array_unique(array_map(
+          static fn(array $row): string => $actorIds->progression[$row['actor']]->after->actorId, $rows)));
+      }
+      $ids = array_values(array_unique(array_merge([], ...$pages)));
+    } else {
+      $ids = $actorIds ?? array_keys($skin->portraits);
+      // Catalog-only callers have no names/reward widths; conservatively check possible page edges.
+      $pages = array_map(static fn(int $index): array => array_slice($ids, $index, 4), array_keys($ids));
+    }
+    foreach ($pages as $page) {
       $menus = [];
-      foreach (array_slice($actorIds, $index, 4) as $visibleId) {
-        $menu = $skin->portraits[$visibleId]['menu'] ?? null;
+      foreach ($page as $id) {
+        $menu = $skin->portraits[$id]['menu'] ?? null;
         if ($menu !== null) { $menus[] = $menu; }
       }
       CanvasImagePreflight::inspect([...$base, ...CanvasImagePreflight::textures($menus)], $root);
+    }
+    foreach ($ids as $id) {
       $bust = $skin->portraits[$id]['bust'] ?? null;
       if ($bust !== null) {
         // Event pages replace Primary, and use one actor's bust; no outgoing/incoming union.
