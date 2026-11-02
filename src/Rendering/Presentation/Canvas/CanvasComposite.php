@@ -24,7 +24,7 @@ final readonly class CanvasComposite
     }
     CanvasCompositeValues::getNumber($opacity, 0, 1);
     $copy = [];
-    foreach (CanvasCompositeValues::getList($operations, 0, 256) as $operation) {
+    foreach (CanvasCompositeValues::getList($operations, 0, CanvasCompositeBudget::MAX_OPERATIONS) as $operation) {
       if (!$operation instanceof CanvasCompositeOperation) { throw new InvalidArgumentException('Composite operations must be typed.'); }
       $operation->assertWithin($width, $height);
       $copy[] = $operation;

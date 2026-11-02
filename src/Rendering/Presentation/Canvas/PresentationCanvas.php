@@ -131,7 +131,8 @@ final readonly class PresentationCanvas
     $this->textLayers = CanvasValidation::orderedList($textLayers, CanvasTextLayer::class, StyledPresentationFrame::MAX_TEXT_LAYERS);
     $this->labels = CanvasValidation::orderedList($labels, CanvasLabel::class, CanvasValidation::MAX_LABELS);
     foreach ($this->labels as $label) { $label->assertWithin($width, $height); }
-    $this->composites = CanvasValidation::orderedList($composites, CanvasComposite::class, 8);
+    CanvasCompositeBudget::assertSurfaceCount(count($composites));
+    $this->composites = CanvasValidation::orderedList($composites, CanvasComposite::class, CanvasCompositeBudget::getSurfaceLimit());
     $areas = null;
     if ($protectedAreas !== null) {
       if (!array_is_list($protectedAreas) || count($protectedAreas) > 32768) {
@@ -147,18 +148,11 @@ final readonly class PresentationCanvas
       }
     }
     $this->protectedAreas = $areas;
-    $pixels = $operations = $nodes = 0;
     foreach ($this->composites as $composite) {
       $composite->destination->assertWithin($width, $height);
       $composite->clipRect?->assertWithin($width, $height);
-      $pixels += $composite->width * $composite->height;
-      $operations += count($composite->operations);
-      foreach ($composite->operations as $operation) { $nodes += count($operation->data['displacement']['offsets'] ?? []); }
     }
-    if ($pixels > 8388608 || $operations > 256 || $nodes > 16384) {
-      throw new InvalidArgumentException('Canvas composites exceed their combined raster, operation or displacement budget.');
-    }
-    CanvasCompositeBudget::getWork($this->composites);
+    CanvasCompositeBudget::assertWithin($this->composites);
     $imageIds = [];
     foreach ($this->images as $image) {
       $image->destination->assertWithin($width, $height);

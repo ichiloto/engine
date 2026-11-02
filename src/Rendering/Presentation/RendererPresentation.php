@@ -47,17 +47,26 @@ final class RendererPresentation
     ?PresentationViewport $viewport = null, ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null,
     array $worldCanvases = []): RetainedFrame
   {
-    return $this->submitPresentation($snapshot, $sprites, [], $viewport, $world, $canvasOverlay, true, $worldCanvases);
+    return PresentationSession::runForSession($this->client->supports(...), fn() =>
+      $this->submitPresentation($snapshot, $sprites, [], $viewport, $world, $canvasOverlay, true, $worldCanvases));
   }
 
   public function prepareCanvas(PresentationCanvas $canvas, ?PresentationWorld $world = null): RetainedFrame
   {
-    $this->validateCanvas($canvas);
-    $this->validateCanvasFrame([$canvas]);
-    return $this->retained->prepareCanvas($canvas, $world);
+    return PresentationSession::runForSession($this->client->supports(...), function () use ($canvas, $world): RetainedFrame {
+      $this->validateCanvas($canvas);
+      $this->validateCanvasFrame([$canvas]);
+      return $this->retained->prepareCanvas($canvas, $world);
+    });
   }
 
   public function presentFrame(RetainedFrame $frame, ?PresentationCanvas $screenOverlay = null): bool
+  {
+    return PresentationSession::runForSession($this->client->supports(...), fn() =>
+      $this->presentPreparedFrame($frame, $screenOverlay));
+  }
+
+  private function presentPreparedFrame(RetainedFrame $frame, ?PresentationCanvas $screenOverlay): bool
   {
     $this->validateCameraMotion($frame->viewport);
     $this->validateWorldCanvases($frame->worldCanvases);
@@ -87,7 +96,8 @@ final class RendererPresentation
     array $sprites = [], array $tileBatches = [], ?PresentationViewport $viewport = null,
     ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null, array $worldCanvases = []): bool
   {
-    return $this->submitPresentation($snapshot, $sprites, $tileBatches, $viewport, $world, $canvasOverlay, false, $worldCanvases);
+    return PresentationSession::runForSession($this->client->supports(...), fn() =>
+      $this->submitPresentation($snapshot, $sprites, $tileBatches, $viewport, $world, $canvasOverlay, false, $worldCanvases));
   }
 
   private function submitPresentation(ConsoleFrameSnapshot|ConsolePresentationSnapshot|ConsolePresentationChanges $snapshot,
@@ -149,9 +159,11 @@ final class RendererPresentation
   /** Graphical frames do not require a Console snapshot or use its cell dimensions. */
   public function presentCanvas(PresentationCanvas $canvas, ?PresentationWorld $world = null): bool
   {
-    $this->validateCanvas($canvas);
-    $this->validateCanvasFrame([$canvas]);
-    return $this->retained->presentCanvas($canvas, $world);
+    return PresentationSession::runForSession($this->client->supports(...), function () use ($canvas, $world): bool {
+      $this->validateCanvas($canvas);
+      $this->validateCanvasFrame([$canvas]);
+      return $this->retained->presentCanvas($canvas, $world);
+    });
   }
 
   /** Admission is for the complete candidate, not one root or one prepared layout at a time.

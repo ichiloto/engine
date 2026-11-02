@@ -296,8 +296,24 @@ Labels require `canvas_labels` and `text_layout`; clipping/opacity and other
 child capabilities are checked independently. `CanvasFrameBudget` checks the
 combined screen/group candidate before retained state changes, including reused
 drawings. Aggregate limits are 1024 images, 2048 indicators, 64 canvas text/labels,
-32768 legacy text runs, 524288 legacy scalars, 8 composites, 8388608 composite
-pixels, 256 operations, 16384 displacement nodes and 268435456 cold raster work.
+32768 legacy text runs, 524288 legacy scalars, 8388608 composite pixels,
+256 operations, 16384 displacement nodes and 268435456 cold raster work.
+Optional protocol-two `canvas_composite_budget` admits up to 256 separate
+composite surfaces within those same aggregate limits; sessions without it
+retain the legacy eight-surface limit. Requiring it also requires
+`graphical_canvas` and `canvas_compositing`. The complete candidate includes
+screen roots and every world group, including reused drawings. Every surface
+keeps its layer, opacity, clip and masks. Measured refusals name the exceeded
+total and maximum; resource failures log once as errors through the shared
+presentation fallback report.
+
+`PresentationSession` scopes the actual host's negotiated capabilities during
+composition and prepare/present admission. Nested previews restore the prior
+host even on failure; an unscoped caller uses legacy admission. A cached canvas
+is rechecked against the client receiving it. Image crop accounting uses this
+same scope independently of composite support. Native retains ownership of its
+64 MiB live-output pool and reuse; PHP admits the conservative all-cold work
+upper bound. The single active-map overview limit remains.
 Prepared-label line/scalar counts are resolved and admitted by the native layout
 owner, not duplicated in PHP measurement metadata. Unsupported capabilities,
 invalid membership and over-budget candidates fail explicitly without replacing

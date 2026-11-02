@@ -27,7 +27,7 @@ it('retains optional drawing capabilities without requiring them for startup', f
   ], JSON_THROW_ON_ERROR))];
   $client->pump();
   foreach ($baseline as $capability) { expect($client->supports($capability))->toBeTrue(); }
-  foreach ([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_COMPOSITING, RendererSessionConfig::CANVAS_REGION_BUDGET] as $capability) {
+  foreach ([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_COMPOSITING, RendererSessionConfig::CANVAS_REGION_BUDGET, RendererSessionConfig::CANVAS_COMPOSITE_BUDGET] as $capability) {
     expect($client->supports($capability))->toBe(in_array($capability, $advertised, true));
   }
   expect($transport->session->requiredCapabilities)->toBe($baseline)
@@ -37,6 +37,7 @@ it('retains optional drawing capabilities without requiring them for startup', f
   'legacy baseline only' => [[]],
   'capable renderer' => [[RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_COMPOSITING]],
   'painted-region accounting' => [[RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_REGION_BUDGET]],
+  'composite surface accounting' => [[RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_COMPOSITING, RendererSessionConfig::CANVAS_COMPOSITE_BUDGET]],
   'unsolicited event and unknown extensions' => [['window_activation', 'future_extension']],
 ]);
 

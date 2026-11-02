@@ -6,22 +6,19 @@ namespace Ichiloto\Engine\Rendering\Presentation\Canvas;
 
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Closure;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSession;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 
 /** Per-snapshot source/guarded-region limits, not a total-live CPU/GPU memory ceiling. */
 final class CanvasImagePreflight
 {
   public const MAX_BYTES = 67108864;
-  /** The owning host supplies its actual negotiated session; previews may nest independently. */
-  private static ?Closure $supports = null;
-
-  /** @param Closure(string): bool $supports */
+  /** Compatibility entry point; image and composite consumers share the same host scope.
+   * @param Closure(string): bool $supports
+   */
   public static function runForSession(Closure $supports, Closure $operation): mixed
   {
-    $previous = self::$supports;
-    self::$supports = $supports;
-    try { return $operation(); }
-    finally { self::$supports = $previous; }
+    return PresentationSession::runForSession($supports, $operation);
   }
 
   /** @param list<CanvasImage> $images
@@ -61,7 +58,7 @@ final class CanvasImagePreflight
         }
       }
     }
-    $regionBudget = self::$supports !== null && (self::$supports)(RendererSessionConfig::CANVAS_REGION_BUDGET);
+    $regionBudget = PresentationSession::supportsCapability(RendererSessionConfig::CANVAS_REGION_BUDGET);
     $chargedSources = $regionBudget ? $wholeSources : $sources;
     if (count($sources) > 1024 || array_sum($chargedSources) > self::MAX_BYTES
       || count($regions) > 4096 || array_sum($regions) > self::MAX_BYTES) {

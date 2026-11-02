@@ -800,7 +800,7 @@ class Game implements CanRun, SubjectInterface
      */
     public function run(): void
     {
-        \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight::runForSession(
+        \Ichiloto\Engine\Rendering\Presentation\PresentationSession::runForSession(
             fn(string $capability): bool => $this->rendererRuntime?->supports($capability) ?? false,
             $this->runSession(...),
         );

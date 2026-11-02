@@ -180,7 +180,7 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
 
   public function present(?SceneInterface $scene, ?NotificationManager $notifications = null): bool
   {
-    return \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight::runForSession(
+    return \Ichiloto\Engine\Rendering\Presentation\PresentationSession::runForSession(
       $this->supports(...), fn() => $this->presentSession($scene, $notifications));
   }
 

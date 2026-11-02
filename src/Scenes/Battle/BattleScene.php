@@ -33,7 +33,7 @@ use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerAct
 use Ichiloto\Engine\Rendering\Presentation\PresentationFallbackReport;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
-use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSession;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Battle\Entry\BattleEntryRuleCatalog;
 use Ichiloto\Engine\Battle\Entry\BattleEntryRuleRunner;
@@ -101,7 +101,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
         static fn($layer) => $layer->id === 'battle-field'));
       $runtime = $this->getGame()->getRendererRuntime();
       try {
-        CanvasImagePreflight::runForSession(
+        PresentationSession::runForSession(
           fn(string $capability): bool => $runtime?->supports($capability) ?? false,
           function () use ($layout, $field, $runtime, $rewards): void {
             $battlefield = $this->graphicalPresentation?->frame()
@@ -448,7 +448,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
     }
 
     $runtime = $this->getGame()->getRendererRuntime();
-    CanvasImagePreflight::runForSession(
+    PresentationSession::runForSession(
       fn(string $capability): bool => $runtime?->supports($capability) ?? false,
       fn() => $this->configureBattle($config));
   }

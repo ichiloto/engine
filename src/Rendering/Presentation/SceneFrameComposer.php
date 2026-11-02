@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Rendering\Presentation;
 
 use Closure;
-use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
@@ -49,7 +48,7 @@ final class SceneFrameComposer
   public function composeFrame(SceneInterface|FramePresentationSourceInterface|null $scene, RendererGridConfig $grid, Closure $supports,
     Closure $collectText, ?NotificationManager $notifications = null, bool $refreshOverlay = true): SceneFrameComposition
   {
-    return CanvasImagePreflight::runForSession($supports, fn() =>
+    return PresentationSession::runForSession($supports, fn() =>
       PngAssetPreflight::runWithSnapshot(fn() => $this->composeSnapshot($scene, $grid, $supports,
         $collectText, $notifications, $refreshOverlay)));
   }

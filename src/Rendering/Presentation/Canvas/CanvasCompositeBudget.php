@@ -4,23 +4,65 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Rendering\Presentation\Canvas;
 
-use InvalidArgumentException;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSession;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 
 /** Conservative all-cold work admission; native output reuse may reduce actual work. */
 final class CanvasCompositeBudget
 {
   public const int MAX_WORK = 268435456;
+  public const int MAX_OPERATIONS = 256;
+  public const int MAX_PIXELS = 8388608;
+  public const int MAX_NODES = 16384;
+
+  public static function getSurfaceLimit(): int
+  {
+    return PresentationSession::supportsCapability(RendererSessionConfig::CANVAS_COMPOSITE_BUDGET)
+      ? self::MAX_OPERATIONS : 8;
+  }
+
+  /** Refuse before visiting an oversized collection; full totals follow after typed-list validation. */
+  public static function assertSurfaceCount(int $count, string $context = 'Canvas'): void
+  {
+    $limit = self::getSurfaceLimit();
+    if ($count > $limit) {
+      throw new CanvasCompositeBudgetExceeded(sprintf('%s composite surfaces %d > %d%s.',
+        $context, $count, $limit, $limit === 8 ? '; more require negotiated canvas_composite_budget capability' : ''));
+    }
+  }
+
+  /** All local and aggregate canvas roots use these same unchanged limits. @param list<CanvasComposite> $composites */
+  public static function assertWithin(array $composites, string $context = 'Canvas'): void
+  {
+    self::assertSurfaceCount(count($composites), $context);
+    $pixels = $operations = $nodes = 0;
+    foreach ($composites as $composite) {
+      $pixels += $composite->width * $composite->height;
+      $operations += count($composite->operations);
+      foreach ($composite->operations as $operation) { $nodes += count($operation->data['displacement']['offsets'] ?? []); }
+    }
+    $exceeded = [];
+    foreach (['target pixels' => [$pixels, self::MAX_PIXELS], 'operations' => [$operations, self::MAX_OPERATIONS],
+      'displacement nodes' => [$nodes, self::MAX_NODES]] as $name => [$actual, $limit]) {
+      if ($actual > $limit) { $exceeded[] = $name . ' ' . $actual . ' > ' . $limit; }
+    }
+    if ($exceeded !== []) {
+      throw new CanvasCompositeBudgetExceeded(sprintf('%s exceed the composite budget: %s (%d surfaces, %d pixels, %d operations, %d nodes).',
+        $context, implode(', ', $exceeded), count($composites), $pixels, $operations, $nodes));
+    }
+    self::getWork($composites);
+  }
 
   public static function getWork(array $composites): int
   {
     $work = 0;
     $worlds = 0;
-    foreach ($composites as $composite) {
+    foreach ($composites as $index => $composite) {
       $work += 2 * $composite->width * $composite->height;
       foreach ($composite->operations as $operation) {
         $data = $operation->data;
         if ($data['type'] === 'world' && ++$worlds > 1) {
-          throw new InvalidArgumentException('A frame can request one active-map overview raster.');
+          throw new CanvasCompositeBudgetExceeded('A frame can request one active-map overview raster; world operations ' . $worlds . ' > 1.');
         }
         if ($data['type'] === 'stroke') {
           $half = $data['width'] / 2;
@@ -49,7 +91,10 @@ final class CanvasCompositeBudget
           }
         }
         $work += $pixels * $cost;
-        if ($work > self::MAX_WORK) { throw new InvalidArgumentException('Canvas composites exceed the bounded cold raster work budget.'); }
+        if ($work > self::MAX_WORK) {
+          throw new CanvasCompositeBudgetExceeded(sprintf('Canvas composites exceed the bounded cold raster work budget: %d > %d at surface %d of %d (%s).',
+            $work, self::MAX_WORK, $index + 1, count($composites), $composite->id));
+        }
       }
     }
     return $work;

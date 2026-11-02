@@ -1037,7 +1037,8 @@ ignored until the incoming action is fully visible. Reduced motion switches
 directly; terminal hides the hint during the lock. Labels remain independently
 centred and buttons use steady focus without oscillating list cursors.
 
-Shared `CanvasImagePreflight` follows the owning host's negotiated session.
+Shared `CanvasImagePreflight` follows the owning host's negotiated
+`PresentationSession`.
 With optional `canvas_region_budget`, canvas images cost their guarded crops,
 plus each distinct brightness/flip variant. Whole composite-operation assets
 still cost their full decoded sources. Without that capability, all distinct
@@ -1049,6 +1050,18 @@ Game execution and RendererRuntime presentation scope the actual live session;
 SceneFrameComposer scopes its explicit host, including isolated Editor previews.
 Nested hosts restore the preceding scope even on failure. An unscoped caller
 uses the older strict accounting. A preview never borrows the live Game session.
+RendererPresentation also scopes its actual client at prepare/present boundaries,
+so cached compositions retain the receiving session's admission rules.
+
+Optional `canvas_composite_budget` admits separate contact shadows and subject
+pulses within 256 surfaces and 256 operations, with the unchanged pixel, node,
+cold-work and overview limits. Older sessions retain eight surfaces. Synthetic
+three-party/three-enemy and eight-party/three-enemy frames with three pulses
+need nine and fourteen surfaces respectively. Layer, opacity and alpha masks
+remain separate. The largest eight-party/64-enemy formation with five contact
+fills per battler needs 360 operations and is refused by the 256-operation
+limit. Its contact representation remains an open presentation dependency;
+no shadows are silently dropped or combined across depths.
 
 Startup prepares the replaceable catalogue and base frame. Once rewards exist,
 Results budgets the actual four-card pages from BattleResultsContent, including

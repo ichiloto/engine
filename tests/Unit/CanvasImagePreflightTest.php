@@ -177,9 +177,13 @@ it('reports measured budget fallback defects once as errors and keeps ordinary f
     $wrapped = new RuntimeException('Transition: ' . $message, previous: $error);
     $report->report($message, $wrapped);
     $report->report($message, $wrapped);
+    $composite = new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasCompositeBudgetExceeded('operations 360 > 256');
+    $report->report($composite->getMessage(), new RuntimeException('Wrapped', previous: $composite));
+    $report->report($composite->getMessage(), $composite);
     $report->report('Missing optional artwork.');
     expect(file_get_contents($this->root . '/error.log'))->toContain('70000000/67108864', 'large.png=70000000 bytes')
-      ->and(substr_count(file_get_contents($this->root . '/error.log'), '[ERROR]'))->toBe(1)
+      ->and(substr_count(file_get_contents($this->root . '/error.log'), '[ERROR]'))->toBe(2)
+      ->and(file_get_contents($this->root . '/error.log'))->toContain('operations 360 > 256')
       ->and(file_get_contents($this->root . '/warning.log'))->toContain('Missing optional artwork.')
       ->not->toContain('70000000');
   } finally {

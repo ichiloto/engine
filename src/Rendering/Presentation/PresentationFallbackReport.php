@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Rendering\Presentation;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageBudgetExceeded;
 use Throwable;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasCompositeBudgetExceeded;
 
 /**
  * Reports a graphical presentation that falls back to a simpler one. A fallback keeps play going, so it is
@@ -24,7 +25,7 @@ final class PresentationFallbackReport
     if (isset($this->reported[$message])) { return; }
     $this->reported[$message] = true;
     for ($error = $cause; $error !== null; $error = $error->getPrevious()) {
-      if ($error instanceof CanvasImageBudgetExceeded) { Debug::error($message); return; }
+      if ($error instanceof CanvasImageBudgetExceeded || $error instanceof CanvasCompositeBudgetExceeded) { Debug::error($message); return; }
     }
     Debug::warn($message);
   }
