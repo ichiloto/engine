@@ -98,6 +98,10 @@ final class SceneFrameComposer
     // clipping, and their subject's terminal layer never shows in its place. A wide terminal glyph whose subject
     // stands just past the left edge would otherwise leave its tail on screen as a glyph.
     $excluded = array_map(static fn($sprite) => $sprite->id, $sprites);
+    // A world canvas presents its owners just as a sprite presents its subject.
+    // Exclude those terminal layers before collecting text, including cinematic takeovers.
+    $groups = $scene instanceof WorldCanvasProviderInterface ? $scene->getPresentationWorldCanvases() : [];
+    foreach ($groups as $group) { array_push($excluded, ...$group->canvas->presentationOwners); }
     $sceneOverlay = $scene instanceof CanvasOverlayProviderInterface && $overlaySupported
       ? $scene->getPresentationOverlay($width, $height) : null;
     if ($scene instanceof CanvasOverlayProviderInterface && $overlaySupported) {
@@ -117,7 +121,6 @@ final class SceneFrameComposer
     if (!$supports(RendererSessionConfig::CAMERA_MOTION) || Accessibility::prefersReducedMotion()) {
       $viewport = $viewport?->withoutCameraMotion();
     }
-    $groups = $scene instanceof WorldCanvasProviderInterface ? $scene->getPresentationWorldCanvases() : [];
     if ($groups !== []) {
       if (!$supports(RendererSessionConfig::WORLD_CANVAS) || !$supports(RendererSessionConfig::FRAME_VIEWPORT)) {
         throw new RendererProtocolException('Field canvases require negotiated world_canvas and frame_viewport support.');

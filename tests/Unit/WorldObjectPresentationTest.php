@@ -2026,3 +2026,27 @@ it('validates tile object layer identity map footprint and bounded distinct owne
     expect(fn() => $read([$entry, [...$entry, 'id' => 'other']]))->toThrow(InvalidArgumentException::class)
         ->and(fn() => $read([createWorldObjectSource(), [...$entry, 'id' => 'overlap']]))->toThrow(InvalidArgumentException::class);
 });
+
+
+it('hides the terminal layers of the subjects a world canvas presents in the field and cinematic takeover', function () {
+    $context = new ScenePresentationContext(new RendererGridConfig(12, 6, 10, 20), static fn(string $cap): bool => true,
+        assetRoot: $this->root . '/assets');
+    $this->scene->setPresentationContext($context);
+    $npc = installWorldObjectBed($this->scene, $this->root, cover: true);
+    $composer = new \Ichiloto\Engine\Rendering\Presentation\SceneFrameComposer($this->root . '/assets');
+    $excluded = [];
+    $compose = function () use ($composer, $context, &$excluded) {
+        return $composer->composeFrame($this->scene, $context->grid, $context->supports(...),
+            static function (array $layers) use (&$excluded) {
+                $excluded = $layers;
+                return new \Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot(12, 6, []);
+            }, refreshOverlay: false);
+    };
+    $frame = $compose();
+    expect(array_column($frame->worldCanvases, 'id'))->toBe([$this->scene->mapManager->findWorldObject('fixture')->getGraphicalSpriteId()])
+        ->and(array_column($frame->sprites, 'id'))->not->toContain($npc->getGraphicalSpriteId())
+        ->and($excluded)->toContain($npc->getGraphicalSpriteId());
+    $this->scene->cinematicStage->configure([['id' => 'in-bed', 'subject' => ['kind' => 'npc', 'id' => 'sleeper']]]);
+    $compose();
+    expect($excluded)->toContain($npc->getGraphicalSpriteId(), $this->scene->cinematicStage->require('in-bed')->getGraphicalSpriteId());
+});
