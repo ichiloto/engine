@@ -47,14 +47,18 @@ use the shared pickers. Actor saves keep mutable resources and persistent states
 the current project source supplies crisis rules when the actor is reconstructed.
 Battle condition badges project current crisis activation.
 
-Delivery is in progress. The initial implementation offers the technique within
-the existing Attack choices; the final secondary-command interaction awaits
-Andrew's decision. Shared formation effects, selected-opponent prepared counters,
-guaranteed state application, protection piercing and ATB reset/Slow are delivered.
-Ordinary battle effects now support staged source and target cut-ins through the
-shared command lifecycle. Bespoke Awakening artwork, Editor stage controls for
-ordinary effects, persistent decoy presentation and integrated native acceptance
-remain open in the existing integration roadmap.
+On clients that report held input, holding the semantic Right navigation control
+while Attack is highlighted reveals the available technique; releasing it
+restores Attack. Confirmation keeps the selected action through target selection.
+Event-only clients retain the existing Attack choice menu. Shared formation
+effects, selected-opponent prepared counters, guaranteed state application,
+protection piercing and ATB reset/Slow are delivered. State-owned condition tone
+supplies the prepared counter's shadowy appearance and releases its contribution
+when the state is consumed or cleared.
+Ordinary battle effects support staged source and target cut-ins through the
+shared command lifecycle. Bespoke Awakening action/effect animation, lure/counter
+artwork, Editor stage controls for ordinary effects, and native/player acceptance
+remain in the [integration roadmap](rendering/integration-roadmap.md).
 
 ## Staged action presentation
 
