@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Field;
 use Ichiloto\Engine\Events\Triggers\EventCue;
 use Ichiloto\Engine\Field\Validation\MapEventSpeakerRule;
 use InvalidArgumentException;
+use Ichiloto\Engine\IO\Console\TerminalText;
 
 /**
  * One interaction page of an NPC, as RPG Maker's event pages: what talking to
@@ -55,9 +56,21 @@ final class NpcPage
     get => $this->script !== [] || $this->scriptId !== null || $this->cinematicId !== null;
   }
 
+  /** Whether at least one line has visible speech; whitespace and style controls alone have no content. */
+  public bool $hasReadableLines {
+    get => array_any($this->lines, self::isReadableLine(...));
+  }
+
+  /** One shared visibility test for page selection, validation and actual dialogue delivery. */
+  public static function isReadableLine(array $line): bool
+  {
+    return is_scalar($line['text'] ?? null)
+      && trim(TerminalText::stripAnsi(TerminalText::formatStyles(strval($line['text'])))) !== '';
+  }
+
   /** Whether talking on this page does anything at all. */
   public bool $isTalkable {
-    get => $this->lines !== [] || $this->hasAction;
+    get => $this->hasReadableLines || $this->hasAction;
   }
 
   /**

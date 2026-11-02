@@ -398,6 +398,23 @@ pre-empts (its authored conditions include all of the earlier page's) and a
 staged speaker away from the NPC. A reusable page whose script transfers is
 a route, used by talking to the NPC while it is the page talking runs.
 
+A present NPC's talk prompt and guidance use the currently selected content
+page. Visible speech or an action makes a page talkable; blank/style-only lines
+are skipped. No current content means no prompt, NPC turn or conversation state
+write. This removes the former no-page talk-to quest progress and NPC `sets`.
+An obsolete completion callback without an owned page also records nothing.
+
+`npc.page-coverage` reports an empty interaction page and coverage that cannot
+be verified for every present state. `WorldConditionCoverage` checks the union
+of content-page conditions through the shared condition-complement proof;
+one-shot retirement is included as its existing saved map-event predicate.
+Complementary state-specific pages can establish coverage without a generic
+unconditional line. Unknown relationships remain unverified and are named as
+such; the validator supplies no dialogue and changes no world state. An NPC
+with no interaction pages or cue declares no talk intent; Game authors still
+own which residents need contextual conversation. Other `npc.page` speaker,
+shadowing and malformed-source findings remain in the same validation path.
+
 ## Active-map landmarks and discovery
 
 Andrew selected a GPUI corner atlas with compact and larger sizes, and an opened

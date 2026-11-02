@@ -12,6 +12,8 @@ use Ichiloto\Engine\Field\NpcPage;
 use Ichiloto\Engine\Field\NpcPages;
 use Ichiloto\Engine\Field\NpcPlacement;
 use InvalidArgumentException;
+use Ichiloto\Engine\Core\WorldConditionCoverage;
+use Ichiloto\Engine\Core\WorldConditionType;
 
 /**
  * What talking to an NPC does belongs to the NPC.
@@ -38,6 +40,7 @@ use InvalidArgumentException;
 final class MapNpcInteractionRule
 {
     public const string PAGE_RULE = 'npc.page';
+    public const string COVERAGE_RULE = 'npc.page-coverage';
     public const string EVENT_RULE = 'event.npc-interaction';
     /** Event actions an NPC page carries: shared scripts, Cinematics and lines. */
     public const array PAGE_ACTION_TRIGGERS = [ScriptEventTrigger::class, CinematicEventTrigger::class, DialogueEventTrigger::class];
@@ -70,6 +73,37 @@ final class MapNpcInteractionRule
                 $issues[] = new MapValidationIssue($mapId, self::PAGE_RULE, "NPC '{$placement->name}': {$error->getMessage()}",
                     cells: [[$placement->x, $placement->y]], path: $path, hint: "Correct the NPC's pages in the Editor.");
                 continue;
+            }
+            if ($pages->isTalkable || $pages->hasCue) {
+                $alternatives = [];
+                foreach ($pages->pages as $page) {
+                    if (!$page->isTalkable) {
+                        $issues[] = new MapValidationIssue($mapId, self::COVERAGE_RULE,
+                            sprintf("NPC '%s' page %d has no visible speech or action.", $placement->name, $page->index + 1),
+                            cells: [[$placement->x, $placement->y]], path: [...$path, $page->index],
+                            hint: 'Give this present interaction state its own authored reaction, or remove the empty page.');
+                        continue;
+                    }
+                    $conditions = $page->conditions;
+                    if (!$page->reusable) {
+                        $conditions[] = ['type' => WorldConditionType::MAP_EVENT->value, 'name' => $mapId,
+                            'marker' => NpcPages::getCompletionMarker($pages->npcId, $page->id), 'negate' => true];
+                    }
+                    $alternatives[] = $conditions;
+                }
+                try {
+                    if (!WorldConditionCoverage::proveCovered($placement->conditions, $alternatives, $worldAbilities)) {
+                        $issues[] = new MapValidationIssue($mapId, self::COVERAGE_RULE,
+                            "NPC '{$placement->name}' has no verified interaction content for every state in which it remains present.",
+                            cells: [[$placement->x, $placement->y]], path: $path,
+                            hint: 'Author state-specific repeat content, including after one-shot pages retire, or use complete complementary page conditions.');
+                    }
+                } catch (\LogicException $error) {
+                    $issues[] = new MapValidationIssue($mapId, self::COVERAGE_RULE,
+                        "NPC '{$placement->name}' content coverage: {$error->getMessage()}",
+                        cells: [[$placement->x, $placement->y]], path: $path,
+                        hint: 'Repair the authored page and presence conditions, then validate coverage again.');
+                }
             }
             if (array_filter((array) ($entry['script'] ?? []), is_array(...)) !== []
                 && array_filter((array) ($entry['dialogue'] ?? []), is_array(...)) !== []) {

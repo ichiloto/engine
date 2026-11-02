@@ -134,7 +134,10 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
 
   /** The cue of the page talking runs now: the NPC's guidance always matches what talking does. */
   public ?EventCue $cue {
-    get => $this->currentPage?->cue;
+    get {
+      $page = $this->currentPage;
+      return $page?->isTalkable ? $page->cue : null;
+    }
   }
 
   /**
@@ -255,9 +258,9 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
     $this->placementPose?->pause();
   }
 
-  /** Whether speaking to this NPC can do anything: some page has lines or an action. */
+  /** Whether the current page offers speech or an action in the bound world state. */
   public bool $isTalkable {
-    get => $this->pages->isTalkable;
+    get => $this->currentPage?->isTalkable ?? false;
   }
 
   /**
@@ -287,15 +290,13 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
     $this->bind($this->mapId ?? $gameScene->currentMapId, $gameScene->gameState, $gameScene->party);
     $page = $this->currentPage;
 
-    if ($page === null) {
-      // Every page is gated out: nothing is said, but the talk still counts.
-      $this->applySets($gameScene);
-      QuestManager::current()?->recordTalkTo($this->name);
+    if ($page === null || !$page->isTalkable) {
       $this->endConversation($gameScene);
       return;
     }
 
     foreach ($page->lines as $line) {
+      if (!NpcPage::isReadableLine($line)) { continue; }
       $gameScene->cinematicController?->prepareDialogue(strval($line['name'] ?? $this->name), $line);
       show_text(
         strval($line['text'] ?? ''),
@@ -434,9 +435,7 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
     $this->pendingPage = null;
     $this->conversationIsActive = false;
     if ($page === null) {
-      // Every page is gated out: nothing is said, but the talk still counts.
-      $this->applySets($gameScene);
-      QuestManager::current()?->recordTalkTo($this->name);
+      // A stale completion without an owned page records no conversation.
       $this->endConversation($gameScene);
       return;
     }

@@ -1265,7 +1265,7 @@ class Player extends GameObject implements ThicketSubjectInterface
     $npcManager = $this->getGameScene()->npcManager;
     $npc = $this->findFacingNpc();
 
-    if ($npcManager === null || $npc === null) {
+    if ($npcManager === null || $npc === null || !$npc->isTalkable) {
       return false;
     }
 

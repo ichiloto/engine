@@ -71,8 +71,10 @@ final readonly class MapSubjectGates
   {
     $npc = $this->npcs[$map][$id] ?? null;
     if ($npc === null || !WorldConditionEvaluator::allHold($npc['presence'], $state, $party, $questLog)) { return false; }
+    $page = $npc['pages']->selectPage($map, $state, $party, $questLog);
+    if (!($page?->isTalkable ?? false)) { return false; }
     if (!$npc['pages']->hasCue) { return true; }
-    $cue = $npc['pages']->selectPage($map, $state, $party, $questLog)?->cue;
+    $cue = $page->cue;
     return $cue !== null && WorldConditionEvaluator::allHold($cue->conditions, $state, $party, $questLog);
   }
 
@@ -80,8 +82,9 @@ final readonly class MapSubjectGates
   public function allowsNpcPage(string $map, string $id, int $page, GameState $state, ?Party $party = null, ?QuestLog $questLog = null): bool
   {
     $npc = $this->npcs[$map][$id] ?? null;
-    return $npc !== null && WorldConditionEvaluator::allHold($npc['presence'], $state, $party, $questLog)
-      && $npc['pages']->selectPage($map, $state, $party, $questLog)?->index === $page;
+    if ($npc === null || !WorldConditionEvaluator::allHold($npc['presence'], $state, $party, $questLog)) { return false; }
+    $selected = $npc['pages']->selectPage($map, $state, $party, $questLog);
+    return ($selected?->isTalkable ?? false) && $selected->index === $page;
   }
 
   /** @return list<array<string, mixed>> */

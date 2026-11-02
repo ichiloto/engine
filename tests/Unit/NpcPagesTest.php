@@ -145,3 +145,76 @@ it('reports malformed pages through the map validator instead of failing the map
 
   expect($issues)->toHaveCount(1)->and($issues[0]->rule)->toBe('npc.page')->and($issues[0]->path)->toBe(['npcs', 0, 'dialogue']);
 });
+
+
+it('offers talk and cues only for the current readable page, including after a saved one-shot retires', function () {
+  $state = new GameState();
+  $pages = NpcPages::fromEntry(makeStoryNpc(['dialogue' => [[
+    'id' => 'one', 'lines' => [['text' => 'A meaningful reply.']], 'reusable' => false,
+    'conditions' => [['type' => 'switch', 'name' => 'ready']], 'cue' => ['symbol' => '!'],
+  ]]]));
+  $npc = new \Ichiloto\Engine\Field\Npc('Mentor', 'M', new \Ichiloto\Engine\Core\Vector2(1, 1), pages: $pages, id: 'mentor');
+  expect($npc->isTalkable)->toBeFalse();
+  $npc->bind('room', $state);
+  expect($npc->isTalkable)->toBeFalse()->and($npc->cue)->toBeNull();
+  $state->setSwitch('ready', true);
+  expect($npc->isTalkable)->toBeTrue()->and($npc->cue?->symbol)->toBe('!');
+  $pages->retire($npc->currentPage, 'room', $state);
+  expect($npc->isTalkable)->toBeFalse()->and($npc->cue)->toBeNull();
+  $npc->bind('room', GameState::fromArray($state->toArray()));
+  expect($npc->isTalkable)->toBeFalse();
+});
+
+it('removes empty talk world writes and quest-side completion when no current content exists', function () {
+  $state = new GameState();
+  $npc = new \Ichiloto\Engine\Field\Npc('Mentor', 'M', new \Ichiloto\Engine\Core\Vector2(1, 1),
+    pages: NpcPages::fromEntry(['dialogue' => [['conditions' => [['type' => 'switch', 'name' => 'ready']], 'lines' => [['text' => 'Ready.']]]]]),
+    sets: [['type' => 'switch', 'name' => 'wrong_talk', 'value' => true]]);
+  $npc->bind('room', $state);
+  $scene = makeBareScene(\Ichiloto\Engine\Scenes\Game\GameScene::class);
+  new ReflectionProperty($scene, 'gameState')->setValue($scene, $state);
+  new ReflectionProperty($scene, 'party')->setValue($scene, new \Ichiloto\Engine\Entities\Party());
+  $before = $state->toArray();
+  $npc->talk($scene);
+  expect($state->toArray())->toBe($before);
+  $session = new ReflectionClass(\Ichiloto\Engine\Events\Interpreter\EventExecutionSession::class)->newInstanceWithoutConstructor();
+  $npc->onEventSessionCompleted($scene, $session);
+  expect($state->toArray())->toBe($before);
+});
+
+it('distinguishes visible reactions from empty or styled blank dialogue without inventing text', function () {
+  foreach (['', ' ', '<info> </info>'] as $text) {
+    $pages = NpcPages::fromEntry(['dialogue' => [['text' => $text]]]);
+    expect($pages->isTalkable)->toBeFalse();
+  }
+  expect(NpcPages::fromEntry(['dialogue' => [['text' => '…']]] )->isTalkable)->toBeTrue()
+    ->and(NpcPages::fromEntry(['script' => [['type' => 'shop', 'shop' => 'synthetic']]])->isTalkable)->toBeTrue();
+});
+
+it('reports state coverage gaps while accepting complementary pages and one-shots limited by presence', function () {
+  $entry = makeStoryNpc(['dialogue' => [['conditions' => [['type' => 'event', 'name' => 'done', 'negate' => true]], 'lines' => [['text' => 'Before.']]]]]);
+  $issues = MapNpcInteractionRule::inspectPages('room', ['npcs' => [$entry]]);
+  expect(array_column($issues, 'rule'))->toContain('npc.page-coverage');
+  $entry['dialogue'][] = ['conditions' => [['type' => 'event', 'name' => 'done']], 'lines' => [['text' => 'After.']]];
+  expect(MapNpcInteractionRule::inspectPages('room', ['npcs' => [$entry]]))->toBe([]);
+  $entry['dialogue'] = [['id' => 'one', 'reusable' => false, 'lines' => [['text' => 'Once.']]]];
+  expect(array_column(MapNpcInteractionRule::inspectPages('room', ['npcs' => [$entry]]), 'rule'))->toContain('npc.page-coverage');
+  $entry['conditions'] = [['type' => 'map_event', 'name' => 'room', 'marker' => 'mentor/one', 'negate' => true]];
+  expect(MapNpcInteractionRule::inspectPages('room', ['npcs' => [$entry]]))->toBe([]);
+});
+
+
+it('keeps empty pages out of NPC guidance and reports their missing authored content', function () {
+  $entry = makeStoryNpc(['dialogue' => [
+    ['conditions' => [['type' => 'switch', 'name' => 'quiet']], 'lines' => [['text' => ' ']], 'cue' => ['symbol' => '!']],
+    ['lines' => [['text' => 'A repeat reply.']]],
+  ]]);
+  $state = new GameState(); $state->setSwitch('quiet', true);
+  $read = MapSubjectGates::readMap(['npcs' => [$entry]]);
+  $gates = new MapSubjectGates([], ['room' => $read['npcs']]);
+  expect($gates->allowsNpc('room', 'mentor', $state))->toBeFalse()
+    ->and($gates->allowsNpcPage('room', 'mentor', 0, $state))->toBeFalse();
+  $issues = MapNpcInteractionRule::inspectPages('room', ['npcs' => [$entry]]);
+  expect(array_column($issues, 'rule'))->toContain('npc.page-coverage')
+    ->and(implode(' ', array_column($issues, 'message')))->toContain('no visible speech or action');
+});

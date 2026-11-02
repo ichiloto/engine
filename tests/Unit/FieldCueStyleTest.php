@@ -205,7 +205,7 @@ it('drops the plate and bob without new art or data changes beyond the style', f
 function makeCuedNpc(?array $cue, Vector2 $position = new Vector2(4, 3)): Ichiloto\Engine\Field\Npc
 {
   $npc = new Ichiloto\Engine\Field\Npc('Halen', '@', $position, id: 'halen',
-    pages: Ichiloto\Engine\Field\NpcPages::fromEntry(['id' => 'halen', 'cue' => $cue]),
+    pages: Ichiloto\Engine\Field\NpcPages::fromEntry(['id' => 'halen', 'cue' => $cue, 'dialogue' => [['text' => 'Ready.']]]),
     graphicalSpriteId: 'npc:map:test:id:halen');
   $npc->bind('test', new Ichiloto\Engine\Core\GameState());
   return $npc;
@@ -221,6 +221,7 @@ it('reads an NPC cue with the event cue validator, refusing what events refuse',
 it('gates an NPC waymark by its presence and its own cue', function () {
   $read = Ichiloto\Engine\Field\MapSubjectGates::readMap(['npcs' => [[
     'id' => 'halen', 'name' => 'Halen', 'x' => 1, 'y' => 1, 'conditions' => [['type' => 'event', 'name' => 'arrived']],
+    'dialogue' => [['text' => 'Ready.']],
     'cue' => ['symbol' => '!', 'color' => 'bright-yellow', 'conditions' => [['type' => 'event', 'name' => 'rescued', 'negate' => true]]],
   ]]]);
   $gates = new Ichiloto\Engine\Field\MapSubjectGates([], ['garden' => $read['npcs']]);
