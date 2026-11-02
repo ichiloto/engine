@@ -501,6 +501,50 @@ afterEach(function () {
     }
 });
 
+it('keeps a map backdrop below terrain in field and overview without owning collision or terminal cells', function () {
+    $policy = \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::class;
+    $catalog = createResourceWorldObjectCatalog($this->root, [
+        'pivot' => ['x' => .5, 'y' => 1],
+        'sprites2d' => ['asset' => 'Graphics/base.png', 'cells' => ['width' => 40, 'height' => 9],
+            'layer' => $policy::FIELD_BACKDROP],
+        'occupancyStamp' => [],
+    ]);
+    $source = ['id' => 'vista', 'resource' => 'whole', 'anchor' => ['x' => 1, 'y' => 1]];
+    $prepared = createWorldObjectPreparedMap([$source], catalog: $catalog);
+    $this->scene->mapManager->applyPreparedMap($prepared, $this->scene->player);
+    $object = $this->scene->mapManager->findWorldObject('vista');
+    $before = [$this->scene->mapManager->tileMap, $this->scene->mapManager->getCollisionGrid(),
+        serialize($this->scene->createSnapshot())];
+    $terminal = getWorldObjectWireCells($this->scene->mapManager->getPresentationWorld());
+    $projector = new GraphicalSpriteProjector();
+    $sprite = $projector->project($object, $this->scene->camera);
+    $policy::assertWorldSprites([$sprite]);
+    $overview = $object->getOverviewSubject();
+    $roundTrip = \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasWorldSubject::fromArray($overview->toArray());
+    $context = new ScenePresentationContext(new RendererGridConfig(12, 6, 10, 20), static fn(string $cap): bool => true,
+        assetRoot: $this->root . '/assets');
+    $this->scene->setPresentationContext($context);
+    $frame = new \Ichiloto\Engine\Rendering\Presentation\SceneFrameComposer($this->root . '/assets')
+        ->composeFrame($this->scene, $context->grid, static fn(string $cap): bool => true,
+            static fn(array $excluded, array $worldLayers) => new \Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot(12, 6, []));
+    $shown = array_find($frame->sprites, static fn($candidate): bool => $candidate->id === $sprite->id);
+    $bands = array_column($frame->world->getOperations(true, true)[0]['value']['layers'], 'layer');
+    expect([$shown->width, $shown->height, $shown->layer])->toBe([1920, 432, $policy::FIELD_BACKDROP])
+        ->and($shown->layer)->toBeLessThan(min($bands))
+        ->and($frame->viewport->spriteIds)->toContain($sprite->id)
+        ->and($object->definition->resource->occupancyStamp)->toBe([])
+        ->and($object->getTerminalCells())->toBe([])
+        ->and([$roundTrip->widthCells, $roundTrip->heightCells, $roundTrip->layer])->toBe([40.0, 9.0, $policy::FIELD_BACKDROP])
+        ->and([$this->scene->mapManager->tileMap, $this->scene->mapManager->getCollisionGrid(),
+            serialize($this->scene->createSnapshot())])->toBe($before)
+        ->and(getWorldObjectWireCells($this->scene->mapManager->getPresentationWorld()))->toBe($terminal);
+    $this->scene->camera->moveTo(1, 1);
+    $moved = $projector->project($object, $this->scene->camera);
+    expect([$moved->width, $moved->height, $moved->layer])->toBe([$sprite->width, $sprite->height, $sprite->layer])
+        ->and([$moved->x, $moved->y])->not->toBe([$sprite->x, $sprite->y])
+        ->and([(int)$object->position->x, (int)$object->position->y])->toBe([1, 1]);
+});
+
 it('projects one-shot completion into both object artwork and terminal state across save and map re-entry', function () {
     $source = createWorldObjectSource(['terminal' => '<fg=yellow>o</>', 'variants' => [[
         'id' => 'opened', 'conditions' => [['type' => 'map_event', 'name' => 'synthetic/room', 'marker' => 'C']],

@@ -24,7 +24,8 @@ final readonly class CanvasWorldSubject
             || !is_finite($widthCells) || !is_finite($heightCells) || min($widthCells, $heightCells) <= 0
             || max($widthCells, $heightCells) > 1024 || !is_finite($liftCells) || $liftCells < 0 || $liftCells > 1024
             || !PresentationLayerPolicy::isFieldWorldLayer($layer) || $quarterTurns < 0 || $quarterTurns > 3) {
-            throw new InvalidArgumentException('Overview subjects require bounded map anchors, positive dimensions, layer -1..999 and valid presentation lift/turn.');
+            throw new InvalidArgumentException('Overview subjects require bounded map anchors, positive dimensions, backdrop layer '
+                . PresentationLayerPolicy::FIELD_BACKDROP . ' or layer -1..999 and valid presentation lift/turn.');
         }
         $this->images = CanvasValidation::orderedList($images, CanvasImage::class, 1024);
         foreach ($this->images as $image) {

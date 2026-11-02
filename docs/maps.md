@@ -290,6 +290,25 @@ The shared Editor offers Opening Passage and cue-range controls with ordinary
 source-preserving save, undo and redo. Game conditions own which ability senses
 a passage; the Engine carries no game-specific character or story rule.
 
+### Map-owned graphical backdrops
+
+A world-object resource can draw beneath every terrain band with
+`PresentationLayerPolicy::FIELD_BACKDROP` (layer -101). It uses the existing
+`sprites2d` asset, `cells` extent and pivot, anchored inside the map. For example,
+a 40-by-9-cell resource displays at 1920 by 432 logical pixels. An empty
+`occupancyStamp` gives it no physical authoring recipe; the map's collision
+and Terminal vista remain independently authored. Omit `covers` when the image
+owns no source glyph or tile cells.
+
+Backdrops share ordinary field-camera projection and map-overview placement.
+They do not move with the window or introduce a parallax clock. Other reserved
+negative bands remain refused. Opaque terrain still draws over a backdrop:
+author the intended graphical opening and any glyph/tile coverage explicitly.
+The normal source-preserving resource picker and placement undo/save paths
+apply. Image availability never changes routes, collision or saved progress.
+Native overview admission for the new band is tracked in the rendering roadmap;
+PHP placement checks alone do not establish Native visual acceptance.
+
 ### Event speakers
 
 An event names the people who speak its lines with `speakers`, a list of 1..8

@@ -359,3 +359,21 @@ it('draws Terminal waymarks over every field glyph and under UI', function () {
     foreach ($prior as $name => $value) { new ReflectionProperty(Console::class, $name)->setValue(null, $value); }
   }
 });
+
+
+it('admits only the dedicated backdrop band below terrain while retaining reserved-band boundaries', function () {
+  $layer = PresentationLayerPolicy::FIELD_BACKDROP;
+  expect($layer)->toBeLessThan(PresentationLayerPolicy::getTileLayerOrder(MapLayer::MIN_ORDER, false))
+    ->and(PresentationLayerPolicy::isFieldWorldLayer($layer))->toBeTrue()
+    ->and(FieldSpriteRole::readDefinition(['asset' => 'Graphics/mark.png', 'layer' => $layer])->layer)->toBe($layer);
+  foreach ([$layer - 1, PresentationLayerPolicy::TERRAIN, -2] as $reserved) {
+    expect(PresentationLayerPolicy::isFieldWorldLayer($reserved))->toBeFalse()
+      ->and(fn() => FieldSpriteRole::readDefinition(['asset' => 'Graphics/mark.png', 'layer' => $reserved]))
+        ->toThrow(InvalidArgumentException::class)
+      ->and(fn() => PresentationLayerPolicy::assertWorldSprites([
+        new PresentationSprite('reserved', 'Graphics/mark.png', 0, 0, 1, 1, layer: $reserved),
+      ]))->toThrow(InvalidArgumentException::class);
+  }
+  expect(fn() => FieldSpriteRole::readDefinition(['asset' => 'Graphics/mark.png', 'layer' => -1]))
+    ->toThrow(InvalidArgumentException::class);
+});

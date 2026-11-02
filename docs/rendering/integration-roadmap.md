@@ -4512,3 +4512,20 @@ Claude owns Editor selectors, source-preserving round trips and graphical previe
 consumption. Final Kaelion animation/crescent production, appearance approval and
 Game binding remain with their current owners. Native/player acceptance remains
 separate from synthetic timing and actual graphical-canvas checks.
+
+### Map-owned backdrop band — 2 November 2026
+
+The shared field policy now admits the dedicated `FIELD_BACKDROP` band (-101)
+below terrain, through the existing world-object sprite/resource, retained
+camera and overview contracts. Other reserved negative bands, guidance and UI
+ownership retain their boundaries. Synthetic qualification covers a 40×9-cell
+image, camera movement, overview round trip, and unchanged map collision,
+Terminal cells and save snapshot. No game-specific backdrop schema or physical
+footprint is inferred from image dimensions.
+
+Claude owns matching Native overview admission: `overview_protocol.rs` still
+requires -1..999 and needs the exact additional band, with its ordering and
+protocol checks. Actual overlook map coverage, asset acceptance and Native/player
+review remain open. Opaque ground continues to cover the backdrop; the map owner
+authors the graphical opening and explicit source glyph/tile coverage. Source
+inspection of the Native sorted paint walker is not execution evidence.

@@ -128,7 +128,8 @@ final class SceneFrameComposer
       }
       foreach ($groups as $group) {
         if (!PresentationLayerPolicy::isFieldWorldLayer($group->layer)) {
-          throw new \InvalidArgumentException('Automatic Game world canvases require layers -1..999; guidance and UI layers are reserved.');
+          throw new \InvalidArgumentException('Automatic Game world canvases require backdrop layer ' . PresentationLayerPolicy::FIELD_BACKDROP
+            . ' or layers -1..999; guidance and UI layers are reserved.');
         }
       }
       $viewport = $viewport->selectWorldCanvases(array_column($groups, 'id'));

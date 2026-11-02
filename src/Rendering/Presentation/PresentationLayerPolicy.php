@@ -12,7 +12,7 @@ use InvalidArgumentException;
  * Automatic PHP Game composition policy, never a constraint on generic sprite DTOs.
  *
  * The bands, lowest first:
- *  - the field world, below FIELD_GUIDANCE: map layers below characters
+ *  - the field world, below FIELD_GUIDANCE: map-owned backdrops, then map layers below characters
  *    (TERRAIN + order), ambient ground effects, characters and world objects
  *    (from WORLD), foreground effects, and map tiles drawn above characters
  *    (MAP_ABOVE + order). Every map band is bounded by MapLayer::MAX_ORDER,
@@ -25,6 +25,8 @@ use InvalidArgumentException;
 final class PresentationLayerPolicy
 {
   public const TERRAIN = -100;
+  /** Map-owned imagery behind every terrain band, sharing the field camera. */
+  public const int FIELD_BACKDROP = self::TERRAIN - 1;
   public const WORLD = 0;
   /** Ambient ground light is above map layers and below all character layers. */
   public const FIELD_EFFECT_BEHIND = -1;
@@ -82,7 +84,8 @@ final class PresentationLayerPolicy
   /** Whether a field layer belongs to the field world, below guidance and UI. */
   public static function isFieldWorldLayer(int $layer): bool
   {
-    return $layer >= self::FIELD_EFFECT_BEHIND && $layer < self::FIELD_GUIDANCE;
+    return $layer === self::FIELD_BACKDROP
+      || ($layer >= self::FIELD_EFFECT_BEHIND && $layer < self::FIELD_GUIDANCE);
   }
 
 
@@ -113,8 +116,9 @@ final class PresentationLayerPolicy
   public static function assertWorldSprites(array $sprites): void
   {
     foreach ($sprites as $sprite) {
-      if ($sprite->layer < self::FIELD_EFFECT_BEHIND || $sprite->layer >= self::UI) {
-        throw new InvalidArgumentException('Automatic Game field sprites require layers -1..'
+      if ($sprite->layer !== self::FIELD_BACKDROP
+        && ($sprite->layer < self::FIELD_EFFECT_BEHIND || $sprite->layer >= self::UI)) {
+        throw new InvalidArgumentException('Automatic Game field sprites require backdrop layer ' . self::FIELD_BACKDROP . ' or layers -1..'
           . (self::UI - 1) . ': the field world below ' . self::FIELD_GUIDANCE . ', then guidance; UI layers are reserved.');
       }
     }
