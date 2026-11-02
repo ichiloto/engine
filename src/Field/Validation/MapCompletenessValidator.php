@@ -51,6 +51,16 @@ final class MapCompletenessValidator
             }
         }
         $issues = self::validateEvents($mapId, $data, $eventLayer, $worldAbilities);
+        if ($graphics !== null && array_any($graphics->tileset->pieces, static fn($piece): bool => $piece->overhang > 0)) {
+            try {
+                if ($occupancy === null && array_key_exists(MapPhysicalOccupancy::DATA_KEY, $data)) {
+                    $occupancy = new MapPhysicalOccupancy($data[MapPhysicalOccupancy::DATA_KEY], $layers);
+                }
+                $issues = [...$issues, ...MapPieceOverhangRule::inspect($mapId, $graphics, $occupancy)];
+            } catch (InvalidArgumentException|RuntimeException $error) {
+                $issues[] = new MapValidationIssue($mapId, MapPieceOverhangRule::RULE, $error->getMessage(), path: [MapPhysicalOccupancy::DATA_KEY]);
+            }
+        }
         try { \Ichiloto\Engine\Field\MapSavePolicy::readMap($data); }
         catch (InvalidArgumentException $error) {
             $issues[] = new MapValidationIssue($mapId, 'map.save-policy', $error->getMessage(), path: ['savePolicy']);

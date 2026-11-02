@@ -255,6 +255,26 @@ editing surface is owned by the GUI Editor plan. Related docs:
   must fit, including on ragged maps, or nothing changes. Removing a placed
   copy with its footprint gives those cells the collision the terminal layers
   left there resolve to, the legacy reading Separate collision captures.
+- **Wall overhang.** A stamped piece may declare `overhang`, the number of top
+  visual rows above its ground footprint. It defaults to `0`; `groundHeight`
+  is `height - overhang`. The count must be a non-negative integer below the
+  piece height. Upper rows require space glyphs and explicit `null` occupancy
+  cells, so they stamp tiles while preserving the backing wall. Ground rows
+  retain their authored glyphs and physical recipe. For example:
+  `'shelf' => ['name' => 'Shelf', 'layer' => 'fixtures', 'overhang' => 1,
+  'glyphs' => ['  ', '##'], 'tiles' => ['furniture' => ['11 12', '21 22']],
+  'occupancy' => [[null, null], [CollisionType::SOLID, CollisionType::SOLID]]]`.
+  Connected pieces cannot declare overhang, and painted doorway cells belong
+  to ground rows. This metadata changes no existing stamped map or runtime
+  collision: maps continue storing their own glyphs, tiles and occupancy.
+  `MapPieceOverhangRule` (`piece.overhang`) checks complete stamps through the
+  current nonzero tile identities. Each nonempty upper cell needs physical
+  backing that blocks movement, unless every tile there draws above characters.
+  Empty cells, unused pieces and incomplete stamps add no backing requirement.
+  Completeness callers supply the map's resolved physical occupancy for legacy
+  maps; explicit map occupancy can be read directly. Missing required physical
+  input produces a finding rather than a glyph-derived guess. Editor ground
+  anchoring and GUI fields belong to the Editor's placement/record services.
 - **Painted doors.** A stamped piece whose art paints doors, such as a
   building, declares its `doorway` in the same form as a world object's
   resource (below): relative x/y cells from its top-left cell with an

@@ -22,6 +22,11 @@ use InvalidArgumentException;
  * leaves its respective destination as it was. Runtime collision reads map
  * occupancy, with legacy glyph passage only when map occupancy is absent.
  *
+ * An overhang declares how many top rows are upright art above the ground
+ * footprint. Those rows contain only space glyphs and null occupancy, leaving
+ * their backing unchanged. Ground height is height minus overhang; the default
+ * zero retains every existing row's meaning.
+ *
  * A piece whose art paints doors, such as a building, declares them as its
  * doorway ({@see Doorway}): cells relative to its top-left cell, each with
  * where its entrance lies. Wherever the piece stands whole on a map, each
@@ -36,7 +41,7 @@ use InvalidArgumentException;
  */
 final readonly class TilesetPiece
 {
-  public const array FIELDS = ['name', 'layer', 'glyphs', 'tiles', 'connects', 'effect', 'keeps', 'occupancy', 'doorway'];
+  public const array FIELDS = ['name', 'layer', 'glyphs', 'tiles', 'connects', 'effect', 'keeps', 'occupancy', 'doorway', 'overhang'];
   /** Cells join the cells beside them across and down, like a wall or fence. */
   public const string LINES = 'lines';
   /** A line cell's shapes: joined only across, only down, or both ways (corners, junctions and lone posts). */
@@ -47,6 +52,8 @@ final readonly class TilesetPiece
   public int $width;
   /** Cells down. */
   public int $height;
+  /** Ground rows below the visual overhang; derived once because this value object is readonly. */
+  public int $groundHeight;
   /** @var list<list<string>> Styled display cells, using the same contract as MapLayer::grid. */
   public array $grid;
   /** @var list<list<string>> Plain glyphs; logical geometry never depends on style. */
@@ -76,6 +83,7 @@ final readonly class TilesetPiece
    * @param list<string> $keeps Tile layers preserved under the stamped footprint, never layers this piece writes.
    * @param list<list<CollisionType|null>>|null $occupancy Final physical cells over the logical geometry, independent of glyphs, tiles and connected shape.
    * @param list<array{x: int, y: int, entrance: DoorwayEntrance}> $doorway Read door cells ({@see Doorway::readCells()}) within the piece.
+   * @param int $overhang Top visual rows that stamp tiles only; ground rows own glyphs and physical occupancy.
    */
   public function __construct(
     public string $id,
@@ -92,6 +100,7 @@ final readonly class TilesetPiece
     array $keeps = [],
     ?array $occupancy = null,
     array $doorway = [],
+    public int $overhang = 0,
   ) {
     $this->keeps = self::readKeptLayers($keeps, array_keys($tiles + $shapeTiles), "Piece {$id}");
     $this->sourceCells = $glyphs;
@@ -103,12 +112,20 @@ final readonly class TilesetPiece
     $this->shapes = array_map(TerminalText::stripAnsi(...), $this->shapeGrid);
     $this->height = count($glyphs);
     $this->width = count($glyphs[0] ?? []);
+    if ($overhang < 0 || $overhang >= $this->height) {
+      throw new InvalidArgumentException("Piece {$id} overhang must be at least zero and below its height {$this->height}; at least one ground row is required.");
+    }
+    if ($overhang > 0 && $connects !== null) {
+      throw new InvalidArgumentException("Piece {$id} connected pieces cannot declare an overhang.");
+    }
+    $this->groundHeight = $this->height - $overhang;
     $this->occupancy = $occupancy === null ? null
       : self::readOccupancy($occupancy, $this->width, $this->height, "Piece {$id}");
     if ($connects !== null && $doorway !== []) {
       throw new InvalidArgumentException("Piece {$id} connected pieces do not paint doors; stamp a door as a piece of its own.");
     }
     $this->doorway = self::checkDoorway($doorway, $this->width, $this->height, $this->occupancy, "Piece {$id}");
+    $this->assertOverhang();
   }
 
   /**
@@ -142,6 +159,13 @@ final readonly class TilesetPiece
     }
     if ($connects !== null && $connects !== self::LINES) {
       throw new InvalidArgumentException("{$context} connects must be '" . self::LINES . "'.");
+    }
+    $overhang = array_key_exists('overhang', $data) ? $data['overhang'] : 0;
+    if (!is_int($overhang) || $overhang < 0) {
+      throw new InvalidArgumentException("{$context} overhang must be a whole number of at least zero.");
+    }
+    if ($overhang > 0 && $connects !== null) {
+      throw new InvalidArgumentException("{$context} connected pieces cannot declare an overhang.");
     }
     $layers = $data['tiles'] ?? [];
     if (!is_array($layers)) {
@@ -199,7 +223,32 @@ final readonly class TilesetPiece
       $doorway = self::checkDoorway(Doorway::readCells($data['doorway'], $context), $width, count($glyphs), $occupancy, $context);
     }
     return new self($id, $data['name'], $data['layer'], $glyphs, $tiles, effect: $effect, sourceRows: $rows, keeps: $keeps,
-      occupancy: $occupancy, doorway: $doorway);
+      occupancy: $occupancy, doorway: $doorway, overhang: $overhang);
+  }
+
+  /** Validates authored visual rows without deriving a physical footprint from artwork. */
+  private function assertOverhang(): void
+  {
+    if ($this->overhang === 0) { return; }
+    $context = "Piece {$this->id}";
+    if ($this->occupancy === null) {
+      throw new InvalidArgumentException("{$context} overhang requires explicit occupancy; the ground rows own the physical footprint.");
+    }
+    for ($y = 0; $y < $this->overhang; $y++) {
+      foreach ($this->glyphs[$y] as $x => $glyph) {
+        if ($glyph !== ' ') {
+          throw new InvalidArgumentException("{$context} overhang cell {$x}, {$y} must be a space; overhang rows draw over the wall and stamp no glyph.");
+        }
+        if ($this->occupancy[$y][$x] !== null) {
+          throw new InvalidArgumentException("{$context} overhang occupancy cell {$x}, {$y} must be null; overhang rows never change collision.");
+        }
+      }
+    }
+    foreach ($this->doorway as $cell) {
+      if ($cell['y'] < $this->overhang) {
+        throw new InvalidArgumentException("{$context} doorway cell {$cell['x']}, {$cell['y']} lies in its overhang; painted doors belong to ground rows.");
+      }
+    }
   }
 
   /**
