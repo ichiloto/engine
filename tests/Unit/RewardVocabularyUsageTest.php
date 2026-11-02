@@ -50,7 +50,7 @@ beforeEach(function () {
     'currency' => ['name' => 'Ancient Sapphire Tokens', 'symbol' => 'TK'],
     'stats' => ['exp' => 'XP', 'mp' => 'SP', 'hp' => 'Life', 'level' => 'Rank', 'level_short' => 'Rk'],
     'battle' => ['victory' => 'Triumph', 'rewards' => 'Spoils', 'party_progress' => 'Growth',
-      'complete' => 'Reveal', 'atb' => 'ATB'], 'command' => ['continue' => 'Proceed'],
+      'complete' => 'Reveal', 'atb' => 'ATB', 'experience_per_member' => 'OBSOLETE QUALIFIER'], 'command' => ['continue' => 'Proceed'],
   ]]);
 });
 
@@ -65,9 +65,9 @@ it('uses the same configured currency in graphical and terminal rewards without 
   $skin = new BattleResultsSkin(getRewardVocabularyTextures(['panel', 'quiet', 'track', 'selector', 'portrait', 'exp', 'divider', 'button']),
     array_fill_keys(['text', 'muted', 'accent', 'positive', 'negative', 'ink'], PresentationColor::rgb(220, 220, 220)));
   $frame = GraphicalBattleResults::frame(new PresentationCanvas(1350, 720), $skin, $playback);
-  expect(getRewardVocabularyCanvasText($frame))->toContain('Ancient Sapphire Tokens', 'Triumph', 'Spoils', 'Growth', '123', 'XP / MEMBER', 'Proceed')
-    ->not->toContain('MONEY', 'Gold')
-    ->and(implode("\n", BattleResultsText::getLines($playback, 80)))->toContain('Ancient Sapphire Tokens: 123 TK', 'XP per member: 150')
+  expect(getRewardVocabularyCanvasText($frame))->toContain('Ancient Sapphire Tokens', 'Triumph', 'Spoils', 'Growth', '123', 'XP', 'Proceed')
+    ->not->toContain('MONEY', 'Gold', 'MEMBER', 'OBSOLETE QUALIFIER')
+    ->and(implode("\n", BattleResultsText::getLines($playback, 80)))->toContain('Ancient Sapphire Tokens: 123 TK', 'XP: 150')
     ->and(serialize($facts))->toBe($before);
   $layers = array_column($frame->textLayers, null, 'id');
   $label = $layers['results-gold-label']->bounds;
@@ -84,14 +84,14 @@ it('shows the Mastery points a battle gave, with the project\'s label, beside EX
   $none = array_column(GraphicalBattleResults::frame(new PresentationCanvas(1350, 720), $skin,
     new BattleResultsPlayback(new BattleRewards(150, 123, []), true))->textLayers, null, 'id');
 
-  expect(implode('', array_column($layers['results-skill-points-label']->runs, 'text')))->toBe('JP / MEMBER')
+  expect(implode('', array_column($layers['results-skill-points-label']->runs, 'text')))->toBe('JP')
     ->and(implode('', array_column($layers['results-skill-points-value']->runs, 'text')))->toBe('30')
     // Each total keeps its own row, in reading order: EXP, then JP, then gold.
     ->and($layers['results-experience-value']->bounds->y)->toBeLessThan($layers['results-skill-points-value']->bounds->y)
     ->and($layers['results-skill-points-value']->bounds->y + $layers['results-skill-points-value']->bounds->height)
       ->toBeLessThanOrEqual($layers['results-gold-value']->bounds->y)
     ->and($none)->not->toHaveKey('results-skill-points-value')
-    ->and(implode("\n", BattleResultsText::getLines($playback, 80)))->toContain('XP per member: 150   JP: 30');
+    ->and(implode("\n", BattleResultsText::getLines($playback, 80)))->toContain('XP: 150   JP: 30');
 });
 
 it('keeps quest and learning summaries currency-aware while preserving serialized cost and reward identities', function () {

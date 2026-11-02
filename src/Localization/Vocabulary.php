@@ -58,6 +58,8 @@ final class Vocabulary
     'battle.pages' => 'Pages',
     'battle.page' => 'Page',
     'battle.none' => 'None',
+    'battle.items' => 'Items',
+    'battle.no_items' => 'No items',
     'battle.insight.best' => 'Best element',
     'battle.insight.none' => 'No element beats ordinary damage',
     // The heading of what battles have revealed about a foe, in its record.

@@ -23,7 +23,7 @@ use RuntimeException;
 use Ichiloto\Engine\IO\ActionHint;
 use Ichiloto\Engine\UI\Presentation\ControlGlyphPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
-use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
+use Ichiloto\Engine\UI\Presentation\MenuActionHints;
 
 /** A disposable overlay over the caller's real final battlefield, never a gameplay owner. */
 final class GraphicalBattleResults
@@ -193,18 +193,16 @@ final class GraphicalBattleResults
       $this->line('party-markers-' . $slot, implode(' / ', $markers), 196, $y + 80, 582, 9, 18, 'accent', alpha: $alpha);
     }
     // EXP, then SP when the battle gave any, then gold, in the band above the item list.
-    $totals = [['experience', Vocabulary::getTerm('battle.experience_per_member',
-      Vocabulary::getTerm('stats.exp', 'EXP') . ' / MEMBER'), $rewards->experiencePerMember]];
+    $totals = [['experience', Vocabulary::getTerm('stats.exp'), $rewards->experiencePerMember]];
     if ($rewards->skillPointsPerMember > 0) {
-      $totals[] = ['skill-points', MasteryVocabulary::getPointsLabel() . ' / MEMBER', $rewards->skillPointsPerMember];
+      $totals[] = ['skill-points', MasteryVocabulary::getPointsLabel(), $rewards->skillPointsPerMember];
     }
-    $totals[] = ['gold', Vocabulary::getTerm('currency.name', 'Gold'), $rewards->gold];
+    $totals[] = ['gold', Vocabulary::getTerm('currency.name', 'Gold'), trim($rewards->gold . ' ' . Vocabulary::getTerm('currency.symbol', 'G'))];
     foreach ($totals as $index => [$id, $label, $value]) {
       $this->total($id, $label, $value, self::TOTAL_ROWS[count($totals)][$index]);
     }
-    $this->line('items-title', Vocabulary::getTerm('command.item', 'ITEMS'), 856, 278, 414, 11, 22, 'muted');
     $items = BattleResultsContent::itemLines($rewards);
-    if ($items === []) { $this->line('items-empty', Vocabulary::getTerm('battle.none'), 856, 308, 414, 13, 26, 'muted'); }
+    $this->line('items-title', Vocabulary::getTerm($items === [] ? 'battle.no_items' : 'battle.items'), 856, 278, 414, 11, 22, 'muted');
     foreach ($this->page($items, 4) as $index => $item) {
       $y = 307 + 27 * $index;
       $alpha = $this->playback->reveal(0.65 + $index * 0.075);
@@ -263,37 +261,44 @@ final class GraphicalBattleResults
     $hints = $this->playback->getActionHints();
     $confirm = array_find($hints, static fn(ActionHint $hint): bool => $hint->action === 'action');
     $navigation = array_find($hints, static fn(ActionHint $hint): bool => $hint->pairedAction !== null);
+    if ($confirm !== null) {
+      // The confirmation key belongs with its independently centred button label.
+      $glyphs = new ControlGlyphPresentation($this->controls, 'results-confirm-control', [11, 22], self::BASE_LAYER + 4);
+      $width = $glyphs->measureCells($confirm->control) * 11;
+      $glyphs->renderControl('confirm-key', $confirm->control, new CanvasRectangle(544 - $width, 674, $width, 22));
+      $this->appendControls($glyphs->compose(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT));
+    }
     if ($this->playback->currentStage()['kind'] === 'primary') {
       $pages = BattleResultsContent::getPrimaryPageCounts($this->playback->rewards);
-      $this->renderFooter('party', 80, 620, 698, $pages['party'], $confirm, $navigation);
-      $this->renderFooter('items', 856, 438, 414, $pages['items']);
-      $this->renderFooter('summary', 856, 620, 414, $pages['summary']);
+      $this->renderFooter('party', 80, 620, 698, $pages['party'], $navigation);
+      $this->renderFooter('items', 856, 438, 414, $pages['items'], $navigation);
+      $this->renderFooter('summary', 856, 620, 414, $pages['summary'], $navigation);
     } else {
-      $this->renderFooter('event', 128, 620, 1094, $this->playback->pageCount(), $confirm, $navigation);
+      $this->renderFooter('event', 128, 620, 1094, $this->playback->pageCount(), $navigation);
     }
   }
 
-  /** Counts and controls stay inside their panels; the button owns its action label. */
-  private function renderFooter(string $id, int $x, int $y, int $width, int $pages,
-    ?ActionHint $confirm = null, ?ActionHint $navigation = null): void
+  /** A complete, measured paging hint stays together inside each continuing panel. */
+  private function renderFooter(string $id, int $x, int $y, int $width, int $pages, ?ActionHint $navigation = null): void
   {
+    if ($pages <= 1) { return; }
     $page = min($this->playback->scrollOffset + 1, $pages);
-    if ($pages > 1) {
-      $this->line($id . '-pages', $page . ' / ' . $pages, $x, $y, $width, 11, 22, 'muted', 'center');
+    if ($navigation === null) {
+      $this->line($id . '-pages', $page . ' / ' . $pages, $x, $y, $width, 9, 18, 'muted', 'center');
+      return;
     }
-    $glyphs = new ControlGlyphPresentation($this->controls, 'results-' . $id . '-controls', [11, 22], self::BASE_LAYER + 4);
-    if ($confirm !== null) {
-      $glyphs->renderControl('confirm', $confirm->control, new CanvasRectangle($x, $y, $width / 3, 22), HorizontalAlignment::LEFT);
-    }
-    if ($navigation !== null) {
-      $previous = $glyphs->measureCells($navigation->control) * 11;
-      $next = $glyphs->measureCells($navigation->pairedControl) * 11;
-      $start = $x + $width - $previous - $next - 11;
-      if ($start < $x + 2 * $width / 3) { throw new RuntimeException('Results paging controls exceed their panel footer.'); }
-      $glyphs->renderControl('previous', $navigation->control, new CanvasRectangle($start, $y, $previous, 22));
-      $glyphs->renderControl('next', $navigation->pairedControl, new CanvasRectangle($start + $previous + 11, $y, $next, 22));
-    }
-    $canvas = $glyphs->compose(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT);
+    $hint = new ActionHint($navigation->action, $navigation->label . ' ' . $page . ' / ' . $pages,
+      $navigation->control, $navigation->pairedControl, $navigation->pairedAction);
+    $hintWidth = MenuActionHints::measureCells([$hint], $this->controls, [9, 18]) * 9;
+    if ($hintWidth > $width) { throw new RuntimeException('Results paging hint exceeds its panel footer.'); }
+    $this->appendControls(MenuActionHints::compose(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT,
+      'results-' . $id . '-pages', [$hint], $this->controls,
+      new CanvasRectangle($x + ($width - $hintWidth) / 2, $y, $hintWidth, 18), required: true, cell: [9, 18],
+      layer: self::BASE_LAYER + 4));
+  }
+
+  private function appendControls(PresentationCanvas $canvas): void
+  {
     foreach ($canvas->images as $image) {
       $this->images[] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
         $image->sourceRect, $image->opacity * $this->opacity, $image->clipRect, $image->brightness, $image->flipX, $image->flipY);
@@ -304,7 +309,7 @@ final class GraphicalBattleResults
     }
   }
 
-  private function total(string $id, string $label, int $value, int $y): void
+  private function total(string $id, string $label, int|string $value, int $y): void
   {
     $valueWidth = max(78, strlen((string)$value) * 13);
     $labelWidth = 414 - $valueWidth - 16;

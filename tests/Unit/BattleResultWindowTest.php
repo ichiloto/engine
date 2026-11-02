@@ -147,7 +147,7 @@ it('left aligns party names and right aligns progression across the complete con
   $window = new BattleResultWindowTestProxy(makeBattleResultTestScreen());
   $window->displayPlayback($playback);
   $value = 'Lv 1 -> 2  +50 EXP';
-  expect($window->getContent()[0])->toBe('EXP per member: 50   Gold: 200 G')
+  expect($window->getContent()[0])->toBe('EXP: 50   Gold: 200 G')
     ->and($window->getContent()[1])->toBe('Party Progress')
     ->and($window->getHelp())->toBe('[Enter] Continue  [↑]/[↓] Page 1/2');
   foreach ($names as $index => $name) {
@@ -230,7 +230,7 @@ it('wraps each complete fact without truncation at narrower content widths', fun
   foreach ($lines as $line) { expect(TerminalText::displayWidth($line))->toBeLessThanOrEqual($width); }
   $text = preg_replace('/\s+/u', '', implode('', $lines));
   expect($text)->toContain(str_repeat('Identity', 20) . ':', 'Lv1->2+' . PHP_INT_MAX . 'EXP',
-    'EXPpermember:' . PHP_INT_MAX, 'Gold:' . PHP_INT_MAX . 'G');
+    'EXP:' . PHP_INT_MAX, 'Gold:' . PHP_INT_MAX . 'G');
 })->with([16, 40, 60]);
 
 it('renders aligned party progress inside intact fixed borders', function () {

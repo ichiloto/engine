@@ -1341,3 +1341,17 @@ in place. It never substitutes another stopping point or a short step. Reduced
 motion skips travel, and Terminal keeps its existing command clock. The Editor's
 battle-effect preview prepares the same geometry and plan, with source-preserving
 movement/reach/strike-point editing, undo and validated saves.
+
+
+Results reward totals use the existing EXP and Mastery-points terms with their
+values. Removed the per-member labels and the old experience_per_member term
+lookup from graphical and Terminal Results. Per-character gains continue on
+the party cards. Gold includes the configured currency symbol; an empty loot
+list reads the shared quiet “No items” term, with no separate enlarged None row.
+
+Each continuing panel's footer uses MenuActionHints to measure and centre its
+paired navigation controls, action and clamped page count as one group. The
+18-pixel footer stays inside the panel's existing padding. Removed the bare
+confirmation chip from the party footer; it sits beside the independently
+centred confirmation button. Remapped keyboard/controller controls retain their
+shared glyph/keycap presentation and semantic actions.

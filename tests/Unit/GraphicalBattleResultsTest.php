@@ -249,7 +249,7 @@ it('preserves the real battlefield and approved primary geometry with independen
     ->and($images['results-party-1-1']->destination)->toEqual(new CanvasRectangle(52, 146, 754, 502))
     ->and($images['results-rewards-1-1']->destination)->toEqual(new CanvasRectangle(828, 146, 470, 324))
     ->and($images['results-summary-1-1']->destination)->toEqual(new CanvasRectangle(828, 484, 470, 164))
-    ->and(resultsFrameText($frame))->toContain('EXP / MEMBER', '150', '123', 'H1', 'Retained: 0 of 1')
+    ->and(resultsFrameText($frame))->toContain('EXP', '150', '123', 'H1', 'Retained: 0 of 1')
     ->and(count($frame->textLayers))->toBeLessThanOrEqual(64);
   foreach (['experience', 'gold'] as $key) {
     $value = array_column($frame->textLayers, null, 'id')['results-' . $key . '-value'];
@@ -607,7 +607,7 @@ it('keeps independent page counts inside the panels whose rows continue', functi
     foreach (['party' => 2, 'items' => 3, 'summary' => 3] as $id => $total) {
       $layer = $layers['results-' . $id . '-pages'];
       [$x, $y, $w, $h] = $panels[$id];
-      expect($layer->runs[0]->text)->toBe(array_shift($counts) . ' / ' . $total)
+      expect(implode('', array_column($layer->runs, 'text')))->toContain(array_shift($counts) . ' / ' . $total)
         ->and($layer->runs[0]->background)->toBeNull()
         ->and($layer->x)->toBeGreaterThanOrEqual($x)
         ->and($layer->x + $layer->bounds->width)->toBeLessThanOrEqual($x + $w)
@@ -638,12 +638,71 @@ it('draws rebound controller controls through the shared glyph owner without rep
       ->and($hints[0]->control->family)->toBe('gamepad');
     $frame = GraphicalBattleResults::frame(resultsBattlefield(), resultsSkinFixture(), $playback);
     $text = resultsFrameText($frame);
-    expect($text)->toContain('DUp', 'DDown')->not->toContain('Enter', 'Navigate to view')
+    expect($text)->toContain('DUp', 'DDown')->toContain('Pages', '1 / 2')->not->toContain('Enter', 'Navigate to view')
       ->and(substr_count($text, 'Continue'))->toBe(1);
     foreach ($frame->textLayers as $layer) {
-      if (!str_starts_with($layer->id, 'results-party-controls')) { continue; }
+      if (!str_starts_with($layer->id, 'results-party-pages')) { continue; }
       expect($layer->y)->toBeGreaterThanOrEqual(620)
-        ->and($layer->paintBounds->y + $layer->paintBounds->height)->toBeLessThanOrEqual(648);
+        ->and($layer->paintBounds->y + $layer->paintBounds->height)->toBeLessThanOrEqual(638);
+    }
+  } finally { $provider->setValue(null, $previous); }
+});
+
+
+it('removes per-member qualifiers and presents empty loot quietly with the total-label typography', function () {
+  $facts = resultsGraphicalFacts();
+  $rewards = new BattleRewards(150, 123, $facts->progression, skillPointsPerMember: 15);
+  $before = serialize($rewards);
+  $playback = new BattleResultsPlayback($rewards, true);
+  $frame = GraphicalBattleResults::frame(resultsBattlefield(), resultsSkinFixture(), $playback);
+  $layers = array_column($frame->textLayers, null, 'id');
+  expect($layers['results-experience-label']->runs[0]->text)->toBe('EXP')
+    ->and($layers['results-skill-points-label']->runs[0]->text)->toBe('SP')
+    ->and($layers['results-gold-value']->runs[0]->text)->toBe('123 G')
+    ->and($layers['results-items-title']->runs[0]->text)->toBe('No items')
+    ->and($layers['results-items-title']->grid->cellHeight)->toBe($layers['results-experience-label']->grid->cellHeight)
+    ->and($layers)->not->toHaveKey('results-items-empty')
+    ->and(resultsFrameText($frame))->not->toContain('MEMBER', 'per member')
+    ->and(implode("\n", \Ichiloto\Engine\Battle\Presentation\BattleResultsText::getLines($playback, 80)))
+      ->toContain('EXP: 150', 'SP: 15', 'Gold: 123 G', 'No items')->not->toContain('per member', 'No item drops')
+    ->and(serialize($rewards))->toBe($before);
+});
+
+it('keeps the confirmation chip beside its button and complete paging hints clear of panel frames', function () {
+  $actionHints = \Ichiloto\Engine\IO\ActionHints::class;
+  $provider = new ReflectionProperty($actionHints, 'provider');
+  $previous = $provider->getValue();
+  $actionHints::useProvider(new class implements \Ichiloto\Engine\IO\ActionHintProvider {
+    public function controlForAction(string $action): ?\Ichiloto\Engine\IO\ControlHint {
+      return new \Ichiloto\Engine\IO\ControlHint('keyboard', $action,
+        match ($action) { 'action' => 'Space', 'up' => 'Up', 'down' => 'Down', default => 'Other' });
+    }
+  });
+  try {
+    foreach ([4, 6] as $members) {
+      $facts = resultsGraphicalFacts($members);
+      $items = array_map(fn($i) => ['id' => 'item-' . $i, 'name' => 'Item ' . $i, 'description' => '', 'quantity' => 1], range(1, 9));
+      $playback = new BattleResultsPlayback(new BattleRewards(150, 123, $facts->progression, $items), true);
+      $frame = GraphicalBattleResults::frame(resultsBattlefield(), resultsSkinFixture(), $playback);
+      $confirm = array_values(array_filter($frame->textLayers, fn($layer) => $layer->id === 'results-confirm-control'));
+      expect($confirm)->toHaveCount(1);
+      $chip = $confirm[0];
+      expect(implode('', array_column($chip->runs, 'text')))->toBe('Space')
+        ->and($chip->paintBounds->x + $chip->paintBounds->width)->toBeLessThan(560)
+        ->and($chip->paintBounds->y + $chip->paintBounds->height / 2)->toBe(685.0);
+      foreach (['party' => [80, 620, 698, 18], 'items' => [856, 438, 414, 18]] as $id => [$x, $y, $width, $height]) {
+        $footer = array_values(array_filter($frame->textLayers, fn($layer) => str_starts_with($layer->id, 'results-' . $id . '-pages')));
+        if ($id === 'party' && $members === 4) { expect($footer)->toBe([]); continue; }
+        expect($footer)->not->toBe([]);
+        $text = implode(' ', array_map(fn($layer) => implode('', array_column($layer->runs, 'text')), $footer));
+        expect($text)->toContain('Up', 'Down', 'Pages', $id === 'items' ? '1 / 3' : '1 / 2')->not->toContain('Space');
+        foreach ($footer as $layer) {
+          expect($layer->paintBounds->x)->toBeGreaterThanOrEqual($x)
+            ->and($layer->paintBounds->x + $layer->paintBounds->width)->toBeLessThanOrEqual($x + $width)
+            ->and($layer->paintBounds->y)->toBeGreaterThanOrEqual($y)
+            ->and($layer->paintBounds->y + $layer->paintBounds->height)->toBeLessThanOrEqual($y + $height);
+        }
+      }
     }
   } finally { $provider->setValue(null, $previous); }
 });
