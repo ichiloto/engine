@@ -191,11 +191,13 @@ it('rolls back layer state atomically and clears it on resize clear and recompos
 });
 
 it('queues colour-only changes transactionally and compares layer identity order priority and sprites', function () {
+  // This case models a responsive renderer; separate backpressure tests cover held frames.
   $transport = new FakeRendererTransport();
   $presenter = new RendererPresentation(new RendererClient($transport), new RendererGridConfig(8, 3));
   Console::write("\e[31mX", 0, 0);
   $before = Console::getBuffer();
   expect($presenter->present(Console::presentationSnapshot()))->toBeTrue();
+  $transport->acknowledgeLatestFrame($presenter);
   Console::write("\e[32mX", 0, 0);
   expect(Console::getBuffer())->not->toBe($before);
   $transport->sendFailure = new RendererTransportException('pressure');
@@ -203,11 +205,14 @@ it('queues colour-only changes transactionally and compares layer identity order
   $transport->sendFailure = null;
   expect($presenter->present(Console::presentationSnapshot()))->toBeTrue()
     ->and($presenter->present(Console::presentationSnapshot()))->toBeFalse();
+  $transport->acknowledgeLatestFrame($presenter);
   Console::write("\e[32;44mX", 0, 0);
   expect($presenter->present(Console::presentationSnapshot()))->toBeTrue();
+  $transport->acknowledgeLatestFrame($presenter);
   foreach ([['a', PresentationLayerPolicy::UI + 10], ['b', PresentationLayerPolicy::UI + 10], ['b', PresentationLayerPolicy::UI + 20]] as [$id, $priority]) {
     Console::recomposeFrame(fn() => Console::withLayer($id, fn() => Console::write('X', 0, 0), $priority));
     expect($presenter->present(Console::presentationSnapshot()))->toBeTrue();
+    $transport->acknowledgeLatestFrame($presenter);
   }
   $sprite = new PresentationSprite('player', 'player.png', 0, 0, 1, 1, layer: 100);
   expect($presenter->present(Console::presentationSnapshot(), [$sprite]))->toBeTrue();
