@@ -40,11 +40,18 @@ final class CellArea
    */
   private function __construct(array $cells)
   {
-    usort($cells, static fn(array $a, array $b): int => [$a[1], $a[0]] <=> [$b[1], $b[0]]);
     $index = [];
-
+    $needsSorting = false;
+    $previousX = $previousY = null;
     foreach ($cells as [$x, $y]) {
       $index["{$x},{$y}"] = true;
+      if ($previousY !== null && ($y < $previousY || ($y === $previousY && $x < $previousX))) {
+        $needsSorting = true;
+      }
+      [$previousX, $previousY] = [$x, $y];
+    }
+    if ($needsSorting) {
+      usort($cells, static fn(array $a, array $b): int => ($a[1] <=> $b[1]) ?: ($a[0] <=> $b[0]));
     }
 
     $xs = array_column($cells, 0);

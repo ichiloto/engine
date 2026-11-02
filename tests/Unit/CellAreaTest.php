@@ -75,3 +75,18 @@ it('cues each separate placement of a trigger once', function () {
   expect($cue->findPositions(makeScatteredArea()))->toEqual([new Vector2(9, 3), new Vector2(4, 8)])
     ->and($cue->findPositions(CellArea::fromRect(new Rect(4, 6, 3, 3))))->toEqual([new Vector2(5, 7)]);
 });
+
+
+it('keeps signed cell order and membership identical for sorted and shuffled input', function (array $cells) {
+  $expected = [[0, -2], [1, -2], [-3, 0], [-1, 0], [0, 2]];
+  $area = CellArea::fromCells($cells);
+  expect($area->cells)->toBe($expected)
+    ->and($area->firstCell)->toEqual(new Vector2(0, -2))
+    ->and($area->toArray())->toBe(['cells' => $expected]);
+  foreach ($expected as [$x, $y]) { expect($area->containsCell($x, $y))->toBeTrue(); }
+  expect($area->containsCell(0, 0))->toBeFalse();
+})->with([
+  'already ordered' => [[ [0, -2], [1, -2], [-3, 0], [-1, 0], [0, 2] ]],
+  'reverse order' => [[ [0, 2], [-1, 0], [-3, 0], [1, -2], [0, -2] ]],
+  'shuffled with duplicate' => [[ [0, 2], [-1, 0], [-3, 0], [0, -2], [-3, 0], [1, -2] ]],
+]);
