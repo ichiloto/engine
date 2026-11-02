@@ -31,6 +31,11 @@ and preserve the narration. `StorybookPage::getPictureSize` uses the existing
 PNG header/bounds preflight and current file facts. Native preparation remains
 the full-decode authority. Editor authoring preserves the original source;
 these resolved runtime models are not a source serializer.
+`StorybookLibrary` loads the selected `Data/Storybooks/<id>.php` from an
+explicit project asset root and requires the filename and declared identity to
+agree. Its sorted discovery reads filenames without evaluating authored PHP or
+loading artwork; source containment is checked before loading. Current text is
+loaded again when requested, without a separate content cache or source write.
 
 This slice supplies data contracts only. Shared modal/event playback, agreed
 page-overflow behavior, Terminal storybook framing, GPUI composition and Editor
