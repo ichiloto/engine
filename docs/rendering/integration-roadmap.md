@@ -18,6 +18,27 @@ and remaining engineering work, not release status.
 Headless PHP checks and macOS rendering checks do not establish Linux/WSLg or
 Windows support. Merging implementation does not create a package release.
 
+## Shared storybook pages — 3 November 2026
+
+Andrew selected an optional elder telling an illustrated story, with the same
+ordered narration and authored page breaks in graphical and Terminal views.
+The shared data foundation lives in `Messaging/Storybook`: `StorybookDefinition`
+reads `id`, `title`, `narrator` and a nonempty ordered `pages` list. Each page
+has stable `id`, exact `text` and optional asset-relative PNG `picture`.
+Hydration preserves source strings and input order. Invalid page identity or
+narration is refused; optional picture-reference failures produce diagnostics
+and preserve the narration. `StorybookPage::getPictureSize` uses the existing
+PNG header/bounds preflight and current file facts. Native preparation remains
+the full-decode authority. Editor authoring preserves the original source;
+these resolved runtime models are not a source serializer.
+
+This slice supplies data contracts only. Shared modal/event playback, agreed
+page-overflow behavior, Terminal storybook framing, GPUI composition and Editor
+resource authoring remain open. Existing modal, dialogue, image and theme
+primitives supply those consumers. The official Game text, optional elder
+interaction and painting/Terminal-frame approval remain Game/author work.
+No runtime event, Game content or progress behavior is registered by this model.
+
 ## Dialogue camera framing — 31 October 2026
 
 1 November: the PHP `camera_motion` contract, optional capability adaptation,
