@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationCatalog;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -26,35 +27,70 @@ final class MenuModalPresentation
       static fn($owner) => $owner instanceof DialoguePresentationProviderInterface);
   }
 
+  /**
+   * Shared graphical measurement for pagination and painting, with artwork and teaching controls reserved.
+   * @return array{width:int,columns:int,artSize:float|int,messageWidth:float|int,messageColumns:int,titleHeight:int,noticeHints:array,noticeHintHeight:int,maximumRows:int}
+   */
+  public static function measureReadingArea(PresentationCanvas $base, ModalPresentation $modal, MenuPresentationCatalog $theme): array
+  {
+    $m = $theme->metrics; $p = $m->panelPadding; $gap = $m->sectionGap;
+    $longest = static fn(string $text): int => max(array_map(mb_strlen(...), explode("\n",
+      TerminalText::stripAnsi(TerminalText::formatStyles(MenuTextWrap::normalizeText($text))))));
+    $buttonWidths = array_map(fn(string $label) => $longest($label) * $m->cellWidth + 2 * $theme->rows->metrics->padding, $modal->choices);
+    $choicesWidth = $modal->singleConfirmation ? 2 * $buttonWidths[0]
+      : ($modal->vertical ? max($buttonWidths) : array_sum($buttonWidths) + (count($buttonWidths) - 1) * $gap);
+    $naturalWidth = max(36 * $m->cellWidth, $longest($modal->title) * $m->cellWidth,
+      $longest($modal->sourceMessage ?? $modal->message) * $m->cellWidth, $choicesWidth);
+    if ($modal->quantity !== null) {
+      $naturalWidth = max($naturalWidth, (2 * strlen((string)$modal->quantity->maximum) + 3) * $m->cellWidth
+        + 2 * ($m->cellHeight + $gap));
+    }
+    $width = (int)floor(min($base->width * 2 / 3 - 2 * $p, $naturalWidth) / $m->cellWidth) * $m->cellWidth;
+    $columns = max(1, (int)floor($width / $m->cellWidth));
+    $notice = $modal->notice;
+    $hasArt = ($notice?->actorId !== null && isset($theme->portraits[$notice->actorId]))
+      || ($notice?->iconRole !== null && isset($theme->icons?->icons[$notice->iconRole]));
+    $artSize = $hasArt ? min($m->portraitSize, $width / 3) : 0;
+    $messageWidth = $width - ($artSize > 0 ? $artSize + $gap : 0);
+    $messageColumns = max(1, (int)floor($messageWidth / $m->cellWidth));
+    $titleHeight = $modal->title === '' ? 0 : count(MenuCanvas::wrap($modal->title, $columns)) * $m->cellHeight;
+    $noticeHints = $notice?->getActionHints() ?? [];
+    $noticeHintHeight = $noticeHints === [] ? 0 : MenuActionHints::height($noticeHints, $theme, $messageWidth, required: true);
+    $hints = [ActionHints::resolve('confirm', 'Confirm'), ActionHints::resolve('cancel', 'Cancel')];
+    $hintHeight = MenuActionHints::height($hints, $theme, $width);
+    $quantityHeight = $modal->quantity === null ? 0 : 2 * $m->cellHeight + $gap;
+    $availableBody = $base->height - 4 * $p - $titleHeight - $quantityHeight - $hintHeight
+      - 2 * $gap - ($hintHeight > 0 ? $gap : 0) - $m->rowHeight - $m->cellHeight;
+    if ($artSize > $availableBody) { throw new RuntimeException('Modal artwork exceeds its finite reading viewport.'); }
+    $maximumRows = (int)floor(($availableBody - $noticeHintHeight - ($noticeHintHeight > 0 ? $gap : 0)) / $m->cellHeight);
+    if ($maximumRows < 1) { throw new RuntimeException('Modal controls leave no finite reading area.'); }
+    return compact('width', 'columns', 'artSize', 'messageWidth', 'messageColumns', 'titleHeight', 'noticeHints', 'noticeHintHeight', 'maximumRows');
+  }
+
   public static function compose(PresentationCanvas $base, ModalPresentation $modal,
     MenuPresentationCatalog $theme, float $time = 0, ?string $ownerLayerId = null): PresentationCanvas
   {
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $gap = $m->sectionGap;
-    $longest = static fn(string $text): int => max(array_map(mb_strlen(...), explode("\n", str_replace(["\r\n", "\r", "\t"], ["\n", "\n", '    '], $text))));
-    $buttonWidths = array_map(fn(string $label) => $longest($label) * $m->cellWidth + 2 * $theme->rows->metrics->padding, $modal->choices);
-    $choicesWidth = $modal->singleConfirmation ? 2 * $buttonWidths[0]
-      : ($modal->vertical ? max($buttonWidths) : array_sum($buttonWidths) + (count($buttonWidths) - 1) * $gap);
-    $naturalWidth = max(36 * $m->cellWidth, $longest($modal->title) * $m->cellWidth,
-      $longest($modal->message) * $m->cellWidth, $choicesWidth);
-    if ($modal->quantity !== null) {
-      $naturalWidth = max($naturalWidth, (2 * strlen((string)$modal->quantity->maximum) + 3) * $m->cellWidth
-        + 2 * ($m->cellHeight + $gap));
-    }
-    $width = (int)floor(min($base->width * 2 / 3 - 2 * $p, $naturalWidth) / $m->cellWidth) * $m->cellWidth;
+    $reading = self::measureReadingArea($base, $modal, $theme);
+    $width = $reading['width'];
     $x = ($base->width - $width) / 2;
-    $cells = (int)floor($width / $m->cellWidth);
+    $cells = $reading['columns'];
     $notice = $modal->notice;
     $hasPortrait = $notice?->actorId !== null && isset($theme->portraits[$notice->actorId]);
     $hasIcon = $notice?->iconRole !== null && isset($theme->icons?->icons[$notice->iconRole]);
-    $artSize = $hasPortrait || $hasIcon ? min($m->portraitSize, $width / 3) : 0;
+    $artSize = $reading['artSize'];
     $messageX = $x + ($artSize > 0 ? $artSize + $gap : 0);
-    $messageWidth = $width - ($messageX - $x);
-    $messageCells = max(1, (int)floor($messageWidth / $m->cellWidth));
-    $titleHeight = $modal->title === '' ? 0 : count(MenuCanvas::wrap($modal->title, $cells)) * $m->cellHeight;
+    $messageWidth = $reading['messageWidth'];
+    $messageCells = $reading['messageColumns'];
+    $titleHeight = $reading['titleHeight'];
     $messageHeight = $modal->message === '' ? 0 : count(MenuCanvas::wrap($modal->message, $messageCells)) * $m->cellHeight;
-    $bodyHeight = max($artSize, $modal->singleConfirmation ? max($messageHeight, 3 * $m->cellHeight) : $messageHeight);
+    $noticeHints = $reading['noticeHints'];
+    $noticeHintHeight = $reading['noticeHintHeight'];
+    $noticeHintGap = $noticeHintHeight > 0 && $messageHeight > 0 ? $gap : 0;
+    $readingHeight = $messageHeight + $noticeHintGap + $noticeHintHeight;
+    $bodyHeight = max($artSize, $modal->singleConfirmation ? max($readingHeight, 3 * $m->cellHeight) : $readingHeight);
     $quantityHeight = $modal->quantity === null ? 0 : 2 * $m->cellHeight + $gap;
     $hints = [ActionHints::resolve('confirm', 'Confirm'), ActionHints::resolve('cancel', 'Cancel')];
     $hintHeight = MenuActionHints::height($hints, $theme, $width);
@@ -97,12 +133,16 @@ final class MenuModalPresentation
       if ($hasPortrait) { $view->portrait($notice->actorId, $artBox, 'menu-modal-notice-portrait'); }
       elseif ($hasIcon) { $view->icon('menu-modal-notice-icon', $notice->iconRole, $artBox); }
     }
+    $readingY = $y + ($bodyHeight - $readingHeight) / 2;
     if ($messageHeight > 0) {
       $view->prose('menu-modal-message', $modal->message,
-        new CanvasRectangle($messageX, $y + ($bodyHeight - $messageHeight) / 2, $messageWidth, $messageHeight),
-        alignment: $modal->singleConfirmation || $messageHeight === $m->cellHeight
+        new CanvasRectangle($messageX, $readingY, $messageWidth, $messageHeight),
+        alignment: $messageHeight === $m->cellHeight
           ? HorizontalAlignment::CENTER : HorizontalAlignment::LEFT);
     }
+    $requiredHintCanvas = $noticeHintHeight === 0 ? null : MenuActionHints::compose($base->width, $base->height,
+      'menu-modal-notice-hints', $noticeHints, $theme, new CanvasRectangle($messageX,
+        $readingY + $messageHeight + $noticeHintGap, $messageWidth, $noticeHintHeight), required: true);
     $y += $bodyHeight + $gap;
     $controls = new MenuControls($theme);
     if ($modal->quantity !== null) {
@@ -133,7 +173,9 @@ final class MenuModalPresentation
     if ($hintHeight > 0) {
       $view->hints('menu-modal-hints', $hints, new CanvasRectangle($x, $y + $choiceHeight + $hintGap, $width, $hintHeight));
     }
-    $dialog = MenuCanvas::overlay($view->finish(), $controls->finish($base->width, $base->height), $theme);
+    $body = $view->finish();
+    if ($requiredHintCanvas !== null) { $body = MenuCanvas::overlay($body, $requiredHintCanvas, $theme); }
+    $dialog = MenuCanvas::overlay($body, $controls->finish($base->width, $base->height), $theme);
     $result = MenuCanvas::overlay($base, $dialog, $theme);
     return $ownerLayerId === null ? $result : new PresentationCanvas($result->width, $result->height,
       $result->images, $result->indicators, $result->textLayers, $result->composites, $result->protectedAreas,

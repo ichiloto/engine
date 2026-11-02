@@ -8,6 +8,7 @@ use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\ActionHint;
 use InvalidArgumentException;
+use Ichiloto\Engine\Util\PlayerText;
 
 /** Authored first-use presentation, attached to the power's existing identity. */
 final readonly class WorldAbilityFirstUse
@@ -15,6 +16,7 @@ final readonly class WorldAbilityFirstUse
   /** @param list<array{action:string,label:string}> $hints */
   public function __construct(public string $message = '', public array $hints = [], public ?string $effect = null)
   {
+    PlayerText::assertSentence($message, 'World ability first-use message', allowEmpty: true);
     if (!array_is_list($hints)) { throw new InvalidArgumentException('First-use hints must be a list.'); }
     foreach ($hints as $hint) {
       if (!is_array($hint) || array_diff(array_keys($hint), ['action', 'label']) !== []

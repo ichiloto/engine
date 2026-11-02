@@ -160,3 +160,49 @@ it('declares constrained power and actor references and refuses malformed direct
   expect(fn() => new ShowPowerUnlocksCommand()->execute(new ScriptCommandContext($scene), ['actor' => 'missing']))
     ->toThrow(RuntimeException::class, 'current party actor');
 });
+
+
+it('carries semantic hints through the acknowledged showcase and resolves the current control profile', function () {
+  $catalog = new WorldAbilityCatalog([['id' => 'test-move', 'name' => 'Move', 'description' => 'Move more quickly.',
+    'firstUse' => ['hints' => [['action' => 'move_fast', 'label' => 'Hold to move']]]]]);
+  $before = $this->state->toArray();
+  $notice = PowerUnlockShowcase::getNotices($catalog, ['test-move'], $this->state)[0];
+  $oldProvider = new ReflectionProperty(\Ichiloto\Engine\IO\ActionHints::class, 'provider')->getValue();
+  try {
+    \Ichiloto\Engine\IO\ActionHints::useProvider(new class implements \Ichiloto\Engine\IO\ActionHintProvider {
+      public function controlForAction(string $action): ?\Ichiloto\Engine\IO\ControlHint {
+        return $action === 'move_fast' ? \Ichiloto\Engine\IO\ControlHint::keyboard(\Ichiloto\Engine\IO\Enumerations\KeyCode::R) : null;
+      }
+    });
+    expect($notice->hints)->toBe([['action' => 'move_fast', 'label' => 'Hold to move']])
+      ->and($notice->getActionHints()[0]->control->label)->toBe('R');
+    \Ichiloto\Engine\IO\ActionHints::useProvider(new class implements \Ichiloto\Engine\IO\ActionHintProvider {
+      public function controlForAction(string $action): ?\Ichiloto\Engine\IO\ControlHint {
+        return new \Ichiloto\Engine\IO\ControlHint('pad-family', 'right-trigger', 'RT');
+      }
+    });
+    expect($notice->getActionHints()[0]->control->label)->toBe('RT')
+      ->and($notice->message)->toBe('Move more quickly.')->and($this->state->toArray())->toBe($before);
+  } finally { \Ichiloto\Engine\IO\ActionHints::useProvider($oldProvider); }
+});
+
+it('refuses malformed semantic hint declarations before a notice can be queued', function (array $hints) {
+  expect(fn() => new NoticeContent('Move', 'Move more quickly.', hints: $hints))->toThrow(InvalidArgumentException::class);
+})->with([
+  'named list' => [['dash' => ['action' => 'dash', 'label' => 'Move']]],
+  'untyped' => [['dash']],
+  'missing label' => [[['action' => 'dash']]],
+  'extra control' => [[['action' => 'dash', 'label' => 'Move', 'control' => 'R']]],
+  'empty identity' => [[['action' => '', 'label' => 'Move']]],
+  'control text' => [[['action' => 'dash', 'label' => "Hold\nMove"]]],
+]);
+
+
+it('detaches queued semantic hints from caller references and retains ordinary notices without hints', function () {
+  $action = 'move_fast'; $label = 'Hold to move';
+  $rows = [['action' => &$action, 'label' => &$label]];
+  $notice = new NoticeContent('Move', 'Move more quickly.', hints: $rows);
+  $action = 'other'; $label = 'Changed elsewhere';
+  expect($notice->hints)->toBe([['action' => 'move_fast', 'label' => 'Hold to move']])
+    ->and(new NoticeContent('Ordinary', 'Reading.')->getActionHints())->toBe([]);
+});

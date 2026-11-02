@@ -13,7 +13,7 @@ generation, so its screenshots are reference only and must never be fed to an im
 ## Dismissible acquisition notices
 
 `NoticeContent` supplies a heading, message, optional actor identity or semantic
-icon role, and an optional configured `SystemSound`. `NoticeModal` uses the
+icon role, an optional configured `SystemSound` and semantic action/label hints. `NoticeModal` uses the
 existing paged information-modal lifecycle for input, dismissal, text retention
 and restoration. It plays its sound once when shown. Terminal presentation keeps
 the same heading and message; reduced motion uses the same stationary notice.
@@ -25,9 +25,27 @@ current shared menu theme. Portrait size, spacing, panels, typography, colours
 and buttons use existing theme metrics; the button label stays centred.
 Optional artwork can be replaced or omitted while the notice text remains.
 
+Acquisition prose keeps its original paragraphs. Graphical pages use the
+shared modal measurement at the actual viewport and current portrait/icon
+width, then wrap each source slice once. Terminal pages use terminal columns
+and rows independently. Multiline graphical body prose is left-aligned;
+single-line text and acknowledgement buttons stay centred. This removes the
+old terminal-first graphical wrapping and centred multiline body treatment.
+`PlayerText::assertSentence()` validates authored world-ability descriptions,
+first-use messages and showcased technique/announcement prose for sentence
+case and final punctuation. It reports the source instead of rewriting text;
+names and control labels retain their separate contracts.
+
+Teaching hints are part of the notice's reading content. `getActionHints()`
+resolves the current control profile without hardcoded keys or input handling.
+The graphical notice measures and paints the same control snapshot through
+`MenuActionHints`, including when ordinary menu hints are hidden. The terminal
+keeps readable bound controls on each page and reserves their rows before
+paging the message. Existing dismissal buttons retain their own hints and input.
+
 Gameplay owners supply actual recruitment or acquisition results. The view
 model holds presentation data. Cooperative cinematic showcase commands and
-saved first-use prompts remain in progress.
+saved first-use prompts use the same acquisition sources; see [story events](story-events.md#power-showcase).
 
 ### Party recruitment lifecycle
 

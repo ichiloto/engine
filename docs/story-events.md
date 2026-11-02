@@ -81,6 +81,15 @@ actor's current unlocked form technique, even while its battle activation is
 inactive. Names and descriptions come from the power/skill sources. World
 abilities and crisis definitions may bind an optional semantic `iconRole` in
 the current theme; a crisis definition without it uses the actor's portrait.
+World-ability descriptions and first-use messages are validated as sentence
+prose by the shared `PlayerText` rule. The showcase applies the same rule to
+its technique description and announcement. Names and semantic hint labels
+keep their own contracts.
+World abilities also carry their authored `firstUse.hints` into the acquisition
+notice. These semantic action/label pairs resolve through the current control
+profile as graphical chips or readable terminal controls; the description
+contains player-facing prose. Ordinary menu hint visibility does not hide an
+ability's teaching hint. A power with no hints retains its existing notice.
 The optional announcement precedes the powers. Locked, missing or duplicate
 power references fail before queuing presentation. This command changes no
 resources, learned skills or saved world facts.

@@ -11,6 +11,7 @@ use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Quests\QuestLog;
 use Ichiloto\Engine\UI\Modal\NoticeContent;
 use InvalidArgumentException;
+use Ichiloto\Engine\Util\PlayerText;
 
 /** Reads current power definitions without changing the actor or the world. */
 final class PowerUnlockShowcase
@@ -33,17 +34,20 @@ final class PowerUnlockShowcase
       if (!$abilities->isUnlocked($id, $state, $party, $quests)) {
         throw new InvalidArgumentException('Cannot showcase locked world ability ' . $id . '.');
       }
-      $notices[] = new NoticeContent($ability->name, $ability->description, iconRole: $ability->iconRole);
+      $notices[] = new NoticeContent($ability->name, $ability->description, iconRole: $ability->iconRole,
+        hints: $ability->firstUse?->hints ?? []);
     }
     if ($includeCrisis) {
       $skill = $actor?->crisisAbility?->getUnlockedSkill($actor, $state, $party, $skills)
         ?? throw new InvalidArgumentException('The showcase actor has no unlocked crisis technique.');
+      PlayerText::assertSentence($skill->description, 'Showcase technique ' . $skill->name . ' description', allowEmpty: true);
       $iconRole = $actor->crisisAbility->iconRole;
       $notices[] = new NoticeContent($skill->name, $skill->description,
         actorId: $iconRole === null ? $actor->actorId : null, iconRole: $iconRole);
     }
     if ($notices === []) { throw new InvalidArgumentException('A power showcase requires an unlocked power.'); }
     if (trim($announcement) !== '') {
+      PlayerText::assertSentence($announcement, 'Power showcase announcement');
       array_unshift($notices, new NoticeContent('', $announcement, actorId: $actor?->actorId));
     }
     return $notices;

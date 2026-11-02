@@ -87,3 +87,24 @@ it('fits wrapped text into a number of lines and shows any cut with an ellipsis'
     ->and(MenuTextWrap::fitLines('One two three four five', 7, 2))->toBe(['One two', " three\u{2026}"])
     ->and(MenuTextWrap::fitLines('One two three', 7, 1))->toBe(["One tw\u{2026}"]);
 });
+
+
+it('keeps original paragraph slices and colours in finite graphical pages', function (int $columns, int $rows) {
+  $source = "<info>A complete styled paragraph with words.</info>\n\nAnother paragraph 日本語 cafe\u{0301} stays visible. ";
+  $pages = MenuTextWrap::paginate($source, $columns, $rows);
+  $plain = \Ichiloto\Engine\IO\Console\TerminalText::stripAnsi(\Ichiloto\Engine\IO\Console\TerminalText::formatStyles($source));
+  expect(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi(implode('', $pages)))->toBe($plain);
+  foreach ($pages as $page) {
+    expect(count(new \Ichiloto\Engine\UI\Presentation\MenuTextLayout($page, $columns)->lines))->toBeLessThanOrEqual($rows);
+  }
+})->with([[8, 3], [17, 4], [40, 2]]);
+
+
+it('refuses unreadable pagination inputs and keeps nonbreaking words together across page boundaries', function () {
+  expect(fn() => MenuTextWrap::paginate("\xFF", 10, 2))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => MenuTextWrap::paginate('Text', 0, 2))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => MenuTextWrap::paginate('Text', 10, 0))->toThrow(InvalidArgumentException::class);
+  $pages = MenuTextWrap::paginate("First a\u{00A0}b next.", 5, 1);
+  expect(implode('', $pages))->toBe("First a\u{00A0}b next.")
+    ->and(array_any($pages, fn($page) => str_contains($page, "a\u{00A0}b")))->toBeTrue();
+});

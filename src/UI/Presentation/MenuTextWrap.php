@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use InvalidArgumentException;
+use Ichiloto\Engine\IO\Console\TerminalText;
 
 /** Word-aware wrapping for the existing one-codepoint-per-cell Canvas contract. */
 final class MenuTextWrap
@@ -79,6 +80,46 @@ final class MenuTextWrap
       $lines[] = $line;
     }
     return $lines;
+  }
+
+  /**
+   * Original paragraph slices that fit a graphical reading area, without inserting soft newlines.
+   * Independent styled symbols retain their current colours across page boundaries.
+   * @return non-empty-list<string>
+   */
+  public static function paginate(string $text, int $cells, int $rows): array
+  {
+    if ($cells < 1 || $rows < 1 || !mb_check_encoding($text, 'UTF-8')) {
+      throw new InvalidArgumentException('Reading pages require UTF-8 text and positive columns and rows.');
+    }
+    $symbols = TerminalText::visibleSymbols(self::normalizeText($text));
+    $pages = [];
+    for ($offset = 0, $count = count($symbols); $offset < $count;) {
+      $low = 1; $high = $count - $offset; $take = 0;
+      while ($low <= $high) {
+        $middle = intdiv($low + $high, 2);
+        $candidate = implode('', array_slice($symbols, $offset, $middle));
+        if (count(self::lines(TerminalText::stripAnsi($candidate), $cells)) <= $rows) {
+          $take = $middle; $low = $middle + 1;
+        } else { $high = $middle - 1; }
+      }
+      // A lone authored paragraph break can itself fill a one-row blank page.
+      if ($take === 0 && TerminalText::stripAnsi($symbols[$offset]) === "\n") {
+        $pages[] = ''; $offset++; continue;
+      }
+      if ($take === 0) { throw new InvalidArgumentException('A reading symbol cannot fit its finite page.'); }
+      if ($offset + $take < $count && preg_match('/[^\S\x{00A0}\x{202F}]/u', TerminalText::stripAnsi($symbols[$offset + $take])) !== 1
+        && preg_match('/[^\S\x{00A0}\x{202F}]/u', TerminalText::stripAnsi($symbols[$offset + $take - 1])) !== 1) {
+        for ($boundary = $take - 1; $boundary > 0; $boundary--) {
+          if (preg_match('/[^\S\x{00A0}\x{202F}]/u', TerminalText::stripAnsi($symbols[$offset + $boundary])) === 1) {
+            $take = $boundary + 1; break;
+          }
+        }
+      }
+      $pages[] = implode('', array_slice($symbols, $offset, $take));
+      $offset += $take;
+    }
+    return $pages === [] ? [''] : $pages;
   }
 
   /** Use the same display normalization for layout and an owner's visible prefix. */

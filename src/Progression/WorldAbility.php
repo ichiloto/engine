@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Progression;
 
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use InvalidArgumentException;
+use Ichiloto\Engine\Util\PlayerText;
 
 /** A project-owned exploration power; consuming features reference its stable identity. */
 final readonly class WorldAbility
@@ -19,6 +20,7 @@ final readonly class WorldAbility
         throw new InvalidArgumentException('World ability identities, names and icon roles require nonempty trimmed text.');
       }
     }
+    PlayerText::assertSentence($description, 'World ability ' . $id . ' description', allowEmpty: true);
     if (!array_is_list($conditions)) { throw new InvalidArgumentException('World ability conditions must be a list.'); }
     WorldConditionEvaluator::validateAll($conditions, 'world ability ' . $id . ' conditions');
   }

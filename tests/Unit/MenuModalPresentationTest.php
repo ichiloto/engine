@@ -418,7 +418,7 @@ it('marks only single-confirmation Alert snapshots for the acknowledgement layou
     ->toThrow(InvalidArgumentException::class);
 });
 
-it('centers the Alert message and its modest acknowledgement button', function (bool $art, bool $showInputHints, string $message) {
+it('centers single-line Alert text and acknowledgement buttons while left-aligning multiline prose', function (bool $art, bool $showInputHints, string $message) {
   $theme = new MenuPresentationCatalog($this->root, [...modalMenuTheme($art), 'showInputHints' => $showInputHints]);
   $snapshot = new AlertModal($this->game, $message, 'Alert')->getModalPresentation();
   $frame = MenuModalPresentation::compose(new PresentationCanvas(1350, 720), $snapshot, $theme);
@@ -444,8 +444,11 @@ it('centers the Alert message and its modest acknowledgement button', function (
     ->and($text->grid->cellWidth)->toBe($m->cellWidth)->and($text->grid->cellHeight)->toBe($m->cellHeight)
     ->and(count($frame->textLayers))->toBeLessThanOrEqual(64);
   foreach ($text->runs as $run) {
-    expect($text->x + ($run->column + mb_strlen($run->text) / 2) * $m->cellWidth)
-      ->toEqualWithDelta($box->x + $box->width / 2, $m->cellWidth / 2);
+    if ($text->grid->rows > 1) { expect($run->column)->toBe(0); }
+    else {
+      expect($text->x + ($run->column + mb_strlen($run->text) / 2) * $m->cellWidth)
+        ->toEqualWithDelta($box->x + $box->width / 2, $m->cellWidth / 2);
+    }
   }
   if (!$showInputHints) {
     expect($hints)->toBeNull()->and(array_filter(array_column($frame->images, 'id'),
@@ -726,3 +729,66 @@ it('plays a notice sound once on showing and keeps ordinary dismissal ownership'
   expect($this->audio->sounds)->toBe([SystemSound::NOTIFICATION, SystemSound::NOTIFICATION]);
   $modal->hide();
 });
+
+
+it('keeps semantic notice hints in the reading area when ordinary menu hints are hidden', function (bool $art) {
+  InputManager::setBindings(['move_fast' => ['keys' => [KeyCode::R]]]);
+  $theme = new MenuPresentationCatalog($this->root, [...modalMenuTheme($art), 'showInputHints' => false]);
+  $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('Movement', 'Move more quickly.',
+    hints: [['action' => 'move_fast', 'label' => 'Hold to move']]);
+  $modal = new ModalPresentation($notice->title, $notice->message, ['OK'], 0, singleConfirmation: true, notice: $notice);
+  $frame = MenuModalPresentation::compose(new PresentationCanvas(960, 540), $modal, $theme);
+  $hintLayers = array_filter($frame->textLayers, static fn($layer) => str_starts_with($layer->id, 'menu-modal-notice-hints'));
+  $hintText = implode(' ', array_map(static fn($layer) => implode('', array_column($layer->runs, 'text')), $hintLayers));
+  expect($hintText)->toContain('R', 'Hold to move')->and($hintLayers)->not->toBeEmpty();
+  $box = getModalMenuFrameBounds($frame);
+  foreach ($hintLayers as $layer) {
+    expect($layer->bounds->y)->toBeGreaterThanOrEqual($box->y)
+      ->and($layer->bounds->y + $layer->bounds->height)->toBeLessThanOrEqual($box->y + $box->height);
+  }
+  expect(array_filter($frame->textLayers, static fn($layer) => $layer->id === 'menu-modal-hints'))->toBeEmpty();
+})->with([false, true]);
+
+it('retains paginated terminal reading and the bound semantic hint without adding control prose to the graphical body', function () {
+  InputManager::setBindings(['move_fast' => ['keys' => [KeyCode::R]]]);
+  $message = implode("\n", array_fill(0, 12, 'A complete reading line.'));
+  $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('Movement', $message,
+    hints: [['action' => 'move_fast', 'label' => 'Hold to move']]);
+  $modal = new \Ichiloto\Engine\UI\Modal\NoticeModal($this->game, $notice);
+  $fit = new ReflectionMethod($modal, 'fitContentToWidth');
+  $submit = new ReflectionMethod($modal, 'submit');
+  $pages = new ReflectionProperty($modal, 'pages')->getValue($modal);
+  expect(count($pages))->toBeGreaterThan(1)->and(implode("\n", $pages))->toBe($message);
+  foreach ($pages as $page) {
+    $fit->invoke($modal);
+    $content = new ReflectionProperty($modal, 'content')->getValue($modal);
+    expect(implode("\n", $content))->toContain('[R] Hold to move')
+      ->and($modal->getModalPresentation()->message)->toBe($page)
+      ->and($modal->getPresentationBounds()->getHeight())->toBeLessThanOrEqual(get_screen_height());
+    if ($modal->buttons !== ['OK']) { $submit->invoke($modal); }
+  }
+});
+
+
+it('paginates original graphical paragraphs at the portrait-adjusted width without terminal soft breaks', function (bool $art) {
+  ($this->startCanvas)($art, false);
+  $source = str_repeat('An original complete phrase stays with its neighbouring words. ', 45)
+    . "\n\nA final paragraph remains intact.";
+  $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('Acquired power', $source, actorId: 'actor.0');
+  $modal = new \Ichiloto\Engine\UI\Modal\NoticeModal($this->game, $notice);
+  $pages = new ReflectionProperty($modal, 'pages')->getValue($modal);
+  expect(count($pages))->toBeGreaterThan(1)->and(implode('', $pages))->toBe($source);
+  $theme = MenuPresentationCatalog::load($this->root);
+  foreach ($pages as $page) {
+    $snapshot = $modal->getModalPresentation();
+    expect($snapshot->message)->toBe($page)->and($snapshot->sourceMessage)->toBe($source);
+    $base = new PresentationCanvas(1350, 720);
+    $reading = MenuModalPresentation::measureReadingArea($base, $snapshot, $theme);
+    $canvas = MenuModalPresentation::compose($base, $snapshot, $theme);
+    $body = array_find($canvas->textLayers, fn($layer) => $layer->id === 'menu-modal-message');
+    expect($body->grid->columns)->toBe($reading['messageColumns'])
+      ->and($body->grid->rows)->toBeLessThanOrEqual($reading['maximumRows']);
+    foreach ($body->runs as $run) { if ($body->grid->rows > 1) { expect($run->column)->toBe(0); } }
+    if ($modal->buttons !== ['OK']) { new ReflectionMethod($modal, 'submit')->invoke($modal); }
+  }
+})->with([false, true]);
