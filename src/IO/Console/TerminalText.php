@@ -218,7 +218,7 @@ final class TerminalText
     return ['prefix' => $parts[0], 'suffix' => $parts[1]];
   }
 
-  /** @return list<array{symbol: string, prefix: string, suffix: string}> Exact source parts for shared authoring consumers. */
+  /** @return list<array{symbol: string, prefix: string, suffix: string}> Independent source cells, retaining markup/graphemes and normalizing redundant ANSI history. */
   public static function parseSourceCells(string $text): array
   {
     if ($text === '') { return []; }
@@ -233,6 +233,8 @@ final class TerminalText
       }
     }
     $previous = self::$formatter;
+    $mode = Terminal::getColorMode();
+    Terminal::setColorMode(AnsiColorMode::Ansi24);
     self::$formatter = clone self::getFormatter();
     self::$formatter->getStyleStack()->reset();
     try {
@@ -240,13 +242,11 @@ final class TerminalText
       self::$formatter->getStyleStack()->reset();
       if ($expected === []) { return []; }
       $ansi = substr(self::ANSI_PATTERN, 1, -1);
-      preg_match_all('/' . $ansi . '|<[^<>\x1b]*>|\X/u', $text, $matches, PREG_OFFSET_CAPTURE);
+      preg_match_all('/' . $ansi . '|<[^<>\x1b]*>|\X/u', $text, $matches);
       $frames = $stack = $cells = $styleKeys = [];
-      $controls = '';
       $hasAnsi = false;
-      foreach ($matches[0] ?? [] as [$token, $sourceOffset]) {
+      foreach ($matches[0] ?? [] as $token) {
         if ($token[0] === "\e" && preg_match(self::ANSI_PATTERN, $token) === 1) {
-          $controls .= $token;
           $hasAnsi = true;
           continue;
         }
@@ -260,11 +260,9 @@ final class TerminalText
         if (!$closing && $key !== null) {
           $stack[] = count($frames);
           $frames[] = ['open' => $token, 'close' => '</>', 'key' => $key];
-          $controls .= $token;
           continue;
         }
         if ($token === '</>' || ($closing && $key !== null)) {
-          $controls .= $token;
           for ($index = count($stack) - 1; $index >= 0; $index--) {
             $frame = $stack[$index];
             if ($token === '</>' || $frames[$frame]['key'] === $key) {
@@ -277,53 +275,38 @@ final class TerminalText
         }
         // Unrecognised tags are literal text. Do not format source graphemes:
         // the display formatter may normalise Unicode, but source must not.
-        preg_match_all('/\X/u', $token, $glyphs, PREG_OFFSET_CAPTURE);
-        foreach ($glyphs[0] ?? [] as [$glyph, $glyphOffset]) {
-          $cells[] = ['glyph' => $glyph, 'frames' => $stack, 'offset' => strlen($controls),
-            'sourceOffset' => $sourceOffset + $glyphOffset];
+        preg_match_all('/\X/u', $token, $glyphs);
+        foreach ($glyphs[0] ?? [] as $glyph) {
+          $cells[] = ['glyph' => $glyph, 'frames' => $stack];
         }
       }
-      self::$formatter->getStyleStack()->reset();
-      $state = new SgrStyleState();
-      preg_match_all(self::ANSI_PATTERN, self::formatStyles($text), $sequences);
-      foreach ($sequences[0] ?? [] as $sequence) { $state->apply($sequence); }
-      $ansiClose = $state->prefix() === '' ? '' : Color::RESET->value;
-      if (count($expected) === 1 && count($cells) === 1 && $stack === [] && $ansiClose === '') {
-        $cell = $cells[0];
-        return [['symbol' => $cell['glyph'], 'prefix' => substr($text, 0, $cell['sourceOffset']),
-          'suffix' => substr($text, $cell['sourceOffset'] + strlen($cell['glyph']))]];
-      }
-      // Only missing scope boundaries are materialised. Existing closing tag
-      // spelling and authored ANSI controls are never replaced or inferred.
-      foreach (array_reverse($stack) as $frame) { $controls .= $frames[$frame]['close']; }
-      $controls .= $ansiClose;
       $result = $verified = [];
       foreach ($cells as $index => $cell) {
-        if ($hasAnsi && $cell['frames'] === [] && strpbrk($cell['glyph'], '<>\\') === false
-          && ($expected[$index] ?? null) === self::stripAnsi($expected[$index] ?? '')) {
-          $prefix = $suffix = '';
-        } elseif ($hasAnsi) {
-          // Replay authored controls, plus any missing closing boundary.
-          // Never convert display ANSI into supposedly authored markup.
-          $prefix = substr($controls, 0, $cell['offset']);
-          $suffix = substr($controls, $cell['offset']);
-        } else {
-          $prefix = $suffix = '';
-          foreach ($cell['frames'] as $frame) { $prefix .= $frames[$frame]['open']; }
-          foreach (array_reverse($cell['frames']) as $frame) { $suffix .= $frames[$frame]['close']; }
+        $prefix = $suffix = '';
+        foreach ($cell['frames'] as $frame) { $prefix .= $frames[$frame]['open']; }
+        foreach (array_reverse($cell['frames']) as $frame) { $suffix .= $frames[$frame]['close']; }
+        if ($hasAnsi) {
+          // Keep authored markup when it alone owns this cell's effective style.
+          // Raw ANSI elsewhere in the row must never become this cell's wrappers.
+          $candidate = $prefix . $cell['glyph'] . $suffix;
+          $proof = strlen($candidate) . ':' . $candidate . ($expected[$index] ?? '');
+          $verified[$proof] ??= self::hasSourceCellPresentation($candidate, $expected[$index] ?? null);
+          if (strpbrk($cell['glyph'], '<>\\') !== false || !$verified[$proof]) {
+            // visibleSymbols already resolves the shared SgrStyleState. Reuse its
+            // effective prefix, retaining raw glyph bytes rather than display NFC.
+            preg_match('/\A(?:' . $ansi . ')+/', $expected[$index] ?? '', $leading);
+            $prefix = $leading[0] ?? '';
+            $literalBoundary = strpbrk($cell['glyph'], '<>\\') !== false;
+            if ($prefix === '' && $literalBoundary) { $prefix = Color::RESET->value; }
+            $suffix = $prefix === '' ? '' : Color::RESET->value;
+          }
         }
         $source = $prefix . $cell['glyph'] . $suffix;
         $proof = strlen($source) . ':' . $source . ($expected[$index] ?? '');
-        // Repeated floor/wall cells in one row share an exact source/display
-        // proof. Keep validation identical while formatting each distinct pair once.
-        if (!isset($verified[$proof])) {
-          self::$formatter->getStyleStack()->reset();
-          $shown = self::visibleSymbols($source);
-          if (count($shown) !== 1 || !isset($expected[$index])
-            || \Normalizer::normalize($shown[0]) !== \Normalizer::normalize($expected[$index])) {
-            throw new \InvalidArgumentException('Terminal source row cannot be split into independent authored cells without changing its presentation. Keep this source intact; no cells were produced.');
-          }
-          $verified[$proof] = true;
+        // Repeated floor/wall cells share one semantic proof per source/display pair.
+        $verified[$proof] ??= self::hasSourceCellPresentation($source, $expected[$index] ?? null);
+        if (!$verified[$proof]) {
+          throw new \InvalidArgumentException('Terminal source row cannot be split into independent authored cells without changing its presentation. Keep this source intact; no cells were produced.');
         }
         $result[] = ['symbol' => $cell['glyph'], 'prefix' => $prefix, 'suffix' => $suffix];
       }
@@ -333,7 +316,17 @@ final class TerminalText
       return $result;
     } finally {
       self::$formatter = $previous;
+      Terminal::setColorMode($mode);
     }
+  }
+
+  /** One proof used for both the authored-markup candidate and the final independent cell. */
+  private static function hasSourceCellPresentation(string $source, ?string $expected): bool
+  {
+    self::getFormatter()->getStyleStack()->reset();
+    $shown = self::visibleSymbols($source);
+    return count($shown) === 1 && $expected !== null
+      && \Normalizer::normalize($shown[0]) === \Normalizer::normalize($expected);
   }
 
   /** The existing formatter, not a second colour grammar, recognises source tags. */

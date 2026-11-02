@@ -8,7 +8,7 @@ use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Tilesets\TilesetPiece;
 
-it('retains independently authored source cells before display formatting', function (string $row, array $cells) {
+it('retains authored markup and removes redundant ANSI history from independent source cells', function (string $row, array $cells) {
   $data = ['name' => 'Synthetic brush', 'layer' => 'fixtures', 'glyphs' => [$row]];
   $original = $data;
   $piece = TilesetPiece::fromArray('synthetic', $data, 'Synthetic');
@@ -36,12 +36,12 @@ it('retains independently authored source cells before display formatting', func
   'literal less than' => ['a<b', ['a', '<', 'b']],
   'implicit nested closure' => ['<fg=green>a<options=bold>b</fg=green>c',
     ['<fg=green>a</fg=green>', '<fg=green><options=bold>b</></fg=green>', 'c']],
-  'authored ANSI spelling' => ["\e[031mab\e[039m", ["\e[031ma\e[039m", "\e[031mb\e[039m"]],
-  'empty scopes on one cell' => ['<fg=green></>a', ['<fg=green></>a']],
+  'normalizes effective ANSI spelling' => ["\e[031mab\e[039m", ["\e[31ma\e[0m", "\e[31mb\e[0m"]],
+  'removes empty scopes on one cell' => ['<fg=green></>a', ['a']],
   'unstyled grapheme after markup' => ["<fg=green>x</>e\u{0301}", ['<fg=green>x</>', "e\u{0301}"]],
   'unrecognised literal tag' => ['<unknown>x', ['<', 'u', 'n', 'k', 'n', 'o', 'w', 'n', '>', 'x']],
   'ANSI ending in plain brush fallback' => ["\e[031ma\e[001mb\e[022;039mc",
-    ["\e[031ma\e[001m\e[022;039m", "\e[031m\e[001mb\e[022;039m", 'c']],
+    ["\e[31ma\e[0m", "\e[31m\e[1mb\e[0m", 'c']],
 ]);
 
 it('provides exact source parts for a consumer without a second style parser', function () {
@@ -88,7 +88,6 @@ it('refuses unsafe source splitting without narrowing runtime loading or display
     ->and($piece->grid)->toBe($display)->and($piece->glyphs)->toBe($glyphs)
     ->and($piece->grid)->toBe(MapLayer::parseGrid($row));
 })->with([
-  'cross-context ANSI and markup' => ["\e[1;31ma<info>x</info>b"],
   'formatter escaped tag literal' => ['\\<fg=green>ab'],
 ]);
 
@@ -101,7 +100,7 @@ it('materializes missing closing boundaries without leaking formatter state into
   try {
     expect(TerminalText::getSourceSymbols('<fg=green>ab'))->toBe(['<fg=green>a</>', '<fg=green>b</>'])
       ->and(TerminalText::getSourceSymbols('<fg=green>a'))->toBe(['<fg=green>a</>'])
-      ->and(TerminalText::getSourceSymbols("\e[031ma"))->toBe(["\e[031ma\e[0m"])
+      ->and(TerminalText::getSourceSymbols("\e[031ma"))->toBe(["\e[31ma\e[0m"])
       ->and($property->getValue())->toBe($formatter);
     expect(fn() => TerminalText::getSourceSymbols('\\<fg=green>ab'))->toThrow(InvalidArgumentException::class)
       ->and($property->getValue())->toBe($formatter)
@@ -142,4 +141,14 @@ it('writes exact independently authored markup through a synthetic map source co
   expect($placed->readGrid())->toBe($piece->grid)->and($placed->readGlyphs())->toBe($piece->glyphs)
     ->and(MapCollisionResolver::resolveLayers(new MapLayerSet([$terrain, $placed]), $types))
     ->toBe(MapCollisionResolver::resolveLayers(new MapLayerSet([$terrain, $original]), $types));
+});
+
+
+it('splits mixed ANSI and markup through effective style while retaining glyphs and display colours', function () {
+  $source = "\e[1;31ma<info>x</info>b\e[0m";
+  $cells = TerminalText::getSourceSymbols($source);
+  expect(array_map(TerminalText::stripAnsi(...), $cells))->toBe(['a', 'x', 'b'])
+    ->and(array_merge(...array_map(TerminalText::visibleSymbols(...), $cells)))
+    ->toBe(TerminalText::visibleSymbols($source))
+    ->and(TerminalText::getSourceSymbols(implode('', $cells)))->toBe($cells);
 });

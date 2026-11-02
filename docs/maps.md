@@ -64,9 +64,18 @@ produce empty boundaries; literal text in a style is refused. Consumers use
 this resolver instead of changing their own formatter colour modes.
 `parseSourceCells` and `getSourceSymbols` keep those boundaries independently
 composable, including literal characters that would otherwise form a tag.
-Plain printable rows use an ASCII/grapheme fast path. Styled rows reuse exact
-style and source/display proofs within the row; acceptance and source spelling
-remain the shared parser's responsibility.
+Plain printable rows use an ASCII/grapheme fast path. Styled rows reuse semantic
+source/display proofs within the row. Active authored markup spelling and raw
+grapheme bytes remain intact. Empty scopes and raw ANSI history that do not
+contribute to a cell are removed. A cell requiring raw ANSI receives only its
+effective SgrStyleState prefix and an independent reset; original ANSI control
+spelling and unrelated prefix/suffix history are no longer replayed. Literal
+formatter delimiters retain necessary boundaries so adjacent cells cannot form
+a tag. Mixed ANSI/markup cells are accepted only after the same semantic proof.
+Source parsing resolves colours in24-bit mode and restores the caller's display
+mode and formatter state on return or refusal. Repeated splitting is stable.
+Consumers preserving an untouched authored row retain that row's original source;
+cell authoring uses this shared normalization rather than copying control history.
 
 ## Grid source format
 

@@ -53,8 +53,11 @@ it('constructs styled literal delimiters without allowing a backslash to escape 
     ->and(TerminalText::displayWidth($source))->toBe(1)
     ->and($source)->not->toContain("\0");
   $parts = TerminalText::parseSourceCells($source);
+  $normalized = TerminalText::getSourceSymbols($source);
   expect($parts[0]['symbol'])->toBe($glyph)
-    ->and(TerminalText::getSourceSymbols($source))->toBe([$source]);
+    ->and(array_merge(...array_map(TerminalText::visibleSymbols(...), $normalized)))
+    ->toBe(TerminalText::visibleSymbols($source))
+    ->and(TerminalText::getSourceSymbols(implode('', $normalized)))->toBe($normalized);
   $text = $source . TerminalText::composeSourceCell('x', '<fg=blue>', '</>');
   expect(TerminalText::stripAnsi($text))->toBe($glyph . 'x')
     ->and(TerminalText::symbolCount($text))->toBe(2);
@@ -92,3 +95,40 @@ it('preserves the existing formatter escape meaning for authored escaped tags', 
   expect(fn() => TerminalText::composeSourceCell('ab'))->toThrow(InvalidArgumentException::class)
     ->and(fn() => TerminalText::composeSourceCell('\\', '<not-a-style>', '</>'))->toThrow(InvalidArgumentException::class);
 });
+
+
+it('removes empty style history from neighbouring cells without changing glyphs or colours', function () {
+  $unit = '<fg=red></>' . "\e[31m\e[39m\e[0m";
+  $row = $unit . '<fg=#af875f>/' . '</>' . $unit
+    . TerminalText::composeSourceCell('\\', '<fg=#123456>', '</>') . $unit . 'x' . $unit;
+  $cells = TerminalText::getSourceSymbols($row);
+  expect(array_map(TerminalText::stripAnsi(...), $cells))->toBe(['/', '\\', 'x'])
+    ->and(array_map(TerminalText::visibleSymbols(...), $cells))->toBe(array_map(
+      static fn(string $cell): array => [$cell], TerminalText::visibleSymbols($row)))
+    ->and(max(array_map(strlen(...), $cells)))->toBeLessThan(48)
+    ->and($cells[2])->toBe('x');
+  $normalized = implode('', $cells);
+  foreach (range(1, 8) as $_) {
+    $next = implode('', TerminalText::getSourceSymbols($normalized));
+    expect($next)->toBe($normalized);
+    $normalized = $next;
+  }
+});
+
+
+it('keeps exact source colours and host mode while normalizing long repeated empty histories', function (AnsiColorMode $mode) {
+  $originalMode = Terminal::getColorMode();
+  try {
+    Terminal::setColorMode(AnsiColorMode::Ansi24);
+    $row = str_repeat('<fg=#123456></>' . "\e[1m\e[22m\e[39m\e[0m" . '<fg=#af875f>/</>', 128);
+    $expected = TerminalText::visibleSymbols($row);
+    Terminal::setColorMode($mode);
+    $cells = TerminalText::getSourceSymbols($row);
+    expect(Terminal::getColorMode())->toBe($mode)->and(count($cells))->toBe(128)
+      ->and(max(array_map(strlen(...), $cells)))->toBeLessThan(32)
+      ->and(strlen(implode('', $cells)))->toBeLessThan(strlen($row));
+    Terminal::setColorMode(AnsiColorMode::Ansi24);
+    expect(array_merge(...array_map(TerminalText::visibleSymbols(...), $cells)))->toBe($expected)
+      ->and(TerminalText::getSourceSymbols(implode('', $cells)))->toBe($cells);
+  } finally { Terminal::setColorMode($originalMode); }
+})->with([AnsiColorMode::Ansi4, AnsiColorMode::Ansi8, AnsiColorMode::Ansi24]);
