@@ -20,6 +20,10 @@ use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use InvalidArgumentException;
 use RuntimeException;
+use Ichiloto\Engine\IO\ActionHint;
+use Ichiloto\Engine\UI\Presentation\ControlGlyphPresentation;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 
 /** A disposable overlay over the caller's real final battlefield, never a gameplay owner. */
 final class GraphicalBattleResults
@@ -31,9 +35,10 @@ final class GraphicalBattleResults
   private array $text = [];
   private float $opacity;
 
-  private function __construct(private BattleResultsSkin $skin, private BattleResultsPlayback $playback)
+  private function __construct(private BattleResultsSkin $skin, private BattleResultsPlayback $playback, private ?MenuPresentationCatalog $controls)
   {
     $this->opacity = $playback->opacity();
+    $this->controls ??= new MenuPresentationCatalog($skin->assetRoot ?? '', ['schema' => 'ichiloto.menu/1']);
   }
 
   /** Validate the catalog, but budget only concurrently displayed families.
@@ -116,7 +121,7 @@ final class GraphicalBattleResults
   }
 
   public static function frame(PresentationCanvas $battlefield, BattleResultsSkin $skin,
-    BattleResultsPlayback $playback): PresentationCanvas
+    BattleResultsPlayback $playback, ?MenuPresentationCatalog $controls = null): PresentationCanvas
   {
     if ($battlefield->width !== PresentationCanvas::DEFAULT_WIDTH || $battlefield->height !== PresentationCanvas::DEFAULT_HEIGHT) {
       throw new InvalidArgumentException(sprintf('This Results layout requires a %dx%d battle canvas.',
@@ -124,7 +129,7 @@ final class GraphicalBattleResults
     }
     $playback->setScrollLimit(BattleResultsContent::pageCount($playback) - 1);
     if ($playback->isFinished() || $playback->opacity() <= 0) { return $battlefield; }
-    $view = new self($skin, $playback);
+    $view = new self($skin, $playback, $controls);
     $stage = $playback->currentStage();
     $view->heading(match ($stage['kind']) {
       'primary' => Vocabulary::getTerm('battle.victory', 'VICTORY'),
@@ -199,7 +204,7 @@ final class GraphicalBattleResults
     }
     $this->line('items-title', Vocabulary::getTerm('command.item', 'ITEMS'), 856, 278, 414, 11, 22, 'muted');
     $items = BattleResultsContent::itemLines($rewards);
-    if ($items === []) { $this->line('items-empty', 'None', 856, 308, 414, 13, 26, 'muted'); }
+    if ($items === []) { $this->line('items-empty', Vocabulary::getTerm('battle.none'), 856, 308, 414, 13, 26, 'muted'); }
     foreach ($this->page($items, 4) as $index => $item) {
       $y = 307 + 27 * $index;
       $alpha = $this->playback->reveal(0.65 + $index * 0.075);
@@ -207,12 +212,6 @@ final class GraphicalBattleResults
       $this->line('item-name-' . $index, $item['name'], 856, $y, 403 - $quantityWidth, 13, 26, 'text', alpha: $alpha);
       $this->line('item-quantity-' . $index, $item['quantity'], 1270 - $quantityWidth, $y, $quantityWidth,
         13, 26, 'text', 'right', $alpha);
-    }
-    if (count($items) > 4) {
-      $start = min($this->playback->scrollOffset, (int)ceil(count($items) / 4) - 1) * 4;
-      $remaining = max(0, count($items) - $start - 4);
-      $this->line('items-overflow', $remaining > 0 ? '+' . $remaining . ' more lines' : 'End of item list',
-        856, 431, 414, 11, 22, 'muted');
     }
     $summary = BattleResultsContent::summaryLines($rewards);
     foreach ($this->page($summary, 3) as $row => $line) {
@@ -261,9 +260,47 @@ final class GraphicalBattleResults
       $this->renderImage('confirm', 'button', new CanvasRectangle(560, 662, 230, 46), alpha: $prompt['opacity']);
       $this->line('confirm', $prompt['label'], 560, 671, 230, 14, 28, 'text', 'center', $prompt['opacity']);
     }
-    if ($this->playback->pageCount() > 1) {
-      $this->line('pages', 'Page ' . ($this->playback->scrollOffset + 1) . '/' . $this->playback->pageCount()
-        . ' - Navigate to view', 810, 673, 488, 11, 22, 'muted');
+    $hints = $this->playback->getActionHints();
+    $confirm = array_find($hints, static fn(ActionHint $hint): bool => $hint->action === 'action');
+    $navigation = array_find($hints, static fn(ActionHint $hint): bool => $hint->pairedAction !== null);
+    if ($this->playback->currentStage()['kind'] === 'primary') {
+      $pages = BattleResultsContent::getPrimaryPageCounts($this->playback->rewards);
+      $this->renderFooter('party', 80, 620, 698, $pages['party'], $confirm, $navigation);
+      $this->renderFooter('items', 856, 438, 414, $pages['items']);
+      $this->renderFooter('summary', 856, 620, 414, $pages['summary']);
+    } else {
+      $this->renderFooter('event', 128, 620, 1094, $this->playback->pageCount(), $confirm, $navigation);
+    }
+  }
+
+  /** Counts and controls stay inside their panels; the button owns its action label. */
+  private function renderFooter(string $id, int $x, int $y, int $width, int $pages,
+    ?ActionHint $confirm = null, ?ActionHint $navigation = null): void
+  {
+    $page = min($this->playback->scrollOffset + 1, $pages);
+    if ($pages > 1) {
+      $this->line($id . '-pages', $page . ' / ' . $pages, $x, $y, $width, 11, 22, 'muted', 'center');
+    }
+    $glyphs = new ControlGlyphPresentation($this->controls, 'results-' . $id . '-controls', [11, 22], self::BASE_LAYER + 4);
+    if ($confirm !== null) {
+      $glyphs->renderControl('confirm', $confirm->control, new CanvasRectangle($x, $y, $width / 3, 22), HorizontalAlignment::LEFT);
+    }
+    if ($navigation !== null) {
+      $previous = $glyphs->measureCells($navigation->control) * 11;
+      $next = $glyphs->measureCells($navigation->pairedControl) * 11;
+      $start = $x + $width - $previous - $next - 11;
+      if ($start < $x + 2 * $width / 3) { throw new RuntimeException('Results paging controls exceed their panel footer.'); }
+      $glyphs->renderControl('previous', $navigation->control, new CanvasRectangle($start, $y, $previous, 22));
+      $glyphs->renderControl('next', $navigation->pairedControl, new CanvasRectangle($start + $previous + 11, $y, $next, 22));
+    }
+    $canvas = $glyphs->compose(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT);
+    foreach ($canvas->images as $image) {
+      $this->images[] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
+        $image->sourceRect, $image->opacity * $this->opacity, $image->clipRect, $image->brightness, $image->flipX, $image->flipY);
+    }
+    foreach ($canvas->textLayers as $text) {
+      $this->text[] = new CanvasTextLayer($text->id, $text->layer, $text->x, $text->y, $text->grid,
+        $text->runs, $text->clipRect, $text->opacity * $this->opacity, $text->glyphEffects);
     }
   }
 
@@ -356,8 +393,7 @@ final class GraphicalBattleResults
     $column = $align === 'right' ? $columns - $length : 0;
     $effects = $id === 'heading' ? new CanvasGlyphEffects(1, $this->skin->colors['ink'],
       1, 2, 1, 0.8, $this->skin->colors['ink']) : null;
-    // Navigation hints sit over arbitrary arena art, unlike panel text.
-    $background = $id === 'pages' || str_ends_with($id, '-percentage')
+    $background = str_ends_with($id, '-percentage')
       || ($id === 'confirm' && !CanvasTextureFallback::isAvailable($this->skin->textures['button'], $this->skin->assetRoot))
       ? $this->skin->colors['ink'] : null;
     $this->text[] = new CanvasTextLayer('results-' . $id, self::BASE_LAYER + 3, $x, $y,

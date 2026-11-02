@@ -1019,6 +1019,16 @@ not a claim of browser crossfade equivalence. Event-only input has an 80 ms repe
 guard but cannot prove physical release when repeats are slower; the queued
 controller-ready input slice owns that missing native transition contract.
 
+Results reads semantic confirmation and paired up/down hints from the playback,
+resolved once for each redraw through the active input profile. Graphical control
+identity and keycaps use ControlGlyphPresentation and the shared menu theme;
+terminal keeps its own bracketed control text. The confirmation label stays
+centred independently in its existing button. Controls sit inside the panel
+footer. Primary panels show their own clamped `n / count` only when their rows
+continue; event pages show their count inside the event panel. Removed the
+outside-panel “Navigate to view” sentence, its black cell background, and the
+redundant item-list overflow sentences. Empty item wording uses Vocabulary.
+
 The action retains `Continue` throughout its locked exit; `Complete` is the
 reveal action. The Complete-to-Continue handover fades the button assembly out
 over 120 ms, holds an empty 60 ms beat, then fades the new assembly in over

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use InvalidArgumentException;
+use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\IO\ActionHint;
 use Ichiloto\Engine\Audio\CounterSound;
 use Ichiloto\Engine\Audio\Enumerations\CountKind;
 use Ichiloto\Engine\Localization\Vocabulary;
@@ -199,6 +201,15 @@ final class BattleResultsPlayback
     }
     return ['label' => $label, 'opacity' => $opacity,
       'enabled' => !$changing && !$this->isExiting() && $this->transitionRemaining === 0.0];
+  }
+
+  /** One resolved input snapshot for terminal and graphical Results. @return list<ActionHint> */
+  public function getActionHints(): array
+  {
+    $prompt = $this->confirmation();
+    return [...($prompt['enabled'] ? [ActionHints::resolve('action', $prompt['label'])] : []),
+      ...($this->pageCount() > 1 && $this->isComplete() && !$this->isExiting()
+        ? [ActionHints::resolvePair('up', 'down', Vocabulary::getTerm('battle.pages'))] : [])];
   }
 
   public function pageCount(): int { return ($this->scrollLimit ?? (BattleResultsContent::pageCount($this) - 1)) + 1; }

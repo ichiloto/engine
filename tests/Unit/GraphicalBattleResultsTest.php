@@ -191,7 +191,7 @@ it('keeps the completed action label unchanged throughout the locked exit fade',
     ->and(GraphicalBattleResults::frame($field, $skin, $p))->toBe($field);
 })->with(['primary', 'level', 'ability', 'special']);
 
-it('keeps outside-panel hints readable and fits all nine level-up stats on one ordinary page', function () {
+it('removes the outside-panel paging hint and fits all nine level-up stats on one ordinary page', function () {
   $stats = array_fill_keys(['maxHp', 'maxMp', 'attack', 'defence', 'magicAttack', 'magicDefence', 'speed', 'grace', 'evasion'], 5);
   $before = new ProgressionSnapshot('hero', 'Hero', 1, 0, 3, [1 => 0, 2 => 100, 3 => 300], $stats);
   $after = new ProgressionSnapshot('hero', 'Hero', 2, 150, 3, [1 => 0, 2 => 100, 3 => 300], $stats);
@@ -206,8 +206,12 @@ it('keeps outside-panel hints readable and fits all nine level-up stats on one o
 
   $overflow = new BattleResultsPlayback(resultsGraphicalFacts(drops: 12), true);
   $frame = GraphicalBattleResults::frame(resultsBattlefield(), $skin, $overflow);
-  $pages = array_column($frame->textLayers, null, 'id')['results-pages'];
-  expect($pages->runs[0]->background)->toBe($skin->colors['ink']);
+  $layers = array_column($frame->textLayers, null, 'id');
+  $pages = $layers['results-items-pages'];
+  expect($layers)->not->toHaveKey('results-pages')
+    ->and($pages->runs[0]->background)->toBeNull()
+    ->and($pages->y + $pages->grid->cellHeight)->toBeLessThan(470)
+    ->and(resultsFrameText($frame))->not->toContain('Navigate to view', 'more lines', 'End of item list');
 });
 
 it('incorporates the event count into each results panel with the heading text treatment', function (string $kind) {
@@ -586,3 +590,60 @@ it('keeps five and six member graphical Results over large animation sheets on a
     rmdir($root);
   }
 })->with([5, 6]);
+
+
+it('keeps independent page counts inside the panels whose rows continue', function () {
+  $facts = resultsGraphicalFacts(6);
+  $items = [];
+  foreach (range(1, 9) as $i) { $items[] = ['id' => 'item-' . $i, 'name' => 'Item ' . $i, 'description' => '', 'quantity' => 1]; }
+  $summary = [];
+  foreach (range(1, 7) as $i) { $summary['Fact ' . $i] = (string)$i; }
+  $rewards = new BattleRewards(150, 123, $facts->progression, $items, $summary);
+  $playback = new BattleResultsPlayback($rewards, true);
+  $panels = ['party' => [80, 198, 698, 450], 'items' => [856, 307, 414, 163], 'summary' => [856, 544, 414, 104]];
+  foreach ([[1, 1, 1], [2, 2, 2], [2, 3, 3]] as $counts) {
+    $frame = GraphicalBattleResults::frame(resultsBattlefield(), resultsSkinFixture(), $playback);
+    $layers = array_column($frame->textLayers, null, 'id');
+    foreach (['party' => 2, 'items' => 3, 'summary' => 3] as $id => $total) {
+      $layer = $layers['results-' . $id . '-pages'];
+      [$x, $y, $w, $h] = $panels[$id];
+      expect($layer->runs[0]->text)->toBe(array_shift($counts) . ' / ' . $total)
+        ->and($layer->runs[0]->background)->toBeNull()
+        ->and($layer->x)->toBeGreaterThanOrEqual($x)
+        ->and($layer->x + $layer->bounds->width)->toBeLessThanOrEqual($x + $w)
+        ->and($layer->y)->toBeGreaterThanOrEqual($y)
+        ->and($layer->y + $layer->bounds->height)->toBeLessThanOrEqual($y + $h);
+    }
+    $playback->navigate(1);
+  }
+  expect($playback->scrollOffset)->toBe(2)
+    ->and(BattleResultsContent::getVisiblePartyRows($playback)[0]['actor'])->toBe(4);
+});
+
+it('draws rebound controller controls through the shared glyph owner without repeating the button label', function () {
+  $actionHints = \Ichiloto\Engine\IO\ActionHints::class;
+  $provider = new ReflectionProperty($actionHints, 'provider');
+  $previous = $provider->getValue();
+  $actionHints::useProvider(new class implements \Ichiloto\Engine\IO\ActionHintProvider {
+    public function controlForAction(string $action): ?\Ichiloto\Engine\IO\ControlHint {
+      return new \Ichiloto\Engine\IO\ControlHint('gamepad', $action,
+        match ($action) { 'action' => 'A', 'up' => 'DUp', 'down' => 'DDown', default => 'Other' });
+    }
+  });
+  try {
+    $playback = new BattleResultsPlayback(resultsGraphicalFacts(6), true);
+    $hints = $playback->getActionHints();
+    expect(array_column($hints, 'action'))->toBe(['action', 'up'])
+      ->and($hints[1]->pairedAction)->toBe('down')
+      ->and($hints[0]->control->family)->toBe('gamepad');
+    $frame = GraphicalBattleResults::frame(resultsBattlefield(), resultsSkinFixture(), $playback);
+    $text = resultsFrameText($frame);
+    expect($text)->toContain('DUp', 'DDown')->not->toContain('Enter', 'Navigate to view')
+      ->and(substr_count($text, 'Continue'))->toBe(1);
+    foreach ($frame->textLayers as $layer) {
+      if (!str_starts_with($layer->id, 'results-party-controls')) { continue; }
+      expect($layer->y)->toBeGreaterThanOrEqual(620)
+        ->and($layer->paintBounds->y + $layer->paintBounds->height)->toBeLessThanOrEqual(648);
+    }
+  } finally { $provider->setValue(null, $previous); }
+});

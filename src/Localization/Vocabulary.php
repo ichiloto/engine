@@ -55,6 +55,9 @@ final class Vocabulary
     'targets.one_target' => 'One target',
     'targets.all_targets' => 'All targets',
     // What a reveal says about the element that strikes a foe hardest, in battle and in its record.
+    'battle.pages' => 'Pages',
+    'battle.page' => 'Page',
+    'battle.none' => 'None',
     'battle.insight.best' => 'Best element',
     'battle.insight.none' => 'No element beats ordinary damage',
     // The heading of what battles have revealed about a foe, in its record.

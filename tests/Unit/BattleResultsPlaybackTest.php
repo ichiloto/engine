@@ -229,3 +229,15 @@ it('plays no EXP tally for results while sound effects are muted', function () {
   expect($manager->spawnedCommands)->toBe([]);
   $manager->shutdown();
 });
+
+
+it('offers semantic confirmation and paging hints only while their actions are available', function () {
+  $playback = new BattleResultsPlayback(new BattleRewards(0, 0, []));
+  $playback->setScrollLimit(2);
+  expect(array_column($playback->getActionHints(), 'action'))->toBe(['action']);
+  $playback->update(5);
+  expect(array_column($playback->getActionHints(), 'action'))->toBe(['action', 'up'])
+    ->and($playback->getActionHints()[1]->pairedAction)->toBe('down');
+  $playback->confirm();
+  expect($playback->isExiting())->toBeTrue()->and($playback->getActionHints())->toBe([]);
+});

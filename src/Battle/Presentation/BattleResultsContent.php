@@ -15,9 +15,15 @@ final class BattleResultsContent
     if ($playback->currentStage()['kind'] !== 'primary') {
       return max(1, (int)ceil(count(self::getEventLines($playback)) / self::eventPageSize($playback)));
     }
-    return max(1, (int)ceil(count(self::partyRows($playback->rewards)) / 4),
-      (int)ceil(count(self::itemLines($playback->rewards)) / 4),
-      (int)ceil(count(self::summaryLines($playback->rewards)) / 3));
+    return max(self::getPrimaryPageCounts($playback->rewards));
+  }
+
+  /** The panels share navigation while retaining their own measured page counts. */
+  public static function getPrimaryPageCounts(BattleRewards $rewards): array
+  {
+    return ['party' => max(1, (int)ceil(count(self::partyRows($rewards)) / 4)),
+      'items' => max(1, (int)ceil(count(self::itemLines($rewards)) / 4)),
+      'summary' => max(1, (int)ceil(count(self::summaryLines($rewards)) / 3))];
   }
 
   public static function eventPageSize(BattleResultsPlayback $playback): int

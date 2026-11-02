@@ -72,9 +72,10 @@ class BattleResultWindow extends Window
     $title = Vocabulary::getTerm('battle.victory', 'Victory') . ' - ' . Vocabulary::getTerm(
       'battle.' . match ($stage) { 'primary' => 'rewards', 'level' => 'level_up', 'ability' => 'new_ability', 'special' => 'special_reward' },
       ucfirst($stage));
-    $prompt = $playback->confirmation();
-    $hints = [...($prompt['enabled'] ? [ActionHints::resolve('action', $prompt['label'])] : []),
-      ...($pages > 1 ? [ActionHints::resolvePair('up', 'down', sprintf('Page %d/%d', $page + 1, $pages))] : [])];
+    $hints = array_map(static fn($hint) => $hint->pairedAction === null ? $hint
+      : new \Ichiloto\Engine\IO\ActionHint($hint->action,
+        Vocabulary::getTerm('battle.page') . ' ' . ($page + 1) . '/' . $pages,
+        $hint->control, $hint->pairedControl, $hint->pairedAction), $playback->getActionHints());
     if ($this->getContent() === $content && $this->getHelp() === TerminalControlText::formatHints($hints)
       && $this->getTitle() === $title) { return; }
     $this->setTitle($title);

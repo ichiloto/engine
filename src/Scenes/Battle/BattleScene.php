@@ -175,7 +175,14 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
   {
     if ($this->state instanceof BattlePauseState) { return $this->state->canvas(); }
     if ($this->hasGraphicalResults()) {
-      return GraphicalBattleResults::frame($this->resultsBattlefield, $this->resultsSkin, $this->resultsPlayback);
+      try {
+        return GraphicalBattleResults::frame($this->resultsBattlefield, $this->resultsSkin, $this->resultsPlayback,
+          $this->findControlsTheme($this->getGame()->getRendererRuntime()?->getAssetRoot()));
+      } catch (\InvalidArgumentException|RuntimeException $failure) {
+        $this->presentationFallbacks->report('Results presentation retains terminal: ' . $failure->getMessage(), $failure);
+        $this->resultsPlayback->releaseCounterTick();
+        $this->resultsBattlefield = null;
+      }
     }
     $layout = $this->graphicalPresentation?->layout ?? $this->battleUiLayout;
     if ($layout === null) { return null; }
