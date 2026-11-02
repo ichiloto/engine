@@ -27,6 +27,7 @@ use Ichiloto\Engine\Battle\Presentation\BattlePauseSkin;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattlePause;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Accessibility;
+use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedEngine;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerActionState;
 use Ichiloto\Engine\Rendering\Presentation\PresentationFallbackReport;
@@ -106,14 +107,20 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
       counterSound: AudioManager::getCurrentInstance()?->counterSound);
   }
 
-  /** Commands are play; openings and results are presentation; the pause menu is not play. */
+  /** Timed battle presentation counts; completed results await idle-aware player input. */
   public function getPlayActivity(): PlayActivity
   {
-    return match (true) {
-      $this->state instanceof BattlePauseState => PlayActivity::PAUSED,
-      $this->state instanceof BattleRunState => PlayActivity::PLAYING,
-      default => PlayActivity::PRESENTING,
-    };
+    if ($this->state instanceof BattlePauseState || ModalManager::getInstance($this->getGame())->currentModal !== null) {
+      return PlayActivity::PAUSED;
+    }
+    if ($this->state instanceof BattleVictoryState || $this->state instanceof BattleDefeatState) {
+      if ($this->resultsPlayback !== null) {
+        return $this->resultsPlayback->isComplete() && !$this->resultsPlayback->isExiting()
+          ? PlayActivity::PLAYING : PlayActivity::PRESENTING;
+      }
+      return ($this->resultWindow?->isComplete() ?? true) ? PlayActivity::PLAYING : PlayActivity::PRESENTING;
+    }
+    return $this->state instanceof BattleRunState ? PlayActivity::PLAYING : PlayActivity::PRESENTING;
   }
 
   public function endResults(): void

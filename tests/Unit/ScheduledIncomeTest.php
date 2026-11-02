@@ -3,6 +3,15 @@
 declare(strict_types=1);
 
 use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Battle\Presentation\BattleRewards;
+use Ichiloto\Engine\Battle\Presentation\BattleResultsPlayback;
+use Ichiloto\Engine\Battle\UI\BattleResultWindow;
+use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Scenes\Battle\States\BattleDefeatState;
+use Ichiloto\Engine\Scenes\Battle\States\BattleEventState;
+use Ichiloto\Engine\UI\Interfaces\ModalInterface;
+use Ichiloto\Engine\UI\Modal\ModalManager;
+use Tests\Support\PassiveGame;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Interfaces\PlayActivitySourceInterface;
 use Ichiloto\Engine\Core\PlayActivity;
@@ -357,9 +366,28 @@ describe('script commands', function () {
   });
 });
 
+/** A battle activity fixture with no game bootstrap, rendering, audio or player save access. */
+function createIncomeBattleScene(): BattleScene
+{
+  return new class(new PassiveGame()) extends BattleScene {
+    public function __construct(private readonly Game $activityGame) {}
+    public function getGame(): Game { return $this->activityGame; }
+  };
+}
+
 describe('scenes', function () {
+  beforeEach(function () {
+    $property = new ReflectionProperty(ModalManager::class, 'instance');
+    $this->previousIncomeModals = $property->getValue();
+    $property->setValue(null, null);
+  });
+  afterEach(function () {
+    new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->previousIncomeModals);
+  });
   it('reports battle commands as play, openings and results as presentation, and its pause as paused', function () {
-    $scene = new ReflectionClass(BattleScene::class)->newInstanceWithoutConstructor();
+    $scene = createIncomeBattleScene();
+    new ReflectionProperty(BattleScene::class, 'resultsPlayback')->setValue($scene,
+      new BattleResultsPlayback(new BattleRewards(0, 0, [])));
     $state = new ReflectionProperty(BattleScene::class, 'state');
     $activity = static function (string $class) use ($scene, $state): PlayActivity {
       $state->setValue($scene, new ReflectionClass($class)->newInstanceWithoutConstructor());
@@ -369,6 +397,55 @@ describe('scenes', function () {
     expect($activity(BattleRunState::class))->toBe(PlayActivity::PLAYING)
       ->and($activity(BattleVictoryState::class))->toBe(PlayActivity::PRESENTING)
       ->and($activity(BattlePauseState::class))->toBe(PlayActivity::PAUSED);
+  });
+
+  it('stops idle income on completed result pages while retaining reveal and exit presentation', function (bool $reduced, bool $animates) {
+    $scene = createIncomeBattleScene();
+    new ReflectionProperty(BattleScene::class, 'state')->setValue($scene,
+      new ReflectionClass(BattleVictoryState::class)->newInstanceWithoutConstructor());
+    $playback = new BattleResultsPlayback(new BattleRewards(0, 0, []), $reduced, $animates);
+    new ReflectionProperty(BattleScene::class, 'resultsPlayback')->setValue($scene, $playback);
+    $playback->update(3.0);
+    expect($playback->isComplete())->toBeTrue()->and($playback->isFinished())->toBeFalse()
+      ->and($scene->getPlayActivity())->toBe(PlayActivity::PLAYING);
+    [$income] = incomeFixture([incomeSchedule(['cadence' => 'active_time', 'interval' => 1800, 'amount' => 200, 'delivery' => 'hold'])]);
+    // One simulated hour on an untouched results page must stop at the normal idle boundary.
+    for ($frame = 1; $frame <= 7200; $frame++) {
+      $income->advanceActivePlay(0.5, $scene->getPlayActivity(), $frame * 0.5);
+    }
+    expect($income->getHeldPay('wage'))->toBe(0)
+      ->and($income->ledger->getAccount('wage')->progress)->toBe(120.0);
+    // Returning to input still counts normally; no salary cap or progress discard was introduced.
+    $income->advanceActivePlay(0.5, $scene->getPlayActivity(), 0.0);
+    expect($income->ledger->getAccount('wage')->progress)->toBe(120.5);
+    $playback->confirm();
+    expect($scene->getPlayActivity())->toBe(PlayActivity::PRESENTING);
+  })->with(['graphical' => [false, true], 'reduced motion' => [true, true], 'terminal' => [false, false]]);
+
+  it('uses idle-aware input for revealed legacy victory and defeat results', function (string $stateClass) {
+    $scene = createIncomeBattleScene();
+    new ReflectionProperty(BattleScene::class, 'state')->setValue($scene,
+      new ReflectionClass($stateClass)->newInstanceWithoutConstructor());
+    $window = new ReflectionClass(BattleResultWindow::class)->newInstanceWithoutConstructor();
+    $scene->resultWindow = $window;
+    $complete = new ReflectionProperty(BattleResultWindow::class, 'isRevealComplete');
+    $complete->setValue($window, false);
+    expect($scene->getPlayActivity())->toBe(PlayActivity::PRESENTING);
+    $complete->setValue($window, true);
+    expect($scene->getPlayActivity())->toBe(PlayActivity::PLAYING);
+  })->with([BattleVictoryState::class, BattleDefeatState::class]);
+
+  it('pauses battle activity for a dialogue or choice modal', function () {
+    $scene = createIncomeBattleScene();
+    new ReflectionProperty(BattleScene::class, 'state')->setValue($scene,
+      new ReflectionClass(BattleEventState::class)->newInstanceWithoutConstructor());
+    $modal = $this->createMock(ModalInterface::class);
+    $manager = ModalManager::getInstance($scene->getGame());
+    $stack = new ReflectionProperty(ModalManager::class, 'modals')->getValue($manager);
+    $stack->push($modal);
+    expect($scene->getPlayActivity())->toBe(PlayActivity::PAUSED);
+    $stack->pop();
+    expect($scene->getPlayActivity())->toBe(PlayActivity::PRESENTING);
   });
 
   it('counts campaign play from whichever scene ran the frame, and only won battles', function () {

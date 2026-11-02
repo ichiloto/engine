@@ -50,10 +50,13 @@ are read at payment time, so a promotion raises the next payment.
 
 - **`active_time`** counts seconds the player spends playing. Each scene
   reports a `PlayActivity`:
-  - *playing*: free field movement, the overworld, dialogue, battle commands.
-    The idle timeout applies here.
-  - *presenting*: cutscenes, a running event on the field, battle openings and
-    results. These count without input.
+  - *playing*: free field movement, the overworld, dialogue, battle commands
+    and completed battle result pages waiting for confirmation. The idle
+    timeout applies here.
+  - *presenting*: cutscenes, a running event on the field, battle openings,
+    timed result reveals and result exit transitions. These count without input.
+    Completed results no longer accrue unlimited passive income while awaiting
+    confirmation.
   - *paused*: menus, shops, saving, map views, the battle pause menu, the title,
     open modals, and any scene that does not implement
     `PlayActivitySourceInterface`. Nothing counts.
