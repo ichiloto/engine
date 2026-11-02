@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Quests\Story;
 
+use Ichiloto\Engine\Core\EngineStoryEvent;
 use Closure;
 use Ichiloto\Engine\Field\EncounterEntry;
 use Ichiloto\Engine\Field\NpcPages;
@@ -206,7 +207,7 @@ final class StoryContentReader
   private function collectCinematicEffects(string $id): StoryEffects
   {
     if (!isset($this->cinematicEffects[$id])) {
-      $completed = new StoryEffects([sprintf('cinematic:%s:completed', $id) => true]);
+      $completed = new StoryEffects([EngineStoryEvent::CINEMATIC_COMPLETED->getName($id) => true]);
       $this->cinematicEffects[$id] = $completed;
       $this->cinematicEffects[$id] = $completed->withEffects($this->collectEffects(($this->readCinematic)($id)));
     }

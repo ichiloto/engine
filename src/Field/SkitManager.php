@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Field;
 
+use Ichiloto\Engine\Core\EngineStoryEvent;
 use Assegai\Util\Path;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Events\Interpreter\EventPlayedDialoguePresentationInterface;
@@ -160,7 +161,7 @@ class SkitManager
   {
     $skit = $this->skits[$skitId] ?? throw new RuntimeException("Skit '{$skitId}' does not exist.");
     if ($this->isPlaying) { throw new RuntimeException('Another Skit already owns conversation playback.'); }
-    if ($this->gameScene->gameState->hasStoryEvent('skit_seen:' . $skitId)) { return null; }
+    if ($this->gameScene->gameState->hasStoryEvent(EngineStoryEvent::SKIT_SEEN->getName($skitId))) { return null; }
     if (!$this->isAvailable($skitId, $skit)) {
       throw new RuntimeException("Skit '{$skitId}' is unavailable at the current map or story state.");
     }
@@ -171,7 +172,7 @@ class SkitManager
       function (bool $completed) use ($game, $skitId): void {
         try {
           if ($completed && !$game->hasStopped() && !$this->gameScene->isStopping) {
-            $this->gameScene->gameState->recordStoryEvent('skit_seen:' . $skitId);
+            $this->gameScene->gameState->recordStoryEvent(EngineStoryEvent::SKIT_SEEN->getName($skitId));
           }
         } finally {
           $this->isPlaying = false;
@@ -203,7 +204,7 @@ class SkitManager
         try { $this->showBeat($beat, $plan->speed, $playback); }
         finally { $playback->finishLine(); }
       }
-      if (!$game->hasStopped()) { $this->gameScene->gameState->recordStoryEvent('skit_seen:' . $skitId); }
+      if (!$game->hasStopped()) { $this->gameScene->gameState->recordStoryEvent(EngineStoryEvent::SKIT_SEEN->getName($skitId)); }
     } finally {
       try { $playback->finishConversation(); }
       finally {
@@ -296,7 +297,7 @@ class SkitManager
   {
     $gameState = $this->gameScene->gameState;
 
-    if ($gameState->hasStoryEvent(sprintf('skit_seen:%s', $skitId))) {
+    if ($gameState->hasStoryEvent(EngineStoryEvent::SKIT_SEEN->getName($skitId))) {
       return false;
     }
 

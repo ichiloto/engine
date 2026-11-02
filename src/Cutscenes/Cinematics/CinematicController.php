@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
+use Ichiloto\Engine\Core\EngineStoryEvent;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Rendering\CameraStateSnapshot;
@@ -129,7 +130,7 @@ final class CinematicController implements EventSessionCompletionTargetInterface
     $this->terminalOutcomeHandled = true;
     $downstreamCompletionTarget = $this->downstreamCompletionTarget;
 
-    $gameScene->gameState->recordStoryEvent('cinematic:' . $this->active->id . ':completed');
+    $gameScene->gameState->recordStoryEvent(EngineStoryEvent::CINEMATIC_COMPLETED->getName($this->active->id));
     try {
       $gameScene->getGame()->audioManager->finalizeCinematicMusic('complete');
     } finally {

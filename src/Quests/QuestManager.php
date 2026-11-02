@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Quests;
 
+use Ichiloto\Engine\Core\EngineStoryEvent;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
@@ -526,7 +527,7 @@ class QuestManager
     }
 
     $progressionResults = $this->grantRewards($quest);
-    $this->gameScene->gameState->recordStoryEvent(sprintf('quest_completed:%s', $quest->id));
+    $this->gameScene->gameState->recordStoryEvent(EngineStoryEvent::QUEST_COMPLETED->getName($quest->id));
 
     if (! $quiet) {
       $this->notifyQuest('Quest Complete', $quest->name, NotificationDuration::MEDIUM, 'quest.complete');
@@ -538,7 +539,7 @@ class QuestManager
    * Grants a quest's rewards to the party.
    *
    * @param Quest $quest The quest.
-   * @return void
+   * @return list<ExperienceAwardResult>
    */
   protected function grantRewards(Quest $quest): array
   {
@@ -631,7 +632,7 @@ class QuestManager
    */
   protected function recordQuestDeclined(Quest $quest): void
   {
-    $this->gameScene->gameState->recordStoryEvent(sprintf('quest_declined:%s', $quest->id));
+    $this->gameScene->gameState->recordStoryEvent(EngineStoryEvent::QUEST_DECLINED->getName($quest->id));
   }
 
   /**

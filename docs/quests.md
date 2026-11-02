@@ -378,3 +378,18 @@ Two limits worth knowing:
   a different version of the map for that.
 - Conditions are re-evaluated on movement, so a door unlocking while the
   player stands in it takes effect when they step out and back.
+
+
+### Engine-written story-event names
+
+`Core\EngineStoryEvent` owns the persistent names written automatically by
+Skit playback, quest completion/decline and cinematic completion. Writers and
+static story-effect readers use `getName($subjectId)`; the saved string formats
+remain `skit_seen:<id>`, `quest_completed:<id>`, `quest_declined:<id>` and
+`cinematic:<id>:completed`. GameState continues to accept authored event names.
+
+Authoring analyses use `EngineStoryEvent::usesNamespace($name)` when proving
+that a flag can only have come from a particular authored run. A name in one of
+these namespaces can have an automatic Engine writer; it cannot prove a scene
+committed an NPC placement. Namespace recognition is deliberately conservative
+for unknown suffixes. No save migration or authored event rewrite is required.
