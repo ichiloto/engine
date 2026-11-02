@@ -98,6 +98,19 @@ exist in the physical grid, including on ragged maps. Unknown fields, missing
 areas and invalid bounds are errors. Rectangle bounds are checked before the
 cell set is expanded.
 
+Large irregular territories can use horizontal row runs:
+`area => ['runs' => [[8, 12, 6], [9, 13, 4]]]`. Each triple is
+`[y, x, length]`; it covers exactly that many adjacent cells on that row.
+Runs can arrive in any order and can touch, but cannot overlap. Holes and
+separate pieces remain exact. Every run and the aggregate expanded-cell budget
+are checked against the physical map before allocating cells, including ragged
+or empty rows. The representation owns no artwork, collision or saved state.
+`MapAreaCatalog::encodeArea($area)` chooses the smallest JSON representation
+among a cell list, row runs and an exact rectangle for named-area authoring.
+Generic `CellArea::toArray()` and resolved event geometry keep their existing
+cell-list format. Editors must preserve supported source and qualify their
+save/reopen and undo paths before converting existing authored definitions.
+
 An event can use `subject => ['kind'=>'area', 'id'=>'survey-reach']` instead of
 painted marker cells or an inline area. Those three geometry owners are mutually
 exclusive. Existing engagement, conditions and one-time event identity still
