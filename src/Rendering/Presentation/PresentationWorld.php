@@ -495,7 +495,7 @@ final class PresentationWorld
             if ($tileId === TileId::EMPTY || !isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
                 continue;
             }
-            if ($style->isCaster($tileId)) {
+            if ($style->canCastFromLayer($layer->name) && $style->isCaster($tileId)) {
                 $casters[$y] ??= str_repeat("\0", count($cells));
                 $caster = ord($casters[$y][$x]);
                 if ($caster === 0 || $graphics->layers[$caster - 1]->order <= $layer->order) {

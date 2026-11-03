@@ -744,3 +744,46 @@ it('sends shadows only to a renderer that negotiated tile shadows', function () 
     expect(str_contains($sent, 'tiles:walls:shadows'))->toBe($expected)->and(str_contains($sent, '"fill"'))->toBe($expected);
   }
 });
+
+
+it('selects casting layer roles while the same tile artwork remains usable by other layers', function () {
+  writeTilesetProject($this->root, extra: ", 'shadows' => ['casters' => ['A2'], 'layers' => ['walls'], 'width' => 0.5, 'opacity' => 0.4]");
+  $map = $this->root . '/Maps/home';
+  mkdir($map . '/graphics', 0777, true);
+  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource('1 1 1 1', 'TILES'));
+  file_put_contents($map . '/graphics/02.walls.tiles.php', MapGridSource::buildSource('2816 0 0 0', 'TILES'));
+  file_put_contents($map . '/graphics/03.worktops.tiles.php', MapGridSource::buildSource('0 0 2816 0', 'TILES'));
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', '....')]);
+  $graphics = MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root,
+    ['walls' => ['offset' => [0, -0.5]], 'worktops' => ['offset' => [0, 0.5]]]);
+  $world = PresentationWorld::getFromLayers($layers, 'map', $graphics, $this->root);
+  $operations = $world->getOperations(true, true);
+  $bands = array_values(array_filter($operations, static fn(array $op): bool => $op['op'] === 'worldTiles'
+    && str_ends_with($op['layerId'], ':shadows')));
+  expect(array_column($bands, 'layerId'))->toBe(['tiles:walls:shadows'])
+    ->and(array_column($bands[0]['rows'][0]['cells'], 'column'))->toBe([1])
+    ->and($world->textLayerIds)->toBe(['map:terrain']);
+  $catalog = $operations[0]['value']['tileset']['tiles'];
+  expect(end($catalog)['top'])->toBe(-24)
+    ->and(json_encode($world->getOperations(true)))->not->toContain(':shadows');
+  // Unfiltered metadata preserves existing casting from all graphical layers.
+  $unfiltered = new Tileset('all', $graphics->tileset->name, $graphics->tileset->sheets,
+    shadows: new \Ichiloto\Engine\Rendering\Tilesets\TilesetShadows([TilesetSheet::A2], [], 0.5, 0.4));
+  $all = PresentationWorld::getFromLayers($layers, 'map', new MapGraphics($unfiltered, $graphics->layers, $graphics->offsets), $this->root);
+  expect($all->getOperations(true))->toBe($world->getOperations(true))
+    ->and(json_encode($all->getOperations(true, true)))->toContain('tiles:worktops:shadows');
+});
+
+it('refuses unusable casting layer references without changing the existing caster contract', function () {
+  $data = ['name' => 'Home', 'sheets' => ['A2' => 'Graphics/Tilesets/A2.png'],
+    'shadows' => ['casters' => ['A2'], 'width' => 0.5, 'opacity' => 0.4]];
+  $default = Tileset::fromArray('home', $data)->shadows;
+  expect($default->canCastFromLayer('any-layer'))->toBeTrue();
+  foreach ([[], ['walls' => true], ['../walls'], ['walls', 3], null, 'walls'] as $invalid) {
+    expect(fn() => Tileset::fromArray('home', [...$data, 'shadows' => [...$data['shadows'], 'layers' => $invalid]]))
+      ->toThrow(InvalidArgumentException::class);
+  }
+  $selected = Tileset::fromArray('home', [...$data, 'shadows' => [...$data['shadows'], 'layers' => ['walls']]])->shadows;
+  expect($selected->canCastFromLayer('walls'))->toBeTrue()->and($selected->canCastFromLayer('worktops'))->toBeFalse()
+    ->and($selected->isCaster(2816 + 46))->toBeTrue();
+});

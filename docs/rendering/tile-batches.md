@@ -169,3 +169,24 @@ world rows.
 A screen-only viewport may omit `worldId`; its world origin must then be zero.
 Retained camera transforms are baseline V2 behavior, not gated by the historical
 `frame_viewport` capability symbol.
+
+
+### Shadow casting roles
+
+A tileset may select which graphical tile layers use eligible tiles as wall
+shadow casters: `shadows => ['casters' => ['A4'], 'layers' => ['walls'],
+'width' => 0.5, 'opacity' => 0.5]`. `layers` is an optional nonempty list of
+valid tile layer names. Omission preserves casting from every layer. The layer
+selection combines with the existing sheet/tile selection; it does not replace
+it. This lets the same tile artwork serve a wall and a low furnishing while the
+wall role alone casts a wall band. The tileset owns that shared choice across
+its maps. Layer names are authored references, without built-in room or object
+names. Graphical authoring should select real layers and preserve the field
+through source round trips.
+
+The shared world composer applies the selection before collecting caster
+cells. Receiver detection, source-layer offsets, draw order, tile identities,
+capability-disabled uploads, Terminal geometry, collision, events and saves
+retain their existing contracts. This adds no renderer protocol field. Editor
+selector/round-trip adoption and project resource admission remain separate
+integration steps until their current evidence is recorded.
