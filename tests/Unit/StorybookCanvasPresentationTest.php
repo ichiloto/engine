@@ -152,9 +152,8 @@ it('paints every reading state of the shared reader inside the capacity it measu
         expect($snapshot->storybook->capacity)->toEqual($capacity);
         $canvas = MenuModalPresentation::compose(new PresentationCanvas($width, $height), $snapshot, $theme);
         $reading = array_values(array_filter($canvas->textLayers, static fn(CanvasTextLayer $layer): bool =>
-            $layer->grid->columns === $capacity->columns && array_any($layer->runs,
-                static fn($run): bool => str_contains($snapshot->message, trim($run->text)) && trim($run->text) !== '')));
-        expect($reading)->not->toBeEmpty();
+            str_starts_with($layer->id, 'storybook-reading')));
+        expect($reading)->toHaveCount(1)->and($reading[0]->grid->columns)->toBe($capacity->columns);
         $lines = array_unique(array_merge(...array_map(static fn(CanvasTextLayer $layer): array =>
             array_map(static fn($run): int => $run->row, $layer->runs), $reading)));
         expect(count($lines))->toBe(count(array_filter(explode("\n", $snapshot->message), static fn(string $line): bool => trim($line) !== '')))
@@ -175,7 +174,10 @@ it('paints every reading state of the shared reader inside the capacity it measu
                     $image->destination->x + $image->destination->width, $picture)));
             }
         }
-        array_push($painted, ...preg_split('/\s+/', trim($snapshot->message)));
+        // The words the canvas paints, row by row, never the snapshot text itself.
+        $runs = $reading[0]->runs;
+        usort($runs, static fn($a, $b): int => [$a->row, $a->column] <=> [$b->row, $b->column]);
+        array_push($painted, ...preg_split('/\s+/', trim(implode(' ', array_map(static fn($run): string => $run->text, $runs)))));
         $states++;
         if (!str_contains(implode(' ', $snapshot->choices), 'Next')) { break; }
         $modal->selectControl(array_search('Next', $snapshot->choices, true));
