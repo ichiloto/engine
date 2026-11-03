@@ -54,11 +54,23 @@ a changed control display reflows around the current reading position; an
 unsupported surface is refused before changing it. Reader controls use a native
 enum; labels never drive the selected action.
 
-The cooperative event adapter, graphical layout/capacity provider and composition,
-Editor resource authoring and Andrew's Terminal-frame/painting review remain open. Existing modal, dialogue, image and theme
-primitives supply those consumers. The official Game text, optional elder
-interaction and painting/Terminal-frame approval remain Game/author work.
-No runtime event, Game content or progress behavior is registered by this model.
+The cooperative `play_storybook` event command selects a stable book ID from the
+active project's `assets/Data/Storybooks` library and opens the reader through
+`EventStorybookPresentationInterface`. It shares the existing event presentation
+lane, yields to the ordinary game loop and resumes the invoking script when the
+reader closes. Failure or interruption uses the same owned modal cleanup and
+permits an ordinary retry. Reading itself adds no progress flag or reward.
+Field and battle scopes share this read-only presentation command. The cinematic
+schema exposes the resource source and definition fields for Editor selection.
+
+Graphical hosts implement `StorybookReadingCapacityProviderInterface` to measure
+the actual prose space before opening the shared modal. A graphical runtime
+without that provider is refused before replacing an existing presentation or
+consuming input. Graphical layout/composition, Editor resource authoring and
+Andrew's Terminal-frame/painting review remain open. Existing modal, dialogue,
+image and theme primitives supply those consumers. The official Game text and
+optional elder interaction remain Game work after those dependencies and reviews;
+no Game storybook binding has been installed.
 
 ## Dialogue camera framing — 31 October 2026
 

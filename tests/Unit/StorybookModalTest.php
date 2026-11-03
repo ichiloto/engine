@@ -209,3 +209,66 @@ it('wraps a long title and narrator without reducing the reading area below one 
         ->and($modal->getModalPresentation()->storybook->capacity->rows)->toBeGreaterThanOrEqual(1)
         ->and($modal->getPresentationBounds()->getY() + $modal->getPresentationBounds()->getHeight())->toBeLessThanOrEqual(24);
 });
+
+it('opens and resets a cooperative book through the existing event presentation host', function () {
+    $host = new class($this->storyGame) implements \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface {
+        public int $restored = 0;
+        public function __construct(private \Ichiloto\Engine\Core\Game $game) {}
+        public function getGame(): \Ichiloto\Engine\Core\Game { return $this->game; }
+        public function restoreAfterEventOverlay(): void { $this->restored++; }
+    };
+    $surface = new \Ichiloto\Engine\Events\Interpreter\ModalEventPresentation($host);
+    $surface->beginStorybook(makeModalStorybook());
+    expect($surface->isComplete())->toBeFalse();
+    $source = new FakeInputSource(KeyCode::ESCAPE);
+    InputManager::setInputSource($source);
+    InputManager::handleInput();
+    ob_start();
+    try { $surface->update(); } finally { ob_end_clean(); }
+    expect($surface->isComplete())->toBeTrue();
+    $surface->reset();
+    $surface->reset();
+    expect($host->restored)->toBe(1)->and(InputManager::getPressedKeyCode())->toBeNull();
+});
+
+it('uses the presentation hosts measured graphical capacity without launching a renderer', function () {
+    $host = new class($this->storyGame) implements \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface,
+        \Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface {
+        public function __construct(private \Ichiloto\Engine\Core\Game $game) {}
+        public function getGame(): \Ichiloto\Engine\Core\Game { return $this->game; }
+        public function restoreAfterEventOverlay(): void {}
+        public function getStorybookReadingCapacity(StorybookDefinition $book): StorybookReadingCapacity
+        { return new StorybookReadingCapacity(30, 3); }
+    };
+    $surface = new \Ichiloto\Engine\Events\Interpreter\ModalEventPresentation($host);
+    $surface->beginStorybook(makeModalStorybook());
+    $modal = new ReflectionProperty($surface, 'modal')->getValue($surface);
+    expect($modal->getModalPresentation()->storybook->capacity->columns)->toBe(30)
+        ->and($modal->getModalPresentation()->storybook->capacity->rows)->toBe(3);
+    ob_start();
+    try { $surface->reset(); } finally { ob_end_clean(); }
+});
+
+it('requires measured capacity for a graphical host before replacing its current presentation', function () {
+    $runtime = new ReflectionClass(\Ichiloto\Engine\Rendering\Runtime\RendererRuntime::class)->newInstanceWithoutConstructor();
+    new ReflectionProperty($runtime, 'grid')->setValue($runtime, new \Ichiloto\Engine\Rendering\Transport\RendererGridConfig());
+    $game = new class($runtime) extends PassiveGame {
+        public function __construct(private \Ichiloto\Engine\Rendering\Runtime\RendererRuntime $runtime) {}
+        public function getRendererRuntime(): ?\Ichiloto\Engine\Rendering\Runtime\RendererRuntime { return $this->runtime; }
+    };
+    $host = new class($game) implements \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface {
+        public int $restored = 0;
+        public function __construct(private \Ichiloto\Engine\Core\Game $game) {}
+        public function getGame(): \Ichiloto\Engine\Core\Game { return $this->game; }
+        public function restoreAfterEventOverlay(): void { $this->restored++; }
+    };
+    $surface = new \Ichiloto\Engine\Events\Interpreter\ModalEventPresentation($host);
+    $owned = new StorybookModalProbe($game, makeModalStorybook());
+    new ReflectionProperty($surface, 'modal')->setValue($surface, $owned);
+    InputManager::setInputSource(new FakeInputSource(KeyCode::ENTER));
+    InputManager::handleInput();
+    expect(fn() => $surface->beginStorybook(makeModalStorybook()))
+        ->toThrow(RuntimeException::class, 'measured reading-capacity provider')
+        ->and(new ReflectionProperty($surface, 'modal')->getValue($surface))->toBe($owned)
+        ->and($host->restored)->toBe(0)->and(Input::isButtonDown('confirm'))->toBeTrue();
+});

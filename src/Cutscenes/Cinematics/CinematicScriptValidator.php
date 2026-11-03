@@ -58,6 +58,7 @@ final class CinematicScriptValidator
       match ($type) {
         'text' => self::validateText($command, $cinematicId, $commandPath),
         'play_skit' => self::validateStableReference($command, 'skit', $cinematicId, $commandPath),
+        'play_storybook' => self::validateStorybookReference($command, $cinematicId, $commandPath),
         'sequence' => self::validateRequiredBlock($command, 'commands', $cinematicId, "$commandPath/sequence"),
         'parallel' => self::validateParallel($command, $cinematicId, $commandPath),
         'branch' => self::validateBranch($command, $cinematicId, $commandPath),
@@ -78,6 +79,14 @@ final class CinematicScriptValidator
         'checkpoint' => self::validateStableReference($command, 'name', $cinematicId, $commandPath),
         default => null,
       };
+    }
+  }
+
+  protected static function validateStorybookReference(array $command, string $cinematicId, string $path): void
+  {
+    $id = $command['storybook'] ?? null;
+    if (!is_string($id) || preg_match(\Ichiloto\Engine\Messaging\Storybook\StorybookDefinition::ID_PATTERN, $id) !== 1) {
+      throw self::failure($cinematicId, $path, 'storybook must be a selected stable lowercase reference.');
     }
   }
 

@@ -18,7 +18,7 @@ final class CinematicCommandSchema
 {
   public const array BASE_COMMAND_TYPES = [
     'text', 'choice', 'wait', 'set_switch', 'set_variable', 'record_event',
-    'give_item', 'give_gold', 'recover_party', 'play_sound', 'play_music', 'play_skit',
+    'give_item', 'give_gold', 'recover_party', 'play_sound', 'play_music', 'play_skit', 'play_storybook',
     'accept_quest', 'knowledge', 'move_player', 'move_route', 'transfer',
     'start_battle', 'branch',
   ];
@@ -182,6 +182,17 @@ final class CinematicCommandSchema
         'persistence' => 'Saved stable placement id; current authored cells/facing resolve at load.',
         'commit' => 'Real subject must already occupy that clear destination; commit never teleports.',
         'restingArt' => 'Optional sprites2d field role on a named placement; current authored art follows the saved stable selection while settled, with ordinary walking art on routes. Terminal glyphs and physical occupancy are unchanged.',
+      ],
+      'storybookPlayback' => [
+        'command' => 'play_storybook',
+        'referenceField' => 'storybook',
+        'referenceSource' => 'assets/' . \Ichiloto\Engine\Messaging\Storybook\StorybookLibrary::DIRECTORY . '/*.php:id',
+        'definitionReader' => \Ichiloto\Engine\Messaging\Storybook\StorybookDefinition::class,
+        'definitionFields' => \Ichiloto\Engine\Messaging\Storybook\StorybookDefinition::FIELDS,
+        'pageFields' => \Ichiloto\Engine\Messaging\Storybook\StorybookPage::FIELDS,
+        'completion' => 'Any reader close resumes the invoking script; no seen flag, reward or required plot write.',
+        'interruption' => 'Owned modal cleanup and ordinary retry; one event lane owns presentation.',
+        'graphicalHost' => \Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface::class,
       ],
       'skitPlayback' => [
         'command' => 'play_skit',

@@ -89,3 +89,10 @@ it('excludes and refuses source symlinks outside the selected project asset root
         ->and(fn() => $library->load('external'))->toThrow(InvalidArgumentException::class, 'inside its asset root')
         ->and(is_file($target))->toBeTrue();
 });
+
+it('discovers books under literal project paths containing pattern characters', function () {
+    $root = createTestDirectory('storybook-[literal]-');
+    writeStorybookLibraryFixture($root, 'tale');
+    $library = new StorybookLibrary($root);
+    expect($library->findStorybookIds())->toBe(['tale'])->and($library->load('tale')->id)->toBe('tale');
+});

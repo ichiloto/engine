@@ -27,6 +27,8 @@ use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandContext;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
+use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
+use Ichiloto\Engine\Messaging\Storybook\StorybookLibrary;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Rendering\ScreenTransition;
@@ -473,6 +475,21 @@ class EventInterpreter
       case 'play_sound':
         play_sound(strval($command['sound'] ?? ''));
         return EventCommandResult::COMPLETED;
+
+      case 'play_storybook':
+        $bookId = $command['storybook'] ?? null;
+        if (!is_string($bookId) || preg_match(StorybookDefinition::ID_PATTERN, $bookId) !== 1) {
+          throw new RuntimeException('play_storybook requires a selected stable storybook reference.');
+        }
+        if (!$this->presentation instanceof EventStorybookPresentationInterface) {
+          throw new RuntimeException('play_storybook requires a cooperative storybook presentation.');
+        }
+        // Narration belongs to the active project, independently of its renderer's artwork root.
+        $book = new StorybookLibrary(Path::join(Path::getCurrentWorkingDirectory(), 'assets'))->load($bookId);
+        $session->claimPresentation($lane);
+        $this->presentation->beginStorybook($book);
+        $lane->yieldFor($command, ['kind' => 'dialogue']);
+        return EventCommandResult::YIELDED;
 
       case 'play_skit':
         $skitId = $command['skit'] ?? null;
@@ -923,7 +940,7 @@ class EventInterpreter
   {
     $reference = '';
 
-    foreach (['subject', 'npcId', 'actorId', 'animation', 'music', 'sound', 'map', 'troop', 'id'] as $key) {
+    foreach (['subject', 'npcId', 'actorId', 'animation', 'music', 'sound', 'map', 'troop', 'storybook', 'id'] as $key) {
       $value = $command[$key] ?? null;
 
       if (is_scalar($value) && trim(strval($value)) !== '') {
@@ -1005,7 +1022,7 @@ class EventInterpreter
       return true;
     }
 
-    if ($type === 'text') {
+    if ($type === 'text' || $type === 'play_storybook') {
       $this->presentation->update();
       $this->presentation->render();
 

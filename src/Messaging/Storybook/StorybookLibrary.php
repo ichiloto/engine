@@ -27,8 +27,16 @@ final readonly class StorybookLibrary
             return [];
         }
         $ids = [];
-        foreach (glob($root . '/' . self::DIRECTORY . '/*.php') ?: [] as $path) {
-            $id = basename($path, '.php');
+        $directory = $root . '/' . self::DIRECTORY;
+        if (!is_dir($directory)) {
+            return [];
+        }
+        foreach (scandir($directory) ?: [] as $entry) {
+            if (!str_ends_with($entry, '.php')) {
+                continue;
+            }
+            $path = $directory . '/' . $entry;
+            $id = basename($entry, '.php');
             $file = realpath($path);
             if (preg_match(StorybookDefinition::ID_PATTERN, $id) === 1
                 && $file !== false && is_file($file)

@@ -9,13 +9,17 @@ use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Modal\SelectModal;
 use Ichiloto\Engine\UI\Modal\TextBoxModal;
+use Ichiloto\Engine\UI\Modal\StorybookModal;
+use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
+use Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface;
+use RuntimeException;
 
 /**
  * Drives the existing terminal modals one game-loop tick at a time, over the
  * field or a battle. Graphical renderers compose the same modals over the
  * host scene's canvas.
  */
-final class ModalEventPresentation implements EventPlayedDialoguePresentationInterface
+final class ModalEventPresentation implements EventPlayedDialoguePresentationInterface, EventStorybookPresentationInterface
 {
   protected ?ModalInterface $modal = null;
 
@@ -51,6 +55,21 @@ final class ModalEventPresentation implements EventPlayedDialoguePresentationInt
       playback: $playback,
       presentation: $context,
     );
+    $this->modal->show();
+  }
+
+  public function beginStorybook(StorybookDefinition $book): void
+  {
+    $game = $this->host->getGame();
+    $capacity = $this->host instanceof StorybookReadingCapacityProviderInterface
+      ? $this->host->getStorybookReadingCapacity($book) : null;
+    if ($game->getRendererRuntime()?->grid !== null && $capacity === null) {
+      throw new RuntimeException('Graphical storybook presentation requires a measured reading-capacity provider.');
+    }
+    // Qualify the layout before replacing an existing presentation.
+    $modal = new StorybookModal($game, $book, $capacity);
+    $this->reset();
+    $this->modal = $modal;
     $this->modal->show();
   }
 

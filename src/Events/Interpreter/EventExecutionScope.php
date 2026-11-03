@@ -23,7 +23,7 @@ enum EventExecutionScope: string
 
   /** The built-in commands a battle event page may use. */
   public const array BATTLE_COMMAND_TYPES = [
-    'text', 'choice', 'wait', 'set_switch', 'set_variable', 'record_event',
+    'text', 'choice', 'play_storybook', 'wait', 'set_switch', 'set_variable', 'record_event',
     'give_item', 'give_gold', 'play_sound', 'play_music', 'branch', 'sequence', 'common_event',
   ];
 
