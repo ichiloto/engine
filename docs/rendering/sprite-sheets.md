@@ -19,7 +19,7 @@ NPC uses `sprites2d` naming a character sheet:
 'sprites2d' => ['sheet' => 'Graphics/Characters/People.png', 'index' => 2, 'layer' => 100],
 
 // A sheet whose file name begins with `$` holds one character.
-'sprites2d' => ['sheet' => 'Graphics/Characters/$Kaelion.png', 'layer' => 100],
+'sprites2d' => ['sheet' => 'Graphics/Characters/$Hero.png', 'layer' => 100],
 
 // A sheet whose file name begins with `!` holds objects, drawn unlifted.
 'sprites2d' => ['sheet' => 'Graphics/Characters/!$Chest.png', 'layer' => 100],
@@ -52,6 +52,15 @@ Changing party order changes the sheet, not the field player's identity,
 position, heading, walking phase, camera or pending arrival. Saved gameplay
 references the actor; current project definitions supply artwork after loading.
 The actor role uses the same sheet/index/world-layer validation as fixed sheets.
+
+Art fit previews resolve the current actor definition through `ActorStore`, then
+use `getGraphicalCharacterSheet()` and the shared `FieldSpriteRole` frame
+projection. They use its current crop, field size, pivot and lift when drawing.
+A preview records the resolved role and source; a missing role or a cached
+reference that disagrees with the current binding stops proof generation.
+Artwork replacement follows the current binding and file, without frozen
+production-image hashes or copied dimensions becoming actor identity.
+
 It does not infer actor identity from file names, duplicate image dimensions or
 fall back to a different actor when a role is missing or invalid. Such failures
 are diagnosed while retaining the terminal presentation.
