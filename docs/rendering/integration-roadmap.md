@@ -4621,9 +4621,11 @@ The layer-selection contract is documented in
 - [ ] Claude: GUI tileset casting-layer selector from actual layer references,
   default/unfiltered choice, source-preserving validation and round-trip checks.
   Preserve graphical metadata and existing TUI workflow.
-- [ ] Game: adopt the shared resource selection after supported authoring lands;
-  audit all wall uses and retain legitimate wall casters while removing wall
-  bands from furnishing layers across the resource's maps.
+- [ ] Claude (map integration owner): adopt the shared resource selection after
+  supported authoring lands; audit all wall uses and retain legitimate wall
+  casters while removing wall bands from furnishing layers across the resource's
+  maps. This follows Andrew's 3 November map ownership split. Game qualifies its
+  content consumers after the map-owned resource handoff.
 - [ ] Qualify the integrated affected rooms through the existing authorized
   graphical playtest. No renderer protocol, map geometry, collision or save
   change belongs to this contract.
