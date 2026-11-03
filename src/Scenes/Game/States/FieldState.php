@@ -191,12 +191,6 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         // once, then the frame returns without reopening actions or moving
         // the player underneath it.
         if ($scene->hasUnstableEventSession()) {
-            if ($scene->cinematicController?->active() !== null
-                && (Input::isButtonDown('cancel') || Input::isButtonDown('back'))
-            ) {
-                $scene->skipCinematic();
-            }
-
             $scene->updateEventSession(Time::getDeltaTime());
 
             if (! $scene->isStopping && $scene->cinematicController?->active() !== null

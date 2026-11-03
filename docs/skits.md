@@ -38,7 +38,7 @@ this functionality. Last Legend is the reference consumer. Related docs:
   `assets/Data/Skits/*.php` (id, title, optional map gate, trigger
   conditions, beats of speaker + text, optional speed), exposes
   availability through a persistent field cue, plays beats through the standard dialogue
-  box (`show_text`), and records `skit_seen:<id>`. GPUI now composes a
+  box through cooperative event playback, and records `skit_seen:<id>`. GPUI now composes a
   dedicated graphical stage over the same read-only playback snapshot.
 - **Beats accept optional emotion and voice.** Phase 0 resolves these softly
   and plays voice through the existing dialogue box on either presentation.
@@ -54,11 +54,11 @@ this functionality. Last Legend is the reference consumer. Related docs:
   backdrop follows the place it plays in (see Backdrops Follow The Place).
 - **Audio owns one speech line independently of SFX.** Advance interrupts
   that line; optional BGM ducking uses seek-safe backend support.
-- **Shared Auto playback is available, with skits its first adopter.** Log,
-  Skip, ambient lip/eye animation and Editor emotion/voice authoring remain
+- **Shared Auto and pause/Skip playback are available.** Log,
+  ambient lip/eye animation and Editor emotion/voice authoring remain
   planned; the static graphical stage is implemented.
 
-### Pause work in progress — 3 November 2026
+### Shared pause controls — 3 November 2026
 
 Andrew requested Skip, Exit and Cancel during a Skit. Exit must ask whether to
 return to the title or quit the game. Cancel resumes the same conversation; Skip
@@ -73,8 +73,28 @@ owner and releases the audio lease on completion or failure. Skipping the visibl
 Skit commits its seen outcome once and continues its enclosing script; an enclosing
 cinematic keeps its own safe-skip policy. Suspended battles retain ownership.
 Paused field presentation does not advance its animation clock and reports paused
-active play. The menu, cooperative field cue migration and title/quit wiring
-remain implementation work. Runtime Skits do not offer the menu yet.
+active play. The field's semantic `pause` action opens the existing shared selection modal:
+Skip, Exit and Cancel for a displayed Skit. Exit asks for To Title, Quit Game or
+Cancel; cancelling that prompt returns to the pause menu. Cancelling the pause
+resumes the same beat. Title and quit use the normal scene/game continuations and
+leave the unfinished Skit unseen. The menu retains the paused session's identity,
+keeps focus and input separate from playback, and repositions on resize.
+
+Removed behavior: field prompt Skits no longer run a blocking `show_text` loop.
+`playNextAvailableSkit()` starts the event-owned conversation and returns whether
+it started, before completion. Seen tracking remains at completion or explicit
+Skip. Its obsolete protected blocking `play`/`showBeat` hooks are removed.
+Cinematics no longer skip immediately through Cancel/Back; the pause menu exposes
+the authored safe Skip when available. A displayed Skit inside a cinematic skips
+only that conversation. A book can pause through the same flow with Exit and
+Cancel, and retains its reader's own Close action.
+
+Queued alerts now wait for cooperative modal owners as well as the blocking modal
+stack; they no longer interrupt a paused conversation. Field animation and active
+play remain frozen while the menu owns input. Terminal and GPUI consume the same
+selection snapshot and semantic input. In-game/native visual and audio acceptance
+remain pending; root's checks use silent synthetic hosts and retained Terminal
+surfaces. Last Legend's existing Escape binding supplies the pause action.
 
 ### Story-selected Skits And Lifecycle Sounds
 

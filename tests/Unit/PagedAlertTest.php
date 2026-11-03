@@ -151,3 +151,27 @@ it('retains long notice content across the existing bounded acknowledgement page
     expect(explode("\n", implode("\n", $pages)))->toBe($lines)
       ->and($modal->getModalPresentation()->choices)->toBe(['Next']);
 });
+
+
+it('defers queued alerts behind cooperative scene-owned modals outside the blocking stack', function () {
+    $ui = new class($this->game) extends \Ichiloto\Engine\UI\UIManager {
+        public function __construct(Game $game) { parent::__construct($game); }
+    };
+    $scene = new class($ui) extends \Ichiloto\Engine\Scenes\AbstractScene {
+        public function __construct(\Ichiloto\Engine\UI\UIManager $ui) { $this->uiManager = $ui; }
+    };
+    $scenes = new ReflectionClass(\Ichiloto\Engine\Scenes\SceneManager::class)->newInstanceWithoutConstructor();
+    $scenes->currentScene = $scene;
+    new ReflectionProperty(Game::class, 'sceneManager')->setValue($this->game, $scenes);
+    $manager = new AlertDeliveryProbe($this->game);
+    $modal = new \Ichiloto\Engine\UI\Modal\SelectModal($this->game, '', ['Skip', 'Exit', 'Cancel'], 'Paused');
+    try {
+        $modal->show();
+        $manager->queueAlert('Preserved body', 'Preserved title');
+        $manager->processPendingAlerts();
+        expect($manager->currentModal)->toBeNull()->and($manager->delivered)->toBeEmpty();
+        $modal->hide();
+        $manager->processPendingAlerts();
+        expect($manager->delivered)->toBe([['Preserved body', 'Preserved title']]);
+    } finally { $modal->hide(); }
+});

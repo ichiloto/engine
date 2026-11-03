@@ -92,13 +92,32 @@ final class VoiceTestSkits extends SkitManager
 {
   public array $shown = [];
   public bool $failPresentation = false;
-  public function runSkit(array $skit): void { $this->play('sample', $skit); }
-  protected function showBeat(array $beat, float $speed, DialoguePlayback $playback): void
+  public function runSkit(array $skit): void
   {
-    $this->shown[] = [$beat, $speed, $playback->auto];
-    if ($this->failPresentation) { throw new RuntimeException('interrupted'); }
-    $playback->toggleAuto();
+    $this->skits['sample'] = $skit;
+    $presentation = new class($this) implements \Ichiloto\Engine\Events\Interpreter\EventPlayedDialoguePresentationInterface {
+      public function __construct(private VoiceTestSkits $owner) {}
+      public function beginText(string $text, string $speaker): void {}
+      public function beginDialogue(string $text, string $speaker, \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext $context): void {}
+      public function beginPlayedDialogue(string $text, string $speaker,
+        \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext $context,
+        DialoguePlayback $playback, float $charactersPerSecond): void
+      {
+        $this->owner->shown[] = [['text' => $text, 'speaker' => $speaker], $charactersPerSecond, $playback->auto];
+        if ($this->owner->failPresentation) { throw new RuntimeException('interrupted'); }
+        $playback->toggleAuto();
+      }
+      public function beginChoice(string $prompt, array $options, string $title = ''): void {}
+      public function update(): void {}
+      public function render(): void {}
+      public function isComplete(): bool { return true; }
+      public function choiceResult(): ?int { return null; }
+      public function reset(): void {}
+    };
+    $operation = $this->beginSkitPlayback('sample', $presentation);
+    while ($operation !== null && !$operation->update(0)) {}
   }
+
 }
 
 beforeEach(function () {

@@ -46,6 +46,9 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\Events\Interpreter\EventPlaybackPauseMenu;
+use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\UI\Modal\ModalManager;
@@ -813,6 +816,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
      * @var EventInterpreter|null The one active story-event runtime.
      */
     protected(set) ?EventInterpreter $eventInterpreter = null;
+    private ?EventPlaybackPauseMenu $eventPauseMenu = null;
     /**
      * @var bool Whether a transfer requested an autosave during an event.
      */
@@ -1321,6 +1325,24 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         if ($this->isStopping) {
             return;
         }
+        if ($this->eventPauseMenu !== null) {
+            $menu = $this->eventPauseMenu;
+            $menu->update();
+            if (!$menu->isOpen) { $this->eventPauseMenu = null; }
+            if (!$this->isStopping && $this->eventInterpreter?->isPlaybackPaused) {
+                $this->eventInterpreter->renderPresentation();
+                $menu->render();
+            }
+            return;
+        }
+        if ($this->state instanceof FieldState && ($this->eventInterpreter?->canPausePlayback() ?? false)
+            && Input::isButtonPressed('pause')) {
+            $menu = new EventPlaybackPauseMenu($this->getGame(), $this->eventInterpreter,
+                fn() => $this->getGame()->sceneManager->loadScene(TitleScene::class),
+                fn() => $this->getGame()->quit(), fn() => $this->restoreAfterEventOverlay());
+            if ($menu->open()) { $this->eventPauseMenu = $menu; }
+            return;
+        }
         if ($this->eventInterpreter?->isPlaybackPaused ?? false) {
             $this->eventInterpreter->renderPresentation();
             return;
@@ -1459,6 +1481,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $this->arrivalPresentationSince = null;
         $failure = null;
         foreach ([
+            fn() => $this->closeEventPauseMenu(),
             fn() => $this->releaseRecruitmentNotices(),
             fn() => $this->releaseLocationHUDWindow(),
             fn() => $this->cinematicController?->shutdown(),
@@ -1481,6 +1504,13 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         if ($failure !== null) {
             throw $failure;
         }
+    }
+
+    private function closeEventPauseMenu(): void
+    {
+        $menu = $this->eventPauseMenu;
+        $this->eventPauseMenu = null;
+        $menu?->close();
     }
 
     /** Hydrated members are already known when a campaign acquires this owner. */

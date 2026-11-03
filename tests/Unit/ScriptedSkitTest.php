@@ -410,3 +410,122 @@ it('releases a failed presentation pause without advancing its beat or retaining
     expect($interpreter->pausePlayback(20))->toBeTrue();
     $interpreter->failActiveSession('End failed-pause fixture');
 });
+
+
+final class ScriptedPauseMenuProbe extends \Ichiloto\Engine\Events\Interpreter\EventPlaybackPauseMenu
+{
+    public function getModal(): ?\Ichiloto\Engine\UI\Modal\SelectModal { return $this->modal; }
+}
+
+require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
+
+describe('cooperative playback pause menu', function () {
+    beforeEach(function () {
+        $this->pauseUiGlobals = [];
+        foreach ([\Ichiloto\Engine\IO\Console\Console::class, \Ichiloto\Engine\IO\InputManager::class,
+            \Ichiloto\Engine\Util\Config\ConfigStore::class, \Ichiloto\Engine\Events\EventManager::class] as $class) {
+            $this->pauseUiGlobals[$class] = new ReflectionClass($class)->getStaticProperties();
+        }
+        \Ichiloto\Engine\IO\Console\Console::setTerminalOutputEnabled(false);
+        \Ichiloto\Engine\IO\Console\Console::syncDimensions(80, 24);
+        \Ichiloto\Engine\Util\Config\ConfigStore::put(\Ichiloto\Engine\Util\Config\PlaySettings::class,
+            new \Ichiloto\Engine\Util\Config\PlaySettings(['width' => 80, 'height' => 24]));
+        \Ichiloto\Engine\IO\InputManager::setBindings([
+            'confirm' => ['keys' => [\Ichiloto\Engine\IO\Enumerations\KeyCode::x]],
+            'cancel' => ['keys' => [\Ichiloto\Engine\IO\Enumerations\KeyCode::c]],
+            'pause' => ['keys' => [\Ichiloto\Engine\IO\Enumerations\KeyCode::P]],
+        ]);
+        new ReflectionProperty(\Ichiloto\Engine\Events\EventManager::class, 'instance')->setValue(null, null);
+        $this->interpreter = new EventInterpreter($this->scene, $this->presentation);
+        $this->interpreter->run([['type' => 'play_skit', 'skit' => 'selected'],
+            ['type' => 'set_switch', 'name' => 'after']]);
+        $this->interpreter->update(0);
+        $this->titles = 0;
+        $this->quits = 0;
+        $this->redraws = 0;
+        $this->menu = new ScriptedPauseMenuProbe($this->game, $this->interpreter,
+            function () { ++$this->titles; }, function () { ++$this->quits; }, function () { ++$this->redraws; });
+        $this->choose = function (int $index): void {
+            $this->menu->getModal()->setActiveButton($index);
+            \Ichiloto\Engine\IO\InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource(
+                \Ichiloto\Engine\IO\Enumerations\KeyCode::x));
+            \Ichiloto\Engine\IO\InputManager::handleInput();
+            $this->menu->update();
+        };
+    });
+    afterEach(function () {
+        $this->menu->close();
+        $this->interpreter->failActiveSession('End pause-menu fixture');
+        foreach ($this->pauseUiGlobals as $class => $properties) {
+            foreach ($properties as $key => $value) { new ReflectionProperty($class, $key)->setValue(null, $value); }
+        }
+    });
+
+    it('resumes the same Skit after Cancel and keeps Exit cancellation inside the pause menu', function () {
+        $shown = $this->presentation->shown;
+        expect($this->menu->open())->toBeTrue()->and($this->menu->open())->toBeFalse()
+            ->and($this->menu->getModal()->getModalPresentation()->choices)->toBe(['Skip', 'Exit', 'Cancel']);
+        ($this->choose)(1);
+        expect($this->menu->getModal()->getModalPresentation()->choices)->toBe(['To Title', 'Quit Game', 'Cancel'])
+            ->and($this->interpreter->isPlaybackPaused)->toBeTrue();
+        ($this->choose)(2);
+        expect($this->menu->isOpen)->toBeTrue()->and($this->interpreter->isPlaybackPaused)->toBeTrue()
+            ->and($this->menu->getModal()->getModalPresentation()->choices)->toBe(['Skip', 'Exit', 'Cancel']);
+        ($this->choose)(2);
+        expect($this->menu->isOpen)->toBeFalse()->and($this->interpreter->isPlaybackPaused)->toBeFalse()
+            ->and($this->presentation->shown)->toBe($shown)->and($this->titles)->toBe(0)->and($this->quits)->toBe(0)
+            ->and($this->scene->gameState->hasStoryEvent('skit_seen:selected'))->toBeFalse();
+    });
+
+    it('skips once through the real shared selection modal', function () {
+        $this->menu->open();
+        ($this->choose)(0);
+        expect($this->menu->isOpen)->toBeFalse()->and($this->scene->gameState->getSwitch('after'))->toBeTrue()
+            ->and($this->scene->gameState->hasStoryEvent('skit_seen:selected'))->toBeTrue()
+            ->and($this->game->audioManager->released)->toBe(1)->and($this->redraws)->toBe(1);
+        $this->menu->update();
+        expect($this->game->audioManager->released)->toBe(1);
+    });
+
+    it('exits through the selected continuation without consuming the unfinished Skit', function (int $choice) {
+        $this->menu->open();
+        ($this->choose)(1);
+        ($this->choose)($choice);
+        expect($this->menu->isOpen)->toBeFalse()->and($this->interpreter->isPlaybackPaused)->toBeFalse()
+            ->and($this->scene->gameState->hasStoryEvent('skit_seen:selected'))->toBeFalse()
+            ->and($this->scene->gameState->getSwitch('after'))->toBeFalse()
+            ->and($this->titles)->toBe($choice === 0 ? 1 : 0)->and($this->quits)->toBe($choice === 1 ? 1 : 0)
+            ->and($this->scene->skitManager->isPlaying)->toBeFalse();
+    })->with([0, 1]);
+
+    it('repositions the pause modal on resize and leaves a later session alone', function () {
+        $this->menu->open();
+        $this->menu->getModal()->setActiveButton(1);
+        \Ichiloto\Engine\IO\Console\Console::syncDimensions(24, 20);
+        \Ichiloto\Engine\Util\Config\ConfigStore::put(\Ichiloto\Engine\Util\Config\PlaySettings::class,
+            new \Ichiloto\Engine\Util\Config\PlaySettings(['width' => 24, 'height' => 20]));
+        $this->menu->update();
+        $bounds = $this->menu->getModal()->getPresentationBounds();
+        expect($bounds->getX())->toBeGreaterThanOrEqual(0)
+            ->and($bounds->getX() + $bounds->getWidth())->toBeLessThanOrEqual(24)
+            ->and($this->menu->getModal()->getActiveIndex())->toBe(1);
+        $this->interpreter->failActiveSession('Synthetic abandoned session');
+        $this->interpreter->run([['type' => 'wait', 'seconds' => 10]]);
+        $this->interpreter->pausePlayback();
+        $this->menu->update();
+        expect($this->menu->isOpen)->toBeFalse()->and($this->interpreter->isPlaybackPaused)->toBeTrue();
+    });
+
+    it('opens from the rebound semantic pause action before field objects can advance', function () {
+        new ReflectionProperty(GameScene::class, 'eventInterpreter')->setValue($this->scene, $this->interpreter);
+        new ReflectionProperty(GameScene::class, 'state')->setValue($this->scene,
+            new \Ichiloto\Engine\Scenes\Game\States\FieldState(new \Ichiloto\Engine\Scenes\SceneStateContext($this->scene)));
+        \Ichiloto\Engine\IO\InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource(
+            \Ichiloto\Engine\IO\Enumerations\KeyCode::P));
+        \Ichiloto\Engine\IO\InputManager::handleInput();
+        $this->scene->update();
+        $menu = new ReflectionProperty(GameScene::class, 'eventPauseMenu')->getValue($this->scene);
+        expect($menu->isOpen)->toBeTrue()->and($this->interpreter->isPlaybackPaused)->toBeTrue();
+        $menu->close();
+    });
+});

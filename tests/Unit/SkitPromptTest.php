@@ -48,48 +48,70 @@ final class SkitPromptUIProbe extends UIManager
 
 final class SkitPromptManagerProbe extends SkitManager
 {
-  public array $played = [];
   public bool $fail = false;
-  public bool $hiddenDuringPlay = false;
-  public bool $reentryPrevented = false;
   public function __construct(GameScene $scene, array $skits) { $this->gameScene = $scene; $this->skits = $skits; }
-  protected function play(string $skitId, array $skit): void
+  protected function preparePlaybackPlan(string $skitId, array $skit): \Ichiloto\Engine\Field\SkitPlaybackPlan
   {
-    $this->hiddenDuringPlay = $this->getAvailablePrompt() === null;
-    $this->reentryPrevented = !$this->playNextAvailableSkit();
     if ($this->fail) { throw new RuntimeException('Interrupted'); }
-    $this->played[] = $skitId;
-    $this->gameScene->gameState->recordStoryEvent('skit_seen:' . $skitId);
+    return new \Ichiloto\Engine\Field\SkitPlaybackPlan($skitId, array_map(static fn($beat) => [
+      'text' => $beat['text'], 'speaker' => '', 'voicePath' => null,
+      'presentation' => new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext(),
+    ], $skit['beats']), 60, 1, []);
   }
+}
+
+final class SkitPromptPlaybackScene extends GameScene
+{
+  private \Tests\Support\PassiveGame $probeGame;
+  public function __construct()
+  {
+    $this->probeGame = new \Tests\Support\PassiveGame();
+    $this->gameState = new GameState();
+    $this->party = new Party();
+    $this->currentMapId = 'test/field';
+    $presentation = new class implements \Ichiloto\Engine\Events\Interpreter\EventPlayedDialoguePresentationInterface {
+      public function beginText(string $text, string $speaker): void {}
+      public function beginDialogue(string $text, string $speaker, \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext $context): void {}
+      public function beginPlayedDialogue(string $text, string $speaker, \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext $context,
+        \Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback $playback, float $charactersPerSecond): void {}
+      public function beginChoice(string $prompt, array $options, string $title = ''): void {}
+      public function update(): void {}
+      public function render(): void {}
+      public function isComplete(): bool { return true; }
+      public function choiceResult(): ?int { return null; }
+      public function reset(): void {}
+    };
+    $this->eventInterpreter = new \Ichiloto\Engine\Events\Interpreter\EventInterpreter($this, $presentation);
+  }
+  public function getGame(): \Ichiloto\Engine\Core\Game { return $this->probeGame; }
+  public function setSkitManager(SkitManager $manager): void { $this->skitManager = $manager; }
+  public function onEventSessionStarted(\Ichiloto\Engine\Events\Interpreter\EventExecutionSession $session): void {}
+  public function onEventSessionFinished(\Ichiloto\Engine\Events\Interpreter\EventExecutionSession $session, bool $completed): void {}
 }
 
 beforeEach(function () {
   $this->saved = [];
-  foreach ([Console::class, InputManager::class, ActionHints::class, Time::class] as $class) {
+  foreach ([Console::class, InputManager::class, ActionHints::class, Time::class, \Ichiloto\Engine\Util\Debug::class] as $class) {
     $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
   }
   Console::setTerminalOutputEnabled(false);
   Console::syncDimensions(80, 24);
-  $this->root = sys_get_temp_dir() . '/skit-prompt-' . bin2hex(random_bytes(5));
-  mkdir($this->root);
+  $this->root = createTestDirectory('skit-prompt-');
+  \Ichiloto\Engine\Util\Debug::configure(['log_directory' => $this->root]);
   writeTestPng($this->root . '/Panel.png', 48, 48);
-  $this->scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
-  foreach (['gameState' => new GameState(), 'party' => new Party(), 'currentMapId' => 'test/field'] as $name => $value) {
-    new ReflectionProperty(GameScene::class, $name)->setValue($this->scene, $value);
-  }
+  $this->scene = new SkitPromptPlaybackScene();
   $this->manager = new SkitPromptManagerProbe($this->scene, [
     'first' => ['title' => 'First conversation', 'where' => 'test/field',
       'conditions' => [['type' => 'switch', 'name' => 'ready']], 'beats' => [['text' => 'One']]],
     'next' => ['title' => 'Next conversation', 'where' => 'test/field', 'beats' => [['text' => 'Two']]],
   ]);
+  $this->scene->setSkitManager($this->manager);
 });
 
 afterEach(function () {
   foreach ($this->saved as $class => $properties) {
     foreach ($properties as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
   }
-  unlink($this->root . '/Panel.png');
-  rmdir($this->root);
 });
 
 it('reads live gates and playback order without a notification timer or consuming seen state', function () {
@@ -99,19 +121,24 @@ it('reads live gates and playback order without a notification timer or consumin
   expect($this->manager->getAvailablePrompt()->id)->toBe('first')
     ->and($this->scene->gameState->hasStoryEvent('skit_seen:first'))->toBeFalse();
   expect($this->manager->playNextAvailableSkit())->toBeTrue()
-    ->and($this->manager->played)->toBe(['first'])
-    ->and($this->manager->hiddenDuringPlay)->toBeTrue()->and($this->manager->reentryPrevented)->toBeTrue()
-    ->and($this->manager->getAvailablePrompt()->id)->toBe('next');
+    ->and($this->manager->isPlaying)->toBeTrue()->and($this->manager->getAvailablePrompt())->toBeNull()
+    ->and($this->manager->playNextAvailableSkit())->toBeFalse()
+    ->and($this->scene->gameState->hasStoryEvent('skit_seen:first'))->toBeFalse();
+  $this->scene->eventInterpreter->update(0);
+  $this->scene->eventInterpreter->update(0);
+  expect($this->manager->getAvailablePrompt()->id)->toBe('next');
   new ReflectionProperty(GameScene::class, 'currentMapId')->setValue($this->scene, 'other/map');
   expect($this->manager->getAvailablePrompt())->toBeNull();
   new ReflectionProperty(GameScene::class, 'currentMapId')->setValue($this->scene, 'test/field');
   $this->manager->playNextAvailableSkit();
+  $this->scene->eventInterpreter->update(0);
+  $this->scene->eventInterpreter->update(0);
   expect($this->manager->getAvailablePrompt())->toBeNull();
 });
 
 it('restores availability after interrupted playback without marking it seen', function () {
   $this->manager->fail = true;
-  expect(fn() => $this->manager->playNextAvailableSkit())->toThrow(RuntimeException::class, 'Interrupted');
+  expect($this->manager->playNextAvailableSkit())->toBeFalse();
   expect($this->manager->isPlaying)->toBeFalse()->and($this->manager->getAvailablePrompt()->id)->toBe('next')
     ->and($this->scene->gameState->hasStoryEvent('skit_seen:next'))->toBeFalse();
 });

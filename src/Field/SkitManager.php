@@ -7,7 +7,6 @@ use Assegai\Util\Path;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Events\Interpreter\EventPlayedDialoguePresentationInterface;
 use Ichiloto\Engine\Field\Enumerations\SkitTrigger;
-use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationCatalog;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -135,22 +134,15 @@ class SkitManager
     return null;
   }
 
-  /**
-   * Plays the first available skit.
-   *
-   * @return bool True when a skit played.
-   */
+  /** Starts the first available prompt on the same cooperative path as story Skits. */
   public function playNextAvailableSkit(): bool
   {
-    if ($this->isPlaying) { return false; }
-    foreach ($this->availableSkits() as $skitId => $skit) {
-      $this->isPlaying = true;
-      try { $this->play($skitId, $skit); }
-      finally { $this->isPlaying = false; }
-      return true;
-    }
-
-    return false;
+    if ($this->isPlaying || $this->gameScene->hasUnstableEventSession()) { return false; }
+    $prompt = $this->getAvailablePrompt();
+    if ($prompt === null) { return false; }
+    $session = $this->gameScene->startEventScript([['type' => 'play_skit', 'skit' => $prompt->id]],
+      'skit:' . $prompt->id);
+    return $session !== null && $session->status !== \Ichiloto\Engine\Events\Interpreter\EventExecutionStatus::FAILED;
   }
 
   /**
@@ -180,37 +172,6 @@ class SkitManager
       });
     $this->isPlaying = true;
     return $operation;
-  }
-
-  /**
-   * Plays one skit and marks it seen.
-   *
-   * @param string $skitId The skit id.
-   * @param array<string, mixed> $skit The skit definition.
-   * @return void
-   */
-  protected function play(string $skitId, array $skit): void
-  {
-    $plan = $this->preparePlaybackPlan($skitId, $skit);
-    $game = $this->gameScene->getGame();
-    $audio = isset($game->audioManager) ? $game->audioManager : null;
-    $playback = new DialoguePlayback($audio);
-    $playback->beginConversation();
-    try {
-      if (isset($plan->sounds['open'])) { $audio?->playSoundEffect($plan->sounds['open']); }
-      foreach ($plan->beats as $beat) {
-        if ($game->hasStopped()) { return; }
-        $playback->beginLine($beat['voicePath'], $plan->musicDuck);
-        try { $this->showBeat($beat, $plan->speed, $playback); }
-        finally { $playback->finishLine(); }
-      }
-      if (!$game->hasStopped()) { $this->gameScene->gameState->recordStoryEvent(EngineStoryEvent::SKIT_SEEN->getName($skitId)); }
-    } finally {
-      try { $playback->finishConversation(); }
-      finally {
-        if (!$game->hasStopped() && isset($plan->sounds['close'])) { $audio?->playSoundEffect($plan->sounds['close']); }
-      }
-    }
   }
 
   protected function preparePlaybackPlan(string $skitId, array $skit): SkitPlaybackPlan
@@ -254,12 +215,6 @@ class SkitManager
     }
     if ($beats === []) { throw new RuntimeException("Skit '{$skitId}' requires at least one dialogue beat."); }
     return new SkitPlaybackPlan($skitId, $beats, $speed, $duck, $sounds);
-  }
-
-  protected function showBeat(array $beat, float $speed, DialoguePlayback $playback): void
-  {
-    show_text(strval($beat['text'] ?? ''), strval($beat['speaker'] ?? ''),
-      charactersPerSecond: $speed, playback: $playback, presentation: $beat['presentation'] ?? null);
   }
 
   /**
