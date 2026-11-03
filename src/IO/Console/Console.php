@@ -608,7 +608,8 @@ class Console
       self::$terminalViewportDirty = false;
       self::$terminalOffsetX = self::$terminalOffsetY = 0;
       self::closeTerminalOutputStream();
-    } elseif (self::$output !== null) {
+    } else {
+      self::$output ??= new ConsoleOutput();
       self::openTerminalOutputStream();
     }
   }
@@ -637,16 +638,22 @@ class Console
     'height' => DEFAULT_SCREEN_HEIGHT,
   ]): void
   {
-    $availableSize = self::getAvailableSize();
+    // A buffer-only host owns its declared geometry, without acquiring a physical output device.
+    $availableSize = self::$terminalOutputEnabled ? self::getAvailableSize() : [
+      'width' => $options['width'] ?? DEFAULT_SCREEN_WIDTH,
+      'height' => $options['height'] ?? DEFAULT_SCREEN_HEIGHT,
+    ];
 
     self::$game = $game;
     self::$terminalHandedBack = false;
     Console::cursor()->disableBlinking();
     self::$width = intval($options['width'] ?? $availableSize['width']);
     self::$height = intval($options['height'] ?? $availableSize['height']);
-    self::syncTerminalViewport($availableSize['width'], $availableSize['height'], repaint: false);
-    self::$output = new ConsoleOutput();
-    self::openTerminalOutputStream();
+    if (self::$terminalOutputEnabled) {
+      self::syncTerminalViewport($availableSize['width'], $availableSize['height'], repaint: false);
+      self::$output ??= new ConsoleOutput();
+      self::openTerminalOutputStream();
+    }
     self::clear();
   }
 
