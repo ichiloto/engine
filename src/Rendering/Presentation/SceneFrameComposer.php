@@ -13,6 +13,8 @@ use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePageLayout;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueScenePresentation;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
+use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
+use Ichiloto\Engine\UI\Modal\StorybookReadingCapacity;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
@@ -146,6 +148,12 @@ final class SceneFrameComposer
   public function getDialoguePageLayout(string $speaker, DialogueContext $context, string $help, int $width): ?DialoguePageLayout
   {
     return $this->dialogue->getPageLayout($speaker, $context, $help, $width);
+  }
+
+  /** The themed storybook frame's prose area on a surface; null when scene owners keep their Terminal cells. */
+  public function getStorybookReadingCapacity(StorybookDefinition $book, int $width, int $height): ?StorybookReadingCapacity
+  {
+    return $this->dialogue->getStorybookReadingCapacity($book, $width, $height);
   }
 
   /**

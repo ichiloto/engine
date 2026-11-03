@@ -70,6 +70,8 @@ final class MenuModalPresentation
   public static function compose(PresentationCanvas $base, ModalPresentation $modal,
     MenuPresentationCatalog $theme, float $time = 0, ?string $ownerLayerId = null): PresentationCanvas
   {
+    // A reader snapshot keeps its own full reading frame, measured by the same layout that negotiated it.
+    if ($modal->storybook !== null) { return StorybookCanvasPresentation::compose($base, $modal, $theme, $time, $ownerLayerId); }
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $gap = $m->sectionGap;

@@ -7,6 +7,8 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePageLayout;
+use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
+use Ichiloto\Engine\UI\Modal\StorybookReadingCapacity;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
@@ -295,6 +297,21 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     $width = min($this->grid->columns * $this->grid->cellWidth,
       PresentationCanvas::DEFAULT_WIDTH);
     return $this->frameComposer->getDialoguePageLayout($speaker, $context, $help, $width);
+  }
+
+  /**
+   * Negotiate a storybook's prose area before the shared reader opens; the renderer never pages narration.
+   * A host passes the logical surface its modals compose over (a battle's arena canvas); the field grid otherwise.
+   * Null when no themed graphical projection draws the reader, so the Terminal reader alone sets capacity.
+   */
+  public function getStorybookReadingCapacity(StorybookDefinition $book, ?int $width = null, ?int $height = null): ?StorybookReadingCapacity
+  {
+    if ($this->grid === null || !$this->supports(RendererSessionConfig::GRAPHICAL_CANVAS)
+      || !$this->supports(RendererSessionConfig::CANVAS_CLIP_OPACITY) || !$this->supports(RendererSessionConfig::SPRITE_SOURCE_RECT)) {
+      return null;
+    }
+    return $this->frameComposer->getStorybookReadingCapacity($book, $width ?? $this->grid->columns * $this->grid->cellWidth,
+      $height ?? $this->grid->rows * $this->grid->cellHeight);
   }
 
   public function shutdown(): ?int
