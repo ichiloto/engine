@@ -72,6 +72,14 @@ final class SkitPlaybackOperation implements EventPendingOperationInterface
         return false;
     }
 
+    /** Skip consumes this conversation once; cancelling an event leaves it retryable. */
+    public function skip(): bool
+    {
+        if ($this->finished) { return false; }
+        $this->finish(true);
+        return true;
+    }
+
     public function cancel(): void
     {
         $this->finish(false);

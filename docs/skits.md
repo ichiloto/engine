@@ -68,9 +68,13 @@ finalizers. Closing a storybook retains its existing read-only behavior.
 The shared clock/audio foundation is implemented: `TextBoxModal::pausePlayback()`
 freezes typing and input, and `resumePlayback()` excludes suspended time from its
 typing deadline and `DialoguePlayback` Auto-reading timer. Audio pause leases
-preserve current player positions and ownership. The menu, cooperative field cue
-migration, interpreter pause/skip lifecycle, field animation freeze and title/quit
-cleanup remain implementation work. Runtime Skits do not offer the menu yet.
+preserve current player positions and ownership. The interpreter now freezes all cooperative lanes, resumes the same presentation
+owner and releases the audio lease on completion or failure. Skipping the visible
+Skit commits its seen outcome once and continues its enclosing script; an enclosing
+cinematic keeps its own safe-skip policy. Suspended battles retain ownership.
+Paused field presentation does not advance its animation clock and reports paused
+active play. The menu, cooperative field cue migration and title/quit wiring
+remain implementation work. Runtime Skits do not offer the menu yet.
 
 ### Story-selected Skits And Lifecycle Sounds
 

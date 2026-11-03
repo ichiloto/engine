@@ -21,6 +21,8 @@ use Ichiloto\Engine\Animations\AnimationLibrary;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Audio\CinematicMusicOperation;
+use Ichiloto\Engine\Audio\AudioPlaybackPause;
+use Ichiloto\Engine\Field\SkitPlaybackOperation;
 use Ichiloto\Engine\Audio\CinematicMusicRequest;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandContext;
@@ -55,6 +57,9 @@ class EventInterpreter
   public const array COMMAND_TYPES = CinematicCommandSchema::COMMAND_TYPES;
 
   protected ?EventExecutionSession $activeSession = null;
+  protected(set) bool $isPlaybackPaused = false;
+  private ?AudioPlaybackPause $audioPause = null;
+  private ?EventPausablePresentationInterface $pausedPresentation = null;
   /** Where sessions run: the field scene unless another host is given. */
   protected EventExecutionHostInterface $host;
   protected(set) ?EventExecutionSession $lastSession = null;
@@ -172,7 +177,7 @@ class EventInterpreter
       return;
     }
 
-    if ($session->status === EventExecutionStatus::SUSPENDED) {
+    if ($session->status === EventExecutionStatus::SUSPENDED || $this->isPlaybackPaused) {
       return;
     }
 
@@ -329,6 +334,7 @@ class EventInterpreter
     }
 
     try {
+      $this->resumePlayback();
       $this->presentation->reset();
 
       if (! $session->startFinalizerIfNeeded()) {
@@ -348,6 +354,83 @@ class EventInterpreter
     }
 
     return true;
+  }
+
+  /** A battle or transfer owns its suspended session; the field cannot pause it. */
+  public function canPausePlayback(): bool
+  {
+    return $this->activeSession !== null
+      && in_array($this->activeSession->status, [EventExecutionStatus::RUNNING, EventExecutionStatus::YIELDED], true)
+      && $this->presentation instanceof EventPausablePresentationInterface;
+  }
+
+  public function pausePlayback(?float $now = null): bool
+  {
+    if ($this->isPlaybackPaused || !$this->canPausePlayback()) { return false; }
+    $presentation = $this->presentation;
+    if (!$presentation instanceof EventPausablePresentationInterface) { return false; }
+    $game = $this->gameScene->getGame();
+    $pause = isset($game->audioManager) ? $game->audioManager->pausePlayback() : null;
+    try {
+      $presentation->pausePlayback($now ?? microtime(true));
+      $this->pausedPresentation = $presentation;
+      $this->audioPause = $pause;
+      $this->isPlaybackPaused = true;
+    } catch (Throwable $error) {
+      foreach ([fn() => $presentation->resumePlayback($now ?? microtime(true)), fn() => $pause?->close()] as $cleanup) {
+        try { $cleanup(); }
+        catch (Throwable $failure) { Debug::warn('Event pause rollback failed: ' . $failure->getMessage()); }
+      }
+      throw $error;
+    }
+    return true;
+  }
+
+  public function resumePlayback(?float $now = null): void
+  {
+    if (!$this->isPlaybackPaused) { return; }
+    $this->isPlaybackPaused = false;
+    $pause = $this->audioPause;
+    $presentation = $this->pausedPresentation;
+    $this->audioPause = null;
+    $this->pausedPresentation = null;
+    try { $presentation?->resumePlayback($now ?? microtime(true)); }
+    finally { $pause?->close(); }
+  }
+
+  /** The currently displayed Skit has priority over its enclosing cinematic. */
+  public function canSkipPlayback(): bool
+  {
+    $session = $this->activeSession;
+    if ($session === null || $session->status === EventExecutionStatus::SUSPENDED) { return false; }
+    if ($this->findSkitLane($session->rootLane()) !== null) { return true; }
+    return $session->cinematic?->skipPolicy === 'authored'
+      && $session->cinematic->finalizer !== [] && !$session->isFinalizing;
+  }
+
+  public function skipActivePlayback(): bool
+  {
+    if (!$this->canSkipPlayback()) { return false; }
+    $this->resumePlayback();
+    $session = $this->activeSession;
+    if ($session === null) { return false; }
+    $lane = $this->findSkitLane($session->rootLane());
+    if ($lane !== null && $lane->pendingOperation instanceof SkitPlaybackOperation) {
+      $skipped = $lane->pendingOperation->skip();
+      $this->update(0.0);
+      return $skipped;
+    }
+    return $this->skipActiveCinematic();
+  }
+
+  private function findSkitLane(EventExecutionLane $lane): ?EventExecutionLane
+  {
+    if ($lane->pendingOperation instanceof SkitPlaybackOperation) { return $lane; }
+    foreach ($lane->parallelGroup?->lanes() ?? [] as $child) {
+      $found = $this->findSkitLane($child);
+      if ($found !== null) { return $found; }
+    }
+    return null;
   }
 
   public function hasActiveSession(): bool
@@ -1100,6 +1183,7 @@ class EventInterpreter
     }
 
     try {
+      $this->resumePlayback();
       $session->completionTarget?->onEventSessionCompleted($this->gameScene, $session);
     } catch (Throwable $throwable) {
       $this->fail(sprintf('Event completion failed: %s', $throwable->getMessage()), $throwable);
@@ -1124,6 +1208,7 @@ class EventInterpreter
     // Mark failure before invoking user-owned cancellation; preserve identity until the
     // completion target has released its cinematic ownership, even when cleanup throws.
     foreach ([
+      'release playback pause' => fn() => $this->resumePlayback(),
       'cancel operations' => fn() => $session->fail($message),
       'release lanes' => fn() => $session->cancelLanes(),
       'reset presentation' => fn() => $this->presentation->reset(),

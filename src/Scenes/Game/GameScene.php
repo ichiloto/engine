@@ -1321,6 +1321,10 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         if ($this->isStopping) {
             return;
         }
+        if ($this->eventInterpreter?->isPlaybackPaused ?? false) {
+            $this->eventInterpreter->renderPresentation();
+            return;
+        }
         if ($this->configuringSavedGame || $this->resumingSavedGame) { return; }
         if ($this->savedGameResumeFailure !== null) { throw $this->savedGameResumeFailure; }
         if ($this->pendingSavedGameResume !== null) {
@@ -1373,7 +1377,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         if (!is_finite($seconds) || $seconds < 0.0) {
             throw new \InvalidArgumentException('Field presentation seconds must be finite and nonnegative.');
         }
-        if ($this->isStopping) { return; }
+        if ($this->isStopping || ($this->eventInterpreter?->isPlaybackPaused ?? false)) { return; }
         $this->player?->advanceGraphicalAnimation($seconds);
         $this->npcManager?->advanceGraphicalAnimation($seconds);
         $this->cinematicStage?->advanceGraphicalAnimation($seconds);
@@ -1890,7 +1894,8 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     /** @inheritDoc */
     public function getPlayActivity(): PlayActivity
     {
-        if (ModalManager::getInstance($this->getGame())->currentModal !== null) {
+        if (($this->eventInterpreter?->isPlaybackPaused ?? false)
+            || ModalManager::getInstance($this->getGame())->currentModal !== null) {
             return PlayActivity::PAUSED;
         }
         return match (true) {

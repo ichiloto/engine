@@ -59,19 +59,29 @@ final class ScriptedSkitScene extends GameScene
     public function onEventSessionFinished(EventExecutionSession $session, bool $completed): void {}
 }
 
-final class ScriptedSkitPresentation implements EventPlayedDialoguePresentationInterface
+final class ScriptedSkitPresentation implements EventPlayedDialoguePresentationInterface, \Ichiloto\Engine\Events\Interpreter\EventPausablePresentationInterface
 {
     public array $shown = [];
     public bool $complete = false;
     public bool $failUpdate = false;
+    public bool $failPause = false;
     public int $resets = 0;
+    public int $updates = 0;
+    public array $pauseTimes = [];
+    public array $resumeTimes = [];
+    public function pausePlayback(float $now): void
+    {
+        $this->pauseTimes[] = $now;
+        if ($this->failPause) { throw new RuntimeException('Synthetic pause failure'); }
+    }
+    public function resumePlayback(float $now): void { $this->resumeTimes[] = $now; }
     public function beginText(string $text, string $speaker): void {}
     public function beginDialogue(string $text, string $speaker, DialogueContext $context): void {}
     public function beginPlayedDialogue(string $text, string $speaker, DialogueContext $context,
         DialoguePlayback $playback, float $charactersPerSecond): void
     { $this->shown[] = [$text, $speaker, $context, $playback, $charactersPerSecond]; $this->complete = false; }
     public function beginChoice(string $prompt, array $options, string $title = ''): void {}
-    public function update(): void { if ($this->failUpdate) { throw new RuntimeException('Synthetic presentation failure'); } }
+    public function update(): void { ++$this->updates; if ($this->failUpdate) { throw new RuntimeException('Synthetic presentation failure'); } }
     public function render(): void {}
     public function isComplete(): bool { return $this->complete; }
     public function choiceResult(): ?int { return null; }
@@ -288,4 +298,115 @@ it('uses the shared location names in Skit context while preserving authored pla
     expect($this->presentation->shown[0][2]->location)->toBe('Synthetic Port')
         ->and($this->scene->party->location->region)->toBe('Synthetic Port');
     $operation->cancel();
+});
+
+
+it('freezes a cooperative Skit and parallel wait, resumes the same beat, and releases a cancelled pause', function () {
+    $interpreter = new EventInterpreter($this->scene, $this->presentation);
+    $session = $interpreter->run([['type' => 'parallel', 'lanes' => [
+        ['id' => 'speech', 'commands' => [['type' => 'play_skit', 'skit' => 'selected']]],
+        ['id' => 'timer', 'commands' => [['type' => 'wait', 'seconds' => 1],
+            ['type' => 'set_switch', 'name' => 'timer_done']]],
+    ]], ['type' => 'set_switch', 'name' => 'after']]);
+    $interpreter->update(0);
+    $interpreter->update(0);
+    expect($this->presentation->shown)->toHaveCount(1);
+    $shown = $this->presentation->shown;
+    $updates = $this->presentation->updates;
+    expect($interpreter->pausePlayback(10))->toBeTrue()->and($interpreter->pausePlayback(20))->toBeFalse();
+    $interpreter->update(120);
+    expect($this->presentation->shown)->toBe($shown)->and($this->presentation->updates)->toBe($updates)
+        ->and($this->scene->gameState->getSwitch('timer_done'))->toBeFalse()
+        ->and($this->scene->gameState->hasStoryEvent('skit_seen:selected'))->toBeFalse();
+    $interpreter->resumePlayback(110);
+    $interpreter->resumePlayback(120);
+    expect($this->presentation->pauseTimes)->toBe([10.0])->and($this->presentation->resumeTimes)->toBe([110.0]);
+    $interpreter->update(0.5);
+    expect($this->presentation->shown)->toBe($shown)->and($this->scene->gameState->getSwitch('timer_done'))->toBeFalse();
+    expect($interpreter->pausePlayback())->toBeTrue();
+    $interpreter->failActiveSession('Synthetic exit to title');
+    expect($session->status)->toBe(EventExecutionStatus::FAILED)
+        ->and($interpreter->isPlaybackPaused)->toBeFalse()
+        ->and($this->presentation->resumeTimes)->toHaveCount(2)
+        ->and($this->scene->gameState->hasStoryEvent('skit_seen:selected'))->toBeFalse()
+        ->and($this->scene->gameState->getSwitch('after'))->toBeFalse()
+        ->and($this->scene->skitManager->isPlaying)->toBeFalse();
+});
+
+it('skips only the current Skit and applies its enclosing outcomes once', function () {
+    $interpreter = new EventInterpreter($this->scene, $this->presentation);
+    $session = $interpreter->run([['type' => 'play_skit', 'skit' => 'selected'],
+        ['type' => 'set_variable', 'name' => 'completed', 'op' => 'add', 'value' => 1]]);
+    $interpreter->update(0);
+    $interpreter->pausePlayback();
+    expect($interpreter->canSkipPlayback())->toBeTrue()->and($interpreter->skipActivePlayback())->toBeTrue()
+        ->and($session->status)->toBe(EventExecutionStatus::COMPLETED)
+        ->and($interpreter->isPlaybackPaused)->toBeFalse()
+        ->and($this->scene->gameState->hasStoryEvent('skit_seen:selected'))->toBeTrue()
+        ->and($this->scene->gameState->getVariable('completed'))->toBe(1)
+        ->and($this->presentation->shown)->toHaveCount(1)
+        ->and($this->game->audioManager->released)->toBe(1);
+    expect($interpreter->skipActivePlayback())->toBeFalse();
+    $interpreter->update(999);
+    expect($this->scene->gameState->getVariable('completed'))->toBe(1);
+});
+
+
+it('counts a paused field event as paused play and protects the unadvanced field presentation', function () {
+    $interpreter = new EventInterpreter($this->scene, $this->presentation);
+    new ReflectionProperty(GameScene::class, 'eventInterpreter')->setValue($this->scene, $interpreter);
+    $field = new \Ichiloto\Engine\Scenes\Game\States\FieldState(new \Ichiloto\Engine\Scenes\SceneStateContext($this->scene));
+    new ReflectionProperty(GameScene::class, 'state')->setValue($this->scene, $field);
+    $interpreter->run([['type' => 'play_skit', 'skit' => 'selected']]);
+    $interpreter->pausePlayback();
+    expect($this->scene->getPlayActivity())->toBe(\Ichiloto\Engine\Core\PlayActivity::PAUSED);
+    // No player, camera or map is installed: a paused presentation must touch none of them.
+    $this->scene->advanceFieldPresentation(100);
+    $this->scene->update();
+    $interpreter->failActiveSession('End paused field fixture');
+});
+
+
+it('skips a displayed Skit without bypassing an enclosing cinematic that forbids whole-scene skip', function () {
+    $cinematic = \Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition::fromArrays([
+        'id' => 'synthetic-skit-cinematic', 'name' => 'Synthetic sequence', 'skip' => ['policy' => 'forbidden'],
+    ], [['type' => 'play_skit', 'skit' => 'selected'], ['type' => 'wait', 'seconds' => 10],
+        ['type' => 'set_switch', 'name' => 'after']]);
+    $interpreter = new EventInterpreter($this->scene, $this->presentation);
+    $session = $interpreter->runCinematic($cinematic);
+    $interpreter->update(0);
+    $interpreter->pausePlayback();
+    expect($interpreter->skipActivePlayback())->toBeTrue()
+        ->and($this->scene->gameState->hasStoryEvent('skit_seen:selected'))->toBeTrue()
+        ->and($session->status)->toBe(EventExecutionStatus::YIELDED)
+        ->and($session->pendingCommand['type'])->toBe('wait')
+        ->and($this->scene->gameState->getSwitch('after'))->toBeFalse()
+        ->and($interpreter->canSkipPlayback())->toBeFalse();
+    $interpreter->failActiveSession('End enclosing-cinematic fixture');
+});
+
+it('leaves suspended battle ownership intact when field pause or skip is requested', function () {
+    $interpreter = new EventInterpreter($this->scene, $this->presentation);
+    $session = $interpreter->start([['type' => 'wait', 'seconds' => 10]]);
+    $session->suspendFor(['type' => 'start_battle']);
+    expect($interpreter->canPausePlayback())->toBeFalse()->and($interpreter->pausePlayback())->toBeFalse()
+        ->and($interpreter->canSkipPlayback())->toBeFalse()->and($interpreter->skipActivePlayback())->toBeFalse()
+        ->and($session->status)->toBe(EventExecutionStatus::SUSPENDED);
+    $interpreter->failActiveSession('End suspended owner fixture');
+});
+
+
+it('releases a failed presentation pause without advancing its beat or retaining an audio owner', function () {
+    $interpreter = new EventInterpreter($this->scene, $this->presentation);
+    $interpreter->run([['type' => 'play_skit', 'skit' => 'selected']]);
+    $interpreter->update(0);
+    $this->presentation->failPause = true;
+    expect(fn() => $interpreter->pausePlayback(10))->toThrow(RuntimeException::class, 'Synthetic pause failure')
+        ->and($interpreter->isPlaybackPaused)->toBeFalse()
+        ->and($this->presentation->resumeTimes)->toBe([10.0])
+        ->and(new ReflectionProperty(AudioManager::class, 'pauseOwners')->getValue($this->game->audioManager))->toBeEmpty()
+        ->and($this->scene->gameState->hasStoryEvent('skit_seen:selected'))->toBeFalse();
+    $this->presentation->failPause = false;
+    expect($interpreter->pausePlayback(20))->toBeTrue();
+    $interpreter->failActiveSession('End failed-pause fixture');
 });

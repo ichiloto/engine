@@ -19,7 +19,7 @@ use RuntimeException;
  * field or a battle. Graphical renderers compose the same modals over the
  * host scene's canvas.
  */
-final class ModalEventPresentation implements EventPlayedDialoguePresentationInterface, EventStorybookPresentationInterface
+final class ModalEventPresentation implements EventPlayedDialoguePresentationInterface, EventStorybookPresentationInterface, EventPausablePresentationInterface
 {
   protected ?ModalInterface $modal = null;
 
@@ -90,6 +90,16 @@ final class ModalEventPresentation implements EventPlayedDialoguePresentationInt
       rect: new Rect($position->x, $position->y, $width, $height),
     );
     $this->modal->show();
+  }
+
+  public function pausePlayback(float $now): void
+  {
+    if ($this->modal instanceof TextBoxModal) { $this->modal->pausePlayback($now); }
+  }
+
+  public function resumePlayback(float $now): void
+  {
+    if ($this->modal instanceof TextBoxModal) { $this->modal->resumePlayback($now); }
   }
 
   public function update(): void
