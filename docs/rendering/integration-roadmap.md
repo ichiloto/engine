@@ -44,8 +44,18 @@ Wide Terminal glyphs and Canvas codepoints both fit that capacity; an unreadable
 next page is refused before changing owner position. Closing writes no outcome,
 and another telling creates independent reader state.
 
-Shared modal/event playback, host capacity negotiation, Terminal storybook
-framing, GPUI composition and Editor resource authoring remain open. Existing modal, dialogue, image and theme
+The shared `StorybookModal` uses the existing modal lifecycle and Window for a
+bounded Terminal book frame, centered navigation buttons, semantic control hints
+and input cleanup. Its optional `StorybookReadingCapacity` takes a projection's
+available prose area; the stricter Terminal/projection dimensions feed one
+reader. `ModalPresentation::storybook` carries an immutable owner-selected page,
+prose continuation, narrator and capacity for graphical composition. Resizing or
+a changed control display reflows around the current reading position; an
+unsupported surface is refused before changing it. Reader controls use a native
+enum; labels never drive the selected action.
+
+The cooperative event adapter, graphical layout/capacity provider and composition,
+Editor resource authoring and Andrew's Terminal-frame/painting review remain open. Existing modal, dialogue, image and theme
 primitives supply those consumers. The official Game text, optional elder
 interaction and painting/Terminal-frame approval remain Game/author work.
 No runtime event, Game content or progress behavior is registered by this model.

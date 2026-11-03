@@ -16,7 +16,7 @@ final readonly class ModalPresentation
   public function __construct(public string $title, public string $message, array $choices,
     public int $activeIndex, public bool $vertical = false, public bool $singleConfirmation = false,
     public ?QuantityPresentation $quantity = null, public ?NoticeContent $notice = null,
-    public ?string $sourceMessage = null)
+    public ?string $sourceMessage = null, public ?StorybookPresentation $storybook = null)
   {
     if (!array_is_list($choices) || $choices === [] || !isset($choices[$activeIndex])) {
       throw new InvalidArgumentException('Modal presentation requires choices and a valid owner-selected index.');
@@ -26,6 +26,13 @@ final readonly class ModalPresentation
     }
     if ($notice !== null && (!$singleConfirmation || $quantity !== null)) {
       throw new InvalidArgumentException('A notice requires a single confirmation without quantity controls.');
+    }
+    if ($storybook !== null && ($vertical || $quantity !== null || $notice !== null)) {
+      throw new InvalidArgumentException('A storybook requires horizontal reader controls without quantity or notice content.');
+    }
+    if ($storybook !== null && ($message !== $storybook->readingText
+      || ($sourceMessage !== null && $sourceMessage !== $storybook->page->text))) {
+      throw new InvalidArgumentException('Storybook modal text must match its owner-selected narration.');
     }
     $copy = [];
     foreach ($choices as $choice) {

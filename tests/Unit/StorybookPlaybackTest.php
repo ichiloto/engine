@@ -104,3 +104,43 @@ it('refuses an unreadable next page before moving the owner position', function 
         ->and($reader->continuationNumber)->toBe(1)->and($reader->readingText)->toBe('X')
         ->and($reader->isClosed)->toBeFalse();
 });
+
+it('reflows the current authored page around its reading position without skipping text', function () {
+    $source = implode(' ', array_map(static fn(int $i): string => 'word' . $i, range(1, 40)));
+    $book = makePlaybackBook($source);
+    $reader = new StorybookPlayback($book, 20, 2);
+    $reader->advance();
+    $reader->advance();
+    $anchor = preg_split('/\s+/u', trim($reader->readingText))[0];
+    $reader->reflow(13, 3);
+    expect($reader->page)->toBe($book->pages[0])->and($reader->readingText)->toContain($anchor)
+        ->and($reader->columns)->toBe(13)->and($reader->rows)->toBe(3);
+    $remaining = [];
+    while ($reader->pageNumber === 1) {
+        $remaining[] = $reader->readingText;
+        $reader->advance();
+    }
+    $expectedSuffix = substr($source, strpos($source, $anchor));
+    expect(preg_replace('/\s+/u', '', implode('', $remaining)))->toEndWith(preg_replace('/\s+/u', '', $expectedSuffix));
+});
+
+it('leaves reader position and capacity unchanged after an unsupported reflow', function () {
+    $reader = new StorybookPlayback(makePlaybackBook('界界界界'), 8, 1);
+    expect(fn() => $reader->reflow(1, 1))->toThrow(InvalidArgumentException::class)
+        ->and($reader->columns)->toBe(8)->and($reader->rows)->toBe(1)
+        ->and($reader->pageNumber)->toBe(1)->and($reader->continuationNumber)->toBe(1);
+    $reader->close();
+    $reader->reflow(4, 2);
+    expect($reader->isClosed)->toBeTrue()->and($reader->columns)->toBe(8);
+});
+
+it('refuses an unreadable previous page after reflow without moving the reader', function () {
+    $book = StorybookDefinition::fromArray(['id' => 'back-reflow', 'title' => 'A journey', 'narrator' => 'Traveller',
+        'pages' => [['id' => 'first', 'text' => '界'], ['id' => 'second', 'text' => 'X']]]);
+    $reader = new StorybookPlayback($book, 8, 1);
+    $reader->advance();
+    $reader->reflow(1, 1);
+    expect(fn() => $reader->goBack())->toThrow(InvalidArgumentException::class)
+        ->and($reader->pageNumber)->toBe(2)->and($reader->readingText)->toBe('X')
+        ->and($reader->isClosed)->toBeFalse();
+});

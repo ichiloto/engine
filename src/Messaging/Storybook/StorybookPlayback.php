@@ -48,11 +48,11 @@ final class StorybookPlayback
             || $this->pageNumber < $this->book->pageCount);
     }
 
-    /** Capacities are negotiated by the host once for both projections. */
+    /** The host negotiates one reading capacity for both projections. */
     public function __construct(
         public readonly StorybookDefinition $book,
-        public readonly int $columns,
-        public readonly int $rows,
+        public private(set) int $columns,
+        public private(set) int $rows,
     ) {
         if ($columns < 1 || $rows < 1) {
             throw new InvalidArgumentException('Storybook reading capacity requires positive columns and rows.');
@@ -86,9 +86,45 @@ final class StorybookPlayback
         if ($this->continuationIndex > 0) {
             $this->continuationIndex--;
         } else {
+            $parts = $this->getPageContinuations($this->pageIndex - 1);
             $this->pageIndex--;
-            $this->continuationIndex = count($this->getPageContinuations($this->pageIndex)) - 1;
+            $this->continuationIndex = count($parts) - 1;
         }
+    }
+
+    /** Reflow keeps the first visible non-whitespace character inside the new continuation. */
+    public function reflow(int $columns, int $rows): void
+    {
+        if ($columns < 1 || $rows < 1) {
+            throw new InvalidArgumentException('Storybook reading capacity requires positive columns and rows.');
+        }
+        if ($this->isClosed || ($columns === $this->columns && $rows === $this->rows)) {
+            return;
+        }
+        $offset = 0;
+        foreach (array_slice($this->getPageContinuations($this->pageIndex), 0, $this->continuationIndex) as $part) {
+            $offset += self::countReadingCharacters($part);
+        }
+        // Qualify new geometry and text before changing any owner state.
+        $parts = self::buildContinuations($this->page, $columns, $rows);
+        $start = 0;
+        $index = 0;
+        foreach ($parts as $index => $part) {
+            $end = $start + self::countReadingCharacters($part);
+            if ($offset < $end || $index === count($parts) - 1) {
+                break;
+            }
+            $start = $end;
+        }
+        $this->columns = $columns;
+        $this->rows = $rows;
+        $this->continuations = [$this->pageIndex => $parts];
+        $this->continuationIndex = $index;
+    }
+
+    private static function countReadingCharacters(string $text): int
+    {
+        return mb_strlen(preg_replace('/\\s+/u', '', TerminalText::stripAnsi($text)));
     }
 
     /** Closing has no completion flag, reward or persistent progress outcome. */
@@ -100,19 +136,19 @@ final class StorybookPlayback
     /** @return non-empty-list<string> */
     private function getPageContinuations(int $index): array
     {
-        if (!isset($this->continuations[$index])) {
-            $lines = DialoguePaginationBuilder::wrapMessageIntoLines($this->book->pages[$index]->text, $this->columns);
-            foreach ($lines as $line) {
-                if (TerminalText::displayWidth($line) > $this->columns
-                    || mb_strlen(TerminalText::stripAnsi($line)) > $this->columns) {
-                    throw new InvalidArgumentException('Storybook reading area cannot fit a narration symbol.');
-                }
+        return $this->continuations[$index] ??= self::buildContinuations($this->book->pages[$index], $this->columns, $this->rows);
+    }
+
+    /** @return non-empty-list<string> */
+    private static function buildContinuations(StorybookPage $page, int $columns, int $rows): array
+    {
+        $lines = DialoguePaginationBuilder::wrapMessageIntoLines($page->text, $columns);
+        foreach ($lines as $line) {
+            if (TerminalText::displayWidth($line) > $columns
+                || mb_strlen(TerminalText::stripAnsi($line)) > $columns) {
+                throw new InvalidArgumentException('Storybook reading area cannot fit a narration symbol.');
             }
-            $this->continuations[$index] = array_map(
-                static fn(array $part): string => implode("\n", $part),
-                array_chunk($lines, $this->rows),
-            );
         }
-        return $this->continuations[$index];
+        return array_map(static fn(array $part): string => implode("\n", $part), array_chunk($lines, $rows));
     }
 }
