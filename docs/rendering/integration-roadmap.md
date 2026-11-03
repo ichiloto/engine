@@ -37,9 +37,15 @@ agree. Its sorted discovery reads filenames without evaluating authored PHP or
 loading artwork; source containment is checked before loading. Current text is
 loaded again when requested, without a separate content cache or source write.
 
-This slice supplies data contracts only. Shared modal/event playback, agreed
-page-overflow behavior, Terminal storybook framing, GPUI composition and Editor
-resource authoring remain open. Existing modal, dialogue, image and theme
+`StorybookPlayback` owns forward/back/close and finite text continuations for
+an explicitly supplied common reading capacity. It reuses shared dialogue
+wrapping, retaining the authored page and picture throughout its continuations.
+Wide Terminal glyphs and Canvas codepoints both fit that capacity; an unreadable
+next page is refused before changing owner position. Closing writes no outcome,
+and another telling creates independent reader state.
+
+Shared modal/event playback, host capacity negotiation, Terminal storybook
+framing, GPUI composition and Editor resource authoring remain open. Existing modal, dialogue, image and theme
 primitives supply those consumers. The official Game text, optional elder
 interaction and painting/Terminal-frame approval remain Game/author work.
 No runtime event, Game content or progress behavior is registered by this model.
