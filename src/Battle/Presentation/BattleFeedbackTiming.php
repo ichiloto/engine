@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Closure;
 
 /** Presentation seconds only; this policy never advances combat or clears feedback. */
@@ -14,7 +16,7 @@ final readonly class BattleFeedbackTiming
 
   public function now(): float
   {
-    return $this->clock !== null ? ($this->clock)() : hrtime(true) / 1_000_000_000;
+    return $this->clock !== null ? ($this->clock)() : RuntimeClock::getSeconds();
   }
 
   public static function duration(float $durationSeconds): float

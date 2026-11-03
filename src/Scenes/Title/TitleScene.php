@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes\Title;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\UI\Windows\SaveSlotPage;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
@@ -184,7 +186,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     $this->resetTitlePresentation();
 
     $this->renderHeader();
-    usleep(300);
+    RuntimeClock::sleep(0.0003);
     $this->menu->render();
   }
 
@@ -306,9 +308,9 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
       return;
     }
 
-    usleep(300);
+    RuntimeClock::sleep(0.0003);
     $this->renderHeader();
-    usleep(300);
+    RuntimeClock::sleep(0.0003);
     $this->menu->render();
   }
 

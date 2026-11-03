@@ -151,7 +151,7 @@ it('returns automatically after the last line leaves the viewport', function () 
   $this->scene->openCredits($this->sections);
   $property = new ReflectionProperty(TitleScene::class, 'creditsPlayback');
   $clock = $property->getValue($this->scene);
-  $now = hrtime(true) / 1e9;
+  $now = \Ichiloto\Engine\Core\Clocks\RuntimeClock::getSeconds();
   for ($tick = 1; !$clock->finished; $tick++) { $clock->advance($now + $tick / 10); }
   $this->scene->tickCredits();
   expect($property->getValue($this->scene))->toBeNull()->and($this->scene->getSelectedIndex())->toBe(3);

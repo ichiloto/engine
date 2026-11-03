@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes\GameOver;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Exception;
 use Ichiloto\Engine\Core\Menu\Commands\ContinueGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\QuitGameCommand;
@@ -90,7 +92,7 @@ class GameOverScene extends AbstractScene implements CanvasProviderInterface
 
     Console::clear();
     $this->renderHeader();
-    usleep(300);
+    RuntimeClock::sleep(0.0003);
     $this->menu->render();
   }
 
@@ -151,9 +153,9 @@ class GameOverScene extends AbstractScene implements CanvasProviderInterface
   {
     Console::clear();
     $this->syncContinueAvailability();
-    usleep(300);
+    RuntimeClock::sleep(0.0003);
     $this->renderHeader();
-    usleep(300);
+    RuntimeClock::sleep(0.0003);
     $this->menu->render();
   }
 

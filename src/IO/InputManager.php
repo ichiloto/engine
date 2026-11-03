@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\IO;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Ichiloto\Engine\IO\Saves\SaveFeatures;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
@@ -319,7 +321,7 @@ class InputManager
       self::$keyPress = self::getInputSource()->poll();
       self::updateHeldState();
       if (self::$keyPress !== null || self::getHolds()->isAnyKeyHeld || self::$lastInputAt === null) {
-        self::$lastInputAt = hrtime(true) / 1_000_000_000;
+        self::$lastInputAt = RuntimeClock::getSeconds();
       }
     } catch (Throwable $error) {
       // A failed or disconnected source can no longer vouch for any held key.
@@ -490,7 +492,7 @@ class InputManager
    */
   public static function getSecondsSinceInput(): float
   {
-    return self::$lastInputAt === null ? 0.0 : max(0.0, hrtime(true) / 1_000_000_000 - self::$lastInputAt);
+    return self::$lastInputAt === null ? 0.0 : max(0.0, RuntimeClock::getSeconds() - self::$lastInputAt);
   }
 
   /** The number of input updates so far; each game loop iteration and modal poll is one. */

@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Rendering\Presentation;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
@@ -187,7 +189,7 @@ final class RetainedPresentation
             $this->client->supports(RendererSessionConfig::WORLD_ROW_RUNS));
     }
 
-    private function getTime(): float { return $this->clock === null ? hrtime(true) / 1_000_000_000 : ($this->clock)(); }
+    private function getTime(): float { return $this->clock === null ? RuntimeClock::getSeconds() : ($this->clock)(); }
 
     /** Session loss, resize and rejected deltas all use the same reset transaction. */
     public function invalidate(bool $newSession = false, ?int $expectedGeneration = null): void

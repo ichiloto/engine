@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Scenes\Title;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
@@ -40,7 +42,7 @@ trait TitleCredits
           $this->creditsContent = $content;
           $this->creditsPlayback = $playback;
           $this->creditsTheme = $theme;
-          $playback->advance(hrtime(true) / 1e9);
+          $playback->advance(RuntimeClock::getSeconds());
           Console::clear();
           InputManager::resetState(true);
           $this->advanceTitlePresentation();

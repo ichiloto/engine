@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Audio;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Assegai\Util\Path;
 use Ichiloto\Engine\Audio\Backends\AfplayBackend;
 use Ichiloto\Engine\Audio\Backends\AplayBackend;
@@ -819,7 +821,7 @@ class AudioManager implements CanUpdate
       }
       $this->pausedPlaybacks = $paused;
       $this->pausedBackgroundMusic = $this->bgmPlayback;
-      $this->pauseStartedAt = microtime(true);
+      $this->pauseStartedAt = RuntimeClock::getSeconds();
     }
     $id = ++$this->nextPauseOwner;
     $this->pauseOwners[$id] = true;
@@ -834,7 +836,7 @@ class AudioManager implements CanUpdate
     $playbacks = $this->pausedPlaybacks;
     $this->pausedPlaybacks = [];
     if ($this->bgmPlayback !== null && $this->bgmPlayback === $this->pausedBackgroundMusic) {
-      $this->bgmStartedAt += max(0.0, microtime(true) - $this->pauseStartedAt);
+      $this->bgmStartedAt += max(0.0, RuntimeClock::getSeconds() - $this->pauseStartedAt);
     }
     $this->pausedBackgroundMusic = null;
     $failure = null;
@@ -1002,7 +1004,7 @@ class AudioManager implements CanUpdate
 
     if ($this->bgmPlayback !== null) {
       // The process ended on its own.
-      $ranFor = microtime(true) - $this->bgmStartedAt;
+      $ranFor = RuntimeClock::getSeconds() - $this->bgmStartedAt;
       $this->stopBgmPlayback();
 
       if (! $this->bgmLoops) {
@@ -1059,7 +1061,7 @@ class AudioManager implements CanUpdate
       return;
     }
 
-    $resumeAt = max(0.0, microtime(true) - $this->bgmStartedAt + $this->bgmSpawnOffset);
+    $resumeAt = max(0.0, RuntimeClock::getSeconds() - $this->bgmStartedAt + $this->bgmSpawnOffset);
 
     if ($this->bgmSpawnedWithNativeLoop) {
       // A natively looping player has been running across loop iterations, so
@@ -1145,7 +1147,7 @@ class AudioManager implements CanUpdate
 
     $this->bgmPlayback = $playback;
     $this->bgmVolume = $volume;
-    $this->bgmStartedAt = microtime(true);
+    $this->bgmStartedAt = RuntimeClock::getSeconds();
     $this->bgmSpawnOffset = $startAtSeconds;
     $this->bgmSpawnedWithNativeLoop = $loopNatively;
   }

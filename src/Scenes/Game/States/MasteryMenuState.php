@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Audio\Enumerations\CountKind;
@@ -444,7 +446,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     /** Seconds on the menu's presentation clock, the clock graphical renderers draw by. */
     protected function getPresentationTime(): float
     {
-        return max(0, hrtime(true) / 1e9 - $this->menuPresentationStart);
+        return max(0, RuntimeClock::getSeconds() - $this->menuPresentationStart);
     }
 
     /** Shows the next or previous party member's board at the same place, on the same level. */

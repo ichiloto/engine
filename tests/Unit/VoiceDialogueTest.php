@@ -349,7 +349,7 @@ it('toggles shared TextBox Auto through a rebound action and dismisses only afte
   expect($modal->isShowing)->toBeTrue();
   $this->audio->handles[0]->complete(); InputManager::handleInput(); $modal->update();
   expect($modal->isShowing)->toBeTrue();
-  new ReflectionProperty(DialoguePlayback::class,'textCompletedAt')->setValue($flow,microtime(true)-2.0);
+  new ReflectionProperty(DialoguePlayback::class,'textCompletedAt')->setValue($flow,\Ichiloto\Engine\Core\Clocks\RuntimeClock::getSeconds()-2.0);
   $modal->update();
   expect($modal->isShowing)->toBeFalse();
 });
@@ -528,4 +528,36 @@ it('freezes a TextBox cursor and ignores confirm while its playback is paused', 
   $modal->updateContent();
   expect($modal->getDialogueSnapshot())->toEqual($before);
   $modal->hide();
+});
+
+
+it('types and pauses Auto reading against the shared host clock without wall-time waits', function () {
+  require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
+  $saved = new ReflectionClass(\Ichiloto\Engine\Core\Clocks\RuntimeClock::class)->getStaticProperties();
+  $source = new \Tests\Support\ManualRuntimeClock();
+  $lease = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($source);
+  try {
+    $flow = new DialoguePlayback($this->audio);
+    $flow->beginLine(); $flow->toggleAuto();
+    $modal = new VoiceTestTextBox(new VoiceTestGame(), 'AB', charactersPerSecond: 2, playback: $flow);
+    InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource());
+    $modal->show(); InputManager::handleInput(); $modal->update();
+    $before = $modal->getDialogueSnapshot();
+    expect($before->visibleText)->toBe('A')->and($before->isPrinting)->toBeTrue();
+    $modal->pausePlayback();
+    $source->seconds += 30;
+    $modal->update();
+    expect($modal->getDialogueSnapshot())->toEqual($before);
+    $modal->resumePlayback(); $modal->update();
+    expect($modal->getDialogueSnapshot())->toEqual($before);
+    $source->seconds += 0.6; $modal->update();
+    expect($modal->getDialogueSnapshot()->visibleText)->toBe('AB')->and($modal->isShowing)->toBeTrue();
+    $source->seconds += 10; $modal->update();
+    expect($modal->isShowing)->toBeFalse();
+  } finally {
+    $lease->close();
+    foreach ($saved as $name => $value) {
+      new ReflectionProperty(\Ichiloto\Engine\Core\Clocks\RuntimeClock::class, $name)->setValue(null, $value);
+    }
+  }
 });

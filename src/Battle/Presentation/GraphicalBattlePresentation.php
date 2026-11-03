@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
@@ -358,7 +360,7 @@ final class GraphicalBattlePresentation
     ?string $focus = null, ?float $now = null, bool $imageFlips = true, bool $compositing = true,
     ?bool $reducedMotion = null, bool $maskFlips = true, bool $imageTones = true): PresentationCanvas
   {
-    $now ??= hrtime(true) / 1_000_000_000;
+    $now ??= RuntimeClock::getSeconds();
     $reducedMotion ??= Accessibility::prefersReducedMotion();
     try {
       return $this->composeFrame($field, $ui, $hud, $focus, $now, true, $imageFlips, $compositing, $reducedMotion, $maskFlips, $imageTones);

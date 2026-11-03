@@ -149,7 +149,7 @@ class TestableAudioManager extends AudioManager
    */
   public function pretendBgmHasPlayedFor(float $seconds): void
   {
-    $this->bgmStartedAt = microtime(true) - $seconds;
+    $this->bgmStartedAt = \Ichiloto\Engine\Core\Clocks\RuntimeClock::getSeconds() - $seconds;
   }
 
   protected function probeTrackDuration(?string $filePath): ?float

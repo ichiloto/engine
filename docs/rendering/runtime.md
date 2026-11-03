@@ -569,3 +569,38 @@ public window-preference APIs are not implied by resize feedback. The current
   reduce the entire surface; fitting cannot guarantee legibility at every size.
 - Retained text preserves colours, not blink, bold weight, italic, underline or
   other terminal attributes. Native V1/stateless fallback is not available.
+
+
+## Shared runtime clock
+
+Elapsed campaign time, input-idle age, owned waits, dialogue typing/Auto,
+audio position and pause accounting, battle feedback, and scene/menu
+presentation deadlines read `Core\Clocks\RuntimeClock`. Its default source
+is `SystemMonotonicClock`. The normal Game update and blocked-frame owners
+retain their existing responsibilities; selecting a source does not advance
+the campaign or grant income. Loading/rebasing elapsed time clears the prior
+frame delta before the next update.
+
+An embedding or observation host implements `MonotonicClockInterface` with
+finite nondecreasing `getSeconds()` and `sleep(float $seconds)`. A positive
+sleep must advance that same source. Install the source before constructing
+the session with `RuntimeClock::useClock($source)` and retain the returned
+lease. Stop the session and release its timed resources before closing the
+lease in `finally`. One host owns an override at a time. Entry and release
+bridge source origins onto the existing runtime timeline; release restores a
+sound system source even if the custom source fails. No setting is persisted.
+Existing explicit per-component clock arguments remain supported and must
+use a coherent time basis when the caller supplies them.
+
+A controlled host still drives the normal semantic input, Game frame,
+activity classification and real services. Its declared time increments and
+acknowledgement choices belong in the observation record. They do not measure
+human playtime. Hardware/renderer transport deadlines, physical frame pacing,
+diagnostic timings, save ordering and local calendar dates keep physical
+clocks. `Time::getSystemTime()` retains its existing physical API.
+
+Buffer-only `Console::init` uses the host's declared geometry without probing
+a terminal or constructing its physical output sink. Terminal output is
+acquired when its owner explicitly enables it. A host can use the existing
+protected viewport resolution/synchronization hooks to supply fixed geometry;
+normal terminal geometry and startup acquisition retain their existing path.

@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Core;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Audio\FieldMusicCatalog;
@@ -1123,7 +1125,7 @@ class Game implements CanRun, SubjectInterface
         if ($this->rendererRuntime !== null) {
             Timers::wait($duration);
         } else {
-            usleep(intval($duration * 1000000));
+            RuntimeClock::sleep($duration);
         }
         Console::clear();
     }

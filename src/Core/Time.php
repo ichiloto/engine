@@ -8,6 +8,7 @@ use Ichiloto\Engine\Events\GameEvent;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use InvalidArgumentException;
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
 
 /**
  * The Time class is used to manage time in the game.
@@ -151,16 +152,16 @@ class Time implements StaticObserverInterface
    */
   public static function onGameUpdate(): void
   {
-    self::$time = self::getSystemTime() - self::$startTime;
+    self::$time = RuntimeClock::getSeconds() - self::$startTime;
     self::$deltaTime = self::getTime() - self::$lastTime;
     self::$lastTime = self::getTime();
     self::$frames++;
   }
 
   /**
-   * Gets the time since the last frame in nanoseconds.
+   * Gets the time since the last frame in seconds.
    *
-   * @return float The time since the last frame in nanoseconds.
+   * @return float The time since the last frame in seconds.
    */
   public static function getDeltaTime(): float
   {
@@ -189,7 +190,8 @@ class Time implements StaticObserverInterface
     self::$elapsedTimeOffset = max(0.0, $seconds);
     self::$time = self::$elapsedTimeOffset;
     self::$lastTime = self::$time;
-    self::$startTime = self::getSystemTime() - self::$time;
+    self::$deltaTime = 0.0;
+    self::$startTime = RuntimeClock::getSeconds() - self::$time;
   }
 
   /**
@@ -264,7 +266,7 @@ class Time implements StaticObserverInterface
    */
   private static function onGameStop(): void
   {
-    self::$stopTime = self::getSystemTime();
+    self::$stopTime = RuntimeClock::getSeconds();
   }
 
   /**

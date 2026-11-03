@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes\Battle\States;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Ichiloto\Engine\Battle\Presentation\BattlePauseMenu;
 use Ichiloto\Engine\Battle\Presentation\BattleCanvasUiAdapter;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattlePause;
@@ -205,7 +207,7 @@ class BattlePauseState extends BattleSceneState
     $this->configTheme = null;
     $this->configThemeLoaded = false;
     $this->configPresentationError = null;
-    $this->configPresentationStart = hrtime(true) / 1e9;
+    $this->configPresentationStart = RuntimeClock::getSeconds();
     $manager = new MainMenuSettingsManager();
     $width = min(110, get_screen_width());
     $height = min(32, get_screen_height());
@@ -234,7 +236,7 @@ class BattlePauseState extends BattleSceneState
       }
       if ($this->configTheme === null) { return null; }
       $config = ConfigMenuPresentation::compose($this->configMenu, $this->configTheme,
-        max(0, hrtime(true) / 1e9 - $this->configPresentationStart), $field->width, $field->height);
+        max(0, RuntimeClock::getSeconds() - $this->configPresentationStart), $field->width, $field->height);
       return MenuCanvas::overlay($field, $config, $this->configTheme);
     } catch (Throwable $error) {
       if ($this->configPresentationError !== $error->getMessage()) {

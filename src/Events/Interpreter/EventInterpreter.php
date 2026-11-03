@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Events\Interpreter;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Assegai\Util\Path;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Core\Time;
@@ -372,12 +374,12 @@ class EventInterpreter
     $game = $this->gameScene->getGame();
     $pause = isset($game->audioManager) ? $game->audioManager->pausePlayback() : null;
     try {
-      $presentation->pausePlayback($now ?? microtime(true));
+      $presentation->pausePlayback($now ?? RuntimeClock::getSeconds());
       $this->pausedPresentation = $presentation;
       $this->audioPause = $pause;
       $this->isPlaybackPaused = true;
     } catch (Throwable $error) {
-      foreach ([fn() => $presentation->resumePlayback($now ?? microtime(true)), fn() => $pause?->close()] as $cleanup) {
+      foreach ([fn() => $presentation->resumePlayback($now ?? RuntimeClock::getSeconds()), fn() => $pause?->close()] as $cleanup) {
         try { $cleanup(); }
         catch (Throwable $failure) { Debug::warn('Event pause rollback failed: ' . $failure->getMessage()); }
       }
@@ -394,7 +396,7 @@ class EventInterpreter
     $presentation = $this->pausedPresentation;
     $this->audioPause = null;
     $this->pausedPresentation = null;
-    try { $presentation?->resumePlayback($now ?? microtime(true)); }
+    try { $presentation?->resumePlayback($now ?? RuntimeClock::getSeconds()); }
     finally { $pause?->close(); }
   }
 

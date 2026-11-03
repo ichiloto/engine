@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes\Battle;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Core\Interfaces\PlayActivitySourceInterface;
@@ -208,7 +210,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
     }
     $root = $this->getGame()->getRendererRuntime()?->getAssetRoot();
     $composition = $hud === null ? null : GraphicalBattleHud::compose($layout, $hud, $focus,
-      hrtime(true) / 1_000_000_000, $root, $this->findControlsTheme($root), $this->presentationFallbacks);
+      RuntimeClock::getSeconds(), $root, $this->findControlsTheme($root), $this->presentationFallbacks);
     return new PresentationCanvas($layout->width, $layout->height, $composition?->images ?? [],
       textLayers: [...$ui, ...($composition?->textLayers ?? [])]);
   }

@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Core;
 
 use Ichiloto\Engine\Util\Debug;
 use Throwable;
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
 
 /**
  * Work scheduled to run later, pumped by the game loop.
@@ -151,6 +152,7 @@ class Timers
    */
   public static function wait(float $seconds, ?callable $onFrame = null): void
   {
+    if (!is_finite($seconds)) { throw new \InvalidArgumentException('Timer waits require finite seconds.'); }
     if ($seconds <= 0) {
       return;
     }
@@ -158,10 +160,10 @@ class Timers
     $frameTick = self::$frameTick;
     $framePresent = self::$framePresent;
     $frameLength = (int)(1_000_000 / DEFAULT_FPS);
-    $startedAt = microtime(true);
+    $startedAt = RuntimeClock::getSeconds();
     $endsAt = $startedAt + $seconds;
 
-    while (($now = microtime(true)) < $endsAt) {
+    while (($now = RuntimeClock::getSeconds()) < $endsAt) {
       if ($frameTick !== null) {
         $frameTick();
       }
@@ -175,9 +177,9 @@ class Timers
       }
 
       // Short authored holds must not be inflated to a whole engine frame.
-      $remaining = (int)(($endsAt - microtime(true)) * 1_000_000);
+      $remaining = $endsAt - RuntimeClock::getSeconds();
       if ($remaining > 0) {
-        usleep(min($frameLength, $remaining));
+        RuntimeClock::sleep(min($frameLength / 1_000_000, $remaining));
       }
     }
 

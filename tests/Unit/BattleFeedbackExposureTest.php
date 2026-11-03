@@ -166,7 +166,17 @@ it('exposes focused queued and acting instances independently without changing c
   [$actor, $ally, $fallen] = [feedbackExposureTarget('Actor'), feedbackExposureTarget('Ally'), feedbackExposureTarget('Fallen', 0)];
   foreach ([$actor, $ally, $fallen] as $member) { $party->addMember($member); }
   $troop = new Troop('Twins');
-  [$first, $second] = [feedbackExposureTarget(), feedbackExposureTarget()];
+  $root = createTestDirectory('feedback-enemy-');
+  mkdir($root . '/assets/Graphics/Enemies', 0700, true);
+  file_put_contents($root . '/assets/Graphics/Enemies/twin.txt', 'T');
+  $priorDirectory = getcwd();
+  try {
+    chdir($root);
+    $enemy = static fn() => new \Ichiloto\Engine\Entities\Enemies\Enemy('Twin', 1,
+      new Stats(currentHp: 50, totalHp: 100, currentMp: 20, totalMp: 30), 'twin',
+      new \Ichiloto\Engine\Battle\BattleRewards(0, 0, []), []);
+    [$first, $second] = [$enemy(), $enemy()];
+  } finally { chdir($priorDirectory); }
   foreach ([$first, $second] as $member) { $troop->addMember($member); }
   $field = new FeedbackExposureScreen($party, $troop)->fieldWindow;
   $field->focusPartyBattlers([2, 1, 2, 99, -1]);

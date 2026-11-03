@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\UI\Modal;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 
 use Override;
@@ -165,14 +167,14 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
   public function pausePlayback(?float $now = null): void
   {
     if ($this->pausedAt !== null) { return; }
-    $this->pausedAt = $now ?? microtime(true);
+    $this->pausedAt = $now ?? RuntimeClock::getSeconds();
     $this->playback?->pause($this->pausedAt);
   }
 
   public function resumePlayback(?float $now = null): void
   {
     if ($this->pausedAt === null) { return; }
-    $now ??= microtime(true);
+    $now ??= RuntimeClock::getSeconds();
     if ($this->nextPrintTime > 0.0) { $this->nextPrintTime += max(0.0, $now - $this->pausedAt); }
     $this->playback?->resume($now);
     $this->pausedAt = null;
@@ -197,7 +199,7 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
     } elseif ($this->playback !== null && Input::isButtonPressed('dialogue_auto')) {
       $this->playback->toggleAuto();
     } elseif ($this->playback?->canAdvance(
-      microtime(true), $this->isPrinting, ! isset($this->messagePages[$this->currentPageIndex + 1]),
+      RuntimeClock::getSeconds(), $this->isPrinting, ! isset($this->messagePages[$this->currentPageIndex + 1]),
     )) {
       $this->submit();
     }
@@ -219,7 +221,7 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
   {
     if ($this->pausedAt !== null) { return; }
     if ($this->isPrinting) {
-      $now = microtime(true);
+      $now = RuntimeClock::getSeconds();
 
       if ($now >= $this->nextPrintTime) {
         $speed = is_finite($this->charactersPerSecond) ? max(1.0, $this->charactersPerSecond) : self::DEFAULT_TYPING_SPEED;

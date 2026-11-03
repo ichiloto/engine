@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Presentation;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\UI\Interfaces\ModalPresentationProviderInterface;
@@ -46,7 +48,7 @@ trait MenuCanvasState
   {
     $this->menuTheme = null;
     $this->menuThemeLoaded = false;
-    $this->menuPresentationStart = hrtime(true) / 1e9;
+    $this->menuPresentationStart = RuntimeClock::getSeconds();
     $this->menuPresentationError = null;
     $this->isMenuCanvasShown = false;
     $this->infoText?->reset();
@@ -76,7 +78,7 @@ trait MenuCanvasState
         $this->menuTheme = $theme;
       }
       if ($this->menuTheme === null) { return null; }
-      $time = max(0, hrtime(true) / 1e9 - $this->menuPresentationStart);
+      $time = max(0, RuntimeClock::getSeconds() - $this->menuPresentationStart);
       $canvas = $this->composeMenuCanvas($this->menuTheme, $time);
       $modal = isset($game->modalManager) ? $game->modalManager->currentModal : null;
       if ($canvas === null || $modal === null) { return $canvas; }

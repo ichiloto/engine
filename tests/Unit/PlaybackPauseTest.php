@@ -103,7 +103,7 @@ it('freezes the existing music, speech, one-shot and loop until the final owner 
     expect($audio->players)->toHaveCount(5)->and($loop->isAudible)->toBeFalse();
     $outer->close();
     foreach ($players as $player) { expect($player->isPaused)->toBeTrue(); }
-    new ReflectionProperty(AudioManager::class, 'pauseStartedAt')->setValue($audio, microtime(true) - 60);
+    new ReflectionProperty(AudioManager::class, 'pauseStartedAt')->setValue($audio, \Ichiloto\Engine\Core\Clocks\RuntimeClock::getSeconds() - 60);
     $inner->close();
     $inner->close();
     foreach ($players as $player) { expect($player->isPaused)->toBeFalse()->and($player->resumes)->toBe(1); }
@@ -180,4 +180,29 @@ it('suspends and resumes an actual silent child without replacing its process or
         $child->resume();
         $child->stop();
     } finally { $child->stop(); }
+});
+
+
+it('excludes a host-driven pause from the existing music handle without changing its process identity', function () {
+    require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
+    $saved = new ReflectionClass(\Ichiloto\Engine\Core\Clocks\RuntimeClock::class)->getStaticProperties();
+    $source = new \Tests\Support\ManualRuntimeClock();
+    $clock = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($source);
+    try {
+        $audio = $this->pauseAudio;
+        $audio->playBackgroundMusic($this->sound);
+        $handle = $audio->players[0]; $start = $audio->getMusicStart();
+        $source->seconds += 2;
+        $pause = $audio->pausePlayback();
+        $source->seconds += 60;
+        $pause->close();
+        expect($audio->getMusicStart() - $start)->toEqualWithDelta(60, 0.000001)
+            ->and($audio->players)->toHaveCount(1)->and($audio->players[0])->toBe($handle)
+            ->and($handle->resumes)->toBe(1);
+    } finally {
+        $clock->close();
+        foreach ($saved as $name => $value) {
+            new ReflectionProperty(\Ichiloto\Engine\Core\Clocks\RuntimeClock::class, $name)->setValue(null, $value);
+        }
+    }
 });
