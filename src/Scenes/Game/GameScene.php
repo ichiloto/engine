@@ -1325,6 +1325,22 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         if ($this->isStopping) {
             return;
         }
+        if ($this->configuringSavedGame || $this->resumingSavedGame) { return; }
+        if ($this->savedGameResumeFailure !== null) { throw $this->savedGameResumeFailure; }
+        if ($this->pendingSavedGameResume !== null) {
+            try {
+                $this->completePendingSavedGameResume();
+                if ($this->hasLiveSavedGameOwner() && $this->hasUnstableEventSession()
+                    && !$this->sceneManager->hasSceneTransition()
+                    && ModalManager::getInstance($this->getGame())->currentModal === null) {
+                    $this->updateEventSession(Time::getDeltaTime());
+                }
+            } catch (Throwable $error) {
+                $this->savedGameResumeFailure = $error;
+                throw $error;
+            }
+            return;
+        }
         if ($this->eventPauseMenu !== null) {
             $menu = $this->eventPauseMenu;
             $menu->update();
@@ -1345,22 +1361,6 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         }
         if ($this->eventInterpreter?->isPlaybackPaused ?? false) {
             $this->eventInterpreter->renderPresentation();
-            return;
-        }
-        if ($this->configuringSavedGame || $this->resumingSavedGame) { return; }
-        if ($this->savedGameResumeFailure !== null) { throw $this->savedGameResumeFailure; }
-        if ($this->pendingSavedGameResume !== null) {
-            try {
-                $this->completePendingSavedGameResume();
-                if ($this->hasLiveSavedGameOwner() && $this->hasUnstableEventSession()
-                    && !$this->sceneManager->hasSceneTransition()
-                    && ModalManager::getInstance($this->getGame())->currentModal === null) {
-                    $this->updateEventSession(Time::getDeltaTime());
-                }
-            } catch (Throwable $error) {
-                $this->savedGameResumeFailure = $error;
-                throw $error;
-            }
             return;
         }
         if ($this->hasSavedGameAutomaticTriggers) {

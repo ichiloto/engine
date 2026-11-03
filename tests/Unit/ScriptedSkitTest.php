@@ -516,6 +516,20 @@ describe('cooperative playback pause menu', function () {
         expect($this->menu->isOpen)->toBeFalse()->and($this->interpreter->isPlaybackPaused)->toBeTrue();
     });
 
+    it('keeps saved-game hydration ahead of pause input', function () {
+        new ReflectionProperty(GameScene::class, 'eventInterpreter')->setValue($this->scene, $this->interpreter);
+        new ReflectionProperty(GameScene::class, 'state')->setValue($this->scene,
+            new \Ichiloto\Engine\Scenes\Game\States\FieldState(new \Ichiloto\Engine\Scenes\SceneStateContext($this->scene)));
+        new ReflectionProperty(GameScene::class, 'configuringSavedGame')->setValue($this->scene, true);
+        \Ichiloto\Engine\IO\InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource(
+            \Ichiloto\Engine\IO\Enumerations\KeyCode::P));
+        \Ichiloto\Engine\IO\InputManager::handleInput();
+        $this->scene->update();
+        expect($this->interpreter->isPlaybackPaused)->toBeFalse()
+            ->and(new ReflectionProperty(GameScene::class, 'eventPauseMenu')->getValue($this->scene))->toBeNull();
+        new ReflectionProperty(GameScene::class, 'configuringSavedGame')->setValue($this->scene, false);
+    });
+
     it('opens from the rebound semantic pause action before field objects can advance', function () {
         new ReflectionProperty(GameScene::class, 'eventInterpreter')->setValue($this->scene, $this->interpreter);
         new ReflectionProperty(GameScene::class, 'state')->setValue($this->scene,
