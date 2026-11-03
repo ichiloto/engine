@@ -394,9 +394,10 @@ final class TerminalText
    *
    * @param string $text The text to wrap.
    * @param int $width The maximum display width of each line.
+   * @param int|null $codepoints An additional graphical codepoint budget for a shared reading surface.
    * @return string[] Wrapped lines which preserve their original styling.
    */
-  public static function wrapToWidth(string $text, int $width): array
+  public static function wrapToWidth(string $text, int $width, ?int $codepoints = null): array
   {
     if ($width <= 0 || $text === '') {
       return [''];
@@ -406,18 +407,38 @@ final class TerminalText
     $lines = [];
     $line = [];
     $lineWidth = 0;
+    $lineCodepoints = 0;
+    $hasText = false;
+    $skipSeparator = false;
     $lastSpaceIndex = null;
 
     while ($symbols !== []) {
       $symbol = self::stabilizeSymbol(array_shift($symbols));
       $symbolWidth = self::getSymbolWidth($symbol);
+      $plain = self::stripAnsi($symbol);
+      $symbolCodepoints = mb_strlen($plain, 'UTF-8');
+      $space = preg_match('/\A[^\S\x{00A0}\x{202F}]+\z/u', $plain) === 1;
+      if ($skipSeparator && $space) { continue; }
+      $skipSeparator = false;
 
-      if ($line !== [] && $lineWidth + $symbolWidth > $width) {
-        if ($lastSpaceIndex !== null) {
+      if ($line !== [] && ($lineWidth + $symbolWidth > $width
+        || ($codepoints !== null && $lineCodepoints + $symbolCodepoints > $codepoints))) {
+        if ($space && $hasText) {
+          // A separator after an exactly filled line belongs to the soft break, never the next line's indent.
+          while ($line !== [] && preg_match('/\A[^\S\x{00A0}\x{202F}]+\z/u', self::stripAnsi(end($line))) === 1) {
+            array_pop($line);
+          }
+          $lines[] = implode('', $line);
+          $skipSeparator = true;
+        } elseif ($lastSpaceIndex !== null) {
           $overflow = array_splice($line, $lastSpaceIndex + 1);
           array_pop($line);
+          while ($line !== [] && preg_match('/\A[^\S\x{00A0}\x{202F}]+\z/u', self::stripAnsi(end($line))) === 1) {
+            array_pop($line);
+          }
           $lines[] = implode('', $line);
           $symbols = array_merge($overflow, [$symbol], $symbols);
+          $skipSeparator = true;
         } else {
           $lines[] = implode('', $line);
           array_unshift($symbols, $symbol);
@@ -425,15 +446,20 @@ final class TerminalText
 
         $line = [];
         $lineWidth = 0;
+        $lineCodepoints = 0;
+        $hasText = false;
         $lastSpaceIndex = null;
         continue;
       }
 
       $line[] = $symbol;
       $lineWidth += $symbolWidth;
+      $lineCodepoints += $symbolCodepoints;
 
-      if (self::stripAnsi($symbol) === ' ') {
+      if ($space && $hasText) {
         $lastSpaceIndex = count($line) - 1;
+      } elseif (!$space) {
+        $hasText = true;
       }
     }
 
@@ -445,10 +471,10 @@ final class TerminalText
   }
 
   /** Wrap each authored paragraph independently, retaining blank lines and explicit page content. */
-  public static function wrapParagraphsToWidth(string $text, int $width): array
+  public static function wrapParagraphsToWidth(string $text, int $width, ?int $codepoints = null): array
   {
     $text = str_replace(["\r\n", "\r", "\t"], ["\n", "\n", '    '], $text);
-    return array_merge(...array_map(static fn(string $paragraph): array => self::wrapToWidth($paragraph, $width),
+    return array_merge(...array_map(static fn(string $paragraph): array => self::wrapToWidth($paragraph, $width, $codepoints),
       explode("\n", $text)));
   }
 

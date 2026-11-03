@@ -65,8 +65,8 @@ final class ModalEventPresentation implements EventPlayedDialoguePresentationInt
     if ($game->getRendererRuntime()?->grid !== null && !$measured) {
       throw new RuntimeException('Graphical storybook presentation requires a measured reading-capacity provider.');
     }
-    // A provider's null capacity means no graphical projection draws this reader; the Terminal frame sets it.
-    $capacity = $measured ? $this->host->getStorybookReadingCapacity($book) : null;
+    // Retain the measuring host so the same owner reflows when its graphical surface or controls change.
+    $capacity = $measured ? $this->host : null;
     // Qualify the layout before replacing an existing presentation.
     $modal = new StorybookModal($game, $book, $capacity);
     $this->reset();

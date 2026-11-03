@@ -14,6 +14,7 @@ use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
 use Ichiloto\Engine\Messaging\Storybook\StorybookPlayback;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\UI\Presentation\TerminalControlText;
+use Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\UI\Windows\WindowAlignment;
@@ -35,10 +36,14 @@ class StorybookModal extends Modal
     /** @var list<string> */
     private array $hintLines;
 
+    private ?StorybookReadingCapacity $measuredProjectionCapacity;
+
+    /** A live host measures the current surface; a fixed capacity remains supported for isolated readers. */
     public function __construct(Game $game, StorybookDefinition $book,
-        private readonly ?StorybookReadingCapacity $projectionCapacity = null)
+        private readonly StorybookReadingCapacity|StorybookReadingCapacityProviderInterface|null $projectionCapacity = null)
     {
-        $layout = $this->measureReadingLayout($book);
+        $this->measuredProjectionCapacity = $this->measureProjectionCapacity($book);
+        $layout = $this->measureReadingLayout($book, $this->measuredProjectionCapacity);
         $this->headerLines = $layout['header'];
         $this->hintLines = $layout['hints'];
         $this->frameTitle = $layout['frameTitle'];
@@ -51,7 +56,7 @@ class StorybookModal extends Modal
     }
 
     /** @return array{width:int,columns:int,rows:int,header:list<string>,hints:list<string>,frameTitle:string,controlText:string} */
-    private function measureReadingLayout(StorybookDefinition $book): array
+    private function measureReadingLayout(StorybookDefinition $book, ?StorybookReadingCapacity $capacity): array
     {
         $width = get_screen_width() - 4;
         $terminalColumns = $width - 4; // Borders and one cell of horizontal padding on each side.
@@ -75,8 +80,8 @@ class StorybookModal extends Modal
         }
         $center = static fn(string $line): string => TerminalText::padCenter($line, $terminalColumns);
         return ['width' => $width,
-            'columns' => min($terminalColumns, $this->projectionCapacity?->columns ?? $terminalColumns),
-            'rows' => min($terminalRows, $this->projectionCapacity?->rows ?? $terminalRows),
+            'columns' => min($terminalColumns, $capacity?->columns ?? $terminalColumns),
+            'rows' => min($terminalRows, $capacity?->rows ?? $terminalRows),
             'header' => array_map($center, $header), 'hints' => array_map($center, $hints),
             'frameTitle' => $frameTitle, 'controlText' => $controlText];
     }
@@ -87,14 +92,24 @@ class StorybookModal extends Modal
         parent::update();
     }
 
+    private function measureProjectionCapacity(StorybookDefinition $book): ?StorybookReadingCapacity
+    {
+        return $this->projectionCapacity instanceof StorybookReadingCapacityProviderInterface
+            ? $this->projectionCapacity->getStorybookReadingCapacity($book) : $this->projectionCapacity;
+    }
+
     private function refreshReadingLayout(): void
     {
-        if ($this->screenWidth === get_screen_width() && $this->screenHeight === get_screen_height()
+        // Surface metrics and graphical control glyphs can change independently of Terminal dimensions and labels.
+        // Measuring is cheap; reflow and frame reconstruction only run when an actual reading constraint changes.
+        $capacity = $this->measureProjectionCapacity($this->reader->book);
+        if ($this->measuredProjectionCapacity == $capacity && $this->screenWidth === get_screen_width() && $this->screenHeight === get_screen_height()
             && $this->controlText === TerminalControlText::formatActions([['confirm', 'Confirm'], ['cancel', 'Close']])) {
             return;
         }
-        $layout = $this->measureReadingLayout($this->reader->book);
+        $layout = $this->measureReadingLayout($this->reader->book, $capacity);
         $this->reader->reflow($layout['columns'], $layout['rows']);
+        $this->measuredProjectionCapacity = $capacity;
         $this->erase();
         $this->headerLines = $layout['header'];
         $this->hintLines = $layout['hints'];

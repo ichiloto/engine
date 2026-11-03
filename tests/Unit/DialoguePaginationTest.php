@@ -378,3 +378,10 @@ it('uses wider negotiated modal pages and the same terminal fallback window at 1
             ->and($peer->starts)->toBe(1);
     } finally { $runtime->shutdown(); }
 });
+
+
+it('uses one shared wrap without mistaking soft separators for authored indentation', function () {
+    $text = "abc def ghi\n  next line\n\n    inset";
+    expect(DialoguePaginationBuilder::wrapMessageIntoLines($text, 7))
+        ->toBe(['abc def', 'ghi', '  next', 'line', '', '    ins', 'et']);
+});

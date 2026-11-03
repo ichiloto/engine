@@ -104,7 +104,7 @@ it('wraps styled text by visible width without losing the highlighted key', func
   $text = 'Press ' . Color::apply('T', Color::YELLOW) . ' to watch.';
   $lines = TerminalText::wrapToWidth($text, 10);
 
-  expect(array_map([TerminalText::class, 'stripAnsi'], $lines))->toBe(['Press T', 'to watch.'])
+  expect(array_map([TerminalText::class, 'stripAnsi'], $lines))->toBe(['Press T to', 'watch.'])
     ->and(SgrColorParser::parse(TerminalText::visibleSymbols($lines[0])[6]))
     ->toEqual(SgrColorParser::parse(Color::YELLOW->value . 'T'));
 });
@@ -283,4 +283,27 @@ it('formats a long styled row in time that grows with its length, not with its l
   $long = $least($row(400));
   // Linear work gives about 4; work per tag across the whole row gives about 16.
   expect($long / $short)->toBeLessThan(8.0);
+});
+
+
+it('treats separators at soft breaks as spacing while retaining authored paragraph indentation', function () {
+  expect(TerminalText::wrapParagraphsToWidth("abc def ghi\n  next line\n\n    indented", 7))
+    ->toBe(['abc def', 'ghi', '  next', 'line', '', '    ind', 'ented'])
+    ->and(TerminalText::wrapToWidth('abcdef   gh ij', 6))->toBe(['abcdef', 'gh ij'])
+    ->and(TerminalText::wrapToWidth('abc defghijkl', 6))->toBe(['abc', 'defghi', 'jkl']);
+});
+
+it('wraps styled graphemes within both display-cell and optional graphical codepoint budgets', function () {
+  $source = "\e[31mabc def\e[0m ghi 界界 e\u{0301}e\u{0301}e\u{0301}";
+  $lines = TerminalText::wrapParagraphsToWidth($source, 7, 7);
+  expect(TerminalText::stripAnsi($lines[0]))->toBe('abc def')
+    ->and(TerminalText::stripAnsi($lines[1]))->not->toStartWith(' ')
+    ->and(SgrColorParser::parse(TerminalText::visibleSymbols($lines[0])[4]))
+    ->toEqual(SgrColorParser::parse("\e[31md"));
+  foreach ($lines as $line) {
+    expect(TerminalText::displayWidth($line))->toBeLessThanOrEqual(7)
+      ->and(mb_strlen(TerminalText::stripAnsi($line), 'UTF-8'))->toBeLessThanOrEqual(7);
+  }
+  expect(preg_replace('/\s+/u', '', TerminalText::stripAnsi(implode('', $lines))))
+    ->toBe(preg_replace('/\s+/u', '', TerminalText::stripAnsi($source)));
 });

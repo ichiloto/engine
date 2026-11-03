@@ -236,15 +236,20 @@ it('uses the presentation hosts measured graphical capacity without launching a 
         \Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface {
         public function __construct(private \Ichiloto\Engine\Core\Game $game) {}
         public function getGame(): \Ichiloto\Engine\Core\Game { return $this->game; }
+        public StorybookReadingCapacity $capacity;
         public function restoreAfterEventOverlay(): void {}
         public function getStorybookReadingCapacity(StorybookDefinition $book): StorybookReadingCapacity
-        { return new StorybookReadingCapacity(30, 3); }
+        { return $this->capacity ?? new StorybookReadingCapacity(30, 3); }
     };
     $surface = new \Ichiloto\Engine\Events\Interpreter\ModalEventPresentation($host);
     $surface->beginStorybook(makeModalStorybook());
     $modal = new ReflectionProperty($surface, 'modal')->getValue($surface);
     expect($modal->getModalPresentation()->storybook->capacity->columns)->toBe(30)
         ->and($modal->getModalPresentation()->storybook->capacity->rows)->toBe(3);
+    $host->capacity = new StorybookReadingCapacity(22, 2);
+    ob_start();
+    try { $surface->update(); } finally { ob_end_clean(); }
+    expect($modal->getModalPresentation()->storybook->capacity)->toEqual($host->capacity);
     ob_start();
     try { $surface->reset(); } finally { ob_end_clean(); }
 });
@@ -271,4 +276,38 @@ it('requires measured capacity for a graphical host before replacing its current
         ->toThrow(RuntimeException::class, 'measured reading-capacity provider')
         ->and(new ReflectionProperty($surface, 'modal')->getValue($surface))->toBe($owned)
         ->and($host->restored)->toBe(0)->and(Input::isButtonDown('confirm'))->toBeTrue();
+});
+
+
+it('remeasures a live projection independently of Terminal geometry while retaining the reading anchor', function () {
+    $host = new class implements \Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface {
+        public ?StorybookReadingCapacity $capacity;
+        public bool $fail = false;
+        public function __construct() { $this->capacity = new StorybookReadingCapacity(25, 3); }
+        public function getStorybookReadingCapacity(StorybookDefinition $book): ?StorybookReadingCapacity
+        {
+            if ($this->fail) { throw new RuntimeException('Surface measurement unavailable'); }
+            return $this->capacity;
+        }
+    };
+    $book = makeModalStorybook(implode(' ', array_map(static fn(int $i): string => 'word' . $i, range(1, 90))));
+    $modal = new StorybookModalProbe($this->storyGame, $book, $host);
+    $modal->selectControl(0);
+    $before = $modal->getModalPresentation()->storybook;
+    $anchor = preg_split('/\s+/u', trim($before->readingText))[0];
+    $host->capacity = new StorybookReadingCapacity(14, 2);
+    ob_start();
+    try { $modal->update(); } finally { ob_end_clean(); }
+    $after = $modal->getModalPresentation()->storybook;
+    expect($after->page)->toBe($before->page)->and($after->readingText)->toContain($anchor)
+        ->and($after->capacity)->toEqual($host->capacity)
+        ->and($before->capacity)->toEqual(new StorybookReadingCapacity(25, 3));
+    $host->fail = true;
+    expect(fn() => $modal->update())->toThrow(RuntimeException::class, 'Surface measurement unavailable')
+        ->and($modal->getModalPresentation()->storybook)->toEqual($after);
+    $host->fail = false;
+    $host->capacity = null; // The host currently presents Terminal cells.
+    ob_start();
+    try { $modal->update(); } finally { ob_end_clean(); }
+    expect($modal->getModalPresentation()->storybook->capacity)->toEqual(new StorybookReadingCapacity(72, 16));
 });

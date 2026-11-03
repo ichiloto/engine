@@ -40,15 +40,17 @@ loaded again when requested, without a separate content cache or source write.
 `StorybookPlayback` owns forward/back/close and finite text continuations for
 an explicitly supplied common reading capacity. It reuses shared dialogue
 wrapping, retaining the authored page and picture throughout its continuations.
-Wide Terminal glyphs and Canvas codepoints both fit that capacity; an unreadable
-next page is refused before changing owner position. Closing writes no outcome,
+One styled wrap fits both Terminal display cells and Canvas codepoints,
+retaining authored paragraph indentation while removing soft-break separators.
+An unreadable next page is refused before changing owner position. Closing writes no outcome,
 and another telling creates independent reader state.
 
 The shared `StorybookModal` uses the existing modal lifecycle and Window for a
 bounded Terminal book frame, centered navigation buttons, semantic control hints
-and input cleanup. Its optional `StorybookReadingCapacity` takes a projection's
-available prose area; the stricter Terminal/projection dimensions feed one
-reader. `ModalPresentation::storybook` carries an immutable owner-selected page,
+and input cleanup. It accepts a live `StorybookReadingCapacityProviderInterface`
+for the host's current prose area, or a fixed `StorybookReadingCapacity` for an
+isolated reader. The stricter Terminal/projection dimensions feed one reader.
+`ModalPresentation::storybook` carries an immutable owner-selected page,
 prose continuation, narrator and capacity for graphical composition. Resizing or
 a changed control display reflows around the current reading position; an
 unsupported surface is refused before changing it. Reader controls use a native
@@ -64,7 +66,10 @@ Field and battle scopes share this read-only presentation command. The cinematic
 schema exposes the resource source and definition fields for Editor selection.
 
 Graphical hosts implement `StorybookReadingCapacityProviderInterface` to measure
-the actual prose space before opening the shared modal. A graphical runtime
+the actual prose space before opening the shared modal and while it is open.
+The modal compares current measurements before reflowing; graphical surface or
+control-glyph changes retain the current reading anchor even when Terminal
+dimensions and hint text stay unchanged. A graphical runtime
 without that provider is refused before replacing an existing presentation or
 consuming input. `GameScene` and `BattleScene` provide it through
 `RendererRuntime::getStorybookReadingCapacity`, which asks the scene frame

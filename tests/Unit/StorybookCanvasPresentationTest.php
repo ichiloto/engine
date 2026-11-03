@@ -289,7 +289,7 @@ it('opens a Terminal reader through a measuring host that reports no graphical p
     $surface = new ModalEventPresentation($host);
     $surface->beginStorybook(storybookCanvasBook([['id' => 'page', 'text' => 'Plain cells.']]));
     $modal = new ReflectionProperty($surface, 'modal')->getValue($surface);
-    expect($host->asked)->toBe(1)->and($modal->getModalPresentation()->storybook->capacity->columns)->toBe(192);
+    expect($host->asked)->toBeGreaterThanOrEqual(1)->and($modal->getModalPresentation()->storybook->capacity->columns)->toBe(192);
     ob_start();
     try { $surface->reset(); } finally { ob_end_clean(); }
 });
@@ -326,4 +326,44 @@ it('measures through the scene presentation with the project dialogue theme, and
     expect($themed->getStorybookReadingCapacity($book, 1280, 720))
         ->toEqual(StorybookCanvasPresentation::measureReadingCapacity($book, $theme, 1280, 720))
         ->and($themed->getStorybookReadingCapacity($book, 1280, 720)->columns)->toBeGreaterThan(1);
+});
+
+
+it('reflows the same reader to its current graphical surface and changed control hints', function () {
+    $theme = storybookCanvasTheme($this->canvasRoot);
+    $book = storybookCanvasBook([['id' => 'page', 'text' => storybookCanvasProse(260, 'word'),
+        'picture' => 'Pictures/missing.png']]);
+    $host = new class($theme) implements StorybookReadingCapacityProviderInterface {
+        public int $width = 1280;
+        public int $height = 720;
+        public function __construct(private MenuPresentationCatalog $theme) {}
+        public function getStorybookReadingCapacity(StorybookDefinition $book): StorybookReadingCapacity
+        { return StorybookCanvasPresentation::measureReadingCapacity($book, $this->theme, $this->width, $this->height); }
+    };
+    $modal = new StorybookCanvasModalProbe($this->canvasGame, $book, $host);
+    $modal->selectControl(0);
+    $first = $modal->getModalPresentation()->storybook;
+    $anchor = preg_split('/\s+/u', trim($first->readingText))[0];
+    $host->width = 800;
+    $host->height = 480;
+    ob_start();
+    try { $modal->update(); } finally { ob_end_clean(); }
+    $smaller = $modal->getModalPresentation()->storybook;
+    expect($smaller->capacity)->toEqual($host->getStorybookReadingCapacity($book))
+        ->and($smaller->capacity->rows)->toBeLessThan($first->capacity->rows)
+        ->and($smaller->readingText)->toContain($anchor);
+    MenuModalPresentation::compose(new PresentationCanvas(800, 480), $modal->getModalPresentation(), $theme);
+    ActionHints::useProvider(new class implements \Ichiloto\Engine\IO\ActionHintProvider {
+        public function controlForAction(string $action): ?\Ichiloto\Engine\IO\ControlHint
+        { return new \Ichiloto\Engine\IO\ControlHint('controller', $action, str_repeat('control ', 8)); }
+    });
+    ob_start();
+    try { $modal->update(); } finally { ob_end_clean(); }
+    $hinted = $modal->getModalPresentation()->storybook;
+    expect($hinted->capacity)->toEqual($host->getStorybookReadingCapacity($book))
+        ->and($hinted->capacity->rows)->toBeLessThan($smaller->capacity->rows)
+        ->and($hinted->readingText)->toContain($anchor);
+    $canvas = MenuModalPresentation::compose(new PresentationCanvas(800, 480), $modal->getModalPresentation(), $theme);
+    $reading = array_find($canvas->textLayers, static fn($layer): bool => str_starts_with($layer->id, 'storybook-reading'));
+    expect(max(array_column($reading->runs, 'row')))->toBeLessThan($hinted->capacity->rows);
 });

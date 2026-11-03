@@ -35,7 +35,7 @@ final class StorybookCanvasPresentation
     int $width, int $height): StorybookReadingCapacity
   {
     $pictured = array_any($book->pages, static fn($page): bool => $page->picture !== null);
-    $layout = self::layout($theme, $width, $height, $book->title, $book->narrator, $pictured);
+    $layout = self::buildLayout($theme, $width, $height, $book->title, $book->narrator, $pictured);
     return new StorybookReadingCapacity($layout['columns'], $layout['rows']);
   }
 
@@ -44,7 +44,7 @@ final class StorybookCanvasPresentation
   {
     $book = $modal->storybook ?? throw new RuntimeException('A storybook projection requires the reader snapshot.');
     $m = $theme->metrics;
-    $layout = self::layout($theme, $base->width, $base->height, $modal->title, $book->narrator, $book->page->picture !== null);
+    $layout = self::buildLayout($theme, $base->width, $base->height, $modal->title, $book->narrator, $book->page->picture !== null);
     $capacity = $book->capacity;
     $prose = $layout['prose'];
     $blockWidth = $capacity->columns * $m->cellWidth;
@@ -92,7 +92,7 @@ final class StorybookCanvasPresentation
    * @return array{frame: CanvasRectangle, title: ?CanvasRectangle, narrator: ?CanvasRectangle, picture: ?CanvasRectangle,
    *   prose: CanvasRectangle, page: CanvasRectangle, buttons: CanvasRectangle, hints: ?CanvasRectangle, columns: int, rows: int}
    */
-  private static function layout(MenuPresentationCatalog $theme, int $width, int $height, string $title,
+  private static function buildLayout(MenuPresentationCatalog $theme, int $width, int $height, string $title,
     string $narrator, bool $pictured): array
   {
     $m = $theme->metrics;
