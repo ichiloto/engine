@@ -4602,3 +4602,28 @@ protocol checks. Actual overlook map coverage, asset acceptance and Native/playe
 review remain open. Opaque ground continues to cover the backdrop; the map owner
 authors the graphical opening and explicit source glyph/tile coverage. Source
 inspection of the Native sorted paint walker is not execution evidence.
+
+
+### Tile shadow casting layers — 3 November 2026
+
+Engine local develop `9d04a7f` adds optional positive `shadows.layers` selection
+in the shared tileset shadow contract. Existing omitted selection keeps the
+all-layer behavior. Synthetic qualification uses the same tile artwork in wall
+and worktop layers, preserves the wall's shifted band and removes the worktop
+band; capability-disabled/Terminal uploads and tile identities remain unchanged.
+The layer-selection contract is documented in
+[tile batches](tile-batches.md#shadow-casting-roles).
+
+- [x] Engine validation and shared world composition, including retained-world,
+  tile stack and world-object regressions: 252 tests / 7,325 assertions across
+  eight focused files, macOS PHP 8.5.12. Two changed production classes pass
+  serial PHPStan level 3. No full-suite/native acceptance claimed.
+- [ ] Claude: GUI tileset casting-layer selector from actual layer references,
+  default/unfiltered choice, source-preserving validation and round-trip checks.
+  Preserve graphical metadata and existing TUI workflow.
+- [ ] Game: adopt the shared resource selection after supported authoring lands;
+  audit all wall uses and retain legitimate wall casters while removing wall
+  bands from furnishing layers across the resource's maps.
+- [ ] Qualify the integrated affected rooms through the existing authorized
+  graphical playtest. No renderer protocol, map geometry, collision or save
+  change belongs to this contract.
