@@ -11,6 +11,7 @@ use Ichiloto\Engine\Core\Interfaces\CanStart;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\UI\Interfaces\UIElementInterface;
+use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface;
 use Ichiloto\Engine\UI\Interfaces\LayeredUIElementInterface;
 
@@ -35,6 +36,12 @@ class UIManager implements CanRender, CanUpdate, CanResume, CanStart
   protected array $suppressedUiElements = [];
   /** @var array<int, true> UI elements known to have drawn a footprint. */
   protected array $renderedUiElements = [];
+
+  /** Visible modal input ownership includes event-owned cooperative surfaces. */
+  public bool $hasActiveModal {
+    get => array_any($this->presentations, static fn(LayeredPresentationInterface $owner): bool =>
+      $owner instanceof ModalInterface && $owner->isShowing());
+  }
 
   /**
    * UIManager constructor.
@@ -176,7 +183,7 @@ class UIManager implements CanRender, CanUpdate, CanResume, CanStart
   public function getActivePresentations(): array
   {
     $active = array_filter(array_reverse($this->presentations, true), static fn($item) =>
-      !$item instanceof \Ichiloto\Engine\UI\Interfaces\ModalInterface || $item->isShowing());
+      !$item instanceof ModalInterface || $item->isShowing());
     uasort($active, static fn($a, $b) => $b->getPresentationPriority()->value <=> $a->getPresentationPriority()->value);
     return array_values($active);
   }

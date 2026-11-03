@@ -133,7 +133,8 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
   /** Timed battle presentation counts; completed results await idle-aware player input. */
   public function getPlayActivity(): PlayActivity
   {
-    if ($this->state instanceof BattlePauseState || ModalManager::getInstance($this->getGame())->currentModal !== null) {
+    if ($this->state instanceof BattlePauseState || ModalManager::getInstance($this->getGame())->currentModal !== null
+      || $this->getUI()->hasActiveModal) {
       return PlayActivity::PAUSED;
     }
     if ($this->state instanceof BattleVictoryState || $this->state instanceof BattleDefeatState) {

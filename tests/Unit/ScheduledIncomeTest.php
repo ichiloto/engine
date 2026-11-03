@@ -370,7 +370,12 @@ describe('script commands', function () {
 function createIncomeBattleScene(): BattleScene
 {
   return new class(new PassiveGame()) extends BattleScene {
-    public function __construct(private readonly Game $activityGame) {}
+    public function __construct(private readonly Game $activityGame)
+    {
+      $this->uiManager = new class($activityGame) extends \Ichiloto\Engine\UI\UIManager {
+        public function __construct(Game $game) { parent::__construct($game); }
+      };
+    }
     public function getGame(): Game { return $this->activityGame; }
   };
 }

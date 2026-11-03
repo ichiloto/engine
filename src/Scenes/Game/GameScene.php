@@ -1925,7 +1925,8 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     public function getPlayActivity(): PlayActivity
     {
         if (($this->eventInterpreter?->isPlaybackPaused ?? false)
-            || ModalManager::getInstance($this->getGame())->currentModal !== null) {
+            || ModalManager::getInstance($this->getGame())->currentModal !== null
+            || $this->getUI()->hasActiveModal) {
             return PlayActivity::PAUSED;
         }
         return match (true) {

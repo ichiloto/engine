@@ -880,3 +880,56 @@ it('retries a queued delivery after failure without leaving a modal that blocks 
   if ($receipt !== null) { expect($receipt->isComplete)->toBeTrue(); }
   expect(new ReflectionProperty(ModalManager::class, 'pendingAlerts')->getValue($this->manager))->toBe([]);
 })->with([false, true]);
+
+
+it('pauses income for event-owned modal overlays and resumes the underlying timed presentation', function (string $sceneKind, string $kind) {
+  $scene = $this->scene;
+  $manager = $this->game->sceneManager;
+  if ($sceneKind === 'battle') {
+    $scene = makeBareScene(\Ichiloto\Engine\Scenes\Battle\BattleScene::class);
+    new ReflectionProperty($scene, 'sceneManager')->setValue($scene, $manager);
+    new ReflectionProperty($scene, 'uiManager')->setValue($scene, $this->scene->getUI());
+    new ReflectionProperty($scene, 'state')->setValue($scene,
+      makeBareScene(\Ichiloto\Engine\Scenes\Battle\States\BattleEventState::class));
+    $manager->currentScene = $scene;
+  } else {
+    new ReflectionProperty($scene, 'state')->setValue($scene,
+      makeBareScene(\Ichiloto\Engine\Scenes\Game\States\CutsceneState::class));
+  }
+  $host = $this->createMock(\Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface::class);
+  $host->method('getGame')->willReturn($this->game);
+  $presentation = new \Ichiloto\Engine\Events\Interpreter\ModalEventPresentation($host);
+  $income = new \Ichiloto\Engine\Income\IncomeService(
+    new \Ichiloto\Engine\Income\IncomeCatalog(['schedules' => [[
+      'id' => 'wage', 'name' => 'Wage', 'cadence' => 'active_time', 'interval' => 1800,
+      'amount' => 200, 'delivery' => 'hold',
+    ]]]), new \Ichiloto\Engine\Income\IncomeLedger(), new GameState(), new Party());
+  $presenting = \Ichiloto\Engine\Core\PlayActivity::PRESENTING;
+  expect($scene->getPlayActivity())->toBe($presenting);
+  $income->advanceActivePlay(0.5, $presenting, 9999);
+  try {
+    match ($kind) {
+      'dialogue' => $presentation->beginText('An event-owned line.', 'Speaker'),
+      'choice' => $presentation->beginChoice('Choose.', ['First', 'Second']),
+      'book' => $presentation->beginStorybook(\Ichiloto\Engine\Messaging\Storybook\StorybookDefinition::fromArray([
+        'id' => 'synthetic-book', 'title' => 'Story', 'narrator' => 'Narrator',
+        'pages' => [['id' => 'one', 'text' => 'A complete page.']],
+      ])),
+    };
+    // Cooperative event surfaces own input through UIManager, outside the blocking stack.
+    expect($this->manager->currentModal)->toBeNull()->and($scene->getUI()->getActivePresentations())->not->toBeEmpty();
+    for ($frame = 1; $frame <= 7200; ++$frame) {
+      $income->advanceActivePlay(0.5, $scene->getPlayActivity(), $frame * 0.5);
+    }
+    expect($income->getHeldPay('wage'))->toBe(0)
+      ->and($income->ledger->getAccount('wage')->progress)->toBe(0.5)
+      ->and($scene->getPlayActivity())->toBe(\Ichiloto\Engine\Core\PlayActivity::PAUSED);
+  } finally { $presentation->reset(); }
+  // Hide releases ownership before rendering commits its deferred dismissal.
+  expect($scene->getPlayActivity())->toBe($presenting);
+  $income->advanceActivePlay(0.5, $scene->getPlayActivity(), 9999);
+  expect($income->ledger->getAccount('wage')->progress)->toBe(1.0);
+})->with([
+  'field dialogue' => ['field', 'dialogue'], 'field choice' => ['field', 'choice'], 'field book' => ['field', 'book'],
+  'battle dialogue' => ['battle', 'dialogue'], 'battle choice' => ['battle', 'choice'], 'battle book' => ['battle', 'book'],
+]);

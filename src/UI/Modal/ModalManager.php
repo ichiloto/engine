@@ -128,8 +128,7 @@ class ModalManager implements CanUpdate, CanRender
     // Cooperative dialogue and pause menus register with the scene's UI owner,
     // without entering the blocking modal stack. Defer alerts until that owner releases input.
     $scene = isset($this->game->sceneManager) ? $this->game->sceneManager->currentScene : null;
-    if (array_any($scene?->getUI()->getActivePresentations() ?? [],
-      static fn($presentation): bool => $presentation instanceof ModalInterface && $presentation->isShowing())) {
+    if ($scene?->getUI()->hasActiveModal ?? false) {
       return;
     }
     $alert = array_shift($this->pendingAlerts);
