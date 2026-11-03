@@ -94,10 +94,12 @@ final class MenuModalPresentation
     $readingHeight = $messageHeight + $noticeHintGap + $noticeHintHeight;
     $bodyHeight = max($artSize, $modal->singleConfirmation ? max($readingHeight, 3 * $m->cellHeight) : $readingHeight);
     $quantityHeight = $modal->quantity === null ? 0 : 2 * $m->cellHeight + $gap;
+    $titleGap = $titleHeight > 0 ? $gap : 0;
+    $bodyGap = $bodyHeight > 0 ? $gap : 0;
     $hints = [ActionHints::resolve('confirm', 'Confirm'), ActionHints::resolve('cancel', 'Cancel')];
     $hintHeight = MenuActionHints::height($hints, $theme, $width);
     $hintGap = $hintHeight > 0 ? $gap : 0;
-    $available = $base->height - 4 * $p - $titleHeight - $bodyHeight - $quantityHeight - $hintHeight - 2 * $gap - $hintGap;
+    $available = $base->height - 4 * $p - $titleHeight - $bodyHeight - $quantityHeight - $hintHeight - $titleGap - $bodyGap - $hintGap;
     if ($available < $m->rowHeight + $m->cellHeight) {
       throw new RuntimeException('Modal content exceeds its finite menu viewport; terminal presentation retained.');
     }
@@ -119,7 +121,7 @@ final class MenuModalPresentation
     $heights = array_map(fn(MenuRow $row) => $layout->heightFor($row, $theme->rows->metrics, false), $rows);
     $choiceHeight = $modal->vertical ? min($available, array_sum($heights)) : max($heights);
     if ($choiceHeight > $available) { throw new RuntimeException('Modal button text exceeds its finite menu viewport.'); }
-    $height = 2 * $p + $titleHeight + $bodyHeight + $quantityHeight + $choiceHeight + $hintHeight + 2 * $gap + $hintGap;
+    $height = 2 * $p + $titleHeight + $bodyHeight + $quantityHeight + $choiceHeight + $hintHeight + $titleGap + $bodyGap + $hintGap;
     $top = ($base->height - $height) / 2;
     $box = new CanvasRectangle($x - $p, $top, $width + 2 * $p, $height);
     $view->frame('menu-modal-frame', $box);
@@ -129,7 +131,7 @@ final class MenuModalPresentation
       $view->prose('menu-modal-title', $modal->title, new CanvasRectangle($x, $y, $width, $titleHeight),
         alignment: HorizontalAlignment::CENTER);
     }
-    $y += $titleHeight + $gap;
+    $y += $titleHeight + $titleGap;
     if ($artSize > 0) {
       $artBox = new CanvasRectangle($x, $y + ($bodyHeight - $artSize) / 2, $artSize, $artSize);
       if ($hasPortrait) { $view->portrait($notice->actorId, $artBox, 'menu-modal-notice-portrait'); }
@@ -145,7 +147,7 @@ final class MenuModalPresentation
     $requiredHintCanvas = $noticeHintHeight === 0 ? null : MenuActionHints::compose($base->width, $base->height,
       'menu-modal-notice-hints', $noticeHints, $theme, new CanvasRectangle($messageX,
         $readingY + $messageHeight + $noticeHintGap, $messageWidth, $noticeHintHeight), required: true);
-    $y += $bodyHeight + $gap;
+    $y += $bodyHeight + $bodyGap;
     $controls = new MenuControls($theme);
     if ($modal->quantity !== null) {
       $quantity = $modal->quantity;
