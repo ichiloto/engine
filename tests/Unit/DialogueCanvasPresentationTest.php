@@ -721,3 +721,47 @@ it('shares the actual body nameplate and portrait bounds with camera reservation
     }
   }
 });
+
+
+it('retains the same Skit stage below the pause and exit menus and restores it when they close', function (int $width, int $height) {
+    mkdir($this->root . '/Data/Presentation', 0700, true);
+    file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
+        'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1'],
+        'actors' => ['hero' => ['bust' => 'hero.png'], 'friend' => ['bust' => 'hero.png']],
+    ], true) . ';');
+    $line = getDialogueTestLine('Hero', new DialogueContext('hero', skitId: 'synthetic', skitTitle: 'Current beat',
+        participants: [['actorId' => 'hero', 'name' => 'Hero', 'emotion' => 'Neutral'],
+            ['actorId' => 'friend', 'name' => 'Friend', 'emotion' => 'Neutral']], backdrop: 'background.png'));
+    $dialogue = $this->getStubBuilder(TextBoxModal::class)->disableOriginalConstructor()->onlyMethods(['getDialogueSnapshot'])->getStub();
+    $dialogue->method('getDialogueSnapshot')->willReturn($line);
+    $active = [$dialogue];
+    $ui = $this->getStubBuilder(UIManager::class)->disableOriginalConstructor()->onlyMethods(['getActivePresentations'])->getStub();
+    $ui->method('getActivePresentations')->willReturnCallback(function () use (&$active) { return $active; });
+    $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getUI'])->getStub();
+    $scene->method('getUI')->willReturn($ui);
+    $presentation = new DialogueScenePresentation($this->root);
+    $before = $presentation->compose($scene, null, $width, $height, true);
+    foreach ([['Skip', 'Exit', 'Cancel'], ['To Title', 'Quit Game', 'Cancel']] as $choices) {
+        $menu = $this->getStubBuilder(\Ichiloto\Engine\UI\Modal\SelectModal::class)->disableOriginalConstructor()
+            ->onlyMethods(['getModalPresentation'])->getStub();
+        $menu->method('getModalPresentation')->willReturn(new \Ichiloto\Engine\UI\Modal\ModalPresentation(
+            'Paused', '', $choices, count($choices) - 1, true));
+        $active = [$menu, $dialogue];
+        $paused = $presentation->compose($scene, null, $width, $height, true);
+        expect($paused->isOverlay)->toBeFalse();
+        foreach (['skit-background', 'skit-bust-0', 'skit-bust-1'] as $id) {
+            expect(array_find($paused->canvas->images, fn($image) => $image->id === $id))
+                ->toEqual(array_find($before->canvas->images, fn($image) => $image->id === $id));
+        }
+        $text = implode('', array_merge(...array_map(fn($layer) => array_column($layer->runs, 'text'), $paused->canvas->textLayers)));
+        expect($text)->toContain(...$choices);
+        $menuLayers = array_filter($paused->canvas->textLayers, fn($layer) => str_contains($layer->id, 'menu-modal'));
+        expect(min(array_column($menuLayers, 'layer')))->toBeGreaterThan(max(array_column($before->canvas->textLayers, 'layer')));
+        foreach ($menuLayers as $layer) { $layer->bounds->assertWithin($width, $height); }
+        $active = [$dialogue];
+        $resumed = $presentation->compose($scene, null, $width, $height, true);
+        expect($resumed->canvas->images)->toEqual($before->canvas->images)
+            ->and($resumed->canvas->textLayers)->toEqual($before->canvas->textLayers)
+            ->and($dialogue->getDialogueSnapshot())->toBe($line);
+    }
+})->with([[1280, 720], [800, 480]]);

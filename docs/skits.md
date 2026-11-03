@@ -95,6 +95,11 @@ play remain frozen while the menu owns input. Terminal and GPUI consume the same
 selection snapshot and semantic input. In-game/native visual and audio acceptance
 remain pending; root's checks use silent synthetic hosts and retained Terminal
 surfaces. Last Legend's existing Escape binding supplies the pause action.
+The graphical composition check at 1280×720 and 800×480 retains the same Skit
+backdrop, both busts and reading snapshot under the main and exit menus, paints
+menu controls above them, and restores the unchanged scene after closing. These
+are shared drawing-data checks with synthetic artwork; native acceptance remains
+separate.
 
 ### Story-selected Skits And Lifecycle Sounds
 
