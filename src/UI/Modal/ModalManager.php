@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\UI\Modal;
 
 use Assegai\Collections\Stack;
+use Throwable;
+use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
@@ -152,18 +154,12 @@ class ModalManager implements CanUpdate, CanRender
 
   protected function showPendingAlert(string $message, string $title): void
   {
-    $modal = new PagedAlertModal($this->game, $message, $title);
-    $this->modals->push($modal);
-    try { $modal->open(); }
-    finally { $this->modals->pop(); }
+    $this->runModal(new PagedAlertModal($this->game, $message, $title));
   }
 
   protected function showPendingNotice(NoticeContent $notice): void
   {
-    $modal = new NoticeModal($this->game, $notice);
-    $this->modals->push($modal);
-    try { $modal->open(); }
-    finally { $this->modals->pop(); }
+    $this->runModal(new NoticeModal($this->game, $notice));
   }
 
   /**
@@ -190,8 +186,34 @@ class ModalManager implements CanUpdate, CanRender
    */
   public function open(ModalInterface $modal): void
   {
+    $position = $this->modals->count();
     $this->modals->push($modal);
-    $modal->show();
+    try { $modal->show(); }
+    catch (Throwable $error) {
+      try { $modal->hide(); }
+      catch (Throwable $cleanup) { Debug::warn('Modal show cleanup failed: ' . $cleanup->getMessage()); }
+      finally { $this->releaseModal($modal, $position); }
+      throw $error;
+    }
+  }
+
+  /** One blocking owner; every exit releases only its own stack entry. */
+  private function runModal(ModalInterface $modal): mixed
+  {
+    $position = $this->modals->count();
+    $this->modals->push($modal);
+    try { return $modal->open(); }
+    finally { $this->releaseModal($modal, $position); }
+  }
+
+  /** Nested callbacks may leave another modal above this operation's entry. */
+  private function releaseModal(ModalInterface $modal, int $position): void
+  {
+    $entries = $this->modals->toArray();
+    if (($entries[$position] ?? null) !== $modal) { return; }
+    array_splice($entries, $position, 1);
+    $this->modals->clear();
+    $this->modals->pushAll(...$entries);
   }
 
   /**
@@ -204,21 +226,13 @@ class ModalManager implements CanUpdate, CanRender
    */
   public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
   {
-    $this->modals->push(new AlertModal($this->game, $message, $title, $width));
-    $this->modals->peek()->open();
-    $this->modals->pop();
+    $this->runModal(new AlertModal($this->game, $message, $title, $width));
   }
 
   /** Keeps long credits bounded without turning them into character dialogue. */
   public function showCredits(CreditsContent $content): void
   {
-    $modal = new CreditsModal($this->game, $content);
-    $this->modals->push($modal);
-    try {
-      $modal->open();
-    } finally {
-      $this->modals->pop();
-    }
+    $this->runModal(new CreditsModal($this->game, $content));
   }
 
   /**
@@ -234,24 +248,14 @@ class ModalManager implements CanUpdate, CanRender
   public function confirm(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH,
     string $confirmLabel = 'OK', string $cancelLabel = 'Cancel'): bool
   {
-    $this->modals->push(new ConfirmModal($this->game, $message, $title, $width, $confirmLabel, $cancelLabel));
-    $result = $this->modals->peek()->open();
-    $this->modals->pop();
-
-    return (bool)$result;
+    return (bool)$this->runModal(new ConfirmModal($this->game, $message, $title, $width, $confirmLabel, $cancelLabel));
   }
 
   /** Selects a bounded amount without performing the caller's action. */
   public function selectQuantity(string $message, int $maximum, string $title = '', int $initial = 1,
     int $width = DEFAULT_DIALOG_WIDTH): ?int
   {
-    $modal = new QuantityModal($this->game, $message, $maximum, $title, $initial, $width);
-    $this->modals->push($modal);
-    try {
-      return $modal->open();
-    } finally {
-      $this->modals->pop();
-    }
+    return $this->runModal(new QuantityModal($this->game, $message, $maximum, $title, $initial, $width));
   }
 
   /**
@@ -267,11 +271,7 @@ class ModalManager implements CanUpdate, CanRender
   {
     $modal = new PromptModal($this->game, $message, $title, $default, $width);
     $modal->message = $message;
-    $this->modals->push($modal);
-    $result = $this->modals->peek()->open();
-    $this->modals->pop();
-
-    return $result;
+    return $this->runModal($modal);
   }
 
   /**
@@ -296,7 +296,7 @@ class ModalManager implements CanUpdate, CanRender
   ): int
   {
     $position = $position ?? new Vector2(intval((get_screen_width() - $width) / 2), intval((get_screen_height() - DEFAULT_DIALOG_HEIGHT) / 2));
-    $this->modals->push(new SelectModal(
+    return (int)$this->runModal(new SelectModal(
       $this->game,
       $message,
       $options,
@@ -309,10 +309,6 @@ class ModalManager implements CanUpdate, CanRender
         $height
       )
     ));
-    $result = $this->modals->peek()->open();
-    $this->modals->pop();
-
-    return (int)$result;
   }
 
   /**
@@ -335,13 +331,9 @@ class ModalManager implements CanUpdate, CanRender
     ?\Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext $presentation = null,
   ): void
   {
-    $this->modals->push(new TextBoxModal($this->game, $message, $title, $help, $position, charactersPerSecond: $charactersPerSecond,
-      playback: $playback, presentation: $presentation ?? new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext()));
-    try {
-      $this->modals->peek()->open();
-    } finally {
-      $this->modals->pop();
-      $playback?->finishLine();
-    }
+    $modal = new TextBoxModal($this->game, $message, $title, $help, $position, charactersPerSecond: $charactersPerSecond,
+      playback: $playback, presentation: $presentation ?? new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext());
+    try { $this->runModal($modal); }
+    finally { $playback?->finishLine(); }
   }
 }

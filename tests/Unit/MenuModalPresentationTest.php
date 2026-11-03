@@ -792,3 +792,91 @@ it('paginates original graphical paragraphs at the portrait-adjusted width witho
     if ($modal->buttons !== ['OK']) { new ReflectionMethod($modal, 'submit')->invoke($modal); }
   }
 })->with([false, true]);
+
+
+it('releases only a failed blocking modal and restores the previous input owner', function (string $kind) {
+  $before = $this->scene->getUI()->getActivePresentations();
+  $parent = $this->createMock(\Ichiloto\Engine\UI\Interfaces\ModalInterface::class);
+  $this->manager->open($parent);
+  $failure = new RuntimeException('Synthetic modal callback failure');
+  InputManager::setInputSource(new FakeInputSource());
+  Timers::setFrameTick(static function () use ($failure): void { throw $failure; });
+  $operation = match ($kind) {
+    'alert' => fn() => $this->manager->alert('Information'),
+    'confirm' => fn() => $this->manager->confirm('Proceed?'),
+    'prompt' => fn() => $this->manager->prompt('Name', default: 'Initial'),
+    'select' => fn() => $this->manager->select('Choose', ['First', 'Second']),
+    'quantity' => fn() => $this->manager->selectQuantity('Amount', 5),
+    'text' => fn() => $this->manager->showText('Words'),
+    'credits' => fn() => $this->manager->showCredits(new \Ichiloto\Engine\UI\Presentation\CreditsContent([
+      ['title' => 'People', 'lines' => ['Someone']],
+    ])),
+  };
+  try { $operation(); $this->fail('The callback must fail.'); }
+  catch (RuntimeException $error) { expect($error)->toBe($failure); }
+  expect($this->manager->currentModal)->toBe($parent)
+    ->and($this->scene->getUI()->getActivePresentations())->toBe($before);
+})->with(['alert', 'confirm', 'prompt', 'select', 'quantity', 'text', 'credits']);
+
+it('preserves another modal opened by a failing callback while removing the abandoned blocking owner', function () {
+  $parent = $this->createMock(\Ichiloto\Engine\UI\Interfaces\ModalInterface::class);
+  $child = $this->createMock(\Ichiloto\Engine\UI\Interfaces\ModalInterface::class);
+  $this->manager->open($parent);
+  InputManager::setInputSource(new FakeInputSource());
+  $failure = new RuntimeException('Nested callback failure');
+  Timers::setFrameTick(function () use ($child, $failure): void {
+    $this->manager->open($child);
+    throw $failure;
+  });
+  expect(fn() => $this->manager->select('Choose', ['First', 'Second']))->toThrow($failure);
+  $entries = new ReflectionProperty(ModalManager::class, 'modals')->getValue($this->manager)->toArray();
+  expect(array_map(spl_object_id(...), $entries))->toBe([spl_object_id($parent), spl_object_id($child)]);
+  Timers::setFrameTick(null);
+  InputManager::setInputSource(new FakeInputSource(KeyCode::ENTER));
+  expect($this->manager->confirm('Next operation'))->toBeTrue()
+    ->and($this->manager->currentModal)->toBe($child);
+});
+
+it('rolls back a failed asynchronous show while preserving the original failure and previous owner', function () {
+  $before = $this->scene->getUI()->getActivePresentations();
+  $parent = $this->createMock(\Ichiloto\Engine\UI\Interfaces\ModalInterface::class);
+  $this->manager->open($parent);
+  $failure = new RuntimeException('Asynchronous show failure');
+  $modal = new class($this->game, 'Information', 'Title') extends AlertModal {
+    public RuntimeException $failure;
+    public function show(): void { parent::show(); throw $this->failure; }
+  };
+  $modal->failure = $failure;
+  expect(fn() => $this->manager->open($modal))->toThrow($failure);
+  expect($this->manager->currentModal)->toBe($parent)
+    ->and($modal->isShowing())->toBeFalse()
+    ->and($this->scene->getUI()->getActivePresentations())->toBe($before);
+});
+
+
+it('retries a queued delivery after failure without leaving a modal that blocks the queue', function (bool $notice) {
+  $before = $this->scene->getUI()->getActivePresentations();
+  $owner = new stdClass();
+  $receipt = null;
+  if ($notice) {
+    $this->manager->queueNotice(new \Ichiloto\Engine\UI\Modal\NoticeContent('Acquired', 'A complete notice.'), $owner);
+  } else {
+    $receipt = $this->manager->queueTrackedAlert('A complete alert.', 'Information');
+  }
+  $failure = new RuntimeException('Interrupted queued delivery');
+  InputManager::setInputSource(new FakeInputSource());
+  Timers::setFrameTick(static function () use ($failure): void { throw $failure; });
+  expect(fn() => $this->manager->processPendingAlerts())->toThrow($failure);
+  expect($this->manager->currentModal)->toBeNull()
+    ->and($this->scene->getUI()->getActivePresentations())->toBe($before);
+  if ($notice) { expect($this->manager->hasPendingNotices($owner))->toBeTrue(); }
+  else { expect($receipt->isTerminal)->toBeFalse(); }
+  Timers::setFrameTick(null);
+  InputManager::setInputSource(new FakeInputSource(KeyCode::ENTER));
+  $this->manager->processPendingAlerts();
+  expect($this->manager->currentModal)->toBeNull()
+    ->and($this->manager->hasPendingNotices($owner))->toBeFalse()
+    ->and($this->scene->getUI()->getActivePresentations())->toBe($before);
+  if ($receipt !== null) { expect($receipt->isComplete)->toBeTrue(); }
+  expect(new ReflectionProperty(ModalManager::class, 'pendingAlerts')->getValue($this->manager))->toBe([]);
+})->with([false, true]);
