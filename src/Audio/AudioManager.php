@@ -238,6 +238,13 @@ class AudioManager implements CanUpdate
    */
   protected array $loggedWarnings = [];
   protected ?CinematicMusicSession $cinematicMusicSession = null;
+  /** @var array<int, true> Outstanding pause owners. */
+  private array $pauseOwners = [];
+  private int $nextPauseOwner = 0;
+  /** @var list<AudioPlayback> Processes owned when the outer pause opened. */
+  private array $pausedPlaybacks = [];
+  private ?AudioPlayback $pausedBackgroundMusic = null;
+  private float $pauseStartedAt = 0.0;
   protected ?AudioPlayback $speechPlayback = null;
   protected ?string $speechPath = null;
   protected float $speechDuckFactor = 1.0;
@@ -696,8 +703,8 @@ class AudioManager implements CanUpdate
    */
   public function isSoundEffectLoopAudible(SoundEffectLoop $loop): bool
   {
-    return $this->hasSoundEffectLoop($loop)
-      && ($this->sfxLoops[spl_object_id($loop)]['playback']?->isRunning ?? false);
+    $playback = $this->sfxLoops[spl_object_id($loop)]['playback'] ?? null;
+    return $this->hasSoundEffectLoop($loop) && ($playback?->isRunning ?? false) && !$playback->isPaused;
   }
 
   /**
@@ -781,12 +788,71 @@ class AudioManager implements CanUpdate
   }
 
   /**
+   * Freezes current world audio. Menu sounds started afterward remain audible.
+   * Owners may overlap; only the last release resumes the captured players.
+   * No settings, music position, speech ownership or ducking are replaced.
+   */
+  public function pausePlayback(): AudioPlaybackPause
+  {
+    if ($this->pauseOwners === []) {
+      $playbacks = [];
+      foreach ([$this->bgmPlayback, $this->speechPlayback, ...$this->sfxPlaybacks,
+        ...array_column($this->sfxLoops, 'playback')] as $playback) {
+        if ($playback !== null && $playback->isRunning) {
+          $playbacks[spl_object_id($playback)] = $playback;
+        }
+      }
+      foreach ($playbacks as $playback) {
+        if (!$playback->canPause()) {
+          throw new \RuntimeException('This audio output cannot pause its running players.');
+        }
+      }
+      $paused = [];
+      try {
+        foreach ($playbacks as $playback) { $playback->pause(); $paused[] = $playback; }
+      } catch (Throwable $error) {
+        foreach (array_reverse($paused) as $playback) {
+          try { $playback->resume(); }
+          catch (Throwable $cleanup) { Debug::warn('Audio pause rollback failed: ' . $cleanup->getMessage()); }
+        }
+        throw $error;
+      }
+      $this->pausedPlaybacks = $paused;
+      $this->pausedBackgroundMusic = $this->bgmPlayback;
+      $this->pauseStartedAt = microtime(true);
+    }
+    $id = ++$this->nextPauseOwner;
+    $this->pauseOwners[$id] = true;
+    return new AudioPlaybackPause(fn() => $this->releasePlaybackPause($id));
+  }
+
+  private function releasePlaybackPause(int $owner): void
+  {
+    if (!isset($this->pauseOwners[$owner])) { return; }
+    unset($this->pauseOwners[$owner]);
+    if ($this->pauseOwners !== []) { return; }
+    $playbacks = $this->pausedPlaybacks;
+    $this->pausedPlaybacks = [];
+    if ($this->bgmPlayback !== null && $this->bgmPlayback === $this->pausedBackgroundMusic) {
+      $this->bgmStartedAt += max(0.0, microtime(true) - $this->pauseStartedAt);
+    }
+    $this->pausedBackgroundMusic = null;
+    $failure = null;
+    foreach ($playbacks as $playback) {
+      try { $playback->resume(); }
+      catch (Throwable $error) { $failure ??= $error; }
+    }
+    if ($failure !== null) { throw $failure; }
+  }
+
+  /**
    * @inheritDoc
    */
   public function update(): void
   {
     $this->isSpeechPlaying();
     $this->reapFinishedSoundEffects();
+    if ($this->pauseOwners !== []) { return; }
     $this->counterSound->update();
     $this->updateSoundEffectLoops();
     $this->updateBackgroundMusic();

@@ -60,6 +60,7 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
    * @var float $nextPrintTime The next print time.
    */
   protected float $nextPrintTime = 0;
+  private ?float $pausedAt = null;
   /**
    * @var int $leftMargin The left margin.
    */
@@ -144,6 +145,7 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
   public function show(): void
   {
     InputManager::consumeCurrentInput();
+    $this->pausedAt = null;
     parent::show();
     $this->leftMargin = $this->rect->getX();
     $this->topMargin = $this->rect->getY();
@@ -159,11 +161,27 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
     $this->refreshPlaybackHelp();
   }
 
-  /**
-   * @inheritDoc
-   */
+  /** Freeze the current page while an outer presentation owns input. */
+  public function pausePlayback(?float $now = null): void
+  {
+    if ($this->pausedAt !== null) { return; }
+    $this->pausedAt = $now ?? microtime(true);
+    $this->playback?->pause($this->pausedAt);
+  }
+
+  public function resumePlayback(?float $now = null): void
+  {
+    if ($this->pausedAt === null) { return; }
+    $now ??= microtime(true);
+    if ($this->nextPrintTime > 0.0) { $this->nextPrintTime += max(0.0, $now - $this->pausedAt); }
+    $this->playback?->resume($now);
+    $this->pausedAt = null;
+  }
+
+  /** @inheritDoc */
   public function update(): void
   {
+    if ($this->pausedAt !== null) { return; }
     if ($this->isPrinting) {
       $this->updateContent();
     }
@@ -199,6 +217,7 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
 
   public function updateContent(): void
   {
+    if ($this->pausedAt !== null) { return; }
     if ($this->isPrinting) {
       $now = microtime(true);
 

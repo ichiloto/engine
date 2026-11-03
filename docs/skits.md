@@ -58,6 +58,20 @@ this functionality. Last Legend is the reference consumer. Related docs:
   Skip, ambient lip/eye animation and Editor emotion/voice authoring remain
   planned; the static graphical stage is implemented.
 
+### Pause work in progress — 3 November 2026
+
+Andrew requested Skip, Exit and Cancel during a Skit. Exit must ask whether to
+return to the title or quit the game. Cancel resumes the same conversation; Skip
+completes its seen outcome once. Story cinematics retain their authored safe
+finalizers. Closing a storybook retains its existing read-only behavior.
+
+The shared clock/audio foundation is implemented: `TextBoxModal::pausePlayback()`
+freezes typing and input, and `resumePlayback()` excludes suspended time from its
+typing deadline and `DialoguePlayback` Auto-reading timer. Audio pause leases
+preserve current player positions and ownership. The menu, cooperative field cue
+migration, interpreter pause/skip lifecycle, field animation freeze and title/quit
+cleanup remain implementation work. Runtime Skits do not offer the menu yet.
+
 ### Story-selected Skits And Lifecycle Sounds
 
 Field event scripts select a current Skit by its stable identity:

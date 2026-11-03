@@ -484,3 +484,29 @@ it('releases conversation ducking when the next voice fails and ignores stale se
   $this->audio->endSpeechSequence($next);
   expect($voice->isRunning)->toBeFalse()->and(end($this->audio->handles)->command[1])->toBe('0.8');
 });
+
+
+it('freezes a TextBox cursor and ignores confirm while its playback is paused', function () {
+  $game = new VoiceTestGame();
+  $flow = new DialoguePlayback();
+  $modal = new VoiceTestTextBox($game, 'A message that is still typing', 'Actor',
+    charactersPerSecond: 1, playback: $flow);
+  InputManager::setBindings(['confirm' => ['keys' => [KeyCode::x]]]);
+  InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource(KeyCode::x, null, null));
+  $modal->show();
+  $before = $modal->getDialogueSnapshot();
+  $next = new ReflectionProperty(TextBoxModal::class, 'nextPrintTime')->getValue($modal);
+  $modal->pausePlayback(10);
+  $modal->pausePlayback(20);
+  InputManager::handleInput();
+  $modal->update();
+  $modal->updateContent();
+  expect($modal->getDialogueSnapshot())->toEqual($before)->and($modal->isShowing)->toBeTrue();
+  $modal->resumePlayback(110);
+  $modal->resumePlayback(210);
+  expect(new ReflectionProperty(TextBoxModal::class, 'nextPrintTime')->getValue($modal))->toBe($next + 100);
+  InputManager::consumeCurrentInput();
+  $modal->updateContent();
+  expect($modal->getDialogueSnapshot())->toEqual($before);
+  $modal->hide();
+});

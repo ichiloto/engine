@@ -41,6 +41,7 @@ final class DialoguePlayback
   private float $readingSeconds = self::MINIMUM_READING_SECONDS;
   private int $pageIndex = -1;
   private bool $holdAfterAutoToggle = false;
+  private ?float $pausedAt = null;
 
   public function __construct(
     private readonly ?AudioManager $audio = null,
@@ -91,8 +92,24 @@ final class DialoguePlayback
     $this->holdAfterAutoToggle = $this->auto;
   }
 
+  /** Dialogue timers share the caller's clock; audio is paused by its manager. */
+  public function pause(float $now): void
+  {
+    $this->pausedAt ??= $now;
+  }
+
+  public function resume(float $now): void
+  {
+    if ($this->pausedAt === null) { return; }
+    if ($this->textCompletedAt !== null) {
+      $this->textCompletedAt += max(0.0, $now - $this->pausedAt);
+    }
+    $this->pausedAt = null;
+  }
+
   public function canAdvance(float $now, bool $isTyping, bool $isLastPage): bool
   {
+    if ($this->pausedAt !== null) { return false; }
     $playing = $this->voice !== null && ($this->audio?->isSpeechPlaying($this->voice) ?? false);
     if ($isTyping || ! $this->auto) {
       $this->textCompletedAt = null;
@@ -117,5 +134,6 @@ final class DialoguePlayback
       $this->voice = null;
     }
     $this->textCompletedAt = null;
+    $this->pausedAt = null;
   }
 }

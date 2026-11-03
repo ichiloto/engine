@@ -464,3 +464,29 @@ volume at once, and resumes by itself when they come back. `stop()` on the handl
 at once; `shutdown()` stops every loop. A player that fails (a non-zero exit,
 or a native looper that ends on its own) leaves its loop silent instead of
 respawning it every frame.
+
+
+## Owned playback pause
+
+`AudioManager::pausePlayback()` returns an `AudioPlaybackPause` lease. It freezes
+current music, speech, one-shot effects and held effect loops at their current
+process position. Close the lease when its owner resumes or is disposed. Owners
+can overlap: the last close resumes the captured processes. Closing twice is
+safe. UI interaction sounds started after the pause have their own lifetime.
+
+Pause preserves voice ownership, ducking and player settings. The music's elapsed
+clock excludes suspended time, so a later seek-safe volume change uses the same
+track position. Manager-driven loops and cinematic finalization wait while a
+lease is held. Shutdown still terminates and reaps paused children. A loop remains
+owned during pause and reports itself inaudible.
+
+The current command-line output uses POSIX `SIGSTOP`/`SIGCONT` on its owned direct
+children. Capability is checked for every running player before the group is
+paused; a failure rolls back the players already paused. Unsupported live output
+reports an exception to its caller. Native Windows has no command-line audio in
+the current backend set. The future native component's pause commands remain in
+[the authoritative native-audio plan](native-audio.md).
+
+macOS qualification uses silent PHP child processes and synthetic player handles;
+no sound device or native game is launched. Linux and WSL signal behavior remains
+unverified. These primitives do not yet bind the field's skit pause menu.
