@@ -66,8 +66,22 @@ schema exposes the resource source and definition fields for Editor selection.
 Graphical hosts implement `StorybookReadingCapacityProviderInterface` to measure
 the actual prose space before opening the shared modal. A graphical runtime
 without that provider is refused before replacing an existing presentation or
-consuming input. Graphical layout/composition, Editor resource authoring and
-Andrew's Terminal-frame/painting review remain open. Existing modal, dialogue,
+consuming input. `GameScene` and `BattleScene` provide it through
+`RendererRuntime::getStorybookReadingCapacity`, which asks the scene frame
+composer's themed dialogue presentation to measure the surface their modals
+compose over (the field grid, or a battle's arena canvas). A null capacity means
+no themed graphical projection draws the reader (a Terminal session, a renderer
+without graphical canvases, or a project without a dialogue catalogue), so the
+Terminal reader alone sets the capacity. `StorybookCanvasPresentation` uses one
+layout for that measurement and for painting `ModalPresentation::storybook`:
+the theme's optional `storybook` frame (panel otherwise), title and narrator,
+the page painting contained in a slot on the left (above on a portrait surface)
+with an optional `storybook.picture` frame, the reader's prose block, the
+position caption in the frame's bottom padding, centred Previous/Next/Close
+buttons and the Confirm/Close hints. A book with any picture reserves the slot
+for every page; a picture-free page centres the same prose block. A missing
+painting is reported and leaves the narration readable. Editor resource
+authoring and Andrew's Terminal-frame/painting review remain open. Existing modal, dialogue,
 image and theme primitives supply those consumers. The official Game text and
 optional elder interaction remain Game work after those dependencies and reviews;
 no Game storybook binding has been installed.

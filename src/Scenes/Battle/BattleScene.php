@@ -10,6 +10,9 @@ use Ichiloto\Engine\Battle\BattleConclusion;
 use Ichiloto\Engine\Battle\Events\BattleEventRunner;
 use Ichiloto\Engine\Battle\Events\BattleOutcome;
 use Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface;
+use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
+use Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface;
+use Ichiloto\Engine\UI\Modal\StorybookReadingCapacity;
 use Ichiloto\Engine\Events\Interpreter\ModalEventPresentation;
 use Ichiloto\Engine\Scenes\Battle\States\BattleEventState;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
@@ -67,7 +70,8 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
  *
  * @package Ichiloto\Engine\Scenes\Battle
  */
-class BattleScene extends AbstractScene implements CanvasProviderInterface, PlayActivitySourceInterface, EventPresentationHostInterface
+class BattleScene extends AbstractScene implements CanvasProviderInterface, PlayActivitySourceInterface, EventPresentationHostInterface,
+  StorybookReadingCapacityProviderInterface
 {
   /** Runs the troop's event pages; null when the troop has none. */
   public private(set) ?BattleEventRunner $battleEvents = null;
@@ -423,6 +427,13 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
   public function restoreAfterEventOverlay(): void
   {
     if ($this->state instanceof BattleEventState) { Console::recomposeFrame(fn() => $this->ui?->refresh()); }
+  }
+
+  /** A book opened by a battle event reads over the battle canvas its modals compose on. */
+  public function getStorybookReadingCapacity(StorybookDefinition $book): ?StorybookReadingCapacity
+  {
+    $layout = $this->graphicalPresentation?->layout ?? $this->battleUiLayout;
+    return $this->getGame()->getRendererRuntime()?->getStorybookReadingCapacity($book, $layout?->width, $layout?->height);
   }
 
   public function resumeBattle(): void

@@ -128,7 +128,7 @@ use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInter
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameScene extends AbstractScene implements PlayActivitySourceInterface, GraphicalSpriteProviderHostInterface, SpriteThicketHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface, \Ichiloto\Engine\Events\Interpreter\EventExecutionHostInterface, \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface
+class GameScene extends AbstractScene implements PlayActivitySourceInterface, GraphicalSpriteProviderHostInterface, SpriteThicketHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface, \Ichiloto\Engine\Events\Interpreter\EventExecutionHostInterface, \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface, \Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface
 {
     private ?FieldViewport $fieldViewport = null;
     private ?\Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming $dialogueFraming = null;
@@ -2050,6 +2050,12 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     public function restoreAfterEventOverlay(): void
     {
         $this->restoreFieldAfterOverlay();
+    }
+
+    /** A book opened by a field event reads over the field surface its modals compose on. */
+    public function getStorybookReadingCapacity(\Ichiloto\Engine\Messaging\Storybook\StorybookDefinition $book): ?\Ichiloto\Engine\UI\Modal\StorybookReadingCapacity
+    {
+        return $this->getGame()->getRendererRuntime()?->getStorybookReadingCapacity($book);
     }
 
     /**

@@ -12,6 +12,9 @@ use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\Interfaces\ModalPresentationProviderInterface;
 use Ichiloto\Engine\UI\Presentation\MenuCanvas;
 use Ichiloto\Engine\UI\Presentation\MenuModalPresentation;
+use Ichiloto\Engine\UI\Presentation\StorybookCanvasPresentation;
+use Ichiloto\Engine\UI\Modal\StorybookReadingCapacity;
+use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
 use Ichiloto\Engine\Util\Debug;
 use RuntimeException;
 use Throwable;
@@ -59,6 +62,23 @@ final class DialogueScenePresentation
             return new DialoguePageGeometry($layout, $this->catalogue, $line->speaker, $line->position, $width, $height)->getProtectedBounds();
         } catch (Throwable $error) {
             $this->report('Dialogue layout degraded to terminal: ' . $error->getMessage(), $error);
+            return null;
+        }
+    }
+
+    /**
+     * The prose area the themed storybook frame offers on a surface, or null when this project's scene owners
+     * keep their Terminal presentation (no themed dialogue catalogue), so the Terminal reader alone sets capacity.
+     */
+    public function getStorybookReadingCapacity(StorybookDefinition $book, int $width, int $height): ?StorybookReadingCapacity
+    {
+        if (!self::composesSceneOwners($this->assetRoot)) { return null; }
+        try {
+            $this->loadCatalogue();
+            return $this->catalogue?->theme === null ? null
+                : StorybookCanvasPresentation::measureReadingCapacity($book, $this->catalogue->theme, $width, $height);
+        } catch (Throwable $error) {
+            $this->report("Storybook " . $book->id . " reading frame degraded to terminal: " . $error->getMessage(), $error);
             return null;
         }
     }
@@ -160,6 +180,12 @@ final class DialogueScenePresentation
                 }
                 $modal = $owner->getModalPresentation();
                 if ($modal === null) { throw new RuntimeException('Active modal has no graphical snapshot.'); }
+                // The page's own narration stays readable; a named painting the frame cannot show is reported here.
+                $page = $modal->storybook?->page;
+                if ($page?->picture !== null && $page->getPictureSize($catalogue->theme->assetRoot) === null) {
+                    $this->report('Storybook page ' . $page->id . ' picture ' . $page->picture
+                        . ' is missing or is not a PNG the renderer can show; its narration is shown without it.');
+                }
                 $part = MenuModalPresentation::compose(new PresentationCanvas($base?->width ?? $width,
                     $base?->height ?? $height), $modal, $catalogue->theme, ownerLayerId: $layerId);
                 $canvas = PresentationCanvas::composeOverlay($canvas, $part, 'modal-' . spl_object_id($owner) . '-');

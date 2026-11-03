@@ -75,7 +75,7 @@ final readonly class MenuPresentationCatalog
     $this->rows = new MenuRowSkin(array_intersect_key($palette, array_flip(MenuRowSkin::COLORS)),
       new MenuRowMetrics(...self::map($data, 'rowMetrics')), $art, $assetRoot);
     $this->frames = self::artwork(self::map($data, 'frames'), ['panel', 'quiet', 'portrait', 'dialogue', 'nameplate',
-      'slider.track', 'slider.thumb', 'scroll.track', 'scroll.thumb', 'details.header']);
+      'slider.track', 'slider.thumb', 'scroll.track', 'scroll.thumb', 'details.header', 'storybook', 'storybook.picture']);
     $bindings = self::map($data, 'icons');
     if (array_any(array_keys($bindings), static fn($role): bool => is_string($role) && str_starts_with($role, 'input.'))) {
       throw new InvalidArgumentException('Control glyphs belong to the theme\'s controls sets, not its icons.');
