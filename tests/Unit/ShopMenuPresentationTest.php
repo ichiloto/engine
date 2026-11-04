@@ -642,7 +642,8 @@ it('uses the existing cast portraits and fades ineligible or unchanged actors wi
   $caster->role = new \Ichiloto\Engine\Entities\Roles\CharacterRole($caster, 'Caster', allowedWeaponTypes: [WeaponType::STAFF]);
   $same = new \Ichiloto\Engine\Entities\Character('Same', 0, new \Ichiloto\Engine\Entities\Stats(), actorId: 'same');
   $same->assignEquipment('Weapon', $weapon);
-  $other = new \Ichiloto\Engine\Entities\Character('Other', 0, new \Ichiloto\Engine\Entities\Stats(), actorId: 'other');
+  $other = new \Ichiloto\Engine\Entities\Character('Other', 0, new \Ichiloto\Engine\Entities\Stats(),
+    actorNaturalAdjustments: ['attack' => 9], actorId: 'other');
   foreach ([$fighter, $caster, $same, $other] as $actor) { $this->party->addMember($actor); }
   $this->state->merchandise = [$weapon];
   shopPresentationPress($this->state, KeyCode::ENTER);
@@ -650,15 +651,34 @@ it('uses the existing cast portraits and fades ineligible or unchanged actors wi
   $canvas = ShopMenuPresentation::compose($this->state, $theme);
   $profiles = array_values(array_filter($canvas->images, fn($image) => str_starts_with($image->id, 'shop-profile-') && $image->asset === 'portrait.png'));
   expect($profiles)->toHaveCount(4)->and(array_column($profiles, 'opacity'))->toBe([1.0, .3, .3, 1.0])
-    ->and(shopPresentationText($canvas))->toContain('Attack')->not->toContain('Fighter', 'Caster', 'Same', 'Other', 'Can equip', 'Cannot equip', 'Defence', 'Empty')
+    ->and(shopPresentationText($canvas))->toContain('Attack', 'Compare')->not->toContain('Fighter', 'Caster', 'Same', 'Other', 'Can equip', 'Cannot equip', 'Defence', 'Empty')
     ->and(serialize($this->party))->toBe($before);
   foreach ($profiles as $profile) { $profile->destination->assertWithin($canvas->width, $canvas->height); }
   expect($this->state->detailPanel->getCurrentComparisonActorId())->toBe('fighter');
   $focus = array_values(array_filter($canvas->textLayers, fn($layer) => str_starts_with($layer->id, 'shop-profile-focus')));
   expect($focus)->not->toBeEmpty();
-  shopPresentationPress($this->state, KeyCode::I);
+  shopPresentationPress($this->state, KeyCode::RIGHT);
+  expect($this->state->detailPanel->comparisonFocused)->toBeTrue()
+    ->and($this->state->detailPanel->getCurrentComparisonActorId())->toBe('fighter');
+  shopPresentationPress($this->state, KeyCode::RIGHT);
   $next = ShopMenuPresentation::compose($this->state, $theme);
+  $stats = static fn(PresentationCanvas $frame): array => array_map(static fn($layer): array =>
+    array_column($layer->runs, 'text'), array_values(array_filter($frame->textLayers,
+      static fn($layer): bool => str_starts_with($layer->id, 'shop-comparison-content'))));
   expect($this->state->detailPanel->getCurrentComparisonActorId())->toBe('other')
-    ->and(shopPresentationText($next))->toContain('Attack')->not->toContain('Fighter', 'Caster', 'Same', 'Other', 'Empty', 'Can equip')
+    ->and($stats($next))->not->toEqual($stats($canvas))
+    ->and(shopPresentationText($next))->toContain('Attack', 'Character', 'Items')
+    ->not->toContain('Fighter', 'Caster', 'Same', 'Other', 'Empty', 'Can equip')
     ->and(serialize($this->party))->toBe($before);
+  shopPresentationPress($this->state, KeyCode::ENTER);
+  expect($this->state->mode)->toBeInstanceOf(ShopMerchandiseSelectionMode::class);
+  shopPresentationPress($this->state, KeyCode::LEFT);
+  expect($this->state->detailPanel->getCurrentComparisonActorId())->toBe('fighter');
+  shopPresentationPress($this->state, KeyCode::ESCAPE);
+  expect($this->state->detailPanel->comparisonFocused)->toBeFalse()
+    ->and($this->state->mainPanel->activeItem)->toBe($weapon)
+    ->and($this->state->mode)->toBeInstanceOf(ShopMerchandiseSelectionMode::class)
+    ->and(serialize($this->party))->toBe($before);
+  shopPresentationPress($this->state, KeyCode::ENTER);
+  expect($this->state->mode)->toBeInstanceOf(PurchaseConfirmationMode::class);
 });

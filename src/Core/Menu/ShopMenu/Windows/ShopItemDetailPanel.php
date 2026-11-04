@@ -10,6 +10,7 @@ use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Presentation\ShopEquipmentComparison;
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\UI\Text\TextPage;
 use Ichiloto\Engine\UI\Text\TextViewport;
 
@@ -36,6 +37,7 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
   private ?TextPage $lastComparisonPage = null;
   private int $comparisonGroup = 0;
   private bool $lastComparisonIdentity = true;
+  public private(set) bool $comparisonFocused = false;
 
   public function setItem(?InventoryItem $item, Party $party): void
   {
@@ -43,6 +45,7 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
     $this->comparisonText->setText($this->comparison?->source ?? '');
     $this->lastComparisonPage = null;
     $this->comparisonGroup = 0;
+    $this->comparisonFocused = false;
   }
 
   /** @return list<array{id: string, affected: bool}> */
@@ -51,6 +54,39 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
   public function getCurrentComparisonActorId(): ?string
   {
     return $this->comparison?->getGroupActorId($this->comparisonGroup);
+  }
+
+  public function canSelectComparisonActor(): bool
+  {
+    return count($this->comparison?->getActorGroups() ?? []) > 1;
+  }
+
+  public function focusComparison(bool $focused): void
+  {
+    $this->comparisonFocused = $focused && $this->canSelectComparisonActor();
+  }
+
+  /** Moves between party members, leaving slot and page inspection to Info. */
+  public function moveComparisonActor(int $direction): void
+  {
+    $groups = $this->comparison?->getActorGroups() ?? [];
+    if (count($groups) < 2 || $direction === 0) { return; }
+    $current = $this->getCurrentComparisonActorId();
+    $actors = array_map($this->comparison->getGroupActorId(...), $groups);
+    $index = array_search($current, $actors, true);
+    $next = (($index === false ? 0 : $index) + ($direction <=> 0) + count($groups)) % count($groups);
+    $this->comparisonGroup = $groups[$next];
+    $this->comparisonText->reset();
+    $this->lastComparisonPage = null;
+  }
+
+  /** @return list<\Ichiloto\Engine\IO\ActionHint> */
+  public function getComparisonNavigationHints(): array
+  {
+    if ($this->comparisonFocused) {
+      return [ActionHints::resolvePair('left', 'right', 'Character'), ActionHints::resolve('back', 'Items')];
+    }
+    return $this->canSelectComparisonActor() ? [ActionHints::resolve('right', 'Compare')] : [];
   }
 
   /** @return array{page: TextPage, lines: array}|null */
@@ -131,7 +167,10 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
         $this->getContentWidth() - 1, ' ', 'right'),
     ];
 
-    $comparison = $this->getComparisonPage(max(1, $this->getContentWidth() - 2), max(1, $this->height - 5));
+    $navigation = $this->getComparisonNavigationHints();
+    $columns = max(1, $this->getContentWidth() - 2);
+    $rows = max(1, $this->height - 5 - (int)($navigation !== []));
+    $comparison = $this->getComparisonPage($columns, $rows);
     if ($comparison !== null) {
       $content[] = '';
       foreach ($comparison['lines'] as $line) {
@@ -148,6 +187,7 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
         $hint = ActionHints::resolve('info', 'More stats');
         $content[] = $page->range() . ' · ' . ($hint->control?->label ?? 'Info') . ' ' . $hint->label;
       }
+      if ($navigation !== []) { $content[] = TerminalControlText::formatHints($navigation); }
     }
     $content = array_pad($content, $this->height - 2, '');
     $this->setContent($content);
@@ -164,6 +204,7 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
     $this->comparison = null;
     $this->comparisonText->setText('');
     $this->lastComparisonPage = null;
+    $this->comparisonFocused = false;
     $this->setContent(array_fill(0, $this->height - 2, ''));
     $this->render();
   }

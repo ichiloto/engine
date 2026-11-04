@@ -28,6 +28,7 @@ final class ShopMenuPresentation
     $mode = $state->mode;
     $commandMode = $mode instanceof SelectShopMenuCommandMode;
     $quantityMode = $mode instanceof PurchaseConfirmationMode;
+    $comparisonFocused = $state->detailPanel->comparisonFocused;
     $symbol = Vocabulary::getTerm('currency.symbol', 'G');
     $hints = [ActionHints::resolve('confirm', 'Confirm'),
       ActionHints::resolve($quantityMode ? 'cancel' : 'back', $quantityMode ? 'Cancel' : 'Back'),
@@ -110,7 +111,7 @@ final class ShopMenuPresentation
         $selected = $state->mainPanel->activeItemIndex === $index;
         $rows[] = new MenuRow('item-' . $index, $item->name, [new MenuRowValue($price)],
           icon: $item instanceof Equipment ? CharacterMenuRows::getEquipmentIcon($item) : null,
-          selected: $selected, focused: $selected);
+          selected: $selected, focused: $selected && !$comparisonFocused);
       }
       $priceCells = max([1, ...array_map(static fn(MenuRow $row) => mb_strlen($row->values[0]->text), $rows)]);
       $view->rows('shop-items', $rows, self::layout($theme, $content, [new MenuRowColumn($priceCells)]),
@@ -141,7 +142,8 @@ final class ShopMenuPresentation
           if ($profile['id'] === $state->detailPanel->getCurrentComparisonActorId()) {
             $view->renderOutline('shop-profile-focus', new CanvasRectangle(
               $comparisonX + ($index % $perRow) * ($size + $m->sectionGap),
-              $comparisonTop + intdiv($index, $perRow) * ($size + $m->sectionGap), $size, $size), 'focus', 1, 24);
+              $comparisonTop + intdiv($index, $perRow) * ($size + $m->sectionGap), $size, $size),
+              'focus', $comparisonFocused ? 2 : 1, 24);
           }
         }
         $comparisonTop += (int)ceil(count($profiles) / $perRow) * ($size + $m->sectionGap);
@@ -150,11 +152,19 @@ final class ShopMenuPresentation
       $showIdentity = !in_array($state->detailPanel->getCurrentComparisonActorId(), array_column($profiles, 'id'), true);
       $comparison = $state->detailPanel->getComparisonPage($columns, $rows, $showIdentity);
       if ($comparison !== null) {
-        $more = $comparison['page']->total > count($comparison['page']->lines);
-        $comparisonHints = [ActionHints::resolve('info', 'More stats')];
-        $hintHeightInDetail = MenuActionHints::height($comparisonHints, $theme, $comparisonWidth);
-        $footerHeight = $more ? $m->cellHeight + $hintHeightInDetail : 0;
-        if ($more) { $comparison = $state->detailPanel->getComparisonPage($columns, max(1, $rows - (int)ceil($footerHeight / $m->rowHeight)), $showIdentity); }
+        $hasNavigation = !$quantityMode && $state->detailPanel->canSelectComparisonActor();
+        $comparisonHints = $hasNavigation ? $state->detailPanel->getComparisonNavigationHints() : [];
+        $hintHeightInDetail = MenuActionHints::height($comparisonHints, $theme, $comparisonWidth, required: $hasNavigation);
+        $more = $comparison['page']->total > max(1, $rows - (int)ceil($hintHeightInDetail / $m->rowHeight));
+        if ($more) {
+          $comparisonHints[] = ActionHints::resolve('info', 'More stats');
+          $hintHeightInDetail = MenuActionHints::height($comparisonHints, $theme, $comparisonWidth, required: $hasNavigation);
+        }
+        $footerHeight = ($more ? $m->cellHeight : 0) + $hintHeightInDetail;
+        if ($footerHeight > 0) {
+          $comparison = $state->detailPanel->getComparisonPage($columns,
+            max(1, $rows - (int)ceil($footerHeight / $m->rowHeight)), $showIdentity);
+        }
         $texts = [];
         foreach ($comparison['lines'] as $row => $line) {
           foreach ($line['cells'] as $value) {
@@ -167,16 +177,19 @@ final class ShopMenuPresentation
         $view->renderTexts('shop-comparison-content', $texts,
           new CanvasRectangle($comparisonX, $comparisonTop, $comparisonWidth, count($comparison['lines']) * $m->rowHeight),
           [$m->cellWidth, $m->cellHeight]);
+        $footerY = $detailBox->y + $detailBox->height - $p - $footerHeight;
         if ($more) {
-          $footerY = $detailBox->y + $detailBox->height - $p - $footerHeight;
           $view->textLines('shop-comparison-range', [['text' => $comparison['page']->range(), 'color' => 'muted']],
             new CanvasRectangle($comparisonX, $footerY, $comparisonWidth, $m->cellHeight));
-          if ($hintHeightInDetail > 0) { $view->hints('shop-comparison-info', $comparisonHints,
-            new CanvasRectangle($comparisonX, $footerY + $m->cellHeight, $comparisonWidth, $hintHeightInDetail)); }
+          $footerY += $m->cellHeight;
+        }
+        if ($hintHeightInDetail > 0) {
+          $view->hints('shop-comparison-info', $comparisonHints,
+            new CanvasRectangle($comparisonX, $footerY, $comparisonWidth, $hintHeightInDetail), required: $hasNavigation);
         }
       }
     }
-    if ($hintHeight > 0) {
+    if ($hintHeight > 0 && !$comparisonFocused) {
       $view->hints('shop-hints', $hints, new CanvasRectangle($list->x,
         $list->y + $list->height - $hintHeight, $list->width, $hintHeight));
     }

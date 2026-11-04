@@ -73,6 +73,12 @@ final readonly class ShopEquipmentComparison
 
   public function getGroupActorId(int $group): ?string { return $this->actors[$group] ?? null; }
 
+  /** @return list<int> The first comparison group of each affected party member, in roster order. */
+  public function getActorGroups(): array
+  {
+    return array_keys(array_unique($this->actors));
+  }
+
   /** Full stat names share right-aligned value columns; names and gear retain complete wrapping.
    * @return list<array{offset: int, cells: list<array{x: int, text: string, color: string}>}>
    */
