@@ -14,7 +14,10 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Rendering\Presentation\RetainedPresentation;
 use Ichiloto\Engine\Rendering\RendererClient;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
+use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Tests\Support\Input\FakeRendererTransport;
 use Tests\Support\Rendering\RetainedFrameState;
 
@@ -68,6 +71,42 @@ it('uploads a world once and emits only a viewport for every scrolling direction
     }
     expect($sender->present($text, [], retainedTestViewport(-3, -2), $world))->toBeFalse()
         ->and($transport->sent)->toHaveCount(5);
+});
+
+it('reconciles world row edits against delivered state and rebuilds the world after invalidation', function () {
+    $transport = new FakeRendererTransport();
+    $client = new RendererClient($transport);
+    $client->start(new RendererSessionConfig('test', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2));
+    $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["world_row_diffs"]}')];
+    $client->pump();
+    $sender = new RetainedPresentation($client);
+    $text = new ConsolePresentationChanges(20, 4, false);
+    $world = static fn(string $rows) => PresentationWorld::getFromLayers(
+        new MapLayerSet([new MapLayer('floor', 0, false, 'floor', $rows)]));
+    $present = fn(PresentationWorld $map) => $sender->present($text, [], retainedTestViewport(0, 0, 20, 4), $map);
+    $present($world("...\n...\n..."));
+    $initial = end($transport->sent)->payload;
+    $present($world("A..\n...\n..."));
+    $first = end($transport->sent)->payload;
+    expect(array_column($first['operations'], 'op'))->toBe(['worldRows'])
+        ->and($first['operations'][0]['rows'][0]['row'])->toBe(0);
+
+    expect($present($world("A..\n.B.\n...")))->toBeFalse();
+    $latest = $world("A..\n...\n..C");
+    expect($present($latest))->toBeFalse();
+    $sender->acknowledge($initial['generation'], true);
+    expect($present($latest))->toBeTrue();
+    $update = end($transport->sent)->payload;
+    expect(array_column($update['operations'], 'op'))->toBe(['worldRows'])
+        ->and($update['operations'][0]['rows'][0]['row'])->toBe(2);
+    $transport->acknowledgeLatestFrame($sender);
+    expect($sender->presentedWorld)->toBe($latest);
+
+    $sender->invalidate();
+    $present($latest);
+    $reset = end($transport->sent)->payload;
+    expect($reset['reset'])->toBeTrue()
+        ->and(array_column($reset['operations'], 'op'))->toBe(['put', 'worldRows', 'worldRows', 'worldRows']);
 });
 
 it('keeps scroll operations and payload independent of world size window size and layer count', function () {

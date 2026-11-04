@@ -531,6 +531,12 @@ editing surface is owned by the GUI Editor plan. Related docs:
   shadow bands follow as fill tiles in world layers of kind `shadows`. The viewport carries only the camera
   and the animation frame. The renderer knows nothing of RPG Maker:
   composition rules stay in the engine.
+  With `world_row_diffs`, a retained edit sends replacement rows against
+  the last delivered world. If its tile catalog or draw layers change, a
+  `worldLayout` operation supplies the new definition and the equivalent
+  new index for each retained tile. The renderer applies these in the same
+  frame transaction. A reset, a new world grid or a changed artwork revision
+  sends a complete world.
 - **Terminal and editors.** None of this changes terminal geometry,
   collision, events or saves. The TUI editor preserves a map's graphics
   folder through resize, duplicate, move and delete, and validates it. It

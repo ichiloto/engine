@@ -15,13 +15,14 @@ use IteratorAggregate;
  */
 final readonly class RetainedWorldUpload implements IteratorAggregate
 {
-    public function __construct(public PresentationWorld $world, public bool $tileCovers, public bool $tileShadows, public bool $rowRuns = false)
+    public function __construct(public PresentationWorld $world, public bool $tileCovers, public bool $tileShadows,
+        public bool $rowRuns = false, private ?PresentationWorld $baseline = null)
     {
     }
 
     /** @return Generator<int, array<string, mixed>> */
     public function getIterator(): Generator
     {
-        return $this->world->streamOperations($this->tileCovers, $this->tileShadows, $this->rowRuns);
+        return $this->world->streamOperations($this->tileCovers, $this->tileShadows, $this->rowRuns, $this->baseline);
     }
 }

@@ -103,6 +103,14 @@ final readonly class PackedGrid
     return $row === '' ? [] : array_values(unpack(self::FORMATS[$this->bytes], $row));
   }
 
+  /** Compares packed indices without expanding rows with the same cell width. */
+  public function hasSameRow(self $other, int $y): bool
+  {
+    return $this->bytes === $other->bytes
+      ? ($this->rows[$y] ?? null) === ($other->rows[$y] ?? null)
+      : $this->getRowValues($y) === $other->getRowValues($y);
+  }
+
   /** @return list<list<int>> Every row's values, built for the caller. */
   public function readRows(): array
   {

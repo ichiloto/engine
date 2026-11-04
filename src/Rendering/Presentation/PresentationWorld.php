@@ -75,8 +75,9 @@ final class PresentationWorld
      */
     private function __construct(public readonly string $id, private readonly array $definition,
         private readonly array $wireCells, private readonly PackedGrid $rowCells, private readonly array $tileRows,
-        public readonly array $textLayerIds, public readonly int $estimatedSourceBytes, public readonly bool $animated = false,
-        public readonly array $tileCovers = [], private readonly ?array $tileShadows = null) {}
+        public readonly array $textLayerIds, public readonly int $estimatedSourceBytes, public readonly bool $animated,
+        public readonly array $tileCovers, private readonly ?array $tileShadows,
+        private readonly string $assetRevision) {}
 
     /**
      * The operations that upload this world, built for this upload. With tile
@@ -109,13 +110,30 @@ final class PresentationWorld
      *
      * @return Generator<int, array<string, mixed>>
      */
-    public function streamOperations(bool $tileCovers, bool $tileShadows = false, bool $rowRuns = false): Generator
+    public function streamOperations(bool $tileCovers, bool $tileShadows = false, bool $rowRuns = false,
+        ?self $baseline = null): Generator
     {
-        return $this->yieldOperations($tileCovers, $tileShadows, false, $rowRuns);
+        if ($baseline !== null && !$this->canReplaceRowsFrom($baseline)) {
+            throw new InvalidArgumentException('Retained row updates require the same world grid and artwork revision.');
+        }
+        return $this->yieldOperations($tileCovers, $tileShadows, false, $rowRuns, $baseline);
     }
 
-    /** @return Generator<int, array<string, mixed>> */
-    private function yieldOperations(bool $tileCovers, bool $tileShadows, bool $shareCells, bool $rowRuns = false): Generator
+    /** A row replacement preserves the coordinate space and ownership of the glyph grid. */
+    public function canReplaceRowsFrom(self $baseline): bool
+    {
+        $grid = static function (array $definition): array {
+            unset($definition['tileset']);
+            $definition['layers'] = array_values(array_filter($definition['layers'],
+                static fn(array $layer): bool => $layer['kind'] !== 'tiles'));
+            return $definition;
+        };
+        return $this->id === $baseline->id && $this->assetRevision === $baseline->assetRevision
+            && $grid($this->definition) === $grid($baseline->definition);
+    }
+
+    /** @return array<string, mixed> */
+    private function getWireDefinition(bool $tileCovers, bool $tileShadows): array
     {
         $definition = $this->definition;
         if ($tileCovers && $this->tileCovers !== []) {
@@ -127,10 +145,33 @@ final class PresentationWorld
             $definition['layers'] = [...$definition['layers'], ...$shadows['layers']];
             $definition['tileset']['tiles'] = [...$definition['tileset']['tiles'], ...$shadows['tiles']];
         }
-        yield ['op' => 'put', 'kind' => 'world', 'id' => $this->id, 'value' => $definition];
+        return $definition;
+    }
+
+    /** @return Generator<int, array<string, mixed>> */
+    private function yieldOperations(bool $tileCovers, bool $tileShadows, bool $shareCells, bool $rowRuns = false,
+        ?self $baseline = null): Generator
+    {
+        $shadows = $tileShadows ? $this->tileShadows : null;
+        $definition = $this->getWireDefinition($tileCovers, $tileShadows);
+        $tileIndices = null;
+        if ($baseline === null) {
+            yield ['op' => 'put', 'kind' => 'world', 'id' => $this->id, 'value' => $definition];
+        } else {
+            $oldDefinition = $baseline->getWireDefinition($tileCovers, $tileShadows);
+            if ($definition !== $oldDefinition) {
+                $tileIndices = self::getRetainedTileIndices($oldDefinition['tileset'] ?? [], $definition['tileset'] ?? []);
+                yield ['op' => 'worldLayout', 'id' => $this->id, 'definition' => $definition, 'tileIndices' => $tileIndices];
+                if ($tileIndices === array_keys($tileIndices)) { $tileIndices = null; }
+            }
+        }
+        $samePalette = $baseline !== null && $this->wireCells === $baseline->wireCells;
         for ($y = 0; $y < $this->rowCells->height; $y++) {
+            if ($samePalette && $this->rowCells->hasSameRow($baseline->rowCells, $y)) { continue; }
             $indices = $this->rowCells->getRowValues($y);
             $cells = array_map(fn(int $index): array => $this->wireCells[$index], $indices);
+            if ($baseline !== null && !$samePalette && $cells === array_map(
+                fn(int $index): array => $baseline->wireCells[$index], $baseline->rowCells->getRowValues($y))) { continue; }
             $runs = [];
             if ($rowRuns) {
                 foreach ($indices as $index) {
@@ -145,8 +186,21 @@ final class PresentationWorld
                 'rows' => [['row' => $y, $compact ? 'runs' : 'cells' => $compact ? $runs : $cells]]];
         }
         $cells = [];
-        foreach ([...$this->tileRows, ...($shadows['rows'] ?? [])] as $layerId => $tileRows) {
-            foreach ($tileRows as $row => $pairs) {
+        $tileLayers = [...$this->tileRows, ...($shadows['rows'] ?? [])];
+        $oldTileLayers = [...($baseline?->tileRows ?? []), ...($tileShadows ? ($baseline?->tileShadows['rows'] ?? []) : [])];
+        // A layout change removes obsolete layers itself. Existing layers
+        // still need explicit empty rows wherever their final cell is erased.
+        $activeLayers = array_flip(array_column($definition['layers'], 'id'));
+        foreach (array_intersect_key($tileLayers + $oldTileLayers, $activeLayers) as $layerId => $_) {
+            $tileRows = $tileLayers[$layerId] ?? [];
+            $oldRows = $oldTileLayers[$layerId] ?? [];
+            foreach ($tileRows + $oldRows as $row => $_) {
+                $pairs = $tileRows[$row] ?? '';
+                $oldPairs = $oldRows[$row] ?? '';
+                if ($tileIndices !== null && $oldPairs !== '') {
+                    $oldPairs = self::remapTileRow($oldPairs, $tileIndices);
+                }
+                if ($pairs === $oldPairs) { continue; }
                 $values = unpack('v*', $pairs);
                 $wire = [];
                 for ($index = 1, $count = count($values); $index < $count; $index += 2) {
@@ -169,6 +223,32 @@ final class PresentationWorld
         }
     }
 
+    /** @return list<?int> The equivalent new catalog index, or null when the old tile must be dropped. */
+    private static function getRetainedTileIndices(array $old, array $new): array
+    {
+        $oldTiles = $old['tiles'] ?? [];
+        $newTiles = $new['tiles'] ?? [];
+        if (($old['tileSize'] ?? null) !== ($new['tileSize'] ?? null) || ($old['sheets'] ?? []) !== ($new['sheets'] ?? [])) {
+            return array_fill(0, count($oldTiles), null);
+        }
+        $indices = [];
+        foreach ($newTiles as $index => $tile) { $indices[serialize($tile)] = $index; }
+        return array_map(static fn(array $tile, int $oldIndex): ?int => ($newTiles[$oldIndex] ?? null) === $tile
+            ? $oldIndex : ($indices[serialize($tile)] ?? null), $oldTiles, array_keys($oldTiles));
+    }
+
+    /** @param list<?int> $indices */
+    private static function remapTileRow(string $pairs, array $indices): string
+    {
+        $values = unpack('v*', $pairs);
+        $mapped = '';
+        for ($index = 1, $count = count($values); $index < $count; $index += 2) {
+            $tile = $indices[$values[$index + 1]];
+            if ($tile !== null) { $mapped .= pack('vv', $values[$index], $tile); }
+        }
+        return $mapped;
+    }
+
     public static function getFromLayers(MapLayerSet $layers, string $id = 'map', ?MapGraphics $graphics = null,
         string $assetRoot = '', array $coverage = [], array $terminalCells = [], array $tileCells = []): self
     {
@@ -187,13 +267,14 @@ final class PresentationWorld
         $key = 'world:' . hash('sha256', serialize([$layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells, $facts,
             TerminalCapabilities::supportsCompositeEmoji()]));
         if (($cached = MapCompilationCache::find($key)) instanceof self) { return $cached; }
-        $world = self::compileFromLayers($layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells);
+        $world = self::compileFromLayers($layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells,
+            hash('sha256', serialize([$assetRoot, $facts])));
         MapCompilationCache::store($key, $world, $world->estimatedSourceBytes);
         return $world;
     }
 
     private static function compileFromLayers(MapLayerSet $layers, string $id, ?MapGraphics $graphics,
-        string $assetRoot, array $coverage, array $terminalCells, array $tileCells): self
+        string $assetRoot, array $coverage, array $terminalCells, array $tileCells, string $assetRevision): self
     {
         $grid = $layers->getComposedGrid();
         foreach ($terminalCells as $y => $row) {
@@ -284,7 +365,7 @@ final class PresentationWorld
             'cellHeight' => FieldViewport::TILE_SIZE, 'layers' => $metadata,
             ...($tiles === null ? [] : ['tileset' => $tiles['tileset']])], $wireCells, $rowCells, $tiles['rows'] ?? [],
             array_column(array_filter($metadata, static fn(array $layer): bool => $layer['kind'] !== 'tiles'), 'id'),
-            $estimatedBytes, $tiles['animated'] ?? false, $tiles['covers'] ?? [], $tiles['shadows'] ?? null);
+            $estimatedBytes, $tiles['animated'] ?? false, $tiles['covers'] ?? [], $tiles['shadows'] ?? null, $assetRevision);
     }
 
     /**

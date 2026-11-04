@@ -53,6 +53,28 @@ beforeEach(function () {
   mkdir($this->root, 0777, true);
 });
 
+it('clears a deleted tile row without retransmitting unaffected glyphs or tiles', function () {
+  writeTilesetProject($this->root);
+  $layers = new MapLayerSet([new MapLayer('floor', 1, false, 'floor', "...\n...\n...")]);
+  $world = function (string $rows) use ($layers): PresentationWorld {
+    $graphics = MapGraphics::fromSources(['01.floor.tiles.php' => MapGridSource::buildSource($rows, 'TILES')],
+      'home', 'home', $layers, $this->root);
+    return PresentationWorld::getFromLayers($layers, 'map', $graphics, $this->root);
+  };
+  $before = $world("1 0 0\n0 1 0\n0 0 0");
+  $after = $world("1 0 0\n0 0 0\n0 0 0");
+  expect($after->canReplaceRowsFrom($before))->toBeTrue()
+    ->and(iterator_to_array($after->streamOperations(false, baseline: $before), false))->toBe([
+      ['op' => 'worldTiles', 'id' => 'map', 'layerId' => 'tiles:floor', 'rows' => [['row' => 1, 'cells' => []]]],
+    ]);
+  $changed = $world("2 0 0\n0 1 0\n0 0 0");
+  $operations = iterator_to_array($changed->streamOperations(false, baseline: $before), false);
+  expect($operations)->toHaveCount(2)
+    ->and($operations[0]['op'])->toBe('worldLayout')
+    ->and($operations[0]['tileIndices'])->toBe([1])
+    ->and($operations[1]['rows'])->toBe([['row' => 0, 'cells' => [['column' => 0, 'tile' => 0]]]]);
+});
+
 afterEach(function () {
   $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->root, FilesystemIterator::SKIP_DOTS),
     RecursiveIteratorIterator::CHILD_FIRST);

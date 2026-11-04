@@ -137,9 +137,8 @@ final class RetainedPresentation
         foreach ($frame->worldCanvases as $group) { $group->canvas->assertWorldReferences($frame->world); }
         $this->operations = [];
         if ($this->world !== $frame->world) {
-            if ($this->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id]; }
+            $this->queueWorldChange($this->world, $frame->world);
             $this->world = $frame->world;
-            if ($this->world !== null) { $this->operations[] = $this->getWorldUpload($this->world); }
         }
         foreach ($this->values['text'] ?? [] as $id => $_) {
             if (!isset($frame->values['text'][$id])) { $this->operations[] = ['op' => 'remove', 'kind' => 'text', 'id' => (string)$id]; }
@@ -182,11 +181,22 @@ final class RetainedPresentation
     }
 
     /** A world's upload for this session: tile covers and shadows only for a renderer that negotiated them. */
-    private function getWorldUpload(PresentationWorld $world): RetainedWorldUpload
+    private function getWorldUpload(PresentationWorld $world, ?PresentationWorld $baseline = null): RetainedWorldUpload
     {
         return new RetainedWorldUpload($world, $this->client->supports(RendererSessionConfig::TILE_COVERS),
             $this->client->supports(RendererSessionConfig::TILE_SHADOWS),
-            $this->client->supports(RendererSessionConfig::WORLD_ROW_RUNS));
+            $this->client->supports(RendererSessionConfig::WORLD_ROW_RUNS), $baseline);
+    }
+
+    private function queueWorldChange(?PresentationWorld $before, ?PresentationWorld $after): void
+    {
+        if ($before !== null && $after !== null && $this->client->supports(RendererSessionConfig::WORLD_ROW_DIFFS)
+            && $after->canReplaceRowsFrom($before)) {
+            $this->operations[] = $this->getWorldUpload($after, $before);
+            return;
+        }
+        if ($before !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $before->id]; }
+        if ($after !== null) { $this->operations[] = $this->getWorldUpload($after); }
     }
 
     private function getTime(): float { return $this->clock === null ? RuntimeClock::getSeconds() : ($this->clock)(); }
@@ -239,9 +249,8 @@ final class RetainedPresentation
         $this->operations = [];
         $this->updateCanvas($canvasOverlay, true);
         if ($world !== $this->world) {
-            if ($this->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id]; }
+            $this->queueWorldChange($this->world, $world);
             $this->world = $world;
-            if ($world !== null) { $this->operations[] = $this->getWorldUpload($world); }
         }
         $this->updateText($text);
         $lift = $this->client->supports(RendererSessionConfig::SPRITE_LIFT);
@@ -288,9 +297,8 @@ final class RetainedPresentation
         CanvasFrameBudget::assertCanvases([$canvas]);
         $this->operations = [];
         if ($this->world !== $world) {
-            if ($this->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id]; }
+            $this->queueWorldChange($this->world, $world);
             $this->world = $world;
-            if ($world !== null) { $this->operations[] = $this->getWorldUpload($world); }
         }
         $this->replaceValues('text', []);
         $this->textRows = [];
@@ -531,8 +539,7 @@ final class RetainedPresentation
     {
         $this->operations = [];
         if ($this->world !== $baseline->world) {
-            if ($baseline->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $baseline->world->id]; }
-            if ($this->world !== null) { $this->operations[] = $this->getWorldUpload($this->world); }
+            $this->queueWorldChange($baseline->world, $this->world);
         }
         foreach (array_unique([...array_keys($this->values), ...array_keys($baseline->values)]) as $kind) {
             foreach ($this->values[$kind] ?? [] as $id => $value) {
