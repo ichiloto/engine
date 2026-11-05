@@ -48,7 +48,8 @@ final class GraphicalBattleEffects
   public static function compose(BattleEffectPlayback $playback, BattleCanvasLayout $arena,
     array $bounds, string $assetRoot, bool $reducedMotion, array $battlerImages = [], bool $imageFlips = true,
     bool $compositing = true, ?array $groundAnchors = null, array $partySides = [], bool $maskFlips = true,
-    array $attachmentPoints = [], bool $imageRotation = false, bool $imageClips = true): PresentationCanvas
+    array $attachmentPoints = [], bool $imageRotation = false, bool $imageClips = true,
+    bool $coverageDabs = false): PresentationCanvas
   {
     $groundAnchors ??= array_map(static fn(CanvasRectangle $box): Vector2 =>
       new Vector2($box->x + $box->width / 2, $box->y + $box->height), $bounds);
@@ -113,6 +114,18 @@ final class GraphicalBattleEffects
           if (!$isDetached && $reducedMotion && isset($data['flight'])) { continue; }
           if ($subject !== null && $box === null && !$isDetached) { continue; }
           $release = $subject === null || !$isDetached ? null : $playback->getDetachedPosePoint($command['trackId'], $subject);
+          if ($segment['layer'] === 'trail') {
+            if (!$compositing || !$coverageDabs || !$isDetached) { continue; }
+            if (($release['path'] ?? null) === null) {
+              $playback->recordPresentationFailure(new InvalidArgumentException('Battle trail release has no captured path.'));
+              continue;
+            }
+            $frame = $reducedMotion ? $data['restSampleFrame'] : $playback->session->currentFrame;
+            $trail = GraphicalBattleTrail::compose('command-effect-' . $command['trackId'] . '-' . spl_object_id($subject),
+              $release['path'], $frame, $data, $arena);
+            if ($trail !== null) { $composites[] = $trail; }
+            continue;
+          }
           $recipient = $anchor === 'caster'
             ? array_find($playback->targets, static fn($target): bool => $target !== $playback->actor) : $subject;
           $casterX = $release['casterX'] ?? ($groundAnchors[spl_object_id($playback->actor)] ?? null)?->x;

@@ -160,3 +160,34 @@ it('preflights alpha and displaced PNG references rather than freezing their byt
   expect(fn() => new CanvasCompositeOperation(['type' => 'image', 'asset' => '../invalid.png', 'destination' => getCompositeTestRect()]))
     ->toThrow(InvalidArgumentException::class);
 });
+
+it('bounds coverage work by clipped footprints and requires the renderer capability before sending', function () {
+  $shape = ['type' => 'coverage_dabs', 'falloff' => .9, 'alphaSteps' => 127, 'minimumAlpha' => 3,
+    'dabs' => [['center' => [0, 0], 'radius' => 4, 'opacity' => 1]],
+    'bands' => [['until' => 1, 'color' => ['kind' => 'rgb', 'r' => 1, 'g' => 2, 'b' => 3]]]];
+  $operation = new CanvasCompositeOperation($shape);
+  $surface = new CanvasComposite('dabs', 8, 8, new CanvasRectangle(0, 0, 8, 8), [$operation]);
+  $canvas = new PresentationCanvas(8, 8, composites: [$surface]);
+  expect(CanvasCompositeBudget::getWork([$surface]))->toBe(4 * 8 * 8 + 9 * 4 * 4)
+    ->and(new CanvasCompositeOperation($operation->data)->data)->toBe($operation->data);
+  foreach ([['falloff' => NAN], ['dabs' => array_fill(0, 129, $shape['dabs'][0])], ['minimumAlpha' => 128],
+    ['dabs' => [['center' => [0, 0], 'radius' => 65, 'opacity' => 1]]], ['blend' => 'screen'],
+    ['bands' => [['until' => .8, 'color' => $shape['bands'][0]['color']]]]] as $changes) {
+    expect(fn() => new CanvasCompositeOperation(array_replace($shape, $changes)))->toThrow(InvalidArgumentException::class);
+  }
+  foreach ([false, true] as $supported) {
+    $caps = ['graphical_canvas', 'canvas_compositing', ...($supported ? ['canvas_coverage_dabs'] : [])];
+    $transport = new FakeRendererTransport();
+    $client = new RendererClient($transport);
+    $client->start(new RendererSessionConfig('Coverage', __DIR__, protocol: RendererProtocolVersion::V2));
+    $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $caps]))];
+    $client->pump();
+    $presenter = new RendererPresentation($client, new RendererGridConfig(1, 1));
+    if ($supported) {
+      expect($presenter->presentCanvas($canvas))->toBeTrue();
+    } else {
+      expect(fn() => $presenter->presentCanvas($canvas))->toThrow(RendererProtocolException::class, 'canvas_coverage_dabs')
+        ->and($transport->sent)->toBe([]);
+    }
+  }
+});

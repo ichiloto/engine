@@ -222,6 +222,11 @@ final class RendererPresentation
       && !$this->client->supports(RendererSessionConfig::CANVAS_STROKE_DASHES)) {
       throw new RendererProtocolException('Dashed composite strokes require negotiated canvas_stroke_dashes support.');
     }
+    if (array_any($canvas->composites, static fn($composite): bool => array_any($composite->operations,
+        static fn($operation): bool => $operation->data['type'] === 'coverage_dabs'))
+      && !$this->client->supports(RendererSessionConfig::CANVAS_COVERAGE_DABS)) {
+      throw new RendererProtocolException('Coverage dabs require negotiated canvas_coverage_dabs support.');
+    }
     if ($canvas->labels !== [] && (!$this->client->supports(RendererSessionConfig::CANVAS_LABELS)
       || !$this->client->supports(RendererSessionConfig::TEXT_LAYOUT))) {
       throw new RendererProtocolException('Canvas labels require negotiated canvas_labels and text_layout support.');

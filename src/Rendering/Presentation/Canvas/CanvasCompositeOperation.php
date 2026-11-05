@@ -16,6 +16,11 @@ final readonly class CanvasCompositeOperation
   public function __construct(array $data)
   {
     $type = $data['type'] ?? '';
+    if ($type === 'coverage_dabs') {
+      $this->data = self::getCoverageDabs($data);
+      $this->worldSubjects = [];
+      return;
+    }
     $worldSubjects = [];
     $required = match ($type) {
       'image' => ['asset', 'destination'], 'fill' => ['destination', 'brush'], 'stroke' => ['points', 'width', 'brush'],
@@ -87,6 +92,33 @@ final readonly class CanvasCompositeOperation
     }
     $this->data = $result;
     $this->worldSubjects = $worldSubjects;
+  }
+
+  private static function getCoverageDabs(array $data): array
+  {
+    CanvasCompositeValues::validateKeys($data, ['type', 'dabs', 'falloff', 'alphaSteps', 'minimumAlpha', 'bands'],
+      ['opacity', 'blend', 'masks']);
+    if (($data['blend'] ?? 'source_over') !== 'source_over' || ($data['masks'] ?? []) !== []) {
+      throw new InvalidArgumentException('Coverage dabs use source-over composition without masks.');
+    }
+    $dabs = [];
+    foreach (CanvasCompositeValues::getList($data['dabs'], 1, 128) as $dab) {
+      CanvasCompositeValues::validateKeys($dab, ['center', 'radius', 'opacity']);
+      $dabs[] = [
+        'center' => CanvasCompositeValues::getPoint($dab['center']),
+        'radius' => CanvasCompositeValues::getNumber($dab['radius'], PHP_FLOAT_MIN, 64),
+        'opacity' => CanvasCompositeValues::getNumber($dab['opacity'], 0, 1),
+      ];
+    }
+    $brush = new CanvasCoverageBrush(array_intersect_key($data, array_flip(CanvasCoverageBrush::FIELDS)));
+    return [
+      'type' => 'coverage_dabs',
+      'dabs' => $dabs,
+      ...$brush->data,
+      'opacity' => CanvasCompositeValues::getNumber($data['opacity'] ?? 1, 0, 1),
+      'blend' => 'source_over',
+      'masks' => [],
+    ];
   }
 
   public function assertWithin(int $width, int $height): void

@@ -813,6 +813,69 @@ it('chooses one range clock for the staff pose and release while keeping contact
     ->toThrow(InvalidArgumentException::class, 'Battle range keys');
 });
 
+it('draws one bounded taper on a detached path, with fixed contact and fade on both range clocks', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $pose = new BattlerPose('graphical-canvas/synthetic-320x180.png', attachmentPoints: [
+    ['cell' => 0, 'name' => 'launch', 'point' => ['x' => .5, 'y' => .5]],
+  ]);
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $catalog->ui, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => new BattlePoseSet(['attack' => $pose])]);
+  $data = ['fps' => 120, 'lengthFrames' => 40, 'restFrame' => 23,
+    'rangeTiming' => ['minDistance' => .3, 'keys' => [['frame' => 10, 'at' => 4]]],
+    'tracks' => [
+      ['id' => 'wake', 'type' => 'trail', 'attachmentPoint' => 'launch', 'detachFrame' => 10, 'fadeEndFrame' => 33,
+        'flight' => ['arrivalFrame' => 22, 'route' => 'cubic',
+          'curve' => ['launchProgress' => .28, 'launchOffsetY' => -.2, 'arrivalProgress' => .71, 'arrivalOffsetY' => -.1]],
+        'profile' => ['length' => 112, 'spacing' => 1.55, 'startRadius' => 1.25, 'endRadius' => 7.8, 'radiusPower' => 1.48,
+          'startOpacity' => .08, 'endOpacity' => 1, 'opacityPower' => 1.4, 'fadeLengthRatio' => .55,
+          'brush' => ['falloff' => .9, 'alphaSteps' => 127, 'minimumAlpha' => 3,
+            'bands' => [['until' => 1, 'color' => PresentationColor::rgb(115, 219, 255)->toArray()]]]]],
+      ['id' => 'contact', 'type' => 'glyph', 'keyframes' => [['frame' => 22, 'duration' => 3, 'content' => '*']]],
+    ],
+    'cues' => [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 22]],
+  ];
+  $library = new EffectTimelineLibrary($this->root);
+  $effect = $library->compile('detached-wake', $data, true);
+  $terminal = $library->compile('detached-wake', $data, true,
+    \Ichiloto\Engine\Animations\Timelines\EffectPresentation::TERMINAL);
+  expect(array_column($terminal->playbackSegments, 'layer'))->toBe(['glyph']);
+  foreach ([.2, .4] as $index => $range) {
+    $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect,
+      projectedRange: $range);
+    $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $hero, [$enemies[$index]],
+      BattlePoseRole::ATTACK, $catalog, $this->root);
+    $start = $plan->phases['target']['start'];
+    $getTrail = static fn($frame) => array_find($frame->canvas->composites, static fn($surface) => str_contains($surface->id, 'target-wake'));
+    $launch = $start + ($range < .3 ? 10 : 4);
+    $hit = $preview->getFrameAtIndex($start + 22, coverageDabs: true);
+    $trail = $getTrail($hit);
+    expect($getTrail($preview->getFrameAtIndex($launch - 1, coverageDabs: true)))->toBeNull()
+      ->and($getTrail($preview->getFrameAtIndex($launch, coverageDabs: true)))->not->toBeNull()
+      ->and($hit->diagnostics)->toBe([])
+      ->and($trail->operations)->toHaveCount(1);
+    $paint = $trail->operations[0]->data;
+    $head = $paint['dabs'][array_key_last($paint['dabs'])];
+    $target = graphicalCombatantImage($hit->canvas, $enemies[$index]);
+    $body = \Ichiloto\Engine\Rendering\Sprites\PngAssetBounds::getVisibleBounds($this->root, $target)['bounds'];
+    expect($paint['type'])->toBe('coverage_dabs')->and(count($paint['dabs']))->toBeLessThanOrEqual(74)
+      ->and($head['center'][0] + $trail->destination->x)->toEqualWithDelta($body->x + $body->width / 2, .000001)
+      ->and($head['center'][1] + $trail->destination->y)->toEqualWithDelta($body->y + $body->height / 2, .000001)
+      ->and($head['radius'])->toEqualWithDelta(7.8, .000001)
+      ->and($head['opacity'])->toBe(1.0)
+      ->and($getTrail($preview->getFrameAtIndex($start + 22)))->toBeNull()
+      ->and($getTrail($preview->getFrameAtIndex($start + 33, coverageDabs: true)))->toBeNull();
+    $fade = $getTrail($preview->getFrameAtIndex($start + 30, coverageDabs: true))->operations[0]->data['dabs'];
+    $rest = $getTrail($preview->getFrameAtIndex($start + 30, reducedMotion: true, coverageDabs: true))->operations[0]->data['dabs'];
+    expect(end($fade)['opacity'])->toEqualWithDelta(3 / 11, .000001)
+      ->and(end($rest)['opacity'])->toEqualWithDelta(10 / 11, .000001)
+      ->and(array_column(array_filter($hit->crossedCues,
+        static fn(array $cue): bool => $cue['type'] === 'commandResolved'), 'frame'))->toBe([$start + 22]);
+  }
+  $data['tracks'][0]['profile']['spacing'] = .5;
+  expect(fn() => $library->compile('unbounded-wake', $data, true))
+    ->toThrow(InvalidArgumentException::class, '128-dab coverage limit');
+});
+
 it('inherits one reference body scale across every pose and sheet frame for either side', function (bool $party, bool $reduced, ?float $displayWidth, float $partyDepth, bool $referenceScale) {
   ConfigStore::put(Ichiloto\Engine\Util\Config\ProjectConfig::class,
     new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));

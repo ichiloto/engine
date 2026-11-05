@@ -314,6 +314,22 @@ is rechecked against the client receiving it. Image crop accounting uses this
 same scope independently of composite support. Native retains ownership of its
 64 MiB live-output pool and reuse; PHP admits the conservative all-cold work
 upper bound. The single active-map overview limit remains.
+Protocol two may negotiate `canvas_coverage_dabs` alongside
+`graphical_canvas` and `canvas_compositing`. The composite operation
+`coverage_dabs` takes 1–128 ordered `dabs` with local `center`, `radius`
+and `opacity`. It also takes `falloff` (.1–8), `alphaSteps` (1–255),
+`minimumAlpha` (1–`alphaSteps`) and 1–8 strictly increasing `bands`
+of `until` and `color`, ending at 1. Radii are positive and at most
+64. Only source-over and empty masks are supported. At each pixel centre
+inside a dab, quantize `alphaSteps * opacity * (1 - normalizedDistance)
+^ falloff` to the nearest integer. Omit values below `minimumAlpha`.
+The first sample with the highest quantized coverage wins. It uses the
+colour of the first band whose `until` exceeds the normalized distance.
+Its alpha is divided by `alphaSteps`, multiplied by operation opacity,
+and source-over composited onto the owned surface. The cost includes the
+surface's temporary buffer and the clipped footprint of each dab.
+The operation contains no clock and needs no image asset.
+
 Prepared-label line/scalar counts are resolved and admitted by the native layout
 owner, not duplicated in PHP measurement metadata. Unsupported capabilities,
 invalid membership and over-budget candidates fail explicitly without replacing

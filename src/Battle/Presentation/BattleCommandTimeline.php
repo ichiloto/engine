@@ -226,6 +226,10 @@ final readonly class BattleCommandTimeline
                 $command['payload']['flight'][$field] = $cursor + $boundary($flight[$field]);
               }
             }
+            if ($copy['layer'] === 'trail') {
+              $command['payload']['fadeEndFrame'] = $cursor + $boundary($command['payload']['fadeEndFrame']);
+              $command['payload']['restSampleFrame'] = $restFrames[$lane];
+            }
             $trackId = $command['trackId'];
             $detachments[$trackId] ??= ['id' => 'capture-' . $trackId, 'type' => 'commandCapturePosePoint', 'frame' => $detach,
               'payload' => ['trackId' => $trackId, 'anchor' => $command['payload']['anchor'],

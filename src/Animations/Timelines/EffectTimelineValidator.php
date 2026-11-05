@@ -82,17 +82,24 @@ final class EffectTimelineValidator
     $hasImages = $imageRestCovered = $stageRestCovered = false;
     foreach ($tracks as $track) {
       if (!is_array($track) || !is_string($track['id'] ?? null) || isset($ids[$track['id']])
-        || !in_array($track['type'] ?? null, ['image', 'glyph', 'text', ...($forBattle ? ['flash', 'shake', 'tone'] : [])], true)) {
+        || !in_array($track['type'] ?? null, ['image', 'glyph', 'text', ...($forBattle ? ['flash', 'shake', 'tone'] : []), ...($forBattle && !$forSummon ? ['trail'] : [])], true)) {
         throw new InvalidArgumentException("Effect {$id} has an invalid or duplicate track.");
       }
       EffectTimelineLibrary::assertId($track['id']);
-      $scope = EffectPresentation::validateTrack($track['presentation'] ?? 'all');
+      $scope = EffectPresentation::validateTrack($track['presentation'] ?? ($track['type'] === 'trail' ? 'graphical' : 'all'));
+      if ($track['type'] === 'trail' && $scope !== 'graphical') {
+        throw new InvalidArgumentException("Effect {$id} trail presentation must be graphical.");
+      }
       $ids[$track['id']] = true;
       // Unselected graphical resources are not dependencies of terminal playback.
       if (!$presentation->acceptsSegment(['layer' => $track['type'], 'presentation' => $scope])) { continue; }
       if ($forStage && $presentation === EffectPresentation::GRAPHICAL
         && ($track['type'] !== 'image' || ($track['anchor'] ?? null) !== 'stage')) {
         throw new InvalidArgumentException('A caller-owned stage presentation accepts only stage image tracks.');
+      }
+      if ($track['type'] === 'trail') {
+        $normalized[] = self::compileTrail($id, $track, $length, $playback, isset($data['rangeTiming']));
+        continue;
       }
       if (array_key_exists('facing', $track) && (!$forBattle
         || !in_array($track['type'], ['image', 'glyph'], true)
@@ -217,26 +224,7 @@ final class EffectTimelineValidator
       }
       $flight = $track['flight'] ?? null;
       if (array_key_exists('flight', $track)) {
-        if (($track['anchor'] ?? null) !== 'caster' || !isset($track['detachFrame'])
-          || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame', 'route', 'tipX', 'curve', 'farCurve']) !== []
-          || !is_int($flight['arrivalFrame'] ?? null) || $flight['arrivalFrame'] <= $track['detachFrame']
-          || $flight['arrivalFrame'] >= $length
-          || (array_key_exists('route', $flight) && (!is_string($flight['route']) || EffectFlightRoute::tryFrom($flight['route']) === null))
-          || (array_key_exists('holdFrame', $flight) && (!is_int($flight['holdFrame'])
-            || $flight['holdFrame'] < $track['detachFrame'] || $flight['holdFrame'] > $flight['arrivalFrame']))) {
-          throw new InvalidArgumentException("Effect {$id} flight requires a detached caster point, an arrival frame after release and an optional hold frame within flight.");
-        }
-      }
-      if (($flight['route'] ?? null) === EffectFlightRoute::CUBIC->value) {
-        self::validateCurve($id, $flight['curve'] ?? null);
-        if (array_key_exists('farCurve', $flight)) {
-          if (!isset($data['rangeTiming'])) {
-            throw new InvalidArgumentException("Effect {$id} farCurve requires battle range timing.");
-          }
-          self::validateCurve($id, $flight['farCurve']);
-        }
-      } elseif (isset($flight) && (array_key_exists('curve', $flight) || array_key_exists('farCurve', $flight))) {
-        throw new InvalidArgumentException("Effect {$id} curve controls require cubic flight.");
+        self::validateFlight($id, $track, $flight, $length, isset($data['rangeTiming']));
       }
       if (isset($flight) && array_key_exists('tipX', $flight)) {
         $tip = $flight['tipX'];
@@ -361,6 +349,7 @@ final class EffectTimelineValidator
       if (($timing['mode'] ?? null) === 'frame') { $fixed[] = $timing['frame']; }
       foreach ($tracks as $track) {
         if (is_int($track['flight']['arrivalFrame'] ?? null)) { $fixed[] = $track['flight']['arrivalFrame']; }
+        if ($track['type'] === 'trail') { $fixed[] = $track['fadeEndFrame']; }
       }
       BattleEffectRangeTiming::fromArray($data['rangeTiming'], $length, $fixed);
       $rangeTiming = ['rangeTiming' => $data['rangeTiming'], 'rangeTimingFixedFrames' => $fixed];
@@ -375,6 +364,56 @@ final class EffectTimelineValidator
         ...($rangeTiming ?? []),
         'playback' => ['loop' => $playback === 'loop', 'loopFrom' => $loopFrom],
         ...($stage === null ? [] : ['stage' => $stage->data])]);
+  }
+
+  private static function compileTrail(string $id, array $track, int $length, string $playback, bool $hasRange): array
+  {
+    $detach = $track['detachFrame'] ?? null;
+    $end = $track['fadeEndFrame'] ?? null;
+    $flight = $track['flight'] ?? null;
+    $depth = $track['depth'] ?? 'front';
+    if ($playback !== 'once' || ($track['presentation'] ?? 'graphical') !== 'graphical'
+      || array_diff(array_keys($track), ['id', 'type', 'presentation', 'attachmentPoint', 'detachFrame',
+        'fadeEndFrame', 'flight', 'profile', 'depth']) !== []
+      || !is_string($track['attachmentPoint'] ?? null) || !is_int($detach) || $detach < 0 || $detach >= $length
+      || !is_int($end) || $end > $length || $end <= ($flight['arrivalFrame'] ?? $length)
+      || !is_array($track['profile'] ?? null) || !in_array($depth, ['behind', 'front'], true)
+      || (is_array($flight) && array_intersect(array_keys($flight), ['holdFrame', 'tipX']) !== [])) {
+      throw new InvalidArgumentException("Effect {$id} trail requires a graphical once-playing flight with a named pose point, fade end and profile.");
+    }
+    EffectTimelineLibrary::assertId($track['attachmentPoint']);
+    self::validateFlight($id, [...$track, 'anchor' => 'caster'], $flight, $length, $hasRange);
+    $profile = new BattleEffectTrail($track['profile']);
+    return ['id' => $track['id'], 'type' => 'trail', 'presentation' => 'graphical', 'keyframes' => [[
+      'frame' => $detach, 'duration' => $end - $detach, 'payload' => [
+        'anchor' => 'caster', 'attachmentPoint' => $track['attachmentPoint'], 'detachFrame' => $detach,
+        'fadeEndFrame' => $end, 'flight' => $flight, 'profile' => $profile->data, 'depth' => $depth,
+      ],
+    ]]];
+  }
+
+  private static function validateFlight(string $id, array $track, mixed $flight, int $length, bool $hasRange): void
+  {
+    if (($track['anchor'] ?? null) !== 'caster' || !isset($track['detachFrame'])
+      || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame', 'route', 'tipX', 'curve', 'farCurve']) !== []
+      || !is_int($flight['arrivalFrame'] ?? null) || $flight['arrivalFrame'] <= $track['detachFrame']
+      || $flight['arrivalFrame'] >= $length
+      || (array_key_exists('route', $flight) && (!is_string($flight['route']) || EffectFlightRoute::tryFrom($flight['route']) === null))
+      || (array_key_exists('holdFrame', $flight) && (!is_int($flight['holdFrame'])
+        || $flight['holdFrame'] < $track['detachFrame'] || $flight['holdFrame'] > $flight['arrivalFrame']))) {
+      throw new InvalidArgumentException("Effect {$id} flight requires a detached caster point, an arrival frame after release and an optional hold frame within flight.");
+    }
+    if (($flight['route'] ?? null) === EffectFlightRoute::CUBIC->value) {
+      self::validateCurve($id, $flight['curve'] ?? null);
+      if (array_key_exists('farCurve', $flight)) {
+        if (!$hasRange) {
+          throw new InvalidArgumentException("Effect {$id} farCurve requires battle range timing.");
+        }
+        self::validateCurve($id, $flight['farCurve']);
+      }
+    } elseif (array_key_exists('curve', $flight) || array_key_exists('farCurve', $flight)) {
+      throw new InvalidArgumentException("Effect {$id} curve controls require cubic flight.");
+    }
   }
 
   private static function validateCurve(string $id, mixed $curve): void

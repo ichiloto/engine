@@ -42,16 +42,18 @@ final class BattleCommandPreview
     $this->terminalComposer = new TerminalPresentationComposer();
   }
 
-  public function getFrameAtTime(float $seconds, bool $reducedMotion = false, bool $imageRotation = false): BattleCommandPreviewFrame
+  public function getFrameAtTime(float $seconds, bool $reducedMotion = false, bool $imageRotation = false,
+    bool $coverageDabs = false): BattleCommandPreviewFrame
   {
     if (!is_finite($seconds) || $seconds < 0) {
       throw new InvalidArgumentException('Battle preview time must be finite and non-negative.');
     }
     return $this->getFrameAtIndex(min($this->totalFrames - 1,
-      EffectPlaybackTiming::getFrameCountForElapsed($seconds, 1 / BattleCommandTimeline::FPS)), $reducedMotion, $imageRotation);
+      EffectPlaybackTiming::getFrameCountForElapsed($seconds, 1 / BattleCommandTimeline::FPS)), $reducedMotion, $imageRotation, $coverageDabs);
   }
 
-  public function getFrameAtIndex(int $frame, bool $reducedMotion = false, bool $imageRotation = false): BattleCommandPreviewFrame
+  public function getFrameAtIndex(int $frame, bool $reducedMotion = false, bool $imageRotation = false,
+    bool $coverageDabs = false): BattleCommandPreviewFrame
   {
     if ($frame < 0 || $frame >= $this->totalFrames) {
       throw new InvalidArgumentException('Battle preview frame must be inside the command timeline.');
@@ -68,7 +70,7 @@ final class BattleCommandPreview
     $seconds = $frame / BattleCommandTimeline::FPS;
     $playback->update($seconds);
     $canvas = $this->graphical?->frame(new BattlePresentationSnapshot($playback,
-      poseElapsedSeconds: $seconds), now: $seconds, reducedMotion: $reducedMotion, imageRotation: $imageRotation);
+      poseElapsedSeconds: $seconds), now: $seconds, reducedMotion: $reducedMotion, imageRotation: $imageRotation, coverageDabs: $coverageDabs);
     $lines = $this->terminal->getFrame($playback, $reducedMotion, $seconds)['lines'];
     $terminalCanvas = $this->terminalComposer->createCanvasFromLines($lines, new RendererGridConfig(
       $this->terminal->width, $this->terminal->height,

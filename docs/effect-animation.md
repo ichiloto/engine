@@ -635,6 +635,27 @@ offsets bend upward. The route is sampled by distance and provides the
 flight heading. Keep the existing `arrivalFrame`, hold samples and combat
 cues. Inspect actual formations to check clearance and contact.
 
+A graphical battle track with `type => trail` uses a named caster
+`attachmentPoint`, `detachFrame` and the same `flight.route` and
+`flight.arrivalFrame` as a detached image. The track needs no PNG.
+Set `fadeEndFrame` to its exclusive end. The head holds at contact during
+the fade. Range timing may move the launch while keeping arrival and fade
+end fixed. A rest frame inside the track holds one representative sample.
+Terminal effects retain their own tracks and the impact cue stays on the
+command clock.
+
+The track's `profile` uses logical-pixel `length` and `spacing` for
+arc-length sampling. `startRadius` and `endRadius` specify tail and head
+radii, interpolated by normalized position raised to `radiusPower`.
+`startOpacity`, `endOpacity` and `opacityPower` work the same way.
+`fadeLengthRatio` is the fraction of full tail length at the end of the
+fade. The `brush` declares `falloff`, `alphaSteps`, `minimumAlpha`,
+and ordered colour `bands` with `until` radius fraction and a canvas
+colour descriptor. At most 128 dabs are admitted. The graphical preview
+takes `coverageDabs: true` when its canvas host supports the operation.
+A renderer lacking the optional operation still draws the other battle
+effect tracks.
+
 A fixed, once-playing graphical target can set `rangeTiming.minDistance`
 and a list of `rangeTiming.keys` with `frame` and `at` entries. The command
 selects the alternate clock once from the caster-to-target ground separation
