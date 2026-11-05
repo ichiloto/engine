@@ -3132,7 +3132,7 @@ it('retains current image geometry and draw order while state tones appear and d
   expect(graphicalCombatantImage($presentation->frame(), $hero)->brightness)->toBe(1.0);
 })->with([false, true]);
 
-it('projects one selected-group image with the authored anchor lifetime across a formation change', function (bool $reduced, bool $fixed) {
+it('projects one selected-group image with the authored anchor lifetime across a formation change', function (bool $reduced, bool $fixed, bool $textureStrip) {
   [$source, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $troop = new Troop('Rows', $enemies, graphicalFormation: array_map($source->troop->getStagePlace(...), $enemies),
     battlePositions: [new \Ichiloto\Engine\Battle\Formation\BattlePosition(\Ichiloto\Engine\Battle\Formation\BattleRow::BACK, 0),
@@ -3142,7 +3142,8 @@ it('projects one selected-group image with the authored anchor lifetime across a
     ['fps' => 24, 'lengthFrames' => 24, 'restFrame' => 0, 'effectTiming' => ['mode' => 'frame', 'frame' => 4], 'tracks' => [[
       'id' => 'plume', 'type' => 'image', 'asset' => 'test-sprite.png',
       'anchor' => 'target-group', 'attachment' => 'ground', 'fit' => 'contain', 'span' => true,
-      ...($fixed ? ['anchorLifetime' => 'effect-start'] : []),
+      ...($fixed ? ['anchorLifetime' => 'effect-start',
+        'contactRail' => ['left' => .2, 'right' => .8, 'ridgeY' => .45, 'referenceHeight' => .5]] : []),
       'pivot' => ['x' => .5, 'y' => 1.0], 'keyframes' => [['frame' => 0, 'duration' => 24]],
     ]]], true);
   $plan = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline(
@@ -3159,7 +3160,22 @@ it('projects one selected-group image with the authored anchor lifetime across a
   $presentation->bindCommandPosePoints($playback, $reduced, 0);
   $playback->begin();
   $playback->update($plan->phases['target']['start'] / 120);
-  $canvas = $presentation->frame($field, reducedMotion: $reduced);
+  $canvas = $presentation->frame($field, reducedMotion: $reduced, textureStrip: $textureStrip);
+  if ($fixed && $textureStrip) {
+    $findStrip = static fn($frame) => array_find($frame->composites,
+      static fn($composite): bool => $composite->operations[0]->textureStrip !== null);
+    $strip = $findStrip($canvas);
+    expect($strip)->not->toBeNull()
+      ->and($strip->operations[0]->data['sourceRect'])->toBe(['x' => 0, 'y' => 0, 'width' => 32, 'height' => 48])
+      ->and($playback->presentationFailure)->toBeNull()
+      ->and($hits)->toBe(0);
+    $playback->update(.25);
+    $after = $findStrip($presentation->frame($field, reducedMotion: $reduced, textureStrip: true));
+    expect($hits)->toBe(1)->and($after->toArray())->toEqual($strip->toArray());
+    $playback->cancel();
+    expect($findStrip($presentation->frame($field, reducedMotion: $reduced, textureStrip: true)))->toBeNull();
+    return;
+  }
   $images = array_values(array_filter($canvas->images, static fn($image): bool => str_ends_with($image->id, 'target-group')));
   $captured = $playback->getCapturedTargetGroup('target');
   $slots = array_map($presentation->getSlot(...), $enemies);
@@ -3183,7 +3199,7 @@ it('projects one selected-group image with the authored anchor lifetime across a
   expect($hits)->toBe(1)
     ->and($playback->getCapturedTargetGroup('target'))->toBeNull()
     ->and(array_filter($presentation->frame($field)->images, static fn($image): bool => str_ends_with($image->id, 'target-group')))->toBeEmpty();
-})->with([false, true], [false, true]);
+})->with([false, true], [[false, false], [true, false], [true, true]]);
 
 
 it('draws the anchored action strike on the target boundary and recovery on return', function (bool $reduced, bool $partyActor) {

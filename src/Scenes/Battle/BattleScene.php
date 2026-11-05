@@ -210,7 +210,8 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
         imageTones: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_IMAGE_TONE) ?? false,
         imageRotation: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_IMAGE_ROTATION) ?? false,
         imageClips: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_CLIP_OPACITY) ?? false,
-        coverageDabs: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_COVERAGE_DABS) ?? false);
+        coverageDabs: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_COVERAGE_DABS) ?? false,
+        textureStrip: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_TEXTURE_STRIP) ?? false);
     }
     $root = $this->getGame()->getRendererRuntime()?->getAssetRoot();
     $composition = $hud === null ? null : GraphicalBattleHud::compose($layout, $hud, $focus,

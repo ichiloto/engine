@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Rendering\Presentation\Canvas;
 
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
+use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Closure;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSession;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
@@ -51,6 +52,18 @@ final class CanvasImagePreflight
       foreach ($composite->operations as $operation) {
         foreach ($operation->worldSubjects as $subject) {
           foreach ($subject->images as $image) { PngAssetPreflight::inspect($root, $image->asset, $image->sourceRect); }
+        }
+        if ($operation->textureStrip !== null) {
+          $data = $operation->data;
+          $asset = $data['asset'];
+          $rect = new SpriteSourceRect(...$data['sourceRect']);
+          $size = PngAssetPreflight::inspect($root, $asset);
+          PngAssetPreflight::inspect($root, $asset, $rect);
+          $path = realpath($root . DIRECTORY_SEPARATOR . $asset);
+          $name = $names[$path] ??= $asset;
+          $sources[$name] = $size['width'] * $size['height'] * 4;
+          $regions[$name . ':' . implode(',', $rect->toArray())] = ($rect->width + 4) * ($rect->height + 4) * 4;
+          continue;
         }
         foreach ($operation->getAssets() as $asset) {
           $size = PngAssetPreflight::inspect($root, $asset);

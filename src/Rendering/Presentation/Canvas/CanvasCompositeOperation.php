@@ -4,18 +4,44 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Rendering\Presentation\Canvas;
 
+use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use InvalidArgumentException;
 
 /** Validated plain drawing data, without callbacks, expressions or renderer-owned time. */
 final readonly class CanvasCompositeOperation
 {
   public array $data;
+  public ?CanvasTextureStrip $textureStrip;
   /** @var list<CanvasWorldSubject> Validated map-owned image groups, independent of wire encoding. */
   public array $worldSubjects;
 
   public function __construct(array $data)
   {
     $type = $data['type'] ?? '';
+    if ($type === 'texture_strip') {
+      CanvasCompositeValues::validateKeys($data, ['type', 'asset', 'sourceRect', 'geometry'], ['opacity', 'blend', 'masks', 'flipX', 'flipY']);
+      if (!is_array($data['geometry'])) {
+        throw new InvalidArgumentException('Texture strip geometry must be a descriptor.');
+      }
+      $this->textureStrip = new CanvasTextureStrip($data['geometry']);
+      if (($data['blend'] ?? 'source_over') !== 'source_over' || ($data['masks'] ?? []) !== []) {
+        throw new InvalidArgumentException('Texture strips use source-over composition without masks.');
+      }
+      $crop = $data['sourceRect'];
+      CanvasCompositeValues::validateKeys($crop, ['x', 'y', 'width', 'height']);
+      if (!array_all($crop, static fn(mixed $value): bool => is_int($value))) {
+        throw new InvalidArgumentException('Texture strip source rectangle requires integer pixels.');
+      }
+      $source = new SpriteSourceRect($crop['x'], $crop['y'], $crop['width'], $crop['height']);
+      $this->data = ['type' => $type, 'asset' => CanvasCompositeValues::getAsset($data['asset']),
+        'sourceRect' => $source->toArray(), 'geometry' => $this->textureStrip->toArray(),
+        'flipX' => CanvasCompositeValues::getBoolean($data['flipX'] ?? false),
+        'flipY' => CanvasCompositeValues::getBoolean($data['flipY'] ?? false),
+        'opacity' => CanvasCompositeValues::getNumber($data['opacity'] ?? 1, 0, 1), 'blend' => 'source_over', 'masks' => []];
+      $this->worldSubjects = [];
+      return;
+    }
+    $this->textureStrip = null;
     if ($type === 'coverage_dabs') {
       $this->data = self::getCoverageDabs($data);
       $this->worldSubjects = [];

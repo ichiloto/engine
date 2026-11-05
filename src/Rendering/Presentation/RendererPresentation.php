@@ -227,6 +227,11 @@ final class RendererPresentation
       && !$this->client->supports(RendererSessionConfig::CANVAS_COVERAGE_DABS)) {
       throw new RendererProtocolException('Coverage dabs require negotiated canvas_coverage_dabs support.');
     }
+    if (array_any($canvas->composites, static fn($composite): bool => array_any($composite->operations,
+        static fn($operation): bool => $operation->textureStrip !== null))
+      && !$this->client->supports(RendererSessionConfig::CANVAS_TEXTURE_STRIP)) {
+      throw new RendererProtocolException('Texture strips require negotiated canvas_texture_strip support.');
+    }
     if ($canvas->labels !== [] && (!$this->client->supports(RendererSessionConfig::CANVAS_LABELS)
       || !$this->client->supports(RendererSessionConfig::TEXT_LAYOUT))) {
       throw new RendererProtocolException('Canvas labels require negotiated canvas_labels and text_layout support.');

@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Animations\Timelines;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
+use Ichiloto\Engine\Battle\Presentation\BattleEffectContactRail;
 use InvalidArgumentException;
 use Ichiloto\Engine\Cutscenes\Presentation\CinematicStage;
 
@@ -154,7 +155,7 @@ final class EffectTimelineValidator
         continue;
       }
       if (!is_array($track) || array_diff(array_keys($track), ['id', 'type', 'asset', 'sheet', 'cells', 'fit', 'depth', 'keyframes',
-        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment', 'attachmentPoint', 'detachFrame', 'flight', 'span', 'anchorLifetime'] : []),
+        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment', 'attachmentPoint', 'detachFrame', 'flight', 'span', 'anchorLifetime', 'contactRail'] : []),
         ...($acceptsStage ? ['placement', 'zIndex'] : []), ...($forStage ? ['anchor'] : [])]) !== []
         || ($track['type'] ?? null) !== 'image' || !is_string($track['id'] ?? null)) {
         throw new InvalidArgumentException("Effect {$id} currently accepts image tracks with id, asset, sheet, cells, depth and keyframes.");
@@ -202,6 +203,13 @@ final class EffectTimelineValidator
           || ($track['anchor'] ?? null) !== 'target-group' || ($track['attachment'] ?? null) !== 'ground'
           || $playback !== 'once')) {
         throw new InvalidArgumentException("Effect {$id} anchorLifetime requires a once-playing target-group ground image and a known lifetime.");
+      }
+      $contactRail = null;
+      if (array_key_exists('contactRail', $track)) {
+        if (!$forBattle || $anchorLifetime !== EffectAnchorLifetime::EFFECT_START->value) {
+          throw new InvalidArgumentException("Effect {$id} contactRail requires a battle target group captured at effect start.");
+        }
+        $contactRail = BattleEffectContactRail::parseSource($track['contactRail']);
       }
       if (array_key_exists('attachment', $track)) {
         EffectImageAttachment::parse($track['attachment']);
@@ -279,6 +287,7 @@ final class EffectTimelineValidator
             ...(!isset($track['flight']) ? [] : ['flight' => $track['flight']]),
             ...(!array_key_exists('span', $track) ? [] : ['span' => $track['span']]),
             ...($anchorLifetime === null ? [] : ['anchorLifetime' => $anchorLifetime]),
+            ...($contactRail === null ? [] : ['contactRail' => $contactRail]),
             ...(!isset($track['pivot']) ? [] : ['pivot' => $track['pivot']]),
             ...(!isset($track['facing']) ? [] : ['facing' => $track['facing']]),
             ...(!isset($track['toward']) ? [] : ['toward' => $track['toward']]),

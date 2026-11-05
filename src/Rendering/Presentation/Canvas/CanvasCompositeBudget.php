@@ -66,6 +66,9 @@ final class CanvasCompositeBudget
         }
         if ($data['type'] === 'coverage_dabs') {
           $work += self::getCoverageDabWork($data, $composite);
+        } elseif ($operation->textureStrip !== null) {
+          $work += self::getClippedArea($composite, ...$operation->textureStrip->getBounds())
+            * (16 + 2 * (int)ceil(log(count($operation->textureStrip->knots), 2)));
         } else {
           $work += self::getOperationWork($data, $composite);
         }

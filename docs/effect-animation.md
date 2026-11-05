@@ -715,6 +715,19 @@ retains source density and the anchored origin. A missing selected ground/body
 is a reported presentation failure; combat remains command-owned. Paired
 Terminal tracks retain their existing independent content and admission.
 
+For a captured target group, `contactRail => ['left' => .3, 'right' => .7,
+'ridgeY' => .45, 'referenceHeight' => .5]` fits a continuous image strip
+through the selected bodies. Use `anchorLifetime => 'effect-start'` with
+`anchor => 'target-group'` and `attachment => 'ground'`. The four
+measurements are normalized coordinates within one source cell. Left and
+right bracket the painted contact ridge, ridgeY gives its vertical position,
+and referenceHeight is the source fraction used for the fitted thickness.
+Use the same registration on cooperating layers to preserve their alignment.
+The fit uses the captured bodies through row movement and leaves impact timing
+with the command. Renderers with `canvas_texture_strip` draw the bent strip.
+Other graphical renderers use the track's existing rigid image presentation,
+including its authored `span` when present.
+
 Last Legend's approved blue preparation and green healing sheets use their
 ring centres as pivots and `ground` attachment on caster and target respectively.
 No art or terminal sequence was changed. Field image tracks now accept the same

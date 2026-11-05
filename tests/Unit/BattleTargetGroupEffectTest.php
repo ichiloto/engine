@@ -2,7 +2,7 @@
 
 use Ichiloto\Engine\Animations\Timelines\{EffectPresentation, EffectTimelineLibrary};
 use Ichiloto\Engine\Battle\BattleTurnTimings;
-use Ichiloto\Engine\Battle\Presentation\{BattleCanvasLayout, BattleCommandPlayback, BattleCommandTimeline, BattleEffectTargetGroup, BattlePoseRole, GraphicalBattleEffects};
+use Ichiloto\Engine\Battle\Presentation\{BattleCanvasLayout, BattleCommandPlayback, BattleCommandTimeline, BattleEffectContactRail, BattleEffectTargetGroup, BattlePoseRole, GraphicalBattleEffects};
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\{Character, Stats};
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -119,4 +119,41 @@ it('crops a wide group at unchanged proportional density without shifting its gr
     ->and($originX + 12 * $scale / 2)->toEqualWithDelta(720, 1e-9)
     ->and($originY + 8 * $scale)->toEqualWithDelta(600, 1e-9)
     ->and($playback->presentationFailure)->toBeNull();
+});
+
+it('fits a single continuous ridge through the selected torsos and uses source-relative registration', function () {
+  $group = BattleEffectTargetGroup::collectTargets([$this->one, $this->two, $this->other], $this->bounds, $this->grounds);
+  $rail = BattleEffectContactRail::fit($group);
+  $source = ['left' => .25, 'right' => .75, 'ridgeY' => .4, 'referenceHeight' => .5];
+  $strip = $rail->createStrip($source);
+  expect($rail->knots)->toHaveCount(3);
+  foreach ($group->memberBounds as $body) {
+    $x = $body->x + $body->width / 2;
+    $y = $body->y + .59 * $body->height;
+    $along = ($x - $rail->origin[0]) * $rail->axis[0] + ($y - $rail->origin[1]) * $rail->axis[1];
+    $u = .5 + ($along - $rail->center) / (2 * $rail->length);
+    [$sampleU, $sampleV] = $strip->getSourcePoint($x, $y);
+    expect($sampleU)->toEqualWithDelta($u, 1e-9)->and($sampleV)->toEqualWithDelta(.4, 1e-9);
+  }
+  expect($strip->height)->toEqualWithDelta(2 * $rail->height, 1e-9);
+  expect(fn() => $rail->createStrip([...$source, 'referenceHeight' => 0]))
+    ->toThrow(InvalidArgumentException::class);
+});
+
+it('keeps coincident contacts and an eight-member formation finite and deterministic', function () {
+  $targets = $bounds = $grounds = [];
+  for ($i = 0; $i < 8; $i++) {
+    $target = new Character('Same name', 1, new Stats());
+    $targets[] = $target;
+    $id = spl_object_id($target);
+    $x = 100 + 120 * intdiv($i, 2);
+    $y = 240 + ($i < 2 ? 0 : 20 * ($i % 3));
+    $bounds[$id] = new CanvasRectangle($x, $y, 80, 100);
+    $grounds[$id] = new Vector2($x + 40, $y + 100);
+  }
+  $rail = BattleEffectContactRail::fit(BattleEffectTargetGroup::collectTargets($targets, $bounds, $grounds));
+  $reverse = BattleEffectContactRail::fit(BattleEffectTargetGroup::collectTargets(array_reverse($targets), $bounds, $grounds));
+  expect(count($rail->knots))->toBeLessThan(8)
+    ->and($rail->knots)->toEqual($reverse->knots)->and($rail->axis)->toEqual($reverse->axis)
+    ->and($rail->length)->toBeGreaterThan(0)->and($rail->height)->toBeGreaterThan(0);
 });

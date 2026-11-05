@@ -49,13 +49,13 @@ final class GraphicalBattleEffects
     array $bounds, string $assetRoot, bool $reducedMotion, array $battlerImages = [], bool $imageFlips = true,
     bool $compositing = true, ?array $groundAnchors = null, array $partySides = [], bool $maskFlips = true,
     array $attachmentPoints = [], bool $imageRotation = false, bool $imageClips = true,
-    bool $coverageDabs = false): PresentationCanvas
+    bool $coverageDabs = false, bool $textureStrip = false): PresentationCanvas
   {
     $groundAnchors ??= array_map(static fn(CanvasRectangle $box): Vector2 =>
       new Vector2($box->x + $box->width / 2, $box->y + $box->height), $bounds);
     $hadConditionFailure = $playback instanceof BattlerConditionEffect && $playback->hasPresentationFailure;
     $images = $text = $composites = [];
-    $tints = [];
+    $tints = $contactRails = [];
     $summon = $playback instanceof BattleCommandPlayback ? $playback->plan->summon : null;
     if ($summon !== null && !$reducedMotion) {
       if (in_array($playback->phase, ['summon-in', 'summon-out'], true)) {
@@ -195,6 +195,14 @@ final class GraphicalBattleEffects
                 }
                 $frameWidth = intdiv($size['width'], $columns);
                 $frameHeight = intdiv($size['height'], $rows);
+                $crop = new SpriteSourceRect(($source % $columns) * $frameWidth,
+                  intdiv($source, $columns) * $frameHeight, $frameWidth, $frameHeight);
+                if ($compositing && $textureStrip && $targetGroup !== null && isset($data['contactRail'])) {
+                  $rail = $contactRails[spl_object_id($targetGroup)] ??= BattleEffectContactRail::fit($targetGroup);
+                  $strip = GraphicalBattleStrip::compose($id, $asset, $crop, $rail, $arena, $data, $x - $ground->x, $y - $ground->y);
+                  if ($strip !== null) { $composites[] = $strip; }
+                  break;
+                }
                 $width = min($arena->width, (int)round((($data['cells']['width'] ?? null) === null
                   ? $frameWidth : $data['cells']['width'] * 48) * $scale));
                 $height = min($arena->height, (int)round((($data['cells']['height'] ?? null) === null
@@ -226,8 +234,6 @@ final class GraphicalBattleEffects
                 if ($data['flipX'] ?? false) { $pivot['x'] = 1 - $pivot['x']; }
                 if ($data['flipY'] ?? false) { $pivot['y'] = 1 - $pivot['y']; }
                 $layer = ($data['depth'] ?? 'front') === 'behind' ? 90 : 180;
-                $crop = new SpriteSourceRect(($source % $columns) * $frameWidth,
-                  intdiv($source, $columns) * $frameHeight, $frameWidth, $frameHeight);
                 $flipX = $data['flipX'] ?? false;
                 $flipY = $data['flipY'] ?? false;
                 $left = $x - $width * $pivot['x'];

@@ -191,3 +191,36 @@ it('bounds coverage work by clipped footprints and requires the renderer capabil
     }
   }
 });
+
+it('validates and budgets cropped texture strips before a renderer may receive them', function () {
+  $geometry = ['origin' => [-2, 1], 'axis' => [1, 0], 'length' => 8, 'height' => 2,
+    'knots' => [['u' => 0, 'offset' => 0], ['u' => .5, 'offset' => 2], ['u' => 1, 'offset' => 0]]];
+  $shape = ['type' => 'texture_strip', 'asset' => 'test-sprite.png',
+    'sourceRect' => getCompositeTestRect(4), 'geometry' => $geometry];
+  $operation = new CanvasCompositeOperation($shape);
+  $surface = new CanvasComposite('strip', 8, 8, new CanvasRectangle(0, 0, 8, 8), [$operation]);
+  $canvas = new PresentationCanvas(8, 8, composites: [$surface]);
+  expect(CanvasCompositeBudget::getWork([$surface]))->toBe(2 * 8 * 8 + 6 * 4 * 20)
+    ->and(new CanvasCompositeOperation($operation->data)->data)->toBe($operation->data);
+  foreach ([['geometry' => [...$geometry, 'axis' => [0, 0]]],
+    ['geometry' => [...$geometry, 'knots' => [['u' => 0, 'offset' => 0], ['u' => 0, 'offset' => 1]]]],
+    ['geometry' => [...$geometry, 'height' => NAN]], ['sourceRect' => [...getCompositeTestRect(), 'x' => .5]],
+    ['flipX' => 1], ['blend' => 'screen']] as $changes) {
+    expect(fn() => new CanvasCompositeOperation(array_replace($shape, $changes)))->toThrow(InvalidArgumentException::class);
+  }
+  foreach ([false, true] as $supported) {
+    $caps = ['graphical_canvas', 'canvas_compositing', ...($supported ? ['canvas_texture_strip'] : [])];
+    $transport = new FakeRendererTransport();
+    $client = new RendererClient($transport);
+    $client->start(new RendererSessionConfig('Strip', __DIR__ . '/../Fixtures/Renderer', protocol: RendererProtocolVersion::V2));
+    $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $caps]))];
+    $client->pump();
+    $presenter = new RendererPresentation($client, new RendererGridConfig(1, 1));
+    if ($supported) {
+      expect($presenter->presentCanvas($canvas))->toBeTrue();
+    } else {
+      expect(fn() => $presenter->presentCanvas($canvas))->toThrow(RendererProtocolException::class, 'canvas_texture_strip')
+        ->and($transport->sent)->toBe([]);
+    }
+  }
+});
