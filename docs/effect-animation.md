@@ -644,6 +644,15 @@ end fixed. A rest frame inside the track holds one representative sample.
 Terminal effects retain their own tracks and the impact cue stays on the
 command clock.
 
+A cubic trail can set `flight.bystanderClearance` to 0–64 logical pixels.
+At release the Engine projects the active unselected battlers' visible
+bounds. It tests the authored curve against those bounds expanded by the
+largest dab radius and the authored clearance. When needed it shifts
+both controls vertically by the smallest viable amount within the arena.
+The caster point, selected contact, launch and impact frames stay fixed.
+If that cubic family has no clear path, the preview reports a diagnostic
+and the other effect tracks still play.
+
 The track's `profile` uses logical-pixel `length` and `spacing` for
 arc-length sampling. `startRadius` and `endRadius` specify tail and head
 radii, interpolated by normalized position raised to `radiusPower`.

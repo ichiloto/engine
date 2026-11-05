@@ -384,6 +384,11 @@ final class EffectTimelineValidator
     EffectTimelineLibrary::assertId($track['attachmentPoint']);
     self::validateFlight($id, [...$track, 'anchor' => 'caster'], $flight, $length, $hasRange);
     $profile = new BattleEffectTrail($track['profile']);
+    $clearance = $flight['bystanderClearance'] ?? null;
+    if (array_key_exists('bystanderClearance', $flight) && (($flight['route'] ?? null) !== EffectFlightRoute::CUBIC->value
+      || (!is_int($clearance) && !is_float($clearance)) || !is_finite((float)$clearance) || $clearance < 0 || $clearance > 64)) {
+      throw new InvalidArgumentException("Effect {$id} bystanderClearance requires a cubic trail and 0..64 logical pixels.");
+    }
     return ['id' => $track['id'], 'type' => 'trail', 'presentation' => 'graphical', 'keyframes' => [[
       'frame' => $detach, 'duration' => $end - $detach, 'payload' => [
         'anchor' => 'caster', 'attachmentPoint' => $track['attachmentPoint'], 'detachFrame' => $detach,
@@ -395,7 +400,8 @@ final class EffectTimelineValidator
   private static function validateFlight(string $id, array $track, mixed $flight, int $length, bool $hasRange): void
   {
     if (($track['anchor'] ?? null) !== 'caster' || !isset($track['detachFrame'])
-      || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame', 'route', 'tipX', 'curve', 'farCurve']) !== []
+      || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame', 'route', 'tipX', 'curve', 'farCurve',
+        ...($track['type'] === 'trail' ? ['bystanderClearance'] : [])]) !== []
       || !is_int($flight['arrivalFrame'] ?? null) || $flight['arrivalFrame'] <= $track['detachFrame']
       || $flight['arrivalFrame'] >= $length
       || (array_key_exists('route', $flight) && (!is_string($flight['route']) || EffectFlightRoute::tryFrom($flight['route']) === null))

@@ -736,8 +736,8 @@ final class GraphicalBattlePresentation
     }
     if (!array_any($playback->plan->timeline->cueSchedule, static fn(array $cue): bool =>
       $cue['type'] === 'commandCapturePosePoint')) { return; }
-    $playback->bindPosePointCapture(function (BattleCommandPlayback $sample, string $anchor, string $name, ?string $route, ?array $curve)
-      use ($reducedMotion, $idleSeconds): array {
+    $playback->bindPosePointCapture(function (BattleCommandPlayback $sample, string $anchor, string $name, ?string $route, ?array $curve,
+      ?float $clearance) use ($reducedMotion, $idleSeconds): array {
       $clock = $idleSeconds + $sample->session->currentFrame / BattleCommandTimeline::FPS;
       $geometry = [];
       foreach ([$sample->actor, ...$sample->targets] as $battler) {
@@ -745,6 +745,15 @@ final class GraphicalBattlePresentation
         if (isset($geometry[$id])) { continue; }
         $participant = $this->participants[$id] ?? throw new RuntimeException('Detached effect subject is absent from the battlefield.');
         $geometry[$id] = $this->projectBattler($id, $participant, $sample, $reducedMotion, true, $clock);
+      }
+      $obstacles = [];
+      if ($clearance !== null) {
+        foreach ([...$this->battle->partyRoster->battlers, ...$this->battle->troop->members->toArray()] as $bystander) {
+          $id = spl_object_id($bystander);
+          if (!$bystander->isFighting || isset($geometry[$id]) || !isset($this->participants[$id])) { continue; }
+          $body = $this->projectBattler($id, $this->participants[$id], $sample, $reducedMotion, true, $clock);
+          if ($body['available']) { $obstacles[] = $this->locateBody($body['image'], $id); }
+        }
       }
       $casterX = $geometry[spl_object_id($sample->actor)]['ground']->x;
       $firstOther = array_find($sample->targets, static fn($target): bool => $target !== $sample->actor);
@@ -776,7 +785,7 @@ final class GraphicalBattlePresentation
           $points[$id]['path'] = match (EffectFlightRoute::from($route)) {
             EffectFlightRoute::STRAIGHT => BattleStraightShot::plan($point, $contactBodies)
               ?? throw new RuntimeException('No straight battle flight can reach the selected targets in order.'),
-            EffectFlightRoute::CUBIC => $this->planCubicFlight($point, $contactBodies, $curve),
+            EffectFlightRoute::CUBIC => $this->planCubicFlight($point, $contactBodies, $curve, $obstacles, $clearance),
             EffectFlightRoute::WAYPOINTS => new BattlePresentationPath($waypoints),
           };
         }
@@ -785,8 +794,12 @@ final class GraphicalBattlePresentation
     });
   }
 
-  /** @param list<CanvasRectangle> $bodies */
-  private function planCubicFlight(Vector2 $launch, array $bodies, ?array $curve): BattlePresentationPath
+  /**
+   * @param list<CanvasRectangle> $bodies
+   * @param list<CanvasRectangle> $obstacles
+   */
+  private function planCubicFlight(Vector2 $launch, array $bodies, ?array $curve, array $obstacles,
+    ?float $clearance): BattlePresentationPath
   {
     if (count($bodies) !== 1 || $curve === null) {
       throw new RuntimeException('Cubic battle flight requires one selected recipient and two curve controls.');
@@ -794,11 +807,13 @@ final class GraphicalBattlePresentation
     $body = $bodies[0];
     $arrival = new Vector2($body->x + $body->width / 2, $body->y + $body->height / 2);
     $span = $arrival->x - $launch->x;
-    return BattlePresentationPath::fromCubic($launch, $arrival,
-      new Vector2($launch->x + $span * $curve['launchProgress'],
-        $launch->y + $this->layout->height * $curve['launchOffsetY']),
-      new Vector2($launch->x + $span * $curve['arrivalProgress'],
-        $arrival->y + $this->layout->height * $curve['arrivalOffsetY']));
+    $first = new Vector2($launch->x + $span * $curve['launchProgress'],
+      $launch->y + $this->layout->height * $curve['launchOffsetY']);
+    $second = new Vector2($launch->x + $span * $curve['arrivalProgress'],
+      $arrival->y + $this->layout->height * $curve['arrivalOffsetY']);
+    if ($clearance === null) { return BattlePresentationPath::fromCubic($launch, $arrival, $first, $second); }
+    return BattleCubicFlightClearance::plan($launch, $arrival, $first, $second, $this->layout->height, $obstacles, $clearance)
+      ?? throw new RuntimeException('No cubic battle trail clears the unselected bodies at the captured positions.');
   }
 
   /**

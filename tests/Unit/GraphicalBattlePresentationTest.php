@@ -824,7 +824,7 @@ it('draws one bounded taper on a detached path, with fixed contact and fade on b
     'rangeTiming' => ['minDistance' => .3, 'keys' => [['frame' => 10, 'at' => 4]]],
     'tracks' => [
       ['id' => 'wake', 'type' => 'trail', 'attachmentPoint' => 'launch', 'detachFrame' => 10, 'fadeEndFrame' => 33,
-        'flight' => ['arrivalFrame' => 22, 'route' => 'cubic',
+        'flight' => ['arrivalFrame' => 22, 'route' => 'cubic', 'bystanderClearance' => 1,
           'curve' => ['launchProgress' => .28, 'launchOffsetY' => -.2, 'arrivalProgress' => .71, 'arrivalOffsetY' => -.1]],
         'profile' => ['length' => 112, 'spacing' => 1.55, 'startRadius' => 1.25, 'endRadius' => 7.8, 'radiusPower' => 1.48,
           'startOpacity' => .08, 'endOpacity' => 1, 'opacityPower' => 1.4, 'fadeLengthRatio' => .55,

@@ -235,7 +235,9 @@ final readonly class BattleCommandTimeline
               'payload' => ['trackId' => $trackId, 'anchor' => $command['payload']['anchor'],
                 'attachmentPoint' => $command['payload']['attachmentPoint'],
                 'route' => $flight === null ? null : ($flight['route'] ?? EffectFlightRoute::WAYPOINTS->value),
-                'curve' => $visualClock !== null ? ($flight['farCurve'] ?? $flight['curve'] ?? null) : ($flight['curve'] ?? null)]];
+                'curve' => $visualClock !== null ? ($flight['farCurve'] ?? $flight['curve'] ?? null) : ($flight['curve'] ?? null),
+                ...(!isset($flight['bystanderClearance']) ? [] : ['clearance' => (float)$flight['bystanderClearance']
+                  + max($command['payload']['profile']['startRadius'], $command['payload']['profile']['endRadius'])])]];
           }
           unset($command);
           $copy['startFrame'] = $cursor + $boundary($segment['startFrame']);

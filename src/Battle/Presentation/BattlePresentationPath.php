@@ -10,6 +10,8 @@ use InvalidArgumentException;
 /** Immutable waypoints sampled at constant distance per unit of progress. */
 final readonly class BattlePresentationPath
 {
+  public const int CUBIC_STEPS = 64;
+
   /** @var list<array{float, float}> */
   private array $points;
   public float $distance;
@@ -41,8 +43,8 @@ final readonly class BattlePresentationPath
   {
     $points = [];
     // A bounded tessellation keeps flight speed and heading on the same sampled route.
-    for ($step = 0; $step <= 64; $step++) {
-      $t = $step / 64;
+    for ($step = 0; $step <= self::CUBIC_STEPS; $step++) {
+      $t = $step / self::CUBIC_STEPS;
       $u = 1 - $t;
       $a = $u ** 3;
       $b = 3 * $u ** 2 * $t;

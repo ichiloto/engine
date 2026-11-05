@@ -30,7 +30,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private ?int $impactFrame = null;
   private float $elapsedSeconds = 0;
   private bool $paused = false;
-  /** @var ?Closure(self, string, string, ?string, ?array): array<int, DetachedPosePoint> */
+  /** @var ?Closure(self, string, string, ?string, ?array, ?float): array<int, DetachedPosePoint> */
   private ?Closure $capturePosePoints = null;
   /** @var array<string, array<int, DetachedPosePoint>> */
   private array $detachedPosePoints = [];
@@ -92,7 +92,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $this->captureTargetGroup = null;
   }
 
-  /** @param Closure(self, string, string, ?string, ?array): array<int, DetachedPosePoint> $capture */
+  /** @param Closure(self, string, string, ?string, ?array, ?float): array<int, DetachedPosePoint> $capture */
   public function bindPosePointCapture(Closure $capture): void
   {
     $this->capturePosePoints = $capture;
@@ -335,7 +335,8 @@ final class BattleCommandPlayback implements BattleEffectPlayback
           try {
             $payload = $cue['payload'];
             $this->detachedPosePoints[$payload['trackId']] = ($this->capturePosePoints)(
-              $this->samplePoseAtFrame($cue['frame']), $payload['anchor'], $payload['attachmentPoint'], $payload['route'], $payload['curve']);
+              $this->samplePoseAtFrame($cue['frame']), $payload['anchor'], $payload['attachmentPoint'], $payload['route'],
+              $payload['curve'], $payload['clearance'] ?? null);
           } catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
         }
         continue;
