@@ -34,6 +34,10 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private ?Closure $capturePosePoints = null;
   /** @var array<string, array<int, DetachedPosePoint>> */
   private array $detachedPosePoints = [];
+  /** @var ?Closure(self): ?BattleEffectTargetGroup */
+  private ?Closure $captureTargetGroup = null;
+  /** @var array<string, ?BattleEffectTargetGroup> */
+  private array $targetGroups = [];
   /** @var array<int, array{battler: \Ichiloto\Engine\Entities\Enemies\Enemy, start: float, cleared: bool}> */
   private array $defeats = [];
 
@@ -84,12 +88,25 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $this->cancelled = true;
     $this->defeats = $this->detachedPosePoints = [];
     $this->capturePosePoints = null;
+    $this->targetGroups = [];
+    $this->captureTargetGroup = null;
   }
 
   /** @param Closure(self, string, string, ?string): array<int, DetachedPosePoint> $capture */
   public function bindPosePointCapture(Closure $capture): void
   {
     $this->capturePosePoints = $capture;
+  }
+
+  /** @param Closure(self): ?BattleEffectTargetGroup $capture */
+  public function bindTargetGroupCapture(Closure $capture): void
+  {
+    $this->captureTargetGroup = $capture;
+  }
+
+  public function getCapturedTargetGroup(string $lane): ?BattleEffectTargetGroup
+  {
+    return $this->targetGroups[$lane] ?? null;
   }
 
   /** @return ?DetachedPosePoint */
@@ -281,6 +298,14 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     foreach ($cues as $cue) {
       if ($this->cancelled) { return; }
+      if ($cue['type'] === 'commandCaptureTargetGroup') {
+        if ($this->captureTargetGroup !== null) {
+          try {
+            $this->targetGroups[$cue['payload']['lane']] = ($this->captureTargetGroup)($this->samplePoseAtFrame($cue['frame']));
+          } catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
+        }
+        continue;
+      }
       if ($cue['type'] === 'commandCapturePosePoint') {
         if ($this->capturePosePoints !== null) {
           try {

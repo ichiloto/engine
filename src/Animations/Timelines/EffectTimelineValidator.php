@@ -147,7 +147,7 @@ final class EffectTimelineValidator
         continue;
       }
       if (!is_array($track) || array_diff(array_keys($track), ['id', 'type', 'asset', 'sheet', 'cells', 'fit', 'depth', 'keyframes',
-        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment', 'attachmentPoint', 'detachFrame', 'flight', 'span'] : []),
+        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment', 'attachmentPoint', 'detachFrame', 'flight', 'span', 'anchorLifetime'] : []),
         ...($acceptsStage ? ['placement', 'zIndex'] : []), ...($forStage ? ['anchor'] : [])]) !== []
         || ($track['type'] ?? null) !== 'image' || !is_string($track['id'] ?? null)) {
         throw new InvalidArgumentException("Effect {$id} currently accepts image tracks with id, asset, sheet, cells, depth and keyframes.");
@@ -188,6 +188,13 @@ final class EffectTimelineValidator
         || ($track['anchor'] ?? null) !== 'target-group'
         || ($track['attachment'] ?? 'center') !== 'ground' || $fit->value !== 'contain')) {
         throw new InvalidArgumentException("Effect {$id} span requires a target-group ground image with contain fit and a boolean value.");
+      }
+      $anchorLifetime = $track['anchorLifetime'] ?? null;
+      if (array_key_exists('anchorLifetime', $track)
+        && (!is_string($anchorLifetime) || EffectAnchorLifetime::tryFrom($anchorLifetime) === null
+          || ($track['anchor'] ?? null) !== 'target-group' || ($track['attachment'] ?? null) !== 'ground'
+          || $playback !== 'once')) {
+        throw new InvalidArgumentException("Effect {$id} anchorLifetime requires a once-playing target-group ground image and a known lifetime.");
       }
       if (array_key_exists('attachment', $track)) {
         EffectImageAttachment::parse($track['attachment']);
@@ -272,6 +279,7 @@ final class EffectTimelineValidator
             ...(!isset($track['detachFrame']) ? [] : ['detachFrame' => $track['detachFrame']]),
             ...(!isset($track['flight']) ? [] : ['flight' => $track['flight']]),
             ...(!array_key_exists('span', $track) ? [] : ['span' => $track['span']]),
+            ...($anchorLifetime === null ? [] : ['anchorLifetime' => $anchorLifetime]),
             ...(!isset($track['pivot']) ? [] : ['pivot' => $track['pivot']]),
             ...(!isset($track['facing']) ? [] : ['facing' => $track['facing']]),
             ...(!isset($track['toward']) ? [] : ['toward' => $track['toward']]),

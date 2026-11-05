@@ -2929,22 +2929,32 @@ it('retains current image geometry and draw order while state tones appear and d
   expect(graphicalCombatantImage($presentation->frame(), $hero)->brightness)->toBe(1.0);
 })->with([false, true]);
 
-it('projects one selected-group image through the actual battle frame at the recipients ground envelope', function (bool $reduced) {
-  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+it('projects one selected-group image with the authored anchor lifetime across a formation change', function (bool $reduced, bool $fixed) {
+  [$source, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $troop = new Troop('Rows', $enemies, graphicalFormation: array_map($source->troop->getStagePlace(...), $enemies),
+    battlePositions: [new \Ichiloto\Engine\Battle\Formation\BattlePosition(\Ichiloto\Engine\Battle\Formation\BattleRow::BACK, 0),
+      new \Ichiloto\Engine\Battle\Formation\BattlePosition(\Ichiloto\Engine\Battle\Formation\BattleRow::FRONT, 0)]);
+  $battle = new BattleConfig($source->party, $troop);
   $effect = new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($this->root)->compile('group-ground',
-    ['fps' => 24, 'lengthFrames' => 24, 'restFrame' => 0, 'tracks' => [[
+    ['fps' => 24, 'lengthFrames' => 24, 'restFrame' => 0, 'effectTiming' => ['mode' => 'frame', 'frame' => 4], 'tracks' => [[
       'id' => 'plume', 'type' => 'image', 'asset' => 'test-sprite.png',
       'anchor' => 'target-group', 'attachment' => 'ground', 'fit' => 'contain', 'span' => true,
+      ...($fixed ? ['anchorLifetime' => 'effect-start'] : []),
       'pivot' => ['x' => .5, 'y' => 1.0], 'keyframes' => [['frame' => 0, 'duration' => 24]],
     ]]], true);
   $plan = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline(
     new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect);
   $hits = 0;
   $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $hero, $enemies,
-    BattlePoseRole::ATTACK, function () use (&$hits) { $hits++; }, static fn() => null);
+    BattlePoseRole::ATTACK, function () use (&$hits, $battle, $enemies) {
+      $hits++;
+      $battle->formation->moveToFront($enemies);
+    }, static fn() => null);
   $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
   $field = graphicalBattleScene($battle, $presentation)->ui->fieldWindow;
   $field->setCommandPlayback($playback);
+  $presentation->bindCommandPosePoints($playback, $reduced, 0);
+  $playback->begin();
   $playback->update($plan->phases['target']['start'] / 120);
   $canvas = $presentation->frame($field, reducedMotion: $reduced);
   $images = array_values(array_filter($canvas->images, static fn($image): bool => str_ends_with($image->id, 'target-group')));
@@ -2954,10 +2964,20 @@ it('projects one selected-group image through the actual battle frame at the rec
     ->and($images[0]->destination->x + $images[0]->destination->width / 2)->toEqualWithDelta((min($x) + max($x)) / 2, 1e-6)
     ->and($images[0]->destination->y + $images[0]->destination->height)->toEqualWithDelta(max($y), 1e-6)
     ->and($playback->presentationFailure)->toBeNull()->and($hits)->toBe(0);
-  $playback->update(100);
+  $playback->update(.25);
+  $after = array_find($presentation->frame($field, reducedMotion: $reduced)->images,
+    static fn($image): bool => str_ends_with($image->id, 'target-group'));
+  expect($after)->not->toBeNull();
+  if ($fixed) {
+    expect($after->destination)->toEqual($images[0]->destination);
+  } else {
+    expect($after->destination)->not->toEqual($images[0]->destination);
+  }
+  $playback->cancel();
   expect($hits)->toBe(1)
+    ->and($playback->getCapturedTargetGroup('target'))->toBeNull()
     ->and(array_filter($presentation->frame($field)->images, static fn($image): bool => str_ends_with($image->id, 'target-group')))->toBeEmpty();
-})->with([false, true]);
+})->with([false, true], [false, true]);
 
 
 it('draws the anchored action strike on the target boundary and recovery on return', function (bool $reduced, bool $partyActor) {

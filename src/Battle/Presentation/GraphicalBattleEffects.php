@@ -86,7 +86,17 @@ final class GraphicalBattleEffects
         if ($anchor === 'stage') { continue; }
         $targetGroup = null;
         if ($anchor === 'target-group') {
-          try { $targetGroup = BattleEffectTargetGroup::collectTargets($playback->targets, $bounds, $groundAnchors, $partySides); }
+          try {
+            $lane = $data['capturedTargetGroup'] ?? null;
+            if ($lane !== null && $playback instanceof BattleCommandPlayback) {
+              $targetGroup = $playback->getCapturedTargetGroup($lane);
+              if ($targetGroup === null && $playback->targets !== []) {
+                throw new RuntimeException('Target-group effect has no captured ground placement.');
+              }
+            } else {
+              $targetGroup = BattleEffectTargetGroup::collectTargets($playback->targets, $bounds, $groundAnchors, $partySides);
+            }
+          }
           catch (RuntimeException $error) { $playback->recordPresentationFailure($error); continue; }
           if ($targetGroup === null) { continue; }
         }

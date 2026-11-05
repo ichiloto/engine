@@ -693,8 +693,26 @@ final class GraphicalBattlePresentation
       'elevation' => $elevation, 'contact' => $contact];
   }
 
+  /** Bind the command's authored graphical anchor captures before its clock starts. */
   public function bindCommandPosePoints(BattleCommandPlayback $playback, bool $reducedMotion, float $idleSeconds): void
   {
+    if (array_any($playback->plan->timeline->cueSchedule, static fn(array $cue): bool =>
+      $cue['type'] === 'commandCaptureTargetGroup')) {
+      $playback->bindTargetGroupCapture(function (BattleCommandPlayback $sample) use ($reducedMotion, $idleSeconds): ?BattleEffectTargetGroup {
+        $clock = $idleSeconds + $sample->session->currentFrame / BattleCommandTimeline::FPS;
+        $bounds = $grounds = $sides = [];
+        foreach ($sample->targets as $target) {
+          $id = spl_object_id($target);
+          $participant = $this->participants[$id] ?? throw new RuntimeException('Target-group effect subject is absent from the battlefield.');
+          $projected = $this->projectBattler($id, $participant, $sample, $reducedMotion, true, $clock);
+          $image = $projected['image'];
+          $bounds[$id] = $projected['available'] ? $this->locateBody($image, $id) : $image->destination;
+          $grounds[$id] = $projected['ground'];
+          $sides[$id] = $participant['party'];
+        }
+        return BattleEffectTargetGroup::collectTargets($sample->targets, $bounds, $grounds, $sides);
+      });
+    }
     if (!array_any($playback->plan->timeline->cueSchedule, static fn(array $cue): bool =>
       $cue['type'] === 'commandCapturePosePoint')) { return; }
     $playback->bindPosePointCapture(function (BattleCommandPlayback $sample, string $anchor, string $name, ?string $route)

@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Battle\Presentation;
 use Ichiloto\Engine\Animations\EffectScale;
 use Ichiloto\Engine\Animations\SourceEffectAnchor;
 use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
+use Ichiloto\Engine\Animations\Timelines\EffectAnchorLifetime;
 use Ichiloto\Engine\Animations\Timelines\EffectFlightRoute;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
@@ -104,7 +105,7 @@ final readonly class BattleCommandTimeline
     $this->terminalTiming = $this->terminalTarget === null ? null
       : EffectPlaybackTiming::createForBattlePhase($this->terminalTarget, $timings->effectAnimation);
     $phases = $cues = $segments = $restFrames = $restSegments = [];
-    $detachments = [];
+    $detachments = $targetGroupCaptures = [];
     $targetImpactEnd = 0;
     $poseAnchor = null;
     $poseEnd = null;
@@ -178,6 +179,12 @@ final readonly class BattleCommandTimeline
         foreach ($effect->playbackSegments as $segment) {
           $copy = self::getAnchoredSegment($segment, $effect, $lane, $lane === 'target' ? $targetScale : EffectScale::DEFAULT);
           foreach ($copy['drawCommands'] as &$command) {
+            if (($command['payload']['anchorLifetime'] ?? null)
+              === EffectAnchorLifetime::EFFECT_START->value) {
+              $command['payload']['capturedTargetGroup'] = $lane;
+              $targetGroupCaptures[$lane] ??= ['id' => 'capture-target-group-' . $lane,
+                'type' => 'commandCaptureTargetGroup', 'frame' => $cursor, 'payload' => ['lane' => $lane]];
+            }
             if (!isset($command['payload']['detachFrame'])) { continue; }
             $detach = $cursor + $clock->getFrameBoundary($command['payload']['detachFrame'], self::FPS);
             $command['payload']['detachFrame'] = $detach;
@@ -245,9 +252,9 @@ final readonly class BattleCommandTimeline
       }
     }
     $cues[] = ['id' => 'command-impact', 'type' => 'commandImpact', 'frame' => $impact, 'payload' => []];
-    $cues = [...$cues, ...array_values($detachments)];
+    $cues = [...$cues, ...array_values($detachments), ...array_values($targetGroupCaptures)];
     $order = static fn(array $cue): int => match ($cue['type']) {
-      'commandCapturePosePoint' => 0, 'commandImpact' => 1, default => 2,
+      'commandCapturePosePoint', 'commandCaptureTargetGroup' => 0, 'commandImpact' => 1, default => 2,
     };
     usort($cues, static fn(array $a, array $b): int => [$a['frame'], $order($a)] <=> [$b['frame'], $order($b)]);
     $this->actionPoseAnchorFrame = $poseAnchor;
