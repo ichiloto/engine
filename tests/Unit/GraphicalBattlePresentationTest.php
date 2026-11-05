@@ -648,6 +648,54 @@ it('flies from the release pose through the ordered recipients and holds the wak
   expect(fn() => $library->compile('invalid-flight', $authored, true))->toThrow(InvalidArgumentException::class, 'flight requires');
 })->with([false, true]);
 
+it('registers the rear at release and the leading tip at the straight flight contact', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $asset = 'graphical-canvas/synthetic-320x180.png';
+  $pose = new BattlerPose($asset, attachmentPoints: [
+    ['cell' => 0, 'name' => 'launch', 'point' => ['x' => .5, 'y' => .5]],
+  ]);
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $catalog->ui, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => new BattlePoseSet(['attack' => $pose])]);
+  $timeline = (new EffectTimelineLibrary($this->root))->compile('straight-projectile', [
+    'fps' => 10, 'lengthFrames' => 10, 'restFrame' => 8,
+    'tracks' => [[
+      'id' => 'projectile', 'type' => 'image', 'asset' => $asset, 'anchor' => 'caster', 'attachmentPoint' => 'launch',
+      'detachFrame' => 1, 'facing' => 'east', 'pivot' => ['x' => .25, 'y' => .5],
+      'flight' => ['route' => 'straight', 'arrivalFrame' => 8, 'tipX' => .75],
+      'keyframes' => [['frame' => 1, 'duration' => 9]],
+    ]],
+    'cues' => [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 8]],
+  ], true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $timeline);
+  $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $hero, [$enemies[1]],
+    BattlePoseRole::ATTACK, $catalog, $this->root);
+  $start = $plan->getCommandFrameForAuthoredFrame('target', 1);
+  $end = $plan->getCommandFrameForAuthoredFrame('target', 8);
+  $launch = $preview->getFrameAtIndex($start, imageRotation: true);
+  $arrival = $preview->getFrameAtIndex($end, imageRotation: true);
+  $source = graphicalCombatantImage($launch->canvas, $hero)->destination;
+  $target = graphicalCombatantImage($launch->canvas, $enemies[1])->destination;
+  $effect = static fn($frame): CanvasImage =>
+    array_find($frame->canvas->images, static fn($image) => str_contains($image->id, 'target-projectile'));
+  $point = static fn(CanvasImage $image): array => [
+    $image->destination->x + $image->destination->width * $image->pivot->x,
+    $image->destination->y + $image->destination->height * $image->pivot->y,
+  ];
+  $rear = $point($effect($launch));
+  $arrow = $effect($arrival);
+  [$endX, $endY] = $point($arrow);
+  $tipAngle = deg2rad($arrow->rotation + ($arrow->flipX ? 180 : 0));
+  $tipLength = $arrow->destination->width * .5;
+  $tipX = $endX + cos($tipAngle) * $tipLength;
+  $tipY = $endY + sin($tipAngle) * $tipLength;
+  expect($rear[0])->toEqualWithDelta($source->x + $source->width / 2, .000001)
+    ->and($rear[1])->toEqualWithDelta($source->y + $source->height / 2, .000001)
+    ->and($endX)->toBeGreaterThan($target->x + $target->width)
+    ->and($tipX)->toEqualWithDelta($target->x + $target->width, .000001)
+    ->and($tipY)->toBeGreaterThan($target->y)->toBeLessThan($target->y + $target->height)
+    ->and($launch->diagnostics)->toBe([])->and($arrival->diagnostics)->toBe([]);
+});
+
 it('inherits one reference body scale across every pose and sheet frame for either side', function (bool $party, bool $reduced, ?float $displayWidth, float $partyDepth, bool $referenceScale) {
   ConfigStore::put(Ichiloto\Engine\Util\Config\ProjectConfig::class,
     new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));

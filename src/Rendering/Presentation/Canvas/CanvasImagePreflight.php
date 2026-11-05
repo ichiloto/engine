@@ -44,7 +44,7 @@ final class CanvasImagePreflight
         $tone = bin2hex(pack('E', $image->brightness == 0 ? 0.0 : $image->brightness));
         $rotation = $image->rotation ?? 0;
         $variant = $region . ':' . $tone . ':' . (int)$image->flipX . ':' . (int)$image->flipY;
-        $regions[$variant . ':' . $rotation] = CanvasImage::getRotatedPixelBytes($crop['width'] + 4, $crop['height'] + 4, $rotation);
+        $regions[$variant . ':' . $rotation] = CanvasImage::getRotatedRegionBytes($crop['width'], $crop['height'], $rotation);
       }
     }
     foreach ($composites as $composite) {

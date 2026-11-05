@@ -24,7 +24,7 @@ use RuntimeException;
 /** Retained effect layers inspect the command lane, never dispatch combat cues. */
 final class GraphicalBattleEffects
 {
-  /** @return ?array{point: Vector2, direction: ?Vector2} */
+  /** @return ?array{point: Vector2, direction: ?Vector2, progress: float, distance: float} */
   private static function sampleFlight(BattleCommandPlayback $playback, ?BattlePresentationPath $path,
     array $data, bool $reducedMotion): ?array
   {
@@ -36,7 +36,7 @@ final class GraphicalBattleEffects
     $sample = $data['flight']['holdFrame'] ?? $arrival;
     $sample = min($sample, $reducedMotion ? $arrival : $playback->session->currentFrame);
     $progress = $sample >= $arrival ? 1.0 : ($sample - $data['detachFrame']) / ($arrival - $data['detachFrame']);
-    return $path->getSampleAtProgress($progress);
+    return [...$path->getSampleAtProgress($progress), 'progress' => $progress, 'distance' => $path->distance];
   }
 
   /** @param array<int, CanvasRectangle> $bounds Combatant instance identity => its drawn body; head, centre and feet attach to it.
@@ -118,8 +118,9 @@ final class GraphicalBattleEffects
           $facing = $data['facing'] ?? null;
           $autoMirrored = ($oriented['payload']['flipX'] ?? false) !== ($data['flipX'] ?? false);
           $data = $oriented['payload'] ?? [];
+          $basis = ($facing === 'west') !== $autoMirrored ? 180 : 0;
           $rotation = $imageRotation && $direction !== null && $facing !== null
-            ? (int)round(rad2deg(atan2($direction->y, $direction->x)) - (($facing === 'west') !== $autoMirrored ? 180 : 0)) : 0;
+            ? (int)round(rad2deg(atan2($direction->y, $direction->x)) - $basis) : 0;
           $rotation = ($rotation % 360 + 360) % 360;
           $id = 'command-effect-' . $oriented['trackId'] . '-' . ($targetGroup !== null ? 'target-group'
             : ($subject === null ? 'screen' : spl_object_id($subject)));
@@ -189,6 +190,16 @@ final class GraphicalBattleEffects
                   $y += ($position['y'] ?? 0) * $arena->uiGrid->cellHeight * $scale * ($growth - 1);
                 }
                 $pivot = $data['pivot'] ?? ['x' => .5, 'y' => .5];
+                if ($flight !== null && isset($data['flight']['tipX'])) {
+                  $tipLength = abs($data['flight']['tipX'] - $pivot['x']) * $width;
+                  if ($tipLength > $flight['distance']) {
+                    throw new InvalidArgumentException('Battle projectile tip starts beyond its arrival contact.');
+                  }
+                  $angle = deg2rad($rotation + $basis);
+                  $offset = $tipLength * $flight['progress'];
+                  $x -= cos($angle) * $offset;
+                  $y -= sin($angle) * $offset;
+                }
                 if ($data['flipX'] ?? false) { $pivot['x'] = 1 - $pivot['x']; }
                 if ($data['flipY'] ?? false) { $pivot['y'] = 1 - $pivot['y']; }
                 $layer = ($data['depth'] ?? 'front') === 'behind' ? 90 : 180;

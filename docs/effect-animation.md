@@ -614,6 +614,16 @@ pivot. The heading changes at the recipient waypoints. A held wake retains
 the heading of its sampled leg. A rotation at the viewport edge uses the
 full crop and a screen-space mask when `canvas_clip_opacity` is available.
 
+For a piercing shot, set `flight.route => 'straight'`. The release projects
+one ray through the selected recipients’ visible bounds in their targeting
+order. If the projected formation has no shared ray, the presentation reports
+that geometry and the action still uses its existing combat cue. A directional
+straight image can also set `flight.tipX` to a normalized source X along its
+pivot row. The rear pivot stays at the release point on the first flight frame.
+The tip reaches the final contact at `arrivalFrame`. Use the same straight
+route and arrival timing on separate wake tracks. A wake samples the route at
+its own hold frame. Keep contact and combat timing aligned in the action review.
+
 The target effect can declare `poseSyncFrame` to align the action pose's
 existing `impactFrame` playback entry to a particular frame of that effect.
 Use this when the key represents release and the effect hits later. The

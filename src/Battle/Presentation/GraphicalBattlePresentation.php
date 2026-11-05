@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Animations\Timelines\EffectFlightRoute;
 use Ichiloto\Engine\Core\Clocks\RuntimeClock;
 
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
@@ -696,7 +697,7 @@ final class GraphicalBattlePresentation
   {
     if (!array_any($playback->plan->timeline->cueSchedule, static fn(array $cue): bool =>
       $cue['type'] === 'commandCapturePosePoint')) { return; }
-    $playback->bindPosePointCapture(function (BattleCommandPlayback $sample, string $anchor, string $name, bool $flight)
+    $playback->bindPosePointCapture(function (BattleCommandPlayback $sample, string $anchor, string $name, ?string $route)
       use ($reducedMotion, $idleSeconds): array {
       $clock = $idleSeconds + $sample->session->currentFrame / BattleCommandTimeline::FPS;
       $geometry = [];
@@ -718,14 +719,25 @@ final class GraphicalBattlePresentation
         $points[$id] = ['point' => $point, 'casterX' => $casterX,
           'recipientX' => $recipient === null ? null : $geometry[spl_object_id($recipient)]['ground']->x,
           'party' => $this->participants[$id]['party']];
-        if ($flight) {
+        if ($route !== null) {
           if ($sample->targets === []) { throw new RuntimeException('Battle projectile has no selected recipients.'); }
           $waypoints = [[$point->x, $point->y]];
+          $contactBodies = [];
+          $straight = $route === EffectFlightRoute::STRAIGHT->value;
           foreach ($sample->targets as $target) {
-            $body = $geometry[spl_object_id($target)]['image']->destination;
-            $waypoints[] = [$body->x + $body->width / 2, $body->y + $body->height / 2];
+            $image = $geometry[spl_object_id($target)]['image'];
+            if ($straight) {
+              $contactBodies[] = PngAssetBounds::getVisibleBounds($this->assetRoot, $image)['bounds']
+                ?? throw new RuntimeException('Straight battle flight requires visible target artwork.');
+            } else {
+              $body = $image->destination;
+              $waypoints[] = [$body->x + $body->width / 2, $body->y + $body->height / 2];
+            }
           }
-          $points[$id]['path'] = new BattlePresentationPath($waypoints);
+          $points[$id]['path'] = $straight
+            ? BattleStraightShot::plan($point, $contactBodies)
+              ?? throw new RuntimeException('No straight battle flight can reach the selected targets in order.')
+            : new BattlePresentationPath($waypoints);
         }
       }
       return $points;

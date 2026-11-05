@@ -20,7 +20,7 @@ final readonly class CanvasRectangle
         throw new InvalidArgumentException('Canvas rectangle values must be finite.');
       }
     }
-    if ($width <= 0 || $height <= 0 || max(abs($x), abs($y), $width, $height) > CanvasValidation::MAX_EXTENT) {
+    if ($width <= 0 || $height <= 0 || max(abs($x), abs($y), abs($x + $width), abs($y + $height), $width, $height) > CanvasValidation::MAX_EXTENT) {
       throw new InvalidArgumentException('Canvas rectangles require bounded origins and positive bounded extents.');
     }
     if (!$allowOutsideCanvas) { $this->assertWithin(CanvasValidation::MAX_EXTENT, CanvasValidation::MAX_EXTENT); }

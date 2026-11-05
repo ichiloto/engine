@@ -38,7 +38,7 @@ final readonly class CanvasImage
     }
     if ($rotation !== null && $rotation !== 0 && $sourceRect !== null
       && min(abs($destination->width * $sourceRect->height / $sourceRect->width - $destination->height),
-        abs($destination->height * $sourceRect->width / $sourceRect->height - $destination->width)) > 1.0) {
+        abs($destination->height * $sourceRect->width / $sourceRect->height - $destination->width)) > 1.0 + 1e-9) {
       throw new InvalidArgumentException('Rotated canvas images require a uniform source-to-destination scale.');
     }
   }
@@ -120,7 +120,7 @@ final readonly class CanvasImage
     int $canvasWidth, int $canvasHeight, int $layer, SpriteSourceRect $sourceRect,
     bool $flipX, bool $flipY, int $rotation, PresentationSpritePivot $pivot): ?self
   {
-    $bounds = self::measureRotation($destination, $rotation, $pivot);
+    $bounds = self::measureRotation($destination, $rotation, $pivot, $sourceRect);
     [$left, $top, $right, $bottom] = $bounds;
     $x = max(0.0, $left);
     $y = max(0.0, $top);
@@ -139,7 +139,7 @@ final readonly class CanvasImage
     if ($this->clipRect !== null || $this->pivot === null || $this->rotation === null) {
       return $this->clipRect ?? $this->destination;
     }
-    [$left, $top, $right, $bottom] = self::measureRotation($this->destination, $this->rotation, $this->pivot);
+    [$left, $top, $right, $bottom] = self::measureRotation($this->destination, $this->rotation, $this->pivot, $this->sourceRect);
     return new CanvasRectangle($left, $top, $right - $left, $bottom - $top);
   }
 
@@ -150,24 +150,47 @@ final readonly class CanvasImage
   }
 
   /** @return array{float, float, float, float} */
-  private static function measureRotation(CanvasRectangle $rect, int $rotation, PresentationSpritePivot $pivot): array
+  private static function measureRotation(CanvasRectangle $rect, int $rotation, PresentationSpritePivot $pivot,
+    ?SpriteSourceRect $crop): array
   {
+    if ($rotation === 0) { return [$rect->x, $rect->y, $rect->x + $rect->width, $rect->y + $rect->height]; }
     [$cos, $sin] = self::getRotationComponents($rotation);
-    $offsetX = (.5 - $pivot->x) * $rect->width;
-    $offsetY = (.5 - $pivot->y) * $rect->height;
-    $centerX = $rect->x + $rect->width * $pivot->x + $offsetX * $cos - $offsetY * $sin;
-    $centerY = $rect->y + $rect->height * $pivot->y + $offsetX * $sin + $offsetY * $cos;
-    $halfWidth = (abs($cos) * $rect->width + abs($sin) * $rect->height) / 2;
-    $halfHeight = (abs($sin) * $rect->width + abs($cos) * $rect->height) / 2;
-    return [$centerX - $halfWidth, $centerY - $halfHeight, $centerX + $halfWidth, $centerY + $halfHeight];
+    $pivotX = $rect->x + $rect->width * $pivot->x;
+    $pivotY = $rect->y + $rect->height * $pivot->y;
+    $width = $rect->width;
+    $height = $rect->height;
+    $paintWidth = abs($cos) * $width + abs($sin) * $height;
+    $paintHeight = abs($sin) * $width + abs($cos) * $height;
+    if ($crop !== null) {
+      // The renderer prepares whole crop pixels and scales from the longer crop side.
+      $scale = $crop->width >= $crop->height ? $width / $crop->width : $height / $crop->height;
+      [$pixelWidth, $pixelHeight] = self::getRotatedPixelSize($crop->width, $crop->height, $rotation);
+      $paintWidth = $pixelWidth * $scale;
+      $paintHeight = $pixelHeight * $scale;
+      $width = $crop->width * $scale;
+      $height = $crop->height * $scale;
+    }
+    $offsetX = (.5 - $pivot->x) * $width;
+    $offsetY = (.5 - $pivot->y) * $height;
+    $centerX = $pivotX + $offsetX * $cos - $offsetY * $sin;
+    $centerY = $pivotY + $offsetX * $sin + $offsetY * $cos;
+    return [$centerX - $paintWidth / 2, $centerY - $paintHeight / 2,
+      $centerX + $paintWidth / 2, $centerY + $paintHeight / 2];
   }
 
-  /** Prepared image memory uses source pixels, independent of display scale and pivot. */
-  public static function getRotatedPixelBytes(int $width, int $height, int $rotation): int
+  /** Prepared regions have a two-pixel guard around the rotated interior. */
+  public static function getRotatedRegionBytes(int $width, int $height, int $rotation): int
+  {
+    [$rotatedWidth, $rotatedHeight] = self::getRotatedPixelSize($width, $height, $rotation);
+    return ($rotatedWidth + 4) * ($rotatedHeight + 4) * 4;
+  }
+
+  /** @return array{int, int} */
+  private static function getRotatedPixelSize(int $width, int $height, int $rotation): array
   {
     [$cos, $sin] = self::getRotationComponents($rotation);
-    return (int)ceil($width * abs($cos) + $height * abs($sin))
-      * (int)ceil($width * abs($sin) + $height * abs($cos)) * 4;
+    return [max(1, (int)ceil($width * abs($cos) + $height * abs($sin) - 1e-9)),
+      max(1, (int)ceil($width * abs($sin) + $height * abs($cos) - 1e-9))];
   }
 
   /** @return array{float, float} */

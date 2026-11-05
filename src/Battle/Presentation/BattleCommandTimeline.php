@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Battle\Presentation;
 use Ichiloto\Engine\Animations\EffectScale;
 use Ichiloto\Engine\Animations\SourceEffectAnchor;
 use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
+use Ichiloto\Engine\Animations\Timelines\EffectFlightRoute;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
 use InvalidArgumentException;
@@ -182,14 +183,16 @@ final readonly class BattleCommandTimeline
             $command['payload']['detachFrame'] = $detach;
             $flight = $command['payload']['flight'] ?? null;
             if ($flight !== null) {
-              foreach ($flight as $field => $frame) {
-                $command['payload']['flight'][$field] = $cursor + $clock->getFrameBoundary($frame, self::FPS);
+              foreach (['arrivalFrame', 'holdFrame'] as $field) {
+                if (!isset($flight[$field])) { continue; }
+                $command['payload']['flight'][$field] = $cursor + $clock->getFrameBoundary($flight[$field], self::FPS);
               }
             }
             $trackId = $command['trackId'];
             $detachments[$trackId] ??= ['id' => 'capture-' . $trackId, 'type' => 'commandCapturePosePoint', 'frame' => $detach,
               'payload' => ['trackId' => $trackId, 'anchor' => $command['payload']['anchor'],
-                'attachmentPoint' => $command['payload']['attachmentPoint'], 'flight' => $flight !== null]];
+                'attachmentPoint' => $command['payload']['attachmentPoint'],
+                'route' => $flight === null ? null : ($flight['route'] ?? EffectFlightRoute::WAYPOINTS->value)]];
           }
           unset($command);
           $copy['startFrame'] = $cursor + $clock->getFrameBoundary($segment['startFrame'], self::FPS);

@@ -208,15 +208,23 @@ final class EffectTimelineValidator
         || $playback !== 'once')) {
         throw new InvalidArgumentException("Effect {$id} detachFrame requires a named pose point and a valid frame in a once-playing battle effect.");
       }
+      $flight = $track['flight'] ?? null;
       if (array_key_exists('flight', $track)) {
-        $flight = $track['flight'];
         if (($track['anchor'] ?? null) !== 'caster' || !isset($track['detachFrame'])
-          || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame']) !== []
+          || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame', 'route', 'tipX']) !== []
           || !is_int($flight['arrivalFrame'] ?? null) || $flight['arrivalFrame'] <= $track['detachFrame']
           || $flight['arrivalFrame'] >= $length
+          || (array_key_exists('route', $flight) && (!is_string($flight['route']) || EffectFlightRoute::tryFrom($flight['route']) === null))
           || (array_key_exists('holdFrame', $flight) && (!is_int($flight['holdFrame'])
             || $flight['holdFrame'] < $track['detachFrame'] || $flight['holdFrame'] > $flight['arrivalFrame']))) {
           throw new InvalidArgumentException("Effect {$id} flight requires a detached caster point, an arrival frame after release and an optional hold frame within flight.");
+        }
+      }
+      if (isset($flight) && array_key_exists('tipX', $flight)) {
+        $tip = $flight['tipX'];
+        if (($flight['route'] ?? null) !== EffectFlightRoute::STRAIGHT->value || !isset($track['facing'])
+          || (!is_int($tip) && !is_float($tip)) || !is_finite((float)$tip) || $tip < 0 || $tip > 1) {
+          throw new InvalidArgumentException("Effect {$id} flight tipX requires a directional straight flight and a normalized source point.");
         }
       }
       if (array_key_exists('pivot', $track)) {
