@@ -141,7 +141,7 @@ bytes is a failure. Key strings are protocol data, with no `KeyCode` or action m
 
 ## Project Text Queries
 
-Protocol 2 optionally negotiates `text_layout`, `canvas_labels`,
+Protocol 2 optionally negotiates `text_layout`, `text_block_layout`, `canvas_labels`,
 `canvas_label_instances`, `canvas_text_180`, `world_canvas` and `canvas_viewport_fit`.
 Their presence does not make them mandatory for existing
 sessions. The Engine's typed text query path requires advertised `text_layout`;
@@ -154,7 +154,10 @@ missing project face or unsupported capability.
 resolved whole label, locale, logical-pixel size, foreground, optional glyph
 effects and an ordered list of `FontReference` values. Font references are safe
 asset-root-relative paths with an explicit collection face, not image hashes
-or installed font names. Renderer owns decoding and shaping; the DTO does not
+or installed font names. With `text_block_layout`, a spec can supply an optional
+`wrapWidth` and `lineHeight` in logical pixels. The renderer shapes the block
+and wraps words, with cluster breaks for overlong words. Renderer owns
+decoding and shaping; the DTO does not
 open font files. A request returns immediately: `null` means the outbound line
 was not admitted under backpressure, so retry on a later update. A ticket's
 `getResult()` performs no I/O and returns `null` while pending, then an immutable

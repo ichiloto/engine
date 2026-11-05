@@ -351,6 +351,9 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
     if (!$this->textSessionActive || !$this->isRunning() || !$this->supports(RendererSessionConfig::TEXT_LAYOUT)) {
       throw new LogicException('Project text preparation requires an active renderer with text_layout support.');
     }
+    if (($spec->wrapWidth !== null || $spec->lineHeight !== null) && !$this->supports(RendererSessionConfig::TEXT_BLOCK_LAYOUT)) {
+      throw new LogicException('Wrapped or custom-height text requires negotiated text_block_layout support.');
+    }
     try { return $this->textRequests->requestPreparation($spec); }
     catch (RendererTransportException $error) {
       $this->failure = $error;

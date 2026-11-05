@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Rendering\Presentation\Text;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasGlyphEffects;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
 use InvalidArgumentException;
 
-/** Resolved whole-label intent; font decoding and shaping belong to Renderer. */
+/** Resolved label or text block intent; font decoding and shaping belong to Renderer. */
 final readonly class TextSpec
 {
   /** @var list<FontReference> */
@@ -23,6 +24,8 @@ final readonly class TextSpec
     public string $locale,
     public PresentationColor $foreground,
     public ?CanvasGlyphEffects $glyphEffects = null,
+    public ?float $wrapWidth = null,
+    public ?float $lineHeight = null,
   ) {
     if (!array_is_list($fonts) || count($fonts) < 1 || count($fonts) > 16) {
       throw new InvalidArgumentException('Text requires an ordered list of 1..16 project font references.');
@@ -38,6 +41,12 @@ final readonly class TextSpec
     if (!is_finite($fontSize) || $fontSize < 1 || $fontSize > 256) {
       throw new InvalidArgumentException('Text fontSize must be finite and in 1..256 logical pixels.');
     }
+    if ($wrapWidth !== null && (!is_finite($wrapWidth) || $wrapWidth < 1 || $wrapWidth > CanvasValidation::MAX_EXTENT)) {
+      throw new InvalidArgumentException('Text wrapWidth must be finite and in 1..16384 logical pixels.');
+    }
+    if ($lineHeight !== null && (!is_finite($lineHeight) || $lineHeight < $fontSize || $lineHeight > 512)) {
+      throw new InvalidArgumentException('Text lineHeight must be finite and between fontSize and 512 logical pixels.');
+    }
     if ($locale === '' || strlen($locale) > 128 || preg_match('//u', $locale) !== 1
       || preg_match('/\p{Cc}/u', $locale) === 1) {
       throw new InvalidArgumentException('Text locale must be nonempty UTF-8 without controls, at most 128 bytes.');
@@ -51,13 +60,16 @@ final readonly class TextSpec
 
   /**
    * @return array{text: string, fonts: list<array{asset: string, faceIndex: int}>, fontSize: float,
-   *   locale: string, foreground: array<string, int|string>, glyphEffects?: array<string, mixed>}
+   *   locale: string, foreground: array<string, int|string>, glyphEffects?: array<string, mixed>,
+   *   wrapWidth?: float, lineHeight?: float}
    */
   public function toArray(): array
   {
     return ['text' => $this->text,
       'fonts' => array_map(static fn(FontReference $font): array => $font->toArray(), $this->fonts),
       'fontSize' => $this->fontSize, 'locale' => $this->locale, 'foreground' => $this->foreground->toArray(),
-      ...($this->glyphEffects === null ? [] : ['glyphEffects' => $this->glyphEffects->toArray()])];
+      ...($this->glyphEffects === null ? [] : ['glyphEffects' => $this->glyphEffects->toArray()]),
+      ...($this->wrapWidth === null ? [] : ['wrapWidth' => $this->wrapWidth]),
+      ...($this->lineHeight === null ? [] : ['lineHeight' => $this->lineHeight])];
   }
 }

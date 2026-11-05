@@ -12,6 +12,7 @@ final readonly class RendererSessionConfig
   public const string SPRITE_QUARTER_TURNS = 'sprite_quarter_turns';
   public const string SPRITE_PIVOT = 'sprite_pivot';
   public const string TEXT_LAYOUT = 'text_layout';
+  public const string TEXT_BLOCK_LAYOUT = 'text_block_layout';
   public const string CANVAS_LABELS = 'canvas_labels';
   public const string CANVAS_LABEL_INSTANCES = 'canvas_label_instances';
   public const string CANVAS_TEXT_180 = 'canvas_text_180';
@@ -82,7 +83,7 @@ final readonly class RendererSessionConfig
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_REGION_BUDGET, self::CANVAS_CLIP_OPACITY,
         self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::CANVAS_COMPOSITE_BUDGET, self::CANVAS_IMAGE_ALPHA_FLIP, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::CAMERA_MOTION, self::TILE_COVERS, self::TILE_SHADOWS, self::WORLD_ROW_RUNS, self::WORLD_ROW_DIFFS,
         self::SPRITE_LIFT, self::SPRITE_BOB, self::SPRITE_FADE, self::SPRITE_THICKET, self::PINNED_SPRITE_MOTION, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
-        self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT,
+        self::TEXT_LAYOUT, self::TEXT_BLOCK_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT,
         ...array_values(array_intersect(self::EVENT_SUBSCRIPTIONS, $this->requiredCapabilities))]
       : $this->requiredCapabilities;
   }
@@ -105,7 +106,7 @@ final readonly class RendererSessionConfig
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_REGION_BUDGET, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
         self::CANVAS_COMPOSITING, self::CANVAS_COMPOSITE_BUDGET, self::CANVAS_IMAGE_ALPHA_FLIP, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::CAMERA_MOTION, self::TILE_COVERS, self::TILE_SHADOWS, self::WORLD_ROW_RUNS, self::WORLD_ROW_DIFFS,
         self::SPRITE_LIFT, self::SPRITE_BOB, self::SPRITE_FADE, self::SPRITE_THICKET, self::PINNED_SPRITE_MOTION, self::KEY_TRANSITIONS, self::MODIFIER_CONTROLS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
-        self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT]
+        self::TEXT_LAYOUT, self::TEXT_BLOCK_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT]
       : [self::SPRITE_SOURCE_RECT];
     foreach ($requiredCapabilities as $capability) {
       if (!in_array($capability, $allowed, true)) {
@@ -127,6 +128,10 @@ final readonly class RendererSessionConfig
       || in_array(self::CANVAS_IMAGE_TONE, $requiredCapabilities, true) || in_array(self::CANVAS_IMAGE_FLIP, $requiredCapabilities, true))
       && !in_array(self::GRAPHICAL_CANVAS, $requiredCapabilities, true)) {
       throw new InvalidArgumentException('Canvas compositing capabilities require graphical_canvas.');
+    }
+    if (in_array(self::TEXT_BLOCK_LAYOUT, $requiredCapabilities, true)
+      && !in_array(self::TEXT_LAYOUT, $requiredCapabilities, true)) {
+      throw new InvalidArgumentException('Text block layout requires text_layout.');
     }
     if (in_array(self::CANVAS_TEXT_180, $requiredCapabilities, true)
       && array_diff([self::GRAPHICAL_CANVAS, self::CANVAS_LABELS, self::TEXT_LAYOUT], $requiredCapabilities) !== []) {

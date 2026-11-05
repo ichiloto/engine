@@ -63,6 +63,16 @@ it('emits exactly the project text wire specification and preserves ordered fall
     ->toBe([...$plain->toArray(), 'glyphEffects' => $effects->toArray()]);
 });
 
+it('serializes optional text block dimensions and rejects invalid dimensions', function () {
+  $plain = makeTextModelSpec()->toArray();
+  expect(makeTextModelSpec(['wrapWidth' => 280.5, 'lineHeight' => 20.0])->toArray())
+    ->toBe([...$plain, 'wrapWidth' => 280.5, 'lineHeight' => 20.0]);
+  foreach ([['wrapWidth' => 0.0], ['wrapWidth' => 16385.0], ['wrapWidth' => INF],
+    ['lineHeight' => 12.0], ['lineHeight' => 513.0], ['lineHeight' => NAN]] as $invalid) {
+    expect(fn() => makeTextModelSpec($invalid))->toThrow(InvalidArgumentException::class);
+  }
+});
+
 it('detaches caller-owned font references without changing fallback order or forbidding repeated faces', function () {
   $first = new FontReference('synthetic/a.ttf');
   $fonts = [&$first, $first];
