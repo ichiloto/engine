@@ -769,9 +769,8 @@ final class TerminalText
   /**
    * Converts supported Symfony formatter tags to ANSI codes.
    *
-   * The formatter reads tags left to right, and its style stack carries over
-   * from one call to the next, so formatting a text in consecutive pieces cut
-   * between tags gives exactly what formatting it whole gives. For text that
+   * Keep the style stack across pieces of one string. Reset it at the string
+   * boundary so an unclosed tag cannot affect another string. For text that
    * is not ASCII the formatter finds each tag by measuring the whole text up
    * to it, so a long styled row (a world map row) costs its length for every
    * tag it holds; formatted piece by piece ({@see splitFormatterPieces()}),
@@ -786,9 +785,11 @@ final class TerminalText
       return $text;
     }
 
+    $formatter = self::getFormatter();
+    $stack = $formatter->getStyleStack();
+    $stack->reset();
     try {
       LatencyTrace::record('terminal.format');
-      $formatter = self::getFormatter();
       $formatted = '';
       foreach (self::splitFormatterPieces($text) as $piece) {
         $formatted .= $formatter->format($piece);
@@ -796,6 +797,8 @@ final class TerminalText
       return $formatted;
     } catch (Throwable) {
       return $text;
+    } finally {
+      $stack->reset();
     }
   }
 

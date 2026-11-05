@@ -237,13 +237,13 @@ it('emits the stabilized graphemes whose widths were used for fitting and wrappi
     ->and(TerminalText::wrapToWidth($text, 7))->toBe(["\u{1F5E1}\u{FE0F}", 'Fixture']);
 });
 
-it('formats styled text exactly as the shared formatter formats it whole, its carried style state included', function () {
+it('formats each styled string as the shared formatter would format it whole from a fresh stack', function () {
   $formatter = new ReflectionProperty(TerminalText::class, 'formatter');
   $previous = $formatter->getValue();
   $formatter->setValue(null, null);
   try {
     TerminalText::formatStyles('<info>x</info>');
-    // The expected output comes from the same formatter, taking each text whole in the same order.
+    // The expected output comes from the same formatter, taking each independent string whole.
     $whole = clone $formatter->getValue();
     $rows = [
       str_repeat('<fg=green>♣♣♣</><fg=bright-green>,,</><fg=blue>~</>', 40),
@@ -258,6 +258,7 @@ it('formats styled text exactly as the shared formatter formats it whole, its ca
       "\xFF<fg=blue>♣</>",
     ];
     foreach ($rows as $row) {
+      $whole->getStyleStack()->reset();
       try { $expected = $whole->format($row); } catch (Throwable) { $expected = $row; }
       expect(TerminalText::formatStyles($row))->toBe($expected, $row);
     }
@@ -306,4 +307,15 @@ it('wraps styled graphemes within both display-cell and optional graphical codep
   }
   expect(preg_replace('/\s+/u', '', TerminalText::stripAnsi(implode('', $lines))))
     ->toBe(preg_replace('/\s+/u', '', TerminalText::stripAnsi($source)));
+});
+
+
+it('isolates formatter styles between independently formatted strings', function () {
+  $following = 'plain <fg=blue>b</> after';
+  $before = TerminalText::visibleSymbols($following);
+
+  expect(TerminalText::stripAnsi(TerminalText::formatStyles("<fg=red>a\\</>")))->toBe('a</>')
+    ->and(TerminalText::visibleSymbols($following))->toBe($before)
+    ->and(TerminalText::visibleSymbols('<fg=red>a')[0])->not->toBe('a')
+    ->and(TerminalText::visibleSymbols('<fg=blue>b</> x')[2])->toBe('x');
 });

@@ -84,7 +84,7 @@ it('retains regular authored style spelling and grapheme bytes without sharing f
     TerminalText::formatStyles('<info>');
     $literal = TerminalText::composeSourceCell('\\', '<fg=red><options=bold>', '</></>');
     expect(TerminalText::stripAnsi($literal))->toBe('\\')
-      ->and(TerminalText::formatStyles('x</><comment>y</comment>'))->toContain("\e[32mx")
+      ->and(TerminalText::formatStyles('x</><comment>y</comment>'))->toStartWith('x')
       ->and(TerminalText::composeSourceCell("e\u{0301}", '<fg=#AbCdEf>', '</fg=#abcdef>'))
         ->toBe("<fg=#AbCdEf>e\u{0301}</fg=#abcdef>");
   } finally { $property->setValue(null, $previous); }
