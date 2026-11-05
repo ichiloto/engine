@@ -14,6 +14,8 @@ use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\States\State;
 use Ichiloto\Engine\Entities\States\StateDisposition;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 
 it('selects command poses from the action kind rather than its display name or wrapper', function () {
   expect(BattlePoseRole::getForAction(new AttackAction('Renamed strike')))->toBe(BattlePoseRole::ATTACK)
@@ -79,6 +81,25 @@ it('holds a non-looping pose final cell and permits a still image in the same ro
   expect($pose->getArtwork($root, 100)->sourceRect->x)->toBe(160);
   $still = new BattlerPose('graphical-canvas/synthetic-143x181.png');
   expect($still->getArtwork($root, 100)->sourceRect)->toBeNull();
+});
+
+it('projects named points with the selected cell, current size and both mirror axes', function () {
+  $asset = 'graphical-canvas/synthetic-320x180.png';
+  $point = ['cell' => 2, 'name' => 'release', 'point' => ['x' => .25, 'y' => .75]];
+  $pose = new BattlerPose($asset, columns: 2, rows: 2, frames: [0, 2], restFrame: 2,
+    attachmentPoints: [$point]);
+  $root = dirname(__DIR__) . '/Fixtures/Renderer';
+  $rest = $pose->getArtwork($root, 0, true);
+  $image = new CanvasImage('posed', $asset, new CanvasRectangle(120, 70, 240, 180),
+    sourceRect: $rest->sourceRect, flipX: true, flipY: true);
+  $actual = $pose->projectAttachmentPoints($image)['release'];
+  expect([$actual->x, $actual->y])->toBe([300.0, 115.0])
+    ->and($pose->projectAttachmentPoints(new CanvasImage('other', $asset, $image->destination,
+      sourceRect: $pose->getArtwork($root, 0)->sourceRect)))->toBe([]);
+  expect(fn() => new BattlerPose($asset, columns: 2, rows: 2, attachmentPoints: [$point, $point]))
+    ->toThrow(InvalidArgumentException::class);
+  expect(fn() => new BattlerPose($asset, attachmentPoints: [$point]))
+    ->toThrow(InvalidArgumentException::class);
 });
 
 it('samples looping pose frames at exact battle-playhead boundaries for every supported rate', function (int $fps) {

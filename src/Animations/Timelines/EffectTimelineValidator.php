@@ -142,7 +142,7 @@ final class EffectTimelineValidator
         continue;
       }
       if (!is_array($track) || array_diff(array_keys($track), ['id', 'type', 'asset', 'sheet', 'cells', 'fit', 'depth', 'keyframes',
-        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment', 'span'] : []),
+        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment', 'attachmentPoint', 'span'] : []),
         ...($acceptsStage ? ['placement', 'zIndex'] : []), ...($forStage ? ['anchor'] : [])]) !== []
         || ($track['type'] ?? null) !== 'image' || !is_string($track['id'] ?? null)) {
         throw new InvalidArgumentException("Effect {$id} currently accepts image tracks with id, asset, sheet, cells, depth and keyframes.");
@@ -190,6 +190,14 @@ final class EffectTimelineValidator
           throw new InvalidArgumentException("Effect {$id} attachment requires a battler image track, not a screen anchor.");
         }
       }
+      if (array_key_exists('attachmentPoint', $track)) {
+        if (!is_string($track['attachmentPoint'])
+          || !in_array($track['anchor'] ?? 'target', ['caster', 'target'], true)
+          || array_key_exists('attachment', $track)) {
+          throw new InvalidArgumentException("Effect {$id} attachmentPoint requires a named point on a caster or target image without another attachment.");
+        }
+        EffectTimelineLibrary::assertId($track['attachmentPoint']);
+      }
       if (array_key_exists('pivot', $track)) {
         $pivot = $track['pivot'];
         if (!is_array($pivot)) {
@@ -231,6 +239,7 @@ final class EffectTimelineValidator
             'cells' => $cells, 'depth' => $depth, ...(isset($track['fit']) ? ['fit' => $fit->value] : []),
             ...(!isset($track['anchor']) ? [] : ['anchor' => $track['anchor']]),
             ...(!isset($track['attachment']) ? [] : ['attachment' => $track['attachment']]),
+            ...(!isset($track['attachmentPoint']) ? [] : ['attachmentPoint' => $track['attachmentPoint']]),
             ...(!array_key_exists('span', $track) ? [] : ['span' => $track['span']]),
             ...(!isset($track['pivot']) ? [] : ['pivot' => $track['pivot']]),
             ...(!isset($track['facing']) ? [] : ['facing' => $track['facing']]),

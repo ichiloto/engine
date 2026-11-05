@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
+use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
+use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
@@ -13,10 +17,14 @@ use InvalidArgumentException;
 /** A still or animated battle pose. Sheet geometry is authoring intent, not cached PNG size. */
 final readonly class BattlerPose
 {
+  /** @var array<int, array<string, PresentationSpritePivot>> */
+  private array $pointsByCell;
+
   /**
    * @param non-empty-list<int> $frames Source cells in playback order.
    * @param list<int> $entryFrames One-shot source cells before the main movement.
    * @param list<int> $exitFrames One-shot source cells after the main movement.
+   * @param list<array{cell: int, name: string, point: array{x: int|float, y: int|float}}> $attachmentPoints
    */
   public function __construct(
     public string $asset,
@@ -37,6 +45,7 @@ final readonly class BattlerPose
     public ?BattlePoseReach $reach = null,
     public array $entryFrames = [],
     public array $exitFrames = [],
+    array $attachmentPoints = [],
   ) {
     SpriteValidation::validateAssetPath($asset);
     if ($impactFrame !== null && ($loop || $impactFrame < 0 || $impactFrame >= count($frames))) {
@@ -56,6 +65,34 @@ final readonly class BattlerPose
         throw new InvalidArgumentException("Battle pose {$name} requires a list of at most 10000 valid source cell numbers.");
       }
     }
+    if (!array_is_list($attachmentPoints) || count($attachmentPoints) > 4096) {
+      throw new InvalidArgumentException('Battle pose attachment points require a list of at most 4096 entries.');
+    }
+    $points = [];
+    foreach ($attachmentPoints as $point) {
+      if (!is_array($point) || array_diff(array_keys($point), ['cell', 'name', 'point']) !== []
+        || !is_int($point['cell'] ?? null) || $point['cell'] < 0 || $point['cell'] >= $columns * $rows
+        || !is_string($point['name'] ?? null) || !is_array($point['point'] ?? null)
+        || isset($points[$point['cell']][$point['name']])) {
+        throw new InvalidArgumentException('Battle pose attachment points require a valid cell, unique name per cell and normalized point.');
+      }
+      EffectTimelineLibrary::assertId($point['name']);
+      $points[$point['cell']][$point['name']] = PresentationSpritePivot::fromArray($point['point']);
+    }
+    $this->pointsByCell = $points;
+  }
+
+  /** @return array<string, Vector2> Named points from the selected cell in current canvas coordinates. */
+  public function projectAttachmentPoints(CanvasImage $image): array
+  {
+    if ($this->pointsByCell === []) { return []; }
+    $source = $image->sourceRect;
+    $cell = $source === null ? 0 : intdiv($source->y, $source->height) * $this->columns + intdiv($source->x, $source->width);
+    $bounds = $image->destination;
+    return array_map(static fn(PresentationSpritePivot $point): Vector2 => new Vector2(
+      $bounds->x + ($image->flipX ? 1 - $point->x : $point->x) * $bounds->width,
+      $bounds->y + ($image->flipY ? 1 - $point->y : $point->y) * $bounds->height,
+    ), $this->pointsByCell[$cell] ?? []);
   }
 
   /** @return list<int> Source cells on this sequence's independent clock. */

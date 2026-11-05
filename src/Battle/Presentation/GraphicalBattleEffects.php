@@ -27,10 +27,12 @@ final class GraphicalBattleEffects
    * @param array<int, CanvasImage> $battlerImages Current visible poses, including crop, motion and opacity.
    * @param array<int, Vector2>|null $groundAnchors Current posed ground points; rectangle-only hosts use bottom centres.
    * @param array<int, bool> $partySides Combatant identity => whether it stands with the party; opponent-facing tracks read it.
+   * @param array<int, array<string, Vector2>> $attachmentPoints Named points projected from each current pose cell.
    */
   public static function compose(BattleEffectPlayback $playback, BattleCanvasLayout $arena,
     array $bounds, string $assetRoot, bool $reducedMotion, array $battlerImages = [], bool $imageFlips = true,
-    bool $compositing = true, ?array $groundAnchors = null, array $partySides = [], bool $maskFlips = true): PresentationCanvas
+    bool $compositing = true, ?array $groundAnchors = null, array $partySides = [], bool $maskFlips = true,
+    array $attachmentPoints = []): PresentationCanvas
   {
     $groundAnchors ??= array_map(static fn(CanvasRectangle $box): Vector2 =>
       new Vector2($box->x + $box->width / 2, $box->y + $box->height), $bounds);
@@ -98,13 +100,20 @@ final class GraphicalBattleEffects
             if ($attachment === 'ground' && $ground === null) {
               throw new InvalidArgumentException('Battle effect ground attachment requires the subject ground point.');
             }
-            $x = $box === null ? ($anchor === 'legacy-screen' ? 2 * $arena->uiGrid->cellWidth : $arena->width / 2)
-              : ($attachment === 'ground' ? $ground->x : $box->x + $box->width / 2);
-            $y = $box === null ? ($anchor === 'legacy-screen' ? 2 * $arena->uiGrid->cellHeight : $arena->height / 2)
+            $point = null;
+            if (isset($data['attachmentPoint'])) {
+              $point = $subject === null ? null : ($attachmentPoints[spl_object_id($subject)][$data['attachmentPoint']] ?? null);
+              if ($point === null) {
+                throw new InvalidArgumentException('Current battle pose has no effect attachment point ' . $data['attachmentPoint'] . '.');
+              }
+            }
+            $x = $point?->x ?? ($box === null ? ($anchor === 'legacy-screen' ? 2 * $arena->uiGrid->cellWidth : $arena->width / 2)
+              : ($attachment === 'ground' ? $ground->x : $box->x + $box->width / 2));
+            $y = $point?->y ?? ($box === null ? ($anchor === 'legacy-screen' ? 2 * $arena->uiGrid->cellHeight : $arena->height / 2)
               : match ($attachment) {
                 'ground' => $ground->y,
                 'head' => $box->y, 'feet' => $box->y + $box->height, default => $box->y + $box->height / 2,
-              };
+              });
             // A binding's scale sizes images about their pivot and anchor; offsets scale with them so the
             // composition holds. Glyphs and text keep their cells.
             $scale = $segment['layer'] === 'image' ? (float)($data['scale'] ?? EffectScale::DEFAULT) : EffectScale::DEFAULT;

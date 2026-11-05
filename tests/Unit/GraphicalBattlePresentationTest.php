@@ -1,6 +1,10 @@
 <?php
 
 use Ichiloto\Engine\Battle\Actions\AttackAction;
+use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
+use Ichiloto\Engine\Battle\BattleTurnTimings;
+use Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback;
+use Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline;
 use Ichiloto\Engine\Battle\Presentation\BattleArenaDefinition;
 use Ichiloto\Engine\Battle\Presentation\BattleCanvasLayout;
 use Ichiloto\Engine\Battle\Presentation\BattleCanvasUiAdapter;
@@ -460,6 +464,52 @@ it('does not replace removed acting markers with text when battler artwork is un
   expect($labels)->toContain('Hero')->not->toContain('Acting')
     ->and(array_filter([...$canvas->images, ...$canvas->indicators],
       static fn($layer) => str_starts_with($layer->id, 'acting-')))->toBe([]);
+})->with([false, true]);
+
+it('draws an attached effect from the current pose cell and the reduced-motion rest cell', function (bool $reduced) {
+  ConfigStore::put(Ichiloto\Engine\Util\Config\ProjectConfig::class,
+    new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $asset = 'graphical-canvas/synthetic-320x180.png';
+  $points = [
+    ['cell' => 0, 'name' => 'charge', 'point' => ['x' => .2, 'y' => .35]],
+    ['cell' => 1, 'name' => 'charge', 'point' => ['x' => .7, 'y' => .6]],
+  ];
+  $pose = new BattlerPose($asset, columns: 2, frames: [0, 1], fps: 4, loop: false,
+    restFrame: 1, attachmentPoints: $points);
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $catalog->ui, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => new BattlePoseSet(['attack' => $pose])]);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $field = graphicalBattleScene($battle, $presentation)->ui->fieldWindow;
+  $effect = (new EffectTimelineLibrary($this->root))->compile('pose-charge',
+    ['fps' => 10, 'lengthFrames' => 6, 'restFrame' => 0, 'tracks' => [[
+      'id' => 'charge', 'type' => 'image', 'asset' => $asset, 'anchor' => 'caster',
+      'attachmentPoint' => 'charge', 'keyframes' => [['frame' => 0, 'duration' => 6]],
+    ]]], true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect);
+  $hits = 0;
+  $playback = new BattleCommandPlayback($plan, $hero, $enemies, BattlePoseRole::ATTACK,
+    function () use (&$hits): void { ++$hits; }, static fn() => null);
+  $field->setCommandPlayback($playback);
+  $playback->update($plan->phases['target']['start'] / 120);
+  $assertProjection = function () use ($presentation, $field, $hero, $points): int {
+    $frame = $presentation->frame($field);
+    $body = graphicalCombatantImage($frame, $hero);
+    $effect = array_find($frame->images, static fn($image) => str_contains($image->id, 'charge'));
+    expect($body)->not->toBeNull()->and($effect)->not->toBeNull();
+    $cell = intdiv($body->sourceRect->x, $body->sourceRect->width);
+    $point = $points[$cell]['point'];
+    expect($effect->destination->x + $effect->destination->width / 2)
+      ->toEqualWithDelta($body->destination->x + $body->destination->width * ($body->flipX ? 1 - $point['x'] : $point['x']), .000001)
+      ->and($effect->destination->y + $effect->destination->height / 2)
+      ->toEqualWithDelta($body->destination->y + $body->destination->height * ($body->flipY ? 1 - $point['y'] : $point['y']), .000001);
+    return $cell;
+  };
+  expect($assertProjection())->toBe($reduced ? 1 : 0);
+  $playback->update(.2);
+  expect($assertProjection())->toBe(1)->and($playback->presentationFailure)->toBeNull()->and($hits)->toBe(0);
+  $playback->update(10);
+  expect($hits)->toBe(1);
 })->with([false, true]);
 
 it('inherits one reference body scale across every pose and sheet frame for either side', function (bool $party, bool $reduced, ?float $displayWidth, float $partyDepth, bool $referenceScale) {

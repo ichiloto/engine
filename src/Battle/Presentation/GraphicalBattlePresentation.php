@@ -435,6 +435,7 @@ final class GraphicalBattlePresentation
       $commandTone = [];
     }
     $groundAnchors = [];
+    $attachmentPoints = [];
     $partySides = [];
     $protectedCombatants = [];
     foreach ($this->getDrawOrder($frontline, $enemies, $playback, $reducedMotion) as $identity => $participant) {
@@ -543,6 +544,9 @@ final class GraphicalBattlePresentation
           }, brightness: $image->brightness, flipX: $image->flipX, flipY: $image->flipY);
         $images[] = $combatantImages[$identity] = BattleEffectTone::applyToImage($drawn,
           ($commandTone[$identity] ?? 1.0) * ($conditionTone[$identity] ?? 1.0));
+        if ($shownPose !== null) {
+          $attachmentPoints[$identity] = $shownPose->projectAttachmentPoints($drawn);
+        }
         // Its contact follows its feet through steps, recoil and poses, and fades with it. Engine-drawn
         // contacts are composites; a ripple or burrow sheet is art and needs none.
         $profile = $participant['scale'];
@@ -628,7 +632,8 @@ final class GraphicalBattlePresentation
     $conditionAreas = [];
     foreach ($conditionPlaybacks as $condition) {
       $ambient = GraphicalBattleEffects::compose($condition, $this->layout, $bodies, $this->assetRoot,
-        $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors, $partySides, $maskFlips);
+        $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors, $partySides, $maskFlips,
+        $attachmentPoints);
       array_push($images, ...$ambient->images);
       array_push($text, ...$ambient->textLayers);
       array_push($composites, ...$ambient->composites);
@@ -636,7 +641,8 @@ final class GraphicalBattlePresentation
     }
     if ($playback !== null && $includeOptionalArtwork) {
       $effects = GraphicalBattleEffects::compose($playback, $this->layout, $bodies, $this->assetRoot,
-        $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors, $partySides, $maskFlips);
+        $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors, $partySides, $maskFlips,
+        $attachmentPoints);
       array_push($images, ...$effects->images);
       array_push($text, ...$effects->textLayers);
       array_push($composites, ...$effects->composites);

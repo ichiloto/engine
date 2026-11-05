@@ -57,7 +57,7 @@ final readonly class BattlerBindings
   private const array REFERENCE_KEYS = ['actor', 'height'];
   private const array BATTLER_KEYS = ['artwork', 'poses', 'scale', 'grounding', 'strikePoint'];
   private const array ARTWORK_KEYS = ['image', 'pivot'];
-  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan', 'bakedShadow', 'impactFrame', 'reach', 'entryFrames', 'exitFrames'];
+  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan', 'bakedShadow', 'impactFrame', 'reach', 'entryFrames', 'exitFrames', 'attachmentPoints'];
   private const array PIVOT_KEYS = ['x', 'y'];
   private const array PROFILE_KEYS = ['relativeSize', 'sourceSpan', 'horizontal'];
 
@@ -199,6 +199,10 @@ final readonly class BattlerBindings
       if (!is_array($frames) || !array_is_list($frames)) {
         throw new InvalidArgumentException("{$at}.frames: expected a list of cell numbers.");
       }
+      $points = array_key_exists('attachmentPoints', $pose) ? $pose['attachmentPoints'] : [];
+      if (!is_array($points)) {
+        throw new InvalidArgumentException("{$at}.attachmentPoints: expected a list of cell attachment points.");
+      }
       $poses[$role] = new BattlerPose(
         self::requireImage($pose, $at),
         self::readInteger($pose, 'columns', 1, $at),
@@ -215,6 +219,7 @@ final readonly class BattlerBindings
         array_key_exists('reach', $pose) ? BattlePoseReach::fromArray($pose['reach'], "{$at}.reach") : null,
         self::readSequenceFrames($pose, 'entryFrames', $at),
         self::readSequenceFrames($pose, 'exitFrames', $at),
+        $points,
       );
     }
     return new BattlePoseSet($poses);

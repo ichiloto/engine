@@ -568,6 +568,25 @@ on screen anchors; the image pivot remains usable there. Mirroring reflects
 the pivot too. Viewport boundaries crop source pixels at unchanged density
 instead of translating the image away from its attachment.
 
+For an effect that follows a particular point on a pose, add
+`attachmentPoints` to that battler pose. Each entry selects the source cell,
+names the point and sets normalized coordinates in the full cell:
+
+```php
+'attachmentPoints' => [
+  ['cell' => 0, 'name' => 'charge', 'point' => ['x' => .24, 'y' => .38]],
+  ['cell' => 1, 'name' => 'charge', 'point' => ['x' => .41, 'y' => .36]],
+],
+```
+
+Use `attachmentPoint => charge` on a battle image track with a caster or
+target anchor. Each frame projects the point from the current pose cell
+through its drawn placement, scale and mirror. A held or repeated source
+cell retains its point. Give any used reduced-motion rest cell its own
+point. A visible track whose current cell lacks the name reports a
+presentation error and omits that image. The effect's own pivot and
+offset still apply. Terminal uses the existing paired glyph or text lane.
+
 Battle image tracks can use `anchor => target-group` to draw one image for
 the command's exact selected recipients. Current visible bodies and stable
 projected ground anchors supply the geometry; equal names remain separate
