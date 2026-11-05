@@ -440,86 +440,14 @@ final class GraphicalBattlePresentation
     $protectedCombatants = [];
     foreach ($this->getDrawOrder($frontline, $enemies, $playback, $reducedMotion) as $identity => $participant) {
       $battler = $participant['battler'];
-      $image = $participant['image'];
       $index = array_search($battler, $participant['party'] ? $frontline : $enemies, true);
       if ($index === false) { continue; }
-      $size = PngAssetPreflight::getAvailableSize($this->assetRoot, $image->asset);
-      $participant['available'] = $size !== null;
-      $art = $size === null ? $participant['art'] : $participant['art']->clampedTo($size['width'], $size['height']);
-      $slot = $this->getSlot($battler);
-      $bounds = $this->placeBaseArtwork($slot, $participant['available'] ? $art : null,
-        $participant['poses'], $identity, $participant['scale']);
-      $artworkScale = $participant['available'] ? $bounds->width / $art->width / $slot->displayScale : null;
-      $role = $playback?->getPoseRole($battler, $participant['poses'], $reducedMotion) ?? BattlePoseRole::getRestingRole($battler);
-      $pose = $includeOptionalArtwork ? $participant['poses']?->getPose($role) : null;
-      $usesKnockoutPose = false;
-      $usesConcedePose = false;
-      $shownPose = null;
-      if ($includeOptionalArtwork && $pose === null && $role !== BattlePoseRole::IDLE) {
-        $diagnostic = $identity . ':' . $role->value . ':unregistered';
-        if (!isset($this->poseDiagnostics[$diagnostic])) {
-          $actorId = $battler instanceof Character ? $battler->actorId : $battler->name;
-          Debug::warn("No battle pose registered for {$actorId}: {$role->value}; retaining available resting artwork.");
-          $this->poseDiagnostics[$diagnostic] = true;
-        }
-      }
-      $candidates = $includeOptionalArtwork ? array_unique([$role->value,
-        BattlePoseRole::getRestingRole($battler)->value, BattlePoseRole::IDLE->value]) : [];
-      foreach ($candidates as $candidateRole) {
-        $pose = $participant['poses']?->getPose(BattlePoseRole::from($candidateRole));
-        if ($pose === null) { continue; }
-        try {
-          $posed = $pose->getArtwork($this->assetRoot,
-            $playback !== null && $candidateRole === $role->value && $role !== BattlePoseRole::IDLE
-              ? $playback->getPoseElapsedSeconds($battler, $role) : ($field?->getPoseElapsedSeconds() ?? 0), $reducedMotion,
-            impactAtSeconds: $playback !== null && $candidateRole === $role->value && $role === $playback->pose
-              ? $playback->getPoseImpactSeconds($battler) : null,
-            durationSeconds: $playback !== null && $candidateRole === $role->value
-              ? $playback->getPoseDurationSeconds($battler, $role) : null,
-            sequence: $playback !== null && $candidateRole === $role->value
-              ? $playback->getPoseSequence($battler, $role) : BattlePoseSequence::MAIN);
-          if ($posed === null) { throw new RuntimeException('Pose image is unavailable.'); }
-          $posedBounds = BattleFormationLayout::getPosePlacement($slot, $posed, $artworkScale,
-            $this->layout, $participant['scale'], $this->scale, $pose->scaleSpan, $participant['poses']);
-          $art = $posed;
-          $bounds = $posedBounds;
-          $participant['available'] = true;
-          $usesKnockoutPose = $candidateRole === BattlePoseRole::KNOCKOUT->value;
-          $usesConcedePose = $candidateRole === BattlePoseRole::CONCEDE->value;
-          $shownPose = $pose;
-          break;
-        } catch (\InvalidArgumentException|RuntimeException $error) {
-          $diagnostic = $identity . ':' . $candidateRole . ':' . $pose->asset;
-          if (!isset($this->poseDiagnostics[$diagnostic])) {
-            Debug::warn('Battle pose unavailable; retaining available resting artwork: ' . $diagnostic . ': ' . $error->getMessage());
-            $this->poseDiagnostics[$diagnostic] = true;
-          }
-        }
-      }
-      // The body rises or sinks by its elevation, hidden below the surface line; a knocked-out one lies on the ground.
-      $elevation = BattlerGroundContact::getElevation($participant['grounding'], $participant['habitat'], $this->layout,
-        $battler->isKnockedOut, $shownPose);
-      $contact = BattlerGroundContact::getContact($participant['grounding'], $participant['habitat'], $elevation, $shownPose);
-      [$bounds, $clip] = BattlerGroundContact::place($bounds, BattlerGroundContact::getOffset($elevation, $slot, $this->scale),
-        $slot->y, $this->layout);
-      $travel = !$reducedMotion && $playback?->actor === $battler ? $playback->plan->travel : null;
-      $mirror = $travel?->isPossible && $travel->facingSign !== BattleEffectDirection::getOpponentsSign($participant['party']);
-      if ($mirror) { $bounds = new CanvasRectangle(2 * $slot->x - $bounds->x - $bounds->width, $bounds->y, $bounds->width, $bounds->height); }
-      $offset = $travel !== null ? $playback->getTravelOffset() : new Vector2(0, 0);
-      $advance = $travel === null && !$reducedMotion && $playback?->actor === $battler ? $playback->getAdvanceFraction() : 0;
-      $recoil = ($playback?->getRecoilFraction($battler, $reducedMotion) ?? 0)
-        + ($playback?->getShakeFraction($battler, $reducedMotion) ?? 0);
-      $unmovedX = $bounds->x;
-      $unmovedY = $bounds->y;
-      $bounds = new CanvasRectangle(clamp($bounds->x + $offset->x + $slot->width * $recoil
-        + BattleEffectDirection::getOpponentsSign($participant['party']) * $slot->width * .25 * $advance,
-        0, max(0, $this->layout->width - $bounds->width)),
-        clamp($bounds->y + $offset->y, 0, max(0, $this->layout->height - $bounds->height)), $bounds->width, $bounds->height);
-      $groundAnchors[$identity] = new Vector2($slot->x + ($bounds->x - $unmovedX), $slot->y + ($bounds->y - $unmovedY));
+      ['image' => $image, 'available' => $participant['available'], 'slot' => $slot, 'ground' => $groundAnchors[$identity],
+        'pose' => $shownPose, 'usesKnockoutPose' => $usesKnockoutPose, 'usesConcedePose' => $usesConcedePose,
+        'elevation' => $elevation, 'contact' => $contact] = $this->projectBattler($identity, $participant, $playback,
+        $reducedMotion, $includeOptionalArtwork, $field?->getPoseElapsedSeconds() ?? 0);
       $partySides[$identity] = $participant['party'];
-      $image = new CanvasImage($image->id, $art->asset, $bounds, $image->layer, $art->sourceRect,
-        $image->opacity, $clip === null ? null : new CanvasRectangle($bounds->x, $clip->y + $offset->y, $bounds->width, $clip->height),
-        $image->brightness, $mirror ? !$image->flipX : $image->flipX, $image->flipY);
+      $bounds = $image->destination;
       // Overlays attach to the body as drawn this frame, following steps, recoil, shake and pose changes.
       $bodies[$identity] = $participant['available'] ? $this->locateBody($image, $identity) : $image->destination;
       $popups = array_filter($feedback, static fn(array $popup) => $popup['battler'] === $battler);
@@ -671,6 +599,127 @@ final class GraphicalBattlePresentation
       protectedAreas: [...$areas, ...($stageCanvas?->getOverlayProtection() ?? [])]);
     CanvasImagePreflight::inspect($canvas->images, $this->assetRoot, $canvas->composites);
     return $canvas;
+  }
+
+  /**
+   * @return array{image: CanvasImage, available: bool, slot: BattlerSlot, ground: Vector2,
+   *   pose: ?BattlerPose, usesKnockoutPose: bool, usesConcedePose: bool, elevation: float, contact: BattlerContact}
+   */
+  private function projectBattler(int $identity, array $participant, ?BattleCommandPlayback $playback,
+    bool $reducedMotion, bool $includeOptionalArtwork, float $idleSeconds): array
+  {
+    $battler = $participant['battler'];
+    $image = $participant['image'];
+    $size = PngAssetPreflight::getAvailableSize($this->assetRoot, $image->asset);
+    $available = $size !== null;
+    $art = $size === null ? $participant['art'] : $participant['art']->clampedTo($size['width'], $size['height']);
+    $slot = $this->getSlot($battler);
+    $bounds = $this->placeBaseArtwork($slot, $available ? $art : null,
+      $participant['poses'], $identity, $participant['scale']);
+    $artworkScale = $available ? $bounds->width / $art->width / $slot->displayScale : null;
+    $role = $playback?->getPoseRole($battler, $participant['poses'], $reducedMotion) ?? BattlePoseRole::getRestingRole($battler);
+    $pose = $includeOptionalArtwork ? $participant['poses']?->getPose($role) : null;
+    $usesKnockoutPose = false;
+    $usesConcedePose = false;
+    $shownPose = null;
+    if ($includeOptionalArtwork && $pose === null && $role !== BattlePoseRole::IDLE) {
+      $diagnostic = $identity . ':' . $role->value . ':unregistered';
+      if (!isset($this->poseDiagnostics[$diagnostic])) {
+        $actorId = $battler instanceof Character ? $battler->actorId : $battler->name;
+        Debug::warn("No battle pose registered for {$actorId}: {$role->value}; retaining available resting artwork.");
+        $this->poseDiagnostics[$diagnostic] = true;
+      }
+    }
+    $candidates = $includeOptionalArtwork ? array_unique([$role->value,
+      BattlePoseRole::getRestingRole($battler)->value, BattlePoseRole::IDLE->value]) : [];
+    foreach ($candidates as $candidateRole) {
+      $pose = $participant['poses']?->getPose(BattlePoseRole::from($candidateRole));
+      if ($pose === null) { continue; }
+      try {
+        $posed = $pose->getArtwork($this->assetRoot,
+          $playback !== null && $candidateRole === $role->value && $role !== BattlePoseRole::IDLE
+            ? $playback->getPoseElapsedSeconds($battler, $role) : $idleSeconds, $reducedMotion,
+          impactAtSeconds: $playback !== null && $candidateRole === $role->value && $role === $playback->pose
+            ? $playback->getPoseImpactSeconds($battler) : null,
+          durationSeconds: $playback !== null && $candidateRole === $role->value
+            ? $playback->getPoseDurationSeconds($battler, $role) : null,
+          sequence: $playback !== null && $candidateRole === $role->value
+            ? $playback->getPoseSequence($battler, $role) : BattlePoseSequence::MAIN);
+        if ($posed === null) { throw new RuntimeException('Pose image is unavailable.'); }
+        $posedBounds = BattleFormationLayout::getPosePlacement($slot, $posed, $artworkScale,
+          $this->layout, $participant['scale'], $this->scale, $pose->scaleSpan, $participant['poses']);
+        $art = $posed;
+        $bounds = $posedBounds;
+        $available = true;
+        $usesKnockoutPose = $candidateRole === BattlePoseRole::KNOCKOUT->value;
+        $usesConcedePose = $candidateRole === BattlePoseRole::CONCEDE->value;
+        $shownPose = $pose;
+        break;
+      } catch (\InvalidArgumentException|RuntimeException $error) {
+        $diagnostic = $identity . ':' . $candidateRole . ':' . $pose->asset;
+        if (!isset($this->poseDiagnostics[$diagnostic])) {
+          Debug::warn('Battle pose unavailable; retaining available resting artwork: ' . $diagnostic . ': ' . $error->getMessage());
+          $this->poseDiagnostics[$diagnostic] = true;
+        }
+      }
+    }
+    // The body rises or sinks by its elevation, hidden below the surface line; a knocked-out one lies on the ground.
+    $elevation = BattlerGroundContact::getElevation($participant['grounding'], $participant['habitat'], $this->layout,
+      $battler->isKnockedOut, $shownPose);
+    $contact = BattlerGroundContact::getContact($participant['grounding'], $participant['habitat'], $elevation, $shownPose);
+    [$bounds, $clip] = BattlerGroundContact::place($bounds, BattlerGroundContact::getOffset($elevation, $slot, $this->scale),
+      $slot->y, $this->layout);
+    $travel = !$reducedMotion && $playback?->actor === $battler ? $playback->plan->travel : null;
+    $mirror = $travel?->isPossible && $travel->facingSign !== BattleEffectDirection::getOpponentsSign($participant['party']);
+    if ($mirror) { $bounds = new CanvasRectangle(2 * $slot->x - $bounds->x - $bounds->width, $bounds->y, $bounds->width, $bounds->height); }
+    $offset = $travel !== null ? $playback->getTravelOffset() : new Vector2(0, 0);
+    $advance = $travel === null && !$reducedMotion && $playback?->actor === $battler ? $playback->getAdvanceFraction() : 0;
+    $recoil = ($playback?->getRecoilFraction($battler, $reducedMotion) ?? 0)
+      + ($playback?->getShakeFraction($battler, $reducedMotion) ?? 0);
+    $unmovedX = $bounds->x;
+    $unmovedY = $bounds->y;
+    $bounds = new CanvasRectangle(clamp($bounds->x + $offset->x + $slot->width * $recoil
+      + BattleEffectDirection::getOpponentsSign($participant['party']) * $slot->width * .25 * $advance,
+      0, max(0, $this->layout->width - $bounds->width)),
+      clamp($bounds->y + $offset->y, 0, max(0, $this->layout->height - $bounds->height)), $bounds->width, $bounds->height);
+    $ground = new Vector2($slot->x + ($bounds->x - $unmovedX), $slot->y + ($bounds->y - $unmovedY));
+    $image = new CanvasImage($image->id, $art->asset, $bounds, $image->layer, $art->sourceRect,
+      $image->opacity, $clip === null ? null : new CanvasRectangle($bounds->x, $clip->y + $offset->y, $bounds->width, $clip->height),
+      $image->brightness, $mirror ? !$image->flipX : $image->flipX, $image->flipY);
+    return ['image' => $image, 'available' => $available, 'slot' => $slot, 'ground' => $ground,
+      'pose' => $shownPose, 'usesKnockoutPose' => $usesKnockoutPose, 'usesConcedePose' => $usesConcedePose,
+      'elevation' => $elevation, 'contact' => $contact];
+  }
+
+  public function bindCommandPosePoints(BattleCommandPlayback $playback, bool $reducedMotion, float $idleSeconds): void
+  {
+    if (!array_any($playback->plan->timeline->cueSchedule, static fn(array $cue): bool =>
+      $cue['type'] === 'commandCapturePosePoint')) { return; }
+    $playback->bindPosePointCapture(function (BattleCommandPlayback $sample, string $anchor, string $name)
+      use ($reducedMotion, $idleSeconds): array {
+      $clock = $idleSeconds + $sample->session->currentFrame / BattleCommandTimeline::FPS;
+      $geometry = [];
+      foreach ([$sample->actor, ...$sample->targets] as $battler) {
+        $id = spl_object_id($battler);
+        if (isset($geometry[$id])) { continue; }
+        $participant = $this->participants[$id] ?? throw new RuntimeException('Detached effect subject is absent from the battlefield.');
+        $geometry[$id] = $this->projectBattler($id, $participant, $sample, $reducedMotion, true, $clock);
+      }
+      $casterX = $geometry[spl_object_id($sample->actor)]['ground']->x;
+      $firstOther = array_find($sample->targets, static fn($target): bool => $target !== $sample->actor);
+      $points = [];
+      foreach ($anchor === 'caster' ? [$sample->actor] : $sample->targets as $subject) {
+        $id = spl_object_id($subject);
+        $projected = $geometry[$id];
+        $point = $projected['pose']?->projectAttachmentPoints($projected['image'])[$name] ?? null;
+        if ($point === null) { throw new RuntimeException('Release pose has no effect attachment point ' . $name . '.'); }
+        $recipient = $anchor === 'caster' ? $firstOther : $subject;
+        $points[$id] = ['point' => $point, 'casterX' => $casterX,
+          'recipientX' => $recipient === null ? null : $geometry[spl_object_id($recipient)]['ground']->x,
+          'party' => $this->participants[$id]['party']];
+      }
+      return $points;
+    });
   }
 
   /**

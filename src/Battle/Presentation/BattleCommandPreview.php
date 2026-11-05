@@ -63,6 +63,7 @@ final class BattleCommandPreview
     if ($this->plan->travel !== null && !$this->plan->travel->isPossible) {
       $playback->recordPresentationFailure(new \RuntimeException('Battle run-to-target could not reach contact: ' . $this->plan->travel->failure->value));
     }
+    $this->graphical?->bindCommandPosePoints($playback, $reducedMotion, 0);
     $playback->begin();
     $seconds = $frame / BattleCommandTimeline::FPS;
     $playback->update($seconds);

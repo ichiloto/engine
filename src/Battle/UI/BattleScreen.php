@@ -352,6 +352,13 @@ class BattleScreen implements CanRender, CanUpdate
     return isset($this->battleScene) ? $this->battleScene->graphicalPresentation?->getPose($battler, $role) : null;
   }
 
+  public function bindCommandPosePoints(\Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback $playback): void
+  {
+    if (!$this->usesGraphicalField()) { return; }
+    $this->battleScene->graphicalPresentation?->bindCommandPosePoints($playback,
+      \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion(), $this->fieldWindow->getPoseElapsedSeconds());
+  }
+
   /** Resolve graphical travel once, before playback; Terminal has no graphical participant geometry. */
   public function planActionTravel(CharacterInterface $actor, array $targets, \Ichiloto\Engine\Battle\BattleAction $action): ?\Ichiloto\Engine\Battle\Presentation\BattleTravelPlan
   {

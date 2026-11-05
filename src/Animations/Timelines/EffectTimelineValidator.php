@@ -147,7 +147,7 @@ final class EffectTimelineValidator
         continue;
       }
       if (!is_array($track) || array_diff(array_keys($track), ['id', 'type', 'asset', 'sheet', 'cells', 'fit', 'depth', 'keyframes',
-        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment', 'attachmentPoint', 'span'] : []),
+        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment', 'attachmentPoint', 'detachFrame', 'span'] : []),
         ...($acceptsStage ? ['placement', 'zIndex'] : []), ...($forStage ? ['anchor'] : [])]) !== []
         || ($track['type'] ?? null) !== 'image' || !is_string($track['id'] ?? null)) {
         throw new InvalidArgumentException("Effect {$id} currently accepts image tracks with id, asset, sheet, cells, depth and keyframes.");
@@ -203,6 +203,11 @@ final class EffectTimelineValidator
         }
         EffectTimelineLibrary::assertId($track['attachmentPoint']);
       }
+      if (array_key_exists('detachFrame', $track) && (!isset($track['attachmentPoint'])
+        || !is_int($track['detachFrame']) || $track['detachFrame'] < 0 || $track['detachFrame'] >= $length
+        || $playback !== 'once')) {
+        throw new InvalidArgumentException("Effect {$id} detachFrame requires a named pose point and a valid frame in a once-playing battle effect.");
+      }
       if (array_key_exists('pivot', $track)) {
         $pivot = $track['pivot'];
         if (!is_array($pivot)) {
@@ -245,6 +250,7 @@ final class EffectTimelineValidator
             ...(!isset($track['anchor']) ? [] : ['anchor' => $track['anchor']]),
             ...(!isset($track['attachment']) ? [] : ['attachment' => $track['attachment']]),
             ...(!isset($track['attachmentPoint']) ? [] : ['attachmentPoint' => $track['attachmentPoint']]),
+            ...(!isset($track['detachFrame']) ? [] : ['detachFrame' => $track['detachFrame']]),
             ...(!array_key_exists('span', $track) ? [] : ['span' => $track['span']]),
             ...(!isset($track['pivot']) ? [] : ['pivot' => $track['pivot']]),
             ...(!isset($track['facing']) ? [] : ['facing' => $track['facing']]),

@@ -587,6 +587,14 @@ point. A visible track whose current cell lacks the name reports a
 presentation error and omits that image. The effect's own pivot and
 offset still apply. Terminal uses the existing paired glyph or text lane.
 
+An attached battle image track can set `detachFrame` to hold its projected
+anchor and facing from that authored frame onward. The command captures the
+point before resolving combat on the same tick, including when one update
+crosses both cues. Subsequent image cells, offsets and fades stay on the
+effect's own timeline. Preview and live playback use the same capture path.
+Reduced motion captures from the configured pose rest cell. Cancellation
+clears the captured placement with the rest of the command presentation.
+
 The target effect can declare `poseSyncFrame` to align the action pose's
 existing `impactFrame` playback entry to a particular frame of that effect.
 Use this when the key represents release and the effect hits later. The

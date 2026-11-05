@@ -512,6 +512,61 @@ it('draws an attached effect from the current pose cell and the reduced-motion r
   expect($hits)->toBe(1);
 })->with([false, true]);
 
+it('holds a detached effect at the exact release position across skipped draws and later poses', function (bool $reduced) {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $asset = 'graphical-canvas/synthetic-320x180.png';
+  $pose = new BattlerPose($asset, columns: 4, frames: [0, 1, 2], fps: 4, loop: false,
+    restFrame: 3, impactFrame: 1, attachmentPoints: [
+      ['cell' => 0, 'name' => 'release', 'point' => ['x' => .2, 'y' => .25]],
+      ['cell' => 1, 'name' => 'release', 'point' => ['x' => .7, 'y' => .5]],
+      ['cell' => 3, 'name' => 'release', 'point' => ['x' => .3, 'y' => .75]],
+    ]);
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $catalog->ui, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => new BattlePoseSet(['attack' => $pose])]);
+  $timeline = (new EffectTimelineLibrary($this->root))->compile('detach-glow', [
+    'fps' => 10, 'lengthFrames' => 10, 'restFrame' => 1, 'poseSyncFrame' => 1, 'tracks' => [[
+      'id' => 'trail', 'type' => 'image', 'asset' => $asset, 'anchor' => 'caster',
+      'attachmentPoint' => 'release', 'detachFrame' => 1, 'keyframes' => [['frame' => 0, 'duration' => 10]],
+    ]],
+    'cues' => [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 1]],
+  ], true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $timeline, actionPose: $pose);
+  $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $hero, $enemies,
+    BattlePoseRole::ATTACK, $catalog, $this->root);
+  $release = $plan->getCommandFrameForAuthoredFrame('target', 1);
+  $effectAt = static fn($frame) => array_find($frame->canvas->images, static fn($image) => str_contains($image->id, 'trail'));
+  $before = $preview->getFrameAtIndex($release - 1, $reduced);
+  $at = $preview->getFrameAtIndex($release, $reduced);
+  $after = $preview->getFrameAtIndex($release + 36, $reduced);
+  $releaseBody = graphicalCombatantImage($at->canvas, $hero);
+  $afterBody = graphicalCombatantImage($after->canvas, $hero);
+  expect($releaseBody->sourceRect->x)->toBe($reduced ? 240 : 80)
+    ->and($afterBody->sourceRect->x)->toBe($reduced ? 240 : 160)
+    ->and($effectAt($after)->destination->toArray())->toBe($effectAt($at)->destination->toArray())
+    ->and($effectAt($at)->destination->x + $effectAt($at)->destination->width / 2)
+    ->toEqualWithDelta($releaseBody->destination->x + $releaseBody->destination->width * ($reduced ? .3 : .7), .000001);
+  if (!$reduced) { expect($effectAt($before)->destination->x)->not->toBe($effectAt($at)->destination->x); }
+  expect($after->diagnostics)->toBe([]);
+
+  // A single tick crosses release and impact before the first draw.
+  $hits = 0;
+  $playback = new BattleCommandPlayback($plan, $hero, $enemies, BattlePoseRole::ATTACK,
+    static function () use ($hero, &$hits): void { $hero->stats->currentHp = 0; ++$hits; }, static fn() => null);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $presentation->bindCommandPosePoints($playback, $reduced, 0);
+  $field = graphicalBattleScene($battle, $presentation)->ui->fieldWindow;
+  $field->setCommandPlayback($playback);
+  $playback->begin();
+  $playback->update(($release + 36) / 120);
+  $canvas = $presentation->frame($field, reducedMotion: $reduced);
+  $drawn = array_find($canvas->images, static fn($image) => str_contains($image->id, 'trail'));
+  expect($hits)->toBe(1)->and($drawn->destination->toArray())->toBe($effectAt($at)->destination->toArray());
+  $playback->cancel();
+  $canvas = $presentation->frame($field, reducedMotion: $reduced);
+  expect(array_find($canvas->images, static fn($image) => str_contains($image->id, 'trail')))->toBeNull()
+    ->and($hits)->toBe(1);
+})->with([false, true]);
+
 it('inherits one reference body scale across every pose and sheet frame for either side', function (bool $party, bool $reduced, ?float $displayWidth, float $partyDepth, bool $referenceScale) {
   ConfigStore::put(Ichiloto\Engine\Util\Config\ProjectConfig::class,
     new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));

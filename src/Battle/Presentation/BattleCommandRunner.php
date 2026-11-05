@@ -106,6 +106,7 @@ final class BattleCommandRunner
       return;
     }
     if ($this->announcement === '') { $this->context->ui->hideMessage(); }
+    $this->context->ui->bindCommandPosePoints($this->playback);
     $this->context->ui->fieldWindow->setCommandPlayback($this->playback);
     $this->playback->begin();
   }

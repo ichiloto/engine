@@ -7,10 +7,14 @@ namespace Ichiloto\Engine\Battle\Presentation;
 use Closure;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackSession;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Throwable;
 
-/** Combat resolves once at impact; inspection and rendering are side-effect free. */
+/**
+ * Combat resolves once at impact; inspection and rendering are side-effect free.
+ * @phpstan-type DetachedPosePoint array{point: Vector2, casterX: float, recipientX: ?float, party: bool}
+ */
 final class BattleCommandPlayback implements BattleEffectPlayback
 {
   public readonly EffectPlaybackSession $session;
@@ -26,6 +30,10 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private ?int $impactFrame = null;
   private float $elapsedSeconds = 0;
   private bool $paused = false;
+  /** @var ?Closure(self, string, string): array<int, DetachedPosePoint> */
+  private ?Closure $capturePosePoints = null;
+  /** @var array<string, array<int, DetachedPosePoint>> */
+  private array $detachedPosePoints = [];
   /** @var array<int, array{battler: \Ichiloto\Engine\Entities\Enemies\Enemy, start: float, cleared: bool}> */
   private array $defeats = [];
 
@@ -71,7 +79,27 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   }
 
   /** Abandonment removes visuals, never executes a command that has not hit. */
-  public function cancel(): void { $this->cancelled = true; $this->defeats = []; }
+  public function cancel(): void
+  {
+    $this->cancelled = true;
+    $this->defeats = $this->detachedPosePoints = [];
+    $this->capturePosePoints = null;
+  }
+
+  /** @param Closure(self, string, string): array<int, DetachedPosePoint> $capture */
+  public function bindPosePointCapture(Closure $capture): void
+  {
+    $this->capturePosePoints = $capture;
+  }
+
+  /** @return ?DetachedPosePoint */
+  public function getDetachedPosePoint(string $trackId, CharacterInterface $subject): ?array
+  {
+    $point = $this->detachedPosePoints[$trackId][spl_object_id($subject)] ?? null;
+    if ($point === null) { return null; }
+    $point['point'] = clone $point['point'];
+    return $point;
+  }
   public function pause(): void { $this->paused = true; $this->session->pause(); }
   public function resume(): void { $this->paused = false; $this->session->resume(); }
 
@@ -253,6 +281,16 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     foreach ($cues as $cue) {
       if ($this->cancelled) { return; }
+      if ($cue['type'] === 'commandCapturePosePoint') {
+        if ($this->capturePosePoints !== null) {
+          try {
+            $payload = $cue['payload'];
+            $this->detachedPosePoints[$payload['trackId']] = ($this->capturePosePoints)(
+              $this->samplePoseAtFrame($cue['frame']), $payload['anchor'], $payload['attachmentPoint']);
+          } catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
+        }
+        continue;
+      }
       if ($cue['type'] === 'commandImpact') { $this->impactFrame = $cue['frame']; $this->resolveOnce(); continue; }
       if ($cue['type'] === 'commandPhase') { $this->phase = $cue['payload']['phase']; }
       try {
@@ -262,6 +300,20 @@ final class BattleCommandPlayback implements BattleEffectPlayback
         $this->presentationFailure ??= $failure;
       }
     }
+  }
+
+  /** Evaluate the exact visual clock without invoking a command or replaying its cues. */
+  private function samplePoseAtFrame(int $frame): self
+  {
+    $sample = new self($this->plan, $this->actor, $this->targets, $this->pose,
+      static function (): void {}, static function (): void {});
+    $sample->session->seek($frame);
+    foreach ($this->plan->phases as $phase => $range) {
+      if ($range['length'] > 0 && $range['start'] <= $frame) { $sample->phase = $phase; }
+    }
+    $sample->reactions = $this->reactions;
+    $sample->reactionFrames = $this->reactionFrames;
+    return $sample;
   }
 
   private function resolveOnce(): void

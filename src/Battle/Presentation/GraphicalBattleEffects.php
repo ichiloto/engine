@@ -82,14 +82,17 @@ final class GraphicalBattleEffects
           || ($segment['layer'] === 'flash' && ($data['scope'] ?? '') === 'screen')) { $subjects = [null]; }
         foreach ($subjects as $subject) {
           $box = $targetGroup?->bounds ?? ($subject === null ? null : ($bounds[spl_object_id($subject)] ?? null));
-          if ($subject !== null && $box === null) { continue; }
+          $isDetached = $playback instanceof BattleCommandPlayback && isset($data['detachFrame'])
+            && $playback->session->currentFrame >= $data['detachFrame'];
+          if ($subject !== null && $box === null && !$isDetached) { continue; }
+          $release = $subject === null || !$isDetached ? null : $playback->getDetachedPosePoint($command['trackId'], $subject);
           $recipient = $anchor === 'caster'
             ? array_find($playback->targets, static fn($target): bool => $target !== $playback->actor) : $subject;
-          $casterX = ($groundAnchors[spl_object_id($playback->actor)] ?? null)?->x;
-          $recipientX = $targetGroup?->getGroundOrigin()->x
-            ?? ($recipient === null ? null : ($groundAnchors[spl_object_id($recipient)] ?? null)?->x);
+          $casterX = $release['casterX'] ?? ($groundAnchors[spl_object_id($playback->actor)] ?? null)?->x;
+          $recipientX = $release !== null ? $release['recipientX'] : ($targetGroup?->getGroundOrigin()->x
+            ?? ($recipient === null ? null : ($groundAnchors[spl_object_id($recipient)] ?? null)?->x));
           $oriented = BattleEffectDirection::orientForSubject($command, $casterX, $recipientX,
-            $targetGroup?->partySide ?? ($subject === null ? null : ($partySides[spl_object_id($subject)] ?? null)));
+            $release['party'] ?? $targetGroup?->partySide ?? ($subject === null ? null : ($partySides[spl_object_id($subject)] ?? null)));
           $data = $oriented['payload'] ?? [];
           $id = 'command-effect-' . $oriented['trackId'] . '-' . ($targetGroup !== null ? 'target-group'
             : ($subject === null ? 'screen' : spl_object_id($subject)));
@@ -102,7 +105,9 @@ final class GraphicalBattleEffects
             }
             $point = null;
             if (isset($data['attachmentPoint'])) {
-              $point = $subject === null ? null : ($attachmentPoints[spl_object_id($subject)][$data['attachmentPoint']] ?? null);
+              $point = $subject === null ? null : ($isDetached
+                ? ($release['point'] ?? null)
+                : ($attachmentPoints[spl_object_id($subject)][$data['attachmentPoint']] ?? null));
               if ($point === null) {
                 throw new InvalidArgumentException('Current battle pose has no effect attachment point ' . $data['attachmentPoint'] . '.');
               }
