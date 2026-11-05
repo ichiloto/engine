@@ -36,10 +36,8 @@ final readonly class CanvasImage
     if (($rotation === null) !== ($pivot === null) || ($rotation !== null && ($rotation < 0 || $rotation > 359))) {
       throw new InvalidArgumentException('Canvas image rotation requires integer degrees in 0..359 and a normalized pivot.');
     }
-    if ($rotation !== null && $rotation !== 0 && $sourceRect !== null
-      && min(abs($destination->width * $sourceRect->height / $sourceRect->width - $destination->height),
-        abs($destination->height * $sourceRect->width / $sourceRect->height - $destination->width)) > 1.0 + 1e-9) {
-      throw new InvalidArgumentException('Rotated canvas images require a uniform source-to-destination scale.');
+    if ($rotation !== null && $rotation !== 0 && $sourceRect !== null) {
+      self::assertUniformScale($destination, $sourceRect);
     }
   }
 
@@ -134,6 +132,24 @@ final readonly class CanvasImage
       flipX: $flipX, flipY: $flipY, rotation: $rotation, pivot: $pivot);
   }
 
+  /** Unclipped placement of the prepared bitmap, including when the crop is the whole asset. */
+  public function getPreparedDestination(int $sourceWidth, int $sourceHeight): CanvasRectangle
+  {
+    if ($this->rotation === null || $this->rotation === 0 || $this->pivot === null) { return $this->destination; }
+    $crop = $this->sourceRect ?? new SpriteSourceRect(0, 0, $sourceWidth, $sourceHeight);
+    self::assertUniformScale($this->destination, $crop);
+    [$left, $top, $right, $bottom] = self::measureRotation($this->destination, $this->rotation, $this->pivot, $crop);
+    return new CanvasRectangle($left, $top, $right - $left, $bottom - $top, allowOutsideCanvas: true);
+  }
+
+  private static function assertUniformScale(CanvasRectangle $destination, SpriteSourceRect $crop): void
+  {
+    if (min(abs($destination->width * $crop->height / $crop->width - $destination->height),
+      abs($destination->height * $crop->width / $crop->height - $destination->width)) > 1.0 + 1e-9) {
+      throw new InvalidArgumentException('Rotated canvas images require a uniform source-to-destination scale.');
+    }
+  }
+
   public function getPaintBounds(): CanvasRectangle
   {
     if ($this->clipRect !== null || $this->pivot === null || $this->rotation === null) {
@@ -186,7 +202,7 @@ final readonly class CanvasImage
   }
 
   /** @return array{int, int} */
-  private static function getRotatedPixelSize(int $width, int $height, int $rotation): array
+  public static function getRotatedPixelSize(int $width, int $height, int $rotation): array
   {
     [$cos, $sin] = self::getRotationComponents($rotation);
     return [max(1, (int)ceil($width * abs($cos) + $height * abs($sin) - 1e-9)),
