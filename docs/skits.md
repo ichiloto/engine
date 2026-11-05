@@ -278,6 +278,15 @@ owner's page count inside the panel rather than as floating field text.
 Auto and Continue hints use semantic actions and current control labels. Log and
 Skip are not displayed before their playback behavior exists.
 
+Projects can set `dialogue-body` and `dialogue-speaker` roles in the existing
+`Data/Presentation/text.php` catalogue. Optional roles ending in `-compact`
+apply below 1,000 logical pixels. The graphical dialogue and skit surfaces
+prepare these roles through the session's text broker. A page keeps its layout
+while typing and releases it on page or owner change. The modal still chooses
+pages and controls timing and input. Projects and hosts without these roles
+and capabilities use the existing cell text. If the measured ink cannot fit
+the authored reading area, the screen retains cell text and reports the cause.
+
 Ordinary field dialogue uses negotiated protocol-2 `canvas_overlay` plus
 `graphical_canvas`, clipping and source rectangles. Its transparent root matches
 the hello grid's logical pixel surface and paints above field/HUD layers.

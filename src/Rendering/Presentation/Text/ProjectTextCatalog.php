@@ -49,8 +49,13 @@ final readonly class ProjectTextCatalog
 
   public function getRole(string $id): TextRole
   {
+    return $this->findRole($id) ?? throw new InvalidArgumentException("Unknown project text role '{$id}'.");
+  }
+
+  public function findRole(string $id): ?TextRole
+  {
     self::assertRoleId($id);
-    return $this->roles[$id] ?? throw new InvalidArgumentException("Unknown project text role '{$id}'.");
+    return $this->roles[$id] ?? null;
   }
 
   /** @return array{schema: string, roles: array<string, array>} */

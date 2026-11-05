@@ -211,7 +211,7 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
       $compositionStarted = LatencyTrace::getTimeNow();
       $composition = $this->frameComposer->composeFrame($scene, $this->grid, $this->supports(...),
         fn(array $excluded, array $worldLayers) => Console::getRetainedPresentationChanges($excluded, $this->resetText, $worldLayers),
-        $notifications, refreshOverlay: false);
+        $notifications, refreshOverlay: false, textPreparation: $this);
       LatencyTrace::end('presentation.compose', $compositionStarted);
       $this->resetText = $composition->snapshot === null;
       $prepareStarted = LatencyTrace::getTimeNow();

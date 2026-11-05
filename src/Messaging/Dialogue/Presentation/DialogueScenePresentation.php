@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Messaging\Dialogue\Presentation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInterface;
+use Ichiloto\Engine\Rendering\Text\TextPreparationProviderInterface;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\Interfaces\ModalPresentationProviderInterface;
@@ -26,7 +27,12 @@ final class DialogueScenePresentation
     private ?DialoguePresentationCatalog $catalogue = null;
     private array $diagnostics = [];
 
-    public function __construct(private readonly string $assetRoot) {}
+    private readonly DialogueTextPlayback $text;
+
+    public function __construct(private readonly string $assetRoot)
+    {
+        $this->text = new DialogueTextPlayback($assetRoot);
+    }
 
     /**
      * Whether the frame composer presents a scene's active UI owners (dialogue and modals) itself, over the
@@ -105,13 +111,16 @@ final class DialogueScenePresentation
         }
     }
 
-    public function compose(SceneInterface $scene, ?PresentationCanvas $base, int $width, int $height,
-        bool $supportsOverlay, bool $supportsCanvas = true, bool $supportsImageTone = true): ?DialogueSurface
+    public function compose(?SceneInterface $scene, ?PresentationCanvas $base, int $width, int $height,
+        bool $supportsOverlay, bool $supportsCanvas = true, bool $supportsImageTone = true,
+        bool $supportsMeasuredText = false, ?TextPreparationProviderInterface $textPreparation = null): ?DialogueSurface
     {
         $fallback = null;
         try {
             $context = $scene instanceof ScenePresentationContextProviderInterface ? $scene->getPresentationContext() : null;
-            $active = $context !== null ? $context->getActivePresentations() : $scene->getUI()->getActivePresentations();
+            $this->text->beginFrame($supportsMeasuredText && $supportsCanvas
+                ? ($context === null ? $textPreparation : $context->textPreparation) : null);
+            $active = $context !== null ? $context->getActivePresentations() : ($scene?->getUI()->getActivePresentations() ?? []);
             if ($active === []) { return null; }
             $embedded = $base?->presentationOwners ?? [];
             if (!self::composesSceneOwners($this->assetRoot)) {
@@ -163,7 +172,7 @@ final class DialogueScenePresentation
                     $this->report('Renderer lacks canvas_image_tone; skit speaker emphasis retains scale without dimming.');
                 }
                 $part = DialogueCanvasPresentation::compose($line, $catalogue,
-                    $base?->width ?? $width, $base?->height ?? $height, $supportsImageTone);
+                    $base?->width ?? $width, $base?->height ?? $height, $supportsImageTone, $this->text, $layerId);
                 if ($skit) {
                     $canvas = $part;
                     $overlay = false;
@@ -199,6 +208,8 @@ final class DialogueScenePresentation
         } catch (Throwable $error) {
             $this->report('Dialogue presentation degraded to terminal: ' . $error->getMessage(), $error);
             return $fallback;
+        } finally {
+            $this->text->endFrame();
         }
     }
 

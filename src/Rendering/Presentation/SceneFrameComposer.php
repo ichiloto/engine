@@ -19,6 +19,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteCollector;
+use Ichiloto\Engine\Rendering\Text\TextPreparationProviderInterface;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
@@ -48,15 +49,17 @@ final class SceneFrameComposer
    * Runtime refreshes Terminal overlays before cached handoffs; isolated previews refresh them here.
    */
   public function composeFrame(SceneInterface|FramePresentationSourceInterface|null $scene, RendererGridConfig $grid, Closure $supports,
-    Closure $collectText, ?NotificationManager $notifications = null, bool $refreshOverlay = true): SceneFrameComposition
+    Closure $collectText, ?NotificationManager $notifications = null, bool $refreshOverlay = true,
+    ?TextPreparationProviderInterface $textPreparation = null): SceneFrameComposition
   {
     return PresentationSession::runForSession($supports, fn() =>
       PngAssetPreflight::runWithSnapshot(fn() => $this->composeSnapshot($scene, $grid, $supports,
-        $collectText, $notifications, $refreshOverlay)));
+        $collectText, $notifications, $refreshOverlay, $textPreparation)));
   }
 
   private function composeSnapshot(SceneInterface|FramePresentationSourceInterface|null $scene, RendererGridConfig $grid, Closure $supports,
-    Closure $collectText, ?NotificationManager $notifications, bool $refreshOverlay): SceneFrameComposition
+    Closure $collectText, ?NotificationManager $notifications, bool $refreshOverlay,
+    ?TextPreparationProviderInterface $textPreparation): SceneFrameComposition
   {
     $overlaySupported = $supports(RendererSessionConfig::CANVAS_OVERLAY);
     if ($refreshOverlay && $scene instanceof CanvasOverlayProviderInterface && $overlaySupported) {
@@ -65,11 +68,13 @@ final class SceneFrameComposer
     $width = $grid->columns * $grid->cellWidth;
     $height = $grid->rows * $grid->cellHeight;
     $canvas = $scene instanceof CanvasProviderInterface ? $scene->getPresentationCanvas() : null;
-    $dialogue = $scene instanceof SceneInterface ? $this->dialogue->compose($scene, $canvas, $width, $height,
+    $dialogue = $this->dialogue->compose($scene instanceof SceneInterface ? $scene : null, $canvas, $width, $height,
       $overlaySupported && $supports(RendererSessionConfig::GRAPHICAL_CANVAS)
         && $supports(RendererSessionConfig::CANVAS_CLIP_OPACITY) && $supports(RendererSessionConfig::SPRITE_SOURCE_RECT),
       $supports(RendererSessionConfig::GRAPHICAL_CANVAS) && $supports(RendererSessionConfig::CANVAS_CLIP_OPACITY)
-        && $supports(RendererSessionConfig::SPRITE_SOURCE_RECT), $supports(RendererSessionConfig::CANVAS_IMAGE_TONE)) : null;
+        && $supports(RendererSessionConfig::SPRITE_SOURCE_RECT), $supports(RendererSessionConfig::CANVAS_IMAGE_TONE),
+      array_all([RendererSessionConfig::TEXT_LAYOUT, RendererSessionConfig::CANVAS_LABELS,
+        RendererSessionConfig::TEXT_BLOCK_LAYOUT, RendererSessionConfig::CANVAS_TEXT_REVEAL], $supports), $textPreparation);
     $canvas = $dialogue !== null ? $dialogue->canvas : $canvas;
     if ($canvas !== null && !($dialogue?->isOverlay ?? false)) {
       $sceneOverlay = $scene instanceof CanvasOverlayProviderInterface && $overlaySupported

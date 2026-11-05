@@ -26,7 +26,7 @@ final class DialogueCanvasPresentation
 {
     public static function compose(DialogueSnapshot $line, DialoguePresentationCatalog $catalogue,
         int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT,
-        bool $supportsImageTone = true): PresentationCanvas
+        bool $supportsImageTone = true, ?DialogueTextPlayback $textPlayback = null, string $ownerId = ''): PresentationCanvas
     {
         $theme = $catalogue->theme ?? throw new RuntimeException('Dialogue has no graphical theme.');
         $view = new MenuCanvas($theme, $width, $height);
@@ -55,13 +55,20 @@ final class DialogueCanvasPresentation
         $view->frame('dialogue-body', $box, 'dialogue');
         $view->protect($box);
         $x = $geometry->textX;
+        $labels = [];
         if ($nameLines !== []) {
             $plate = $geometry->nameplate;
             $nameWidth = $plate->width;
             $view->frame('dialogue-nameplate', $plate, 'nameplate', 21);
             $view->protect($plate);
-            $view->prose('dialogue-speaker', $line->speaker,
-                new CanvasRectangle($x + 16, $plate->y + 12, $nameWidth - 32, $nameHeight - 24), 'focus', HorizontalAlignment::CENTER);
+            $nameBounds = new CanvasRectangle($x + 16, $plate->y + 12, $nameWidth - 32, $nameHeight - 24);
+            $name = $textPlayback?->getLabel($ownerId, 'dialogue-speaker', $line->speaker, $nameBounds, $compact,
+                HorizontalAlignment::CENTER, 30);
+            if ($name === null) {
+                $view->prose('dialogue-speaker', $line->speaker, $nameBounds, 'focus', HorizontalAlignment::CENTER);
+            } else {
+                $labels[] = $name;
+            }
         }
         if ($portrait !== null) {
             $dock = $geometry->portrait;
@@ -72,8 +79,12 @@ final class DialogueCanvasPresentation
             array_push($images, ...MenuIconRegistry::containAsset($theme->assetRoot, 'dialogue-portrait', $portrait,
                 new CanvasRectangle($dock->x + 8, $dock->y + 8, $dock->width - 16, $dock->height - 16), 22, $dock));
         }
-        $prose = self::renderText($line, new CanvasRectangle($x, $top + $padding, $textWidth, $textHeight),
-            $m->cellWidth, $m->cellHeight, $theme->colors['text']);
+        $proseBounds = new CanvasRectangle($x, $top + $padding, $textWidth, $textHeight);
+        $body = $line->textAlignment === HorizontalAlignment::LEFT
+            ? $textPlayback?->getLabel($ownerId, 'dialogue-body', $line->page, $proseBounds, $compact,
+                HorizontalAlignment::LEFT, 30, $line->visibleText, $m->cellHeight)
+            : null;
+        if ($body !== null) { $labels[] = $body; }
         $footerY = $top + $bodyHeight - $padding - $m->rowHeight;
         if ($line->help !== '') {
             $view->prose('dialogue-authored-help', $line->help,
@@ -107,8 +118,11 @@ final class DialogueCanvasPresentation
         // An ordinary dialogue has no whole-scene fill; skits own a full scene surface.
         $text = $skit ? $canvas->textLayers : array_values(array_filter($canvas->textLayers,
             static fn($layer) => $layer->id !== 'menu-background' && !str_starts_with($layer->id, 'menu-background-part-')));
-        return new PresentationCanvas($width, $height, [...$images, ...$canvas->images], textLayers: [...$text, $prose],
-            protectedAreas: $canvas->getOverlayProtection());
+        if ($body === null) {
+            $text[] = self::renderText($line, $proseBounds, $m->cellWidth, $m->cellHeight, $theme->colors['text']);
+        }
+        return new PresentationCanvas($width, $height, [...$images, ...$canvas->images], textLayers: $text,
+            protectedAreas: $canvas->getOverlayProtection(), labels: $labels);
     }
 
     /** Wrap the completed page once, then reveal its prefix without moving partially typed words. */

@@ -655,7 +655,7 @@ it('reveals only the owner prefix after graphical whitespace normalization', fun
     'multibyte and spaces' => ["caf\u{00E9}\t\u{65E5}\u{672C}\u{8A9E}  \nNext "],
 ]);
 
-it('integrates active event-owned dialogue with the retained field and removes only its overlay on close', function (bool $graphical) {
+it('integrates active event-owned dialogue with the retained field and removes only its overlay on close', function (bool $graphical, bool $measured = false) {
     mkdir($this->root . '/Data/Presentation', 0777, true);
     file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
         'schema' => 'ichiloto.dialogue/1',
@@ -664,13 +664,22 @@ it('integrates active event-owned dialogue with the retained field and removes o
         'actors' => ['hero' => ['portrait' => 'hero.png', 'bust' => 'hero.png']],
         'speakers' => ['Display Hero' => 'hero'],
     ], true) . ';');
+    if ($measured) {
+        $role = ['fonts' => [['asset' => 'fixture.ttf']], 'fontSize' => 18,
+            'foreground' => ['kind' => 'rgb', 'r' => 32, 'g' => 70, 'b' => 40]];
+        file_put_contents($this->root . '/Data/Presentation/text.php', '<?php return ' . var_export([
+            'schema' => 'ichiloto.text/1', 'roles' => ['dialogue-body' => $role, 'dialogue-speaker' => $role],
+        ], true) . ';');
+    }
     $peer = new FakeRendererTransport();
     $peer->acknowledgeFrames = true;
     $capabilities = $graphical ? ['graphical_canvas', 'canvas_overlay', 'canvas_clip_opacity', 'sprite_source_rect'] : [];
+    if ($measured) { array_push($capabilities, 'canvas_labels', 'text_layout', 'text_block_layout', 'canvas_text_reveal'); }
     $peer->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $capabilities]))];
     $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['not-launched']), $this->root), $peer);
     $owner = $this->getStubBuilder(TextBoxModal::class)->disableOriginalConstructor()->onlyMethods(['getDialogueSnapshot'])->getStub();
-    $owner->method('getDialogueSnapshot')->willReturn(getDialogueTestLine(context: new DialogueContext('hero')));
+    $line = getDialogueTestLine(context: new DialogueContext('hero'), printing: $measured);
+    $owner->method('getDialogueSnapshot')->willReturnCallback(function () use (&$line) { return $line; });
     $active = [];
     $ui = $this->getStubBuilder(UIManager::class)->disableOriginalConstructor()->onlyMethods(['getActivePresentations'])->getStub();
     $ui->method('getActivePresentations')->willReturnCallback(function () use (&$active) { return $active; });
@@ -690,7 +699,41 @@ it('integrates active event-owned dialogue with the retained field and removes o
         $runtime->present($scene);
         $active = [$owner];
         $runtime->present($scene);
-        if ($graphical) {
+        if ($measured) {
+            $getRequests = static fn() => array_values(array_filter($peer->sent,
+                static fn($message) => $message->type->value === 'prepare_text'));
+            $requests = $getRequests();
+            expect($requests)->toHaveCount(2)->and($requests[1]->payload['spec']['text'])->toBe($line->page);
+            $peer->batches[] = array_map(static fn($message, int $i) => RendererEvent::fromJson(json_encode([
+                'protocol' => 2, 'type' => 'text_prepared', 'requestId' => $message->payload['requestId'],
+                'layoutId' => 'layout-' . $i, 'metrics' => [
+                    'advance' => 40, 'baseline' => 20,
+                    'lineBounds' => ['x' => 0, 'y' => 0, 'width' => 40, 'height' => 20],
+                    'inkBounds' => null, 'paintBounds' => ['x' => -2, 'y' => 0, 'width' => 42, 'height' => 22],
+                ],
+            ], JSON_THROW_ON_ERROR)), $requests, array_keys($requests));
+            $runtime->pump();
+            $runtime->present($scene);
+            $getBody = static function () use ($peer): ?array {
+                $messages = array_values(array_filter($peer->sent,
+                    static fn($message) => isset($message->payload['operations'])));
+                $operation = array_find(end($messages)->payload['operations'],
+                    static fn($op) => ($op['value']['layoutId'] ?? null) === 'layout-1');
+                return $operation['value'] ?? null;
+            };
+            $first = $getBody();
+            expect($first['visibleBytes'])->toBe(strlen($line->visibleText));
+            $line = getDialogueTestLine(context: new DialogueContext('hero'));
+            $runtime->present($scene);
+            $full = $getBody();
+            expect($full['origin'])->toBe($first['origin'])->and($full)->not->toHaveKey('visibleBytes')
+                ->and($getRequests())->toHaveCount(2);
+            $active = [];
+            $runtime->present($scene);
+            $releases = array_values(array_filter($peer->sent, static fn($message) => $message->type->value === 'release_text'));
+            expect(array_merge(...array_map(static fn($message) => $message->payload['layoutIds'], $releases)))
+                ->toEqualCanonicalizing(['layout-0', 'layout-1']);
+        } elseif ($graphical) {
             $root = array_find($peer->sent[1]->payload['operations'], fn($op) => ($op['kind'] ?? null) === 'canvas');
             expect($root['value']['mode'])->toBe('overlay');
             $frames = RetainedFrameState::replay($peer->sent);
@@ -703,7 +746,7 @@ it('integrates active event-owned dialogue with the retained field and removes o
             expect($peer->sent)->toHaveCount(1)->and(file_get_contents($this->root . '/warning.log'))->toContain('terminal presentation retained');
         }
     } finally { $runtime->shutdown(); }
-})->with([true, false]);
+})->with([[true], [false], [true, true]]);
 
 
 it('shares the actual body nameplate and portrait bounds with camera reservations for every dialogue position', function () {
