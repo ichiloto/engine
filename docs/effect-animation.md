@@ -812,6 +812,24 @@ pose may be stored for a future distinct delayed command; current summon
 playback never selects it by renaming Summon or inspecting an actor's name.
 No command, capability or unlock is granted by any pose binding.
 
+Use `actionPoses` in a battler's binding to associate a once-playing pose
+with the numeric ID of a battle animation. The Editor offers the animation
+and image from their project pickers. The association belongs to that
+battler, so the same animation can use different sheets for different
+battlers and other animations retain their normal role poses. The entry
+uses the existing pose fields and requires `loop => false` and an
+`impactFrame` playback entry.
+
+The command clock aligns that entry with the target effect's `poseSyncFrame`
+or the start of the target phase. Entry zero starts the pose at the anchor,
+including on the first restored battlefield frame after a source cut-in.
+An earlier pose sequence can use a positive impact entry. After the pose's
+last playback entry, the battler returns to its normal resting role while
+remaining effects finish. The same binding supplies release attachments,
+travel reach and the Editor battle preview. Reduced motion samples the pose
+rest cell within the same lifetime. Interruption and persistent battle
+reactions take precedence over the bound pose.
+
 Persistent pose priority is knockout, guard, afflicted, enhanced, then idle.
 All harmful states count, including poison that does not block actions, and
 negative stat stages count as affliction. Beneficial states and positive stat

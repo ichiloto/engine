@@ -55,7 +55,7 @@ final readonly class BattlerBindings
 
   private const array TOP_KEYS = ['reference', 'actors', 'enemies'];
   private const array REFERENCE_KEYS = ['actor', 'height'];
-  private const array BATTLER_KEYS = ['artwork', 'poses', 'scale', 'grounding', 'strikePoint'];
+  private const array BATTLER_KEYS = ['artwork', 'poses', 'actionPoses', 'scale', 'grounding', 'strikePoint'];
   private const array ARTWORK_KEYS = ['image', 'pivot'];
   private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan', 'bakedShadow', 'impactFrame', 'reach', 'entryFrames', 'exitFrames', 'attachmentPoints'];
   private const array PIVOT_KEYS = ['x', 'y'];
@@ -134,15 +134,15 @@ final readonly class BattlerBindings
         $id = self::requireIdentity($id, $where);
         $entry = self::requireMap($entry, $where);
         self::assertKeys($entry, self::BATTLER_KEYS, $where);
-        if (!isset($entry['artwork']) && !isset($entry['poses'])) {
+        if (!isset($entry['artwork']) && !isset($entry['poses']) && !isset($entry['actionPoses'])) {
           throw new InvalidArgumentException("{$where}: a battler needs artwork, poses or both.");
         }
         try {
           if (isset($entry['artwork'])) {
             $built[$side]['artwork'][$id] = self::buildArtwork($entry['artwork'], $assetRoot, "{$where}.artwork");
           }
-          if (isset($entry['poses'])) {
-            $built[$side]['poses'][$id] = self::buildPoseSet($entry['poses'], "{$where}.poses");
+          if (isset($entry['poses']) || isset($entry['actionPoses'])) {
+            $built[$side]['poses'][$id] = self::buildPoseSet($entry['poses'] ?? [], $entry['actionPoses'] ?? [], $where);
           }
           if (isset($entry['scale'])) {
             $built[$side]['scale'][$id] = self::buildProfile($entry['scale'], "{$where}.scale");
@@ -183,46 +183,55 @@ final readonly class BattlerBindings
     return BattlerArtwork::getFromPng($assetRoot, self::requireImage($data, $where), $pivotX, $pivotY);
   }
 
-  private static function buildPoseSet(mixed $data, string $where): BattlePoseSet
+  private static function buildPoseSet(mixed $data, mixed $actionData, string $where): BattlePoseSet
   {
     $poses = [];
-    foreach (self::requireMap($data, $where) as $role => $pose) {
-      $at = "{$where}.{$role}";
+    foreach (self::requireMap($data, "{$where}.poses") as $role => $pose) {
+      $at = "{$where}.poses.{$role}";
       if (!is_string($role) || BattlePoseRole::tryFrom($role) === null) {
         $roles = implode(', ', array_map(static fn(BattlePoseRole $known): string => $known->value, BattlePoseRole::cases()));
         throw new InvalidArgumentException("{$at}: a pose role is one of {$roles}.");
       }
-      $pose = self::requireMap($pose, $at);
-      self::assertKeys($pose, self::POSE_KEYS, $at);
-      [$pivotX, $pivotY] = self::readPivot($pose, $at);
-      $frames = $pose['frames'] ?? [0];
-      if (!is_array($frames) || !array_is_list($frames)) {
-        throw new InvalidArgumentException("{$at}.frames: expected a list of cell numbers.");
-      }
-      $points = array_key_exists('attachmentPoints', $pose) ? $pose['attachmentPoints'] : [];
-      if (!is_array($points)) {
-        throw new InvalidArgumentException("{$at}.attachmentPoints: expected a list of cell attachment points.");
-      }
-      $poses[$role] = new BattlerPose(
-        self::requireImage($pose, $at),
-        self::readInteger($pose, 'columns', 1, $at),
-        self::readInteger($pose, 'rows', 1, $at),
-        $frames,
-        self::readInteger($pose, 'fps', 8, $at),
-        self::readBoolean($pose, 'loop', true, $at),
-        self::readInteger($pose, 'restFrame', 0, $at),
-        $pivotX,
-        $pivotY,
-        array_key_exists('scaleSpan', $pose) ? self::requireNumber($pose['scaleSpan'], "{$at}.scaleSpan") : null,
-        array_key_exists('bakedShadow', $pose) ? self::readBoolean($pose, 'bakedShadow', false, $at) : null,
-        array_key_exists('impactFrame', $pose) ? self::readInteger($pose, 'impactFrame', 0, $at) : null,
-        array_key_exists('reach', $pose) ? BattlePoseReach::fromArray($pose['reach'], "{$at}.reach") : null,
-        self::readSequenceFrames($pose, 'entryFrames', $at),
-        self::readSequenceFrames($pose, 'exitFrames', $at),
-        $points,
-      );
+      $poses[$role] = self::buildPose($pose, $at);
     }
-    return new BattlePoseSet($poses);
+    $actionPoses = [];
+    foreach (self::requireMap($actionData, "{$where}.actionPoses") as $animationId => $pose) {
+      $actionPoses[$animationId] = self::buildPose($pose, "{$where}.actionPoses.{$animationId}");
+    }
+    return new BattlePoseSet($poses, actionPoses: $actionPoses);
+  }
+
+  private static function buildPose(mixed $data, string $at): BattlerPose
+  {
+    $pose = self::requireMap($data, $at);
+    self::assertKeys($pose, self::POSE_KEYS, $at);
+    [$pivotX, $pivotY] = self::readPivot($pose, $at);
+    $frames = $pose['frames'] ?? [0];
+    if (!is_array($frames) || !array_is_list($frames)) {
+      throw new InvalidArgumentException("{$at}.frames: expected a list of cell numbers.");
+    }
+    $points = array_key_exists('attachmentPoints', $pose) ? $pose['attachmentPoints'] : [];
+    if (!is_array($points)) {
+      throw new InvalidArgumentException("{$at}.attachmentPoints: expected a list of cell attachment points.");
+    }
+    return new BattlerPose(
+      self::requireImage($pose, $at),
+      self::readInteger($pose, 'columns', 1, $at),
+      self::readInteger($pose, 'rows', 1, $at),
+      $frames,
+      self::readInteger($pose, 'fps', 8, $at),
+      self::readBoolean($pose, 'loop', true, $at),
+      self::readInteger($pose, 'restFrame', 0, $at),
+      $pivotX,
+      $pivotY,
+      array_key_exists('scaleSpan', $pose) ? self::requireNumber($pose['scaleSpan'], "{$at}.scaleSpan") : null,
+      array_key_exists('bakedShadow', $pose) ? self::readBoolean($pose, 'bakedShadow', false, $at) : null,
+      array_key_exists('impactFrame', $pose) ? self::readInteger($pose, 'impactFrame', 0, $at) : null,
+      array_key_exists('reach', $pose) ? BattlePoseReach::fromArray($pose['reach'], "{$at}.reach") : null,
+      self::readSequenceFrames($pose, 'entryFrames', $at),
+      self::readSequenceFrames($pose, 'exitFrames', $at),
+      $points,
+    );
   }
 
   /** @return list<int> Cell validity and resource bounds are shared with code-owned poses. */

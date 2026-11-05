@@ -53,6 +53,7 @@ final class BattleCommandRunner
     float $targetScale = \Ichiloto\Engine\Animations\EffectScale::DEFAULT,
     \Ichiloto\Engine\Animations\SourceEffectAnchor $sourceEffectAnchor = \Ichiloto\Engine\Animations\SourceEffectAnchor::SOURCE,
     \Ichiloto\Engine\Animations\ActionMovement $movement = \Ichiloto\Engine\Animations\ActionMovement::STEP,
+    ?int $animationId = null,
   ) {
     $this->formatResult = Closure::fromCallable($formatResult);
     $this->presentCue = Closure::fromCallable($presentCue);
@@ -64,7 +65,7 @@ final class BattleCommandRunner
     $travelFailure = null;
     if (!$resultsOnly && !Accessibility::prefersReducedMotion() && $this->context->ui->usesGraphicalField()
       && $movement === \Ichiloto\Engine\Animations\ActionMovement::RUN_TO_TARGET && $action !== null) {
-      try { $travel = $this->context->ui->planActionTravel($actor, $targets, $action); }
+      try { $travel = $this->context->ui->planActionTravel($actor, $targets, $action, $animationId); }
       catch (\InvalidArgumentException|\RuntimeException $error) {
         $travelFailure = $error;
         $travel = new BattleTravelPlan([], 0, 0, 1, 600, 900, BattleTravelFailure::PRESENTATION_UNAVAILABLE);
@@ -81,7 +82,9 @@ final class BattleCommandRunner
       actionPose: $resultsOnly ? null : $this->context->ui->getActionPose($actor, $pose),
       movementPoses: $movementPoses, travel: $travel,
       movePose: $movementPoses ? $movePose : null, returnPose: $movementPoses ? $returnPose : null,
-      projectedRange: isset($target->defaults['rangeTiming']) ? $this->context->ui->measureActionRange($actor, $targets) : null),
+      projectedRange: isset($target->defaults['rangeTiming']) ? $this->context->ui->measureActionRange($actor, $targets) : null,
+      actionPoseOverride: $resultsOnly || $animationId === null || !$this->context->ui->usesGraphicalField()
+        ? null : $this->context->ui->getActionPose($actor, $pose, $animationId)),
       $actor, $targets, $pose,
       function () use ($resolve): void {
         if (($refusal = $this->getExecutionRefusal()) !== null) {

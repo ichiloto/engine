@@ -347,9 +347,11 @@ class BattleScreen implements CanRender, CanUpdate
     return isset($this->battleScene) && $this->battleScene->graphicalPresentation !== null;
   }
 
-  public function getActionPose(CharacterInterface $battler, BattlePoseRole $role): ?BattlerPose
+  public function getActionPose(CharacterInterface $battler, BattlePoseRole $role, ?int $animationId = null): ?BattlerPose
   {
-    return isset($this->battleScene) ? $this->battleScene->graphicalPresentation?->getPose($battler, $role) : null;
+    $presentation = isset($this->battleScene) ? $this->battleScene->graphicalPresentation : null;
+    return $animationId === null ? $presentation?->getPose($battler, $role)
+      : $presentation?->getAnimationPose($battler, $animationId);
   }
 
   public function bindCommandPosePoints(\Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback $playback): void
@@ -365,11 +367,12 @@ class BattleScreen implements CanRender, CanUpdate
   }
 
   /** Resolve graphical travel once, before playback; Terminal has no graphical participant geometry. */
-  public function planActionTravel(CharacterInterface $actor, array $targets, \Ichiloto\Engine\Battle\BattleAction $action): ?\Ichiloto\Engine\Battle\Presentation\BattleTravelPlan
+  public function planActionTravel(CharacterInterface $actor, array $targets, \Ichiloto\Engine\Battle\BattleAction $action, ?int $animationId = null): ?\Ichiloto\Engine\Battle\Presentation\BattleTravelPlan
   {
     return $this->battleScene->graphicalPresentation?->planActionTravel($actor, $targets, $action,
       $this->fieldWindow->getPoseElapsedSeconds(),
-      $this->battleScene->getGame()->getRendererRuntime()?->supports(\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_IMAGE_FLIP) ?? false);
+      $this->battleScene->getGame()->getRendererRuntime()?->supports(\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_IMAGE_FLIP) ?? false,
+      $animationId);
   }
 
   /** Only these owned windows may supply the temporary graphical UI. */

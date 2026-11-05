@@ -62,9 +62,14 @@ final readonly class BattleCommandTimeline
     public bool $resultsOnly = false, bool $showAnnouncement = true, float $targetScale = EffectScale::DEFAULT,
     public SourceEffectAnchor $sourceEffectAnchor = SourceEffectAnchor::SOURCE, ?BattlerPose $actionPose = null,
     public bool $movementPoses = false, public ?BattleTravelPlan $travel = null,
-    ?BattlerPose $movePose = null, ?BattlerPose $returnPose = null, ?float $projectedRange = null)
+    ?BattlerPose $movePose = null, ?BattlerPose $returnPose = null, ?float $projectedRange = null,
+    public ?BattlerPose $actionPoseOverride = null)
   {
     $targetScale = EffectScale::readValue($targetScale, 'Battle target effect scale');
+    if ($actionPoseOverride !== null && $actionPoseOverride->impactFrame === null) {
+      throw new InvalidArgumentException('A bound action pose requires an impact entry.');
+    }
+    $actionPose = $actionPoseOverride ?? $actionPose;
     if (isset($source->defaults['rangeTiming'])) {
       throw new InvalidArgumentException('Battle range timing belongs to the target effect lane.');
     }
@@ -171,6 +176,11 @@ final readonly class BattleCommandTimeline
         $poseAnchor = $cursor + ($syncFrame === null ? 0 : $targetTiming->getFrameBoundary($syncFrame, self::FPS));
         if ($actionPose?->impactFrame !== null) {
           $poseEnd = $poseAnchor + (int)ceil($actionPose->getRecoverySeconds() * self::FPS);
+          if ($this->rangeTiming !== null) {
+            $authoredEnd = ($poseEnd - $cursor) / self::FPS / $targetTiming->secondsPerFrame;
+            $poseEnd = $cursor + $targetTiming->getFrameBoundary(
+              $this->rangeTiming->getPresentationFrame($authoredEnd), self::FPS);
+          }
         }
       }
       // An authored walk home starts after anchored action recovery, preserving all impact/effect cues.

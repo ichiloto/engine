@@ -159,6 +159,10 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       };
       if ($movement !== null && $poses?->getPose($movement) !== null) { return $movement; }
     }
+    if ($battler === $this->actor && $this->plan->actionPoseOverride !== null
+      && !isset($this->reactions[spl_object_id($battler)])) {
+      return $this->isBoundActionPoseActive() ? $this->pose : $rest;
+    }
     if (($this->phase === 'return' || ($this->phase === 'finish'
       && $this->plan->actionPoseEndFrame !== null && $this->session->currentFrame < $this->plan->actionPoseEndFrame))
       && $battler === $this->actor
@@ -169,6 +173,23 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       return $this->reactions[spl_object_id($battler)] ?? ($battler === $this->actor ? $this->pose : $rest);
     }
     return $rest;
+  }
+
+  public function getBoundActionPose(CharacterInterface $battler, BattlePoseRole $role): ?BattlerPose
+  {
+    return $battler === $this->actor && $role === $this->pose && !isset($this->reactions[spl_object_id($battler)])
+      && $this->isBoundActionPoseActive() ? $this->plan->actionPoseOverride : null;
+  }
+
+  private function isBoundActionPoseActive(): bool
+  {
+    if ($this->plan->actionPoseOverride === null || $this->plan->actionPoseEndFrame === null
+      || $this->isCompleted || $this->phase === 'advance' || $this->phase === 'enter-advance'
+      || $this->phase === 'exit-advance' || $this->session->currentFrame >= $this->plan->actionPoseEndFrame) {
+      return false;
+    }
+    return $this->plan->actionPoseOverride->impactFrame !== 0
+      || $this->plan->getActionPoseClockFrame($this->session->currentFrame) >= $this->plan->actionPoseAnchorFrame;
   }
 
   /** Pose animation reads the action playhead, never wall time or redraw count. */

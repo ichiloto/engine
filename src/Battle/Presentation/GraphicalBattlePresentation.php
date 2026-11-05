@@ -115,9 +115,14 @@ final class GraphicalBattlePresentation
     return ($this->participants[spl_object_id($battler)]['poses'] ?? null)?->getPose($role);
   }
 
+  public function getAnimationPose(CharacterInterface $battler, ?int $animationId): ?BattlerPose
+  {
+    return ($this->participants[spl_object_id($battler)]['poses'] ?? null)?->getAnimationPose($animationId);
+  }
+
   /** Snapshots current drawn geometry once; the same planner serves runtime and Editor inspection. */
   public function planActionTravel(CharacterInterface $actor, array $targets, \Ichiloto\Engine\Battle\BattleAction $action,
-    float $poseElapsedSeconds = 0, bool $imageFlips = true): BattleTravelPlan
+    float $poseElapsedSeconds = 0, bool $imageFlips = true, ?int $animationId = null): BattleTravelPlan
   {
     \Ichiloto\Engine\Animations\ActionMovement::RUN_TO_TARGET->validateAction($action, $actor, $targets);
     $target = $targets[0];
@@ -146,7 +151,7 @@ final class GraphicalBattlePresentation
     $footing = BattleFormationClearance::getFooting($body);
     $unit = $this->scale === null || $source['scale'] === null ? $body->height
       : $this->scale->referenceHeight * $source['scale']->relativeSize * $this->getSlot($actor)->displayScale;
-    $pose = $source['poses']?->getPose(BattlePoseRole::getForAction($action));
+    $pose = $source['poses']?->getAnimationPose($animationId) ?? $source['poses']?->getPose(BattlePoseRole::getForAction($action));
     $reach = $pose?->reach?->getCanvasOffset($unit) ?? new Vector2(
       max(0, $sign < 0 ? $from['foot']->x - $body->x : $body->x + $body->width - $from['foot']->x), 0);
     // Movement cells fit the standing area; action-phase weapon overhang retains its existing presentation extent.
@@ -631,7 +636,8 @@ final class GraphicalBattlePresentation
       $participant['poses'], $identity, $participant['scale']);
     $artworkScale = $available ? $bounds->width / $art->width / $slot->displayScale : null;
     $role = $playback?->getPoseRole($battler, $participant['poses'], $reducedMotion) ?? BattlePoseRole::getRestingRole($battler);
-    $pose = $includeOptionalArtwork ? $participant['poses']?->getPose($role) : null;
+    $actionPose = $includeOptionalArtwork ? $playback?->getBoundActionPose($battler, $role) : null;
+    $pose = $includeOptionalArtwork ? ($actionPose ?? $participant['poses']?->getPose($role)) : null;
     $usesKnockoutPose = false;
     $usesConcedePose = false;
     $shownPose = null;
@@ -643,11 +649,15 @@ final class GraphicalBattlePresentation
         $this->poseDiagnostics[$diagnostic] = true;
       }
     }
-    $candidates = $includeOptionalArtwork ? array_unique([$role->value,
-      BattlePoseRole::getRestingRole($battler)->value, BattlePoseRole::IDLE->value]) : [];
-    foreach ($candidates as $candidateRole) {
-      $pose = $participant['poses']?->getPose(BattlePoseRole::from($candidateRole));
-      if ($pose === null) { continue; }
+    $candidates = [];
+    if ($actionPose !== null) { $candidates[] = [$role->value, $actionPose]; }
+    if ($includeOptionalArtwork) {
+      foreach (array_unique([$role->value, BattlePoseRole::getRestingRole($battler)->value, BattlePoseRole::IDLE->value]) as $candidateRole) {
+        $candidate = $participant['poses']?->getPose(BattlePoseRole::from($candidateRole));
+        if ($candidate !== null && $candidate !== $actionPose) { $candidates[] = [$candidateRole, $candidate]; }
+      }
+    }
+    foreach ($candidates as [$candidateRole, $pose]) {
       try {
         $posed = $pose->getArtwork($this->assetRoot,
           $playback !== null && $candidateRole === $role->value && $role !== BattlePoseRole::IDLE

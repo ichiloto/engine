@@ -2987,7 +2987,7 @@ it('places a newly occupied logical front position within the themed side and ar
 });
 
 
-it('hands off a source-stage cut-in directly to the battlefield effect on the next command tick', function (bool $reduced) {
+it('hands off a source-stage cut-in directly to the battlefield effect on the next command tick', function (bool $reduced, bool $cancel) {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $source = ['fps' => 10, 'lengthFrames' => 5, 'restFrame' => 1,
     'stage' => ['canvas' => ['width' => 320, 'height' => 180], 'startFrame' => 0, 'restoreFrame' => 5,
@@ -3000,11 +3000,19 @@ it('hands off a source-stage cut-in directly to the battlefield effect on the ne
   $target = $compiler->compile('target-flash', ['fps' => 10, 'lengthFrames' => 5, 'restFrame' => 0, 'tracks' => [[
     'id' => 'target-flash', 'type' => 'image', 'asset' => 'test-sprite.png', 'keyframes' => [['frame' => 0, 'duration' => 5]],
   ]]], forBattle: true);
+  $bound = \Ichiloto\Engine\Battle\Presentation\BattlerBindings::getFromArray(['actors' => ['Hero' => [
+    'actionPoses' => [123 => ['image' => 'test-sprite.png', 'columns' => 2, 'frames' => [0, 1],
+      'fps' => 10, 'restFrame' => 1, 'loop' => false, 'impactFrame' => 0]],
+  ]]], $this->root);
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $catalog->ui, defaultArena: $catalog->defaultArena, actorPoses: $bound->actorPoses);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $pose = $presentation->getAnimationPose($hero, 123);
+  expect($presentation->getAnimationPose($hero, 124))->toBeNull();
   $plan = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline(
-    new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, .5, .1, .1, .1, .1, .1), source: $compiled, target: $target);
+    new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, .5, .1, .1, .1, .1, .1), source: $compiled, target: $target, actionPoseOverride: $pose);
   $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $hero, [$enemies[0]],
     BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
-  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
   $field = graphicalBattleScene($battle, $presentation)->ui->fieldWindow;
   $field->setCommandPlayback($playback);
   $tick = $plan->phases['target']['start'];
@@ -3012,14 +3020,22 @@ it('hands off a source-stage cut-in directly to the battlefield effect on the ne
   $canvas = $presentation->frame($field, reducedMotion: $reduced);
   expect($plan->summon)->toBeNull()
     ->and(array_column($canvas->images, 'id'))->toContain('cinematic-stage-portrait')->not->toContain('arena')
+    ->and($playback->getBoundActionPose($hero, BattlePoseRole::ATTACK))->toBeNull()
     ->and($playback->presentationFailure)->toBeNull();
   $playback->update(1 / \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline::FPS);
-  expect(array_column($presentation->frame($field, reducedMotion: $reduced)->images, 'id'))
+  $restored = $presentation->frame($field, reducedMotion: $reduced);
+  expect(array_column($restored->images, 'id'))
     ->toContain('arena', 'command-effect-target-target-flash-' . spl_object_id($enemies[0]))
     ->not->toContain('cinematic-stage-portrait');
-  $playback->cancel();
-  expect(array_column($presentation->frame($field)->images, 'id'))->toContain('arena');
-})->with([false, true]);
+  expect(graphicalCombatantImage($restored, $hero)->asset)->toBe('test-sprite.png')
+    ->and(graphicalCombatantImage($restored, $hero)->sourceRect->x)->toBe($reduced ? 16 : 0);
+  if ($cancel) { $playback->cancel(); }
+  else { $playback->update(.2); }
+  $end = $presentation->frame($field, reducedMotion: $reduced);
+  expect(graphicalCombatantImage($end, $hero)->asset)->not->toBe('test-sprite.png')
+    ->and($playback->getBoundActionPose($hero, BattlePoseRole::ATTACK))->toBeNull()
+    ->and(array_column($end->images, 'id'))->toContain('arena');
+})->with([false, true])->with([false, true]);
 
 it('retains current image geometry and draw order while state tones appear and disappear', function (bool $reduced) {
   $root = createTestDirectory('state-tone-frame');
