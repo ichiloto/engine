@@ -82,6 +82,16 @@ final readonly class BattlerPose
     $this->pointsByCell = $points;
   }
 
+  /** @return list<string> Stable names the author can bind across this pose's cells. */
+  public function getAttachmentPointNames(): array
+  {
+    $names = [];
+    foreach ($this->pointsByCell as $points) {
+      foreach (array_keys($points) as $name) { $names[$name] = true; }
+    }
+    return array_map(strval(...), array_keys($names));
+  }
+
   /** @return array<string, Vector2> Named points from the selected cell in current canvas coordinates. */
   public function projectAttachmentPoints(CanvasImage $image): array
   {
