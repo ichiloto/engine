@@ -139,6 +139,29 @@ it('refuses ambiguous actor and non-actor artwork identities', function () {
         ->toThrow(InvalidArgumentException::class, 'must be distinct');
 });
 
+it('stages an active resource under compact skit controls with the title plate hidden', function (int $width, int $height) {
+    $base = getDialogueTestCatalog($this->root);
+    $catalogue = new DialoguePresentationCatalog($base->actors, $base->theme, ['Innkeeper' => 'innkeeper-art'],
+        SkitStageStyle::getFromArray(['showTitlePlate' => false, 'compactControls' => true]),
+        ['innkeeper-art' => ['emotions' => ['Happy' => ['bust' => 'happy.png']]]]);
+    $context = new DialogueContext(emotion: 'Happy', skitId: 'sample', skitTitle: 'A scene', location: 'Town', participants: [
+        ['actorId' => 'hero', 'name' => 'Hero', 'emotion' => 'Neutral'],
+        ['identity' => 'innkeeper-art', 'name' => 'Innkeeper', 'emotion' => 'Happy'],
+    ]);
+    InputManager::setBindings(['dialogue_auto' => ['keys' => [KeyCode::X]], 'confirm' => ['keys' => [KeyCode::F]]]);
+    $canvas = DialogueCanvasPresentation::compose(getDialogueTestLine('Innkeeper', $context), $catalogue, $width, $height);
+    $active = array_find($canvas->images, static fn($image) => $image->id === 'skit-bust-1');
+    $controls = array_filter($canvas->textLayers, static fn($layer) =>
+        str_starts_with($layer->id, 'skit-auto') || str_starts_with($layer->id, 'skit-advance'));
+    $labels = implode(' ', array_merge(...array_map(static fn($layer) => array_column($layer->runs, 'text'), $controls)));
+
+    expect($active->asset)->toBe('happy.png')->and($active->brightness)->toBe(1.0)
+        ->and(array_column($canvas->textLayers, 'id'))->not->toContain('skit-title', 'skit-location')
+        ->and(array_find($canvas->images, static fn($image) => str_starts_with($image->id, 'skit-title-frame')))->toBeNull()
+        ->and($labels)->toContain('Auto Off', 'X', 'F')
+        ->and($context->skitTitle)->toBe('A scene')->and($context->location)->toBe('Town');
+})->with([[1280, 720], [800, 480]]);
+
 it('preserves authored help and the modal page count inside its panel', function () {
     $line = new DialogueSnapshot('Display Hero', 'A page.', 'A page.', false, 1, 3, false,
         WindowPosition::BOTTOM, new DialogueContext(), 'An authored interaction hint.');

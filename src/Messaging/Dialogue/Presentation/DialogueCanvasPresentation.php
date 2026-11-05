@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Messaging\Dialogue\Presentation;
 
+use Ichiloto\Engine\IO\ActionHint;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
@@ -96,7 +97,16 @@ final class DialogueCanvasPresentation
             $view->renderBorderCaption('dialogue-page', ($line->pageIndex + 1) . ' / ' . $line->pageCount,
                 new CanvasRectangle($x, $top + $bodyHeight - 20, $textWidth, 16));
         }
-        if ($line->interactive) {
+        if ($line->interactive && $skit && $catalogue->skitStage->compactControls) {
+            $cell = [max(1, intdiv($m->cellWidth * 3, 4)), min($m->rowHeight, $compact ? 11 : 12)];
+            $half = ($textWidth - 24) / 2;
+            $view->hints('skit-auto', [
+                new ActionHint('dialogue_auto', $line->auto ? 'Auto On' : 'Auto Off', ActionHints::resolveControl('dialogue_auto')),
+            ], new CanvasRectangle($x, $footerY + ($m->rowHeight - $cell[1]) / 2, $half, $cell[1]),
+                required: true, cell: $cell);
+            $view->renderControl('skit-advance', ActionHints::resolveControl('confirm'),
+                new CanvasRectangle($x + $half, $footerY, $half, $m->rowHeight), HorizontalAlignment::RIGHT, $cell);
+        } elseif ($line->interactive) {
             $view->surface('dialogue-footer-rule', new CanvasRectangle($x, $footerY - 8, $textWidth, 1), 'edge', 20);
             $autoWidth = max(120, 9 * $m->cellWidth + 2 * $theme->rows->metrics->padding);
             $view->rows('dialogue-auto', [new MenuRow('auto', 'Auto ' . ($line->auto ? 'On' : 'Off'), kind: MenuRowKind::BUTTON,
@@ -110,10 +120,10 @@ final class DialogueCanvasPresentation
             $advanceLeft = $autoHint->x + $autoHint->width + 16;
             $view->renderControl('dialogue-advance', ActionHints::resolveControl('confirm'),
                 new CanvasRectangle($advanceLeft, $footerY, $x + $textWidth - 24 - $advanceLeft, $m->rowHeight), HorizontalAlignment::RIGHT);
-            if (!$line->isPrinting) {
-                $view->icon('dialogue-ready', 'navigation.continue', new CanvasRectangle($width - $margin - $padding - 18,
-                    $footerY + ($m->rowHeight - 18) / 2, 18, 18));
-            }
+        }
+        if ($line->interactive && !$line->isPrinting) {
+            $view->icon('dialogue-ready', 'navigation.continue', new CanvasRectangle($width - $margin - $padding - 18,
+                $footerY + ($m->rowHeight - 18) / 2, 18, 18));
         }
         $canvas = $view->finish();
         \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight::inspect([...$images, ...$canvas->images], $theme->assetRoot);

@@ -190,11 +190,18 @@ class SkitManager
     $duck = is_numeric($duck) ? (float) $duck : 1.0;
 
     $participants = [];
+    $spokenBeats = [];
     foreach ((array) $skit['beats'] as $beat) {
       if (!is_array($beat)) { continue; }
       $speaker = SkitSpeaker::getFromBeat($beat, $actors);
-      if ($speaker->actorId !== null) {
-        $participants[$speaker->actorId] = ['actorId' => $speaker->actorId, 'name' => $speaker->name, 'emotion' => 'Neutral'];
+      $identity = $speaker->errors === [] ? $catalogue->resolveSpeakerId($speaker->actorId, $speaker->name) : null;
+      $spokenBeats[] = [$beat, $speaker, $identity];
+      if ($identity !== null) {
+        $participants[$identity] ??= [
+          ...($speaker->actorId === null ? ['identity' => $identity] : ['actorId' => $speaker->actorId]),
+          'name' => $speaker->name,
+          'emotion' => DialogueContext::DEFAULT_EMOTION,
+        ];
       }
     }
     $location = $this->gameScene->party->location;
@@ -202,12 +209,10 @@ class SkitManager
     $backdrop = $this->resolveBackdrop($skitId, $skit, $assets);
 
     $beats = [];
-    foreach ((array) $skit['beats'] as $beat) {
-      if (!is_array($beat)) { continue; }
-      $speaker = SkitSpeaker::getFromBeat($beat, $actors);
+    foreach ($spokenBeats as [$beat, $speaker, $identity]) {
       foreach ([...$speaker->notices, ...$speaker->errors] as $diagnostic) { Debug::warn("Skit $skitId: $diagnostic"); }
       $presentation = SkitBeatPresentation::getFromBeat($assets, $skitId, $beat, $catalogue, $speaker->actorId);
-      if ($speaker->actorId !== null) { $participants[$speaker->actorId]['emotion'] = $presentation->emotion; }
+      if ($identity !== null) { $participants[$identity]['emotion'] = $presentation->emotion; }
       $beats[] = [...$beat, 'text' => strval($beat['text'] ?? ''), 'speaker' => $speaker->name,
         'emotion' => $presentation->emotion, 'voicePath' => $presentation->voicePath,
         'presentation' => new DialogueContext($speaker->actorId, $presentation->emotion, $skitId,

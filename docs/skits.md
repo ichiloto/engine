@@ -305,6 +305,10 @@ brightness and contain-fit size. Inactive busts default to 92% of that size and
 60% RGB brightness, preserving their original alpha, shared baseline and slot
 centre. This is dimming, not translucency. Games may configure `skitStage`:
 `inactiveScale` is finite in 0.5..1; `inactiveBrightness` is finite in 0..1.
+Set `showTitlePlate` to `false` for an open graphical stage during dialogue.
+The title and location remain available in the skit context. Set `compactControls`
+to `true` for small Auto and Advance prompts using the current input bindings.
+Both style options leave Terminal presentation to its existing layout.
 The size difference provides a non-colour emphasis cue without extra labels.
 The shared baseline meets the dialogue panel, with one logical pixel of overlap
 behind its foreground border to avoid a raster seam. Active and inactive busts
@@ -405,16 +409,16 @@ Beats gain optional fields; everything existing remains valid:
   reveals, aliases and translations never break busts, voice folders or
   animation bindings. The editor offers an actor picker; actor identity is
   never typed.
-- `speaker` remains for speakers who are not actors (a narrator, a
-  shopkeeper, "???"): plain display text, no bust, no emotion. A beat names
-  either an actor or a speaker.
+- `speaker` holds display text for speakers such as a narrator or shopkeeper.
+  To stage a bust, bind the label to a stable dialogue artwork identity in
+  the catalogue's Speaker Names, as for ordinary dialogue. Unbound labels
+  remain text-only. A beat names either an actor or a speaker.
 - Existing beats that name an actor through `speaker` migrate to `actor`.
   During the migration window a `speaker` value equal to an actor id
   resolves to that actor with a validator notice; this fallback is
   temporary.
-- `emotion` names a portrait in the actor's dialogue set, resolved through
-  the dialogue presentation catalog by actor id; unknown or absent falls
-  back to Neutral. Invalid or unknown authored values log a note; omission
+- `emotion` names an expression in the speaker identity's dialogue set.
+  Invalid or unknown values log a note and use Neutral. Omission
   is a normal legacy default and does not warn.
 - `voice` names an audio asset under the game's voice tree; the engine
   uses `assets/Audio/Voice/Skits/<skit-id>/<name>.mp3` in Phase 0. The basename
@@ -620,8 +624,8 @@ complete.
   to grow from Tales-like toward fuller animation.
 - Beats identify speakers by stable actor id selected from the actor
   registry, the one source of truth; displayed names come from the actor.
-  Plain `speaker` text is only for speakers who are not actors, and carries
-  no bust. The editor never asks an author to type an actor's identity.
+  Non-actor `speaker` labels can stage busts through explicit catalogue aliases.
+  The editor never asks an author to type an actor's identity.
 - The Auto key is Space on the keyboard in dialogue, X (Xbox) or Square
   (PlayStation) on controllers; never a function key. X is the keyboard
   fallback wherever Space conflicts.

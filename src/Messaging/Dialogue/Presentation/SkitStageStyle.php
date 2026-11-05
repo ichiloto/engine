@@ -8,7 +8,8 @@ use InvalidArgumentException;
 
 final readonly class SkitStageStyle
 {
-    public function __construct(public float $inactiveScale = 0.92, public float $inactiveBrightness = 0.60)
+    public function __construct(public float $inactiveScale = 0.92, public float $inactiveBrightness = 0.60,
+        public bool $showTitlePlate = true, public bool $compactControls = false)
     {
         if (!is_finite($inactiveScale) || $inactiveScale < 0.5 || $inactiveScale > 1
             || !is_finite($inactiveBrightness) || $inactiveBrightness < 0 || $inactiveBrightness > 1) {
@@ -18,12 +19,16 @@ final readonly class SkitStageStyle
 
     public static function getFromArray(array $data): self
     {
-        if (array_diff(array_keys($data), ['inactiveScale', 'inactiveBrightness']) !== []) {
+        if (array_diff(array_keys($data), ['inactiveScale', 'inactiveBrightness', 'showTitlePlate', 'compactControls']) !== []) {
             throw new InvalidArgumentException('Unsupported skit stage style option.');
         }
-        foreach ($data as $value) {
-            if (!is_int($value) && !is_float($value)) {
-                throw new InvalidArgumentException('Skit stage style values must be numbers.');
+        foreach ($data as $key => $value) {
+            $valid = match ($key) {
+                'showTitlePlate', 'compactControls' => is_bool($value),
+                default => is_int($value) || is_float($value),
+            };
+            if (!$valid) {
+                throw new InvalidArgumentException("Invalid value for skit stage style option $key.");
             }
         }
         return new self(...$data);

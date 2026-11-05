@@ -91,6 +91,7 @@ final class VoiceTestScene extends GameScene
 final class VoiceTestSkits extends SkitManager
 {
   public array $shown = [];
+  public array $contexts = [];
   public bool $failPresentation = false;
   public function runSkit(array $skit): void
   {
@@ -104,6 +105,7 @@ final class VoiceTestSkits extends SkitManager
         DialoguePlayback $playback, float $charactersPerSecond): void
       {
         $this->owner->shown[] = [['text' => $text, 'speaker' => $speaker], $charactersPerSecond, $playback->auto];
+        $this->owner->contexts[] = $context;
         if ($this->owner->failPresentation) { throw new RuntimeException('interrupted'); }
         $playback->toggleAuto();
       }
@@ -304,6 +306,31 @@ it('accepts an empty dialogue catalogue placeholder and displays the registered 
   $warnings = array_values(array_filter(explode(PHP_EOL, (string) @file_get_contents($this->voiceTemp.'/warning.log'))));
   expect($skits->shown[0][0]['speaker'])->toBe('Current Name')
     ->and($warnings)->toHaveCount(1)->and($warnings[0])->toContain('Skit sample on map', 'shows no backdrop');
+});
+
+it('stages an aliased dialogue resource with its authored emotion without requiring a gameplay actor', function () {
+  $path = $this->voiceTemp.'/assets/Data/Presentation';
+  mkdir($path, 0777, true);
+  file_put_contents($path.'/dialogue.php', '<?php return ' . var_export([
+    'schema' => 'ichiloto.dialogue/1',
+    'resources' => ['innkeeper' => ['emotions' => ['Concerned' => ['bust' => 'concerned.png']]]],
+    'speakers' => ['Innkeeper' => 'innkeeper', 'Host' => 'innkeeper'],
+  ], true) . ';');
+  $skits = new VoiceTestSkits(new VoiceTestScene(new VoiceTestGame()));
+  $skits->runSkit(['speed'=>20, 'beats'=>[
+    ['speaker'=>'Innkeeper', 'text'=>'Hello.', 'emotion'=>'Concerned'],
+    ['speaker'=>'Narrator', 'text'=>'Later.'],
+    ['speaker'=>'Host', 'text'=>'Welcome back.'],
+  ]]);
+
+  expect($skits->shown[0][0]['speaker'])->toBe('Innkeeper')
+    ->and($skits->contexts[0]->actorId)->toBeNull()
+    ->and($skits->contexts[0]->emotion)->toBe('Concerned')
+    ->and($skits->contexts[0]->participants)->toBe([
+      ['identity'=>'innkeeper', 'name'=>'Innkeeper', 'emotion'=>'Concerned'],
+    ])
+    ->and($skits->contexts[1]->participants)->toBe($skits->contexts[0]->participants)
+    ->and($skits->contexts[2]->participants[0]['emotion'])->toBe('Neutral');
 });
 
 it('keeps legacy skits and missing optional presentation playable and marks them seen', function () {

@@ -13,7 +13,7 @@ final readonly class DialogueContext
     public const array TEXT_FIELDS = ['emotion'];
 
     /**
-     * @param list<array{actorId: string, name: string, emotion: string}> $participants
+     * @param list<array{actorId?: string, identity?: string, name: string, emotion: string}> $participants
      * @param string|null $backdrop The skit's resolved backdrop, an asset-root-relative PNG
      *     ({@see \Ichiloto\Engine\Field\SkitBackdrop}); null where it has none.
      */
