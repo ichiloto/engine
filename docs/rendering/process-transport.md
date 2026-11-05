@@ -175,6 +175,12 @@ Metrics include advance, baseline, line bounds, nullable ink bounds and effect-e
 paint bounds. Signed finite bearings are not canvas-placement rectangles;
 nonnegative extents are bounded at 16,384 logical pixels.
 
+A canvas label can reveal a prepared layout through the negotiated
+`canvas_text_reveal` capability. Supply a source UTF-8 byte count as
+`visibleBytes`. The renderer keeps the measured positions and paints only
+complete shaped clusters within that prefix. The label can change its prefix
+without a new preparation request.
+
 At most 64 tickets/cleanup slots may be outstanding. Release unused pending or
 prepared tickets. Cancelling pending work keeps its slot until the reply arrives
 and safely releases any late result. Shared cached handles remain live until
