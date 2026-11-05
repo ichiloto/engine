@@ -30,9 +30,11 @@ beforeEach(function () {
 
 afterEach(function () { unlink($this->root . '/effect.png'); rmdir($this->root); });
 
-it('retains exact selected identities and their separate ground depths, excluding unrelated bodies', function () {
+it('retains exact selected identities and their separate bodies and ground depths, excluding unrelated bodies', function () {
   $group = BattleEffectTargetGroup::collectTargets([$this->one, $this->two, $this->one], $this->bounds, $this->grounds);
-  expect(array_keys($group->grounds))->toBe([spl_object_id($this->one), spl_object_id($this->two)])
+  $selected = [spl_object_id($this->one), spl_object_id($this->two)];
+  expect(array_keys($group->grounds))->toBe($selected)
+    ->and($group->memberBounds)->toBe(array_intersect_key($this->bounds, array_flip($selected)))
     ->and([$group->left, $group->right, $group->far, $group->near, $group->spanWidth])->toBe([200.0, 450.0, 400.0, 510.0, 330.0])
     ->and($group->getGroundOrigin())->toEqual(new Vector2(325, 510))
     ->and($group->bounds->toArray())->toBe(['x' => 160.0, 'y' => 300.0, 'width' => 330.0, 'height' => 210.0])

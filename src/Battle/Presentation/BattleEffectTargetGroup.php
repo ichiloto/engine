@@ -12,9 +12,13 @@ use RuntimeException;
 /** The selected recipients as drawn now, independent of damage and target selection. */
 final readonly class BattleEffectTargetGroup
 {
-  /** @param array<int, Vector2> $grounds Stable combatant instance identity to current ground point. */
+  /**
+   * @param array<int, Vector2> $grounds Selected combatant identity to captured ground point.
+   * @param array<int, CanvasRectangle> $memberBounds The same identities with their captured visible bounds.
+   */
   private function __construct(
     public array $grounds,
+    public array $memberBounds,
     public CanvasRectangle $bounds,
     public float $left,
     public float $right,
@@ -35,7 +39,7 @@ final readonly class BattleEffectTargetGroup
   public static function collectTargets(array $targets, array $bounds, array $grounds, array $partySides = []): ?self
   {
     if ($targets === []) { return null; }
-    $selected = [];
+    $selected = $memberBounds = [];
     $left = $top = $groundLeft = $far = INF;
     $right = $bottom = $groundRight = $near = -INF;
     $halfSpan = 0.0;
@@ -46,6 +50,7 @@ final readonly class BattleEffectTargetGroup
       $box = $bounds[$id] ?? throw new RuntimeException('Target-group effect requires every selected body or name anchor.');
       $point = $grounds[$id] ?? throw new RuntimeException('Target-group effect requires every selected ground point.');
       $selected[$id] = clone $point;
+      $memberBounds[$id] = $box;
       $left = min($left, $box->x); $top = min($top, $box->y);
       $right = max($right, $box->x + $box->width); $bottom = max($bottom, $box->y + $box->height);
       $groundLeft = min($groundLeft, $point->x); $groundRight = max($groundRight, $point->x);
@@ -57,7 +62,7 @@ final readonly class BattleEffectTargetGroup
     }
     $side = $sides[0];
     if (array_any($sides, static fn(?bool $candidate): bool => $candidate !== $side)) { $side = null; }
-    return new self($selected, new CanvasRectangle($left, $top, $right - $left, $bottom - $top),
+    return new self($selected, $memberBounds, new CanvasRectangle($left, $top, $right - $left, $bottom - $top),
       $groundLeft, $groundRight, $far, $near, $groundRight - $groundLeft + 2 * $halfSpan, $side);
   }
 

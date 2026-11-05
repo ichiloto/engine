@@ -3161,6 +3161,7 @@ it('projects one selected-group image with the authored anchor lifetime across a
   $playback->update($plan->phases['target']['start'] / 120);
   $canvas = $presentation->frame($field, reducedMotion: $reduced);
   $images = array_values(array_filter($canvas->images, static fn($image): bool => str_ends_with($image->id, 'target-group')));
+  $captured = $playback->getCapturedTargetGroup('target');
   $slots = array_map($presentation->getSlot(...), $enemies);
   $x = array_column($slots, 'x'); $y = array_column($slots, 'y');
   expect($images)->toHaveCount(1)
@@ -3172,9 +3173,11 @@ it('projects one selected-group image with the authored anchor lifetime across a
     static fn($image): bool => str_ends_with($image->id, 'target-group'));
   expect($after)->not->toBeNull();
   if ($fixed) {
-    expect($after->destination)->toEqual($images[0]->destination);
+    expect($after->destination)->toEqual($images[0]->destination)
+      ->and(array_keys($captured->memberBounds))->toBe(array_map(spl_object_id(...), $enemies))
+      ->and($playback->getCapturedTargetGroup('target')->memberBounds)->toBe($captured->memberBounds);
   } else {
-    expect($after->destination)->not->toEqual($images[0]->destination);
+    expect($after->destination)->not->toEqual($images[0]->destination)->and($captured)->toBeNull();
   }
   $playback->cancel();
   expect($hits)->toBe(1)
