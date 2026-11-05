@@ -35,7 +35,7 @@ final class EffectTimelineValidator
       $data = $variants[$presentation->value];
     }
     if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'loopFrom', 'restFrame', 'tracks', 'cues',
-      ...($forBattle ? ['effectTiming', 'cadence'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
+      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
       throw new InvalidArgumentException("Effect {$id} accepts fps, lengthFrames, playback, loopFrom, restFrame, tracks and presentation cues.");
     }
     $length = $data['lengthFrames'] ?? null;
@@ -53,6 +53,11 @@ final class EffectTimelineValidator
     if (!is_int($fps) || $fps < 1 || $fps > 120 || !is_int($length) || $length < 1 || $length > 100000
       || !is_int($rest) || $rest < 0 || $rest >= $length || !in_array($playback, ['once', 'loop'], true)) {
       throw new InvalidArgumentException("Effect {$id} needs fps 1..120, lengthFrames 1..100000, a restFrame in that range and once or loop playback.");
+    }
+    $poseSyncFrame = $data['poseSyncFrame'] ?? null;
+    if (array_key_exists('poseSyncFrame', $data)
+      && (!is_int($poseSyncFrame) || $poseSyncFrame < 0 || $poseSyncFrame >= $length || $playback !== 'once')) {
+      throw new InvalidArgumentException("Effect {$id} poseSyncFrame must identify a frame of a once-playing battle effect.");
     }
     // A loop may restart from a later frame, so the frames before it play
     // once as an opening, as a balloon pops open and then idles.
@@ -308,6 +313,7 @@ final class EffectTimelineValidator
       defaults: ['lengthFrames' => $length, 'restFrame' => $rest,
         ...($cadence === EffectCadence::FIXED ? [] : ['cadence' => $cadence->value]),
         ...($timing === null ? [] : ['effectTiming' => $timing]),
+        ...($poseSyncFrame === null ? [] : ['poseSyncFrame' => $poseSyncFrame]),
         'playback' => ['loop' => $playback === 'loop', 'loopFrom' => $loopFrom],
         ...($stage === null ? [] : ['stage' => $stage->data])]);
   }

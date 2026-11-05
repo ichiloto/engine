@@ -157,12 +157,12 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       ? $this->plan->phases['return']['length'] / BattleCommandTimeline::FPS : null;
   }
 
-  /** The same command boundary anchors an action pose and its target-timed caster effect. */
+  /** The action pose can synchronize to a release inside the target effect, before combat impact. */
   public function getPoseImpactSeconds(CharacterInterface $battler): ?float
   {
     if ($battler !== $this->actor || isset($this->reactionFrames[spl_object_id($battler)])
-      || !isset($this->plan->phases['target'], $this->plan->phases['announce'])) { return null; }
-    return max(0, ($this->plan->phases['target']['start'] - $this->plan->phases['announce']['start'])
+      || $this->plan->actionPoseAnchorFrame === null || !isset($this->plan->phases['announce'])) { return null; }
+    return max(0, ($this->plan->actionPoseAnchorFrame - $this->plan->phases['announce']['start'])
       / BattleCommandTimeline::FPS);
   }
 

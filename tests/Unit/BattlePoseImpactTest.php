@@ -2,6 +2,7 @@
 
 use Ichiloto\Engine\Animations\{Animation, SourceEffectAnchor};
 use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
+use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
 use Ichiloto\Engine\Battle\Presentation\{BattleCommandPlayback, BattleCommandTimeline, BattlerPose, BattlePoseRole, BattlePoseSet};
 use Ichiloto\Engine\Entities\{Character, Stats};
@@ -71,6 +72,48 @@ it('holds natural anticipation for long lead-ins and preserves recovery speed', 
     ->and($pose->getArtwork($root, .05, impactAtSeconds: .05)->sourceRect->x)->toBe(160)
     ->and($pose->getArtwork($root, 2, true, impactAtSeconds: 2)->sourceRect->x)->toBe(0);
 });
+
+it('synchronizes a ranged pose at release and resolves once at its separate impact', function (bool $reduced) {
+  $root = dirname(__DIR__) . '/Fixtures/Renderer';
+  $asset = 'graphical-canvas/synthetic-320x180.png';
+  $effect = (new EffectTimelineLibrary($root))->compile('projectile-timing', [
+    'fps' => 24, 'lengthFrames' => 36, 'poseSyncFrame' => 4,
+    'tracks' => [['id' => 'release', 'type' => 'image', 'asset' => $asset,
+      'keyframes' => [['frame' => 0, 'duration' => 36]]]],
+    'cues' => [['id' => 'impact', 'type' => 'applyEffect', 'frame' => 20]],
+  ], true);
+  $pose = new BattlerPose($asset, columns: 4, frames: [0, 0, 1, 2, 3], fps: 10,
+    loop: false, restFrame: 3, impactFrame: 2);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
+    target: $effect, actionPose: $pose);
+  $actor = new Character('Synthetic', 1, new Stats());
+  $hits = 0;
+  $playback = new BattleCommandPlayback($plan, $actor, [], BattlePoseRole::ATTACK,
+    static function () use (&$hits): void { ++$hits; }, static fn() => null);
+  $release = $plan->getCommandFrameForAuthoredFrame('target', 4);
+  $impact = $plan->getCommandFrameForAuthoredFrame('target', 20);
+  expect($plan->actionPoseAnchorFrame)->toBe($release)
+    ->and($plan->actionPoseEndFrame)->toBe($release + 36)
+    ->and($release)->toBeLessThan($impact);
+  $sample = static fn(): int => $pose->getArtwork($root, $playback->getPoseElapsedSeconds($actor), $reduced,
+    impactAtSeconds: $playback->getPoseImpactSeconds($actor))->sourceRect->x;
+  $playback->update(($release - 1) / 120);
+  expect($sample())->toBe($reduced ? 240 : 0)->and($hits)->toBe(0);
+  $playback->update(1 / 120);
+  expect($sample())->toBe($reduced ? 240 : 80)->and($hits)->toBe(0);
+  $playback->update(($impact - $release) / 120);
+  expect($hits)->toBe(1);
+  $playback->update(10);
+  expect($hits)->toBe(1);
+})->with([false, true]);
+
+it('validates the authored pose synchronization on the effect clock', function (mixed $frame) {
+  $root = dirname(__DIR__) . '/Fixtures/Renderer';
+  $library = new EffectTimelineLibrary($root);
+  $data = ['fps' => 24, 'lengthFrames' => 12, 'poseSyncFrame' => $frame,
+    'tracks' => [['id' => 'sample', 'type' => 'glyph', 'keyframes' => [['frame' => 0, 'content' => '*']]]]];
+  expect(fn() => $library->compile('invalid-release', $data, true))->toThrow(InvalidArgumentException::class, 'poseSyncFrame');
+})->with([-1, 12, 4.2, null]);
 
 it('holds a rest frame before a zero-index strike and leaves unanchored poses unchanged', function () {
   $root = dirname(__DIR__) . '/Fixtures/Renderer';

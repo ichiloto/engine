@@ -587,6 +587,15 @@ point. A visible track whose current cell lacks the name reports a
 presentation error and omits that image. The effect's own pivot and
 offset still apply. Terminal uses the existing paired glyph or text lane.
 
+The target effect can declare `poseSyncFrame` to align the action pose's
+existing `impactFrame` playback entry to a particular frame of that effect.
+Use this when the key represents release and the effect hits later. The
+target effect's cadence maps both times onto the command clock. The existing
+`applyEffect` cue or `effectTiming` still owns combat resolution. Recovery
+starts at the synchronized pose entry and retains its authored duration.
+Omitting `poseSyncFrame` aligns the pose entry to the start of the target
+phase, as before. Reduced motion still uses the pose's rest cell.
+
 Battle image tracks can use `anchor => target-group` to draw one image for
 the command's exact selected recipients. Current visible bodies and stable
 projected ground anchors supply the geometry; equal names remain separate

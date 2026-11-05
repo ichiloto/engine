@@ -18,6 +18,8 @@ use Ichiloto\Engine\Cutscenes\Presentation\CinematicStageFrame;
 final readonly class BattleCommandTimeline
 {
   public const int FPS = 120;
+  /** Command-clock frame for the action pose's authored synchronization entry. */
+  public ?int $actionPoseAnchorFrame;
   /** Exclusive completion boundary for the selected impact-anchored action pose. */
   public ?int $actionPoseEndFrame;
   public CompiledEffectTimeline $timeline;
@@ -53,6 +55,7 @@ final readonly class BattleCommandTimeline
   {
     $targetScale = EffectScale::readValue($targetScale, 'Battle target effect scale');
     if ($resultsOnly) {
+      $this->actionPoseAnchorFrame = null;
       $this->actionPoseEndFrame = null;
       if (!is_finite($timings->statChanges) || $timings->statChanges < 0) {
         throw new InvalidArgumentException('Battle result duration must be finite and non-negative.');
@@ -101,6 +104,7 @@ final readonly class BattleCommandTimeline
       : EffectPlaybackTiming::createForBattlePhase($this->terminalTarget, $timings->effectAnimation);
     $phases = $cues = $segments = $restFrames = $restSegments = [];
     $targetImpactEnd = 0;
+    $poseAnchor = null;
     $poseEnd = null;
     $transition = static fn(?BattlerPose $pose, BattlePoseSequence $sequence, string $phase): array =>
       $movementPoses && $pose !== null && $pose->getSequenceSeconds($sequence) > 0
@@ -139,8 +143,15 @@ final readonly class BattleCommandTimeline
       if ($phase === 'target' && $sourceEffectAnchor === SourceEffectAnchor::TARGET && $sourceTiming !== null) {
         $length = max($length, $sourceTiming->getFrameBoundary($sourceTiming->totalFrames, self::FPS));
       }
-      if ($phase === 'target' && $actionPose?->impactFrame !== null) {
-        $poseEnd = $cursor + (int)ceil($actionPose->getRecoverySeconds() * self::FPS);
+      if ($phase === 'target') {
+        $syncFrame = $target?->defaults['poseSyncFrame'] ?? null;
+        if ($syncFrame !== null && (!is_int($syncFrame) || $syncFrame < 0 || $syncFrame >= $targetTiming->totalFrames)) {
+          throw new InvalidArgumentException('Battle action pose synchronization requires a valid target effect frame.');
+        }
+        $poseAnchor = $cursor + ($syncFrame === null ? 0 : $targetTiming->getFrameBoundary($syncFrame, self::FPS));
+        if ($actionPose?->impactFrame !== null) {
+          $poseEnd = $poseAnchor + (int)ceil($actionPose->getRecoverySeconds() * self::FPS);
+        }
       }
       // An authored walk home starts after anchored action recovery, preserving all impact/effect cues.
       if ($phase === 'recovery') { $length = max(0, ($poseEnd ?? $cursor) - $cursor); }
@@ -216,6 +227,7 @@ final readonly class BattleCommandTimeline
     $cues[] = ['id' => 'command-impact', 'type' => 'commandImpact', 'frame' => $impact, 'payload' => []];
     usort($cues, static fn(array $a, array $b): int => [$a['frame'], $a['type'] === 'commandImpact' ? 0 : 1]
       <=> [$b['frame'], $b['type'] === 'commandImpact' ? 0 : 1]);
+    $this->actionPoseAnchorFrame = $poseAnchor;
     $this->actionPoseEndFrame = $poseEnd;
     $this->phases = $phases;
     $this->restFrames = $restFrames;
