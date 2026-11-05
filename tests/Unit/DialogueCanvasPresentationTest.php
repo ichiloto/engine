@@ -665,7 +665,7 @@ it('integrates active event-owned dialogue with the retained field and removes o
         'speakers' => ['Display Hero' => 'hero'],
     ], true) . ';');
     if ($measured) {
-        $role = ['fonts' => [['asset' => 'fixture.ttf']], 'fontSize' => 18,
+        $role = ['fonts' => [['asset' => 'fixture.ttf']], 'fontSize' => 18, 'lineHeight' => 23,
             'foreground' => ['kind' => 'rgb', 'r' => 32, 'g' => 70, 'b' => 40]];
         file_put_contents($this->root . '/Data/Presentation/text.php', '<?php return ' . var_export([
             'schema' => 'ichiloto.text/1', 'roles' => ['dialogue-body' => $role, 'dialogue-speaker' => $role],
@@ -703,13 +703,14 @@ it('integrates active event-owned dialogue with the retained field and removes o
             $getRequests = static fn() => array_values(array_filter($peer->sent,
                 static fn($message) => $message->type->value === 'prepare_text'));
             $requests = $getRequests();
-            expect($requests)->toHaveCount(2)->and($requests[1]->payload['spec']['text'])->toBe($line->page);
+            expect($requests)->toHaveCount(2)->and($requests[1]->payload['spec']['text'])->toBe($line->page)
+                ->and($requests[1]->payload['spec']['lineHeight'])->toBe(23.0);
             $peer->batches[] = array_map(static fn($message, int $i) => RendererEvent::fromJson(json_encode([
                 'protocol' => 2, 'type' => 'text_prepared', 'requestId' => $message->payload['requestId'],
                 'layoutId' => 'layout-' . $i, 'metrics' => [
                     'advance' => 40, 'baseline' => 20,
                     'lineBounds' => ['x' => 0, 'y' => 0, 'width' => 40, 'height' => 20],
-                    'inkBounds' => null, 'paintBounds' => ['x' => -2, 'y' => 0, 'width' => 42, 'height' => 22],
+                    'inkBounds' => null, 'paintBounds' => ['x' => -2, 'y' => 0, 'width' => $i === 0 ? 140 : 42, 'height' => 22],
                 ],
             ], JSON_THROW_ON_ERROR)), $requests, array_keys($requests));
             $runtime->pump();
@@ -722,6 +723,10 @@ it('integrates active event-owned dialogue with the retained field and removes o
                 return $operation['value'] ?? null;
             };
             $first = $getBody();
+            $presented = array_values(array_filter($peer->sent, static fn($message) => isset($message->payload['operations'])));
+            $name = array_find(end($presented)->payload['operations'],
+                static fn($op) => ($op['value']['layoutId'] ?? null) === 'layout-0');
+            expect($name['value']['clipRect']['width'])->toBe(140.0);
             expect($first['visibleBytes'])->toBe(strlen($line->visibleText));
             $line = getDialogueTestLine(context: new DialogueContext('hero'));
             $runtime->present($scene);

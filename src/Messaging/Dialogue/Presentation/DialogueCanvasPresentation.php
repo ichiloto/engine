@@ -58,17 +58,19 @@ final class DialogueCanvasPresentation
         $labels = [];
         if ($nameLines !== []) {
             $plate = $geometry->nameplate;
-            $nameWidth = $plate->width;
-            $view->frame('dialogue-nameplate', $plate, 'nameplate', 21);
-            $view->protect($plate);
-            $nameBounds = new CanvasRectangle($x + 16, $plate->y + 12, $nameWidth - 32, $nameHeight - 24);
+            $nameBounds = new CanvasRectangle($x + 16, $plate->y + 12, $textWidth - 32, $nameHeight - 24);
             $name = $textPlayback?->getLabel($ownerId, 'dialogue-speaker', $line->speaker, $nameBounds, $compact,
-                HorizontalAlignment::CENTER, 30);
+                HorizontalAlignment::CENTER, 30, minimumWidth: $plate->width - 32);
             if ($name === null) {
-                $view->prose('dialogue-speaker', $line->speaker, $nameBounds, 'focus', HorizontalAlignment::CENTER);
+                $view->prose('dialogue-speaker', $line->speaker,
+                    new CanvasRectangle($nameBounds->x, $nameBounds->y, $plate->width - 32, $nameBounds->height),
+                    'focus', HorizontalAlignment::CENTER);
             } else {
+                $plate = new CanvasRectangle($plate->x, $plate->y, $name->clipRect->width + 32, $plate->height);
                 $labels[] = $name;
             }
+            $view->frame('dialogue-nameplate', $plate, 'nameplate', 21);
+            $view->protect($plate);
         }
         if ($portrait !== null) {
             $dock = $geometry->portrait;

@@ -280,7 +280,8 @@ Skip are not displayed before their playback behavior exists.
 
 Projects can set `dialogue-body` and `dialogue-speaker` roles in the existing
 `Data/Presentation/text.php` catalogue. Optional roles ending in `-compact`
-apply below 1,000 logical pixels. The graphical dialogue and skit surfaces
+apply below 1,000 logical pixels. Each role can specify its own `lineHeight`
+in logical pixels. The graphical dialogue and skit surfaces
 prepare these roles through the session's text broker. A page keeps its layout
 while typing and releases it on page or owner change. The modal still chooses
 pages and controls timing and input. Projects and hosts without these roles

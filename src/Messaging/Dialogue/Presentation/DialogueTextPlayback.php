@@ -56,7 +56,8 @@ final class DialogueTextPlayback
     }
 
     public function getLabel(string $ownerId, string $roleId, string $text, CanvasRectangle $bounds, bool $compact,
-        HorizontalAlignment $alignment, int $layer, ?string $visibleText = null, ?float $lineHeight = null): ?CanvasLabel
+        HorizontalAlignment $alignment, int $layer, ?string $visibleText = null, ?float $lineHeight = null,
+        ?float $minimumWidth = null): ?CanvasLabel
     {
         $provider = $this->provider;
         if ($provider === null || $this->session === null || $text === '') { return null; }
@@ -71,8 +72,8 @@ final class DialogueTextPlayback
             if ($role === null) { return null; }
             $source = TerminalText::stripAnsi(MenuTextWrap::normalizeText($text));
             $prefix = $visibleText === null ? $source : TerminalText::stripAnsi(MenuTextWrap::normalizeText($visibleText));
-            $spec = new TextSpec($source, $role->fonts, $role->fontSize, MessageCatalog::locale() ?: 'und',
-                $role->foreground, $role->glyphEffects, wrapWidth: max(1, $bounds->width - 4), lineHeight: $lineHeight);
+            $spec = $role->createSpec($source, MessageCatalog::locale() ?: 'und',
+                wrapWidth: max(1, $bounds->width - 4), defaultLineHeight: $lineHeight);
             $this->visible[$key] = true;
             if (!isset($this->layouts[$key]) || $this->layouts[$key]['spec'] != $spec) {
                 $this->release($key);
@@ -85,6 +86,9 @@ final class DialogueTextPlayback
             $paint = $measurement->metrics->paintBounds;
             if ($paint->width > $bounds->width || $paint->height > $bounds->height) {
                 throw new RuntimeException('Measured dialogue text exceeds its reading area.');
+            }
+            if ($minimumWidth !== null) {
+                $bounds = new CanvasRectangle($bounds->x, $bounds->y, max($minimumWidth, ceil($paint->width)), $bounds->height);
             }
             $inset = match ($alignment) {
                 HorizontalAlignment::LEFT => 0.0,
