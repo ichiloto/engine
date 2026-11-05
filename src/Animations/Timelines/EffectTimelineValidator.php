@@ -218,13 +218,23 @@ final class EffectTimelineValidator
       $flight = $track['flight'] ?? null;
       if (array_key_exists('flight', $track)) {
         if (($track['anchor'] ?? null) !== 'caster' || !isset($track['detachFrame'])
-          || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame', 'route', 'tipX']) !== []
+          || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame', 'route', 'tipX', 'curve']) !== []
           || !is_int($flight['arrivalFrame'] ?? null) || $flight['arrivalFrame'] <= $track['detachFrame']
           || $flight['arrivalFrame'] >= $length
           || (array_key_exists('route', $flight) && (!is_string($flight['route']) || EffectFlightRoute::tryFrom($flight['route']) === null))
           || (array_key_exists('holdFrame', $flight) && (!is_int($flight['holdFrame'])
             || $flight['holdFrame'] < $track['detachFrame'] || $flight['holdFrame'] > $flight['arrivalFrame']))) {
           throw new InvalidArgumentException("Effect {$id} flight requires a detached caster point, an arrival frame after release and an optional hold frame within flight.");
+        }
+      }
+      if (($flight['route'] ?? null) === EffectFlightRoute::CUBIC->value || isset($flight) && array_key_exists('curve', $flight)) {
+        $curve = $flight['curve'] ?? null;
+        if (($flight['route'] ?? null) !== EffectFlightRoute::CUBIC->value || !is_array($curve)
+          || count($curve) !== 4 || array_diff(array_keys($curve), ['launchProgress', 'launchOffsetY', 'arrivalProgress', 'arrivalOffsetY']) !== []
+          || array_any($curve, static fn($value): bool => (!is_int($value) && !is_float($value)) || !is_finite((float)$value))
+          || $curve['launchProgress'] < 0 || $curve['arrivalProgress'] > 1 || $curve['launchProgress'] > $curve['arrivalProgress']
+          || abs($curve['launchOffsetY']) > 1 || abs($curve['arrivalOffsetY']) > 1) {
+          throw new InvalidArgumentException("Effect {$id} cubic flight requires ordered control progress within 0..1 and vertical offsets within -1..1.");
         }
       }
       if (isset($flight) && array_key_exists('tipX', $flight)) {

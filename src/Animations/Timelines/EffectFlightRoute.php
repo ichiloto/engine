@@ -8,4 +8,5 @@ enum EffectFlightRoute: string
 {
   case WAYPOINTS = 'waypoints';
   case STRAIGHT = 'straight';
+  case CUBIC = 'cubic';
 }

@@ -205,7 +205,8 @@ final readonly class BattleCommandTimeline
             $detachments[$trackId] ??= ['id' => 'capture-' . $trackId, 'type' => 'commandCapturePosePoint', 'frame' => $detach,
               'payload' => ['trackId' => $trackId, 'anchor' => $command['payload']['anchor'],
                 'attachmentPoint' => $command['payload']['attachmentPoint'],
-                'route' => $flight === null ? null : ($flight['route'] ?? EffectFlightRoute::WAYPOINTS->value)]];
+                'route' => $flight === null ? null : ($flight['route'] ?? EffectFlightRoute::WAYPOINTS->value),
+                'curve' => $flight['curve'] ?? null]];
           }
           unset($command);
           $copy['startFrame'] = $cursor + $clock->getFrameBoundary($segment['startFrame'], self::FPS);

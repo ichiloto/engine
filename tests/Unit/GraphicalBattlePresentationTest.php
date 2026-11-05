@@ -696,6 +696,63 @@ it('registers the rear at release and the leading tip at the straight flight con
     ->and($launch->diagnostics)->toBe([])->and($arrival->diagnostics)->toBe([]);
 });
 
+it('curves from the captured pose point to the selected visible body at the authored impact', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $asset = 'graphical-canvas/synthetic-320x180.png';
+  $pose = new BattlerPose($asset, attachmentPoints: [
+    ['cell' => 0, 'name' => 'launch', 'point' => ['x' => .5, 'y' => .5]],
+  ]);
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $catalog->ui, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => new BattlePoseSet(['attack' => $pose])]);
+  $source = ['fps' => 10, 'lengthFrames' => 10, 'restFrame' => 8,
+    'tracks' => [[
+      'id' => 'projectile', 'type' => 'image', 'asset' => $asset, 'anchor' => 'caster', 'attachmentPoint' => 'launch',
+      'detachFrame' => 1, 'facing' => 'east', 'cells' => ['width' => 1, 'height' => 1],
+      'flight' => ['route' => 'cubic', 'arrivalFrame' => 8, 'curve' => [
+        'launchProgress' => .28, 'launchOffsetY' => -.2, 'arrivalProgress' => .71, 'arrivalOffsetY' => -.1,
+      ]],
+      'keyframes' => [['frame' => 1, 'duration' => 9]],
+    ]],
+    'cues' => [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 8]],
+  ];
+  $library = new EffectTimelineLibrary($this->root);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
+    target: $library->compile('curved-projectile', $source, true));
+  $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $hero, [$enemies[1]],
+    BattlePoseRole::ATTACK, $catalog, $this->root);
+  $start = $plan->getCommandFrameForAuthoredFrame('target', 1);
+  $end = $plan->getCommandFrameForAuthoredFrame('target', 8);
+  $launch = $preview->getFrameAtIndex($start, imageRotation: true);
+  $middle = $preview->getFrameAtIndex(intdiv($start + $end, 2), imageRotation: true);
+  $arrival = $preview->getFrameAtIndex($end, imageRotation: true);
+  $rest = $preview->getFrameAtIndex($end, reducedMotion: true, imageRotation: true);
+  $sourceBody = graphicalCombatantImage($launch->canvas, $hero)->destination;
+  $targetImage = graphicalCombatantImage($launch->canvas, $enemies[1]);
+  $targetBody = \Ichiloto\Engine\Rendering\Sprites\PngAssetBounds::getVisibleBounds($this->root, $targetImage)['bounds'];
+  $point = static function ($frame): array {
+    $image = array_find($frame->canvas->images, static fn($image) => str_contains($image->id, 'target-projectile'));
+    return [$image->destination->x + $image->destination->width * $image->pivot->x,
+      $image->destination->y + $image->destination->height * $image->pivot->y, $image->rotation];
+  };
+  [$x0, $y0, $heading0] = $point($launch);
+  [$x1, $y1, $heading1] = $point($arrival);
+  [$midX, $midY] = $point($middle);
+  $lineY = $y0 + ($y1 - $y0) * ($midX - $x0) / ($x1 - $x0);
+  expect($x0)->toEqualWithDelta($sourceBody->x + $sourceBody->width / 2, .000001)
+    ->and($y0)->toEqualWithDelta($sourceBody->y + $sourceBody->height / 2, .000001)
+    ->and($x1)->toEqualWithDelta($targetBody->x + $targetBody->width / 2, .000001)
+    ->and($y1)->toEqualWithDelta($targetBody->y + $targetBody->height / 2, .000001)
+    ->and($midY)->toBeLessThan($lineY - 20)->and($heading0)->not->toBe($heading1)
+    ->and($point($rest)[0])->toEqualWithDelta($x1, .000001)
+    ->and($point($rest)[1])->toEqualWithDelta($y1, .000001)
+    ->and($launch->diagnostics)->toBe([])->and($arrival->diagnostics)->toBe([])
+    ->and(array_column(array_filter($arrival->crossedCues,
+      static fn(array $cue): bool => $cue['type'] === 'commandResolved'), 'frame'))->toBe([$end]);
+  $source['tracks'][0]['flight']['curve']['arrivalProgress'] = .1;
+  expect(fn() => $library->compile('invalid-curve', $source, true))
+    ->toThrow(InvalidArgumentException::class, 'cubic flight requires');
+});
+
 it('inherits one reference body scale across every pose and sheet frame for either side', function (bool $party, bool $reduced, ?float $displayWidth, float $partyDepth, bool $referenceScale) {
   ConfigStore::put(Ichiloto\Engine\Util\Config\ProjectConfig::class,
     new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));

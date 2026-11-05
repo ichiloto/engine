@@ -37,6 +37,25 @@ final readonly class BattlePresentationPath
     $this->distance = $distance;
   }
 
+  public static function fromCubic(Vector2 $launch, Vector2 $arrival, Vector2 $launchControl, Vector2 $arrivalControl): self
+  {
+    $points = [];
+    // A bounded tessellation keeps flight speed and heading on the same sampled route.
+    for ($step = 0; $step <= 64; $step++) {
+      $t = $step / 64;
+      $u = 1 - $t;
+      $a = $u ** 3;
+      $b = 3 * $u ** 2 * $t;
+      $c = 3 * $u * $t ** 2;
+      $d = $t ** 3;
+      $points[] = [
+        $a * $launch->x + $b * $launchControl->x + $c * $arrivalControl->x + $d * $arrival->x,
+        $a * $launch->y + $b * $launchControl->y + $c * $arrivalControl->y + $d * $arrival->y,
+      ];
+    }
+    return new self($points);
+  }
+
   /** @return list<Vector2> */
   public function getWaypoints(): array
   {

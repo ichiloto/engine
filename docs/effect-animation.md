@@ -624,6 +624,17 @@ The tip reaches the final contact at `arrivalFrame`. Use the same straight
 route and arrival timing on separate wake tracks. A wake samples the route at
 its own hold frame. Keep contact and combat timing aligned in the action review.
 
+For one selected recipient, set `flight.route => 'cubic'` and supply a
+`flight.curve` with `launchProgress`, `launchOffsetY`, `arrivalProgress`,
+and `arrivalOffsetY`. The route begins at the named release point and ends
+at the selected body's visible centre. The progress values locate the two
+controls along the horizontal launch-to-contact span in order, from 0 to 1.
+The Y offsets move them from the launch and arrival heights respectively,
+as signed fractions of the battle canvas height between −1 and 1. Negative
+offsets bend upward. The route is sampled by distance and provides the
+flight heading. Keep the existing `arrivalFrame`, hold samples and combat
+cues. Inspect actual formations to check clearance and contact.
+
 The target effect can declare `poseSyncFrame` to align the action pose's
 existing `impactFrame` playback entry to a particular frame of that effect.
 Use this when the key represents release and the effect hits later. The
