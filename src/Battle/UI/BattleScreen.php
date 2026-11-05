@@ -359,6 +359,11 @@ class BattleScreen implements CanRender, CanUpdate
       \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion(), $this->fieldWindow->getPoseElapsedSeconds());
   }
 
+  public function measureActionRange(CharacterInterface $actor, array $targets): ?float
+  {
+    return $this->battleScene->graphicalPresentation?->measureActionRange($actor, $targets);
+  }
+
   /** Resolve graphical travel once, before playback; Terminal has no graphical participant geometry. */
   public function planActionTravel(CharacterInterface $actor, array $targets, \Ichiloto\Engine\Battle\BattleAction $action): ?\Ichiloto\Engine\Battle\Presentation\BattleTravelPlan
   {

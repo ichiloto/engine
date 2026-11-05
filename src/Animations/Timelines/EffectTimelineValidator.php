@@ -35,7 +35,7 @@ final class EffectTimelineValidator
       $data = $variants[$presentation->value];
     }
     if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'loopFrom', 'restFrame', 'tracks', 'cues',
-      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
+      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'rangeTiming'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
       throw new InvalidArgumentException("Effect {$id} accepts fps, lengthFrames, playback, loopFrom, restFrame, tracks and presentation cues.");
     }
     $length = $data['lengthFrames'] ?? null;
@@ -218,7 +218,7 @@ final class EffectTimelineValidator
       $flight = $track['flight'] ?? null;
       if (array_key_exists('flight', $track)) {
         if (($track['anchor'] ?? null) !== 'caster' || !isset($track['detachFrame'])
-          || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame', 'route', 'tipX', 'curve']) !== []
+          || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame', 'route', 'tipX', 'curve', 'farCurve']) !== []
           || !is_int($flight['arrivalFrame'] ?? null) || $flight['arrivalFrame'] <= $track['detachFrame']
           || $flight['arrivalFrame'] >= $length
           || (array_key_exists('route', $flight) && (!is_string($flight['route']) || EffectFlightRoute::tryFrom($flight['route']) === null))
@@ -227,15 +227,16 @@ final class EffectTimelineValidator
           throw new InvalidArgumentException("Effect {$id} flight requires a detached caster point, an arrival frame after release and an optional hold frame within flight.");
         }
       }
-      if (($flight['route'] ?? null) === EffectFlightRoute::CUBIC->value || isset($flight) && array_key_exists('curve', $flight)) {
-        $curve = $flight['curve'] ?? null;
-        if (($flight['route'] ?? null) !== EffectFlightRoute::CUBIC->value || !is_array($curve)
-          || count($curve) !== 4 || array_diff(array_keys($curve), ['launchProgress', 'launchOffsetY', 'arrivalProgress', 'arrivalOffsetY']) !== []
-          || array_any($curve, static fn($value): bool => (!is_int($value) && !is_float($value)) || !is_finite((float)$value))
-          || $curve['launchProgress'] < 0 || $curve['arrivalProgress'] > 1 || $curve['launchProgress'] > $curve['arrivalProgress']
-          || abs($curve['launchOffsetY']) > 1 || abs($curve['arrivalOffsetY']) > 1) {
-          throw new InvalidArgumentException("Effect {$id} cubic flight requires ordered control progress within 0..1 and vertical offsets within -1..1.");
+      if (($flight['route'] ?? null) === EffectFlightRoute::CUBIC->value) {
+        self::validateCurve($id, $flight['curve'] ?? null);
+        if (array_key_exists('farCurve', $flight)) {
+          if (!isset($data['rangeTiming'])) {
+            throw new InvalidArgumentException("Effect {$id} farCurve requires battle range timing.");
+          }
+          self::validateCurve($id, $flight['farCurve']);
         }
+      } elseif (isset($flight) && (array_key_exists('curve', $flight) || array_key_exists('farCurve', $flight))) {
+        throw new InvalidArgumentException("Effect {$id} curve controls require cubic flight.");
       }
       if (isset($flight) && array_key_exists('tipX', $flight)) {
         $tip = $flight['tipX'];
@@ -351,6 +352,19 @@ final class EffectTimelineValidator
       || (($timing['mode'] ?? '') === 'cue' && !isset($cueIds[$timing['cueId'] ?? ''])))) {
       throw new InvalidArgumentException("Effect {$id} impact timing must identify a valid frame, cue or end.");
     }
+    $rangeTiming = null;
+    if ($presentation === EffectPresentation::GRAPHICAL && array_key_exists('rangeTiming', $data)) {
+      if ($stage !== null || $forSummon || $playback !== 'once' || $cadence !== EffectCadence::FIXED) {
+        throw new InvalidArgumentException("Effect {$id} range timing requires a fixed, once-playing battle target without a cinematic stage.");
+      }
+      $fixed = array_column($cues, 'frame');
+      if (($timing['mode'] ?? null) === 'frame') { $fixed[] = $timing['frame']; }
+      foreach ($tracks as $track) {
+        if (is_int($track['flight']['arrivalFrame'] ?? null)) { $fixed[] = $track['flight']['arrivalFrame']; }
+      }
+      BattleEffectRangeTiming::fromArray($data['rangeTiming'], $length, $fixed);
+      $rangeTiming = ['rangeTiming' => $data['rangeTiming'], 'rangeTimingFixedFrames' => $fixed];
+    }
     return new CompiledEffectTimeline($id, sha1(json_encode($data, JSON_THROW_ON_ERROR)), fps: $fps,
       playbackSegments: (new EffectTimelineCompiler())->compileTracks($normalized),
       cueSchedule: $cues,
@@ -358,8 +372,20 @@ final class EffectTimelineValidator
         ...($cadence === EffectCadence::FIXED ? [] : ['cadence' => $cadence->value]),
         ...($timing === null ? [] : ['effectTiming' => $timing]),
         ...($poseSyncFrame === null ? [] : ['poseSyncFrame' => $poseSyncFrame]),
+        ...($rangeTiming ?? []),
         'playback' => ['loop' => $playback === 'loop', 'loopFrom' => $loopFrom],
         ...($stage === null ? [] : ['stage' => $stage->data])]);
+  }
+
+  private static function validateCurve(string $id, mixed $curve): void
+  {
+    if (!is_array($curve) || count($curve) !== 4
+      || array_diff(array_keys($curve), ['launchProgress', 'launchOffsetY', 'arrivalProgress', 'arrivalOffsetY']) !== []
+      || array_any($curve, static fn($value): bool => (!is_int($value) && !is_float($value)) || !is_finite((float)$value))
+      || $curve['launchProgress'] < 0 || $curve['arrivalProgress'] > 1 || $curve['launchProgress'] > $curve['arrivalProgress']
+      || abs($curve['launchOffsetY']) > 1 || abs($curve['arrivalOffsetY']) > 1) {
+      throw new InvalidArgumentException("Effect {$id} cubic flight requires ordered control progress within 0..1 and vertical offsets within -1..1.");
+    }
   }
 
   private static function validateKeyframe(string $id, array $frame, bool $forSummon): void

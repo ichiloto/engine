@@ -753,6 +753,66 @@ it('curves from the captured pose point to the selected visible body at the auth
     ->toThrow(InvalidArgumentException::class, 'cubic flight requires');
 });
 
+it('chooses one range clock for the staff pose and release while keeping contact and terminal frames fixed', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $asset = 'graphical-canvas/synthetic-320x180.png';
+  $view = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $ranges = array_map(fn($target): float => $view->measureActionRange($hero, [$target]), $enemies);
+  $threshold = array_sum($ranges) / 2;
+  $curve = ['launchProgress' => .28, 'launchOffsetY' => .1, 'arrivalProgress' => .71, 'arrivalOffsetY' => .05];
+  $farCurve = [...$curve, 'launchOffsetY' => -.2, 'arrivalOffsetY' => -.1];
+  $data = ['fps' => 120, 'lengthFrames' => 30, 'restFrame' => 23,
+    'rangeTiming' => ['minDistance' => $threshold, 'keys' => [['frame' => 10, 'at' => 4], ['frame' => 16, 'at' => 10]]],
+    'tracks' => [
+      ['id' => 'flight', 'type' => 'image', 'asset' => $asset, 'anchor' => 'caster', 'attachmentPoint' => 'launch',
+        'detachFrame' => 10, 'flight' => ['route' => 'cubic', 'arrivalFrame' => 22, 'curve' => $curve, 'farCurve' => $farCurve],
+        'keyframes' => [['frame' => 10, 'duration' => 20]]],
+      ['id' => 'text', 'type' => 'glyph', 'keyframes' => [['frame' => 10, 'duration' => 1, 'content' => '*']]],
+    ],
+    'cues' => [['id' => 'contact', 'type' => 'applyEffect', 'frame' => 22]],
+  ];
+  $library = new EffectTimelineLibrary($this->root);
+  $effect = $library->compile('range-flight', $data, true);
+  $terminal = $library->compile('range-flight', $data, true,
+    \Ichiloto\Engine\Animations\Timelines\EffectPresentation::TERMINAL);
+  expect($terminal->defaults)->not->toHaveKey('rangeTiming')
+    ->and($view->measureActionRange($hero, $enemies))->toBeNull();
+  $timings = new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1);
+  foreach ($ranges as $index => $range) {
+    $far = $range >= $threshold;
+    $plan = new BattleCommandTimeline($timings, target: $effect, projectedRange: $range);
+    $start = $plan->phases['target']['start'];
+    $release = $start + ($far ? 4 : 10);
+    $hit = $start + 22;
+    $capture = array_find($plan->timeline->cueSchedule, static fn(array $cue): bool => $cue['type'] === 'commandCapturePosePoint');
+    $impact = array_find($plan->timeline->cueSchedule, static fn(array $cue): bool => $cue['type'] === 'commandImpact');
+    $glyph = array_find($plan->timeline->playbackSegments, static fn(array $segment): bool => $segment['layer'] === 'glyph');
+    $image = array_find($plan->timeline->playbackSegments, static fn(array $segment): bool => $segment['layer'] === 'image');
+    $count = 0;
+    $sampledPoseFrame = null;
+    $playback = new BattleCommandPlayback($plan, $hero, [$enemies[$index]], BattlePoseRole::ATTACK,
+      static function () use (&$count): void { $count++; }, static fn() => null);
+    $playback->bindPosePointCapture(static function ($sample) use ($hero, &$sampledPoseFrame): array {
+      $sampledPoseFrame = (int) round($sample->getPoseElapsedSeconds($hero, BattlePoseRole::ATTACK) * BattleCommandTimeline::FPS)
+        + $sample->plan->phases['announce']['start'];
+      return [];
+    });
+    $playback->begin();
+    $playback->update($hit / BattleCommandTimeline::FPS);
+    expect($capture['frame'])->toBe($release)->and($capture['payload']['curve'])->toBe($far ? $farCurve : $curve)
+      ->and($image['startFrame'])->toBe($release)->and($image['drawCommands'][0]['payload']['flight']['arrivalFrame'])->toBe($hit)
+      ->and($impact['frame'])->toBe($hit)->and($count)->toBe(1)->and($glyph['startFrame'])->toBe($start + 10)
+      ->and($sampledPoseFrame)->toBe($start + 10)->and($plan->getCommandFrameForAuthoredFrame('target', 10))->toBe($release)
+      ->and($plan->getAuthoredFrameAtCommandFrame('target', $release))->toBe(10);
+  }
+  $data['rangeTiming']['keys'][] = ['frame' => 22, 'at' => 21];
+  expect(fn() => $library->compile('moves-contact', $data, true))
+    ->toThrow(InvalidArgumentException::class, 'preserve authored contacts');
+  $data['rangeTiming']['keys'] = [(object)['frame' => 10, 'at' => 4]];
+  expect(fn() => $library->compile('invalid-range-key', $data, true))
+    ->toThrow(InvalidArgumentException::class, 'Battle range keys');
+});
+
 it('inherits one reference body scale across every pose and sheet frame for either side', function (bool $party, bool $reduced, ?float $displayWidth, float $partyDepth, bool $referenceScale) {
   ConfigStore::put(Ichiloto\Engine\Util\Config\ProjectConfig::class,
     new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));

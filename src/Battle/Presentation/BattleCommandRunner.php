@@ -80,7 +80,8 @@ final class BattleCommandRunner
       showAnnouncement: $announcement !== '', targetScale: $targetScale, sourceEffectAnchor: $sourceEffectAnchor,
       actionPose: $resultsOnly ? null : $this->context->ui->getActionPose($actor, $pose),
       movementPoses: $movementPoses, travel: $travel,
-      movePose: $movementPoses ? $movePose : null, returnPose: $movementPoses ? $returnPose : null),
+      movePose: $movementPoses ? $movePose : null, returnPose: $movementPoses ? $returnPose : null,
+      projectedRange: isset($target->defaults['rangeTiming']) ? $this->context->ui->measureActionRange($actor, $targets) : null),
       $actor, $targets, $pose,
       function () use ($resolve): void {
         if (($refusal = $this->getExecutionRefusal()) !== null) {

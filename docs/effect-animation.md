@@ -635,6 +635,25 @@ offsets bend upward. The route is sampled by distance and provides the
 flight heading. Keep the existing `arrivalFrame`, hold samples and combat
 cues. Inspect actual formations to check clearance and contact.
 
+A fixed, once-playing graphical target can set `rangeTiming.minDistance`
+and a list of `rangeTiming.keys` with `frame` and `at` entries. The command
+selects the alternate clock once from the caster-to-target ground separation
+as a share of the battle canvas diagonal. It uses the same measurement in
+battle and the Editor preview. At or above the threshold, the graphical
+tracks and caster's action pose use the alternate clock. Commands without one
+projected recipient use the authored clock.
+
+Each key maps an interior authored frame to its interior far-range frame.
+The lane boundaries, all cues, explicit impact and every flight arrival
+are fixed. The mapping interpolates between keys and must stay strictly
+ordered. Start the lane early enough to fit the earliest windup or launch.
+Graphical image and tone tracks, and explicitly graphical glyph, flash or
+shake tracks, can use this clock. Shared Terminal tracks retain their timing.
+A cubic flight may supply `flight.farCurve` with the same control fields as
+`curve` to shape the alternate route. Use the same authored arrival cues
+and pose sheet for both ranges, and inspect both projected target choices
+before integration.
+
 The target effect can declare `poseSyncFrame` to align the action pose's
 existing `impactFrame` playback entry to a particular frame of that effect.
 Use this when the key represents release and the effect hits later. The

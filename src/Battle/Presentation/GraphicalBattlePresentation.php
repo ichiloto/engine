@@ -186,6 +186,17 @@ final class GraphicalBattlePresentation
     return new CanvasRectangle($left, $top, $right - $left, $bottom - $top);
   }
 
+  /** Initial screen-space ground separation as a share of the canvas diagonal. */
+  public function measureActionRange(CharacterInterface $actor, array $targets): ?float
+  {
+    if (count($targets) !== 1 || !isset($this->participants[spl_object_id($actor)], $this->participants[spl_object_id($targets[0])])) {
+      return null;
+    }
+    $source = $this->getSlot($actor);
+    $target = $this->getSlot($targets[0]);
+    return hypot($target->x - $source->x, $target->y - $source->y) / hypot($this->layout->width, $this->layout->height);
+  }
+
   /** Where a participant stands: its frontline slot, or its troop place on this arena's ground. */
   public function getSlot(CharacterInterface $battler): BattlerSlot
   {

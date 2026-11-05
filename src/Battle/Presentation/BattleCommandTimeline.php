@@ -6,7 +6,9 @@ namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Animations\EffectScale;
 use Ichiloto\Engine\Animations\SourceEffectAnchor;
+use Ichiloto\Engine\Animations\Timelines\BattleEffectRangeTiming;
 use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Animations\Timelines\EffectAnchorLifetime;
 use Ichiloto\Engine\Animations\Timelines\EffectFlightRoute;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
@@ -43,6 +45,7 @@ final readonly class BattleCommandTimeline
   public ?EffectPlaybackTiming $terminalTiming;
   private ?EffectPlaybackTiming $sourceTiming;
   private ?EffectPlaybackTiming $targetTiming;
+  private ?BattleEffectRangeTiming $rangeTiming;
 
   public function requiresGraphicalAnchorCapture(): bool
   {
@@ -59,9 +62,17 @@ final readonly class BattleCommandTimeline
     public bool $resultsOnly = false, bool $showAnnouncement = true, float $targetScale = EffectScale::DEFAULT,
     public SourceEffectAnchor $sourceEffectAnchor = SourceEffectAnchor::SOURCE, ?BattlerPose $actionPose = null,
     public bool $movementPoses = false, public ?BattleTravelPlan $travel = null,
-    ?BattlerPose $movePose = null, ?BattlerPose $returnPose = null)
+    ?BattlerPose $movePose = null, ?BattlerPose $returnPose = null, ?float $projectedRange = null)
   {
     $targetScale = EffectScale::readValue($targetScale, 'Battle target effect scale');
+    if (isset($source->defaults['rangeTiming'])) {
+      throw new InvalidArgumentException('Battle range timing belongs to the target effect lane.');
+    }
+    $rangeTiming = !$resultsOnly && $projectedRange !== null && isset($target->defaults['rangeTiming'])
+      ? BattleEffectRangeTiming::fromArray($target->defaults['rangeTiming'], $target->defaults['lengthFrames'],
+        $target->defaults['rangeTimingFixedFrames'])
+      : null;
+    $this->rangeTiming = $rangeTiming !== null && $projectedRange >= $rangeTiming->minDistance ? $rangeTiming : null;
     if ($resultsOnly) {
       $this->actionPoseAnchorFrame = null;
       $this->actionPoseEndFrame = null;
@@ -180,10 +191,14 @@ final readonly class BattleCommandTimeline
       foreach ($effects as [$lane, $effect, $clock]) {
         if ($effect === null || $clock === null) { continue; }
         $rest = clamp((int)($effect->defaults['restFrame'] ?? $clock->totalFrames - 1), 0, $clock->totalFrames - 1);
-        $restFrames[$lane] = $cursor + $clock->getFrameBoundary($rest, self::FPS);
+        $range = $lane === 'target' ? $this->rangeTiming : null;
+        $restFrames[$lane] = $cursor + $clock->getFrameBoundary($range?->getPresentationFrame($rest) ?? $rest, self::FPS);
         $restSegments[$phase] ??= [];
         foreach ($effect->playbackSegments as $segment) {
           $copy = self::getAnchoredSegment($segment, $effect, $lane, $lane === 'target' ? $targetScale : EffectScale::DEFAULT);
+          $visualClock = EffectPresentation::TERMINAL->acceptsSegment($segment) ? null : $range;
+          $boundary = static fn(int $frame): int => $clock->getFrameBoundary(
+            $visualClock?->getPresentationFrame($frame) ?? $frame, self::FPS);
           foreach ($copy['drawCommands'] as &$command) {
             if (($command['payload']['anchorLifetime'] ?? null)
               === EffectAnchorLifetime::EFFECT_START->value) {
@@ -192,13 +207,13 @@ final readonly class BattleCommandTimeline
                 'type' => 'commandCaptureTargetGroup', 'frame' => $cursor, 'payload' => ['lane' => $lane]];
             }
             if (!isset($command['payload']['detachFrame'])) { continue; }
-            $detach = $cursor + $clock->getFrameBoundary($command['payload']['detachFrame'], self::FPS);
+            $detach = $cursor + $boundary($command['payload']['detachFrame']);
             $command['payload']['detachFrame'] = $detach;
             $flight = $command['payload']['flight'] ?? null;
             if ($flight !== null) {
               foreach (['arrivalFrame', 'holdFrame'] as $field) {
                 if (!isset($flight[$field])) { continue; }
-                $command['payload']['flight'][$field] = $cursor + $clock->getFrameBoundary($flight[$field], self::FPS);
+                $command['payload']['flight'][$field] = $cursor + $boundary($flight[$field]);
               }
             }
             $trackId = $command['trackId'];
@@ -206,11 +221,11 @@ final readonly class BattleCommandTimeline
               'payload' => ['trackId' => $trackId, 'anchor' => $command['payload']['anchor'],
                 'attachmentPoint' => $command['payload']['attachmentPoint'],
                 'route' => $flight === null ? null : ($flight['route'] ?? EffectFlightRoute::WAYPOINTS->value),
-                'curve' => $flight['curve'] ?? null]];
+                'curve' => $visualClock !== null ? ($flight['farCurve'] ?? $flight['curve'] ?? null) : ($flight['curve'] ?? null)]];
           }
           unset($command);
-          $copy['startFrame'] = $cursor + $clock->getFrameBoundary($segment['startFrame'], self::FPS);
-          $copy['endFrame'] = $cursor + $clock->getFrameBoundary($segment['endFrame'] + 1, self::FPS) - 1;
+          $copy['startFrame'] = $cursor + $boundary($segment['startFrame']);
+          $copy['endFrame'] = $cursor + $boundary($segment['endFrame'] + 1) - 1;
           if ($segment['startFrame'] <= $rest && $rest <= $segment['endFrame']) {
             $restSegments[$phase][] = [...$copy, 'startFrame' => $cursor, 'endFrame' => $cursor + $length - 1];
           }
@@ -274,6 +289,16 @@ final readonly class BattleCommandTimeline
       defaults: ['lengthFrames' => $cursor, 'restFrame' => $cursor - 1]);
   }
 
+  /** The caster uses the same presentation clock as its detached flight tracks. */
+  public function getActionPoseClockFrame(int $frame): float
+  {
+    if ($this->rangeTiming === null) { return $frame; }
+    $start = $this->phases['target']['start'];
+    $framesPerSecond = $this->targetTiming->fps * $this->targetTiming->effectiveSpeed;
+    $authored = $this->rangeTiming->getAuthoredFrame(($frame - $start) * $framesPerSecond / self::FPS);
+    return $start + $authored * self::FPS / $framesPerSecond;
+  }
+
   /** Inspection uses the same authored clock as stage images and combat cues. */
   public function getCinematicStageFrame(int $frame, bool $reducedMotion = false): ?CinematicStageFrame
   {
@@ -312,7 +337,8 @@ final readonly class BattleCommandTimeline
   {
     $clock = $this->getTimingForAuthoredLane($lane);
     if ($clock === null || $frame < 0 || $frame >= $clock->totalFrames) { return null; }
-    $offset = $clock->getFrameBoundary($frame, self::FPS);
+    $sample = $lane === 'target' ? ($this->rangeTiming?->getPresentationFrame($frame) ?? $frame) : $frame;
+    $offset = $clock->getFrameBoundary($sample, self::FPS);
     if ($offset >= $clock->getFrameBoundary($clock->totalFrames, self::FPS)) { return null; }
     return $this->phases[$this->getPhaseForAuthoredLane($lane)]['start'] + $offset;
   }
@@ -326,7 +352,11 @@ final readonly class BattleCommandTimeline
     $offset = $frame - $phase['start'];
     if ($offset < 0 || $offset >= $phase['length']
       || $offset >= $clock->getFrameBoundary($clock->totalFrames, self::FPS)) { return null; }
-    return min($clock->totalFrames - 1, $clock->getFrameCountAt($offset / self::FPS));
+    $seconds = $offset / self::FPS;
+    if ($lane === 'target' && $this->rangeTiming !== null) {
+      $seconds = $this->rangeTiming->getAuthoredFrame($seconds / $clock->secondsPerFrame) * $clock->secondsPerFrame;
+    }
+    return min($clock->totalFrames - 1, $clock->getFrameCountAt($seconds));
   }
 
   /** @return array{source: ?int, target: ?int, 'terminal-target': ?int} */

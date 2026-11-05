@@ -178,8 +178,11 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       && in_array($this->phase, ['advance', 'return', 'enter-advance', 'exit-advance', 'enter-return', 'exit-return'], true)) {
       return max(0, ($this->session->currentFrame - $this->plan->phases[$this->phase]['start']) / BattleCommandTimeline::FPS);
     }
-    $start = $this->reactionFrames[spl_object_id($battler)] ?? ($this->plan->phases['announce']['start'] ?? 0);
-    return max(0, ($this->session->currentFrame - $start) / BattleCommandTimeline::FPS);
+    $reaction = $this->reactionFrames[spl_object_id($battler)] ?? null;
+    $start = $reaction ?? ($this->plan->phases['announce']['start'] ?? 0);
+    $frame = $battler === $this->actor && $reaction === null && $role === $this->pose
+      ? $this->plan->getActionPoseClockFrame($this->session->currentFrame) : $this->session->currentFrame;
+    return max(0, ($frame - $start) / BattleCommandTimeline::FPS);
   }
 
   /** Stationary transition sequences are selected independently of the distance-based main sequence. */
