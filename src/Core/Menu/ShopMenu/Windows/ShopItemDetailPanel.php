@@ -10,6 +10,8 @@ use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Presentation\ShopEquipmentComparison;
+use Ichiloto\Engine\UI\Presentation\ShopComparisonMark;
+use Ichiloto\Engine\UI\Presentation\CharacterMenuRows;
 use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\UI\Text\TextPage;
 use Ichiloto\Engine\UI\Text\TextViewport;
@@ -48,8 +50,14 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
     $this->comparisonFocused = false;
   }
 
-  /** @return list<array{id: string, affected: bool}> */
+  /** @return list<array{id: string, name: string, affected: bool, mark: ?ShopComparisonMark}> */
   public function getComparisonProfiles(): array { return $this->comparison?->profiles ?? []; }
+
+  public function getComparisonStatLabel(): ?string
+  {
+    $stat = $this->comparison?->primaryStat;
+    return $stat === null ? null : CharacterMenuRows::getStatLabel($stat->statsProperty());
+  }
 
   public function getCurrentComparisonActorId(): ?string
   {
@@ -169,7 +177,20 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
 
     $navigation = $this->getComparisonNavigationHints();
     $columns = max(1, $this->getContentWidth() - 2);
-    $rows = max(1, $this->height - 5 - (int)($navigation !== []));
+    $summary = [];
+    $summaryWidth = max(1, intdiv($columns - 1, 2));
+    foreach ($this->getComparisonProfiles() as $profile) {
+      if ($profile['mark'] === null) { continue; }
+      $summary[] = TerminalText::padRight(
+        TerminalText::truncateToWidth($profile['name'], max(1, $summaryWidth - 2)) . ' ' . $profile['mark']->value,
+        $summaryWidth);
+    }
+    if ($summary !== []) {
+      $content[] = '';
+      if (($label = $this->getComparisonStatLabel()) !== null) { $content[] = ' ' . $label; }
+      foreach (array_chunk($summary, 2) as $line) { $content[] = ' ' . rtrim(implode(' ', $line)); }
+    }
+    $rows = max(1, $this->height - 4 - count($content) - (int)($navigation !== []));
     $comparison = $this->getComparisonPage($columns, $rows);
     if ($comparison !== null) {
       $content[] = '';

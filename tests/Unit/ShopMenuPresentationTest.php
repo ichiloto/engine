@@ -632,10 +632,11 @@ it('keeps every reserve comparison reachable through existing Info without purch
 })->with([[10, 20], [8, 18]]);
 
 
-it('uses the existing cast portraits and fades ineligible or unchanged actors without adding status prose', function () {
+it('shows each eligible member’s main-stat mark while browsing and keeps detailed comparison selectable', function () {
   writeTestPng($this->root . '/portrait.png', 80, 100);
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false,
-    'portraits' => ['fighter' => 'portrait.png', 'caster' => 'portrait.png', 'same' => 'portrait.png', 'other' => 'portrait.png']]);
+    'portraits' => ['fighter' => 'portrait.png', 'caster' => 'portrait.png', 'same' => 'portrait.png',
+      'other' => 'portrait.png', 'tied' => 'portrait.png']]);
   $weapon = new Weapon('Candidate', '', '/', 100, parameterChanges: new \Ichiloto\Engine\Entities\ParameterChanges(attack: 3), equipmentType: WeaponType::SWORD);
   $fighter = new \Ichiloto\Engine\Entities\Character('Fighter', 0, new \Ichiloto\Engine\Entities\Stats(), actorId: 'fighter');
   $caster = new \Ichiloto\Engine\Entities\Character('Caster', 0, new \Ichiloto\Engine\Entities\Stats(), actorId: 'caster');
@@ -644,15 +645,34 @@ it('uses the existing cast portraits and fades ineligible or unchanged actors wi
   $same->assignEquipment('Weapon', $weapon);
   $other = new \Ichiloto\Engine\Entities\Character('Other', 0, new \Ichiloto\Engine\Entities\Stats(),
     actorNaturalAdjustments: ['attack' => 9], actorId: 'other');
-  foreach ([$fighter, $caster, $same, $other] as $actor) { $this->party->addMember($actor); }
+  $other->assignEquipment('Weapon', new Weapon('Better sword', '', '/', 150,
+    parameterChanges: new \Ichiloto\Engine\Entities\ParameterChanges(attack: 8), equipmentType: WeaponType::SWORD));
+  $tied = new \Ichiloto\Engine\Entities\Character('Tied', 0, new \Ichiloto\Engine\Entities\Stats(), actorId: 'tied');
+  $tied->assignEquipment('Weapon', new Weapon('Different sword', '', '/', 90,
+    parameterChanges: new \Ichiloto\Engine\Entities\ParameterChanges(attack: 3), equipmentType: WeaponType::SWORD));
+  foreach ([$fighter, $caster, $same, $other, $tied] as $actor) { $this->party->addMember($actor); }
   $this->state->merchandise = [$weapon];
   shopPresentationPress($this->state, KeyCode::ENTER);
   $before = serialize($this->party);
   $canvas = ShopMenuPresentation::compose($this->state, $theme);
   $profiles = array_values(array_filter($canvas->images, fn($image) => str_starts_with($image->id, 'shop-profile-') && $image->asset === 'portrait.png'));
-  expect($profiles)->toHaveCount(4)->and(array_column($profiles, 'opacity'))->toBe([1.0, .3, .3, 1.0])
-    ->and(shopPresentationText($canvas))->toContain('Attack', 'Compare')->not->toContain('Fighter', 'Caster', 'Same', 'Other', 'Can equip', 'Cannot equip', 'Defence', 'Empty')
+  expect($profiles)->toHaveCount(5)->and(array_column($profiles, 'opacity'))->toBe([1.0, .3, .3, 1.0, .3])
+    ->and(shopPresentationText($canvas))->toContain('Attack', 'Compare')->not->toContain('Fighter', 'Caster', 'Same', 'Other', 'Tied', 'Can equip', 'Cannot equip', 'Defence', 'Empty')
     ->and(serialize($this->party))->toBe($before);
+  $marks = [];
+  foreach ($canvas->textLayers as $layer) {
+    if (str_starts_with($layer->id, 'shop-profile-mark-')) {
+      $marks[$layer->id] = [$layer->runs[0]->text, $layer->runs[0]->foreground];
+    }
+  }
+  expect($marks)->toEqual([
+    'shop-profile-mark-0' => ['↑', $theme->colors['increase']],
+    'shop-profile-mark-2' => ['E', $theme->colors['accent']],
+    'shop-profile-mark-3' => ['↓', $theme->colors['decrease']],
+    'shop-profile-mark-4' => ['=', $theme->colors['muted']],
+  ])->and($this->state->detailPanel->comparisonFocused)->toBeFalse();
+  $terminal = TerminalText::stripAnsi(implode("\n", $this->state->detailPanel->getContent()));
+  expect($terminal)->toContain('Fighter ↑', 'Same E', 'Other (Reserve) ↓', 'Tied (Reserve) =')->not->toContain('Caster');
   foreach ($profiles as $profile) { $profile->destination->assertWithin($canvas->width, $canvas->height); }
   expect($this->state->detailPanel->getCurrentComparisonActorId())->toBe('fighter');
   $focus = array_values(array_filter($canvas->textLayers, fn($layer) => str_starts_with($layer->id, 'shop-profile-focus')));

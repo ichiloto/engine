@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
+use Ichiloto\Engine\Entities\Inventory\EquipmentSlotType;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Stats\StatKey;
 use Ichiloto\Engine\Localization\Vocabulary;
@@ -16,7 +17,8 @@ final readonly class ShopEquipmentComparison
 {
   /** @param list<array{offset: int, text: string, color: string, label: ?string, current: ?string, result: ?string, group: int, context: bool}> $entries */
   private function __construct(public string $source, private array $entries,
-    /** @var list<array{id: string, affected: bool}> */ public array $profiles,
+    /** @var list<array{id: string, name: string, affected: bool, mark: ?ShopComparisonMark}> */ public array $profiles,
+    public ?StatKey $primaryStat,
     /** @var list<string> */ private array $actors) {}
 
   public static function create(Party $party, Equipment $item): self
@@ -26,6 +28,7 @@ final readonly class ShopEquipmentComparison
     $profiles = [];
     $actors = [];
     $group = -1;
+    $primary = self::getPrimaryStat($item);
     $add = static function (string $text, string $color = 'text', ?string $label = null,
       ?string $current = null, ?string $result = null, bool $context = false) use (&$source, &$entries, &$group): void {
       $text = TextViewport::normalize($text);
@@ -36,19 +39,25 @@ final readonly class ShopEquipmentComparison
     foreach ($party->participants->toArray() as $index => $actor) {
       if (!$actor instanceof Character) { continue; }
       $profile = count($profiles);
-      $profiles[] = ['id' => $actor->actorId, 'affected' => false];
+      $name = $actor->name . ($index >= $party->battleSize ? ' (' . Vocabulary::getTerm('party.reserve', 'Reserve') . ')' : '');
+      $profiles[] = ['id' => $actor->actorId, 'name' => $name, 'affected' => false, 'mark' => null];
       if (!$actor->canEquip($item)) { continue; }
       $slots = array_values(array_filter($actor->equipment, static fn($slot): bool =>
         $slot->acceptsType === $item::class && $slot->semanticSlot === $item->semanticSlot));
-      $name = $actor->name . ($index >= $party->battleSize ? ' (' . Vocabulary::getTerm('party.reserve', 'Reserve') . ')' : '');
       $current = $actor->effectiveStats;
+      $equipped = $increase = $decrease = false;
       foreach ($slots as $slot) {
+        $equipped = $equipped || $slot->equipment?->id === $item->id;
         $after = $actor->previewEquipmentStats($slot->name, $item);
         if ($after === null) { throw new \LogicException('Eligible shop equipment has no stat preview.'); }
         $changed = false;
         foreach (StatKey::cases() as $stat) {
           $field = $stat->statsProperty();
           if ($current->$field === $after->$field) { continue; }
+          if ($primary === null || $primary === $stat) {
+            $increase = $increase || $after->$field > $current->$field;
+            $decrease = $decrease || $after->$field < $current->$field;
+          }
           if (!$changed) {
             $group++;
             $actors[] = $actor->actorId;
@@ -65,8 +74,37 @@ final readonly class ShopEquipmentComparison
             $after->$field > $current->$field ? 'increase' : 'decrease', $label, $beforeValue, $afterValue);
         }
       }
+      if ($slots !== []) {
+        $profiles[$profile]['mark'] = match (true) {
+          $equipped => ShopComparisonMark::EQUIPPED,
+          $increase && $decrease => ShopComparisonMark::MIXED,
+          $increase => ShopComparisonMark::INCREASE,
+          $decrease => ShopComparisonMark::DECREASE,
+          default => ShopComparisonMark::UNCHANGED,
+        };
+      }
     }
-    return new self($source, $entries, $profiles, $actors);
+    return new self($source, $entries, $profiles, $primary, $actors);
+  }
+
+  private static function getPrimaryStat(Equipment $item): ?StatKey
+  {
+    $preferred = match ($item->semanticSlot) {
+      EquipmentSlotType::WEAPON => StatKey::ATTACK,
+      EquipmentSlotType::ACCESSORY => null,
+      default => StatKey::DEFENCE,
+    };
+    if ($preferred !== null && $item->parameterChanges->{$preferred->statsProperty()} !== 0) { return $preferred; }
+    $strongest = 0;
+    $result = $preferred;
+    foreach (StatKey::cases() as $stat) {
+      $magnitude = abs($item->parameterChanges->{$stat->statsProperty()});
+      if ($magnitude > $strongest) {
+        $strongest = $magnitude;
+        $result = $stat;
+      }
+    }
+    return $result;
   }
 
   public function getGroupCount(): int { return count($this->actors); }
