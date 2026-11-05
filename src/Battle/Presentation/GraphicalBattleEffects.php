@@ -84,6 +84,7 @@ final class GraphicalBattleEffects
           $box = $targetGroup?->bounds ?? ($subject === null ? null : ($bounds[spl_object_id($subject)] ?? null));
           $isDetached = $playback instanceof BattleCommandPlayback && isset($data['detachFrame'])
             && $playback->session->currentFrame >= $data['detachFrame'];
+          if (!$isDetached && $reducedMotion && isset($data['flight'])) { continue; }
           if ($subject !== null && $box === null && !$isDetached) { continue; }
           $release = $subject === null || !$isDetached ? null : $playback->getDetachedPosePoint($command['trackId'], $subject);
           $recipient = $anchor === 'caster'
@@ -111,6 +112,14 @@ final class GraphicalBattleEffects
               if ($point === null) {
                 throw new InvalidArgumentException('Current battle pose has no effect attachment point ' . $data['attachmentPoint'] . '.');
               }
+            }
+            if ($isDetached && isset($data['flight'])) {
+              $path = $release['path'] ?? throw new InvalidArgumentException('Battle projectile release has no captured path.');
+              $arrival = $data['flight']['arrivalFrame'];
+              $sample = $data['flight']['holdFrame'] ?? ($reducedMotion ? $arrival : $playback->session->currentFrame);
+              $sample = min($sample, $reducedMotion ? $arrival : $playback->session->currentFrame);
+              $progress = $sample >= $arrival ? 1.0 : ($sample - $data['detachFrame']) / ($arrival - $data['detachFrame']);
+              $point = $path->getPositionAtProgress($progress);
             }
             $x = $point?->x ?? ($box === null ? ($anchor === 'legacy-screen' ? 2 * $arena->uiGrid->cellWidth : $arena->width / 2)
               : ($attachment === 'ground' ? $ground->x : $box->x + $box->width / 2));

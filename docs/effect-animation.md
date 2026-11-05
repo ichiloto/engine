@@ -595,6 +595,17 @@ effect's own timeline. Preview and live playback use the same capture path.
 Reduced motion captures from the configured pose rest cell. Cancellation
 clears the captured placement with the rest of the command presentation.
 
+A caster image with `detachFrame` can add `flight => ['arrivalFrame' => 24]`.
+At release, the command captures a path from the named caster point through
+the centres of the selected recipients in targeting order. The image moves at
+constant speed along that path until arrival. A wake image with the same release
+and arrival frames can set `holdFrame` within that interval. It follows the
+flight to that sample, then stays there as its image cells advance. Use multiple
+tracks for wake layers held at different positions. In reduced motion, the rest
+image holds the arrival or wake sample from release onward. Graphical flight
+does not dispatch gameplay cues. Author a separate Terminal glyph or text
+lane and use the existing impact cue for resolution.
+
 The target effect can declare `poseSyncFrame` to align the action pose's
 existing `impactFrame` playback entry to a particular frame of that effect.
 Use this when the key represents release and the effect hits later. The

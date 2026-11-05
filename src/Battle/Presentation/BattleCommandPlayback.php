@@ -13,7 +13,7 @@ use Throwable;
 
 /**
  * Combat resolves once at impact; inspection and rendering are side-effect free.
- * @phpstan-type DetachedPosePoint array{point: Vector2, casterX: float, recipientX: ?float, party: bool}
+ * @phpstan-type DetachedPosePoint array{point: Vector2, casterX: float, recipientX: ?float, party: bool, path?: BattlePresentationPath}
  */
 final class BattleCommandPlayback implements BattleEffectPlayback
 {
@@ -30,7 +30,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private ?int $impactFrame = null;
   private float $elapsedSeconds = 0;
   private bool $paused = false;
-  /** @var ?Closure(self, string, string): array<int, DetachedPosePoint> */
+  /** @var ?Closure(self, string, string, bool): array<int, DetachedPosePoint> */
   private ?Closure $capturePosePoints = null;
   /** @var array<string, array<int, DetachedPosePoint>> */
   private array $detachedPosePoints = [];
@@ -86,7 +86,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $this->capturePosePoints = null;
   }
 
-  /** @param Closure(self, string, string): array<int, DetachedPosePoint> $capture */
+  /** @param Closure(self, string, string, bool): array<int, DetachedPosePoint> $capture */
   public function bindPosePointCapture(Closure $capture): void
   {
     $this->capturePosePoints = $capture;
@@ -286,7 +286,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
           try {
             $payload = $cue['payload'];
             $this->detachedPosePoints[$payload['trackId']] = ($this->capturePosePoints)(
-              $this->samplePoseAtFrame($cue['frame']), $payload['anchor'], $payload['attachmentPoint']);
+              $this->samplePoseAtFrame($cue['frame']), $payload['anchor'], $payload['attachmentPoint'], $payload['flight']);
           } catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
         }
         continue;

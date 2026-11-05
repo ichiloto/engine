@@ -695,7 +695,7 @@ final class GraphicalBattlePresentation
   {
     if (!array_any($playback->plan->timeline->cueSchedule, static fn(array $cue): bool =>
       $cue['type'] === 'commandCapturePosePoint')) { return; }
-    $playback->bindPosePointCapture(function (BattleCommandPlayback $sample, string $anchor, string $name)
+    $playback->bindPosePointCapture(function (BattleCommandPlayback $sample, string $anchor, string $name, bool $flight)
       use ($reducedMotion, $idleSeconds): array {
       $clock = $idleSeconds + $sample->session->currentFrame / BattleCommandTimeline::FPS;
       $geometry = [];
@@ -717,6 +717,15 @@ final class GraphicalBattlePresentation
         $points[$id] = ['point' => $point, 'casterX' => $casterX,
           'recipientX' => $recipient === null ? null : $geometry[spl_object_id($recipient)]['ground']->x,
           'party' => $this->participants[$id]['party']];
+        if ($flight) {
+          if ($sample->targets === []) { throw new RuntimeException('Battle projectile has no selected recipients.'); }
+          $waypoints = [[$point->x, $point->y]];
+          foreach ($sample->targets as $target) {
+            $body = $geometry[spl_object_id($target)]['image']->destination;
+            $waypoints[] = [$body->x + $body->width / 2, $body->y + $body->height / 2];
+          }
+          $points[$id]['path'] = new BattlePresentationPath($waypoints);
+        }
       }
       return $points;
     });

@@ -147,7 +147,7 @@ final class EffectTimelineValidator
         continue;
       }
       if (!is_array($track) || array_diff(array_keys($track), ['id', 'type', 'asset', 'sheet', 'cells', 'fit', 'depth', 'keyframes',
-        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment', 'attachmentPoint', 'detachFrame', 'span'] : []),
+        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment', 'attachmentPoint', 'detachFrame', 'flight', 'span'] : []),
         ...($acceptsStage ? ['placement', 'zIndex'] : []), ...($forStage ? ['anchor'] : [])]) !== []
         || ($track['type'] ?? null) !== 'image' || !is_string($track['id'] ?? null)) {
         throw new InvalidArgumentException("Effect {$id} currently accepts image tracks with id, asset, sheet, cells, depth and keyframes.");
@@ -208,6 +208,17 @@ final class EffectTimelineValidator
         || $playback !== 'once')) {
         throw new InvalidArgumentException("Effect {$id} detachFrame requires a named pose point and a valid frame in a once-playing battle effect.");
       }
+      if (array_key_exists('flight', $track)) {
+        $flight = $track['flight'];
+        if (($track['anchor'] ?? null) !== 'caster' || !isset($track['detachFrame'])
+          || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame']) !== []
+          || !is_int($flight['arrivalFrame'] ?? null) || $flight['arrivalFrame'] <= $track['detachFrame']
+          || $flight['arrivalFrame'] >= $length
+          || (array_key_exists('holdFrame', $flight) && (!is_int($flight['holdFrame'])
+            || $flight['holdFrame'] < $track['detachFrame'] || $flight['holdFrame'] > $flight['arrivalFrame']))) {
+          throw new InvalidArgumentException("Effect {$id} flight requires a detached caster point, an arrival frame after release and an optional hold frame within flight.");
+        }
+      }
       if (array_key_exists('pivot', $track)) {
         $pivot = $track['pivot'];
         if (!is_array($pivot)) {
@@ -251,6 +262,7 @@ final class EffectTimelineValidator
             ...(!isset($track['attachment']) ? [] : ['attachment' => $track['attachment']]),
             ...(!isset($track['attachmentPoint']) ? [] : ['attachmentPoint' => $track['attachmentPoint']]),
             ...(!isset($track['detachFrame']) ? [] : ['detachFrame' => $track['detachFrame']]),
+            ...(!isset($track['flight']) ? [] : ['flight' => $track['flight']]),
             ...(!array_key_exists('span', $track) ? [] : ['span' => $track['span']]),
             ...(!isset($track['pivot']) ? [] : ['pivot' => $track['pivot']]),
             ...(!isset($track['facing']) ? [] : ['facing' => $track['facing']]),

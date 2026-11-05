@@ -180,10 +180,16 @@ final readonly class BattleCommandTimeline
             if (!isset($command['payload']['detachFrame'])) { continue; }
             $detach = $cursor + $clock->getFrameBoundary($command['payload']['detachFrame'], self::FPS);
             $command['payload']['detachFrame'] = $detach;
+            $flight = $command['payload']['flight'] ?? null;
+            if ($flight !== null) {
+              foreach ($flight as $field => $frame) {
+                $command['payload']['flight'][$field] = $cursor + $clock->getFrameBoundary($frame, self::FPS);
+              }
+            }
             $trackId = $command['trackId'];
             $detachments[$trackId] ??= ['id' => 'capture-' . $trackId, 'type' => 'commandCapturePosePoint', 'frame' => $detach,
               'payload' => ['trackId' => $trackId, 'anchor' => $command['payload']['anchor'],
-                'attachmentPoint' => $command['payload']['attachmentPoint']]];
+                'attachmentPoint' => $command['payload']['attachmentPoint'], 'flight' => $flight !== null]];
           }
           unset($command);
           $copy['startFrame'] = $cursor + $clock->getFrameBoundary($segment['startFrame'], self::FPS);

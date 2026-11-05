@@ -567,6 +567,69 @@ it('holds a detached effect at the exact release position across skipped draws a
     ->and($hits)->toBe(1);
 })->with([false, true]);
 
+it('flies from the release pose through the ordered recipients and holds the wake on its sampled path', function (bool $single) {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $targets = $single ? [$enemies[1]] : [$enemies[1], $enemies[0]];
+  $asset = 'graphical-canvas/synthetic-320x180.png';
+  $pose = new BattlerPose($asset, attachmentPoints: [
+    ['cell' => 0, 'name' => 'launch', 'point' => ['x' => .5, 'y' => .5]],
+  ]);
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $catalog->ui, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => new BattlePoseSet(['attack' => $pose])]);
+  $track = ['type' => 'image', 'asset' => $asset, 'anchor' => 'caster', 'attachmentPoint' => 'launch', 'detachFrame' => 1,
+    'keyframes' => [['frame' => 1, 'duration' => 9]]];
+  $authored = ['fps' => 10, 'lengthFrames' => 10, 'restFrame' => 8,
+    'tracks' => [
+      ['id' => 'projectile', ...$track, 'flight' => ['arrivalFrame' => 8]],
+      ['id' => 'wake', ...$track, 'flight' => ['arrivalFrame' => 8, 'holdFrame' => 4]],
+    ],
+    'cues' => [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 8]]];
+  $library = new EffectTimelineLibrary($this->root);
+  $timeline = $library->compile('flight-effect', $authored, true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $timeline);
+  $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $hero, $targets,
+    BattlePoseRole::ATTACK, $catalog, $this->root);
+  $start = $plan->getCommandFrameForAuthoredFrame('target', 1);
+  $hold = $plan->getCommandFrameForAuthoredFrame('target', 4);
+  $end = $plan->getCommandFrameForAuthoredFrame('target', 8);
+  $startFrame = $preview->getFrameAtIndex($start);
+  $arrival = $preview->getFrameAtIndex($end);
+  $held = $preview->getFrameAtIndex($hold);
+  $reduced = $preview->getFrameAtIndex($start, true);
+  $center = static fn(CanvasImage $image): array => [
+    $image->destination->x + $image->destination->width / 2,
+    $image->destination->y + $image->destination->height / 2,
+  ];
+  $getEffect = static fn($frame, string $id): CanvasImage =>
+    array_find($frame->canvas->images, static fn($image) => str_contains($image->id, 'target-' . $id . '-'));
+  $assertSample = static function ($releaseFrame, array $actual) use ($center, $hero, $targets, $start, $hold, $end): void {
+    $source = $center(graphicalCombatantImage($releaseFrame->canvas, $hero));
+    $first = $center(graphicalCombatantImage($releaseFrame->canvas, $targets[0]));
+    $last = $center(graphicalCombatantImage($releaseFrame->canvas, $targets[array_key_last($targets)]));
+    $firstLeg = hypot($first[0] - $source[0], $first[1] - $source[1]);
+    $nextLeg = hypot($last[0] - $first[0], $last[1] - $first[1]);
+    $sampleDistance = ($firstLeg + $nextLeg) * ($hold - $start) / ($end - $start);
+    [$from, $to, $fraction] = $sampleDistance <= $firstLeg
+      ? [$source, $first, $sampleDistance / $firstLeg]
+      : [$first, $last, ($sampleDistance - $firstLeg) / $nextLeg];
+    expect($actual[0])->toEqualWithDelta($from[0] + ($to[0] - $from[0]) * $fraction, .000001)
+      ->and($actual[1])->toEqualWithDelta($from[1] + ($to[1] - $from[1]) * $fraction, .000001);
+  };
+  $atHold = $center($getEffect($held, 'projectile'));
+  $assertSample($startFrame, $atHold);
+  $assertSample($reduced, $center($getEffect($reduced, 'wake')));
+  $lastTarget = $targets[array_key_last($targets)];
+  expect($center($getEffect($startFrame, 'projectile')))->toBe($center(graphicalCombatantImage($startFrame->canvas, $hero)))
+    ->and($center($getEffect($arrival, 'projectile')))->toBe($center(graphicalCombatantImage($startFrame->canvas, $lastTarget)))
+    ->and($center($getEffect($arrival, 'wake')))->toBe($atHold)
+    ->and($center($getEffect($reduced, 'projectile')))->toBe($center(graphicalCombatantImage($reduced->canvas, $lastTarget)))
+    ->and($arrival->diagnostics)->toBe([])
+    ->and($reduced->diagnostics)->toBe([]);
+
+  $authored['tracks'][0]['flight']['arrivalFrame'] = 1;
+  expect(fn() => $library->compile('invalid-flight', $authored, true))->toThrow(InvalidArgumentException::class, 'flight requires');
+})->with([false, true]);
+
 it('inherits one reference body scale across every pose and sheet frame for either side', function (bool $party, bool $reduced, ?float $displayWidth, float $partyDepth, bool $referenceScale) {
   ConfigStore::put(Ichiloto\Engine\Util\Config\ProjectConfig::class,
     new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));
