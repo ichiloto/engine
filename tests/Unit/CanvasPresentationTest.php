@@ -121,6 +121,38 @@ it('clips an anchored image at every edge without translating or stretching its 
   new PresentationCanvas(50, 30, [$fractional]);
 })->with([false, true])->with([false, true]);
 
+it('keeps the full rotated crop and pivot when the canvas edge masks its output', function () {
+  $source = new SpriteSourceRect(30, 20, 20, 10);
+  $destination = new CanvasRectangle(-5, 12, 20, 10, allowOutsideCanvas: true);
+  $pivot = new PresentationSpritePivot(.25, .5);
+  $image = CanvasImage::createRotated('arrow', 'synthetic.png', $destination, 50, 50, 7, $source, true, false, 90, $pivot);
+  $canvas = new PresentationCanvas(50, 50, [$image]);
+  expect($image->destination)->toBe($destination)
+    ->and($image->sourceRect)->toBe($source)
+    ->and($image->clipRect->toArray())->toBe(['x' => 0.0, 'y' => 12.0, 'width' => 5.0, 'height' => 20.0])
+    ->and(CanvasImage::fromArray($image->toArray())->toArray())->toBe($image->toArray())
+    ->and(PresentationCanvas::composeOverlay(null, $canvas, 'preview-')->images[0]->pivot)->toBe($pivot);
+  expect(fn() => new PresentationCanvas(50, 50, [new CanvasImage('invalid', 'synthetic.png', $destination,
+    rotation: 90, pivot: $pivot)]))->toThrow(InvalidArgumentException::class);
+  expect(fn() => new CanvasImage('invalid', 'synthetic.png', new CanvasRectangle(0, 0, 40, 10),
+    sourceRect: $source, rotation: 45, pivot: $pivot))->toThrow(InvalidArgumentException::class, 'uniform');
+});
+
+it('capability-gates explicit canvas image rotation even at zero degrees', function () {
+  $image = new CanvasImage('arrow', 'synthetic.png', new CanvasRectangle(10, 10, 20, 10),
+    rotation: 0, pivot: new PresentationSpritePivot(.25, .5));
+  $canvas = new PresentationCanvas(50, 50, [$image]);
+  [$ordinary] = canvasPresenter([RendererSessionConfig::GRAPHICAL_CANVAS]);
+  expect(fn() => $ordinary->prepareCanvas($canvas))->toThrow(RendererProtocolException::class, 'canvas_image_rotation');
+  [$rotating, $transport] = canvasPresenter([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_IMAGE_ROTATION]);
+  expect($rotating->presentCanvas($canvas))->toBeTrue();
+  expect(RetainedFrameState::replay($transport->sent)[0]['canvas']['images'][0]['rotation'])->toBe(0);
+  $wire = $image->toArray();
+  foreach ([['rotation' => 360], ['rotation' => 0.0], ['rotation' => null], ['pivot' => ['x' => -.1, 'y' => .5]]] as $invalid) {
+    expect(fn() => CanvasImage::fromArray(array_replace($wire, $invalid)))->toThrow(InvalidArgumentException::class);
+  }
+});
+
 it('constructs strictly contained fractional clipping edges without changing source pixels or flips', function (bool $flipX, bool $flipY) {
   $source = new SpriteSourceRect(64, 96, 2048, 1536);
   $image = CanvasImage::createClipped('fractional-edge', 'replaceable-sheet.png',

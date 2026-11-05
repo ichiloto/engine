@@ -45,23 +45,32 @@ final readonly class BattlePresentationPath
 
   public function getPositionAtProgress(float $progress): Vector2
   {
+    return $this->getSampleAtProgress($progress)['point'];
+  }
+
+  /** @return array{point: Vector2, direction: ?Vector2} */
+  public function getSampleAtProgress(float $progress): array
+  {
     if (!is_finite($progress) || $progress < 0 || $progress > 1) {
       throw new InvalidArgumentException('Battle presentation path progress must be between zero and one.');
     }
-    if ($progress === 0.0 || $this->distance === 0.0) { return new Vector2(...$this->points[0]); }
-    if ($progress === 1.0) { return new Vector2(...$this->points[array_key_last($this->points)]); }
     $remaining = $progress * $this->distance;
+    $direction = null;
     foreach ($this->points as $index => $point) {
       if ($index === 0) { continue; }
       $previous = $this->points[$index - 1];
-      $length = hypot($point[0] - $previous[0], $point[1] - $previous[1]);
-      if ($length > 0 && $remaining <= $length) {
+      $dx = $point[0] - $previous[0];
+      $dy = $point[1] - $previous[1];
+      $length = hypot($dx, $dy);
+      if ($length === 0.0) { continue; }
+      $direction = new Vector2($dx, $dy);
+      if ($progress < 1 && $remaining < $length) {
         $fraction = $remaining / $length;
-        return new Vector2($previous[0] + ($point[0] - $previous[0]) * $fraction,
-          $previous[1] + ($point[1] - $previous[1]) * $fraction);
+        return ['point' => new Vector2($previous[0] + $dx * $fraction, $previous[1] + $dy * $fraction),
+          'direction' => $direction];
       }
       $remaining -= $length;
     }
-    return new Vector2(...$this->points[array_key_last($this->points)]);
+    return ['point' => new Vector2(...$this->points[array_key_last($this->points)]), 'direction' => $direction];
   }
 }

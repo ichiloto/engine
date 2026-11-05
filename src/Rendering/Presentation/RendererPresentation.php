@@ -241,6 +241,9 @@ final class RendererPresentation
       if ($image->brightness !== 1.0 && !$this->client->supports(RendererSessionConfig::CANVAS_IMAGE_TONE)) {
         throw new RendererProtocolException('Canvas image brightness requires negotiated canvas_image_tone support.');
       }
+      if ($image->rotation !== null && !$this->client->supports(RendererSessionConfig::CANVAS_IMAGE_ROTATION)) {
+        throw new RendererProtocolException('Canvas image rotation requires negotiated canvas_image_rotation support.');
+      }
       if ($image->sourceRect !== null && !$this->client->supports(RendererSessionConfig::SPRITE_SOURCE_RECT)) {
         throw new RendererProtocolException('Canvas image crops require negotiated sprite_source_rect support.');
       }

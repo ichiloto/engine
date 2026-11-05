@@ -576,7 +576,7 @@ it('flies from the release pose through the ordered recipients and holds the wak
   ]);
   $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
     ui: $catalog->ui, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => new BattlePoseSet(['attack' => $pose])]);
-  $track = ['type' => 'image', 'asset' => $asset, 'anchor' => 'caster', 'attachmentPoint' => 'launch', 'detachFrame' => 1,
+  $track = ['type' => 'image', 'asset' => $asset, 'anchor' => 'caster', 'attachmentPoint' => 'launch', 'detachFrame' => 1, 'facing' => 'east',
     'keyframes' => [['frame' => 1, 'duration' => 9]]];
   $authored = ['fps' => 10, 'lengthFrames' => 10, 'restFrame' => 8,
     'tracks' => [
@@ -625,6 +625,24 @@ it('flies from the release pose through the ordered recipients and holds the wak
     ->and($center($getEffect($reduced, 'projectile')))->toBe($center(graphicalCombatantImage($reduced->canvas, $lastTarget)))
     ->and($arrival->diagnostics)->toBe([])
     ->and($reduced->diagnostics)->toBe([]);
+
+  $startRotated = $preview->getFrameAtIndex($start, imageRotation: true);
+  $endRotated = $preview->getFrameAtIndex($end, imageRotation: true);
+  $origin = $center(graphicalCombatantImage($startFrame->canvas, $hero));
+  $first = $center(graphicalCombatantImage($startFrame->canvas, $targets[0]));
+  $last = $center(graphicalCombatantImage($startFrame->canvas, $lastTarget));
+  $getAngle = static function (array $from, array $to): int {
+    $dx = $to[0] - $from[0];
+    $degrees = (int)round(rad2deg(atan2($to[1] - $from[1], $dx))) - ($dx < 0 ? 180 : 0);
+    return ($degrees % 360 + 360) % 360;
+  };
+  $startAngle = $getAngle($origin, $first);
+  $endAngle = $single ? $startAngle : $getAngle($first, $last);
+  expect($getEffect($startRotated, 'projectile')->rotation ?? 0)->toBe($startAngle)
+    ->and($getEffect($endRotated, 'projectile')->rotation ?? 0)->toBe($endAngle)
+    ->and($getEffect($endRotated, 'wake')->rotation ?? 0)->toBe($startAngle)
+    ->and($getEffect($arrival, 'projectile')->rotation)->toBeNull()
+    ->and($endRotated->diagnostics)->toBe([]);
 
   $authored['tracks'][0]['flight']['arrivalFrame'] = 1;
   expect(fn() => $library->compile('invalid-flight', $authored, true))->toThrow(InvalidArgumentException::class, 'flight requires');

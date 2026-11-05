@@ -60,7 +60,7 @@ final readonly class PresentationCanvas
         $labelAreas[] = new CanvasRectangle($paint->x, $paint->y, $paint->width, $paint->height);
       }
     }
-    return [...array_map(static fn(CanvasImage $image) => $image->clipRect ?? $image->destination, $this->images),
+    return [...array_map(static fn(CanvasImage $image) => $image->getPaintBounds(), $this->images),
       ...array_map(static fn(CanvasTextLayer $text) => $text->clipRect ?? $text->paintBounds, $this->textLayers),
       ...$labelAreas,
       ...array_map(static fn(CanvasComposite $composite) => $composite->clipRect ?? $composite->destination, $this->composites),
@@ -81,7 +81,7 @@ final readonly class PresentationCanvas
     return new self($base->width, $base->height,
       [...$base->images, ...array_map(static fn($image) => new CanvasImage($idPrefix . $image->id, $image->asset,
         $image->destination, $offset + $image->layer, $image->sourceRect, $image->opacity,
-        $image->clipRect, $image->brightness, $image->flipX, $image->flipY), $overlay->images)],
+        $image->clipRect, $image->brightness, $image->flipX, $image->flipY, $image->rotation, $image->pivot), $overlay->images)],
       [...$base->indicators, ...array_map(static fn($indicator) => new CanvasIndicator($idPrefix . $indicator->id,
         $idPrefix . $indicator->imageId, $indicator->kind, $indicator->bounds, $indicator->strokeWidth, $indicator->color,
         $offset + $indicator->layer), $overlay->indicators)],
@@ -155,8 +155,7 @@ final readonly class PresentationCanvas
     CanvasCompositeBudget::assertWithin($this->composites);
     $imageIds = [];
     foreach ($this->images as $image) {
-      $image->destination->assertWithin($width, $height);
-      $image->clipRect?->assertWithin($width, $height);
+      $image->assertWithin($width, $height);
       $imageIds[$image->id] = true;
     }
     foreach ($this->composites as $composite) { $imageIds[$composite->id] = true; }

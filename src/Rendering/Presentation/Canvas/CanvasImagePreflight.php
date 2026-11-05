@@ -38,11 +38,13 @@ final class CanvasImagePreflight
       $region = $name . ':' . implode(',', $rect);
       $bytes = ($crop['width'] + 4) * ($crop['height'] + 4) * 4;
       $regions[$region] = $bytes;
-      if ($image->brightness < 1 || $image->flipX || $image->flipY) {
+      if ($image->brightness < 1 || $image->flipX || $image->flipY || ($image->rotation ?? 0) !== 0) {
         // Native keeps the guarded original and each distinct transformed region.
         // Normalize -0.0 like the native tone cache; preserve every other f64 bit.
         $tone = bin2hex(pack('E', $image->brightness == 0 ? 0.0 : $image->brightness));
-        $regions[$region . ':' . $tone . ':' . (int)$image->flipX . ':' . (int)$image->flipY] = $bytes;
+        $rotation = $image->rotation ?? 0;
+        $variant = $region . ':' . $tone . ':' . (int)$image->flipX . ':' . (int)$image->flipY;
+        $regions[$variant . ':' . $rotation] = CanvasImage::getRotatedPixelBytes($crop['width'] + 4, $crop['height'] + 4, $rotation);
       }
     }
     foreach ($composites as $composite) {

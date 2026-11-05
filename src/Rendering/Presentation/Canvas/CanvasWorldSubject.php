@@ -29,6 +29,9 @@ final readonly class CanvasWorldSubject
         }
         $this->images = CanvasValidation::orderedList($images, CanvasImage::class, 1024);
         foreach ($this->images as $image) {
+            if ($image->rotation !== null) {
+                throw new InvalidArgumentException('World overview subjects use subject quarter turns.');
+            }
             $image->destination->assertWithin($width, $height);
             $image->clipRect?->assertWithin($width, $height);
         }

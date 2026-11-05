@@ -207,7 +207,9 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
         imageFlips: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_IMAGE_FLIP) ?? false,
         compositing: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_COMPOSITING) ?? false,
         maskFlips: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_IMAGE_ALPHA_FLIP) ?? false,
-        imageTones: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_IMAGE_TONE) ?? false);
+        imageTones: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_IMAGE_TONE) ?? false,
+        imageRotation: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_IMAGE_ROTATION) ?? false,
+        imageClips: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_CLIP_OPACITY) ?? false);
     }
     $root = $this->getGame()->getRendererRuntime()?->getAssetRoot();
     $composition = $hud === null ? null : GraphicalBattleHud::compose($layout, $hud, $focus,

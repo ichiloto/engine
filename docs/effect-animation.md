@@ -606,6 +606,14 @@ image holds the arrival or wake sample from release onward. Graphical flight
 does not dispatch gameplay cues. Author a separate Terminal glyph or text
 lane and use the existing impact cue for resolution.
 
+Declare the drawn direction with `facing => 'east'` or `'west'` on a
+directional flight image. The compositor preserves its source aspect ratio
+and mirrors it for the current path leg. A renderer with
+`canvas_image_rotation` also turns it to the leg's angle around the image
+pivot. The heading changes at the recipient waypoints. A held wake retains
+the heading of its sampled leg. A rotation at the viewport edge uses the
+full crop and a screen-space mask when `canvas_clip_opacity` is available.
+
 The target effect can declare `poseSyncFrame` to align the action pose's
 existing `impactFrame` playback entry to a particular frame of that effect.
 Use this when the key represents release and the effect hits later. The

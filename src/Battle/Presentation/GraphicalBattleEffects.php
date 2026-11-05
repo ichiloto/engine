@@ -12,6 +12,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
@@ -23,6 +24,21 @@ use RuntimeException;
 /** Retained effect layers inspect the command lane, never dispatch combat cues. */
 final class GraphicalBattleEffects
 {
+  /** @return ?array{point: Vector2, direction: ?Vector2} */
+  private static function sampleFlight(BattleCommandPlayback $playback, ?BattlePresentationPath $path,
+    array $data, bool $reducedMotion): ?array
+  {
+    if ($path === null) {
+      $playback->recordPresentationFailure(new InvalidArgumentException('Battle projectile release has no captured path.'));
+      return null;
+    }
+    $arrival = $data['flight']['arrivalFrame'];
+    $sample = $data['flight']['holdFrame'] ?? $arrival;
+    $sample = min($sample, $reducedMotion ? $arrival : $playback->session->currentFrame);
+    $progress = $sample >= $arrival ? 1.0 : ($sample - $data['detachFrame']) / ($arrival - $data['detachFrame']);
+    return $path->getSampleAtProgress($progress);
+  }
+
   /** @param array<int, CanvasRectangle> $bounds Combatant instance identity => its drawn body; head, centre and feet attach to it.
    * @param array<int, CanvasImage> $battlerImages Current visible poses, including crop, motion and opacity.
    * @param array<int, Vector2>|null $groundAnchors Current posed ground points; rectangle-only hosts use bottom centres.
@@ -32,7 +48,7 @@ final class GraphicalBattleEffects
   public static function compose(BattleEffectPlayback $playback, BattleCanvasLayout $arena,
     array $bounds, string $assetRoot, bool $reducedMotion, array $battlerImages = [], bool $imageFlips = true,
     bool $compositing = true, ?array $groundAnchors = null, array $partySides = [], bool $maskFlips = true,
-    array $attachmentPoints = []): PresentationCanvas
+    array $attachmentPoints = [], bool $imageRotation = false, bool $imageClips = true): PresentationCanvas
   {
     $groundAnchors ??= array_map(static fn(CanvasRectangle $box): Vector2 =>
       new Vector2($box->x + $box->width / 2, $box->y + $box->height), $bounds);
@@ -92,9 +108,19 @@ final class GraphicalBattleEffects
           $casterX = $release['casterX'] ?? ($groundAnchors[spl_object_id($playback->actor)] ?? null)?->x;
           $recipientX = $release !== null ? $release['recipientX'] : ($targetGroup?->getGroundOrigin()->x
             ?? ($recipient === null ? null : ($groundAnchors[spl_object_id($recipient)] ?? null)?->x));
+          $flight = $isDetached && isset($data['flight'])
+            ? self::sampleFlight($playback, $release['path'] ?? null, $data, $reducedMotion) : null;
+          if ($isDetached && isset($data['flight']) && $flight === null) { continue; }
+          $direction = $flight['direction'] ?? null;
+          if ($direction !== null && $casterX !== null) { $recipientX = $casterX + $direction->x; }
           $oriented = BattleEffectDirection::orientForSubject($command, $casterX, $recipientX,
             $release['party'] ?? $targetGroup?->partySide ?? ($subject === null ? null : ($partySides[spl_object_id($subject)] ?? null)));
+          $facing = $data['facing'] ?? null;
+          $autoMirrored = ($oriented['payload']['flipX'] ?? false) !== ($data['flipX'] ?? false);
           $data = $oriented['payload'] ?? [];
+          $rotation = $imageRotation && $direction !== null && $facing !== null
+            ? (int)round(rad2deg(atan2($direction->y, $direction->x)) - (($facing === 'west') !== $autoMirrored ? 180 : 0)) : 0;
+          $rotation = ($rotation % 360 + 360) % 360;
           $id = 'command-effect-' . $oriented['trackId'] . '-' . ($targetGroup !== null ? 'target-group'
             : ($subject === null ? 'screen' : spl_object_id($subject)));
           $position = $oriented['position'] ?? ['x' => 0, 'y' => 0];
@@ -113,14 +139,7 @@ final class GraphicalBattleEffects
                 throw new InvalidArgumentException('Current battle pose has no effect attachment point ' . $data['attachmentPoint'] . '.');
               }
             }
-            if ($isDetached && isset($data['flight'])) {
-              $path = $release['path'] ?? throw new InvalidArgumentException('Battle projectile release has no captured path.');
-              $arrival = $data['flight']['arrivalFrame'];
-              $sample = $data['flight']['holdFrame'] ?? ($reducedMotion ? $arrival : $playback->session->currentFrame);
-              $sample = min($sample, $reducedMotion ? $arrival : $playback->session->currentFrame);
-              $progress = $sample >= $arrival ? 1.0 : ($sample - $data['detachFrame']) / ($arrival - $data['detachFrame']);
-              $point = $path->getPositionAtProgress($progress);
-            }
+            $point = $flight['point'] ?? $point;
             $x = $point?->x ?? ($box === null ? ($anchor === 'legacy-screen' ? 2 * $arena->uiGrid->cellWidth : $arena->width / 2)
               : ($attachment === 'ground' ? $ground->x : $box->x + $box->width / 2));
             $y = $point?->y ?? ($box === null ? ($anchor === 'legacy-screen' ? 2 * $arena->uiGrid->cellHeight : $arena->height / 2)
@@ -156,7 +175,9 @@ final class GraphicalBattleEffects
                   ? $frameWidth : $data['cells']['width'] * 48) * $scale));
                 $height = min($arena->height, (int)round((($data['cells']['height'] ?? null) === null
                   ? $frameHeight : $data['cells']['height'] * 48) * $scale));
-                $fitted = CanvasImageFit::parse($data['fit'] ?? 'stretch')->getSize($frameWidth, $frameHeight, $width, $height);
+                $fit = isset($data['flight']) && $facing !== null ? CanvasImageFit::CONTAIN
+                  : CanvasImageFit::parse($data['fit'] ?? 'stretch');
+                $fitted = $fit->getSize($frameWidth, $frameHeight, $width, $height);
                 $width = $fitted['width'];
                 $height = $fitted['height'];
                 if ($targetGroup !== null && ($data['span'] ?? false)) {
@@ -170,12 +191,28 @@ final class GraphicalBattleEffects
                 $pivot = $data['pivot'] ?? ['x' => .5, 'y' => .5];
                 if ($data['flipX'] ?? false) { $pivot['x'] = 1 - $pivot['x']; }
                 if ($data['flipY'] ?? false) { $pivot['y'] = 1 - $pivot['y']; }
-                $image = CanvasImage::createClipped($id, $asset, $x - $width * $pivot['x'], $y - $height * $pivot['y'],
-                  $width, $height, $arena->width, $arena->height,
-                  ($data['depth'] ?? 'front') === 'behind' ? 90 : 180,
-                  new SpriteSourceRect(($source % $columns) * $frameWidth,
-                    intdiv($source, $columns) * $frameHeight, $frameWidth, $frameHeight),
-                  flipX: $data['flipX'] ?? false, flipY: $data['flipY'] ?? false);
+                $layer = ($data['depth'] ?? 'front') === 'behind' ? 90 : 180;
+                $crop = new SpriteSourceRect(($source % $columns) * $frameWidth,
+                  intdiv($source, $columns) * $frameHeight, $frameWidth, $frameHeight);
+                $flipX = $data['flipX'] ?? false;
+                $flipY = $data['flipY'] ?? false;
+                $left = $x - $width * $pivot['x'];
+                $top = $y - $height * $pivot['y'];
+                if ($rotation !== 0) {
+                  $angle = deg2rad($rotation);
+                  $offsetX = ($position['x'] ?? 0) * $arena->uiGrid->cellWidth * $scale;
+                  $offsetY = ($position['y'] ?? 0) * $arena->uiGrid->cellHeight * $scale;
+                  $rotated = CanvasImage::createRotated($id, $asset,
+                    new CanvasRectangle($left + $offsetX * (cos($angle) - 1) - $offsetY * sin($angle),
+                      $top + $offsetX * sin($angle) + $offsetY * (cos($angle) - 1), $width, $height, allowOutsideCanvas: true),
+                    $arena->width, $arena->height, $layer, $crop, $flipX, $flipY, $rotation, new PresentationSpritePivot(...$pivot));
+                  if ($rotated === null || $rotated->clipRect === null || $imageClips) {
+                    if ($rotated !== null) { $images[] = $rotated; }
+                    break;
+                  }
+                }
+                $image = CanvasImage::createClipped($id, $asset, $left, $top, $width, $height,
+                  $arena->width, $arena->height, $layer, $crop, $flipX, $flipY);
                 if ($image !== null) { $images[] = $image; }
                 break;
               case 'glyph':
