@@ -410,29 +410,29 @@ it('shares generated party positions between previews and battles at every suppo
   }
 })->with(range(1, Party::MAX_BATTLE_SIZE));
 
-it('stages a promoted reserve wave using its own lineup', function () {
+it('stages a promoted reserve wave using its own lineup', function (int $initialCount, int $reserveCount) {
   $party = new Party();
-  $party->setBattleSize(4);
-  for ($index = 0; $index < 4; $index++) {
+  $party->setBattleSize($initialCount);
+  for ($index = 0; $index < $initialCount; $index++) {
     $party->addMember(new Character('Hero', 1, new Stats(currentHp: 1, totalHp: 100)));
   }
   $reserves = [];
-  for ($index = 0; $index < 2; $index++) {
+  for ($index = 0; $index < $reserveCount; $index++) {
     $reserves[] = $actor = new Character('Hero', 1, new Stats(currentHp: 100, totalHp: 100));
     $party->addMember($actor);
   }
   $battle = new BattleConfig($party, new Troop('Synthetic', []), settings: ['reservePolicy' => 'replace_after_wipeout']);
   $presentation = GraphicalBattlePresentation::prepare($battle, $this->catalog, $this->root);
-  expect($presentation->getStaging()->party)->toHaveCount(4);
+  expect($presentation->getStaging()->party)->toHaveCount($initialCount);
   foreach ($battle->partyRoster->battlers as $actor) { $actor->stats->currentHp = 0; }
   expect($battle->partyRoster->promoteReservesAfterWipeout())->toBeTrue();
-  $preview = BattleFormationLayout::compose($this->catalog, null, [], ['Hero', 'Hero'], $this->root);
+  $preview = BattleFormationLayout::compose($this->catalog, null, [], array_fill(0, $reserveCount, 'Hero'), $this->root);
   expect($presentation->getStaging()->party)->toEqual($preview->staging->party);
   $images = array_column($presentation->frame(reducedMotion: true)->images, null, 'id');
   foreach ($reserves as $index => $reserve) {
     expect($images['combatant-' . spl_object_id($reserve)]->destination)->toEqual($preview->party[$index]->image->destination);
   }
-});
+})->with([[4, 2], [2, 1]]);
 
 it('rejects unknown arenas and invalid formation entries', function () {
   expect(fn() => BattleFormationLayout::compose($this->catalog, 'missing', [], [], $this->root))

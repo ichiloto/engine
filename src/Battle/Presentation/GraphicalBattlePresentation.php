@@ -49,7 +49,6 @@ final class GraphicalBattlePresentation
   private BattleStaging $staging;
   /** @var list<CharacterInterface> */
   private array $stagedFrontline;
-  private bool $arrangesFrontline;
   /** @var array<int, BattlerSlot> Troop member instance => its slot; defeat never renumbers survivors. */
   private array $enemySlots = [];
   /** The menu theme whose control sets draw HUD hints, read once; null when the project has none or it cannot load. */
@@ -228,7 +227,7 @@ final class GraphicalBattlePresentation
 
   public function getStaging(): BattleStaging
   {
-    if ($this->arrangesFrontline && $this->stagedFrontline !== $this->battle->partyRoster->battlers) {
+    if ($this->stagedFrontline !== $this->battle->partyRoster->battlers) {
       $this->staging = $this->stage();
     }
     return $this->staging;
@@ -311,13 +310,13 @@ final class GraphicalBattlePresentation
     }
     $presentation->staging = $presentation->stage();
     $partyIndices = array_flip(array_map(spl_object_id(...), $presentation->stagedFrontline));
-    $presentation->arrangesFrontline = count($partyIndices) > count($layout->partySlots);
+    $arrangesFrontline = count($partyIndices) > count($layout->partySlots);
     foreach ($presentation->participants as $identity => $participant) {
       $available = $participant['available'];
       $art = $participant['art'];
       $member = $participant['battler'];
       $slots = $participant['party'] ? $presentation->staging->party : [$presentation->enemySlots[$identity]];
-      if ($participant['party'] && $presentation->arrangesFrontline) {
+      if ($participant['party'] && $arrangesFrontline) {
         // Generated positions depend on their occupants. A reserve wave is
         // arranged when it enters, but its assets are admitted at battle setup.
         if (!isset($partyIndices[$identity])) {
