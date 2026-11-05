@@ -354,7 +354,7 @@ class BattleScreen implements CanRender, CanUpdate
 
   public function bindCommandPosePoints(\Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback $playback): void
   {
-    if (!$this->usesGraphicalField()) { return; }
+    if (!$playback->plan->requiresGraphicalAnchorCapture() || !$this->usesGraphicalField()) { return; }
     $this->battleScene->graphicalPresentation?->bindCommandPosePoints($playback,
       \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion(), $this->fieldWindow->getPoseElapsedSeconds());
   }

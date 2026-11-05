@@ -44,6 +44,12 @@ final readonly class BattleCommandTimeline
   private ?EffectPlaybackTiming $sourceTiming;
   private ?EffectPlaybackTiming $targetTiming;
 
+  public function requiresGraphicalAnchorCapture(): bool
+  {
+    return array_any($this->timeline->cueSchedule, static fn(array $cue): bool =>
+      $cue['type'] === 'commandCapturePosePoint' || $cue['type'] === 'commandCaptureTargetGroup');
+  }
+
   /**
    * @param float $targetScale The action binding's size for the target effect's images
    *   ({@see \Ichiloto\Engine\Animations\EffectScale}); the source effect and terminal glyphs keep their authored size.

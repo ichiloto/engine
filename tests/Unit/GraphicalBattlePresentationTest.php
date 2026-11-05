@@ -2870,32 +2870,39 @@ it('places a newly occupied logical front position within the themed side and ar
 });
 
 
-it('composes an ordinary source-stage cut-in through the actual battle renderer without a summon binding', function () {
-  [$battle, $catalog, $hero] = graphicalBattleFixture();
+it('hands off a source-stage cut-in directly to the battlefield effect on the next command tick', function (bool $reduced) {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $source = ['fps' => 10, 'lengthFrames' => 5, 'restFrame' => 1,
-    'stage' => ['canvas' => ['width' => 320, 'height' => 180], 'startFrame' => 0, 'restoreFrame' => 4,
+    'stage' => ['canvas' => ['width' => 320, 'height' => 180], 'startFrame' => 0, 'restoreFrame' => 5,
       'camera' => [['id' => 'wide', 'frame' => 0, 'focus' => ['x' => 160, 'y' => 90], 'zoom' => 1]]],
     'tracks' => [['id' => 'portrait', 'type' => 'image', 'asset' => 'test-sprite.png', 'anchor' => 'stage',
       'placement' => ['position' => ['x' => 160, 'y' => 160], 'size' => ['width' => 32, 'height' => 48]],
-      'keyframes' => [['frame' => 0, 'duration' => 4]]]]];
-  $compiled = new \Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator($this->root)
-    ->compile('ordinary-stage', $source, forBattle: true);
+      'keyframes' => [['frame' => 0, 'duration' => 5]]]]];
+  $compiler = new \Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator($this->root);
+  $compiled = $compiler->compile('ordinary-stage', $source, forBattle: true);
+  $target = $compiler->compile('target-flash', ['fps' => 10, 'lengthFrames' => 5, 'restFrame' => 0, 'tracks' => [[
+    'id' => 'target-flash', 'type' => 'image', 'asset' => 'test-sprite.png', 'keyframes' => [['frame' => 0, 'duration' => 5]],
+  ]]], forBattle: true);
   $plan = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline(
-    new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, .5, .1, .1, .1, .1, .1), source: $compiled);
-  $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $hero, [],
+    new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, .5, .1, .1, .1, .1, .1), source: $compiled, target: $target);
+  $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $hero, [$enemies[0]],
     BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
   $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
   $field = graphicalBattleScene($battle, $presentation)->ui->fieldWindow;
   $field->setCommandPlayback($playback);
-  $tick = $plan->getCommandFrameForAuthoredFrame('source', 1);
-  $playback->update($tick / \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline::FPS);
-  $canvas = $presentation->frame($field);
+  $tick = $plan->phases['target']['start'];
+  $playback->update(($tick - 1) / \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline::FPS);
+  $canvas = $presentation->frame($field, reducedMotion: $reduced);
   expect($plan->summon)->toBeNull()
     ->and(array_column($canvas->images, 'id'))->toContain('cinematic-stage-portrait')->not->toContain('arena')
     ->and($playback->presentationFailure)->toBeNull();
+  $playback->update(1 / \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline::FPS);
+  expect(array_column($presentation->frame($field, reducedMotion: $reduced)->images, 'id'))
+    ->toContain('arena', 'command-effect-target-target-flash-' . spl_object_id($enemies[0]))
+    ->not->toContain('cinematic-stage-portrait');
   $playback->cancel();
   expect(array_column($presentation->frame($field)->images, 'id'))->toContain('arena');
-});
+})->with([false, true]);
 
 it('retains current image geometry and draw order while state tones appear and disappear', function (bool $reduced) {
   $root = createTestDirectory('state-tone-frame');

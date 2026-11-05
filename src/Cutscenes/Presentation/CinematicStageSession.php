@@ -25,6 +25,7 @@ final class CinematicStageSession
   public private(set) bool $hasPresentationFailure = false;
 
   public bool $isActive { get => $this->checkIsCurrent(); }
+  public bool $hasEnded { get => $this->elapsedSeconds >= $this->timing->durationSeconds; }
   public int $currentFrame { get => min($this->timing->totalFrames - 1,
     $this->timing->getFrameCountAt(min($this->elapsedSeconds, $this->timing->durationSeconds))); }
 
@@ -65,7 +66,7 @@ final class CinematicStageSession
 
   public function getCanvas(int $width, int $height, bool $reducedMotion = false, bool $imageFlips = true): ?PresentationCanvas
   {
-    if (!$this->checkIsCurrent() || $this->hasPresentationFailure) { return null; }
+    if (!$this->checkIsCurrent() || $this->hasEnded || $this->hasPresentationFailure) { return null; }
     try {
       return CinematicStagePresentation::compose($this->stage->getFrame($this->currentFrame, $reducedMotion),
         $this->timeline->playbackSegments, $this->assetRoot, $width, $height, $imageFlips);

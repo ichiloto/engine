@@ -152,7 +152,8 @@ final class CinematicPresentationManager
     $this->reconcileStagePresentations();
     $layers = [];
     foreach ($this->stages as $entry) {
-      if (!$entry['session']->hasPresentationFailure) { array_push($layers, ...$entry['session']->excludedLayers); }
+      $session = $entry['session'];
+      if (!$session->hasEnded && !$session->hasPresentationFailure) { array_push($layers, ...$session->excludedLayers); }
     }
     return array_values(array_unique($layers));
   }

@@ -185,7 +185,7 @@ it('rejects ambiguous or unsafe stage contracts before runtime', function (Closu
   'bad canvas' => [static function (&$s) { $s['stage']['canvas']['width'] = 0; }],
   'negative start' => [static function (&$s) { $s['stage']['startFrame'] = -1; }],
   'missing restore' => [static function (&$s) { unset($s['stage']['restoreFrame']); }],
-  'late restore' => [static function (&$s) { $s['stage']['restoreFrame'] = 12; }],
+  'late restore' => [static function (&$s) { $s['stage']['restoreFrame'] = 13; }],
   'empty interval' => [static function (&$s) { $s['stage']['restoreFrame'] = 1; }],
   'unsafe rest' => [static function (&$s) { $s['restFrame'] = 10; }],
   'uncovered safe pose' => [static function (&$s) { $s['restFrame'] = 0; $s['stage']['startFrame'] = 0; }],

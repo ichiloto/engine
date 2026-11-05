@@ -22,10 +22,11 @@ final readonly class CinematicStage
       || array_any($canvas, static fn($value): bool => !is_int($value) || $value < 1 || $value > 4096)) {
       throw new InvalidArgumentException('stage.canvas needs width/height integers in 1..4096.');
     }
-    foreach (['startFrame', 'restoreFrame'] as $key) {
-      if (!is_int($data[$key] ?? null) || $data[$key] < 0 || $data[$key] >= $lengthFrames) {
-        throw new InvalidArgumentException('stage.' . $key . ' must be a frame of its authored sequence.');
-      }
+    if (!is_int($data['startFrame'] ?? null) || $data['startFrame'] < 0 || $data['startFrame'] >= $lengthFrames) {
+      throw new InvalidArgumentException('stage.startFrame must be a frame of its authored sequence.');
+    }
+    if (!is_int($data['restoreFrame'] ?? null) || $data['restoreFrame'] < 0 || $data['restoreFrame'] > $lengthFrames) {
+      throw new InvalidArgumentException('stage.restoreFrame must be an exclusive boundary within or at the end of its authored sequence.');
     }
     if ($data['startFrame'] >= $data['restoreFrame'] || $restFrame < $data['startFrame'] || $restFrame >= $data['restoreFrame']) {
       throw new InvalidArgumentException('stage.startFrame/restoreFrame require an active interval containing the sequence restFrame.');
