@@ -77,8 +77,7 @@ it('lets a smaller party take the formation\'s front-most slots', function () {
   $layout = stagingLayout($slots, new BattleGround(top: 250), 12);
   expect(BattleStaging::getPartyPlaces($layout, array_fill(0, 1, ['width' => 1.0, 'height' => 1.0])))->toBe([$slots[2]])
     ->and(BattleStaging::getPartyPlaces($layout, array_fill(0, 2, ['width' => 1.0, 'height' => 1.0])))->toBe([$slots[1], $slots[2]])
-    ->and(fn() => BattleStaging::getPartyPlaces($layout, array_fill(0, 4, ['width' => 1.0, 'height' => 1.0])))
-    ->toThrow(InvalidArgumentException::class);
+    ->and(BattleStaging::getPartyPlaces($layout, array_fill(0, 3, ['width' => 1.0, 'height' => 1.0])))->toBe($slots);
 });
 
 it('arranges a staggered echelon that steps back by the battlers\' own size, inside the side\'s area', function (int $count) {

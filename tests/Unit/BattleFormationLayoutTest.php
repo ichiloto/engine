@@ -391,11 +391,52 @@ it('uses existing contain fit when a legacy registered width cannot fit the canv
     ->and($member->diagnostics)->not->toBeEmpty()->and($member->bodySpan)->toBeNull();
 });
 
-it('rejects unknown arenas, invalid formation entries and insufficient party slots', function () {
+it('shares generated party positions between previews and battles at every supported frontline size', function (int $count) {
+  $party = new Party();
+  $party->setBattleSize($count);
+  for ($index = 0; $index < Party::MAX_BATTLE_SIZE; $index++) {
+    $party->addMember(new Character('Hero', 1, new Stats(currentHp: 100, totalHp: 100)));
+  }
+  $preview = BattleFormationLayout::compose($this->catalog, null, [], array_fill(0, $count, 'Hero'), $this->root);
+  $battle = new BattleConfig($party, new Troop('Synthetic', []));
+  $presentation = GraphicalBattlePresentation::prepare($battle, $this->catalog, $this->root);
+  expect($preview->party)->toHaveCount($count)
+    ->and($presentation->getStaging()->party)->toEqual($preview->staging->party)
+    ->and($party->battlers)->toHaveCount($count);
+  $images = array_column($presentation->frame(reducedMotion: true)->images, null, 'id');
+  foreach ($battle->partyRoster->battlers as $index => $actor) {
+    $image = $images['combatant-' . spl_object_id($actor)];
+    expect($image->destination)->toEqual($preview->party[$index]->image->destination);
+  }
+})->with(range(1, Party::MAX_BATTLE_SIZE));
+
+it('stages a promoted reserve wave using its own lineup', function () {
+  $party = new Party();
+  $party->setBattleSize(4);
+  for ($index = 0; $index < 4; $index++) {
+    $party->addMember(new Character('Hero', 1, new Stats(currentHp: 1, totalHp: 100)));
+  }
+  $reserves = [];
+  for ($index = 0; $index < 2; $index++) {
+    $reserves[] = $actor = new Character('Hero', 1, new Stats(currentHp: 100, totalHp: 100));
+    $party->addMember($actor);
+  }
+  $battle = new BattleConfig($party, new Troop('Synthetic', []), settings: ['reservePolicy' => 'replace_after_wipeout']);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $this->catalog, $this->root);
+  expect($presentation->getStaging()->party)->toHaveCount(4);
+  foreach ($battle->partyRoster->battlers as $actor) { $actor->stats->currentHp = 0; }
+  expect($battle->partyRoster->promoteReservesAfterWipeout())->toBeTrue();
+  $preview = BattleFormationLayout::compose($this->catalog, null, [], ['Hero', 'Hero'], $this->root);
+  expect($presentation->getStaging()->party)->toEqual($preview->staging->party);
+  $images = array_column($presentation->frame(reducedMotion: true)->images, null, 'id');
+  foreach ($reserves as $index => $reserve) {
+    expect($images['combatant-' . spl_object_id($reserve)]->destination)->toEqual($preview->party[$index]->image->destination);
+  }
+});
+
+it('rejects unknown arenas and invalid formation entries', function () {
   expect(fn() => BattleFormationLayout::compose($this->catalog, 'missing', [], [], $this->root))
     ->toThrow(RuntimeException::class)
-    ->and(fn() => BattleFormationLayout::compose($this->catalog, null, [], ['Hero', 'Hero', 'Hero'], $this->root))
-    ->toThrow(InvalidArgumentException::class)
     ->and(fn() => BattleFormationLayout::compose($this->catalog, null, [['enemyId' => 'Creature', 'slot' => []]], [], $this->root))
     ->toThrow(InvalidArgumentException::class);
 });

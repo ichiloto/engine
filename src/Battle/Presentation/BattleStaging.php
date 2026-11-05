@@ -60,32 +60,34 @@ final readonly class BattleStaging
     }
     $ground = $layout->getGround($arena);
     $footing = $arena?->footing ?? new BattleFooting();
-    $party = self::getPartyPlaces($layout, $partyBodies);
+    $party = self::getPartyPlaces($layout, $partyBodies, $ground, $footing);
     $partyCompression = self::getCompression($ground, $party);
     $enemies = self::arrange($layout, false, $enemyBodies, $enemyPlaces, $ground, $footing, $enemyHabitats);
     $enemyCompression = self::getCompression($ground, $enemies);
     // The party stands on land; each troop member where its habitat lives.
+    $arrangedParty = count($partyBodies) > count($layout->partySlots);
     $partySlots = array_map(static fn(BattleStageSlot $place, array $body): BattlerSlot => self::getFootedSlot($layout, true, $ground, $footing,
-      EnemyHabitat::LAND, $place->getSlotOn($ground, $partyCompression), $body), $party, $partyBodies);
+      EnemyHabitat::LAND, $place->getSlotOn($ground, $partyCompression), $body, fitToAreas: $arrangedParty), $party, $partyBodies);
     $enemySlots = array_map(static fn(BattleStageSlot $place, EnemyHabitat $habitat, array $body): BattlerSlot => self::getFootedSlot($layout, false,
       $ground, $footing, $habitat, $place->getSlotOn($ground, $enemyCompression), $body), $enemies, $enemyHabitats, $enemyBodies);
     return new self($ground, $partySlots, $enemySlots, $party, $enemies, $partyCompression, $enemyCompression);
   }
 
   /**
-   * A frontline's places: the theme formation's front-most slots, or the
-   * Engine's arrangement when the theme authors none.
+   * A frontline uses the theme's front-most slots when the lineup fits.
+   * Larger frontlines use the Engine's arrangement for the whole lineup.
    *
    * @param list<array{width: float, height: float}> $bodies
    * @return list<BattleStageSlot>
    */
-  public static function getPartyPlaces(BattleCanvasLayout $layout, array $bodies): array
+  public static function getPartyPlaces(BattleCanvasLayout $layout, array $bodies,
+    ?BattleGroundBand $ground = null, ?BattleFooting $footing = null): array
   {
-    if ($layout->partySlots === []) { return self::arrange($layout, true, $bodies); }
-    if (count($bodies) > count($layout->partySlots)) {
-      throw new InvalidArgumentException('The party formation requires a slot for every frontline member.');
+    $slotCount = count($layout->partySlots);
+    if (count($bodies) > $slotCount) {
+      return self::arrange($layout, true, $bodies, ground: $ground, footing: $footing);
     }
-    return array_slice($layout->partySlots, count($layout->partySlots) - count($bodies));
+    return array_slice($layout->partySlots, $slotCount - count($bodies));
   }
 
   /**
@@ -280,18 +282,19 @@ final readonly class BattleStaging
    * @param array{width: float, height: float, pivotX?: float, pivotY?: float}|null $body Drawn size before slot depth.
    */
   public static function fitMovedSlot(BattleCanvasLayout $layout, BattleArenaDefinition $arena, bool $party,
-    EnemyHabitat $habitat, BattlerSlot $slot, ?array $body = null): BattlerSlot
+    EnemyHabitat $habitat, BattlerSlot $slot, ?array $body = null, bool $fitToAreas = false): BattlerSlot
   {
-    return self::getFootedSlot($layout, $party, $layout->getGround($arena), $arena->footing ?? new BattleFooting(), $habitat, $slot, $body);
+    return self::getFootedSlot($layout, $party, $layout->getGround($arena), $arena->footing ?? new BattleFooting(),
+      $habitat, $slot, $body, $fitToAreas);
   }
 
   private static function getFootedSlot(BattleCanvasLayout $layout, bool $party, BattleGroundBand $ground, BattleFooting $footing,
-    EnemyHabitat $habitat, BattlerSlot $slot, ?array $body = null): BattlerSlot
+    EnemyHabitat $habitat, BattlerSlot $slot, ?array $body = null, bool $fitToAreas = false): BattlerSlot
   {
-    // A footing projection may need both axes to satisfy the body and habitat.
-    // With no authored footing, retain authored placements and their diagnostics.
-    if ($body !== null && $footing->isDeclared && (!array_key_exists('visible', $body) || $body['visible'] !== null)) {
-      $point = $footing->getFootedPoint($habitat, $slot->x, $slot->y, self::getBodyLimits($layout, $party, $ground, $slot, $body));
+    // Generated party positions must clear the authored areas even on unrestricted ground.
+    if ($body !== null && ($footing->isDeclared || $fitToAreas) && (!array_key_exists('visible', $body) || $body['visible'] !== null)) {
+      $point = $footing->getFootedPoint($habitat, $slot->x, $slot->y,
+        self::getBodyLimits($layout, $party, $ground, $slot, $body, $fitToAreas));
       if ($point !== null) {
         [$x, $y] = $point;
         if (abs($x - $slot->x) < .000001 && abs($y - $slot->y) < .000001) { return $slot; }
@@ -316,7 +319,7 @@ final readonly class BattleStaging
    * @return list<array{0: float, 1: float, 2: float}>
    */
   private static function getBodyLimits(BattleCanvasLayout $layout, bool $party, BattleGroundBand $ground,
-    BattlerSlot $slot, array $body): array
+    BattlerSlot $slot, array $body, bool $includeBaseCanvas): array
   {
     [$left, $right] = self::getSideRange($layout, $party);
     [$top, $bottom] = [0.0, $layout->getHudTop()];
@@ -334,6 +337,12 @@ final readonly class BattleStaging
     $canvasBottom = $body['height'] - $canvasTop;
     ['left' => $reachLeft, 'right' => $reachRight, 'top' => $reachTop, 'bottom' => $reachBottom] = $body['visible']
       ?? ['left' => $canvasLeft, 'right' => $canvasRight, 'top' => $canvasTop, 'bottom' => $canvasBottom];
+    if ($includeBaseCanvas && isset($body['baseCanvas'])) {
+      $canvasLeft = max($canvasLeft, $body['baseCanvas']['left']);
+      $canvasRight = max($canvasRight, $body['baseCanvas']['right']);
+      $canvasTop = max($canvasTop, $body['baseCanvas']['top']);
+      $canvasBottom = max($canvasBottom, $body['baseCanvas']['bottom']);
+    }
     return [[0.0, 1.0, -$ground->top], [0.0, -1.0, $ground->bottom],
       [1.0, -$reachLeft * $slope, -$left - $reachLeft * $intercept],
       [-1.0, -$reachRight * $slope, $right - $reachRight * $intercept],

@@ -703,8 +703,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     $store = ConfigStore::has(EnemyStore::class) ? ConfigStore::get(EnemyStore::class) : null;
     $enemies = array_map(static fn(array $entry): array => [...$entry,
       'habitat' => $store?->all()[$entry['enemyId']]->habitat ?? EnemyHabitat::LAND], $enemies);
-    $party = array_map(static fn(BattleTestMember $member): string => $member->actorId, $editor->setup->members);
-    $party = $catalog->ui->partySlots === [] ? $party : array_slice($party, 0, count($catalog->ui->partySlots));
+    $party = array_map(static fn(BattleTestMember $member): string => $member->actorId,
+      array_slice($editor->setup->members, 0, $editor->setup->battleSize));
     $key = serialize([$enemies, $party, $editor->setup->arena]);
     if (($this->stage['key'] ?? null) !== $key) {
       try {

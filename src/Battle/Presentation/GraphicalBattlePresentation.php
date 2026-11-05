@@ -47,6 +47,9 @@ final class GraphicalBattlePresentation
   private readonly EnemyDefeatStyle $defeatStyle;
   /** Starting presentation anchors; current logical positions project movement over these. */
   private BattleStaging $staging;
+  /** @var list<CharacterInterface> */
+  private array $stagedFrontline;
+  private bool $arrangesFrontline;
   /** @var array<int, BattlerSlot> Troop member instance => its slot; defeat never renumbers survivors. */
   private array $enemySlots = [];
   /** The menu theme whose control sets draw HUD hints, read once; null when the project has none or it cannot load. */
@@ -207,7 +210,8 @@ final class GraphicalBattlePresentation
       $party ? null : $this->battle->troop->getStagePlace($battler), $this->assetRoot);
     return BattleStaging::fitMovedSlot($this->layout, $this->arena, $party,
       $this->participants[spl_object_id($battler)]['habitat'] ?? EnemyHabitat::LAND,
-      new BattlerSlot(max($left, min($right, $point->x)), $y, $base->width, $base->height, $scale), $body);
+      new BattlerSlot(max($left, min($right, $point->x)), $y, $base->width, $base->height, $scale), $body,
+      fitToAreas: $party && count($members) > count($this->layout->partySlots));
   }
 
   private function getBaseSlot(CharacterInterface $battler): BattlerSlot
@@ -219,11 +223,14 @@ final class GraphicalBattlePresentation
     }
     $index = array_search($battler, $this->battle->partyRoster->battlers, true);
     return $index === false ? throw new RuntimeException('Only frontline members stand in the party formation.')
-      : $this->staging->party[$index] ?? throw new RuntimeException('Graphical battle requires a slot for every active party member.');
+      : $this->getStaging()->party[$index] ?? throw new RuntimeException('Graphical battle requires a slot for every active party member.');
   }
 
   public function getStaging(): BattleStaging
   {
+    if ($this->arrangesFrontline && $this->stagedFrontline !== $this->battle->partyRoster->battlers) {
+      $this->staging = $this->stage();
+    }
     return $this->staging;
   }
 
@@ -236,8 +243,9 @@ final class GraphicalBattlePresentation
     };
     $enemies = $this->battle->troop->members->toArray();
     $places = array_map(fn($enemy): ?BattleStageSlot => $this->battle->troop->getStagePlace($enemy), $enemies);
+    $this->stagedFrontline = $this->battle->partyRoster->battlers;
     $staging = BattleStaging::stage($this->layout, $this->arena,
-      array_map(static fn(CharacterInterface $battler): array => $getSize($battler, null), $this->battle->partyRoster->battlers),
+      array_map(static fn(CharacterInterface $battler): array => $getSize($battler, null), $this->stagedFrontline),
       $places, array_map($getSize, $enemies, $places),
       array_map(static fn($enemy): EnemyHabitat => $enemy instanceof Enemy ? $enemy->habitat : EnemyHabitat::LAND, $enemies));
     foreach ($enemies as $index => $enemy) { $this->enemySlots[spl_object_id($enemy)] = $staging->enemies[$index]; }
@@ -301,17 +309,23 @@ final class GraphicalBattlePresentation
           'strikePoint' => ($party ? $catalog->actorStrikePoints : $catalog->enemyStrikePoints)[$key] ?? null];
       }
     }
-    if ($layout->partySlots !== [] && count($battle->partyRoster->battlers) > count($layout->partySlots)) {
-      throw new RuntimeException('Graphical battle requires a slot for every active party member.');
-    }
     $presentation->staging = $presentation->stage();
+    $partyIndices = array_flip(array_map(spl_object_id(...), $presentation->stagedFrontline));
+    $presentation->arrangesFrontline = count($partyIndices) > count($layout->partySlots);
     foreach ($presentation->participants as $identity => $participant) {
       $available = $participant['available'];
       $art = $participant['art'];
       $member = $participant['battler'];
-      // Explicit reserve replacement may place any member in an active slot.
-      // Asset preparation must not change the battle's participation policy.
       $slots = $participant['party'] ? $presentation->staging->party : [$presentation->enemySlots[$identity]];
+      if ($participant['party'] && $presentation->arrangesFrontline) {
+        // Generated positions depend on their occupants. A reserve wave is
+        // arranged when it enters, but its assets are admitted at battle setup.
+        if (!isset($partyIndices[$identity])) {
+          if ($available) { $images[] = $participant['image']; }
+          continue;
+        }
+        $slots = [$slots[$partyIndices[$identity]]];
+      }
       foreach ($slots as $possibleSlot) {
         $bounds = $presentation->placeBaseArtwork($possibleSlot, $available ? $art : null, $participant['poses'], $identity,
           $participant['scale']);
@@ -338,7 +352,6 @@ final class GraphicalBattlePresentation
     if ($layout->battlerArea !== null || $layout->enemyArea !== null || $layout->partyArea !== null) {
       $resting = $presentation->frame();
       $partyImages = $enemyImages = [];
-      $partyIndices = array_flip(array_map(spl_object_id(...), $battle->partyRoster->battlers));
       $enemyIndices = array_flip(array_map(spl_object_id(...), $battle->troop->members->toArray()));
       $labels = [];
       foreach ($presentation->participants as $identity => $participant) {

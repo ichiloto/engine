@@ -463,9 +463,10 @@ where the UI's bottom windows begin, read by `GraphicalBattleHud` too).
   keeps its shape on every arena. A side deeper than the ground is compressed
   in depth as a whole, keeping its shape; nobody stands in front of the near
   edge or beyond the far edge.
-- The party uses the layout's `partySlots` (stage places, back to front); a
-  smaller frontline takes the front-most slots. A layout without party slots
-  has its party arranged like a troop.
+- A frontline that fits the layout's `partySlots` uses the front-most authored
+  slots. A larger frontline uses the shared staggered arrangement and fits
+  each body to the arena footing and battler area. Runtime and formation
+  previews use the same arrangement for the selected lineup.
 - Troop members with a place keep it; the rest are arranged by
   `BattleStaging::arrange()`: a staggered echelon from back (first member) to
   front (last), each rank stepping back by `BattleFormationSpacing::depth`
@@ -744,8 +745,8 @@ side regions may be anywhere on the canvas, including mirrored formations.
 they never move or shrink authored battlers. Optional PNG inspection support
 is reported when unavailable and is not a new runtime decoding requirement.
 
-Supply shared-layout party slots for the configured active formation and each
-troop enemy's graphicalPlacement. The battle-owned active roster is drawn;
+Supply shared-layout party slots to author the regular formation and
+`graphicalPlacement` to position specific enemies. The battle-owned active roster is drawn;
 automatic reserve fallback is removed by default. Per-battle
 `reservePolicy => replace_after_wipeout` is an explicit opt-in applied after
 the final KO presentation, never by drawing or asset reads. Enemy removal never renumbers a surviving
