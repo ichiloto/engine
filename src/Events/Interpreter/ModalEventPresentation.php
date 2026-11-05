@@ -11,6 +11,7 @@ use Ichiloto\Engine\UI\Modal\SelectModal;
 use Ichiloto\Engine\UI\Modal\TextBoxModal;
 use Ichiloto\Engine\UI\Modal\StorybookModal;
 use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
+use Ichiloto\Engine\Messaging\Storybook\StorybookOutcome;
 use Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface;
 use RuntimeException;
 
@@ -19,7 +20,7 @@ use RuntimeException;
  * field or a battle. Graphical renderers compose the same modals over the
  * host scene's canvas.
  */
-final class ModalEventPresentation implements EventPlayedDialoguePresentationInterface, EventStorybookPresentationInterface, EventPausablePresentationInterface
+final class ModalEventPresentation implements EventPlayedDialoguePresentationInterface, EventStorybookOutcomePresentationInterface, EventPausablePresentationInterface
 {
   protected ?ModalInterface $modal = null;
 
@@ -120,6 +121,11 @@ final class ModalEventPresentation implements EventPlayedDialoguePresentationInt
   public function isComplete(): bool
   {
     return $this->modal !== null && ! $this->modal->isShowing();
+  }
+
+  public function getStorybookOutcome(): ?StorybookOutcome
+  {
+    return $this->modal instanceof StorybookModal ? $this->modal->getReadingOutcome() : null;
   }
 
   public function choiceResult(): ?int

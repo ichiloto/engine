@@ -60,10 +60,13 @@ The cooperative `play_storybook` event command selects a stable book ID from the
 active project's `assets/Data/Storybooks` library and opens the reader through
 `EventStorybookPresentationInterface`. It shares the existing event presentation
 lane, yields to the ordinary game loop and resumes the invoking script when the
-reader closes. Failure or interruption uses the same owned modal cleanup and
-permits an ordinary retry. Reading itself adds no progress flag or reward.
-Field and battle scopes share this read-only presentation command. The cinematic
-schema exposes the resource source and definition fields for Editor selection.
+reader closes. Authors can add an optional `onFinish` command list, which runs
+in the same lane after the player confirms Close on the final continuation.
+Cancel and interruption skip that list. Failure or interruption uses the
+existing owned modal cleanup and permits an ordinary retry. Reading itself
+writes no progress flag or reward. Field and battle scopes share the reader and
+apply their own command rules to the continuation. The cinematic schema
+exposes the book reference and the After Reading list for Editor authoring.
 
 Graphical hosts implement `StorybookReadingCapacityProviderInterface` to measure
 the actual prose space before opening the shared modal and while it is open.

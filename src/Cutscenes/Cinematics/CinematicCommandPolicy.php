@@ -90,6 +90,11 @@ final class CinematicCommandPolicy
         continue;
       }
 
+      if ($type === 'play_storybook' && array_key_exists(CinematicCommandSchema::STORYBOOK_FINISH_FIELD, $command)) {
+        $finish = CinematicCommandSchema::STORYBOOK_FINISH_FIELD;
+        self::inspectSkipCommands($command[$finish], $cinematicId, "$commandPath/$finish");
+      }
+
       if ($type === 'choice') {
         foreach ($command['options'] as $optionIndex => $option) {
           if (array_key_exists('then', $option)) {

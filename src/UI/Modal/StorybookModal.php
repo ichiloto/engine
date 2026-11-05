@@ -12,6 +12,7 @@ use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePaginationBuilder;
 use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
 use Ichiloto\Engine\Messaging\Storybook\StorybookPlayback;
+use Ichiloto\Engine\Messaging\Storybook\StorybookOutcome;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface;
@@ -155,6 +156,11 @@ class StorybookModal extends Modal
             return;
         }
         $this->updateReaderContent();
+    }
+
+    public function getReadingOutcome(): ?StorybookOutcome
+    {
+        return $this->reader->outcome;
     }
 
     public function hide(): void

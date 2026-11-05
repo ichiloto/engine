@@ -16,7 +16,11 @@ final class StorybookPlayback
     /** @var array<int, non-empty-list<string>> */
     private array $continuations = [];
 
-    public private(set) bool $isClosed = false;
+    public private(set) ?StorybookOutcome $outcome = null;
+
+    public bool $isClosed {
+        get => $this->outcome !== null;
+    }
 
     public StorybookPage $page {
         get => $this->book->pages[$this->pageIndex];
@@ -74,7 +78,7 @@ final class StorybookPlayback
             $this->pageIndex++;
             $this->continuationIndex = 0;
         } else {
-            $this->close();
+            $this->outcome = StorybookOutcome::FINISHED;
         }
     }
 
@@ -127,10 +131,10 @@ final class StorybookPlayback
         return mb_strlen(preg_replace('/\\s+/u', '', TerminalText::stripAnsi($text)));
     }
 
-    /** Closing has no completion flag, reward or persistent progress outcome. */
+    /** Dismissal preserves a finish already recorded by the final advance. */
     public function close(): void
     {
-        $this->isClosed = true;
+        $this->outcome ??= StorybookOutcome::CANCELLED;
     }
 
     /** @return non-empty-list<string> */

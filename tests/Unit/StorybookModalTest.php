@@ -13,6 +13,7 @@ use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
+use Ichiloto\Engine\Messaging\Storybook\StorybookOutcome;
 use Ichiloto\Engine\UI\Modal\ModalPresentation;
 use Ichiloto\Engine\UI\Modal\StorybookModal;
 use Ichiloto\Engine\UI\Modal\StorybookReadingCapacity;
@@ -132,6 +133,7 @@ it('consumes opening and closing actions while preserving unread caller input', 
     ob_start();
     try { $modal->update(); } finally { ob_end_clean(); }
     expect($modal->isShowing())->toBeFalse()->and(InputManager::getPressedKeyCode())->toBeNull()
+        ->and($modal->getReadingOutcome())->toBe($closing === KeyCode::ENTER ? StorybookOutcome::FINISHED : StorybookOutcome::CANCELLED)
         ->and($source->resets)->not->toContain(true);
     InputManager::handleInput();
     expect(Input::isButtonDown('right'))->toBeTrue();
@@ -225,10 +227,11 @@ it('opens and resets a cooperative book through the existing event presentation 
     InputManager::handleInput();
     ob_start();
     try { $surface->update(); } finally { ob_end_clean(); }
-    expect($surface->isComplete())->toBeTrue();
+    expect($surface->isComplete())->toBeTrue()->and($surface->getStorybookOutcome())->toBe(StorybookOutcome::CANCELLED);
     $surface->reset();
     $surface->reset();
-    expect($host->restored)->toBe(1)->and(InputManager::getPressedKeyCode())->toBeNull();
+    expect($host->restored)->toBe(1)->and($surface->getStorybookOutcome())->toBeNull()
+        ->and(InputManager::getPressedKeyCode())->toBeNull();
 });
 
 it('uses the presentation hosts measured graphical capacity without launching a renderer', function () {

@@ -42,12 +42,15 @@ final class CinematicCommandSchema
    */
   public const array EXISTING_STAGED_ACTOR_COMMANDS = ['show_actor', 'hide_actor'];
 
+  public const string STORYBOOK_FINISH_FIELD = 'onFinish';
+
   public const array BLOCK_TYPES = ['sequence', 'parallel'];
   public const array NESTED_BLOCK_SHAPES = [
     'sequence' => ['commands'],
     'parallel' => ['lanes', 'lane' => ['id', 'commands']],
     'branch' => ['then', 'else'],
     'choice' => ['options', 'option' => ['text', 'then'], 'cancel'],
+    'play_storybook' => [self::STORYBOOK_FINISH_FIELD],
   ];
   public const array SUBJECT_KINDS = ['player', 'party_actor', 'npc', 'world_object', 'staged_actor', 'position', 'screen_position', 'marker'];
   public const array CAMERA_OPERATIONS = [CinematicCameraOperation::DETACH->value, CinematicCameraOperation::ATTACH->value,
@@ -190,7 +193,8 @@ final class CinematicCommandSchema
         'definitionReader' => \Ichiloto\Engine\Messaging\Storybook\StorybookDefinition::class,
         'definitionFields' => \Ichiloto\Engine\Messaging\Storybook\StorybookDefinition::FIELDS,
         'pageFields' => \Ichiloto\Engine\Messaging\Storybook\StorybookPage::FIELDS,
-        'completion' => 'Any reader close resumes the invoking script; no seen flag, reward or required plot write.',
+        'finishField' => self::STORYBOOK_FINISH_FIELD,
+        'completion' => 'Final Close runs the optional onFinish commands before resuming. Cancelling skips them. Reading alone writes no progress or reward.',
         'interruption' => 'Owned modal cleanup and ordinary retry; one event lane owns presentation.',
         'graphicalHost' => \Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface::class,
       ],

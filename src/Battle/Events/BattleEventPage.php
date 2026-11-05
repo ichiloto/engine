@@ -206,6 +206,12 @@ final readonly class BattleEventPage
       case 'sequence':
         $lists = ['commands' => $command['commands'] ?? []];
         break;
+      case 'play_storybook':
+        $finish = CinematicCommandSchema::STORYBOOK_FINISH_FIELD;
+        if (array_key_exists($finish, $command)) {
+          $lists[$finish] = $command[$finish];
+        }
+        break;
       case 'choice':
         foreach ((array) ($command['options'] ?? []) as $option => $entry) {
           $lists["options[{$option}].then"] = is_array($entry) ? ($entry['then'] ?? []) : [];

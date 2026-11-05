@@ -33,6 +33,7 @@ use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
 use Ichiloto\Engine\Messaging\Storybook\StorybookLibrary;
+use Ichiloto\Engine\Messaging\Storybook\StorybookOutcome;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Rendering\ScreenTransition;
@@ -568,6 +569,13 @@ class EventInterpreter
         }
         if (!$this->presentation instanceof EventStorybookPresentationInterface) {
           throw new RuntimeException('play_storybook requires a cooperative storybook presentation.');
+        }
+        $finish = CinematicCommandSchema::STORYBOOK_FINISH_FIELD;
+        if (array_key_exists($finish, $command)) {
+          CinematicScriptValidator::validateStorybookPlayback($command, $session->cinematic?->id ?? 'event', $lane->commandPath());
+          if ($command[$finish] !== [] && !$this->presentation instanceof EventStorybookOutcomePresentationInterface) {
+            throw new RuntimeException('play_storybook onFinish requires a reader that reports a reading outcome.');
+          }
         }
         // Narration belongs to the active project, independently of its renderer's artwork root.
         $book = new StorybookLibrary(Path::join(Path::getCurrentWorkingDirectory(), 'assets'))->load($bookId);
@@ -1115,9 +1123,19 @@ class EventInterpreter
         return false;
       }
 
+      $finish = $type === 'play_storybook' ? ($lane->pendingCommand[CinematicCommandSchema::STORYBOOK_FINISH_FIELD] ?? []) : [];
+      $outcome = $this->presentation instanceof EventStorybookOutcomePresentationInterface && $finish !== []
+        ? $this->presentation->getStorybookOutcome() : null;
+      if ($finish !== [] && $outcome === null) {
+        throw new RuntimeException('Completed storybook presentation did not report a reading outcome.');
+      }
+
       $this->presentation->reset();
       $session->releasePresentation($lane);
       $lane->completePendingCommand();
+      if ($outcome === StorybookOutcome::FINISHED) {
+        $lane->pushFrame($finish, 'storybook:onFinish');
+      }
       return true;
     }
 

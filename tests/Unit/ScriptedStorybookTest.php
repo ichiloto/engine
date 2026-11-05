@@ -13,6 +13,8 @@ use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionStatus;
 use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
 use Ichiloto\Engine\Events\Interpreter\EventPresentationInterface;
+use Ichiloto\Engine\Events\Interpreter\EventStorybookOutcomePresentationInterface;
+use Ichiloto\Engine\Messaging\Storybook\StorybookOutcome;
 use Ichiloto\Engine\Events\Interpreter\EventStorybookPresentationInterface;
 use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -47,10 +49,17 @@ class StorybookEventSurface implements EventPresentationInterface
     public function reset(): void { $this->resets++; $this->complete = false; }
 }
 
-final class StorybookEventReader extends StorybookEventSurface implements EventStorybookPresentationInterface
+class StorybookEventReader extends StorybookEventSurface implements EventStorybookPresentationInterface
 {
     public array $shown = [];
     public function beginStorybook(StorybookDefinition $book): void { $this->shown[] = $book; $this->complete = false; }
+}
+
+final class OutcomeStorybookEventReader extends StorybookEventReader implements EventStorybookOutcomePresentationInterface
+{
+    public ?StorybookOutcome $outcome = null;
+    public function getStorybookOutcome(): ?StorybookOutcome { return $this->outcome; }
+    public function reset(): void { parent::reset(); $this->outcome = null; }
 }
 
 beforeEach(function () {
@@ -150,3 +159,52 @@ it('refuses malformed authored book references', function (mixed $id) {
         ->toThrow(InvalidArgumentException::class);
 })->with(['empty' => '', 'null' => null, 'parent' => '../other', 'space' => ' selected ', 'uppercase' => 'Selected',
     'array' => [[]], 'numeric' => 4, 'nul' => "bad\0"]);
+
+it('runs the after-reading commands only for a finished book, before resuming its caller', function (?StorybookOutcome $outcome) {
+    $surface = new OutcomeStorybookEventReader();
+    $runner = new EventInterpreter($this->bookScene, $surface, $this->bookCatalog);
+    $session = $runner->run([
+        ['type' => 'play_storybook', 'storybook' => 'selected', 'onFinish' => [
+            ['type' => 'text', 'text' => 'A reflection.'],
+            ['type' => 'set_switch', 'name' => 'reflected', 'value' => true],
+        ]],
+        ['type' => 'set_switch', 'name' => 'after', 'value' => true],
+    ]);
+    expect($session->status)->toBe(EventExecutionStatus::YIELDED);
+    if ($outcome === null) {
+        $runner->failActiveSession('Interrupted');
+        expect($session->status)->toBe(EventExecutionStatus::FAILED);
+    } else {
+        $surface->outcome = $outcome;
+        $surface->complete = true;
+        $runner->update(0);
+        if ($outcome === StorybookOutcome::FINISHED) {
+            expect($session->status)->toBe(EventExecutionStatus::YIELDED)
+                ->and($session->pendingCommand['type'])->toBe('text')
+                ->and($this->bookScene->gameState->getSwitch('after'))->toBeFalse();
+            $surface->complete = true;
+            $runner->update(0);
+        }
+        expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
+            ->and($this->bookScene->gameState->getSwitch('after'))->toBeTrue();
+    }
+    expect($this->bookScene->gameState->getSwitch('reflected'))->toBe($outcome === StorybookOutcome::FINISHED);
+})->with([StorybookOutcome::FINISHED, StorybookOutcome::CANCELLED, null]);
+
+it('refuses an invalid after-reading branch before opening the book', function (mixed $finish) {
+    $surface = new OutcomeStorybookEventReader();
+    $runner = new EventInterpreter($this->bookScene, $surface, $this->bookCatalog);
+    $session = $runner->run([['type' => 'play_storybook', 'storybook' => 'selected', 'onFinish' => $finish]]);
+    expect($session->status)->toBe(EventExecutionStatus::FAILED)
+        ->and($session->failureMessage)->toContain('onFinish')->and($surface->shown)->toBeEmpty();
+})->with(['string' => ['invalid'], 'null' => [null], 'unknown command' => [[['type' => 'missing_command']]]]);
+
+it('requires an outcome-aware reader only for a nonempty after-reading branch', function () {
+    $runner = new EventInterpreter($this->bookScene, $this->bookSurface, $this->bookCatalog);
+    $session = $runner->run([['type' => 'play_storybook', 'storybook' => 'selected', 'onFinish' => [
+        ['type' => 'set_switch', 'name' => 'after', 'value' => true],
+    ]]]);
+    expect($session->status)->toBe(EventExecutionStatus::FAILED)
+        ->and($session->failureMessage)->toContain('reports a reading outcome')
+        ->and($this->bookSurface->shown)->toBeEmpty();
+});

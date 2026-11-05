@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
+use Ichiloto\Engine\Messaging\Storybook\StorybookOutcome;
 use Ichiloto\Engine\Messaging\Storybook\StorybookPlayback;
 
 function makePlaybackBook(string $text = 'First paragraph. Second paragraph. Third paragraph.'): StorybookDefinition
@@ -30,7 +31,9 @@ it('retains each authored page and illustration throughout long-text continuatio
         ->and($reader->page->picture)->toBe('Graphics/second.png')->and($reader->hasNext)->toBeFalse()
         ->and($reader->isClosed)->toBeFalse();
     $reader->advance();
-    expect($reader->isClosed)->toBeTrue()->and($reader->hasNext)->toBeFalse()->and($reader->hasPrevious)->toBeFalse();
+    $reader->close();
+    expect($reader->isClosed)->toBeTrue()->and($reader->hasNext)->toBeFalse()->and($reader->hasPrevious)->toBeFalse()
+        ->and($reader->outcome)->toBe(StorybookOutcome::FINISHED);
 });
 
 it('moves back through text and authored pages without wrapping the book or changing source', function () {
@@ -62,7 +65,7 @@ it('keeps early close terminal and starts a repeated telling with independent re
     $reader->goBack();
     $reader->close();
     expect([$reader->pageNumber, $reader->continuationNumber, $reader->readingText])->toBe($before)
-        ->and($reader->isClosed)->toBeTrue();
+        ->and($reader->isClosed)->toBeTrue()->and($reader->outcome)->toBe(StorybookOutcome::CANCELLED);
     $repeated = new StorybookPlayback($book, 17, 1);
     expect($repeated->isClosed)->toBeFalse()->and($repeated->pageNumber)->toBe(1)
         ->and($repeated->continuationNumber)->toBe(1);
