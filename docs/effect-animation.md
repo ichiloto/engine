@@ -620,7 +620,10 @@ order. If the projected formation has no shared ray, the presentation reports
 that geometry and the action still uses its existing combat cue. A directional
 straight image can also set `flight.tipX` to a normalized source X along its
 pivot row. The rear pivot stays at the release point on the first flight frame.
-The tip reaches the final contact at `arrivalFrame`. Use the same straight
+The tip reaches the final contact at `arrivalFrame`. When space is tight, the
+image scales uniformly so the tip still has at least its own reach in which to
+travel. This leaves the release pivot, the contact point and the action clock
+fixed. Use the same straight
 route and arrival timing on separate wake tracks. A wake samples the route at
 its own hold frame. Keep contact and combat timing aligned in the action review.
 

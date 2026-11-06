@@ -223,8 +223,16 @@ final class GraphicalBattleEffects
                 $pivot = $data['pivot'] ?? ['x' => .5, 'y' => .5];
                 if ($flight !== null && isset($data['flight']['tipX'])) {
                   $tipLength = abs($data['flight']['tipX'] - $pivot['x']) * $width;
-                  if ($tipLength > $flight['distance']) {
-                    throw new InvalidArgumentException('Battle projectile tip starts beyond its arrival contact.');
+                  if ($flight['distance'] <= 0.0) {
+                    throw new InvalidArgumentException('Battle projectile has no distance to its arrival contact.');
+                  }
+                  // Keep at least as much visible travel as shaft ahead of the release pivot.
+                  $maximumTipLength = $flight['distance'] / 2;
+                  if ($tipLength > $maximumTipLength) {
+                    $fitScale = $maximumTipLength / $tipLength;
+                    $width *= $fitScale;
+                    $height *= $fitScale;
+                    $tipLength = $maximumTipLength;
                   }
                   $angle = deg2rad($rotation + $basis);
                   $offset = $tipLength * $flight['progress'];

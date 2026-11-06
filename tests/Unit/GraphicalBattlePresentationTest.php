@@ -648,7 +648,7 @@ it('flies from the release pose through the ordered recipients and holds the wak
   expect(fn() => $library->compile('invalid-flight', $authored, true))->toThrow(InvalidArgumentException::class, 'flight requires');
 })->with([false, true]);
 
-it('registers the rear at release and the leading tip at the straight flight contact', function () {
+it('registers the rear at release and the leading tip at the straight flight contact at normal and constrained distances', function (bool $constrained) {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $asset = 'graphical-canvas/synthetic-320x180.png';
   $pose = new BattlerPose($asset, attachmentPoints: [
@@ -661,6 +661,7 @@ it('registers the rear at release and the leading tip at the straight flight con
     'tracks' => [[
       'id' => 'projectile', 'type' => 'image', 'asset' => $asset, 'anchor' => 'caster', 'attachmentPoint' => 'launch',
       'detachFrame' => 1, 'facing' => 'east', 'pivot' => ['x' => .25, 'y' => .5],
+      ...($constrained ? ['cells' => ['width' => 25, 'height' => 25]] : []),
       'flight' => ['route' => 'straight', 'arrivalFrame' => 8, 'tipX' => .75],
       'keyframes' => [['frame' => 1, 'duration' => 9]],
     ]],
@@ -681,20 +682,25 @@ it('registers the rear at release and the leading tip at the straight flight con
     $image->destination->x + $image->destination->width * $image->pivot->x,
     $image->destination->y + $image->destination->height * $image->pivot->y,
   ];
-  $rear = $point($effect($launch));
+  $launchArrow = $effect($launch);
+  $rear = $point($launchArrow);
   $arrow = $effect($arrival);
   [$endX, $endY] = $point($arrow);
   $tipAngle = deg2rad($arrow->rotation + ($arrow->flipX ? 180 : 0));
   $tipLength = $arrow->destination->width * .5;
   $tipX = $endX + cos($tipAngle) * $tipLength;
   $tipY = $endY + sin($tipAngle) * $tipLength;
-  expect($rear[0])->toEqualWithDelta($source->x + $source->width / 2, .000001)
+  $availableDistance = hypot($tipX - $rear[0], $tipY - $rear[1]);
+  expect($arrow->destination->width)->toEqualWithDelta($constrained ? $availableDistance : 48.0, .000001)
+    ->and($arrow->destination->width / $arrow->destination->height)->toEqualWithDelta(320 / 180, .000001)
+    ->and($launchArrow->destination->width)->toEqualWithDelta($arrow->destination->width, .000001)
+    ->and($rear[0])->toEqualWithDelta($source->x + $source->width / 2, .000001)
     ->and($rear[1])->toEqualWithDelta($source->y + $source->height / 2, .000001)
     ->and($endX)->toBeGreaterThan($target->x + $target->width)
     ->and($tipX)->toEqualWithDelta($target->x + $target->width, .000001)
     ->and($tipY)->toBeGreaterThan($target->y)->toBeLessThan($target->y + $target->height)
     ->and($launch->diagnostics)->toBe([])->and($arrival->diagnostics)->toBe([]);
-});
+})->with([false, true]);
 
 it('curves from the captured pose point to the selected visible body at the authored impact', function () {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
