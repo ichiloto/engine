@@ -24,6 +24,46 @@ function commandPlaybackFixture(?CompiledEffectTimeline $source = null, ?Compile
     $actor, [$actor], BattlePoseRole::ATTACK, $resolve ?? static fn() => null, $present ?? static fn() => null);
 }
 
+it('holds a flash step on its authored clock at either distance and owns its echoes', function (int $distance) {
+  $timing = new \Ichiloto\Engine\Animations\FlashStepTiming(24, 20, 3, 10, 3, 7, 2);
+  $pose = new \Ichiloto\Engine\Battle\Presentation\BattlerPose('fixture.png', columns: 3, frames: [1],
+    fps: 24, loop: false, impactFrame: 0, entryFrames: [0], exitFrames: [2]);
+  $travel = new \Ichiloto\Engine\Battle\Presentation\BattleTravelPlan([[0, 0], [$distance, 0]], $distance, 0, 1, 600, 900);
+  $effect = new CompiledEffectTimeline('flash', '', fps: 24,
+    cueSchedule: [['id' => 'contact', 'type' => 'applyEffect', 'frame' => 1, 'payload' => []]],
+    defaults: ['lengthFrames' => 3]);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .5, .1, .1),
+    target: $effect, travel: $travel, actionPoseOverride: $pose, flashStep: $timing);
+  expect($plan->phases['advance'])->toBe(['start' => 100, 'length' => 15])
+    ->and($plan->phases['target']['start'])->toBe(115)
+    ->and($plan->phases['return'])->toBe(['start' => 165, 'length' => 15])
+    ->and($plan->phases['finish'])->toBe(['start' => 180, 'length' => 35]);
+  $actor = new Character('Synthetic', 1, new Stats(currentHp: 100, totalHp: 100));
+  $hits = 0;
+  $playback = new BattleCommandPlayback($plan, $actor, [], BattlePoseRole::ATTACK,
+    function () use (&$hits): void { $hits++; }, static fn() => null);
+  $playback->begin();
+  expect($playback->getBoundActionPose($actor, BattlePoseRole::ATTACK))->toBeNull();
+  $playback->update(110 / 120);
+  expect($playback->getFlashStepEchoes())->toHaveCount(2)
+    ->and($playback->getTravelOffset()->x)->toEqualWithDelta($distance * 2 / 3, .001)
+    ->and($playback->getPoseSequence($actor, BattlePoseRole::ATTACK)->value)->toBe('entry')
+    ->and($hits)->toBe(0);
+  $playback->update(5 / 120);
+  expect($playback->getFlashStepEchoes())->toBe([])
+    ->and($playback->getTravelOffset()->x)->toEqual($distance)
+    ->and($playback->getBoundActionPose($actor, BattlePoseRole::ATTACK))->toBe($pose)
+    ->and($hits)->toBe(0);
+  $playback->update(55 / 120);
+  expect($playback->getPoseSequence($actor, BattlePoseRole::ATTACK)->value)->toBe('exit')
+    ->and($playback->getFlashStepEchoes())->toHaveCount(1)
+    ->and($hits)->toBe(1);
+  $playback->cancel();
+  expect($playback->getFlashStepEchoes())->toBe([])
+    ->and($playback->getTravelOffset()->x)->toEqual(0)
+    ->and($hits)->toBe(1);
+})->with([90, 480]);
+
 it('resolves once between target effects and reaction even when updates cross every stage', function () {
   $events = [];
   $playback = commandPlaybackFixture(resolve: function () use (&$events) { $events[] = 'impact'; },

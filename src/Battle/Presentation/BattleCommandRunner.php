@@ -54,6 +54,7 @@ final class BattleCommandRunner
     \Ichiloto\Engine\Animations\SourceEffectAnchor $sourceEffectAnchor = \Ichiloto\Engine\Animations\SourceEffectAnchor::SOURCE,
     \Ichiloto\Engine\Animations\ActionMovement $movement = \Ichiloto\Engine\Animations\ActionMovement::STEP,
     ?int $animationId = null,
+    ?\Ichiloto\Engine\Animations\FlashStepTiming $flashStep = null,
   ) {
     $this->formatResult = Closure::fromCallable($formatResult);
     $this->presentCue = Closure::fromCallable($presentCue);
@@ -64,18 +65,25 @@ final class BattleCommandRunner
     $travel = null;
     $travelFailure = null;
     if (!$resultsOnly && !Accessibility::prefersReducedMotion() && $this->context->ui->usesGraphicalField()
-      && $movement === \Ichiloto\Engine\Animations\ActionMovement::RUN_TO_TARGET && $action !== null) {
+      && $movement->usesTargetRoute() && $action !== null) {
       try { $travel = $this->context->ui->planActionTravel($actor, $targets, $action, $animationId); }
       catch (\InvalidArgumentException|\RuntimeException $error) {
         $travelFailure = $error;
         $travel = new BattleTravelPlan([], 0, 0, 1, 600, 900, BattleTravelFailure::PRESENTATION_UNAVAILABLE);
       }
       if ($travel !== null && !$travel->isPossible) {
-        $travelFailure ??= new \RuntimeException('Battle run-to-target could not reach contact: ' . $travel->failure->value);
+        $travelFailure ??= new \RuntimeException('Battle target travel could not reach contact: ' . $travel->failure->value);
       }
     }
-    $movePose = $this->context->ui->getActionPose($actor, BattlePoseRole::MOVE);
-    $returnPose = $this->context->ui->getActionPose($actor, BattlePoseRole::RETURNING);
+    $actionPoseOverride = $resultsOnly || $animationId === null || !$this->context->ui->usesGraphicalField()
+      ? null : $this->context->ui->getActionPose($actor, $pose, $animationId);
+    $flashStep = $travel?->isPossible ? $flashStep : null;
+    if ($flashStep !== null && !$flashStep->supportsPose($actionPoseOverride)) {
+      $travelFailure = new \RuntimeException('Flash step requires action transit cells and a planted first frame.');
+      $flashStep = $travel = null;
+    }
+    $movePose = $flashStep === null ? $this->context->ui->getActionPose($actor, BattlePoseRole::MOVE) : null;
+    $returnPose = $flashStep === null ? $this->context->ui->getActionPose($actor, BattlePoseRole::RETURNING) : null;
     $movementPoses = !$resultsOnly && !Accessibility::prefersReducedMotion() && ($movePose !== null || $returnPose !== null);
     $this->playback = new BattleCommandPlayback(new BattleCommandTimeline($timings, $source, $target, $terminalTarget, $resultsOnly,
       showAnnouncement: $announcement !== '', targetScale: $targetScale, sourceEffectAnchor: $sourceEffectAnchor,
@@ -83,8 +91,7 @@ final class BattleCommandRunner
       movementPoses: $movementPoses, travel: $travel,
       movePose: $movementPoses ? $movePose : null, returnPose: $movementPoses ? $returnPose : null,
       projectedRange: isset($target->defaults['rangeTiming']) ? $this->context->ui->measureActionRange($actor, $targets) : null,
-      actionPoseOverride: $resultsOnly || $animationId === null || !$this->context->ui->usesGraphicalField()
-        ? null : $this->context->ui->getActionPose($actor, $pose, $animationId)),
+      actionPoseOverride: $actionPoseOverride, flashStep: $flashStep),
       $actor, $targets, $pose,
       function () use ($resolve): void {
         if (($refusal = $this->getExecutionRefusal()) !== null) {

@@ -457,7 +457,8 @@ class ActionExecutionState extends TurnState
         ? ($actionAnimation?->sourceEffectAnchor ?? \Ichiloto\Engine\Animations\SourceEffectAnchor::SOURCE)
         : \Ichiloto\Engine\Animations\SourceEffectAnchor::SOURCE,
       movement: $actionAnimation?->movement ?? \Ichiloto\Engine\Animations\ActionMovement::STEP,
-      animationId: $actionAnimation?->id);
+      animationId: $actionAnimation?->id,
+      flashStep: $actionAnimation?->flashStep);
     $this->command->begin();
   }
 

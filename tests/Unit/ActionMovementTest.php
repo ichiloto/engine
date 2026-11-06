@@ -18,6 +18,18 @@ it('rejects unknown or incorrectly typed movement definitions', function (mixed 
   expect(fn() => Animation::fromArray(['id' => 1, 'movement' => $value]))->toThrow(InvalidArgumentException::class);
 })->with(['run', '', 'RUN_TO_TARGET', false, 1, null]);
 
+it('round trips action-owned flash step timing and rejects incompatible timing', function () {
+  $timing = ['fps' => 24, 'guardFrames' => 20, 'advanceFrames' => 3, 'holdFrames' => 10,
+    'returnFrames' => 3, 'settleFrames' => 7, 'echoes' => 2];
+  $animation = Animation::fromArray(['id' => 1, 'movement' => 'flash-step', 'flashStep' => $timing]);
+  expect($animation->movement->usesTargetRoute())->toBeTrue()
+    ->and(Animation::fromArray($animation->toArray())->flashStep?->toArray())->toBe($timing)
+    ->and(fn() => Animation::fromArray(['id' => 1, 'movement' => 'flash-step']))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => Animation::fromArray(['id' => 1, 'flashStep' => $timing]))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => Animation::fromArray(['id' => 1, 'movement' => 'flash-step',
+      'flashStep' => [...$timing, 'echoes' => 4]]))->toThrow(InvalidArgumentException::class);
+});
+
 it('selects distinct movement bindings for bare Attack and explicit skills while sharing their effect resources', function () {
   $actor = new Character('Synthetic', 1, new Stats(currentHp: 100, totalHp: 100));
   $step = new Animation(1, 'Shared timeline from range', targetEffect: 'shared-hit');

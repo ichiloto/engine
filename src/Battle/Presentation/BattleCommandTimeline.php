@@ -63,11 +63,16 @@ final readonly class BattleCommandTimeline
     public SourceEffectAnchor $sourceEffectAnchor = SourceEffectAnchor::SOURCE, ?BattlerPose $actionPose = null,
     public bool $movementPoses = false, public ?BattleTravelPlan $travel = null,
     ?BattlerPose $movePose = null, ?BattlerPose $returnPose = null, ?float $projectedRange = null,
-    public ?BattlerPose $actionPoseOverride = null)
+    public ?BattlerPose $actionPoseOverride = null,
+    public ?\Ichiloto\Engine\Animations\FlashStepTiming $flashStep = null)
   {
     $targetScale = EffectScale::readValue($targetScale, 'Battle target effect scale');
     if ($actionPoseOverride !== null && $actionPoseOverride->impactFrame === null) {
       throw new InvalidArgumentException('A bound action pose requires an impact entry.');
+    }
+    if ($flashStep !== null && ($resultsOnly || !$travel?->isPossible || !$flashStep->supportsPose($actionPoseOverride)
+      || ($source !== null && $sourceEffectAnchor !== SourceEffectAnchor::TARGET))) {
+      throw new InvalidArgumentException('Flash step requires a resolved route, action transit cells and a planted first frame.');
     }
     $actionPose = $actionPoseOverride ?? $actionPose;
     if (isset($source->defaults['rangeTiming'])) {
@@ -131,28 +136,35 @@ final readonly class BattleCommandTimeline
     $targetImpactEnd = 0;
     $poseAnchor = null;
     $poseEnd = null;
+    $holdEnd = null;
     $transition = static fn(?BattlerPose $pose, BattlePoseSequence $sequence, string $phase): array =>
       $movementPoses && $pose !== null && $pose->getSequenceSeconds($sequence) > 0
         ? [$phase => $pose->getSequenceSeconds($sequence)] : [];
-    foreach ([...$transition($movePose, BattlePoseSequence::ENTRY, 'enter-advance'),
-      'advance' => $travel === null ? $timings->stepForward : ($travel->isPossible ? $travel->advanceSeconds : 0),
-      ...$transition($movePose, BattlePoseSequence::EXIT, 'exit-advance'), 'announce' => $timings->announcement,
-      'source' => $sourceEffectAnchor === SourceEffectAnchor::TARGET ? $timings->actionAnimation
-        : ($sourceTiming?->durationSeconds ?? $timings->actionAnimation),
+    foreach ([...($flashStep === null ? [] : [
+        'announce' => $flashStep->guardFrames / $flashStep->fps, 'guard' => $flashStep->guardFrames / $flashStep->fps]),
+      ...$transition($movePose, BattlePoseSequence::ENTRY, 'enter-advance'),
+      'advance' => $flashStep !== null ? $flashStep->advanceFrames / $flashStep->fps
+        : ($travel === null ? $timings->stepForward : ($travel->isPossible ? $travel->advanceSeconds : 0)),
+      ...$transition($movePose, BattlePoseSequence::EXIT, 'exit-advance'),
+      ...($flashStep === null ? ['announce' => $timings->announcement] : []),
+      'source' => $flashStep !== null ? 0 : ($sourceEffectAnchor === SourceEffectAnchor::TARGET ? $timings->actionAnimation
+        : ($sourceTiming?->durationSeconds ?? $timings->actionAnimation)),
       ...($this->summon === null || $this->cinematicStage !== null ? [] : [
         'summon-in' => max(0, (int)($this->summon->transitionCache['in']['durationMs'] ?? 0)) / 1000,
         'summon-title' => trim(strval($this->summon->defaults['name'] ?? '')) === '' ? 0 : .8,
       ]),
-      'target' => max($targetTiming?->durationSeconds ?? $timings->effectAnimation,
+      'target' => max($targetTiming?->durationSeconds ?? ($flashStep === null ? $timings->effectAnimation : 0),
         $this->terminalTiming?->durationSeconds ?? 0),
       ...($this->summon === null || $this->cinematicStage !== null ? [] : [
         'summon-out' => max(0, (int)($this->summon->transitionCache['out']['durationMs'] ?? 0)) / 1000,
       ]),
-      'reaction' => $timings->statChanges, ...($movementPoses || $travel !== null ? ['recovery' => 0] : []),
+      'reaction' => $flashStep === null ? $timings->statChanges : 0,
+      ...($movementPoses || $travel !== null ? ['recovery' => 0] : []),
       ...$transition($returnPose, BattlePoseSequence::ENTRY, 'enter-return'),
-      'return' => $travel === null ? $timings->stepBack : ($travel->isPossible ? $travel->returnSeconds : 0),
+      'return' => $flashStep !== null ? $flashStep->returnFrames / $flashStep->fps
+        : ($travel === null ? $timings->stepBack : ($travel->isPossible ? $travel->returnSeconds : 0)),
       ...$transition($returnPose, BattlePoseSequence::EXIT, 'exit-return'),
-      'finish' => $timings->turnOver] as $phase => $seconds) {
+      'finish' => $flashStep !== null ? $flashStep->settleFrames / $flashStep->fps : $timings->turnOver] as $phase => $seconds) {
       if (!is_finite($seconds) || $seconds < 0) {
         throw new InvalidArgumentException('Battle command durations must be finite and non-negative.');
       }
@@ -161,6 +173,7 @@ final readonly class BattleCommandTimeline
         'target' => $targetTiming, default => null };
       $length = $phase === 'announce' && !$showAnnouncement ? 0
         : max(1, $clock?->getFrameBoundary($clock->totalFrames, self::FPS) ?? (int)ceil($seconds * self::FPS));
+      if ($flashStep !== null && in_array($phase, ['source', 'reaction'], true)) { $length = 0; }
       if ($phase === 'target' && $this->terminalTiming !== null) {
         $length = max($length, $this->terminalTiming->getFrameBoundary($this->terminalTiming->totalFrames, self::FPS));
       }
@@ -174,6 +187,10 @@ final readonly class BattleCommandTimeline
           throw new InvalidArgumentException('Battle action pose synchronization requires a valid target effect frame.');
         }
         $poseAnchor = $cursor + ($syncFrame === null ? 0 : $targetTiming->getFrameBoundary($syncFrame, self::FPS));
+        if ($flashStep !== null) {
+          $poseAnchor = $cursor;
+          $holdEnd = $cursor + (int)ceil($flashStep->holdFrames * self::FPS / $flashStep->fps);
+        }
         if ($actionPose?->impactFrame !== null) {
           $poseEnd = $poseAnchor + (int)ceil($actionPose->getRecoverySeconds() * self::FPS);
           if ($this->rangeTiming !== null) {
@@ -184,11 +201,12 @@ final readonly class BattleCommandTimeline
         }
       }
       // An authored walk home starts after anchored action recovery, preserving all impact/effect cues.
-      if ($phase === 'recovery') { $length = max(0, ($poseEnd ?? $cursor) - $cursor); }
+      if ($phase === 'recovery') { $length = max(0, ($poseEnd ?? $cursor) - $cursor, ($holdEnd ?? $cursor) - $cursor); }
+      if ($phase === 'return' && $flashStep !== null) { $poseEnd = $cursor; }
       // Without movement artwork, retain the existing overlapping return/completion timing.
       if ($phase === 'finish' && $poseEnd !== null) { $length = max($length, $poseEnd - $cursor); }
       $phases[$phase] = ['start' => $cursor, 'length' => $length];
-      if ($length > 0) {
+      if ($length > 0 || ($flashStep !== null && $phase === 'source')) {
         $cues[] = ['id' => 'command-' . $phase, 'type' => 'commandPhase', 'frame' => $cursor,
           'payload' => ['phase' => $phase]];
       }
@@ -268,9 +286,9 @@ final readonly class BattleCommandTimeline
       }
       // Staged actions and summons start as their callout appears. Reading time
       // owns visibility while each authored lane keeps its own clock.
-      if ($phase !== 'announce' || ($this->summon === null && $stages === [])) { $cursor += $length; }
+      if ($phase !== 'announce' || ($flashStep === null && $this->summon === null && $stages === [])) { $cursor += $length; }
     }
-    if (($this->summon !== null || $stages !== []) && $showAnnouncement) {
+    if (($flashStep !== null || $this->summon !== null || $stages !== []) && $showAnnouncement) {
       $cues[] = ['id' => 'command-announcement-end', 'type' => 'commandAnnouncementEnd',
         'frame' => min($phases['announce']['start'] + $phases['announce']['length'], $phases['finish']['start']),
         'payload' => []];

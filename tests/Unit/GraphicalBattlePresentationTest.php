@@ -452,6 +452,26 @@ it('removes acting markers and labels while preserving command advance and retur
     ->and($actor->stats->currentHp)->toBe(100);
 })->with([false, true])->with([false, true])->with([false, true])->with([1.0, 1.05]);
 
+it('draws only command-owned flash-step echoes and seeks the same atlas cells out of order', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $pose = new BattlerPose('graphical-canvas/synthetic-320x180.png', columns: 4, frames: [2],
+    fps: 24, loop: false, impactFrame: 0, entryFrames: [0, 1], exitFrames: [3]);
+  $travel = new \Ichiloto\Engine\Battle\Presentation\BattleTravelPlan([[969, 265], [700, 265]], 700, 265, -1, 600, 900);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
+    travel: $travel, actionPoseOverride: $pose, flashStep: new \Ichiloto\Engine\Animations\FlashStepTiming(24, 20, 3, 10, 3, 7, 2));
+  $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $hero, [$enemies[0]],
+    BattlePoseRole::ATTACK, $catalog, $this->root);
+  $echoes = static fn($frame): array => array_values(array_filter($frame->canvas->images,
+    static fn(CanvasImage $image): bool => str_starts_with($image->id, 'command-echo-')));
+  $transit = $preview->getFrameAtIndex(110);
+  expect($echoes($transit))->toHaveCount(2)
+    ->and(graphicalCombatantImage($transit->canvas, $hero)->sourceRect->x)->toBe(80)
+    ->and($echoes($preview->getFrameAtIndex(115)))->toBe([])
+    ->and(graphicalCombatantImage($preview->getFrameAtIndex(115)->canvas, $hero)->sourceRect->x)->toBe(160)
+    ->and($echoes($preview->getFrameAtIndex(110, true)))->toBe([])
+    ->and($echoes($preview->getFrameAtIndex(110)))->toEqual($echoes($transit));
+});
+
 it('does not replace removed acting markers with text when battler artwork is unavailable', function (bool $skinned) {
   [$battle, $catalog, $hero] = graphicalBattleFixture(skinned: $skinned);
   $catalog = new BattlePresentationCatalog($catalog->arenas, [], $catalog->enemies,

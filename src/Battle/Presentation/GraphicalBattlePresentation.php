@@ -484,6 +484,18 @@ final class GraphicalBattlePresentation
         $conditionTone = [];
       }
       if ($participant['available']) {
+        if ($includeOptionalArtwork && !$reducedMotion && $playback?->actor === $battler) {
+          foreach ($playback->getFlashStepEchoes() as $echoIndex => $echo) {
+            $pose = $this->projectBattler($identity, $participant, $echo['sample'], false, true, $field?->getPoseElapsedSeconds() ?? 0);
+            $ghost = $pose['image'];
+            if ($pose['available']) {
+              $images[] = new CanvasImage('command-echo-' . $identity . '-' . $echoIndex, $ghost->asset,
+                $ghost->destination, $ghost->layer, $ghost->sourceRect, $echo['opacity'], $ghost->clipRect,
+                $ghost->brightness, $ghost->flipX, $ghost->flipY);
+              $bodyOffsets[$identity]++;
+            }
+          }
+        }
         $drawn = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
           $image->sourceRect, clipRect: $image->clipRect, opacity: $defeat['opacity'] ?? match (true) {
             $participant['party'] && $battler->isKnockedOut && !$usesKnockoutPose => 0.4,

@@ -13,6 +13,8 @@ final class Animation
   public readonly array $roles;
   /** Declared default also preserves historical serialized animation objects. */
   public ActionMovement $movement = ActionMovement::STEP;
+  /** Declared default preserves historical serialized animation objects. */
+  public ?FlashStepTiming $flashStep = null;
   /**
    * @var array<int, AnimationFrame> $frames
    */
@@ -47,6 +49,7 @@ final class Animation
     array $roles = [],
     public SourceEffectAnchor $sourceEffectAnchor = SourceEffectAnchor::SOURCE,
     ActionMovement $movement = ActionMovement::STEP,
+    ?FlashStepTiming $flashStep = null,
   )
   {
     if (!array_is_list($roles) || count($roles) !== count(array_unique($roles, SORT_REGULAR))) {
@@ -61,6 +64,11 @@ final class Animation
     }
     $this->roles = $validatedRoles;
     $this->movement = $movement;
+    if (($movement === ActionMovement::FLASH_STEP) !== ($flashStep !== null)
+      || ($flashStep !== null && $sourceEffect !== null && $sourceEffectAnchor !== SourceEffectAnchor::TARGET)) {
+      throw new \InvalidArgumentException('Flash step requires its own timing and any caster effect must start with the target effect.');
+    }
+    $this->flashStep = $flashStep;
     foreach ([$sourceEffect, $targetEffect] as $effect) {
       if ($effect !== null) { \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary::assertId($effect); }
     }
@@ -116,6 +124,7 @@ final class Animation
       array_key_exists('sourceEffectAnchor', $data)
         ? SourceEffectAnchor::from($data['sourceEffectAnchor']) : SourceEffectAnchor::SOURCE,
       ActionMovement::readAnimation($data),
+      array_key_exists('flashStep', $data) ? FlashStepTiming::fromArray($data['flashStep']) : null,
     );
   }
 
@@ -252,6 +261,7 @@ final class Animation
       ...($this->sourceEffectAnchor === SourceEffectAnchor::SOURCE ? [] : ['sourceEffectAnchor' => $this->sourceEffectAnchor->value]),
       ...($this->roles === [] ? [] : ['roles' => $this->roles]),
       ...($this->movement === ActionMovement::STEP ? [] : ['movement' => $this->movement->value]),
+      ...($this->flashStep === null ? [] : ['flashStep' => $this->flashStep->toArray()]),
       'frames' => array_map(
         static fn(AnimationFrame $frame): array => $frame->toArray(),
         $this->getFrames()
