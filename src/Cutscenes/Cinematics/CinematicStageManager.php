@@ -80,7 +80,11 @@ final class CinematicStageManager
     $position = $attachment?->cell ?? (array_key_exists('at', $entry) ? CinematicRelativePosition::resolve($this->gameScene, $entry)
       : new Vector2(isset($entry['x']) ? intval($entry['x']) : ($independentActor?->position->x ?? 0),
         isset($entry['y']) ? intval($entry['y']) : ($independentActor?->position->y ?? 0)));
-    if ($subject === null && $attachment === null && array_key_exists('at', $entry)) {
+    $hasCollision = boolval($entry['collision'] ?? $independentActor?->hasCollision ?? false);
+    $isNpcSnapshot = $appearance !== null && !$hasCollision
+      && ($entry['at']['kind'] ?? null) === 'npc' && trim($entry['at']['id']) === $appearance->id
+      && ($entry['offset']['x'] ?? 0) === 0 && ($entry['offset']['y'] ?? 0) === 0;
+    if ($subject === null && $attachment === null && array_key_exists('at', $entry) && !$isNpcSnapshot) {
       $position = new CinematicStagePlacement($this->gameScene)->resolve($id, $position,
         new CinematicSubjectResolver($this->gameScene)->position($entry['at']));
     }
@@ -129,7 +133,7 @@ final class CinematicStageManager
       sprite: $sprite === [] ? ['@'] : $sprite,
       position: $position,
       isVisible: ($entry['visible'] ?? true) !== false,
-      hasCollision: boolval($entry['collision'] ?? $independentActor?->hasCollision ?? false),
+      hasCollision: $hasCollision,
       directionalSprites: $directionalSprites,
       facing: $facing,
       assetReference: $assetReference,
@@ -140,6 +144,10 @@ final class CinematicStageManager
         ? $this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() : null,
       attachment: $attachment,
       hasAuthoredFacing: CinematicFacing::isDeclared($entry) || ($independentActor?->hasAuthoredFacing ?? false),
+      sharesPresentNpcCell: $isNpcSnapshot
+        ? fn(Vector2 $cell): bool => $appearance->position->x === $cell->x && $appearance->position->y === $cell->y
+          && ($this->gameScene->npcManager?->canStageNpc($appearance) ?? false)
+        : null,
     );
     if ($this->animationPaused) { $actor->pauseGraphicalAnimation(); }
     ($this->actors[$id] ?? null)?->releaseVisual();

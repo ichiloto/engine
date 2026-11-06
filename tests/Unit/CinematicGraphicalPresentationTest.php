@@ -236,29 +236,33 @@ it('slides staged steps at the pace that moves them and a pose image as well as 
   expect($sheet->getGraphicalSpriteMotion())->toBeNull()->and($pose->getGraphicalSpriteMotion())->toBeNull();
 });
 
-it('stages a map NPC hidden by its story conditions in its own glyph, sheet and heading without binding it', function () {
+it('keeps an NPC snapshot on its offscreen solid cell while the camera pans and the original leaves', function () {
   new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene, new \Ichiloto\Engine\Core\GameState());
   $npcs = new \Ichiloto\Engine\Field\NpcManager($this->scene);
   new ReflectionProperty(GameScene::class, 'npcManager')->setValue($this->scene, $npcs);
-  $npcs->configure([['id' => 'synthetic-gate', 'name' => 'Gate', 'sprite' => 'x', 'x' => 5, 'y' => 3, 'facing' => 'west',
+  $npcs->configure([['id' => 'synthetic-gate', 'name' => 'Gate', 'sprite' => 'x', 'x' => 35, 'y' => 12, 'facing' => 'west',
     'sprites' => ['west' => 'x', 'north' => '|'], 'sprites2d' => characterSheetData(),
     'conditions' => [['type' => 'event', 'name' => 'synthetic_gate_opened', 'negate' => true]]]]);
-  $this->scene->gameState->recordStoryEvent('synthetic_gate_opened');
   $gate = $npcs->findById('synthetic-gate');
-  expect($npcs->canStageNpc($gate))->toBeFalse();
+  expect($npcs->canStageNpc($gate))->toBeTrue();
 
   $map = makeBareScene(\Ichiloto\Engine\Field\MapManager::class);
   new ReflectionProperty(\Ichiloto\Engine\Field\MapManager::class, 'gameScene')->setValue($map, $this->scene);
-  new ReflectionProperty(\Ichiloto\Engine\Field\MapManager::class, 'collisionMap')->setValue($map,
-    array_fill(0, 30, array_fill(0, 60, \Ichiloto\Engine\Events\Enumerations\CollisionType::NONE->value)));
+  $cells = array_fill(0, 30, array_fill(0, 60, \Ichiloto\Engine\Events\Enumerations\CollisionType::NONE->value));
+  $cells[12][35] = \Ichiloto\Engine\Events\Enumerations\CollisionType::SOLID->value;
+  new ReflectionProperty(\Ichiloto\Engine\Field\MapManager::class, 'collisionMap')->setValue($map, $cells);
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
 
   $staged = $this->stage->add(['id' => 'closed-gate', 'appearance' => ['kind' => 'npc', 'id' => 'synthetic-gate'],
     'at' => ['kind' => 'npc', 'id' => 'synthetic-gate']]);
+  expect($staged->isVisible)->toBeFalse();
+  $this->scene->gameState->recordStoryEvent('synthetic_gate_opened');
+  $this->camera->moveTo(35, 12);
+  expect($staged->isVisible)->toBeTrue()->and($this->stage->actorAt(35, 12))->toBeNull();
   $definition = $staged->getGraphicalSpriteDefinition();
   // 48 x 48 frames: west is row 1 of the sheet's first character, standing on pattern 1.
   expect($staged->sprite)->toBe(['x'])->and($staged->facing->name)->toBe('WEST')
-    ->and([$staged->position->x, $staged->position->y])->toBe([5.0, 3.0])
+    ->and([$staged->position->x, $staged->position->y])->toBe([35.0, 12.0])
     ->and($staged->hasCollision)->toBeFalse()
     ->and($definition?->asset)->toBe(characterSheetData()['sheet'])
     ->and($definition?->sourceRect->toArray())->toBe(['x' => 48, 'y' => 48, 'width' => 48, 'height' => 48])

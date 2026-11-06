@@ -51,7 +51,8 @@ final class StagedActor implements ThicketSubjectInterface
     }
   }
   public bool $isVisible {
-    get => $this->visible && $this->ownsPresentation();
+    get => $this->visible && $this->ownsPresentation()
+      && !($this->sharesPresentNpcCell !== null && ($this->sharesPresentNpcCell)($this->position));
   }
   private MovementHeading $localFacing;
   private Vector2 $localPosition;
@@ -85,6 +86,8 @@ final class StagedActor implements ThicketSubjectInterface
     public readonly ?CinematicAttachment $attachment = null,
     /** An explicit authored heading takes precedence over automatic conversation turns. */
     public readonly bool $hasAuthoredFacing = false,
+    /** A snapshot takes over drawing its cell when the original NPC leaves it. */
+    private readonly ?\Closure $sharesPresentNpcCell = null,
   )
   {
     $this->localFacing = $facing;

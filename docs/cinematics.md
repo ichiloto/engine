@@ -245,10 +245,12 @@ An independent staged actor may instead wear a map NPC's look:
 directional glyphs, character sheet and heading, read from the NPC even while its
 conditions hide it from the field. It is the actor's whole look, so `sprite`,
 `sprites`, `sprites2d`, `asset` and `subject` are refused beside it; place it with
-`at => ['kind' => 'npc', 'id' => '...']` to stand where that NPC stands. This stages
-something the story has already removed, such as a barrier a cutaway shows cleared,
-with the art its map owns: one staged actor per NPC, none bound or suppressed, and
-no second registration of the same sheet in the cinematic.
+`at => ['kind' => 'npc', 'id' => '...']` to stand where that NPC stands. A
+non-colliding visual that names the same NPC for its look and location, with
+zero offset, starts on that exact cell. The cell may be solid or outside the
+current camera view. The NPC supplies the view while present at that cell;
+the snapshot draws after the NPC leaves or its story conditions hide it.
+A cutaway can use this to show an opening barrier with the art its map owns.
 
 ### Map-Owned World Object Leases
 
@@ -391,8 +393,8 @@ one.
 the subject when staging begins or each route leg begins, reading its current
 map position. It never reads image dimensions, chooses a substitute cell or
 changes a real subject's transform. Independent subject-relative staging then
-checks visible physical floor through `CinematicStagePlacement`, as described
-below. Absolute visual staging keeps its authored coordinates; route destinations
+checks visible physical floor through `CinematicStagePlacement`. An exact-cell
+NPC snapshot and a visual on a named attachment retain their resolved cells. Absolute visual staging keeps its authored coordinates; route destinations
 must be integral cells inside the map and pass the collision-aware planner. A target that disappears fails
 the command, preserving the event session's existing rollback/cleanup behavior.
 An already-started leg keeps its planned endpoint rather than chasing a moving
@@ -417,15 +419,15 @@ independent staged actor accepts one of the two, never both:
  'faceToward' => ['kind' => 'world_object', 'id' => 'lamp-1']],
 ```
 
-Independent subject-relative cast must stand on visible, unoccupied physical
-floor, including when `collision` is false. The preferred offset is used when
+Independent subject-relative cast that stand on physical ground require visible,
+unoccupied floor, including when `collision` is false. The preferred offset is used when
 valid. Otherwise Engine searches reachable floor within three walking steps of
 the anchor, in north/east/south/west order. Other visible cast reserve their cells
 regardless of their collision flag. A relocation emits a diagnostic; no available
 cell refuses staging before replacing actors or acquiring subjects. This removes
 unsafe off-map and solid-cell placement for independent relative actors. Real
-subject bindings and explicit world-object attachments retain their own physical
-ownership. Map occupancy remains the single collision authority.
+subject bindings, world-object attachments and exact-cell NPC snapshots retain
+their resolved positions. Map occupancy remains the single collision authority.
 
 
 `CinematicFacing` is the shared runtime/authoring boundary. `faceToward` is
