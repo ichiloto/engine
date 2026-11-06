@@ -17,14 +17,15 @@ final class PngAssetRayContact
   private const float EPSILON = 1e-9;
 
   /**
-   * For each heading, locate the first painted contact after its previous one.
+   * For each heading, locate painted contact after its previous one. An interior contact
+   * uses the midpoint of the longest continuous painted span.
    * The shared budget counts source pixels inspected across the entire shot.
    *
    * @param array<int, array{direction: Vector2, distance: float}> $rays
-   * @return array<int, array{direction: Vector2, distance: float}>
+   * @return array<int, array{direction: Vector2, distance: float, depth: float}>
    */
   public static function trace(string $root, CanvasImage $image, CanvasRectangle $visibleBounds,
-    Vector2 $origin, array $rays, int &$remainingReads): array
+    Vector2 $origin, array $rays, int &$remainingReads, bool $preferInterior = false): array
   {
     if (($image->rotation ?? 0) !== 0) {
       throw new RuntimeException('Battle flight cannot trace rotated target artwork.');
@@ -56,8 +57,8 @@ final class PngAssetRayContact
     foreach ($ranges as $heading => [$near, $far]) {
       $direction = $rays[$heading]['direction'];
       $contact = self::findPaint($source, $sourceOrigin, new Vector2($direction->x * $xScale, $direction->y * $yScale),
-        $near, $far, $image->opacity, $remainingReads);
-      if ($contact !== null) { $contacts[$heading] = ['direction' => $direction, 'distance' => $contact]; }
+        $near, $far, $image->opacity, $remainingReads, $preferInterior);
+      if ($contact !== null) { $contacts[$heading] = ['direction' => $direction, ...$contact]; }
     }
     return $contacts;
   }
@@ -81,12 +82,14 @@ final class PngAssetRayContact
     return $far - $near > self::EPSILON ? [$near, $far] : null;
   }
 
+  /** @return array{distance: float, depth: float}|null */
   private static function findPaint(GdImage $source, Vector2 $origin, Vector2 $direction,
-    float $near, float $far, float $opacity, int &$remainingReads): ?float
+    float $near, float $far, float $opacity, int &$remainingReads, bool $preferInterior): ?array
   {
     [$column, $columnStep, $nextColumn, $columnInterval] = self::startAxis($origin->x, $direction->x, $near);
     [$row, $rowStep, $nextRow, $rowInterval] = self::startAxis($origin->y, $direction->y, $near);
     $paintStart = null;
+    $best = null;
     for ($distance = $near; $distance < $far - self::EPSILON; $distance = $next) {
       if ($remainingReads-- <= 0) { throw new RuntimeException('Battle flight exhausted its silhouette tracing budget.'); }
       $next = min($nextColumn, $nextRow, $far);
@@ -95,15 +98,27 @@ final class PngAssetRayContact
         $pixel = imagecolorat($source, $column, $row);
         if ($pixel !== false && (127 - (($pixel >> 24) & 127)) * $opacity >= self::MINIMUM_OPACITY) {
           $paintStart ??= $distance;
-          if ($next - $paintStart >= 2.0) { return $paintStart + 1.0; }
+          if (!$preferInterior && $next - $paintStart >= 2.0) {
+            return ['distance' => $paintStart + 1.0, 'depth' => 1.0];
+          }
         } elseif ($paintStart !== null) {
-          return ($paintStart + $distance) / 2;
+          $depth = ($distance - $paintStart) / 2;
+          $contact = ['distance' => $paintStart + $depth, 'depth' => $depth];
+          if (!$preferInterior) { return $contact; }
+          if ($best === null || $depth > $best['depth']) { $best = $contact; }
+          $paintStart = null;
         }
       }
       if ($nextColumn <= $next + self::EPSILON) { $column += $columnStep; $nextColumn += $columnInterval; }
       if ($nextRow <= $next + self::EPSILON) { $row += $rowStep; $nextRow += $rowInterval; }
     }
-    return $paintStart === null ? null : ($paintStart + $far) / 2;
+    if ($paintStart !== null) {
+      $depth = ($far - $paintStart) / 2;
+      if ($best === null || $depth > $best['depth']) {
+        $best = ['distance' => $paintStart + $depth, 'depth' => $depth];
+      }
+    }
+    return $best;
   }
 
   /** @return array{int, int, float, float} */
