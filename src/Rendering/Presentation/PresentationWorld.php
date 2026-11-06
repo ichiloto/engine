@@ -168,24 +168,22 @@ final class PresentationWorld
             }
         }
         $samePalette = $baseline !== null && $this->wireCells === $baseline->wireCells;
+        $wireCellSizes = [];
         for ($y = 0; $y < $this->rowCells->height; $y++) {
             if ($samePalette && $this->rowCells->hasSameRow($baseline->rowCells, $y)) { continue; }
             $indices = $this->rowCells->getRowValues($y);
-            $cells = array_map(fn(int $index): array => $this->wireCells[$index], $indices);
-            if ($baseline !== null && !$samePalette && $cells === array_map(
-                fn(int $index): array => $baseline->wireCells[$index], $baseline->rowCells->getRowValues($y))) { continue; }
-            $runs = [];
-            if ($rowRuns) {
-                foreach ($indices as $index) {
-                    $last = count($runs) - 1;
-                    if ($last >= 0 && $runs[$last]['cell'] === $this->wireCells[$index]) { $runs[$last]['count']++; }
-                    else { $runs[] = ['count' => 1, 'cell' => $this->wireCells[$index]]; }
-                }
+            $cells = null;
+            if ($baseline !== null && !$samePalette) {
+                $cells = array_map(fn(int $index): array => $this->wireCells[$index], $indices);
+                if ($cells === array_map(fn(int $index): array => $baseline->wireCells[$index],
+                    $baseline->rowCells->getRowValues($y))) { continue; }
             }
-            // Run encoding is optional per row: alternating content keeps its smaller ordinary form.
-            $compact = $rowRuns && strlen(json_encode($runs, JSON_THROW_ON_ERROR)) < strlen(json_encode($cells, JSON_THROW_ON_ERROR));
-            yield ['op' => $compact ? 'worldRowRuns' : 'worldRows', 'id' => $this->id,
-                'rows' => [['row' => $y, $compact ? 'runs' : 'cells' => $compact ? $runs : $cells]]];
+            $runs = $rowRuns ? $this->createCompactGlyphRuns($indices, $wireCellSizes) : null;
+            $payload = $runs !== null
+                ? ['runs' => $runs]
+                : ['cells' => $cells ?? array_map(fn(int $index): array => $this->wireCells[$index], $indices)];
+            yield ['op' => $runs !== null ? 'worldRowRuns' : 'worldRows', 'id' => $this->id,
+                'rows' => [['row' => $y, ...$payload]]];
         }
         $cells = [];
         $tileLayers = [...$this->tileRows, ...($shadows['rows'] ?? [])];
@@ -218,11 +216,42 @@ final class PresentationWorld
                         else { $runs[] = [...$cell, 'count' => 1]; }
                     }
                 }
-                $compact = $rowRuns && strlen(json_encode($runs, JSON_THROW_ON_ERROR)) < strlen(json_encode($wire, JSON_THROW_ON_ERROR));
+                $compact = $rowRuns && count($runs) < count($wire)
+                    && strlen(json_encode($runs, JSON_THROW_ON_ERROR)) < strlen(json_encode($wire, JSON_THROW_ON_ERROR));
                 yield ['op' => $compact ? 'worldTileRuns' : 'worldTiles', 'id' => $this->id, 'layerId' => $layerId,
                     'rows' => [['row' => $row, $compact ? 'runs' : 'cells' => $compact ? $runs : $wire]]];
             }
         }
+    }
+
+    /**
+     * Compare the exact row payload lengths using the encoded size of each palette cell once per upload.
+     *
+     * @param list<int> $indices
+     * @param array<int, int> $wireCellSizes
+     * @return list<array{count: int, cell: array}>|null
+     */
+    private function createCompactGlyphRuns(array $indices, array &$wireCellSizes): ?array
+    {
+        $runs = $runSizes = [];
+        foreach ($indices as $index) {
+            $cell = $this->wireCells[$index];
+            $last = count($runs) - 1;
+            if ($last >= 0 && $runs[$last]['cell'] === $cell) {
+                $runs[$last]['count']++;
+            } else {
+                $runs[] = ['count' => 1, 'cell' => $cell];
+                $runSizes[] = $wireCellSizes[$index] ??= strlen(json_encode($cell, JSON_THROW_ON_ERROR));
+            }
+        }
+        // Counting a comma per entry charges both nonempty arrays one extra byte.
+        // The extra bytes per run are the wrapper and the digits of its count.
+        $savings = 0;
+        foreach ($runs as $position => $run) {
+            $count = $run['count'];
+            $savings += ($count - 1) * ($runSizes[$position] + 1) - strlen('{"count":,"cell":}') - strlen((string)$count);
+        }
+        return $savings > 0 ? $runs : null;
     }
 
     /** @return list<?int> The equivalent new catalog index, or null when the old tile must be dropped. */
