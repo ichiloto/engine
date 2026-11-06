@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Field;
 
+use Closure;
 use Assegai\Util\Path;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Exceptions\NotFoundException;
@@ -57,11 +58,11 @@ final class MapSourceReader
    * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, areas: MapAreaCatalog} The map source.
    * @throws NotFoundException If any required split-map file is missing.
    */
-  public static function readFiles(array $paths): array
+  public static function readFiles(array $paths, ?Closure $checkpoint = null): array
   {
     self::assertSourceFilesExist($paths);
-    $layers = MapLayerSource::loadFromDirectory(dirname($paths['data']), $paths['id'], $paths['map']);
-    $source = self::readEventSource($paths, $layers);
+    $layers = MapLayerSource::loadFromDirectory(dirname($paths['data']), $paths['id'], $paths['map'], $checkpoint);
+    $source = self::readEventSource($paths, $layers, $checkpoint);
 
     return ['data' => $source['data'], 'tiles' => $layers->getComposedGrid(), 'layers' => $layers, 'areas' => $source['areas']];
   }
@@ -85,16 +86,18 @@ final class MapSourceReader
    * @param array{id: string, data: string, event: string} $paths
    * @return array{data: array<string, mixed>, eventLayer: list<list<string>>, areas: MapAreaCatalog}
    */
-  public static function readEventSource(array $paths, ?MapLayerSet $layers = null): array
+  public static function readEventSource(array $paths, ?MapLayerSet $layers = null, ?Closure $checkpoint = null): array
   {
     self::assertSourceFilesExist($paths);
     $eventPath = $paths['id'] . '/' . basename($paths['event']);
-    $eventLayer = self::parseMapLayer(MapGridSource::readFile($paths['event'], $eventPath), $eventPath, 'event');
+    $eventLayer = self::parseMapLayer(MapGridSource::readFile($paths['event'], $eventPath), $eventPath, 'event', $checkpoint);
     $layers?->assertMatchingGrid($eventLayer, "Event map {$eventPath}");
+    $checkpoint?->__invoke();
     $map = self::requirePhpFile($paths['data']);
+    $checkpoint?->__invoke();
     if (!is_array($map)) { throw new NotFoundException('File ' . $paths['id'] . '/' . basename($paths['data']) . ' does not return an array.'); }
     $map['id'] ??= $paths['id'];
-    $resolution = MapEventResolver::inspect($map, $eventLayer, $eventPath);
+    $resolution = MapEventResolver::inspect($map, $eventLayer, $eventPath, $checkpoint);
     $map['events'] = $resolution->requireEvents();
 
     return ['data' => $map, 'eventLayer' => $eventLayer, 'areas' => $resolution->mapAreas];
@@ -166,7 +169,7 @@ final class MapSourceReader
    * @param string $fieldName The layer label used in validation errors.
    * @return array<int, string[]> The parsed symbol grid.
    */
-  private static function parseMapLayer(string $layer, string $filename, string $fieldName): array
+  private static function parseMapLayer(string $layer, string $filename, string $fieldName, ?Closure $checkpoint): array
   {
     $rows = preg_split('/\r\n|\n|\r/', rtrim($layer, "\r\n")) ?: [];
 
@@ -174,16 +177,15 @@ final class MapSourceReader
       return [];
     }
 
+    $cells = [];
     foreach ($rows as $rowIndex => $row) {
       if (! is_string($row)) {
         throw new InvalidArgumentException("{$fieldName} row {$rowIndex} in {$filename} must be a string.");
       }
+      $cells[] = TerminalText::visibleSymbols($row);
+      $checkpoint?->__invoke();
     }
-
-    return array_map(
-      static fn(string $row): array => TerminalText::visibleSymbols($row),
-      $rows
-    );
+    return $cells;
   }
 
   /**

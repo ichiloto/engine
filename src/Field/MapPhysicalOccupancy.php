@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field;
 
+use Closure;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use InvalidArgumentException;
 
@@ -19,7 +20,7 @@ final readonly class MapPhysicalOccupancy
      * Declared rows contain CollisionType cases, not glyphs or coerced integers.
      * Ragged maps retain their exact row lengths; missing cells are not padded.
      */
-    public function __construct(mixed $rows, MapLayerSet $layers, string $context = 'Map occupancy')
+    public function __construct(mixed $rows, MapLayerSet $layers, string $context = 'Map occupancy', ?Closure $checkpoint = null)
     {
         if (!is_array($rows) || !array_is_list($rows)) {
             throw new InvalidArgumentException("{$context} must be a zero-based list of rows.");
@@ -49,6 +50,7 @@ final readonly class MapPhysicalOccupancy
                 // Copy scalar values so caller-owned references cannot change the snapshot.
                 $grid[$y][$x] = $type->value;
             }
+            $checkpoint?->__invoke();
         }
         $this->collisionGrid = $grid;
     }

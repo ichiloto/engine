@@ -228,7 +228,7 @@ final readonly class MapTerrainKinds
    *
    * @param array<int|string, CollisionType|array<int|string, CollisionType>> $dictionary The composed dictionary.
    */
-  public function resolveEncounterTerrain(MapLayerSet $layers, array $dictionary): MapEncounterTerrain
+  public function resolveEncounterTerrain(MapLayerSet $layers, array $dictionary, ?Closure $checkpoint = null): MapEncounterTerrain
   {
     $flat = array_filter($dictionary, static fn(mixed $value): bool => $value instanceof CollisionType);
     $gameplay = [];
@@ -253,7 +253,7 @@ final readonly class MapTerrainKinds
       }
       return MapCollisionResolver::lookUp($types, $glyph) !== CollisionType::PASS_THROUGH ? 0 : null;
     };
-    $rows = (static function () use ($base, $gameplay, $decide, &$decisions): \Generator {
+    $rows = (static function () use ($base, $gameplay, $decide, &$decisions, $checkpoint): \Generator {
       for ($y = 0; $y < ($base?->height ?? 0); $y++) {
         $glyphs = array_map(static fn(array $entry): array => $entry[0]->getRowGlyphs($y), $gameplay);
         $row = [];
@@ -273,6 +273,7 @@ final readonly class MapTerrainKinds
           }
         }
         yield $row;
+        $checkpoint?->__invoke();
       }
     })();
     return new MapEncounterTerrain(PackedGrid::fromRows($rows), $terrains);

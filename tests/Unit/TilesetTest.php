@@ -747,7 +747,7 @@ it('resumes retained world preparation without exposing a partial or stale world
   $cancelled = PresentationWorld::beginPreparation($layers, 'cancelled', $graphics, $this->root);
   expect($cancelled->advance(1))->toBeNull();
   $cancelled->cancel();
-  expect(fn() => $cancelled->advance(1))->toThrow(LogicException::class, 'World preparation was cancelled.');
+  expect(fn() => $cancelled->advance(1))->toThrow(LogicException::class, 'Frame preparation was cancelled.');
 
   $work = PresentationWorld::beginPreparation($layers, 'async', $graphics, $this->root);
   expect($work->advance(1))->toBeNull()->and($work->advance(1))->toBeNull();

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field;
 
+use Closure;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use InvalidArgumentException;
@@ -21,11 +22,12 @@ final class MapCollisionResolver
      * @param array<int|string, CollisionType|array<int|string, CollisionType>> $dictionary
      * @throws \LogicException When the kinds supplied are not the ones the map is painted in.
      */
-    public static function resolveMap(MapLayerSet $layers, array $data, array $dictionary = [], ?MapTerrainKinds $kinds = null): MapPhysicalOccupancy
+    public static function resolveMap(MapLayerSet $layers, array $data, array $dictionary = [], ?MapTerrainKinds $kinds = null,
+        ?Closure $checkpoint = null): MapPhysicalOccupancy
     {
         MapTerrainKinds::assertSupplied($data, $kinds, 'Collision');
         if (array_key_exists(MapPhysicalOccupancy::DATA_KEY, $data)) {
-            return new MapPhysicalOccupancy($data[MapPhysicalOccupancy::DATA_KEY], $layers);
+            return new MapPhysicalOccupancy($data[MapPhysicalOccupancy::DATA_KEY], $layers, checkpoint: $checkpoint);
         }
         return self::resolveLegacyOccupancy($layers, $dictionary, $kinds);
     }
@@ -125,7 +127,7 @@ final class MapCollisionResolver
      * @param array<int|string, CollisionType|array<int|string, CollisionType>> $dictionary
      * @return int[][]
      */
-    public static function resolveLayers(MapLayerSet $set, array $dictionary): array
+    public static function resolveLayers(MapLayerSet $set, array $dictionary, ?Closure $checkpoint = null): array
     {
         self::validateDictionary($dictionary);
         $flat = array_filter($dictionary, static fn(mixed $value): bool => $value instanceof CollisionType);
@@ -161,6 +163,7 @@ final class MapCollisionResolver
                 }
             }
             $result[$y] ??= [];
+            $checkpoint?->__invoke();
         }
         return $result;
     }

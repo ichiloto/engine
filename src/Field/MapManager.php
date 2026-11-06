@@ -30,6 +30,8 @@ use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
 use Closure;
+use Ichiloto\Engine\Core\FramePreparation;
+use Symfony\Component\Console\Terminal;
 use InvalidArgumentException;
 
 /**
@@ -303,13 +305,31 @@ class MapManager implements CanRenderAt
   /** Validates every map source and trigger before changing the active field. */
   public function prepareMap(string $filename): PreparedMap
   {
-    $source = $this->prepareSplitMapDataFromFiles($this->resolveMapPaths($filename));
+    return $this->prepareMapContent($filename);
+  }
+
+  /** Validate destination content in work units before any installation.
+   * @return FramePreparation<PreparedMap>
+   */
+  public function beginMapPreparation(string $filename): FramePreparation
+  {
+    $colorMode = Terminal::getColorMode();
+    return new FramePreparation(
+      fn(Closure $checkpoint): PreparedMap => $this->prepareMapContent($filename, $checkpoint),
+      static fn(): bool => Terminal::getColorMode() === $colorMode,
+    );
+  }
+
+  private function prepareMapContent(string $filename, ?Closure $checkpoint = null): PreparedMap
+  {
+    $source = $this->prepareSplitMapDataFromFiles($this->resolveMapPaths($filename), $checkpoint);
+    $checkpoint?->__invoke();
     $map = $source['data'];
     $areas = $source['areas'];
     MapAtlasDefinition::readMap($map);
     DashSettings::readMapDisablesDashing($map);
     MapSavePolicy::readMap($map);
-    [$collisions, $dictionary] = $this->resolveSourceCollisions($source);
+    [$collisions, $dictionary] = $this->resolveSourceCollisions($source, $checkpoint);
     $mapTriggers = [];
     foreach ($map['triggers'] ?? [] as $trigger) {
       $mapTriggers[] = MapTrigger::tryFromArray($trigger);
@@ -326,6 +346,7 @@ class MapManager implements CanRenderAt
         $trigger::validateFloor($trigger->area, $collisions);
       }
       $eventTriggers[] = $trigger;
+      $checkpoint?->__invoke();
     }
     $npcs = $this->gameScene->npcManager?->prepareNpcs(
       is_array($map['npcs'] ?? null) ? $map['npcs'] : [],
@@ -333,10 +354,14 @@ class MapManager implements CanRenderAt
       $source['worldObjects'],
     );
 
+    $checkpoint?->__invoke();
+    $landmarks = MapLandmarkCatalog::readMap($map, $source['tiles'], MapCategoryCatalog::load($this->getAssetRoot()), $areas);
+    $checkpoint?->__invoke();
+    $overview = new MapOverview($source['tiles'], $collisions, MapAtlasTerrain::readMap($map, $source['layers'], $source['kinds']));
+    $terrain = $source['kinds']?->resolveEncounterTerrain($source['layers'], $dictionary, $checkpoint);
+
     return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers'],
-      $source['graphics'], $source['worldObjects'], MapLandmarkCatalog::readMap($map, $source['tiles'], MapCategoryCatalog::load($this->getAssetRoot()), $areas),
-      new MapOverview($source['tiles'], $collisions, MapAtlasTerrain::readMap($map,$source['layers'],$source['kinds'])),
-      $areas, $source['kinds']?->resolveEncounterTerrain($source['layers'], $dictionary));
+      $source['graphics'], $source['worldObjects'], $landmarks, $overview, $areas, $terrain);
   }
 
   /**
@@ -348,14 +373,17 @@ class MapManager implements CanRenderAt
    * @param array{layers: MapLayerSet, occupancy: ?MapPhysicalOccupancy, kinds: ?MapTerrainKinds} $source
    * @return array{0: int[][], 1: array<int|string, CollisionType|array<int|string, CollisionType>>}
    */
-  private function resolveSourceCollisions(array $source): array
+  private function resolveSourceCollisions(array $source, ?Closure $checkpoint = null): array
   {
     if ($source['occupancy'] !== null) {
       return [$source['occupancy']->collisionGrid, []];
     }
     $dictionary = $this->getCollisionDictionary() ?: $this->defaultCollisionDictionary;
     $dictionary = $source['kinds']?->composeDictionary($dictionary) ?? $dictionary;
-    return [$this->generateLayerCollisionMap($source['layers'], $dictionary), $dictionary];
+    $collisions = $checkpoint === null
+      ? $this->generateLayerCollisionMap($source['layers'], $dictionary)
+      : MapCollisionResolver::resolveLayers($source['layers'], $dictionary ?: $this->defaultCollisionDictionary, $checkpoint);
+    return [$collisions, $dictionary];
   }
 
   /** Resolve current authored hierarchy without activating a destination or observing it for discovery. */
@@ -1066,15 +1094,17 @@ class MapManager implements CanRenderAt
    * @param array{id: string, data: string, map: string, event: string} $paths
    * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, areas: MapAreaCatalog, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>, kinds: ?MapTerrainKinds}
    */
-  protected function prepareSplitMapDataFromFiles(array $paths): array
+  protected function prepareSplitMapDataFromFiles(array $paths, ?Closure $checkpoint = null): array
   {
-    $source = MapSourceReader::readFiles($paths);
+    $source = MapSourceReader::readFiles($paths, $checkpoint);
+    $checkpoint?->__invoke();
     $map = $source['data'];
     $kinds = MapTerrainKinds::loadForMap($this->getAssetRoot(), $map);
     return $this->prepareMapSource($paths['id'], $source, $kinds,
       fn(): ?MapGraphics => MapGraphics::loadFromDirectory(dirname($paths['data']), $paths['id'], $map['tileset'] ?? null,
-        $source['layers'], $this->getAssetRoot(), $map[MapGraphics::SETTINGS_KEY] ?? null, $kinds?->tileset, $kinds !== null),
-      static fn(): ?array => MapGraphics::readLayersFromDirectory(dirname($paths['data']), $paths['id'], $source['layers']));
+        $source['layers'], $this->getAssetRoot(), $map[MapGraphics::SETTINGS_KEY] ?? null, $kinds?->tileset, $kinds !== null, $checkpoint),
+      static fn(): ?array => MapGraphics::readLayersFromDirectory(dirname($paths['data']), $paths['id'], $source['layers'], $checkpoint),
+      checkpoint: $checkpoint);
   }
 
   /**
@@ -1090,13 +1120,13 @@ class MapManager implements CanRenderAt
    * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, areas?: MapAreaCatalog, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>, kinds: ?MapTerrainKinds}
    */
   protected function prepareMapSource(string $mapId, array $source, ?MapTerrainKinds $kinds, Closure $loadGraphics,
-    Closure $readTileLayers, ?Closure $loadFieldCatalog = null): array
+    Closure $readTileLayers, ?Closure $loadFieldCatalog = null, ?Closure $checkpoint = null): array
   {
     $map = $source['data'];
     // Validate declared physical data before either loading path can mutate a scene.
     // Legacy read-only/preview loading still needs no collision dictionary here.
     $occupancy = array_key_exists(MapPhysicalOccupancy::DATA_KEY, $map)
-      ? MapCollisionResolver::resolveMap($source['layers'], $map, kinds: $kinds)
+      ? MapCollisionResolver::resolveMap($source['layers'], $map, kinds: $kinds, checkpoint: $checkpoint)
       : null;
 
     if (array_key_exists('tiles2d', $map)) {
@@ -1104,6 +1134,7 @@ class MapManager implements CanRenderAt
       Debug::warn("{$mapId}/" . basename($mapId) . ".data.php tiles2d is no longer read; its map shows terminal glyphs until it has a tileset.");
     }
 
+    $checkpoint?->__invoke();
     $graphics = null;
     try {
       $graphics = $loadGraphics();
@@ -1112,6 +1143,7 @@ class MapManager implements CanRenderAt
       Debug::warn("Map {$mapId} graphics are unusable; showing terminal glyphs: " . $error->getMessage());
     }
 
+    $checkpoint?->__invoke();
     $tileOwners = null;
     $objects = $map[WorldObjectDefinition::DATA_KEY] ?? null;
     if ($graphics === null && is_array($objects) && array_any($objects, static fn(mixed $object): bool => is_array($object)

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field;
 
+use Closure;
 use Generator;
 use Ichiloto\Engine\Core\PackedGrid;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -38,13 +39,14 @@ final readonly class MapLayer
         public bool $decoration,
         public string $path,
         public string $text,
+        ?Closure $checkpoint = null,
     ) {
         if ($order < self::MIN_ORDER || $order > self::MAX_ORDER
             || preg_match('/\A[A-Za-z][A-Za-z0-9_-]*\z/', $name) !== 1) {
             throw new InvalidArgumentException("Layer {$path} requires a two-digit order and an alphanumeric, underscore or hyphen name beginning with a letter.");
         }
         $palette = [];
-        $this->indices = PackedGrid::fromRows(self::readIndexRows($text, $palette));
+        $this->indices = PackedGrid::fromRows(self::readIndexRows($text, $palette, $checkpoint));
         // Numeric glyphs such as "8" are integer palette keys.
         $this->cells = array_map(strval(...), array_keys($palette));
         $this->glyphPalette = array_map(TerminalText::stripAnsi(...), $this->cells);
@@ -106,7 +108,7 @@ final readonly class MapLayer
      * @param array<string, int> $palette Distinct cells found so far, by first appearance.
      * @return Generator<int, list<int>>
      */
-    private static function readIndexRows(string $text, array &$palette): Generator
+    private static function readIndexRows(string $text, array &$palette, ?Closure $checkpoint): Generator
     {
         foreach (self::splitRows($text) as $line) {
             $row = [];
@@ -114,6 +116,7 @@ final readonly class MapLayer
                 $row[] = $palette[$cell] ??= count($palette);
             }
             yield $row;
+            $checkpoint?->__invoke();
         }
     }
 

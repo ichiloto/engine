@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field;
 
+use Closure;
 use Ichiloto\Engine\Core\PackedGrid;
 use InvalidArgumentException;
 
@@ -20,7 +21,7 @@ final readonly class MapLayerSet
     private array $composedGrid;
 
     /** @param list<MapLayer> $layers */
-    public function __construct(array $layers, public bool $legacy = false)
+    public function __construct(array $layers, public bool $legacy = false, ?Closure $checkpoint = null)
     {
         // Detach caller-owned array references so the retained indexes cannot go stale.
         $layers = array_map(static fn(MapLayer $layer): MapLayer => $layer, $layers);
@@ -51,25 +52,27 @@ final readonly class MapLayerSet
         }
         $baseIndex = array_key_first($gameplay);
         $base = $gameplay[$baseIndex];
-        $grid = $owners = [];
-        // Row by row, so no layer's whole grid is ever built to compose them.
-        for ($y = 0; $y < $base->height; $y++) {
-            $row = $base->getRowCells($y);
-            $owned = array_fill(0, count($row), $baseIndex);
-            foreach ($gameplay as $index => $layer) {
-                if ($index === $baseIndex) { continue; }
-                foreach ($layer->getRowGlyphs($y) as $x => $glyph) {
-                    if ($glyph !== ' ') {
-                        $row[$x] = $layer->getCellAt($x, $y);
-                        $owned[$x] = $index;
+        $grid = [];
+        $owners = (static function () use ($base, $baseIndex, $gameplay, &$grid, $checkpoint): \Generator {
+            for ($y = 0; $y < $base->height; $y++) {
+                $row = $base->getRowCells($y);
+                $owned = array_fill(0, count($row), $baseIndex);
+                foreach ($gameplay as $index => $layer) {
+                    if ($index === $baseIndex) { continue; }
+                    foreach ($layer->getRowGlyphs($y) as $x => $glyph) {
+                        if ($glyph !== ' ') {
+                            $row[$x] = $layer->getCellAt($x, $y);
+                            $owned[$x] = $index;
+                        }
                     }
                 }
+                $grid[] = $row;
+                yield $owned;
+                $checkpoint?->__invoke();
             }
-            $grid[] = $row;
-            $owners[] = $owned;
-        }
-        $this->composedGrid = $grid;
+        })();
         $this->owners = PackedGrid::fromRows($owners);
+        $this->composedGrid = $grid;
     }
 
     /** @return list<list<string>> */

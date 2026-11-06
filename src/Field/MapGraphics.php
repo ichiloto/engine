@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field;
 
+use Closure;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Tilesets\TileId;
 use Ichiloto\Engine\Rendering\Tilesets\TileLayerOffset;
@@ -283,7 +284,8 @@ final readonly class MapGraphics
      * identity must match the map's declared tileset.
      */
     public static function loadFromDirectory(string $mapDirectory, string $displayDirectory, mixed $tilesetId,
-        MapLayerSet $layers, string $assetRoot, mixed $settings = null, ?Tileset $tileset = null, bool $paintedInKinds = false): ?self
+        MapLayerSet $layers, string $assetRoot, mixed $settings = null, ?Tileset $tileset = null, bool $paintedInKinds = false,
+        ?Closure $checkpoint = null): ?self
     {
         $directory = $mapDirectory . DIRECTORY_SEPARATOR . self::DIRECTORY;
         if ($tilesetId === null && !is_dir($directory) && $tileset === null) {
@@ -291,7 +293,7 @@ final readonly class MapGraphics
         }
         self::assertTilesetNamed($tilesetId, $displayDirectory);
         return self::fromSources(self::readLayerSources($directory, $displayDirectory), $displayDirectory,
-            $tilesetId, $layers, $assetRoot, $settings, $tileset, $paintedInKinds);
+            $tilesetId, $layers, $assetRoot, $settings, $tileset, $paintedInKinds, $checkpoint);
     }
 
     /**
@@ -300,11 +302,11 @@ final readonly class MapGraphics
      *
      * @return list<MapTileLayer>|null
      */
-    public static function readLayersFromDirectory(string $mapDirectory, string $displayDirectory, MapLayerSet $layers): ?array
+    public static function readLayersFromDirectory(string $mapDirectory, string $displayDirectory, MapLayerSet $layers, ?Closure $checkpoint = null): ?array
     {
         $directory = $mapDirectory . DIRECTORY_SEPARATOR . self::DIRECTORY;
         return is_dir($directory)
-            ? self::readLayersFromSources(self::readLayerSources($directory, $displayDirectory), $displayDirectory, $layers)
+            ? self::readLayersFromSources(self::readLayerSources($directory, $displayDirectory), $displayDirectory, $layers, $checkpoint)
             : null;
     }
 
@@ -338,7 +340,8 @@ final readonly class MapGraphics
      * @param array<string, string> $sources Source bytes keyed by the layer file's path; only its file name is read.
      */
     public static function fromSources(array $sources, string $displayDirectory, mixed $tilesetId, MapLayerSet $layers,
-        string $assetRoot, mixed $settings = null, ?Tileset $tileset = null, bool $paintedInKinds = false): ?self
+        string $assetRoot, mixed $settings = null, ?Tileset $tileset = null, bool $paintedInKinds = false,
+        ?Closure $checkpoint = null): ?self
     {
         if ($tileset !== null && $tileset->id !== $tilesetId) {
             throw new InvalidArgumentException("Map {$displayDirectory} declares tileset " . var_export($tilesetId, true)
@@ -349,7 +352,7 @@ final readonly class MapGraphics
         }
         self::assertTilesetNamed($tilesetId, $displayDirectory);
         $tileset ??= Tileset::load($assetRoot, $tilesetId);
-        $tileLayers = self::readLayersFromSources($sources, $displayDirectory, $layers);
+        $tileLayers = self::readLayersFromSources($sources, $displayDirectory, $layers, $checkpoint);
         $names = array_map(static fn(MapTileLayer $layer): string => $layer->name, $tileLayers);
         $offsets = self::readLayerOffsets($settings, $names, $displayDirectory);
         $owners = self::resolveLayerOwners($settings, $names, array_values(array_map(static fn(MapLayer $layer): string => $layer->name,
@@ -362,7 +365,7 @@ final readonly class MapGraphics
      * @param array<string, string> $sources
      * @return list<MapTileLayer>
      */
-    public static function readLayersFromSources(array $sources, string $displayDirectory, MapLayerSet $layers): array
+    public static function readLayersFromSources(array $sources, string $displayDirectory, MapLayerSet $layers, ?Closure $checkpoint = null): array
     {
         self::assertLayerCount(count($sources), $displayDirectory);
         $key = 'tiles:' . hash('sha256', serialize([$sources, $displayDirectory, array_map(count(...), $layers->getComposedGrid())]));
@@ -380,14 +383,14 @@ final readonly class MapGraphics
                 throw new InvalidArgumentException("Tile layer {$displayPath} repeats order {$matches['order']}.");
             }
             $orders[$matches['order']] = true;
-            $layer = new MapTileLayer($matches['name'], (int)$matches['order'], $displayPath, MapGridSource::parseSource($source, $displayPath));
+            $layer = new MapTileLayer($matches['name'], (int)$matches['order'], $displayPath, MapGridSource::parseSource($source, $displayPath), $checkpoint);
             $layer->assertMatches($layers);
             $tileLayers[] = $layer;
         }
         usort($tileLayers, static fn(MapTileLayer $a, MapTileLayer $b): int => $a->order <=> $b->order);
         $charge = array_sum(array_map(strlen(...), $sources));
         foreach ($tileLayers as $layer) { $charge += $layer->width * $layer->height * 4; }
-        MapCompilationCache::store($key, $tileLayers, $charge);
+        MapCompilationCache::store($key, $tileLayers, $charge, $checkpoint);
         return $tileLayers;
     }
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field\Validation;
 
+use Closure;
 use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Events\MapEventDefinition;
@@ -15,19 +16,21 @@ use InvalidArgumentException;
 /** Resolves the {@see MapEventDefinition} envelope for runtime, Editor drafts and validation. */
 final class MapEventResolver
 {
-    public static function inspect(array $data, array $eventLayer, string $mapId): MapEventResolution
+    public static function inspect(array $data, array $eventLayer, string $mapId, ?Closure $checkpoint = null): MapEventResolution
     {
         try { $mapAreas = MapAreaCatalog::readMap($data, $eventLayer); }
         catch (InvalidArgumentException $error) {
             return new MapEventResolution([], [new MapValidationIssue($mapId, 'map.area', $error->getMessage(),
                 path: ['areas'], hint: 'Declare unique named areas within the physical map.')]);
         }
+        $checkpoint?->__invoke();
         $areas = [];
         foreach ($eventLayer as $y => $row) {
             foreach ($row as $x => $cell) {
                 $marker = TerminalText::stripAnsi($cell);
                 if (trim($marker) !== '') { $areas[$marker][] = [$x, $y]; }
             }
+            $checkpoint?->__invoke();
         }
         $events = $data['events'] ?? [];
         if (!is_array($events)) {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field;
 
+use Closure;
 use Generator;
 use Ichiloto\Engine\Core\PackedGrid;
 use Ichiloto\Engine\Rendering\Tilesets\TileId;
@@ -30,8 +31,9 @@ final readonly class MapTileLayer
         public int $order,
         public string $path,
         string $text,
+        ?Closure $checkpoint = null,
     ) {
-        $this->grid = PackedGrid::fromRows(self::parseRows($text, $path));
+        $this->grid = PackedGrid::fromRows(self::parseRows($text, $path, $checkpoint));
         $this->height = $this->grid->height;
         $this->width = $this->grid->width;
     }
@@ -113,7 +115,7 @@ final readonly class MapTileLayer
      *
      * @return Generator<int, list<int>>
      */
-    private static function parseRows(string $text, string $path): Generator
+    private static function parseRows(string $text, string $path, ?Closure $checkpoint): Generator
     {
         $tiles = [];
         foreach (preg_split('/\r\n|\n|\r/', rtrim($text, "\r\n")) ?: [] as $y => $line) {
@@ -123,6 +125,7 @@ final readonly class MapTileLayer
                     ?? throw self::createEntryRefusal($path, $y, $x, $value);
             }
             yield $row;
+            $checkpoint?->__invoke();
         }
     }
 

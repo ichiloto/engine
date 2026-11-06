@@ -64,6 +64,14 @@ it('removes technical destination diagnostics from player feedback while refusin
         new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $manager);
         new ReflectionProperty(GameScene::class, 'currentMapId')->setValue($scene, 'original');
         new ReflectionProperty(MapManager::class, 'gameScene')->setValue($manager, $scene);
+        $cancelled = $manager->beginMapPreparation('destination');
+        expect($cancelled->advance(1))->toBeNull();
+        $cancelled->cancel();
+        $invalid = $manager->beginMapPreparation('destination');
+        expect(fn() => $invalid->advance(PHP_INT_MAX))->toThrow(InvalidArgumentException::class)
+            ->and($camera->worldSpace)->toBe([['o', 'l', 'd']])
+            ->and($scene->currentMapId)->toBe('original');
+
         expect($scene->transferPlayer(new Location('destination', new Vector2(0, 0), null), false))->toBeFalse();
         NotificationManager::getInstance($game)->render();
         $modals = ModalManager::getInstance($game);

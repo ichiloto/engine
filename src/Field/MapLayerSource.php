@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field;
 
+use Closure;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use InvalidArgumentException;
+use Symfony\Component\Console\Terminal;
 
 /** Discovers authored grids without evaluating any grid PHP. */
 final class MapLayerSource
@@ -13,7 +15,7 @@ final class MapLayerSource
     public const string DIRECTORY = 'layers';
     public const string FILENAME_PATTERN = '/\A(?<order>[0-9]{2})\.(?<name>[A-Za-z][A-Za-z0-9_-]*)\.(?<kind>map|deco)\.php\z/';
 
-    public static function loadFromDirectory(string $directory, ?string $displayDirectory = null, ?string $legacyPath = null): MapLayerSet
+    public static function loadFromDirectory(string $directory, ?string $displayDirectory = null, ?string $legacyPath = null, ?Closure $checkpoint = null): MapLayerSet
     {
         $displayDirectory ??= $directory;
         $layerDirectory = $directory . DIRECTORY_SEPARATOR . self::DIRECTORY;
@@ -23,7 +25,7 @@ final class MapLayerSource
             if (!is_file($path)) {
                 throw new NotFoundException("File {$displayPath} not found.");
             }
-            return self::compileSources([$path => ['terrain', 0, false, $displayPath]], true);
+            return self::compileSources([$path => ['terrain', 0, false, $displayPath]], true, $checkpoint);
         }
 
         $files = glob($layerDirectory . '/*.{map,deco}.php', GLOB_BRACE);
@@ -39,29 +41,30 @@ final class MapLayerSource
             }
             $sources[$path] = [$matches['name'], (int)$matches['order'], $matches['kind'] === 'deco', $displayPath];
         }
-        return self::compileSources($sources, false);
+        return self::compileSources($sources, false, $checkpoint);
     }
     /** Read exact current bytes even when timestamps and lengths were preserved by an author. */
-    private static function compileSources(array $definitions, bool $legacy): MapLayerSet
+    private static function compileSources(array $definitions, bool $legacy, ?Closure $checkpoint): MapLayerSet
     {
         $sources = [];
         foreach ($definitions as $path => $definition) {
             $source = @file_get_contents($path);
             if ($source === false) { throw new InvalidArgumentException("Grid source {$definition[3]} could not be read."); }
             $sources[$path] = $source;
+            $checkpoint?->__invoke();
         }
-        $key = 'layers:' . hash('sha256', serialize([$definitions, $sources, $legacy]));
+        $key = 'layers:' . hash('sha256', serialize([$definitions, $sources, $legacy, Terminal::getColorMode()]));
         if (($cached = MapCompilationCache::find($key)) instanceof MapLayerSet) { return $cached; }
         $layers = [];
         $charge = array_sum(array_map(strlen(...), $sources));
         foreach ($definitions as $path => [$name, $order, $decoration, $displayPath]) {
-            $layer = new MapLayer($name, $order, $decoration, $displayPath, MapGridSource::parseSource($sources[$path], $displayPath));
+            $layer = new MapLayer($name, $order, $decoration, $displayPath, MapGridSource::parseSource($sources[$path], $displayPath), $checkpoint);
             $layers[] = $layer;
             // Conservative charge for source, cell strings, packed indices and the composed grid.
             $charge += $layer->width * $layer->height * 64;
         }
-        $result = new MapLayerSet($layers, $legacy);
-        MapCompilationCache::store($key, $result, $charge);
+        $result = new MapLayerSet($layers, $legacy, $checkpoint);
+        MapCompilationCache::store($key, $result, $charge, $checkpoint);
         return $result;
     }
 
