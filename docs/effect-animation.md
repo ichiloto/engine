@@ -1504,7 +1504,7 @@ Stage fields use one shape each, with defaults only when a field is absent:
 | Field | Contract |
 | --- | --- |
 | `canvas` | Required `{width, height}` integer stage units, each 1..4096. |
-| `startFrame`, `restoreFrame` | Required authored frames, `0 <= startFrame < restoreFrame < lengthFrames`. Stage replacement is active from start inclusively to restore exclusively. |
+| `startFrame`, `restoreFrame` | Required integers with `0 <= startFrame < restoreFrame <= lengthFrames`. Stage replacement covers `[startFrame, restoreFrame)` and must include `restFrame`. Set `restoreFrame` to `lengthFrames` to keep the stage active through the final drawable frame. |
 | `background` | Optional `black`, `white` or `#RRGGBB`; absent means black. |
 | `subjects` | Optional list, absent means empty, at most 32 records: `{id, position:{x,y}, size:{width,height}, pivot?, attachments?}`. Size is a registered presentation box, not duplicate PNG dimensions. |
 | Subject `pivot` | Normalized `{x,y}` in 0..1; absent means `{x:.5,y:1}`. |
