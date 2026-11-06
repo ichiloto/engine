@@ -311,7 +311,7 @@ final class PresentationWorld
             || $width * $height > self::MAX_CELLS || count($layers->layers) > self::MAX_LAYERS) {
             throw new InvalidArgumentException('Retained world exceeds the bounded layer or cell budget.');
         }
-        $metadata = $styled = [];
+        $metadata = [];
         $estimatedBytes = count($layers->layers) * self::LAYER_SOURCE_BYTES;
         // Each cell's owning layer id, a row at a time: its gameplay owner unless a graphical cover projected another.
         $readOwnerIds = static function (int $y) use ($layers, $projectedOwners): array {
@@ -319,17 +319,31 @@ final class PresentationWorld
             foreach ($projectedOwners[$y] ?? [] as $x => $owner) { $ids[$x] = PresentationLayerPolicy::getMapLayerId($owner); }
             return $ids;
         };
-        // Match the native retained-source charge before allocating per-cell wire arrays.
-        foreach ($grid as $y => $cells) {
-            $ownerIds = $readOwnerIds($y);
-            foreach ($cells as $x => $cell) {
-                $styled[$cell] ??= self::getWireCell($cell);
-                $estimatedBytes += self::CELL_SOURCE_BYTES + strlen($styled[$cell]['glyph']) + strlen($ownerIds[$x]);
+        // Account for every wire cell while building packed rows. Only distinct cells allocate a wire array.
+        $wireCells = $indices = [];
+        $rowCells = PackedGrid::fromRows((static function () use ($grid, $readOwnerIds, &$wireCells, &$indices, &$estimatedBytes): \Generator {
+            $styled = [];
+            foreach ($grid as $y => $cells) {
+                $ownerIds = $readOwnerIds($y);
+                $row = [];
+                foreach ($cells as $x => $cell) {
+                    $ownerId = $ownerIds[$x];
+                    if (!isset($indices[$ownerId][$cell])) {
+                        $style = $styled[$cell] ??= self::getWireCell($cell);
+                        $indices[$ownerId][$cell] = [count($wireCells),
+                            self::CELL_SOURCE_BYTES + strlen($style['glyph']) + strlen($ownerId)];
+                        $wireCells[] = [...$style, 'ownerLayerId' => $ownerId];
+                    }
+                    [$index, $charge] = $indices[$ownerId][$cell];
+                    $row[] = $index;
+                    $estimatedBytes += $charge;
+                }
+                if ($estimatedBytes > self::MAX_SOURCE_BYTES) {
+                    throw new InvalidArgumentException('Retained world exceeds the source-memory budget; use retained screen text.');
+                }
+                yield $row;
             }
-        }
-        if ($estimatedBytes > self::MAX_SOURCE_BYTES) {
-            throw new InvalidArgumentException('Retained world exceeds the source-memory budget; use retained screen text.');
-        }
+        })());
         foreach ($layers->layers as $layer) {
             $metadata[] = ['id' => PresentationLayerPolicy::getMapLayerId($layer),
                 'layer' => PresentationLayerPolicy::getMapLayerOrder($layer),
@@ -344,23 +358,6 @@ final class PresentationWorld
                 throw new InvalidArgumentException('Retained world exceeds the bounded layer or source-memory budget with its tiles.');
             }
         }
-        // Each distinct cell is held once, and each row as indices to it.
-        $wireCells = $indices = [];
-        $rowCells = PackedGrid::fromRows((static function () use ($grid, $styled, $readOwnerIds, &$wireCells, &$indices): \Generator {
-            foreach ($grid as $y => $cells) {
-                $ownerIds = $readOwnerIds($y);
-                $row = [];
-                foreach ($cells as $x => $cell) {
-                    $ownerId = $ownerIds[$x];
-                    if (!isset($indices[$ownerId][$cell])) {
-                        $indices[$ownerId][$cell] = count($wireCells);
-                        $wireCells[] = [...$styled[$cell], 'ownerLayerId' => $ownerId];
-                    }
-                    $row[] = $indices[$ownerId][$cell];
-                }
-                yield $row;
-            }
-        })());
         return new self($id, ['columns' => $width, 'rows' => $height, 'cellWidth' => FieldViewport::TILE_SIZE,
             'cellHeight' => FieldViewport::TILE_SIZE, 'layers' => $metadata,
             ...($tiles === null ? [] : ['tileset' => $tiles['tileset']])], $wireCells, $rowCells, $tiles['rows'] ?? [],
