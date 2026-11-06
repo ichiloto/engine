@@ -23,6 +23,8 @@ use InvalidArgumentException;
  */
 readonly class BattleCanvasLayout
 {
+  public const int BATTLER_LAYER = 100;
+
   /** The battle UI's bottom windows span the compatibility grid's last six rows. */
   public const int HUD_ROWS = 6;
   public RendererGridConfig $uiGrid;

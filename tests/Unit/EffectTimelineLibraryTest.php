@@ -50,6 +50,20 @@ it('preserves independent sequences under the same effect identity', function ()
     ->and($graphical->playbackSegments[1]['drawCommands'][0]['payload']['sourceFrame'])->toBe(1);
 });
 
+it('requires subject-front images to stay attached to an individual battle subject', function (bool $battle, array $track) {
+  $sequence = $this->imageSequence;
+  $sequence['tracks'][0] = [...$sequence['tracks'][0], 'depth' => 'subject-front', ...$track];
+  expect(fn() => $this->effects->compile('invalid-relative-depth', $sequence, $battle))
+    ->toThrow(InvalidArgumentException::class, 'subject-front depth requires an attached caster or target battle image');
+})->with([
+  [false, []],
+  [true, ['anchor' => 'screen']],
+  [true, ['anchor' => 'stage']],
+  [true, ['anchor' => 'target-group']],
+  [true, ['detachFrame' => 1]],
+  [true, ['flight' => []]],
+]);
+
 it('preserves explicit image fitting without adding a new default to existing sources', function (bool $battle) {
   $legacy = $this->effects->compile('legacy-fit', $this->imageSequence, $battle);
   expect($legacy->playbackSegments[0]['drawCommands'][0]['payload'])->not->toHaveKey('fit');

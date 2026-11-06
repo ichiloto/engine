@@ -3209,6 +3209,40 @@ it('projects one selected-group image with the authored anchor lifetime across a
 })->with([false, true], [[false, false], [true, false], [true, true]]);
 
 
+it('interleaves attached effects with their subjects in the live battler draw order', function (bool $reduced) {
+  [$battle, $catalog, $hero, [$near, $far]] = graphicalBattleFixture();
+  $tracks = array_map(static fn(string $depth): array => [
+    'id' => $depth, 'type' => 'image', 'asset' => 'test-sprite.png', 'anchor' => 'target', 'depth' => $depth,
+    'cells' => ['width' => 12, 'height' => 10], 'keyframes' => [['frame' => 0, 'duration' => 24]],
+  ], ['front', 'subject-front', 'behind']);
+  $effect = new EffectTimelineLibrary($this->root)->compile('ordered-impact',
+    ['fps' => 24, 'lengthFrames' => 24, 'tracks' => $tracks], true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect);
+  $playback = new BattleCommandPlayback($plan, $hero, [$near, $far],
+    BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $field = graphicalBattleScene($battle, $presentation)->ui->fieldWindow;
+  $field->setCommandPlayback($playback);
+  $playback->begin();
+  $playback->update($plan->phases['target']['start'] / 120);
+  $images = $presentation->frame($field, reducedMotion: $reduced)->images;
+  $ids = array_column($images, 'id');
+  $byId = array_column($images, null, 'id');
+  $farId = spl_object_id($far);
+  $nearId = spl_object_id($near);
+  $indices = array_flip($ids);
+  $farEffect = 'command-effect-target-subject-front-' . $farId;
+  $nearEffect = 'command-effect-target-subject-front-' . $nearId;
+
+  expect($indices['command-effect-target-behind-' . $farId])->toBeLessThan($indices['combatant-' . $farId])
+    ->and($indices['combatant-' . $farId])->toBeLessThan($indices[$farEffect])
+    ->and($indices[$farEffect])->toBeLessThan($indices['combatant-' . $nearId])
+    ->and($indices['combatant-' . $nearId])->toBeLessThan($indices[$nearEffect])
+    ->and($indices[$nearEffect])->toBeLessThan($indices['command-effect-target-front-' . $farId])
+    ->and($byId[$farEffect]->layer)->toBe($byId['combatant-' . $farId]->layer)
+    ->and($playback->presentationFailure)->toBeNull();
+})->with([false, true]);
+
 it('draws the anchored action strike on the target boundary and recovery on return', function (bool $reduced, bool $partyActor) {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $pose = new BattlerPose('graphical-canvas/synthetic-320x180.png', columns: 4,

@@ -555,6 +555,12 @@ Overlapping keyframes within a track are refused. Both battle presentations
 apply segment depth ordering and `clearBeforeDraw` before drawing.
 Named-slot anchors are still future work.
 
+An attached battle image with `depth => subject-front` draws immediately
+after its caster or each selected target in battler ground order. Nearer
+battler bodies can cover the image. Screen, stage, target-group and detached
+images use their existing depth options. The default `front` draws above the
+battler layer and `behind` draws below it.
+
 Battle image tracks also accept `attachment => center|head|ground` and
 `pivot => ['x' => .5, 'y' => .5]`, both at track level, not per keyframe.
 `EffectImageAttachment::cases()` is the shared authoring option inventory.

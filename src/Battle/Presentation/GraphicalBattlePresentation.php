@@ -318,7 +318,8 @@ final class GraphicalBattlePresentation
         $poses = ($party ? $catalog->actorPoses : $catalog->enemyPoses)[$key] ?? null;
         $profile = $catalog->scale?->getProfile($key, $party);
         $presentation->participants[$identity] = ['battler' => $member, 'party' => $party,
-          'image' => new CanvasImage('combatant-' . $identity, $art->asset, new CanvasRectangle(0, 0, 1, 1), 100, $art->sourceRect),
+          'image' => new CanvasImage('combatant-' . $identity, $art->asset, new CanvasRectangle(0, 0, 1, 1),
+            BattleCanvasLayout::BATTLER_LAYER, $art->sourceRect),
           'art' => $art, 'available' => $available, 'poses' => $poses, 'scale' => $profile,
           'grounding' => ($party ? $catalog->actorGrounding : $catalog->enemyGrounding)[$key] ?? null,
           'habitat' => $member instanceof Enemy ? $member->habitat : null,
@@ -348,7 +349,7 @@ final class GraphicalBattlePresentation
         $bounds->assertWithin($layout->width, $layout->height);
         if ($available) {
           $layout->skin?->targetCursor?->layout($presentation->locateBody(new CanvasImage('combatant-' . $identity,
-            $art->asset, $bounds, 100, $art->sourceRect), $identity), $layout->width, $layout->height);
+            $art->asset, $bounds, BattleCanvasLayout::BATTLER_LAYER, $art->sourceRect), $identity), $layout->width, $layout->height);
         }
         if (min($bounds->width, $bounds->height) < 1) {
           throw new RuntimeException('Battler images must cover at least one graphical unit in each dimension.');
@@ -358,7 +359,7 @@ final class GraphicalBattlePresentation
       if ($slot === null) { throw new RuntimeException("Graphical battle requires a formation slot for every participant: {$member->name}"); }
       $image = new CanvasImage('combatant-' . $identity, $art->asset,
         $presentation->placeBaseArtwork($slot, $available ? $art : null, $participant['poses'], $identity, $participant['scale']),
-        100, $art->sourceRect);
+        BattleCanvasLayout::BATTLER_LAYER, $art->sourceRect);
       $presentation->participants[$identity]['image'] = $image;
       if ($available) { $images[] = $image; }
     }
@@ -445,6 +446,7 @@ final class GraphicalBattlePresentation
     $enemies = $this->battle->troop->members->toArray();
     $bodies = [];
     $combatantImages = [];
+    $bodyOffsets = $subjectFrontImages = [];
     $conditionBattlers = [];
     $conditionPlaybacks = [];
     $commandTone = !$includeOptionalArtwork || $playback === null ? [] : BattleEffectTone::getMultipliers($playback, $reducedMotion);
@@ -468,6 +470,7 @@ final class GraphicalBattlePresentation
       $bounds = $image->destination;
       // Overlays attach to the body as drawn this frame, following steps, recoil, shake and pose changes.
       $bodies[$identity] = $participant['available'] ? $this->locateBody($image, $identity) : $image->destination;
+      $bodyOffsets[$identity] = count($images);
       $popups = array_filter($feedback, static fn(array $popup) => $popup['battler'] === $battler);
       $defeat = $playback?->getEnemyDefeatTreatment($battler, $reducedMotion);
       if (!$participant['party'] && $battler->isKnockedOut
@@ -490,6 +493,7 @@ final class GraphicalBattlePresentation
           }, brightness: $image->brightness, flipX: $image->flipX, flipY: $image->flipY);
         $images[] = $combatantImages[$identity] = BattleEffectTone::applyToImage($drawn,
           ($commandTone[$identity] ?? 1.0) * ($conditionTone[$identity] ?? 1.0));
+        $bodyOffsets[$identity]++;
         if ($shownPose !== null) {
           $attachmentPoints[$identity] = $shownPose->projectAttachmentPoints($drawn);
         }
@@ -579,7 +583,7 @@ final class GraphicalBattlePresentation
     foreach ($conditionPlaybacks as $condition) {
       $ambient = GraphicalBattleEffects::compose($condition, $this->layout, $bodies, $this->assetRoot,
         $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors, $partySides, $maskFlips,
-        $attachmentPoints);
+        $attachmentPoints, subjectFrontImages: $subjectFrontImages);
       array_push($images, ...$ambient->images);
       array_push($text, ...$ambient->textLayers);
       array_push($composites, ...$ambient->composites);
@@ -588,7 +592,7 @@ final class GraphicalBattlePresentation
     if ($playback !== null && $includeOptionalArtwork) {
       $effects = GraphicalBattleEffects::compose($playback, $this->layout, $bodies, $this->assetRoot,
         $reducedMotion, $combatantImages, $imageFlips, $compositing, $groundAnchors, $partySides, $maskFlips,
-        $attachmentPoints, $imageRotation, $imageClips, $coverageDabs, $textureStrip);
+        $attachmentPoints, $imageRotation, $imageClips, $coverageDabs, $textureStrip, $subjectFrontImages);
       array_push($images, ...$effects->images);
       array_push($text, ...$effects->textLayers);
       array_push($composites, ...$effects->composites);
@@ -611,12 +615,35 @@ final class GraphicalBattlePresentation
       ...array_map(static fn(CanvasTextLayer $layer) => $layer->clipRect ?? $layer->paintBounds, [...$text, ...$ui]),
       ...array_map(static fn(CanvasIndicator $indicator) => $indicator->bounds, $indicators),
       ...($effects?->getOverlayProtection() ?? [])];
+    if ($subjectFrontImages !== []) {
+      $images = self::orderSubjectEffects($images, $bodyOffsets, $subjectFrontImages);
+    }
     $canvas = new PresentationCanvas($this->layout->width, $this->layout->height,
       [...$images, ...($stageCanvas?->images ?? [])], $indicators, CanvasTextBatch::compact([...$text, ...$ui]),
       composites: [...$composites, ...($stageCanvas?->composites ?? [])],
       protectedAreas: [...$areas, ...($stageCanvas?->getOverlayProtection() ?? [])]);
     CanvasImagePreflight::inspect($canvas->images, $this->assetRoot, $canvas->composites);
     return $canvas;
+  }
+
+  /** Insert each attached image into the existing ground order at its subject's draw position. */
+  private static function orderSubjectEffects(array $images, array $bodyOffsets, array $subjects): array
+  {
+    $bySubject = $atOffset = $ordered = [];
+    foreach ($images as $image) {
+      if (isset($subjects[$image->id])) { $bySubject[$subjects[$image->id]][] = $image; }
+    }
+    foreach ($bodyOffsets as $identity => $offset) {
+      if (isset($bySubject[$identity])) {
+        $atOffset[$offset] ??= [];
+        array_push($atOffset[$offset], ...$bySubject[$identity]);
+      }
+    }
+    foreach ($images as $offset => $image) {
+      array_push($ordered, ...($atOffset[$offset] ?? []));
+      if (!isset($subjects[$image->id])) { $ordered[] = $image; }
+    }
+    return $ordered;
   }
 
   /**

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Animations\EffectScale;
+use Ichiloto\Engine\Animations\Timelines\EffectImageDepth;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageFit;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageTint;
@@ -44,18 +45,19 @@ final class GraphicalBattleEffects
    * @param array<int, Vector2>|null $groundAnchors Current posed ground points; rectangle-only hosts use bottom centres.
    * @param array<int, bool> $partySides Combatant identity => whether it stands with the party; opponent-facing tracks read it.
    * @param array<int, array<string, Vector2>> $attachmentPoints Named points projected from each current pose cell.
+   * @param array<string, int>|null $subjectFrontImages Optional output map of effect image id to subject identity.
    */
   public static function compose(BattleEffectPlayback $playback, BattleCanvasLayout $arena,
     array $bounds, string $assetRoot, bool $reducedMotion, array $battlerImages = [], bool $imageFlips = true,
     bool $compositing = true, ?array $groundAnchors = null, array $partySides = [], bool $maskFlips = true,
     array $attachmentPoints = [], bool $imageRotation = false, bool $imageClips = true,
-    bool $coverageDabs = false, bool $textureStrip = false): PresentationCanvas
+    bool $coverageDabs = false, bool $textureStrip = false, ?array &$subjectFrontImages = null): PresentationCanvas
   {
     $groundAnchors ??= array_map(static fn(CanvasRectangle $box): Vector2 =>
       new Vector2($box->x + $box->width / 2, $box->y + $box->height), $bounds);
     $hadConditionFailure = $playback instanceof BattlerConditionEffect && $playback->hasPresentationFailure;
     $images = $text = $composites = [];
-    $tints = $contactRails = [];
+    $tints = $contactRails = $relativeSubjects = [];
     $summon = $playback instanceof BattleCommandPlayback ? $playback->plan->summon : null;
     if ($summon !== null && !$reducedMotion) {
       if (in_array($playback->phase, ['summon-in', 'summon-out'], true)) {
@@ -241,7 +243,15 @@ final class GraphicalBattleEffects
                 }
                 if ($data['flipX'] ?? false) { $pivot['x'] = 1 - $pivot['x']; }
                 if ($data['flipY'] ?? false) { $pivot['y'] = 1 - $pivot['y']; }
-                $layer = ($data['depth'] ?? 'front') === 'behind' ? 90 : 180;
+                $depth = $data['depth'] ?? EffectImageDepth::FRONT->value;
+                $layer = match ($depth) {
+                  EffectImageDepth::BEHIND->value => 90,
+                  EffectImageDepth::SUBJECT_FRONT->value => BattleCanvasLayout::BATTLER_LAYER,
+                  default => 180,
+                };
+                if ($depth === EffectImageDepth::SUBJECT_FRONT->value && $subject !== null) {
+                  $relativeSubjects[$id] = spl_object_id($subject);
+                }
                 $flipX = $data['flipX'] ?? false;
                 $flipY = $data['flipY'] ?? false;
                 $left = $x - $width * $pivot['x'];
@@ -346,8 +356,9 @@ final class GraphicalBattleEffects
     }
     if ($playback instanceof BattlerConditionEffect && !$hadConditionFailure && $playback->hasPresentationFailure) {
       return self::compose($playback, $arena, $bounds, $assetRoot, $reducedMotion, $battlerImages,
-        $imageFlips, $compositing, $groundAnchors, $partySides, $maskFlips);
+        $imageFlips, $compositing, $groundAnchors, $partySides, $maskFlips, subjectFrontImages: $subjectFrontImages);
     }
+    if ($subjectFrontImages !== null) { $subjectFrontImages += $relativeSubjects; }
     return new PresentationCanvas($arena->width, $arena->height, $images, textLayers: $text, composites: $composites,
       protectedAreas: [...$tintAreas,
         ...array_map(static fn(CanvasImage $image) => $image->clipRect ?? $image->destination, $images),

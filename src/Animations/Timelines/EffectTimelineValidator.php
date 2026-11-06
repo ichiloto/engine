@@ -161,6 +161,18 @@ final class EffectTimelineValidator
         throw new InvalidArgumentException("Effect {$id} currently accepts image tracks with id, asset, sheet, cells, depth and keyframes.");
       }
       $onStage = ($track['anchor'] ?? null) === 'stage';
+      if (isset($track['anchor']) && !in_array($track['anchor'], ['caster', 'target', 'screen',
+        ...($forBattle ? ['target-group'] : []), ...($acceptsStage ? ['stage'] : [])], true)) {
+        throw new InvalidArgumentException("Effect {$id} has an invalid image anchor.");
+      }
+      $depth = $track['depth'] ?? EffectImageDepth::FRONT->value;
+      $imageDepth = is_string($depth) ? EffectImageDepth::tryFrom($depth) : null;
+      if ($imageDepth === null) { throw new InvalidArgumentException("Effect {$id} has an invalid image depth."); }
+      if ($imageDepth === EffectImageDepth::SUBJECT_FRONT && (!$forBattle
+        || !EffectImageDepth::supportsSubjectOrder($track['anchor'] ?? 'target')
+        || array_key_exists('detachFrame', $track) || array_key_exists('flight', $track))) {
+        throw new InvalidArgumentException("Effect {$id} subject-front depth requires an attached caster or target battle image.");
+      }
       $trackPath = 'tracks[' . $track['id'] . ']';
       $zIndex = array_key_exists('zIndex', $track) ? $track['zIndex'] : 0;
       if ($onStage && ($stage === null || array_intersect(array_keys($track), ['cells', 'facing', 'attachment']) !== [])) {
@@ -184,14 +196,8 @@ final class EffectTimelineValidator
           throw new InvalidArgumentException("Effect {$id} sheet and cells require two positive integers no greater than 64.");
         }
       }
-      $depth = $track['depth'] ?? 'front';
-      if (!in_array($depth, ['behind', 'front'], true)) { throw new InvalidArgumentException("Effect {$id} depth must be behind or front."); }
       $fit = \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageFit::parse(
         array_key_exists('fit', $track) ? $track['fit'] : 'stretch');
-      if (isset($track['anchor']) && !in_array($track['anchor'], ['caster', 'target', 'screen',
-        ...($forBattle ? ['target-group'] : []), ...($acceptsStage ? ['stage'] : [])], true)) {
-        throw new InvalidArgumentException("Effect {$id} has an invalid image anchor.");
-      }
       if (array_key_exists('span', $track) && (!is_bool($track['span'])
         || ($track['anchor'] ?? null) !== 'target-group'
         || ($track['attachment'] ?? 'center') !== 'ground' || $fit->value !== 'contain')) {
