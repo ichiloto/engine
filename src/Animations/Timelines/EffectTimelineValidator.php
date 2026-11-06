@@ -36,7 +36,7 @@ final class EffectTimelineValidator
       $data = $variants[$presentation->value];
     }
     if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'loopFrom', 'restFrame', 'tracks', 'cues',
-      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'rangeTiming'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
+      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'rangeTiming', 'flightTiming'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
       throw new InvalidArgumentException("Effect {$id} accepts fps, lengthFrames, playback, loopFrom, restFrame, tracks and presentation cues.");
     }
     $length = $data['lengthFrames'] ?? null;
@@ -369,6 +369,13 @@ final class EffectTimelineValidator
       BattleEffectRangeTiming::fromArray($data['rangeTiming'], $length, $fixed);
       $rangeTiming = ['rangeTiming' => $data['rangeTiming'], 'rangeTimingFixedFrames' => $fixed];
     }
+    $flightTiming = null;
+    if ($presentation === EffectPresentation::GRAPHICAL && array_key_exists('flightTiming', $data)) {
+      if ($stage !== null || $forSummon || $playback !== 'once' || $cadence !== EffectCadence::FIXED || $rangeTiming !== null) {
+        throw new InvalidArgumentException("Effect {$id} flight timing requires a fixed, once-playing battle effect without a stage or range timing.");
+      }
+      $flightTiming = self::readFlightTiming($id, $data['flightTiming'], $tracks, $cues, $timing);
+    }
     return new CompiledEffectTimeline($id, sha1(json_encode($data, JSON_THROW_ON_ERROR)), fps: $fps,
       playbackSegments: (new EffectTimelineCompiler())->compileTracks($normalized),
       cueSchedule: $cues,
@@ -377,8 +384,33 @@ final class EffectTimelineValidator
         ...($timing === null ? [] : ['effectTiming' => $timing]),
         ...($poseSyncFrame === null ? [] : ['poseSyncFrame' => $poseSyncFrame]),
         ...($rangeTiming ?? []),
+        ...($flightTiming === null ? [] : ['flightTiming' => $flightTiming]),
         'playback' => ['loop' => $playback === 'loop', 'loopFrom' => $loopFrom],
         ...($stage === null ? [] : ['stage' => $stage->data])]);
+  }
+
+  /** @return array{track: string, release: int, arrival: int, speed: float} */
+  private static function readFlightTiming(string $id, mixed $data, array $tracks, array $cues, ?array $timing): array
+  {
+    $trackId = is_array($data) ? ($data['track'] ?? null) : null;
+    $speed = is_array($data) ? ($data['speed'] ?? null) : null;
+    if (!is_array($data) || count($data) !== 2 || !is_string($trackId)
+      || (!is_int($speed) && !is_float($speed)) || !is_finite((float)$speed) || $speed < .05 || $speed > 20) {
+      throw new InvalidArgumentException("Effect {$id} flight timing needs a track ID and speed of 0.05..20 arena widths per second.");
+    }
+    $track = array_find($tracks, static fn(array $track): bool => ($track['id'] ?? null) === $trackId);
+    $impact = match ($timing['mode'] ?? 'cue') {
+      'frame' => $timing['frame'],
+      'cue' => array_find($cues, static fn(array $cue): bool => isset($timing['cueId'])
+        ? $cue['id'] === $timing['cueId'] : $cue['type'] === 'applyEffect')['frame'] ?? null,
+      default => null,
+    };
+    if (($track['type'] ?? null) !== 'image' || !isset($track['flight'], $track['detachFrame'])
+      || ($track['anchor'] ?? null) !== 'caster' || ($track['presentation'] ?? 'graphical') !== 'graphical'
+      || $impact !== $track['flight']['arrivalFrame'] || ($track['flight']['holdFrame'] ?? $impact) !== $impact) {
+      throw new InvalidArgumentException("Effect {$id} flight timing requires a graphical flight whose arrival owns the impact cue.");
+    }
+    return ['track' => $trackId, 'release' => $track['detachFrame'], 'arrival' => $impact, 'speed' => (float)$speed];
   }
 
   private static function compileTrail(string $id, array $track, int $length, string $playback, bool $hasRange): array

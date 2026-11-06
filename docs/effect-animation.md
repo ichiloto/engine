@@ -695,6 +695,17 @@ A cubic flight may supply `flight.farCurve` with the same control fields as
 and pose sheet for both ranges, and inspect both projected target choices
 before integration.
 
+For constant-speed travel, a fixed, once-playing graphical target effect can
+set `flightTiming`, with a caster-attached projectile image track ID in
+`track` and `speed` in arena widths per second (0.05 to 20). Set the
+track's arrival to the effect's impact cue or frame. Author any wake on the
+same path and release/arrival frames. At release, the command measures the
+captured path. The projectile, wake, arrival effects and combat resolution
+use that clock. Windup and the caster's recovery retain their authored pace.
+The same timeline drives the Editor's scrubber. Use one of `flightTiming`
+or `rangeTiming` per effect. Terminal and graphical capture failure use the
+authored command clock.
+
 The target effect can declare `poseSyncFrame` to align the action pose's
 existing `impactFrame` playback entry to a particular frame of that effect.
 Use this when the key represents release and the effect hits later. The

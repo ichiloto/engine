@@ -832,7 +832,7 @@ final class GraphicalBattlePresentation
         }
       }
       return $points;
-    });
+    }, $this->layout->width);
   }
 
   /**
