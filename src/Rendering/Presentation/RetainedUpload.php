@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Rendering\Presentation;
 
+use Closure;
 use Generator;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
@@ -23,6 +24,9 @@ final class RetainedUpload
     private ?array $carried = null;
     /** @var list<array<string, mixed>>|null The chunk being sent. */
     private ?array $chunk = null;
+    /** @var list<array<string, mixed>> Operations collected for a chunk that may span multiple updates. */
+    private array $buildingChunk = [];
+    private int $buildingBytes = 0;
     private bool $isFinalChunk = false;
     private int $index = 0;
 
@@ -49,11 +53,11 @@ final class RetainedUpload
             }
         })([...array_values(array_filter($operations, $isRemoval)),
             ...array_values(array_filter($operations, static fn(array|RetainedWorldUpload $operation): bool => ! $isRemoval($operation)))]);
-        $this->takeChunk();
     }
 
     public function getMessage(int $generation): RendererMessage
     {
+        $this->prepareChunk();
         return new RendererMessage(RendererMessageType::FRAME, ['frame' => $this->frame,
             'baseGeneration' => $generation, 'generation' => $generation + 1,
             'reset' => $this->reset && $this->index === 0,
@@ -70,15 +74,19 @@ final class RetainedUpload
             $this->chunk = [];
             return true;
         }
-        $this->takeChunk();
+        $this->chunk = null;
         return false;
     }
 
-    /** Takes the next chunk: operations up to the chunk budget, and at least one when any remain. */
-    private function takeChunk(): void
+    /**
+     * Build the next packet up to its byte budget. A caller can yield between operations and resume
+     * the same packet later. Each invocation processes at least one operation when work remains.
+     *
+     * @param (Closure(): bool)|null $shouldYield
+     */
+    public function prepareChunk(?Closure $shouldYield = null): bool
     {
-        $chunk = [];
-        $bytes = 0;
+        if ($this->chunk !== null) { return true; }
         while ($this->carried !== null || $this->remaining->valid()) {
             if ($this->carried !== null) {
                 [$operation, $size] = $this->carried;
@@ -91,14 +99,18 @@ final class RetainedUpload
                     throw new OverflowException('A retained operation exceeds the transport line budget.');
                 }
             }
-            if ($chunk !== [] && $bytes + $size > RetainedPresentation::CHUNK_BYTES) {
+            if ($this->buildingChunk !== [] && $this->buildingBytes + $size > RetainedPresentation::CHUNK_BYTES) {
                 $this->carried = [$operation, $size];
                 break;
             }
-            $chunk[] = $operation;
-            $bytes += $size;
+            $this->buildingChunk[] = $operation;
+            $this->buildingBytes += $size;
+            if ($this->remaining->valid() && ($shouldYield?->__invoke() ?? false)) { return false; }
         }
-        $this->chunk = $chunk;
+        $this->chunk = $this->buildingChunk;
+        $this->buildingChunk = [];
+        $this->buildingBytes = 0;
         $this->isFinalChunk = $this->carried === null && !$this->remaining->valid();
+        return true;
     }
 }

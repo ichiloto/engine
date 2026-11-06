@@ -52,3 +52,25 @@ it('builds a world operation list only while one upload holds it, sharing nothin
         ->and(iterator_to_array($world->streamOperations(false), false))->toBe($world->getOperations(false))
         ->and($world->operations)->toBe($world->getOperations(false));
 });
+
+
+it('resumes partially built chunks without changing packet boundaries or presenting early', function () {
+    $rows = str_repeat(str_repeat('x', 200) . "\n", 16);
+    $world = PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('terrain', 0, false, 'terrain', $rows)]));
+    $newUpload = static fn(): RetainedUpload => new RetainedUpload(
+        [new RetainedWorldUpload($world, true, true)], 1, true, true, ['x' => 0], [], [], $world);
+    $expected = readRetainedWorldUploadPackets($newUpload());
+    $upload = $newUpload();
+    $actual = [];
+    $pauses = 0;
+    do {
+        if (!$upload->prepareChunk(static fn(): bool => true)) {
+            expect(++$pauses)->toBeLessThan(64);
+            continue;
+        }
+        $actual[] = $upload->getMessage(count($actual))->payload;
+        if ($upload->advance()) { break; }
+    } while (true);
+
+    expect($pauses)->toBeGreaterThan(0)->and($actual)->toBe($expected);
+});

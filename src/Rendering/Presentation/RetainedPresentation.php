@@ -33,6 +33,7 @@ final class RetainedPresentation
     public const int ENVELOPE_RESERVE_BYTES = 4096;
     public const float ACK_TIMEOUT_SECONDS = 2.0;
     public const int SEND_BUDGET_BYTES = 1048576;
+    private const int WORLD_UPLOAD_BUDGET_NS = 6_000_000;
     public const int MAX_SEND_PACKETS = 32;
     public const int MAX_IN_FLIGHT = 32;
     public const int MAX_FRAMES_IN_FLIGHT = 2;
@@ -466,8 +467,11 @@ final class RetainedPresentation
                 $this->coalesced = false;
             }
             $invalidation = $this->invalidation;
+            $deadline = hrtime(true) + self::WORLD_UPLOAD_BUDGET_NS;
+            $shouldYield = $this->upload->world === null ? null : static fn(): bool => hrtime(true) >= $deadline;
             while ($this->upload !== null && $sent < self::SEND_BUDGET_BYTES && $packets < self::MAX_SEND_PACKETS
                 && $passes < self::MAX_SEND_PACKETS) {
+                if ($passes > 0 && ($shouldYield?->__invoke() ?? false)) { break; }
                 if ($this->generation - max($this->windowBase, $this->progressGeneration) >= self::MAX_IN_FLIGHT) {
                     $progress = $this->progressGeneration;
                     $this->serviceTransport(); $passes++;
@@ -475,6 +479,7 @@ final class RetainedPresentation
                     continue;
                 }
                 if ($this->generation === PHP_INT_MAX) { throw new OverflowException('Retained presentation sequence exhausted.'); }
+                if (!$this->upload->prepareChunk($shouldYield)) { break; }
                 $message = $this->upload->getMessage($this->generation);
                 $bytes = strlen($message->encode());
                 // A bounded pipeline feeds fast readers without building a whole-map byte backlog.
