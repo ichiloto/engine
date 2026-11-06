@@ -697,7 +697,8 @@ it('registers the rear at release and the leading tip at the straight flight con
     ->and($rear[0])->toEqualWithDelta($source->x + $source->width / 2, .000001)
     ->and($rear[1])->toEqualWithDelta($source->y + $source->height / 2, .000001)
     ->and($endX)->toBeGreaterThan($target->x + $target->width)
-    ->and($tipX)->toEqualWithDelta($target->x + $target->width, .000001)
+    ->and($tipX)->toBeLessThan($target->x + $target->width)
+    ->and($tipX)->toBeGreaterThan($target->x + $target->width - 1.001)
     ->and($tipY)->toBeGreaterThan($target->y)->toBeLessThan($target->y + $target->height)
     ->and($launch->diagnostics)->toBe([])->and($arrival->diagnostics)->toBe([]);
 })->with([false, true]);

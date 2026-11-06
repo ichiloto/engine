@@ -615,9 +615,11 @@ the heading of its sampled leg. A rotation at the viewport edge uses the
 full crop and a screen-space mask when `canvas_clip_opacity` is available.
 
 For a piercing shot, set `flight.route => 'straight'`. The release projects
-one ray through the selected recipients’ visible bounds in their targeting
-order. If the projected formation has no shared ray, the presentation reports
-that geometry and the action still uses its existing combat cue. A directional
+one ray through painted pixels in each selected recipient’s displayed crop,
+following the targeting order. Engine traces the current crop, mirror and clip
+at release, using the renderer’s whole-degree headings. If the projected
+formation has no shared drawable ray, the presentation reports that geometry
+and the action still uses its existing combat cue. A directional
 straight image can also set `flight.tipX` to a normalized source X along its
 pivot row. The rear pivot stays at the release point on the first flight frame.
 The tip reaches the final contact at `arrivalFrame`. When space is tight, the

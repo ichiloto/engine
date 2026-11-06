@@ -738,6 +738,11 @@ final class GraphicalBattlePresentation
       $cue['type'] === 'commandCapturePosePoint')) { return; }
     $playback->bindPosePointCapture(function (BattleCommandPlayback $sample, string $anchor, string $name, ?string $route, ?array $curve,
       ?float $clearance) use ($reducedMotion, $idleSeconds): array {
+      static $shotFrame = null, $straightShots = [];
+      if ($shotFrame !== $sample->session->currentFrame) {
+        $shotFrame = $sample->session->currentFrame;
+        $straightShots = [];
+      }
       $clock = $idleSeconds + $sample->session->currentFrame / BattleCommandTimeline::FPS;
       $geometry = [];
       foreach ([$sample->actor, ...$sample->targets] as $battler) {
@@ -769,6 +774,16 @@ final class GraphicalBattlePresentation
           'party' => $this->participants[$id]['party']];
         if ($route !== null) {
           if ($sample->targets === []) { throw new RuntimeException('Battle projectile has no selected recipients.'); }
+          if ($route === EffectFlightRoute::STRAIGHT->value) {
+            $targets = array_map(static fn($target): CanvasImage => $geometry[spl_object_id($target)]['image'], $sample->targets);
+            $key = $id . ':' . $name;
+            if (!array_key_exists($key, $straightShots)) {
+              $straightShots[$key] = BattleStraightShot::planVisible($point, $targets, $this->assetRoot);
+            }
+            $points[$id]['path'] = $straightShots[$key]
+              ?? throw new RuntimeException('No straight battle flight can reach the selected targets in order.');
+            continue;
+          }
           $waypoints = [[$point->x, $point->y]];
           $contactBodies = [];
           $usesVisibleContact = $route !== EffectFlightRoute::WAYPOINTS->value;
@@ -782,12 +797,9 @@ final class GraphicalBattlePresentation
               $waypoints[] = [$body->x + $body->width / 2, $body->y + $body->height / 2];
             }
           }
-          $points[$id]['path'] = match (EffectFlightRoute::from($route)) {
-            EffectFlightRoute::STRAIGHT => BattleStraightShot::plan($point, $contactBodies)
-              ?? throw new RuntimeException('No straight battle flight can reach the selected targets in order.'),
-            EffectFlightRoute::CUBIC => $this->planCubicFlight($point, $contactBodies, $curve, $obstacles, $clearance),
-            EffectFlightRoute::WAYPOINTS => new BattlePresentationPath($waypoints),
-          };
+          $points[$id]['path'] = $usesVisibleContact
+            ? $this->planCubicFlight($point, $contactBodies, $curve, $obstacles, $clearance)
+            : new BattlePresentationPath($waypoints);
         }
       }
       return $points;

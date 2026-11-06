@@ -5,11 +5,49 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetBounds;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetRayContact;
+use RuntimeException;
 
 /** Find a common ray through the presented targets in selection order. */
 final class BattleStraightShot
 {
+  private const int MAX_PIXEL_READS = 2_000_000;
+
+  /** @param non-empty-list<CanvasImage> $targets */
+  public static function planVisible(Vector2 $origin, array $targets, string $assetRoot): ?BattlePresentationPath
+  {
+    $bounds = [];
+    foreach ($targets as $target) {
+      $visible = PngAssetBounds::getVisibleBounds($assetRoot, $target);
+      $bounds[] = $visible['bounds']
+        ?? throw new RuntimeException($visible['diagnostic'] ?? 'Battle flight requires visible target artwork.');
+    }
+    $heading = self::plan($origin, $bounds)?->getSampleAtProgress(1)['direction'] ?? null;
+    if ($heading === null) { return null; }
+    $preferred = (int)round(rad2deg(atan2($heading->y, $heading->x)));
+
+    // Canvas rotation is in whole degrees. Test exactly those drawable rays
+    // in order of proximity to the original rectangular aim.
+    $rays = [];
+    for ($offset = 0; $offset <= 180; $offset++) {
+      foreach ([$preferred - $offset, $preferred + $offset] as $degrees) {
+        $angle = ($degrees % 360 + 360) % 360;
+        $rays[$angle] ??= ['direction' => new Vector2(cos(deg2rad($angle)), sin(deg2rad($angle))), 'distance' => 0.0];
+      }
+    }
+    $remainingReads = self::MAX_PIXEL_READS;
+    foreach ($targets as $index => $target) {
+      $rays = PngAssetRayContact::trace($assetRoot, $target, $bounds[$index], $origin, $rays, $remainingReads);
+      if ($rays === []) { return null; }
+    }
+    $contact = reset($rays);
+    return new BattlePresentationPath([[$origin->x, $origin->y],
+      [$origin->x + $contact['direction']->x * $contact['distance'], $origin->y + $contact['direction']->y * $contact['distance']]]);
+  }
+
   /** @param non-empty-list<CanvasRectangle> $targets */
   public static function plan(Vector2 $origin, array $targets): ?BattlePresentationPath
   {
