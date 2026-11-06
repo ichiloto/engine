@@ -17,9 +17,11 @@ use Ichiloto\Engine\Rendering\Tilesets\CornerShape;
 use Ichiloto\Engine\Rendering\Tilesets\TileComposer;
 use Ichiloto\Engine\Rendering\Tilesets\TileId;
 use Ichiloto\Engine\Rendering\Tilesets\TilePiece;
+use Closure;
 use Generator;
 use InvalidArgumentException;
 use RuntimeException;
+use Symfony\Component\Console\Terminal;
 
 /**
  * Immutable, map-owned upload. Camera movement never visits its cells in PHP.
@@ -252,7 +254,48 @@ final class PresentationWorld
     public static function getFromLayers(MapLayerSet $layers, string $id = 'map', ?MapGraphics $graphics = null,
         string $assetRoot = '', array $coverage = [], array $terminalCells = [], array $tileCells = []): self
     {
-        // Every input is immutable. Artwork bytes are cache invalidation facts, never game identity or admission gates.
+        return self::compileCached($layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells);
+    }
+
+    /** Capture projection and display policy before the first scheduled work unit. */
+    public static function beginPreparation(MapLayerSet $layers, string $id = 'map', ?MapGraphics $graphics = null,
+        string $assetRoot = '', array $coverage = [], array $terminalCells = [], array $tileCells = []): PresentationWorldPreparation
+    {
+        $displayPolicy = self::readDisplayPolicy();
+        return new PresentationWorldPreparation(
+            static fn(Closure $checkpoint): self =>
+                self::compileCached($layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells, $checkpoint),
+            static fn(): bool => self::readDisplayPolicy() === $displayPolicy,
+        );
+    }
+
+    private static function compileCached(MapLayerSet $layers, string $id, ?MapGraphics $graphics, string $assetRoot,
+        array $coverage, array $terminalCells, array $tileCells, ?Closure $checkpoint = null): self
+    {
+        $facts = self::readAssetFacts($graphics, $assetRoot, $checkpoint);
+        $key = 'world:' . hash('sha256', serialize([$layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells, $facts,
+            self::readDisplayPolicy()]));
+        if (($cached = MapCompilationCache::find($key)) instanceof self) { return $cached; }
+        $checkpoint?->__invoke();
+        $world = self::compileFromLayers($layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells,
+            hash('sha256', serialize([$assetRoot, $facts])), $checkpoint);
+        $checkpoint?->__invoke();
+        // A suspended compiler may span an artwork replacement. Its old key must never admit mixed revisions.
+        if ($checkpoint !== null && $facts !== self::readAssetFacts($graphics, $assetRoot, $checkpoint)) {
+            throw new RuntimeException('Map artwork changed during retained world preparation.');
+        }
+        MapCompilationCache::store($key, $world, $world->estimatedSourceBytes);
+        return $world;
+    }
+
+    private static function readDisplayPolicy(): array
+    {
+        return [TerminalCapabilities::supportsCompositeEmoji(), Terminal::getColorMode()];
+    }
+
+    private static function readAssetFacts(?MapGraphics $graphics, string $assetRoot, ?Closure $checkpoint): array
+    {
+        // Artwork bytes invalidate the cache without becoming game identity or admission gates.
         $facts = [];
         $art = $graphics?->tileset->sheets ?? [];
         foreach ($graphics?->tileset->kinds ?? [] as $kind) {
@@ -263,18 +306,13 @@ final class PresentationWorld
                 PngAssetPreflight::inspect($assetRoot, $asset);
                 $facts[$asset] = hash_file('sha256', $assetRoot . DIRECTORY_SEPARATOR . $asset);
             } catch (RuntimeException $error) { $facts[$asset] = ['unavailable' => $error->getMessage()]; }
+            $checkpoint?->__invoke();
         }
-        $key = 'world:' . hash('sha256', serialize([$layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells, $facts,
-            TerminalCapabilities::supportsCompositeEmoji()]));
-        if (($cached = MapCompilationCache::find($key)) instanceof self) { return $cached; }
-        $world = self::compileFromLayers($layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells,
-            hash('sha256', serialize([$assetRoot, $facts])));
-        MapCompilationCache::store($key, $world, $world->estimatedSourceBytes);
-        return $world;
+        return $facts;
     }
 
     private static function compileFromLayers(MapLayerSet $layers, string $id, ?MapGraphics $graphics,
-        string $assetRoot, array $coverage, array $terminalCells, array $tileCells, string $assetRevision): self
+        string $assetRoot, array $coverage, array $terminalCells, array $tileCells, string $assetRevision, ?Closure $checkpoint): self
     {
         $grid = $layers->getComposedGrid();
         foreach ($terminalCells as $y => $row) {
@@ -285,6 +323,7 @@ final class PresentationWorld
                 }
                 $grid[$y][$x] = $cell;
             }
+            $checkpoint?->__invoke();
         }
         $projectedOwners = [];
         // Recompose only explicitly owned graphical cells. Authored layers and gameplay never change.
@@ -303,6 +342,7 @@ final class PresentationWorld
                     $grid[$y][$x] = $cell;
                     $projectedOwners[$y][$x] = $owner;
                 }
+                $checkpoint?->__invoke();
             }
         }
         $height = count($grid);
@@ -321,7 +361,7 @@ final class PresentationWorld
         };
         // Account for every wire cell while building packed rows. Only distinct cells allocate a wire array.
         $wireCells = $indices = [];
-        $rowCells = PackedGrid::fromRows((static function () use ($grid, $readOwnerIds, &$wireCells, &$indices, &$estimatedBytes): \Generator {
+        $rowCells = PackedGrid::fromRows((static function () use ($grid, $readOwnerIds, &$wireCells, &$indices, &$estimatedBytes, $checkpoint): Generator {
             $styled = [];
             foreach ($grid as $y => $cells) {
                 $ownerIds = $readOwnerIds($y);
@@ -342,6 +382,7 @@ final class PresentationWorld
                     throw new InvalidArgumentException('Retained world exceeds the source-memory budget; use retained screen text.');
                 }
                 yield $row;
+                $checkpoint?->__invoke();
             }
         })());
         foreach ($layers->layers as $layer) {
@@ -349,7 +390,7 @@ final class PresentationWorld
                 'layer' => PresentationLayerPolicy::getMapLayerOrder($layer),
                 'kind' => $layer->decoration ? 'decoration' : 'gameplay'];
         }
-        $tiles = $graphics === null ? null : self::getTilePresentation($graphics, $layers, $assetRoot, $coverage['tiles'] ?? [], $tileCells);
+        $tiles = $graphics === null ? null : self::getTilePresentation($graphics, $layers, $assetRoot, $coverage['tiles'] ?? [], $tileCells, $checkpoint);
         if ($tiles !== null) {
             $metadata = [...$metadata, ...$tiles['layers']];
             $estimatedBytes += $tiles['bytes'];
@@ -386,13 +427,14 @@ final class PresentationWorld
      * @return array{tileset: array<string, mixed>, layers: list<array<string, mixed>>, rows: array<string, array<int, string>>, bytes: int, animated: bool, covers: array<string, string>, shadows: array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, rows: array<string, array<int, string>>}|null}|null
      */
     private static function getTilePresentation(MapGraphics $graphics, MapLayerSet $mapLayers, string $assetRoot,
-        array $coveredCells = [], array $tileCells = []): ?array
+        array $coveredCells, array $tileCells, ?Closure $checkpoint): ?array
     {
         $gameplayIds = [];
         foreach ($mapLayers->layers as $mapLayer) {
             if (!$mapLayer->decoration) { $gameplayIds[$mapLayer->name] = PresentationLayerPolicy::getMapLayerId($mapLayer); }
         }
         $usable = $graphics->tileset->getUsableSheets($assetRoot);
+        $checkpoint?->__invoke();
         if ($usable === null) {
             return null;
         }
@@ -410,7 +452,7 @@ final class PresentationWorld
         $cornerJoins = $graphics->tileset->getCornerJoins();
         $cornerLayers = [];
         $cornerSheets = $cornerTiles === [] ? [] : $graphics->tileset->getUsableCornerSheets($assetRoot, $size,
-            self::getShownCornerTiles($graphics->layers, $readShown, $cornerTiles, $cornerLayers));
+            self::getShownCornerTiles($graphics->layers, $readShown, $cornerTiles, $cornerLayers, $checkpoint));
         // Tiles share many pieces (an autotile's quarters recur across its shapes); equal pieces share one array.
         $shared = [];
         $addTile = static function (string $key, int $shiftX, int $shiftY, callable $compose)
@@ -473,11 +515,17 @@ final class PresentationWorld
                 foreach ($rowBands as $band => $pairs) {
                     if ($pairs !== '') { $bands[$band][$y] = $pairs; }
                 }
+                $checkpoint?->__invoke();
             }
             // Corner cases need the whole layer, so only a layer showing a corner-edged kind is read whole.
-            $shown = $cornerSheets === [] || !isset($cornerLayers[$layer->name]) ? []
-                : iterator_to_array($readShown($layer));
-            foreach ($shown === [] ? [] : CornerShape::yieldCorners($shown, array_keys($cornerSheets), $cornerJoins)
+            $shown = [];
+            if ($cornerSheets !== [] && isset($cornerLayers[$layer->name])) {
+                foreach ($readShown($layer) as $y => $row) {
+                    $shown[$y] = $row;
+                    $checkpoint?->__invoke();
+                }
+            }
+            foreach ($shown === [] ? [] : CornerShape::yieldCorners($shown, array_keys($cornerSheets), $cornerJoins, $checkpoint)
                 as [$x, $y, $flag, $cases]) {
                 $sheet = $cornerSheets[$flag];
                 if (!isset($sheetIndices[$sheet->key])) {
@@ -516,7 +564,7 @@ final class PresentationWorld
         if (count($wireSheets) > self::MAX_SHEETS) {
             throw new InvalidArgumentException('Retained world exceeds the ' . self::MAX_SHEETS . '-sheet tileset budget with its corner sheets.');
         }
-        $shadows = $shadowStyle === null ? null : self::getTileShadows($graphics, $casters, $ground, $size, count($tiles), $bytes);
+        $shadows = $shadowStyle === null ? null : self::getTileShadows($graphics, $casters, $ground, $size, count($tiles), $bytes, $checkpoint);
         if (count($tiles) + count($shadows['tiles'] ?? []) > self::MAX_CATALOG_TILES) {
             throw new InvalidArgumentException('Retained world exceeds the ' . self::MAX_CATALOG_TILES . '-tile catalog.');
         }
@@ -534,7 +582,7 @@ final class PresentationWorld
      * @param array<string, true> $shownOn Set to the names of the layers that show any.
      * @return list<int>
      */
-    private static function getShownCornerTiles(array $layers, callable $readShown, array $cornerTiles, array &$shownOn): array
+    private static function getShownCornerTiles(array $layers, callable $readShown, array $cornerTiles, array &$shownOn, ?Closure $checkpoint): array
     {
         $found = $flags = [];
         foreach ($layers as $layer) {
@@ -547,6 +595,7 @@ final class PresentationWorld
                         $shownOn[$layer->name] = true;
                     }
                 }
+                $checkpoint?->__invoke();
             }
         }
         return array_keys($found);
@@ -602,7 +651,7 @@ final class PresentationWorld
      * @return array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, rows: array<string, array<int, string>>}|null
      */
     private static function getTileShadows(MapGraphics $graphics, array $casters, array $ground, int $size,
-        int $tileCount, int &$bytes): ?array
+        int $tileCount, int &$bytes, ?Closure $checkpoint): ?array
     {
         $style = $graphics->tileset->shadows;
         $cast = [];
@@ -613,6 +662,7 @@ final class PresentationWorld
                     $cast[$index][$y][] = $x + 1;
                 }
             }
+            $checkpoint?->__invoke();
         }
         if ($cast === []) {
             return null;
@@ -641,6 +691,7 @@ final class PresentationWorld
                 sort($columns);
                 $rows[$layerId][$y] = implode('', array_map(static fn(int $column): string => pack('vv', $column, $catalog[$key]), $columns));
                 $bytes += count($columns) * self::TILE_CELL_SOURCE_BYTES;
+                $checkpoint?->__invoke();
             }
         }
         return ['tiles' => $tiles, 'layers' => $layers, 'rows' => $rows];

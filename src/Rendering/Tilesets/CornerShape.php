@@ -83,7 +83,7 @@ final class CornerShape
    * @param array<int, list<int>> $joins As for {@see resolveLayer()}.
    * @return \Generator<int, array{int, int, int, int}>
    */
-  public static function yieldCorners(array $layer, array $tiles, array $joins): \Generator
+  public static function yieldCorners(array $layer, array $tiles, array $joins, ?\Closure $checkpoint = null): \Generator
   {
     $height = count($layer);
     $width = max(array_map(count(...), $layer) ?: [0]);
@@ -101,6 +101,7 @@ final class CornerShape
         if ($flag !== self::NO_FLAG) { $cellsOf[$flag][] = $y << 16 | $x; }
       }
       $flags[] = [$row[0] ?? self::NO_FLAG, ...$row, $row[$width - 1] ?? self::NO_FLAG];
+      $checkpoint?->__invoke();
     }
     $flags = [$flags[0] ?? [], ...$flags, $flags[$height - 1] ?? []];
     $tiles = array_values(array_unique($tiles));
@@ -112,7 +113,7 @@ final class CornerShape
       $group = array_fill_keys($joins[$tile] ?? [$tile], true);
       $group[$tile] = true;
       $reached = [];
-      foreach ($cellsOf[$tile] ?? [] as $cell) {
+      foreach ($cellsOf[$tile] ?? [] as $index => $cell) {
         [$x, $y] = [$cell & 0xFFFF, $cell >> 16];
         for ($dy = -1; $dy <= 1; $dy++) {
           for ($dx = -1; $dx <= 1; $dx++) {
@@ -121,6 +122,7 @@ final class CornerShape
             }
           }
         }
+        if (($index & 255) === 255) { $checkpoint?->__invoke(); }
       }
       foreach ($reached as $y => $row) {
         [$above, $middle, $below] = [$flags[$y], $flags[$y + 1], $flags[$y + 2]];
@@ -140,6 +142,7 @@ final class CornerShape
             $corners[$y][] = $x << 24 | $position << 16 | $cases;
           }
         }
+        $checkpoint?->__invoke();
       }
     }
     unset($flags, $cellsOf, $reached);
@@ -149,6 +152,7 @@ final class CornerShape
       foreach ($row as $corner) {
         yield [$corner >> 24, $y, $tiles[($corner >> 16) & 0xFF], $corner & 0xFFFF];
       }
+      $checkpoint?->__invoke();
     }
   }
 

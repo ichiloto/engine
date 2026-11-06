@@ -735,6 +735,38 @@ it('derives wall shadows on the cell to the right from the current tiles, never 
     ->and($world->textLayerIds)->toBe(['map:terrain']);
 });
 
+it('resumes retained world preparation without exposing a partial or stale world', function () {
+  writeTilesetProject($this->root, extra: ", 'shadows' => ['casters' => [1], 'width' => 0.5, 'opacity' => 0.4]");
+  $layers = new MapLayerSet([new MapLayer('floor', 1, false, 'floor', "X.\n.X")]);
+  $graphics = MapGraphics::fromSources([
+    '01.floor.tiles.php' => MapGridSource::buildSource("2816 2816\n2816 2816", 'TILES'),
+    '02.walls.tiles.php' => MapGridSource::buildSource("1 0\n1 0", 'TILES'),
+  ], 'home', 'home', $layers, $this->root);
+  $expected = PresentationWorld::getFromLayers($layers, 'sync', $graphics, $this->root);
+
+  $cancelled = PresentationWorld::beginPreparation($layers, 'cancelled', $graphics, $this->root);
+  expect($cancelled->advance(1))->toBeNull();
+  $cancelled->cancel();
+  expect(fn() => $cancelled->advance(1))->toThrow(LogicException::class, 'World preparation was cancelled.');
+
+  $work = PresentationWorld::beginPreparation($layers, 'async', $graphics, $this->root);
+  expect($work->advance(1))->toBeNull()->and($work->advance(1))->toBeNull();
+  $world = $work->advance(PHP_INT_MAX);
+  expect($world)->toBeInstanceOf(PresentationWorld::class)
+    ->and($work->advance(1))->toBe($world)
+    ->and($world->estimatedSourceBytes)->toBe($expected->estimatedSourceBytes);
+  $wire = $world->getOperations(true, true);
+  foreach ($wire as &$operation) { $operation['id'] = 'sync'; }
+  unset($operation);
+  expect($wire)->toBe($expected->getOperations(true, true));
+
+  $stale = PresentationWorld::beginPreparation($layers, 'stale', $graphics, $this->root);
+  expect($stale->advance(1))->toBeNull();
+  writeTestPng("{$this->root}/Graphics/Tilesets/A2.png", 384, 288);
+  expect(fn() => $stale->advance(PHP_INT_MAX))->toThrow(RuntimeException::class, 'Map artwork changed');
+  expect(PresentationWorld::getFromLayers($layers, 'stale', $graphics, $this->root))->toBeInstanceOf(PresentationWorld::class);
+});
+
 it('keeps a shifted casting layer\'s offset on its shadow', function () {
   writeTilesetProject($this->root, extra: ", 'shadows' => ['casters' => [1], 'width' => 0.25, 'opacity' => 1]");
   $map = $this->root . '/Maps/home';
