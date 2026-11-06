@@ -818,6 +818,20 @@ row lengths as the logical map, including ragged rows:
 ],
 ```
 
+Large maps can declare the same cells as packed ASCII rows:
+
+```php
+'occupancy' => ['packedRows' => ['0A1', '001']],
+```
+
+Each byte represents the corresponding `CollisionType` value. Codes
+`0` through `8` represent values 0 through 8, and `A` represents
+`COUNTER` (10). Code `9` would represent `PASS_THROUGH`, which is invalid
+in final occupancy. Packed rows follow the same exact logical row lengths
+and use an empty string for an empty row. These codes are independent of
+terminal glyphs and tile artwork. Use a source-preserving Editor migration
+before changing the representation of an existing map.
+
 This declaration is the sole static passage source for both renderers,
 reachability and shared field previews. Terminal appearance and graphical
 resources do not choose physical cells. Integer cells, mismatched dimensions

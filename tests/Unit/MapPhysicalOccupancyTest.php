@@ -17,6 +17,31 @@ it('retains every final CollisionType without deriving physical meaning from gly
         ->and($data)->toBe(['occupancy' => [$types]]);
 });
 
+it('round trips packed occupancy and enum rows through the same ragged physical grid', function () {
+    $layers = new MapLayerSet([new MapLayer('terrain', 0, false, 'legacy', "\n##########\n#")], legacy: true);
+    $types = array_values(array_filter(CollisionType::cases(), static fn(CollisionType $type): bool => $type !== CollisionType::PASS_THROUGH));
+    $legacy = [[], $types, [CollisionType::COUNTER]];
+    $packed = ['packedRows' => ['', '012345678A', 'A']];
+    $occupancy = MapCollisionResolver::resolveMap($layers, ['occupancy' => $packed], ['#' => CollisionType::SOLID]);
+
+    expect($occupancy->exportDeclaration())->toBe($legacy)
+        ->and($occupancy->exportPackedDeclaration())->toBe($packed)
+        ->and($occupancy->collisionGrid)->toBe(MapCollisionResolver::resolveMap($layers, ['occupancy' => $legacy])->collisionGrid);
+});
+
+it('refuses packed rows that cannot describe the whole physical map', function (array $packed, string $reason) {
+    $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', "..\n..")]);
+    expect(fn() => new MapPhysicalOccupancy($packed, $layers))->toThrow(InvalidArgumentException::class, $reason);
+})->with([
+    'wrong row count' => [['packedRows' => ['00']], 'must have 2 rows'],
+    'sparse rows' => [['packedRows' => [1 => '00', 2 => '11']], 'zero-based list'],
+    'row is not a string' => [['packedRows' => ['00', [CollisionType::NONE, CollisionType::NONE]]], 'must be an ASCII string'],
+    'short row' => [['packedRows' => ['00', '0']], 'packed row 1 must be 2 tiles wide'],
+    'unknown code' => [['packedRows' => ['00', '0x']], 'packed cell 1, 1 has an unknown collision code'],
+    'pass through' => [['packedRows' => ['00', '09']], 'must be resolved; PASS_THROUGH'],
+    'extra field' => [['packedRows' => ['00', '01'], 'rows' => []], 'zero-based list'],
+]);
+
 it('captures legacy layer precedence exactly for an explicit migration without writing map data', function () {
     $layers = new MapLayerSet([
         new MapLayer('terrain', 1, false, 'terrain', ";~8 ?e\n     x"),

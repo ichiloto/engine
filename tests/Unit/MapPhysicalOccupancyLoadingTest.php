@@ -85,9 +85,10 @@ function createOccupancyLoadingFixture(bool $layered = false, string $text = "##
     return [$root, $paths, $gridPath, $manager, $scene, $camera, $player];
 }
 
-it('prepares and installs explicit physical cells through the existing atomic map path', function (bool $layered) {
+it('prepares and installs explicit physical cells through the existing atomic map path', function (bool $layered, bool $packed) {
     [$root, $paths, $grid, $manager, $scene, $camera, $player] = createOccupancyLoadingFixture($layered);
-    $rows = [[CollisionType::NONE, CollisionType::COUNTER], [CollisionType::SAVE_POINT, CollisionType::ENCOUNTER]];
+    $rows = $packed ? ['packedRows' => ['0A', '67']]
+        : [[CollisionType::NONE, CollisionType::COUNTER], [CollisionType::SAVE_POINT, CollisionType::ENCOUNTER]];
     file_put_contents($paths['data'], '<?php return ' . var_export(['name' => 'Physical', 'occupancy' => $rows], true) . ';');
     $prepared = $manager->prepareMap('test/physical');
     expect($prepared->collisions)->toBe([[0, 10], [6, 7]])
@@ -116,7 +117,12 @@ it('prepares and installs explicit physical cells through the existing atomic ma
         ->and($manager->getCollision(0, 1))->toBe(CollisionType::SAVE_POINT)
         ->and($manager->getCollision(1, 1))->toBe(CollisionType::ENCOUNTER)
         ->and($manager->dictionaryCalls)->toBe(0);
-})->with([false, true]);
+})->with([
+    'legacy grid with enum rows' => [false, false],
+    'legacy grid with packed rows' => [false, true],
+    'layered grid with enum rows' => [true, false],
+    'layered grid with packed rows' => [true, true],
+]);
 
 it('preserves unmigrated legacy and layered passage including the default dictionary', function (bool $layered) {
     [$root, $paths, $grid, $manager] = createOccupancyLoadingFixture($layered, ";?\nx~");
