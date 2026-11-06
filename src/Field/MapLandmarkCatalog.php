@@ -24,11 +24,11 @@ final readonly class MapLandmarkCatalog
     private function __construct(public array $landmarks) {}
 
     /** Reads resolved event areas from MapSourceReader; never uses destination spawn points. */
-    public static function readMap(array $map, array $tiles, ?MapCategoryCatalog $categories = null): self
+    public static function readMap(array $map, array $tiles, ?MapCategoryCatalog $categories = null, ?MapAreaCatalog $mapAreas = null): self
     {
         $entries = array_key_exists('landmarks', $map) ? $map['landmarks'] : [];
         if (!is_array($entries)) { throw new InvalidArgumentException('landmarks must be a list.'); }
-        return self::readDeclarations($entries, MapLandmarkAnchors::readMap($map, $tiles), array_map('count', $tiles), $categories);
+        return self::readDeclarations($entries, MapLandmarkAnchors::readMap($map, $tiles, $mapAreas), array_map('count', $tiles), $categories);
     }
 
     /** Runtime and unsaved Editor models share this validator, including ragged geometry.

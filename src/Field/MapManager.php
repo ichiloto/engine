@@ -305,6 +305,7 @@ class MapManager implements CanRenderAt
   {
     $source = $this->prepareSplitMapDataFromFiles($this->resolveMapPaths($filename));
     $map = $source['data'];
+    $areas = $source['areas'];
     MapAtlasDefinition::readMap($map);
     DashSettings::readMapDisablesDashing($map);
     MapSavePolicy::readMap($map);
@@ -333,9 +334,9 @@ class MapManager implements CanRenderAt
     );
 
     return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers'],
-      $source['graphics'], $source['worldObjects'], MapLandmarkCatalog::readMap($map, $source['tiles'], MapCategoryCatalog::load($this->getAssetRoot())),
+      $source['graphics'], $source['worldObjects'], MapLandmarkCatalog::readMap($map, $source['tiles'], MapCategoryCatalog::load($this->getAssetRoot()), $areas),
       new MapOverview($source['tiles'], $collisions, MapAtlasTerrain::readMap($map,$source['layers'],$source['kinds'])),
-      MapAreaCatalog::readMap($map, $source['tiles']), $source['kinds']?->resolveEncounterTerrain($source['layers'], $dictionary));
+      $areas, $source['kinds']?->resolveEncounterTerrain($source['layers'], $dictionary));
   }
 
   /**
@@ -378,7 +379,7 @@ class MapManager implements CanRenderAt
     [$collisions]=$this->resolveSourceCollisions($source);
     return new MapAtlasDocument($mapId,$source,new MapOverview($source['tiles'],$collisions,
       MapAtlasTerrain::readMap($source['data'],$source['layers'],$source['kinds'])),
-      MapLandmarkCatalog::readMap($source['data'],$source['tiles'],MapCategoryCatalog::load($this->getAssetRoot())),
+      MapLandmarkCatalog::readMap($source['data'],$source['tiles'],MapCategoryCatalog::load($this->getAssetRoot()),$source['areas']),
       $this->getAssetRoot());
   }
 
@@ -1005,7 +1006,7 @@ class MapManager implements CanRenderAt
    * prepares the rest exactly as it prepares a map read from files
    * ({@see prepareMapSource()}).
    *
-   * @param array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet} $source
+   * @param array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, areas?: MapAreaCatalog} $source
    * @param Closure(): ?MapGraphics $loadGraphics
    * @param Closure(): ?list<MapTileLayer> $readTileLayers
    * @param (Closure(): FieldPresentationCatalog)|null $loadFieldCatalog The host's current resource catalogue; null reads project files.
@@ -1063,7 +1064,7 @@ class MapManager implements CanRenderAt
 
   /**
    * @param array{id: string, data: string, map: string, event: string} $paths
-   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>, kinds: ?MapTerrainKinds}
+   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, areas: MapAreaCatalog, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>, kinds: ?MapTerrainKinds}
    */
   protected function prepareSplitMapDataFromFiles(array $paths): array
   {
@@ -1086,7 +1087,7 @@ class MapManager implements CanRenderAt
    * @param Closure(): ?MapGraphics $loadGraphics
    * @param Closure(): ?list<MapTileLayer> $readTileLayers Null when the map's tile layers are unknown.
    * @param (Closure(): FieldPresentationCatalog)|null $loadFieldCatalog The host's current resource catalogue.
-   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>, kinds: ?MapTerrainKinds}
+   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, areas?: MapAreaCatalog, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>, kinds: ?MapTerrainKinds}
    */
   protected function prepareMapSource(string $mapId, array $source, ?MapTerrainKinds $kinds, Closure $loadGraphics,
     Closure $readTileLayers, ?Closure $loadFieldCatalog = null): array

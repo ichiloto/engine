@@ -79,7 +79,7 @@ final readonly class EncounterArenaCoverage
     $kinds = MapTerrainKinds::loadForMap($assetRoot, $data);
     $collisions = MapCollisionResolver::resolveMap($source['layers'], $data, $dictionary, $kinds)->collisionGrid;
     $terrain = $kinds?->resolveEncounterTerrain($source['layers'], $kinds->composeDictionary($dictionary));
-    $table = EncounterTable::readBlock($data['encounters'], MapAreaCatalog::readMap($data, $source['tiles']), $terrain);
+    $table = EncounterTable::readBlock($data['encounters'], $source['areas'], $terrain);
     return self::measure($table, $collisions, $catalog, $reachability === null ? null : $reachability->isReachable(...));
   }
 

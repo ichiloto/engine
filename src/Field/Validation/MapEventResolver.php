@@ -94,6 +94,6 @@ final class MapEventResolver
             $issues[] = new MapValidationIssue($mapId, 'event.unmapped', "Unmapped event markers found in {$mapId}: {$marker}.", (string) $marker,
                 $cells, ['events'], 'Define the event or remove its unowned marker cells.');
         }
-        return new MapEventResolution($resolved, $issues);
+        return new MapEventResolution($resolved, $issues, $mapAreas);
     }
 }

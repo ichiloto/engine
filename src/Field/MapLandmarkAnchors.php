@@ -28,14 +28,15 @@ final readonly class MapLandmarkAnchors
     }
 
     /** Runtime adapter from MapSourceReader's resolved data; no trigger instantiation. */
-    public static function readMap(array $map, ?array $grid = null): self
+    public static function readMap(array $map, ?array $grid = null, ?MapAreaCatalog $mapAreas = null): self
     {
         $events = $objects = $triggers = $areas = [];
-        if (array_key_exists('areas', $map) && $map['areas'] !== []) {
+        if ($mapAreas === null && array_key_exists('areas', $map) && $map['areas'] !== []) {
             if ($grid === null) { throw new InvalidArgumentException('Named area anchors require the physical map grid.'); }
-            foreach (MapAreaCatalog::readMap($map, $grid)->areas as $id => $area) {
-                $areas[$id] = new MapLandmarkAnchor($area);
-            }
+            $mapAreas = MapAreaCatalog::readMap($map, $grid);
+        }
+        foreach ($mapAreas?->areas ?? [] as $id => $area) {
+            $areas[$id] = new MapLandmarkAnchor($area);
         }
         foreach ($map['events'] ?? [] as $index => $event) {
             $id = $event['marker'] ?? '@' . $index;

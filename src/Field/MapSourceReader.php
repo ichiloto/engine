@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Field;
 use Assegai\Util\Path;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Exceptions\NotFoundException;
+use Ichiloto\Engine\Field\Validation\MapEventResolver;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use InvalidArgumentException;
 
@@ -53,7 +54,7 @@ final class MapSourceReader
    * and its layers.
    *
    * @param array{id: string, data: string, map: string, event: string} $paths The resolved map file paths.
-   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet} The map source.
+   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, areas: MapAreaCatalog} The map source.
    * @throws NotFoundException If any required split-map file is missing.
    */
   public static function readFiles(array $paths): array
@@ -62,18 +63,19 @@ final class MapSourceReader
     $layers = MapLayerSource::loadFromDirectory(dirname($paths['data']), $paths['id'], $paths['map']);
     $source = self::readEventSource($paths, $layers);
 
-    return ['data' => $source['data'], 'tiles' => $layers->getComposedGrid(), 'layers' => $layers];
+    return ['data' => $source['data'], 'tiles' => $layers->getComposedGrid(), 'layers' => $layers, 'areas' => $source['areas']];
   }
 
   /** Unsaved authoring uses the same event ownership and layer geometry as file-backed maps.
-   * @return array{data: array<string,mixed>, tiles: array<int,string[]>, layers: MapLayerSet}
+   * @return array{data: array<string,mixed>, tiles: array<int,string[]>, layers: MapLayerSet, areas: MapAreaCatalog}
    */
   public static function readDeclarations(string $mapId, array $data, MapLayerSet $layers, array $eventLayer): array
   {
     $layers->assertMatchingGrid($eventLayer, "Event map {$mapId}");
     $data['id'] ??= $mapId;
-    $data['events'] = self::resolveEvents($data, $eventLayer, $mapId);
-    return ['data' => $data, 'tiles' => $layers->getComposedGrid(), 'layers' => $layers];
+    $resolution = MapEventResolver::inspect($data, $eventLayer, $mapId);
+    $data['events'] = $resolution->requireEvents();
+    return ['data' => $data, 'tiles' => $layers->getComposedGrid(), 'layers' => $layers, 'areas' => $resolution->mapAreas];
   }
 
   /**
@@ -81,7 +83,7 @@ final class MapSourceReader
    * Runtime may supply its layers to validate matching geometry before requiring data.
    *
    * @param array{id: string, data: string, event: string} $paths
-   * @return array{data: array<string, mixed>, eventLayer: list<list<string>>}
+   * @return array{data: array<string, mixed>, eventLayer: list<list<string>>, areas: MapAreaCatalog}
    */
   public static function readEventSource(array $paths, ?MapLayerSet $layers = null): array
   {
@@ -92,9 +94,10 @@ final class MapSourceReader
     $map = self::requirePhpFile($paths['data']);
     if (!is_array($map)) { throw new NotFoundException('File ' . $paths['id'] . '/' . basename($paths['data']) . ' does not return an array.'); }
     $map['id'] ??= $paths['id'];
-    $map['events'] = self::resolveEvents($map, $eventLayer, $eventPath);
+    $resolution = MapEventResolver::inspect($map, $eventLayer, $eventPath);
+    $map['events'] = $resolution->requireEvents();
 
-    return ['data' => $map, 'eventLayer' => $eventLayer];
+    return ['data' => $map, 'eventLayer' => $eventLayer, 'areas' => $resolution->mapAreas];
   }
 
   /** @param array{id: string, data: string, event: string} $paths */
@@ -193,6 +196,6 @@ final class MapSourceReader
    */
   public static function resolveEvents(array $data, array $eventLayer, string $filename = 'event map'): array
   {
-    return \Ichiloto\Engine\Field\Validation\MapEventResolver::inspect($data, $eventLayer, $filename)->requireEvents();
+    return MapEventResolver::inspect($data, $eventLayer, $filename)->requireEvents();
   }
 }
