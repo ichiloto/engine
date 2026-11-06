@@ -761,9 +761,11 @@ it('resumes retained world preparation without exposing a partial or stale world
   expect($wire)->toBe($expected->getOperations(true, true));
 
   $stale = PresentationWorld::beginPreparation($layers, 'stale', $graphics, $this->root);
-  expect($stale->advance(1))->toBeNull();
+  $warm = PresentationWorld::beginPreparation($layers, 'async', $graphics, $this->root);
+  expect($stale->advance(1))->toBeNull()->and($warm->advance(1))->toBeNull();
   writeTestPng("{$this->root}/Graphics/Tilesets/A2.png", 384, 288);
-  expect(fn() => $stale->advance(PHP_INT_MAX))->toThrow(RuntimeException::class, 'Map artwork changed');
+  expect(fn() => $stale->advance(PHP_INT_MAX))->toThrow(RuntimeException::class, 'Map artwork changed')
+    ->and(fn() => $warm->advance(PHP_INT_MAX))->toThrow(RuntimeException::class, 'Map artwork changed');
   expect(PresentationWorld::getFromLayers($layers, 'stale', $graphics, $this->root))->toBeInstanceOf(PresentationWorld::class);
 });
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field;
 
+use Closure;
 use Ichiloto\Engine\Core\PackedGrid;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use LogicException;
@@ -16,6 +17,7 @@ final class MapCompilationCache
     public const int MAX_BYTES = 512 * 1024;
     public const int MAX_EXPANDED_BYTES = 64 * 1024 * 1024;
     public const int MAX_ENTRIES = 32;
+    private const int COMPRESSION_CHUNK_BYTES = 32 * 1024;
     /** Weak references preserve normal ownership and release; only compressed bytes survive map exit. */
     private static array $entries = [];
     private static int $bytes = 0;
@@ -48,16 +50,19 @@ final class MapCompilationCache
         return $value;
     }
 
-    public static function store(string $key, MapLayerSet|PresentationWorld|array $value, int $expandedCharge): void
+    /**
+     * Compress a private snapshot, then validate the caller's revision before publishing it.
+     *
+     * @param (Closure(): void)|null $checkpoint
+     * @param (Closure(): void)|null $validate
+     */
+    public static function store(string $key, MapLayerSet|PresentationWorld|array $value, int $expandedCharge,
+        ?Closure $checkpoint = null, ?Closure $validate = null): void
     {
-        if ($expandedCharge < 0 || $expandedCharge > self::MAX_EXPANDED_BYTES) { return; }
-        $serialized = serialize($value);
-        if (strlen($serialized) > self::MAX_EXPANDED_BYTES) { return; }
-        // Balance first compilation cost against retaining a useful working set inside the release-memory budget.
-        $compressed = gzcompress($serialized, 6);
-        if ($compressed === false) { throw new LogicException('A map compilation snapshot could not be compressed.'); }
+        $compressed = self::compressSnapshot($value, $expandedCharge, $checkpoint);
+        $validate?->__invoke();
+        if ($compressed === null) { return; }
         $bytes = strlen($compressed);
-        if ($bytes > self::MAX_BYTES) { return; }
         if (isset(self::$entries[$key])) {
             self::$bytes -= strlen(self::$entries[$key]['compressed']);
             unset(self::$entries[$key]);
@@ -69,6 +74,34 @@ final class MapCompilationCache
         }
         self::$entries[$key] = ['compressed' => $compressed, 'live' => self::createWeakReferences($value)];
         self::$bytes += $bytes;
+    }
+
+    private static function compressSnapshot(MapLayerSet|PresentationWorld|array $value, int $expandedCharge,
+        ?Closure $checkpoint): ?string
+    {
+        if ($expandedCharge < 0 || $expandedCharge > self::MAX_EXPANDED_BYTES) { return null; }
+        $serialized = serialize($value);
+        $length = strlen($serialized);
+        if ($length > self::MAX_EXPANDED_BYTES) { return null; }
+        if ($checkpoint === null) {
+            $compressed = gzcompress($serialized, 6);
+        } else {
+            $checkpoint();
+            $stream = deflate_init(ZLIB_ENCODING_DEFLATE, ['level' => 6]);
+            if ($stream === false) { throw new LogicException('A map compilation compressor could not be started.'); }
+            $compressed = '';
+            for ($offset = 0; $offset < $length; $offset += self::COMPRESSION_CHUNK_BYTES) {
+                $last = $offset + self::COMPRESSION_CHUNK_BYTES >= $length;
+                $chunk = deflate_add($stream, substr($serialized, $offset, self::COMPRESSION_CHUNK_BYTES),
+                    $last ? ZLIB_FINISH : ZLIB_NO_FLUSH);
+                if ($chunk === false) { throw new LogicException('A map compilation snapshot could not be compressed.'); }
+                $compressed .= $chunk;
+                if (strlen($compressed) > self::MAX_BYTES) { return null; }
+                $checkpoint();
+            }
+        }
+        if ($compressed === false) { throw new LogicException('A map compilation snapshot could not be compressed.'); }
+        return strlen($compressed) <= self::MAX_BYTES ? $compressed : null;
     }
 
     private static function createWeakReferences(MapLayerSet|PresentationWorld|array $value): WeakReference|array

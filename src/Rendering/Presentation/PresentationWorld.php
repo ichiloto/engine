@@ -273,18 +273,26 @@ final class PresentationWorld
         array $coverage, array $terminalCells, array $tileCells, ?Closure $checkpoint = null): self
     {
         $facts = self::readAssetFacts($graphics, $assetRoot, $checkpoint);
-        $key = 'world:' . hash('sha256', serialize([$layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells, $facts,
-            self::readDisplayPolicy()]));
-        if (($cached = MapCompilationCache::find($key)) instanceof self) { return $cached; }
+        // Layer ownership and the composed grid are derived from these immutable inputs.
+        // Hash the compact layer objects without serializing every composed cell again.
+        $key = 'world:' . hash('sha256', serialize([$layers->layers, $layers->legacy, $id, $graphics, $assetRoot,
+            $coverage, $terminalCells, $tileCells, $facts, self::readDisplayPolicy()]));
+        $checkpoint?->__invoke();
+        // Either path may span an artwork replacement, including a hit after hashing the sheets.
+        $validate = $checkpoint === null ? null : static function () use ($facts, $graphics, $assetRoot, $checkpoint): void {
+            if ($facts !== self::readAssetFacts($graphics, $assetRoot, $checkpoint)) {
+                throw new RuntimeException('Map artwork changed during retained world preparation.');
+            }
+        };
+        if (($cached = MapCompilationCache::find($key)) instanceof self) {
+            $validate?->__invoke();
+            return $cached;
+        }
         $checkpoint?->__invoke();
         $world = self::compileFromLayers($layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells,
             hash('sha256', serialize([$assetRoot, $facts])), $checkpoint);
         $checkpoint?->__invoke();
-        // A suspended compiler may span an artwork replacement. Its old key must never admit mixed revisions.
-        if ($checkpoint !== null && $facts !== self::readAssetFacts($graphics, $assetRoot, $checkpoint)) {
-            throw new RuntimeException('Map artwork changed during retained world preparation.');
-        }
-        MapCompilationCache::store($key, $world, $world->estimatedSourceBytes);
+        MapCompilationCache::store($key, $world, $world->estimatedSourceBytes, $checkpoint, $validate);
         return $world;
     }
 
@@ -304,11 +312,36 @@ final class PresentationWorld
         foreach (array_unique($art) as $asset) {
             try {
                 PngAssetPreflight::inspect($assetRoot, $asset);
-                $facts[$asset] = hash_file('sha256', $assetRoot . DIRECTORY_SEPARATOR . $asset);
+                $path = $assetRoot . DIRECTORY_SEPARATOR . $asset;
+                $facts[$asset] = $checkpoint === null ? hash_file('sha256', $path) : self::hashAsset($path, $checkpoint);
             } catch (RuntimeException $error) { $facts[$asset] = ['unavailable' => $error->getMessage()]; }
             $checkpoint?->__invoke();
         }
         return $facts;
+    }
+
+    private static function hashAsset(string $path, Closure $checkpoint): string
+    {
+        $stream = @fopen($path, 'rb');
+        if ($stream === false) { throw new RuntimeException('Could not read map artwork: ' . $path); }
+
+        try {
+            $hash = hash_init('sha256');
+            $bytes = 0;
+            $block = 256 * 1024;
+            do {
+                $read = hash_update_stream($hash, $stream, $block);
+                $bytes += $read;
+                if ($bytes > PngAssetPreflight::MAX_FILE_BYTES || ($read === 0 && !feof($stream))) {
+                    throw new RuntimeException('Could not read bounded map artwork: ' . $path);
+                }
+                if ($read === $block) { $checkpoint(); }
+            } while ($read === $block);
+
+            return hash_final($hash);
+        } finally {
+            fclose($stream);
+        }
     }
 
     private static function compileFromLayers(MapLayerSet $layers, string $id, ?MapGraphics $graphics,
