@@ -7,22 +7,33 @@ namespace Ichiloto\Engine\Battle\Presentation;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 
-/** Find the smallest vertical change to both controls that clears all drawn bodies. */
+/** Preserve the authored curve when possible, with continuous routing through the free arena. */
 final class BattleCubicFlightClearance
 {
+  private const float BEND_RADIUS = 24.0;
+  private const int BEND_STEPS = 8;
+
   /** @param list<CanvasRectangle> $obstacles */
   public static function plan(Vector2 $launch, Vector2 $arrival, Vector2 $first, Vector2 $second,
-    int $height, array $obstacles, float $padding): ?BattlePresentationPath
+    int $height, array $obstacles, float $padding, ?int $width = null): ?BattlePresentationPath
   {
     $authored = BattlePresentationPath::fromCubic($launch, $arrival, $first, $second);
     if ($obstacles === []) { return $authored; }
 
+    $top = min($padding, $launch->y, $arrival->y);
+    $bottom = max($height - $padding, $launch->y, $arrival->y);
+    return self::fitCurve($authored, $launch, $arrival, $first, $second, $top, $bottom, $obstacles, $padding)
+      ?? self::routeAroundBodies($launch, $arrival, $top, $bottom, $obstacles, $padding, $width);
+  }
+
+  /** @param list<CanvasRectangle> $obstacles */
+  private static function fitCurve(BattlePresentationPath $authored, Vector2 $launch, Vector2 $arrival,
+    Vector2 $first, Vector2 $second, float $top, float $bottom, array $obstacles, float $padding): ?BattlePresentationPath
+  {
     $points = $authored->getWaypoints();
     $samples = [];
     $minimum = -INF;
     $maximum = INF;
-    $top = min($padding, $launch->y, $arrival->y);
-    $bottom = max($height - $padding, $launch->y, $arrival->y);
     foreach ($points as $index => $point) {
       $t = $index / BattlePresentationPath::CUBIC_STEPS;
       // A common control shift contributes this much vertical motion at t.
@@ -54,6 +65,62 @@ final class BattleCubicFlightClearance
     $shift = $up >= $minimum && ($down > $maximum || abs($up) <= abs($down)) ? $up : $down;
     return $shift == 0 ? $authored : BattlePresentationPath::fromCubic($launch, $arrival,
       new Vector2($first->x, $first->y + $shift), new Vector2($second->x, $second->y + $shift));
+  }
+
+  /** @param list<CanvasRectangle> $obstacles */
+  private static function routeAroundBodies(Vector2 $launch, Vector2 $arrival, float $top, float $bottom,
+    array $obstacles, float $padding, ?int $width): ?BattlePresentationPath
+  {
+    $start = [$launch->x, $launch->y];
+    $end = [$arrival->x, $arrival->y];
+    $left = min($width === null ? $launch->x : $padding, $launch->x, $arrival->x);
+    $right = max($width === null ? $launch->x : $width - $padding, $launch->x, $arrival->x);
+    $arena = [$left, $top, $right, $bottom];
+    $bounds = static fn(float $margin): array => array_map(static fn(CanvasRectangle $body): array => [
+      $body->x - $margin, $body->y - $margin, $body->x + $body->width + $margin, $body->y + $body->height + $margin,
+    ], $obstacles);
+    $physical = $bounds($padding);
+    // Look for room to round corners first. A tight corridor still admits an exact clear path.
+    $route = BattleRectangleRoute::findRoute($start, $end, $arena, $bounds($padding + self::BEND_RADIUS / 2))
+      ?? BattleRectangleRoute::findRoute($start, $end, $arena, $physical);
+    return $route === null ? null : new BattlePresentationPath(self::roundBends($route, $physical));
+  }
+
+  /**
+   * @param list<array{float, float}> $route
+   * @param list<array{float, float, float, float}> $obstacles
+   * @return list<array{float, float}>
+   */
+  private static function roundBends(array $route, array $obstacles): array
+  {
+    $points = [$route[0]];
+    for ($index = 1, $end = count($route) - 1; $index < $end; $index++) {
+      [$previous, $corner, $next] = array_slice($route, $index - 1, 3);
+      $incoming = hypot($previous[0] - $corner[0], $previous[1] - $corner[1]);
+      $outgoing = hypot($next[0] - $corner[0], $next[1] - $corner[1]);
+      $radius = min(self::BEND_RADIUS, $incoming / 2, $outgoing / 2);
+      $entry = self::interpolate($corner, $previous, $radius / $incoming);
+      $exit = self::interpolate($corner, $next, $radius / $outgoing);
+      $bend = [$entry];
+      for ($step = 1; $step <= self::BEND_STEPS; $step++) {
+        $t = $step / self::BEND_STEPS;
+        $point = self::interpolate(self::interpolate($entry, $corner, $t), self::interpolate($corner, $exit, $t), $t);
+        if (!BattleRectangleRoute::canJoin($bend[array_key_last($bend)], $point, $obstacles)) {
+          $bend = [$corner];
+          break;
+        }
+        $bend[] = $point;
+      }
+      array_push($points, ...$bend);
+    }
+    $points[] = $route[array_key_last($route)];
+    return $points;
+  }
+
+  /** @param array{float, float} $from @param array{float, float} $to @return array{float, float} */
+  private static function interpolate(array $from, array $to, float $fraction): array
+  {
+    return [$from[0] + ($to[0] - $from[0]) * $fraction, $from[1] + ($to[1] - $from[1]) * $fraction];
   }
 
   /**

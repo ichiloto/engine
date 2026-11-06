@@ -12,7 +12,7 @@ use InvalidArgumentException;
 final class BattleTravelPlanner
 {
   /** 64 other footings, including the target: at most 262 visibility vertices, no canvas-size raster search. */
-  public const int MAX_FOOTINGS = 64;
+  public const int MAX_FOOTINGS = BattleRectangleRoute::MAX_OBSTACLES;
   private const float EPSILON = 0.0000001;
 
   /**
@@ -62,93 +62,16 @@ final class BattleTravelPlanner
     // Returning samples the same route without turning around.
     if ($sign < 0) { $allowed[0] = max($allowed[0], $target->footX); }
     else { $allowed[2] = min($allowed[2], $target->footX); }
-    if (!self::contains($allowed, $start) || !self::contains($allowed, $end)) {
+    if (!BattleRectangleRoute::contains($allowed, $start) || !BattleRectangleRoute::contains($allowed, $end)) {
       return $blocked(BattleTravelFailure::OUTSIDE_ARENA);
     }
     $obstacles = array_map(static fn(CanvasRectangle $box): array => [
       $box->x - $foot[2], $box->y - $foot[3],
       $box->x + $box->width - $foot[0], $box->y + $box->height - $foot[1]], [...$blockers, $target->footing]);
-    if (self::isOccupied($start, $obstacles)) { return $blocked(BattleTravelFailure::START_OCCUPIED); }
-    if (self::isOccupied($end, $obstacles)) { return $blocked(BattleTravelFailure::CONTACT_OCCUPIED); }
-    if (self::canJoin($start, $end, $obstacles)) {
-      return new BattleTravelPlan([$start, $end], $contact[0], $contact[1], $sign, $advanceSpeed, $returnSpeed);
-    }
-    $points = [$start, $end];
-    // Axis-aligned unions turn only at rectangle corners. Clamped corners also expose arena intersections.
-    // Keep the original obstacles for collision: clipping them would create a false passage along arena edges.
-    foreach ([...$obstacles, $allowed] as [$left, $top, $right, $bottom]) {
-      foreach ([[$left, $top], [$left, $bottom], [$right, $top], [$right, $bottom]] as [$x, $y]) {
-        $point = [max($allowed[0], min($allowed[2], $x)), max($allowed[1], min($allowed[3], $y))];
-        if (!self::isOccupied($point, $obstacles) && !in_array($point, $points, true)) { $points[] = $point; }
-      }
-    }
-    // Dijkstra over a small implicit visibility graph: O(V² * footings), O(V) storage.
-    $distances = array_fill(0, count($points), INF);
-    $previous = $visited = [];
-    $distances[0] = 0.0;
-    while (true) {
-      $current = null;
-      $best = INF;
-      foreach ($distances as $index => $distance) {
-        if (!isset($visited[$index]) && $distance < $best) { $current = $index; $best = $distance; }
-      }
-      if ($current === null) { return $blocked(BattleTravelFailure::NO_ROUTE); }
-      if ($current === 1) { break; }
-      $visited[$current] = true;
-      foreach ($points as $next => $point) {
-        if (isset($visited[$next])) { continue; }
-        $distance = $best + hypot($point[0] - $points[$current][0], $point[1] - $points[$current][1]);
-        if ($distance < $distances[$next] && self::canJoin($points[$current], $point, $obstacles)) {
-          $distances[$next] = $distance;
-          $previous[$next] = $current;
-        }
-      }
-    }
-    $route = [];
-    for ($index = 1; ; $index = $previous[$index]) {
-      $route[] = $points[$index];
-      if ($index === 0) { break; }
-    }
-    return new BattleTravelPlan(array_reverse($route), $contact[0], $contact[1], $sign, $advanceSpeed, $returnSpeed);
-  }
-
-  /** @param array{float, float, float, float} $box @param array{float, float} $point */
-  private static function contains(array $box, array $point): bool
-  {
-    return $box[0] <= $box[2] && $box[1] <= $box[3]
-      && $point[0] >= $box[0] - self::EPSILON && $point[0] <= $box[2] + self::EPSILON
-      && $point[1] >= $box[1] - self::EPSILON && $point[1] <= $box[3] + self::EPSILON;
-  }
-
-  /** @param array{float, float} $point @param list<array{float, float, float, float}> $boxes */
-  private static function isOccupied(array $point, array $boxes): bool
-  {
-    return array_any($boxes, static fn(array $box): bool => $point[0] > $box[0] + self::EPSILON
-      && $point[0] < $box[2] - self::EPSILON && $point[1] > $box[1] + self::EPSILON && $point[1] < $box[3] - self::EPSILON);
-  }
-
-  /** Exact open-interior segment/slab intersection prevents tunnelling between sampled frames.
-   * @param array{float, float} $from @param array{float, float} $to
-   * @param list<array{float, float, float, float}> $boxes
-   */
-  private static function canJoin(array $from, array $to, array $boxes): bool
-  {
-    foreach ($boxes as $box) {
-      $enter = 0.0;
-      $leave = 1.0;
-      foreach ([0, 1] as $axis) {
-        $delta = $to[$axis] - $from[$axis];
-        if (abs($delta) <= self::EPSILON) {
-          if ($from[$axis] <= $box[$axis] + self::EPSILON || $from[$axis] >= $box[$axis + 2] - self::EPSILON) { continue 2; }
-        } else {
-          $one = ($box[$axis] - $from[$axis]) / $delta;
-          $two = ($box[$axis + 2] - $from[$axis]) / $delta;
-          $enter = max($enter, min($one, $two));
-          $leave = min($leave, max($one, $two));
-        }
-      }
-      if ($leave - $enter > self::EPSILON) { return false; }
-    }
-    return true;
+    if (BattleRectangleRoute::isOccupied($start, $obstacles)) { return $blocked(BattleTravelFailure::START_OCCUPIED); }
+    if (BattleRectangleRoute::isOccupied($end, $obstacles)) { return $blocked(BattleTravelFailure::CONTACT_OCCUPIED); }
+    $route = BattleRectangleRoute::findRoute($start, $end, $allowed, $obstacles);
+    return $route === null ? $blocked(BattleTravelFailure::NO_ROUTE)
+      : new BattleTravelPlan($route, $contact[0], $contact[1], $sign, $advanceSpeed, $returnSpeed);
   }
 }

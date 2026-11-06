@@ -851,8 +851,9 @@ final class GraphicalBattlePresentation
     $second = new Vector2($launch->x + $span * $curve['arrivalProgress'],
       $arrival->y + $this->layout->height * $curve['arrivalOffsetY']);
     if ($clearance === null) { return BattlePresentationPath::fromCubic($launch, $arrival, $first, $second); }
-    return BattleCubicFlightClearance::plan($launch, $arrival, $first, $second, $this->layout->height, $obstacles, $clearance)
-      ?? throw new RuntimeException('No cubic battle trail clears the unselected bodies at the captured positions.');
+    return BattleCubicFlightClearance::plan($launch, $arrival, $first, $second, $this->layout->height,
+      $obstacles, $clearance, width: $this->layout->width)
+      ?? throw new RuntimeException('No battle trail route clears the unselected bodies at the captured positions.');
   }
 
   /**

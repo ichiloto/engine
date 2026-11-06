@@ -52,3 +52,26 @@ it('uses the available side of the arena and refuses a trail when the contact it
     ->and(BattleCubicFlightClearance::plan($start, $end, $first, $second, 130,
       [new CanvasRectangle(170, 22, 22, 29)], 8))->toBeNull();
 });
+
+it('routes around a joined barrier when the original cubic cannot turn inside the available height', function (bool $mirrored) {
+  $point = static fn(float $x, float $y): Vector2 => new Vector2($mirrored ? 240 - $x : $x, $y);
+  $body = static fn(float $x, float $y, float $width, float $height): CanvasRectangle =>
+    new CanvasRectangle($mirrored ? 240 - $x - $width : $x, $y, $width, $height);
+  $start = $point(220, 112);
+  $end = $point(20, 76);
+  $bodies = [$body(29, 5, 144, 72), $body(29, 73, 144, 51)];
+  $planned = BattleCubicFlightClearance::plan($start, $end, $point(165, 98), $point(78, 67),
+    160, $bodies, 5, width: 240);
+
+  expect($planned)->not->toBeNull()
+    ->and($planned->getPositionAtProgress(0))->toEqual($start)
+    ->and($planned->getPositionAtProgress(1))->toEqual($end);
+  for ($index = 0; $index <= 256; $index++) {
+    $sample = $planned->getPositionAtProgress($index / 256);
+    expect($sample->y)->toBeGreaterThanOrEqual(5)->toBeLessThanOrEqual(155);
+    foreach ($bodies as $obstacle) {
+      expect($sample->x <= $obstacle->x - 5 + .000001 || $sample->x >= $obstacle->x + $obstacle->width + 5 - .000001
+        || $sample->y <= $obstacle->y - 5 + .000001 || $sample->y >= $obstacle->y + $obstacle->height + 5 - .000001)->toBeTrue();
+    }
+  }
+})->with([false, true]);
