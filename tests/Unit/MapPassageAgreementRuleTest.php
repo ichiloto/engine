@@ -59,9 +59,9 @@ function writePassageArt(string $path, int $columns, int $rows, array $blocks): 
  * @return list<\Ichiloto\Engine\Field\Validation\MapValidationIssue>
  */
 function inspectPassage(string $root, array $glyphs, array $tiles, array $data = [], array $resources = [], array $appearance = [],
-    string $eventRows = '', array $pieces = []): array
+    string $eventRows = '', array $pieces = [], array $upperLayers = []): array
 {
-    $layers = new MapLayerSet([new MapLayer('terrain', 0, false, 'synthetic', implode("\n", $glyphs))]);
+    $layers = new MapLayerSet([new MapLayer('terrain', 0, false, 'synthetic', implode("\n", $glyphs)), ...$upperLayers]);
     $tileset = Tileset::fromArray('synthetic', ['name' => 'Synthetic', 'sheets' => ['A1' => 'Graphics/A1.png', 'A2' => 'Graphics/A2.png',
         'B' => 'Graphics/B.png'], 'above' => [6], 'appearance' => $appearance, 'pieces' => $pieces]);
     $graphics = new MapGraphics($tileset, [new MapTileLayer('ground', 0, 'synthetic', implode("\n", $tiles))], owners: ['ground' => 'terrain']);
@@ -189,6 +189,39 @@ it('reports a world object whose art leaves most of its solid footprint bare, an
     $post = ['worldObjects' => [['id' => 'post', 'anchor' => ['x' => 3, 'y' => 2], 'pivot' => ['x' => .5, 'y' => 1.],
         'sprites2d' => ['asset' => 'Graphics/post.png'], 'covers' => ['layer' => 'terrain', 'cells' => [[3, 2]], 'tileLayers' => []]]]];
     expect(inspectPassage($this->root, ['       ', '       ', '   #   ', '       '], fillTiles(7, 4), $post))->toBe([]);
+});
+
+it('attributes covered solid cells to the gameplay layer the object covers', function () {
+    $glyphs = ['     ', ' ### ', '     '];
+    $data = ['worldObjects' => [['id' => 'fixture', 'anchor' => ['x' => 2, 'y' => 1], 'pivot' => ['x' => .5, 'y' => 1.],
+        'sprites2d' => ['asset' => 'Graphics/fixture.png'],
+        'covers' => ['layer' => 'fixtures', 'cells' => [[1, 1], [2, 1], [3, 1]], 'tileLayers' => []]]]];
+    writePassageArt($this->root . '/Graphics/fixture.png', 1, 1, [[0, 0, 1, 1]]);
+    $fixtures = new MapLayer('fixtures', 1, false, 'fixtures', "     \n  #  \n     ");
+    $issues = inspectPassage($this->root, $glyphs, fillTiles(5, 3), $data, upperLayers: [$fixtures]);
+    expect(groupPassageCells($issues))->not->toHaveKey(MapPassageAgreementRule::UNDER_COVERED);
+
+    // Solid cells owned by the covered layer still need the object's art.
+    $fixtures = new MapLayer('fixtures', 1, false, 'fixtures', "     \n ### \n     ");
+    $issues = inspectPassage($this->root, $glyphs, fillTiles(5, 3), $data, upperLayers: [$fixtures]);
+    expect(groupPassageCells($issues)[MapPassageAgreementRule::UNDER_COVERED])->toBe([[1, 1], [3, 1]]);
+});
+
+it('measures a bed footprint using both authored artwork roles', function () {
+    $glyphs = ['     ', ' ### ', '     '];
+    $data = ['worldObjects' => [['id' => 'bed', 'resource' => 'bed', 'anchor' => ['x' => 2, 'y' => 1],
+        'covers' => ['layer' => 'terrain', 'cells' => [[1, 1], [2, 1], [3, 1]], 'tileLayers' => []]]]];
+    $bed = ['name' => 'Bed', 'pivot' => ['x' => .5, 'y' => 1.],
+        'sprites2d' => ['asset' => 'Graphics/bed.png', 'cells' => ['width' => 3, 'height' => 1]],
+        'bedCover2d' => ['asset' => 'Graphics/cover.png', 'cells' => ['width' => 3, 'height' => 1]]];
+    writePassageArt($this->root . '/Graphics/bed.png', 3, 1, [[1, 0, 1, 1]]);
+    writePassageArt($this->root . '/Graphics/cover.png', 3, 1, [[0, 0, 1, 1], [2, 0, 1, 1]]);
+    expect(inspectPassage($this->root, $glyphs, fillTiles(5, 3), $data, ['bed' => $bed]))->toBe([]);
+
+    // A replacement cover can expose bare cells, even where the two roles overlap.
+    writePassageArt($this->root . '/Graphics/cover.png', 3, 1, [[1, 0, 1, 1]]);
+    $issues = inspectPassage($this->root, $glyphs, fillTiles(5, 3), $data, ['bed' => $bed]);
+    expect(groupPassageCells($issues)[MapPassageAgreementRule::UNDER_COVERED])->toBe([[1, 1], [3, 1]]);
 });
 
 it('leaves art above an object\'s top ground row alone as ordinary overhang', function () {

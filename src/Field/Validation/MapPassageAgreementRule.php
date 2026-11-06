@@ -305,7 +305,13 @@ final class MapPassageAgreementRule
         MapLayerSet $layers): array
     {
         $cells = [];
-        foreach ($placement?->cells ?? [[$object->x, $object->y]] as [$x, $y]) { $cells[$y][$x] = true; }
+        $coveredGlyphs = $object->coverage['glyphs'] ?? [];
+        foreach ($placement?->cells ?? [[$object->x, $object->y]] as [$x, $y]) {
+            if ($coveredGlyphs !== [] && !isset($coveredGlyphs[$layers->getGameplayLayerAt($x, $y)->name][$y][$x])) {
+                continue;
+            }
+            $cells[$y][$x] = true;
+        }
         if ($object->resource !== null) {
             try {
                 foreach ($object->resource->resolveOccupancyStamp($layers, $object->x, $object->y) as $cell) {
@@ -339,15 +345,26 @@ final class MapPassageAgreementRule
     private static function measureArt(WorldObjectDefinition $object, string $assetRoot): array|string|null
     {
         if ($object->sprites === null || $object->resource?->sign !== null) { return null; }
-        $role = new FieldSpriteRole($object->sprites, $assetRoot, "Passage agreement {$object->id}");
-        try {
-            $frame = $role->getStillFrame($object->pivot);
-        } finally {
-            $role->release();
+        $parts = [$object->sprites];
+        if ($object->resource?->bedCover !== null) { $parts[] = $object->resource->bedCover; }
+        $art = [];
+        foreach ($parts as $part) {
+            $role = new FieldSpriteRole($part, $assetRoot, "Passage agreement {$object->id}");
+            try {
+                $frame = $role->getStillFrame($object->pivot);
+            } finally {
+                $role->release();
+            }
+            if ($frame === null) { return 'its field artwork is unavailable.'; }
+            $result = PngCellCoverage::measure($assetRoot, $frame, $object->x, $object->y);
+            if ($result['diagnostic'] !== null) { return $result['diagnostic']; }
+            foreach ($result['cells'] as $y => $row) {
+                foreach ($row as $x => $mask) {
+                    $art[$y][$x] = isset($art[$y][$x]) ? $art[$y][$x] | $mask : $mask;
+                }
+            }
         }
-        if ($frame === null) { return 'its field artwork is unavailable.'; }
-        $result = PngCellCoverage::measure($assetRoot, $frame, $object->x, $object->y);
-        return $result['diagnostic'] ?? $result['cells'];
+        return $art;
     }
 
     /**
