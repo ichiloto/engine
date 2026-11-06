@@ -66,7 +66,7 @@ final class BattleCommandRunner
     $travelFailure = null;
     if (!$resultsOnly && !Accessibility::prefersReducedMotion() && $this->context->ui->usesGraphicalField()
       && $movement->usesTargetRoute() && $action !== null) {
-      try { $travel = $this->context->ui->planActionTravel($actor, $targets, $action, $animationId); }
+      try { $travel = $this->context->ui->planActionTravel($actor, $targets, $action, $animationId, $movement); }
       catch (\InvalidArgumentException|\RuntimeException $error) {
         $travelFailure = $error;
         $travel = new BattleTravelPlan([], 0, 0, 1, 600, 900, BattleTravelFailure::PRESENTATION_UNAVAILABLE);

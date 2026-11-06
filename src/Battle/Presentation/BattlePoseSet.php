@@ -34,8 +34,12 @@ final readonly class BattlePoseSet
     }
     foreach ($actionPoses as $animationId => $pose) {
       if (!is_int($animationId) || $animationId < 1 || !$pose instanceof BattlerPose
-        || $pose->impactFrame === null || $pose->entryFrames !== [] || $pose->exitFrames !== []) {
+        || $pose->impactFrame === null) {
         throw new InvalidArgumentException('Action poses require positive animation IDs and an impact entry on a once-playing pose.');
+      }
+      if (($pose->entryFrames !== [] || $pose->exitFrames !== [])
+        && ($pose->impactFrame !== 0 || $pose->entryFrames === [] || $pose->exitFrames === [])) {
+        throw new InvalidArgumentException('Action transit cells require both entry and exit sequences and a planted first frame.');
       }
     }
   }

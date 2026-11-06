@@ -122,7 +122,8 @@ final class GraphicalBattlePresentation
 
   /** Snapshots current drawn geometry once; the same planner serves runtime and Editor inspection. */
   public function planActionTravel(CharacterInterface $actor, array $targets, \Ichiloto\Engine\Battle\BattleAction $action,
-    float $poseElapsedSeconds = 0, bool $imageFlips = true, ?int $animationId = null): BattleTravelPlan
+    float $poseElapsedSeconds = 0, bool $imageFlips = true, ?int $animationId = null,
+    \Ichiloto\Engine\Animations\ActionMovement $movement = \Ichiloto\Engine\Animations\ActionMovement::RUN_TO_TARGET): BattleTravelPlan
   {
     \Ichiloto\Engine\Animations\ActionMovement::RUN_TO_TARGET->validateAction($action, $actor, $targets);
     $target = $targets[0];
@@ -151,11 +152,16 @@ final class GraphicalBattlePresentation
     $footing = BattleFormationClearance::getFooting($body);
     $unit = $this->scale === null || $source['scale'] === null ? $body->height
       : $this->scale->referenceHeight * $source['scale']->relativeSize * $this->getSlot($actor)->displayScale;
-    $pose = $source['poses']?->getAnimationPose($animationId) ?? $source['poses']?->getPose(BattlePoseRole::getForAction($action));
+    $boundPose = $source['poses']?->getAnimationPose($animationId);
+    $pose = $boundPose ?? $source['poses']?->getPose(BattlePoseRole::getForAction($action));
     $reach = $pose?->reach?->getCanvasOffset($unit) ?? new Vector2(
       max(0, $sign < 0 ? $from['foot']->x - $body->x : $body->x + $body->width - $from['foot']->x), 0);
     // Movement cells fit the standing area; action-phase weapon overhang retains its existing presentation extent.
-    $envelope = $this->getTravelEnvelope($actor, $body, $mirror);
+    $sequences = $movement === \Ichiloto\Engine\Animations\ActionMovement::FLASH_STEP
+      ? [[$boundPose, BattlePoseSequence::ENTRY], [$boundPose, BattlePoseSequence::EXIT]]
+      : [[$source['poses']?->getPose(BattlePoseRole::MOVE), BattlePoseSequence::MAIN],
+        [$source['poses']?->getPose(BattlePoseRole::RETURNING), BattlePoseSequence::MAIN]];
+    $envelope = $this->getTravelEnvelope($actor, $body, $mirror, $sequences);
     $strike = $recipient['strikePoint']?->getCanvasPosition($to['body'], $to['image']->flipX, $to['image']->flipY);
     return BattleTravelPlanner::plan(new BattleTravelSubject($from['foot'], $envelope, $footing),
       new BattleTravelSubject($to['foot'], $to['body'], BattleFormationClearance::getFooting($to['body'])),
@@ -165,18 +171,18 @@ final class GraphicalBattlePresentation
       $this->layout->advanceSpeed, $this->layout->returnSpeed, $sign);
   }
 
-  private function getTravelEnvelope(CharacterInterface $actor, CanvasRectangle $body, bool $mirror): CanvasRectangle
+  /** @param list<array{?BattlerPose, BattlePoseSequence}> $sequences */
+  private function getTravelEnvelope(CharacterInterface $actor, CanvasRectangle $body, bool $mirror, array $sequences): CanvasRectangle
   {
     $participant = $this->participants[spl_object_id($actor)];
     $slot = $this->getSlot($actor);
     $base = $this->placeBaseArtwork($slot, $participant['art'], $participant['poses'], spl_object_id($actor), $participant['scale']);
     $pixelScale = $base->width / $participant['art']->width / $slot->displayScale;
     $left = $body->x; $top = $body->y; $right = $left + $body->width; $bottom = $top + $body->height;
-    foreach ([BattlePoseRole::MOVE->value, BattlePoseRole::RETURNING->value] as $key) {
-      $pose = $participant['poses']?->getPose(BattlePoseRole::from($key));
+    foreach ($sequences as [$pose, $sequence]) {
       if ($pose === null) { continue; }
-      foreach (array_keys(array_unique($pose->frames)) as $entry) {
-        $art = $pose->getArtwork($this->assetRoot, $entry / $pose->fps);
+      foreach (array_keys(array_unique($pose->getSequenceFrames($sequence))) as $entry) {
+        $art = $pose->getArtwork($this->assetRoot, $entry / $pose->fps, sequence: $sequence);
         if ($art === null) { throw new RuntimeException('Travel pose artwork is unavailable: ' . $pose->asset); }
         $bounds = BattleFormationLayout::getPosePlacement($slot, $art, $pixelScale, $this->layout,
           $participant['scale'], $this->scale, $pose->scaleSpan, $participant['poses']);
