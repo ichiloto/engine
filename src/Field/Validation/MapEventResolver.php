@@ -27,6 +27,7 @@ final class MapEventResolver
         $areas = [];
         foreach ($eventLayer as $y => $row) {
             foreach ($row as $x => $cell) {
+                if ($cell === ' ') { continue; }
                 $marker = TerminalText::stripAnsi($cell);
                 if (trim($marker) !== '') { $areas[$marker][] = [$x, $y]; }
             }
