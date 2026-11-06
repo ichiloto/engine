@@ -334,6 +334,29 @@ it('uploads a map whose kinds draw no corner edges byte for byte as before', fun
       CornerEdgesFixture::getLayerCells($corneredWorld, 'tiles:ground')));
 });
 
+it('finds corner sheets for live object tiles and drops sheets whose last tile is covered', function () {
+  $root = CornerEdgesFixture::createRoot();
+  $tileset = CornerEdgesFixture::createTileset();
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'corners', '.')]);
+  $grass = (string) CornerEdgesFixture::GRASS;
+  $water = (string) CornerEdgesFixture::WATER;
+  $painted = new MapGraphics($tileset, [
+    new MapTileLayer('ground', 1, 'corners/ground', $grass),
+    new MapTileLayer('water', 2, 'corners/water', $water),
+  ]);
+  $empty = new MapGraphics($tileset, [
+    new MapTileLayer('ground', 1, 'corners/ground', $grass),
+    new MapTileLayer('water', 2, 'corners/water', '0'),
+  ]);
+  $covered = PresentationWorld::getFromLayers($layers, 'corners', $painted, $root,
+    coverage: ['tiles' => ['water' => [[0 => true]]]]);
+  $added = PresentationWorld::getFromLayers($layers, 'corners', $empty, $root,
+    tileCells: ['water' => [[0 => CornerEdgesFixture::WATER]]]);
+
+  expect($covered->getOperations(true))->toBe(PresentationWorld::getFromLayers($layers, 'corners', $empty, $root)->getOperations(true))
+    ->and($added->getOperations(true))->toBe(PresentationWorld::getFromLayers($layers, 'corners', $painted, $root)->getOperations(true));
+});
+
 it('shows the terminal glyphs of a corner-edged kind whose corner sheet cannot be drawn, never its autotile', function () {
   $root = CornerEdgesFixture::createRoot();
   CornerEdgesFixture::writePng($root . '/' . CornerEdgesFixture::WATER_SHEET, 50, 30, static fn(): array => [0, 0, 255, 255]);

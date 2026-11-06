@@ -481,11 +481,15 @@ final class PresentationWorld
         // One shown row: remove owned source art, then present currently available object tiles.
         $readShown = static fn(MapTileLayer $layer): \Generator => $layer->yieldShownRows(
             $coveredCells[$layer->name] ?? [], $tileCells[$layer->name] ?? []);
+        $readCornerCandidates = static fn(MapTileLayer $layer): iterable =>
+            empty($coveredCells[$layer->name]) && empty($tileCells[$layer->name])
+                ? [$layer->getUsedIds()]
+                : $readShown($layer);
         $cornerTiles = $graphics->tileset->getCornerTiles();
         $cornerJoins = $graphics->tileset->getCornerJoins();
         $cornerLayers = [];
         $cornerSheets = $cornerTiles === [] ? [] : $graphics->tileset->getUsableCornerSheets($assetRoot, $size,
-            self::getShownCornerTiles($graphics->layers, $readShown, $cornerTiles, $cornerLayers, $checkpoint));
+            self::getShownCornerTiles($graphics->layers, $readCornerCandidates, $cornerTiles, $cornerLayers, $checkpoint));
         // Tiles share many pieces (an autotile's quarters recur across its shapes); equal pieces share one array.
         $shared = [];
         $addTile = static function (string $key, int $shiftX, int $shiftY, callable $compose)
@@ -610,17 +614,17 @@ final class PresentationWorld
      * The corner-edged kinds' autotiles the map shows, so only their sheets are read and sent.
      *
      * @param list<MapTileLayer> $layers
-     * @param callable(MapTileLayer): Generator $readShown Source coverage and current object tiles applied before shaping.
+     * @param callable(MapTileLayer): iterable<list<int>> $readCandidates Authored identities or rows with object coverage applied.
      * @param list<int> $cornerTiles
      * @param array<string, true> $shownOn Set to the names of the layers that show any.
      * @return list<int>
      */
-    private static function getShownCornerTiles(array $layers, callable $readShown, array $cornerTiles, array &$shownOn, ?Closure $checkpoint): array
+    private static function getShownCornerTiles(array $layers, callable $readCandidates, array $cornerTiles, array &$shownOn, ?Closure $checkpoint): array
     {
         $found = $flags = [];
         foreach ($layers as $layer) {
-            foreach ($readShown($layer) as $y => $row) {
-                foreach ($row as $x => $tileId) {
+            foreach ($readCandidates($layer) as $row) {
+                foreach ($row as $tileId) {
                     // Each tile identity's corner-edged kind, or false for none, is read once.
                     $flag = $flags[$tileId] ??= CornerShape::isCornerTile($tileId, $cornerTiles) ? TileId::getFlagId($tileId) : false;
                     if ($flag !== false) {

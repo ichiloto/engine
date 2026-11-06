@@ -25,6 +25,8 @@ final readonly class MapTileLayer
     public int $width;
     /** Each cell's tile identity, packed ({@see PackedGrid}), so a world map costs bytes per cell. */
     private PackedGrid $grid;
+    /** @var list<int> Non-empty tile identities in first-use order. */
+    private array $usedIds;
 
     public function __construct(
         public string $name,
@@ -33,7 +35,9 @@ final readonly class MapTileLayer
         string $text,
         ?Closure $checkpoint = null,
     ) {
-        $this->grid = PackedGrid::fromRows(self::parseRows($text, $path, $checkpoint));
+        $entries = [];
+        $this->grid = PackedGrid::fromRows(self::parseRows($text, $path, $entries, $checkpoint));
+        $this->usedIds = array_values(array_unique(array_filter($entries)));
         $this->height = $this->grid->height;
         $this->width = $this->grid->width;
     }
@@ -100,28 +104,22 @@ final readonly class MapTileLayer
     /** @return list<int> Every tile identity the layer paints. */
     public function getUsedIds(): array
     {
-        $used = [];
-        for ($y = 0; $y < $this->height; $y++) {
-            foreach ($this->getRowTiles($y) as $id) {
-                if ($id !== TileId::EMPTY) { $used[$id] = true; }
-            }
-        }
-        return array_keys($used);
+        return $this->usedIds;
     }
 
     /**
      * Each entry is checked once per distinct spelling: a layer repeats few
      * tiles over many cells.
      *
+     * @param array<int|string, int> $entries Validated entries by spelling, in first-use order.
      * @return Generator<int, list<int>>
      */
-    private static function parseRows(string $text, string $path, ?Closure $checkpoint): Generator
+    private static function parseRows(string $text, string $path, array &$entries, ?Closure $checkpoint): Generator
     {
-        $tiles = [];
         foreach (preg_split('/\r\n|\n|\r/', rtrim($text, "\r\n")) ?: [] as $y => $line) {
             $row = [];
             foreach (preg_split('/\s+/', trim($line), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $x => $value) {
-                $row[] = $tiles[$value] ??= self::readEntry($value)
+                $row[] = $entries[$value] ??= self::readEntry($value)
                     ?? throw self::createEntryRefusal($path, $y, $x, $value);
             }
             yield $row;
