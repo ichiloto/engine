@@ -91,7 +91,7 @@ final class MapPlaceIconRule
             $label = $marker === null ? 'An entrance' : "Entrance '{$marker}'";
             $report = static fn(string $rule, string $message, string $hint): MapValidationIssue => new MapValidationIssue(
                 $mapId, $rule, $message, $marker, $area->cells, ['events', $marker ?? ''], $hint);
-            $visible = self::findIconsOver($graphics, $layers, $icons, $area);
+            [$drawnIcons, $visible] = self::findIconsOver($graphics, $layers, $icons, $area);
             $standing = $visible[0] ?? null;
             $type = $placeTypes[$destination];
             if ($type === null) {
@@ -111,13 +111,13 @@ final class MapPlaceIconRule
                     "Choose the piece tileset {$tileset->name} shows for {$name} in its place icons.");
                 continue;
             }
-            if ($grouped && count($visible) > 1) {
+            if ($grouped && count($drawnIcons) > 1) {
                 $issues[] = $report(self::ICON, "{$label} has more than one place icon in its shared icon area.",
                     "Keep one {$expected->name} in this area for {$destination}.");
                 continue;
             }
             if ($standing === $expected) { continue; }
-            $drawn = $standing === null && self::findStampsOver($graphics, $expected, $area) !== [];
+            $drawn = $standing === null && in_array($expected, $drawnIcons, true);
             $issues[] = $report(self::ICON, sprintf('%s leads to %s, a place of type %s, whose icon is %s; %s.', $label, $destination,
                 $name, $expected->name, match (true) {
                     $standing !== null => "the {$standing->name} stands over it",
@@ -131,22 +131,22 @@ final class MapPlaceIconRule
     }
 
     /**
-     * The whole place icon stamps over the area in tiles and terminal glyphs,
-     * ordered by size for the existing per-transfer check.
+     * Graphical stamps and the subset whose Terminal glyphs match, smallest first.
      *
      * @param array<string, TilesetPiece> $icons
-     * @return list<TilesetPiece>
+     * @return array{list<TilesetPiece>, list<TilesetPiece>}
      */
     private static function findIconsOver(MapGraphics $graphics, MapLayerSet $layers, array $icons, CellArea $area): array
     {
-        $found = [];
+        $drawn = $visible = [];
         foreach ($icons as $piece) {
             foreach (self::findStampsOver($graphics, $piece, $area) as [$left, $top]) {
-                if (self::showsGlyphs($layers, $piece, $left, $top)) { $found[] = $piece; }
+                $drawn[] = $piece;
+                if (self::showsGlyphs($layers, $piece, $left, $top)) { $visible[] = $piece; }
             }
         }
-        usort($found, static fn(TilesetPiece $a, TilesetPiece $b): int => $a->width * $a->height <=> $b->width * $b->height);
-        return $found;
+        usort($visible, static fn(TilesetPiece $a, TilesetPiece $b): int => $a->width * $a->height <=> $b->width * $b->height);
+        return [$drawn, $visible];
     }
 
     /** @return list<array{0: int, 1: int}> The top-left cells of the piece's copies covering any cell of the area. */

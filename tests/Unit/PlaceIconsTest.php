@@ -178,6 +178,10 @@ it('requires exactly one whole stamp for the contained transfers to the entrance
     expect($duplicates)->toHaveCount(1)
         ->and($duplicates[0]->marker)->toBe('Y')
         ->and($duplicates[0]->message)->toContain('more than one place icon');
+    $graphicalDuplicate = inspectPlaceIcons([['hut', 3, 2], ['hut', 5, 2, true]], 'lodge',
+        additionalEvents: [$secondMouth], entrance: $iconArea);
+    expect($graphicalDuplicate)->toHaveCount(1)
+        ->and($graphicalDuplicate[0]->message)->toContain('more than one place icon');
     $missing = inspectPlaceIcons([['hut', 5, 2, true]], 'lodge', additionalEvents: [$secondMouth], entrance: $iconArea);
     expect($missing)->toHaveCount(1)
         ->and($missing[0]->message)->toContain('its terminal glyphs do not');
