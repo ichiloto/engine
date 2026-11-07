@@ -151,9 +151,13 @@ final class CinematicController implements EventSessionCompletionTargetInterface
     try {
       $gameScene->getGame()->audioManager->finalizeCinematicMusic('failure');
     } finally {
-      $this->cleanup();
+      try {
+        $this->cleanup();
+      } finally {
+        // Release the trigger even if presentation teardown raised an error.
+        $downstreamCompletionTarget?->onEventSessionFailed($gameScene, $session);
+      }
     }
-    $downstreamCompletionTarget?->onEventSessionFailed($gameScene, $session);
   }
 
   public function shutdown(): void

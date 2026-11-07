@@ -191,6 +191,17 @@ class EventTestAudioManager extends AudioManager
     parent::__construct($game);
   }
 
+  public bool $failCinematicMusicCleanup = false;
+
+  public function finalizeCinematicMusic(string $outcome = 'complete'): void
+  {
+    if ($this->failCinematicMusicCleanup && $outcome === 'failure') {
+      throw new RuntimeException('Injected cinematic music cleanup failure.');
+    }
+
+    parent::finalizeCinematicMusic($outcome);
+  }
+
   protected function createBackends(): array
   {
     return [];
@@ -1901,6 +1912,59 @@ it('does not queue its existing automatic owner for replay when that session fai
       ->and($scene->gameState->getVariable('owner_rewards'))->toBe(1);
   } finally { chdir($prior); }
 })->with(['script', 'cinematic'])->with(['route arrival' => true, 'current-position evaluation' => false]);
+
+it('allows an interrupted automatic cinematic to retry after leaving its restored entry area', function (bool $reloadTriggers, bool $failMusicCleanup) {
+  $root = makeCinematicTriggerProject('restored-entry', [
+    ['type' => 'wait', 'seconds' => 1],
+  ]);
+  $prior = getcwd();
+  chdir($root);
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $player = new EventTestPlayer(new Vector2(1, 0));
+    $scene->installPlayer($player);
+    $scene->installCinematicRuntime();
+    $createTrigger = static fn() => new CinematicEventTrigger(new Rect(1, 0, 1, 1),
+      ['mode' => 'auto', 'reusable' => false, 'cinematicId' => 'restored-entry'],
+      mapId: 'map-a', marker: 'A');
+    $trigger = $createTrigger();
+    $trigger->bind($scene->gameState, $scene->party);
+    $player->addTrigger($trigger);
+    $player->evaluateAutomaticTriggersAtCurrentPosition();
+    $interrupted = $interpreter->activeSession();
+    expect($interrupted)->not->toBeNull();
+
+    $scene->cinematicStage->captureSubject($player);
+    $player->tryFieldMove(Vector2::right(), $scene->camera);
+    expect($player->position->x)->toEqual(2)->and($player->hasActiveEvent($trigger))->toBeFalse();
+
+    if ($reloadTriggers) {
+      $player->removeEventTriggers();
+      $trigger = $createTrigger();
+      $trigger->bind($scene->gameState, $scene->party);
+      $player->addTrigger($trigger);
+    }
+
+    $scene->getGame()->audioManager->failCinematicMusicCleanup = $failMusicCleanup;
+    $interpreter->failActiveSession('Injected interruption after leaving the trigger.');
+    expect($player->position->x)->toEqual(1)
+      ->and($scene->hasUnstableEventSession())->toBeFalse()
+      ->and($trigger->isComplete)->toBeFalse()
+      ->and($trigger->sessionIsActive)->toBeFalse();
+
+    $player->tryFieldMove(Vector2::right(), $scene->camera);
+    $player->tryFieldMove(Vector2::left(), $scene->camera);
+    expect($interpreter->activeSession())->not->toBeNull()->not->toBe($interrupted);
+    $interpreter->update(2);
+    expect($trigger->isComplete)->toBeTrue();
+  } finally {
+    chdir($prior);
+  }
+})->with([
+  'original trigger' => [false, false],
+  'reloaded trigger' => [true, false],
+  'music cleanup fails' => [false, true],
+]);
 
 it('blocks manual saves and quicksaves while a session is unstable', function () {
   [$scene, $interpreter] = makeEventRuntime();

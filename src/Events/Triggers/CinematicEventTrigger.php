@@ -111,6 +111,7 @@ final class CinematicEventTrigger extends EventTrigger implements
   public function onEventSessionFailed(GameScene $gameScene, EventExecutionSession $session): void
   {
     $this->sessionIsActive = false;
+    $gameScene->player?->retainFailedAutomaticTriggerEngagement($this);
   }
 
   /** @inheritDoc */

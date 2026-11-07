@@ -120,6 +120,7 @@ class ScriptEventTrigger extends EventTrigger implements AutomaticEventTriggerIn
   public function onEventSessionFailed(GameScene $gameScene, EventExecutionSession $session): void
   {
     $this->sessionIsActive = false;
+    $gameScene->player?->retainFailedAutomaticTriggerEngagement($this);
   }
 
   /**

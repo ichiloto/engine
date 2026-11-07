@@ -617,6 +617,31 @@ class Player extends GameObject implements ThicketSubjectInterface
     return true;
   }
 
+  /** Keep a failed automatic trigger engaged until the player leaves its restored entry. */
+  public function retainFailedAutomaticTriggerEngagement(EventTrigger&AutomaticEventTriggerInterface $trigger): void
+  {
+    if (!$trigger->runsAutomatically()) {
+      return;
+    }
+
+    $event = $trigger;
+    if (!$this->events->contains($event)) {
+      if ($trigger->mapId === null || $trigger->marker === null
+        || $trigger->mapId !== $this->getGameScene()->currentMapId) {
+        return;
+      }
+
+      $event = $this->findEventByMarker($trigger->marker);
+      if (!$event instanceof $trigger || $event->mapId !== $trigger->mapId || !$event->runsAutomatically()) {
+        return;
+      }
+    }
+
+    if (!$this->eventManager->activeEvents->contains($event) && $event->canEngage($this->position, $this->heading)) {
+      $this->eventManager->activeEvents->add($event);
+    }
+  }
+
   /** A real turn engages only opted-in events; it is not a walking step or a transfer notification. */
   private function reconcileFacingEvents(bool $includeAutomatic = true): void
   {
