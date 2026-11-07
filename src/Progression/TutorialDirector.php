@@ -79,7 +79,7 @@ final class TutorialDirector
 
   /** Called by the voluntary library visit or an eligible player battle command window. */
   public function enterContext(TutorialStartContext $context, bool $automaticPrompts, ?Party $party = null,
-    ?QuestLog $quests = null): void
+    ?QuestLog $quests = null, ?callable $canPresent = null): void
   {
     if ($context === TutorialStartContext::BATTLE_COMMAND) {
       foreach ($this->catalog->definitions as $tutorial) {
@@ -92,7 +92,7 @@ final class TutorialDirector
       $this->observeWorldTutorials($party, $quests, $context);
     }
 
-    $this->startPendingTutorial($context, $automaticPrompts, $party, $quests);
+    $this->startPendingTutorial($context, $automaticPrompts, $party, $quests, $canPresent);
   }
 
   /** Leaving a live context suspends its lesson, so it cannot claim another screen. */
@@ -104,7 +104,7 @@ final class TutorialDirector
   }
 
   private function startPendingTutorial(TutorialStartContext $context, bool $automaticPrompts, ?Party $party,
-    ?QuestLog $quests): void
+    ?QuestLog $quests, ?callable $canPresent = null): void
   {
     if ($this->active !== null) {
       return;
@@ -116,7 +116,8 @@ final class TutorialDirector
         || !$this->hasBoundControls($tutorial)) {
         continue;
       }
-      if (WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests)) {
+      if (($canPresent === null || $canPresent($tutorial->steps[0]))
+        && WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests)) {
         $this->beginTutorial($tutorial, false);
         return;
       }

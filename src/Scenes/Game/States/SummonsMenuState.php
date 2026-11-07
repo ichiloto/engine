@@ -40,6 +40,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     public const string TUTORIAL_ACTIONS = 'actions';
     public const string TUTORIAL_HOLDERS = 'holders';
     public const string TUTORIAL_ASSIGNABLE_HOLDER = 'assignable';
+    public const string TUTORIAL_ASSIGNED_CONTRACT = 'assigned-contract';
     public const string TUTORIAL_SUMMON_OPENED = 'summon.opened';
     public const string TUTORIAL_ASSIGN_OPENED = 'summon.assign-opened';
     public const string TUTORIAL_ASSIGNED = 'summon.assigned';
@@ -97,6 +98,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $this->view = $this->character === null ? SummonsMenuView::SUMMONS : SummonsMenuView::CHARACTER;
         $this->activeIndex = 0;
         $this->detailViewport = new TextViewport();
+        $this->refreshDefinitions();
         if ($this->character === null) {
             $scene = $this->getGameScene();
             $scene->tutorialDirector?->enterContext(
@@ -104,6 +106,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
                 (bool) config(ProjectConfig::class, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true),
                 $this->party,
                 $scene->questManager?->log,
+                fn(TutorialStep $step): bool => $this->canShowTutorialTarget($step),
             );
         }
         $this->initializeUI();
@@ -153,9 +156,9 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     }
 
     /** @return list<Character> Current members that the same atomic Party operation would accept. */
-    private function getHolderOptions(): array
+    private function getHolderOptions(?SummonCutsceneDefinition $definition = null): array
     {
-        $definition = $this->getSelectedSummon();
+        $definition ??= $this->getSelectedSummon();
         return $definition === null ? [] : array_values(array_filter($this->party->participants->toArray(),
             fn(Character $member): bool => $member->hasSummon($definition->id)
                 || $this->party->canReassignSummon($definition, $member, $this->getGameScene()->gameState)));
@@ -259,12 +262,25 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         return 'member-' . ($member->actorId ?? spl_object_id($member));
     }
 
+    private function canShowTutorialTarget(TutorialStep $step): bool
+    {
+        $target = $this->resolveTutorialRow($step);
+
+        return array_any($this->summons, static fn(SummonCutsceneDefinition $definition): bool => $definition->id === $target);
+    }
+
     private function resolveTutorialRow(?TutorialStep $step): ?string
     {
         if ($step === null) {
             return null;
         }
         $id = $step->target['id'];
+        if ($this->view === SummonsMenuView::SUMMONS && $id === self::TUTORIAL_ASSIGNED_CONTRACT) {
+            return array_find($this->summons, fn(SummonCutsceneDefinition $definition): bool =>
+                $this->party->getSummonHolders($definition->id) !== []
+                && array_any($this->getHolderOptions($definition), static fn(Character $member): bool => !$member->hasSummon($definition->id)),
+            )?->id;
+        }
         if ($this->view !== SummonsMenuView::HOLDERS
             || ($id !== self::TUTORIAL_ASSIGNABLE_HOLDER && ($step->until['outcome'] ?? null) !== self::TUTORIAL_ASSIGNED)) {
             return $id;
@@ -441,9 +457,6 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
                     self::TUTORIAL_SCREEN, self::TUTORIAL_HOLDERS, self::TUTORIAL_ASSIGNED, $definition->id,
                 );
             }
-            $scene->tutorialDirector?->observeWorldTutorials(
-                $this->party, $scene->questManager?->log, TutorialStartContext::SUMMONS_LIBRARY,
-            );
             $this->refreshUI();
         }
     }

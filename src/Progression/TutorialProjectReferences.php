@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Progression;
 
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerActionState as BattleInput;
+use Ichiloto\Engine\Scenes\Game\States\SummonsMenuState as Summons;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicLibrary;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
@@ -62,9 +64,26 @@ final class TutorialProjectReferences
     $cinematics = new CinematicLibrary($this->assetRoot . '/Cutscenes/Cinematics');
     $effects = new EffectTimelineLibrary($this->assetRoot);
     foreach ($catalog->definitions as $tutorial) {
+      $firstView = $tutorial->steps[0]->target;
+      $entryView = match ($tutorial->startContext) {
+        TutorialStartContext::FIELD => null,
+        TutorialStartContext::SUMMONS_LIBRARY => [Summons::TUTORIAL_SCREEN, Summons::TUTORIAL_LIST],
+        TutorialStartContext::BATTLE_COMMAND => [BattleInput::TUTORIAL_SCREEN, BattleInput::TUTORIAL_COMMAND_VIEW],
+      };
+      if ($entryView !== null && $entryView !== [$firstView['screen'], $firstView['view']]) {
+        throw new InvalidArgumentException('Tutorial ' . $tutorial->id . ' must start on its owning screen and view.');
+      }
       foreach ($tutorial->steps as $index => $step) {
         $where = 'Tutorial ' . $tutorial->id . ' step ' . ($index + 1);
         ['screen' => $screen, 'view' => $view, 'id' => $id] = $step->target;
+        if (($entryView !== null && $screen !== $entryView[0])
+          || ($screen === BattleInput::TUTORIAL_SCREEN && $tutorial->startContext !== TutorialStartContext::BATTLE_COMMAND)) {
+          throw new InvalidArgumentException($where . ' must use a view owned by its start context.');
+        }
+        if ($tutorial->startContext === TutorialStartContext::BATTLE_COMMAND
+          && (count($tutorial->steps) !== 1 || ($step->until['outcome'] ?? null) !== BattleInput::TUTORIAL_SUMMON_EXECUTED)) {
+          throw new InvalidArgumentException($where . ' must complete at the committed battle action.');
+        }
         $declaration = $views[$screen][$view] ?? null;
         if ($declaration === null || !in_array($id, $this->getTargetIds($screen, $view), true)) {
           throw new InvalidArgumentException($where . ' names an unknown target ' . $screen . '/' . $view . '/' . $id . '.');

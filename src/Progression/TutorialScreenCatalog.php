@@ -43,7 +43,7 @@ final class TutorialScreenCatalog
       ],
       Summons::TUTORIAL_SCREEN => [
         Summons::TUTORIAL_LIST => [
-          'targets' => [], 'targetSource' => 'summon', 'actions' => ['confirm'],
+          'targets' => [Summons::TUTORIAL_ASSIGNED_CONTRACT], 'targetSource' => 'summon', 'actions' => ['confirm'],
           'outcomes' => [Summons::TUTORIAL_SUMMON_OPENED => 'summon'],
         ],
         Summons::TUTORIAL_ACTIONS => [

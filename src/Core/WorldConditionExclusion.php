@@ -141,6 +141,8 @@ final class WorldConditionExclusion
                 ? [trim($condition['marker'])]
                 : null,
             WorldConditionType::ITEM => is_scalar($condition['quantity'] ?? 1) ? [max(1, intval($condition['quantity'] ?? 1))] : null,
+            WorldConditionType::ASSIGNED_SUMMONS => $name === 'party' && is_int($condition['quantity'] ?? null)
+                && $condition['quantity'] > 0 ? [$condition['quantity']] : null,
             WorldConditionType::QUEST => is_scalar($condition['status'] ?? 'completed') ? [strval($condition['status'] ?? 'completed')] : null,
             WorldConditionType::VARIABLE => self::readVariableParameters($condition, $holdsOn),
         };

@@ -25,6 +25,25 @@ class Party extends BattleGroup
   /** @var \WeakMap<self, list<CharacterInterface>>|null Transient joins are never serialized with a party. */
   private static ?\WeakMap $pendingJoins = null;
 
+  /** @var \WeakMap<self, \Closure(self): void>|null Campaign-local listeners are never serialized. */
+  private static ?\WeakMap $summonAssignmentListeners = null;
+
+  public function setSummonAssignmentListener(?\Closure $listener): void
+  {
+    if ($listener === null) {
+      if (self::$summonAssignmentListeners !== null) { unset(self::$summonAssignmentListeners[$this]); }
+      return;
+    }
+    self::$summonAssignmentListeners ??= new \WeakMap();
+    self::$summonAssignmentListeners[$this] = $listener;
+  }
+
+  private function notifySummonAssignmentChanged(): void
+  {
+    $listener = self::$summonAssignmentListeners[$this] ?? null;
+    $listener?->__invoke($this);
+  }
+
   #[\Override]
   public function addMember(CharacterInterface $character): void
   {
@@ -339,6 +358,18 @@ class Party extends BattleGroup
     return max(0, $equipment->quantity - $this->getEquippedEquipmentCount($equipment));
   }
 
+  /** @return list<string> Distinct contracts held across the permanent party, including reserves. */
+  public function getAssignedSummonIds(): array
+  {
+    $ids = [];
+    foreach ($this->members as $member) {
+      assert($member instanceof Character);
+      array_push($ids, ...$member->summons);
+    }
+
+    return array_values(array_unique($ids));
+  }
+
   /**
    * Returns the party members currently holding the given summon.
    *
@@ -434,7 +465,10 @@ class Party extends BattleGroup
       return false;
     }
 
-    $character->assignSummon($definition->id);
+    if (!$character->hasSummon($definition->id)) {
+      $character->assignSummon($definition->id);
+      $this->notifySummonAssignmentChanged();
+    }
 
     return true;
   }
@@ -476,7 +510,10 @@ class Party extends BattleGroup
       }
     }
 
-    $character->assignSummon($definition->id);
+    if ($holders !== [$character]) {
+      $character->assignSummon($definition->id);
+      $this->notifySummonAssignmentChanged();
+    }
 
     return true;
   }
@@ -551,7 +588,10 @@ class Party extends BattleGroup
    */
   public function unassignSummon(string $summonId, Character $character): void
   {
-    $character->unassignSummon($summonId);
+    if ($character->hasSummon($summonId)) {
+      $character->unassignSummon($summonId);
+      $this->notifySummonAssignmentChanged();
+    }
   }
 
   /**

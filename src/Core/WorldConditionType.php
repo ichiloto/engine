@@ -15,6 +15,7 @@ enum WorldConditionType: string
   case ITEM = 'item';
   case KEY_ITEM = 'key_item';
   case WORLD_ABILITY = 'world_ability';
+  case ASSIGNED_SUMMONS = 'assigned_summons';
 
   /**
    * Returns the stable wire values used in project data.

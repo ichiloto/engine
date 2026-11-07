@@ -18,6 +18,7 @@ use Ichiloto\Engine\Progression\TutorialCatalog;
 use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Progression\TutorialFollowOn;
 use Ichiloto\Engine\Progression\TutorialStep;
+use Ichiloto\Engine\Progression\TutorialStartContext;
 use Ichiloto\Engine\Progression\TutorialProjectReferences;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
@@ -1061,6 +1062,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     protected function configureCampaign(GameConfig $config): void
     {
         $this->releaseRecruitmentNotices();
+        $this->party?->setSummonAssignmentListener(null);
         $this->mapManager = MapManager::getInstance($this->getGame(), $this);
 
         $this->initializeGameSceneStates();
@@ -1100,6 +1102,13 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         // starting map counts toward reach-map objectives.
         $this->questManager = new QuestManager($this->getGame(), $this);
         $this->questManager->hydrate($this->config->questLog);
+        $this->observeSummonTutorialAssignments();
+        if ($this->tutorialDirector?->canOfferContext(TutorialStartContext::SUMMONS_LIBRARY)) {
+            $scene = \WeakReference::create($this);
+            $this->party->setSummonAssignmentListener(static function () use ($scene): void {
+                $scene->get()?->observeSummonTutorialAssignments();
+            });
+        }
         $this->encounterManager = new EncounterManager($this);
         $this->fieldConditions = new FieldConditions($this);
         $this->npcManager = new NpcManager($this);
@@ -1585,6 +1594,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         foreach ([
             fn() => $this->closeEventPauseMenu(),
             fn() => $this->releaseRecruitmentNotices(),
+            fn() => $this->party?->setSummonAssignmentListener(null),
             fn() => $this->releaseLocationHUDWindow(),
             fn() => $this->cinematicController?->shutdown(),
             fn() => $this->eventInterpreter?->failActiveSession('Event interrupted by field shutdown.'),
@@ -2122,6 +2132,13 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         }
 
         return $this->eventInterpreter?->run($commands, $scriptId, $completionTarget, $origin);
+    }
+
+    private function observeSummonTutorialAssignments(): void
+    {
+        $this->tutorialDirector?->observeWorldTutorials(
+            $this->party, $this->questManager?->log, TutorialStartContext::SUMMONS_LIBRARY,
+        );
     }
 
     /** Evaluate the current lesson only while its owning menu view is available. */

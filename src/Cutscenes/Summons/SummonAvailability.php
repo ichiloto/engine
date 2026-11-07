@@ -173,6 +173,13 @@ final class SummonAvailability
         }
         break;
 
+      case WorldConditionType::ASSIGNED_SUMMONS->value:
+        if (trim(strval($condition['name'] ?? '')) !== 'party' || !is_int($condition['quantity'] ?? null)
+          || $condition['quantity'] < 1) {
+          $errors[] = sprintf('Availability condition %d requires party and a positive assigned summon quantity.', $position);
+        }
+        break;
+
       case WorldConditionType::QUEST->value:
         $status = $condition['status'] ?? 'completed';
         if (! is_string($status) || ! in_array($status, ['active', 'completed'], true)) {

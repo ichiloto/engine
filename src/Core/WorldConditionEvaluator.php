@@ -23,6 +23,7 @@ use InvalidArgumentException;
  * - `['type' => 'variable', 'name' => 'donations', 'op' => '>=', 'value' => 100]`
  * - `['type' => 'item',     'name' => 'Potion', 'quantity' => 2]`
  * - `['type' => 'key_item', 'name' => 'Rusty Key']`
+ * - `['type' => 'assigned_summons', 'name' => 'party', 'quantity' => 2]`
  * - `['type' => 'quest',    'name' => 'quest-id', 'status' => 'completed'|'active']`
  *
  * Unknown types fail closed and warn in debug logs so an authoring typo can
@@ -94,6 +95,10 @@ class WorldConditionEvaluator
         throw new InvalidArgumentException(sprintf('%s field "quantity" must be a positive integer.', $conditionSource));
       }
 
+      if ($type === WorldConditionType::ASSIGNED_SUMMONS && !self::isAssignedSummonsConditionValid($condition)) {
+        throw new InvalidArgumentException(sprintf('%s assigned_summons requires name "party" and a positive integer quantity.', $conditionSource));
+      }
+
       if ($type === WorldConditionType::QUEST && array_key_exists('status', $condition)
         && !in_array($condition['status'], ['active', 'completed'], true)) {
         throw new InvalidArgumentException(sprintf('%s quest field "status" must be active or completed.', $conditionSource));
@@ -139,6 +144,10 @@ class WorldConditionEvaluator
         return false;
       }
 
+      if ($type === WorldConditionType::ASSIGNED_SUMMONS && !self::isAssignedSummonsConditionValid($condition)) {
+        return false;
+      }
+
       if ($name === '') {
         continue;
       }
@@ -151,6 +160,13 @@ class WorldConditionEvaluator
     }
 
     return true;
+  }
+
+  /** @param array<string, mixed> $condition */
+  private static function isAssignedSummonsConditionValid(array $condition): bool
+  {
+    return is_string($condition['name'] ?? null) && trim($condition['name']) === 'party'
+      && is_int($condition['quantity'] ?? null) && $condition['quantity'] > 0;
   }
 
   /**
@@ -187,6 +203,7 @@ class WorldConditionEvaluator
         $condition['value'] ?? 0
       ),
       WorldConditionType::ITEM => ($party?->inventory?->getQuantity($name, 'evaluating an item world condition') ?? 0) >= max(1, intval($condition['quantity'] ?? 1)),
+      WorldConditionType::ASSIGNED_SUMMONS => count($party?->getAssignedSummonIds() ?? []) >= $condition['quantity'],
       WorldConditionType::KEY_ITEM => $party?->inventory?->hasKeyItem($name) ?? false,
       WorldConditionType::QUEST => $questLog !== null
         ? (($condition['status'] ?? 'completed') === 'active' ? $questLog->isActive($name) : $questLog->isCompleted($name))

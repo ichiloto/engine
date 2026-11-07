@@ -98,6 +98,27 @@ it('shares project actor ids and validates real screen references without runnin
     ->toThrow(InvalidArgumentException::class, 'unknown target');
 });
 
+it('validates the live start context against the first target and committed battle outcome', function () {
+  $references = new TutorialProjectReferences(createTestDirectory('tutorial-context-catalog'));
+  $record = array_replace(makeTutorialCatalogTestRecord(), [
+    'start' => 'automatic', 'startContext' => 'battle-command', 'replay' => 'read', 'onFinish' => null,
+    'steps' => [[
+      'target' => ['screen' => 'battle', 'view' => 'command', 'id' => 'summon'],
+      'action' => 'action', 'say' => 'Choose Summon.', 'until' => ['outcome' => 'summon.executed'],
+    ]],
+  ]);
+  $references->validateCatalog(new TutorialCatalog([$record]));
+  expect($references->getTargetIds('summons', 'list'))->toContain('assigned-contract');
+
+  $record['steps'][0]['until'] = ['type' => 'event', 'name' => 'available'];
+  expect(fn() => $references->validateCatalog(new TutorialCatalog([$record])))
+    ->toThrow(InvalidArgumentException::class, 'committed battle action');
+
+  $record['steps'][0]['target']['view'] = 'other';
+  expect(fn() => $references->validateCatalog(new TutorialCatalog([$record])))
+    ->toThrow(InvalidArgumentException::class, 'owning screen and view');
+});
+
 it('applies the shared visible-cell limit to a single tutorial instruction line', function () {
   $record = makeTutorialCatalogTestRecord();
   $record['steps'][0]['say'] = 'A' . str_repeat('a', TutorialStep::MAX_INSTRUCTION_CELLS - 2) . '.';

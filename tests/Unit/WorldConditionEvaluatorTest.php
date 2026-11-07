@@ -5,6 +5,9 @@ use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\WorldConditionType;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Cutscenes\Summons\{SummonCutsceneDefinition, SummonWielderPolicy};
 use Ichiloto\Engine\Quests\QuestLog;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
@@ -37,6 +40,7 @@ it('publishes the complete stable condition vocabulary', function () {
     'item',
     'key_item',
     'world_ability',
+    'assigned_summons',
   ]);
 });
 
@@ -120,6 +124,37 @@ it('honours item quantity thresholds', function () {
   $party->addItems(new Item('Potion', 'Heals.', 'p', 0));
 
   expect(WorldConditionEvaluator::allHold([['type' => 'item', 'name' => 'Potion', 'quantity' => 2]], $state, $party))->toBeTrue();
+});
+
+it('counts distinct assigned contracts and observes successful mutations from Party', function () {
+  $state = new GameState();
+  $party = new Party();
+  $first = new Character('First', 0, new Stats());
+  $second = new Character('Second', 0, new Stats());
+  $party->addMember($first);
+  $party->addMember($second);
+  $firstContract = new SummonCutsceneDefinition('first', 'First', wielders: new SummonWielderPolicy());
+  $secondContract = new SummonCutsceneDefinition('second', 'Second', wielders: new SummonWielderPolicy());
+  $condition = ['type' => 'assigned_summons', 'name' => 'party', 'quantity' => 2];
+  WorldConditionEvaluator::validateAll([$condition]);
+  $observed = [];
+  $party->setSummonAssignmentListener(static function (Party $owner) use (&$observed, $condition, $state): void {
+    $observed[] = WorldConditionEvaluator::allHold([$condition], $state, $owner);
+  });
+
+  $party->assignSummon($firstContract, $first);
+  $party->assignSummon($firstContract, $first);
+  $party->assignSummon($firstContract, $second);
+  $party->assignSummon($secondContract, $first);
+  $party->unassignSummon('second', $first);
+  expect($observed)->toBe([false, false, true, false])
+    ->and($party->getAssignedSummonIds())->toBe(['first'])
+    ->and(unserialize(serialize($party)))->toBeInstanceOf(Party::class);
+
+  $bad = [...$condition, 'quantity' => '2', 'negate' => true];
+  expect(fn() => WorldConditionEvaluator::validateAll([$bad]))->toThrow(InvalidArgumentException::class)
+    ->and(WorldConditionEvaluator::allHold([$bad], $state, $party))->toBeFalse();
+  $party->setSummonAssignmentListener(null);
 });
 
 it('keeps item and key-item conditions stable across display-name changes', function () {

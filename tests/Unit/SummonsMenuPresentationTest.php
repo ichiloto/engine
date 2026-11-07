@@ -389,10 +389,16 @@ it('selects a current assignable holder for the guide without highlighting Relea
 });
 
 
-it('offers a pending library lesson on the voluntary Summons visit and suspends it on exit', function () {
+it('offers contract guidance on a voluntary visit when a held contract can be reassigned', function () {
   ConfigStore::put(ProjectConfig::class, new class extends ProjectConfig {
     protected function load(): array { return []; }
   });
+  $folder = $this->summonsRoot . '/assets/Cutscenes/Summons/example';
+  mkdir($folder, 0777, true);
+  file_put_contents($folder . '/example.data.php',
+    "<?php return ['id' => 'example', 'name' => 'Example', 'wielders' => ['exclusive' => true]];");
+  file_put_contents($folder . '/example.timeline.php',
+    "<?php return ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];");
   $state = createSummonsMenuProbe([], characterContext: true);
   $scene = $state->getGameScene();
   $game = new class extends Game {
@@ -410,19 +416,32 @@ it('offers a pending library lesson on the voluntary Summons visit and suspends 
     'start' => 'automatic', 'startContext' => 'summons-library', 'replay' => 'practice',
     'trigger' => [['type' => 'switch', 'name' => 'ready']],
     'steps' => [[
-      'target' => ['screen' => 'summons', 'view' => 'list', 'id' => 'example'],
+      'target' => ['screen' => 'summons', 'view' => 'list', 'id' => 'assigned-contract'],
       'action' => 'confirm', 'until' => ['outcome' => 'summon.opened'],
     ]],
   ]]), $scene->gameState);
   new ReflectionProperty(GameScene::class, 'tutorialDirector')->setValue($scene, $director);
+  $state->party->leader->assignSummon('example');
 
-  $state->enter();
-  expect($director->getActiveTutorial())->toBeNull();
-  $state->exit();
-  $state->openLibrary();
-  $state->enter();
-  expect($director->getActiveTutorial()?->id)->toBe('guide.library');
-  $state->exit();
-  expect($director->getActiveTutorial())->toBeNull()
-    ->and($scene->gameState->getTutorialPhase('guide.library'))->toBe(TutorialPhase::PENDING);
+  $previous = getcwd();
+  try {
+    chdir($this->summonsRoot);
+    $state->enter();
+    expect($director->getActiveTutorial())->toBeNull();
+    $state->exit();
+    $state->openLibrary();
+    $state->enter();
+    expect($director->getActiveTutorial())->toBeNull();
+    $state->exit();
+    $state->party->addMember(new Character('Other', 1, new Stats(currentHp: 100), actorId: 'actor.other'));
+    $state->enter();
+    expect($director->getActiveTutorial()?->id)->toBe('guide.library');
+    $step = $director->getStepForView('summons', 'list');
+    expect(new ReflectionMethod($state, 'resolveTutorialRow')->invoke($state, $step))->toBe('example');
+    $state->exit();
+    expect($director->getActiveTutorial())->toBeNull()
+      ->and($scene->gameState->getTutorialPhase('guide.library'))->toBe(TutorialPhase::PENDING);
+  } finally {
+    chdir($previous);
+  }
 });
