@@ -1,0 +1,163 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Ichiloto\Engine\Progression;
+
+use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Core\WorldConditionEvaluator;
+use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\Quests\QuestLog;
+use InvalidArgumentException;
+
+/** Owns a campaign's guided lesson across field and menu transitions. */
+final class TutorialDirector
+{
+  private ?TutorialDefinition $active = null;
+  private int $stepIndex = 0;
+  private bool $practice = false;
+
+  /** @var array<array-key, bool> Last observed conditions during controlled play. */
+  private array $automaticConditions = [];
+
+  public function __construct(
+    private readonly TutorialCatalog $catalog,
+    private readonly GameState $state,
+  ) {}
+
+  public function queueScriptTutorial(string $id): void
+  {
+    $tutorial = $this->catalog->findTutorial($id);
+    if ($tutorial?->start !== TutorialStartMode::SCRIPT) {
+      throw new InvalidArgumentException('Unknown script-started tutorial ' . $id . '.');
+    }
+
+    if ($this->state->getTutorialPhase($id) === null) {
+      $this->state->setTutorialPhase($id, TutorialPhase::PENDING);
+    }
+  }
+
+  /** The owning field calls this after events, scene transitions and modal notices release control. */
+  public function updateInStableField(bool $automaticPrompts, ?Party $party = null, ?QuestLog $quests = null): void
+  {
+    foreach ($this->catalog->definitions as $tutorial) {
+      if ($tutorial->start !== TutorialStartMode::AUTOMATIC || $this->state->getTutorialPhase($tutorial->id) !== null) {
+        continue;
+      }
+
+      $holds = WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests);
+      $previous = $this->automaticConditions[$tutorial->id] ?? null;
+      $this->automaticConditions[$tutorial->id] = $holds;
+      if ($automaticPrompts && $holds && $previous === false) {
+        $this->state->setTutorialPhase($tutorial->id, TutorialPhase::PENDING);
+      }
+    }
+
+    if ($this->active !== null) {
+      return;
+    }
+
+    foreach ($this->catalog->definitions as $tutorial) {
+      if ($this->state->getTutorialPhase($tutorial->id) !== TutorialPhase::PENDING
+        || ($tutorial->start === TutorialStartMode::AUTOMATIC && !$automaticPrompts)
+        || !$this->hasBoundControls($tutorial)) {
+        continue;
+      }
+      if (WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests)) {
+        $this->beginTutorial($tutorial, false);
+        return;
+      }
+    }
+  }
+
+  public function getActiveTutorial(): ?TutorialDefinition
+  {
+    return $this->active;
+  }
+
+  public function getStepForView(string $screen, string $view): ?TutorialStep
+  {
+    $step = $this->active?->steps[$this->stepIndex] ?? null;
+    return $step !== null && $step->target['screen'] === $screen && $step->target['view'] === $view ? $step : null;
+  }
+
+  /** Called by the screen that owned the operation, using its view before any transition. */
+  public function reportOutcome(string $screen, string $view, string $outcome, ?string $subject = null): void
+  {
+    $step = $this->getStepForView($screen, $view);
+    if ($step !== null && ($step->until['outcome'] ?? null) === $outcome
+      && (!isset($step->until['subject']) || $step->until['subject'] === $subject)) {
+      $this->advanceStep();
+    }
+  }
+
+  public function evaluateStepCondition(string $screen, string $view, ?Party $party = null, ?QuestLog $quests = null): void
+  {
+    $step = $this->getStepForView($screen, $view);
+    if ($step !== null && !isset($step->until['outcome'])
+      && WorldConditionEvaluator::allHold([$step->until], $this->state, $party, $quests)) {
+      $this->advanceStep();
+    }
+  }
+
+  /** @return list<TutorialDefinition> Lessons encountered in this campaign, in source order. */
+  public function getGuideEntries(): array
+  {
+    return array_values(array_filter($this->catalog->definitions,
+      fn(TutorialDefinition $tutorial): bool => $this->state->getTutorialPhase($tutorial->id) !== null));
+  }
+
+  public function startPractice(string $id): bool
+  {
+    $tutorial = $this->catalog->findTutorial($id);
+    if ($this->active !== null || $tutorial?->replay !== TutorialReplayMode::PRACTICE
+      || $this->state->getTutorialPhase($id) === null || !$this->hasBoundControls($tutorial)) {
+      return false;
+    }
+
+    $this->beginTutorial($tutorial, true);
+    return true;
+  }
+
+  public function skipActiveTutorial(): bool
+  {
+    if ($this->active === null) {
+      return false;
+    }
+
+    $this->finishTutorial(TutorialPhase::SKIPPED);
+    return true;
+  }
+
+  private function hasBoundControls(TutorialDefinition $tutorial): bool
+  {
+    return array_all($tutorial->steps, static fn(TutorialStep $step): bool => ActionHints::resolveControl($step->action) !== null);
+  }
+
+  private function beginTutorial(TutorialDefinition $tutorial, bool $practice): void
+  {
+    $this->active = $tutorial;
+    $this->stepIndex = 0;
+    $this->practice = $practice;
+  }
+
+  private function advanceStep(): void
+  {
+    if (++$this->stepIndex === count($this->active->steps)) {
+      $this->finishTutorial(TutorialPhase::COMPLETED);
+    }
+  }
+
+  private function finishTutorial(TutorialPhase $phase): void
+  {
+    $id = $this->active->id;
+    $practice = $this->practice;
+    $this->active = null;
+    $this->stepIndex = 0;
+    $this->practice = false;
+    if (!$practice) {
+      $this->state->setTutorialPhase($id, $phase);
+    }
+  }
+}

@@ -1,0 +1,110 @@
+<?php
+
+use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\IO\ActionHintProvider;
+use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\IO\ControlHint;
+use Ichiloto\Engine\Progression\TutorialCatalog;
+use Ichiloto\Engine\Progression\TutorialDirector;
+use Ichiloto\Engine\Progression\TutorialPhase;
+
+function makeTutorialDirector(GameState $state, bool $automatic = false): TutorialDirector
+{
+  return new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.sample',
+    'title' => 'Sample',
+    'category' => 'Field',
+    'start' => $automatic ? 'automatic' : 'script',
+    'trigger' => $automatic ? [['type' => 'switch', 'name' => 'available']] : [],
+    'replay' => 'practice',
+    'steps' => [[
+      'target' => ['screen' => 'menu', 'view' => 'detail', 'id' => 'sample'],
+      'action' => 'confirm',
+      'until' => ['outcome' => 'sample.applied', 'subject' => 'sample'],
+    ], [
+      'target' => ['screen' => 'menu', 'view' => 'result', 'id' => 'summary'],
+      'action' => 'confirm',
+      'until' => ['type' => 'switch', 'name' => 'read'],
+    ]],
+  ]]), $state);
+}
+
+beforeEach(function () {
+  ActionHints::useProvider(new class implements ActionHintProvider {
+    public function controlForAction(string $action): ?ControlHint
+    {
+      return $action === 'confirm' ? new ControlHint('controller', 'south', 'A') : null;
+    }
+  });
+});
+
+afterEach(function () {
+  ActionHints::useProvider(null);
+});
+
+it('defers a scripted lesson to stable field play and advances only on its view and outcome', function () {
+  $state = new GameState();
+  $director = makeTutorialDirector($state);
+  $director->queueScriptTutorial('guide.sample');
+  expect($director->getActiveTutorial())->toBeNull()
+    ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::PENDING);
+
+  $restored = GameState::fromArray($state->toArray());
+  $director = makeTutorialDirector($restored);
+  $director->updateInStableField(false);
+  $director->reportOutcome('menu', 'other', 'sample.applied', 'sample');
+  $director->reportOutcome('menu', 'detail', 'sample.applied', 'other');
+  expect($director->getStepForView('menu', 'detail'))->not->toBeNull();
+
+  $director->reportOutcome('menu', 'detail', 'sample.applied', 'sample');
+  $director->evaluateStepCondition('menu', 'result');
+  expect($director->getStepForView('menu', 'result'))->not->toBeNull();
+  $restored->setSwitch('read');
+  $director->evaluateStepCondition('menu', 'detail');
+  expect($director->getActiveTutorial())->not->toBeNull();
+  $director->evaluateStepCondition('menu', 'result');
+  $director->queueScriptTutorial('guide.sample');
+  expect($director->getActiveTutorial())->toBeNull()
+    ->and($restored->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::COMPLETED);
+});
+
+it('offers practice for skipped lessons and leaves saved progress unchanged', function () {
+  $state = new GameState();
+  $director = makeTutorialDirector($state);
+  expect($director->startPractice('guide.sample'))->toBeFalse();
+  $director->queueScriptTutorial('guide.sample');
+  $director->updateInStableField(true);
+  expect($director->skipActiveTutorial())->toBeTrue()
+    ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::SKIPPED)
+    ->and($director->getGuideEntries())->toHaveCount(1);
+
+  expect($director->startPractice('guide.sample'))->toBeTrue();
+  $director->reportOutcome('menu', 'detail', 'sample.applied', 'sample');
+  $state->setSwitch('read');
+  $director->evaluateStepCondition('menu', 'result');
+  expect($director->getActiveTutorial())->toBeNull()
+    ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::SKIPPED);
+});
+
+it('observes automatic trigger edges without starting historical or unbound lessons', function () {
+  $state = GameState::fromArray(['switches' => ['available' => true]]);
+  $director = makeTutorialDirector($state, automatic: true);
+  $director->updateInStableField(true);
+  expect($state->getTutorialPhase('guide.sample'))->toBeNull();
+
+  $state->setSwitch('available', false);
+  $director->updateInStableField(false);
+  $state->setSwitch('available');
+  $director->updateInStableField(false);
+  expect($state->getTutorialPhase('guide.sample'))->toBeNull();
+
+  $state->setSwitch('available', false);
+  $director->updateInStableField(true);
+  $state->setSwitch('available');
+  ActionHints::useProvider(new class implements ActionHintProvider {
+    public function controlForAction(string $action): ?ControlHint { return null; }
+  });
+  $director->updateInStableField(true);
+  expect($director->getActiveTutorial())->toBeNull()
+    ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::PENDING);
+});
