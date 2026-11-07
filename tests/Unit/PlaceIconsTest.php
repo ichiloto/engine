@@ -2,6 +2,7 @@
 
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
 use Ichiloto\Engine\Field\MapGraphics;
+use Ichiloto\Engine\Field\MapLandmarkCatalog;
 use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\MapTileLayer;
@@ -39,7 +40,8 @@ function syntheticPlaceTileset(array $icons = ['burgh' => 'walls', 'lodge' => 'h
  *
  * @param list<array{0: string, 1: int, 2: int, 3?: bool}> $stamps
  */
-function inspectPlaceIcons(array $stamps, ?string $type, array $icons = ['burgh' => 'walls', 'lodge' => 'hut']): array
+function inspectPlaceIcons(array $stamps, ?string $type, array $icons = ['burgh' => 'walls', 'lodge' => 'hut'],
+    array $additionalEvents = [], array $entrance = []): array
 {
     $tileset = Tileset::fromArray('synthetic', syntheticPlaceTileset($icons));
     $tiles = array_fill(0, 5, array_fill(0, 8, '0'));
@@ -62,10 +64,11 @@ function inspectPlaceIcons(array $stamps, ?string $type, array $icons = ['burgh'
     $eventLayer[3][3] = 'Y';
     $data = ['events' => ['Y' => ['class' => TransferPlayerTrigger::class,
         'data' => ['destinationMap' => 'site/yard', 'spawnPoint' => ['x' => 1, 'y' => 1]]]]];
-    $events = MapEventResolver::inspect($data, $eventLayer, 'test/world')->events;
+    $events = [...MapEventResolver::inspect($data, $eventLayer, 'test/world')->events, ...$additionalEvents];
+    $landmarks = MapLandmarkCatalog::readMap(['events' => $events, ...$entrance], $eventLayer);
 
     return MapPlaceIconRule::inspect('test/world', $events, $layers, $graphics, PlaceTypeCatalog::fromArray(syntheticPlaceTypes()),
-        ['test/world' => null, 'site/yard' => $type]);
+        ['test/world' => null, 'site/yard' => $type, 'site/annex' => 'lodge'], $landmarks->entranceIconAreas);
 }
 
 it('reads authored place types and a map\'s place type, and loads a project without them as none', function () {
@@ -157,4 +160,36 @@ it('reports a type the tileset gives no icon, and an icon over a way into a map 
         // A tileset giving no icons judges nothing; a type the project lacks is its map's to report.
         ->and(inspectPlaceIcons([['walls', 2, 2]], 'lodge', []))->toBe([])
         ->and(inspectPlaceIcons([['walls', 2, 2]], 'fort'))->toBe([]);
+});
+
+
+it('requires exactly one whole stamp for the contained transfers to the entrance destination', function () {
+    $secondMouth = ['marker' => 'Z', 'class' => TransferPlayerTrigger::class,
+        'area' => ['cells' => [[5, 3], [6, 3]]],
+        'data' => ['destinationMap' => 'site/yard', 'spawnPoint' => ['x' => 4, 'y' => 2]]];
+    $iconArea = ['areas' => [['id' => 'yard-mouths', 'area' => ['x' => 3, 'y' => 3, 'width' => 4, 'height' => 1]]],
+        'landmarks' => [['id' => 'yard-entrance', 'kind' => 'entrance', 'anchor' => ['event' => 'Y'],
+            'iconArea' => 'yard-mouths']]];
+
+    expect(inspectPlaceIcons([['hut', 3, 2]], 'lodge', additionalEvents: [$secondMouth], entrance: $iconArea))->toBe([])
+        ->and(inspectPlaceIcons([['hut', 5, 2]], 'lodge', additionalEvents: [$secondMouth], entrance: $iconArea))->toBe([]);
+    $duplicates = inspectPlaceIcons([['hut', 3, 2], ['hut', 5, 2]], 'lodge',
+        additionalEvents: [$secondMouth], entrance: $iconArea);
+    expect($duplicates)->toHaveCount(1)
+        ->and($duplicates[0]->marker)->toBe('Y')
+        ->and($duplicates[0]->message)->toContain('more than one place icon');
+    $missing = inspectPlaceIcons([['hut', 5, 2, true]], 'lodge', additionalEvents: [$secondMouth], entrance: $iconArea);
+    expect($missing)->toHaveCount(1)
+        ->and($missing[0]->message)->toContain('its terminal glyphs do not');
+    $differentDestination = $secondMouth;
+    $differentDestination['data']['destinationMap'] = 'site/annex';
+    $partial = $secondMouth;
+    $partial['area']['cells'][] = [7, 3];
+    foreach ([$differentDestination, $partial] as $independent) {
+        $issues = inspectPlaceIcons([['hut', 3, 2]], 'lodge', additionalEvents: [$independent], entrance: $iconArea);
+        expect($issues)->toHaveCount(1)->and($issues[0]->marker)->toBe('Z');
+    }
+    $iconArea['areas'][0]['area']['x'] = 4;
+    expect(fn() => inspectPlaceIcons([['hut', 5, 2]], 'lodge', additionalEvents: [$secondMouth], entrance: $iconArea))
+        ->toThrow(InvalidArgumentException::class, 'containing its entire anchor event');
 });

@@ -20,8 +20,11 @@ final readonly class MapLandmarkCatalog
     public const int MAX_APPROACH_DISTANCE = 64;
     public const int MAX_REVEAL_CONDITIONS = 32;
 
-    /** @param list<MapLandmarkDefinition> $landmarks */
-    private function __construct(public array $landmarks) {}
+    /**
+     * @param list<MapLandmarkDefinition> $landmarks
+     * @param array<string, CellArea> $entranceIconAreas Named icon areas keyed by their anchor event marker.
+     */
+    private function __construct(public array $landmarks, public array $entranceIconAreas) {}
 
     /** Reads resolved event areas from MapSourceReader; never uses destination spawn points. */
     public static function readMap(array $map, array $tiles, ?MapCategoryCatalog $categories = null, ?MapAreaCatalog $mapAreas = null): self
@@ -51,10 +54,11 @@ final readonly class MapLandmarkCatalog
             }
         }
         $landmarks = $ids = $claimedEvents = $claimedTriggers = [];
+        $entranceIconAreas = $iconCells = [];
         foreach ($entries as $entry) {
             if (!is_array($entry) || array_diff(array_keys($entry),
-                ['id', 'kind', 'anchor', 'name', 'secret', 'approachDistance', 'revealConditions', 'category']) !== []) {
-                throw new InvalidArgumentException('A landmark accepts id, kind, anchor, name, secret, approachDistance and revealConditions.');
+                ['id', 'kind', 'anchor', 'name', 'secret', 'approachDistance', 'revealConditions', 'category', 'iconArea']) !== []) {
+                throw new InvalidArgumentException('A landmark accepts id, kind, anchor, name, secret, approachDistance, revealConditions, category and iconArea.');
             }
             $id = $entry['id'] ?? null;
             if (!is_string($id) || preg_match(self::ID_PATTERN, $id) !== 1 || isset($ids[$id])) {
@@ -101,6 +105,25 @@ final readonly class MapLandmarkCatalog
             if ($access === null && $kind->isRoute()) {
                 throw new InvalidArgumentException('Route landmarks must reference an opening passage, transfer event or legacy trigger.');
             }
+            if (array_key_exists('iconArea', $entry)) {
+                $iconAreaId = $entry['iconArea'];
+                $marker = $anchor['event'] ?? null;
+                if ($kind !== MapLandmarkKind::ENTRANCE || $marker === null || !$anchors->events[$marker]->isTransfer) {
+                    throw new InvalidArgumentException("Landmark '{$id}' can use an iconArea only on a transfer entrance.");
+                }
+                $iconArea = is_string($iconAreaId) ? ($anchors->areas[$iconAreaId]->area ?? null) : null;
+                if ($iconArea === null || !array_all($area->cells, static fn(array $cell): bool => $iconArea->containsCell(...$cell))) {
+                    throw new InvalidArgumentException("Landmark '{$id}' needs a named icon area containing its entire anchor event.");
+                }
+                foreach ($iconArea->cells as [$x, $y]) {
+                    $key = "{$x},{$y}";
+                    if (isset($iconCells[$key])) {
+                        throw new InvalidArgumentException("Landmark '{$id}' icon area overlaps another entrance icon area.");
+                    }
+                    $iconCells[$key] = true;
+                }
+                $entranceIconAreas[$marker] = $iconArea;
+            }
             $secret = array_key_exists('secret', $entry) ? $entry['secret'] : false;
             $distance = array_key_exists('approachDistance', $entry) ? $entry['approachDistance'] : self::DEFAULT_APPROACH_DISTANCE;
             if (!is_bool($secret) || ($distance !== null && (!is_int($distance) || $distance < self::MIN_APPROACH_DISTANCE || $distance > self::MAX_APPROACH_DISTANCE))) {
@@ -134,7 +157,7 @@ final readonly class MapLandmarkCatalog
             $landmarks[] = new MapLandmarkDefinition('@legacy:' . $id, MapLandmarkKind::PASSAGE, $trigger->area,
                 approachDistance: null, accessConditions: $trigger->accessConditions, automatic: true);
         }
-        return new self($landmarks);
+        return new self($landmarks, $entranceIconAreas);
     }
 
     /** Deterministic, map-scoped translation default; authors may choose another valid key. */

@@ -44,16 +44,25 @@ final class MapPlaceIconRule
     /**
      * @param list<array> $events Resolved event definitions ({@see MapEventResolver}).
      * @param array<string, ?string> $placeTypes Every readable map's place type, null when it names none, by map id.
+     * @param array<string, CellArea> $entranceIconAreas Validated icon areas keyed by their transfer's marker.
      * @return list<MapValidationIssue>
      */
     public static function inspect(string $mapId, array $events, MapLayerSet $layers, ?MapGraphics $graphics,
-        PlaceTypeCatalog $types, array $placeTypes): array
+        PlaceTypeCatalog $types, array $placeTypes, array $entranceIconAreas = []): array
     {
         $tileset = $graphics?->tileset;
         if ($tileset === null || $tileset->placeIcons === []) { return []; }
         $icons = [];
         foreach (array_unique($tileset->placeIcons) as $pieceId) { $icons[$pieceId] = $tileset->pieces[$pieceId]; }
-        $issues = [];
+        $groupsByDestination = [];
+        foreach ($events as $event) {
+            $marker = $event['marker'] ?? null;
+            $destination = $event['data']['destinationMap'] ?? null;
+            if (is_string($marker) && is_string($destination) && isset($entranceIconAreas[$marker])) {
+                $groupsByDestination[$destination][$marker] = $entranceIconAreas[$marker];
+            }
+        }
+        $issues = $checkedGroups = [];
         foreach ($events as $event) {
             $class = $event['class'] ?? null;
             $destination = $event['data']['destinationMap'] ?? null;
@@ -67,10 +76,23 @@ final class MapPlaceIconRule
                 continue; // event.definition reports it.
             }
             $marker = is_string($event['marker'] ?? null) ? $event['marker'] : null;
+            $grouped = false;
+            foreach ($groupsByDestination[$destination] ?? [] as $anchorMarker => $iconArea) {
+                if (!array_all($area->cells, static fn(array $cell): bool => $iconArea->containsCell(...$cell))) {
+                    continue;
+                }
+                if (isset($checkedGroups[$anchorMarker])) { continue 2; }
+                $checkedGroups[$anchorMarker] = true;
+                $marker = (string) $anchorMarker;
+                $area = $iconArea;
+                $grouped = true;
+                break;
+            }
             $label = $marker === null ? 'An entrance' : "Entrance '{$marker}'";
             $report = static fn(string $rule, string $message, string $hint): MapValidationIssue => new MapValidationIssue(
                 $mapId, $rule, $message, $marker, $area->cells, ['events', $marker ?? ''], $hint);
-            $standing = self::findIconOver($graphics, $layers, $icons, $area);
+            $visible = self::findIconsOver($graphics, $layers, $icons, $area);
+            $standing = $visible[0] ?? null;
             $type = $placeTypes[$destination];
             if ($type === null) {
                 if ($standing !== null) {
@@ -89,6 +111,11 @@ final class MapPlaceIconRule
                     "Choose the piece tileset {$tileset->name} shows for {$name} in its place icons.");
                 continue;
             }
+            if ($grouped && count($visible) > 1) {
+                $issues[] = $report(self::ICON, "{$label} has more than one place icon in its shared icon area.",
+                    "Keep one {$expected->name} in this area for {$destination}.");
+                continue;
+            }
             if ($standing === $expected) { continue; }
             $drawn = $standing === null && self::findStampsOver($graphics, $expected, $area) !== [];
             $issues[] = $report(self::ICON, sprintf('%s leads to %s, a place of type %s, whose icon is %s; %s.', $label, $destination,
@@ -104,20 +131,21 @@ final class MapPlaceIconRule
     }
 
     /**
-     * The place icon standing whole over a cell of the area, in its tiles and
-     * its terminal glyphs; the smallest when several do.
+     * The whole place icon stamps over the area in tiles and terminal glyphs,
+     * ordered by size for the existing per-transfer check.
      *
      * @param array<string, TilesetPiece> $icons
+     * @return list<TilesetPiece>
      */
-    private static function findIconOver(MapGraphics $graphics, MapLayerSet $layers, array $icons, CellArea $area): ?TilesetPiece
+    private static function findIconsOver(MapGraphics $graphics, MapLayerSet $layers, array $icons, CellArea $area): array
     {
-        $found = null;
+        $found = [];
         foreach ($icons as $piece) {
             foreach (self::findStampsOver($graphics, $piece, $area) as [$left, $top]) {
-                if (!self::showsGlyphs($layers, $piece, $left, $top)) { continue; }
-                if ($found === null || $piece->width * $piece->height < $found->width * $found->height) { $found = $piece; }
+                if (self::showsGlyphs($layers, $piece, $left, $top)) { $found[] = $piece; }
             }
         }
+        usort($found, static fn(TilesetPiece $a, TilesetPiece $b): int => $a->width * $a->height <=> $b->width * $b->height);
         return $found;
     }
 

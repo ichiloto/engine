@@ -1163,6 +1163,14 @@ ids) and reads a map's type with `readMapPlaceType()`.
 declares place icons to its destination's type: the type's piece stands whole
 over the entrance, in its tiles and its terminal glyphs (`place.icon`), and a
 place icon over a way into a map naming no type is reported (`place.untyped`).
+An entrance landmark anchored to a transfer may also name an existing map
+area with `'iconArea' => 'area-id'`. The area must contain the anchor
+transfer's full footprint and be disjoint from other entrance icon areas.
+One complete place icon covers the group of transfers to the anchor's
+destination whose footprints lie entirely inside that area. Other transfers
+keep their own icon checks. The landmark's event anchor still controls
+discovery, minimap position and access conditions.
+
 The findings are warnings. The Engine defines no type and changes nothing at
 runtime.
 
