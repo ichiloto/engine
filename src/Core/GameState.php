@@ -77,7 +77,7 @@ class GameState
   /** Records the lesson result and its follow-on in the same state change. */
   public function finishTutorial(string $id, TutorialPhase $phase, bool $queueFollowOn): void
   {
-    if ($phase === TutorialPhase::PENDING || $this->getTutorialPhase($id) !== TutorialPhase::PENDING) {
+    if (!$phase->isFinished() || $this->getTutorialPhase($id) !== TutorialPhase::PENDING) {
       return;
     }
 
@@ -398,7 +398,7 @@ class GameState
 
     foreach (is_array($data['tutorialFollowOns'] ?? null) ? $data['tutorialFollowOns'] : [] as $id => $queued) {
       $phase = $state->getTutorialPhase((string) $id);
-      if ($queued === true && ($phase === TutorialPhase::COMPLETED || $phase === TutorialPhase::SKIPPED)) {
+      if ($queued === true && $phase?->isFinished() === true) {
         $state->tutorialFollowOns[$id] = true;
       }
     }

@@ -136,6 +136,7 @@ it('round-trips through toArray and fromArray', function () {
 it('round-trips tutorial phases and ignores unknown save values', function () {
   $state = GameState::fromArray([
     'tutorials' => [
+      'guide.discovered' => 'discovered',
       'guide.pending' => 'pending',
       'guide.completed' => 'completed',
       'guide.skipped' => 'skipped',
@@ -143,12 +144,16 @@ it('round-trips tutorial phases and ignores unknown save values', function () {
       'guide.malformed' => true,
       '' => 'pending',
     ],
+    'tutorialFollowOns' => ['guide.discovered' => true],
   ]);
 
-  expect($state->getTutorialPhase('guide.pending'))->toBe(TutorialPhase::PENDING)
+  expect($state->getTutorialPhase('guide.discovered'))->toBe(TutorialPhase::DISCOVERED)
+    ->and($state->hasPendingTutorialFollowOn('guide.discovered'))->toBeFalse()
+    ->and($state->getTutorialPhase('guide.pending'))->toBe(TutorialPhase::PENDING)
     ->and($state->getTutorialPhase('guide.completed'))->toBe(TutorialPhase::COMPLETED)
     ->and($state->getTutorialPhase('guide.skipped'))->toBe(TutorialPhase::SKIPPED)
     ->and($state->toArray()['tutorials'])->toBe([
+      'guide.discovered' => 'discovered',
       'guide.pending' => 'pending',
       'guide.completed' => 'completed',
       'guide.skipped' => 'skipped',

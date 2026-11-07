@@ -170,6 +170,26 @@ it('does not schedule a story follow-on when practising a migrated tutorial', fu
     ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::COMPLETED);
 });
 
+it('keeps a discovered lesson in the Guide without starting it or claiming completion', function () {
+  $state = GameState::fromArray([
+    'switches' => ['available' => true],
+    'tutorials' => ['guide.sample' => 'discovered'],
+  ]);
+  $director = makeTutorialDirector($state, automatic: true, onFinish: 'sample-disclosure');
+  $director->updateInStableField(true);
+  expect($director->getActiveTutorial())->toBeNull()
+    ->and(array_column($director->getGuideEntries(), 'id'))->toBe(['guide.sample'])
+    ->and($director->getPendingFollowOns())->toBe([]);
+
+  expect($director->startPractice('guide.sample'))->toBeTrue();
+  $director->reportOutcome('menu', 'detail', 'sample.applied', 'sample');
+  $state->setSwitch('read');
+  $director->evaluateStepCondition('menu', 'result');
+  expect($director->getActiveTutorial())->toBeNull()
+    ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::DISCOVERED)
+    ->and($director->getPendingFollowOns())->toBe([]);
+});
+
 it('offers a queued story tutorial for Skip when its required control is unbound', function () {
   $state = new GameState();
   $director = makeTutorialDirector($state, onFinish: 'sample-disclosure');
