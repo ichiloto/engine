@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Ichiloto\Engine\Animations\Timelines\EffectFlightContact;
 use Ichiloto\Engine\Battle\Presentation\BattleStraightShot;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
@@ -69,3 +70,25 @@ it('aims a drawable ray through painted pixels of each cropped and clipped targe
     ->and($heading)->toEqualWithDelta(round($heading), .000001)
     ->and(BattleStraightShot::planVisible($origin, [$far, $near], $root))->toBeNull();
 })->with([false, true]);
+
+it('finishes a straight pierce inside the final painted body after passing an earlier target', function () {
+  if (!function_exists('imagecreatefrompng')) { test()->markTestSkipped('Optional GD PNG inspection is unavailable.'); }
+  $root = createTestDirectory('ichiloto-ray-interior-');
+  $art = imagecreatetruecolor(60, 20);
+  imagealphablending($art, false);
+  imagesavealpha($art, true);
+  imagefill($art, 0, 0, imagecolorallocatealpha($art, 0, 0, 0, 127));
+  $paint = imagecolorallocate($art, 255, 255, 255);
+  imagefilledrectangle($art, 2, 8, 4, 11, $paint);
+  imagefilledrectangle($art, 20, 4, 56, 15, $paint);
+  imagepng($art, $root . '/body.png');
+
+  $near = new CanvasImage('near', 'body.png', new CanvasRectangle(20, 10, 12, 4));
+  $far = new CanvasImage('far', 'body.png', new CanvasRectangle(70, 2, 60, 20));
+  $path = BattleStraightShot::planVisible(new Vector2(0, 12), [$near, $far], $root, EffectFlightContact::INTERIOR);
+  expect($path)->not->toBeNull();
+  $arrival = $path->getPositionAtProgress(1);
+  expect($arrival->x)->toBeGreaterThan(105.0)->toBeLessThan(111.0)
+    ->and($arrival->y)->toBeGreaterThan(6.0)->toBeLessThan(18.0)
+    ->and(BattleStraightShot::planVisible(new Vector2(0, 12), [$far, $near], $root))->toBeNull();
+});

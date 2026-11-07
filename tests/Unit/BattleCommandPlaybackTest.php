@@ -78,6 +78,58 @@ it('resolves once between target effects and reaction even when updates cross ev
     ->and($playback->isCompleted)->toBeTrue()->and($playback->getAdvanceFraction())->toBe(0.0);
 });
 
+it('captures once at release and resolves a timed flight at the path distance boundary', function (float $distance) {
+  $effect = (new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary(__DIR__ . '/../Fixtures/Renderer'))->compile('timed-flight', [
+    'fps' => 120, 'lengthFrames' => 100, 'restFrame' => 82, 'flightTiming' => ['track' => 'arrow', 'speed' => 1],
+    'tracks' => [['id' => 'arrow', 'type' => 'image', 'asset' => 'graphical-canvas/synthetic-320x180.png', 'anchor' => 'caster',
+      'attachmentPoint' => 'launch', 'detachFrame' => 10, 'flight' => ['route' => 'straight', 'arrivalFrame' => 82],
+      'keyframes' => [['frame' => 10, 'duration' => 85]]]],
+    'cues' => [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 82],
+      ['id' => 'strike', 'type' => 'playSound', 'frame' => 82, 'payload' => ['asset' => 'strike.wav']]],
+  ], true);
+  $trace = [];
+  $resolve = static function () use (&$trace): void { $trace[] = 'impact'; };
+  $present = static function (array $cue) use (&$trace): void {
+    if ($cue['id'] === 'strike') { $trace[] = 'strike'; }
+  };
+  $playback = commandPlaybackFixture(target: $effect, resolve: $resolve, present: $present);
+  $playback->bindPosePointCapture(static function ($sample) use ($playback, $distance, &$trace): array {
+    $trace[] = $sample->session->currentFrame;
+    return [spl_object_id($playback->actor) => [
+      'path' => new \Ichiloto\Engine\Battle\Presentation\BattlePresentationPath([[0, 0], [$distance, 0]]),
+    ]];
+  }, arenaWidth: 1000);
+  $playback->begin();
+  $release = $playback->plan->flightTiming['release'];
+  $elapsedAtImpact = $release / BattleCommandTimeline::FPS + $distance / 1000;
+  $playback->update($elapsedAtImpact - .001);
+  expect($trace)->toBe([$release]);
+  $playback->update(.001);
+  expect($trace)->toBe([$release, 'impact', 'strike'])
+    ->and($playback->session->currentFrame)->toBe($playback->plan->flightTiming['arrival']);
+  $playback->update(5);
+  expect($trace)->toBe([$release, 'impact', 'strike'])->and($playback->isCompleted)->toBeTrue();
+
+  $fallback = commandPlaybackFixture(target: $effect);
+  $fallback->bindPosePointCapture(static fn(): array => [], arenaWidth: 1000);
+  $fallback->begin();
+  $fallback->update(5);
+  expect($fallback->presentationFailure?->getMessage())->toBe('The timed battle flight has no captured path.')
+    ->and($fallback->isCompleted)->toBeTrue()
+    ->and($fallback->getDurationSeconds())->toBe($fallback->session->timing->durationSeconds);
+})->with([100.0, 350.0, 1300.0]);
+
+it('keeps a shortened flight from starting the return route during the caster recovery', function () {
+  $path = new \Ichiloto\Engine\Battle\Presentation\BattlePresentationPath([[0, 0], [100, 0]]);
+  $clock = new \Ichiloto\Engine\Battle\Presentation\BattleFlightClock(30, 150, $path, 1000, 1,
+    returnFrame: 180, poseEndFrame: 144);
+  expect($clock->getElapsedSeconds(150 / 120))->toEqualWithDelta(.35, 1e-12)
+    ->and($clock->getElapsedSeconds(180 / 120))->toEqualWithDelta(1.2, 1e-12)
+    ->and($clock->getAuthoredSeconds(1.19))->toEqualWithDelta(179 / 120, 1e-12)
+    ->and($clock->getAuthoredSeconds(1.2))->toEqualWithDelta(180 / 120, 1e-12)
+    ->and($clock->getElapsedSeconds(192 / 120))->toEqualWithDelta(1.3, 1e-12);
+});
+
 it('preserves authored effect cadence and target cue impact instead of the source cue', function () {
   $effect = new CompiledEffectTimeline('test', '', fps: 5, playbackSegments: [[
     'startFrame' => 0, 'endFrame' => 1, 'layer' => 'image',

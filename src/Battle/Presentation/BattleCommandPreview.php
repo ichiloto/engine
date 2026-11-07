@@ -19,7 +19,9 @@ final class BattleCommandPreview
   private readonly ?GraphicalBattlePresentation $graphical;
   private readonly TerminalBattlePresentation $terminal;
   private readonly TerminalPresentationComposer $terminalComposer;
-  public int $totalFrames { get => $this->plan->timeline->defaults['lengthFrames']; }
+  /** @var array<int, BattleCommandPlayback> Path captured at release for scrubber boundaries. */
+  private array $timingPlaybacks = [];
+  public int $totalFrames { get => $this->getTotalFrames(); }
 
   /** @param list<CharacterInterface> $targets */
   public function __construct(BattleConfig $battle, public readonly BattleCommandTimeline $plan,
@@ -48,25 +50,20 @@ final class BattleCommandPreview
     if (!is_finite($seconds) || $seconds < 0) {
       throw new InvalidArgumentException('Battle preview time must be finite and non-negative.');
     }
-    return $this->getFrameAtIndex(min($this->totalFrames - 1,
+    return $this->getFrameAtIndex(min($this->getTotalFrames($reducedMotion) - 1,
       EffectPlaybackTiming::getFrameCountForElapsed($seconds, 1 / BattleCommandTimeline::FPS)), $reducedMotion, $imageRotation, $coverageDabs, $textureStrip);
   }
 
   public function getFrameAtIndex(int $frame, bool $reducedMotion = false, bool $imageRotation = false,
     bool $coverageDabs = false, bool $textureStrip = false): BattleCommandPreviewFrame
   {
-    if ($frame < 0 || $frame >= $this->totalFrames) {
+    if ($frame < 0 || $frame >= $this->getTotalFrames($reducedMotion)) {
       throw new InvalidArgumentException('Battle preview frame must be inside the command timeline.');
     }
     $cues = [];
-    // Traversal preserves phase/cue order, but its callbacks have no game or audio side effects.
-    $playback = new BattleCommandPlayback($this->plan, $this->actor, $this->targets, $this->pose,
-      static function (): void {}, static function (array $cue) use (&$cues): void { $cues[] = $cue; });
-    if ($this->plan->travel !== null && !$this->plan->travel->isPossible) {
-      $playback->recordPresentationFailure(new \RuntimeException('Battle run-to-target could not reach contact: ' . $this->plan->travel->failure->value));
-    }
-    $this->graphical?->bindCommandPosePoints($playback, $reducedMotion, 0);
-    $playback->begin();
+    $playback = $this->createPlayback($reducedMotion, static function (array $cue) use (&$cues): void {
+      $cues[] = $cue;
+    });
     $seconds = $frame / BattleCommandTimeline::FPS;
     $playback->update($seconds);
     $canvas = $this->graphical?->frame(new BattlePresentationSnapshot($playback,
@@ -76,10 +73,68 @@ final class BattleCommandPreview
       $this->terminal->width, $this->terminal->height,
       intdiv(PresentationCanvas::DEFAULT_WIDTH, $this->terminal->width),
       intdiv(PresentationCanvas::DEFAULT_HEIGHT, $this->terminal->height)));
-    return new BattleCommandPreviewFrame($playback->session->currentFrame, $playback->phase, $canvas,
+    $toPreviewCue = fn(array $cue): array => [...$cue, 'frame' => $this->getPlaybackFrame($cue['frame'], $reducedMotion)];
+    return new BattleCommandPreviewFrame($frame, $playback->phase, $canvas,
       $lines,
-      $playback->session->getCuesAt(), $cues,
+      array_map($toPreviewCue, $playback->session->getCuesAt()), array_map($toPreviewCue, $cues),
       $playback->presentationFailure === null ? [] : [$playback->presentationFailure->getMessage()],
       $this->plan->getAuthoredFramesAtCommandFrame($playback->session->currentFrame), $terminalCanvas);
+  }
+
+  public function getTotalFrames(bool $reducedMotion = false): int
+  {
+    $timing = $this->getTimingPlayback($reducedMotion);
+    return $timing === null ? $this->plan->timeline->defaults['lengthFrames']
+      : self::getFrameBoundary($timing->getDurationSeconds());
+  }
+
+  public function getPlaybackFrame(int $commandFrame, bool $reducedMotion = false): int
+  {
+    $timing = $this->getTimingPlayback($reducedMotion);
+    return $timing === null ? $commandFrame : self::getFrameBoundary($timing->getElapsedSecondsAtFrame($commandFrame));
+  }
+
+  public function getPlaybackPhases(bool $reducedMotion = false): array
+  {
+    if ($this->getTimingPlayback($reducedMotion) === null) { return $this->plan->phases; }
+    $phases = [];
+    foreach ($this->plan->phases as $name => $range) {
+      $start = $this->getPlaybackFrame($range['start'], $reducedMotion);
+      $end = $name === 'finish' ? $this->getTotalFrames($reducedMotion)
+        : $this->getPlaybackFrame($range['start'] + $range['length'], $reducedMotion);
+      $phases[$name] = ['start' => $start, 'length' => $end - $start];
+    }
+    return $phases;
+  }
+
+  private static function getFrameBoundary(float $seconds): int
+  {
+    $frames = $seconds * BattleCommandTimeline::FPS;
+    return (int)ceil($frames - PHP_FLOAT_EPSILON * max(1, $frames) * 4);
+  }
+
+  private function getTimingPlayback(bool $reducedMotion): ?BattleCommandPlayback
+  {
+    if ($this->graphical === null || $this->plan->flightTiming === null) { return null; }
+    $key = (int)$reducedMotion;
+    if (!isset($this->timingPlaybacks[$key])) {
+      $playback = $this->createPlayback($reducedMotion, static function (): void {});
+      $playback->update($this->plan->flightTiming['release'] / BattleCommandTimeline::FPS);
+      $this->timingPlaybacks[$key] = $playback;
+    }
+    return $this->timingPlaybacks[$key];
+  }
+
+  private function createPlayback(bool $reducedMotion, callable $cueSink): BattleCommandPlayback
+  {
+    // Traversal preserves phase/cue order, but its callbacks have no game or audio side effects.
+    $playback = new BattleCommandPlayback($this->plan, $this->actor, $this->targets, $this->pose,
+      static function (): void {}, $cueSink);
+    if ($this->plan->travel !== null && !$this->plan->travel->isPossible) {
+      $playback->recordPresentationFailure(new \RuntimeException('Battle run-to-target could not reach contact: ' . $this->plan->travel->failure->value));
+    }
+    $this->graphical?->bindCommandPosePoints($playback, $reducedMotion, 0);
+    $playback->begin();
+    return $playback;
   }
 }

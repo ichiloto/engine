@@ -30,7 +30,9 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private ?int $impactFrame = null;
   private float $elapsedSeconds = 0;
   private bool $paused = false;
-  /** @var ?Closure(self, string, string, ?string, ?array, ?float): array<int, DetachedPosePoint> */
+  private ?BattleFlightClock $flightClock = null;
+  private ?float $arenaWidth = null;
+  /** @var ?Closure(self, string, string, ?string, ?array, ?float, ?string): array<int, DetachedPosePoint> */
   private ?Closure $capturePosePoints = null;
   /** @var array<string, array<int, DetachedPosePoint>> */
   private array $detachedPosePoints = [];
@@ -42,6 +44,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private array $defeats = [];
 
   public bool $isCompleted { get => $this->cancelled || ($this->session->isCompleted
+    && ($this->flightClock === null || $this->elapsedSeconds >= $this->getDurationSeconds())
     && !array_any($this->defeats, static fn(array $defeat): bool => !$defeat['cleared'])); }
   public bool $isCancelled { get => $this->cancelled; }
 
@@ -64,11 +67,19 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     // A completed effect session cannot resume; the command still owns its defeat hold.
     if ($this->paused || ($this->session->isPaused && !$this->session->isCompleted)) { return; }
     if ($this->isCompleted) { return; }
-    $duration = $this->session->timing->durationSeconds;
-    $this->elapsedSeconds = min($duration + $this->defeatStyle->getDurationSeconds(),
-      $this->elapsedSeconds + max(0, $seconds));
-    $update = $this->session->update(min(max(0, $seconds), $duration));
-    $this->dispatch($update->crossedCues);
+    $remaining = max(0, $seconds);
+    $release = $this->plan->flightTiming['release'] ?? null;
+    if ($this->arenaWidth !== null && $release !== null) {
+      $releaseSeconds = $release / BattleCommandTimeline::FPS;
+      $untilRelease = $releaseSeconds - $this->elapsedSeconds;
+      if ($untilRelease > 0 && $remaining >= $untilRelease) {
+        // The release cue captures the path before this update can cross the impact.
+        $this->advanceClock($untilRelease);
+        if ($this->cancelled || $this->paused) { return; }
+        $remaining -= $untilRelease;
+      }
+    }
+    $this->advanceClock($remaining);
     if ($this->session->isCompleted) { $this->resolveOnce(); }
     foreach ($this->defeats as $identity => $defeat) {
       if ($this->cancelled) { return; }
@@ -82,6 +93,37 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     }
   }
 
+  private function advanceClock(float $seconds): void
+  {
+    $previous = $this->elapsedSeconds;
+    $this->elapsedSeconds = min($this->getDurationSeconds() + $this->defeatStyle->getDurationSeconds(), $previous + $seconds);
+    $duration = $this->session->timing->durationSeconds;
+    if ($this->flightClock === null) {
+      $advance = min($seconds, $duration);
+    } else {
+      // Absolute frame boundaries avoid subtracting nearly equal authored times
+      // when a short update reaches the far flight's exact impact.
+      $authored = min($duration, $this->flightClock->getAuthoredSeconds($this->elapsedSeconds));
+      $targetFrame = $this->session->timing->getFrameCountAt($authored);
+      $advance = max(0, $targetFrame - $this->session->currentFrame) / BattleCommandTimeline::FPS;
+    }
+    $this->dispatch($this->session->update($advance)->crossedCues);
+  }
+
+  public function getDurationSeconds(): float
+  {
+    $duration = $this->session->timing->durationSeconds;
+    return $this->flightClock === null ? $duration : max($this->flightClock->getElapsedSeconds($duration),
+      ($this->plan->actionPoseEndFrame ?? 0) / BattleCommandTimeline::FPS);
+  }
+
+  /** The elapsed boundary at which an authored command frame can first be observed. */
+  public function getElapsedSecondsAtFrame(int $frame): float
+  {
+    $authored = $frame / BattleCommandTimeline::FPS;
+    return $this->flightClock?->getElapsedSeconds($authored) ?? $authored;
+  }
+
   /** Abandonment removes visuals, never executes a command that has not hit. */
   public function cancel(): void
   {
@@ -92,10 +134,11 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $this->captureTargetGroup = null;
   }
 
-  /** @param Closure(self, string, string, ?string, ?array, ?float): array<int, DetachedPosePoint> $capture */
-  public function bindPosePointCapture(Closure $capture): void
+  /** @param Closure(self, string, string, ?string, ?array, ?float, ?string): array<int, DetachedPosePoint> $capture */
+  public function bindPosePointCapture(Closure $capture, ?float $arenaWidth = null): void
   {
     $this->capturePosePoints = $capture;
+    $this->arenaWidth = $arenaWidth;
   }
 
   /** @param Closure(self): ?BattleEffectTargetGroup $capture */
@@ -124,8 +167,9 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     if ($this->cancelled || !$battler->isKnockedOut
       || ($battler !== $this->actor && !in_array($battler, $this->targets, true))) { return; }
+    $start = $this->plan->phases['return']['start'] / BattleCommandTimeline::FPS;
     $this->defeats[spl_object_id($battler)] ??= ['battler' => $battler,
-      'start' => $this->plan->phases['return']['start'] / BattleCommandTimeline::FPS, 'cleared' => false];
+      'start' => $this->flightClock?->getElapsedSeconds($start) ?? $start, 'cleared' => false];
   }
 
   public function getEnemyDefeatTreatment(CharacterInterface $battler, bool $reducedMotion = false): ?array
@@ -188,11 +232,17 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     }
     if ($this->plan->actionPoseOverride === null || $this->plan->actionPoseEndFrame === null
       || $this->isCompleted || $this->phase === 'advance' || $this->phase === 'enter-advance'
-      || $this->phase === 'exit-advance' || $this->session->currentFrame >= $this->plan->actionPoseEndFrame) {
+      || $this->phase === 'exit-advance' || $this->getActorClockFrame() >= $this->plan->actionPoseEndFrame) {
       return false;
     }
     return $this->plan->actionPoseOverride->impactFrame !== 0
-      || $this->plan->getActionPoseClockFrame($this->session->currentFrame) >= $this->plan->actionPoseAnchorFrame;
+      || $this->getActorClockFrame() >= $this->plan->actionPoseAnchorFrame;
+  }
+
+  private function getActorClockFrame(): float
+  {
+    return $this->flightClock === null ? $this->plan->getActionPoseClockFrame($this->session->currentFrame)
+      : $this->elapsedSeconds * BattleCommandTimeline::FPS;
   }
 
   /** Pose animation reads the action playhead, never wall time or redraw count. */
@@ -210,7 +260,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $reaction = $this->reactionFrames[spl_object_id($battler)] ?? null;
     $start = $reaction ?? ($this->plan->phases['announce']['start'] ?? 0);
     $frame = $battler === $this->actor && $reaction === null && $role === $this->pose
-      ? $this->plan->getActionPoseClockFrame($this->session->currentFrame) : $this->session->currentFrame;
+      ? $this->getActorClockFrame() : $this->session->currentFrame;
     return max(0, ($frame - $start) / BattleCommandTimeline::FPS);
   }
 
@@ -396,7 +446,16 @@ final class BattleCommandPlayback implements BattleEffectPlayback
             $payload = $cue['payload'];
             $this->detachedPosePoints[$payload['trackId']] = ($this->capturePosePoints)(
               $this->samplePoseAtFrame($cue['frame']), $payload['anchor'], $payload['attachmentPoint'], $payload['route'],
-              $payload['curve'], $payload['clearance'] ?? null);
+              $payload['curve'], $payload['clearance'] ?? null, $payload['contact'] ?? null);
+            $flight = $this->plan->flightTiming;
+            if ($this->arenaWidth !== null && ($flight['track'] ?? null) === $payload['trackId']) {
+              $path = $this->detachedPosePoints[$payload['trackId']][spl_object_id($this->actor)]['path']
+                ?? throw new \RuntimeException('The timed battle flight has no captured path.');
+              $return = isset($this->plan->phases['recovery'])
+                ? ($this->plan->phases['enter-return'] ?? $this->plan->phases['return'])['start'] : null;
+              $this->flightClock = new BattleFlightClock($flight['release'], $flight['arrival'], $path,
+                $this->arenaWidth, $flight['speed'], $return, $this->plan->actionPoseEndFrame);
+            }
           } catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
         }
         continue;
@@ -418,6 +477,8 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $sample = new self($this->plan, $this->actor, $this->targets, $this->pose,
       static function (): void {}, static function (): void {});
     $sample->session->seek($frame);
+    $sample->flightClock = $this->flightClock;
+    $sample->elapsedSeconds = $this->getElapsedSecondsAtFrame($frame);
     foreach ($this->plan->phases as $phase => $range) {
       if ($range['length'] > 0 && $range['start'] <= $frame) { $sample->phase = $phase; }
     }

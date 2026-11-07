@@ -702,7 +702,7 @@ it('flies from the release pose through the ordered recipients and holds the wak
   expect(fn() => $library->compile('invalid-flight', $authored, true))->toThrow(InvalidArgumentException::class, 'flight requires');
 })->with([false, true]);
 
-it('registers the rear at release and the leading tip at the straight flight contact at normal and constrained distances', function (bool $constrained) {
+it('registers the rear at release and the leading tip at the straight flight contact with selectable contact at normal and constrained distances', function (bool $constrained, bool $interior) {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $asset = 'graphical-canvas/synthetic-320x180.png';
   $pose = new BattlerPose($asset, attachmentPoints: [
@@ -716,7 +716,8 @@ it('registers the rear at release and the leading tip at the straight flight con
       'id' => 'projectile', 'type' => 'image', 'asset' => $asset, 'anchor' => 'caster', 'attachmentPoint' => 'launch',
       'detachFrame' => 1, 'facing' => 'east', 'pivot' => ['x' => .25, 'y' => .5],
       ...($constrained ? ['cells' => ['width' => 25, 'height' => 25]] : []),
-      'flight' => ['route' => 'straight', 'arrivalFrame' => 8, 'tipX' => .75],
+      'flight' => ['route' => 'straight', 'arrivalFrame' => 8, 'tipX' => .75,
+        ...($interior ? ['contact' => 'interior'] : [])],
       'keyframes' => [['frame' => 1, 'duration' => 9]],
     ]],
     'cues' => [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 8]],
@@ -750,12 +751,17 @@ it('registers the rear at release and the leading tip at the straight flight con
     ->and($launchArrow->destination->width)->toEqualWithDelta($arrow->destination->width, .000001)
     ->and($rear[0])->toEqualWithDelta($source->x + $source->width / 2, .000001)
     ->and($rear[1])->toEqualWithDelta($source->y + $source->height / 2, .000001)
-    ->and($endX)->toBeGreaterThan($target->x + $target->width)
     ->and($tipX)->toBeLessThan($target->x + $target->width)
-    ->and($tipX)->toBeGreaterThan($target->x + $target->width - 1.001)
     ->and($tipY)->toBeGreaterThan($target->y)->toBeLessThan($target->y + $target->height)
     ->and($launch->diagnostics)->toBe([])->and($arrival->diagnostics)->toBe([]);
-})->with([false, true]);
+  if ($interior) {
+    expect($tipX)->toBeGreaterThan($target->x + $target->width / 4)
+      ->toBeLessThan($target->x + 3 * $target->width / 4);
+  } else {
+    expect($endX)->toBeGreaterThan($target->x + $target->width)
+      ->and($tipX)->toBeGreaterThan($target->x + $target->width - 1.001);
+  }
+})->with([[false, false], [true, false], [false, true], [true, true]]);
 
 it('curves from the captured pose point to the selected visible body at the authored impact', function () {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Animations\Timelines\EffectFlightContact;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -17,7 +18,8 @@ final class BattleStraightShot
   private const int MAX_PIXEL_READS = 2_000_000;
 
   /** @param non-empty-list<CanvasImage> $targets */
-  public static function planVisible(Vector2 $origin, array $targets, string $assetRoot): ?BattlePresentationPath
+  public static function planVisible(Vector2 $origin, array $targets, string $assetRoot,
+    EffectFlightContact $contactMode = EffectFlightContact::EDGE): ?BattlePresentationPath
   {
     $bounds = [];
     foreach ($targets as $target) {
@@ -40,10 +42,18 @@ final class BattleStraightShot
     }
     $remainingReads = self::MAX_PIXEL_READS;
     foreach ($targets as $index => $target) {
-      $rays = PngAssetRayContact::trace($assetRoot, $target, $bounds[$index], $origin, $rays, $remainingReads);
+      $rays = PngAssetRayContact::trace($assetRoot, $target, $bounds[$index], $origin, $rays, $remainingReads,
+        preferInterior: $contactMode === EffectFlightContact::INTERIOR && $index === array_key_last($targets));
       if ($rays === []) { return null; }
     }
+    // Earlier bodies constrain the ordered ray. At the last body prefer the
+    // most interior painted contact, keeping the original heading order on ties.
     $contact = reset($rays);
+    if ($contactMode === EffectFlightContact::INTERIOR) {
+      foreach ($rays as $ray) {
+        if ($ray['depth'] > $contact['depth'] + 1e-6) { $contact = $ray; }
+      }
+    }
     return new BattlePresentationPath([[$origin->x, $origin->y],
       [$origin->x + $contact['direction']->x * $contact['distance'], $origin->y + $contact['direction']->y * $contact['distance']]]);
   }

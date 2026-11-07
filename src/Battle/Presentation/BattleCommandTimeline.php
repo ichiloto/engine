@@ -46,6 +46,8 @@ final readonly class BattleCommandTimeline
   private ?EffectPlaybackTiming $sourceTiming;
   private ?EffectPlaybackTiming $targetTiming;
   private ?BattleEffectRangeTiming $rangeTiming;
+  /** @var array{track: string, release: int, arrival: int, speed: float}|null */
+  public ?array $flightTiming;
 
   public function requiresGraphicalAnchorCapture(): bool
   {
@@ -75,8 +77,8 @@ final readonly class BattleCommandTimeline
       throw new InvalidArgumentException('Flash step requires a resolved route, action transit cells and a planted first frame.');
     }
     $actionPose = $actionPoseOverride ?? $actionPose;
-    if (isset($source->defaults['rangeTiming'])) {
-      throw new InvalidArgumentException('Battle range timing belongs to the target effect lane.');
+    if (isset($source->defaults['rangeTiming']) || isset($source->defaults['flightTiming'])) {
+      throw new InvalidArgumentException('Battle range and flight timing belong to the target effect lane.');
     }
     $rangeTiming = !$resultsOnly && $projectedRange !== null && isset($target->defaults['rangeTiming'])
       ? BattleEffectRangeTiming::fromArray($target->defaults['rangeTiming'], $target->defaults['lengthFrames'],
@@ -84,6 +86,7 @@ final readonly class BattleCommandTimeline
       : null;
     $this->rangeTiming = $rangeTiming !== null && $projectedRange >= $rangeTiming->minDistance ? $rangeTiming : null;
     if ($resultsOnly) {
+      $this->flightTiming = null;
       $this->actionPoseAnchorFrame = null;
       $this->actionPoseEndFrame = null;
       if (!is_finite($timings->statChanges) || $timings->statChanges < 0) {
@@ -253,6 +256,7 @@ final readonly class BattleCommandTimeline
               'payload' => ['trackId' => $trackId, 'anchor' => $command['payload']['anchor'],
                 'attachmentPoint' => $command['payload']['attachmentPoint'],
                 'route' => $flight === null ? null : ($flight['route'] ?? EffectFlightRoute::WAYPOINTS->value),
+                ...(isset($flight['contact']) ? ['contact' => $flight['contact']] : []),
                 'curve' => $visualClock !== null ? ($flight['farCurve'] ?? $flight['curve'] ?? null) : ($flight['curve'] ?? null),
                 ...(!isset($flight['bystanderClearance']) ? [] : ['clearance' => (float)$flight['bystanderClearance']
                   + max($command['payload']['profile']['startRadius'], $command['payload']['profile']['endRadius'])])]];
@@ -307,6 +311,18 @@ final readonly class BattleCommandTimeline
         $impact = min($impact, $phases['target']['start'] + $targetTiming->getFrameBoundary($cue['frame'], self::FPS));
       }
     }
+    $flightTiming = $target?->defaults['flightTiming'] ?? null;
+    $release = $flightTiming === null ? null
+      : $phases['target']['start'] + $targetTiming->getFrameBoundary($flightTiming['release'], self::FPS);
+    if ($release !== null && $release >= $impact) {
+      throw new InvalidArgumentException('Battle flight needs separate release and impact ticks.');
+    }
+    $this->flightTiming = $flightTiming === null ? null : [
+      'track' => 'target-' . $flightTiming['track'],
+      'release' => $release,
+      'arrival' => $impact,
+      'speed' => $flightTiming['speed'],
+    ];
     $cues[] = ['id' => 'command-impact', 'type' => 'commandImpact', 'frame' => $impact, 'payload' => []];
     $cues = [...$cues, ...array_values($detachments), ...array_values($targetGroupCaptures)];
     $order = static fn(array $cue): int => match ($cue['type']) {
