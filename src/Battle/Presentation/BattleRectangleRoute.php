@@ -17,14 +17,18 @@ final class BattleRectangleRoute
    * @param list<array{float, float, float, float}> $obstacles
    * @return list<array{float, float}>|null
    */
-  public static function findRoute(array $start, array $end, array $allowed, array $obstacles): ?array
+  public static function findRoute(array $start, array $end, array $allowed, array $obstacles,
+    bool $allowOccludedDeparture = false): ?array
   {
     if (count($obstacles) > self::MAX_OBSTACLES
       || !self::contains($allowed, $start) || !self::contains($allowed, $end)
-      || self::isOccupied($start, $obstacles) || self::isOccupied($end, $obstacles)) {
+      || (!$allowOccludedDeparture && self::isOccupied($start, $obstacles)) || self::isOccupied($end, $obstacles)) {
       return null;
     }
-    if (self::canJoin($start, $end, $obstacles)) {
+    // An attached visual effect can leave a body that covers its origin. Only its first segment can pass through it.
+    $departureObstacles = $allowOccludedDeparture
+      ? array_filter($obstacles, static fn(array $box): bool => !self::isOccupied($start, [$box])) : $obstacles;
+    if (self::canJoin($start, $end, $departureObstacles)) {
       return [$start, $end];
     }
     $points = [$start, $end];
@@ -52,7 +56,8 @@ final class BattleRectangleRoute
       foreach ($points as $next => $point) {
         if (isset($visited[$next])) { continue; }
         $distance = $best + hypot($point[0] - $points[$current][0], $point[1] - $points[$current][1]);
-        if ($distance < $distances[$next] && self::canJoin($points[$current], $point, $obstacles)) {
+        if ($distance < $distances[$next] && self::canJoin($points[$current], $point,
+          $current === 0 ? $departureObstacles : $obstacles)) {
           $distances[$next] = $distance;
           $previous[$next] = $current;
         }

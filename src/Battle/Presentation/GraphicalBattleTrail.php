@@ -11,13 +11,14 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 /** Sample an authored wake on the same immutable path as the released flight. */
 final class GraphicalBattleTrail
 {
+  /** @return list<CanvasComposite> */
   public static function compose(string $id, BattlePresentationPath $path, int $frame, array $track,
-    BattleCanvasLayout $arena): ?CanvasComposite
+    BattleCanvasLayout $arena): array
   {
     $arrival = $track['flight']['arrivalFrame'];
     $detach = $track['detachFrame'];
     $end = $track['fadeEndFrame'];
-    if ($frame < $detach || $frame >= $end) { return null; }
+    if ($frame < $detach || $frame >= $end) { return []; }
 
     $profile = $track['profile'];
     $progress = min(1, ($frame - $detach) / max(1, $arrival - $detach));
@@ -25,10 +26,8 @@ final class GraphicalBattleTrail
     $travel = $path->distance * $progress;
     $length = min($travel, $profile['length'] * ($profile['fadeLengthRatio'] + (1 - $profile['fadeLengthRatio']) * $opacity));
     $steps = max(1, (int)ceil($length / $profile['spacing']));
-    $dabs = [];
-    $left = $arena->width;
-    $top = $arena->height;
-    $right = $bottom = 0;
+    $dabs = $occluded = [];
+    $behind = $track['depth'] === 'behind';
     for ($index = 0; $index <= $steps; $index++) {
       $fraction = $index / $steps;
       $distance = $travel - $length * (1 - $fraction);
@@ -39,13 +38,33 @@ final class GraphicalBattleTrail
         || $point->x - $radius >= $arena->width || $point->y - $radius >= $arena->height || $strength === 0.0) {
         continue;
       }
-      $dabs[] = ['center' => [$point->x, $point->y], 'radius' => $radius, 'opacity' => $strength * $opacity];
-      $left = min($left, max(0, (int)floor($point->x - $radius)));
-      $top = min($top, max(0, (int)floor($point->y - $radius)));
-      $right = max($right, min($arena->width, (int)ceil($point->x + $radius)));
-      $bottom = max($bottom, min($arena->height, (int)ceil($point->y + $radius)));
+      $dab = ['center' => [$point->x, $point->y], 'radius' => $radius, 'opacity' => $strength * $opacity];
+      if (!$behind && $distance < $path->occludedDepartureDistance) {
+        $occluded[] = $dab;
+      } else {
+        $dabs[] = $dab;
+      }
     }
-    if ($dabs === []) { return null; }
+
+    $composites = [];
+    if ($occluded !== []) { $composites[] = self::paint($id . '-departure', $occluded, $profile['brush'], $arena, 15); }
+    if ($dabs !== []) { $composites[] = self::paint($id, $dabs, $profile['brush'], $arena, $behind ? 15 : 160); }
+    return $composites;
+  }
+
+  private static function paint(string $id, array $dabs, array $brush, BattleCanvasLayout $arena, int $layer): CanvasComposite
+  {
+    $left = $arena->width;
+    $top = $arena->height;
+    $right = $bottom = 0;
+    foreach ($dabs as $dab) {
+      [$x, $y] = $dab['center'];
+      $radius = $dab['radius'];
+      $left = min($left, max(0, (int)floor($x - $radius)));
+      $top = min($top, max(0, (int)floor($y - $radius)));
+      $right = max($right, min($arena->width, (int)ceil($x + $radius)));
+      $bottom = max($bottom, min($arena->height, (int)ceil($y + $radius)));
+    }
     foreach ($dabs as &$dab) {
       $dab['center'][0] -= $left;
       $dab['center'][1] -= $top;
@@ -54,8 +73,7 @@ final class GraphicalBattleTrail
 
     $width = $right - $left;
     $height = $bottom - $top;
-    $paint = new CanvasCompositeOperation(['type' => 'coverage_dabs', 'dabs' => $dabs, ...$profile['brush']]);
-    return new CanvasComposite($id, $width, $height, new CanvasRectangle($left, $top, $width, $height),
-      [$paint], $track['depth'] === 'behind' ? 15 : 160);
+    $paint = new CanvasCompositeOperation(['type' => 'coverage_dabs', 'dabs' => $dabs, ...$brush]);
+    return new CanvasComposite($id, $width, $height, new CanvasRectangle($left, $top, $width, $height), [$paint], $layer);
   }
 }

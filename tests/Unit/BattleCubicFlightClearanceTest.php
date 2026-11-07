@@ -2,7 +2,10 @@
 
 declare(strict_types=1);
 
+use Ichiloto\Engine\Battle\Presentation\BattleCanvasLayout;
 use Ichiloto\Engine\Battle\Presentation\BattleCubicFlightClearance;
+use Ichiloto\Engine\Battle\Presentation\BattleRectangleRoute;
+use Ichiloto\Engine\Battle\Presentation\GraphicalBattleTrail;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationPath;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -75,3 +78,37 @@ it('routes around a joined barrier when the original cubic cannot turn inside th
     }
   }
 })->with([false, true]);
+
+it('keeps an attached launch and draws only its occluded departure behind battlers', function () {
+  $start = new Vector2(34, 65);
+  $end = new Vector2(220, 65);
+  $sourceBody = new CanvasRectangle(20, 40, 38, 52);
+  $bystander = new CanvasRectangle(90, 48, 42, 36);
+  $path = BattleCubicFlightClearance::plan($start, $end, new Vector2(80, 65), new Vector2(170, 65), 160,
+    [$sourceBody, $bystander], 6, width: 240);
+
+  expect($path)->not->toBeNull()
+    ->and($path->getPositionAtProgress(0))->toEqual($start)
+    ->and($path->getPositionAtProgress(1))->toEqual($end)
+    ->and($path->occludedDepartureDistance)->toBeGreaterThan(0);
+  $bounds = [[14, 34, 64, 98], [84, 42, 138, 90]];
+  $departure = $path->occludedDepartureDistance / $path->distance;
+  for ($index = 0; $index <= 64; $index++) {
+    $point = $path->getPositionAtProgress($departure + (1 - $departure) * $index / 64);
+    expect(BattleRectangleRoute::isOccupied([$point->x, $point->y], $bounds))->toBeFalse();
+  }
+
+  $arena = new BattleCanvasLayout(240, 160, uiCellWidth: 1, uiCellHeight: 1);
+  $track = ['flight' => ['arrivalFrame' => 20], 'detachFrame' => 0, 'fadeEndFrame' => 25, 'depth' => 'front',
+    'profile' => ['length' => 90, 'spacing' => 4, 'fadeLengthRatio' => .5, 'startRadius' => 1, 'endRadius' => 5,
+      'radiusPower' => 1, 'startOpacity' => .2, 'endOpacity' => 1, 'opacityPower' => 1,
+      'brush' => ['falloff' => .9, 'alphaSteps' => 127, 'minimumAlpha' => 3,
+        'bands' => [['until' => 1, 'color' => ['kind' => 'rgb', 'r' => 255, 'g' => 255, 'b' => 255]]]]]];
+  $initial = GraphicalBattleTrail::compose('wake', $path, 0, $track, $arena);
+  expect($initial)->toHaveCount(1)->and($initial[0]->layer)->toBeLessThan(BattleCanvasLayout::BATTLER_LAYER);
+  $crossing = GraphicalBattleTrail::compose('wake', $path, (int)ceil($departure * 20), $track, $arena);
+  expect(array_column($crossing, 'id'))->toBe(['wake-departure', 'wake'])
+    ->and($crossing[0]->layer)->toBeLessThan(BattleCanvasLayout::BATTLER_LAYER)
+    ->and($crossing[1]->layer)->toBeGreaterThan(BattleCanvasLayout::BATTLER_LAYER)
+    ->and(GraphicalBattleTrail::compose('wake', $path, 25, $track, $arena))->toBe([]);
+});

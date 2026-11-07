@@ -17,7 +17,7 @@ final readonly class BattlePresentationPath
   public float $distance;
 
   /** @param list<array{float, float}> $points */
-  public function __construct(array $points)
+  public function __construct(array $points, public float $occludedDepartureDistance = 0.0)
   {
     if (!array_is_list($points) || count($points) < 2) {
       throw new InvalidArgumentException('A battle presentation path requires at least two waypoints.');
@@ -34,6 +34,9 @@ final readonly class BattlePresentationPath
       $next = [(float)$point[0], (float)$point[1]];
       if ($last !== null) { $distance += hypot($next[0] - $last[0], $next[1] - $last[1]); }
       $copy[] = $next;
+    }
+    if (!is_finite($occludedDepartureDistance) || $occludedDepartureDistance < 0 || $occludedDepartureDistance > $distance) {
+      throw new InvalidArgumentException('Occluded departure distance must be within the presentation path.');
     }
     $this->points = $copy;
     $this->distance = $distance;

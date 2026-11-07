@@ -123,9 +123,8 @@ final class GraphicalBattleEffects
               continue;
             }
             $frame = $reducedMotion ? $data['restSampleFrame'] : $playback->session->currentFrame;
-            $trail = GraphicalBattleTrail::compose('command-effect-' . $command['trackId'] . '-' . spl_object_id($subject),
-              $release['path'], $frame, $data, $arena);
-            if ($trail !== null) { $composites[] = $trail; }
+            array_push($composites, ...GraphicalBattleTrail::compose('command-effect-' . $command['trackId'] . '-' . spl_object_id($subject),
+              $release['path'], $frame, $data, $arena));
             continue;
           }
           $recipient = $anchor === 'caster'

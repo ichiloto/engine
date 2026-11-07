@@ -83,7 +83,22 @@ final class BattleCubicFlightClearance
     // Look for room to round corners first. A tight corridor still admits an exact clear path.
     $route = BattleRectangleRoute::findRoute($start, $end, $arena, $bounds($padding + self::BEND_RADIUS / 2))
       ?? BattleRectangleRoute::findRoute($start, $end, $arena, $physical);
-    return $route === null ? null : new BattlePresentationPath(self::roundBends($route, $physical));
+    if ($route !== null) { return new BattlePresentationPath(self::roundBends($route, $physical)); }
+    if (!BattleRectangleRoute::isOccupied($start, $physical)) { return null; }
+    $route = BattleRectangleRoute::findRoute($start, $end, $arena, $physical, allowOccludedDeparture: true);
+    if ($route === null) { return null; }
+
+    $next = $route[1];
+    $dx = $next[0] - $start[0];
+    $dy = $next[1] - $start[1];
+    $departure = 0.0;
+    foreach ($physical as [$left, $top, $right, $bottom]) {
+      if (!BattleRectangleRoute::isOccupied($start, [[$left, $top, $right, $bottom]])) { continue; }
+      $exitX = $dx === 0.0 ? INF : (($dx < 0 ? $left : $right) - $start[0]) / $dx;
+      $exitY = $dy === 0.0 ? INF : (($dy < 0 ? $top : $bottom) - $start[1]) / $dy;
+      $departure = max($departure, min($exitX, $exitY));
+    }
+    return new BattlePresentationPath(self::roundBends($route, $physical), min(1.0, $departure) * hypot($dx, $dy));
   }
 
   /**
