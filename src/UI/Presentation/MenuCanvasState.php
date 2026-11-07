@@ -8,6 +8,7 @@ use Ichiloto\Engine\Core\Clocks\RuntimeClock;
 
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\UI\Interfaces\ModalPresentationProviderInterface;
 use Ichiloto\Engine\UI\Text\MenuInfoText;
 use Ichiloto\Engine\Util\Debug;
@@ -67,19 +68,10 @@ trait MenuCanvasState
     $runtime = $game->getRendererRuntime();
     if ($runtime === null) { return null; }
     try {
-      if (!$this->menuThemeLoaded) {
-        $this->menuThemeLoaded = true;
-        $theme = MenuPresentationCatalog::load($runtime->getAssetRoot());
-        if ($theme !== null) {
-          foreach (MenuPresentationCatalog::CAPABILITIES as $capability) {
-            if (!$runtime->supports($capability)) { throw new RuntimeException("Menu renderer lacks {$capability}."); }
-          }
-        }
-        $this->menuTheme = $theme;
-      }
-      if ($this->menuTheme === null) { return null; }
+      $theme = $this->resolveMenuTheme($runtime);
+      if ($theme === null) { return null; }
       $time = max(0, RuntimeClock::getSeconds() - $this->menuPresentationStart);
-      $canvas = $this->composeMenuCanvas($this->menuTheme, $time);
+      $canvas = $this->composeMenuCanvas($theme, $time);
       $modal = isset($game->modalManager) ? $game->modalManager->currentModal : null;
       if ($canvas === null || $modal === null) { return $canvas; }
       if (!$modal->isShowing()) { return $canvas; }
@@ -90,14 +82,34 @@ trait MenuCanvasState
       if ($snapshot === null) {
         throw new RuntimeException('Active modal ' . $modal::class . ' has no supported menu canvas presentation.');
       }
-      return MenuModalPresentation::compose($canvas, $snapshot, $this->menuTheme, $time,
+      return MenuModalPresentation::compose($canvas, $snapshot, $theme, $time,
         'ui:' . spl_object_id($modal));
     } catch (Throwable $error) {
-      if ($this->menuPresentationError !== $error->getMessage()) {
-        Debug::error('Menu presentation degraded to terminal: ' . $error->getMessage());
-        $this->menuPresentationError = $error->getMessage();
-      }
+      $this->reportMenuPresentationError($error);
       return null;
+    }
+  }
+
+  private function resolveMenuTheme(RendererRuntime $runtime): ?MenuPresentationCatalog
+  {
+    if (!$this->menuThemeLoaded) {
+      $this->menuThemeLoaded = true;
+      $theme = MenuPresentationCatalog::load($runtime->getAssetRoot());
+      if ($theme !== null) {
+        foreach (MenuPresentationCatalog::CAPABILITIES as $capability) {
+          if (!$runtime->supports($capability)) { throw new RuntimeException("Menu renderer lacks {$capability}."); }
+        }
+      }
+      $this->menuTheme = $theme;
+    }
+    return $this->menuTheme;
+  }
+
+  private function reportMenuPresentationError(Throwable $error): void
+  {
+    if ($this->menuPresentationError !== $error->getMessage()) {
+      Debug::error('Menu presentation degraded to terminal: ' . $error->getMessage());
+      $this->menuPresentationError = $error->getMessage();
     }
   }
 

@@ -30,6 +30,7 @@ use Ichiloto\Engine\Progress\Knowledge\KnowledgeDepth;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeSubject;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Presentation\JournalMenuContent;
 use Ichiloto\Engine\UI\Presentation\JournalMenuPresentation;
@@ -110,9 +111,12 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
     if ($this->demo !== null) {
       $this->demoElapsed += max(0.0, Time::getDeltaTime());
       $this->demo->advanceTo($this->demoElapsed);
-      if ($this->demo->hasEnded || $this->demo->hasPresentationFailure || Input::isButtonDown('back') || Input::isButtonDown('cancel')) {
+      if ($this->demo->hasEnded || Input::isButtonDown('back') || Input::isButtonDown('cancel')) {
         $this->releaseDemo();
         $this->refreshUI();
+      } elseif ($this->demo->hasPresentationFailure || $this->getGuideDemoRuntime() === null) {
+        $this->releaseDemo();
+        $this->openGuideReading();
       }
       return;
     }
@@ -376,9 +380,21 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
   {
     return match ($guide->replay) {
       TutorialReplayMode::PRACTICE => $this->getGameScene()->tutorialDirector?->canStartPractice($guide) ? 'Practice' : null,
-      TutorialReplayMode::DEMO => $this->getGameScene()->getGame()->getRendererRuntime() === null ? 'Read' : 'Watch',
+      TutorialReplayMode::DEMO => $this->getGuideDemoRuntime() === null ? 'Read' : 'Watch',
       TutorialReplayMode::NONE => null,
     };
+  }
+
+  private function getGuideDemoRuntime(): ?RendererRuntime
+  {
+    $runtime = $this->getGameScene()->getGame()->getRendererRuntime();
+    if ($runtime === null || !$runtime->supports(RendererSessionConfig::CANVAS_COMPOSITING)) { return null; }
+    try {
+      return $this->resolveMenuTheme($runtime) === null ? null : $runtime;
+    } catch (\Throwable $error) {
+      $this->reportMenuPresentationError($error);
+      return null;
+    }
   }
 
   private function activateGuide(TutorialDefinition $guide): void
@@ -392,7 +408,7 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
       return;
     }
 
-    $runtime = $scene->getGame()->getRendererRuntime();
+    $runtime = $this->getGuideDemoRuntime();
     if ($runtime !== null) {
       try {
         $root = $runtime->getAssetRoot();
@@ -406,6 +422,11 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
       }
     }
 
+    $this->openGuideReading();
+  }
+
+  private function openGuideReading(): void
+  {
     $this->viewingDetail = true;
     $this->reading->reset();
     $this->refreshUI();

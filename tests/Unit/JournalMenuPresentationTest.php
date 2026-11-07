@@ -28,6 +28,7 @@ use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
 use Ichiloto\Engine\Scenes\Game\States\QuestMenuState;
@@ -562,3 +563,54 @@ it('opens encountered guides from Records and practises on the live menu without
     ->and($director->getActiveTutorial()->id)->toBe('guide.encountered')
     ->and($this->flags->toArray())->toBe($snapshot);
 });
+
+it('opens an authored Guide demo or its written instructions according to the renderer', function (bool $canWatch) {
+  $caps = MenuPresentationCatalog::CAPABILITIES;
+  if ($canWatch) { $caps[] = RendererSessionConfig::CANVAS_COMPOSITING; }
+  journalMenuRuntime($this, journalMenuTheme(), $caps);
+  mkdir($this->root . '/Animations/sample', 0777, true);
+  $stage = ['fps' => 10, 'lengthFrames' => 10, 'restFrame' => 4, 'tracks' => [],
+    'stage' => ['canvas' => ['width' => 100, 'height' => 100], 'background' => null,
+      'startFrame' => 0, 'restoreFrame' => 9,
+      'camera' => [['id' => 'still', 'frame' => 0, 'focus' => ['x' => 50, 'y' => 50], 'zoom' => 1]],
+      'covers' => [
+        ['id' => 'begin', 'frame' => 0, 'color' => 'black', 'opacity' => 0],
+        ['id' => 'hold', 'frame' => 2, 'color' => 'black', 'opacity' => .45, 'easing' => 'hold'],
+        ['id' => 'clear', 'frame' => 9, 'color' => 'black', 'opacity' => 0],
+      ]]];
+  file_put_contents($this->root . '/Animations/sample/sample.timeline.php', '<?php return ' . var_export($stage, true) . ';');
+  $this->flags->setTutorialPhase('guide.demo', TutorialPhase::COMPLETED);
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.demo', 'category' => 'Battle', 'title' => 'Watch a Contract',
+    'start' => 'script', 'replay' => 'demo', 'demo' => 'sample',
+    'steps' => [[
+      'target' => ['screen' => 'main-menu', 'view' => 'commands', 'id' => 'summons'],
+      'action' => 'confirm', 'say' => 'Open the contracts.',
+      'until' => ['outcome' => 'menu.command-opened', 'subject' => 'summons'],
+    ]],
+  ]]), $this->flags);
+  new ReflectionProperty($this->scene, 'tutorialDirector')->setValue($this->scene, $director);
+  $snapshot = $this->flags->toArray();
+  $state = journalMenuOwner($this, true);
+  journalMenuKey($state, KeyCode::Q);
+  expect($state->getPresentationContent()->confirmLabel)->toBe($canWatch ? 'Watch' : 'Read');
+  journalMenuKey($state, KeyCode::ENTER);
+
+  if ($canWatch) {
+    new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, .2);
+    InputManager::handleInput();
+    $state->execute();
+    $canvas = $state->getPresentationCanvas();
+    expect($canvas->composites)->toHaveCount(1)
+      ->and($canvas->composites[0]->opacity)->toBe(.45)
+      ->and(implode(' ', journalMenuText($canvas)))->toContain('Back');
+  } else {
+    expect($state->getPresentationContent()->detailsOpen)->toBeTrue()
+      ->and($state->getPresentationContent()->details->text)->toContain('Open the contracts.');
+  }
+  journalMenuKey($state, KeyCode::ESCAPE);
+  expect($state->getPresentationContent()->detailsOpen)->toBeFalse()
+    ->and($this->scene->state)->toBe($state)
+    ->and($director->getActiveTutorial())->toBeNull()
+    ->and($this->flags->toArray())->toBe($snapshot);
+})->with(['compositing renderer' => true, 'menu canvas renderer' => false]);
