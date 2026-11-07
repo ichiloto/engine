@@ -350,13 +350,33 @@ it('lights the visible tutorial row with the bound control and leaves missing ta
     'until' => ['outcome' => 'summon.opened', 'subject' => 'sample'],
     'say' => 'Open the contract.',
   ];
-  $frame = SummonsMenuPresentation::compose($content, $theme, null, tutorial: TutorialStep::fromArray($step, 'Test guide'));
+  $frame = SummonsMenuPresentation::compose($content, $theme, null, tutorial: TutorialStep::fromArray($step, 'Test guide'), tutorialRow: $step['target']['id']);
   $layers = $frame->textLayers;
   $guideText = implode('', array_merge(...array_map(static fn($layer) => array_column($layer->runs, 'text'), $layers)));
   expect(array_any($layers, static fn($layer): bool => str_starts_with($layer->id, 'tutorial-target')))->toBeTrue()
     ->and($guideText)->toContain('Pad', 'Open the contract.');
 
   $step['target']['id'] = 'absent';
-  $missing = SummonsMenuPresentation::compose($content, $theme, null, tutorial: TutorialStep::fromArray($step, 'Test guide'));
+  $missing = SummonsMenuPresentation::compose($content, $theme, null, tutorial: TutorialStep::fromArray($step, 'Test guide'), tutorialRow: $step['target']['id']);
   expect(array_any($missing->textLayers, static fn($layer): bool => str_starts_with($layer->id, 'tutorial-')))->toBeFalse();
+});
+
+it('selects a current assignable holder for the guide without highlighting Release', function () {
+  $definition = new SummonCutsceneDefinition('sample', 'Spirit', wielders: new SummonWielderPolicy());
+  $state = createSummonsMenuProbe([$definition]);
+  $holder = $state->party->leader;
+  $other = new Character('Other', 1, new Stats(currentHp: 100), actorId: 'actor.other');
+  $state->party->addMember($other);
+  expect($state->party->assignSummon($definition, $holder))->toBeTrue();
+  new ReflectionProperty($state, 'view')->setValue($state, SummonsMenuView::HOLDERS);
+  new ReflectionProperty($state, 'selectedSummonId')->setValue($state, 'sample');
+  $record = [
+    'target' => ['screen' => 'summons', 'view' => 'holders', 'id' => 'assignable'],
+    'action' => 'confirm',
+    'until' => ['outcome' => 'summon.assigned', 'subject' => 'sample'],
+  ];
+  $resolve = new ReflectionMethod($state, 'resolveTutorialRow');
+  expect($resolve->invoke($state, TutorialStep::fromArray($record, 'Test guide')))->toBe('member-actor.other');
+  $record['target']['id'] = 'member-actor.synthetic';
+  expect($resolve->invoke($state, TutorialStep::fromArray($record, 'Test guide')))->toBeNull();
 });

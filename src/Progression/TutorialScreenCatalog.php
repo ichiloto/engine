@@ -49,7 +49,7 @@ final class TutorialScreenCatalog
           'outcomes' => [Summons::TUTORIAL_ASSIGN_OPENED => 'summon'],
         ],
         Summons::TUTORIAL_HOLDERS => [
-          'targets' => [], 'targetSource' => 'actor', 'targetPrefix' => 'member-',
+          'targets' => [Summons::TUTORIAL_ASSIGNABLE_HOLDER], 'targetSource' => 'actor', 'targetPrefix' => 'member-',
           'actions' => ['confirm'],
           'outcomes' => [Summons::TUTORIAL_ASSIGNED => 'summon'],
         ],

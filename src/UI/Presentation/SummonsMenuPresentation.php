@@ -27,7 +27,7 @@ final class SummonsMenuPresentation
   public static function compose(SummonsMenuContent $content, MenuPresentationCatalog $theme, ?TextPage $page,
     ?MenuInfoText $infoModel = null, float $time = 0,
     int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT,
-    ?TutorialStep $tutorial = null): PresentationCanvas
+    ?TutorialStep $tutorial = null, ?string $tutorialRow = null): PresentationCanvas
   {
     $g = self::getGeometry($content, $theme, $width, $height);
     $m = $theme->metrics;
@@ -58,7 +58,7 @@ final class SummonsMenuPresentation
       $valueWidth = max(1, (int)floor($cells / 4));
       $target = $view->rows('summons-entry', $content->rows,
         new MenuRowLayout($body, [new MenuRowColumn($valueWidth), new MenuRowColumn($valueWidth)],
-          $m->rowHeight, $m->cellWidth, $m->cellHeight, true), $content->index, $tutorial?->target['id']);
+          $m->rowHeight, $m->cellWidth, $m->cellHeight, true), $content->index, $tutorialRow);
     }
     $view->frame('summons-info', $g['info'], 'quiet');
     MenuInfoPanel::renderContent($view, 'summons', $g['description'], $content->description, $content->status,

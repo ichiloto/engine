@@ -17,6 +17,8 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\Progression\TutorialStep;
+use Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
@@ -36,6 +38,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     public const string TUTORIAL_LIST = 'list';
     public const string TUTORIAL_ACTIONS = 'actions';
     public const string TUTORIAL_HOLDERS = 'holders';
+    public const string TUTORIAL_ASSIGNABLE_HOLDER = 'assignable';
     public const string TUTORIAL_SUMMON_OPENED = 'summon.opened';
     public const string TUTORIAL_ASSIGN_OPENED = 'summon.assign-opened';
     public const string TUTORIAL_ASSIGNED = 'summon.assigned';
@@ -58,6 +61,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     private ?TextViewport $detailViewport = null;
     private ?TextPage $lastDetailPage = null;
     private array $lastRows = [];
+    private ?TutorialStep $lastTutorialStep = null;
     protected ?Window $summaryPanel = null;
     protected ?Window $listPanel = null;
     protected ?Window $infoPanel = null;
@@ -159,7 +163,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         } elseif ($this->view === SummonsMenuView::HOLDERS) {
             if ($definition === null) { return []; }
             $members = $this->getHolderOptions();
-            $rows = array_map(static fn(Character $member): MenuRow => new MenuRow('member-' . ($member->actorId ?? spl_object_id($member)), $member->name,
+            $rows = array_map(static fn(Character $member): MenuRow => new MenuRow(self::getHolderRowId($member), $member->name,
                 [new MenuRowValue($member->role->name), new MenuRowValue($member->hasSummon($definition->id) ? 'Assigned' : '')]), $members);
         } else {
             $rows = array_map(function (SummonCutsceneDefinition $summon): MenuRow {
@@ -216,17 +220,51 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
             $page = $content->details->createPage($this->detailViewport,
                 SummonsMenuPresentation::getDetailViewport($content, $theme), $theme->createDetailStyle());
         }
+        $step = $this->getTutorialStep();
+        $canvas = SummonsMenuPresentation::compose($content, $theme, $page, $this->menuInfoText, $time,
+            tutorial: $step, tutorialRow: $this->resolveTutorialRow($step));
+        if ($page !== null) { $this->lastDetailPage = $page; }
+        return $canvas;
+    }
+
+    private function getTutorialStep(): ?TutorialStep
+    {
         $tutorialView = match ($this->view) {
             SummonsMenuView::SUMMONS => self::TUTORIAL_LIST,
             SummonsMenuView::ACTIONS => self::TUTORIAL_ACTIONS,
             SummonsMenuView::HOLDERS => self::TUTORIAL_HOLDERS,
             default => null,
         };
-        $step = $tutorialView === null ? null
+        return $tutorialView === null ? null
             : $this->getGameScene()->getTutorialPresentationStep(self::TUTORIAL_SCREEN, $tutorialView);
-        $canvas = SummonsMenuPresentation::compose($content, $theme, $page, $this->menuInfoText, $time, tutorial: $step);
-        if ($page !== null) { $this->lastDetailPage = $page; }
-        return $canvas;
+    }
+
+    private static function getHolderRowId(Character $member): string
+    {
+        return 'member-' . ($member->actorId ?? spl_object_id($member));
+    }
+
+    private function resolveTutorialRow(?TutorialStep $step): ?string
+    {
+        if ($step === null) {
+            return null;
+        }
+        $id = $step->target['id'];
+        if ($this->view !== SummonsMenuView::HOLDERS || ($step->until['outcome'] ?? null) !== self::TUTORIAL_ASSIGNED) {
+            return $id;
+        }
+        $definition = $this->getSelectedSummon();
+        if ($definition === null || ($step->until['subject'] ?? $definition->id) !== $definition->id) {
+            return null;
+        }
+        foreach ($this->getHolderOptions() as $member) {
+            $rowId = self::getHolderRowId($member);
+            if (!$member->hasSummon($definition->id) && ($id === self::TUTORIAL_ASSIGNABLE_HOLDER || $id === $rowId)) {
+                return $rowId;
+            }
+        }
+
+        return null;
     }
 
     protected function refreshUI(): void
@@ -240,7 +278,9 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $this->summaryPanel->render();
         if ($content->details !== null) { $this->refreshDetailPanel($content->details); }
         else { $this->refreshListPanel(); }
-        $this->infoPanel->setHelp(TerminalControlText::formatHints($content->hints));
+        $step = $this->lastTutorialStep = $this->getTutorialStep();
+        $hint = $this->resolveTutorialRow($step) === null ? null : TutorialTerminalPresentation::getHint($step);
+        $this->infoPanel->setHelp($hint ?? TerminalControlText::formatHints($content->hints));
         $this->refreshInfoPanel($content->description);
     }
 
@@ -259,9 +299,11 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $size = $this->listPanel->getContentHeight();
         $offset = max(0, min($this->activeIndex - intdiv($size, 2), count($rows) - $size));
         $lines = [];
+        $target = $this->resolveTutorialRow($this->getTutorialStep());
         foreach (array_slice($rows, $offset, $size) as $row) {
-            $lines[] = TerminalMenuRow::compose($row->label, implode('  ', array_map(static fn(MenuRowValue $value): string => $value->text, $row->values)),
+            $line = TerminalMenuRow::compose($row->label, implode('  ', array_map(static fn(MenuRowValue $value): string => $value->text, $row->values)),
                 $this->listPanel->getContentWidth(), prefix: $row->focused ? ' > ' : '   ');
+            $lines[] = $row->id === $target ? TutorialTerminalPresentation::highlight($line) : $line;
         }
         if ($rows === []) { $lines[] = $this->character === null ? 'No summons.' : 'No assignable summons.'; }
         $this->listPanel->setContent(array_pad($lines, $size, ''));
@@ -301,6 +343,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $priorView = $this->view;
         $this->refreshDefinitions();
         if ($priorCharacter !== $this->character || $priorView !== $this->view
+            || $this->getTutorialStep() !== $this->lastTutorialStep
             || $this->getRowSnapshot($this->getRows()) !== $this->lastRows) {
             // Refresh a changed roster/availability before accepting a choice made against its old rows.
             $this->refreshUI();
