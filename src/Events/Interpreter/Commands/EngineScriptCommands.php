@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Events\Interpreter\Commands;
 
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+
 /**
  * The script commands the Engine registers for every project, declared in
  * the same form a project declares its own.
@@ -63,6 +65,13 @@ final class EngineScriptCommands
           'label' => 'Wake At',
           'kind' => 'position',
           'description' => 'Where on this map the party wakes; where they stand when not given.',
+        ],
+        [
+          'key' => 'wakeFacing',
+          'label' => 'Wake Facing',
+          'kind' => 'option',
+          'options' => [MovementHeading::NORTH->value, MovementHeading::EAST->value, MovementHeading::SOUTH->value, MovementHeading::WEST->value],
+          'description' => 'Which way the party faces on waking; keeps their current facing when omitted.',
         ],
         [
           'key' => 'bgm',

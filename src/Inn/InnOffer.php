@@ -43,7 +43,7 @@ final readonly class InnOffer
   /**
    * Reads an inn's authored data: `confirmDialogue` (its `text`, and an
    * optional `name` and `face`), and optional `cost`, `spawnPoint` (`x`
-   * and `y`), `spawnSprite`, `bgm` and `presentation`. A presentation descriptor
+   * and `y`), `wakeFacing`, `spawnSprite`, `bgm` and `presentation`. A presentation descriptor
    * declares `treatment` (`leader` or `party`) and its corresponding `leaders`
    * or `parties` bindings; it never implicitly falls back from party to leader.
    *
@@ -84,11 +84,13 @@ final readonly class InnOffer
       throw new InvalidArgumentException('Inn presentation must be a stable timeline identity, party stage selection or null.');
     }
 
+    $wakeSprite = $data['wakeFacing'] ?? $data['spawnSprite'] ?? null;
+
     return new self(
       ConfirmDialogue::fromArray((array) $confirmDialogue),
       intval($data['cost'] ?? 0),
       $spawnPoint,
-      isset($data['spawnSprite']) ? array_values((array) $data['spawnSprite']) : null,
+      $wakeSprite === null ? null : array_values((array) $wakeSprite),
       $backgroundMusic === '' ? null : $backgroundMusic,
       is_string($presentation) ? trim($presentation) : $presentation,
     );
