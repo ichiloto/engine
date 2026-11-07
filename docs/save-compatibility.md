@@ -376,7 +376,7 @@ project class:
   'from' => 16,
   'to' => 17,
   'relocations' => [
-    ['map' => 'town', 'cells' => [[34, 5]], 'to' => [35, 6]],
+    ['map' => 'town', 'cells' => [[34, 5]], 'to' => [35, 6], 'heading' => 'north'],
     ['map' => 'town', 'cells' => [[55, 8], [56, 8]], 'to' => [55, 6]],
   ],
 ]
@@ -386,7 +386,10 @@ project class:
 cells and `to` the `[x, y]` landing, all non-negative integers; the landing
 may not be one of the cells. A saved player position exactly on a listed cell
 moves to the landing; every other position, including a fractional one, keeps
-its coordinates. Map aliases apply as for shifts. The cells and landing are
+its coordinates. An optional `heading` (north, east, south or west) sets the
+player's facing only when that relocation moves the save. A relocation without
+a heading preserves the current facing. Map aliases apply as for shifts. The
+cells and landing are
 frozen in the manifest: choose a landing that is open floor, free of events and
 NPCs and reachable, because loading a save never consults the mutable map.
 

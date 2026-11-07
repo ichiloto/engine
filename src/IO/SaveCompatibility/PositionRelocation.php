@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\IO\SaveCompatibility;
 
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Exceptions\InvalidSaveCompatibilityManifestException;
 
@@ -23,6 +24,7 @@ final readonly class PositionRelocation implements SavedPositionEdit
     public string $map,
     public array $cells,
     public array $to,
+    public ?MovementHeading $heading,
   )
   {
   }
@@ -78,7 +80,18 @@ final readonly class PositionRelocation implements SavedPositionEdit
       ));
     }
 
-    return new self($map, $cells, $to);
+    $heading = null;
+    if (array_key_exists('heading', $entry)) {
+      $rawHeading = $entry['heading'];
+      $heading = is_string($rawHeading) ? MovementHeading::tryFrom(ucfirst(strtolower(trim($rawHeading)))) : null;
+      if ($heading === null || $heading === MovementHeading::NONE) {
+        throw new InvalidSaveCompatibilityManifestException(
+          sprintf('%s heading must be north, east, south or west.', $where),
+        );
+      }
+    }
+
+    return new self($map, $cells, $to, $heading);
   }
 
   public function applyTo(Vector2 $position): Vector2

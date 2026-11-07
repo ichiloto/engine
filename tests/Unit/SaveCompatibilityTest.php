@@ -665,7 +665,7 @@ it('refuses to mix map removals and a project migration class', function () {
   ]))->toThrow(InvalidSaveCompatibilityManifestException::class, 'must declare either a class or declared position edits');
 });
 
-it('moves a saved player off declared relocated cells after the step map shifts', function (string $mapId, array $position, array $expected) {
+it('moves a saved player off declared relocated cells after the step map shifts', function (string $mapId, array $position, array $expected, MovementHeading $heading) {
   $manifest = makeCompatibilityManifest([
     'contentVersion' => 2,
     'migrations' => [
@@ -674,7 +674,7 @@ it('moves a saved player off declared relocated cells after the step map shifts'
         'to' => 1,
         'mapShifts' => [['map' => 'town', 'axis' => 'y', 'at' => 4, 'by' => 2]],
         'relocations' => [
-          ['map' => 'town', 'cells' => [[3, 8], [4, 8]], 'to' => [3, 9]],
+          ['map' => 'town', 'cells' => [[3, 8], [4, 8]], 'to' => [3, 9], 'heading' => 'north'],
         ],
       ],
       [
@@ -694,16 +694,17 @@ it('moves a saved player off declared relocated cells after the step map shifts'
 
   $loaded = new SaveCompatibilityPipeline($manifest)->load($legacy, $path)->config;
 
-  expect([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual($expected);
+  expect([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual($expected)
+    ->and($loaded->playerHeading)->toBe($heading);
 })->with([
   // (4, 6) shifts down to (4, 8), a relocated cell, then on through both steps.
-  'shifted onto a relocated cell' => ['town', [4, 6], [5, 9]],
-  'a listed cell that no shift reaches' => ['town', [3, 2], [3, 2]],
-  'a later step moves an earlier landing' => ['town', [3, 7], [5, 9]],
-  'an unlisted cell is untouched' => ['town', [6, 8], [6, 10]],
-  'a fractional position is not a cell' => ['town', [3.5, 8], [3.5, 10]],
-  'a renamed map follows its alias' => ['old-town', [4, 6], [5, 9]],
-  'another map is untouched' => ['forest', [3, 8], [3, 8]],
+  'shifted onto a relocated cell' => ['town', [4, 6], [5, 9], MovementHeading::NORTH],
+  'a listed cell that no shift reaches' => ['town', [3, 2], [3, 2], MovementHeading::EAST],
+  'a later relocation without a heading preserves facing' => ['town', [3, 7], [5, 9], MovementHeading::EAST],
+  'an unlisted cell is untouched' => ['town', [6, 8], [6, 10], MovementHeading::EAST],
+  'a fractional position is not a cell' => ['town', [3.5, 8], [3.5, 10], MovementHeading::EAST],
+  'a renamed map follows its alias' => ['old-town', [4, 6], [5, 9], MovementHeading::NORTH],
+  'another map is untouched' => ['forest', [3, 8], [3, 8], MovementHeading::EAST],
 ]);
 
 it('relocates a save once, so loading it again changes nothing', function () {
@@ -725,7 +726,8 @@ it('relocates a save once, so loading it again changes nothing', function () {
   $payload = ['config' => $loaded];
   $migration?->migrate($payload);
 
-  expect([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual([2, 3]);
+  expect([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual([2, 3])
+    ->and($loaded->playerHeading)->toBe(MovementHeading::EAST);
 });
 
 it('rejects malformed declarative relocation migrations', function (array $entry, string $message) {
@@ -746,6 +748,8 @@ it('rejects malformed declarative relocation migrations', function (array $entry
   'a negative cell' => [['relocations' => [['map' => 'a', 'cells' => [[-1, 1]], 'to' => [1, 2]]]], 'non-negative integers'],
   'a repeated cell' => [['relocations' => [['map' => 'a', 'cells' => [[1, 1], [1, 1]], 'to' => [1, 2]]]], 'cells[1] repeats [1, 1]'],
   'a string landing' => [['relocations' => [['map' => 'a', 'cells' => [[1, 1]], 'to' => ['1', 2]]]], 'to must be [x, y]'],
+  'a non-cardinal heading' => [['relocations' => [['map' => 'a', 'cells' => [[1, 1]], 'to' => [1, 2], 'heading' => 'None']]], 'heading must be north, east, south or west'],
+  'a non-string heading' => [['relocations' => [['map' => 'a', 'cells' => [[1, 1]], 'to' => [1, 2], 'heading' => 1]]], 'heading must be north, east, south or west'],
   'a landing on a moved cell' => [['relocations' => [['map' => 'a', 'cells' => [[1, 1]], 'to' => [1, 1]]]], 'is one of the cells it moves players off'],
 ]);
 

@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\IO\SaveCompatibility;
 
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 
@@ -35,10 +36,11 @@ final readonly class DeclaredPositionContentMigration implements ContentMigratio
 
     $data = $config->getSaveCompatibilityData();
     $position = $data['playerPosition'] ?? null;
+    $heading = $data['playerHeading'] ?? null;
     $mapId = is_string($data['mapId'] ?? null) ? $data['mapId'] : '';
     $place = $position instanceof Vector2 && trim($mapId) !== ''
-      ? $this->movePlace($mapId, $position)
-      : ['mapId' => $mapId, 'position' => $position];
+      ? $this->movePlayer($mapId, $position, $heading)
+      : ['mapId' => $mapId, 'position' => $position, 'heading' => $heading];
     $visits = $data['gameState']['visitedMaps'] ?? null;
     $carried = $visits;
 
@@ -55,6 +57,9 @@ final readonly class DeclaredPositionContentMigration implements ContentMigratio
     if ($place['position'] !== $position) {
       $data['playerPosition'] = $place['position'];
       $data['mapId'] = $place['mapId'];
+      if ($place['heading'] !== $heading) {
+        $data['playerHeading'] = $place['heading'];
+      }
     }
 
     if ($carried !== $visits) {
@@ -77,6 +82,14 @@ final readonly class DeclaredPositionContentMigration implements ContentMigratio
    */
   public function movePlace(string $mapId, Vector2 $position): array
   {
+    $place = $this->movePlayer($mapId, $position, null);
+
+    return ['mapId' => $place['mapId'], 'position' => $place['position']];
+  }
+
+  /** @return array{mapId: string, position: Vector2, heading: ?MovementHeading} */
+  private function movePlayer(string $mapId, Vector2 $position, ?MovementHeading $heading): array
+  {
     $current = $this->getCurrentMapId($mapId);
 
     foreach ($this->edits as $edit) {
@@ -91,10 +104,14 @@ final readonly class DeclaredPositionContentMigration implements ContentMigratio
         continue;
       }
 
-      $position = $edit->applyTo($position);
+      $landing = $edit->applyTo($position);
+      if ($landing !== $position && $edit instanceof PositionRelocation && $edit->heading !== null) {
+        $heading = $edit->heading;
+      }
+      $position = $landing;
     }
 
-    return ['mapId' => $mapId, 'position' => $position];
+    return ['mapId' => $mapId, 'position' => $position, 'heading' => $heading];
   }
 
   /**
