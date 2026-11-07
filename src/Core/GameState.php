@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Core;
 
+use Ichiloto\Engine\Progression\TutorialPhase;
+
 /**
  * The persistent world-state store.
  *
@@ -49,6 +51,25 @@ class GameState
 
   /** @var array<string,true> Delivered first-use prompts, separate from power availability. */
   private array $worldAbilityPrompts = [];
+
+  /** @var array<string, TutorialPhase> Tutorial progress by stable authored id. */
+  private array $tutorials = [];
+
+  public function getTutorialPhase(string $id): ?TutorialPhase
+  {
+    return $this->tutorials[trim($id)] ?? null;
+  }
+
+  public function setTutorialPhase(string $id, TutorialPhase $phase): void
+  {
+    $id = trim($id);
+    if ($id === '' || $this->getTutorialPhase($id) === $phase) {
+      return;
+    }
+
+    $this->tutorials[$id] = $phase;
+    $this->onChange?->__invoke('tutorial', $id);
+  }
 
   public function hasSeenWorldAbilityPrompt(string $id): bool { return isset($this->worldAbilityPrompts[$id]); }
 
@@ -247,7 +268,7 @@ class GameState
   }
 
   /**
-   * @return array{switches: array<string, bool>, variables: array<string, int|float|string>, storyEvents: string[], completedEvents: array<string, true>, visitedMaps: array<string, true>, knownLandmarks: array<string, array<string, true>>, worldAbilityPrompts: array<string,true>}
+   * @return array{switches: array<string, bool>, variables: array<string, int|float|string>, storyEvents: string[], completedEvents: array<string, true>, visitedMaps: array<string, true>, knownLandmarks: array<string, array<string, true>>, worldAbilityPrompts: array<string,true>, tutorials: array<string,string>}
    */
   public function toArray(): array
   {
@@ -259,6 +280,7 @@ class GameState
       'visitedMaps' => $this->visitedMaps,
       'knownLandmarks' => $this->knownLandmarks,
       'worldAbilityPrompts' => $this->worldAbilityPrompts,
+      'tutorials' => array_map(static fn(TutorialPhase $phase): string => $phase->value, $this->tutorials),
     ];
   }
 
@@ -280,6 +302,7 @@ class GameState
     $this->visitedMaps = $restored->visitedMaps;
     $this->knownLandmarks = $restored->knownLandmarks;
     $this->worldAbilityPrompts = $restored->worldAbilityPrompts;
+    $this->tutorials = $restored->tutorials;
   }
 
   /**
@@ -332,6 +355,13 @@ class GameState
 
     foreach (is_array($data['worldAbilityPrompts'] ?? null) ? $data['worldAbilityPrompts'] : [] as $id => $seen) {
       if ((is_string($id) || is_int($id)) && $seen === true) { $state->markWorldAbilityPromptSeen((string)$id); }
+    }
+
+    foreach (is_array($data['tutorials'] ?? null) ? $data['tutorials'] : [] as $id => $value) {
+      $phase = is_string($value) ? TutorialPhase::tryFrom($value) : null;
+      if ($phase !== null) {
+        $state->setTutorialPhase((string) $id, $phase);
+      }
     }
 
     return $state;

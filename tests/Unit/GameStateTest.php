@@ -6,6 +6,7 @@ use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTriggerFactory;
+use Ichiloto\Engine\Progression\TutorialPhase;
 
 function makeTestTrigger(
   array $conditions = [],
@@ -130,6 +131,46 @@ it('round-trips through toArray and fromArray', function () {
     ->and($restored->getVariable('chests_opened'))->toBe(3)
     ->and($restored->hasStoryEvent('met_the_king'))->toBeTrue()
     ->and($restored->isEventComplete('happyville/home', 'B'))->toBeTrue();
+});
+
+it('round-trips tutorial phases and ignores unknown save values', function () {
+  $state = GameState::fromArray([
+    'tutorials' => [
+      'guide.pending' => 'pending',
+      'guide.completed' => 'completed',
+      'guide.skipped' => 'skipped',
+      'guide.unknown' => 'retired',
+      'guide.malformed' => true,
+      '' => 'pending',
+    ],
+  ]);
+
+  expect($state->getTutorialPhase('guide.pending'))->toBe(TutorialPhase::PENDING)
+    ->and($state->getTutorialPhase('guide.completed'))->toBe(TutorialPhase::COMPLETED)
+    ->and($state->getTutorialPhase('guide.skipped'))->toBe(TutorialPhase::SKIPPED)
+    ->and($state->toArray()['tutorials'])->toBe([
+      'guide.pending' => 'pending',
+      'guide.completed' => 'completed',
+      'guide.skipped' => 'skipped',
+    ])
+    ->and(GameState::fromArray([])->toArray()['tutorials'])->toBe([]);
+});
+
+it('restores tutorial phases without notifying the live scene', function () {
+  $state = new GameState();
+  $changes = [];
+  $state->onChange = function (string $kind, string $id) use (&$changes): void {
+    $changes[] = [$kind, $id];
+  };
+
+  $state->setTutorialPhase('guide.sample', TutorialPhase::PENDING);
+  $snapshot = $state->toArray();
+  $state->setTutorialPhase('guide.sample', TutorialPhase::COMPLETED);
+  $state->setTutorialPhase('guide.sample', TutorialPhase::COMPLETED);
+  $state->restoreSnapshot($snapshot);
+
+  expect($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::PENDING)
+    ->and($changes)->toBe([['tutorial', 'guide.sample'], ['tutorial', 'guide.sample']]);
 });
 
 /* Trigger conditions */
