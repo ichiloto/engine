@@ -13,6 +13,8 @@ use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Progression\TutorialCatalog;
+use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicController;
@@ -798,6 +800,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
      * events, one-shot event completion).
      */
     protected(set) GameState $gameState;
+    protected(set) ?TutorialDirector $tutorialDirector = null;
     /**
      * @var QuestManager|null The quest manager.
      */
@@ -1065,6 +1068,9 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $this->fieldMusicPending = false;
         $this->fieldMusicHolds = 0;
         $this->gameState = GameState::fromArray($this->config->gameState);
+        $assetRoot = $this->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets';
+        $tutorials = TutorialCatalog::fromProject($assetRoot);
+        $this->tutorialDirector = $tutorials->definitions === [] ? null : new TutorialDirector($tutorials, $this->gameState);
 
         $this->gameState->onChange = $this->handleWorldStateChange(...);
 
@@ -1087,7 +1093,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $this->cinematicController = new CinematicController($this);
         $this->cinematicPresentation = new CinematicPresentationManager($this);
         $this->fieldEffects?->clear();
-        $this->fieldEffects = new FieldEffectManager($this->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets',
+        $this->fieldEffects = new FieldEffectManager($assetRoot,
             Console::isTerminalOutputEnabled() ? EffectPresentation::TERMINAL : EffectPresentation::GRAPHICAL);
         $this->eventInterpreter = new EventInterpreter($this);
         $this->hasDeferredAutoSave = false;

@@ -14,6 +14,8 @@ use InvalidArgumentException;
 /** Owns a campaign's guided lesson across field and menu transitions. */
 final class TutorialDirector
 {
+  public const string CONFIG_AUTOMATIC_PROMPTS = 'ui.tutorials.automatic_prompts';
+
   private ?TutorialDefinition $active = null;
   private int $stepIndex = 0;
   private bool $practice = false;

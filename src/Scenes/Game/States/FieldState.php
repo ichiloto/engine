@@ -13,9 +13,11 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Field\PlayerDash;
+use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Progression\WorldAbilityPrompts;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Field\PlayerWalk;
 use Ichiloto\Engine\Field\FieldActionRegistry;
 use Ichiloto\Engine\Field\SkitPrompt;
@@ -210,8 +212,15 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
             && WorldAbilityCatalog::getProjectCatalog()->hasFirstUsePrompts) {
             $this->worldAbilityPrompts = new WorldAbilityPrompts($scene->getGame());
         }
-        $this->worldAbilityPrompts?->updateForScene($scene);
+        if ($scene->tutorialDirector !== null && $scene->getUI()->getActivePresentations() === []) {
+            $scene->tutorialDirector->updateInStableField(
+                (bool) config(ProjectConfig::class, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true),
+                $scene->party,
+                $scene->questManager?->log,
+            );
+        }
 
+        $this->worldAbilityPrompts?->updateForScene($scene);
         $this->handleActions($scene);
 
         if ($scene->isStopping || $movementGeneration !== $this->movementGeneration

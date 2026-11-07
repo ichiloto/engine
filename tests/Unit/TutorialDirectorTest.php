@@ -1,6 +1,10 @@
 <?php
 
 use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandContext;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandReference;
+use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\IO\ActionHintProvider;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\ControlHint;
@@ -107,4 +111,21 @@ it('observes automatic trigger edges without starting historical or unbound less
   $director->updateInStableField(true);
   expect($director->getActiveTutorial())->toBeNull()
     ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::PENDING);
+});
+
+it('registers a tutorial picker and queues a field lesson without suspending the script', function () {
+  $state = new GameState();
+  $scene = makeBareScene(GameScene::class);
+  $director = makeTutorialDirector($state);
+  new ReflectionProperty($scene, 'tutorialDirector')->setValue($scene, $director);
+  $catalog = ScriptCommandCatalog::createEngineCatalog();
+  $definition = $catalog->findDefinition('start_tutorial');
+
+  expect($definition->fields[0]->reference)->toBe(ScriptCommandReference::TUTORIAL)
+    ->and($catalog->createHandler('start_tutorial')->execute(
+      new ScriptCommandContext($scene),
+      ['tutorial' => 'guide.sample'],
+    )->operation)->toBeNull()
+    ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::PENDING)
+    ->and($director->getActiveTutorial())->toBeNull();
 });

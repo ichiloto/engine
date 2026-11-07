@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Util\Config;
 
 use BackedEnum;
 use Ichiloto\Engine\Field\PlayerDash;
+use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\IO\LaunchDataRoot;
@@ -26,7 +27,7 @@ final class PlayerSettings extends AbstractConfig
     'ui.battle.message_pace', 'ui.battle.animation_pace',
     'ui.menu.selection_color', 'ui.battle.selection_color',
     'ui.hud.location', 'ui.hud.map_size', 'ui.transitions.style', 'ui.transitions.battle',
-    PlayerDash::CONFIG_ALWAYS_DASH,
+    PlayerDash::CONFIG_ALWAYS_DASH, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS,
   ];
 
   private readonly string $filename;
@@ -89,6 +90,9 @@ final class PlayerSettings extends AbstractConfig
     if ($path === 'ui.hud.map_size' && !in_array($value, ['compact','large','off'], true)) {
       throw new InvalidArgumentException('Corner map size must be compact, large or off.');
     }
+    if ($path === TutorialDirector::CONFIG_AUTOMATIC_PROMPTS && !is_bool($value)) {
+      throw new InvalidArgumentException('Tutorial prompts must be on or off.');
+    }
     parent::set($path, $value instanceof BackedEnum ? $value->value : $value);
   }
 
@@ -102,6 +106,7 @@ final class PlayerSettings extends AbstractConfig
       }
       $value = $this->get($path);
       if ($path === 'ui.hud.map_size' && !in_array($value, ['compact','large','off'], true)) { continue; }
+      if ($path === TutorialDirector::CONFIG_AUTOMATIC_PROMPTS && !is_bool($value)) { continue; }
       if (! is_scalar($value)) {
         continue;
       }
