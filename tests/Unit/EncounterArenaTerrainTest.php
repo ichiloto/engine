@@ -154,3 +154,20 @@ it('measures which arena art covers every battle a map can start and names the m
   expect(EncounterArenaCoverage::measure($table, $collisions, terrainArenaCatalog(), static fn(int $x, int $y): bool => $x !== 4)
     ->findMissingVariants())->toBe([]);
 });
+
+it('uses one ordered pool for encounter weights and arenas when area and terrain overlap', function () {
+  $table = terrainArenaTable(['pools' => [
+    ['area' => 'missing', 'troops' => ['Wolves' => 9]],
+    ['area' => 'vale', 'troops' => ['Wolves' => ['weight' => 5, 'battleArena' => 'arena.vale']]],
+    ['terrain' => 'woodland', 'troops' => ['Wolves' => ['weight' => 2, 'battleArena' => 'arena.woods']]],
+  ]]);
+
+  $woodedVale = new Vector2(3, 0);
+  $grassland = new Vector2(0, 0);
+  expect($table->getTroopWeightsAt($woodedVale))->toBe(['Wolves' => 5])
+    ->and($table->resolveBattleArenaAt('Wolves', $woodedVale)->settings['battleArena'])->toBe('arena.vale')
+    ->and($table->getTroopWeightsAt($grassland))->toBe(['Wolves' => 1, 'Lake Wyrm' => 1])
+    ->and($table->resolveBattleArenaAt('Lake Wyrm', $grassland)->settings['battleArena'])->toBe('arena.marsh')
+    ->and($table->ignored)->toContain('Encounter pool 1: area must name a declared map area.')
+    ->and($table->findUnusedPoolNumbers(array_fill(0, 2, array_fill(0, 6, CollisionType::NONE->value))))->toBe([3]);
+});

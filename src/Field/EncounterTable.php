@@ -57,6 +57,8 @@ final class EncounterTable
     public readonly array $ignored,
     public readonly array $arenaRules = [],
     private readonly array $arenaAreas = [],
+    /** @var array<int, EncounterPool> */
+    private readonly array $pools = [],
   )
   {
   }
@@ -116,8 +118,25 @@ final class EncounterTable
       }
     }
 
+    $pools = [];
+    if (array_key_exists(EncounterPool::KEY, $encounters ?? [])) {
+      $authoredPools = $encounters[EncounterPool::KEY];
+      if (!is_array($authoredPools) || !array_is_list($authoredPools)) {
+        $ignored[] = 'Encounter pools must be an ordered list.';
+      } else {
+        foreach ($authoredPools as $index => $value) {
+          $pool = EncounterPool::getFromValue($value, $areas, $terrain);
+          if (is_string($pool)) {
+            $ignored[] = sprintf('Encounter pool %d: %s.', $index + 1, $pool);
+          } else {
+            $pools[$index] = $pool;
+          }
+        }
+      }
+    }
+
     $rate = 0;
-    if ($weights !== []) {
+    if ($weights !== [] || $pools !== []) {
       $rate = max(1, intval($encounters['rate'] ?? self::DEFAULT_RATE));
     } elseif (! empty($encounters)) {
       // A map that asks for encounters and gets none is a data mistake, not a
@@ -130,7 +149,7 @@ final class EncounterTable
 
     return new self($entries, $weights, $troopAreas, $troopTerrains, $terrain,
       array_intersect_key($encounters ?? [], [BattlePresentationCatalog::ARENA_SETTING => true]), $rate,
-      strval($encounters['tiles'] ?? 'encounter') === 'any', $ignored, $rules, $ruleAreas);
+      strval($encounters['tiles'] ?? 'encounter') === 'any', $ignored, $rules, $ruleAreas, $pools);
   }
 
   /**
@@ -196,7 +215,9 @@ final class EncounterTable
     $terrain = $position === null ? null : $this->terrain?->getTerrainAt((int) floor($position->x), (int) floor($position->y));
     $refined = static fn(array $settings): array => $terrain === null ? $settings
       : [...$settings, BattlePresentationCatalog::TERRAIN_SETTING => $terrain];
-    $entry = $this->entries[$troopName] ?? null;
+    $pool = $this->getPoolAt($position, $terrain);
+    $entries = $pool === null ? $this->entries : $pool->entries;
+    $entry = $entries[$troopName] ?? null;
     $own = $entry?->getBattleSettings([]) ?? [];
     if (array_key_exists(BattlePresentationCatalog::ARENA_SETTING, $own)) {
       // A troop met on a scene of its own is fought there as authored, as an event battle is.
@@ -274,10 +295,69 @@ final class EncounterTable
   public function getTroopWeightsAt(?Vector2 $position): array
   {
     $terrain = $position === null ? null : $this->terrain?->getTerrainAt((int) floor($position->x), (int) floor($position->y));
+    $pool = $this->getPoolAt($position, $terrain);
+    if ($pool !== null) { return $pool->getTroopWeights(); }
+
     return array_filter($this->troopWeights, fn(int $weight, string $troopName): bool => (! isset($this->troopAreas[$troopName])
       || ($position !== null && array_any($this->troopAreas[$troopName], static fn(CellArea $area): bool => $area->contains($position))))
       && (! isset($this->troopTerrains[$troopName]) || in_array($terrain, $this->troopTerrains[$troopName], true)),
       ARRAY_FILTER_USE_BOTH);
+  }
+
+  /** Authored order breaks overlap; each cell uses one whole pool. */
+  private function getPoolAt(?Vector2 $position, ?string $terrain): ?EncounterPool
+  {
+    if ($position === null) {
+      return null;
+    }
+
+    $index = $this->findPoolIndexAt($position, $terrain);
+    return $index === null ? null : $this->pools[$index];
+  }
+
+  private function countsTile(?CollisionType $tile): bool
+  {
+    return $this->countsEveryTile || $tile === CollisionType::ENCOUNTER;
+  }
+
+  private function findPoolIndexAt(Vector2 $position, ?string $terrain): ?int
+  {
+    return array_find_key($this->pools, static fn(EncounterPool $pool): bool => $pool->matches($position, $terrain));
+  }
+
+  /**
+   * Finds the authored pool numbers that supply no encounter-eligible cell.
+   * The first eligible match owns the cell, even when later pools overlap it.
+   *
+   * @param int[][] $collisions The map's resolved collision grid.
+   * @return list<int> One-based authored pool numbers.
+   */
+  public function findUnusedPoolNumbers(array $collisions): array
+  {
+    $unused = $this->pools;
+    if ($unused === []) {
+      return [];
+    }
+
+    foreach ($collisions as $y => $row) {
+      foreach ($row as $x => $value) {
+        $tile = CollisionType::tryFrom($value);
+        if ($tile === null || $tile->blocksMovement() || !$this->countsTile($tile)) {
+          continue;
+        }
+
+        $position = new Vector2($x, $y);
+        $index = $this->findPoolIndexAt($position, $this->terrain?->getTerrainAt($x, $y));
+        if ($index !== null) {
+          unset($unused[$index]);
+          if ($unused === []) {
+            return [];
+          }
+        }
+      }
+    }
+
+    return array_map(static fn(int $index): int => $index + 1, array_keys($unused));
   }
 
   /**
@@ -295,7 +375,7 @@ final class EncounterTable
       return 0.0;
     }
     $isDangerTile = $tile === CollisionType::ENCOUNTER;
-    if (! $isDangerTile && ! $this->countsEveryTile) {
+    if (! $this->countsTile($tile)) {
       return 0.0;
     }
     if ($this->getTroopWeightsAt($position) === []) {
