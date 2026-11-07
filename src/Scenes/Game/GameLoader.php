@@ -107,14 +107,16 @@ class GameLoader
       ? new Vector2($systemData->startingPositions->player->spawnPoint->x, $systemData->startingPositions->player->spawnPoint->y)
       : new Vector2($start->x, $start->y);
     $playerSprites = $this->loadPlayerSprites();
-    $spawnSprite = $playerSprites->resolveSprite($systemData->startingPositions->player->spawnSprite ?? throw new RequiredFieldException('startingPositions.player.spawnSprite'));
+    $configuredSpawnSprite = $systemData->startingPositions->player->spawnSprite
+      ?? throw new RequiredFieldException('startingPositions.player.spawnSprite');
+    $spawnSprite = $playerSprites->resolveSprite($configuredSpawnSprite);
 
     return new GameConfig(
       mapId: $start?->mapId ?? $systemData->startingPositions->player->destinationMap,
       party: $party,
       playerPosition: $playerPosition,
       playerShape: new Rect(0, 0, 1, 1),
-      playerHeading: $playerSprites->resolveHeading($spawnSprite),
+      playerHeading: $playerSprites->resolveHeading($configuredSpawnSprite),
       playerStats: [],
       events: [],
       playerSprite: $spawnSprite,

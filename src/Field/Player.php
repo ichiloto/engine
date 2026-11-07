@@ -842,6 +842,12 @@ class Player extends GameObject implements ThicketSubjectInterface
 
     $sprite = PlayerSpriteSet::normalizeSprite($sprite);
     $resolvedHeading = $heading ?? $this->resolveHeadingFromSprite($sprite);
+    if ($heading === null && $resolvedHeading === MovementHeading::NONE) {
+      $resolvedHeading = PlayerSpriteSet::resolveLegacyArrow($sprite);
+      if ($resolvedHeading !== MovementHeading::NONE) {
+        $sprite = $this->getSpriteForHeading($resolvedHeading);
+      }
+    }
 
     // A sprite that belongs to no direction (a placeholder glyph in the
     // project's spawn data, say) would otherwise be drawn verbatim and leave

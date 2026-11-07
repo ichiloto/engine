@@ -211,11 +211,11 @@ class PlayerSpriteSet
    */
   public function resolveSprite(array|string $sprite): array
   {
-    $heading = self::headingFromName($sprite);
+    $heading = $this->resolveHeading($sprite);
 
-    return $heading !== null
-      ? $this->getSpriteForHeading($heading)
-      : self::normalizeSprite($sprite);
+    return $heading === MovementHeading::NONE
+      ? self::normalizeSprite($sprite)
+      : $this->getSpriteForHeading($heading);
   }
 
   /**
@@ -263,6 +263,18 @@ class PlayerSpriteSet
       $sprite === $this->east => MovementHeading::EAST,
       $sprite === $this->south => MovementHeading::SOUTH,
       $sprite === $this->west => MovementHeading::WEST,
+      default => self::resolveLegacyArrow($sprite),
+    };
+  }
+
+  /** @param string[] $sprite Normalized sprite rows. */
+  public static function resolveLegacyArrow(array $sprite): MovementHeading
+  {
+    return match ($sprite) {
+      ['▲'] => MovementHeading::NORTH,
+      ['▶'] => MovementHeading::EAST,
+      ['▼'] => MovementHeading::SOUTH,
+      ['◀'] => MovementHeading::WEST,
       default => MovementHeading::NONE,
     };
   }
