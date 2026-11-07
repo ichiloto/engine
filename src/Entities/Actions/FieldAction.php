@@ -12,4 +12,10 @@ use Ichiloto\Engine\Entities\Interfaces\ActionInterface;
  */
 abstract class FieldAction implements ActionInterface
 {
+  protected function markAccepted(ActionContextInterface $context): void
+  {
+    if ($context instanceof FieldActionContext) {
+      $context->markAccepted();
+    }
+  }
 }

@@ -32,5 +32,6 @@ class SleepAction extends FieldAction
   public function execute(ActionContextInterface $context): void
   {
     new InnStay($this->trigger->offer)->perform($context->scene);
+    $this->markAccepted($context);
   }
 }

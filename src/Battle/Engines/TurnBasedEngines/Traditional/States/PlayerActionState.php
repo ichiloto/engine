@@ -26,6 +26,7 @@ use Ichiloto\Engine\Battle\BattleTargetPolicy;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
@@ -99,6 +100,8 @@ class PlayerActionState extends TurnState
    */
   public function update(TurnStateExecutionContext $context): void
   {
+    $previousChoice = $this->getChoiceState($context);
+
     match ($this->selectionMode) {
       self::MODE_COMMAND => $this->handleCommandNavigation($context),
       self::MODE_SUBMENU => $this->handleSubmenuNavigation($context),
@@ -106,8 +109,25 @@ class PlayerActionState extends TurnState
       default => null,
     };
 
+    $previousAlternative = $this->heldAttackOption?->label;
     $this->synchronizeAttackAlternative($context);
+    $revealedAlternative = $this->heldAttackOption !== null
+      && $previousAlternative !== $this->heldAttackOption->label
+      && InputManager::wasButtonPressed('right');
     $this->handleActions($context);
+
+    if ($revealedAlternative || $previousChoice !== $this->getChoiceState($context)) {
+      $context->game->recordPlayerActivity();
+    }
+  }
+
+  /** The selection state changed by accepted commands and target changes. */
+  private function getChoiceState(TurnStateExecutionContext $context): array
+  {
+    return [
+      $this->engine->state, $this->activeCharacterIndex, $this->selectionMode, $this->activeTargetIndex,
+      $context->ui->commandWindow->activeCommandIndex, $context->ui->commandContextWindow->getActiveItem(),
+    ];
   }
 
   /** Live held input affects only the highlighted command, never an already confirmed target choice. */
@@ -269,6 +289,7 @@ class PlayerActionState extends TurnState
     }
 
     $context->ui->alert($infoText);
+    $context->game->recordPlayerActivity();
   }
 
   /**

@@ -15,6 +15,14 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  */
 class FieldActionContext implements ActionContextInterface
 {
+  /** Whether the handler accepted this interaction. */
+  public private(set) bool $wasAccepted = false;
+
+  public function markAccepted(): void
+  {
+    $this->wasAccepted = true;
+  }
+
   /**
    * @inheritdoc
    */

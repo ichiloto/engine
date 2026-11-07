@@ -35,5 +35,6 @@ class EnterShopAction extends FieldAction
     }
 
     $this->trigger->offer->open($context->scene);
+    $this->markAccepted($context);
   }
 }

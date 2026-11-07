@@ -109,6 +109,7 @@ class ChestOpeningAction extends FieldAction
     }
 
     $this->trigger->complete();
+    $this->markAccepted($context);
     $context->scene->getGame()->audioManager->playSystemSound(SystemSound::ITEM_GET);
     $context->player->availableAction = null;
     alert($message);

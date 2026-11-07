@@ -397,6 +397,9 @@ class Player extends GameObject implements ThicketSubjectInterface
     $this->handleCollision($collisionType);
     $fieldWasRecomposed = $this->updatePlayerPosition($direction, $camera, $previousSprite);
     if ($origin->x !== $this->position->x || $origin->y !== $this->position->y) {
+      if ($stepOrigin === StepOrigin::PLAYER_INPUT) {
+        $this->getGameScene()->recordPlayerActivity();
+      }
       $step = new CharacterStep($origin, $this->position, $this->getGameScene()->getStepSeconds($direction));
       if ($this->walkAnimation !== null
         && ($this->getGraphicalCharacterSheet() !== null || $this->isPresentationSuppressed())) {
@@ -1267,15 +1270,18 @@ class Player extends GameObject implements ThicketSubjectInterface
     // Conditions can change while standing still. Resolve faced Action events
     // at the input edge, without starting automatic arrivals.
     $this->reconcileFacingEvents(includeAutomatic: false);
-    if ($this->availableAction === null && $this->talkToFacingNpc()) {
+    if ($this->availableAction === null) {
+      if ($this->talkToFacingNpc()) {
+        $this->getGameScene()->recordPlayerActivity();
+      }
       return;
     }
 
-    $this->availableAction?->execute(new FieldActionContext(
-      $this,
-      $this->getGameScene(),
-      $this->position
-    ));
+    $context = new FieldActionContext($this, $this->getGameScene(), $this->position);
+    $this->availableAction->execute($context);
+    if ($context->wasAccepted) {
+      $context->scene->recordPlayerActivity();
+    }
   }
 
   /**
@@ -1295,9 +1301,10 @@ class Player extends GameObject implements ThicketSubjectInterface
     }
 
     $npcManager->turnNpcToward($npc, $this->position);
-    $npc->talk($this->getGameScene());
+    $context = new FieldActionContext($this, $this->getGameScene(), $this->position);
+    $npc->interact($context);
 
-    return true;
+    return $context->wasAccepted;
   }
 
   /**

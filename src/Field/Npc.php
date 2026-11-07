@@ -6,7 +6,9 @@ use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\WorldStateWriter;
+use Ichiloto\Engine\Entities\Actions\FieldActionContext;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
+use Ichiloto\Engine\Events\Interpreter\EventExecutionStatus;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Events\Triggers\EventCue;
 use Ichiloto\Engine\Entities\Party;
@@ -109,6 +111,7 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
   /** The page whose action is running, completed when its session ends. */
   protected ?NpcPage $pendingPage = null;
   protected(set) bool $conversationIsActive = false;
+  private ?FieldActionContext $playerInteraction = null;
   /**
    * The heading the talk turn replaced, restored when that conversation
    * ends. Anything else that sets the heading or transform meanwhile (a
@@ -274,6 +277,18 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
     $this->party = $party;
   }
 
+  /** Runs the existing conversation entry point and reports its player interaction outcome. */
+  public function interact(FieldActionContext $context): void
+  {
+    $previousInteraction = $this->playerInteraction;
+    $this->playerInteraction = $context;
+    try {
+      $this->talk($context->scene);
+    } finally {
+      $this->playerInteraction = $previousInteraction;
+    }
+  }
+
   /**
    * Talks to the NPC: runs the current page (its lines, then its script,
    * shared event script or Cinematic), applies its `sets` and the NPC's,
@@ -304,6 +319,7 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
         charactersPerSecond: dialogue_speed(),
         presentation: DialogueContext::getFromText($line),
       );
+      $this->playerInteraction?->markAccepted();
     }
 
     if ($page->hasAction) {
@@ -400,6 +416,10 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
           'page' => $page->id ?? $page->index,
         ],
       );
+    }
+
+    if ($session !== null && $session->status !== EventExecutionStatus::FAILED) {
+      $this->playerInteraction?->markAccepted();
     }
 
     if ($session === null && $this->conversationIsActive) {

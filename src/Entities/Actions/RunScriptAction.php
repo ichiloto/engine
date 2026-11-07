@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities\Actions;
 
 use Ichiloto\Engine\Entities\Interfaces\ActionContextInterface;
+use Ichiloto\Engine\Events\Interpreter\EventExecutionStatus;
 use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 
 /**
@@ -23,6 +24,9 @@ class RunScriptAction extends FieldAction
    */
   public function execute(ActionContextInterface $context): void
   {
-    $this->trigger->startSession($context->scene);
+    $session = $this->trigger->startSession($context->scene);
+    if ($session !== null && $session->status !== EventExecutionStatus::FAILED) {
+      $this->markAccepted($context);
+    }
   }
 }

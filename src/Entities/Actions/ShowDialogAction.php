@@ -27,5 +27,6 @@ class ShowDialogAction extends FieldAction
     // Finishing the conversation completes the trigger: completion writes
     // (`sets`, quest grants) apply and talk-to objectives advance.
     $this->trigger->complete();
+    $this->markAccepted($context);
   }
 }

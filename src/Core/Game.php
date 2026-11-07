@@ -1260,6 +1260,15 @@ SPLASH_SCREEN;
         InputManager::handleInput();
     }
 
+    /** Reports an accepted action from a scene that is acting for the campaign. */
+    public function recordPlayerActivity(): void
+    {
+        $campaign = isset($this->sceneManager) ? $this->sceneManager->findScene(GameScene::class) : null;
+        if ($campaign instanceof GameScene) {
+            $campaign->recordPlayerActivity();
+        }
+    }
+
     /**
      * Update the game.
      *

@@ -277,10 +277,14 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
             return;
         }
 
-        if (Input::isButtonDown('secondary_action') && FieldActionRegistry::executeSecondaryAction(
-            new FieldActionContext($scene->player, $scene, $scene->player->position),
-        )) {
-            return;
+        if (Input::isButtonDown('secondary_action')) {
+            $context = new FieldActionContext($scene->player, $scene, $scene->player->position);
+            if (FieldActionRegistry::executeSecondaryAction($context)) {
+                if ($context->wasAccepted) {
+                    $scene->recordPlayerActivity();
+                }
+                return;
+            }
         }
 
         if (Input::isButtonPressed('map_size') && $scene->canPresentMapAtlas()

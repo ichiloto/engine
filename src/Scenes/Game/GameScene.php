@@ -45,6 +45,7 @@ use Ichiloto\Engine\Field\MapThickets;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Events\Interpreter\EventPlaybackPauseMenu;
@@ -853,6 +854,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     protected(set) KnowledgeProgressService $knowledge;
     /** The campaign's scheduled income; runs nothing when the project declares no schedules. */
     protected(set) ?IncomeService $income = null;
+    private ?float $lastAcceptedPlayerActivityAt = null;
     /**
      * @var string[] The currently recorded story-event flags.
      */
@@ -1068,6 +1070,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $this->achievementManager = new AchievementManager($this->getGame(), $this);
         $this->achievementManager->hydrate($this->config->achievements);
         $incomeCatalog = ConfigStore::has(IncomeCatalog::class) ? ConfigStore::get(IncomeCatalog::class) : null;
+        $this->lastAcceptedPlayerActivityAt = null;
         $this->income = new IncomeService(
             $incomeCatalog instanceof IncomeCatalog ? $incomeCatalog : new IncomeCatalog(),
             IncomeLedger::fromArray($this->config->income),
@@ -1938,6 +1941,14 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         };
     }
 
+    /** Records a player action accepted by the current gameplay owner. */
+    public function recordPlayerActivity(): void
+    {
+        if ($this->income?->isEnabled) {
+            $this->lastAcceptedPlayerActivityAt = RuntimeClock::getSeconds();
+        }
+    }
+
     /**
      * Counts one frame of the campaign's active play, whatever scene the
      * frame belonged to. Scenes that cannot say what the player is doing
@@ -1952,7 +1963,9 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
             return;
         }
         $activity = $currentScene instanceof PlayActivitySourceInterface ? $currentScene->getPlayActivity() : PlayActivity::PAUSED;
-        $this->income->advanceActivePlay($seconds, $activity, InputManager::getSecondsSinceInput());
+        $now = RuntimeClock::getSeconds();
+        $this->lastAcceptedPlayerActivityAt ??= $now;
+        $this->income->advanceActivePlay($seconds, $activity, max(0.0, $now - $this->lastAcceptedPlayerActivityAt));
     }
 
     private function showIncomeNotice(string $title, string $text): void

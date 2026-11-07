@@ -7,6 +7,8 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Entities\Actions\RunScriptAction;
+use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
@@ -388,3 +390,115 @@ it('keeps instant terminal and reduced-motion committed steps and their arrivals
       ->and($this->observer->steps)->toHaveCount(2);
   }
 })->with([false, true]);
+
+it('renews campaign activity after accepted movement and field interactions', function () {
+  require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
+  $clock = new \Tests\Support\ManualRuntimeClock();
+  $lease = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($clock);
+  $playing = $this->createMockForIntersectionOfInterfaces([
+    \Ichiloto\Engine\Scenes\Interfaces\SceneInterface::class,
+    \Ichiloto\Engine\Core\Interfaces\PlayActivitySourceInterface::class,
+  ]);
+  $playing->method('getPlayActivity')->willReturn(\Ichiloto\Engine\Core\PlayActivity::PLAYING);
+  $income = new \Ichiloto\Engine\Income\IncomeService(
+    new \Ichiloto\Engine\Income\IncomeCatalog(['schedules' => [[
+      'id' => 'work', 'name' => 'Work', 'cadence' => 'active_time',
+      'interval' => 10, 'amount' => 1, 'idleTimeout' => 1,
+    ]]]),
+    new \Ichiloto\Engine\Income\IncomeLedger(), new GameState(), new \Ichiloto\Engine\Entities\Party(),
+  );
+  new ReflectionProperty(GameScene::class, 'income')->setValue($this->scene, $income);
+  $grid = array_fill(0, 10, array_fill(0, 10, CollisionType::ENCOUNTER->value));
+  $grid[5][4] = CollisionType::SOLID->value;
+  new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($this->map, $grid);
+
+  try {
+    $this->scene->advanceActivePlay(0, $playing);
+    $this->source->press('right', KeyCode::RIGHT);
+    for ($frame = 0; $frame < 6; $frame++) {
+      $clock->seconds += 0.5;
+      InputManager::handleInput();
+      $this->field->navigate($this->scene);
+      $this->scene->advanceActivePlay(0.5, $playing);
+    }
+    expect($this->player->position->x)->toEqual(3)
+      ->and($income->ledger->getAccount('work')->progress)->toBe(1.0);
+
+    $this->player->interact();
+    $clock->seconds += 0.5;
+    $this->scene->advanceActivePlay(0.5, $playing);
+    expect($income->ledger->getAccount('work')->progress)->toBe(1.0);
+
+    $trigger = new ScriptEventTrigger(new Rect(3, 5, 1, 1), [
+      'script' => [['type' => 'wait', 'seconds' => 0.25]],
+    ]);
+    $this->player->availableAction = new RunScriptAction($trigger);
+    $existing = $this->interpreter->run([['type' => 'wait', 'seconds' => 0.25]]);
+    $this->player->interact();
+    $this->scene->advanceActivePlay(0.5, $playing);
+    expect($existing->status)->toBe(EventExecutionStatus::YIELDED)
+      ->and($income->ledger->getAccount('work')->progress)->toBe(1.0);
+    $this->interpreter->update(0.25);
+    expect($existing->status)->toBe(EventExecutionStatus::COMPLETED);
+
+    $this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::SCRIPTED);
+    $clock->seconds += 0.5;
+    $this->scene->advanceActivePlay(0.5, $playing);
+    expect($income->ledger->getAccount('work')->progress)->toBe(1.0);
+
+    InputManager::setInputSource(new FakeInputSource(KeyCode::UP, null));
+    InputManager::handleInput();
+    $this->field->navigate($this->scene);
+    $this->scene->advanceActivePlay(0.5, $playing);
+    expect($this->player->position->y)->toEqual(3)
+      ->and($income->ledger->getAccount('work')->progress)->toBe(1.5);
+    $clock->seconds += 2;
+    InputManager::handleInput();
+    $this->field->navigate($this->scene);
+    $this->scene->advanceActivePlay(0.5, $playing);
+    expect($this->player->position->y)->toEqual(3)
+      ->and($income->ledger->getAccount('work')->progress)->toBe(1.5);
+
+    $this->player->interact();
+    $this->scene->advanceActivePlay(0.5, $playing);
+    expect($this->interpreter->hasActiveSession())->toBeTrue()
+      ->and($income->ledger->getAccount('work')->progress)->toBe(2.0);
+
+    $this->player->availableAction = null;
+    $party = new \Ichiloto\Engine\Entities\Party();
+    new ReflectionProperty(GameScene::class, 'party')->setValue($this->scene, $party);
+    $npc = new \Ichiloto\Engine\Field\Npc(
+      'Synthetic speaker',
+      'N',
+      new Vector2(3, 2),
+      pages: \Ichiloto\Engine\Field\NpcPages::fromEntry([
+        'script' => [['type' => 'wait', 'seconds' => 0.25]],
+      ]),
+      directionFix: true,
+    );
+    $npc->bind('synthetic', $this->scene->gameState, $party);
+    $npcManager = new \Ichiloto\Engine\Field\NpcManager($this->scene);
+    $npcManager->applyPreparedNpcs([$npc]);
+    new ReflectionProperty(GameScene::class, 'npcManager')->setValue($this->scene, $npcManager);
+    expect($this->player->findFacingNpc())->toBe($npc);
+    $clock->seconds += 2;
+    $this->player->interact();
+    $this->scene->advanceActivePlay(0.5, $playing);
+    expect($npc->conversationIsActive)->toBeFalse()
+      ->and($income->ledger->getAccount('work')->progress)->toBe(2.0);
+
+    $this->interpreter->update(0.25);
+    $this->player->interact();
+    $this->scene->advanceActivePlay(0.5, $playing);
+    expect($npc->conversationIsActive)->toBeTrue()
+      ->and($income->ledger->getAccount('work')->progress)->toBe(2.5);
+
+    $clock->seconds += 2;
+    $this->player->interact();
+    $this->scene->advanceActivePlay(0.5, $playing);
+    expect($npc->conversationIsActive)->toBeTrue()
+      ->and($income->ledger->getAccount('work')->progress)->toBe(2.5);
+  } finally {
+    $lease->close();
+  }
+});

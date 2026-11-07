@@ -551,6 +551,9 @@ it('requires separate target confirmation for submenu commands and allows cancel
 require_once __DIR__ . '/../Support/Input/FakeHeldInputSource.php';
 
 it('reveals the live crisis technique only while semantic Right is held and confirms through normal targeting', function (bool $activeTime): void {
+  require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
+  $clock = new \Tests\Support\ManualRuntimeClock();
+  $lease = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($clock);
   $statics = [];
   foreach ([InputManager::class, ConfigStore::class] as $class) { $statics[$class] = new ReflectionClass($class)->getStaticProperties(); }
   $cwd = getcwd(); $root = createTestDirectory('ichiloto-held-crisis-');
@@ -561,6 +564,27 @@ it('reveals the live crisis technique only while semantic Right is held and conf
     $input = new \Tests\Support\Input\FakeHeldInputSource(); InputManager::setInputSource($input);
     $game = new ReflectionClass(GameTargetingTestProxy::class)->newInstanceWithoutConstructor();
     setTestProperty($game, 'audioManager', $this->createStub(AudioManager::class));
+    $campaign = new ReflectionClass(\Ichiloto\Engine\Scenes\Game\GameScene::class)->newInstanceWithoutConstructor();
+    $income = new \Ichiloto\Engine\Income\IncomeService(
+      new \Ichiloto\Engine\Income\IncomeCatalog(['schedules' => [[
+        'id' => 'work', 'name' => 'Work', 'cadence' => 'active_time',
+        'interval' => 10, 'amount' => 1, 'idleTimeout' => 1,
+      ]]]),
+      new \Ichiloto\Engine\Income\IncomeLedger(),
+      new \Ichiloto\Engine\Core\GameState(),
+      new Party(),
+    );
+    setTestProperty($campaign, 'income', $income);
+    setTestProperty($campaign, 'gameState', new \Ichiloto\Engine\Core\GameState());
+    $scenes = $this->createStub(\Ichiloto\Engine\Scenes\SceneManager::class);
+    $scenes->method('findScene')->willReturn($campaign);
+    setTestProperty($game, 'sceneManager', $scenes);
+    $playing = $this->createMockForIntersectionOfInterfaces([
+      \Ichiloto\Engine\Scenes\Interfaces\SceneInterface::class,
+      \Ichiloto\Engine\Core\Interfaces\PlayActivitySourceInterface::class,
+    ]);
+    $playing->method('getPlayActivity')->willReturn(\Ichiloto\Engine\Core\PlayActivity::PLAYING);
+    $campaign->advanceActivePlay(0, $playing);
     $actor = new Character('Synthetic actor', 1, new Stats(currentHp: 9, totalHp: 100, currentMp: 0, totalMp: 30),
       abilityBook: new AbilityBook([new BasicSkill('Alternate strike', 'Another authored basic attack.', '', 0, 0)]),
       actorId: 'synthetic-actor', crisisAbility: \Ichiloto\Engine\Battle\CrisisAbility::fromArray([
@@ -584,7 +608,19 @@ it('reveals the live crisis technique only while semantic Right is held and conf
     $nativeOptions = new ReflectionProperty(BattleCommandContextWindow::class, 'items')->getValue($screen->commandContextWindow);
     expect(array_column($nativeOptions, 'label'))->toBe(['Attack', 'Alternate strike']);
     new ReflectionMethod($state, 'returnToCommandSelection')->invoke($state, $context);
+    $clock->seconds += 2;
+    $input->press('ignored', KeyCode::F8); $refresh();
+    $campaign->advanceActivePlay(0.5, $playing);
+    expect($income->ledger->getAccount('work')->progress)->toBe(0.0);
+
     $input->press('physical-d', KeyCode::d); $refresh();
+    $campaign->advanceActivePlay(0.5, $playing);
+    expect($income->ledger->getAccount('work')->progress)->toBe(0.5);
+
+    $clock->seconds += 2;
+    $refresh();
+    $campaign->advanceActivePlay(0.5, $playing);
+    expect($income->ledger->getAccount('work')->progress)->toBe(0.5);
     expect($label())->toBe('Synthetic long finisher')->and($screen->commandWindow->getActiveCommand()->type)->toBe(BattleCommandType::ATTACK)
       ->and($actor->stats->currentMp)->toBe(0)->and($turn->action)->toBeNull()
       ->and(new ReflectionMethod($state, 'resolveCommandInfo')->invoke($state, $context))->toBe('A test technique.');
@@ -593,7 +629,13 @@ it('reveals the live crisis technique only while semantic Right is held and conf
     $screen->commandWindow->selectPrevious(); $refresh(); expect($label())->toBe('Synthetic long finisher');
     $input->release('physical-d'); $refresh(); expect($label())->toBe('Attack');
     $input->press('physical-d', KeyCode::d); $refresh();
-    $actor->stats->currentHp = 10; $refresh(); expect($label())->toBe('Attack'); // Strict boundary changes live.
+    $clock->seconds += 2;
+    $before = $income->ledger->getAccount('work')->progress;
+    $actor->stats->currentHp = 10;
+    $refresh();
+    expect($label())->toBe('Attack');
+    $campaign->advanceActivePlay(0.5, $playing);
+    expect($income->ledger->getAccount('work')->progress)->toBe($before);
     $actor->stats->currentHp = 9; $refresh(); expect($label())->toBe('Synthetic long finisher');
     $input->transitions[] = \Ichiloto\Engine\IO\KeyTransition::reset(); $refresh();
     expect($label())->toBe('Attack'); // Lost focus/source cannot leave the special latched.
@@ -623,6 +665,7 @@ it('reveals the live crisis technique only while semantic Right is held and conf
     expect($queued)->toBeInstanceOf(\Ichiloto\Engine\Battle\Actions\CrisisSkillBattleAction::class)
       ->and($queued->name)->toBe('Synthetic long finisher')->and($actor->stats->currentMp)->toBe(0);
   } finally {
+    $lease->close();
     chdir($cwd);
     foreach ($statics as $class => $values) { foreach ($values as $key => $value) { new ReflectionProperty($class, $key)->setValue(null, $value); } }
   }

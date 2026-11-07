@@ -461,7 +461,9 @@ it('keeps stable-id script access without erasing the player while an NPC is def
 });
 
 it('diagnoses malformed optional art without dropping occupancy or world-state writes', function ($graphics) {
+  installNpcTalkProbe($this);
   $this->manager->configure([getNpcTestEntry(['sprites2d' => $graphics,
+    'dialogue' => [['name' => 'Guide', 'text' => 'Synthetic response.']],
     'sets' => [['type' => 'switch', 'name' => 'talked', 'value' => true]]])]);
   $npc = $this->manager->findById('guide');
   $npc->talk($this->scene);
