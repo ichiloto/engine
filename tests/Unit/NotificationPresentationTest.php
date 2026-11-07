@@ -746,6 +746,63 @@ it('leaves delivery incomplete when the application stops while the alert is ope
 });
 
 
+it('shows a guide entry control once and retries only an interrupted delivery', function () {
+  $savedHints = new ReflectionClass(\Ichiloto\Engine\IO\ActionHints::class)->getStaticProperties();
+  try {
+    $tutorial = \Ichiloto\Engine\Progression\TutorialDefinition::fromArray([
+      'id' => 'guide.example', 'title' => 'Example', 'category' => 'Field', 'start' => 'script', 'replay' => 'practice',
+      'steps' => [[
+        'target' => ['screen' => 'main-menu', 'view' => 'commands', 'id' => 'summons'],
+        'action' => 'confirm', 'until' => ['outcome' => 'menu.command-opened'],
+      ]],
+    ]);
+    $activeNotice = new ReflectionMethod(NotificationManager::class, 'getActiveNotification');
+    $prompts = new \Ichiloto\Engine\Progression\TutorialFieldPrompt($this->game);
+    $provider = new class implements \Ichiloto\Engine\IO\ActionHintProvider {
+      public ?string $binding = null;
+      public function controlForAction(string $action): ?\Ichiloto\Engine\IO\ControlHint
+      {
+        return $action === 'menu' && $this->binding !== null
+          ? new \Ichiloto\Engine\IO\ControlHint('keyboard', $this->binding, $this->binding) : null;
+      }
+    };
+    \Ichiloto\Engine\IO\ActionHints::useProvider($provider);
+    $prompts->update($tutorial);
+    expect($activeNotice->invoke($this->manager))->toBeNull();
+
+    $provider->binding = 'Tab';
+    $prompts->update($tutorial);
+    $first = $activeNotice->invoke($this->manager);
+    expect($first?->getContentText())->toBe('[Tab] Open menu');
+    $prompts->update($tutorial);
+    expect($activeNotice->invoke($this->manager))->toBe($first);
+
+    $prompts->suspend();
+    expect($activeNotice->invoke($this->manager))->toBeNull();
+    $prompts->update($tutorial);
+    expect($activeNotice->invoke($this->manager)?->getContentText())->toBe('[Tab] Open menu');
+    $prompts->dismissForMenu();
+    $prompts->update($tutorial);
+    expect($activeNotice->invoke($this->manager))->toBeNull();
+
+    $prompts->update(null);
+    $prompts->update($tutorial);
+    Time::setElapsedTime(5);
+    new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, .1);
+    $this->manager->update();
+    Time::setElapsedTime(5.5);
+    $this->manager->update();
+    $prompts->update($tutorial);
+    $prompts->suspend();
+    $prompts->update($tutorial);
+    expect($activeNotice->invoke($this->manager))->toBeNull();
+  } finally {
+    foreach ($savedHints as $name => $value) {
+      new ReflectionProperty(\Ichiloto\Engine\IO\ActionHints::class, $name)->setValue(null, $value);
+    }
+  }
+});
+
 it('saves first-use completion after delivery and preserves once-only state through reload and rollback', function () {
   $catalog = new \Ichiloto\Engine\Progression\WorldAbilityCatalog([['id' => 'power', 'name' => 'Power',
     'conditions' => [['type' => 'switch', 'name' => 'granted']], 'firstUse' => ['message' => 'A short first-use hint.']]]);

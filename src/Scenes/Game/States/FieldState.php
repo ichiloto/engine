@@ -14,6 +14,7 @@ use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Field\PlayerDash;
 use Ichiloto\Engine\Progression\TutorialDirector;
+use Ichiloto\Engine\Progression\TutorialFieldPrompt;
 use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Progression\WorldAbilityPrompts;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -56,6 +57,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
 {
     private ?PlayerWalk $walk = null;
     private ?WorldAbilityPrompts $worldAbilityPrompts = null;
+    private ?TutorialFieldPrompt $tutorialFieldPrompt = null;
     private ?SkitPromptPresentation $skitPromptPresentation = null;
     /** Invalidates movement across ownership handoffs, even without held input or a missed update. */
     protected(set) int $movementGeneration = 0;
@@ -105,10 +107,16 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         return [SkitPromptPresentation::LAYER];
     }
 
-    public function exit(): void { $this->worldAbilityPrompts?->cancel(); Console::removeOverlay(SkitPromptPresentation::LAYER); }
+    public function exit(): void
+    {
+        $this->worldAbilityPrompts?->cancel();
+        $this->tutorialFieldPrompt?->suspend();
+        Console::removeOverlay(SkitPromptPresentation::LAYER);
+    }
     public function suspend(): void
     {
         $this->cancelWalking();
+        $this->tutorialFieldPrompt?->suspend();
         Console::removeOverlay(SkitPromptPresentation::LAYER);
     }
 
@@ -166,7 +174,16 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
     public function execute(?SceneStateContext $context = null): void
     {
         try { $this->executeField($context); }
-        finally { $this->renderPresentationOverlay(); }
+        finally {
+            $scene = $this->getGameScene();
+            if ($this->tutorialFieldPrompt !== null && ($scene->isStopping || $scene->state !== $this
+                || $scene->sceneManager->currentScene !== $scene || $scene->sceneManager->hasSceneTransition()
+                || $scene->isPreparingMapTransfer || $scene->hasUnstableEventSession()
+                || $scene->getUI()->getActivePresentations() !== [])) {
+                $this->tutorialFieldPrompt->suspend();
+            }
+            $this->renderPresentationOverlay();
+        }
     }
 
     private function executeField(?SceneStateContext $context): void
@@ -221,6 +238,12 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
                 $scene->party,
                 $scene->questManager?->log,
             );
+            $tutorial = $scene->tutorialDirector->getActiveTutorial();
+            if ($tutorial?->steps[0]->target['screen'] === MainMenuState::TUTORIAL_SCREEN) {
+                ($this->tutorialFieldPrompt ??= new TutorialFieldPrompt($scene->getGame()))->update($tutorial);
+            } else {
+                $this->tutorialFieldPrompt?->update(null);
+            }
         }
 
         $this->worldAbilityPrompts?->updateForScene($scene);
@@ -275,6 +298,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         }
 
         if (Input::isButtonDown("menu")) {
+            $this->tutorialFieldPrompt?->dismissForMenu();
             play_sound(SystemSound::CONFIRM);
             $this->setState($scene->mainMenuState);
             return;
