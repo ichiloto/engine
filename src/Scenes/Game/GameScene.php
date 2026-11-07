@@ -16,6 +16,7 @@ use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Progression\TutorialCatalog;
 use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Progression\TutorialFollowOn;
+use Ichiloto\Engine\Progression\TutorialStep;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicController;
@@ -2114,6 +2115,17 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         }
 
         return $this->eventInterpreter?->run($commands, $scriptId, $completionTarget, $origin);
+    }
+
+    public function getTutorialPresentationStep(string $screen, string $view): ?TutorialStep
+    {
+        $step = $this->tutorialDirector?->getStepForView($screen, $view);
+        if ($step === null || $this->hasUnstableEventSession() || $this->getActiveFieldPresentations() !== []) {
+            return null;
+        }
+
+        $game = $this->getGame();
+        return isset($game->modalManager) && $game->modalManager->currentModal?->isShowing() ? null : $step;
     }
 
     /** Called by controlled field play after any previous event has released the scene. */

@@ -10,6 +10,8 @@ use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\ActionHintProvider;
 use Ichiloto\Engine\IO\ControlHint;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Progression\TutorialStep;
+use Ichiloto\Engine\UI\Presentation\SummonsMenuPresentation;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\States\SummonsMenuState;
 use Ichiloto\Engine\Scenes\SceneStateContext;
@@ -333,4 +335,28 @@ it('reads Info as Move, Profile and Resistances with every resistance row, keepi
   $value = fn(string $label) => array_find($entries, fn($entry) => $entry->label === $label);
   expect(array_column($value('Weaknesses')->icons, 'name'))->toBe(['Water'])
     ->and($value('Immunities')->text)->toBe('Not recorded')->and($value('Effective against')->text)->toBe('Not recorded');
+});
+
+it('lights the visible tutorial row with the bound control and leaves missing targets undimmed', function () {
+  ActionHints::useProvider(new class implements ActionHintProvider {
+    public function controlForAction(string $action): ?ControlHint { return new ControlHint('controller', $action, 'Pad'); }
+  });
+  $theme = new MenuPresentationCatalog($this->summonsRoot, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false]);
+  $state = createSummonsMenuProbe([new SummonCutsceneDefinition('sample', 'Spirit')]);
+  $content = $state->getPresentationContent();
+  $step = [
+    'target' => ['screen' => 'summons', 'view' => 'list', 'id' => 'sample'],
+    'action' => 'confirm',
+    'until' => ['outcome' => 'summon.opened', 'subject' => 'sample'],
+    'say' => 'Open the contract.',
+  ];
+  $frame = SummonsMenuPresentation::compose($content, $theme, null, tutorial: TutorialStep::fromArray($step, 'Test guide'));
+  $layers = $frame->textLayers;
+  $guideText = implode('', array_merge(...array_map(static fn($layer) => array_column($layer->runs, 'text'), $layers)));
+  expect(array_any($layers, static fn($layer): bool => str_starts_with($layer->id, 'tutorial-target')))->toBeTrue()
+    ->and($guideText)->toContain('Pad', 'Open the contract.');
+
+  $step['target']['id'] = 'absent';
+  $missing = SummonsMenuPresentation::compose($content, $theme, null, tutorial: TutorialStep::fromArray($step, 'Test guide'));
+  expect(array_any($missing->textLayers, static fn($layer): bool => str_starts_with($layer->id, 'tutorial-')))->toBeFalse();
 });

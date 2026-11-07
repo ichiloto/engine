@@ -8,6 +8,7 @@ use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Progression\Mastery\MasteryNodeState;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Progression\TutorialStep;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
@@ -36,7 +37,8 @@ final class MasteryMenuPresentation
    * @param bool $dashedStrokes Whether the renderer negotiated canvas_stroke_dashes (MenuShapes).
    */
   public static function compose(MasteryMenuContent $content, MenuPresentationCatalog $theme, float $time = 0,
-    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT, bool $dashedStrokes = false): PresentationCanvas
+    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT,
+    bool $dashedStrokes = false, ?TutorialStep $tutorial = null): PresentationCanvas
   {
     $view = new MenuCanvas($theme, $width, $height, $time);
     $host = MenuLayout::getBounds($width, $height);
@@ -44,8 +46,10 @@ final class MasteryMenuPresentation
     $areas = self::getAreas($theme, $width, $height);
     $chrome = new MenuShapes($theme, new CanvasRectangle(0, 0, $width, $height));
     self::renderCorner($view, $chrome, $content, $theme, $time, $areas['footer']->x, $host);
-    self::renderDisciplines($view, $chrome, $content, $theme, $areas['suits']);
-    self::renderFamilies($view, $chrome, $content, $theme, $areas['families']);
+    $disciplineTarget = self::renderDisciplines($view, $chrome, $content, $theme, $areas['suits'],
+      $content->level === MasteryMenuLevel::DISCIPLINE ? $tutorial?->target['id'] : null);
+    $familyTarget = self::renderFamilies($view, $chrome, $content, $theme, $areas['families'],
+      $content->level === MasteryMenuLevel::FAMILY ? $tutorial?->target['id'] : null);
     $frame = self::layoutBoard($content, $theme, $time, $width, $height);
     $area = $frame->area;
     $chrome->fillGlow($area, $area->x + $area->width / 2, $area->y + $area->height / 2, $area->width * 0.6, $area->height * 0.7, 'panel', 0.9);
@@ -74,7 +78,33 @@ final class MasteryMenuPresentation
       $chrome->compose('mastery-chrome', 5), $board->compose('mastery-board', 12), $motion->compose('mastery-board-motion', 13),
       $marks->compose('mastery-board-marks', 14)])));
 
+    if ($tutorial !== null && $frame->sheet === null) {
+      $target = match ($content->level) {
+        MasteryMenuLevel::DISCIPLINE => $disciplineTarget,
+        MasteryMenuLevel::FAMILY => $familyTarget,
+        MasteryMenuLevel::TREE => self::getTutorialNodeBounds($frame, $tutorial->target['id']),
+      };
+      $view->renderTutorialSpotlight($tutorial, $target);
+    }
+
     return $view->finish();
+  }
+
+  private static function getTutorialNodeBounds(MasteryBoardView $frame, string $id): ?CanvasRectangle
+  {
+    $place = array_find($frame->places, static fn(MasteryBoardPlace $place): bool => $place->node->id === $id);
+    if ($place === null) {
+      return null;
+    }
+    $viewport = $frame->viewport;
+    $left = max($place->left, $viewport->x);
+    $top = max($place->top, $viewport->y);
+    $right = min($place->right, $viewport->x + $viewport->width);
+    $bottom = min($place->bottom, $viewport->y + $viewport->height);
+
+    return $right - $left > 4 && $bottom - $top > 4
+      ? new CanvasRectangle($left, $top, $right - $left, $bottom - $top)
+      : null;
   }
 
   /**
@@ -133,13 +163,14 @@ final class MasteryMenuPresentation
    * while the focus is on the disciplines, the shown one is framed and underlined in the focus colour.
    */
   private static function renderDisciplines(MenuCanvas $view, MenuShapes $shapes, MasteryMenuContent $content,
-    MenuPresentationCatalog $theme, CanvasRectangle $area): void
+    MenuPresentationCatalog $theme, CanvasRectangle $area, ?string $targetId): ?CanvasRectangle
   {
     $m = $theme->mastery;
     $count = count($content->regions);
     if ($count === 0) {
-      return;
+      return null;
     }
+    $target = null;
     $gap = 6;
     $tabWidth = ($area->width - $gap * ($count - 1)) / $count;
     $names = $counts = [];
@@ -149,6 +180,9 @@ final class MasteryMenuPresentation
       $focused = $active && $content->level === MasteryMenuLevel::DISCIPLINE;
       $accent = self::getRegionColor($theme, $tab->id);
       $tabArea = new CanvasRectangle($x, $area->y, $tabWidth, $area->height);
+      if ($tab->id === $targetId) {
+        $target = $tabArea;
+      }
       $shapes->fillRectangle($tabArea, 'panel', $active ? 0.95 : 0.6);
       $shapes->fillRectangle(new CanvasRectangle($x, $area->y + $area->height - ($active ? 2 : 1), $tabWidth, $active ? 2 : 1),
         $focused ? 'focus' : ($active ? $accent : 'edge'), $active ? 1.0 : 0.7);
@@ -170,17 +204,19 @@ final class MasteryMenuPresentation
     }
     $view->renderTexts('mastery-suits', $names, $area, $m->tabCell);
     $view->renderTexts('mastery-suit-counts', $counts, $area, $m->smallCell);
+    return $target;
   }
 
   /** The shown discipline's families as a strip of three, the chosen one underlined in the discipline's accent, with arrows for the rest. */
   private static function renderFamilies(MenuCanvas $view, MenuShapes $shapes, MasteryMenuContent $content,
-    MenuPresentationCatalog $theme, CanvasRectangle $area): void
+    MenuPresentationCatalog $theme, CanvasRectangle $area, ?string $targetId): ?CanvasRectangle
   {
     $m = $theme->mastery;
     $families = $content->families;
     if ($families === []) {
-      return;
+      return null;
     }
+    $target = null;
     // The focus colour marks only where the focus is; the strip shows which family is chosen.
     $accent = self::getRegionColor($theme, $content->findRegion()?->id ?? '');
     $arrow = 28;
@@ -201,6 +237,9 @@ final class MasteryMenuPresentation
       $index = $first + $slot;
       $active = $index === $content->familyIndex;
       $x = $area->x + $arrow + $gap + $slot * ($slotWidth + $gap);
+      if ($families[$index]->id === $targetId) {
+        $target = new CanvasRectangle($x, $area->y, $slotWidth, $area->height);
+      }
       if ($active) {
         $shapes->fillRectangle(new CanvasRectangle($x, $area->y, $slotWidth, $area->height), 'panel', 0.9);
       }
@@ -210,6 +249,7 @@ final class MasteryMenuPresentation
         'color' => $active ? $accent : 'muted', 'alignment' => HorizontalAlignment::CENTER];
     }
     $view->renderTexts('mastery-families', $texts, $area, $m->tabCell);
+    return $target;
   }
 
   /**

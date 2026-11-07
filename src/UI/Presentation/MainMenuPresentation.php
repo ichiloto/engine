@@ -33,6 +33,9 @@ final class MainMenuPresentation
     if ((!$commandsFocused && !$mode instanceof MainMenuCharacterSelectionMode && !$mode instanceof MainMenuPartyOrderMode)
       || $state->mainMenu === null || $state->characterSelectionMenu === null) { return null; }
 
+    $tutorial = $mode instanceof MainMenuPartyOrderMode ? null : $state->getGameScene()->getTutorialPresentationStep(
+      MainMenuState::TUTORIAL_SCREEN, $commandsFocused ? MainMenuState::TUTORIAL_COMMANDS : MainMenuState::TUTORIAL_PARTY,
+    );
     $view = new MenuCanvas($theme, time: $time);
     $m = $theme->metrics;
     $p = $m->panelPadding;
@@ -54,15 +57,20 @@ final class MainMenuPresentation
     $commandBox = self::box(0, $infoHeight, self::COMMAND_WIDTH, $commandsHeight);
     $view->frame('main-commands', $commandBox);
     $rows = [];
+    $commandTarget = null;
     foreach ($state->mainMenu->getItems() as $index => $command) {
       $selected = $index === $state->mainMenu->activeIndex;
+      if ($commandsFocused && $tutorial !== null && MainMenuState::getTutorialCommandId($command) === $tutorial->target['id']) {
+        $commandTarget = (string)$index;
+      }
       $rows[] = new MenuRow((string)$index, $command->getLabel(), kind: MenuRowKind::COMMAND,
         selected: $selected, focused: $commandsFocused && $selected, disabled: $command->isDisabled());
     }
     $compactHeight = (int)ceil(max($m->cellHeight + $theme->rows->metrics->separatorWidth,
       (int)ceil(min($m->rowHeight, $m->cellHeight + $m->sectionGap / 3)), $theme->rows->metrics->cursorHeight));
-    $view->rows('main-command', $rows, new MenuRowLayout(self::inset($commandBox, $p, $p),
-      rowHeight: $compactHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight, wrapText: true), $state->mainMenu->activeIndex);
+    $tutorialTarget = $view->rows('main-command', $rows, new MenuRowLayout(self::inset($commandBox, $p, $p),
+      rowHeight: $compactHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight, wrapText: true),
+      $state->mainMenu->activeIndex, $commandTarget);
     $y = $infoHeight + $commandsHeight;
     foreach ($summaries as $id => $summary) {
       self::summary($view, 'main-' . $id, $summary['title'], implode("\n", $summary['lines']),
@@ -102,11 +110,15 @@ final class MainMenuPresentation
       $view->frame($id . '-frame', $box, borderLayer: 20);
       $member = $members[$index] ?? null;
       if ($member instanceof Character) {
+        if (!$commandsFocused && $tutorial !== null && $tutorial->target['id'] === 'member-' . $member->actorId) {
+          $tutorialTarget = $box;
+        }
         self::character($view, $id, $member, $box, $cardPadding,
           $index === $selection->getMarkedPanelIndex(), !$commandsFocused && $index === $selection->getActivePanelIndex());
       }
       $y += $heights[$index];
     }
+    $view->renderTutorialSpotlight($tutorial, $tutorialTarget);
     return $view->finish();
   }
 

@@ -162,7 +162,8 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $content = $this->getPresentationContent();
 
         return $content === null ? null : MasteryMenuPresentation::compose($content, $theme, $time,
-            dashedStrokes: $runtime?->supports(RendererSessionConfig::CANVAS_STROKE_DASHES) ?? false);
+            dashedStrokes: $runtime?->supports(RendererSessionConfig::CANVAS_STROKE_DASHES) ?? false,
+            tutorial: $this->getGameScene()->getTutorialPresentationStep(self::TUTORIAL_SCREEN, $content->level->value));
     }
 
     public function getPresentationContent(): ?MasteryMenuContent

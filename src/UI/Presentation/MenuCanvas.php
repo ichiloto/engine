@@ -6,6 +6,8 @@ namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\ControlHint;
+use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\Progression\TutorialStep;
 use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
@@ -393,17 +395,67 @@ final class MenuCanvas
   /** A finite view follows the owner's existing index, without taking ownership of navigation.
    * @param list<MenuRow> $rows
    */
-  public function rows(string $id, array $rows, MenuRowLayout $layout, ?int $activeIndex = null): void
+  public function rows(string $id, array $rows, MenuRowLayout $layout, ?int $activeIndex = null,
+    ?string $targetId = null): ?CanvasRectangle
   {
-    if ($rows === []) { return; }
+    if ($rows === []) { return null; }
     $heights = array_map(fn(MenuRow $row) => $layout->heightFor($row, $this->theme->rows->metrics,
       MenuRowPainter::canShowIcon($row, $this->theme->icons)), $rows);
     [$first, $last] = $this->visibleRange($id, $heights, $layout->viewport, $activeIndex);
+    $visible = array_slice($rows, $first, $last - $first + 1);
     $canvas = MenuRowPainter::compose($this->width, $this->height, $id,
-      array_slice($rows, $first, $last - $first + 1), $layout, $this->theme->rows, $this->theme->icons, $this->time);
+      $visible, $layout, $this->theme->rows, $this->theme->icons, $this->time);
     array_push($this->images, ...$canvas->images);
     array_push($this->text, ...$canvas->textLayers);
-    array_push($this->protectedAreas, ...$canvas->getOverlayProtection());
+    $bounds = $canvas->getOverlayProtection();
+    array_push($this->protectedAreas, ...$bounds);
+    $index = $targetId === null ? null : array_find_key($visible, static fn(MenuRow $row): bool => $row->id === $targetId);
+    return $index === null ? null : $bounds[$index];
+  }
+
+  /** Applies a static, theme-coloured spotlight to a real target in the current menu layout. */
+  public function renderTutorialSpotlight(?TutorialStep $step, ?CanvasRectangle $target): void
+  {
+    if ($step === null || $target === null) {
+      return;
+    }
+
+    $hint = ActionHints::resolve($step->action, $step->say ?? 'Continue');
+    if ($hint->control === null) {
+      return;
+    }
+    $target->assertWithin($this->width, $this->height);
+    $right = $target->x + $target->width;
+    $bottom = $target->y + $target->height;
+    foreach ([
+      [0, 0, $this->width, $target->y],
+      [0, $bottom, $this->width, $this->height - $bottom],
+      [0, $target->y, $target->x, $target->height],
+      [$right, $target->y, $this->width - $right, $target->height],
+    ] as $index => [$x, $y, $width, $height]) {
+      if ($width > 0 && $height > 0) {
+        $this->fill('tutorial-dim-' . $index, new CanvasRectangle($x, $y, $width, $height), 'background', 1100, 0.42);
+      }
+    }
+    $this->renderOutline('tutorial-target', $target, 'focus', 2, 1101);
+
+    $padding = $this->theme->metrics->panelPadding;
+    $cellWidth = $this->theme->metrics->cellWidth;
+    $width = min($this->width - 2 * $padding, MenuActionHints::measureCells([$hint], $this->theme) * $cellWidth);
+    $height = MenuActionHints::height([$hint], $this->theme, $width, required: true);
+    $panelWidth = $width + 2 * $padding;
+    $panelHeight = $height + 2 * $padding;
+    $x = min(max(0, $target->x), $this->width - $panelWidth);
+    $y = $bottom + $padding;
+    if ($y + $panelHeight > $this->height) {
+      $y = $target->y - $padding - $panelHeight;
+    }
+    if ($y < 0) {
+      return;
+    }
+    $this->frame('tutorial-hint-panel', new CanvasRectangle($x, $y, $panelWidth, $panelHeight), 'quiet', 1102);
+    $this->place(MenuActionHints::compose($this->width, $this->height, 'tutorial-action', [$hint], $this->theme,
+      new CanvasRectangle($x + $padding, $y + $padding, $width, $height), required: true, layer: 1103));
   }
 
   /** Shared whole-record viewport; the caller supplies the existing owner's index.

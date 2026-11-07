@@ -8,6 +8,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\UI\Text\TextPage;
 use Ichiloto\Engine\UI\Text\MenuInfoText;
+use Ichiloto\Engine\Progression\TutorialStep;
 use RuntimeException;
 
 /** Summon contracts use the shared menu frames, records, text viewport and semantic hints. */
@@ -25,7 +26,8 @@ final class SummonsMenuPresentation
 
   public static function compose(SummonsMenuContent $content, MenuPresentationCatalog $theme, ?TextPage $page,
     ?MenuInfoText $infoModel = null, float $time = 0,
-    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): PresentationCanvas
+    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT,
+    ?TutorialStep $tutorial = null): PresentationCanvas
   {
     $g = self::getGeometry($content, $theme, $width, $height);
     $m = $theme->metrics;
@@ -38,6 +40,7 @@ final class SummonsMenuPresentation
     $view->frame('summons-contracts', $g['body']);
     $body = new CanvasRectangle($g['body']->x + $p, $g['body']->y + $p,
       $g['body']->width - 2 * $p, $g['body']->height - 2 * $p);
+    $target = null;
     if ($content->detailsOpen) {
       $area = self::getDetailViewport($content, $theme, $width, $height);
       if ($page === null || $content->details === null || $page->columns !== $area->columns) {
@@ -53,15 +56,16 @@ final class SummonsMenuPresentation
     } else {
       $cells = (int)floor(($body->width - 2 * $theme->rows->metrics->padding) / $m->cellWidth);
       $valueWidth = max(1, (int)floor($cells / 4));
-      $view->rows('summons-entry', $content->rows,
+      $target = $view->rows('summons-entry', $content->rows,
         new MenuRowLayout($body, [new MenuRowColumn($valueWidth), new MenuRowColumn($valueWidth)],
-          $m->rowHeight, $m->cellWidth, $m->cellHeight, true), $content->index);
+          $m->rowHeight, $m->cellWidth, $m->cellHeight, true), $content->index, $tutorial?->target['id']);
     }
     $view->frame('summons-info', $g['info'], 'quiet');
     MenuInfoPanel::renderContent($view, 'summons', $g['description'], $content->description, $content->status,
       infoModel: $infoModel,
       rangeBounds: new CanvasRectangle($g['description']->x, $g['info']->y + $g['info']->height - $p, $body->width, $p));
     if ($g['hints'] !== null) { $view->hints('summons-hints', $content->hints, $g['hints']); }
+    $view->renderTutorialSpotlight($tutorial, $target);
     return $view->finish();
   }
 
