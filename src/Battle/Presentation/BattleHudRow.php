@@ -16,5 +16,6 @@ final readonly class BattleHudRow
     public int $mpCost = 0,
     public ?string $iconRole = null,
     public bool $hasAlternative = false,
+    public bool $tutorialTarget = false,
   ) {}
 }

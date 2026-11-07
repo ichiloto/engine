@@ -28,6 +28,9 @@ use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Localization\Vocabulary;
+use Ichiloto\Engine\Progression\{TutorialDirector, TutorialStartContext};
+use Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /**
  * Handles player-side command, submenu, and target selection for the round.
@@ -36,6 +39,10 @@ use Ichiloto\Engine\Localization\Vocabulary;
  */
 class PlayerActionState extends TurnState
 {
+  public const string TUTORIAL_SCREEN = 'battle';
+  public const string TUTORIAL_COMMAND_VIEW = 'command';
+  public const string TUTORIAL_SUMMON_EXECUTED = 'summon.executed';
+
   protected const string MODE_COMMAND = 'command';
   protected const string MODE_SUBMENU = 'submenu';
   protected const string MODE_TARGET = 'target';
@@ -321,7 +328,39 @@ class PlayerActionState extends TurnState
     $ui->commandWindow->focus();
     $this->synchronizeAttackAlternative($context);
     $ui->commandContextWindow->clear();
+    $this->offerCommandTutorial($context);
     $this->applyTargetingVisuals($context);
+  }
+
+  private function offerCommandTutorial(TurnStateExecutionContext $context): void
+  {
+    $director = $context->getTutorialDirector();
+    $actor = $this->activeCharacter;
+    if ($actor === null || !$actor->isFighting || $actor->getActionBlockingState() !== null
+      || !$director?->canOfferContext(TutorialStartContext::BATTLE_COMMAND)
+      || !array_any($context->ui->commandWindow->commands, static fn(BattleCommand $command): bool =>
+        $command->type === BattleCommandType::SUMMON)) {
+      return;
+    }
+
+    $options = BattleCommandCatalog::buildOptions(
+      $actor, $context->party, BattleCommandType::SUMMON, gameState: $context->getGameState(),
+    );
+    if (!array_any($options, fn(BattleCommandOption $option): bool =>
+      $option->mpCost <= $actor->stats->currentMp && $this->getEligibleOptionTargets($context, $option) !== [])) {
+      return;
+    }
+
+    $director->enterContext(
+      TutorialStartContext::BATTLE_COMMAND,
+      (bool) config(ProjectConfig::class, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true),
+      $context->party,
+    );
+    $step = $director->getStepForView(self::TUTORIAL_SCREEN, self::TUTORIAL_COMMAND_VIEW);
+    if ($step?->target['id'] === BattleCommandType::SUMMON->value) {
+      $context->ui->commandWindow->setTutorialTarget(BattleCommandType::SUMMON);
+      $context->ui->commandContextWindow->setItems([], '', TutorialTerminalPresentation::getHint($step) ?? '');
+    }
   }
 
   /**
@@ -412,6 +451,7 @@ class PlayerActionState extends TurnState
       }
     }
     $this->selectionMode = self::MODE_SUBMENU;
+    $context->ui->commandWindow->setTutorialTarget(null);
     $this->activeTargetIndex = -1;
     $context->ui->commandWindow->setSelectionBlink(false);
     $context->ui->commandContextWindow->setMpBudget($this->activeCharacter->stats->currentMp);
@@ -565,6 +605,7 @@ class PlayerActionState extends TurnState
     $context->ui->commandWindow->setSelectionBlink(true);
     $context->ui->commandContextWindow->clear();
     $this->synchronizeAttackAlternative($context);
+    $this->offerCommandTutorial($context);
     $this->applyTargetingVisuals($context);
   }
 
@@ -847,14 +888,21 @@ class PlayerActionState extends TurnState
       return [];
     }
 
-    $eligible = BattleTargetPolicy::getEligibleTargets($selectedOption->action->targetScope,
-      $this->activeCharacter, $context->partyRoster->battlers, $context->troop->members->toArray(),
-      $this->engine->battleConfig->formation, $selectedOption->action->targeting);
+    $eligible = $this->getEligibleOptionTargets($context, $selectedOption);
     $indexes = [];
     foreach ($this->getSelectionPool($context, $selectedOption) as $index => $target) {
       if (in_array($target, $eligible, true)) { $indexes[] = $index; }
     }
     return $indexes;
+  }
+
+  /** @return list<CharacterInterface> */
+  private function getEligibleOptionTargets(TurnStateExecutionContext $context, BattleCommandOption $option): array
+  {
+    assert($this->activeCharacter !== null);
+    return BattleTargetPolicy::getEligibleTargets($option->action->targetScope,
+      $this->activeCharacter, $context->partyRoster->battlers, $context->troop->members->toArray(),
+      $this->engine->battleConfig->formation, $option->action->targeting);
   }
 
   /**

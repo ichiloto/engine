@@ -10,6 +10,7 @@ use Ichiloto\Engine\Core\Interfaces\CanChangeSelection;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Interfaces\CanFocus;
+use Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation;
 use Ichiloto\Engine\UI\Windows\Window;
 
 /**
@@ -62,6 +63,15 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
   protected int $totalCommands = 0;
   private ?string $attackAlternativeLabel = null;
   private bool $attackAlternativeSelected = false;
+  private ?BattleCommandType $tutorialTarget = null;
+
+  public function setTutorialTarget(?BattleCommandType $target): void
+  {
+    if ($this->tutorialTarget !== $target) {
+      $this->tutorialTarget = $target;
+      $this->updateContent();
+    }
+  }
 
   /** Only presentation changes; the command retains its Attack identity. */
   public function setAttackAlternative(?string $label, bool $selected = false): void
@@ -118,6 +128,7 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   public function focus(): void
   {
+    $this->tutorialTarget = null;
     $this->blinkActiveSelection = true;
     $this->scrollOffset = 0;
     $this->activeCommandIndex = $this->totalCommands > 0 ? 0 : -1;
@@ -129,6 +140,7 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   public function blur(): void
   {
+    $this->tutorialTarget = null;
     $this->attackAlternativeLabel = null;
     $this->attackAlternativeSelected = false;
     $this->setControlHints([BattleControlHints::getInfoHint()]);
@@ -152,6 +164,7 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
 
   public function clear(): void
   {
+    $this->tutorialTarget = null;
     $this->attackAlternativeLabel = null;
     $this->attackAlternativeSelected = false;
     $this->commands = [];
@@ -169,7 +182,8 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
     foreach (array_slice($this->commands, $this->scrollOffset, $visibleRowCount, true) as $index => $command) {
       $rows[] = new BattleHudRow($index, $this->getCommandLabel($command), $this->activeCommandIndex === $index,
         hasAlternative: $command instanceof BattleCommand && $command->type === BattleCommandType::ATTACK
-          && $this->attackAlternativeLabel !== null);
+          && $this->attackAlternativeLabel !== null,
+        tutorialTarget: $command instanceof BattleCommand && $command->type === $this->tutorialTarget);
     }
     [$currentPage, $totalPages] = $this->getPagination();
 
@@ -200,7 +214,9 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
       $label = $this->getCommandLabel($command);
       $line = TerminalText::padRight("$prefix $label", $availableWidth);
 
-      if ($this->activeCommandIndex === $index) {
+      if ($command instanceof BattleCommand && $command->type === $this->tutorialTarget) {
+        $line = TutorialTerminalPresentation::highlight($line);
+      } elseif ($this->activeCommandIndex === $index) {
         $line = $this->battleScreen->styleSelectionLine($line, $this->blinkActiveSelection);
       }
 

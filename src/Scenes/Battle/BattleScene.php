@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Battle;
 
 use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+use Ichiloto\Engine\Progression\TutorialStartContext;
 
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\Battle\BattleResult;
@@ -159,6 +160,10 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
   {
     try {
       $game = $this->getGame();
+      $field = isset($game->sceneManager) ? $game->sceneManager->findScene(GameScene::class) : null;
+      if ($field instanceof GameScene) {
+        $field->tutorialDirector?->leaveContext(TutorialStartContext::BATTLE_COMMAND);
+      }
       if (isset($game->engine) && $game->engine instanceof TurnBasedEngine && $this->ui !== null) {
         $game->engine->stopForScreen($this->ui);
       }

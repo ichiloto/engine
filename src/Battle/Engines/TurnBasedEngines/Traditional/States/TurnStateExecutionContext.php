@@ -12,6 +12,7 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService;
+use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 
@@ -160,29 +161,28 @@ class TurnStateExecutionContext
    */
   public function getGameState(): ?GameState
   {
-    if (! isset($this->game->sceneManager)) {
-      return null;
-    }
-
-    $scene = $this->game->sceneManager->findScene(GameScene::class);
-
-    return $scene instanceof GameScene ? $scene->gameState : null;
+    return $this->findCampaignScene()?->gameState;
   }
 
-  /**
-   * Returns the player's knowledge records when this battle belongs to a
-   * started game, so what a battle reveals reaches the foe's record.
-   * Standalone battles and previews record nothing.
-   */
+  /** Returns the campaign's lesson owner. Standalone battles have none. */
+  public function getTutorialDirector(): ?TutorialDirector
+  {
+    return $this->findCampaignScene()?->tutorialDirector;
+  }
+
+  /** Returns the player's knowledge records when this battle belongs to a started game. */
   public function getKnowledge(): ?KnowledgeProgressService
   {
-    if (! isset($this->game->sceneManager)) {
-      return null;
-    }
+    $scene = $this->findCampaignScene();
 
-    $scene = $this->game->sceneManager->findScene(GameScene::class);
+    return $scene?->isStarted() ? $scene->knowledge : null;
+  }
 
-    return $scene instanceof GameScene && $scene->isStarted() ? $scene->knowledge : null;
+  private function findCampaignScene(): ?GameScene
+  {
+    $scene = isset($this->game->sceneManager) ? $this->game->sceneManager->findScene(GameScene::class) : null;
+
+    return $scene instanceof GameScene ? $scene : null;
   }
 
   /**

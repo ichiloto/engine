@@ -94,6 +94,10 @@ final class GraphicalBattleHud
           }
           if (Accessibility::prefersHighContrast()) { $color = PresentationColor::rgb(255, 255, 255); }
         }
+        if ($row->tutorialTarget) {
+          self::line($text, $id . '-tutorial-' . $rowIndex, '▏', $x + 8, $rowY,
+            $pitch->cellWidth, $pitch->cellHeight, $skin->colors['focus'], cellWidth: $pitch->cellWidth);
+        }
         if ($iconSpace > 0 && isset($icons[$row->iconRole ?? '']) && $iconRoot !== null) {
           array_push($images, ...MenuIconRegistry::containAsset($iconRoot, 'hud-submenu-icon-' . $row->index,
             $icons[$row->iconRole], new CanvasRectangle($x + 40, $rowY + ($pitch->cellHeight - 16) / 2, 16, 16),

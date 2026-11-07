@@ -22,6 +22,8 @@ use Ichiloto\Engine\Battle\UI\BattleCommandWindow;
 use Ichiloto\Engine\Battle\UI\BattleFieldWindow;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Progression\{TutorialCatalog, TutorialDirector, TutorialPhase};
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
@@ -113,6 +115,95 @@ it('opens role-aware battle commands and routes renamed labels by identity in bo
     expect(array_column(BattleCommandCatalog::buildCommands($actor, $party), 'type'))->toBe([BattleCommandType::ATTACK]);
   } finally {
     foreach ($priorConfig as $key => $value) { new ReflectionProperty(ConfigStore::class, $key)->setValue(null, $value); }
+  }
+})->with(['traditional' => false, 'active time' => true]);
+
+it('offers Summon guidance only when the command owner can afford a summon and legally target it', function (bool $activeTime) {
+  $priorConfig = new ReflectionClass(ConfigStore::class)->getStaticProperties();
+  $priorCwd = getcwd();
+  $priorBindings = InputManager::getBindings();
+  InputManager::setBindings(['action' => ['keys' => [KeyCode::ENTER]]]);
+  $root = createTestDirectory('battle-guide-summon');
+  $summon = $root . '/assets/Cutscenes/Summons/sample';
+  mkdir($summon, 0777, true);
+  mkdir($root . '/assets/Data', 0777, true);
+  file_put_contents($summon . '/sample.data.php',
+    "<?php return ['id' => 'sample', 'name' => 'Sample', 'linkedActionId' => 'Call Sample'];");
+  file_put_contents($summon . '/sample.timeline.php',
+    "<?php return ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];");
+  writeSkillRecords($root, new SpecialSkill('Call Sample', '', '', 4, 0,
+    new ItemScope(ItemScopeSide::ENEMY, ItemScopeNumber::ONE, ItemScopeStatus::ALIVE)));
+  chdir($root);
+  putSceneAudioConfig([]);
+  BattleCommandCatalog::beginBattle();
+
+  try {
+    $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
+    $party = new Party();
+    $actor = new Character('Caller', 1, new Stats(currentHp: 100, currentMp: 1, totalMp: 10));
+    $party->addMember($actor);
+    $enemy = createTargetingTestEnemy('Target');
+    $troop = new Troop('Synthetic', [$enemy]);
+    $screen = createTargetingTestScreen();
+    setTestProperty($screen->commandWindow, 'height', BattleCommandWindow::HEIGHT);
+    $screen->commandWindow->setTitle('Command');
+    $screen->commandWindow->setHelp('');
+    $engine = $activeTime ? new ActiveTimeBattleEngine($game) : new TraditionalTurnBasedBattleEngine($game);
+    $engine->configure($activeTime ? new ActiveTimeBattleConfig($party, $troop, $screen)
+      : new TurnBasedBattleConfig($party, $troop, $screen));
+    $saved = new GameState();
+    $director = new TutorialDirector(new TutorialCatalog([[
+      'id' => 'battle.summon', 'title' => 'Summon', 'category' => 'Battle',
+      'start' => 'automatic', 'startContext' => 'battle-command', 'replay' => 'read',
+      'steps' => [[
+        'target' => ['screen' => 'battle', 'view' => 'command', 'id' => 'summon'],
+        'action' => 'action', 'say' => 'Choose Summon.', 'until' => ['outcome' => 'summon.executed'],
+      ]],
+    ]]), $saved);
+    $context = new class($game, $party, $troop, $screen, $director) extends TurnStateExecutionContext {
+      public function __construct(Game $game, Party $party, Troop $troop, BattleScreen $screen,
+        private TutorialDirector $director)
+      {
+        parent::__construct($game, $party, $troop, $screen, []);
+      }
+      public function getTutorialDirector(): ?TutorialDirector { return $this->director; }
+    };
+    $context->setTurns([new Turn($actor)]);
+    $state = $activeTime ? $engine->turnInitState : new PlayerActionStateTestProxy($engine);
+    $showCommands = function () use ($activeTime, $state, $context, $actor): void {
+      if ($activeTime) {
+        new ReflectionMethod($state, 'activateReadyCharacter')->invoke($state, $context, $actor);
+      } else {
+        $state->setActiveCharacterIndexForTest(0);
+        $state->loadCharacterActionsForTest($context);
+      }
+    };
+
+    expect($saved->getTutorialPhase('battle.summon'))->toBeNull();
+    $showCommands();
+    expect($saved->getTutorialPhase('battle.summon'))->toBeNull()
+      ->and($screen->commandContextWindow->getEmptyMessage())->toBe('');
+    $actor->stats->currentMp = 4;
+    $hp = $enemy->stats->currentHp;
+    $enemy->stats->currentHp = 0;
+    $showCommands();
+    expect($saved->getTutorialPhase('battle.summon'))->toBeNull();
+    $enemy->stats->currentHp = $hp;
+    $showCommands();
+    expect($saved->getTutorialPhase('battle.summon'))->toBe(TutorialPhase::PENDING)
+      ->and($director->getActiveTutorial()?->id)->toBe('battle.summon')
+      ->and($screen->commandContextWindow->getEmptyMessage())->toContain('Choose Summon.')
+      ->and(array_column($screen->commandWindow->presentationSnapshot()->rows, 'tutorialTarget'))
+      ->toContain(true)
+      ->and($screen->commandWindow->activeCommandIndex)->toBe(0)
+      ->and($actor->stats->currentMp)->toBe(4);
+  } finally {
+    BattleCommandCatalog::endBattle();
+    chdir($priorCwd);
+    InputManager::setBindings($priorBindings);
+    foreach ($priorConfig as $key => $value) {
+      new ReflectionProperty(ConfigStore::class, $key)->setValue(null, $value);
+    }
   }
 })->with(['traditional' => false, 'active time' => true]);
 

@@ -70,6 +70,13 @@ final class TutorialDirector
     }
   }
 
+  public function canOfferContext(TutorialStartContext $context): bool
+  {
+    return array_any($this->catalog->definitions, fn(TutorialDefinition $tutorial): bool =>
+      $tutorial->startContext === $context && in_array($this->state->getTutorialPhase($tutorial->id),
+        [null, TutorialPhase::PENDING], true));
+  }
+
   /** Called by the voluntary library visit or an eligible player battle command window. */
   public function enterContext(TutorialStartContext $context, bool $automaticPrompts, ?Party $party = null,
     ?QuestLog $quests = null): void

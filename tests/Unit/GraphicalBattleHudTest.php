@@ -85,6 +85,22 @@ function hudTestList(string $title, array $labels, int $selected = 0, string $he
     array_keys($labels)), $selected, 0, 4, count($labels), 1, 1);
 }
 
+it('marks the tutorial command without moving the active command cursor', function () {
+  $hud = new BattleHudSnapshot(
+    commands: new BattleHudListSnapshot('Command', '', [
+      new BattleHudRow(0, 'Attack', true),
+      new BattleHudRow(1, 'Summon', false, tutorialTarget: true),
+    ], 0, 0, 4, 2, 1, 1),
+    context: new BattleHudListSnapshot('', '', [], -1, 0, 4, 0, 1, 1, 'Choose Summon.'),
+  );
+  $frame = GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'command', 0);
+  $layers = array_column($frame->textLayers, null, 'id');
+  expect($layers)->toHaveKey('hud-command-tutorial-1')
+    ->and($layers['hud-submenu-empty']->runs[0]->text)->toBe('Choose Summon.')
+    ->and($hud->commands->activeIndex)->toBe(0)
+    ->and($hud->commands->rows[1]->selected)->toBeFalse();
+});
+
 it('preserves command context name and resource rows without terminal borders', function () {
   $hud = new BattleHudSnapshot(hudTestList('Command 1/2', ['Attack', 'Skill', 'Magic', 'Item'], help: 'i:Info'),
     hudTestList('Magic', ['Cure  3 MP'], help: 'enter:Select i:Info c:Back'),

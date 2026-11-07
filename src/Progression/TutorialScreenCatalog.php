@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Progression;
 
+use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerActionState as BattleInput;
 use Ichiloto\Engine\Scenes\Game\States\MainMenuState as MainMenu;
 use Ichiloto\Engine\Scenes\Game\States\MasteryMenuState as Mastery;
 use Ichiloto\Engine\Scenes\Game\States\SummonsMenuState as Summons;
@@ -52,6 +54,12 @@ final class TutorialScreenCatalog
           'targets' => [Summons::TUTORIAL_ASSIGNABLE_HOLDER], 'targetSource' => 'actor', 'targetPrefix' => 'member-',
           'actions' => ['confirm'],
           'outcomes' => [Summons::TUTORIAL_ASSIGNED => 'summon'],
+        ],
+      ],
+      BattleInput::TUTORIAL_SCREEN => [
+        BattleInput::TUTORIAL_COMMAND_VIEW => [
+          'targets' => [BattleCommandType::SUMMON->value], 'actions' => ['action'],
+          'outcomes' => [BattleInput::TUTORIAL_SUMMON_EXECUTED => []],
         ],
       ],
       Mastery::TUTORIAL_SCREEN => [

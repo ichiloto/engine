@@ -213,11 +213,18 @@ class ActionExecutionState extends TurnState
       $targets,
       $turn->action,
       $actionName,
-      function () use ($turn) {
+      function () use ($turn, $context, $isPartyActor, $confused): void {
         $turn->execute(new TurnExecutionContext(
           $this->engine,
           $this->engine->battleConfig,
         ));
+        if ($isPartyActor && $confused === null && $turn->action instanceof SkillBattleAction
+          && $turn->action->lastResult !== null && BattleCommandCatalog::isSummonActionId($turn->action->skill->name)) {
+          $context->getTutorialDirector()?->reportOutcome(
+            PlayerActionState::TUTORIAL_SCREEN, PlayerActionState::TUTORIAL_COMMAND_VIEW,
+            PlayerActionState::TUTORIAL_SUMMON_EXECUTED,
+          );
+        }
       }
     );
 
