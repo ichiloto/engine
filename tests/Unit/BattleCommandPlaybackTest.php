@@ -221,6 +221,35 @@ it('samples terminal fallback at its own authored speed while target graphics fi
   expect($hits)->toBe(1)->and($playback->isCompleted)->toBeTrue();
 });
 
+it('keeps a reduced-motion Terminal impact glyph within its authored visibility window', function (bool $fallback) {
+  $impact = ['mode' => 'frame', 'frame' => 4];
+  $terminal = new CompiledEffectTimeline('terminal-impact', '', fps: 12, playbackSegments: [
+    ['startFrame' => 0, 'endFrame' => 3, 'layer' => 'glyph',
+      'drawCommands' => [['trackId' => 'charge', 'content' => '.']]],
+    ['startFrame' => 4, 'endFrame' => 5, 'layer' => 'glyph',
+      'drawCommands' => [['trackId' => 'contact', 'content' => '*']]],
+  ], defaults: ['lengthFrames' => 8, 'restFrame' => 4, 'effectTiming' => $impact]);
+  $target = $fallback
+    ? new CompiledEffectTimeline('graphical-impact', '', fps: 12,
+      defaults: ['lengthFrames' => 8, 'effectTiming' => $impact])
+    : $terminal;
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
+    target: $target, terminalTarget: $fallback ? $terminal : null);
+  $actor = new Character('Actor', 1, new Stats(currentHp: 100, totalHp: 100));
+  $hits = 0;
+  $playback = new BattleCommandPlayback($plan, $actor, [$actor], BattlePoseRole::ATTACK,
+    function () use (&$hits) { $hits++; }, static fn() => null);
+  $last = 0;
+  foreach ([0 => [[], 0], 39 => [[], 0], 40 => [['*'], 1], 59 => [['*'], 1], 60 => [[], 1]] as $tick => [$glyphs, $outcomes]) {
+    $at = $plan->phases['target']['start'] + $tick;
+    $playback->update(($at - $last) / BattleCommandTimeline::FPS);
+    $last = $at;
+    $content = array_map(static fn(array $segment): string => $segment['drawCommands'][0]['content'],
+      $playback->getActiveSegments(true, true));
+    expect($content)->toBe($glyphs)->and($hits)->toBe($outcomes);
+  }
+})->with([false, true]);
+
 it('dispatches every fast authored cue once even when multiple frames collapse onto one command tick', function () {
   $effect = new CompiledEffectTimeline('fast-cues', '', fps: 120,
     cueSchedule: array_map(static fn(int $frame): array => ['id' => 'sound-' . $frame,

@@ -240,23 +240,63 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     if ($this->isCompleted) { return []; }
     $frame = $this->session->currentFrame;
-    $segments = $reducedMotion && isset($this->plan->restSegments[$this->phase])
-      ? $this->plan->restSegments[$this->phase] : $this->session->getActiveSegments($frame);
     $presentation = $terminal ? EffectPresentation::TERMINAL : EffectPresentation::GRAPHICAL;
+    $rest = $reducedMotion ? ($this->plan->restSegments[$this->phase] ?? null) : null;
+    $segments = $rest ?? $this->session->getActiveSegments($frame);
     $segments = array_values(array_filter($segments, $presentation->acceptsSegment(...)));
+    if ($terminal && $rest !== null) {
+      $segments = self::getVisibleTerminalRestSegments($segments, $this->session->getActiveSegments($frame));
+    }
     $fallback = $this->plan->terminalTarget;
     if ($terminal && $this->phase === 'target' && $fallback !== null) {
-      $sourceFrame = $reducedMotion ? ($fallback->defaults['restFrame'] ?? 0)
-        : min(max(0, (int)($fallback->defaults['lengthFrames'] ?? 1) - 1),
-          $this->plan->terminalTiming->getFrameCountAt(($frame - $this->plan->phases['target']['start']) / BattleCommandTimeline::FPS));
-      foreach ($this->plan->terminalSegments as $segment) {
-        if ($presentation->acceptsSegment($segment) && in_array($segment['layer'], ['glyph', 'text'], true)
-          && $segment['startFrame'] <= $sourceFrame && $sourceFrame <= $segment['endFrame']) {
-          $segments[] = $segment;
+      $sourceFrame = min(max(0, (int)($fallback->defaults['lengthFrames'] ?? 1) - 1),
+        $this->plan->terminalTiming->getFrameCountAt(($frame - $this->plan->phases['target']['start']) / BattleCommandTimeline::FPS));
+      $select = fn(int $sample): array => array_values(array_filter($this->plan->terminalSegments,
+        static fn(array $segment): bool => EffectPresentation::TERMINAL->acceptsSegment($segment)
+          && in_array($segment['layer'], ['glyph', 'text'], true)
+          && $segment['startFrame'] <= $sample && $sample <= $segment['endFrame']));
+      $active = $select($sourceFrame);
+      array_push($segments, ...($reducedMotion
+        ? self::getVisibleTerminalRestSegments($select($fallback->defaults['restFrame'] ?? 0), $active) : $active));
+    }
+    return \Ichiloto\Engine\Animations\Timelines\EffectSegmentComposition::compose($segments, $presentation);
+  }
+
+  /** A resting glyph or label keeps its authored visibility on the command clock. */
+  private static function getVisibleTerminalRestSegments(array $rest, array $active): array
+  {
+    $visibleTracks = [];
+    foreach ($active as $segment) {
+      if (!EffectPresentation::TERMINAL->acceptsSegment($segment) || !in_array($segment['layer'], ['glyph', 'text'], true)) {
+        continue;
+      }
+      foreach ($segment['drawCommands'] as $command) {
+        if ($command['visible'] ?? true) {
+          $visibleTracks[self::getTerminalVisibilityTrack($segment['layer'], $command)] = true;
         }
       }
     }
-    return \Ichiloto\Engine\Animations\Timelines\EffectSegmentComposition::compose($segments, $presentation);
+
+    $segments = [];
+    foreach ($rest as $segment) {
+      if (in_array($segment['layer'], ['glyph', 'text'], true)) {
+        $segment['drawCommands'] = array_values(array_filter($segment['drawCommands'],
+          static fn(array $command): bool => isset($visibleTracks[self::getTerminalVisibilityTrack($segment['layer'], $command)])));
+        if ($segment['drawCommands'] === []) { continue; }
+      }
+      $segments[] = $segment;
+    }
+    return $segments;
+  }
+
+  private static function getTerminalVisibilityTrack(string $layer, array $command): string
+  {
+    // Legacy cell IDs encode their positions. A moving cell belongs to the same animation.
+    if (isset($command['payload']['legacyPosition'])) {
+      $lane = str_starts_with($command['trackId'], 'source-') ? 'source' : 'target';
+      return $layer . ':' . $lane . ':legacy';
+    }
+    return $layer . ':' . $command['trackId'];
   }
 
   /** Ground-anchor displacement on the command clock; returning retraces the outbound route without turning. */
