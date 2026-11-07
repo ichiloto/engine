@@ -213,6 +213,9 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
             $this->worldAbilityPrompts = new WorldAbilityPrompts($scene->getGame());
         }
         if ($scene->tutorialDirector !== null && $scene->getUI()->getActivePresentations() === []) {
+            if ($scene->startPendingTutorialFollowOn()) {
+                return;
+            }
             $scene->tutorialDirector->updateInStableField(
                 (bool) config(ProjectConfig::class, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true),
                 $scene->party,

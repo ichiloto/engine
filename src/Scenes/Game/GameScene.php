@@ -15,6 +15,7 @@ use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Progression\TutorialCatalog;
 use Ichiloto\Engine\Progression\TutorialDirector;
+use Ichiloto\Engine\Progression\TutorialFollowOn;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicController;
@@ -801,6 +802,9 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
      */
     protected(set) GameState $gameState;
     protected(set) ?TutorialDirector $tutorialDirector = null;
+    private ?CinematicLibrary $tutorialCinematics = null;
+    /** @var array<string, CinematicDefinition> Resolved once per campaign, including while waiting for the start map. */
+    private array $tutorialFollowOnDefinitions = [];
     /**
      * @var QuestManager|null The quest manager.
      */
@@ -1071,6 +1075,8 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $assetRoot = $this->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets';
         $tutorials = TutorialCatalog::fromProject($assetRoot);
         $this->tutorialDirector = $tutorials->definitions === [] ? null : new TutorialDirector($tutorials, $this->gameState);
+        $this->tutorialCinematics = $this->tutorialDirector === null ? null : new CinematicLibrary($assetRoot . '/Cutscenes/Cinematics');
+        $this->tutorialFollowOnDefinitions = [];
 
         $this->gameState->onChange = $this->handleWorldStateChange(...);
 
@@ -2108,6 +2114,34 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         }
 
         return $this->eventInterpreter?->run($commands, $scriptId, $completionTarget, $origin);
+    }
+
+    /** Called by controlled field play after any previous event has released the scene. */
+    public function startPendingTutorialFollowOn(): bool
+    {
+        $director = $this->tutorialDirector;
+        if ($director === null || $this->tutorialCinematics === null) {
+            return false;
+        }
+
+        foreach ($director->getPendingFollowOns() as $tutorial) {
+            try {
+                $id = $tutorial->onFinish;
+                assert($id !== null);
+                $cinematic = $this->tutorialFollowOnDefinitions[$id] ??= $this->tutorialCinematics->load($id);
+                if ($cinematic->startMap !== null && $cinematic->startMap !== $this->currentMapId) {
+                    continue;
+                }
+                if ($this->startCinematic($cinematic, new TutorialFollowOn($director, $tutorial->id)) !== null) {
+                    return true;
+                }
+            } catch (Throwable $error) {
+                $director->deferFailedFollowOn($tutorial->id);
+                Debug::warn('Tutorial follow-on ' . $tutorial->id . ': ' . $error->getMessage());
+            }
+        }
+
+        return false;
     }
 
     /** Starts a first-class cinematic asset by definition or stable id. */

@@ -55,6 +55,9 @@ class GameState
   /** @var array<string, TutorialPhase> Tutorial progress by stable authored id. */
   private array $tutorials = [];
 
+  /** @var array<array-key, true> Follow-ons explicitly queued by a live lesson. */
+  private array $tutorialFollowOns = [];
+
   public function getTutorialPhase(string $id): ?TutorialPhase
   {
     return $this->tutorials[trim($id)] ?? null;
@@ -69,6 +72,33 @@ class GameState
 
     $this->tutorials[$id] = $phase;
     $this->onChange?->__invoke('tutorial', $id);
+  }
+
+  /** Records the lesson result and its follow-on in the same state change. */
+  public function finishTutorial(string $id, TutorialPhase $phase, bool $queueFollowOn): void
+  {
+    if ($phase === TutorialPhase::PENDING || $this->getTutorialPhase($id) !== TutorialPhase::PENDING) {
+      return;
+    }
+
+    $id = trim($id);
+    if ($queueFollowOn) {
+      $this->tutorialFollowOns[$id] = true;
+    }
+    $this->setTutorialPhase($id, $phase);
+  }
+
+  public function hasPendingTutorialFollowOn(string $id): bool
+  {
+    return isset($this->tutorialFollowOns[$id]);
+  }
+
+  public function acknowledgeTutorialFollowOn(string $id): void
+  {
+    if ($this->hasPendingTutorialFollowOn($id)) {
+      unset($this->tutorialFollowOns[$id]);
+      $this->onChange?->__invoke('tutorial', $id);
+    }
   }
 
   public function hasSeenWorldAbilityPrompt(string $id): bool { return isset($this->worldAbilityPrompts[$id]); }
@@ -268,7 +298,7 @@ class GameState
   }
 
   /**
-   * @return array{switches: array<string, bool>, variables: array<string, int|float|string>, storyEvents: string[], completedEvents: array<string, true>, visitedMaps: array<string, true>, knownLandmarks: array<string, array<string, true>>, worldAbilityPrompts: array<string,true>, tutorials: array<string,string>}
+   * @return array{switches: array<string, bool>, variables: array<string, int|float|string>, storyEvents: string[], completedEvents: array<string, true>, visitedMaps: array<string, true>, knownLandmarks: array<string, array<string, true>>, worldAbilityPrompts: array<string,true>, tutorials: array<string,string>, tutorialFollowOns: array<array-key,true>}
    */
   public function toArray(): array
   {
@@ -281,6 +311,7 @@ class GameState
       'knownLandmarks' => $this->knownLandmarks,
       'worldAbilityPrompts' => $this->worldAbilityPrompts,
       'tutorials' => array_map(static fn(TutorialPhase $phase): string => $phase->value, $this->tutorials),
+      'tutorialFollowOns' => $this->tutorialFollowOns,
     ];
   }
 
@@ -303,6 +334,7 @@ class GameState
     $this->knownLandmarks = $restored->knownLandmarks;
     $this->worldAbilityPrompts = $restored->worldAbilityPrompts;
     $this->tutorials = $restored->tutorials;
+    $this->tutorialFollowOns = $restored->tutorialFollowOns;
   }
 
   /**
@@ -361,6 +393,13 @@ class GameState
       $phase = is_string($value) ? TutorialPhase::tryFrom($value) : null;
       if ($phase !== null) {
         $state->setTutorialPhase((string) $id, $phase);
+      }
+    }
+
+    foreach (is_array($data['tutorialFollowOns'] ?? null) ? $data['tutorialFollowOns'] : [] as $id => $queued) {
+      $phase = $state->getTutorialPhase((string) $id);
+      if ($queued === true && ($phase === TutorialPhase::COMPLETED || $phase === TutorialPhase::SKIPPED)) {
+        $state->tutorialFollowOns[$id] = true;
       }
     }
 

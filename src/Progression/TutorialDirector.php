@@ -19,6 +19,8 @@ final class TutorialDirector
   private ?TutorialDefinition $active = null;
   private int $stepIndex = 0;
   private bool $practice = false;
+  /** @var array<array-key, true> Failed scenes are retried after a new campaign load. */
+  private array $failedFollowOns = [];
 
   /** @var array<array-key, bool> Last observed conditions during controlled play. */
   private array $automaticConditions = [];
@@ -132,6 +134,25 @@ final class TutorialDirector
     return true;
   }
 
+  /** @return list<TutorialDefinition> Story follow-ons eligible to attempt in this campaign. */
+  public function getPendingFollowOns(): array
+  {
+    return array_values(array_filter($this->catalog->definitions,
+      fn(TutorialDefinition $tutorial): bool => $tutorial->onFinish !== null
+        && !isset($this->failedFollowOns[$tutorial->id])
+        && $this->state->hasPendingTutorialFollowOn($tutorial->id)));
+  }
+
+  public function acknowledgeFollowOn(string $id): void
+  {
+    $this->state->acknowledgeTutorialFollowOn($id);
+  }
+
+  public function deferFailedFollowOn(string $id): void
+  {
+    $this->failedFollowOns[$id] = true;
+  }
+
   private function hasBoundControls(TutorialDefinition $tutorial): bool
   {
     return array_all($tutorial->steps, static fn(TutorialStep $step): bool => ActionHints::resolveControl($step->action) !== null);
@@ -153,13 +174,13 @@ final class TutorialDirector
 
   private function finishTutorial(TutorialPhase $phase): void
   {
-    $id = $this->active->id;
+    $tutorial = $this->active;
     $practice = $this->practice;
     $this->active = null;
     $this->stepIndex = 0;
     $this->practice = false;
     if (!$practice) {
-      $this->state->setTutorialPhase($id, $phase);
+      $this->state->finishTutorial($tutorial->id, $phase, $tutorial->onFinish !== null);
     }
   }
 }

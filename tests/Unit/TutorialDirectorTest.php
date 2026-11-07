@@ -12,7 +12,7 @@ use Ichiloto\Engine\Progression\TutorialCatalog;
 use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Progression\TutorialPhase;
 
-function makeTutorialDirector(GameState $state, bool $automatic = false): TutorialDirector
+function makeTutorialDirector(GameState $state, bool $automatic = false, ?string $onFinish = null): TutorialDirector
 {
   return new TutorialDirector(new TutorialCatalog([[
     'id' => 'guide.sample',
@@ -21,6 +21,7 @@ function makeTutorialDirector(GameState $state, bool $automatic = false): Tutori
     'start' => $automatic ? 'automatic' : 'script',
     'trigger' => $automatic ? [['type' => 'switch', 'name' => 'available']] : [],
     'replay' => 'practice',
+    'onFinish' => $onFinish,
     'steps' => [[
       'target' => ['screen' => 'menu', 'view' => 'detail', 'id' => 'sample'],
       'action' => 'confirm',
@@ -128,4 +129,35 @@ it('registers a tutorial picker and queues a field lesson without suspending the
     )->operation)->toBeNull()
     ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::PENDING)
     ->and($director->getActiveTutorial())->toBeNull();
+});
+
+it('keeps a story handoff pending across save and interruption until its completion is acknowledged', function () {
+  $state = new GameState();
+  $director = makeTutorialDirector($state, onFinish: 'sample-disclosure');
+  $director->queueScriptTutorial('guide.sample');
+  $director->updateInStableField(true);
+  $director->skipActiveTutorial();
+  expect($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::SKIPPED)
+    ->and($state->toArray()['tutorialFollowOns'])->toBe(['guide.sample' => true]);
+
+  $restored = GameState::fromArray($state->toArray());
+  $director = makeTutorialDirector($restored, onFinish: 'sample-disclosure');
+  expect($director->getPendingFollowOns()[0]->onFinish)->toBe('sample-disclosure');
+  $director->deferFailedFollowOn('guide.sample');
+  expect($director->getPendingFollowOns())->toBe([])
+    ->and($restored->hasPendingTutorialFollowOn('guide.sample'))->toBeTrue();
+
+  $director = makeTutorialDirector(GameState::fromArray($restored->toArray()), onFinish: 'sample-disclosure');
+  expect($director->getPendingFollowOns())->toHaveCount(1);
+  $director->acknowledgeFollowOn('guide.sample');
+  expect($director->getPendingFollowOns())->toBe([]);
+});
+
+it('does not schedule a story follow-on when practising a migrated tutorial', function () {
+  $state = GameState::fromArray(['tutorials' => ['guide.sample' => 'completed']]);
+  $director = makeTutorialDirector($state, onFinish: 'sample-disclosure');
+  expect($director->startPractice('guide.sample'))->toBeTrue();
+  $director->skipActiveTutorial();
+  expect($director->getPendingFollowOns())->toBe([])
+    ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::COMPLETED);
 });
