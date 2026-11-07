@@ -564,6 +564,38 @@ it('opens encountered guides from Records and practises on the live menu without
     ->and($this->flags->toArray())->toBe($snapshot);
 });
 
+it('opens a reading-only Guide in Records without a demo or a save change', function (bool $graphical) {
+  if ($graphical) {
+    journalMenuRuntime($this, journalMenuTheme(), [...MenuPresentationCatalog::CAPABILITIES, RendererSessionConfig::CANVAS_COMPOSITING]);
+  }
+  $this->flags->setTutorialPhase('guide.read', TutorialPhase::PENDING);
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.read', 'category' => 'Battle', 'title' => 'Using Contracts',
+    'start' => 'script', 'replay' => 'read',
+    'steps' => [[
+      'target' => ['screen' => 'main-menu', 'view' => 'commands', 'id' => 'summons'],
+      'action' => 'confirm', 'say' => 'Open the contracts.',
+      'until' => ['outcome' => 'menu.command-opened', 'subject' => 'summons'],
+    ]],
+  ]]), $this->flags);
+  new ReflectionProperty($this->scene, 'tutorialDirector')->setValue($this->scene, $director);
+  $snapshot = $this->flags->toArray();
+  $state = journalMenuOwner($this, true);
+  journalMenuKey($state, KeyCode::Q);
+  expect($state->getPresentationContent()->confirmLabel)->toBe('Read');
+
+  journalMenuKey($state, KeyCode::ENTER);
+  expect($state->getPresentationContent()->detailsOpen)->toBeTrue()
+    ->and($state->getPresentationContent()->details->text)->toContain('Open the contracts.')
+    ->and($this->scene->state)->toBe($state)
+    ->and($director->getActiveTutorial())->toBeNull()
+    ->and($this->flags->toArray())->toBe($snapshot);
+
+  journalMenuKey($state, KeyCode::ESCAPE);
+  expect($state->getPresentationContent()->detailsOpen)->toBeFalse()
+    ->and($this->scene->state)->toBe($state);
+})->with(['Terminal' => false, 'compositing renderer' => true]);
+
 it('opens an authored Guide demo or its written instructions according to the renderer', function (bool $canWatch) {
   $caps = MenuPresentationCatalog::CAPABILITIES;
   if ($canWatch) { $caps[] = RendererSessionConfig::CANVAS_COMPOSITING; }

@@ -8,5 +8,6 @@ enum TutorialReplayMode: string
 {
   case PRACTICE = 'practice';
   case DEMO = 'demo';
+  case READ = 'read';
   case NONE = 'none';
 }

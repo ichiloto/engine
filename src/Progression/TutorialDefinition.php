@@ -58,6 +58,10 @@ final readonly class TutorialDefinition
       array_keys($steps),
     );
 
+    if ($replay === TutorialReplayMode::READ && !array_any($steps, static fn(TutorialStep $step): bool => $step->say !== null)) {
+      throw new InvalidArgumentException($source . ' requires written instructions for Read replay.');
+    }
+
     $demo = $data['demo'] ?? null;
     $onFinish = $data['onFinish'] ?? null;
     if ($demo !== null || $replay === TutorialReplayMode::DEMO) {

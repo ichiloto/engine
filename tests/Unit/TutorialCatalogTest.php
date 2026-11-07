@@ -60,6 +60,14 @@ it('requires an automatic condition and a demo for Watch replay', function () {
     ->toThrow(InvalidArgumentException::class);
 });
 
+it('requires written instructions for a reading-only Guide entry', function () {
+  $record = array_replace(makeTutorialCatalogTestRecord(), ['replay' => 'read']);
+  expect(new TutorialCatalog([$record]))->toBeInstanceOf(TutorialCatalog::class);
+
+  unset($record['steps'][0]['say']);
+  expect(fn() => new TutorialCatalog([$record]))->toThrow(InvalidArgumentException::class, 'requires written instructions');
+});
+
 it('shares project actor ids and validates real screen references without running the follow-on script', function () {
   $root = createTestDirectory('tutorial-project');
   mkdir($root . '/Data/Actors', 0777, true);

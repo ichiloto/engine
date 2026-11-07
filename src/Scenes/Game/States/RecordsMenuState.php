@@ -381,6 +381,7 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
     return match ($guide->replay) {
       TutorialReplayMode::PRACTICE => $this->getGameScene()->tutorialDirector?->canStartPractice($guide) ? 'Practice' : null,
       TutorialReplayMode::DEMO => $this->getGuideDemoRuntime() === null ? 'Read' : 'Watch',
+      TutorialReplayMode::READ => 'Read',
       TutorialReplayMode::NONE => null,
     };
   }
@@ -402,6 +403,10 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
     $scene = $this->getGameScene();
     if ($guide->replay === TutorialReplayMode::PRACTICE && $scene->tutorialDirector?->startPractice($guide->id)) {
       $this->setState($scene->mainMenuState);
+      return;
+    }
+    if ($guide->replay === TutorialReplayMode::READ) {
+      $this->openGuideReading();
       return;
     }
     if ($guide->replay !== TutorialReplayMode::DEMO || $guide->demo === null) {
