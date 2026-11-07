@@ -101,17 +101,25 @@ it('observes automatic trigger edges without starting historical or unbound less
   $director->updateInStableField(false);
   $state->setSwitch('available');
   $director->updateInStableField(false);
-  expect($state->getTutorialPhase('guide.sample'))->toBeNull();
+  expect($director->getActiveTutorial())->toBeNull()
+    ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::PENDING);
 
-  $state->setSwitch('available', false);
-  $director->updateInStableField(true);
-  $state->setSwitch('available');
+  $director = makeTutorialDirector(GameState::fromArray($state->toArray()), automatic: true);
   ActionHints::useProvider(new class implements ActionHintProvider {
     public function controlForAction(string $action): ?ControlHint { return null; }
   });
   $director->updateInStableField(true);
-  expect($director->getActiveTutorial())->toBeNull()
-    ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::PENDING);
+  expect($director->getActiveTutorial())->toBeNull();
+  ActionHints::useProvider(new class implements ActionHintProvider {
+    public function controlForAction(string $action): ?ControlHint
+    {
+      return $action === 'confirm' ? new ControlHint('controller', 'south', 'A') : null;
+    }
+  });
+  $director->updateInStableField(false);
+  expect($director->getActiveTutorial())->toBeNull();
+  $director->updateInStableField(true);
+  expect($director->getActiveTutorial()?->id)->toBe('guide.sample');
 });
 
 it('registers a tutorial picker and queues a field lesson without suspending the script', function () {

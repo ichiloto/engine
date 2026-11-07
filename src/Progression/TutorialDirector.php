@@ -54,7 +54,8 @@ final class TutorialDirector
       $holds = WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests);
       $previous = $this->automaticConditions[$tutorial->id] ?? null;
       $this->automaticConditions[$tutorial->id] = $holds;
-      if ($automaticPrompts && $holds && $previous === false) {
+      // Record when the player encounters the concept, independently of prompt visibility.
+      if ($holds && $previous === false) {
         $this->state->setTutorialPhase($tutorial->id, TutorialPhase::PENDING);
       }
     }
