@@ -31,6 +31,7 @@ class TitleOptionsSettingsManager extends SettingsManager
       'dialogue_speed',
       'dialogue_auto',
       'always_dash',
+      'tutorial_prompts',
       'notification_duration',
     ];
   }

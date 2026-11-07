@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Settings;
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Audio\Enumerations\AudioBus;
 use Ichiloto\Engine\Field\PlayerDash;
+use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
@@ -100,6 +101,12 @@ class SettingsCatalog
         'Dash without holding Dash; hold Dash to walk.',
         ['Off' => false, 'On' => true],
       )] : []),
+      new GameSetting(
+        'tutorial_prompts',
+        'Tutorial Prompts',
+        'Offers guided tutorials automatically as new mechanics become available.',
+        ['Off' => false, 'On' => true],
+      ),
       new GameSetting(
         'cursor_memory',
         'Cursor Memory',
@@ -209,6 +216,7 @@ class SettingsCatalog
         config(ProjectConfig::class, 'ui.dialogue.message.speed', 50)
       ),
       'notification_duration' => Accessibility::notificationDurationScale(),
+      'tutorial_prompts' => boolval(config(ProjectConfig::class, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true)),
       'cursor_memory' => boolval(config(ProjectConfig::class, 'ui.cursor.memory', false)),
       'always_dash' => boolval(config(ProjectConfig::class, PlayerDash::CONFIG_ALWAYS_DASH, false)),
       'battle_message_pace' => config(ProjectConfig::class, 'ui.battle.message_pace', 'slow'),
@@ -255,6 +263,7 @@ class SettingsCatalog
       // project may read either.
       'dialogue_speed' => $this->writeBoth($config, ['ui.dialogue.speed', 'ui.dialogue.message.speed'], intval($value)),
       'notification_duration' => $this->writePath($config, 'accessibility.notificationDurationScale', max(0.1, floatval($value))),
+      'tutorial_prompts' => $this->writePath($config, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, boolval($value)),
       'cursor_memory' => $this->writePath($config, 'ui.cursor.memory', boolval($value)),
       'always_dash' => $this->writePath($config, PlayerDash::CONFIG_ALWAYS_DASH, boolval($value)),
       'battle_message_pace' => $this->writePath($config, 'ui.battle.message_pace', strval($value)),

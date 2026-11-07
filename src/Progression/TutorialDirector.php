@@ -124,6 +124,33 @@ final class TutorialDirector
     return true;
   }
 
+  public function getSkippableTutorial(?Party $party = null, ?QuestLog $quests = null): ?TutorialDefinition
+  {
+    if ($this->active !== null) {
+      return $this->active;
+    }
+
+    return array_find($this->catalog->definitions, fn(TutorialDefinition $tutorial): bool =>
+      $tutorial->start === TutorialStartMode::SCRIPT
+      && $this->state->getTutorialPhase($tutorial->id) === TutorialPhase::PENDING
+      && !$this->hasBoundControls($tutorial)
+      && WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests));
+  }
+
+  public function skipTutorial(string $id, ?Party $party = null, ?QuestLog $quests = null): bool
+  {
+    $tutorial = $this->getSkippableTutorial($party, $quests);
+    if ($tutorial?->id !== $id) {
+      return false;
+    }
+    if ($this->active !== null) {
+      return $this->skipActiveTutorial();
+    }
+
+    $this->state->finishTutorial($id, TutorialPhase::SKIPPED, $tutorial->onFinish !== null);
+    return true;
+  }
+
   public function skipActiveTutorial(): bool
   {
     if ($this->active === null) {

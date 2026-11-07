@@ -14,6 +14,7 @@ use Ichiloto\Engine\Core\Menu\Commands\OpenMasteryMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenQuestsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenRecordsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenSummonsMenuCommand;
+use Ichiloto\Engine\Core\Menu\Commands\SkipTutorialCommand;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Core\Menu\Commands\OpenPartyOrderCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenQuitMenuCommand;
@@ -368,6 +369,10 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
 
         if ($this->canSave) {
             $this->mainMenu->addItem(new OpenSaveMenuCommand($this->mainMenu));
+        }
+        $scene = $this->getGameScene();
+        if ($scene->tutorialDirector?->getSkippableTutorial($scene->party, $scene->questManager?->log) !== null) {
+            $this->mainMenu->addItem(new SkipTutorialCommand($this->mainMenu));
         }
         $this->mainMenu->addItem(new OpenQuitMenuCommand($this->mainMenu));
         $this->mainMenu->updateWindowContent();

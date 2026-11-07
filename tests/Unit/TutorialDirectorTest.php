@@ -161,3 +161,20 @@ it('does not schedule a story follow-on when practising a migrated tutorial', fu
   expect($director->getPendingFollowOns())->toBe([])
     ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::COMPLETED);
 });
+
+it('offers a queued story tutorial for Skip when its required control is unbound', function () {
+  $state = new GameState();
+  $director = makeTutorialDirector($state, onFinish: 'sample-disclosure');
+  ActionHints::useProvider(new class implements ActionHintProvider {
+    public function controlForAction(string $action): ?ControlHint { return null; }
+  });
+  $director->queueScriptTutorial('guide.sample');
+  $director->updateInStableField(true);
+
+  expect($director->getActiveTutorial())->toBeNull()
+    ->and($director->getSkippableTutorial()->id)->toBe('guide.sample')
+    ->and($director->skipTutorial('unrelated'))->toBeFalse()
+    ->and($director->skipTutorial('guide.sample'))->toBeTrue()
+    ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::SKIPPED)
+    ->and($director->getPendingFollowOns()[0]->onFinish)->toBe('sample-disclosure');
+});
