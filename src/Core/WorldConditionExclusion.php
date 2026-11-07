@@ -62,6 +62,31 @@ final class WorldConditionExclusion
     }
 
     /**
+     * Identifies conjunctions that contain the same tests, independent of order and duplicates.
+     * Tests outside the proof vocabulary retain their exact authored operands.
+     * @param list<array<string, mixed>> $conditions Validated world conditions.
+     */
+    public static function getConjunctionKey(array $conditions): string
+    {
+        $tests = [];
+        foreach ($conditions as $condition) {
+            try {
+                $test = self::readTest($condition);
+            } catch (\JsonException) {
+                $test = null;
+            }
+            if ($test === null) {
+                ksort($condition);
+                $test = $condition;
+            }
+            $tests[serialize($test)] = true;
+        }
+        ksort($tests);
+
+        return serialize($tests);
+    }
+
+    /**
      * An available ability implies all its source predicates. Its negation
      * implies the inverse predicate only when its source has exactly one.
      * Multi-predicate negation remains a disjunction and is never flattened.

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle;
 
 use Assegai\Util\Path;
+use Ichiloto\Engine\Core\WorldConditionExclusion;
 use InvalidArgumentException;
 
 /** Shared crisis definitions are project resources referenced by actors. Saves retain mutable actor state. */
@@ -48,6 +49,31 @@ final class CrisisAbilityCatalog
   public function getAbilities(): array
   {
     return $this->abilities;
+  }
+
+  /** Checks variant conditions that cannot distinguish techniques during authoring. */
+  public function validateVariantConditions(): void
+  {
+    foreach ($this->abilities as $id => $ability) {
+      if (count($ability->variants) < 2) { continue; }
+
+      $seen = [];
+      foreach ($ability->variants as $index => $variant) {
+        if ($variant['conditions'] === []) {
+          throw new InvalidArgumentException(sprintf(
+            'Crisis "%s" variant %d requires conditions when the ability has multiple variants.', $id, $index + 1,
+          ));
+        }
+
+        $key = WorldConditionExclusion::getConjunctionKey($variant['conditions']);
+        if (isset($seen[$key])) {
+          throw new InvalidArgumentException(sprintf(
+            'Crisis "%s" variants %d and %d have identical conditions.', $id, $seen[$key], $index + 1,
+          ));
+        }
+        $seen[$key] = $index + 1;
+      }
+    }
   }
 
   public static function requireReference(mixed $reference): ?string
