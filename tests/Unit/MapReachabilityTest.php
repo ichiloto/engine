@@ -6,6 +6,10 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Field\InteractionReach;
 use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
+use Ichiloto\Engine\Events\Triggers\CinematicEventTrigger;
+use Ichiloto\Engine\Events\Triggers\PassageEventTrigger;
+use Ichiloto\Engine\Events\Triggers\PlayAudioEventTrigger;
+use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 use Ichiloto\Engine\Events\Enumerations\EventEngagement;
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
 use Ichiloto\Engine\Field\MapSourceReader;
@@ -738,3 +742,24 @@ it('analyses world ability gates using its own project catalogue without install
       : \Ichiloto\Engine\Util\Config\ConfigStore::put($catalogClass, $prior);
   }
 })->with([false, true]);
+
+it('requires a trigger owner to declare save-safe action-only entry', function (string $class, array $data, bool $actionOnly) {
+  $event = ReachabilityEvent::fromDefinition([
+    'class' => $class,
+    'area' => CellArea::fromCells([[1, 1]])->toArray(),
+    'engagement' => 'facing',
+    'data' => $data,
+  ]);
+  expect($event->isActionOnly)->toBe($actionOnly);
+  if ($class === PlayAudioEventTrigger::class) {
+    expect($event->isInteraction)->toBeTrue();
+  }
+})->with([
+  'default cinematic waits for action' => [CinematicEventTrigger::class, [], true],
+  'automatic cinematic remains protected' => [CinematicEventTrigger::class, ['mode' => 'auto'], false],
+  'manual script waits for action' => [ScriptEventTrigger::class, ['mode' => 'action'], true],
+  'automatic script remains protected' => [ScriptEventTrigger::class, ['mode' => 'auto'], false],
+  'script subclass declares its own behavior' => [PassageEventTrigger::class, ['mode' => 'action'], false],
+  'faced audio still acts on entry' => [PlayAudioEventTrigger::class, [], false],
+  'transfer remains protected' => [TransferPlayerTrigger::class, [], false],
+]);

@@ -6,6 +6,7 @@ use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Enumerations\EventEngagement;
+use Ichiloto\Engine\Events\Interfaces\ActionOnlyEventTriggerInterface;
 use Ichiloto\Engine\Events\Interfaces\AutomaticEventTriggerInterface;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
@@ -35,6 +36,8 @@ final class ReachabilityEvent
     public readonly array $conditions = [],
     /** Whether it runs without the action key, as the player steps in. */
     public readonly bool $runsAutomatically = false,
+    /** Whether entry merely offers the action key, as declared by the trigger owner. */
+    public readonly bool $isActionOnly = false,
   )
   {
   }
@@ -50,16 +53,20 @@ final class ReachabilityEvent
       throw new InvalidArgumentException('An event definition has no resolved area.');
     }
 
+    $class = strval($definition['class'] ?? '');
+    $data = (array) ($definition['data'] ?? []);
+    $runsAutomatically = is_a($class, AutomaticEventTriggerInterface::class, true)
+      && $class::determineRunsAutomatically($data);
     return new self(
       CellArea::fromArray($definition['area'], 'Event area'),
-      strval($definition['class'] ?? ''),
+      $class,
       isset($definition['marker']) ? strval($definition['marker']) : null,
       array_key_exists('engagement', $definition) ? EventEngagement::parse($definition['engagement']) : EventEngagement::INSIDE,
       EventTrigger::parseFacing(array_key_exists('facing', $definition) ? $definition['facing'] : []),
       self::readSpeakers($definition),
       array_values(array_filter((array) ($definition['conditions'] ?? []), is_array(...))),
-      is_a($class = strval($definition['class'] ?? ''), AutomaticEventTriggerInterface::class, true)
-        && $class::determineRunsAutomatically((array) ($definition['data'] ?? [])),
+      $runsAutomatically,
+      !$runsAutomatically && is_a($class, ActionOnlyEventTriggerInterface::class, true) && $class::requiresActionKey($data),
     );
   }
 

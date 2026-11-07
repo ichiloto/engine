@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Events\Triggers;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandSchema;
 use Ichiloto\Engine\Entities\Actions\FieldActionContext;
 use Ichiloto\Engine\Entities\Actions\RunCinematicAction;
+use Ichiloto\Engine\Events\Interfaces\ActionOnlyEventTriggerInterface;
 use Ichiloto\Engine\Events\Interfaces\AutomaticEventTriggerInterface;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
@@ -22,6 +23,7 @@ use Throwable;
  * skip, or failed under the existing controlled-failure path.
  */
 final class CinematicEventTrigger extends EventTrigger implements
+  ActionOnlyEventTriggerInterface,
   AutomaticEventTriggerInterface,
   EventSessionCompletionTargetInterface
 {
@@ -60,6 +62,11 @@ final class CinematicEventTrigger extends EventTrigger implements
   public static function determineRunsAutomatically(array $data): bool
   {
     return strtolower(trim(strval($data['mode'] ?? 'action'))) === 'auto';
+  }
+
+  public static function requiresActionKey(array $data): bool
+  {
+    return strtolower(trim(strval($data['mode'] ?? 'action'))) === 'action';
   }
 
   /** Starts the referenced Cinematic when the field has no other owner. */
