@@ -11,12 +11,14 @@ use Ichiloto\Engine\UI\SelectionStyle;
 /** A static guide treatment for existing terminal rows and help lines. */
 final class TutorialTerminalPresentation
 {
-  public static function getHint(?TutorialStep $step): ?string
+  public static function getHint(?TutorialStep $step, ?string $speakerName = null): ?string
   {
     if ($step === null) {
       return null;
     }
-    $hint = ActionHints::resolve($step->action, $step->say ?? 'Continue');
+    $instruction = $step->say ?? 'Continue';
+    $label = $speakerName === null ? $instruction : $speakerName . ': ' . $instruction;
+    $hint = ActionHints::resolve($step->action, $label);
     return $hint->control === null ? null : TerminalControlText::formatHint($hint);
   }
 

@@ -1234,7 +1234,7 @@ it('marks a real Terminal tutorial command without moving the ordinary menu curs
 });
 
 
-it('renders complete Terminal tutorial guidance and restores the description when it ends', function (int $width, int $lineCount) {
+it('renders the speaker and full Terminal tutorial guidance and restores the description when it ends', function (int $width, int $lineCount) {
   Console::syncDimensions($width, 42);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => $width, 'height' => 42]));
   $instruction = 'Open the inventory and check what is inside the newly unlocked section.';
@@ -1248,6 +1248,7 @@ it('renders complete Terminal tutorial guidance and restores the description whe
       'target' => ['screen' => MainMenuState::TUTORIAL_SCREEN, 'view' => MainMenuState::TUTORIAL_COMMANDS, 'id' => 'summons'],
       'action' => 'confirm',
       'say' => $instruction,
+      'speaker' => 'actor.0',
       'until' => ['outcome' => 'sample.opened'],
     ]],
   ]]), $this->scene->gameState);
@@ -1262,7 +1263,7 @@ it('renders complete Terminal tutorial guidance and restores the description whe
     static fn(string $row): string => trim(TerminalText::stripAnsi(TerminalText::sliceSymbols($row, (int)$panel->getPosition()->x + 2, $panel->getContentWidth()))),
     array_slice(Console::getBuffer(), $start, $lineCount),
   );
-  expect(implode(' ', $readPanel()))->toBe('[Enter] ' . $instruction);
+  expect(implode(' ', $readPanel()))->toBe('[Enter] Actor 0: ' . $instruction);
   $description = $panel->getDescription();
   expect($description)->not->toBe('')->not->toBe($instruction);
 

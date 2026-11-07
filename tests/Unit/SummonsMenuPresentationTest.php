@@ -349,15 +349,18 @@ it('lights the visible tutorial row with the bound control and leaves missing ta
     'action' => 'confirm',
     'until' => ['outcome' => 'summon.opened', 'subject' => 'sample'],
     'say' => 'Open the contract.',
+    'speaker' => 'actor.synthetic',
   ];
-  $frame = SummonsMenuPresentation::compose($content, $theme, null, tutorial: TutorialStep::fromArray($step, 'Test guide'), tutorialRow: $step['target']['id']);
+  $frame = SummonsMenuPresentation::compose($content, $theme, null, tutorial: TutorialStep::fromArray($step, 'Test guide'), tutorialRow: $step['target']['id'], tutorialSpeaker: 'Actor');
   $layers = $frame->textLayers;
   $guideText = implode('', array_merge(...array_map(static fn($layer) => array_column($layer->runs, 'text'), $layers)));
   expect(array_any($layers, static fn($layer): bool => str_starts_with($layer->id, 'tutorial-target')))->toBeTrue()
     ->and($guideText)->toContain('Pad', 'Open the contract.');
+  $speaker = array_find($layers, static fn($layer) => $layer->id === 'tutorial-speaker');
+  expect(implode('', array_column($speaker?->runs ?? [], 'text')))->toBe('Actor');
 
   $step['target']['id'] = 'absent';
-  $missing = SummonsMenuPresentation::compose($content, $theme, null, tutorial: TutorialStep::fromArray($step, 'Test guide'), tutorialRow: $step['target']['id']);
+  $missing = SummonsMenuPresentation::compose($content, $theme, null, tutorial: TutorialStep::fromArray($step, 'Test guide'), tutorialRow: $step['target']['id'], tutorialSpeaker: 'Actor');
   expect(array_any($missing->textLayers, static fn($layer): bool => str_starts_with($layer->id, 'tutorial-')))->toBeFalse();
 });
 

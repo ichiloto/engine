@@ -27,7 +27,7 @@ final class SummonsMenuPresentation
   public static function compose(SummonsMenuContent $content, MenuPresentationCatalog $theme, ?TextPage $page,
     ?MenuInfoText $infoModel = null, float $time = 0,
     int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT,
-    ?TutorialStep $tutorial = null, ?string $tutorialRow = null): PresentationCanvas
+    ?TutorialStep $tutorial = null, ?string $tutorialRow = null, ?string $tutorialSpeaker = null): PresentationCanvas
   {
     $g = self::getGeometry($content, $theme, $width, $height);
     $m = $theme->metrics;
@@ -65,7 +65,7 @@ final class SummonsMenuPresentation
       infoModel: $infoModel,
       rangeBounds: new CanvasRectangle($g['description']->x, $g['info']->y + $g['info']->height - $p, $body->width, $p));
     if ($g['hints'] !== null) { $view->hints('summons-hints', $content->hints, $g['hints']); }
-    $view->renderTutorialSpotlight($tutorial, $target);
+    $view->renderTutorialSpotlight($tutorial, $target, $tutorialSpeaker);
     return $view->finish();
   }
 

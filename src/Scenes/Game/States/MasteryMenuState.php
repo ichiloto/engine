@@ -163,10 +163,13 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             throw new RuntimeException('The Mastery board needs canvas_compositing; terminal presentation retained.');
         }
         $content = $this->getPresentationContent();
+        if ($content === null) { return null; }
 
-        return $content === null ? null : MasteryMenuPresentation::compose($content, $theme, $time,
+        $scene = $this->getGameScene();
+        $tutorial = $scene->getTutorialPresentationStep(self::TUTORIAL_SCREEN, $content->level->value);
+        return MasteryMenuPresentation::compose($content, $theme, $time,
             dashedStrokes: $runtime?->supports(RendererSessionConfig::CANVAS_STROKE_DASHES) ?? false,
-            tutorial: $this->getGameScene()->getTutorialPresentationStep(self::TUTORIAL_SCREEN, $content->level->value));
+            tutorial: $tutorial, tutorialSpeaker: $scene->getTutorialSpeakerName($tutorial));
     }
 
     public function getPresentationContent(): ?MasteryMenuContent
@@ -729,7 +732,8 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $this->detailPanel?->setContent($this->buildDetailLines($content));
         $this->detailPanel?->render();
         $hint = $content->info === null && $this->pending === null
-            ? TutorialTerminalPresentation::getHint($this->terminalTutorialStep) : null;
+            ? TutorialTerminalPresentation::getHint($this->terminalTutorialStep,
+                $this->getGameScene()->getTutorialSpeakerName($this->terminalTutorialStep)) : null;
         $this->footerPanel?->setHelp($hint ?? '');
         $this->footerPanel?->setContent($this->buildFooterLines($content));
         $this->footerPanel?->render();

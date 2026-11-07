@@ -38,7 +38,7 @@ final class MasteryMenuPresentation
    */
   public static function compose(MasteryMenuContent $content, MenuPresentationCatalog $theme, float $time = 0,
     int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT,
-    bool $dashedStrokes = false, ?TutorialStep $tutorial = null): PresentationCanvas
+    bool $dashedStrokes = false, ?TutorialStep $tutorial = null, ?string $tutorialSpeaker = null): PresentationCanvas
   {
     $view = new MenuCanvas($theme, $width, $height, $time);
     $host = MenuLayout::getBounds($width, $height);
@@ -84,7 +84,7 @@ final class MasteryMenuPresentation
         MasteryMenuLevel::FAMILY => $familyTarget,
         MasteryMenuLevel::TREE => self::getTutorialNodeBounds($frame, $tutorial->target['id']),
       };
-      $view->renderTutorialSpotlight($tutorial, $target);
+      $view->renderTutorialSpotlight($tutorial, $target, $tutorialSpeaker);
     }
 
     return $view->finish();

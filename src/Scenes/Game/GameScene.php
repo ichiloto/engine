@@ -13,6 +13,7 @@ use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Progression\TutorialCatalog;
 use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Progression\TutorialFollowOn;
@@ -113,6 +114,7 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Debug;
 use Closure;
 use Ichiloto\Engine\Rendering\FieldMetric;
@@ -2142,6 +2144,22 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         } else {
             $this->evaluateTutorialView($screen, $view);
         }
+    }
+
+    /** Actor identity is authored; the speaker's current display name comes from the actor owner. */
+    public function getTutorialSpeakerName(?TutorialStep $step): ?string
+    {
+        $id = $step?->speaker;
+        if ($id === null) { return null; }
+        foreach ($this->party->participants as $actor) {
+            if ($actor instanceof Character && $actor->actorId === $id) {
+                return $actor->name;
+            }
+        }
+        if (!ConfigStore::has(ActorStore::class)) { return null; }
+        $store = ConfigStore::get(ActorStore::class);
+        $name = $store instanceof ActorStore ? $store->get($id)?->data()['name'] ?? null : null;
+        return is_string($name) && $name !== '' ? $name : null;
     }
 
     public function getTutorialPresentationStep(string $screen, string $view): ?TutorialStep

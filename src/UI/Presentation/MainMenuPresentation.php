@@ -118,7 +118,7 @@ final class MainMenuPresentation
       }
       $y += $heights[$index];
     }
-    $view->renderTutorialSpotlight($tutorial, $tutorialTarget);
+    $view->renderTutorialSpotlight($tutorial, $tutorialTarget, $state->getGameScene()->getTutorialSpeakerName($tutorial));
     return $view->finish();
   }
 

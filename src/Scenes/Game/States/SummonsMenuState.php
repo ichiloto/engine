@@ -222,7 +222,8 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         }
         $step = $this->getTutorialStep();
         $canvas = SummonsMenuPresentation::compose($content, $theme, $page, $this->menuInfoText, $time,
-            tutorial: $step, tutorialRow: $this->resolveTutorialRow($step));
+            tutorial: $step, tutorialRow: $this->resolveTutorialRow($step),
+            tutorialSpeaker: $this->getGameScene()->getTutorialSpeakerName($step));
         if ($page !== null) { $this->lastDetailPage = $page; }
         return $canvas;
     }
@@ -283,7 +284,9 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         if ($content->details !== null) { $this->refreshDetailPanel($content->details); }
         else { $this->refreshListPanel(); }
         $step = $this->lastTutorialStep = $this->getTutorialStep();
-        $hint = $this->resolveTutorialRow($step) === null ? null : TutorialTerminalPresentation::getHint($step);
+        $hint = $this->resolveTutorialRow($step) === null ? null : TutorialTerminalPresentation::getHint(
+            $step, $this->getGameScene()->getTutorialSpeakerName($step),
+        );
         $this->infoPanel->setHelp($hint ?? TerminalControlText::formatHints($content->hints));
         $this->refreshInfoPanel($content->description);
     }

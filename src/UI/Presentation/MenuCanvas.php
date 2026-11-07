@@ -414,7 +414,7 @@ final class MenuCanvas
   }
 
   /** Applies a static, theme-coloured spotlight to a real target in the current menu layout. */
-  public function renderTutorialSpotlight(?TutorialStep $step, ?CanvasRectangle $target): void
+  public function renderTutorialSpotlight(?TutorialStep $step, ?CanvasRectangle $target, ?string $speakerName = null): void
   {
     if ($step === null || $target === null) {
       return;
@@ -441,10 +441,15 @@ final class MenuCanvas
 
     $padding = $this->theme->metrics->panelPadding;
     $cellWidth = $this->theme->metrics->cellWidth;
-    $width = min($this->width - 2 * $padding, MenuActionHints::measureCells([$hint], $this->theme) * $cellWidth);
+    $cellHeight = $this->theme->metrics->cellHeight;
+    $speakerCells = $speakerName === null ? 0 : mb_strlen($speakerName, 'UTF-8');
+    $cells = max($speakerCells, MenuActionHints::measureCells([$hint], $this->theme));
+    $width = min($this->width - 2 * $padding, $cells * $cellWidth);
+    $speakerLines = $speakerName === null ? [] : self::wrap($speakerName, (int)floor($width / $cellWidth));
+    $speakerHeight = count($speakerLines) * $cellHeight;
     $height = MenuActionHints::height([$hint], $this->theme, $width, required: true);
     $panelWidth = $width + 2 * $padding;
-    $panelHeight = $height + 2 * $padding;
+    $panelHeight = $speakerHeight + $height + 2 * $padding;
     $x = min(max(0, $target->x), $this->width - $panelWidth);
     $y = $bottom + $padding;
     if ($y + $panelHeight > $this->height) {
@@ -454,8 +459,17 @@ final class MenuCanvas
       return;
     }
     $this->frame('tutorial-hint-panel', new CanvasRectangle($x, $y, $panelWidth, $panelHeight), 'quiet', 1102);
+    $textX = $x + $padding;
+    $textY = $y + $padding;
+    if ($speakerLines !== []) {
+      $items = array_map(static fn(string $line, int $index): array => [
+        'text' => $line, 'x' => $textX, 'y' => $textY + $index * $cellHeight, 'color' => 'focus',
+      ], $speakerLines, array_keys($speakerLines));
+      $this->renderTexts('tutorial-speaker', $items, new CanvasRectangle($textX, $textY, $width, $speakerHeight),
+        [$cellWidth, $cellHeight], 1103);
+    }
     $this->place(MenuActionHints::compose($this->width, $this->height, 'tutorial-action', [$hint], $this->theme,
-      new CanvasRectangle($x + $padding, $y + $padding, $width, $height), required: true, layer: 1103));
+      new CanvasRectangle($textX, $textY + $speakerHeight, $width, $height), required: true, layer: 1103));
   }
 
   /** Shared whole-record viewport; the caller supplies the existing owner's index.
