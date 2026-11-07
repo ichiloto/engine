@@ -1215,3 +1215,19 @@ it('shares distinct location names between terminal summaries and both graphical
   'no label' => ['', '', []],
   'display whitespace' => [' Synthetic Port ', 'Synthetic Port', ['Synthetic Port']],
 ]);
+
+it('marks a real Terminal tutorial command without moving the ordinary menu cursor', function () {
+  $menu = $this->state->mainMenu;
+  $command = new \Ichiloto\Engine\Core\Menu\Commands\OpenSummonsMenuCommand($menu);
+  $menu->addItem($command);
+  $window = new ReflectionProperty($menu, 'window')->getValue($menu);
+  $active = $menu->activeIndex;
+  $menu->showTutorialCommand('summons', '[Enter] Open the contracts.');
+  $highlighted = array_find($window->getContent(), static fn(string $line): bool => str_contains($line, $command->getLabel()));
+  expect($highlighted)->toContain(\Ichiloto\Engine\UI\SelectionStyle::resolveColor()->getAlternateIntensity()->value)
+    ->and($window->getHelp())->toBe('[Enter] Open the contracts.')
+    ->and($menu->activeIndex)->toBe($active);
+
+  $menu->showTutorialCommand(null, null);
+  expect($window->getHelp())->toBe('');
+});

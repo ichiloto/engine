@@ -28,6 +28,15 @@ class CharacterPanel extends Window implements CanFocus
    * @var bool Whether this panel is marked as the first swap selection.
    */
   protected bool $isMarked = false;
+  private bool $tutorialTarget = false;
+
+  public function showTutorialTarget(bool $target): void
+  {
+    if ($this->tutorialTarget !== $target) {
+      $this->tutorialTarget = $target;
+      $this->applyHighlightState();
+    }
+  }
   /**
    * @var string[] The neutral character record before selection styling.
    */
@@ -152,11 +161,15 @@ class CharacterPanel extends Window implements CanFocus
     // structural chrome neutral and style only the record content.
     $this->foregroundColor = null;
     $isSelected = $this->isFocused || $this->isMarked;
+    $tutorialTarget = $this->tutorialTarget;
     $this->setContent(
       array_map(
-        static fn(string $line): string => $isSelected && $line !== ''
-          ? SelectionStyle::apply($line)
-          : $line,
+        static fn(string $line): string => match (true) {
+          $line === '' => $line,
+          $tutorialTarget => SelectionStyle::applyMarked($line),
+          $isSelected => SelectionStyle::apply($line),
+          default => $line,
+        },
         $this->details,
       )
     );

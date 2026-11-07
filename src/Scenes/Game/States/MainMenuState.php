@@ -15,6 +15,7 @@ use Ichiloto\Engine\Core\Menu\Commands\OpenQuestsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenRecordsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenSummonsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\SkipTutorialCommand;
+use Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Core\Menu\Commands\OpenPartyOrderCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenQuitMenuCommand;
@@ -472,6 +473,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         $this->mode?->exit();
         $this->mode = $mode;
         $this->mode->enter();
+        $this->refreshTerminalTutorial();
         if (($mode instanceof MainMenuCharacterSelectionMode || $mode instanceof MainMenuPartyOrderMode)
             && $this->partyPresentationCharacter !== null && $this->getPresentationCanvas() !== null) {
             $index = array_search($this->partyPresentationCharacter, $this->party->participants->toArray(), true);
@@ -493,6 +495,20 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         if (Input::isButtonDown(MenuPager::NEXT_ACTION) && $this->changePartyPage(1)) { return; }
         if (Input::isButtonDown(MenuPager::PREVIOUS_ACTION) && $this->changePartyPage(-1)) { return; }
         $this->mode->update();
+        if ($this->getGameScene()->state === $this) {
+            $this->refreshTerminalTutorial();
+        }
+    }
+
+    private function refreshTerminalTutorial(): void
+    {
+        $scene = $this->getGameScene();
+        $command = $this->mode instanceof MainMenuCommandSelectionMode
+            ? $scene->getTutorialPresentationStep(self::TUTORIAL_SCREEN, self::TUTORIAL_COMMANDS) : null;
+        $member = $this->mode instanceof MainMenuCharacterSelectionMode
+            ? $scene->getTutorialPresentationStep(self::TUTORIAL_SCREEN, self::TUTORIAL_PARTY) : null;
+        $this->mainMenu?->showTutorialCommand($command?->target['id'], TutorialTerminalPresentation::getHint($command));
+        $this->characterSelectionMenu?->showTutorialMember($member?->target['id'], TutorialTerminalPresentation::getHint($member));
     }
 
     public function exit(): void

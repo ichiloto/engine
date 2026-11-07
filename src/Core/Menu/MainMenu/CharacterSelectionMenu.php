@@ -243,6 +243,22 @@ class CharacterSelectionMenu extends Menu
     $this->helpWindow->render();
   }
 
+  public function showTutorialMember(?string $id, ?string $hint): void
+  {
+    $visible = false;
+    foreach ($this->characterPanels as $index => $panel) {
+      $actorId = $this->partyMembers[$index]->actorId ?? null;
+      $target = $id !== null && $actorId !== null && $id === 'member-' . $actorId;
+      $panel->showTutorialTarget($target);
+      $visible = $visible || $target;
+    }
+    $help = $visible ? ($hint ?? '') : '';
+    if ($this->helpWindow->getHelp() !== $help) {
+      $this->helpWindow->setHelp($help);
+      $this->helpWindow->render();
+    }
+  }
+
   /**
    * Refreshes the panel content from the current party order.
    *

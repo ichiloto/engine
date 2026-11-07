@@ -44,6 +44,8 @@ use Ichiloto\Engine\UI\Presentation\MasteryCamera;
 use Ichiloto\Engine\UI\Presentation\MasteryLearnHold;
 use Ichiloto\Engine\UI\Presentation\MasteryMenuContent;
 use Ichiloto\Engine\UI\Presentation\MasteryMenuLevel;
+use Ichiloto\Engine\Progression\TutorialStep;
+use Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation;
 use Ichiloto\Engine\UI\Presentation\MasteryMenuNode;
 use Ichiloto\Engine\UI\Presentation\MasteryMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MasteryMenuSelection;
@@ -119,6 +121,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     /** @var array<string, string> The focused family of each discipline, by region id. */
     protected array $familyFocus = [];
     protected ?MasteryMenuMode $mode = null;
+    private ?TutorialStep $terminalTutorialStep = null;
     protected bool $infoShown = false;
     /** @var string|null The node a first Learn press asks about, on input without held keys. */
     protected ?string $pending = null;
@@ -254,6 +257,15 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             return;
         }
         $this->mode?->update();
+        if ($this->getGameScene()->state === $this && $this->getTerminalTutorialStep() !== $this->terminalTutorialStep) {
+            $this->refreshUI();
+        }
+    }
+
+    private function getTerminalTutorialStep(): ?TutorialStep
+    {
+        return $this->mode === null ? null
+            : $this->getGameScene()->getTutorialPresentationStep(self::TUTORIAL_SCREEN, $this->mode->level->value);
     }
 
     public function resume(): void
@@ -703,6 +715,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             $this->listPanel?->setEntries([' ' . $this->getEmptyText()], focused: false);
             return;
         }
+        $this->terminalTutorialStep = $this->getTerminalTutorialStep();
         $this->summaryPanel?->setContent($this->buildSummaryLines($content));
         $this->summaryPanel?->render();
         $this->tabPanel?->setContent($this->buildTabLines($content));
@@ -712,6 +725,9 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $this->listPanel?->setEntries($rows, $active, $content->level !== MasteryMenuLevel::DISCIPLINE);
         $this->detailPanel?->setContent($this->buildDetailLines($content));
         $this->detailPanel?->render();
+        $hint = $content->info === null && $this->pending === null
+            ? TutorialTerminalPresentation::getHint($this->terminalTutorialStep) : null;
+        $this->footerPanel?->setHelp($hint ?? '');
         $this->footerPanel?->setContent($this->buildFooterLines($content));
         $this->footerPanel?->render();
     }
@@ -729,7 +745,9 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
      */
     protected function buildTabLines(MasteryMenuContent $content): array
     {
+        $tutorialId = $content->level === MasteryMenuLevel::DISCIPLINE ? ($this->terminalTutorialStep?->target['id']) : null;
         $tabs = implode('   ', array_map(static fn(MasteryMenuTab $tab, int $index): string => match (true) {
+            $tab->id === $tutorialId => TutorialTerminalPresentation::highlight("[{$tab->name}]"),
             $index !== $content->regionIndex => " {$tab->name} ",
             $content->level === MasteryMenuLevel::DISCIPLINE => SelectionStyle::apply("[{$tab->name}]"),
             default => "[{$tab->name}]",
@@ -751,6 +769,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $width = self::MENU_WIDTH - 6;
         if ($content->level !== MasteryMenuLevel::TREE) {
             $labels = array_map(static fn(MasteryMenuTab $tab): string => $tab->name, $content->families);
+            $ids = array_column($content->families, 'id');
             $values = array_map(fn(MasteryMenuTab $tab): string => $this->describeCount($tab->learned, $tab->total), $content->families);
             $active = $content->familyIndex;
         } else {
@@ -758,14 +777,20 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             $nodes = array_values(array_filter($content->nodes, static fn(MasteryMenuNode $node): bool => $node->family === $family));
             $labels = array_map(static fn(MasteryMenuNode $node): string => $node->label, $nodes);
             $values = array_map(fn(MasteryMenuNode $node): string => $this->describeRowValue($node, $content), $nodes);
-            $active = max(0, (int)array_search($content->focus, array_map(static fn(MasteryMenuNode $node): string => $node->id, $nodes), true));
+            $ids = array_column($nodes, 'id');
+            $active = max(0, (int)array_search($content->focus, $ids, true));
         }
         $columns = [MenuRowColumn::fit($values, HorizontalAlignment::LEFT)];
         $labelCells = max(1, min(48, max(array_map(TerminalText::displayWidth(...), [...$labels, '']))) + 4);
         $labelCells = min($labelCells, $width - MenuTableText::getColumnCells($columns));
 
-        return [array_map(static fn(string $label, string $value): string => ' ' . MenuTableText::formatRow($label, [$value], $columns, $labelCells),
-            $labels, $values), $active];
+        $target = $content->level === MasteryMenuLevel::DISCIPLINE ? null : $this->terminalTutorialStep?->target['id'];
+        $rows = array_map(static function (string $label, string $value, string $id) use ($columns, $labelCells, $target): string {
+            $line = ' ' . MenuTableText::formatRow($label, [$value], $columns, $labelCells);
+            return $id === $target ? TutorialTerminalPresentation::highlight($line) : $line;
+        }, $labels, $values, $ids);
+
+        return [$rows, $active];
     }
 
     /**
