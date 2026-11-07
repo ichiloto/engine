@@ -389,6 +389,14 @@ final class EffectTimelineValidator
         ...($stage === null ? [] : ['stage' => $stage->data])]);
   }
 
+  /** Whether this authored track can own distance-based flight timing. */
+  public static function canTimeFlightFromTrack(mixed $track): bool
+  {
+    return is_array($track) && is_string($track['id'] ?? null) && ($track['type'] ?? null) === 'image'
+      && ($track['anchor'] ?? null) === 'caster' && is_int($track['detachFrame'] ?? null)
+      && is_array($track['flight'] ?? null) && ($track['presentation'] ?? 'graphical') === 'graphical';
+  }
+
   /** @return array{track: string, release: int, arrival: int, speed: float} */
   private static function readFlightTiming(string $id, mixed $data, array $tracks, array $cues, ?array $timing): array
   {
@@ -405,9 +413,8 @@ final class EffectTimelineValidator
         ? $cue['id'] === $timing['cueId'] : $cue['type'] === 'applyEffect')['frame'] ?? null,
       default => null,
     };
-    if (($track['type'] ?? null) !== 'image' || !isset($track['flight'], $track['detachFrame'])
-      || ($track['anchor'] ?? null) !== 'caster' || ($track['presentation'] ?? 'graphical') !== 'graphical'
-      || $impact !== $track['flight']['arrivalFrame'] || ($track['flight']['holdFrame'] ?? $impact) !== $impact) {
+    if (!self::canTimeFlightFromTrack($track) || $impact !== $track['flight']['arrivalFrame']
+      || ($track['flight']['holdFrame'] ?? $impact) !== $impact) {
       throw new InvalidArgumentException("Effect {$id} flight timing requires a graphical flight whose arrival owns the impact cue.");
     }
     return ['track' => $trackId, 'release' => $track['detachFrame'], 'arrival' => $impact, 'speed' => (float)$speed];
