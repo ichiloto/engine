@@ -4,6 +4,20 @@ namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Ichiloto\Engine\Core\Menu\MagicMenu\Windows\MagicTabPanel;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Core\Time;
+use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
+use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
+use Ichiloto\Engine\Cutscenes\Presentation\CinematicStageSession;
+use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\Progression\TutorialDefinition;
+use Ichiloto\Engine\Progression\TutorialReplayMode;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+use Ichiloto\Engine\UI\Accessibility;
+use Ichiloto\Engine\UI\Presentation\MenuCanvas;
+use Ichiloto\Engine\Util\Debug;
+use InvalidArgumentException;
+use RuntimeException;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\IO\Console\Console;
@@ -37,7 +51,7 @@ use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 
-/** Achievements and the project-owned, player-earned Field Index. */
+/** Achievements, the player-earned Field Index, and encountered guides. */
 class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
 {
   use MenuCanvasState;
@@ -46,10 +60,8 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
   protected const int SUMMARY_PANEL_HEIGHT = 4;
   protected const int LIST_PANEL_HEIGHT = 23;
   protected const int INFO_PANEL_HEIGHT = 8;
-  protected const string TAB_ACHIEVEMENTS = 'achievements';
-  protected const string TAB_FIELD_INDEX = 'field_index';
-  protected string $tab = self::TAB_ACHIEVEMENTS;
-  /** @var list<Achievement|KnowledgeSubject> */
+  protected RecordsMenuTab $tab = RecordsMenuTab::ACHIEVEMENTS;
+  /** @var list<Achievement|KnowledgeSubject|TutorialDefinition> */
   protected array $rows = [];
   protected int $activeIndex = 0;
   protected bool $viewingDetail = false;
@@ -59,6 +71,8 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
   private TextViewport $reading;
   private string $readingKey = '';
   private ?TextPage $displayedPage = null;
+  private ?CinematicStageSession $demo = null;
+  private float $demoElapsed = 0.0;
   /** @var array<string, SummonCutsceneDefinition>|null The project's summons by id, read once the menu shows a record of one. */
   private ?array $summons = null;
 
@@ -79,7 +93,12 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
     $this->displayedPage = null;
     $this->summons = null;
     $this->viewingDetail = false;
-    $this->tab = AchievementManager::projectHasAchievements() ? self::TAB_ACHIEVEMENTS : self::TAB_FIELD_INDEX;
+    $this->tab = match (true) {
+      AchievementManager::projectHasAchievements() => RecordsMenuTab::ACHIEVEMENTS,
+      $this->getGameScene()->knowledge->catalog->subjects() !== [] => RecordsMenuTab::FIELD_INDEX,
+      $this->getGameScene()->tutorialDirector !== null => RecordsMenuTab::GUIDE,
+      default => RecordsMenuTab::FIELD_INDEX,
+    };
     $this->activeIndex = 0;
     $this->reloadRows();
     $this->initializeUI();
@@ -88,6 +107,16 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
 
   public function execute(?SceneStateContext $context = null): void
   {
+    if ($this->demo !== null) {
+      $this->demoElapsed += max(0.0, Time::getDeltaTime());
+      $this->demo->advanceTo($this->demoElapsed);
+      if ($this->demo->hasEnded || $this->demo->hasPresentationFailure || Input::isButtonDown('back') || Input::isButtonDown('cancel')) {
+        $this->releaseDemo();
+        $this->refreshUI();
+      }
+      return;
+    }
+
     $this->syncReading($this->getPresentationContent());
     if (Input::isButtonDown('back') || Input::isButtonDown('cancel')) {
       if ($this->viewingDetail) {
@@ -97,8 +126,11 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
       } else { $this->setState($this->getGameScene()->mainMenuState); }
       return;
     }
-    if ($this->isNextCharacterRequested() || $this->isPreviousCharacterRequested()) {
-      $this->tab = $this->tab === self::TAB_ACHIEVEMENTS ? self::TAB_FIELD_INDEX : self::TAB_ACHIEVEMENTS;
+    $direction = $this->isNextCharacterRequested() ? 1 : ($this->isPreviousCharacterRequested() ? -1 : 0);
+    if ($direction !== 0) {
+      $tabs = $this->getTabs();
+      $index = array_search($this->tab, $tabs, true);
+      $this->tab = $tabs[wrap($index + $direction, 0, count($tabs) - 1)];
       $this->viewingDetail = false;
       $this->activeIndex = 0;
       $this->rows = [];
@@ -107,7 +139,10 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
       return;
     }
     if (Input::isButtonDown('confirm')) {
-      if (!$this->viewingDetail && $this->rows !== []) {
+      $row = $this->rows[$this->activeIndex] ?? null;
+      if ($row instanceof TutorialDefinition && !$this->viewingDetail) {
+        $this->activateGuide($row);
+      } elseif (!$this->viewingDetail && $row !== null) {
         $this->viewingDetail = true;
         $this->reading->reset();
         $this->refreshUI();
@@ -125,9 +160,15 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
   protected function reloadRows(): void
   {
     $oldId = $this->rows[$this->activeIndex]->id ?? null;
-    $this->rows = $this->tab === self::TAB_ACHIEVEMENTS
-      ? array_values($this->getGameScene()->achievementManager?->achievements ?? [])
-      : $this->getGameScene()->knowledge->discoveredSubjects();
+    $scene = $this->getGameScene();
+    $this->rows = match ($this->tab) {
+      RecordsMenuTab::ACHIEVEMENTS => array_values($scene->achievementManager?->achievements ?? []),
+      RecordsMenuTab::FIELD_INDEX => $scene->knowledge->discoveredSubjects(),
+      RecordsMenuTab::GUIDE => $scene->tutorialDirector?->getGuideEntries() ?? [],
+    };
+    if ($this->tab === RecordsMenuTab::GUIDE) {
+      usort($this->rows, static fn(TutorialDefinition $a, TutorialDefinition $b): int => strcasecmp($a->category, $b->category));
+    }
     $index = array_find_key($this->rows, fn($row) => $row->id === $oldId);
     $this->activeIndex = $index ?? min($this->activeIndex, max(0, count($this->rows) - 1));
     if ($this->rows === []) { $this->viewingDetail = false; }
@@ -144,6 +185,8 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
         $hidden = $row->isSecret && !$unlocked;
         $rows[] = ['label' => $hidden ? '???' : trim($row->icon . ' ' . $row->name),
           'values' => [$unlocked ? 'Unlocked' : 'Locked', $hidden ? 'Secret achievement' : $row->description]];
+      } elseif ($row instanceof TutorialDefinition) {
+        $rows[] = ['label' => $row->title, 'values' => [$row->category]];
       } else {
         $rows[] = ['label' => $row->displayName, 'values' => [$row->family ?? $row->species ?? $this->getRecordTypeName($row),
           strtolower($knowledge->progress->depth($row->id)->name)]];
@@ -180,11 +223,29 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
         break;
       }
     }
-    return new JournalMenuContent('Records', ['Achievements (' . count($manager?->unlocked ?? []) . '/' . count($manager?->achievements ?? []) . ')',
-      'Field Index (' . count($knowledge->discoveredSubjects()) . ')'], $this->tab === self::TAB_ACHIEVEMENTS ? 0 : 1,
-      'Points: ' . ($manager?->earnedPoints() ?? 0), $rows, $this->activeIndex,
-      $this->tab === self::TAB_ACHIEVEMENTS ? 'No achievements authored.' : 'No field records discovered.',
-      $row === null ? '' : $this->tab . ':' . $row->id, new MenuDetailSheet($sections), '', $this->viewingDetail, false);
+    if ($row instanceof TutorialDefinition) {
+      $sections[] = [MenuDetailEntry::createProse($row->title)];
+      if ($this->viewingDetail) {
+        foreach ($row->steps as $step) {
+          array_push($sections[0], ...self::createProse($step->say ?? ''));
+        }
+      }
+    }
+    $tabs = $this->getTabs();
+    $labels = array_map(fn(RecordsMenuTab $tab): string => match ($tab) {
+      RecordsMenuTab::ACHIEVEMENTS => 'Achievements (' . count($manager?->unlocked ?? []) . '/' . count($manager?->achievements ?? []) . ')',
+      RecordsMenuTab::FIELD_INDEX => 'Field Index (' . count($knowledge->discoveredSubjects()) . ')',
+      RecordsMenuTab::GUIDE => 'Guide',
+    }, $tabs);
+    return new JournalMenuContent('Records', $labels, (int)array_search($this->tab, $tabs, true),
+      $this->tab === RecordsMenuTab::GUIDE ? '' : 'Points: ' . ($manager?->earnedPoints() ?? 0), $rows, $this->activeIndex,
+      match ($this->tab) {
+        RecordsMenuTab::ACHIEVEMENTS => 'No achievements authored.',
+        RecordsMenuTab::FIELD_INDEX => 'No field records discovered.',
+        RecordsMenuTab::GUIDE => 'No guides discovered.',
+      },
+      $row === null ? '' : $this->tab->value . ':' . $row->id, new MenuDetailSheet($sections), '', $this->viewingDetail, false,
+      confirmLabel: $row instanceof TutorialDefinition ? $this->getGuideAction($row) : 'View details');
   }
 
   public function getPresentationPage(MenuDetailViewport $area, MenuDetailStyle $style = new MenuDetailStyle()): TextPage
@@ -197,6 +258,20 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
 
   protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
   {
+    if ($this->demo !== null) {
+      $runtime = $this->getGameScene()->getGame()->getRendererRuntime();
+      $stage = $this->demo->getCanvas(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT,
+        Accessibility::prefersReducedMotion(), $runtime?->supports(RendererSessionConfig::CANVAS_IMAGE_FLIP) ?? false);
+      if ($stage !== null) {
+        $view = new MenuCanvas($theme, $stage->width, $stage->height, $time, background: false);
+        $hint = [ActionHints::resolve('cancel', 'Back')];
+        $padding = $theme->metrics->panelPadding;
+        $height = $theme->metrics->cellHeight;
+        $view->hints('guide-demo-back', $hint, new CanvasRectangle($padding, $stage->height - $height - $padding,
+          $stage->width - 2 * $padding, $height), required: true);
+        return PresentationCanvas::composeOverlay($stage, $view->finish(), 'guide:');
+      }
+    }
     $content = $this->getPresentationContent();
     $page = $this->getPresentationPage(JournalMenuPresentation::pageSize($content, $theme), $theme->createDetailStyle());
     $canvas = JournalMenuPresentation::compose($content, $theme, $page, $time);
@@ -241,7 +316,8 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
     $this->listPanel->setHelp($content->rows === [] ? '' : sprintf('%d-%d / %d', $first + 1, $first + count($lines), count($content->rows)));
     if ($content->rows === []) { $lines[] = $content->emptyText; }
     $this->listPanel->setContent(array_pad($lines, $capacity, ''));
-    $metadata = !$this->viewingDetail && $content->rows !== [] ? ['View details'] : [];
+    $metadata = !$this->viewingDetail && $content->rows !== [] && $content->confirmLabel !== null
+      ? [$content->confirmLabel] : [];
     $page = $content->details->createPage($this->reading, new MenuDetailViewport($width, $this->infoPanel->getContentHeight() - count($metadata)),
       MenuDetailStyle::createTerminal());
     $this->displayedPage = $page;
@@ -286,6 +362,64 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
   private static function createField(string $label, string $value): array
   {
     return trim($value) === '' ? [] : [MenuDetailEntry::createField($label, $value)];
+  }
+
+  /** @return non-empty-list<RecordsMenuTab> */
+  private function getTabs(): array
+  {
+    return $this->getGameScene()->tutorialDirector === null
+      ? [RecordsMenuTab::ACHIEVEMENTS, RecordsMenuTab::FIELD_INDEX]
+      : RecordsMenuTab::cases();
+  }
+
+  private function getGuideAction(TutorialDefinition $guide): ?string
+  {
+    return match ($guide->replay) {
+      TutorialReplayMode::PRACTICE => $this->getGameScene()->tutorialDirector?->canStartPractice($guide) ? 'Practice' : null,
+      TutorialReplayMode::DEMO => $this->getGameScene()->getGame()->getRendererRuntime() === null ? 'Read' : 'Watch',
+      TutorialReplayMode::NONE => null,
+    };
+  }
+
+  private function activateGuide(TutorialDefinition $guide): void
+  {
+    $scene = $this->getGameScene();
+    if ($guide->replay === TutorialReplayMode::PRACTICE && $scene->tutorialDirector?->startPractice($guide->id)) {
+      $this->setState($scene->mainMenuState);
+      return;
+    }
+    if ($guide->replay !== TutorialReplayMode::DEMO || $guide->demo === null) {
+      return;
+    }
+
+    $runtime = $scene->getGame()->getRendererRuntime();
+    if ($runtime !== null) {
+      try {
+        $root = $runtime->getAssetRoot();
+        $timeline = (new EffectTimelineLibrary($root))->loadStage($guide->demo);
+        $seconds = (new EffectPlaybackTiming($timeline))->durationSeconds;
+        $this->demo = new CinematicStageSession($timeline, $root, $seconds);
+        $this->demoElapsed = 0.0;
+        return;
+      } catch (InvalidArgumentException|RuntimeException $error) {
+        Debug::warn('Guide demo ' . $guide->id . ': ' . $error->getMessage());
+      }
+    }
+
+    $this->viewingDetail = true;
+    $this->reading->reset();
+    $this->refreshUI();
+  }
+
+  private function releaseDemo(): void
+  {
+    $this->demo?->release();
+    $this->demo = null;
+  }
+
+  public function exit(): void
+  {
+    $this->releaseDemo();
   }
 
   public function resume(): void

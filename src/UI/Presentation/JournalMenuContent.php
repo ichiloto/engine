@@ -24,5 +24,6 @@ final readonly class JournalMenuContent
     public bool $detailsOpen,
     public bool $journal,
     public ?JournalDocument $document = null,
+    public ?string $confirmLabel = 'View details',
   ) {}
 }

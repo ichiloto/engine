@@ -358,7 +358,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
 
         // Records collect achievements and the bestiary; the entry appears
         // as soon as a project authors either.
-        if (RecordsMenuState::projectHasRecords()) {
+        if ($this->getGameScene()->tutorialDirector !== null || RecordsMenuState::projectHasRecords()) {
             $this->mainMenu->addItem(new OpenRecordsMenuCommand($this->mainMenu));
         }
 

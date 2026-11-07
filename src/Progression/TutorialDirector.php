@@ -112,11 +112,16 @@ final class TutorialDirector
       fn(TutorialDefinition $tutorial): bool => $this->state->getTutorialPhase($tutorial->id) !== null));
   }
 
+  public function canStartPractice(TutorialDefinition $tutorial): bool
+  {
+    return $this->active === null && $tutorial->replay === TutorialReplayMode::PRACTICE
+      && $this->state->getTutorialPhase($tutorial->id) !== null && $this->hasBoundControls($tutorial);
+  }
+
   public function startPractice(string $id): bool
   {
     $tutorial = $this->catalog->findTutorial($id);
-    if ($this->active !== null || $tutorial?->replay !== TutorialReplayMode::PRACTICE
-      || $this->state->getTutorialPhase($id) === null || !$this->hasBoundControls($tutorial)) {
+    if ($tutorial === null || !$this->canStartPractice($tutorial)) {
       return false;
     }
 

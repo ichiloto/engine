@@ -32,6 +32,9 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
 use Ichiloto\Engine\Scenes\Game\States\QuestMenuState;
 use Ichiloto\Engine\Scenes\Game\States\RecordsMenuState;
+use Ichiloto\Engine\Progression\TutorialCatalog;
+use Ichiloto\Engine\Progression\TutorialDirector;
+use Ichiloto\Engine\Progression\TutorialPhase;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
@@ -529,4 +532,33 @@ it('names record types by their authored label and reads a summon record from it
   } finally {
     chdir($cwd);
   }
+});
+
+it('opens encountered guides from Records and practises on the live menu without changing the save', function () {
+  $entry = [
+    'id' => 'guide.encountered', 'category' => 'Battle', 'title' => 'Practice a Contract',
+    'start' => 'script', 'replay' => 'practice',
+    'steps' => [[
+      'target' => ['screen' => 'main-menu', 'view' => 'commands', 'id' => 'summons'],
+      'action' => 'confirm', 'until' => ['outcome' => 'menu.command-opened', 'subject' => 'summons'],
+    ]],
+  ];
+  $this->flags->setTutorialPhase('guide.encountered', TutorialPhase::SKIPPED);
+  $director = new TutorialDirector(new TutorialCatalog([
+    $entry, array_replace($entry, ['id' => 'guide.unseen', 'title' => 'Unseen Guide']),
+  ]), $this->flags);
+  new ReflectionProperty($this->scene, 'tutorialDirector')->setValue($this->scene, $director);
+  $snapshot = $this->flags->toArray();
+  $state = journalMenuOwner($this, true);
+  expect($state->getPresentationContent()->tabs[$state->getPresentationContent()->tabIndex])->toStartWith('Field Index');
+  journalMenuKey($state, KeyCode::Q);
+  $content = $state->getPresentationContent();
+  expect($content->tabs[$content->tabIndex])->toBe('Guide')
+    ->and(array_column($content->rows, 'label'))->toBe(['Practice a Contract'])
+    ->and($content->confirmLabel)->toBe('Practice');
+
+  journalMenuKey($state, KeyCode::ENTER);
+  expect($this->scene->state)->toBe($this->returnState)
+    ->and($director->getActiveTutorial()->id)->toBe('guide.encountered')
+    ->and($this->flags->toArray())->toBe($snapshot);
 });

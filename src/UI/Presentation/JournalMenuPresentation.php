@@ -67,7 +67,7 @@ final class JournalMenuPresentation
       }
     }
     $hasEntry = $content->rows !== [];
-    $metadata = !$hasEntry ? '' : ($content->detailsOpen ? 'Details - ' . $page->range() : 'View details');
+    $metadata = !$hasEntry ? '' : ($content->detailsOpen ? 'Details - ' . $page->range() : ($content->confirmLabel ?? ''));
     $view->prose('journal-reading-state', $metadata, $g['metadata'], $content->detailsOpen ? 'accent' : 'disabled');
     if ($hasEntry && (!$content->journal || $content->detailsOpen)) {
       if ($page->columns !== (int)floor($g['text']->width / $m->cellWidth) || $page->rows !== (int)floor($g['text']->height)) {
@@ -84,7 +84,9 @@ final class JournalMenuPresentation
   private static function hints(JournalMenuContent $content): array
   {
     $hints = [ActionHints::resolve('cancel', $content->detailsOpen ? 'Back' : 'Cancel')];
-    if (!$content->detailsOpen) { array_unshift($hints, ActionHints::resolve('confirm', 'View details')); }
+    if (!$content->detailsOpen && $content->confirmLabel !== null) {
+      array_unshift($hints, ActionHints::resolve('confirm', $content->confirmLabel));
+    }
     if (!$content->journal || !$content->detailsOpen) {
       $hints[] = ActionHints::resolve('character_next', 'Tab', KeyCode::TAB);
       $hints[] = ActionHints::resolve('character_previous', 'Previous tab', KeyCode::SHIFT_TAB);
