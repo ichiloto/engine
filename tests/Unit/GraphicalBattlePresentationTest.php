@@ -472,7 +472,9 @@ it('draws only command-owned flash-step echoes and seeks the same atlas cells ou
   $echoes = static fn($frame): array => array_values(array_filter($frame->canvas->images,
     static fn(CanvasImage $image): bool => str_starts_with($image->id, 'command-echo-')));
   $transit = $preview->getFrameAtIndex(110);
-  expect($echoes($transit))->toHaveCount(2)
+  expect(graphicalCombatantImage($preview->getFrameAtIndex(107)->canvas, $hero)->sourceRect->x)->toBe(0)
+    ->and(graphicalCombatantImage($preview->getFrameAtIndex(108)->canvas, $hero)->sourceRect->x)->toBe(80)
+    ->and($echoes($transit))->toHaveCount(2)
     ->and(graphicalCombatantImage($transit->canvas, $hero)->sourceRect->x)->toBe(80)
     ->and($echoes($preview->getFrameAtIndex(115)))->toBe([])
     ->and(graphicalCombatantImage($preview->getFrameAtIndex(115)->canvas, $hero)->sourceRect->x)->toBe(160)

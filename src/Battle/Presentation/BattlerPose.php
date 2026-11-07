@@ -149,7 +149,7 @@ final readonly class BattlerPose
       throw new InvalidArgumentException('The current battler pose PNG does not divide into its authored sheet grid.');
     }
     $index = EffectPlaybackTiming::getFrameCountForElapsed($elapsedSeconds, 1 / $this->fps);
-    if ($durationSeconds !== null && (!$main || (!$this->loop && $this->impactFrame === null))) {
+    if ($main && !$this->loop && $this->impactFrame === null && $durationSeconds !== null) {
       $index = min(count($frames) - 1, EffectPlaybackTiming::getFrameCountForElapsed($elapsedSeconds, $durationSeconds / count($frames)));
     }
     if ($main && !$reducedMotion && $this->impactFrame !== null && $impactAtSeconds !== null) {

@@ -248,10 +248,16 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   /** Pose animation reads the action playhead, never wall time or redraw count. */
   public function getPoseElapsedSeconds(CharacterInterface $battler, ?BattlePoseRole $role = null): float
   {
-    if ($this->plan->flashStep !== null && $battler === $this->actor && $role === $this->pose
-      && $this->isBoundActionPoseActive()) {
-      $phase = in_array($this->phase, ['advance', 'return'], true) ? $this->phase : 'target';
-      return max(0, ($this->session->currentFrame - $this->plan->phases[$phase]['start']) / BattleCommandTimeline::FPS);
+    if ($this->plan->flashStep !== null && $role === $this->pose
+      && ($pose = $this->getBoundActionPose($battler, $role)) !== null) {
+      $sequence = $this->getPoseSequence($battler, $role);
+      if ($sequence !== BattlePoseSequence::MAIN) {
+        // The flash-step command fits its transit clip to the phase; ordinary transitions keep their authored FPS.
+        $phase = $this->plan->phases[$this->phase];
+        $fraction = ($this->session->currentFrame - $phase['start']) / $phase['length'];
+        return $fraction * $pose->getSequenceSeconds($sequence);
+      }
+      return max(0, ($this->session->currentFrame - $this->plan->phases['target']['start']) / BattleCommandTimeline::FPS);
     }
     if ($battler === $this->actor && in_array($role, [BattlePoseRole::MOVE, BattlePoseRole::RETURNING], true)
       && in_array($this->phase, ['advance', 'return', 'enter-advance', 'exit-advance', 'enter-return', 'exit-return'], true)) {
@@ -287,10 +293,6 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   /** A one-shot hop spans the whole current return distance/timing without looping. */
   public function getPoseDurationSeconds(CharacterInterface $battler, BattlePoseRole $role): ?float
   {
-    if ($this->plan->flashStep !== null && $battler === $this->actor && $role === $this->pose
-      && in_array($this->phase, ['advance', 'return'], true)) {
-      return $this->plan->phases[$this->phase]['length'] / BattleCommandTimeline::FPS;
-    }
     return $battler === $this->actor && $role === BattlePoseRole::RETURNING && $this->phase === 'return'
       ? $this->plan->phases['return']['length'] / BattleCommandTimeline::FPS : null;
   }
