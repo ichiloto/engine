@@ -497,6 +497,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
             $this->nextTimeUpdate = Time::getTime() + $this->updateInterval;
         }
 
+        $this->getGameScene()->evaluateTutorialView(self::TUTORIAL_SCREEN, $this->getTutorialView());
         if (Input::isButtonDown(MenuPager::NEXT_ACTION) && $this->changePartyPage(1)) { return; }
         if (Input::isButtonDown(MenuPager::PREVIOUS_ACTION) && $this->changePartyPage(-1)) { return; }
         $this->mode->update();
@@ -505,13 +506,21 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         }
     }
 
+    private function getTutorialView(): ?string
+    {
+        return match (true) {
+            $this->mode instanceof MainMenuCommandSelectionMode => self::TUTORIAL_COMMANDS,
+            $this->mode instanceof MainMenuCharacterSelectionMode => self::TUTORIAL_PARTY,
+            default => null,
+        };
+    }
+
     private function refreshTerminalTutorial(): void
     {
-        $scene = $this->getGameScene();
-        $command = $this->mode instanceof MainMenuCommandSelectionMode
-            ? $scene->getTutorialPresentationStep(self::TUTORIAL_SCREEN, self::TUTORIAL_COMMANDS) : null;
-        $member = $this->mode instanceof MainMenuCharacterSelectionMode
-            ? $scene->getTutorialPresentationStep(self::TUTORIAL_SCREEN, self::TUTORIAL_PARTY) : null;
+        $view = $this->getTutorialView();
+        $step = $view === null ? null : $this->getGameScene()->getTutorialPresentationStep(self::TUTORIAL_SCREEN, $view);
+        $command = $view === self::TUTORIAL_COMMANDS ? $step : null;
+        $member = $view === self::TUTORIAL_PARTY ? $step : null;
         $this->mainMenu?->showTutorialCommand($command?->target['id']);
         $memberVisible = $this->characterSelectionMenu?->showTutorialMember($member?->target['id']);
         $this->infoPanel?->showTutorialHint(TutorialTerminalPresentation::getHint($memberVisible ? $member : $command));

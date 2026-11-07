@@ -227,16 +227,20 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         return $canvas;
     }
 
-    private function getTutorialStep(): ?TutorialStep
+    private function getTutorialView(): ?string
     {
-        $tutorialView = match ($this->view) {
+        return match ($this->view) {
             SummonsMenuView::SUMMONS => self::TUTORIAL_LIST,
             SummonsMenuView::ACTIONS => self::TUTORIAL_ACTIONS,
             SummonsMenuView::HOLDERS => self::TUTORIAL_HOLDERS,
             default => null,
         };
-        return $tutorialView === null ? null
-            : $this->getGameScene()->getTutorialPresentationStep(self::TUTORIAL_SCREEN, $tutorialView);
+    }
+
+    private function getTutorialStep(): ?TutorialStep
+    {
+        $view = $this->getTutorialView();
+        return $view === null ? null : $this->getGameScene()->getTutorialPresentationStep(self::TUTORIAL_SCREEN, $view);
     }
 
     private static function getHolderRowId(Character $member): string
@@ -342,13 +346,14 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $priorCharacter = $this->character;
         $priorView = $this->view;
         $this->refreshDefinitions();
+        $this->getGameScene()->evaluateTutorialView(self::TUTORIAL_SCREEN, $this->getTutorialView());
         if ($priorCharacter !== $this->character || $priorView !== $this->view
-            || $this->getTutorialStep() !== $this->lastTutorialStep
             || $this->getRowSnapshot($this->getRows()) !== $this->lastRows) {
             // Refresh a changed roster/availability before accepting a choice made against its old rows.
             $this->refreshUI();
             return;
         }
+        if ($this->getTutorialStep() !== $this->lastTutorialStep) { $this->refreshUI(); }
         if ($this->handleCharacterCycling()) { return; }
         $v = Input::getAxis(AxisName::VERTICAL);
         if ($v !== 0.0) {
@@ -389,7 +394,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         if ($this->view === SummonsMenuView::SUMMONS) {
             $this->selectedSummonId = $definition->id;
             $this->setView(SummonsMenuView::ACTIONS);
-            $scene->tutorialDirector?->reportOutcome(
+            $scene->reportTutorialOutcome(
                 self::TUTORIAL_SCREEN, self::TUTORIAL_LIST, self::TUTORIAL_SUMMON_OPENED, $definition->id,
             );
         } elseif ($this->view === SummonsMenuView::ACTIONS) {
@@ -397,7 +402,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
             if ($action === 'info') { $this->setView(SummonsMenuView::INFO); }
             elseif ($action === 'assign') {
                 $this->setView(SummonsMenuView::HOLDERS);
-                $scene->tutorialDirector?->reportOutcome(
+                $scene->reportTutorialOutcome(
                     self::TUTORIAL_SCREEN, self::TUTORIAL_ACTIONS, self::TUTORIAL_ASSIGN_OPENED, $definition->id,
                 );
             }
@@ -407,7 +412,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
             if ($member->hasSummon($definition->id)) { $this->party->unassignSummon($definition->id, $member); }
             elseif ($this->view === SummonsMenuView::CHARACTER) { $this->party->assignSummon($definition, $member, $scene->gameState); }
             elseif ($this->party->reassignSummon($definition, $member, $scene->gameState)) {
-                $scene->tutorialDirector?->reportOutcome(
+                $scene->reportTutorialOutcome(
                     self::TUTORIAL_SCREEN, self::TUTORIAL_HOLDERS, self::TUTORIAL_ASSIGNED, $definition->id,
                 );
             }

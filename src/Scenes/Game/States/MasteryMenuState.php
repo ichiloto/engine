@@ -237,6 +237,9 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     {
         $this->syncHold();
         $this->syncCounterTick();
+        if (!$this->infoShown && $this->pending === null && $this->hold === null) {
+            $this->getGameScene()->evaluateTutorialView(self::TUTORIAL_SCREEN, $this->mode?->level->value);
+        }
         $director = $this->getGameScene()->tutorialDirector;
         if ($this->mode?->level === MasteryMenuLevel::TREE
             && ($director?->getStepForView(self::TUTORIAL_SCREEN, MasteryMenuLevel::TREE->value)?->until['outcome'] ?? null) === self::TUTORIAL_NODE_FOCUSED) {
@@ -300,11 +303,11 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $this->menuInfoText->reset();
         $this->refreshUI();
         if ($previous === MasteryMenuLevel::DISCIPLINE && $mode->level === MasteryMenuLevel::FAMILY) {
-            $this->getGameScene()->tutorialDirector?->reportOutcome(
+            $this->getGameScene()->reportTutorialOutcome(
                 self::TUTORIAL_SCREEN, $previous->value, self::TUTORIAL_DISCIPLINE_OPENED, $this->getRegionId(),
             );
         } elseif ($previous === MasteryMenuLevel::FAMILY && $mode->level === MasteryMenuLevel::TREE) {
-            $this->getGameScene()->tutorialDirector?->reportOutcome(
+            $this->getGameScene()->reportTutorialOutcome(
                 self::TUTORIAL_SCREEN, $previous->value, self::TUTORIAL_FAMILY_OPENED, $this->familyFocus[$this->getRegionId() ?? ''] ?? null,
             );
         }
@@ -453,7 +456,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         try {
             $before = $character->mastery->points;
             $progression->learn($character, $nodeId);
-            $this->getGameScene()->tutorialDirector?->reportOutcome(
+            $this->getGameScene()->reportTutorialOutcome(
                 self::TUTORIAL_SCREEN, MasteryMenuLevel::TREE->value, self::TUTORIAL_LEARNED, $nodeId,
             );
             play_sound(SystemSound::CONFIRM);

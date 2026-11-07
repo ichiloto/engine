@@ -142,7 +142,7 @@ class MainMenuCommandSelectionMode extends MainMenuMode
         $result = $activeItem->execute($this->mainMenuState->mainMenuContext);
         $id = MainMenuState::getTutorialCommandId($activeItem);
         if ($id !== null && $result === MenuItem::SUCCESS) {
-          $this->mainMenuState->getGameScene()->tutorialDirector?->reportOutcome(
+          $this->mainMenuState->getGameScene()->reportTutorialOutcome(
             MainMenuState::TUTORIAL_SCREEN, MainMenuState::TUTORIAL_COMMANDS, MainMenuState::TUTORIAL_COMMAND_OPENED, $id,
           );
         }

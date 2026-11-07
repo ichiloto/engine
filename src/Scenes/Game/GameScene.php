@@ -2122,6 +2122,28 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         return $this->eventInterpreter?->run($commands, $scriptId, $completionTarget, $origin);
     }
 
+    /** Evaluate the current lesson only while its owning menu view is available. */
+    public function evaluateTutorialView(string $screen, ?string $view): void
+    {
+        if ($view === null) { return; }
+        $step = $this->getTutorialPresentationStep($screen, $view);
+        if ($step !== null && !isset($step->until['outcome'])) {
+            $this->tutorialDirector?->evaluateStepCondition($screen, $view, $this->party, $this->questManager?->log);
+        }
+    }
+
+    /** The owner reports a committed operation against the view it started in. */
+    public function reportTutorialOutcome(string $screen, string $view, string $outcome, ?string $subject = null): void
+    {
+        $step = $this->tutorialDirector?->getStepForView($screen, $view);
+        if ($step === null) { return; }
+        if (isset($step->until['outcome'])) {
+            $this->tutorialDirector->reportOutcome($screen, $view, $outcome, $subject);
+        } else {
+            $this->evaluateTutorialView($screen, $view);
+        }
+    }
+
     public function getTutorialPresentationStep(string $screen, string $view): ?TutorialStep
     {
         $step = $this->tutorialDirector?->getStepForView($screen, $view);

@@ -99,7 +99,7 @@ class MainMenuCharacterSelectionMode extends MainMenuMode
       $memberId = $this->characterSelectionMenu->activeCharacter?->actorId;
       $this->mainMenuState->setState($this->nextGameSceneState);
       if ($this->nextGameSceneState instanceof MasteryMenuState) {
-        $this->mainMenuState->getGameScene()->tutorialDirector?->reportOutcome(
+        $this->mainMenuState->getGameScene()->reportTutorialOutcome(
           MainMenuState::TUTORIAL_SCREEN, MainMenuState::TUTORIAL_PARTY, MainMenuState::TUTORIAL_MEMBER_CONFIRMED,
           $memberId,
         );

@@ -1270,3 +1270,40 @@ it('renders complete Terminal tutorial guidance and restores the description whe
   $this->state->setMode(new MainMenuCommandSelectionMode($this->state));
   expect($readPanel()[0])->toBe($description);
 })->with([[135, 1], [80, 2]]);
+
+it('evaluates an authored world condition only in its live tutorial view', function () {
+  $screen = MainMenuState::TUTORIAL_SCREEN;
+  $view = MainMenuState::TUTORIAL_COMMANDS;
+  $target = ['screen' => $screen, 'view' => $view, 'id' => 'summons'];
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.world',
+    'title' => 'World guide',
+    'category' => 'Field',
+    'start' => 'script',
+    'replay' => 'practice',
+    'steps' => [
+      ['target' => $target, 'action' => 'confirm', 'until' => ['type' => 'switch', 'name' => 'ready']],
+      ['target' => $target, 'action' => 'confirm', 'until' => ['outcome' => 'menu.command-opened', 'subject' => 'summons']],
+    ],
+  ]]), $this->scene->gameState);
+  new ReflectionProperty(GameScene::class, 'tutorialDirector')->setValue($this->scene, $director);
+  $director->queueScriptTutorial('guide.world');
+  $director->updateInStableField(false);
+
+  $this->state->execute();
+  expect($director->getStepForView($screen, $view)?->until)->toBe(['type' => 'switch', 'name' => 'ready']);
+
+  $this->state->setMode(new MainMenuConfigMode($this->state));
+  $this->scene->gameState->setSwitch('ready');
+  $this->state->execute();
+  expect($director->getStepForView($screen, $view)?->until)->toBe(['type' => 'switch', 'name' => 'ready']);
+
+  $this->state->setMode(new MainMenuCommandSelectionMode($this->state));
+  $this->state->execute();
+  expect($director->getStepForView($screen, $view)?->until)
+    ->toBe(['outcome' => 'menu.command-opened', 'subject' => 'summons']);
+  $this->scene->reportTutorialOutcome($screen, $view, 'menu.command-opened', 'mastery');
+  expect($director->getStepForView($screen, $view))->not->toBeNull();
+  $this->scene->reportTutorialOutcome($screen, $view, 'menu.command-opened', 'summons');
+  expect($director->getActiveTutorial())->toBeNull();
+});
