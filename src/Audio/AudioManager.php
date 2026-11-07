@@ -568,30 +568,36 @@ class AudioManager implements CanUpdate
    */
   protected function playSoundEffectAtVolume(string $path, float $volume): void
   {
+    $this->startSoundEffect($path, $volume);
+  }
+
+  /** Starts a one-shot on the Effects bus and returns its individual playback handle. */
+  public function startSoundEffect(string $path, float $volume = 1.0): ?AudioPlayback
+  {
     $gain = $this->getBusGain(AudioBus::EFFECTS) * $this->clampSoundVolume($volume);
 
     if (! $this->isSupported || ! $this->isBusEnabled(AudioBus::EFFECTS) || $gain <= 0.0) {
-      return;
+      return null;
     }
 
     $resolvedPath = $this->resolveAudioPath($path, self::SFX_DIRECTORY);
 
     if ($resolvedPath === null) {
       $this->warnOnce("sfx-missing:$path", "Sound effect file not found: $path");
-      return;
+      return null;
     }
 
     $this->reapFinishedSoundEffects();
 
     if (count($this->sfxPlaybacks) >= self::MAX_CONCURRENT_SOUND_EFFECTS) {
-      return;
+      return null;
     }
 
     $backend = $this->selectBackend($resolvedPath);
 
     if ($backend === null) {
       $this->warnOnce("sfx-format:$resolvedPath", "No available audio player supports: $resolvedPath");
-      return;
+      return null;
     }
 
     $playback = $this->spawn($backend->buildCommand($resolvedPath, $gain, false));
@@ -599,6 +605,8 @@ class AudioManager implements CanUpdate
     if ($playback !== null) {
       $this->sfxPlaybacks[] = $playback;
     }
+
+    return $playback;
   }
 
   /**

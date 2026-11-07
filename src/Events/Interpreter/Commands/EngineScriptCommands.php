@@ -255,6 +255,17 @@ final class EngineScriptCommands
       ],
     ],
     [
+      'type' => 'cinematic_sound',
+      'class' => CinematicSoundCommand::class,
+      'label' => 'Cinematic Sound',
+      'description' => 'Plays one sound in this lane for its authored duration and releases its playback when the lane ends.',
+      'fields' => [
+        ['key' => 'sound', 'label' => 'Sound', 'kind' => 'reference', 'reference' => 'sound', 'required' => true],
+        ['key' => 'seconds', 'label' => 'Seconds', 'kind' => 'number', 'minimum' => 0, 'required' => true],
+        ['key' => 'volume', 'label' => 'Volume', 'kind' => 'number', 'minimum' => 0, 'maximum' => 1],
+      ],
+    ],
+    [
       'type' => 'play_stage',
       'class' => PlayStageCommand::class,
       'label' => 'Play Stage Presentation',

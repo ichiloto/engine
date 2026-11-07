@@ -3748,3 +3748,55 @@ it('rests the party where they stand when the inn names no place to wake', funct
     }
   }
 });
+
+it('cancels only the sound owned by an interrupted cinematic lane', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $game = $scene->getGame();
+  $previous = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
+  putAudioProjectConfig(['audio' => ['sfx' => true, 'master_volume' => 100]]);
+  $root = makeAudioAssetsRoot(['cue.wav']);
+  $audio = new TestableAudioManager($game, [new FakeAudioBackend()]);
+  new ReflectionProperty(Game::class, 'audioManager')->setValue($game, $audio);
+
+  try {
+    $ordinary = $audio->startSoundEffect("$root/cue.wav");
+    $session = $interpreter->run([
+      ['type' => 'parallel', 'lanes' => [
+        ['id' => 'audio', 'commands' => [['type' => 'cinematic_sound', 'sound' => "$root/cue.wav", 'seconds' => 1, 'volume' => 0.4]]],
+        ['id' => 'visual', 'commands' => [['type' => 'wait', 'seconds' => 2]]],
+      ]],
+      ['type' => 'record_event', 'name' => 'after-cue'],
+    ]);
+
+    $interpreter->update(.25);
+    expect($session->status)->toBe(EventExecutionStatus::YIELDED)
+      ->and($audio->spawnedPlaybacks)->toHaveCount(2)
+      ->and($audio->spawnedCommands[1][1])->toBe('0.40');
+    $cue = $audio->spawnedPlaybacks[1];
+    expect($cue->isRunning)->toBeTrue();
+
+    $interpreter->failActiveSession('Synthetic interruption');
+    expect($session->status)->toBe(EventExecutionStatus::FAILED)
+      ->and($cue->isRunning)->toBeFalse()
+      ->and($ordinary->isRunning)->toBeTrue()
+      ->and($scene->gameState->hasStoryEvent('after-cue'))->toBeFalse();
+  } finally {
+    $audio->shutdown();
+    $previous === null ? ConfigStore::remove(ProjectConfig::class) : ConfigStore::put(ProjectConfig::class, $previous);
+  }
+});
+
+it('keeps an authored sound lane duration when sound is unavailable', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $session = $interpreter->run([
+    ['type' => 'cinematic_sound', 'sound' => 'silent.wav', 'seconds' => 1],
+    ['type' => 'record_event', 'name' => 'after-cue'],
+  ]);
+
+  $interpreter->update(.25);
+  expect($session->status)->toBe(EventExecutionStatus::YIELDED)
+    ->and($scene->gameState->hasStoryEvent('after-cue'))->toBeFalse();
+  $interpreter->update(.75);
+  expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->gameState->hasStoryEvent('after-cue'))->toBeTrue();
+});
