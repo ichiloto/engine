@@ -16,6 +16,7 @@ use Ichiloto\Engine\Core\Menu\Commands\OpenRecordsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenSummonsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\SkipTutorialCommand;
 use Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation;
+use Ichiloto\Engine\Progression\TutorialStep;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Core\Menu\Commands\OpenPartyOrderCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenQuitMenuCommand;
@@ -497,7 +498,13 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
             $this->nextTimeUpdate = Time::getTime() + $this->updateInterval;
         }
 
-        $this->getGameScene()->evaluateTutorialView(self::TUTORIAL_SCREEN, $this->getTutorialView());
+        $scene = $this->getGameScene();
+        $view = $this->getTutorialView();
+        $scene->evaluateTutorialView(self::TUTORIAL_SCREEN, $view);
+        if ($view !== null) {
+            $step = $scene->getTutorialPresentationStep(self::TUTORIAL_SCREEN, $view);
+            $scene->tutorialDirector?->applyStepFocus($step, $this->focusTutorialTarget(...));
+        }
         if (Input::isButtonDown(MenuPager::NEXT_ACTION) && $this->changePartyPage(1)) { return; }
         if (Input::isButtonDown(MenuPager::PREVIOUS_ACTION) && $this->changePartyPage(-1)) { return; }
         $this->mode->update();
@@ -513,6 +520,23 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
             $this->mode instanceof MainMenuCharacterSelectionMode => self::TUTORIAL_PARTY,
             default => null,
         };
+    }
+
+    private function focusTutorialTarget(TutorialStep $step): bool
+    {
+        $id = $step->target['id'];
+        if ($step->target['view'] === self::TUTORIAL_PARTY) {
+            return $this->characterSelectionMenu?->focusTutorialMember($id, $this->isMenuCanvasShown) ?? false;
+        }
+        $menu = $this->mainMenu;
+        if ($menu === null) { return false; }
+        $item = array_find($menu->getItems()->toArray(), static fn($item): bool => self::getTutorialCommandId($item) === $id);
+        if ($item === null) { return false; }
+
+        $menu->setActiveItem($item);
+        $menu->updateWindowContent();
+        $this->infoPanel?->setText($item->getDescription());
+        return true;
     }
 
     private function refreshTerminalTutorial(): void

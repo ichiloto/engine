@@ -243,6 +243,18 @@ class CharacterSelectionMenu extends Menu
     $this->helpWindow->render();
   }
 
+  public function focusTutorialMember(string $id, bool $allowOffscreen): bool
+  {
+    $index = array_find_key($this->partyMembers, static fn(mixed $member): bool =>
+      $member instanceof Character && $member->actorId !== null && $id === 'member-' . $member->actorId);
+    if ($index === null || (!$allowOffscreen && !isset($this->characterPanels[$index]))) {
+      return false;
+    }
+
+    $this->focusPanelByIndex($index);
+    return true;
+  }
+
   public function showTutorialMember(?string $id): bool
   {
     $visible = false;

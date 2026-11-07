@@ -255,7 +255,8 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
             return null;
         }
         $id = $step->target['id'];
-        if ($this->view !== SummonsMenuView::HOLDERS || ($step->until['outcome'] ?? null) !== self::TUTORIAL_ASSIGNED) {
+        if ($this->view !== SummonsMenuView::HOLDERS
+            || ($id !== self::TUTORIAL_ASSIGNABLE_HOLDER && ($step->until['outcome'] ?? null) !== self::TUTORIAL_ASSIGNED)) {
             return $id;
         }
         $definition = $this->getSelectedSummon();
@@ -272,18 +273,29 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         return null;
     }
 
+    private function focusTutorialTarget(TutorialStep $step): bool
+    {
+        $id = $this->resolveTutorialRow($step);
+        $index = array_find_key($this->getRows(), static fn(MenuRow $row): bool => $row->id === $id);
+        if ($index === null) { return false; }
+
+        $this->activeIndex = $index;
+        return true;
+    }
+
     protected function refreshUI(): void
     {
         $this->refreshDefinitions();
         $this->activeIndex = min($this->activeIndex, max(0, count($this->getRows()) - 1));
         $this->detailViewport ??= new TextViewport();
+        $step = $this->lastTutorialStep = $this->getTutorialStep();
+        $this->getGameScene()->tutorialDirector?->applyStepFocus($step, $this->focusTutorialTarget(...));
         $content = $this->getPresentationContent();
         $this->lastRows = $this->getRowSnapshot($content->rows);
         $this->summaryPanel->setContent([$content->title, ...$content->summary]);
         $this->summaryPanel->render();
         if ($content->details !== null) { $this->refreshDetailPanel($content->details); }
         else { $this->refreshListPanel(); }
-        $step = $this->lastTutorialStep = $this->getTutorialStep();
         $hint = $this->resolveTutorialRow($step) === null ? null : TutorialTerminalPresentation::getHint(
             $step, $this->getGameScene()->getTutorialSpeakerName($step),
         );

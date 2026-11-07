@@ -1308,3 +1308,41 @@ it('evaluates an authored world condition only in its live tutorial view', funct
   $this->scene->reportTutorialOutcome($screen, $view, 'menu.command-opened', 'summons');
   expect($director->getActiveTutorial())->toBeNull();
 });
+
+it('honours authored tutorial focus once while the real menu keeps navigation', function (bool $focus) {
+  $menu = $this->state->mainMenu;
+  $target = new OpenSummonsMenuCommand($menu);
+  $menu->addItem($target);
+  $original = $menu->getActiveItem();
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.focus',
+    'title' => 'Focus guide',
+    'category' => 'Field',
+    'start' => 'script',
+    'replay' => 'practice',
+    'steps' => [[
+      'target' => ['screen' => MainMenuState::TUTORIAL_SCREEN, 'view' => MainMenuState::TUTORIAL_COMMANDS, 'id' => 'summons'],
+      'action' => 'confirm',
+      'until' => ['outcome' => 'menu.command-opened', 'subject' => 'summons'],
+      'focus' => $focus,
+    ]],
+  ]]), $this->scene->gameState);
+  new ReflectionProperty(GameScene::class, 'tutorialDirector')->setValue($this->scene, $director);
+  $director->queueScriptTutorial('guide.focus');
+  $director->updateInStableField(false);
+
+  $this->state->execute();
+  expect($menu->getActiveItem())->toBe($focus ? $target : $original);
+  InputManager::setBindings([...InputManager::getBindings(), 'up' => ['keys' => [KeyCode::UP]]]);
+  mainMenuPresentationPageKey(KeyCode::UP, $this->state);
+  $playerChoice = $menu->getActiveItem();
+  expect($playerChoice)->not->toBe($focus ? $target : $original);
+  InputManager::handleInput();
+  $this->state->execute();
+  expect($menu->getActiveItem())->toBe($playerChoice);
+
+  $director->skipActiveTutorial();
+  expect($director->startPractice('guide.focus'))->toBeTrue();
+  $this->state->execute();
+  expect($menu->getActiveItem())->toBe($focus ? $target : $playerChoice);
+})->with([true, false]);

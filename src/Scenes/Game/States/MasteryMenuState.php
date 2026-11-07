@@ -241,7 +241,11 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $this->syncHold();
         $this->syncCounterTick();
         if (!$this->infoShown && $this->pending === null && $this->hold === null) {
-            $this->getGameScene()->evaluateTutorialView(self::TUTORIAL_SCREEN, $this->mode?->level->value);
+            $scene = $this->getGameScene();
+            $scene->evaluateTutorialView(self::TUTORIAL_SCREEN, $this->mode?->level->value);
+            if ($scene->tutorialDirector?->applyStepFocus($this->getTerminalTutorialStep(), $this->focusTutorialTarget(...))) {
+                $this->refreshUI();
+            }
         }
         $director = $this->getGameScene()->tutorialDirector;
         if ($this->mode?->level === MasteryMenuLevel::TREE
@@ -266,6 +270,31 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         if ($this->getGameScene()->state === $this && $this->getTerminalTutorialStep() !== $this->terminalTutorialStep) {
             $this->refreshUI();
         }
+    }
+
+    private function focusTutorialTarget(TutorialStep $step): bool
+    {
+        $id = $step->target['id'];
+        $board = $this->getBoard();
+        $region = $this->getRegionId();
+        if ($board === null || $region === null) { return false; }
+
+        if ($this->level === MasteryMenuLevel::DISCIPLINE) {
+            $index = array_search($id, $board->tree->getRegionIds(), true);
+            if ($index === false) { return false; }
+            if ($index !== $this->regionIndex) { $this->selectRegionByIndex($index); }
+            return true;
+        }
+        if ($this->level === MasteryMenuLevel::FAMILY) {
+            if (!array_any($board->getFamilies($region), static fn(MasteryFamily $family): bool => $family->id === $id)) {
+                return false;
+            }
+            $this->familyFocus[$region] = $id;
+            return true;
+        }
+        if (!in_array($id, $board->getPlaceIds($region), true)) { return false; }
+        $this->setFocus($id);
+        return true;
     }
 
     private function getTerminalTutorialStep(): ?TutorialStep
@@ -520,11 +549,16 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
             return;
         }
         play_sound(SystemSound::CURSOR);
+        $this->selectRegionByIndex(wrap($this->regionIndex + $offset, 0, $count - 1));
+        $this->refreshUI();
+    }
+
+    private function selectRegionByIndex(int $index): void
+    {
         $this->resetTransaction();
-        $this->regionIndex = wrap($this->regionIndex + $offset, 0, $count - 1);
+        $this->regionIndex = $index;
         $this->normalizeFocus();
         $this->camera = null;
-        $this->refreshUI();
     }
 
     /**

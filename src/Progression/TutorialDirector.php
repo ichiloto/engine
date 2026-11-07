@@ -18,6 +18,7 @@ final class TutorialDirector
 
   private ?TutorialDefinition $active = null;
   private int $stepIndex = 0;
+  private bool $stepFocusApplied = false;
   private bool $practice = false;
   /** @var array<array-key, true> Failed scenes are retried after a new campaign load. */
   private array $failedFollowOns = [];
@@ -84,6 +85,19 @@ final class TutorialDirector
   {
     $step = $this->active?->steps[$this->stepIndex] ?? null;
     return $step !== null && $step->target['screen'] === $screen && $step->target['view'] === $view ? $step : null;
+  }
+
+  /** Each authored focus is applied once when its real target becomes available. */
+  public function applyStepFocus(?TutorialStep $step, callable $focusTarget): bool
+  {
+    if ($step === null || !$step->focus || $this->stepFocusApplied
+      || $step !== ($this->active?->steps[$this->stepIndex] ?? null)
+      || !$focusTarget($step)) {
+      return false;
+    }
+
+    $this->stepFocusApplied = true;
+    return true;
   }
 
   /** Called by the screen that owned the operation, using its view before any transition. */
@@ -195,10 +209,12 @@ final class TutorialDirector
     $this->active = $tutorial;
     $this->stepIndex = 0;
     $this->practice = $practice;
+    $this->stepFocusApplied = false;
   }
 
   private function advanceStep(): void
   {
+    $this->stepFocusApplied = false;
     if (++$this->stepIndex === count($this->active->steps)) {
       $this->finishTutorial(TutorialPhase::COMPLETED);
     }
