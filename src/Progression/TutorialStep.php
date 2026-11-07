@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Progression;
 
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Util\PlayerText;
 use InvalidArgumentException;
 
 /** A semantic screen target and the successful action or world fact that advances it. */
 final readonly class TutorialStep
 {
+  public const int MAX_INSTRUCTION_CELLS = 72;
+
   /**
    * @param array{screen: string, view: string, id: string} $target
    * @param array{outcome: string, subject?: string}|array<string, mixed> $until
@@ -61,6 +64,9 @@ final readonly class TutorialStep
     if ($say !== null) {
       TutorialDefinition::assertText($say, $source . ' instruction');
       PlayerText::assertSentence($say, $source . ' instruction');
+      if (preg_match('/[\p{Cc}\p{Zl}\p{Zp}]/u', $say) === 1 || TerminalText::displayWidth($say) > self::MAX_INSTRUCTION_CELLS) {
+        throw new InvalidArgumentException($source . ' instruction must fit one line of at most ' . self::MAX_INSTRUCTION_CELLS . ' cells.');
+      }
     }
     if ($speaker !== null) {
       TutorialDefinition::assertText($speaker, $source . ' speaker');

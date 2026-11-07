@@ -17,6 +17,7 @@ use Ichiloto\Engine\Progression\TutorialCatalog;
 use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Progression\TutorialFollowOn;
 use Ichiloto\Engine\Progression\TutorialStep;
+use Ichiloto\Engine\Progression\TutorialProjectReferences;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicController;
@@ -1075,7 +1076,11 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $this->gameState = GameState::fromArray($this->config->gameState);
         $assetRoot = $this->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets';
         $tutorials = TutorialCatalog::fromProject($assetRoot);
-        $this->tutorialDirector = $tutorials->definitions === [] ? null : new TutorialDirector($tutorials, $this->gameState);
+        $this->tutorialDirector = null;
+        if ($tutorials->definitions !== []) {
+            (new TutorialProjectReferences($assetRoot))->validateCatalog($tutorials);
+            $this->tutorialDirector = new TutorialDirector($tutorials, $this->gameState);
+        }
         $this->tutorialCinematics = $this->tutorialDirector === null ? null : new CinematicLibrary($assetRoot . '/Cutscenes/Cinematics');
         $this->tutorialFollowOnDefinitions = [];
 

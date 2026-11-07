@@ -39,21 +39,20 @@ final class CinematicLibrary
     return $ids;
   }
 
+  /** Checks a reference without running the project's script source. */
+  public function hasSource(string $id): bool
+  {
+    return $this->findSourceFiles(trim($id)) !== null;
+  }
+
   public function findById(string $id): ?CinematicDefinition
   {
     $id = trim($id);
-
-    if ($id === '' || preg_match('/^[a-z0-9][a-z0-9._-]*$/', $id) !== 1) {
+    $files = $this->findSourceFiles($id);
+    if ($files === null) {
       return null;
     }
-
-    $directory = Path::join($this->root, $id);
-    $dataFile = Path::join($directory, "$id.data.php");
-    $scriptFile = Path::join($directory, "$id.script.php");
-
-    if (! is_file($dataFile) || ! is_file($scriptFile)) {
-      return null;
-    }
+    [$dataFile, $scriptFile] = $files;
 
     $data = require $dataFile;
     $script = require $scriptFile;
@@ -73,6 +72,19 @@ final class CinematicLibrary
     }
 
     return $definition;
+  }
+
+  /** @return array{string, string}|null */
+  private function findSourceFiles(string $id): ?array
+  {
+    if (preg_match('/^[a-z0-9][a-z0-9._-]*$/D', $id) !== 1) {
+      return null;
+    }
+    $directory = Path::join($this->root, $id);
+    $dataFile = Path::join($directory, "$id.data.php");
+    $scriptFile = Path::join($directory, "$id.script.php");
+
+    return is_file($dataFile) && is_file($scriptFile) ? [$dataFile, $scriptFile] : null;
   }
 
   public function load(string $id): CinematicDefinition
