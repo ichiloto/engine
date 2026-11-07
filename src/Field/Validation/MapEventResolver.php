@@ -18,7 +18,7 @@ final class MapEventResolver
 {
     public static function inspect(array $data, array $eventLayer, string $mapId, ?Closure $checkpoint = null): MapEventResolution
     {
-        try { $mapAreas = MapAreaCatalog::readMap($data, $eventLayer); }
+        try { $mapAreas = MapAreaCatalog::readMap($data, $eventLayer, $checkpoint); }
         catch (InvalidArgumentException $error) {
             return new MapEventResolution([], [new MapValidationIssue($mapId, 'map.area', $error->getMessage(),
                 path: ['areas'], hint: 'Declare unique named areas within the physical map.')]);
@@ -86,7 +86,7 @@ final class MapEventResolver
                 } elseif ($cells === []) {
                     throw new InvalidArgumentException("Event marker '{$marker}' was not found in {$mapId}.");
                 }
-                $definition['area'] = CellArea::fromCells($cells)->toArray();
+                $definition['area'] = CellArea::fromCells($cells, $checkpoint)->toArray();
                 $definition['marker'] = $marker;
                 $resolved[] = $definition;
             } catch (InvalidArgumentException $error) {

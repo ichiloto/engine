@@ -173,7 +173,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         assert($scene instanceof GameScene);
 
         if ($scene->isStopping || $scene->state !== $this || $scene->sceneManager->currentScene !== $scene
-            || $scene->sceneManager->hasSceneTransition()) {
+            || $scene->sceneManager->hasSceneTransition() || $scene->isPreparingMapTransfer) {
             return;
         }
         $scene->reconcileFieldPresentation();

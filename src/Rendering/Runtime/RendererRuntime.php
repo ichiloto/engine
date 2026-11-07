@@ -15,6 +15,7 @@ use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\SceneFrameComposer;
+use Ichiloto\Engine\Rendering\Presentation\SceneFrameReadinessInterface;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\Presentation\RetainedFrame;
@@ -120,13 +121,35 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
 
   public function pump(): void
   {
+    $this->serviceTraffic();
+  }
+
+  /** Feed a staged world from idle frame time, using the same ordered event consumer and write limits. */
+  public function serviceWorldDeliveryUntil(int $deadline): void
+  {
+    while ($this->presentation?->hasPendingWorldDelivery() === true && $deadline - hrtime(true) >= 1_000_000) {
+      $this->pump();
+      if ($deadline - hrtime(true) < 1_000_000 || !$this->presentation->hasPendingWorldDelivery()) { return; }
+      if (!$this->presentation->continueWorldUpload($deadline)) {
+        $wait = min(2_000_000, $deadline - hrtime(true));
+        if ($wait > 0) { $this->serviceTraffic($wait / 1_000_000_000); }
+      }
+    }
+  }
+
+  private function serviceTraffic(float $waitSeconds = 0.0): void
+  {
     if ($this->closeRequested) {
       throw new RendererWindowClosed('Renderer window closed.');
     }
     if (!$this->started || $this->closed) {
       return;
     }
-    $this->client->pump();
+    if ($waitSeconds > 0.0) {
+      $this->client->waitForTraffic($waitSeconds);
+    } else {
+      $this->client->pump();
+    }
     $invalidate = false;
     $expectedGeneration = null;
     foreach ($this->client->drainEvents() as $event) {
@@ -195,6 +218,10 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     $this->pump();
     if ($this->presentation === null || $this->closed) {
       throw new LogicException('Renderer presentation requires an active session.');
+    }
+    if ($scene instanceof SceneFrameReadinessInterface && !$scene->canPresentSceneFrame()) {
+      LatencyTrace::end('presentation.end', $started, ['changed' => false]);
+      return false;
     }
     if ($scene instanceof CanvasOverlayProviderInterface && $this->supports(RendererSessionConfig::CANVAS_OVERLAY)) {
       $overlayStarted = LatencyTrace::getTimeNow();

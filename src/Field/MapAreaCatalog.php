@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field;
 
+use Closure;
 use Ichiloto\Engine\Core\CellArea;
 use InvalidArgumentException;
 
@@ -18,7 +19,7 @@ final readonly class MapAreaCatalog
     private function __construct(public array $areas) {}
 
     /** Read the sole geometry owner; reject invalid bounds before expanding rectangles. */
-    public static function readMap(array $data, array $grid): self
+    public static function readMap(array $data, array $grid, ?Closure $checkpoint = null): self
     {
         $entries = array_key_exists('areas', $data) ? $data['areas'] : [];
         if (!is_array($entries) || !array_is_list($entries) || count($entries) > self::MAX_AREAS) {
@@ -51,12 +52,18 @@ final readonly class MapAreaCatalog
                     || count($shape['cells']) > array_sum($rowWidths)) {
                     throw new InvalidArgumentException("Map area '{$id}' requires a bounded list of cells.");
                 }
-                $area = CellArea::fromArray($shape, "Map area '{$id}'");
+                $area = CellArea::fromArray($shape, "Map area '{$id}'", $checkpoint);
                 if (count($area->cells) !== count($shape['cells'])) {
                     throw new InvalidArgumentException("Map area '{$id}' contains duplicate cells.");
                 }
+                foreach ($area->cells as $index => [$x, $y]) {
+                    if ($y < 0 || $x < 0 || !isset($rowWidths[$y]) || $x >= $rowWidths[$y]) {
+                        throw new InvalidArgumentException("Map area '{$id}' extends outside the physical map.");
+                    }
+                    if ($checkpoint !== null && $index % 256 === 255) { $checkpoint(); }
+                }
             } elseif (array_key_exists('runs', $shape)) {
-                $area = self::readRuns($shape, $rowWidths, $id);
+                $area = self::readRuns($shape, $rowWidths, $id, $checkpoint);
             } else {
                 if (count($shape) !== 4 || array_diff(array_keys($shape), ['x', 'y', 'width', 'height']) !== []
                     || !is_int($shape['x'] ?? null) || !is_int($shape['y'] ?? null)
@@ -70,14 +77,10 @@ final readonly class MapAreaCatalog
                         throw new InvalidArgumentException("Map area '{$id}' extends outside the physical map.");
                     }
                 }
-                $area = CellArea::fromArray($shape, "Map area '{$id}'");
-            }
-            foreach ($area->cells as [$x, $y]) {
-                if ($y < 0 || $x < 0 || !isset($rowWidths[$y]) || $x >= $rowWidths[$y]) {
-                    throw new InvalidArgumentException("Map area '{$id}' extends outside the physical map.");
-                }
+                $area = CellArea::fromArray($shape, "Map area '{$id}'", $checkpoint);
             }
             $areas[$id] = $area;
+            $checkpoint?->__invoke();
         }
         return new self($areas);
     }
@@ -116,7 +119,7 @@ final readonly class MapAreaCatalog
     }
 
     /** Validate every compressed run and its allocation bound before creating cells. */
-    private static function readRuns(array $shape, array $rowWidths, string $id): CellArea
+    private static function readRuns(array $shape, array $rowWidths, string $id, ?Closure $checkpoint): CellArea
     {
         $limit = array_sum($rowWidths);
         if (array_keys($shape) !== ['runs'] || !is_array($shape['runs']) || !array_is_list($shape['runs'])
@@ -124,7 +127,7 @@ final readonly class MapAreaCatalog
             throw new InvalidArgumentException("Map area '{$id}' requires a bounded nonempty list of row runs.");
         }
         $count = 0;
-        foreach ($shape['runs'] as $run) {
+        foreach ($shape['runs'] as $index => $run) {
             if (!is_array($run) || !array_is_list($run) || count($run) !== 3
                 || !is_int($run[0]) || !is_int($run[1]) || !is_int($run[2])) {
                 throw new InvalidArgumentException("Map area '{$id}' runs must be [y, x, length] with whole numbers.");
@@ -138,12 +141,14 @@ final readonly class MapAreaCatalog
                 throw new InvalidArgumentException("Map area '{$id}' row runs exceed the physical map cell budget.");
             }
             $count += $length;
+            if ($checkpoint !== null && $index % 256 === 255) { $checkpoint(); }
         }
-        $cells = [];
-        foreach ($shape['runs'] as [$y, $x, $length]) {
-            for ($offset = 0; $offset < $length; $offset++) { $cells[] = [$x + $offset, $y]; }
-        }
-        $area = CellArea::fromCells($cells);
+        $cells = (static function () use ($shape): \Generator {
+            foreach ($shape['runs'] as [$y, $x, $length]) {
+                for ($offset = 0; $offset < $length; $offset++) { yield [$x + $offset, $y]; }
+            }
+        })();
+        $area = CellArea::fromCells($cells, $checkpoint);
         if (count($area->cells) !== $count) {
             throw new InvalidArgumentException("Map area '{$id}' contains overlapping row runs.");
         }

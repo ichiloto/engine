@@ -113,3 +113,17 @@ it('charges actual compressed bytes and evicts the least recently used snapshot 
     MapCompilationCache::store('oversized', $oversized, 2 * MapCompilationCache::MAX_BYTES);
     expect(MapCompilationCache::find('oversized'))->toBeNull()->and(MapCompilationCache::find('second'))->toBe($second);
 });
+
+it('keeps the same compilation identity while hashing a large input in work units', function () {
+    $source = str_repeat("artwork\0revision\n", 60_000);
+    $inputs = ['source' => $source, 'layers' => [1, 2]];
+    $expected = 'world:' . hash('sha256', serialize($inputs));
+    $checkpoints = 0;
+    $key = MapCompilationCache::getKey('world', $inputs, static function () use (&$checkpoints): void {
+        $checkpoints++;
+    });
+
+    expect($key)->toBe($expected)
+        ->and($key)->toBe(MapCompilationCache::getKey('world', $inputs))
+        ->and($checkpoints)->toBeGreaterThan(2);
+});

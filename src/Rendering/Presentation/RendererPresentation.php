@@ -36,6 +36,10 @@ final class RendererPresentation
 
   public function hasPendingUpload(): bool { return $this->retained->hasPendingUpload(); }
 
+  public function hasPendingWorldDelivery(): bool { return $this->retained->hasPendingWorldDelivery(); }
+
+  public function continueWorldUpload(int $deadline): bool { return $this->retained->continueWorldUpload($deadline); }
+
   /** The world of the newest frame the renderer has shown. */
   public ?PresentationWorld $presentedWorld { get => $this->retained->presentedWorld; }
 

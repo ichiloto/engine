@@ -119,6 +119,32 @@ afterEach(function () {
   }
 });
 
+it('pumps input while a scene holds its frame and sends the retained changes once ready', function () {
+  $this->runtime->start('Arrival hold', 12, 4);
+  Console::write('ORIGIN', 0, 0);
+  expect($this->runtime->present(null))->toBeTrue();
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
+  $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()
+    ->onlyMethods(['canPresentSceneFrame', 'getPresentationWorld', 'getGraphicalSpriteProviders'])->getStub();
+  $ready = false;
+  $scene->method('canPresentSceneFrame')->willReturnCallback(static function () use (&$ready): bool {
+    return $ready;
+  });
+  $scene->method('getPresentationWorld')->willReturn(null);
+  $scene->method('getGraphicalSpriteProviders')->willReturn([]);
+  new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, new Camera($scene, 12, 4));
+  Console::write('ARRIVAL', 0, 0);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"key","key":"right"}')];
+
+  expect($this->runtime->present($scene))->toBeFalse()
+    ->and($this->transport->sent)->toHaveCount(1)
+    ->and(InputManager::getInputSource()->poll())->toBe(KeyCode::RIGHT);
+
+  $ready = true;
+  expect($this->runtime->present($scene))->toBeTrue()
+    ->and($this->transport->sent)->toHaveCount(2);
+});
+
 it('opts in exactly once and shares input and presentation on one session', function () {
   expect(InputManager::requiresTerminalInput())->toBeTrue()->and($this->transport->session)->toBeNull();
   $this->runtime->start('Test', 12, 4);
@@ -965,4 +991,28 @@ it('cleans up scenario audio exactly once when native close interrupts a held fi
     ])
     ->and($this->transport->shutdowns)->toBe(1)
     ->and(InputManager::getInputSource())->toBe($this->previous);
+});
+
+it('continues an admitted world upload during the idle window without composing a new frame', function () {
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["frame_viewport"]}')];
+  $this->runtime->start('World delivery', 12, 4);
+  $world = PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('ground', 0, false, 'ground', '....')]), 'destination');
+  $presenter = new ReflectionProperty(RendererRuntime::class, 'presentation')->getValue($this->runtime);
+  $this->transport->acceptWrites = false;
+  expect($presenter->present(new \Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot(12, 4, []), viewport:
+    new \Ichiloto\Engine\Rendering\Presentation\PresentationViewport(1, 0, 0, new CanvasRectangle(0, 0, 120, 80),
+      worldId: 'destination'), world: $world))->toBeFalse();
+
+  $this->transport->acceptWrites = true;
+  $this->transport->acknowledgeFrames = true;
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"key","key":"right"}')];
+  $this->runtime->serviceWorldDeliveryUntil(hrtime(true));
+  expect($this->transport->sent)->toHaveCount(0);
+  $this->runtime->serviceWorldDeliveryUntil(hrtime(true) + 1_000_000_000);
+  $this->runtime->pump();
+
+  expect($this->transport->sent)->toHaveCount(1)
+    ->and($this->runtime->presentedWorld)->toBe($world)
+    ->and(InputManager::getInputSource()->poll())->toBe(KeyCode::RIGHT)
+    ->and($this->transport->sent[0]->payload['present'])->toBeTrue();
 });

@@ -9,6 +9,7 @@ use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationFallbackReport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
+use Ichiloto\Engine\Rendering\Presentation\PresentationWorldPreparation;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\Console\Console;
 
@@ -63,6 +64,13 @@ class MapManager implements CanRenderAt
   private ?StoryIndex $storyIndex = null;
   private ?PresentationWorld $presentationWorld = null;
   private ?bool $presentationWorldPolicy = null;
+  private bool $deferPresentationWorld = false;
+  private ?PresentationWorldPreparation $presentationWorldPreparation = null;
+  private bool $presentationWorldPrepared = false;
+  /** @var list<string>|null Diagnostics staged with the pending world and published only with that world. */
+  private ?array $preparedGlyphFallbacks = null;
+  /** @var FramePreparation<PresentationWorld>|null */
+  private ?FramePreparation $presentationWorldSnapshot = null;
   /** @var array<string, WorldObject> Installed subjects, never saved or used for collision. */
   private array $worldObjects = [];
   /** Clock-free roles are shared by resource only for this map installation. */
@@ -305,7 +313,25 @@ class MapManager implements CanRenderAt
   /** Validates every map source and trigger before changing the active field. */
   public function prepareMap(string $filename): PreparedMap
   {
-    return $this->prepareMapContent($filename);
+    return $this->prepareMapContent($this->resolveMapPaths($filename));
+  }
+
+  /** Compile immutable layer declarations without evaluating destination data or events.
+   * @return FramePreparation<MapLayerSet>
+   */
+  public function beginMapLayerPrewarm(string $filename): FramePreparation
+  {
+    $colorMode = Terminal::getColorMode();
+    return new FramePreparation(
+      function (Closure $checkpoint) use ($filename): MapLayerSet {
+        $paths = $this->resolveMapPaths($filename);
+        $directory = dirname($paths['data']);
+        $layers = MapLayerSource::loadFromDirectory($directory, $paths['id'], $paths['map'], $checkpoint);
+        MapGraphics::readLayersFromDirectory($directory, $paths['id'], $layers, $checkpoint);
+        return $layers;
+      },
+      static fn(): bool => Terminal::getColorMode() === $colorMode,
+    );
   }
 
   /** Validate destination content in work units before any installation.
@@ -315,14 +341,23 @@ class MapManager implements CanRenderAt
   {
     $colorMode = Terminal::getColorMode();
     return new FramePreparation(
-      fn(Closure $checkpoint): PreparedMap => $this->prepareMapContent($filename, $checkpoint),
+      function (Closure $checkpoint, Closure $awaitPublication) use ($filename): PreparedMap {
+        $paths = $this->resolveMapPaths($filename);
+        $revision = MapSourceReader::getRevision($paths, $checkpoint);
+        $prepared = $this->prepareMapContent($paths, $checkpoint);
+        $awaitPublication();
+        if ($revision !== MapSourceReader::getRevision($paths)) {
+          throw new \RuntimeException('The destination map changed during preparation.');
+        }
+        return $prepared;
+      },
       static fn(): bool => Terminal::getColorMode() === $colorMode,
     );
   }
 
-  private function prepareMapContent(string $filename, ?Closure $checkpoint = null): PreparedMap
+  private function prepareMapContent(array $paths, ?Closure $checkpoint = null): PreparedMap
   {
-    $source = $this->prepareSplitMapDataFromFiles($this->resolveMapPaths($filename), $checkpoint);
+    $source = $this->prepareSplitMapDataFromFiles($paths, $checkpoint);
     $checkpoint?->__invoke();
     $map = $source['data'];
     $areas = $source['areas'];
@@ -585,9 +620,90 @@ class MapManager implements CanRenderAt
     $this->camera->renderMap();
   }
 
+  /** Hold replacement world requests until the installed arrival is ready to draw. */
+  public function deferArrivalPresentationWorld(): void
+  {
+    $this->deferPresentationWorld = true;
+  }
+
+  public function cancelDeferredPresentationWorld(): void
+  {
+    $this->cancelPresentationWorldSnapshot();
+    if (!$this->deferPresentationWorld) { return; }
+    $this->deferPresentationWorld = false;
+    $this->clearPresentationWorld();
+  }
+
+  /** Compile an installed map's hidden presentation. Publication belongs to the scene update. */
+  public function prepareDeferredPresentationWorld(int $budgetNanoseconds, bool $canPublish): bool
+  {
+    $this->refreshTerminalPresentation();
+    if ($this->layers === null) { return true; }
+
+    $policy = TerminalCapabilities::supportsCompositeEmoji();
+    $projection = $this->getWorldObjectProjection();
+    if ($this->presentationWorldPolicy !== $policy || $this->presentationWorldProjection !== $projection) {
+      $this->clearPresentationWorld();
+    }
+    if ($this->presentationWorldPrepared) { return true; }
+    if ($this->presentationWorldPreparation === null) {
+      $this->presentationWorldPolicy = $policy;
+      $this->presentationWorldProjection = $projection;
+      $this->presentationWorldPreparation = PresentationWorld::beginPreparation(
+        $this->layers, 'map', $this->graphics, $this->getAssetRoot(), $projection['coverage'],
+        $projection['terminal'], $projection['tiles'], scheduleSnapshot: function (FramePreparation $snapshot): void {
+          $this->cancelPresentationWorldSnapshot();
+          $this->presentationWorldSnapshot = $snapshot;
+        },
+        prepareDiagnostics: function (PresentationWorld $world, Closure $checkpoint): void {
+          $this->preparedGlyphFallbacks = $this->collectGlyphFallbacks($world, $checkpoint);
+        },
+      );
+    }
+    try {
+      $world = $this->presentationWorldPreparation->advance($budgetNanoseconds, $canPublish);
+      if ($world === null) { return false; }
+      $this->presentationWorld = $world;
+    } catch (\Throwable $error) {
+      Debug::warn('Retained map presentation is unavailable: ' . $error->getMessage());
+      $this->presentationWorld = null;
+    }
+    $this->presentationWorldPreparation = null;
+    $this->presentationWorldPrepared = true;
+    return true;
+  }
+
+  /** True once the installed world's presentation or text fallback has been published. */
+  public function advanceDeferredPresentationWorld(int $budgetNanoseconds): bool
+  {
+    if (!$this->prepareDeferredPresentationWorld($budgetNanoseconds, canPublish: true)) { return false; }
+    $this->deferPresentationWorld = false;
+    $this->finishPresentationWorld();
+    return true;
+  }
+
+  /** Complete the cache copy only when the field has spare work time. */
+  public function advancePresentationWorldSnapshot(int $budgetNanoseconds): void
+  {
+    if ($this->presentationWorldSnapshot === null) { return; }
+    try {
+      if ($this->presentationWorldSnapshot->advance($budgetNanoseconds) === null) { return; }
+    } catch (\Throwable $error) {
+      Debug::warn('Retained map snapshot could not be cached: ' . $error->getMessage());
+    }
+    $this->cancelPresentationWorldSnapshot();
+  }
+
+  private function cancelPresentationWorldSnapshot(): void
+  {
+    $this->presentationWorldSnapshot?->cancel();
+    $this->presentationWorldSnapshot = null;
+  }
+
   /** Build once per installed map/policy, only when a graphical consumer requests it. */
   public function getPresentationWorld(): ?PresentationWorld
   {
+    if ($this->deferPresentationWorld) { return null; }
     $this->refreshTerminalPresentation();
     if ($this->layers === null) {
       $this->camera->setRetainedWorldAvailable(false);
@@ -602,6 +718,7 @@ class MapManager implements CanRenderAt
     $this->presentationWorldPolicy = $policy;
     $this->presentationWorldProjection = $projection;
     $this->presentationWorld = null;
+    $this->cancelPresentationWorldSnapshot();
     try {
       $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, 'map', $this->graphics, $this->getAssetRoot(),
         $projection['coverage'], $projection['terminal'], $projection['tiles']);
@@ -609,9 +726,19 @@ class MapManager implements CanRenderAt
       // Unsupported world bounds keep the screen-space retained text path usable.
       Debug::warn('Retained map presentation is unavailable: ' . $error->getMessage());
     }
-    if ($this->presentationWorld !== null) { $this->reportGlyphCells($this->presentationWorld); }
-    $this->camera->setRetainedWorldAvailable($this->presentationWorld !== null);
+    $this->finishPresentationWorld();
     return $this->presentationWorld;
+  }
+
+  private function finishPresentationWorld(): void
+  {
+    if ($this->presentationWorld !== null) {
+      foreach ($this->preparedGlyphFallbacks ?? $this->collectGlyphFallbacks($this->presentationWorld) as $message) {
+        ($this->presentationFallbacks ??= new PresentationFallbackReport())->report($message);
+      }
+    }
+    $this->preparedGlyphFallbacks = null;
+    $this->camera->setRetainedWorldAvailable($this->presentationWorld !== null);
   }
 
   /**
@@ -620,21 +747,24 @@ class MapManager implements CanRenderAt
    * or glyphs no tile, world object or sprite presents. The field still
    * draws them so play goes on; the report keeps the missing art visible.
    */
-  private function reportGlyphCells(PresentationWorld $world): void
+  private function collectGlyphFallbacks(PresentationWorld $world, ?Closure $checkpoint = null): array
   {
     // A map without graphics is a glyph world by design; one whose tileset fails to load says so as it loads.
-    if ($this->graphics === null) { return; }
+    if ($this->graphics === null) { return []; }
     $found = [];
-    foreach ($world->getGlyphCells() as $cell) {
+    foreach ($world->yieldGlyphCells($checkpoint) as $cell) {
       $found[$cell['layerId']][$cell['glyph']][] = "({$cell['x']}, {$cell['y']})";
     }
+    $messages = [];
     foreach ($found as $layerId => $glyphs) {
       foreach ($glyphs as $glyph => $cells) {
-        ($this->presentationFallbacks ??= new PresentationFallbackReport())->report(sprintf(
+        $messages[] = sprintf(
           "Map %s: the graphical field draws terminal glyph '%s' of %s at %s; no tile, world object or sprite presents it.",
-          $this->gameScene->currentMapId, $glyph, $layerId, implode(', ', $cells)));
+          $this->gameScene->currentMapId, $glyph, $layerId, implode(', ', $cells));
+        $checkpoint?->__invoke();
       }
     }
+    return $messages;
   }
 
   /** @return list<string> Every map cell fallback the graphical field has reported for this manager, in order. */
@@ -645,7 +775,12 @@ class MapManager implements CanRenderAt
 
   private function clearPresentationWorld(): void
   {
+    $this->cancelPresentationWorldSnapshot();
+    $this->presentationWorldPreparation?->cancel();
+    $this->presentationWorldPreparation = null;
     $this->presentationWorld = null;
+    $this->presentationWorldPrepared = false;
+    $this->preparedGlyphFallbacks = null;
     $this->presentationWorldPolicy = null;
     $this->presentationWorldProjection = [];
   }

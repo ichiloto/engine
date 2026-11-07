@@ -41,7 +41,13 @@ final class AutotileShape
   public static function yieldRows(iterable $rows): \Generator
   {
     $window = $kinds = $kindOf = $connections = $floors = [];
-    $emit = static function (int $y) use (&$window, &$kinds, &$connections, &$floors): array {
+    $lastNeighborhood = null;
+    $lastResolved = [];
+    $emit = static function (int $y) use (&$window, &$kinds, &$connections, &$floors, &$lastNeighborhood, &$lastResolved): array {
+      // Repeated bands can reuse the exact previous shape row. Missing
+      // neighbours stay distinct so the map-edge rule still applies.
+      $neighborhood = [$window[$y - 1] ?? null, $window[$y], $window[$y + 1] ?? null];
+      if ($neighborhood === $lastNeighborhood) { return $lastResolved; }
       $resolved = $window[$y];
       $row = $kinds[$y];
       $above = $kinds[$y - 1] ?? null;
@@ -77,14 +83,19 @@ final class AutotileShape
         $neighbours = (int)$n | (int)$e << 1 | (int)$s << 2 | (int)$w << 3 | (int)$ne << 4 | (int)$se << 5 | (int)$sw << 6 | (int)$nw << 7;
         $resolved[$x] = TileId::getAutotileId($kind, $floors[$neighbours] ??= self::getFloorShape($n, $e, $s, $w, $ne, $se, $sw, $nw));
       }
-      return $resolved;
+      $lastNeighborhood = $neighborhood;
+      return $lastResolved = $resolved;
     };
     $last = null;
     foreach ($rows as $y => $row) {
       $window[$y] = $row;
-      $kinds[$y] = [];
-      foreach ($row as $x => $id) {
-        $kinds[$y][$x] = $kindOf[$id] ??= TileId::isAutotile($id) ? TileId::getKind($id) : self::NO_KIND;
+      if ($last !== null && $window[$last] === $row) {
+        $kinds[$y] = $kinds[$last];
+      } else {
+        $kinds[$y] = [];
+        foreach ($row as $x => $id) {
+          $kinds[$y][$x] = $kindOf[$id] ??= TileId::isAutotile($id) ? TileId::getKind($id) : self::NO_KIND;
+        }
       }
       if ($last !== null) {
         yield $last => $emit($last);

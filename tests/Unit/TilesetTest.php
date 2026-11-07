@@ -843,3 +843,33 @@ it('refuses unusable casting layer references without changing the existing cast
   expect($selected->canCastFromLayer('walls'))->toBeTrue()->and($selected->canCastFromLayer('worktops'))->toBeFalse()
     ->and($selected->isCaster(2816 + 46))->toBeTrue();
 });
+
+it('publishes a validated world before compressing its optional cache snapshot', function () {
+  writeTilesetProject($this->root);
+  $layers = new MapLayerSet([new MapLayer('floor', 1, false, 'floor', "..\n..")]);
+  $graphics = MapGraphics::fromSources([
+    '01.floor.tiles.php' => MapGridSource::buildSource("2816 2816\n2816 2816", 'TILES'),
+  ], 'home', 'home', $layers, $this->root);
+  $snapshot = null;
+  $schedule = static function (\Ichiloto\Engine\Core\FramePreparation $work) use (&$snapshot): void { $snapshot = $work; };
+  $work = PresentationWorld::beginPreparation($layers, 'deferred-cache', $graphics, $this->root, scheduleSnapshot: $schedule);
+  expect($work->advance(1))->toBeNull()->and($snapshot)->toBeNull();
+
+  $world = $work->advance(PHP_INT_MAX);
+  expect($world)->toBeInstanceOf(PresentationWorld::class)
+    ->and($snapshot->advance(1))->toBeNull()
+    ->and($world->getOperations(true))->not->toBeEmpty()
+    ->and($snapshot->advance(PHP_INT_MAX))->toBe($world)
+    ->and(PresentationWorld::getFromLayers($layers, 'deferred-cache', $graphics, $this->root))->toBe($world);
+
+  $snapshot = null;
+  $cold = PresentationWorld::beginPreparation($layers, 'stale-deferred-cache', $graphics, $this->root, scheduleSnapshot: $schedule);
+  $warm = PresentationWorld::beginPreparation($layers, 'deferred-cache', $graphics, $this->root, scheduleSnapshot: $schedule);
+  expect($cold->advance(PHP_INT_MAX, canPublish: false))->toBeNull()
+    ->and($warm->advance(PHP_INT_MAX, canPublish: false))->toBeNull()
+    ->and($snapshot)->toBeNull();
+  writeTestPng("{$this->root}/Graphics/Tilesets/A2.png", 384, 288);
+  expect(fn() => $cold->advance(PHP_INT_MAX))->toThrow(RuntimeException::class, 'Map artwork changed')
+    ->and(fn() => $warm->advance(PHP_INT_MAX))->toThrow(RuntimeException::class, 'Map artwork changed')
+    ->and($snapshot)->toBeNull();
+});

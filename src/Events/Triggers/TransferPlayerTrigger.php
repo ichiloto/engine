@@ -55,6 +55,6 @@ class TransferPlayerTrigger extends EventTrigger
   {
     parent::enter($context);
     $destination = new Location($this->destinationMap, $this->spawnPoint, $this->spawnSprite);
-    $context->scene->transferPlayer($destination, onCommitted: $this->complete(...));
+    $context->scene->requestPlayerTransfer($destination, onCommitted: $this->complete(...));
   }
 }

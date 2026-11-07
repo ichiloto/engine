@@ -680,7 +680,7 @@ it('restores authored terminal presentation for an explicit null variant and kee
     expect($this->scene->camera->worldSpace)->toBe($map->tileMap);
 });
 
-it('keeps an object terminal glyph out of the graphical world while its art presents it and reports it when the art fails', function () {
+it('keeps an object terminal glyph out of the graphical world while its art presents it and reports it when the art fails', function (bool $staged) {
     $map = $this->scene->mapManager;
     $atObject = static fn(PresentationWorld $world): array => array_values(array_filter($world->getGlyphCells(),
         static fn(array $cell): bool => [$cell['x'], $cell['y']] === [1, 1]));
@@ -699,11 +699,18 @@ it('keeps an object terminal glyph out of the graphical world while its art pres
     $map->applyPreparedMap(createWorldObjectPreparedMap([createWorldObjectSource(['terminal' => '<fg=yellow>m</>',
         'sprites2d' => ['asset' => 'Graphics/missing.png'], 'variants' => []])]), $this->scene->player);
     // Without its art the graphical field falls back to the glyph, and says where.
+    if ($staged) {
+        $map->deferArrivalPresentationWorld();
+        expect($map->prepareDeferredPresentationWorld(1_000_000_000, canPublish: false))->toBeFalse()
+            ->and($map->getPresentationWorld())->toBeNull()
+            ->and($map->getReportedPresentationFallbacks())->not->toContain($reported)
+            ->and($map->advanceDeferredPresentationWorld(1_000_000_000))->toBeTrue();
+    }
     $world = $map->getPresentationWorld();
     expect(getWorldObjectWireCells($world)[1][1]['glyph'])->toBe('m')
         ->and($atObject($world))->toBe([['x' => 1, 'y' => 1, 'glyph' => 'm', 'layerId' => 'map:fixtures']])
         ->and($map->getReportedPresentationFallbacks())->toContain($reported);
-});
+})->with(['synchronous' => false, 'staged' => true]);
 
 it('refuses malformed terminal cells and incomplete map-event identities before installing an object', function () {
     foreach (['two', '<fg=white>xx</>', 3, []] as $terminal) {

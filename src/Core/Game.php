@@ -846,6 +846,13 @@ class Game implements CanRun, SubjectInterface
                 }
 
                 $sleepTime = $framePacing->getRemainingSleepMicroseconds($frameStartedNanoseconds, hrtime(true));
+                if ($sleepTime > 0 && $this->rendererRuntime !== null) {
+                    $deadline = hrtime(true) + min($sleepTime, 16_667) * 1_000;
+                    $scene = $this->sceneManager->currentScene;
+                    if ($scene instanceof GameScene) { $scene->serviceMapTransferPreparationUntil($deadline); }
+                    $this->rendererRuntime->serviceWorldDeliveryUntil($deadline);
+                    $sleepTime = $framePacing->getRemainingSleepMicroseconds($frameStartedNanoseconds, hrtime(true));
+                }
                 if ($sleepTime > 0) {
                     usleep($sleepTime);
                 }

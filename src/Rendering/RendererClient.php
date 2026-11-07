@@ -90,13 +90,19 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
     $this->receive();
   }
 
-  private function receive(bool $discardKeys = false): void
+  /** Use a bounded pipe wait during the game loop's existing idle window. */
+  public function waitForTraffic(float $seconds): void
+  {
+    $this->receive(waitSeconds: $seconds);
+  }
+
+  private function receive(bool $discardKeys = false, float $waitSeconds = 0.0): void
   {
     if ($this->failure !== null) {
       throw $this->failure;
     }
     try {
-      $batch = $this->transport->pollEvents();
+      $batch = $this->transport->pollEvents($waitSeconds);
       $keys = $this->keys->count();
       $transitions = $this->transitions->count();
       $events = $this->events->count();

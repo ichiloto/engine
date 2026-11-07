@@ -53,7 +53,7 @@ final class MapLayerSource
             $sources[$path] = $source;
             $checkpoint?->__invoke();
         }
-        $key = 'layers:' . hash('sha256', serialize([$definitions, $sources, $legacy, Terminal::getColorMode()]));
+        $key = MapCompilationCache::getKey('layers', [$definitions, $sources, $legacy, Terminal::getColorMode()], $checkpoint);
         if (($cached = MapCompilationCache::find($key)) instanceof MapLayerSet) { return $cached; }
         $layers = [];
         $charge = array_sum(array_map(strlen(...), $sources));

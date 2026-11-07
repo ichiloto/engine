@@ -19,20 +19,21 @@ class FramePreparation
     private ?Fiber $work;
     private int $startedAt = 0;
     private int $budget = 0;
+    private bool $canPublish = false;
 
     /**
-     * @param Closure(Closure(): void): T $compile
+     * @param Closure(Closure(): void, Closure(): void): T $compile
      * @param (Closure(): bool)|null $isCurrent
      */
     public function __construct(Closure $compile, private readonly ?Closure $isCurrent = null)
     {
-        $this->work = new Fiber(fn(): object => $compile($this->checkpoint(...)));
+        $this->work = new Fiber(fn(): object => $compile($this->checkpoint(...), $this->awaitPublication(...)));
     }
 
     /** Advance through complete work units. Null means the caller can resume next tick.
      * @return T|null
      */
-    public function advance(int $budgetNanoseconds): ?object
+    public function advance(int $budgetNanoseconds, bool $canPublish = true): ?object
     {
         if ($budgetNanoseconds < 1) {
             throw new InvalidArgumentException('Frame preparation needs a positive time budget.');
@@ -49,6 +50,7 @@ class FramePreparation
 
         $this->startedAt = hrtime(true);
         $this->budget = $budgetNanoseconds;
+        $this->canPublish = $canPublish;
         if ($work->isStarted()) {
             $work->resume();
         } else {
@@ -66,6 +68,14 @@ class FramePreparation
     private function checkpoint(): void
     {
         if (hrtime(true) - $this->startedAt >= $this->budget) {
+            Fiber::suspend();
+        }
+    }
+
+    /** Hold final validation for the update that can use the result. */
+    private function awaitPublication(): void
+    {
+        while (!$this->canPublish) {
             Fiber::suspend();
         }
     }

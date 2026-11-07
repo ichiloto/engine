@@ -27,12 +27,15 @@ use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
 use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Rendering\ScreenTransition;
+use Ichiloto\Engine\Core\FramePreparation;
+use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Field\MapManager;
+use Ichiloto\Engine\Field\PreparedMap;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Field\Player;
@@ -122,6 +125,7 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\RetainedWorldProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContext;
+use Ichiloto\Engine\Rendering\Presentation\SceneFrameReadinessInterface;
 use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInterface;
 
 /**
@@ -129,7 +133,7 @@ use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInter
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameScene extends AbstractScene implements PlayActivitySourceInterface, GraphicalSpriteProviderHostInterface, SpriteThicketHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface, \Ichiloto\Engine\Events\Interpreter\EventExecutionHostInterface, \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface, \Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface
+class GameScene extends AbstractScene implements PlayActivitySourceInterface, GraphicalSpriteProviderHostInterface, SpriteThicketHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface, \Ichiloto\Engine\Events\Interpreter\EventExecutionHostInterface, \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface, \Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface, SceneFrameReadinessInterface
 {
     private ?FieldViewport $fieldViewport = null;
     private ?\Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming $dialogueFraming = null;
@@ -423,7 +427,10 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
             : (isset($this->sceneManager) ? $this->getGame()->getRendererRuntime()?->getAssetRoot() : null);
         $text = $this->cinematicPresentation?->getOverlayCanvas($width, $height,
             $this->canPresentCinematicText() ? $assetRoot : null);
-        return $text === null ? $overlay : PresentationCanvas::composeOverlay($overlay, $text);
+        if ($text !== null) { $overlay = PresentationCanvas::composeOverlay($overlay, $text); }
+        $transferCover = $this->mapTransferCover?->getCanvas($width, $height);
+        return $transferCover === null ? $overlay
+            : PresentationCanvas::composeOverlay($overlay, $transferCover, idPrefix: 'map-transfer-');
     }
 
     public function renderPresentationOverlay(): void
@@ -831,6 +838,25 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     public const float ARRIVAL_PRESENTATION_LIMIT_SECONDS = 30.0;
     /** When the latest transfer's map began waiting to be shown by the renderer; null once it is on screen. */
     private ?float $arrivalPresentationSince = null;
+    private const int MAP_PREPARATION_BUDGET_NS = 4_000_000;
+    private const int MAP_PREWARM_FRAME_WORK_NS = 12_000_000;
+    private const int MAP_PREWARM_SEARCH_INTERVAL_NS = 250_000_000;
+    private const int MAP_PREWARM_APPROACH_STEPS = 12;
+    /** @var FramePreparation<MapLayerSet>|null */
+    private ?FramePreparation $mapLayerPrewarm = null;
+    private ?string $mapPrewarmDestination = null;
+    private int $nextMapPrewarmSearch = 0;
+    private ?PendingMapTransfer $pendingMapTransfer = null;
+    private ?Closure $pendingMapArrival = null;
+    private ?MapTransferCover $mapTransferCover = null;
+    public bool $isPreparingMapTransfer {
+        get => $this->pendingMapTransfer !== null || $this->pendingMapArrival !== null || $this->mapTransferCover !== null;
+    }
+
+    public function canPresentSceneFrame(): bool
+    {
+        return $this->pendingMapArrival === null;
+    }
     /**
      * True while the renderer has not yet shown the map the player just arrived on. The field holds its
      * time meanwhile: arrival events, story sessions and input wait, so nothing happens off screen.
@@ -896,7 +922,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     public function configureSavedGame(GameConfig $config): void
     {
         if ($this->configuringSavedGame || $this->resumingSavedGame
-            || !$this->hasLiveSavedGameOwner() || $this->hasUnstableEventSession()) {
+            || !$this->hasLiveSavedGameOwner() || $this->hasUnstableEventSession() || $this->isPreparingMapTransfer) {
             throw new \LogicException('Saved-game restoration requires the current registered, started field without an active story session.');
         }
         $registry = $this->getGame()->getSavedGameResumeRegistry();
@@ -931,7 +957,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         return $this->hasLiveSavedGameOwner() && $this->fieldState !== null
             && $this->state === $this->fieldState && $this->player?->isActive
             && !$this->hasUnstableEventSession() && !$this->sceneManager->hasSceneTransition()
-            && !$this->hasSavedGameResumeModal();
+            && !$this->isPreparingMapTransfer && !$this->hasSavedGameResumeModal();
     }
 
     private function hasSavedGameResumeModal(): bool
@@ -1247,6 +1273,8 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     public function loadMap(string $mapFilename, Player $player): void
     {
         $prepared = $this->mapManager->prepareMap($mapFilename);
+        $this->cancelPendingMapArrival();
+        $this->cancelPendingMapTransfer();
         $this->cinematicStage?->clear();
         // A transfer ends walking; a key held through it must be pressed again.
         $this->fieldState?->cancelWalking();
@@ -1328,7 +1356,9 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         if ($this->isStopping) {
             return;
         }
+        $updateStarted = hrtime(true);
         if ($this->configuringSavedGame || $this->resumingSavedGame) { return; }
+        if ($this->advancePendingMapArrival() || $this->advanceMapTransferReveal(Time::getDeltaTime())) { return; }
         if ($this->savedGameResumeFailure !== null) { throw $this->savedGameResumeFailure; }
         if ($this->pendingSavedGameResume !== null) {
             try {
@@ -1376,6 +1406,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         if ($this->isStopping || $this->sceneManager->currentScene !== $this || $this->sceneManager->hasSceneTransition()) {
             return;
         }
+        if ($this->advancePendingMapTransfer(Time::getDeltaTime())) { return; }
         if ($this->isAwaitingArrivalPresentation) {
             if ($this->awaitArrivalPresentation()) { return; }
             $this->evaluatePendingAutomaticTriggers();
@@ -1394,6 +1425,52 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
             $this->refreshFieldWaymarks();
         }
         $this->refreshFieldMusic();
+        $this->advanceIdleMapPreparation($updateStarted);
+    }
+
+    private function advanceIdleMapPreparation(int $updateStarted): void
+    {
+        if (!$this->shouldScheduleMapTransfer() || $this->player === null || $this->isPreparingMapTransfer
+            || $this->hasUnstableEventSession() || $this->isAwaitingArrivalPresentation) { return; }
+
+        $now = hrtime(true);
+        if ($now >= $this->nextMapPrewarmSearch && $now - $updateStarted < self::MAP_PREWARM_FRAME_WORK_NS) {
+            $this->nextMapPrewarmSearch = $now + self::MAP_PREWARM_SEARCH_INTERVAL_NS;
+            $destination = $this->player->findNearbyTransferDestination(self::MAP_PREWARM_APPROACH_STEPS);
+            if ($destination !== $this->mapPrewarmDestination) {
+                $this->mapLayerPrewarm?->cancel();
+                $this->mapPrewarmDestination = $destination;
+                $this->mapLayerPrewarm = $destination === null ? null : $this->mapManager->beginMapLayerPrewarm($destination);
+            }
+        }
+        $budget = min(self::MAP_PREPARATION_BUDGET_NS, self::MAP_PREWARM_FRAME_WORK_NS - (hrtime(true) - $updateStarted));
+        if ($budget <= 0) { return; }
+        if ($this->mapLayerPrewarm !== null) {
+            $this->advanceMapLayerPrewarm($budget);
+        } else {
+            $this->mapManager->advancePresentationWorldSnapshot($budget);
+        }
+    }
+
+    private function advanceMapLayerPrewarm(int $budget): void
+    {
+        $work = $this->mapLayerPrewarm;
+        if ($work === null) { return; }
+        try {
+            if ($work->advance($budget) === null) { return; }
+        } catch (Throwable) {
+            // Only a real transfer reports authoritative destination failures.
+        }
+        $work->cancel();
+        $this->mapLayerPrewarm = null;
+    }
+
+    private function cancelMapLayerPrewarm(): void
+    {
+        $this->mapLayerPrewarm?->cancel();
+        $this->mapLayerPrewarm = null;
+        $this->mapPrewarmDestination = null;
+        $this->nextMapPrewarmSearch = 0;
     }
 
     /** Advances field visuals on the caller's clock, without executing gameplay or input. */
@@ -1478,6 +1555,8 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         }
 
         $this->isStopping = true;
+        $this->cancelPendingMapArrival();
+        $this->cancelPendingMapTransfer();
         $this->cancelPendingSavedGameResume();
         $this->hasDeferredAutoSave = false;
         $this->hasPendingAutomaticTriggerEvaluation = false;
@@ -1653,6 +1732,115 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     }
 
     /**
+     * Requests a field transfer. True means accepted; installation may wait for preparation.
+     * The interpreter may revoke an owned request before commit.
+     */
+    public function requestPlayerTransfer(Location $location, bool $useConfiguredTransition = true,
+        ?Closure $onCommitted = null, ?Closure $onFailure = null, ?Closure $isCurrent = null): bool
+    {
+        if ($this->isStopping) { return false; }
+        if ($this->pendingMapTransfer !== null && !$this->isPendingMapTransferCurrent($this->pendingMapTransfer)) {
+            $this->cancelPendingMapTransfer();
+        }
+        if ($this->isPreparingMapTransfer) { return false; }
+        if (!$this->shouldScheduleMapTransfer()) {
+            return $this->transferPlayer($location, $useConfiguredTransition, $onCommitted);
+        }
+
+        if ($location->mapFilename !== $this->mapPrewarmDestination) { $this->cancelMapLayerPrewarm(); }
+        $destination = new Location($location->mapFilename, clone $location->playerPosition, $location->playerSprite);
+        $this->pendingMapTransfer = new PendingMapTransfer(
+            $this->mapManager->beginMapPreparation($destination->mapFilename),
+            $destination, $useConfiguredTransition, $onCommitted, $onFailure, $isCurrent,
+        );
+        $transition = $useConfiguredTransition ? $this->getGraphicalMapTransferTransition() : null;
+        if ($transition !== null) { $this->mapTransferCover = new MapTransferCover($transition); }
+        $this->fieldState?->cancelWalking();
+        return true;
+    }
+
+    protected function getGraphicalMapTransferTransition(): ?ScreenTransition
+    {
+        if (!$this->supportsScenePresentation(RendererSessionConfig::GRAPHICAL_CANVAS)
+            || !$this->supportsScenePresentation(RendererSessionConfig::CANVAS_OVERLAY)
+            || !$this->supportsScenePresentation(RendererSessionConfig::CANVAS_COMPOSITING)
+            || !$this->supportsScenePresentation(RendererSessionConfig::CANVAS_CLIP_OPACITY)) { return null; }
+
+        $transition = ScreenTransition::fromConfig();
+        return $transition->isEnabled() ? $transition : null;
+    }
+
+    protected function shouldScheduleMapTransfer(): bool
+    {
+        return $this->state instanceof FieldState && $this->presentationContext === null
+            && Console::isRetainedWorldPresentation();
+    }
+
+    /** Continue arrival accounting in the same order as a synchronous transfer. */
+    public function runAfterPendingMapTransfer(Closure $continue): void
+    {
+        if ($this->pendingMapTransfer === null) {
+            $continue();
+        } else {
+            $this->pendingMapTransfer->afterPreparation = $continue;
+        }
+    }
+
+    private function isPendingMapTransferCurrent(PendingMapTransfer $transfer): bool
+    {
+        return $transfer->isCurrent === null || ($transfer->isCurrent)();
+    }
+
+    private function cancelPendingMapTransfer(): void
+    {
+        $transfer = $this->pendingMapTransfer;
+        $this->pendingMapTransfer = null;
+        $this->mapTransferCover = null;
+        $this->cancelMapLayerPrewarm();
+        $transfer?->preparation->cancel();
+    }
+
+    /** Return true when the transfer owned the tick, including on completion or failure. */
+    protected function advancePendingMapTransfer(float $seconds): bool
+    {
+        $transfer = $this->pendingMapTransfer;
+        if ($transfer === null) { return false; }
+        if (!$this->isPendingMapTransferCurrent($transfer)) {
+            $this->cancelPendingMapTransfer();
+            return true;
+        }
+
+        $coverReady = $this->mapTransferCover === null || $this->mapTransferCover->advanceCover($seconds);
+        if ($this->mapLayerPrewarm !== null) {
+            $this->advanceMapLayerPrewarm(self::MAP_PREPARATION_BUDGET_NS);
+            return true;
+        }
+        if (!$coverReady) { return true; }
+        $transfer->advancePreparation(self::MAP_PREPARATION_BUDGET_NS);
+        if ($this->pendingMapTransfer !== $transfer) { return true; }
+        if ($transfer->failure !== null) {
+            $error = $transfer->failure;
+            $this->cancelPendingMapTransfer();
+            $this->reportMapLoadFailure($transfer->location->mapFilename, $error);
+            ($transfer->onFailure)?->__invoke($error);
+            ($transfer->afterPreparation)?->__invoke();
+            return true;
+        }
+        $destination = $transfer->destination;
+        if ($destination === null) { return true; }
+        if (!$this->isPendingMapTransferCurrent($transfer)) {
+            $this->cancelPendingMapTransfer();
+            return true;
+        }
+
+        $this->pendingMapTransfer = null;
+        $this->commitPlayerTransfer($transfer->location, $destination,
+            $this->mapTransferCover === null && $transfer->useConfiguredTransition, $transfer->onCommitted,
+            deferPresentation: Console::isRetainedWorldPresentation(), afterArrival: $transfer->afterPreparation);
+        return true;
+    }
+
+    /**
      * Transfers the player to the destination map.
      *
      * @param Location $location The destination location.
@@ -1664,6 +1852,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
      */
     public function transferPlayer(Location $location, bool $useConfiguredTransition = true, ?Closure $onCommitted = null): bool
     {
+        if ($this->isStopping || $this->isPreparingMapTransfer) { return false; }
         Debug::info("Transferring player to $location->mapFilename... at $location->playerPosition");
 
         try {
@@ -1673,6 +1862,62 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
             return false;
         }
 
+        $this->commitPlayerTransfer($location, $destination, $useConfiguredTransition, $onCommitted);
+        return true;
+    }
+
+    /** Advance an accepted transfer within spare frame time. Installation and events stay on update. */
+    public function serviceMapTransferPreparationUntil(int $deadline): void
+    {
+        if ($this->isStopping || !$this->isPreparingMapTransfer || $this->sceneManager->hasSceneTransition()) { return; }
+        $budget = $deadline - hrtime(true) - 2_000_000;
+        if ($budget < 1_000_000) { return; }
+
+        if ($this->pendingMapArrival !== null) {
+            $this->mapManager->prepareDeferredPresentationWorld($budget, canPublish: false);
+        } elseif ($this->pendingMapTransfer !== null && $this->mapTransferCover === null
+            && $this->isPendingMapTransferCurrent($this->pendingMapTransfer)) {
+            if ($this->mapLayerPrewarm !== null) {
+                $this->advanceMapLayerPrewarm($budget);
+            } else {
+                $this->pendingMapTransfer->advancePreparation($budget, canPublish: false);
+            }
+        }
+    }
+
+    private function advancePendingMapArrival(): bool
+    {
+        if ($this->pendingMapArrival === null) { return false; }
+        if (!$this->mapManager->advanceDeferredPresentationWorld(self::MAP_PREPARATION_BUDGET_NS)) { return true; }
+        $finish = $this->pendingMapArrival;
+        $this->pendingMapArrival = null;
+        $finish();
+        return true;
+    }
+
+    protected function advanceMapTransferReveal(float $seconds): bool
+    {
+        $cover = $this->mapTransferCover;
+        $finish = $cover?->getRevealCompletion();
+        if ($finish === null) { return false; }
+        if ($this->awaitArrivalPresentation() || !$cover->advanceReveal($seconds)) { return true; }
+
+        $this->mapTransferCover = null;
+        $finish();
+        return true;
+    }
+
+    private function cancelPendingMapArrival(): void
+    {
+        $this->pendingMapArrival = null;
+        $this->mapTransferCover = null;
+        $this->mapManager?->cancelDeferredPresentationWorld();
+    }
+
+    private function commitPlayerTransfer(Location $location, PreparedMap $destination, bool $useConfiguredTransition,
+        ?Closure $onCommitted, bool $deferPresentation = false, ?Closure $afterArrival = null): void
+    {
+        $this->cancelMapLayerPrewarm();
         // Staged actors are map-local presentation participants. A cinematic
         // that needs cast in the destination explicitly stages them there.
         $this->cinematicStage?->clear();
@@ -1688,7 +1933,18 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         }
         // The destination is already validated; its music resolves on commit.
         $this->currentMapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $location->mapFilename) ?: $location->mapFilename;
+        if ($deferPresentation) {
+            $this->mapManager->deferArrivalPresentationWorld();
+            $this->pendingMapArrival = fn() => $this->finishMapArrival($location, $transition, $onCommitted, $afterArrival);
+        }
         $this->mapManager->applyPreparedMap($destination, $this->player);
+        if (!$deferPresentation) {
+            $this->finishMapArrival($location, $transition, $onCommitted, $afterArrival);
+        }
+    }
+
+    private function finishMapArrival(Location $location, ?ScreenTransition $transition, ?Closure $onCommitted, ?Closure $afterArrival): void
+    {
         // A graphical renderer shows the new map only once its world has streamed in.
         $this->arrivalPresentationSince = Time::getTime();
 
@@ -1712,9 +1968,16 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $this->eventInterpreter?->renderPresentation();
         Debug::info("Player transferred to $location->mapFilename... at {$this->player->position}");
 
-        $onCommitted?->__invoke();
-        $this->finalizePlayerTransfer();
-        return true;
+        $finish = function () use ($onCommitted, $afterArrival): void {
+            $onCommitted?->__invoke();
+            $this->finalizePlayerTransfer();
+            $afterArrival?->__invoke();
+        };
+        if ($this->mapTransferCover !== null) {
+            $this->mapTransferCover->beginReveal($finish);
+        } else {
+            $finish();
+        }
     }
 
     /** Shows a failed destination without interrupting the current map. */
@@ -1770,7 +2033,7 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
     /** Runs deferred arrival triggers once no event session owns the interpreter. */
     protected function evaluatePendingAutomaticTriggers(): void
     {
-        if ($this->isStopping || ! $this->hasPendingAutomaticTriggerEvaluation || $this->hasUnstableEventSession()) {
+        if ($this->isStopping || ! $this->hasPendingAutomaticTriggerEvaluation || $this->hasUnstableEventSession() || $this->isPreparingMapTransfer) {
             return;
         }
         // Arrival events begin once the player can see where they arrived; the hold's release evaluates them.
@@ -1936,7 +2199,8 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
             $this->state instanceof CutsceneState => PlayActivity::PRESENTING,
             $this->state instanceof DialogueState, $this->state instanceof OverworldState => PlayActivity::PLAYING,
             // A running event owns the field: the game is presenting, not waiting on the player.
-            $this->state instanceof FieldState => $this->hasUnstableEventSession() ? PlayActivity::PRESENTING : PlayActivity::PLAYING,
+            $this->state instanceof FieldState => $this->hasUnstableEventSession() || $this->isPreparingMapTransfer
+                ? PlayActivity::PRESENTING : PlayActivity::PLAYING,
             default => PlayActivity::PAUSED,
         };
     }

@@ -18,9 +18,28 @@ final class MapCompilationCache
     public const int MAX_EXPANDED_BYTES = 64 * 1024 * 1024;
     public const int MAX_ENTRIES = 32;
     private const int COMPRESSION_CHUNK_BYTES = 32 * 1024;
+    private const int KEY_HASH_CHUNK_BYTES = 256 * 1024;
     /** Weak references preserve normal ownership and release; only compressed bytes survive map exit. */
     private static array $entries = [];
     private static int $bytes = 0;
+
+    /** Hash the same serialized inputs for immediate and scheduled map compilers. */
+    public static function getKey(string $namespace, array $inputs, ?Closure $checkpoint = null): string
+    {
+        $serialized = serialize($inputs);
+        if ($checkpoint === null) {
+            return $namespace . ':' . hash('sha256', $serialized);
+        }
+
+        $checkpoint();
+        $hash = hash_init('sha256');
+        $length = strlen($serialized);
+        for ($offset = 0; $offset < $length; $offset += self::KEY_HASH_CHUNK_BYTES) {
+            hash_update($hash, substr($serialized, $offset, self::KEY_HASH_CHUNK_BYTES));
+            $checkpoint();
+        }
+        return $namespace . ':' . hash_final($hash);
+    }
 
     public static function find(string $key): MapLayerSet|PresentationWorld|array|null
     {

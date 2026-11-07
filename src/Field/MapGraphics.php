@@ -368,7 +368,8 @@ final readonly class MapGraphics
     public static function readLayersFromSources(array $sources, string $displayDirectory, MapLayerSet $layers, ?Closure $checkpoint = null): array
     {
         self::assertLayerCount(count($sources), $displayDirectory);
-        $key = 'tiles:' . hash('sha256', serialize([$sources, $displayDirectory, array_map(count(...), $layers->getComposedGrid())]));
+        $key = MapCompilationCache::getKey('tiles', [$sources, $displayDirectory,
+            array_map(count(...), $layers->getComposedGrid())], $checkpoint);
         $cached = MapCompilationCache::find($key);
         if (is_array($cached)) { return $cached; }
 

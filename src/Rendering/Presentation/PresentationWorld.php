@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Rendering\Presentation;
 
+use Ichiloto\Engine\Core\FramePreparation;
 use Ichiloto\Engine\Core\PackedGrid;
 use Ichiloto\Engine\Field\MapCompilationCache;
 use Ichiloto\Engine\Field\MapGraphics;
@@ -286,34 +287,42 @@ final class PresentationWorld
         return self::compileCached($layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells);
     }
 
-    /** Capture projection and display policy before the first scheduled work unit. */
+    /** Capture projection and display policy before the first scheduled work unit.
+     * @param (Closure(FramePreparation<PresentationWorld>): void)|null $scheduleSnapshot
+     * @param (Closure(PresentationWorld, Closure(): void): void)|null $prepareDiagnostics
+     */
     public static function beginPreparation(MapLayerSet $layers, string $id = 'map', ?MapGraphics $graphics = null,
-        string $assetRoot = '', array $coverage = [], array $terminalCells = [], array $tileCells = []): PresentationWorldPreparation
+        string $assetRoot = '', array $coverage = [], array $terminalCells = [], array $tileCells = [],
+        ?Closure $scheduleSnapshot = null, ?Closure $prepareDiagnostics = null): PresentationWorldPreparation
     {
         $displayPolicy = self::readDisplayPolicy();
         return new PresentationWorldPreparation(
-            static fn(Closure $checkpoint): self =>
-                self::compileCached($layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells, $checkpoint),
+            static fn(Closure $checkpoint, Closure $awaitPublication): self =>
+                self::compileCached($layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells,
+                    $checkpoint, $scheduleSnapshot, $awaitPublication, $prepareDiagnostics),
             static fn(): bool => self::readDisplayPolicy() === $displayPolicy,
         );
     }
 
     private static function compileCached(MapLayerSet $layers, string $id, ?MapGraphics $graphics, string $assetRoot,
-        array $coverage, array $terminalCells, array $tileCells, ?Closure $checkpoint = null): self
+        array $coverage, array $terminalCells, array $tileCells, ?Closure $checkpoint = null,
+        ?Closure $scheduleSnapshot = null, ?Closure $awaitPublication = null, ?Closure $prepareDiagnostics = null): self
     {
         $facts = self::readAssetFacts($graphics, $assetRoot, $checkpoint);
         // Layer ownership and the composed grid are derived from these immutable inputs.
         // Hash the compact layer objects without serializing every composed cell again.
-        $key = 'world:' . hash('sha256', serialize([$layers->layers, $layers->legacy, $id, $graphics, $assetRoot,
-            $coverage, $terminalCells, $tileCells, $facts, self::readDisplayPolicy()]));
-        $checkpoint?->__invoke();
+        $key = MapCompilationCache::getKey('world', [$layers->layers, $layers->legacy, $id, $graphics, $assetRoot,
+            $coverage, $terminalCells, $tileCells, $facts, self::readDisplayPolicy()], $checkpoint);
         // Either path may span an artwork replacement, including a hit after hashing the sheets.
-        $validate = $checkpoint === null ? null : static function () use ($facts, $graphics, $assetRoot, $checkpoint): void {
-            if ($facts !== self::readAssetFacts($graphics, $assetRoot, $checkpoint)) {
+        $validate = $checkpoint === null ? null : static function () use ($facts, $graphics, $assetRoot,
+            $awaitPublication): void {
+            $awaitPublication?->__invoke();
+            if ($facts !== self::readAssetFacts($graphics, $assetRoot, null)) {
                 throw new RuntimeException('Map artwork changed during retained world preparation.');
             }
         };
         if (($cached = MapCompilationCache::find($key)) instanceof self) {
+            $prepareDiagnostics?->__invoke($cached, $checkpoint);
             $validate?->__invoke();
             return $cached;
         }
@@ -321,7 +330,18 @@ final class PresentationWorld
         $world = self::compileFromLayers($layers, $id, $graphics, $assetRoot, $coverage, $terminalCells, $tileCells,
             hash('sha256', serialize([$assetRoot, $facts])), $checkpoint);
         $checkpoint?->__invoke();
-        MapCompilationCache::store($key, $world, $world->estimatedSourceBytes, $checkpoint, $validate);
+        $prepareDiagnostics?->__invoke($world, $checkpoint);
+        if ($scheduleSnapshot === null) {
+            MapCompilationCache::store($key, $world, $world->estimatedSourceBytes, $checkpoint, $validate);
+        } else {
+            // The world must match the current artwork before it can be shown.
+            // The cache copy is optional and retains this exact revision's key.
+            $validate?->__invoke();
+            $scheduleSnapshot(new FramePreparation(static function (Closure $checkpoint) use ($key, $world): self {
+                MapCompilationCache::store($key, $world, $world->estimatedSourceBytes, $checkpoint);
+                return $world;
+            }));
+        }
         return $world;
     }
 
@@ -342,20 +362,20 @@ final class PresentationWorld
             try {
                 PngAssetPreflight::inspect($assetRoot, $asset);
                 $path = $assetRoot . DIRECTORY_SEPARATOR . $asset;
-                $facts[$asset] = $checkpoint === null ? hash_file('sha256', $path) : self::hashAsset($path, $checkpoint);
+                $facts[$asset] = self::hashAsset($path, $checkpoint);
             } catch (RuntimeException $error) { $facts[$asset] = ['unavailable' => $error->getMessage()]; }
             $checkpoint?->__invoke();
         }
         return $facts;
     }
 
-    private static function hashAsset(string $path, Closure $checkpoint): string
+    private static function hashAsset(string $path, ?Closure $checkpoint): string
     {
         $stream = @fopen($path, 'rb');
         if ($stream === false) { throw new RuntimeException('Could not read map artwork: ' . $path); }
 
         try {
-            $hash = hash_init('sha256');
+            $hash = hash_init('xxh128');
             $bytes = 0;
             $block = 256 * 1024;
             do {
@@ -364,7 +384,7 @@ final class PresentationWorld
                 if ($bytes > PngAssetPreflight::MAX_FILE_BYTES || ($read === 0 && !feof($stream))) {
                     throw new RuntimeException('Could not read bounded map artwork: ' . $path);
                 }
-                if ($read === $block) { $checkpoint(); }
+                if ($read === $block) { $checkpoint?->__invoke(); }
             } while ($read === $block);
 
             return hash_final($hash);
@@ -776,12 +796,17 @@ final class PresentationWorld
      */
     public function getGlyphCells(): array
     {
+        return iterator_to_array($this->yieldGlyphCells(), false);
+    }
+
+    /** @return Generator<int, array{x: int, y: int, glyph: string, layerId: string}> */
+    public function yieldGlyphCells(?Closure $checkpoint = null): Generator
+    {
         $visible = [];
         foreach ($this->wireCells as $index => $cell) {
             if (trim($cell['glyph']) !== '') { $visible[$index] = true; }
         }
-        if ($visible === []) { return []; }
-        $cells = [];
+        if ($visible === []) { return; }
         for ($y = 0; $y < $this->rowCells->height; $y++) {
             $covered = null;
             foreach ($this->rowCells->getRowValues($y) as $x => $index) {
@@ -789,10 +814,10 @@ final class PresentationWorld
                 $covered ??= $this->readCoveredRow($y);
                 $owner = $this->wireCells[$index]['ownerLayerId'];
                 if (isset($covered[$x][$owner]) || isset($covered[$x][''])) { continue; }
-                $cells[] = ['x' => $x, 'y' => $y, 'glyph' => $this->wireCells[$index]['glyph'], 'layerId' => $owner];
+                yield ['x' => $x, 'y' => $y, 'glyph' => $this->wireCells[$index]['glyph'], 'layerId' => $owner];
             }
+            $checkpoint?->__invoke();
         }
-        return $cells;
     }
 
     /**

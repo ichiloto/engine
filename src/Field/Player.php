@@ -19,6 +19,7 @@ use Ichiloto\Engine\Events\MovementEvent;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Events\Triggers\PassageEventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTriggerContext;
+use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
 use Ichiloto\Engine\Events\Interfaces\AutomaticEventTriggerInterface;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
@@ -422,10 +423,12 @@ class Player extends GameObject implements ThicketSubjectInterface
     // never cuts the slide short. Without a slide it happens at once.
     $this->pendingArrival = function () use ($event, $collisionType, $stepOrigin, $destination): void {
       $this->handleTriggers($event);
-      if ($stepOrigin === StepOrigin::PLAYER_INPUT && !$this->registerWalkingStep($collisionType, $destination)) {
-        return;
-      }
-      $this->notify($this->getGameScene(), $event);
+      $this->getGameScene()->runAfterPendingMapTransfer(function () use ($event, $collisionType, $stepOrigin, $destination): void {
+        if ($stepOrigin === StepOrigin::PLAYER_INPUT && !$this->registerWalkingStep($collisionType, $destination)) {
+          return;
+        }
+        $this->notify($this->getGameScene(), $event);
+      });
     };
     $this->completeArrival();
 
@@ -601,6 +604,7 @@ class Player extends GameObject implements ThicketSubjectInterface
       } elseif (!$facingOnly) {
         $event->stay($context);
       }
+      if ($this->getGameScene()->isPreparingMapTransfer) { return; }
     }
   }
 
@@ -977,6 +981,59 @@ class Player extends GameObject implements ThicketSubjectInterface
   {
     return array_values(array_filter($this->events->toArray(), fn(EventTrigger $event): bool =>
       $event instanceof PassageEventTrigger && $event->shouldRenderCue($this->position)));
+  }
+
+  /** Find a nearby direct transfer by walkable distance using the current movement rules. */
+  public function findNearbyTransferDestination(int $maxSteps): ?string
+  {
+    $scene = $this->getGameScene();
+    $exits = [];
+    foreach ($this->events as $event) {
+      if ($event instanceof TransferPlayerTrigger && !$event->isComplete && $event->isAvailable()
+        && $event->destinationMap !== $scene->currentMapId) {
+        $exits[] = [$event, $event->area->bounds];
+      }
+    }
+    foreach ($this->observers as $observer) {
+      if ($observer instanceof MapTrigger && $observer->destinationMap !== $scene->currentMapId) {
+        $exits[] = [$observer, $observer->area];
+      }
+    }
+    $start = $this->position;
+    $exits = array_filter($exits, static function (array $exit) use ($start, $maxSteps): bool {
+      [, $bounds] = $exit;
+      $dx = max(0, $bounds->getX() - $start->x, $start->x - ($bounds->getX() + $bounds->getWidth() - 1));
+      $dy = max(0, $bounds->getY() - $start->y, $start->y - ($bounds->getY() + $bounds->getHeight() - 1));
+      return $dx + $dy <= $maxSteps;
+    });
+    if ($exits === []) { return null; }
+
+    $headings = [MovementHeading::NORTH, MovementHeading::SOUTH, MovementHeading::WEST, MovementHeading::EAST];
+    $queue = new \SplQueue();
+    $queue->enqueue([$start, 0]);
+    $visited = ["{$start->x},{$start->y}" => true];
+    while (!$queue->isEmpty()) {
+      [$origin, $steps] = $queue->dequeue();
+      if ($steps >= $maxSteps) { continue; }
+      foreach ($headings as $heading) {
+        $position = Vector2::sum($origin, $heading->getDirection());
+        if (!$scene->mapManager->canMoveTo((int)$position->x, (int)$position->y)) { continue; }
+        foreach ($this->events as $event) {
+          if ($event->getEntryRefusal($origin, $position) !== null) { continue 2; }
+        }
+        foreach ($exits as [$exit]) {
+          if ($exit instanceof MapTrigger ? $exit->area->contains($position) : $exit->canEngage($position, $heading)) {
+            return $exit->destinationMap;
+          }
+        }
+        $key = "{$position->x},{$position->y}";
+        if (!isset($visited[$key])) {
+          $visited[$key] = true;
+          $queue->enqueue([$position, $steps + 1]);
+        }
+      }
+    }
+    return null;
   }
 
   /** Finds a current-map event by its stable marker letter. */

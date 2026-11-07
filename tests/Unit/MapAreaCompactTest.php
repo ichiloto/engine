@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Core\CellArea;
+use Ichiloto\Engine\Core\FramePreparation;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 use Ichiloto\Engine\Field\EncounterTable;
@@ -40,6 +41,31 @@ it('round trips compact territories without filling holes or joining disconnecte
         'rectangle' => 'x', 'sparse' => 'cells', default => 'runs',
     });
 })->with(['polygon with lake', 'disconnected', 'rectangle', 'sparse']);
+
+it('prepares large named areas in resumable batches with the same membership', function (string $format) {
+    $width = 40;
+    $height = 32;
+    $grid = array_fill(0, $height, array_fill(0, $width, ' '));
+    $rectangle = ['x' => 0, 'y' => 0, 'width' => $width, 'height' => $height];
+    $expected = CellArea::fromArray($rectangle);
+    $shape = match ($format) {
+        'rectangle' => $rectangle,
+        'runs' => ['runs' => array_map(static fn(int $y): array => [$y, 0, $width], range(0, $height - 1))],
+        'cells' => $expected->toArray(),
+    };
+    $map = ['areas' => [['id' => 'region', 'area' => $shape]]];
+    $work = new FramePreparation(static fn(Closure $checkpoint): MapAreaCatalog =>
+        MapAreaCatalog::readMap($map, $grid, $checkpoint));
+
+    expect($work->advance(1))->toBeNull()
+        ->and($work->advance(1))->toBeNull();
+    do {
+        $catalog = $work->advance(1);
+    } while ($catalog === null);
+
+    expect($catalog->getArea('region')->cells)->toBe($expected->cells)
+        ->and($catalog->getArea('region')->isRectangle)->toBeTrue();
+})->with(['rectangle', 'runs', 'cells']);
 
 it('reads unordered and adjacent runs on ragged maps in cell reading order', function () {
     $grid = [array_fill(0, 7, ' '), array_fill(0, 2, ' '), [], array_fill(0, 5, ' ')];

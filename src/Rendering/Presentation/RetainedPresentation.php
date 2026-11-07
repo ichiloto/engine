@@ -225,6 +225,20 @@ final class RetainedPresentation
     /** Pending staged/coalesced work, not the final display acknowledgement. */
     public function hasPendingUpload(): bool { return $this->reset || $this->upload !== null || $this->reconcile !== null; }
 
+    public function hasPendingWorldDelivery(): bool
+    {
+        if ($this->upload?->world !== null && $this->upload->world !== $this->presentedWorld) { return true; }
+        return $this->client->getPendingWriteBytes() > 0 && array_any($this->queuedWorlds,
+            fn(?PresentationWorld $world): bool => $world !== null && $world !== $this->presentedWorld);
+    }
+
+    /** Continue an existing atomic replacement without composing another scene frame. */
+    public function continueWorldUpload(int $deadline): bool
+    {
+        if ($this->upload?->world === null || $this->upload->world === $this->presentedWorld) { return false; }
+        return $this->flush(continueUpload: true, deadline: $deadline);
+    }
+
     /** @param list<PresentationSprite> $sprites */
     public function present(ConsolePresentationChanges|ConsolePresentationSnapshot $text, array $sprites,
         ?PresentationViewport $viewport, ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null,
@@ -425,15 +439,16 @@ final class RetainedPresentation
         $this->put('text', $id, [...$this->values['text'][$id], 'runs' => $runs]);
     }
 
-    private function flush(): bool
+    private function flush(bool $continueUpload = false, ?int $deadline = null): bool
     {
         $this->observeWriteProgress();
         if ($this->pendingSince !== null && $this->getTime() - $this->pendingSince >= self::ACK_TIMEOUT_SECONDS) {
             Debug::warn('Renderer presentation acknowledgement timed out; retained state will be resynchronized.');
             $this->invalidate();
         }
+        if ($continueUpload && $this->upload === null) { return false; }
         if ($this->upload !== null) {
-            $this->coalesced = $this->coalesced || $this->operations !== [] || $this->viewportChanged;
+            if (!$continueUpload) { $this->coalesced = $this->coalesced || $this->operations !== [] || $this->viewportChanged; }
         } elseif ($this->reconcile !== null && !$this->isHoldingFrames()) {
             $this->reconcileChanges($this->reconcile);
             $this->reconcile = null;
@@ -467,7 +482,7 @@ final class RetainedPresentation
                 $this->coalesced = false;
             }
             $invalidation = $this->invalidation;
-            $deadline = hrtime(true) + self::WORLD_UPLOAD_BUDGET_NS;
+            $deadline ??= hrtime(true) + self::WORLD_UPLOAD_BUDGET_NS;
             $shouldYield = $this->upload->world === null ? null : static fn(): bool => hrtime(true) >= $deadline;
             while ($this->upload !== null && $sent < self::SEND_BUDGET_BYTES && $packets < self::MAX_SEND_PACKETS
                 && $passes < self::MAX_SEND_PACKETS) {

@@ -21,9 +21,12 @@ use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\MapSourceReader;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Field\PreparedMap;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Rendering\Camera;
+use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
+use Ichiloto\Engine\Rendering\ScreenTransition;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
@@ -120,6 +123,9 @@ final class TransferTriggerSceneProbe extends GameScene
     public array $journal = [];
     public array $failures = [];
     public int $transferRequests = 0;
+    public bool $scheduleTransfers = false;
+    public bool $holdArrivalPresentation = false;
+    public ?ScreenTransition $graphicalTransferTransition = null;
     public int $committedCallbacks = 0;
     public TransferTriggerSaveProbe $saves;
 
@@ -188,6 +194,23 @@ final class TransferTriggerSceneProbe extends GameScene
             $onCommitted();
         };
         return parent::transferPlayer($location, $useConfiguredTransition, $callback);
+    }
+
+    protected function shouldScheduleMapTransfer(): bool { return $this->scheduleTransfers; }
+
+    protected function getGraphicalMapTransferTransition(): ?ScreenTransition
+    {
+        return $this->graphicalTransferTransition;
+    }
+
+    protected function awaitArrivalPresentation(): bool
+    {
+        return $this->holdArrivalPresentation || parent::awaitArrivalPresentation();
+    }
+
+    public function advanceTransfer(float $seconds = 0): bool
+    {
+        return $this->advancePendingMapTransfer($seconds) || $this->advanceMapTransferReveal($seconds);
     }
 
     protected function finalizePlayerTransfer(): void
@@ -450,4 +473,187 @@ it('invokes a direct commit callback once after render before finalization and n
         ->and($scene->gameState->getVariable('direct_commits'))->toBe(1)
         ->and(array_column($scene->journal, 'phase'))->toBe(['prepare', 'before-commit', 'committed',
             'rendered', 'callback', 'write:variable:direct_commits', 'finalize']);
+});
+
+it('keeps the stepped-on map active until a scheduled transfer commits once', function () {
+    $scene = createTransferTriggerScene(destinationAuto: true);
+    $scene->scheduleTransfers = true;
+    expect($scene->player->tryMove(Vector2::right(), $scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
+        ->and($scene->isPreparingMapTransfer)->toBeTrue()
+        ->and($scene->currentMapId)->toBe('test/source')
+        ->and($scene->gameState->hasStoryEvent('boundary_crossed'))->toBeFalse()
+        ->and($scene->saves->snapshots)->toBe([]);
+    $second = new Location('test/destination', new Vector2(4, 2), null);
+    expect($scene->requestPlayerTransfer($second, false))->toBeFalse();
+
+    for ($tick = 0; $scene->isPreparingMapTransfer && $tick < 100; $tick++) { $scene->advanceTransfer(); }
+    expect($scene->isPreparingMapTransfer)->toBeFalse()
+        ->and($scene->advanceTransfer())->toBeFalse()
+        ->and($scene->currentMapId)->toBe('test/destination')
+        ->and([$scene->player->position->x, $scene->player->position->y])->toBe([1.0, 1.0])
+        ->and($scene->gameState->hasStoryEvent('boundary_crossed'))->toBeTrue()
+        ->and($scene->gameState->getVariable('crossings'))->toBe(1)
+        ->and(count(array_keys(array_column($scene->journal, 'phase'), 'committed', true)))->toBe(1);
+});
+
+it('releases a revoked transfer and refuses an invalid destination without writing an arrival', function () {
+    $scene = createTransferTriggerScene();
+    $scene->scheduleTransfers = true;
+    $current = true;
+    $arrivals = 0;
+    $arrive = function () use (&$arrivals): void { $arrivals++; };
+    $location = new Location('test/destination', new Vector2(1, 1), null);
+    expect($scene->requestPlayerTransfer($location, false, $arrive,
+        isCurrent: function () use (&$current): bool { return $current; }))->toBeTrue();
+    $scene->serviceMapTransferPreparationUntil(hrtime(true) + 16_000_000);
+    expect($scene->currentMapId)->toBe('test/source')->and($arrivals)->toBe(0);
+    $current = false;
+    expect($scene->advanceTransfer())->toBeTrue()->and($scene->isPreparingMapTransfer)->toBeFalse();
+
+    $failures = 0;
+    $bad = new Location('test/missing', new Vector2(1, 1), null);
+    expect($scene->requestPlayerTransfer($bad, false, $arrive,
+        onFailure: function () use (&$failures): void { $failures++; }))->toBeTrue();
+    $scene->serviceMapTransferPreparationUntil(hrtime(true) + 16_000_000);
+    expect($scene->failures)->toBe([])->and($failures)->toBe(0);
+    for ($tick = 0; $scene->isPreparingMapTransfer && $tick < 100; $tick++) { $scene->advanceTransfer(); }
+    expect($scene->isPreparingMapTransfer)->toBeFalse()
+        ->and($scene->currentMapId)->toBe('test/source')
+        ->and($arrivals)->toBe(0)
+        ->and($failures)->toBe(1)
+        ->and($scene->saves->snapshots)->toBe([]);
+});
+
+it('keeps the interpreter suspended until its scheduled transfer succeeds or refuses', function (bool $available) {
+    $scene = createTransferTriggerScene();
+    $scene->scheduleTransfers = true;
+    $session = $scene->startEventScript([
+        ['type' => 'transfer', 'map' => $available ? 'test/destination' : 'test/missing', 'x' => 1, 'y' => 1],
+        ['type' => 'set_variable', 'name' => 'continued_after_transfer', 'value' => 7],
+    ], 'scheduled transfer');
+    expect($session)->not->toBeNull()
+        ->and($scene->isPreparingMapTransfer)->toBeTrue()
+        ->and($scene->currentMapId)->toBe('test/source')
+        ->and($scene->gameState->getVariable('continued_after_transfer'))->toBe(0);
+    for ($tick = 0; $scene->isPreparingMapTransfer && $tick < 100; $tick++) { $scene->advanceTransfer(); }
+    $scene->updateEventSession(0);
+    expect($scene->isPreparingMapTransfer)->toBeFalse()
+        ->and($scene->hasUnstableEventSession())->toBeFalse()
+        ->and($scene->currentMapId)->toBe($available ? 'test/destination' : 'test/source')
+        ->and($scene->gameState->getVariable('continued_after_transfer'))->toBe($available ? 7 : 0)
+        ->and($scene->failures)->toHaveCount($available ? 0 : 1);
+})->with([true, false]);
+
+it('refuses to return a staged destination if an authored map file changed while it waited', function () {
+    $scene = createTransferTriggerScene();
+    $work = $scene->mapManager->beginMapPreparation('test/destination');
+    expect($work->advance(1))->toBeNull();
+    $dataPath = MapSourceReader::resolvePaths(getcwd() . '/assets/Maps', 'test/destination')['data'];
+    $source = file_get_contents($dataPath);
+    file_put_contents($dataPath, str_replace("'Destination'", "'Replacement'", $source));
+    expect(fn() => $work->advance(PHP_INT_MAX))->toThrow(RuntimeException::class, 'The destination map changed')
+        ->and($scene->currentMapId)->toBe('test/source');
+});
+
+it('rechecks the destination revision when publishing after spare frame preparation', function () {
+    $scene = createTransferTriggerScene();
+    $work = $scene->mapManager->beginMapPreparation('test/destination');
+    expect($work->advance(PHP_INT_MAX, canPublish: false))->toBeNull();
+
+    $dataPath = MapSourceReader::resolvePaths(getcwd() . '/assets/Maps', 'test/destination')['data'];
+    $modifiedAt = filemtime($dataPath);
+    $source = file_get_contents($dataPath);
+    file_put_contents($dataPath, str_replace("'Destination'", "'Other place'", $source));
+    touch($dataPath, $modifiedAt);
+
+    expect(fn() => $work->advance(PHP_INT_MAX))->toThrow(RuntimeException::class, 'The destination map changed')
+        ->and($scene->currentMapId)->toBe('test/source');
+});
+
+it('keeps a configured transfer covered until the replacement is presented and reveals before completing', function (TransitionStyle $style) {
+    $scene = createTransferTriggerScene();
+    $scene->scheduleTransfers = true;
+    $scene->graphicalTransferTransition = new ScreenTransition($style, 200);
+    $scene->holdArrivalPresentation = true;
+    $arrivals = 0;
+    $location = new Location('test/destination', new Vector2(1, 1), null);
+
+    expect($scene->requestPlayerTransfer($location, onCommitted: function () use (&$arrivals): void {
+        $arrivals++;
+    }))->toBeTrue();
+    expect($scene->advanceTransfer(0.1))->toBeTrue();
+    $cover = $scene->getPresentationOverlay(80, 60)->composites[0];
+    expect($cover->opacity)->toBe($style === TransitionStyle::FADE ? 0.5 : 1.0)
+        ->and($cover->destination->width)->toEqual($style === TransitionStyle::WIPE ? 40 : 80)
+        ->and($scene->currentMapId)->toBe('test/source');
+    expect($scene->advanceTransfer(0.1))->toBeTrue()
+        ->and($scene->currentMapId)->toBe('test/source');
+    for ($tick = 0; $scene->currentMapId === 'test/source' && $tick < 100; $tick++) { $scene->advanceTransfer(0); }
+
+    expect($scene->currentMapId)->toBe('test/destination')
+        ->and($scene->advanceTransfer(1))->toBeTrue()
+        ->and($scene->getPresentationOverlay(80, 60)->composites[0]->opacity)->toBe(1.0)
+        ->and($scene->isPreparingMapTransfer)->toBeTrue()
+        ->and($arrivals)->toBe(0);
+    $scene->holdArrivalPresentation = false;
+    expect($scene->advanceTransfer(0.1))->toBeTrue()->and($arrivals)->toBe(0);
+    expect($scene->advanceTransfer(0.1))->toBeTrue()
+        ->and($scene->getPresentationOverlay(80, 60))->toBeNull()
+        ->and($scene->isPreparingMapTransfer)->toBeFalse()
+        ->and($arrivals)->toBe(1)
+        ->and($scene->advanceTransfer(1))->toBeFalse();
+})->with([TransitionStyle::FADE, TransitionStyle::WIPE]);
+
+it('prepares the transfer in spare frame time and publishes only during update', function () {
+    $scene = createTransferTriggerScene();
+    $scene->scheduleTransfers = true;
+    Console::capturePresentation(8, 4, function () use ($scene): void {
+        $arrivals = 0;
+        expect($scene->requestPlayerTransfer(new Location('test/destination', new Vector2(1, 1), null),
+            useConfiguredTransition: false, onCommitted: function () use (&$arrivals): void { $arrivals++; }))->toBeTrue();
+        $scene->serviceMapTransferPreparationUntil(hrtime(true) + 16_000_000);
+        expect($scene->currentMapId)->toBe('test/source')->and($arrivals)->toBe(0);
+        for ($tick = 0; $scene->currentMapId === 'test/source' && $tick < 100; $tick++) { $scene->advanceTransfer(); }
+        expect($scene->currentMapId)->toBe('test/destination')->and($scene->canPresentSceneFrame())->toBeFalse();
+
+        $scene->serviceMapTransferPreparationUntil(hrtime(true) + 16_000_000);
+        expect($scene->mapManager->getPresentationWorld())->toBeNull()
+            ->and($scene->canPresentSceneFrame())->toBeFalse()
+            ->and($arrivals)->toBe(0);
+
+        $scene->update();
+        expect($scene->mapManager->getPresentationWorld())->not->toBeNull()
+            ->and($scene->canPresentSceneFrame())->toBeTrue()
+            ->and($arrivals)->toBe(1);
+    }, retainedWorld: true);
+});
+
+it('finds reachable direct exits using current collision and event conditions', function (bool $solid, bool $licensed) {
+    $scene = createTransferTriggerScene(conditions: [['type' => 'event', 'name' => 'licensed']],
+        whenBlocked: 'Travel is closed.', solidEntry: $solid);
+    if ($licensed) { $scene->gameState->recordStoryEvent('licensed'); }
+
+    expect($scene->player->findNearbyTransferDestination(1))->toBe(!$solid && $licensed ? 'test/destination' : null)
+        ->and($scene->currentMapId)->toBe('test/source')
+        ->and($scene->gameState->getVariable('crossings'))->toBe(0);
+})->with([[false, false], [false, true], [true, true]]);
+
+it('prewarms only literal layers and reads current destination files when a transfer is requested', function () {
+    $scene = createTransferTriggerScene();
+    $paths = MapSourceReader::resolvePaths(getcwd() . '/assets/Maps', 'test/destination');
+    $data = file_get_contents($paths['data']);
+    file_put_contents($paths['data'], '<?php throw new RuntimeException("Destination data was evaluated too early.");');
+    $work = $scene->mapManager->beginMapLayerPrewarm('test/destination');
+    for ($tick = 0; $tick < 100 && ($layers = $work->advance(1_000_000)) === null; $tick++) {}
+
+    expect($layers->getComposedGrid()[0][0])->toBe('d')
+        ->and($scene->currentMapId)->toBe('test/source')
+        ->and($scene->gameState->getVariable('crossings'))->toBe(0);
+    $work->cancel();
+    file_put_contents($paths['data'], $data);
+    file_put_contents($paths['map'], MapGridSource::buildSource("fffff\nfffff\nfffff", 'MAP'));
+    $scene->scheduleTransfers = true;
+    expect($scene->requestPlayerTransfer(new Location('test/destination', new Vector2(1, 1), null), false))->toBeTrue();
+    for ($tick = 0; $scene->isPreparingMapTransfer && $tick < 100; $tick++) { $scene->advanceTransfer(); }
+    expect($scene->currentMapId)->toBe('test/destination')->and($scene->mapManager->tileMap[0][0])->toBe('f');
 });

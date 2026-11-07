@@ -67,6 +67,46 @@ final class MapSourceReader
     return ['data' => $source['data'], 'tiles' => $layers->getComposedGrid(), 'layers' => $layers, 'areas' => $source['areas']];
   }
 
+  /** Fingerprint the authored files that make up the destination map. */
+  public static function getRevision(array $paths, ?Closure $checkpoint = null): string
+  {
+    $directory = dirname($paths['data']);
+    $files = [$paths['data'], $paths['event'], $paths['map'],
+      ...(glob($directory . '/layers/*.{map,deco}.php', GLOB_BRACE) ?: []),
+      ...(glob($directory . '/graphics/*.tiles.php') ?: [])];
+    sort($files);
+    $facts = [];
+    foreach ($files as $file) {
+      clearstatcache(true, $file);
+      $facts[$file] = is_file($file) ? self::hashSourceFile($file, $checkpoint) : null;
+      $checkpoint?->__invoke();
+    }
+    return hash('sha256', serialize($facts));
+  }
+
+  private static function hashSourceFile(string $file, ?Closure $checkpoint): string
+  {
+    $stream = fopen($file, 'rb');
+    if ($stream === false) {
+      throw new InvalidArgumentException("Map source {$file} could not be read.");
+    }
+    try {
+      // This in-process revision tracks file changes, including same-size edits within a timestamp tick.
+      $hash = hash_init('xxh128');
+      while (!feof($stream)) {
+        $bytes = fread($stream, 256 * 1024);
+        if ($bytes === false || ($bytes === '' && !feof($stream))) {
+          throw new InvalidArgumentException("Map source {$file} could not be read.");
+        }
+        hash_update($hash, $bytes);
+        $checkpoint?->__invoke();
+      }
+      return hash_final($hash);
+    } finally {
+      fclose($stream);
+    }
+  }
+
   /** Unsaved authoring uses the same event ownership and layer geometry as file-backed maps.
    * @return array{data: array<string,mixed>, tiles: array<int,string[]>, layers: MapLayerSet, areas: MapAreaCatalog}
    */
