@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\WorldConditionExclusion;
 
 /**
@@ -48,3 +49,22 @@ it('proves nothing when both lists could hold together', function (array $condit
     'missing markers' => [[['type' => 'map_event', 'name' => 'm']], [['type' => 'map_event', 'name' => 'm', 'negate' => true]]],
     'structured names' => [[['type' => 'event', 'name' => ['x']]], [['type' => 'event', 'name' => ['x'], 'negate' => true]]],
 ]);
+
+it('recognizes equivalent numeric variable predicates in authoring and exclusion', function (int|float $value, string $text) {
+    $equals = ['type' => 'variable', 'name' => 'v', 'value' => $value];
+    $other = [...$equals, 'value' => $text];
+    expect(WorldConditionExclusion::getConjunctionKey([$equals]))
+        ->toBe(WorldConditionExclusion::getConjunctionKey([$other]))
+        ->and(WorldConditionExclusion::proveExclusive([$equals], [[...$other, 'op' => '!=']]))->toBeTrue();
+})->with([[0, '0'], [0, ' -0.0 '], [17, '17e0'], [0.125, '0.125']]);
+
+it('keeps numerically rounded operands distinct when their runtime predicates can differ', function () {
+    $integer = ['type' => 'variable', 'name' => 'v', 'value' => 9_007_199_254_740_992];
+    $float = [...$integer, 'value' => 9_007_199_254_740_992.0];
+    $actual = 9_007_199_254_740_993;
+    expect(WorldConditionEvaluator::compare($actual, '==', $integer['value']))->toBeFalse()
+        ->and(WorldConditionEvaluator::compare($actual, '==', $float['value']))->toBeTrue()
+        ->and(WorldConditionExclusion::getConjunctionKey([$integer]))
+        ->not->toBe(WorldConditionExclusion::getConjunctionKey([$float]))
+        ->and(WorldConditionExclusion::proveExclusive([$integer], [[...$float, 'op' => '!=']]))->toBeFalse();
+});

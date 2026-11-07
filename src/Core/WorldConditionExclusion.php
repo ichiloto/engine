@@ -155,7 +155,7 @@ final class WorldConditionExclusion
             $holdsOn = $holdsOn === (bool) ($condition['value'] ?? true);
         }
 
-        return [json_encode([$type->value, $name, ...$parameters], JSON_THROW_ON_ERROR), $holdsOn];
+        return [json_encode([$type->value, $name, ...$parameters], JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION), $holdsOn];
     }
 
     /**
@@ -179,6 +179,6 @@ final class WorldConditionExclusion
             $holdsOn = ! $holdsOn;
         }
 
-        return ['==', $value];
+        return ['==', WorldConditionEvaluator::normalizeEqualityOperand($value)];
     }
 }

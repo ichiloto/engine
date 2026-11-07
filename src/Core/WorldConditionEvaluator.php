@@ -195,6 +195,19 @@ class WorldConditionEvaluator
   }
 
   /**
+   * Canonicalizes numeric operands with the same equality results for world variables.
+   * Keep large floats and their strings distinct, where integer rounding can change equality.
+   */
+  public static function normalizeEqualityOperand(int|float|string|bool $value): int|float|string|bool
+  {
+    $number = is_string($value) && is_numeric($value) ? $value + 0 : $value;
+    if (is_float($number) && abs($number) < 9_007_199_254_740_992.0) {
+      return floor($number) === $number ? (int)$number : $number;
+    }
+    return is_int($number) ? $number : $value;
+  }
+
+  /**
    * Compares a variable value against an expectation.
    *
    * @param int|float|string $actual The stored value.
