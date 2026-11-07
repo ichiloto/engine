@@ -243,7 +243,7 @@ class CharacterSelectionMenu extends Menu
     $this->helpWindow->render();
   }
 
-  public function showTutorialMember(?string $id, ?string $hint): void
+  public function showTutorialMember(?string $id): bool
   {
     $visible = false;
     foreach ($this->characterPanels as $index => $panel) {
@@ -252,11 +252,7 @@ class CharacterSelectionMenu extends Menu
       $panel->showTutorialTarget($target);
       $visible = $visible || $target;
     }
-    $help = $visible ? ($hint ?? '') : '';
-    if ($this->helpWindow->getHelp() !== $help) {
-      $this->helpWindow->setHelp($help);
-      $this->helpWindow->render();
-    }
+    return $visible;
   }
 
   /**

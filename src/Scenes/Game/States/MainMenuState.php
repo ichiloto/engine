@@ -134,6 +134,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
      * The height of the main menu.
      */
     protected const int MAIN_MENU_HEIGHT = 35;
+    private const int INFO_PANEL_HEIGHT = 3;
     /**
      * The width of the menu options.
      */
@@ -321,6 +322,10 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
     {
         $this->borderPack = new DefaultBorderPack();
         $this->settingsManager = new MainMenuSettingsManager();
+        $infoWidth = min(self::MAIN_MENU_WIDTH, max(1, Console::getWidth() - $this->leftMargin));
+        $extraInfoRows = (int)($infoWidth < self::MAIN_MENU_WIDTH);
+        $infoHeight = self::INFO_PANEL_HEIGHT + $extraInfoRows;
+        $bodyTop = $this->topMargin + $infoHeight;
 
         $this->mainMenu = new MainMenu(
             $this->context->getScene(),
@@ -328,9 +333,9 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
             '',
             rect: new Rect(
                 $this->leftMargin,
-                $this->topMargin + 3,
+                $bodyTop,
                 self::MENU_OPTIONS_WIDTH,
-                self::MENU_OPTIONS_HEIGHT
+                self::MENU_OPTIONS_HEIGHT - $extraInfoRows
             ),
             borderPack: $this->borderPack
         );
@@ -379,7 +384,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         $this->mainMenu->updateWindowContent();
 
         $infoPanelPosition = new Vector2($this->leftMargin, $this->topMargin);
-        $this->infoPanel = new InfoPanel($infoPanelPosition, $this->borderPack);
+        $this->infoPanel = new InfoPanel($infoPanelPosition, $this->borderPack, $infoWidth, $infoHeight);
         $this->infoPanel->setText($this->mainMenu->getActiveItem()->getDescription());
 
         $playTimePanelPosition = new Vector2($this->leftMargin, $this->topMargin + 25);
@@ -401,9 +406,9 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
             '',
             rect: new Rect(
                 $this->leftMargin + self::MENU_OPTIONS_WIDTH,
-                $this->topMargin + 3,
+                $bodyTop,
                 self::MAIN_MENU_WIDTH - self::MENU_OPTIONS_WIDTH,
-                self::MAIN_MENU_HEIGHT - 3
+                self::MAIN_MENU_HEIGHT - $infoHeight
             ),
             borderPack: $this->borderPack
         );
@@ -412,9 +417,9 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         $this->configSelectionWindow = new ConfigSelectionWindow(
             new Rect(
                 $this->leftMargin,
-                $this->topMargin + 3,
+                $bodyTop,
                 self::MAIN_MENU_WIDTH,
-                self::MAIN_MENU_HEIGHT - 3 - self::CONFIG_DESCRIPTION_HEIGHT
+                self::MAIN_MENU_HEIGHT - $infoHeight - self::CONFIG_DESCRIPTION_HEIGHT
             ),
             $this->settingsManager,
             $this->borderPack
@@ -507,8 +512,9 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
             ? $scene->getTutorialPresentationStep(self::TUTORIAL_SCREEN, self::TUTORIAL_COMMANDS) : null;
         $member = $this->mode instanceof MainMenuCharacterSelectionMode
             ? $scene->getTutorialPresentationStep(self::TUTORIAL_SCREEN, self::TUTORIAL_PARTY) : null;
-        $this->mainMenu?->showTutorialCommand($command?->target['id'], TutorialTerminalPresentation::getHint($command));
-        $this->characterSelectionMenu?->showTutorialMember($member?->target['id'], TutorialTerminalPresentation::getHint($member));
+        $this->mainMenu?->showTutorialCommand($command?->target['id']);
+        $memberVisible = $this->characterSelectionMenu?->showTutorialMember($member?->target['id']);
+        $this->infoPanel?->showTutorialHint(TutorialTerminalPresentation::getHint($memberVisible ? $member : $command));
     }
 
     public function exit(): void

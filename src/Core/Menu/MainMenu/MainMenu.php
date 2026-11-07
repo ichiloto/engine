@@ -19,16 +19,13 @@ use Ichiloto\Engine\UI\Windows\Window;
 class MainMenu extends Menu
 {
   private ?string $tutorialCommand = null;
-  private ?string $tutorialHint = null;
 
-  public function showTutorialCommand(?string $id, ?string $hint): void
+  public function showTutorialCommand(?string $id): void
   {
-    if ($id === $this->tutorialCommand && $hint === $this->tutorialHint) {
+    if ($id === $this->tutorialCommand) {
       return;
     }
     $this->tutorialCommand = $id;
-    $this->tutorialHint = $hint;
-    $this->window?->setHelp($hint ?? '');
     $this->updateWindowContent();
   }
 

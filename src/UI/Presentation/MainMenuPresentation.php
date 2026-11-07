@@ -41,7 +41,7 @@ final class MainMenuPresentation
     $p = $m->panelPadding;
     $layout = self::getLayout($state, $theme);
     $verticalPadding = $layout['verticalPadding'];
-    $info = implode("\n", $state->infoPanel?->getContent() ?? []);
+    $info = $state->infoPanel?->getDescription() ?? '';
     $infoHeight = $layout['infoHeight'];
     self::summary($view, 'main-info', $state->infoPanel?->getTitle() ?? '', $info,
       self::box(0, 0, self::WIDTH, $infoHeight), $verticalPadding);
@@ -138,7 +138,7 @@ final class MainMenuPresentation
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $verticalPadding = (int)min($p, floor($m->sectionGap / 3));
-    $info = implode("\n", $state->infoPanel?->getContent() ?? []);
+    $info = $state->infoPanel?->getDescription() ?? '';
     $infoHeight = max(60, 2 * $verticalPadding + $m->cellHeight + self::textHeight($info, self::WIDTH - 2 * $p, $theme));
     $summaryHeights = [];
     foreach ($state->getPresentationSummaries() as $id => $summary) {

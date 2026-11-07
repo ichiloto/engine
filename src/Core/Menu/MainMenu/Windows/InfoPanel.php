@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core\Menu\MainMenu\Windows;
 
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -14,14 +15,8 @@ use Ichiloto\Engine\UI\Windows\Window;
  */
 class InfoPanel extends Window
 {
-  /**
-   * The width of the window.
-   */
-  protected const int WIDTH = 110;
-  /**
-   * The height of the window.
-   */
-  protected const int HEIGHT = 3;
+  private string $description = '';
+  private ?string $tutorialHint = null;
 
   /**
    * InfoPanel constructor.
@@ -30,10 +25,12 @@ class InfoPanel extends Window
    */
   public function __construct(
     Vector2 $position,
-    BorderPackInterface $borderPack = new DefaultBorderPack()
+    BorderPackInterface $borderPack = new DefaultBorderPack(),
+    int $width = 110,
+    int $height = 3
   )
   {
-    parent::__construct('Info', '', $position, self::WIDTH, self::HEIGHT, $borderPack);
+    parent::__construct('Info', '', $position, $width, $height, $borderPack);
   }
 
   /**
@@ -44,7 +41,29 @@ class InfoPanel extends Window
    */
   public function setText(string $text): void
   {
-    $this->setContent([$text]);
+    $this->description = $text;
+    $this->refreshText();
+  }
+
+  public function getDescription(): string
+  {
+    return $this->description;
+  }
+
+  public function showTutorialHint(?string $hint): void
+  {
+    if ($hint === $this->tutorialHint) {
+      return;
+    }
+    $this->tutorialHint = $hint;
+    $this->refreshText();
+  }
+
+  private function refreshText(): void
+  {
+    $this->setContent($this->tutorialHint === null
+      ? [$this->description]
+      : TerminalText::wrapToWidth($this->tutorialHint, $this->getContentWidth()));
     $this->render();
   }
 }

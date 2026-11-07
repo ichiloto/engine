@@ -28,6 +28,8 @@ use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\ActionHintProvider;
 use Ichiloto\Engine\IO\ControlHint;
+use Ichiloto\Engine\Progression\TutorialCatalog;
+use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
@@ -1222,12 +1224,49 @@ it('marks a real Terminal tutorial command without moving the ordinary menu curs
   $menu->addItem($command);
   $window = new ReflectionProperty($menu, 'window')->getValue($menu);
   $active = $menu->activeIndex;
-  $menu->showTutorialCommand('summons', '[Enter] Open the contracts.');
+  $menu->showTutorialCommand('summons');
   $highlighted = array_find($window->getContent(), static fn(string $line): bool => str_contains($line, $command->getLabel()));
   expect($highlighted)->toContain(\Ichiloto\Engine\UI\SelectionStyle::resolveColor()->getAlternateIntensity()->value)
-    ->and($window->getHelp())->toBe('[Enter] Open the contracts.')
     ->and($menu->activeIndex)->toBe($active);
 
-  $menu->showTutorialCommand(null, null);
-  expect($window->getHelp())->toBe('');
+  $menu->showTutorialCommand(null);
+  expect($window->getContent())->not->toContain($highlighted);
 });
+
+
+it('renders complete Terminal tutorial guidance and restores the description when it ends', function (int $width, int $lineCount) {
+  Console::syncDimensions($width, 42);
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => $width, 'height' => 42]));
+  $instruction = 'Open the inventory and check what is inside the newly unlocked section.';
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.sample',
+    'title' => 'Sample',
+    'category' => 'Field',
+    'start' => 'script',
+    'replay' => 'practice',
+    'steps' => [[
+      'target' => ['screen' => MainMenuState::TUTORIAL_SCREEN, 'view' => MainMenuState::TUTORIAL_COMMANDS, 'id' => 'summons'],
+      'action' => 'confirm',
+      'say' => $instruction,
+      'until' => ['outcome' => 'sample.opened'],
+    ]],
+  ]]), $this->scene->gameState);
+  new ReflectionProperty(GameScene::class, 'tutorialDirector')->setValue($this->scene, $director);
+  $director->queueScriptTutorial('guide.sample');
+  $director->updateInStableField(false);
+  $this->state->enter();
+
+  $panel = $this->state->infoPanel;
+  $start = (int)$panel->getPosition()->y + 1;
+  $readPanel = static fn(): array => array_map(
+    static fn(string $row): string => trim(TerminalText::stripAnsi(TerminalText::sliceSymbols($row, (int)$panel->getPosition()->x + 2, $panel->getContentWidth()))),
+    array_slice(Console::getBuffer(), $start, $lineCount),
+  );
+  expect(implode(' ', $readPanel()))->toBe('[Enter] ' . $instruction);
+  $description = $panel->getDescription();
+  expect($description)->not->toBe('')->not->toBe($instruction);
+
+  $director->reportOutcome(MainMenuState::TUTORIAL_SCREEN, MainMenuState::TUTORIAL_COMMANDS, 'sample.opened');
+  $this->state->setMode(new MainMenuCommandSelectionMode($this->state));
+  expect($readPanel()[0])->toBe($description);
+})->with([[135, 1], [80, 2]]);
