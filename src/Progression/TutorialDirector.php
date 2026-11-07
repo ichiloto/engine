@@ -46,26 +46,65 @@ final class TutorialDirector
   /** The owning field calls this after events, scene transitions and modal notices release control. */
   public function updateInStableField(bool $automaticPrompts, ?Party $party = null, ?QuestLog $quests = null): void
   {
+    $this->observeWorldTutorials($party, $quests);
+    $this->startPendingTutorial(TutorialStartContext::FIELD, $automaticPrompts, $party, $quests);
+  }
+
+  /** Observes world eligibility independently from the screen that will present it. */
+  public function observeWorldTutorials(?Party $party = null, ?QuestLog $quests = null,
+    ?TutorialStartContext $context = null): void
+  {
     foreach ($this->catalog->definitions as $tutorial) {
-      if ($tutorial->start !== TutorialStartMode::AUTOMATIC || $this->state->getTutorialPhase($tutorial->id) !== null) {
+      if ($tutorial->start !== TutorialStartMode::AUTOMATIC || $tutorial->startContext === TutorialStartContext::BATTLE_COMMAND
+        || ($context !== null && $tutorial->startContext !== $context)
+        || $this->state->getTutorialPhase($tutorial->id) !== null) {
         continue;
       }
 
       $holds = WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests);
       $previous = $this->automaticConditions[$tutorial->id] ?? null;
       $this->automaticConditions[$tutorial->id] = $holds;
-      // Record when the player encounters the concept, independently of prompt visibility.
       if ($holds && $previous === false) {
         $this->state->setTutorialPhase($tutorial->id, TutorialPhase::PENDING);
       }
     }
+  }
 
+  /** Called by the voluntary library visit or an eligible player battle command window. */
+  public function enterContext(TutorialStartContext $context, bool $automaticPrompts, ?Party $party = null,
+    ?QuestLog $quests = null): void
+  {
+    if ($context === TutorialStartContext::BATTLE_COMMAND) {
+      foreach ($this->catalog->definitions as $tutorial) {
+        if ($tutorial->startContext === $context && $this->state->getTutorialPhase($tutorial->id) === null
+          && WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests)) {
+          $this->state->setTutorialPhase($tutorial->id, TutorialPhase::PENDING);
+        }
+      }
+    } else {
+      $this->observeWorldTutorials($party, $quests, $context);
+    }
+
+    $this->startPendingTutorial($context, $automaticPrompts, $party, $quests);
+  }
+
+  /** Leaving a live context suspends its lesson, so it cannot claim another screen. */
+  public function leaveContext(TutorialStartContext $context): void
+  {
+    if (!$this->practice && $this->active?->startContext === $context) {
+      $this->active = null;
+    }
+  }
+
+  private function startPendingTutorial(TutorialStartContext $context, bool $automaticPrompts, ?Party $party,
+    ?QuestLog $quests): void
+  {
     if ($this->active !== null) {
       return;
     }
 
     foreach ($this->catalog->definitions as $tutorial) {
-      if ($this->state->getTutorialPhase($tutorial->id) !== TutorialPhase::PENDING
+      if ($tutorial->startContext !== $context || $this->state->getTutorialPhase($tutorial->id) !== TutorialPhase::PENDING
         || ($tutorial->start === TutorialStartMode::AUTOMATIC && !$automaticPrompts)
         || !$this->hasBoundControls($tutorial)) {
         continue;
@@ -147,7 +186,7 @@ final class TutorialDirector
   public function getSkippableTutorial(?Party $party = null, ?QuestLog $quests = null): ?TutorialDefinition
   {
     if ($this->active !== null) {
-      return $this->active;
+      return $this->active->startContext === TutorialStartContext::BATTLE_COMMAND ? null : $this->active;
     }
 
     return array_find($this->catalog->definitions, fn(TutorialDefinition $tutorial): bool =>

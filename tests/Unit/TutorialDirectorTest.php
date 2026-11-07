@@ -11,6 +11,7 @@ use Ichiloto\Engine\IO\ControlHint;
 use Ichiloto\Engine\Progression\TutorialCatalog;
 use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Progression\TutorialPhase;
+use Ichiloto\Engine\Progression\TutorialStartContext;
 
 function makeTutorialDirector(GameState $state, bool $automatic = false, ?string $onFinish = null): TutorialDirector
 {
@@ -205,4 +206,59 @@ it('offers a queued story tutorial for Skip when its required control is unbound
     ->and($director->skipTutorial('guide.sample'))->toBeTrue()
     ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::SKIPPED)
     ->and($director->getPendingFollowOns()[0]->onFinish)->toBe('sample-disclosure');
+});
+
+
+it('starts contextual lessons only at their own live entry and preserves interrupted progress as pending', function () {
+  $state = new GameState();
+  $catalog = new TutorialCatalog([
+    [
+      'id' => 'guide.library', 'title' => 'Library', 'category' => 'Contracts',
+      'start' => 'automatic', 'startContext' => 'summons-library', 'replay' => 'practice',
+      'trigger' => [['type' => 'switch', 'name' => 'library-ready']],
+      'steps' => [[
+        'target' => ['screen' => 'summons', 'view' => 'list', 'id' => 'example'],
+        'action' => 'confirm', 'until' => ['outcome' => 'summon.opened'],
+      ]],
+    ],
+    [
+      'id' => 'guide.battle', 'title' => 'Battle', 'category' => 'Contracts',
+      'start' => 'automatic', 'startContext' => 'battle-command', 'replay' => 'read',
+      'steps' => [[
+        'target' => ['screen' => 'battle', 'view' => 'command', 'id' => 'summon'],
+        'action' => 'confirm', 'say' => 'Choose Summon.', 'until' => ['outcome' => 'summon.executed'],
+      ]],
+    ],
+  ]);
+  $director = new TutorialDirector($catalog, $state);
+  $director->updateInStableField(true);
+  $state->setSwitch('library-ready');
+  $director->updateInStableField(true);
+  expect($director->getActiveTutorial())->toBeNull()
+    ->and($state->getTutorialPhase('guide.library'))->toBe(TutorialPhase::PENDING)
+    ->and($state->getTutorialPhase('guide.battle'))->toBeNull();
+
+  $director->enterContext(TutorialStartContext::BATTLE_COMMAND, false);
+  expect($director->getActiveTutorial())->toBeNull()
+    ->and($state->getTutorialPhase('guide.battle'))->toBe(TutorialPhase::PENDING);
+  $director = new TutorialDirector($catalog, GameState::fromArray($state->toArray()));
+  $director->updateInStableField(true);
+  expect($director->getActiveTutorial())->toBeNull();
+
+  $director->enterContext(TutorialStartContext::BATTLE_COMMAND, true);
+  expect($director->getActiveTutorial()?->id)->toBe('guide.battle')
+    ->and($director->getSkippableTutorial())->toBeNull();
+  $director->leaveContext(TutorialStartContext::BATTLE_COMMAND);
+  $director->enterContext(TutorialStartContext::SUMMONS_LIBRARY, true);
+  expect($director->getActiveTutorial()?->id)->toBe('guide.library');
+  $director->reportOutcome('summons', 'list', 'summon.opened', 'example');
+  $director->leaveContext(TutorialStartContext::SUMMONS_LIBRARY);
+  $director->updateInStableField(true);
+  expect($director->getActiveTutorial())->toBeNull();
+
+  $director->enterContext(TutorialStartContext::BATTLE_COMMAND, true);
+  expect($director->getActiveTutorial()?->id)->toBe('guide.battle');
+  $director->reportOutcome('battle', 'command', 'summon.executed');
+  $director->enterContext(TutorialStartContext::BATTLE_COMMAND, true);
+  expect($director->getActiveTutorial())->toBeNull();
 });

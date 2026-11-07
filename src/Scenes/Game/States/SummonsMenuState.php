@@ -17,7 +17,7 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
-use Ichiloto\Engine\Progression\TutorialStep;
+use Ichiloto\Engine\Progression\{TutorialDirector, TutorialStartContext, TutorialStep};
 use Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
@@ -28,6 +28,7 @@ use Ichiloto\Engine\UI\Presentation\{MenuCanvasState, MenuDetailSheet, MenuDetai
 use Ichiloto\Engine\UI\Text\{TerminalMenuRow, TextPage, TextViewport};
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /** Owned summons, separate information and holder flows, and the Equipment assignment context. */
 class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
@@ -96,6 +97,15 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $this->view = $this->character === null ? SummonsMenuView::SUMMONS : SummonsMenuView::CHARACTER;
         $this->activeIndex = 0;
         $this->detailViewport = new TextViewport();
+        if ($this->character === null) {
+            $scene = $this->getGameScene();
+            $scene->tutorialDirector?->enterContext(
+                TutorialStartContext::SUMMONS_LIBRARY,
+                (bool) config(ProjectConfig::class, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true),
+                $this->party,
+                $scene->questManager?->log,
+            );
+        }
         $this->initializeUI();
         $this->refreshUI();
     }
@@ -431,6 +441,9 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
                     self::TUTORIAL_SCREEN, self::TUTORIAL_HOLDERS, self::TUTORIAL_ASSIGNED, $definition->id,
                 );
             }
+            $scene->tutorialDirector?->observeWorldTutorials(
+                $this->party, $scene->questManager?->log, TutorialStartContext::SUMMONS_LIBRARY,
+            );
             $this->refreshUI();
         }
     }
@@ -446,6 +459,11 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         if ($this->equipmentReturn !== null) { $this->equipmentReturn->character = $this->character; }
         $this->setView(SummonsMenuView::CHARACTER);
         return true;
+    }
+
+    public function exit(): void
+    {
+        $this->getGameScene()->tutorialDirector?->leaveContext(TutorialStartContext::SUMMONS_LIBRARY);
     }
 
     public function resume(): void { $this->refreshUI(); }

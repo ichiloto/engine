@@ -20,6 +20,7 @@ final readonly class TutorialDefinition
     public string $title,
     public array $trigger,
     public TutorialStartMode $start,
+    public TutorialStartContext $startContext,
     public array $steps,
     public TutorialReplayMode $replay,
     public ?string $demo,
@@ -28,7 +29,7 @@ final readonly class TutorialDefinition
 
   public static function fromArray(mixed $data): self
   {
-    if (!is_array($data) || array_diff(array_keys($data), ['id', 'category', 'title', 'trigger', 'start', 'steps', 'replay', 'demo', 'onFinish']) !== []) {
+    if (!is_array($data) || array_diff(array_keys($data), ['id', 'category', 'title', 'trigger', 'start', 'startContext', 'steps', 'replay', 'demo', 'onFinish']) !== []) {
       throw new InvalidArgumentException('Expected a tutorial definition.');
     }
 
@@ -42,8 +43,18 @@ final readonly class TutorialDefinition
       throw new InvalidArgumentException($source . ' requires valid start and replay modes.');
     }
 
+    $rawContext = $data['startContext'] ?? TutorialStartContext::FIELD->value;
+    $startContext = is_string($rawContext) ? TutorialStartContext::tryFrom($rawContext) : null;
+    if ($startContext === null || ($start === TutorialStartMode::SCRIPT && $startContext !== TutorialStartContext::FIELD)) {
+      throw new InvalidArgumentException($source . ' requires a valid automatic start context or the default field context.');
+    }
+    if ($startContext === TutorialStartContext::BATTLE_COMMAND && $replay === TutorialReplayMode::PRACTICE) {
+      throw new InvalidArgumentException($source . ' requires Read, Watch or no replay for a battle lesson.');
+    }
+
     $trigger = $data['trigger'] ?? [];
-    if (!is_array($trigger) || !array_is_list($trigger) || ($start === TutorialStartMode::AUTOMATIC && $trigger === [])) {
+    if (!is_array($trigger) || !array_is_list($trigger)
+      || ($start === TutorialStartMode::AUTOMATIC && $startContext !== TutorialStartContext::BATTLE_COMMAND && $trigger === [])) {
       throw new InvalidArgumentException($source . ' requires a condition list, with at least one condition for an automatic start.');
     }
     WorldConditionEvaluator::validateAll($trigger, $source . ' trigger');
@@ -71,7 +82,7 @@ final readonly class TutorialDefinition
       self::assertText($onFinish, $source . ' follow-on script id');
     }
 
-    return new self($data['id'], $data['category'], $data['title'], $trigger, $start, $steps, $replay, $demo, $onFinish);
+    return new self($data['id'], $data['category'], $data['title'], $trigger, $start, $startContext, $steps, $replay, $demo, $onFinish);
   }
 
   /** @phpstan-assert non-empty-string $value */

@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonWielderPolicy;
@@ -10,15 +11,18 @@ use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\ActionHintProvider;
 use Ichiloto\Engine\IO\ControlHint;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\Progression\TutorialStep;
+use Ichiloto\Engine\Progression\{TutorialCatalog, TutorialDirector, TutorialPhase, TutorialStep};
+use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
 use Ichiloto\Engine\UI\Presentation\SummonsMenuPresentation;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\States\SummonsMenuState;
+use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Text\TextViewport;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\UI\Presentation\SummonsMenuView;
 use Ichiloto\Engine\UI\Presentation\SummonEquipmentSlot;
 use Ichiloto\Engine\IO\InputManager;
@@ -382,4 +386,43 @@ it('selects a current assignable holder for the guide without highlighting Relea
   expect($resolve->invoke($state, TutorialStep::fromArray($record, 'Test guide')))->toBe('member-actor.other');
   $record['target']['id'] = 'member-actor.synthetic';
   expect($resolve->invoke($state, TutorialStep::fromArray($record, 'Test guide')))->toBeNull();
+});
+
+
+it('offers a pending library lesson on the voluntary Summons visit and suspends it on exit', function () {
+  ConfigStore::put(ProjectConfig::class, new class extends ProjectConfig {
+    protected function load(): array { return []; }
+  });
+  $state = createSummonsMenuProbe([], characterContext: true);
+  $scene = $state->getGameScene();
+  $game = new class extends Game {
+    public function __construct() {}
+    public function __destruct() {}
+  };
+  $manager = makeBareScene(SceneManager::class);
+  new ReflectionProperty($manager, 'game')->setValue($manager, $game);
+  new ReflectionProperty($scene, 'sceneManager')->setValue($scene, $manager);
+  new ReflectionProperty(GameScene::class, 'locationHUDWindow')->setValue($scene, makeBareScene(LocationHUDWindow::class));
+  $scene->gameState->setSwitch('ready');
+  $scene->gameState->setTutorialPhase('guide.library', TutorialPhase::PENDING);
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.library', 'title' => 'Contracts', 'category' => 'Summons',
+    'start' => 'automatic', 'startContext' => 'summons-library', 'replay' => 'practice',
+    'trigger' => [['type' => 'switch', 'name' => 'ready']],
+    'steps' => [[
+      'target' => ['screen' => 'summons', 'view' => 'list', 'id' => 'example'],
+      'action' => 'confirm', 'until' => ['outcome' => 'summon.opened'],
+    ]],
+  ]]), $scene->gameState);
+  new ReflectionProperty(GameScene::class, 'tutorialDirector')->setValue($scene, $director);
+
+  $state->enter();
+  expect($director->getActiveTutorial())->toBeNull();
+  $state->exit();
+  $state->openLibrary();
+  $state->enter();
+  expect($director->getActiveTutorial()?->id)->toBe('guide.library');
+  $state->exit();
+  expect($director->getActiveTutorial())->toBeNull()
+    ->and($scene->gameState->getTutorialPhase('guide.library'))->toBe(TutorialPhase::PENDING);
 });
