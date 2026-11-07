@@ -24,6 +24,7 @@ use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Progression\{TutorialCatalog, TutorialDirector, TutorialPhase};
+use Ichiloto\Engine\Quests\QuestLog;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
@@ -152,21 +153,24 @@ it('offers Summon guidance only when the command owner can afford a summon and l
     $engine->configure($activeTime ? new ActiveTimeBattleConfig($party, $troop, $screen)
       : new TurnBasedBattleConfig($party, $troop, $screen));
     $saved = new GameState();
+    $quests = new QuestLog();
     $director = new TutorialDirector(new TutorialCatalog([[
       'id' => 'battle.summon', 'title' => 'Summon', 'category' => 'Battle',
       'start' => 'automatic', 'startContext' => 'battle-command', 'replay' => 'read',
+      'trigger' => [['type' => 'quest', 'name' => 'training', 'status' => 'active']],
       'steps' => [[
         'target' => ['screen' => 'battle', 'view' => 'command', 'id' => 'summon'],
         'action' => 'action', 'say' => 'Choose Summon.', 'until' => ['outcome' => 'summon.executed'],
       ]],
     ]]), $saved);
-    $context = new class($game, $party, $troop, $screen, $director) extends TurnStateExecutionContext {
+    $context = new class($game, $party, $troop, $screen, $director, $quests) extends TurnStateExecutionContext {
       public function __construct(Game $game, Party $party, Troop $troop, BattleScreen $screen,
-        private TutorialDirector $director)
+        private TutorialDirector $director, private QuestLog $quests)
       {
         parent::__construct($game, $party, $troop, $screen, []);
       }
       public function getTutorialDirector(): ?TutorialDirector { return $this->director; }
+      public function getQuestLog(): ?QuestLog { return $this->quests; }
     };
     $context->setTurns([new Turn($actor)]);
     $state = $activeTime ? $engine->turnInitState : new PlayerActionStateTestProxy($engine);
@@ -183,6 +187,13 @@ it('offers Summon guidance only when the command owner can afford a summon and l
     $showCommands();
     expect($saved->getTutorialPhase('battle.summon'))->toBeNull()
       ->and($screen->commandContextWindow->getEmptyMessage())->toBe('');
+    $actor->stats->currentMp = 4;
+    $showCommands();
+    expect($saved->getTutorialPhase('battle.summon'))->toBeNull();
+    $quests->accept('training', 1);
+    $actor->stats->currentMp = 1;
+    $showCommands();
+    expect($saved->getTutorialPhase('battle.summon'))->toBeNull();
     $actor->stats->currentMp = 4;
     $hp = $enemy->stats->currentHp;
     $enemy->stats->currentHp = 0;

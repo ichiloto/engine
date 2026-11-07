@@ -355,6 +355,7 @@ class PlayerActionState extends TurnState
       TutorialStartContext::BATTLE_COMMAND,
       (bool) config(ProjectConfig::class, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true),
       $context->party,
+      $context->getQuestLog(),
     );
     $step = $director->getStepForView(self::TUTORIAL_SCREEN, self::TUTORIAL_COMMAND_VIEW);
     if ($step?->target['id'] === BattleCommandType::SUMMON->value) {

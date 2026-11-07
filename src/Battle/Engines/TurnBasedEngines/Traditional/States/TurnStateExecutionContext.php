@@ -13,6 +13,7 @@ use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService;
 use Ichiloto\Engine\Progression\TutorialDirector;
+use Ichiloto\Engine\Quests\QuestLog;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 
@@ -168,6 +169,11 @@ class TurnStateExecutionContext
   public function getTutorialDirector(): ?TutorialDirector
   {
     return $this->findCampaignScene()?->tutorialDirector;
+  }
+
+  public function getQuestLog(): ?QuestLog
+  {
+    return $this->findCampaignScene()?->questManager?->log;
   }
 
   /** Returns the player's knowledge records when this battle belongs to a started game. */
