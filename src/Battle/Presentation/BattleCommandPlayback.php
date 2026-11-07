@@ -183,6 +183,9 @@ final class BattleCommandPlayback implements BattleEffectPlayback
 
   private function isBoundActionPoseActive(): bool
   {
+    if ($this->plan->flashStep !== null) {
+      return !$this->isCompleted && in_array($this->phase, ['advance', 'source', 'target', 'reaction', 'recovery', 'return'], true);
+    }
     if ($this->plan->actionPoseOverride === null || $this->plan->actionPoseEndFrame === null
       || $this->isCompleted || $this->phase === 'advance' || $this->phase === 'enter-advance'
       || $this->phase === 'exit-advance' || $this->session->currentFrame >= $this->plan->actionPoseEndFrame) {
@@ -195,6 +198,11 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   /** Pose animation reads the action playhead, never wall time or redraw count. */
   public function getPoseElapsedSeconds(CharacterInterface $battler, ?BattlePoseRole $role = null): float
   {
+    if ($this->plan->flashStep !== null && $battler === $this->actor && $role === $this->pose
+      && $this->isBoundActionPoseActive()) {
+      $phase = in_array($this->phase, ['advance', 'return'], true) ? $this->phase : 'target';
+      return max(0, ($this->session->currentFrame - $this->plan->phases[$phase]['start']) / BattleCommandTimeline::FPS);
+    }
     if ($battler === $this->actor && in_array($role, [BattlePoseRole::MOVE, BattlePoseRole::RETURNING], true)
       && in_array($this->phase, ['advance', 'return', 'enter-advance', 'exit-advance', 'enter-return', 'exit-return'], true)) {
       return max(0, ($this->session->currentFrame - $this->plan->phases[$this->phase]['start']) / BattleCommandTimeline::FPS);
@@ -209,6 +217,13 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   /** Stationary transition sequences are selected independently of the distance-based main sequence. */
   public function getPoseSequence(CharacterInterface $battler, BattlePoseRole $role): BattlePoseSequence
   {
+    if ($this->plan->flashStep !== null && $battler === $this->actor && $role === $this->pose) {
+      return match ($this->phase) {
+        'advance' => BattlePoseSequence::ENTRY,
+        'return' => BattlePoseSequence::EXIT,
+        default => BattlePoseSequence::MAIN,
+      };
+    }
     if ($battler !== $this->actor || !in_array($role, [BattlePoseRole::MOVE, BattlePoseRole::RETURNING], true)) {
       return BattlePoseSequence::MAIN;
     }
@@ -222,6 +237,10 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   /** A one-shot hop spans the whole current return distance/timing without looping. */
   public function getPoseDurationSeconds(CharacterInterface $battler, BattlePoseRole $role): ?float
   {
+    if ($this->plan->flashStep !== null && $battler === $this->actor && $role === $this->pose
+      && in_array($this->phase, ['advance', 'return'], true)) {
+      return $this->plan->phases[$this->phase]['length'] / BattleCommandTimeline::FPS;
+    }
     return $battler === $this->actor && $role === BattlePoseRole::RETURNING && $this->phase === 'return'
       ? $this->plan->phases['return']['length'] / BattleCommandTimeline::FPS : null;
   }
@@ -229,6 +248,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   /** The action pose can synchronize to a release inside the target effect, before combat impact. */
   public function getPoseImpactSeconds(CharacterInterface $battler): ?float
   {
+    if ($this->plan->flashStep !== null && $battler === $this->actor) { return 0.0; }
     if ($battler !== $this->actor || isset($this->reactionFrames[spl_object_id($battler)])
       || $this->plan->actionPoseAnchorFrame === null || !isset($this->plan->phases['announce'])) { return null; }
     return max(0, ($this->plan->actionPoseAnchorFrame - $this->plan->phases['announce']['start'])
@@ -404,6 +424,23 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $sample->reactions = $this->reactions;
     $sample->reactionFrames = $this->reactionFrames;
     return $sample;
+  }
+
+  /** @return list<array{sample: self, opacity: float}> Cosmetic past poses on this command's clock. */
+  public function getFlashStepEchoes(): array
+  {
+    $count = $this->plan->flashStep?->echoes ?? 0;
+    if ($count === 0 || $this->isCompleted || !in_array($this->phase, ['advance', 'return'], true)) { return []; }
+    $window = $this->plan->phases[$this->phase];
+    $stride = max(1, intdiv($window['length'], $count + 1));
+    $echoes = [];
+    for ($index = $count; $index >= 1; $index--) {
+      $frame = $this->session->currentFrame - $index * $stride;
+      if ($frame >= $window['start']) {
+        $echoes[] = ['sample' => $this->samplePoseAtFrame($frame), 'opacity' => 0.6 * (1 - $index / ($count + 1))];
+      }
+    }
+    return $echoes;
   }
 
   private function resolveOnce(): void

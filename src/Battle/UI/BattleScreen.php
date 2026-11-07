@@ -367,12 +367,14 @@ class BattleScreen implements CanRender, CanUpdate
   }
 
   /** Resolve graphical travel once, before playback; Terminal has no graphical participant geometry. */
-  public function planActionTravel(CharacterInterface $actor, array $targets, \Ichiloto\Engine\Battle\BattleAction $action, ?int $animationId = null): ?\Ichiloto\Engine\Battle\Presentation\BattleTravelPlan
+  public function planActionTravel(CharacterInterface $actor, array $targets, \Ichiloto\Engine\Battle\BattleAction $action,
+    ?int $animationId = null, \Ichiloto\Engine\Animations\ActionMovement $movement = \Ichiloto\Engine\Animations\ActionMovement::RUN_TO_TARGET
+  ): ?\Ichiloto\Engine\Battle\Presentation\BattleTravelPlan
   {
     return $this->battleScene->graphicalPresentation?->planActionTravel($actor, $targets, $action,
       $this->fieldWindow->getPoseElapsedSeconds(),
       $this->battleScene->getGame()->getRendererRuntime()?->supports(\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_IMAGE_FLIP) ?? false,
-      $animationId);
+      $animationId, $movement);
   }
 
   /** Only these owned windows may supply the temporary graphical UI. */
