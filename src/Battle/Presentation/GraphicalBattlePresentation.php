@@ -389,16 +389,16 @@ final class GraphicalBattlePresentation
   public function frame(?BattlePresentationState $field = null, array $ui = [], ?BattleHudSnapshot $hud = null,
     ?string $focus = null, ?float $now = null, bool $imageFlips = true, bool $compositing = true,
     ?bool $reducedMotion = null, bool $maskFlips = true, bool $imageTones = true,
-    bool $imageRotation = false, bool $imageClips = true, bool $coverageDabs = false, bool $textureStrip = false): PresentationCanvas
+    bool $imageRotation = false, bool $imageClips = true, bool $coverageDabs = false, bool $textureStrip = false, bool $bottomFade = false): PresentationCanvas
   {
     $now ??= RuntimeClock::getSeconds();
     $reducedMotion ??= Accessibility::prefersReducedMotion();
     try {
-      return $this->composeFrame($field, $ui, $hud, $focus, $now, true, $imageFlips, $compositing, $reducedMotion, $maskFlips, $imageTones, $imageRotation, $imageClips, $coverageDabs, $textureStrip);
+      return $this->composeFrame($field, $ui, $hud, $focus, $now, true, $imageFlips, $compositing, $reducedMotion, $maskFlips, $imageTones, $imageRotation, $imageClips, $coverageDabs, $textureStrip, $bottomFade);
     } catch (\InvalidArgumentException|RuntimeException $error) {
       // A failure in the base battlefield remains an error. Only optional pose
       // and effect composition can degrade, without losing combat or feedback.
-      $fallback = $this->composeFrame($field, $ui, $hud, $focus, $now, false, $imageFlips, $compositing, $reducedMotion, $maskFlips, $imageTones, $imageRotation, $imageClips, $coverageDabs, $textureStrip);
+      $fallback = $this->composeFrame($field, $ui, $hud, $focus, $now, false, $imageFlips, $compositing, $reducedMotion, $maskFlips, $imageTones, $imageRotation, $imageClips, $coverageDabs, $textureStrip, $bottomFade);
       $field?->getCommandPlayback()?->recordPresentationFailure($error);
       $this->fallbacks->report('Optional battle poses/effects unavailable; retaining base battlefield: '
         . $error->getMessage(), $error);
@@ -409,7 +409,7 @@ final class GraphicalBattlePresentation
   /** @param list<CanvasTextLayer> $ui */
   private function composeFrame(?BattlePresentationState $field, array $ui, ?BattleHudSnapshot $hud,
     ?string $focus, float $now, bool $includeOptionalArtwork, bool $imageFlips, bool $compositing,
-    bool $reducedMotion, bool $maskFlips, bool $imageTones, bool $imageRotation, bool $imageClips, bool $coverageDabs, bool $textureStrip): PresentationCanvas
+    bool $reducedMotion, bool $maskFlips, bool $imageTones, bool $imageRotation, bool $imageClips, bool $coverageDabs, bool $textureStrip, bool $bottomFade): PresentationCanvas
   {
     $playback = $field?->getCommandPlayback();
     $stageFrame = $includeOptionalArtwork && $playback !== null && !$playback->isCompleted
@@ -491,8 +491,11 @@ final class GraphicalBattlePresentation
             !$participant['party'] && ($battler->hasConceded ?? false) && !$usesConcedePose => $this->defeatStyle->concededOpacity,
             default => 1,
           }, brightness: $image->brightness, flipX: $image->flipX, flipY: $image->flipY);
-        $images[] = $combatantImages[$identity] = BattleEffectTone::applyToImage($drawn,
+        $combatantImages[$identity] = BattleEffectTone::applyToImage($drawn,
           ($commandTone[$identity] ?? 1.0) * ($conditionTone[$identity] ?? 1.0));
+        $images[] = $bottomFade
+          ? BattlerGroundContact::getAquaticBody($combatantImages[$identity], $contact, $groundAnchors[$identity]->y)
+          : $combatantImages[$identity];
         $bodyOffsets[$identity]++;
         if ($shownPose !== null) {
           $attachmentPoints[$identity] = $shownPose->projectAttachmentPoints($drawn);

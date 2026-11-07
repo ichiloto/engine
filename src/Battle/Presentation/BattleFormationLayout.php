@@ -104,9 +104,9 @@ final readonly class BattleFormationLayout
    * its name stands for it. Without compositing, Engine-drawn contacts such
    * as shadows are left out, as the battle leaves them out.
    */
-  public function composeCanvas(bool $compositing = true): PresentationCanvas
+  public function composeCanvas(bool $compositing = true, bool $bottomFade = false): PresentationCanvas
   {
-    return new PresentationCanvas($this->layout->width, $this->layout->height, $this->getImages(),
+    return new PresentationCanvas($this->layout->width, $this->layout->height, $this->getImages($bottomFade),
       composites: $compositing ? $this->getComposites() : []);
   }
 
@@ -147,11 +147,15 @@ final readonly class BattleFormationLayout
   }
 
   /** @return list<CanvasImage> The background, then every battler with art and its contact art, from back to front. */
-  private function getImages(): array
+  private function getImages(bool $bottomFade = false): array
   {
     $images = $this->backgrounds;
     foreach ($this->getStanding() as $battler) {
-      if ($battler->image !== null) { array_push($images, $battler->image, ...$battler->contactImages); }
+      if ($battler->image !== null) {
+        $image = $bottomFade
+          ? BattlerGroundContact::getAquaticBody($battler->image, $battler->contact, $battler->ground->y) : $battler->image;
+        array_push($images, $image, ...$battler->contactImages);
+      }
     }
     return $images;
   }

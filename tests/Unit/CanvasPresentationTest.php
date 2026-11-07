@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageBottomFade;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasIndicator;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasIndicatorKind;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -354,6 +355,35 @@ it('negotiates image tone and updates retained brightness without resetting unre
   $frames = RetainedFrameState::replay($peer->sent);
   expect($frames[0]['canvas']['images'][0]['brightness'])->toBe(0.6)
     ->and($frames[1]['canvas']['images'][0])->not->toHaveKey('brightness')
+    ->and($frames[1]['canvas']['images'][1])->toEqual($frames[0]['canvas']['images'][1]);
+});
+
+it('negotiates a bottom fade and removes it from the retained image when cleared', function () {
+  $capability = RendererSessionConfig::CANVAS_IMAGE_BOTTOM_FADE;
+  $graphical = RendererSessionConfig::GRAPHICAL_CANVAS;
+  expect(fn() => new RendererSessionConfig('Fade', sys_get_temp_dir(), requiredCapabilities: [$capability]))
+    ->toThrow(InvalidArgumentException::class)
+    ->and(fn() => new RendererSessionConfig('Fade', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+      requiredCapabilities: [$capability]))->toThrow(InvalidArgumentException::class, 'graphical_canvas');
+  $bounds = new CanvasRectangle(20, 20, 40, 60);
+  $fade = new CanvasImageBottomFade([0.48, 0.50, 0.47], 0.06);
+  $make = fn(?CanvasImageBottomFade $bottomFade) => new PresentationCanvas(100, 100, [
+    new CanvasImage('body', 'synthetic.png', $bounds, bottomFade: $bottomFade),
+    new CanvasImage('other', 'synthetic.png', new CanvasRectangle(0, 0, 10, 10)),
+  ]);
+  [$legacy, $oldPeer] = canvasPresenter([$graphical]);
+  expect(fn() => $legacy->presentCanvas($make($fade)))->toThrow(RendererProtocolException::class, $capability);
+  expect($oldPeer->sent)->toBe([])->and($legacy->presentCanvas($make(null)))->toBeTrue();
+
+  [$presenter, $peer] = canvasPresenter([$graphical, $capability]);
+  expect($presenter->presentCanvas($make($fade)))->toBeTrue()
+    ->and($presenter->presentCanvas($make($fade)))->toBeFalse()
+    ->and($presenter->presentCanvas($make(null)))->toBeTrue();
+  $frames = RetainedFrameState::replay($peer->sent);
+  expect($peer->sent[1]->payload['operations'])->toHaveCount(1)
+    ->and($peer->sent[1]->payload['operations'][0]['id'])->toBe('body')
+    ->and($frames[0]['canvas']['images'][0]['bottomFade'])->toBe($fade->toArray())
+    ->and($frames[1]['canvas']['images'][0])->not->toHaveKey('bottomFade')
     ->and($frames[1]['canvas']['images'][1])->toEqual($frames[0]['canvas']['images'][1]);
 });
 

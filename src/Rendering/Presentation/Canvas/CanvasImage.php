@@ -22,6 +22,7 @@ final readonly class CanvasImage
     public bool $flipY = false,
     public ?int $rotation = null,
     public ?PresentationSpritePivot $pivot = null,
+    public ?CanvasImageBottomFade $bottomFade = null,
   )
   {
     CanvasValidation::id($id);
@@ -36,6 +37,9 @@ final readonly class CanvasImage
     if (($rotation === null) !== ($pivot === null) || ($rotation !== null && ($rotation < 0 || $rotation > 359))) {
       throw new InvalidArgumentException('Canvas image rotation requires integer degrees in 0..359 and a normalized pivot.');
     }
+    if ($bottomFade !== null && $rotation !== null && $rotation !== 0) {
+      throw new InvalidArgumentException('Canvas image bottom fade requires an axis-aligned destination.');
+    }
     if ($rotation !== null && $rotation !== 0 && $sourceRect !== null) {
       self::assertUniformScale($destination, $sourceRect);
     }
@@ -45,7 +49,7 @@ final readonly class CanvasImage
   public static function fromArray(array $data): self
   {
     CanvasCompositeValues::validateKeys($data, ['id', 'asset', 'destination', 'layer'],
-      ['sourceRect', 'opacity', 'clipRect', 'brightness', 'flipX', 'flipY', 'rotation', 'pivot']);
+      ['sourceRect', 'opacity', 'clipRect', 'brightness', 'flipX', 'flipY', 'rotation', 'pivot', 'bottomFade']);
     if (!is_string($data['id']) || !is_string($data['asset']) || !is_int($data['layer'])) {
       throw new InvalidArgumentException('Canvas image id/asset require strings and layer requires an integer.');
     }
@@ -67,6 +71,10 @@ final readonly class CanvasImage
       throw new InvalidArgumentException('Canvas image rotation and pivot require an integer and normalized coordinates.');
     }
     $clip = array_key_exists('clipRect', $data) ? new CanvasRectangle(...CanvasCompositeValues::getRectangle($data['clipRect'])) : null;
+    $fade = $data['bottomFade'] ?? null;
+    if (array_key_exists('bottomFade', $data) && !is_array($fade)) {
+      throw new InvalidArgumentException('Canvas image bottom fade requires an object.');
+    }
     $rect = $data['destination'];
     CanvasCompositeValues::validateKeys($rect, ['x', 'y', 'width', 'height']);
     $limit = CanvasValidation::MAX_EXTENT;
@@ -77,7 +85,8 @@ final readonly class CanvasImage
     return new self($data['id'], $data['asset'], $destination, $data['layer'], $source,
       CanvasCompositeValues::getNumber($data['opacity'] ?? 1, 0, 1), $clip,
       CanvasCompositeValues::getNumber($data['brightness'] ?? 1, 0, 1), $data['flipX'] ?? false, $data['flipY'] ?? false,
-      $rotation, $pivot === null ? null : PresentationSpritePivot::fromArray($pivot));
+      $rotation, $pivot === null ? null : PresentationSpritePivot::fromArray($pivot),
+      $fade === null ? null : CanvasImageBottomFade::fromArray($fade));
   }
 
   /** Clip source pixels at the viewport edge without moving the artwork's attachment point. */
@@ -229,6 +238,7 @@ final readonly class CanvasImage
       ...($this->flipX ? ['flipX' => true] : []),
       ...($this->flipY ? ['flipY' => true] : []),
       ...($this->clipRect === null ? [] : ['clipRect' => $this->clipRect->toArray()]),
-      ...($this->rotation === null ? [] : ['rotation' => $this->rotation, 'pivot' => $this->pivot?->toArray()])];
+      ...($this->rotation === null ? [] : ['rotation' => $this->rotation, 'pivot' => $this->pivot?->toArray()]),
+      ...($this->bottomFade === null ? [] : ['bottomFade' => $this->bottomFade->toArray()])];
   }
 }

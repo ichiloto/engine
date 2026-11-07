@@ -8,8 +8,11 @@ use Ichiloto\Engine\Entities\Enemies\EnemyHabitat;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasCompositeOperation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageBottomFade;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
+use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetBounds;
 
 /**
@@ -82,6 +85,20 @@ final class BattlerGroundContact
     return [$placed, new CanvasRectangle($bounds->x, $y, $bounds->width, max(1.0, min($bounds->height, $surfaceY - $y)))];
   }
 
+  /** Keeps the body image's order and identity while fading the part covered by water. */
+  public static function getAquaticBody(CanvasImage $image, BattlerContact $contact, float $surfaceY): CanvasImage
+  {
+    if ($contact !== BattlerContact::RIPPLE || $image->clipRect === null) { return $image; }
+    $bounds = $image->destination;
+    $depth = min(36.0, .08 * $bounds->height);
+    $line = array_map(static fn(float $wave): float =>
+      clamp(($surfaceY + $depth * $wave - $bounds->y) / $bounds->height, 0.0, 1.0),
+      [-.22, -.35, -.16, -.27, -.12, -.31, -.2]);
+    return new CanvasImage($image->id, $image->asset, $bounds, $image->layer, $image->sourceRect,
+      $image->opacity, brightness: $image->brightness, flipX: $image->flipX, flipY: $image->flipY,
+      bottomFade: new CanvasImageBottomFade($line, $depth / $bounds->height));
+  }
+
   /**
    * What is drawn where a battler meets the surface at its feet point.
    *
@@ -120,11 +137,20 @@ final class BattlerGroundContact
     $effect = $contact === BattlerContact::RIPPLE ? $effects->ripple : $effects->burrow;
     $alpha = min(1.0, $strength * $opacity);
     if ($effect->hasArt()) {
+      $span = $contact === BattlerContact::RIPPLE && $elevation < 0 && $drawn !== null
+        ? PngAssetBounds::getSurfaceSpan($assetRoot, $drawn, $feetY) : null;
       $images = [];
       foreach ([[$effect->back, self::SURFACE_BACK_LAYER, 'back'], [$effect->front, self::SURFACE_FRONT_LAYER, 'front']] as [$sheet, $layer, $part]) {
         $frame = $sheet?->getArtwork($assetRoot, $elapsedSeconds, $reducedMotion);
         if ($frame === null) { continue; }
         $height = $width * $frame->height / $frame->width;
+        if ($span !== null) {
+          $ripple = self::getFittedRipple("{$id}-{$part}", $frame, $span, $feetY, $height, $layout, $layer, $alpha, $assetRoot);
+          if ($ripple !== null) {
+            $images[] = $ripple;
+            continue;
+          }
+        }
         $x = max(0.0, min($layout->width - $width, $feetX - $frame->pivotX / $frame->width * $width));
         $y = max(0.0, min($layout->height - $height, $feetY - $frame->pivotY / $frame->height * $height));
         $images[] = new CanvasImage("{$id}-{$part}", $frame->asset, new CanvasRectangle($x, $y, $width, $height), $layer,
@@ -134,6 +160,23 @@ final class BattlerGroundContact
     }
     $color = $contact === BattlerContact::RIPPLE ? $effects->rippleColor : $effects->burrowColor;
     return ['images' => [], 'composites' => self::composePlaceholder($id, $feetX, $feetY, $width, $contact, $color, $layout, $alpha)];
+  }
+
+  /** Fits the visible ripple, excluding transparent sheet margins, to the submerged silhouette. */
+  private static function getFittedRipple(string $id, BattlerArtwork $frame, array $span, float $surfaceY, float $height,
+    BattleCanvasLayout $layout, int $layer, float $opacity, string $assetRoot): ?CanvasImage
+  {
+    $unit = new CanvasImage($id, $frame->asset, new CanvasRectangle(0, 0, 1, 1), $layer, $frame->sourceRect);
+    $ink = PngAssetBounds::getVisibleBounds($assetRoot, $unit)['bounds'];
+    if ($ink === null) { return null; }
+    [$left, $right] = $span;
+    $width = min((float) CanvasValidation::MAX_EXTENT, ($right - $left) / $ink->width);
+    $x = ($left + $right) / 2 - ($ink->x + $ink->width / 2) * $width;
+    $y = $surfaceY - $frame->pivotY / $frame->height * $height;
+    $placed = CanvasImage::createClipped($id, $frame->asset, $x, $y, $width, $height, $layout->width, $layout->height,
+      $layer, $frame->sourceRect ?? new SpriteSourceRect(0, 0, $frame->width, $frame->height));
+    return $placed === null ? null : new CanvasImage($id, $frame->asset, $placed->destination, $layer,
+      $placed->sourceRect, $opacity);
   }
 
   /**

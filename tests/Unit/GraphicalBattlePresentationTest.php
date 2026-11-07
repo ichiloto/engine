@@ -150,15 +150,23 @@ it('sinks a water creature below the surface line, hiding the art beneath it, an
   $plain = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root)->frame();
   $presentation = GraphicalBattlePresentation::prepare($battle, $sunk, $this->root);
   $frame = $presentation->frame();
+  $softFrame = $presentation->frame(bottomFade: true);
+  expect(array_column($softFrame->images, 'id'))->toBe(array_column($frame->images, 'id'));
   foreach ($enemies as $enemy) {
     $slot = $presentation->getSlot($enemy);
     $id = 'combatant-' . spl_object_id($enemy);
     $image = array_column($frame->images, null, 'id')[$id];
+    $soft = array_column($softFrame->images, null, 'id')[$id];
     $ripple = array_column($frame->composites, null, 'id')['contact-' . spl_object_id($enemy) . '-front'];
     // Sunk a quarter of its slot's height, only the art above the surface line shows; the ripple's lip lies over it there.
     expect($image->destination->y - array_column($plain->images, null, 'id')[$id]->destination->y)
       ->toEqualWithDelta(.25 * $slot->height * $slot->displayScale, .000001)
       ->and($image->clipRect->y + $image->clipRect->height)->toEqualWithDelta($slot->y, .000001)
+      ->and($soft->destination)->toEqual($image->destination)
+      ->and($soft->layer)->toBe($image->layer)
+      ->and($soft->clipRect)->toBeNull()
+      ->and($soft->bottomFade)->not->toBeNull()
+      ->and(count(array_unique($soft->bottomFade->line)))->toBeGreaterThan(1)
       ->and($ripple->layer)->toBeGreaterThan($image->layer)
       ->and($ripple->destination->y + $ripple->destination->height / 2)->toEqualWithDelta($slot->y, .5);
   }

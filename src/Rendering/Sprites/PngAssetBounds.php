@@ -56,6 +56,26 @@ final class PngAssetBounds
     }
   }
 
+  /** @return array{float, float}|null Horizontal span of the solid lower silhouette at a surface height. */
+  public static function getSurfaceSpan(string $root, CanvasImage $image, float $surfaceY): ?array
+  {
+    try {
+      [$size, $facts] = self::read($root, $image);
+    } catch (RuntimeException) {
+      return null;
+    }
+    if ($image->flipY) { return null; }
+    $bounds = $image->destination;
+    $row = ($surfaceY - $bounds->y) / $bounds->height * $size['height'];
+    $columns = array_keys(array_filter($facts['edge'], static fn(int $edge): bool => $edge + 1 >= $row));
+    if ($columns === []) { return null; }
+    $left = min($columns);
+    $right = max($columns) + 1;
+    if ($image->flipX) { [$left, $right] = [$size['width'] - $right, $size['width'] - $left]; }
+    return [$bounds->x + $left * $bounds->width / $size['width'],
+      $bounds->x + $right * $bounds->width / $size['width']];
+  }
+
   /**
    * Where the art meets the ground in its frame: each column's lowest solid pixel (its lower edge) that lies on the
    * ground. In a three-quarter view the ground recedes up the screen, so a contact further back stands higher: every
