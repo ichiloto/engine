@@ -26,6 +26,10 @@ use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Progression\Mastery\MasteryCatalog;
 use Ichiloto\Engine\Progression\Mastery\MasteryFamily;
 use Ichiloto\Engine\Progression\Mastery\MasteryNodeState;
+use Ichiloto\Engine\Progression\TutorialCatalog;
+use Ichiloto\Engine\Progression\TutorialDirector;
+use Ichiloto\Engine\Progression\TutorialPhase;
+use Ichiloto\Engine\Progression\TutorialScreenCatalog;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
@@ -800,4 +804,29 @@ it('uses the project\'s own words and never engineering words', function () {
     ->and($words)->toContain('JP 30')->toContain('Not enough JP')->toContain('50 JP')
     ->and($content->selection->action)->toBe('Study')
     ->and($words)->not->toMatch('/\\b(banked?|stud(ies|ying)|regions?|nodes?|states?|branch(es)?|trunk|heading|needs|opens?)\\b|to learn:/i');
+});
+
+it('completes a mastery tutorial only when the real menu commits learning', function () {
+  masteryMenuHero($this->hero, 60);
+  $view = TutorialScreenCatalog::getViews()['mastery']['tree'];
+  expect($view['outcomes']['mastery.learned'])->toBe('mastery_node');
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'study.sample', 'category' => 'Study', 'title' => 'Sample',
+    'start' => 'script', 'replay' => 'none',
+    'steps' => [[
+      'target' => ['screen' => 'mastery', 'view' => 'tree', 'id' => 'spark-1'],
+      'action' => 'confirm', 'until' => ['outcome' => 'mastery.learned', 'subject' => 'spark-1'],
+    ]],
+  ]]), $this->scene->gameState);
+  new ReflectionProperty($this->scene, 'tutorialDirector')->setValue($this->scene, $director);
+  $director->queueScriptTutorial('study.sample');
+  $director->updateInStableField(true);
+
+  $this->state->enter();
+  masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::ENTER, KeyCode::ENTER, KeyCode::ESCAPE);
+  expect($this->scene->gameState->getTutorialPhase('study.sample'))->toBe(TutorialPhase::PENDING)
+    ->and($this->hero->mastery->points)->toBe(60);
+  masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::ENTER);
+  expect($this->scene->gameState->getTutorialPhase('study.sample'))->toBe(TutorialPhase::COMPLETED)
+    ->and($this->hero->mastery->points)->toBe(10);
 });

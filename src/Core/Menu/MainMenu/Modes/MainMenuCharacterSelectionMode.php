@@ -7,6 +7,8 @@ use Ichiloto\Engine\Core\Menu\MainMenu\CharacterSelectionMenu;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\Game\States\EquipmentMenuState;
+use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
+use Ichiloto\Engine\Scenes\Game\States\MasteryMenuState;
 use Ichiloto\Engine\Scenes\Game\States\StatusViewState;
 use Ichiloto\Engine\Util\Debug;
 use RuntimeException;
@@ -94,7 +96,14 @@ class MainMenuCharacterSelectionMode extends MainMenuMode
       if (property_exists($this->nextGameSceneState, 'character')) {
         $this->nextGameSceneState->character = $this->characterSelectionMenu->activeCharacter ?? throw new RuntimeException("Character not found.");
       }
+      $memberId = $this->characterSelectionMenu->activeCharacter?->actorId;
       $this->mainMenuState->setState($this->nextGameSceneState);
+      if ($this->nextGameSceneState instanceof MasteryMenuState) {
+        $this->mainMenuState->getGameScene()->tutorialDirector?->reportOutcome(
+          MainMenuState::TUTORIAL_SCREEN, MainMenuState::TUTORIAL_PARTY, MainMenuState::TUTORIAL_MEMBER_CONFIRMED,
+          $memberId,
+        );
+      }
     }
   }
 }

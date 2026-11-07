@@ -89,6 +89,11 @@ use RuntimeException;
  */
 class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
 {
+    public const string TUTORIAL_SCREEN = 'mastery';
+    public const string TUTORIAL_DISCIPLINE_OPENED = 'mastery.discipline-opened';
+    public const string TUTORIAL_FAMILY_OPENED = 'mastery.family-opened';
+    public const string TUTORIAL_NODE_FOCUSED = 'mastery.node-focused';
+    public const string TUTORIAL_LEARNED = 'mastery.learned';
     use MenuCanvasState;
 
     protected const int MENU_WIDTH = 110;
@@ -228,6 +233,14 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     {
         $this->syncHold();
         $this->syncCounterTick();
+        $director = $this->getGameScene()->tutorialDirector;
+        if ($this->mode?->level === MasteryMenuLevel::TREE
+            && ($director?->getStepForView(self::TUTORIAL_SCREEN, MasteryMenuLevel::TREE->value)?->until['outcome'] ?? null) === self::TUTORIAL_NODE_FOCUSED) {
+            $focused = $this->getFocusedStatus();
+            if ($focused !== null) {
+                $director->reportOutcome(self::TUTORIAL_SCREEN, MasteryMenuLevel::TREE->value, self::TUTORIAL_NODE_FOCUSED, $focused->node->id);
+            }
+        }
         if ($this->isNextCharacterRequested() || $this->isPreviousCharacterRequested()) {
             $this->selectCharacterByOffset($this->isNextCharacterRequested() ? 1 : -1);
             return;
@@ -265,6 +278,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
      */
     public function setMode(MasteryMenuMode $mode): void
     {
+        $previous = $this->mode?->level;
         $this->mode?->exit();
         $this->mode = $mode;
         $mode->enter();
@@ -272,6 +286,15 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $this->infoShown = false;
         $this->menuInfoText->reset();
         $this->refreshUI();
+        if ($previous === MasteryMenuLevel::DISCIPLINE && $mode->level === MasteryMenuLevel::FAMILY) {
+            $this->getGameScene()->tutorialDirector?->reportOutcome(
+                self::TUTORIAL_SCREEN, $previous->value, self::TUTORIAL_DISCIPLINE_OPENED, $this->getRegionId(),
+            );
+        } elseif ($previous === MasteryMenuLevel::FAMILY && $mode->level === MasteryMenuLevel::TREE) {
+            $this->getGameScene()->tutorialDirector?->reportOutcome(
+                self::TUTORIAL_SCREEN, $previous->value, self::TUTORIAL_FAMILY_OPENED, $this->familyFocus[$this->getRegionId() ?? ''] ?? null,
+            );
+        }
     }
 
     /** Leaves the menu for the main menu. */
@@ -417,6 +440,9 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         try {
             $before = $character->mastery->points;
             $progression->learn($character, $nodeId);
+            $this->getGameScene()->tutorialDirector?->reportOutcome(
+                self::TUTORIAL_SCREEN, MasteryMenuLevel::TREE->value, self::TUTORIAL_LEARNED, $nodeId,
+            );
             play_sound(SystemSound::CONFIRM);
             $time = $this->getPresentationTime();
             $reduced = Accessibility::prefersReducedMotion();

@@ -69,6 +69,27 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
 {
     use MenuCanvasState { getPresentationCanvas as private getActiveMenuCanvas; }
 
+    public const string TUTORIAL_SCREEN = 'main-menu';
+    public const string TUTORIAL_COMMANDS = 'commands';
+    public const string TUTORIAL_PARTY = 'party';
+    public const string TUTORIAL_COMMAND_OPENED = 'menu.command-opened';
+    public const string TUTORIAL_MEMBER_CONFIRMED = 'menu.member-confirmed';
+    public const array TUTORIAL_COMMAND_TARGETS = [
+        OpenSummonsMenuCommand::class => 'summons',
+        OpenMasteryMenuCommand::class => 'mastery',
+    ];
+
+    public static function getTutorialCommandId(object $command): ?string
+    {
+        foreach (self::TUTORIAL_COMMAND_TARGETS as $class => $id) {
+            if ($command instanceof $class) {
+                return $id;
+            }
+        }
+
+        return null;
+    }
+
     public function getPresentationCanvas(): ?PresentationCanvas
     {
         return $this->mode === null || (!$this->supplementalPanelsVisible && !$this->mode instanceof MainMenuConfigMode)

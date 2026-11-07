@@ -32,6 +32,14 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
 {
     use MenuCanvasState;
 
+    public const string TUTORIAL_SCREEN = 'summons';
+    public const string TUTORIAL_LIST = 'list';
+    public const string TUTORIAL_ACTIONS = 'actions';
+    public const string TUTORIAL_HOLDERS = 'holders';
+    public const string TUTORIAL_SUMMON_OPENED = 'summon.opened';
+    public const string TUTORIAL_ASSIGN_OPENED = 'summon.assign-opened';
+    public const string TUTORIAL_ASSIGNED = 'summon.assigned';
+
     protected const int MENU_WIDTH = 110;
     protected const int SUMMARY_PANEL_HEIGHT = 5;
     protected const int LIST_PANEL_HEIGHT = 26;
@@ -326,19 +334,32 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         if (!Input::isButtonPressed('confirm') || $this->view === SummonsMenuView::INFO) { return; }
         $definition = $this->getSelectedSummon();
         if ($definition === null) { return; }
+        $scene = $this->getGameScene();
         if ($this->view === SummonsMenuView::SUMMONS) {
             $this->selectedSummonId = $definition->id;
             $this->setView(SummonsMenuView::ACTIONS);
+            $scene->tutorialDirector?->reportOutcome(
+                self::TUTORIAL_SCREEN, self::TUTORIAL_LIST, self::TUTORIAL_SUMMON_OPENED, $definition->id,
+            );
         } elseif ($this->view === SummonsMenuView::ACTIONS) {
             $action = $this->getRows()[$this->activeIndex]->id ?? null;
             if ($action === 'info') { $this->setView(SummonsMenuView::INFO); }
-            elseif ($action === 'assign') { $this->setView(SummonsMenuView::HOLDERS); }
+            elseif ($action === 'assign') {
+                $this->setView(SummonsMenuView::HOLDERS);
+                $scene->tutorialDirector?->reportOutcome(
+                    self::TUTORIAL_SCREEN, self::TUTORIAL_ACTIONS, self::TUTORIAL_ASSIGN_OPENED, $definition->id,
+                );
+            }
         } else {
             $member = $this->view === SummonsMenuView::CHARACTER ? $this->character : ($this->getHolderOptions()[$this->activeIndex] ?? null);
             if ($member === null || !$this->party->participants->contains($member)) { $this->refreshUI(); return; }
             if ($member->hasSummon($definition->id)) { $this->party->unassignSummon($definition->id, $member); }
-            elseif ($this->view === SummonsMenuView::CHARACTER) { $this->party->assignSummon($definition, $member, $this->getGameScene()->gameState); }
-            else { $this->party->reassignSummon($definition, $member, $this->getGameScene()->gameState); }
+            elseif ($this->view === SummonsMenuView::CHARACTER) { $this->party->assignSummon($definition, $member, $scene->gameState); }
+            elseif ($this->party->reassignSummon($definition, $member, $scene->gameState)) {
+                $scene->tutorialDirector?->reportOutcome(
+                    self::TUTORIAL_SCREEN, self::TUTORIAL_HOLDERS, self::TUTORIAL_ASSIGNED, $definition->id,
+                );
+            }
             $this->refreshUI();
         }
     }
