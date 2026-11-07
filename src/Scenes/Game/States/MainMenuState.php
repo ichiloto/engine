@@ -526,7 +526,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
     {
         $id = $step->target['id'];
         if ($step->target['view'] === self::TUTORIAL_PARTY) {
-            return $this->characterSelectionMenu?->focusTutorialMember($id, $this->isMenuCanvasShown) ?? false;
+            return $this->characterSelectionMenu?->focusTutorialMember($id) ?? false;
         }
         $menu = $this->mainMenu;
         if ($menu === null) { return false; }

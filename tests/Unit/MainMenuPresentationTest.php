@@ -1346,3 +1346,28 @@ it('honours authored tutorial focus once while the real menu keeps navigation', 
   $this->state->execute();
   expect($menu->getActiveItem())->toBe($focus ? $target : $playerChoice);
 })->with([true, false]);
+
+it('shows the selected Terminal party members and keeps a swap source across pages', function () {
+  for ($i = 4; $i < 8; $i++) {
+    $this->party->addMember(new Character('Actor ' . $i, 0, new Stats(), actorId: 'actor.' . $i));
+  }
+  InputManager::setBindings([...InputManager::getBindings(), 'down' => ['keys' => [KeyCode::DOWN]]]);
+  $this->state->setMode(new MainMenuPartyOrderMode($this->state));
+  $menu = $this->state->characterSelectionMenu;
+  $screen = static fn(): string => TerminalText::stripAnsi(implode("\n", Console::getBuffer()));
+  expect($screen())->toContain('Actor 0', 'Actor 3', '1–4 / 8');
+
+  mainMenuPresentationPageKey(KeyCode::ENTER, $this->state);
+  for ($i = 0; $i < 4; $i++) {
+    mainMenuPresentationPageKey(KeyCode::DOWN, $this->state);
+  }
+  expect($menu->activeCharacter?->actorId)->toBe('actor.4')
+    ->and($menu->getMarkedPanelIndex())->toBe(0)
+    ->and($screen())->toContain('Actor 4', 'Actor 7', '5–8 / 8');
+
+  mainMenuPresentationPageKey(KeyCode::ENTER, $this->state);
+  expect($this->party->participants->toArray()[0]->actorId)->toBe('actor.4')
+    ->and($menu->activeCharacter?->actorId)->toBe('actor.0')
+    ->and($menu->getMarkedPanelIndex())->toBeNull()
+    ->and($screen())->toContain('Actor 0', 'Actor 7', '5–8 / 8');
+});

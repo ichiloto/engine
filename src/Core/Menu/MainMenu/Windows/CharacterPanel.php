@@ -32,10 +32,18 @@ class CharacterPanel extends Window implements CanFocus
 
   public function showTutorialTarget(bool $target): void
   {
-    if ($this->tutorialTarget !== $target) {
-      $this->tutorialTarget = $target;
-      $this->applyHighlightState();
+    $this->setSelectionState($this->isFocused, $this->isMarked, $target);
+  }
+
+  public function setSelectionState(bool $focused, bool $marked, bool $tutorialTarget): void
+  {
+    if ($focused === $this->isFocused && $marked === $this->isMarked && $tutorialTarget === $this->tutorialTarget) {
+      return;
     }
+    $this->isFocused = $focused;
+    $this->isMarked = $marked;
+    $this->tutorialTarget = $tutorialTarget;
+    $this->applyHighlightState();
   }
   /**
    * @var string[] The neutral character record before selection styling.
