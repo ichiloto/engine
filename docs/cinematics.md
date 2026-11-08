@@ -393,8 +393,9 @@ one.
 the subject when staging begins or each route leg begins, reading its current
 map position. It never reads image dimensions, chooses a substitute cell or
 changes a real subject's transform. Independent subject-relative staging then
-checks visible physical floor through `CinematicStagePlacement`. An exact-cell
-NPC snapshot and a visual on a named attachment retain their resolved cells. Absolute visual staging keeps its authored coordinates; route destinations
+checks the exact physical floor through `CinematicStagePlacement`. The camera can
+start outside the actor's cell. An NPC snapshot and a visual on a named attachment
+use their source object's cell. Absolute visual staging keeps its authored coordinates. Route destinations
 must be integral cells inside the map and pass the collision-aware planner. A target that disappears fails
 the command, preserving the event session's existing rollback/cleanup behavior.
 An already-started leg keeps its planned endpoint rather than chasing a moving
@@ -419,16 +420,12 @@ independent staged actor accepts one of the two, never both:
  'faceToward' => ['kind' => 'world_object', 'id' => 'lamp-1']],
 ```
 
-Independent subject-relative cast that stand on physical ground require visible,
-unoccupied floor, including when `collision` is false. The preferred offset is used when
-valid. Otherwise Engine searches reachable floor within three walking steps of
-the anchor, in north/east/south/west order. Other visible cast reserve their cells
-regardless of their collision flag. A relocation emits a diagnostic; no available
-cell refuses staging before replacing actors or acquiring subjects. This removes
-unsafe off-map and solid-cell placement for independent relative actors. Real
-subject bindings, world-object attachments and exact-cell NPC snapshots retain
-their resolved positions. Map occupancy remains the single collision authority.
-
+Independent subject-relative cast reserve their authored ground cell even when
+their movement collision is disabled. That cell must be within the map, walkable
+and unoccupied. A refusal identifies the actor and requested cell before any
+actor replacement or subject acquisition. A non-colliding NPC snapshot using its
+source NPC's cell is a visual copy of that NPC. It appears when the original
+leaves or becomes inactive, and the map keeps ownership of the cell's collision.
 
 `CinematicFacing` is the shared runtime/authoring boundary. `faceToward` is
 resolved when the staging command or route leg begins, from the cell the

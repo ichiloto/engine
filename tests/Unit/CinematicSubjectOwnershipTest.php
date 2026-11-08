@@ -1093,8 +1093,11 @@ it('stages independent companions beside moved subjects without moving or bindin
   expect([$replacement->position->x, $replacement->position->y])->toBe([11.0, 9.0])
     ->and([$actor->position->x, $actor->position->y])->toBe([6.0, 5.0])
     ->and($this->scene->gameState->toArray())->toBe($state);
-  $offMap = $this->stage->add(['id' => 'entrance-visual', 'sprite' => 'V', 'at' => ['kind' => 'player'], 'offset' => ['x' => -10]]);
-  expect([$offMap->position->x, $offMap->position->y])->toBe([3.0, 3.0]); // Unsafe relative off-map placement is removed.
+  $this->scene->mapManager->passable = static fn(int $x, int $y): bool => $x >= 0 && $y >= 0;
+  expect(fn() => $this->stage->add(['id' => 'entrance-visual', 'sprite' => 'V',
+    'at' => ['kind' => 'player'], 'offset' => ['x' => -10]]))
+    ->toThrow(RuntimeException::class, 'authored relative cell (-7,4)');
+  expect($this->stage->all())->toBe([$replacement]);
 });
 
 it('resolves each relative route leg when it begins and retraces only the path actually walked', function (bool $reduced) {
@@ -1148,10 +1151,9 @@ it('stages an independent actor facing a subject from its staged cell', function
   $north = $this->stage->add(['id' => 'below-guide', 'sprite' => 'B', 'x' => 7, 'y' => 8, 'faceToward' => ['kind' => 'npc', 'id' => 'guide']]);
   $east = $this->stage->add(['id' => 'beside-player', 'sprite' => 'E', 'at' => ['kind' => 'player'], 'offset' => ['x' => -2],
     'faceToward' => ['kind' => 'player']]);
-  $kept = $this->stage->add(['id' => 'on-guide', 'sprite' => 'G', 'at' => ['kind' => 'npc', 'id' => 'guide'],
-    'faceToward' => ['kind' => 'npc', 'id' => 'guide']]);
+  $sameCell = new Vector2(7, 4);
   expect($north->facing)->toBe(MovementHeading::NORTH)->and($east->facing)->toBe(MovementHeading::EAST)
-    ->and($kept->facing)->toBe(MovementHeading::SOUTH)
+    ->and(CinematicFacing::getHeadingToward($sameCell, $sameCell))->toBeNull()
     ->and(CinematicFacing::getHeadingToward(new Vector2(0, 0), new Vector2(2, -2)))->toBe(MovementHeading::NORTH)
     ->and(CinematicFacing::getHeadingToward(new Vector2(0, 0), new Vector2(-3, 2)))->toBe(MovementHeading::WEST);
 });
@@ -1758,20 +1760,25 @@ it('holds cinematic framing across text-box gaps and releases it at cinematic en
 });
 
 
-it('places relative cast on visible corridor floor even with collision disabled and reserves visible occupants', function () {
+it('stages off-camera cast at the exact authored cell at wide and narrow viewport sizes', function (int $width) {
+  $this->scene->camera->resizeViewport($width, 12);
+  $this->scene->camera->moveTo(3, 4);
+  $entry = ['id' => 'off-camera', 'sprite' => 'C', 'at' => ['kind' => 'player'], 'offset' => ['x' => 20, 'y' => 1]];
+  $actor = $this->stage->add($entry);
+  expect([$actor->position->x, $actor->position->y])->toBe([23.0, 5.0]);
+})->with(['narrow' => 12, 'wide' => 60]);
+
+it('refuses blocked and occupied relative cast cells without relocating or replacing a staged actor', function () {
   $this->scene->mapManager->passable = static fn(int $x, int $y): bool => $x === 3 && $y >= 1 && $y <= 6;
   $before = $this->scene->gameState->toArray();
-  $entry = ['sprite' => 'C', 'at' => ['kind' => 'player'], 'offset' => ['x' => 2, 'y' => -1], 'collision' => false];
+  $entry = ['sprite' => 'C', 'at' => ['kind' => 'player'], 'offset' => ['y' => -1], 'collision' => false];
   $first = $this->stage->add(['id' => 'first', ...$entry]);
-  $second = $this->stage->add(['id' => 'second', ...$entry]);
-  expect([$first->position->x, $first->position->y])->toBe([3.0, 3.0])
-    ->and([$second->position->x, $second->position->y])->toBe([3.0, 5.0])
-    ->and($first->hasCollision)->toBeFalse()->and($second->hasCollision)->toBeFalse()
+  expect(fn() => $this->stage->add(['id' => 'second', ...$entry]))
+    ->toThrow(RuntimeException::class, 'authored relative cell (3,3)');
+  expect(fn() => $this->stage->add(['id' => 'first', 'replace' => true, ...$entry, 'offset' => ['x' => 2, 'y' => -1]]))
+    ->toThrow(RuntimeException::class, 'authored relative cell (5,3)');
+  expect($this->stage->all())->toBe([$first])->and($first->isVisible)->toBeTrue()
     ->and($this->scene->gameState->toArray())->toBe($before);
-  $this->scene->mapManager->blocked = true;
-  expect(fn() => $this->stage->add(['id' => 'first', 'replace' => true, ...$entry]))
-    ->toThrow(RuntimeException::class, 'no visible unoccupied floor');
-  expect($this->stage->require('first'))->toBe($first)->and($first->isVisible)->toBeTrue();
 });
 
 it('keeps a valid authored relative cell and retries deterministically after placement failure', function () {

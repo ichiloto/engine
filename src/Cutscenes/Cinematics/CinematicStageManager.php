@@ -84,9 +84,9 @@ final class CinematicStageManager
     $isNpcSnapshot = $appearance !== null && !$hasCollision
       && ($entry['at']['kind'] ?? null) === 'npc' && trim($entry['at']['id']) === $appearance->id
       && ($entry['offset']['x'] ?? 0) === 0 && ($entry['offset']['y'] ?? 0) === 0;
-    if ($subject === null && $attachment === null && array_key_exists('at', $entry) && !$isNpcSnapshot) {
-      $position = new CinematicStagePlacement($this->gameScene)->resolve($id, $position,
-        new CinematicSubjectResolver($this->gameScene)->position($entry['at']));
+    // Bound subjects, attachments and visual copies of an NPC use that world object's cell.
+    if ($subject === null && $attachment === null && !$isNpcSnapshot && array_key_exists('at', $entry)) {
+      new CinematicStagePlacement($this->gameScene)->assertCanPlace($id, $position);
     }
     $assetReference = trim(strval($entry['asset'] ?? '')) ?: null;
     $sprite = $entry['sprite'] ?? $appearance?->sprite ?? ($subject === null ? '@' : null);
