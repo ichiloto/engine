@@ -22,6 +22,9 @@ use InvalidArgumentException;
  */
 final class MapSourceReader
 {
+  /** File roles opened by readEventSource, independent of the terrain representation. */
+  public const array EVENT_SOURCE_FILES = ['data', 'event'];
+
   /**
    * MapSourceReader constructor.
    */
@@ -146,7 +149,7 @@ final class MapSourceReader
   /** @param array{id: string, data: string, event: string} $paths */
   private static function assertSourceFilesExist(array $paths): void
   {
-    foreach (['data', 'event'] as $type) {
+    foreach (self::EVENT_SOURCE_FILES as $type) {
       if (! file_exists($paths[$type])) {
         throw new NotFoundException('File ' . $paths['id'] . '/' . basename($paths[$type]) . ' not found.');
       }
