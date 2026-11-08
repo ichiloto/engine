@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Cutscenes\Cinematics;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
+use Ichiloto\Engine\Field\MapDoorReference;
 use InvalidArgumentException;
 use Ichiloto\Engine\Events\Interpreter\MovementRouteRunner;
 
@@ -63,6 +64,7 @@ final class CinematicScriptValidator
         'parallel' => self::validateParallel($command, $cinematicId, $commandPath),
         'branch' => self::validateBranch($command, $cinematicId, $commandPath),
         'choice' => self::validateChoice($command, $cinematicId, $commandPath),
+        MapDoorReference::COMMAND => self::validateDoorReference($command, $cinematicId, $commandPath),
         'move_route' => self::validateMoveRoute($command, $cinematicId, $commandPath),
         'camera' => self::validateCamera($command, $cinematicId, $commandPath),
         'stage_actor' => self::validateStagedActor(
@@ -79,6 +81,16 @@ final class CinematicScriptValidator
         'checkpoint' => self::validateStableReference($command, 'name', $cinematicId, $commandPath),
         default => null,
       };
+    }
+  }
+
+  /** @param array<string, mixed> $command */
+  public static function validateDoorReference(array $command, string $cinematicId, string $path): void
+  {
+    try {
+      MapDoorReference::fromCommand($command);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, $path, $error->getMessage());
     }
   }
 

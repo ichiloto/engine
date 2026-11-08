@@ -164,6 +164,13 @@ final readonly class MapRouteGraph
     if ($type === 'transfer' && is_string($node['map'] ?? null) && trim($node['map']) !== '') {
       $found[] = trim($node['map']);
     }
+    if ($type === MapDoorReference::COMMAND) {
+      try {
+        $found[] = MapDoorReference::fromCommand($node)->resolveFromProject($assetRoot)->mapFilename;
+      } catch (Throwable $error) {
+        Debug::warn('Door reference is unavailable for routes: ' . $error->getMessage());
+      }
+    }
     if ($type === 'common_event' && is_string($node['id'] ?? null) && !isset($visited[$node['id']])
       && count($visited) < self::MAX_SCRIPT_DEPTH) {
       $visited[$node['id']] = true;

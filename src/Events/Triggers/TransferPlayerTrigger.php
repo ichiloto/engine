@@ -45,6 +45,11 @@ class TransferPlayerTrigger extends EventTrigger
     $this->spawnSprite = $this->data->spawnSprite ?? throw new RequiredFieldException('spawnSprite');
   }
 
+  public function getDestination(): Location
+  {
+    return new Location($this->destinationMap, $this->spawnPoint, $this->spawnSprite);
+  }
+
   /**
    * @inheritDoc
    * @throws IchilotoException Thrown when an error occurs.
@@ -54,7 +59,6 @@ class TransferPlayerTrigger extends EventTrigger
   public function enter(EventTriggerContextInterface $context): void
   {
     parent::enter($context);
-    $destination = new Location($this->destinationMap, $this->spawnPoint, $this->spawnSprite);
-    $context->scene->requestPlayerTransfer($destination, onCommitted: $this->complete(...));
+    $context->scene->requestPlayerTransfer($this->getDestination(), onCommitted: $this->complete(...));
   }
 }

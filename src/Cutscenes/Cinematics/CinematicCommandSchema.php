@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
+use Ichiloto\Engine\Field\MapDoorReference;
+
 use Ichiloto\Engine\Animations\Field\FieldPoseAnimation;
 use Ichiloto\Engine\Events\MapEventDefinition;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
@@ -19,7 +21,7 @@ final class CinematicCommandSchema
   public const array BASE_COMMAND_TYPES = [
     'text', 'choice', 'wait', 'set_switch', 'set_variable', 'record_event',
     'give_item', 'give_gold', 'recover_party', 'play_sound', 'play_music', 'play_skit', 'play_storybook',
-    'accept_quest', 'knowledge', 'move_player', 'move_route', 'transfer',
+    'accept_quest', 'knowledge', 'move_player', 'move_route', 'transfer', MapDoorReference::COMMAND,
     'start_battle', 'branch',
   ];
 
@@ -87,7 +89,7 @@ final class CinematicCommandSchema
   public const array RELATIVE_POSITION_FIELDS = ['at', 'offset'];
   public const array SKIP_POLICIES = ['forbidden', 'authored'];
   public const array FINALIZER_COMMAND_TYPES = [
-    'set_switch', 'set_variable', 'record_event', 'move_player', 'transfer',
+    'set_switch', 'set_variable', 'record_event', 'move_player', 'transfer', MapDoorReference::COMMAND,
     'camera', 'remove_actor', 'clear_presentation', 'cinematic_music',
   ];
   public const array UNSAFE_AUTHORED_SKIP_COMMAND_TYPES = [
@@ -100,6 +102,7 @@ final class CinematicCommandSchema
     'record_event' => ['required' => ['name' => 'stable event identity']],
     'move_player' => ['required' => ['x' => 'int', 'y' => 'int']],
     'transfer' => ['required' => ['map' => 'non-empty string', 'x' => 'int', 'y' => 'int'], 'optional' => ['sprite' => 'string|string[]']],
+    MapDoorReference::COMMAND => ['required' => ['map' => 'non-empty string', 'event' => 'non-empty string']],
     'camera' => ['required' => ['operation' => 'attach|reset']],
     'remove_actor' => ['required' => ['actorId|id' => 'non-empty string']],
     'clear_presentation' => ['required' => []],

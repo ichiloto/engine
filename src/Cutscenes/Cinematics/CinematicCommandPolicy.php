@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
+use Ichiloto\Engine\Field\MapDoorReference;
 use InvalidArgumentException;
 
 /** Semantic safety rules shared by cinematic hydration and authoring tools. */
@@ -117,6 +118,7 @@ final class CinematicCommandPolicy
       'set_variable' => self::assertSetVariable($command, $cinematicId, $path),
       'record_event' => self::assertRecordEvent($command, $cinematicId, $path),
       'move_player' => self::assertCoordinates($command, $cinematicId, $path, ['type', 'x', 'y']),
+      MapDoorReference::COMMAND => CinematicScriptValidator::validateDoorReference($command, $cinematicId, $path),
       'transfer' => self::assertTransfer($command, $cinematicId, $path),
       'camera' => self::assertCamera($command, $cinematicId, $path),
       'remove_actor' => self::assertRemoveActor($command, $cinematicId, $path),

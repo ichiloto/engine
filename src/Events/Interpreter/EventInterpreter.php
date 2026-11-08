@@ -30,6 +30,7 @@ use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandContext;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Field\Location;
+use Ichiloto\Engine\Field\MapDoorReference;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
 use Ichiloto\Engine\Messaging\Storybook\StorybookLibrary;
@@ -266,7 +267,7 @@ class EventInterpreter
     if (
       $session === null
       || $session->status !== EventExecutionStatus::SUSPENDED
-      || strval($session->pendingCommand['type'] ?? '') !== 'transfer'
+      || ($session->pendingState['kind'] ?? null) !== 'transfer'
     ) {
       return;
     }
@@ -632,39 +633,43 @@ class EventInterpreter
         $lane->yieldFor($command, ['kind' => 'movement_route'], $route);
         return EventCommandResult::YIELDED;
 
+      case MapDoorReference::COMMAND:
       case 'transfer':
-        $destinationMap = strval($command['map'] ?? '');
-        $destinationX = intval($command['x'] ?? 0);
-        $destinationY = intval($command['y'] ?? 0);
         $player = $this->gameScene->player;
+        $doorTransfer = $type === MapDoorReference::COMMAND;
+        $destination = $doorTransfer
+          ? MapDoorReference::fromCommand($command)->resolveFromProject(Path::join(Path::getCurrentWorkingDirectory(), 'assets'))
+          : new Location(
+            strval($command['map'] ?? ''),
+            new Vector2(intval($command['x'] ?? 0), intval($command['y'] ?? 0)),
+            (array) ($command['sprite'] ?? ($player?->sprite ?? ['@'])),
+          );
 
         // An always-run finalizer may describe the same destination reached by
         // normal playback. Treat that already-satisfied final state as a
         // no-op so map-entry hooks, deferred autosaves, and other transfer
         // side effects are not repeated merely because cleanup is idempotent.
         if ($session->isFinalizing
-          && $this->gameScene->currentMapId === $destinationMap
-          && intval($player?->position->x ?? PHP_INT_MIN) === $destinationX
-          && intval($player?->position->y ?? PHP_INT_MIN) === $destinationY
+          && $this->gameScene->currentMapId === $destination->mapFilename
+          && intval($player?->position->x ?? PHP_INT_MIN) === intval($destination->playerPosition->x)
+          && intval($player?->position->y ?? PHP_INT_MIN) === intval($destination->playerPosition->y)
         ) {
-          if ($player !== null && array_key_exists('sprite', $command)) {
-            $player->setFacingSprite((array) $command['sprite'], engageEvents: false);
+          if ($player !== null && ($doorTransfer || array_key_exists('sprite', $command))) {
+            $player->setFacingSprite($doorTransfer ? (array) $destination->playerSprite : (array) $command['sprite'], engageEvents: false);
           }
 
           return EventCommandResult::COMPLETED;
         }
 
         $session->suspendLane($lane, $command, ['kind' => 'transfer']);
-        $spawn = new Vector2($destinationX, $destinationY);
-        $sprite = (array) ($command['sprite'] ?? ($this->gameScene->player?->sprite ?? ['@']));
         $accepted = $this->gameScene->requestPlayerTransfer(
-          new Location($destinationMap, $spawn, $sprite),
+          $destination,
           useConfiguredTransition: $session->cinematic === null,
           onFailure: fn(Throwable $error) => $this->failActiveSession($this->commandFailureDiagnostic($session, $lane, $command, $error)),
           isCurrent: fn(): bool => $this->activeSession === $session && $lane->status === EventExecutionStatus::SUSPENDED,
         );
         if (! $accepted) {
-          throw new RuntimeException(sprintf('Map transfer to "%s" was refused.', $destinationMap));
+          throw new RuntimeException(sprintf('Map transfer to "%s" was refused.', $destination->mapFilename));
         }
         return EventCommandResult::SUSPENDED;
 

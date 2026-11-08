@@ -32,6 +32,7 @@ use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Exceptions\ActiveEventSaveException;
 use Ichiloto\Engine\Field\Location;
+use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\Field\Player;
@@ -3063,6 +3064,50 @@ it('retains configured transfer transitions for ordinary event scripts', functio
   ConfigStore::remove(ProjectConfig::class);
 });
 
+it('runs a door-owned transfer as an ordinary event and fails closed when its door is missing', function () {
+  $root = createTestDirectory('scripted-door-');
+  $directory = $root . '/assets/Maps/source';
+  mkdir($directory, 0777, true);
+  file_put_contents($directory . '/source.map.php', <<<'SOURCE'
+<?php
+return <<<'GRID'
+.
+GRID;
+SOURCE);
+  file_put_contents($directory . '/source.event.php', <<<'SOURCE'
+<?php
+return <<<'GRID'
+X
+GRID;
+SOURCE);
+  file_put_contents($directory . '/source.data.php', '<?php return ' . var_export(['events' => [
+    'X' => ['class' => TransferPlayerTrigger::class, 'data' => [
+      'destinationMap' => 'door-destination', 'spawnPoint' => ['x' => 3, 'y' => 4], 'spawnSprite' => ['East'],
+    ]],
+  ]], true) . ';');
+  $previousDirectory = getcwd();
+  chdir($root);
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+    $transfer = ['type' => 'transfer_through_door', 'map' => 'source', 'event' => 'X'];
+    $completed = $interpreter->run([$transfer], 'door-transfer');
+    $interpreter->update(0.0);
+    expect($completed?->failureMessage)->toBeNull()
+      ->and($completed?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->currentMapId)->toBe('door-destination')
+      ->and($scene->configuredTransferTransitions)->toBe([true]);
+
+    $failed = $interpreter->run([[...$transfer, 'event' => 'Y']], 'missing-door-transfer');
+    expect($failed?->status)->toBe(EventExecutionStatus::FAILED)
+      ->and($failed?->failureMessage)->toContain("Door 'Y' was not found")
+      ->and($scene->transferCount)->toBe(1)
+      ->and($scene->hasUnstableEventSession())->toBeFalse();
+  } finally {
+    chdir($previousDirectory);
+  }
+});
+
 it('fails an ordinary event when its destination map is refused without leaving a suspended lane', function () {
   [$scene, $interpreter] = makeEventRuntime();
   $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
@@ -3193,7 +3238,8 @@ PHP);
     ], 'common-event-cinematic');
     $interpreter->update(0.1);
 
-    expect($completed?->status)->toBe(EventExecutionStatus::COMPLETED)
+    expect($completed?->failureMessage)->toBeNull()
+      ->and($completed?->status)->toBe(EventExecutionStatus::COMPLETED)
       ->and($scene->gameState->storyEvents)->toBe([
         'common_event_entered',
         'common_event_completed',

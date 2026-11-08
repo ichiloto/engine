@@ -13,6 +13,8 @@ use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 use Ichiloto\Engine\Events\Enumerations\EventEngagement;
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
 use Ichiloto\Engine\Field\MapSourceReader;
+use Ichiloto\Engine\Field\MapDoorReference;
+use Ichiloto\Engine\Field\MapRouteGraph;
 use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\NpcPlacement;
@@ -502,6 +504,36 @@ it('wakes the party where an innkeeper script says, on the map running it', func
   } finally {
     removeReachabilityProject($root);
   }
+});
+
+it('uses the authored transfer door for script routes and reports stale references', function () {
+  $root = createTestDirectory('door-reference-');
+  $assets = $root . '/assets';
+  mkdir($assets . '/Events', 0777, true);
+  $step = ['type' => MapDoorReference::COMMAND, 'map' => 'house', 'event' => 'D'];
+  file_put_contents($assets . '/Events/exit.php', '<?php return ' . var_export([$step], true) . ';');
+  writeReachabilityMap($assets, 'street', ['...'], ['   '], []);
+  writeReachabilityMap($assets, 'house', ['...'], ['DR '], ['events' => [
+    'D' => ['class' => TransferPlayerTrigger::class, 'data' => [
+      'destinationMap' => 'street', 'spawnPoint' => ['x' => 2, 'y' => 0], 'spawnSprite' => ['East'],
+    ]],
+    'R' => ['class' => ScriptEventTrigger::class, 'data' => ['scriptId' => 'exit']],
+  ]]);
+  file_put_contents($assets . '/Maps/collisions.php', '<?php return ' . var_export(['.' => CollisionType::NONE, ' ' => CollisionType::NONE], true) . ';');
+
+  $door = MapDoorReference::fromCommand($step);
+  $arrival = $door->resolveFromProject($assets);
+  expect($arrival->mapFilename)->toBe('street')
+    ->and((int) $arrival->playerPosition->x)->toBe(2)
+    ->and($arrival->playerSprite)->toBe(['East']);
+  $source = MapSourceReader::readEventSource(MapSourceReader::resolvePaths($assets . '/Maps', 'house'));
+  $routes = MapRouteGraph::readMap('house', $source['data'], $source['eventLayer'], $assets);
+  expect(array_any($routes, static fn($route): bool => $route->scripted && $route->destination === 'street'))->toBeTrue()
+    ->and(ProjectReachability::analyze($assets)->reports['street']->isReachable(2, 0))->toBeTrue();
+
+  file_put_contents($assets . '/Events/exit.php', '<?php return ' . var_export([[...$step, 'event' => 'R']], true) . ';');
+  expect(reachabilityProblems(ProjectReachability::analyze($assets)->getAllProblems()))
+    ->toContain("unknown_destination: Event 'R' on map 'house' is not a transfer door.");
 });
 
 it('reads a door marker painted in two places as one event on exactly those cells', function () {

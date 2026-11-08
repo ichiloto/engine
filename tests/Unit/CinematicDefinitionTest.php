@@ -155,6 +155,7 @@ it('accepts every deterministic finalizer type with a complete valid shape', fun
       ['type' => 'record_event', 'name' => 'cinematic:complete-finalizer:resolved'],
       ['type' => 'move_player', 'x' => 2, 'y' => 3],
       ['type' => 'transfer', 'map' => 'maps/destination', 'x' => 2, 'y' => 3, 'sprite' => ['@']],
+      ['type' => 'transfer_through_door', 'map' => 'maps/source', 'event' => 'X'],
       ['type' => 'camera', 'operation' => 'reset'],
       ['type' => 'remove_actor', 'actorId' => 'temporary-actor'],
       ['type' => 'clear_presentation'],
