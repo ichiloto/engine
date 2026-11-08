@@ -665,7 +665,9 @@ it('refuses to mix map removals and a project migration class', function () {
   ]))->toThrow(InvalidSaveCompatibilityManifestException::class, 'must declare either a class or declared position edits');
 });
 
-it('moves a saved player off declared relocated cells after the step map shifts', function (string $mapId, array $position, array $expected, MovementHeading $heading) {
+it('moves a saved player off declared relocated cells after the step map shifts', function (
+  string $mapId, array $position, array $expected, MovementHeading $heading, array $sprite, bool $hasDirectionalSprites = true,
+) {
   $manifest = makeCompatibilityManifest([
     'contentVersion' => 2,
     'migrations' => [
@@ -689,22 +691,28 @@ it('moves a saved player off declared relocated cells after the step map shifts'
   $config = makeCompatibilityConfig($mapId);
   $data = $config->getSaveCompatibilityData();
   $data['playerPosition'] = new Vector2(...$position);
+  $data['playerSprite'] = ['E'];
+  if ($hasDirectionalSprites) {
+    $data['playerSprites'] = ['north' => ['N'], 'east' => ['E']];
+  }
   $config->applySaveCompatibilityData($data);
   $legacy = serialize(['slot' => makeCompatibilitySlot($path), 'config' => $config]);
 
   $loaded = new SaveCompatibilityPipeline($manifest)->load($legacy, $path)->config;
 
   expect([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual($expected)
-    ->and($loaded->playerHeading)->toBe($heading);
+    ->and($loaded->playerHeading)->toBe($heading)
+    ->and($loaded->playerSprite)->toBe($sprite);
 })->with([
   // (4, 6) shifts down to (4, 8), a relocated cell, then on through both steps.
-  'shifted onto a relocated cell' => ['town', [4, 6], [5, 9], MovementHeading::NORTH],
-  'a listed cell that no shift reaches' => ['town', [3, 2], [3, 2], MovementHeading::EAST],
-  'a later relocation without a heading preserves facing' => ['town', [3, 7], [5, 9], MovementHeading::EAST],
-  'an unlisted cell is untouched' => ['town', [6, 8], [6, 10], MovementHeading::EAST],
-  'a fractional position is not a cell' => ['town', [3.5, 8], [3.5, 10], MovementHeading::EAST],
-  'a renamed map follows its alias' => ['old-town', [4, 6], [5, 9], MovementHeading::NORTH],
-  'another map is untouched' => ['forest', [3, 8], [3, 8], MovementHeading::EAST],
+  'shifted onto a relocated cell' => ['town', [4, 6], [5, 9], MovementHeading::NORTH, ['N']],
+  'a listed cell that no shift reaches' => ['town', [3, 2], [3, 2], MovementHeading::EAST, ['E']],
+  'a later relocation without a heading preserves facing' => ['town', [3, 7], [5, 9], MovementHeading::EAST, ['E']],
+  'an unlisted cell is untouched' => ['town', [6, 8], [6, 10], MovementHeading::EAST, ['E']],
+  'a fractional position is not a cell' => ['town', [3.5, 8], [3.5, 10], MovementHeading::EAST, ['E']],
+  'a renamed map follows its alias' => ['old-town', [4, 6], [5, 9], MovementHeading::NORTH, ['N']],
+  'a legacy save uses the field default for the changed heading' => ['town', [4, 6], [5, 9], MovementHeading::NORTH, ['^'], false],
+  'another map is untouched' => ['forest', [3, 8], [3, 8], MovementHeading::EAST, ['E']],
 ]);
 
 it('relocates a save once, so loading it again changes nothing', function () {

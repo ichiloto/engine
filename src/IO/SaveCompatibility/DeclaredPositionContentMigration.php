@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\IO\SaveCompatibility;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Field\PlayerSpriteSet;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 
 /**
@@ -57,8 +58,10 @@ final readonly class DeclaredPositionContentMigration implements ContentMigratio
     if ($place['position'] !== $position) {
       $data['playerPosition'] = $place['position'];
       $data['mapId'] = $place['mapId'];
-      if ($place['heading'] !== $heading) {
-        $data['playerHeading'] = $place['heading'];
+      $landingHeading = $place['heading'];
+      if ($landingHeading !== null && $landingHeading !== $heading) {
+        $data['playerHeading'] = $landingHeading;
+        $data['playerSprite'] = PlayerSpriteSet::fromArray($config->playerSprites)->getSpriteForHeading($landingHeading);
       }
     }
 
