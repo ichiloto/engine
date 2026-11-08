@@ -27,7 +27,6 @@ use Ichiloto\Engine\UI\Presentation\MenuLayout;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\MenuRow;
 use Ichiloto\Engine\UI\Presentation\MenuRowKind;
-use Ichiloto\Engine\UI\Presentation\MenuRowLayout;
 use Ichiloto\Engine\UI\Presentation\MenuRowPainter;
 
 /** A disposable overlay over the caller's real final battlefield, never a gameplay owner. */
@@ -279,14 +278,12 @@ final class GraphicalBattleResults
   {
     $width = PresentationCanvas::DEFAULT_WIDTH;
     $height = PresentationCanvas::DEFAULT_HEIGHT;
-    $metrics = $this->controls->metrics;
     $footerHeight = $height - self::PANEL_BOTTOM;
-    $buttonHeight = min($metrics->rowHeight, $footerHeight);
+    $buttonHeight = min(MenuLayout::getButtonHeight($this->controls), $footerHeight);
     $buttonWidth = MenuLayout::getButtonWidth($this->controls, $label, $width - 2 * MenuLayout::OUTER_MARGIN);
     $bounds = new CanvasRectangle(($width - $buttonWidth) / 2,
       self::PANEL_BOTTOM + ($footerHeight - $buttonHeight) / 2, $buttonWidth, $buttonHeight);
-    $layout = new MenuRowLayout($bounds, rowHeight: $buttonHeight,
-      cellWidth: $metrics->cellWidth, cellHeight: $metrics->cellHeight);
+    $layout = MenuLayout::getButtonLayout($this->controls, $bounds);
     $row = new MenuRow('confirm', $label, kind: MenuRowKind::BUTTON, selected: true, focused: true);
     $this->appendControls(MenuRowPainter::compose($width, $height, 'results', [$row], $layout,
       $this->controls->rows, layer: self::BASE_LAYER + 4), $alpha);

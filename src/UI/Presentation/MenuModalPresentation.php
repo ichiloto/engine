@@ -60,7 +60,7 @@ final class MenuModalPresentation
     $hintHeight = MenuActionHints::height($hints, $theme, $width);
     $quantityHeight = $modal->quantity === null ? 0 : 2 * $m->cellHeight + $gap;
     $availableBody = $base->height - 4 * $p - $titleHeight - $quantityHeight - $hintHeight
-      - 2 * $gap - ($hintHeight > 0 ? $gap : 0) - $m->rowHeight - $m->cellHeight;
+      - 2 * $gap - ($hintHeight > 0 ? $gap : 0) - ($modal->vertical ? $m->rowHeight : MenuLayout::getButtonHeight($theme)) - $m->cellHeight;
     if ($artSize > $availableBody) { throw new RuntimeException('Modal artwork exceeds its finite reading viewport.'); }
     $maximumRows = (int)floor(($availableBody - $noticeHintHeight - ($noticeHintHeight > 0 ? $gap : 0)) / $m->cellHeight);
     if ($maximumRows < 1) { throw new RuntimeException('Modal controls leave no finite reading area.'); }
@@ -100,7 +100,8 @@ final class MenuModalPresentation
     $hintHeight = MenuActionHints::height($hints, $theme, $width);
     $hintGap = $hintHeight > 0 ? $gap : 0;
     $available = $base->height - 4 * $p - $titleHeight - $bodyHeight - $quantityHeight - $hintHeight - $titleGap - $bodyGap - $hintGap;
-    if ($available < $m->rowHeight + $m->cellHeight) {
+    $controlHeight = $modal->vertical ? $m->rowHeight : MenuLayout::getButtonHeight($theme);
+    if ($available < $controlHeight + $m->cellHeight) {
       throw new RuntimeException('Modal content exceeds its finite menu viewport; terminal presentation retained.');
     }
     $view = new MenuCanvas($theme, $base->width, $base->height, $time);
@@ -116,8 +117,10 @@ final class MenuModalPresentation
     if ($buttonWidth <= 2 * $theme->rows->metrics->padding) {
       throw new RuntimeException('Modal buttons require a wider menu viewport.');
     }
-    $layout = new MenuRowLayout(new CanvasRectangle(0, 0, $buttonWidth, $available), rowHeight: $m->rowHeight,
-      cellWidth: $m->cellWidth, cellHeight: $m->cellHeight, wrapText: true);
+    $measure = new CanvasRectangle(0, 0, $buttonWidth, $available);
+    $layout = $modal->vertical
+      ? new MenuRowLayout($measure, rowHeight: $m->rowHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight, wrapText: true)
+      : MenuLayout::getButtonLayout($theme, $measure, wrapText: true);
     $heights = array_map(fn(MenuRow $row) => $layout->heightFor($row, $theme->rows->metrics, false), $rows);
     $choiceHeight = $modal->vertical ? min($available, array_sum($heights)) : max($heights);
     if ($choiceHeight > $available) { throw new RuntimeException('Modal button text exceeds its finite menu viewport.'); }
@@ -168,10 +171,9 @@ final class MenuModalPresentation
         rowHeight: $m->rowHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight, wrapText: true), $modal->activeIndex);
     } else {
       foreach ($rows as $index => $row) {
-        $view->rows('menu-modal-choice', [$row], new MenuRowLayout(
+        $view->rows('menu-modal-choice', [$row], MenuLayout::getButtonLayout($theme,
           new CanvasRectangle($x + ($singleButton ? ($width - $buttonWidth) / 2 : $index * ($buttonWidth + $gap)),
-            $y, $buttonWidth, $choiceHeight),
-          rowHeight: $m->rowHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight, wrapText: true));
+            $y, $buttonWidth, $choiceHeight), wrapText: true));
       }
     }
     if ($hintHeight > 0) {

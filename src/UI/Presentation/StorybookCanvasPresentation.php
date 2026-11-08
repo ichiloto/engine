@@ -108,7 +108,7 @@ final class StorybookCanvasPresentation
     $titleHeight = $lines($title) * $m->cellHeight;
     $narratorHeight = $lines($narrator) * $m->cellHeight;
     $hintHeight = MenuActionHints::height(self::getHints(), $theme, $innerWidth);
-    $buttonHeight = $m->rowHeight;
+    $buttonHeight = MenuLayout::getButtonHeight($theme);
     $y = $frame->y + $p;
     $titleBox = $titleHeight > 0 ? new CanvasRectangle($innerX, $y, $innerWidth, $titleHeight) : null;
     $y += $titleHeight;
@@ -190,9 +190,8 @@ final class StorybookCanvasPresentation
     foreach ($modal->choices as $index => $choice) {
       $active = $index === $modal->activeIndex;
       $view->rows('storybook-control', [new MenuRow((string)$index, $choice, kind: MenuRowKind::BUTTON,
-        selected: $active, focused: $active)], new MenuRowLayout(
-          new CanvasRectangle($left + $index * ($buttonWidth + $gap), $row->y, $buttonWidth, $row->height),
-          rowHeight: $m->rowHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight, wrapText: true));
+        selected: $active, focused: $active)], MenuLayout::getButtonLayout($theme,
+          new CanvasRectangle($left + $index * ($buttonWidth + $gap), $row->y, $buttonWidth, $row->height), wrapText: true));
     }
   }
 }

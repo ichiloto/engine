@@ -36,7 +36,8 @@ final class SettingsMenuPresentation
     $hints = [ActionHints::resolve('confirm', 'Next'), ActionHints::resolve('cancel', 'Cancel')];
     $hintWidth = $innerWidth - $cancelWidth - $gap;
     $hintHeight = MenuActionHints::height($hints, $theme, $hintWidth);
-    $footerHeight = max($m->rowHeight, $hintHeight);
+    $buttonHeight = MenuLayout::getButtonHeight($theme);
+    $footerHeight = max($buttonHeight, $hintHeight);
     $listTop = $box->y + $p + $m->rowHeight + 2 * $gap;
     $detailTop = $box->y + $box->height - $p - $footerHeight - $gap - $detailHeight;
     $listHeight = $detailTop - $gap - $listTop;
@@ -128,8 +129,8 @@ final class SettingsMenuPresentation
     }
     $view->rows('config', [new MenuRow('cancel', $menu->backLabel, kind: MenuRowKind::BUTTON,
       selected: $menu->backFocused, focused: $menu->backFocused)],
-      new MenuRowLayout(new CanvasRectangle($x + $innerWidth - $cancelWidth, $footerY, $cancelWidth, $m->rowHeight),
-        rowHeight: $m->rowHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight));
+      MenuLayout::getButtonLayout($theme,
+        new CanvasRectangle($x + $innerWidth - $cancelWidth, $footerY, $cancelWidth, $buttonHeight)));
     // Value text and controls sit above the shared row's selection artwork, not behind it.
     $frame = MenuCanvas::overlay($view->finish(), $valuesView->finish(), $theme);
     return MenuCanvas::overlay($frame, $controls->finish($width, $height), $theme);

@@ -118,7 +118,8 @@ it('centers each confirmation label on its button without a list cursor', functi
 it('uses the active menu theme to size, center and color the Results button', function () {
   $theme = new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog('', [
     'schema' => 'ichiloto.menu/1',
-    'metrics' => ['cellWidth' => 18, 'cellHeight' => 30, 'rowHeight' => 58],
+    'metrics' => ['cellWidth' => 18, 'cellHeight' => 30, 'rowHeight' => 40,
+      'buttonMinWidth' => 230, 'buttonMinHeight' => 48, 'buttonCellWidth' => 14, 'buttonCellHeight' => 28],
     'colors' => ['selected' => [15, 60, 100]],
   ]);
   $playback = new BattleResultsPlayback(new BattleRewards(0, 0, []), true);
@@ -126,9 +127,11 @@ it('uses the active menu theme to size, center and color the Results button', fu
   $layers = array_column($frame->textLayers, null, 'id');
   $button = $layers['results-confirm-selected'];
   $label = $layers['results-confirm-text'];
-  expect($button->clipRect)->toEqual(new CanvasRectangle(567, 655, 216, 58))
+  expect($button->clipRect)->toEqual(new CanvasRectangle(560, 660, 230, 48))
     ->and($button->runs[0]->background)->toEqual(PresentationColor::rgb(15, 60, 100))
-    ->and($label->grid->cellHeight)->toBe(30)
+    ->and($label->grid->cellHeight)->toBe(28)
+    ->and($label->grid->cellWidth)->toBe(14)
+    ->and(\Ichiloto\Engine\UI\Presentation\MenuLayout::getButtonWidth($theme, str_repeat('A', 20), 1000))->toBe(340.0)
     ->and($label->bounds->x + $label->bounds->width / 2)->toBe(675.0)
     ->and($label->bounds->y + $label->bounds->height / 2)->toBe(684.0);
 });
