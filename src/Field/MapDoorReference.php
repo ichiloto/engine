@@ -51,7 +51,7 @@ final readonly class MapDoorReference
       throw new InvalidArgumentException('The project has no Maps directory.');
     }
     $paths = MapSourceReader::resolvePaths($mapsRoot, $this->map);
-    foreach (['data', 'map', 'event'] as $field) {
+    foreach (MapSourceReader::EVENT_SOURCE_FILES as $field) {
       $file = realpath($paths[$field]);
       if ($file === false || !is_file($file) || !str_starts_with($file, $mapsRoot . DIRECTORY_SEPARATOR)) {
         throw new InvalidArgumentException("Door source map '{$this->map}' was not found in the project.");

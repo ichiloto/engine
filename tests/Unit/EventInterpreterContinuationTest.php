@@ -3064,11 +3064,13 @@ it('retains configured transfer transitions for ordinary event scripts', functio
   ConfigStore::remove(ProjectConfig::class);
 });
 
-it('runs a door-owned transfer as an ordinary event and fails closed when its door is missing', function () {
+it('runs a door-owned transfer as an ordinary event and fails closed when its door is missing', function (bool $layered) {
   $root = createTestDirectory('scripted-door-');
   $directory = $root . '/assets/Maps/source';
   mkdir($directory, 0777, true);
-  file_put_contents($directory . '/source.map.php', <<<'SOURCE'
+  if ($layered) { mkdir($directory . '/layers'); }
+  $terrain = $layered ? $directory . '/layers/00.terrain.map.php' : $directory . '/source.map.php';
+  file_put_contents($terrain, <<<'SOURCE'
 <?php
 return <<<'GRID'
 .
@@ -3103,10 +3105,18 @@ SOURCE);
       ->and($failed?->failureMessage)->toContain("Door 'Y' was not found")
       ->and($scene->transferCount)->toBe(1)
       ->and($scene->hasUnstableEventSession())->toBeFalse();
+
+    $eventSource = $directory . '/source.event.php';
+    rename($eventSource, $root . '/outside.event.php');
+    symlink($root . '/outside.event.php', $eventSource);
+    $outside = $interpreter->run([$transfer], 'outside-door-transfer');
+    expect($outside?->status)->toBe(EventExecutionStatus::FAILED)
+      ->and($outside?->failureMessage)->toContain("Door source map 'source' was not found")
+      ->and($scene->transferCount)->toBe(1);
   } finally {
     chdir($previousDirectory);
   }
-});
+})->with(['legacy' => false, 'layered' => true]);
 
 it('fails an ordinary event when its destination map is refused without leaving a suspended lane', function () {
   [$scene, $interpreter] = makeEventRuntime();
