@@ -79,22 +79,40 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
   {
     $groups = $this->comparison?->getActorGroups() ?? [];
     if (count($groups) < 2 || $direction === 0) { return; }
-    $current = $this->getCurrentComparisonActorId();
-    $actors = array_map($this->comparison->getGroupActorId(...), $groups);
-    $index = array_search($current, $actors, true);
-    $next = (($index === false ? 0 : $index) + ($direction <=> 0) + count($groups)) % count($groups);
+    $next = $this->getComparisonActorIndex($groups) + ($direction <=> 0);
+    if ($next < 0) {
+      $this->focusComparison(false);
+      return;
+    }
+    if (!isset($groups[$next])) { return; }
+
     $this->comparisonGroup = $groups[$next];
     $this->comparisonText->reset();
     $this->lastComparisonPage = null;
   }
 
+  /** @param list<int> $groups */
+  private function getComparisonActorIndex(array $groups): int
+  {
+    $actors = array_map($this->comparison->getGroupActorId(...), $groups);
+    $index = array_search($this->getCurrentComparisonActorId(), $actors, true);
+    return $index === false ? 0 : $index;
+  }
+
   /** @return list<\Ichiloto\Engine\IO\ActionHint> */
   public function getComparisonNavigationHints(): array
   {
-    if ($this->comparisonFocused) {
-      return [ActionHints::resolvePair('left', 'right', 'Character'), ActionHints::resolve('back', 'Items')];
+    if (!$this->comparisonFocused) {
+      return $this->canSelectComparisonActor() ? [ActionHints::resolve('right', 'Compare')] : [];
     }
-    return $this->canSelectComparisonActor() ? [ActionHints::resolve('right', 'Compare')] : [];
+
+    $groups = $this->comparison->getActorGroups();
+    $index = $this->getComparisonActorIndex($groups);
+    return match ($index) {
+      0 => [ActionHints::resolve('left', 'Items'), ActionHints::resolve('right', 'Character')],
+      count($groups) - 1 => [ActionHints::resolve('left', 'Character')],
+      default => [ActionHints::resolvePair('left', 'right', 'Character')],
+    };
   }
 
   /** @return array{page: TextPage, lines: array}|null */

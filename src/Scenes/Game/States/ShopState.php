@@ -222,20 +222,17 @@ class ShopState extends GameSceneState implements CanvasProviderInterface
       || (!$this->mode instanceof ShopMerchandiseSelectionMode && !$this->mode instanceof ShopInventorySelectionMode)) {
       return false;
     }
-    if ($panel->comparisonFocused && Input::isButtonPressed('back')) {
-      $panel->focusComparison(false);
+    if (!$panel->comparisonFocused) {
+      if (!Input::isButtonPressed('right')) { return false; }
+      $panel->focusComparison(true);
+    } elseif (Input::isButtonDown('back')) {
+      return false;
+    } elseif (($across = Input::getAxis(AxisName::HORIZONTAL) <=> 0.0) !== 0) {
+      $panel->moveComparisonActor($across);
+    } elseif (Input::isButtonPressed('info')) {
+      $panel->advanceComparison();
     } else {
-      $across = Input::getAxis(AxisName::HORIZONTAL) <=> 0.0;
-      if (!$panel->comparisonFocused) {
-        if (!Input::isButtonPressed('right')) { return false; }
-        $panel->focusComparison(true);
-      } elseif ($across !== 0) {
-        $panel->moveComparisonActor($across);
-      } elseif (Input::isButtonPressed('info')) {
-        $panel->advanceComparison();
-      } else {
-        return true;
-      }
+      return true;
     }
     $panel->updateContent();
     return true;

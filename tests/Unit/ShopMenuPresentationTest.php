@@ -687,18 +687,31 @@ it('shows each eligible member’s main-stat mark while browsing and keeps detai
       static fn($layer): bool => str_starts_with($layer->id, 'shop-comparison-content'))));
   expect($this->state->detailPanel->getCurrentComparisonActorId())->toBe('other')
     ->and($stats($next))->not->toEqual($stats($canvas))
-    ->and(shopPresentationText($next))->toContain('Attack', 'Character', 'Items')
+    ->and(shopPresentationText($next))->toContain('Attack', 'Character')->not->toContain('Items')
     ->not->toContain('Fighter', 'Caster', 'Same', 'Other', 'Empty', 'Can equip')
     ->and(serialize($this->party))->toBe($before);
   shopPresentationPress($this->state, KeyCode::ENTER);
   expect($this->state->mode)->toBeInstanceOf(ShopMerchandiseSelectionMode::class);
+  shopPresentationPress($this->state, KeyCode::RIGHT);
+  expect($this->state->detailPanel->getCurrentComparisonActorId())->toBe('other');
   shopPresentationPress($this->state, KeyCode::LEFT);
   expect($this->state->detailPanel->getCurrentComparisonActorId())->toBe('fighter');
-  shopPresentationPress($this->state, KeyCode::ESCAPE);
+  $leftEdge = ShopMenuPresentation::compose($this->state, $theme);
+  expect(shopPresentationText($leftEdge))->toContain('Items')->not->toContain('Esc');
+  shopPresentationPress($this->state, KeyCode::LEFT);
   expect($this->state->detailPanel->comparisonFocused)->toBeFalse()
     ->and($this->state->mainPanel->activeItem)->toBe($weapon)
     ->and($this->state->mode)->toBeInstanceOf(ShopMerchandiseSelectionMode::class)
     ->and(serialize($this->party))->toBe($before);
+
+  shopPresentationPress($this->state, KeyCode::RIGHT);
+  shopPresentationPress($this->state, KeyCode::ESCAPE);
+  expect($this->state->detailPanel->comparisonFocused)->toBeFalse()
+    ->and($this->state->mode)->toBeInstanceOf(SelectShopMenuCommandMode::class);
+  shopPresentationPress($this->state, KeyCode::ENTER);
   shopPresentationPress($this->state, KeyCode::ENTER);
   expect($this->state->mode)->toBeInstanceOf(PurchaseConfirmationMode::class);
+  shopPresentationPress($this->state, KeyCode::C);
+  expect($this->state->mode)->toBeInstanceOf(ShopMerchandiseSelectionMode::class)
+    ->and(serialize($this->party))->toBe($before);
 });
