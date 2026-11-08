@@ -106,13 +106,31 @@ it('centers each confirmation label on its button without a list cursor', functi
   foreach (['Complete', 'Continue'] as $label) {
     $p->update(0.33);
     $frame = GraphicalBattleResults::frame(resultsBattlefield(), resultsSkinFixture(), $p);
-    $text = array_column($frame->textLayers, null, 'id')['results-confirm'];
+    $text = array_column($frame->textLayers, null, 'id')['results-confirm-text'];
     expect($text->runs[0]->text)->toBe($label)
       ->and($text->bounds->x + $text->bounds->width / 2)->toBe(675.0)
-      ->and($text->bounds->y + $text->bounds->height / 2)->toBe(685.0)
+      ->and($text->bounds->y + $text->bounds->height / 2)->toBe(684.0)
       ->and(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'results-selector-')))->toBe([]);
     $p->confirm();
   }
+});
+
+it('uses the active menu theme to size, center and color the Results button', function () {
+  $theme = new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog('', [
+    'schema' => 'ichiloto.menu/1',
+    'metrics' => ['cellWidth' => 18, 'cellHeight' => 30, 'rowHeight' => 58],
+    'colors' => ['selected' => [15, 60, 100]],
+  ]);
+  $playback = new BattleResultsPlayback(new BattleRewards(0, 0, []), true);
+  $frame = GraphicalBattleResults::frame(resultsBattlefield(), resultsSkinFixture(), $playback, $theme);
+  $layers = array_column($frame->textLayers, null, 'id');
+  $button = $layers['results-confirm-selected'];
+  $label = $layers['results-confirm-text'];
+  expect($button->clipRect)->toEqual(new CanvasRectangle(567, 655, 216, 58))
+    ->and($button->runs[0]->background)->toEqual(PresentationColor::rgb(15, 60, 100))
+    ->and($label->grid->cellHeight)->toBe(30)
+    ->and($label->bounds->x + $label->bounds->width / 2)->toBe(675.0)
+    ->and($label->bounds->y + $label->bounds->height / 2)->toBe(684.0);
 });
 
 it('fades the complete button assembly with an empty beat and a centered incoming label', function () {
@@ -122,14 +140,14 @@ it('fades the complete button assembly with an empty beat and a centered incomin
   foreach ([[0.06, 'Complete', 0.5], [0.09, null, 0.0], [0.10, 'Continue', 0.5], [0.08, 'Continue', 1.0]] as [$delta, $label, $alpha]) {
     $p->update($delta);
     $frame = GraphicalBattleResults::frame(resultsBattlefield(), resultsSkinFixture(), $p);
-    $images = array_filter($frame->images, fn($image) => str_starts_with($image->id, 'results-confirm-'));
+    $parts = array_filter($frame->textLayers, fn($part) => str_starts_with($part->id, 'results-confirm-'));
     expect(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'results-selector-')))->toBe([]);
-    $text = array_column($frame->textLayers, null, 'id')['results-confirm'] ?? null;
+    $text = array_column($frame->textLayers, null, 'id')['results-confirm-text'] ?? null;
     if ($label === null) {
-      expect($images)->toBe([])->and($text)->toBeNull();
+      expect($parts)->toBe([])->and($text)->toBeNull();
     } else {
-      expect($images)->not->toBeEmpty();
-      foreach ($images as $image) { expect($image->opacity)->toEqualWithDelta($alpha, 0.000001); }
+      expect($parts)->not->toBeEmpty();
+      foreach ($parts as $part) { expect($part->opacity)->toEqualWithDelta($alpha, 0.000001); }
       expect($text->runs[0]->text)->toBe($label)
         ->and($text->opacity)->toEqualWithDelta($alpha, 0.000001)
         ->and($text->bounds->x + $text->bounds->width / 2)->toBe(675.0);
@@ -148,8 +166,8 @@ it('keeps completed confirmation artwork steady without a cursor in either motio
   $next = GraphicalBattleResults::frame($field, $skin, $p);
   $selector = fn($frame) => array_values(array_filter($frame->images,
     fn($image) => str_starts_with($image->id, 'results-selector-')));
-  $button = fn($frame) => array_values(array_filter($frame->images,
-    fn($image) => str_starts_with($image->id, 'results-confirm-')));
+  $button = fn($frame) => array_values(array_filter($frame->textLayers,
+    fn($part) => str_starts_with($part->id, 'results-confirm-')));
   expect($selector($first))->toBe([])->and($selector($next))->toBe([])
     ->and($button($first))->not->toBeEmpty()->toEqual($button($next))
     ->and($first->toArray())->toBe($next->toArray())
@@ -172,12 +190,12 @@ it('keeps the completed action label unchanged throughout the locked exit fade',
   $p->update(10);
   $field = resultsBattlefield();
   $skin = resultsSkinFixture();
-  $before = array_column(GraphicalBattleResults::frame($field, $skin, $p)->textLayers, null, 'id')['results-confirm'];
+  $before = array_column(GraphicalBattleResults::frame($field, $skin, $p)->textLayers, null, 'id')['results-confirm-text'];
   expect($p->confirm())->toBeFalse()->and($p->isExiting())->toBeTrue();
   foreach ([0, 0.14, 0.14, 0.13] as $delta) {
     $p->update($delta);
     $frame = GraphicalBattleResults::frame($field, $skin, $p);
-    $label = array_column($frame->textLayers, null, 'id')['results-confirm'];
+    $label = array_column($frame->textLayers, null, 'id')['results-confirm-text'];
     expect($label->runs[0]->text)->toBe('Continue')
       ->and($label->bounds)->toEqual($before->bounds)
       ->and($label->opacity)->toBe($p->opacity())
@@ -332,7 +350,7 @@ it('validates asset presence, source bounds, unique decoded costs and one-densit
       file_put_contents($root . '/' . $texture->asset, "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 8, 8));
     }
     $costs = GraphicalBattleResults::preflight($skin, $root);
-    expect($costs)->toHaveCount(8)->and(array_sum($costs))->toBe(8 * 8 * 4 * 8);
+    expect($costs)->toHaveCount(7)->and(array_sum($costs))->toBe(8 * 8 * 4 * 7);
     foreach ($skin->textures as $texture) {
       file_put_contents($root . '/' . $texture->asset, "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 4096, 4096));
       touch($root . '/' . $texture->asset, time() + 1);
@@ -347,7 +365,7 @@ it('validates asset presence, source bounds, unique decoded costs and one-densit
     expect($prepared->portraits['actor-1']['menu']->source->toArray())
       ->toBe(['x' => 0, 'y' => 0, 'width' => 8, 'height' => 8]);
     unlink($root . '/exp.png');
-    expect(GraphicalBattleResults::preflight($skin, $root))->not->toHaveKey('exp.png')->toHaveCount(7);
+    expect(GraphicalBattleResults::preflight($skin, $root))->not->toHaveKeys(['exp.png', 'button.png'])->toHaveCount(6);
     $textures = $skin->textures;
     $textures['exp'] = new CanvasNineSlice('exp.png', new SpriteSourceRect(0, 0, 8, 8), density: 2);
     expect(fn() => new BattleResultsSkin($textures, $skin->colors))->toThrow(InvalidArgumentException::class);
@@ -426,7 +444,7 @@ it('validates every portrait but budgets Primary pages and individual busts sepa
     // Unavailable optional portraits do not invalidate healthy catalog entries.
     unlink($root . '/bust-6.png');
     $available = GraphicalBattleResults::preflight($skin, $root, [], ['actor-1']);
-    expect($available)->not->toHaveKey('bust-6.png')->toHaveKey('menu-6.png')->toHaveKey('bust-1.png')->toHaveCount(19);
+    expect($available)->not->toHaveKey('bust-6.png')->toHaveKey('menu-6.png')->toHaveKey('bust-1.png')->toHaveCount(18);
     $png('bust-6.png', 2048, 2048);
 
     // These actors can share a Primary page when continued names shift the page boundary.
@@ -436,7 +454,7 @@ it('validates every portrait but budgets Primary pages and individual busts sepa
     }
     $skin = resultsSkinFixture($portraits);
     expect(fn() => GraphicalBattleResults::preflight($skin, $root))->toThrow(RuntimeException::class, '64 MiB');
-    expect(GraphicalBattleResults::preflight($skin, $root, [], ['actor-1']))->toHaveCount(20);
+    expect(GraphicalBattleResults::preflight($skin, $root, [], ['actor-1']))->toHaveCount(19);
   } finally {
     foreach (glob($root . '/*') ?: [] as $path) { unlink($path); }
     rmdir($root);
@@ -480,7 +498,7 @@ it('keeps healthy Results artwork above fallback panels with complete rewards an
     $skin = GraphicalBattleResults::prepare(resultsSkinFixture(), $root);
     $playback = new BattleResultsPlayback(resultsGraphicalFacts(), true);
     $frame = GraphicalBattleResults::frame(new PresentationCanvas(1350, 720), $skin, $playback);
-    expect(array_column($frame->images, 'asset'))->toContain('exp.png', 'portrait.png', 'button.png')
+    expect(array_column($frame->images, 'asset'))->toContain('exp.png', 'portrait.png')->not->toContain('button.png')
       ->and(resultsFrameText($frame))->toContain('VICTORY', 'Hero 1', 'Hero 4', '123', 'Continue');
     $layers = array_column($frame->textLayers, null, 'id');
     $images = array_column($frame->images, null, 'id');
@@ -668,7 +686,7 @@ it('removes per-member qualifiers and presents empty loot quietly with the total
     ->and(serialize($rewards))->toBe($before);
 });
 
-it('keeps the confirmation chip beside its button and complete paging hints clear of panel frames', function () {
+it('omits graphical confirmation hints and keeps complete paging hints clear of panel frames', function () {
   $actionHints = \Ichiloto\Engine\IO\ActionHints::class;
   $provider = new ReflectionProperty($actionHints, 'provider');
   $previous = $provider->getValue();
@@ -684,12 +702,7 @@ it('keeps the confirmation chip beside its button and complete paging hints clea
       $items = array_map(fn($i) => ['id' => 'item-' . $i, 'name' => 'Item ' . $i, 'description' => '', 'quantity' => 1], range(1, 9));
       $playback = new BattleResultsPlayback(new BattleRewards(150, 123, $facts->progression, $items), true);
       $frame = GraphicalBattleResults::frame(resultsBattlefield(), resultsSkinFixture(), $playback);
-      $confirm = array_values(array_filter($frame->textLayers, fn($layer) => $layer->id === 'results-confirm-control'));
-      expect($confirm)->toHaveCount(1);
-      $chip = $confirm[0];
-      expect(implode('', array_column($chip->runs, 'text')))->toBe('Space')
-        ->and($chip->paintBounds->x + $chip->paintBounds->width)->toBeLessThan(560)
-        ->and($chip->paintBounds->y + $chip->paintBounds->height / 2)->toBe(685.0);
+      expect(resultsFrameText($frame))->toContain('Continue')->not->toContain('Space');
       foreach (['party' => [80, 620, 698, 18], 'items' => [856, 438, 414, 18]] as $id => [$x, $y, $width, $height]) {
         $footer = array_values(array_filter($frame->textLayers, fn($layer) => str_starts_with($layer->id, 'results-' . $id . '-pages')));
         if ($id === 'party' && $members === 4) { expect($footer)->toBe([]); continue; }

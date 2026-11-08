@@ -11,6 +11,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasGlyphEffects;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextBatch;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextureFallback;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
@@ -21,14 +22,19 @@ use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use InvalidArgumentException;
 use RuntimeException;
 use Ichiloto\Engine\IO\ActionHint;
-use Ichiloto\Engine\UI\Presentation\ControlGlyphPresentation;
-use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\MenuActionHints;
+use Ichiloto\Engine\UI\Presentation\MenuLayout;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\MenuRow;
+use Ichiloto\Engine\UI\Presentation\MenuRowKind;
+use Ichiloto\Engine\UI\Presentation\MenuRowLayout;
+use Ichiloto\Engine\UI\Presentation\MenuRowPainter;
 
 /** A disposable overlay over the caller's real final battlefield, never a gameplay owner. */
 final class GraphicalBattleResults
 {
   private const BASE_LAYER = 10000;
+  private const PANEL_BOTTOM = 648;
   /** Where the reward totals sit, by how many there are: EXP and gold, or EXP, SP and gold. */
   private const array TOTAL_ROWS = [2 => [207, 241], 3 => [196, 222, 248]];
   private array $images = [];
@@ -71,11 +77,12 @@ final class GraphicalBattleResults
   {
     foreach (['panel' => [754, 502], 'quiet' => [470, 164], 'track' => [582, 12],
       'selector' => [16, 16], 'portrait' => [96, 96], 'exp' => [578, 8],
-      'divider' => [440, 16], 'button' => [230, 46]] as $role => [$width, $height]) {
+      'divider' => [440, 16]] as $role => [$width, $height]) {
       $skin->textures[$role]->images('results-preflight', new CanvasRectangle(0, 0, $width, $height), 0);
     }
     $assets = [];
-    $textures = CanvasTextureFallback::getAvailableTextures(array_values($skin->textures), $root);
+    // Legacy catalogs may share their old Results button texture with Pause.
+    $textures = CanvasTextureFallback::getAvailableTextures(array_diff_key($skin->textures, ['button' => true]), $root);
     $art = [...$textures, ...array_values($skin->icons)];
     foreach ($skin->portraits as $families) {
       array_push($art, ...array_values(array_filter($families)));
@@ -140,7 +147,7 @@ final class GraphicalBattleResults
     if ($stage['kind'] === 'primary') { $view->primary(); } else { $view->event(); }
     $view->controls();
     return new PresentationCanvas(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT, [...$battlefield->images, ...$view->images],
-      $battlefield->indicators, [...$battlefield->textLayers, ...$view->text], $battlefield->composites,
+      $battlefield->indicators, CanvasTextBatch::compact([...$battlefield->textLayers, ...$view->text]), $battlefield->composites,
       [...$battlefield->getOverlayProtection(),
         ...array_map(static fn(CanvasImage $image) => $image->clipRect ?? $image->destination, $view->images),
         ...array_map(static fn(CanvasTextLayer $text) => $text->clipRect ?? $text->paintBounds, $view->text)],
@@ -155,9 +162,9 @@ final class GraphicalBattleResults
 
   private function primary(): void
   {
-    $this->renderImage('party', 'panel', new CanvasRectangle(52, 146, 754, 502));
+    $this->renderImage('party', 'panel', new CanvasRectangle(52, 146, 754, self::PANEL_BOTTOM - 146));
     $this->renderImage('rewards', 'panel', new CanvasRectangle(828, 146, 470, 324));
-    $this->renderImage('summary', 'quiet', new CanvasRectangle(828, 484, 470, 164));
+    $this->renderImage('summary', 'quiet', new CanvasRectangle(828, 484, 470, self::PANEL_BOTTOM - 484));
     $this->line('party-title', Vocabulary::getTerm('battle.party_progress', 'PARTY PROGRESS'), 80, 168, 698, 11, 22, 'accent');
     $this->line('rewards-title', Vocabulary::getTerm('battle.rewards', 'REWARDS'), 856, 168, 414, 11, 22, 'accent');
     $this->line('summary-title', Vocabulary::getTerm('battle.summary', 'BATTLE SUMMARY'), 856, 508, 414, 11, 22, 'accent');
@@ -219,7 +226,7 @@ final class GraphicalBattleResults
 
   private function event(): void
   {
-    $this->renderImage('event', 'panel', new CanvasRectangle(100, 146, 1150, 502));
+    $this->renderImage('event', 'panel', new CanvasRectangle(100, 146, 1150, self::PANEL_BOTTOM - 146));
     $counter = $this->playback->eventCounter();
     if ($counter['current'] > 0) {
       $this->line('event-counter', $counter['current'] . '/' . $counter['total'],
@@ -255,19 +262,9 @@ final class GraphicalBattleResults
   {
     $prompt = $this->playback->confirmation();
     if ($prompt['opacity'] > 0) {
-      $this->renderImage('confirm', 'button', new CanvasRectangle(560, 662, 230, 46), alpha: $prompt['opacity']);
-      $this->line('confirm', $prompt['label'], 560, 671, 230, 14, 28, 'text', 'center', $prompt['opacity']);
+      $this->renderConfirmation($prompt['label'], $prompt['opacity']);
     }
-    $hints = $this->playback->getActionHints();
-    $confirm = array_find($hints, static fn(ActionHint $hint): bool => $hint->action === 'action');
-    $navigation = array_find($hints, static fn(ActionHint $hint): bool => $hint->pairedAction !== null);
-    if ($confirm !== null) {
-      // The confirmation key belongs with its independently centred button label.
-      $glyphs = new ControlGlyphPresentation($this->controls, 'results-confirm-control', [11, 22], self::BASE_LAYER + 4);
-      $width = $glyphs->measureCells($confirm->control) * 11;
-      $glyphs->renderControl('confirm-key', $confirm->control, new CanvasRectangle(544 - $width, 674, $width, 22));
-      $this->appendControls($glyphs->compose(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT));
-    }
+    $navigation = array_find($this->playback->getActionHints(), static fn(ActionHint $hint): bool => $hint->pairedAction !== null);
     if ($this->playback->currentStage()['kind'] === 'primary') {
       $pages = BattleResultsContent::getPrimaryPageCounts($this->playback->rewards);
       $this->renderFooter('party', 80, 620, 698, $pages['party'], $navigation);
@@ -276,6 +273,23 @@ final class GraphicalBattleResults
     } else {
       $this->renderFooter('event', 128, 620, 1094, $this->playback->pageCount(), $navigation);
     }
+  }
+
+  private function renderConfirmation(string $label, float $alpha): void
+  {
+    $width = PresentationCanvas::DEFAULT_WIDTH;
+    $height = PresentationCanvas::DEFAULT_HEIGHT;
+    $metrics = $this->controls->metrics;
+    $footerHeight = $height - self::PANEL_BOTTOM;
+    $buttonHeight = min($metrics->rowHeight, $footerHeight);
+    $buttonWidth = MenuLayout::getButtonWidth($this->controls, $label, $width - 2 * MenuLayout::OUTER_MARGIN);
+    $bounds = new CanvasRectangle(($width - $buttonWidth) / 2,
+      self::PANEL_BOTTOM + ($footerHeight - $buttonHeight) / 2, $buttonWidth, $buttonHeight);
+    $layout = new MenuRowLayout($bounds, rowHeight: $buttonHeight,
+      cellWidth: $metrics->cellWidth, cellHeight: $metrics->cellHeight);
+    $row = new MenuRow('confirm', $label, kind: MenuRowKind::BUTTON, selected: true, focused: true);
+    $this->appendControls(MenuRowPainter::compose($width, $height, 'results', [$row], $layout,
+      $this->controls->rows, layer: self::BASE_LAYER + 4), $alpha);
   }
 
   /** A complete, measured paging hint stays together inside each continuing panel. */
@@ -297,15 +311,16 @@ final class GraphicalBattleResults
       layer: self::BASE_LAYER + 4));
   }
 
-  private function appendControls(PresentationCanvas $canvas): void
+  private function appendControls(PresentationCanvas $canvas, float $alpha = 1): void
   {
+    $opacity = $alpha * $this->opacity;
     foreach ($canvas->images as $image) {
       $this->images[] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
-        $image->sourceRect, $image->opacity * $this->opacity, $image->clipRect, $image->brightness, $image->flipX, $image->flipY);
+        $image->sourceRect, $image->opacity * $opacity, $image->clipRect, $image->brightness, $image->flipX, $image->flipY);
     }
     foreach ($canvas->textLayers as $text) {
       $this->text[] = new CanvasTextLayer($text->id, $text->layer, $text->x, $text->y, $text->grid,
-        $text->runs, $text->clipRect, $text->opacity * $this->opacity, $text->glyphEffects);
+        $text->runs, $text->clipRect, $text->opacity * $opacity, $text->glyphEffects);
     }
   }
 
@@ -369,7 +384,7 @@ final class GraphicalBattleResults
 
   private function renderImage(string $id, string $role, CanvasRectangle $bounds, ?CanvasRectangle $clip = null, float $alpha = 1): void
   {
-    if (in_array($role, ['track', 'portrait', 'divider', 'button'], true)
+    if (in_array($role, ['track', 'portrait', 'divider'], true)
       && !CanvasTextureFallback::isAvailable($this->skin->textures[$role], $this->skin->assetRoot)) {
       $this->skin->textures[$role]->images('results-' . $id, $bounds, self::BASE_LAYER + 1, $clip);
       return;
@@ -398,9 +413,7 @@ final class GraphicalBattleResults
     $column = $align === 'right' ? $columns - $length : 0;
     $effects = $id === 'heading' ? new CanvasGlyphEffects(1, $this->skin->colors['ink'],
       1, 2, 1, 0.8, $this->skin->colors['ink']) : null;
-    $background = str_ends_with($id, '-percentage')
-      || ($id === 'confirm' && !CanvasTextureFallback::isAvailable($this->skin->textures['button'], $this->skin->assetRoot))
-      ? $this->skin->colors['ink'] : null;
+    $background = str_ends_with($id, '-percentage') ? $this->skin->colors['ink'] : null;
     $this->text[] = new CanvasTextLayer('results-' . $id, self::BASE_LAYER + 3, $x, $y,
       new RendererGridConfig($columns, 1, $cellWidth, $cellHeight),
       [new PresentationTextRun(0, $column, $label, $this->skin->colors[$color], $background)],
