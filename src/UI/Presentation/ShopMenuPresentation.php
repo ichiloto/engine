@@ -180,7 +180,7 @@ final class ShopMenuPresentation
       $showIdentity = !in_array($state->detailPanel->getCurrentComparisonActorId(), $portraitIds, true);
       $comparison = $state->detailPanel->getComparisonPage($columns, $rows, $showIdentity);
       if ($comparison !== null) {
-        $hasNavigation = !$quantityMode && $state->detailPanel->canSelectComparisonActor();
+        $hasNavigation = $state->detailPanel->canSelectComparisonActor();
         $comparisonHints = $hasNavigation ? $state->detailPanel->getComparisonNavigationHints() : [];
         $hintHeightInDetail = MenuActionHints::height($comparisonHints, $theme, $comparisonWidth, required: $hasNavigation);
         $more = $comparison['page']->total > max(1, $rows - (int)ceil($hintHeightInDetail / $m->rowHeight));

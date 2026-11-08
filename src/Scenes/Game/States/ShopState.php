@@ -9,6 +9,7 @@ use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Windows\InfoPanel;
 use Ichiloto\Engine\Core\Menu\MenuItem;
+use Ichiloto\Engine\Core\Menu\ShopMenu\Modes\PurchaseConfirmationMode;
 use Ichiloto\Engine\Core\Menu\ShopMenu\Modes\SelectShopMenuCommandMode;
 use Ichiloto\Engine\Core\Menu\ShopMenu\Modes\ShopInventorySelectionMode;
 use Ichiloto\Engine\Core\Menu\ShopMenu\Modes\ShopMenuMode;
@@ -218,8 +219,7 @@ class ShopState extends GameSceneState implements CanvasProviderInterface
   private function handleComparisonInput(): bool
   {
     $panel = $this->detailPanel;
-    if ($panel === null || !$panel->canSelectComparisonActor()
-      || (!$this->mode instanceof ShopMerchandiseSelectionMode && !$this->mode instanceof ShopInventorySelectionMode)) {
+    if ($panel === null || !$panel->canSelectComparisonActor()) {
       return false;
     }
     if (!$panel->comparisonFocused) {
@@ -447,7 +447,12 @@ class ShopState extends GameSceneState implements CanvasProviderInterface
     $this->detailPanel?->focusComparison(false);
     $this->mode?->exit();
     $this->mode = $mode;
+    if ($this->detailPanel !== null) {
+      $this->detailPanel->comparisonNavigationEnabled = $mode instanceof ShopMerchandiseSelectionMode
+        || $mode instanceof ShopInventorySelectionMode;
+    }
     $this->mode->enter();
+    if ($mode instanceof PurchaseConfirmationMode) { $this->detailPanel?->updateContent(); }
     $this->syncInfoSelection();
   }
 }

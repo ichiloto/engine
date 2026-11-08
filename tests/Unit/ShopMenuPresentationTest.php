@@ -710,8 +710,11 @@ it('shows each eligible member’s main-stat mark while browsing and keeps detai
     ->and($this->state->mode)->toBeInstanceOf(SelectShopMenuCommandMode::class);
   shopPresentationPress($this->state, KeyCode::ENTER);
   shopPresentationPress($this->state, KeyCode::ENTER);
-  expect($this->state->mode)->toBeInstanceOf(PurchaseConfirmationMode::class);
+  expect($this->state->mode)->toBeInstanceOf(PurchaseConfirmationMode::class)
+    ->and(TerminalText::stripAnsi(implode("\n", $this->state->detailPanel->getContent())))->not->toContain('Compare')
+    ->and(shopPresentationText(ShopMenuPresentation::compose($this->state, $theme)))->not->toContain('Compare');
   shopPresentationPress($this->state, KeyCode::C);
   expect($this->state->mode)->toBeInstanceOf(ShopMerchandiseSelectionMode::class)
+    ->and(TerminalText::stripAnsi(implode("\n", $this->state->detailPanel->getContent())))->toContain('Compare')
     ->and(serialize($this->party))->toBe($before);
 });

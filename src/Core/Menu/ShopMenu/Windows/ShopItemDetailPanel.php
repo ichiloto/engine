@@ -40,6 +40,7 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
   private int $comparisonGroup = 0;
   private bool $lastComparisonIdentity = true;
   public private(set) bool $comparisonFocused = false;
+  public bool $comparisonNavigationEnabled = false;
 
   public function setItem(?InventoryItem $item, Party $party): void
   {
@@ -66,7 +67,7 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
 
   public function canSelectComparisonActor(): bool
   {
-    return count($this->comparison?->getActorGroups() ?? []) > 1;
+    return $this->comparisonNavigationEnabled && count($this->comparison?->getActorGroups() ?? []) > 1;
   }
 
   public function focusComparison(bool $focused): void
