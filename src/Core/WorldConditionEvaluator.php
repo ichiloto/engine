@@ -96,7 +96,8 @@ class WorldConditionEvaluator
       }
 
       if ($type === WorldConditionType::ASSIGNED_SUMMONS && !self::isAssignedSummonsConditionValid($condition)) {
-        throw new InvalidArgumentException(sprintf('%s assigned_summons requires name "party" and a positive integer quantity.', $conditionSource));
+        throw new InvalidArgumentException(sprintf('%s assigned_summons requires one of these names [%s] and a positive integer quantity.',
+          $conditionSource, implode(', ', AssignedSummonScope::values())));
       }
 
       if ($type === WorldConditionType::QUEST && array_key_exists('status', $condition)
@@ -163,9 +164,9 @@ class WorldConditionEvaluator
   }
 
   /** @param array<string, mixed> $condition */
-  private static function isAssignedSummonsConditionValid(array $condition): bool
+  public static function isAssignedSummonsConditionValid(array $condition): bool
   {
-    return is_string($condition['name'] ?? null) && trim($condition['name']) === 'party'
+    return is_string($condition['name'] ?? null) && AssignedSummonScope::tryFrom(trim($condition['name'])) !== null
       && is_int($condition['quantity'] ?? null) && $condition['quantity'] > 0;
   }
 
@@ -203,7 +204,9 @@ class WorldConditionEvaluator
         $condition['value'] ?? 0
       ),
       WorldConditionType::ITEM => ($party?->inventory?->getQuantity($name, 'evaluating an item world condition') ?? 0) >= max(1, intval($condition['quantity'] ?? 1)),
-      WorldConditionType::ASSIGNED_SUMMONS => count($party?->getAssignedSummonIds() ?? []) >= $condition['quantity'],
+      WorldConditionType::ASSIGNED_SUMMONS => match (AssignedSummonScope::from($name)) {
+        AssignedSummonScope::PARTY => count($party?->getAssignedSummonIds() ?? []) >= $condition['quantity'],
+      },
       WorldConditionType::KEY_ITEM => $party?->inventory?->hasKeyItem($name) ?? false,
       WorldConditionType::QUEST => $questLog !== null
         ? (($condition['status'] ?? 'completed') === 'active' ? $questLog->isActive($name) : $questLog->isCompleted($name))
