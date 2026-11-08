@@ -19,9 +19,12 @@ final class CombatResolver
     $preHp = $request->target->stats->currentHp;
     $guaranteed = $request->baseAccuracy === null;
     $equipmentAccuracy = $request->actor instanceof Character ? $request->actor->getEquipmentAccuracyModifier() : 0;
+    $stateAccuracy = !$guaranteed && method_exists($request->actor, 'getStateAccuracyModifier')
+      ? $request->actor->getStateAccuracyModifier()
+      : 0;
     $equipmentCritical = $request->actor instanceof Character ? $request->actor->getEquipmentCriticalModifier() : 0;
     $hitChance = $guaranteed ? 100 : intval(clamp(
-      intval($request->baseAccuracy) + $actor->stats->grace + $equipmentAccuracy - $target->stats->evasion,
+      intval($request->baseAccuracy) + $actor->stats->grace + $equipmentAccuracy + $stateAccuracy - $target->stats->evasion,
       CombatCalibration::HIT_CHANCE_FLOOR,
       CombatCalibration::HIT_CHANCE_CEILING,
     ));

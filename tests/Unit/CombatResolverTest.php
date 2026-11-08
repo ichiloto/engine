@@ -26,6 +26,7 @@ use Ichiloto\Engine\Entities\Skills\SkillInvocation;
 use Ichiloto\Engine\Entities\Skills\SkillRecord;
 use Ichiloto\Engine\Entities\Skills\SkillResolutionScope;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
+use Ichiloto\Engine\Entities\States\State;
 use Ichiloto\Engine\Entities\Stats;
 
 function foundationBattler(string $name, Stats $stats): Enemy
@@ -84,6 +85,32 @@ function resolveFoundationHit(
     guaranteedCritical: $guaranteedCritical,
   ), $random);
 }
+
+it('applies active state accuracy to rolled hits and restores accuracy at expiry', function () {
+  $actor = foundationBattler('Actor', new Stats(currentHp: 100, totalHp: 100));
+  $target = foundationBattler('Target', new Stats(currentHp: 100, totalHp: 100));
+  $resolve = fn(?int $accuracy) => resolveFoundationHit(
+    $actor, $target, ResolutionKind::PHYSICAL_DAMAGE, 1, accuracy: $accuracy, random: sequenceRandom(65),
+  );
+  $baseline = $resolve(80)->hitChance;
+  $actor->addState(State::fromArray(['id' => 'penalty', 'durationTurns' => 1, 'accuracyModifier' => -30]), guaranteed: true);
+  $actor->addState(State::fromArray(['id' => 'bonus', 'accuracyModifier' => 5]), guaranteed: true);
+  $target->addState(State::fromArray(['id' => 'target-penalty', 'accuracyModifier' => -40]), guaranteed: true);
+
+  $rolled = $resolve(80);
+  expect($rolled->hitChance)->toBe($baseline - 25)->and($rolled->hit)->toBeFalse();
+  $guaranteed = $resolve(null);
+  expect($guaranteed->hitChance)->toBe(100)->and($guaranteed->hitRoll)->toBeNull()->and($guaranteed->hit)->toBeTrue();
+  $actor->tickStates();
+
+  $restored = $resolve(80);
+  expect($restored->hitChance)->toBe($baseline + 5)->and($restored->hit)->toBeTrue();
+});
+
+it('rejects invalid authored state accuracy modifiers', function (mixed $modifier) {
+  expect(fn() => State::fromArray(['id' => 'accuracy', 'accuracyModifier' => $modifier]))
+    ->toThrow(InvalidArgumentException::class, 'accuracyModifier');
+})->with([-101, 101, 1.5, '10', true]);
 
 it('applies physical and magical defence once through one diminishing family', function () {
   $actor = foundationBattler('Actor', new Stats(currentHp: 100, totalHp: 100, attack: 100, magicAttack: 100));

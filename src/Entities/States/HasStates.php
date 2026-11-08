@@ -213,6 +213,19 @@ trait HasStates
     return $rate;
   }
 
+  /** Returns the sum of active state adjustments to the bearer's rolled accuracy. */
+  public function getStateAccuracyModifier(): int
+  {
+    $modifier = 0;
+    foreach ($this->states as $instance) {
+      if ($instance->remainingTurns !== 0) {
+        $modifier += $instance->state->accuracyModifier;
+      }
+    }
+
+    return $modifier;
+  }
+
   /**
    * Determines whether a state has this battler taking the hits meant for its weakest ally.
    *

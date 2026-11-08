@@ -25,6 +25,7 @@ class State
 {
   /** Declared default preserves states restored from older saves. */
   protected(set) float $atbRate = 1.0;
+  protected(set) int $accuracyModifier = 0;
   /** The badge label length derived from the name when none is authored. */
   protected const int DERIVED_LABEL_LENGTH = 3;
 
@@ -61,6 +62,7 @@ class State
    * @param bool $coversAllies True when the bearer takes the single-target hits meant for its weakest ally (Cover).
    * @param int $confusionChancePercent The chance, 0 to 100, that on each of its turns the bearer loses track of friend and
    *   foe and makes its ordinary attack on a random battler of either side instead of acting (Confusion); 0 never.
+   * @param int $accuracyModifier Adds percentage points to the bearer's rolled hit chances while active.
    */
   public function __construct(
     protected(set) string $id,
@@ -81,6 +83,7 @@ class State
     protected(set) bool $coversAllies = false,
     protected(set) int $confusionChancePercent = 0,
     float $atbRate = 1.0,
+    int $accuracyModifier = 0,
   )
   {
     if ($fieldTickSteps !== null && $fieldTickSteps < 1) {
@@ -95,7 +98,11 @@ class State
     if (!is_finite($atbRate) || $atbRate < 0.0) {
       throw new InvalidArgumentException(sprintf('State "%s" atbRate must be a finite non-negative multiplier.', $id));
     }
+    if ($accuracyModifier < -100 || $accuracyModifier > 100) {
+      throw new InvalidArgumentException(sprintf('State "%s" accuracyModifier must be between -100 and 100.', $id));
+    }
     $this->atbRate = $atbRate;
+    $this->accuracyModifier = $accuracyModifier;
   }
 
   /**
@@ -146,6 +153,11 @@ class State
       throw new InvalidArgumentException(sprintf('State "%s" atbRate must be a number.', $id));
     }
 
+    $accuracyModifier = $data['accuracyModifier'] ?? 0;
+    if (!is_int($accuracyModifier)) {
+      throw new InvalidArgumentException(sprintf('State "%s" accuracyModifier must be a whole number of percentage points.', $id));
+    }
+
     return new self(
       $id,
       strval($data['name'] ?? $id),
@@ -165,6 +177,7 @@ class State
       $data['coversAllies'] ?? false,
       $confusionChance,
       (float) $atbRate,
+      $accuracyModifier,
     );
   }
 }
