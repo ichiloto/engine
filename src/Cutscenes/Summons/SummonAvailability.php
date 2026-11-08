@@ -174,9 +174,14 @@ final class SummonAvailability
         break;
 
       case WorldConditionType::ASSIGNED_SUMMONS->value:
-        if (trim(strval($condition['name'] ?? '')) !== 'party' || !is_int($condition['quantity'] ?? null)
-          || $condition['quantity'] < 1) {
+        if (!WorldConditionEvaluator::isAssignedSummonsConditionValid($condition)) {
           $errors[] = sprintf('Availability condition %d requires party and a positive assigned summon quantity.', $position);
+        }
+        break;
+
+      case WorldConditionType::PRESENT_PARTY_SIZE->value:
+        if (!WorldConditionEvaluator::isPresentPartySizeConditionValid($condition)) {
+          $errors[] = sprintf('Availability condition %d requires a supported present-party scope and a positive party size.', $position);
         }
         break;
 

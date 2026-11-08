@@ -41,6 +41,8 @@ it('publishes the complete stable condition vocabulary', function () {
     'key_item',
     'world_ability',
     'assigned_summons',
+    'present_actor',
+    'present_party_size',
   ]);
 });
 
@@ -155,6 +157,30 @@ it('counts distinct assigned contracts and observes successful mutations from Pa
   expect(fn() => WorldConditionEvaluator::validateAll([$bad]))->toThrow(InvalidArgumentException::class)
     ->and(WorldConditionEvaluator::allHold([$bad], $state, $party))->toBeFalse();
   $party->setSummonAssignmentListener(null);
+});
+
+it('checks current participants by stable actor identity and exact present count', function () {
+  $state = new GameState();
+  $party = new Party();
+  foreach (['alpha', 'beta', 'gamma', 'delta'] as $id) {
+    $party->addMember(new Character('Same display name', 0, new Stats(), actorId: $id));
+  }
+  $actor = ['type' => 'present_actor', 'name' => 'delta'];
+  $four = ['type' => 'present_party_size', 'name' => 'party', 'quantity' => 4];
+  WorldConditionEvaluator::validateAll([$actor, $four]);
+  expect(WorldConditionEvaluator::allHold([$actor, $four], $state, $party))->toBeTrue();
+
+  $party->selectParticipants(['alpha']);
+  expect(WorldConditionEvaluator::allHold([$actor], $state, $party))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold([[...$actor, 'negate' => true]], $state, $party))->toBeTrue()
+    ->and(WorldConditionEvaluator::allHold([$four], $state, $party))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold([[...$four, 'quantity' => 1]], $state, $party))->toBeTrue();
+
+  $party->regroupParticipants();
+  expect(WorldConditionEvaluator::allHold([$actor, $four], $state, $party))->toBeTrue();
+  $malformed = [...$four, 'quantity' => '4', 'negate' => true];
+  expect(fn() => WorldConditionEvaluator::validateAll([$malformed]))->toThrow(InvalidArgumentException::class)
+    ->and(WorldConditionEvaluator::allHold([$malformed], $state, $party))->toBeFalse();
 });
 
 it('keeps item and key-item conditions stable across display-name changes', function () {

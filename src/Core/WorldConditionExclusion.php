@@ -143,6 +143,9 @@ final class WorldConditionExclusion
             WorldConditionType::ITEM => is_scalar($condition['quantity'] ?? 1) ? [max(1, intval($condition['quantity'] ?? 1))] : null,
             WorldConditionType::ASSIGNED_SUMMONS => WorldConditionEvaluator::isAssignedSummonsConditionValid($condition)
                 ? [$condition['quantity']] : null,
+            WorldConditionType::PRESENT_ACTOR => is_string($condition['name']) ? [] : null,
+            WorldConditionType::PRESENT_PARTY_SIZE => WorldConditionEvaluator::isPresentPartySizeConditionValid($condition)
+                ? [$condition['quantity']] : null,
             WorldConditionType::QUEST => is_scalar($condition['status'] ?? 'completed') ? [strval($condition['status'] ?? 'completed')] : null,
             WorldConditionType::VARIABLE => self::readVariableParameters($condition, $holdsOn),
         };

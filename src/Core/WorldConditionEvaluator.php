@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core;
 
+use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Quests\QuestLog;
 use Ichiloto\Engine\Quests\QuestManager;
@@ -100,6 +101,11 @@ class WorldConditionEvaluator
           $conditionSource, implode(', ', AssignedSummonScope::values())));
       }
 
+      if ($type === WorldConditionType::PRESENT_PARTY_SIZE && !self::isPresentPartySizeConditionValid($condition)) {
+        throw new InvalidArgumentException(sprintf('%s present_party_size requires one of these names [%s] and a positive integer quantity.',
+          $conditionSource, implode(', ', PresentPartyScope::values())));
+      }
+
       if ($type === WorldConditionType::QUEST && array_key_exists('status', $condition)
         && !in_array($condition['status'], ['active', 'completed'], true)) {
         throw new InvalidArgumentException(sprintf('%s quest field "status" must be active or completed.', $conditionSource));
@@ -137,6 +143,12 @@ class WorldConditionEvaluator
         return false;
       }
 
+      if (($type === WorldConditionType::PRESENT_ACTOR
+          && (!is_string($condition['name'] ?? null) || trim($condition['name']) === ''))
+        || ($type === WorldConditionType::PRESENT_PARTY_SIZE && !self::isPresentPartySizeConditionValid($condition))) {
+        return false;
+      }
+
       $name = trim(strval($condition['name'] ?? ''));
 
       if ($type === WorldConditionType::MAP_EVENT
@@ -167,6 +179,13 @@ class WorldConditionEvaluator
   public static function isAssignedSummonsConditionValid(array $condition): bool
   {
     return is_string($condition['name'] ?? null) && AssignedSummonScope::tryFrom(trim($condition['name'])) !== null
+      && is_int($condition['quantity'] ?? null) && $condition['quantity'] > 0;
+  }
+
+  /** @param array<string, mixed> $condition */
+  public static function isPresentPartySizeConditionValid(array $condition): bool
+  {
+    return is_string($condition['name'] ?? null) && PresentPartyScope::tryFrom(trim($condition['name'])) !== null
       && is_int($condition['quantity'] ?? null) && $condition['quantity'] > 0;
   }
 
@@ -206,6 +225,11 @@ class WorldConditionEvaluator
       WorldConditionType::ITEM => ($party?->inventory?->getQuantity($name, 'evaluating an item world condition') ?? 0) >= max(1, intval($condition['quantity'] ?? 1)),
       WorldConditionType::ASSIGNED_SUMMONS => match (AssignedSummonScope::from($name)) {
         AssignedSummonScope::PARTY => count($party?->getAssignedSummonIds() ?? []) >= $condition['quantity'],
+      },
+      WorldConditionType::PRESENT_ACTOR => array_any($party?->participants->toArray() ?? [],
+        static fn($member): bool => $member instanceof Character && $member->actorId === $name),
+      WorldConditionType::PRESENT_PARTY_SIZE => match (PresentPartyScope::from($name)) {
+        PresentPartyScope::PARTY => $party?->participants->count() === $condition['quantity'],
       },
       WorldConditionType::KEY_ITEM => $party?->inventory?->hasKeyItem($name) ?? false,
       WorldConditionType::QUEST => $questLog !== null
