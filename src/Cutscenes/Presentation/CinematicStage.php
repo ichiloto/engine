@@ -16,7 +16,8 @@ final readonly class CinematicStage
 
   public static function fromArray(array $data, int $lengthFrames, int $restFrame = 0): self
   {
-    self::validateKeys($data, ['canvas', 'startFrame', 'restoreFrame', 'camera', 'covers', 'subjects', 'background'], 'stage');
+    self::validateKeys($data, ['canvas', 'startFrame', 'restoreFrame', 'restFrame', 'camera', 'covers', 'subjects', 'background'], 'stage');
+    $stageRestFrame = array_key_exists('restFrame', $data) ? $data['restFrame'] : $restFrame;
     $canvas = $data['canvas'] ?? null;
     if (!is_array($canvas) || count($canvas) !== 2 || array_diff(array_keys($canvas), ['width', 'height']) !== []
       || array_any($canvas, static fn($value): bool => !is_int($value) || $value < 1 || $value > 4096)) {
@@ -28,8 +29,8 @@ final readonly class CinematicStage
     if (!is_int($data['restoreFrame'] ?? null) || $data['restoreFrame'] < 0 || $data['restoreFrame'] > $lengthFrames) {
       throw new InvalidArgumentException('stage.restoreFrame must be an exclusive boundary within or at the end of its authored sequence.');
     }
-    if ($data['startFrame'] >= $data['restoreFrame'] || $restFrame < $data['startFrame'] || $restFrame >= $data['restoreFrame']) {
-      throw new InvalidArgumentException('stage.startFrame/restoreFrame require an active interval containing the sequence restFrame.');
+    if (!is_int($stageRestFrame) || $stageRestFrame < $data['startFrame'] || $stageRestFrame >= $data['restoreFrame']) {
+      throw new InvalidArgumentException('stage.restFrame (or the sequence restFrame when omitted) must be within the active stage interval.');
     }
     $background = array_key_exists('background', $data) ? $data['background'] : 'black';
     $background = $background === null ? null : self::validateColor($background, 'stage.background');
@@ -94,7 +95,7 @@ final readonly class CinematicStage
       || end($covers)['opacity'] !== 0.0)) {
       throw new InvalidArgumentException('stage.covers needs frame-zero and transparent final-frame keys.');
     }
-    return new self([...$data, 'background' => $background, 'subjects' => $subjects, 'camera' => $camera, 'covers' => $covers], $restFrame, $lengthFrames);
+    return new self([...$data, 'background' => $background, 'subjects' => $subjects, 'camera' => $camera, 'covers' => $covers], $stageRestFrame, $lengthFrames);
   }
 
   public function getFrame(int $frame, bool $reducedMotion = false): CinematicStageFrame

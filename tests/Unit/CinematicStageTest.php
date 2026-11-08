@@ -71,6 +71,35 @@ it('preserves source stage identities and rehydrates validated compiled caches',
     ->and($plan->getCinematicStageFrame($plan->phases['reaction']['start']))->toBeNull();
 });
 
+it('samples a stage still and a later battlefield still independently', function () {
+  $this->source['stage']['restFrame'] = 3;
+  $this->source['restFrame'] = 10;
+  $this->source['tracks'][] = [
+    'id' => 'contact', 'type' => 'image', 'asset' => 'core.png', 'anchor' => 'target',
+    'keyframes' => [['frame' => 10, 'duration' => 1]],
+  ];
+
+  $definition = SummonCutsceneDefinition::fromArrays($this->data, $this->source);
+  $compiled = SummonCompiledCutscene::fromArray($this->compiler->compile($definition)->toArray());
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $compiled);
+  $beforeRestore = $plan->getCommandFrameForAuthoredFrame('target', 6);
+  $afterRestore = $plan->getCommandFrameForAuthoredFrame('target', 10);
+
+  expect($compiled->defaults['restFrame'])->toBe(10)
+    ->and($compiled->defaults['stage']['restFrame'])->toBe(3)
+    ->and($plan->getCinematicStageFrame($beforeRestore, true)->contentFrame)->toBe(3)
+    ->and($plan->getCinematicStageFrame($beforeRestore)->contentFrame)->toBe(6)
+    ->and($plan->getCinematicStageFrame($afterRestore, true)->active)->toBeFalse()
+    ->and(array_column(array_merge(...array_column($plan->restSegments['target'], 'drawCommands')), 'trackId'))->toBe(['target-contact']);
+});
+
+it('refuses an explicit stage rest frame outside the active interval or of the wrong type', function (mixed $restFrame) {
+  $this->source['stage']['restFrame'] = $restFrame;
+
+  expect(fn() => $this->compiler->compile(SummonCutsceneDefinition::fromArrays($this->data, $this->source)))
+    ->toThrow(InvalidArgumentException::class, 'must be within the active stage interval');
+})->with([0, 9, '3', null]);
+
 it('applies one camera transform to body geometry and named chest attachments', function () {
   $compiled = $this->compiler->compile(SummonCutsceneDefinition::fromArrays($this->data, $this->source));
   $stage = CinematicStage::fromArray($compiled->defaults['stage'], 12, 3);

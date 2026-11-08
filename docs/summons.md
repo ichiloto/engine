@@ -272,6 +272,14 @@ Terminal playback. They do not need to be zeroed to compile a stage. This remove
 the former rejection of staged summons with nonzero common transition durations.
 Flat sources follow the same selected-presentation rule.
 
+A split shot can set `stage.restFrame` to hold a still during the active stage
+in reduced motion. The stage still must fall within the stage's start and
+exclusive restore frames. The sequence `restFrame` still selects the
+battlefield image after the shot, for example the furniture contact cel after
+returning to the battle. When `stage.restFrame` is omitted, the stage uses the
+sequence rest frame. Both samples use the authored clock. Impact cues keep
+their authored timing.
+
 The compiler's transitionCache contains effective legacy transitions: in/out
 durationMs is zero for a selected stage; other transition metadata is retained.
 Non-staged selections retain the complete common transitions. Battle playback
