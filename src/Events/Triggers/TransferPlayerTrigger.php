@@ -26,9 +26,9 @@ class TransferPlayerTrigger extends EventTrigger
    */
   protected(set) Vector2 $spawnPoint;
   /**
-   * @var string[] The spawn sprite.
+   * @var string[]|null The authored arrival facing, or null to keep the player's current facing.
    */
-  protected array $spawnSprite;
+  protected ?array $spawnSprite = null;
 
   /**
    * @inheritDoc
@@ -42,7 +42,7 @@ class TransferPlayerTrigger extends EventTrigger
       $this->data->spawnPoint->x ?? throw new RequiredFieldException('spawnPoint.x'),
       $this->data->spawnPoint->y ?? throw new RequiredFieldException('spawnPoint.y')
     );
-    $this->spawnSprite = $this->data->spawnSprite ?? throw new RequiredFieldException('spawnSprite');
+    $this->spawnSprite = $this->data->spawnSprite ?? null;
   }
 
   public function getDestination(): Location

@@ -642,7 +642,7 @@ class EventInterpreter
           : new Location(
             strval($command['map'] ?? ''),
             new Vector2(intval($command['x'] ?? 0), intval($command['y'] ?? 0)),
-            (array) ($command['sprite'] ?? ($player?->sprite ?? ['@'])),
+            isset($command['sprite']) ? (array) $command['sprite'] : null,
           );
 
         // An always-run finalizer may describe the same destination reached by
@@ -654,8 +654,8 @@ class EventInterpreter
           && intval($player?->position->x ?? PHP_INT_MIN) === intval($destination->playerPosition->x)
           && intval($player?->position->y ?? PHP_INT_MIN) === intval($destination->playerPosition->y)
         ) {
-          if ($player !== null && ($doorTransfer || array_key_exists('sprite', $command))) {
-            $player->setFacingSprite($doorTransfer ? (array) $destination->playerSprite : (array) $command['sprite'], engageEvents: false);
+          if ($player !== null && $destination->playerSprite) {
+            $player->setFacingSprite($destination->playerSprite, engageEvents: false);
           }
 
           return EventCommandResult::COMPLETED;

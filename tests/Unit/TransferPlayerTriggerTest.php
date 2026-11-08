@@ -247,13 +247,13 @@ function writeTransferTriggerMap(string $root, string $id, array $events, string
 }
 
 function createTransferTriggerScene(array $data = [], array $conditions = [], ?string $whenBlocked = null,
-    bool $destinationAuto = false, bool $solidEntry = false): TransferTriggerSceneProbe
+    bool $destinationAuto = false, bool $solidEntry = false, bool $includeFacing = true): TransferTriggerSceneProbe
 {
     $root = createTestDirectory('ichiloto-transfer-trigger-');
     $sourceData = [
         'destinationMap' => 'test/destination',
         'spawnPoint' => ['x' => 1, 'y' => 1],
-        'spawnSprite' => ['@'],
+        ...($includeFacing ? ['spawnSprite' => ['@']] : []),
         ...$data,
     ];
     $occupancy = array_fill(0, 3, array_fill(0, 5, CollisionType::NONE));
@@ -315,6 +315,46 @@ afterEach(function () {
         new ReflectionProperty(Debug::class, $name)->setValue(null, $value);
     }
 });
+
+it('retains each walking heading and its sprite across a transfer with no facing override',
+    function (MovementHeading $heading, bool $scheduled) {
+        $scene = createTransferTriggerScene(includeFacing: false);
+        $scene->scheduleTransfers = $scheduled;
+        $direction = $heading->getDirection();
+        $origin = new Vector2(1, 1);
+        $origin->subtract($direction);
+        $scene->player->relocateTo($origin);
+        expect($scene->player->tryMove($direction, $scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue();
+        for ($tick = 0; $scene->isPreparingMapTransfer && $tick < 100; $tick++) {
+            $scene->advanceTransfer();
+        }
+        expect($scene->currentMapId)->toBe('test/destination')
+            ->and($scene->player->heading)->toBe($heading)
+            ->and($scene->player->sprite)->toBe($scene->player->getSpriteForHeading($heading));
+    })->with([MovementHeading::NORTH, MovementHeading::EAST, MovementHeading::SOUTH, MovementHeading::WEST])
+    ->with(['synchronous' => false, 'scheduled' => true]);
+
+it('respects an explicit facing override on a walking transfer', function () {
+    $scene = createTransferTriggerScene(data: ['spawnSprite' => ['North']]);
+    expect($scene->player->tryMove(Vector2::right(), $scene->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
+        ->and($scene->currentMapId)->toBe('test/destination')
+        ->and($scene->player->heading)->toBe(MovementHeading::NORTH)
+        ->and($scene->player->sprite)->toBe($scene->player->getSpriteForHeading(MovementHeading::NORTH));
+});
+
+it('keeps the established facing on a scripted door or direct transfer without an override', function (array $transfer) {
+    $scene = createTransferTriggerScene(includeFacing: false);
+    $scene->player->setFacingSprite(['West'], engageEvents: false);
+    $session = $scene->eventInterpreter->run([$transfer], 'synthetic-scripted-transfer');
+    $scene->eventInterpreter->update(0);
+    expect($session?->failureMessage)->toBeNull()
+        ->and($scene->currentMapId)->toBe('test/destination')
+        ->and($scene->player->heading)->toBe(MovementHeading::WEST)
+        ->and($scene->player->sprite)->toBe($scene->player->getSpriteForHeading(MovementHeading::WEST));
+})->with([
+    'door reference' => [['type' => 'transfer_through_door', 'map' => 'test/source', 'event' => 'T']],
+    'direct transfer' => [['type' => 'transfer', 'map' => 'test/destination', 'x' => 1, 'y' => 1]],
+]);
 
 it('completes transfer writes after real destination commit before automatic events and removes automatic transfer autosave', function () {
     $scene = createTransferTriggerScene(destinationAuto: true);

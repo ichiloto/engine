@@ -279,11 +279,16 @@ interpreter continuation. Map transfer itself does not request an autosave:
   'data' => [
     'destinationMap' => 'countryside',
     'spawnPoint' => ['x' => 2, 'y' => 3],
-    'spawnSprite' => ['South'],
     'reusable' => true,
   ],
 ],
 ```
+
+Walking through a transfer keeps the player's facing. An optional
+`data.spawnSprite` sets a deliberate arrival facing. A script using
+`transfer_through_door` shares the door's destination and any explicit facing;
+with no override, it keeps the player's existing heading. A direct scripted
+`transfer` can specify `sprite` when it needs a fixed facing.
 
 Transfer markers remain movement-driven, not automatic on initial field entry.
 Blocked movement, unavailable conditions and refused destination preparation
