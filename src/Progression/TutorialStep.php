@@ -25,11 +25,12 @@ final readonly class TutorialStep
     public ?string $say,
     public ?string $speaker,
     public bool $focus,
+    public TutorialInstructionPlacement $placement,
   ) {}
 
   public static function fromArray(mixed $data, string $source): self
   {
-    if (!is_array($data) || array_diff(array_keys($data), ['target', 'action', 'until', 'say', 'speaker', 'focus']) !== []) {
+    if (!is_array($data) || array_diff(array_keys($data), ['target', 'action', 'until', 'say', 'speaker', 'focus', 'placement']) !== []) {
       throw new InvalidArgumentException($source . ' must declare a tutorial step.');
     }
 
@@ -78,6 +79,12 @@ final readonly class TutorialStep
       throw new InvalidArgumentException($source . ' focus must be boolean.');
     }
 
-    return new self($target, $data['action'], $until, $say, $speaker, $focus);
+    $placement = array_key_exists('placement', $data) ? $data['placement'] : TutorialInstructionPlacement::CENTERED->value;
+    $placement = is_string($placement) ? TutorialInstructionPlacement::tryFrom($placement) : null;
+    if ($placement === null) {
+      throw new InvalidArgumentException($source . ' placement must be centered or contextual.');
+    }
+
+    return new self($target, $data['action'], $until, $say, $speaker, $focus, $placement);
   }
 }

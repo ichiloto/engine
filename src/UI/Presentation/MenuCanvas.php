@@ -7,7 +7,7 @@ namespace Ichiloto\Engine\UI\Presentation;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\ControlHint;
 use Ichiloto\Engine\IO\ActionHints;
-use Ichiloto\Engine\Progression\TutorialStep;
+use Ichiloto\Engine\Progression\{TutorialInstructionPlacement, TutorialStep};
 use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
@@ -455,15 +455,20 @@ final class MenuCanvas
     $height = MenuActionHints::height([$hint], $this->theme, $width, required: true);
     $panelWidth = $width + 2 * $padding;
     $panelHeight = $speakerHeight + $height + 2 * $padding;
-    $x = min(max(0, $target->x), $this->width - $panelWidth);
-    $y = $bottom + $padding;
-    if ($y + $panelHeight > $this->height) {
-      $y = $target->y - $padding - $panelHeight;
+    if ($step->placement === TutorialInstructionPlacement::CONTEXTUAL) {
+      $x = min($target->x, $this->width - $panelWidth);
+      $y = $bottom + $padding;
+      if ($y + $panelHeight > $this->height) {
+        $y = $target->y - $padding - $panelHeight;
+      }
+    } else {
+      $x = ($this->width - $panelWidth) / 2;
+      $y = ($this->height - $panelHeight) / 2;
     }
     if ($y < 0) {
       return;
     }
-    $this->frame('tutorial-hint-panel', new CanvasRectangle($x, $y, $panelWidth, $panelHeight), 'quiet', 1102);
+    $this->frame('tutorial-hint-panel', new CanvasRectangle($x, $y, $panelWidth, $panelHeight), layer: 1102);
     $textX = $x + $padding;
     $textY = $y + $padding;
     if ($speakerLines !== []) {

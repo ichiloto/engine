@@ -95,7 +95,7 @@ it('marks the tutorial command without moving the active command cursor', functi
   );
   $frame = GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'command', 0);
   $layers = array_column($frame->textLayers, null, 'id');
-  expect($layers)->toHaveKey('hud-command-tutorial-1')
+  expect($layers['hud-command-tutorial-1']->runs[0]->text)->toBe('!')
     ->and($layers['hud-submenu-empty']->runs[0]->text)->toBe('Choose Summon.')
     ->and($hud->commands->activeIndex)->toBe(0)
     ->and($hud->commands->rows[1]->selected)->toBeFalse();

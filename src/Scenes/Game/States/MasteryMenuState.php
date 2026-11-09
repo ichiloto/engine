@@ -315,6 +315,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
 
     public function exit(): void
     {
+        TutorialTerminalPresentation::clearInstruction();
         // A closed menu shows no count and holds nothing.
         $this->resetTransaction();
         AudioManager::getCurrentInstance()?->counterSound->releaseTick($this);
@@ -765,9 +766,8 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
         $this->listPanel?->setEntries($rows, $active, $content->level !== MasteryMenuLevel::DISCIPLINE);
         $this->detailPanel?->setContent($this->buildDetailLines($content));
         $this->detailPanel?->render();
-        $hint = $content->info === null && $this->pending === null
-            ? TutorialTerminalPresentation::getHint($this->terminalTutorialStep,
-                $this->getGameScene()->getTutorialSpeakerName($this->terminalTutorialStep)) : null;
+        $step = $content->info === null && $this->pending === null ? $this->terminalTutorialStep : null;
+        $hint = TutorialTerminalPresentation::presentInstruction($step, $this->getGameScene()->getTutorialSpeakerName($step));
         $this->footerPanel?->setHelp($hint ?? '');
         $this->footerPanel?->setContent($this->buildFooterLines($content));
         $this->footerPanel?->render();

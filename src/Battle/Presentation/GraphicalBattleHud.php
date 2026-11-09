@@ -95,8 +95,12 @@ final class GraphicalBattleHud
           if (Accessibility::prefersHighContrast()) { $color = PresentationColor::rgb(255, 255, 255); }
         }
         if ($row->tutorialTarget) {
-          self::line($text, $id . '-tutorial-' . $rowIndex, '▏', $x + 8, $rowY,
-            $pitch->cellWidth, $pitch->cellHeight, $skin->colors['focus'], cellWidth: $pitch->cellWidth);
+          $accent = Accessibility::prefersHighContrast() ? PresentationColor::rgb(255, 255, 255) : $skin->colors['focus'];
+          if (!$row->selected) {
+            self::line($text, $id . '-tutorial-' . $rowIndex, '!', $x + 40 - $pitch->cellWidth, $rowY,
+              $pitch->cellWidth, $pitch->cellHeight, $accent, cellWidth: $pitch->cellWidth);
+          }
+          if ($row->affordable) { $color = $accent; }
         }
         if ($iconSpace > 0 && isset($icons[$row->iconRole ?? '']) && $iconRoot !== null) {
           array_push($images, ...MenuIconRegistry::containAsset($iconRoot, 'hud-submenu-icon-' . $row->index,

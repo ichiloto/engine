@@ -210,13 +210,15 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
     $this->updateTitle();
 
     foreach (array_slice($this->commands, $this->scrollOffset, $visibleRowCount, true) as $index => $command) {
-      $prefix = $this->activeCommandIndex === $index ? '>' : ' ';
+      $selected = $this->activeCommandIndex === $index;
+      $marked = $command instanceof BattleCommand && $command->type === $this->tutorialTarget;
+      $prefix = $selected ? '>' : ($marked ? '!' : ' ');
       $label = $this->getCommandLabel($command);
       $line = TerminalText::padRight("$prefix $label", $availableWidth);
 
-      if ($command instanceof BattleCommand && $command->type === $this->tutorialTarget) {
+      if ($marked) {
         $line = TutorialTerminalPresentation::highlight($line);
-      } elseif ($this->activeCommandIndex === $index) {
+      } elseif ($selected) {
         $line = $this->battleScreen->styleSelectionLine($line, $this->blinkActiveSelection);
       }
 

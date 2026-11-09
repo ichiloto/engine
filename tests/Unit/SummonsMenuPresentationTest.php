@@ -362,6 +362,34 @@ it('lights the visible tutorial row with the bound control and leaves missing ta
     ->and($guideText)->toContain('Pad', 'Open the contract.');
   $speaker = array_find($layers, static fn($layer) => $layer->id === 'tutorial-speaker');
   expect(implode('', array_column($speaker?->runs ?? [], 'text')))->toBe('Actor');
+  $panel = array_find($layers, static fn($layer) => $layer->id === 'tutorial-hint-panel')->clipRect;
+  expect($panel->x + $panel->width / 2)->toEqual($frame->width / 2)
+    ->and($panel->y + $panel->height / 2)->toEqual($frame->height / 2);
+
+  $contextual = SummonsMenuPresentation::compose($content, $theme, null,
+    tutorial: TutorialStep::fromArray([...$step, 'placement' => 'contextual'], 'Test guide'), tutorialRow: $step['target']['id']);
+  $contextPanel = array_find($contextual->textLayers, static fn($layer) => $layer->id === 'tutorial-hint-panel')->clipRect;
+  expect($contextPanel->toArray())->not->toBe($panel->toArray());
+
+  $terminal = \Ichiloto\Engine\IO\Console\Console::class;
+  $present = \Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation::class;
+  $centered = $terminal::capturePresentation(60, 15, function () use ($terminal, $present, $step): void {
+    $terminal::write('live underlay', 22, 7);
+    expect($present::presentInstruction(TutorialStep::fromArray($step, 'Test guide'), 'Actor'))->toBeNull();
+  });
+  $rows = array_column(array_column($centered->textLayers, null, 'id')['tutorial-instruction']->runs, 'row');
+  expect([min($rows), max($rows)])->toBe([6, 8])
+    ->and(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($centered->rows[7]))->toContain('Open the contract.')->not->toContain('live underlay');
+  $cleared = $terminal::capturePresentation(60, 15, function () use ($terminal, $present, $step): void {
+    $present::presentInstruction(TutorialStep::fromArray($step, 'Test guide'), 'Actor');
+    $terminal::write('updated underlay', 22, 7);
+    expect($present::presentInstruction(TutorialStep::fromArray([...$step, 'placement' => 'contextual'], 'Test guide'), 'Actor'))
+      ->toContain('Open the contract.');
+  });
+  expect(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($cleared->rows[7]))->toContain('updated underlay')
+    ->and(array_column($cleared->textLayers, 'id'))->not->toContain('tutorial-instruction');
+  expect(fn() => TutorialStep::fromArray([...$step, 'placement' => 'corner'], 'Test guide'))
+    ->toThrow(InvalidArgumentException::class, 'placement must be centered or contextual');
 
   unset($step['say'], $step['speaker']);
   $silentStep = TutorialStep::fromArray($step, 'Test guide');

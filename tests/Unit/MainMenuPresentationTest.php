@@ -1234,7 +1234,7 @@ it('marks a real Terminal tutorial command without moving the ordinary menu curs
 });
 
 
-it('renders the speaker and full Terminal tutorial guidance and restores the description when it ends', function (int $width, int $lineCount) {
+it('renders the speaker and full Terminal tutorial guidance and restores the description when it ends', function (int $width, int $lineCount, ?string $placement) {
   Console::syncDimensions($width, 42);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => $width, 'height' => 42]));
   $instruction = 'Open the inventory and check what is inside the newly unlocked section.';
@@ -1249,6 +1249,7 @@ it('renders the speaker and full Terminal tutorial guidance and restores the des
       'action' => 'confirm',
       'say' => $instruction,
       'speaker' => 'actor.0',
+      ...($placement === null ? [] : ['placement' => $placement]),
       'until' => ['outcome' => 'sample.opened'],
     ]],
   ]]), $this->scene->gameState);
@@ -1263,14 +1264,27 @@ it('renders the speaker and full Terminal tutorial guidance and restores the des
     static fn(string $row): string => trim(TerminalText::stripAnsi(TerminalText::sliceSymbols($row, (int)$panel->getPosition()->x + 2, $panel->getContentWidth()))),
     array_slice(Console::getBuffer(), $start, $lineCount),
   );
-  expect(implode(' ', $readPanel()))->toBe('[Enter] Actor 0: ' . $instruction);
   $description = $panel->getDescription();
   expect($description)->not->toBe('')->not->toBe($instruction);
+  if ($placement === 'contextual') {
+    expect(implode(' ', $readPanel()))->toBe('[Enter] Actor 0: ' . $instruction);
+  } else {
+    $runs = array_column(Console::presentationSnapshot()->textLayers, null, 'id')['tutorial-instruction']->runs;
+    $rows = array_column($runs, 'row');
+    $lines = [];
+    foreach ($runs as $run) {
+      if ($run->row === min($rows) || $run->row === max($rows)) { continue; }
+      $lines[$run->row] = ($lines[$run->row] ?? '') . $run->text;
+    }
+    expect(implode(' ', array_map(static fn(string $line): string => trim(str_replace('║', '', $line)), $lines)))
+      ->toBe('[Enter] Actor 0: ' . $instruction)
+      ->and($readPanel()[0])->toBe($description);
+  }
 
   $director->reportOutcome(MainMenuState::TUTORIAL_SCREEN, MainMenuState::TUTORIAL_COMMANDS, 'sample.opened');
   $this->state->setMode(new MainMenuCommandSelectionMode($this->state));
   expect($readPanel()[0])->toBe($description);
-})->with([[135, 1], [80, 2]]);
+})->with([[135, 1, null], [80, 2, null], [135, 1, 'contextual'], [80, 2, 'contextual']]);
 
 it('evaluates an authored world condition only in its live tutorial view', function () {
   $screen = MainMenuState::TUTORIAL_SCREEN;

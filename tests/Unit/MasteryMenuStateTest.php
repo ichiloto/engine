@@ -827,7 +827,8 @@ it('completes a mastery tutorial only when the real menu commits learning', func
   $footer = new ReflectionProperty($this->state, 'footerPanel')->getValue($this->state);
   expect($this->scene->gameState->getTutorialPhase('study.sample'))->toBe(TutorialPhase::PENDING)
     ->and($this->hero->mastery->points)->toBe(60)
-    ->and($footer->getHelp())->toContain('[Enter]');
+    ->and($footer->getHelp())->toBe('')
+    ->and(array_column(Console::presentationSnapshot()->textLayers, 'id'))->not->toContain('tutorial-instruction');
   masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::ENTER);
   expect($this->scene->gameState->getTutorialPhase('study.sample'))->toBe(TutorialPhase::COMPLETED)
     ->and($this->hero->mastery->points)->toBe(10);

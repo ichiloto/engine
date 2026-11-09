@@ -110,6 +110,15 @@ class Window implements WindowInterface
     }
   }
 
+  /** Draws this window as an owned overlay so removing it reveals the current underlay. */
+  public function renderOverlay(string $id, int $priority): void
+  {
+    $lines = [$this->getTopBorder(), ...$this->getLinesOfContent(), $this->getBottomBorder()];
+    Console::replaceOverlay($id, array_map(fn(string $line): string =>
+      $this->applyForegroundColor(TerminalText::truncateToWidth($line, $this->width)), $lines),
+      (int)$this->position->x, (int)$this->position->y, $priority);
+  }
+
   /**
    * @inheritDoc
    */

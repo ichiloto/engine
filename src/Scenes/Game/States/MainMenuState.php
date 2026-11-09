@@ -548,13 +548,14 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         $this->mainMenu?->showTutorialCommand($command?->target['id']);
         $memberVisible = $this->characterSelectionMenu?->showTutorialMember($member?->target['id']);
         $visibleStep = $memberVisible ? $member : $command;
-        $this->infoPanel?->showTutorialHint(TutorialTerminalPresentation::getHint(
+        $this->infoPanel?->showTutorialHint(TutorialTerminalPresentation::presentInstruction(
             $visibleStep, $this->getGameScene()->getTutorialSpeakerName($visibleStep),
         ));
     }
 
     public function exit(): void
     {
+        TutorialTerminalPresentation::clearInstruction();
         $this->rememberActivePartyPresentationCharacter();
     }
 
@@ -613,6 +614,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
      */
     public function resume(): void
     {
+        $this->refreshTerminalTutorial();
         $this->getGameScene()->locationHUDWindow->deactivate();
         $this->infoPanel?->render();
 
