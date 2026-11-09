@@ -10,7 +10,11 @@ use InvalidArgumentException;
 /** Authored map cells and identity, independent of an object's artwork. */
 final readonly class WorldObjectPlacement
 {
+    /** Maximum explicit tile stamp size, independent of a placement's coverage. */
     public const int MAX_CELLS = 256;
+    public const int MAX_COVERED_CELLS = 1024;
+    /** Retain the aggregate footprint budget of 128 placements with 256 cells each. */
+    public const int MAX_COVERED_CELLS_PER_MAP = 32768;
     public const int MAX_CONDITIONS = 32;
 
     private function __construct(
@@ -41,8 +45,8 @@ final readonly class WorldObjectPlacement
         if (array_key_exists('covers', $entry)) {
             $covers = $entry['covers'];
             if (!is_array($covers) || !is_array($covers['cells'] ?? null) || !array_is_list($covers['cells'])
-                || $covers['cells'] === [] || count($covers['cells']) > self::MAX_CELLS) {
-                throw new InvalidArgumentException('World object covers requires 1..256 explicit map cells.');
+                || $covers['cells'] === [] || count($covers['cells']) > self::MAX_COVERED_CELLS) {
+                throw new InvalidArgumentException('World object covers requires 1..' . self::MAX_COVERED_CELLS . ' explicit map cells.');
             }
             $cells = $covers['cells'];
             $seen = [];
@@ -61,15 +65,21 @@ final readonly class WorldObjectPlacement
     /** @return array<string, self> */
     public static function readMap(array $data, array $grid): array
     {
-        $entries = $data[WorldObjectDefinition::DATA_KEY] ?? [];
+        $entries = array_key_exists(WorldObjectDefinition::DATA_KEY, $data) ? $data[WorldObjectDefinition::DATA_KEY] : [];
         if (!is_array($entries) || !array_is_list($entries) || count($entries) > WorldObjectDefinition::MAX_OBJECTS) {
             throw new InvalidArgumentException('worldObjects must be a list of at most 128 declarations.');
         }
         $placements = [];
+        $coveredCells = 0;
         foreach ($entries as $entry) {
             if (!is_array($entry)) { throw new InvalidArgumentException('A world object requires a placement declaration.'); }
             $placement = self::read($entry, $grid);
             if (isset($placements[$placement->id])) { throw new InvalidArgumentException("Duplicate world object id '{$placement->id}'."); }
+            $coveredCells += count($placement->cells);
+            if ($coveredCells > self::MAX_COVERED_CELLS_PER_MAP) {
+                throw new InvalidArgumentException('World object placements exceed the map footprint budget of '
+                    . self::MAX_COVERED_CELLS_PER_MAP . ' cells.');
+            }
             $placements[$placement->id] = $placement;
         }
         return $placements;

@@ -52,20 +52,16 @@ final readonly class WorldObjectDefinition
         ?FieldPresentationCatalog $catalog = null): array
     {
         if (!array_key_exists(self::DATA_KEY, $data)) { return []; }
-        $entries = $data[self::DATA_KEY];
-        if (!is_array($entries) || !array_is_list($entries) || count($entries) > self::MAX_OBJECTS) {
-            throw new InvalidArgumentException('worldObjects must be a list of at most 128 declarations.');
-        }
+        $placements = WorldObjectPlacement::readMap($data, $layers->getComposedGrid());
         $objects = $claimed = $terminalOwners = [];
-        foreach ($entries as $entry) {
+        foreach ($data[self::DATA_KEY] as $entry) {
             if (!is_array($entry) || array_diff(array_keys($entry), ['id', 'anchor', 'resource', 'pivot', 'sprites2d', 'variants', 'covers', 'label', 'terminal', 'conditions', 'appearance', 'tiles2d']) !== []) {
                 throw new InvalidArgumentException('A world object accepts id, anchor, conditions, covers, tiles2d, a sign label and either resource or inline pivot/sprites2d/variants.');
             }
-            $placement = WorldObjectPlacement::read($entry, $layers->getComposedGrid());
+            $placement = $placements[$entry['id']];
             $tilePresentation = WorldObjectTiles::read(array_key_exists('tiles2d', $entry) ? $entry['tiles2d'] : [], $placement, $layers, $graphics, $tileOwners);
             $id = $placement->id;
             $conditions = $placement->conditions;
-            if (isset($objects[$id])) { throw new InvalidArgumentException("Duplicate world object id '{$id}'."); }
             $anchor = ['x' => $placement->x, 'y' => $placement->y];
             $resource = null;
             if (array_key_exists('resource', $entry)) {
@@ -110,7 +106,7 @@ final readonly class WorldObjectDefinition
                 $parsed[] = ['id' => $variantId, 'conditions' => $variantConditions, 'sprites' => self::readSprites($variant['sprites2d']),
                     'terminal' => array_key_exists('terminal', $variant) ? WorldObjectTerminalPresentation::read($variant['terminal']) : $terminal];
             }
-            [$coverage, $coverageResolved] = self::readCoverage($entry, $layers, $graphics, $tileOwners);
+            [$coverage, $coverageResolved] = self::readCoverage($entry, $placement, $layers, $graphics, $tileOwners);
             $terminalFootprint = $terminalClaims = [];
             $terminalPresentations = [$terminal, ...array_column($parsed, 'terminal')];
             $needsFootprint = array_any($terminalPresentations, static fn(?WorldObjectTerminalPresentation $presentation): bool
@@ -205,22 +201,21 @@ final readonly class WorldObjectDefinition
     }
 
     /** @return array{array, bool} Declared claims and whether all their ownership is proven. */
-    private static function readCoverage(array $entry, MapLayerSet $layers, ?MapGraphics $graphics, ?array $tileOwners): array
+    private static function readCoverage(array $entry, WorldObjectPlacement $placement, MapLayerSet $layers,
+        ?MapGraphics $graphics, ?array $tileOwners): array
     {
         if (!array_key_exists('covers', $entry)) { return [[], true]; }
         $covers = $entry['covers'];
         $gameplayNames = array_column(array_filter($layers->layers, static fn(MapLayer $layer): bool => !$layer->decoration), 'name');
         if (!is_array($covers) || array_diff(array_keys($covers), ['layer', 'cells', 'tileLayers']) !== []
             || !is_string($covers['layer'] ?? null) || !in_array($covers['layer'], $gameplayNames, true)
-            || !is_array($covers['cells'] ?? null) || !array_is_list($covers['cells'])
-            || $covers['cells'] === [] || count($covers['cells']) > self::MAX_CELLS
             || !is_array($covers['tileLayers'] ?? null) || !array_is_list($covers['tileLayers'])
             || count($covers['tileLayers']) > MapGraphics::MAX_LAYERS) {
-            throw new InvalidArgumentException('World object covers requires a gameplay layer, 1..256 cells and an explicit tileLayers list.');
+            throw new InvalidArgumentException('World object covers requires a gameplay layer and an explicit tileLayers list.');
         }
         $result = ['glyphs' => [], 'tiles' => []];
         $cells = [];
-        foreach (WorldObjectPlacement::read($entry, $layers->getComposedGrid())->cells as $cell) {
+        foreach ($placement->cells as $cell) {
             $cells[$cell[1]][$cell[0]] = true;
         }
         $result['glyphs'][$covers['layer']] = $cells;

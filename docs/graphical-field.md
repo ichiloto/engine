@@ -888,9 +888,12 @@ always pass admission before evaluation.
 Selection is read-only and re-evaluated from current state, including after
 load, transfer, cinematic cleanup and return. Nothing is serialized for objects.
 
-Optional `covers` takes one existing gameplay layer, 1..256 distinct map cells,
+Optional `covers` takes one existing gameplay layer, 1..1024 distinct map cells,
 and an explicit list of graphical tile layers belonging to that gameplay
 layer through `MapGraphics::resolveLayerOwners()`. An empty tile list is valid.
+The combined placement footprint budget is 32,768 cells per map. The separate
+256-entry limits for tile stamps and explicit tile replacements are unchanged.
+Coverage, image extent and physical occupancy are authored independently.
 Overlapping object ownership and unknown/unrelated owners refuse before map
 installation when their references can be validated. Optional graphics/tileset
 failure remains non-fatal. The same tile-layer parser and owner resolver validate

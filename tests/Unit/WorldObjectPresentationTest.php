@@ -545,6 +545,46 @@ it('keeps a map backdrop below terrain in field and overview without owning coll
         ->and([(int)$object->position->x, (int)$object->position->y])->toBe([1, 1]);
 });
 
+it('admits a wide presentation footprint independently of tiles, collision and the Terminal source', function () {
+    $layers = new MapLayerSet([new MapLayer('ground', 0, false, 'ground',
+        implode("\n", array_fill(0, 11, str_repeat('#', 34))))]);
+    $coverage = [];
+    foreach (range(0, 9) as $y) {
+        foreach (range(1, 30) as $x) { $coverage[] = [$x, $y]; }
+    }
+    $map = ['worldObjects' => [createWorldObjectSource([
+        'covers' => ['layer' => 'ground', 'cells' => $coverage, 'tileLayers' => []],
+    ])]];
+    $before = $layers->getComposedGrid();
+    $collision = MapCollisionResolver::resolveLayers($layers, ['#' => CollisionType::SOLID]);
+    $object = WorldObjectDefinition::readMap($map, $layers)[0];
+
+    expect(array_sum(array_map('count', $object->coverage['glyphs']['ground'])))->toBe(300)
+        ->and($object->coverage['glyphs']['ground'][9][30])->toBeTrue()
+        ->and($object->terminalFootprint)->toBe([])
+        ->and($layers->getComposedGrid())->toBe($before)
+        ->and(MapCollisionResolver::resolveLayers($layers, ['#' => CollisionType::SOLID]))->toBe($collision);
+});
+
+it('bounds large placement footprints independently of the tile stamp budget', function () {
+    $placement = \Ichiloto\Engine\Field\WorldObjectPlacement::class;
+    $grid = array_fill(0, 33, array_fill(0, 33, '#'));
+    $cells = [];
+    foreach (range(0, 31) as $y) {
+        foreach (range(0, 31) as $x) { $cells[] = [$x, $y]; }
+    }
+    $entry = ['id' => 'wide', 'anchor' => ['x' => 0, 'y' => 0], 'covers' => ['cells' => $cells]];
+    expect($placement::read($entry, $grid)->cells)->toBe($cells)
+        ->and($placement::MAX_CELLS)->toBe(256)
+        ->and(fn () => $placement::read([...$entry, 'covers' => ['cells' => [...$cells, [32, 32]]]], $grid))
+        ->toThrow(InvalidArgumentException::class, '1..1024 explicit map cells');
+    $objects = array_map(static fn(int $i): array => [...$entry, 'id' => 'wide-' . $i], range(1, 32));
+    expect($placement::readMap(['worldObjects' => $objects], $grid))->toHaveCount(32);
+    $objects[] = [...$entry, 'id' => 'wide-33'];
+    expect(fn () => $placement::readMap(['worldObjects' => $objects], $grid))
+        ->toThrow(InvalidArgumentException::class, 'map footprint budget');
+});
+
 it('projects one-shot completion into both object artwork and terminal state across save and map re-entry', function () {
     $source = createWorldObjectSource(['terminal' => '<fg=yellow>o</>', 'variants' => [[
         'id' => 'opened', 'conditions' => [['type' => 'map_event', 'name' => 'synthetic/room', 'marker' => 'C']],
