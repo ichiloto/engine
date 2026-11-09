@@ -24,6 +24,6 @@ enum EffectPresentation: string
   {
     $scope = self::validateTrack($segment['presentation'] ?? 'all');
     return ($scope === 'all' || $scope === $this->value)
-      && ($this !== self::TERMINAL || !in_array($segment['layer'] ?? '', ['image', 'tone', 'trail'], true));
+      && ($this !== self::TERMINAL || !in_array($segment['layer'] ?? '', ['image', 'tone', 'trail', 'tether'], true));
   }
 }

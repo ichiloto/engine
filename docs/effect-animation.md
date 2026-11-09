@@ -676,6 +676,43 @@ takes `coverageDabs: true` when its canvas host supports the operation.
 A renderer lacking the optional operation still draws the other battle
 effect tracks.
 
+**Moving weapon connection.** A once-playing graphical battle track with
+`type => 'tether'` links the caster's current `grip` pose point to the moving
+head. An optional `guide` point takes over progressively as the keyframe's
+`guideWeight` goes from 0 to 1. `guideGripLift` and `guideHandLift` set the
+two vertical offsets on that first span. A separate track can draw a wake.
+
+Use `head` and `links` PNGs. The head faces east at zero rotation, with
+`headPivot` marking its connection point. The link image contains two
+equal-width cells, alternated at constant arc-length intervals. Use
+`headHeight`, `linkHeight` and `linkSpacing` in logical pixels on the
+720-pixel reference canvas. The destination canvas scales all three together.
+The effect accepts at most 256 visible link positions per sample.
+
+Each keyframe supplies `frame`, optional `duration`, `x`, `y`,
+`targetWeight`, `rotation` and `lift`. Positive X points toward the
+selected target. The offsets are measured from the caster's current ground
+point at weight 0 and from the selected body's centre at weight 1.
+`rotation` is the head's angle in degrees. The main span's two control
+points rise by `lift`; optional `approach` sets the final control distance
+along the head heading as a fraction of the span. `clearance` adds a margin
+around unselected battlers. `depth` selects behind or front.
+
+The head clears the selected body except for the sample containing the
+resolved impact cue. The head and links route around unselected bodies.
+A geometry failure is reported through presentation diagnostics. Damage and
+status still resolve on the ordinary command clock. Reduced motion holds the
+authored rest sample, and Terminal uses its independent effect tracks. The
+Editor exposes the same track and sample fields through its graphical effect
+records and production battle preview.
+
+A windowless capacity probe at Iron Verdict's two review reaches drew 87 and
+109 rotated images with two synthetic crops. A later isolated replay used the
+15-cell review atlas and an exact technical crop of the flail head, with
+synthetic links and head offsets adapted from the proof. At both review
+formations the head contacted on frame 88 only, with no detected bystander
+overlap. The production Game binding and combined visual review are separate.
+
 A fixed, once-playing graphical target can set `rangeTiming.minDistance`
 and a list of `rangeTiming.keys` with `frame` and `at` entries. The command
 selects the alternate clock once from the caster-to-target ground separation

@@ -87,6 +87,29 @@ final class GraphicalBattleEffects
         $data = $command['payload'] ?? [];
         $anchor = $data['anchor'] ?? 'target';
         if ($anchor === 'stage') { continue; }
+        if ($segment['layer'] === 'tether') {
+          try {
+            if (!$playback instanceof BattleCommandPlayback || count($playback->targets) !== 1) {
+              throw new InvalidArgumentException('A battle tether requires one selected recipient other than its caster.');
+            }
+            $actorId = spl_object_id($playback->actor);
+            $targetId = spl_object_id($playback->targets[array_key_first($playback->targets)]);
+            if ($actorId === $targetId) {
+              throw new InvalidArgumentException('A battle tether requires a recipient other than its caster.');
+            }
+            $impact = array_find($playback->plan->timeline->cueSchedule,
+              static fn(array $cue): bool => $cue['type'] === 'commandImpact')['frame'];
+            [$start, $end] = $data['contactWindow'];
+            $contact = $start <= $impact && $impact <= $end;
+            $parts = GraphicalBattleTether::compose('command-effect-' . $command['trackId'] . '-' . $actorId,
+              $data, $arena, $assetRoot, $bounds, $groundAnchors, $attachmentPoints, $actorId, $targetId,
+              $contact, $imageRotation, $imageClips);
+            array_push($images, ...$parts);
+          } catch (InvalidArgumentException | RuntimeException $error) {
+            $playback->recordPresentationFailure($error);
+          }
+          continue;
+        }
         $targetGroup = null;
         if ($anchor === 'target-group') {
           try {

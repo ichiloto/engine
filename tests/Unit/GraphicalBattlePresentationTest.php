@@ -3580,3 +3580,90 @@ it('keeps inactive attack overhang out of the running start envelope', function 
   expect($image->asset)->toBe('high-strike.png')->and($image->destination->y)->toBeGreaterThanOrEqual(0)
     ->toBeLessThan($layout->battlerArea->y)->and($playback->presentationFailure)->toBeNull();
 });
+
+it('keeps a graphical tether on the current grip and selected recipient without changing command cues', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $asset = 'graphical-canvas/synthetic-320x180.png';
+  $pose = new BattlerPose($asset, columns: 2, frames: [0, 1, 1], fps: 10, loop: false, restFrame: 1, impactFrame: 1,
+    attachmentPoints: [
+      ['cell' => 0, 'name' => 'grip', 'point' => ['x' => .7, 'y' => .3]],
+      ['cell' => 1, 'name' => 'grip', 'point' => ['x' => .5, 'y' => .4]],
+      ['cell' => 1, 'name' => 'guide', 'point' => ['x' => .3, 'y' => .3]],
+    ]);
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $catalog->ui, defaultArena: 'arena.test', actorPoses: ['Hero' => new BattlePoseSet(['attack' => $pose])]);
+  $data = [
+    'fps' => 10, 'lengthFrames' => 3, 'restFrame' => 1, 'poseSyncFrame' => 1,
+    'tracks' => [
+      ['id' => 'chain', 'type' => 'tether', 'grip' => 'grip', 'guide' => 'guide', 'head' => $asset,
+        'headPivot' => ['x' => .5, 'y' => .5], 'headHeight' => 18, 'links' => $asset, 'linkHeight' => 8,
+        'linkSpacing' => 7, 'keyframes' => [
+          ['frame' => 0, 'x' => 65, 'y' => -100, 'targetWeight' => 0, 'rotation' => 28, 'lift' => 0],
+          ['frame' => 1, 'x' => 0, 'y' => 0, 'targetWeight' => 1, 'rotation' => 52, 'guideWeight' => 1, 'lift' => 12],
+          ['frame' => 2, 'x' => 0, 'y' => 0, 'targetWeight' => 1, 'rotation' => 52, 'guideWeight' => 1, 'lift' => 12],
+        ]],
+      ['id' => 'stroke', 'type' => 'glyph', 'presentation' => 'terminal',
+        'keyframes' => [['frame' => 1, 'content' => '*', 'position' => ['x' => 0, 'y' => 0]]]],
+    ],
+    'cues' => [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 1]],
+  ];
+  $library = new EffectTimelineLibrary($this->root);
+  $timeline = $library->compile('moving-tether', $data, true);
+  $terminal = $library->compile('moving-tether', $data, true, \Ichiloto\Engine\Animations\Timelines\EffectPresentation::TERMINAL);
+  expect(array_column($terminal->playbackSegments, 'layer'))->toBe(['glyph'])
+    ->and($terminal->cueSchedule)->toBe($timeline->cueSchedule);
+  $plan = new BattleCommandTimeline(BattleTurnTimings::fromTotalDuration(1.6), target: $timeline, actionPose: $pose);
+  $impact = $plan->actionPoseAnchorFrame;
+  $first = $plan->getCommandFrameForAuthoredFrame('target', 0);
+  $impactCues = array_values(array_filter($plan->timeline->cueSchedule, static fn(array $cue): bool => $cue['type'] === 'commandImpact'));
+  expect(array_column($impactCues, 'frame'))->toBe([$impact]);
+
+  $rendered = [];
+  foreach ($enemies as $selected) {
+    $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview(
+      $battle, $plan, $hero, [$selected], BattlePoseRole::ATTACK, $catalog, $this->root);
+    $before = $preview->getFrameAtIndex($first, imageRotation: true);
+    $contact = $preview->getFrameAtIndex($impact, imageRotation: true);
+    $recovery = $preview->getFrameAtIndex($plan->getCommandFrameForAuthoredFrame('target', 2), imageRotation: true);
+    $assertPoseGrip = static function ($frame, int $cel) use ($hero, $pose): array {
+      $prefix = 'command-effect-target-chain-' . spl_object_id($hero);
+      $weapon = array_column(array_values(array_filter($frame->canvas->images,
+        static fn(CanvasImage $image): bool => str_starts_with($image->id, $prefix))), null, 'id');
+      $link = $weapon[$prefix . '-link-0'];
+      $poseImage = graphicalCombatantImage($frame->canvas, $hero);
+      $grip = $pose->projectAttachmentPoints($poseImage)['grip'];
+      expect($frame->diagnostics)->toBeEmpty()
+        ->and($poseImage->sourceRect?->x)->toBe($cel * 160)
+        ->and($link->destination->x + $link->destination->width / 2)->toEqualWithDelta($grip->x, .000001)
+        ->and($link->destination->y + $link->destination->height / 2)->toEqualWithDelta($grip->y, .000001);
+      return [$weapon, $weapon[$prefix . '-head']];
+    };
+    $assertPoseGrip($before, 0);
+    [$weapon, $head] = $assertPoseGrip($contact, 1);
+    $reduced = $preview->getFrameAtIndex($first, reducedMotion: true, imageRotation: true);
+    $assertPoseGrip($reduced, 1);
+    $grip = $pose->projectAttachmentPoints(graphicalCombatantImage($contact->canvas, $hero))['guide'];
+    $guideDistance = min(array_map(static fn(CanvasImage $image): float => hypot(
+      $image->destination->x + $image->destination->width / 2 - $grip->x,
+      $image->destination->y + $image->destination->height / 2 - $grip->y), $weapon));
+    expect($guideDistance)->toBeLessThan(4);
+    $target = graphicalCombatantImage($contact->canvas, $selected)->destination;
+    [, $retreatingHead] = $assertPoseGrip($recovery, 1);
+    $retreatingPaint = $retreatingHead->getPaintBounds();
+    expect($retreatingPaint->y + $retreatingPaint->height <= $target->y || $retreatingPaint->y >= $target->y + $target->height)
+      ->toBeTrue();
+    $bystander = array_find($enemies, static fn($enemy): bool => $enemy !== $selected);
+    $other = graphicalCombatantImage($contact->canvas, $bystander)->destination;
+    expect($head->destination->x + $head->destination->width / 2)->toEqualWithDelta($target->x + $target->width / 2, 1)
+      ->and(array_all($weapon, static function (CanvasImage $image) use ($other): bool {
+        $paint = $image->getPaintBounds();
+        return $paint->x + $paint->width <= $other->x || $paint->x >= $other->x + $other->width
+          || $paint->y + $paint->height <= $other->y || $paint->y >= $other->y + $other->height;
+      }))->toBeTrue();
+    $rendered[] = $head->destination->x;
+  }
+  expect($rendered[0])->not->toBe($rendered[1]);
+
+  $data['tracks'][0]['keyframes'][1]['frame'] = 0;
+  expect(fn() => $library->compile('invalid-tether', $data, true))->toThrow(InvalidArgumentException::class, 'nonoverlapping');
+});

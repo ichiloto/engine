@@ -83,13 +83,14 @@ final class EffectTimelineValidator
     $hasImages = $imageRestCovered = $stageRestCovered = false;
     foreach ($tracks as $track) {
       if (!is_array($track) || !is_string($track['id'] ?? null) || isset($ids[$track['id']])
-        || !in_array($track['type'] ?? null, ['image', 'glyph', 'text', ...($forBattle ? ['flash', 'shake', 'tone'] : []), ...($forBattle && !$forSummon ? ['trail'] : [])], true)) {
+        || !in_array($track['type'] ?? null, ['image', 'glyph', 'text', ...($forBattle ? ['flash', 'shake', 'tone'] : []), ...($forBattle && !$forSummon ? ['trail', 'tether'] : [])], true)) {
         throw new InvalidArgumentException("Effect {$id} has an invalid or duplicate track.");
       }
       EffectTimelineLibrary::assertId($track['id']);
-      $scope = EffectPresentation::validateTrack($track['presentation'] ?? ($track['type'] === 'trail' ? 'graphical' : 'all'));
-      if ($track['type'] === 'trail' && $scope !== 'graphical') {
-        throw new InvalidArgumentException("Effect {$id} trail presentation must be graphical.");
+      $graphicalOnly = in_array($track['type'], ['trail', 'tether'], true);
+      $scope = EffectPresentation::validateTrack($track['presentation'] ?? ($graphicalOnly ? 'graphical' : 'all'));
+      if ($graphicalOnly && $scope !== 'graphical') {
+        throw new InvalidArgumentException("Effect {$id} {$track['type']} presentation must be graphical.");
       }
       $ids[$track['id']] = true;
       // Unselected graphical resources are not dependencies of terminal playback.
@@ -100,6 +101,14 @@ final class EffectTimelineValidator
       }
       if ($track['type'] === 'trail') {
         $normalized[] = self::compileTrail($id, $track, $length, $playback, isset($data['rangeTiming']));
+        continue;
+      }
+      if ($track['type'] === 'tether') {
+        $tether = BattleTetherTrack::compile($this->assetRoot, $track, $length, $playback);
+        $hasImages = true;
+        $imageRestCovered = $imageRestCovered || array_any($tether['keyframes'],
+          static fn(array $frame): bool => $frame['frame'] <= $rest && $rest < $frame['frame'] + $frame['duration']);
+        $normalized[] = $tether;
         continue;
       }
       if (array_key_exists('facing', $track) && (!$forBattle

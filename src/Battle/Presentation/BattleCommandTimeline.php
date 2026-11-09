@@ -264,6 +264,13 @@ final readonly class BattleCommandTimeline
           unset($command);
           $copy['startFrame'] = $cursor + $boundary($segment['startFrame']);
           $copy['endFrame'] = $cursor + $boundary($segment['endFrame'] + 1) - 1;
+          if ($copy['layer'] === 'tether') {
+            // Reduced motion can hold this sample beyond its ordinary interval.
+            foreach ($copy['drawCommands'] as &$command) {
+              $command['payload']['contactWindow'] = [$copy['startFrame'], $copy['endFrame']];
+            }
+            unset($command);
+          }
           if ($segment['startFrame'] <= $rest && $rest <= $segment['endFrame']) {
             $restSegments[$phase][] = [...$copy, 'startFrame' => $cursor, 'endFrame' => $cursor + $length - 1];
           }
