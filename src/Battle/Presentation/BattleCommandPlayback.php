@@ -203,13 +203,13 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       };
       if ($movement !== null && $poses?->getPose($movement) !== null) { return $movement; }
     }
-    if ($battler === $this->actor && $this->plan->actionPoseStartFrame !== null
-      && $this->session->currentFrame < $this->plan->actionPoseStartFrame
-      && !isset($this->reactions[spl_object_id($battler)])) { return $rest; }
     if ($battler === $this->actor && $this->plan->actionPoseOverride !== null
       && !isset($this->reactions[spl_object_id($battler)])) {
       return $this->isBoundActionPoseActive() ? $this->pose : $rest;
     }
+    if ($battler === $this->actor && $this->plan->actionPoseStartFrame !== null
+      && $this->session->currentFrame < $this->plan->actionPoseStartFrame
+      && !isset($this->reactions[spl_object_id($battler)])) { return $rest; }
     if (($this->phase === 'return' || ($this->phase === 'finish'
       && $this->plan->actionPoseEndFrame !== null && $this->session->currentFrame < $this->plan->actionPoseEndFrame))
       && $battler === $this->actor

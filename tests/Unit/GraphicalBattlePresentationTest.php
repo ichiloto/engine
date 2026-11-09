@@ -460,13 +460,15 @@ it('removes acting markers and labels while preserving command advance and retur
     ->and($actor->stats->currentHp)->toBe(100);
 })->with([false, true])->with([false, true])->with([false, true])->with([1.0, 1.05]);
 
-it('draws only command-owned flash-step echoes and seeks the same atlas cells out of order', function () {
+it('draws only command-owned flash-step echoes and seeks the same atlas cells out of order', function (bool $targetClock) {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $pose = new BattlerPose('graphical-canvas/synthetic-320x180.png', columns: 4, frames: [2],
     fps: 24, loop: false, impactFrame: 0, entryFrames: [0, 1], exitFrames: [3]);
   $travel = new \Ichiloto\Engine\Battle\Presentation\BattleTravelPlan([[969, 265], [700, 265]], 700, 265, -1, 600, 900);
+  $effect = $targetClock ? new \Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline('flash', '',
+    fps: 24, defaults: ['lengthFrames' => 1, 'poseClock' => 'target']) : null;
   $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
-    travel: $travel, actionPoseOverride: $pose, flashStep: new \Ichiloto\Engine\Animations\FlashStepTiming(24, 20, 3, 10, 3, 7, 2));
+    target: $effect, travel: $travel, actionPoseOverride: $pose, flashStep: new \Ichiloto\Engine\Animations\FlashStepTiming(24, 20, 3, 10, 3, 7, 2));
   $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $hero, [$enemies[0]],
     BattlePoseRole::ATTACK, $catalog, $this->root);
   $echoes = static fn($frame): array => array_values(array_filter($frame->canvas->images,
@@ -493,7 +495,7 @@ it('draws only command-owned flash-step echoes and seeks the same atlas cells ou
   $impacts = 0;
   $runner = new \Ichiloto\Engine\Battle\Presentation\BattleCommandRunner($context, $hero, [$enemies[0]],
     new \Ichiloto\Engine\Battle\Actions\AttackAction('Attack'), '',
-    new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), null, null,
+    new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), null, $effect,
     function () use (&$impacts): void { $impacts++; }, static fn() => [], static fn() => null,
     movement: \Ichiloto\Engine\Animations\ActionMovement::FLASH_STEP, animationId: 1, flashStep: $plan->flashStep);
   $runner->begin();
@@ -501,12 +503,13 @@ it('draws only command-owned flash-step echoes and seeks the same atlas cells ou
   expect($runner->playback->presentationFailure)->toBeNull()
     ->and($runner->playback->plan->travel?->isPossible)->toBeTrue()
     ->and($runner->playback->getFlashStepEchoes())->toHaveCount(2)
+    ->and(graphicalCombatantImage($presentation->frame($scene->ui->fieldWindow), $hero)->sourceRect?->x)->toBe(80)
     ->and($impacts)->toBe(0);
   $runner->update(2);
   expect($impacts)->toBe(1)->and($runner->playback->getFlashStepEchoes())->toBe([]);
   $runner->dispose();
   expect($scene->ui->fieldWindow->getCommandPlayback())->toBeNull();
-});
+})->with([false, true]);
 
 it('does not replace removed acting markers with text when battler artwork is unavailable', function (bool $skinned) {
   [$battle, $catalog, $hero] = graphicalBattleFixture(skinned: $skinned);

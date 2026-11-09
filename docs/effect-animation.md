@@ -711,11 +711,9 @@ Set `poseClock => 'target'` on a fixed, once-playing target effect to
 start the caster pose at target frame 0. Use the same cadence for the pose
 and effect, and set `poseSyncFrame` to the pose's synchronization entry.
 The default announcement clock remains available for other effects.
+Flash-step entry and exit cells keep their movement phases when the main
+pose uses the target clock.
 
-The head clears the selected body except for the sample containing the
-resolved impact cue. The head and links route around unselected bodies.
-When a live pose point starts behind another battler, the occluded links
-draw behind the battler and the rest of the chain retains its chosen depth.
 A geometry failure is reported through presentation diagnostics. Damage and
 status still resolve on the ordinary command clock. Reduced motion holds the
 authored rest sample, and Terminal uses its independent effect tracks. The
