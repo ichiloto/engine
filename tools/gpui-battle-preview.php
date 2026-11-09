@@ -4,6 +4,7 @@
 declare(strict_types=1);
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSession;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
@@ -69,7 +70,18 @@ try {
     if ($subjects !== null && ($fixture['subjects'] ?? null) !== $subjects) {
         throw new InvalidArgumentException('The fixture must validate and acknowledge the exact requested subject IDs.');
     }
-    $first = $fixture['frame'](0.0);
+    $requiredCapabilities = array_values(array_unique([RendererSessionConfig::GRAPHICAL_CANVAS,
+        RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::CANVAS_CLIP_OPACITY,
+        RendererSessionConfig::CANVAS_COMPOSITING, ...($fixture['requiredCapabilities'] ?? [])]));
+    // The first frame supplies the grid, before the renderer starts. Its required features
+    // are guaranteed by startup. Subsequent live frames use the negotiated capabilities.
+    $renderFrame = static function (float $seconds) use (&$client, $fixture, $requiredCapabilities): mixed {
+        return PresentationSession::runForSession(
+            static fn(string $capability): bool => $client?->supports($capability) ?? in_array($capability, $requiredCapabilities, true),
+            static fn() => $fixture['frame']($seconds),
+        );
+    };
+    $first = $renderFrame(0.0);
     if (!$first instanceof PresentationCanvas || $first->width % 10 !== 0 || $first->height % 20 !== 0) {
         throw new InvalidArgumentException('Battle preview requires canvas dimensions divisible by 10x20.');
     }
@@ -77,9 +89,7 @@ try {
     if (!$noLaunch) {
         $client = new RendererClient(new ProcessRendererTransport(new RendererProcessConfig([$renderer])));
         $client->start(new RendererSessionConfig('Ichiloto battle command preview (silent)', $root, $grid,
-            protocol: RendererProtocolVersion::V2, requiredCapabilities: array_values(array_unique([RendererSessionConfig::GRAPHICAL_CANVAS,
-                RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::CANVAS_CLIP_OPACITY,
-                RendererSessionConfig::CANVAS_COMPOSITING, ...($fixture['requiredCapabilities'] ?? [])]))));
+            protocol: RendererProtocolVersion::V2, requiredCapabilities: $requiredCapabilities));
         $client->pump();
         $presentation = new RendererPresentation($client, $grid);
     }
@@ -107,10 +117,10 @@ try {
                 $times = $clock->advanceTime($now - $lastWall);
                 if (!$clock->isCompleted) { throw new RuntimeException('Inspection input closed before verification.'); }
             } else { $times = $clock->advanceTime($now - $lastWall); }
-            foreach ($times as $time) { $canvas = $fixture['frame']($time); $frames++; }
+            foreach ($times as $time) { $canvas = $renderFrame($time); $frames++; }
             $seconds = $clock->elapsedSeconds;
             if ($times !== [] && !$clock->isPlaying) { fwrite(STDERR, sprintf("Inspection paused at %.3f seconds.\n", $seconds)); }
-        } else { $canvas = $frames === 0 ? $first : $fixture['frame']($seconds); }
+        } else { $canvas = $frames === 0 ? $first : $renderFrame($seconds); }
         $lastWall = $now;
         if (!$canvas instanceof PresentationCanvas || $canvas->width !== $first->width || $canvas->height !== $first->height) {
             throw new RuntimeException('Battle preview frame geometry changed.');

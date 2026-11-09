@@ -24,8 +24,13 @@ return static function (string $root, bool $reduced, ?array $subjects = null): a
         'requiredCapabilities' => [
             \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::GRAPHICAL_CANVAS,
             \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_IMAGE_FLIP,
+            \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_REGION_BUDGET,
         ],
         'frame' => static function (float $seconds) use (&$frames, &$last) {
+            if (!\Ichiloto\Engine\Rendering\Presentation\PresentationSession::supportsCapability(
+                \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_REGION_BUDGET)) {
+                throw new RuntimeException('Preview frame is missing its required region budget.');
+            }
             if ($seconds < $last) { throw new RuntimeException('Preview clock moved backwards.'); }
             $last = $seconds;
             $frames++;
@@ -87,6 +92,7 @@ it('negotiates overlapping fixture capabilities once through the real preview tr
         \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_CLIP_OPACITY,
         \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_COMPOSITING,
         \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_IMAGE_FLIP,
+        \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_REGION_BUDGET,
     ])->and(end($result['wire'])['type'])->toBe('shutdown');
 });
 
