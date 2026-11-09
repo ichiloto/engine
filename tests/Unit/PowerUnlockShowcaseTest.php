@@ -108,6 +108,30 @@ it('reads the actual unlocked crisis technique while healthy and preserves actor
     ->and(CrisisAbility::fromArray($ability->toArray())->iconRole)->toBe('power.crisis');
 });
 
+it('uses the selected technique icon and preserves the ability icon for other forms', function () {
+  $root = createTestDirectory('showcase-variant-icons');
+  writeSkillRecords($root, new SpecialSkill('Current technique', 'Current technique copy.', '', 0, 0));
+  $ability = CrisisAbility::fromArray(['name' => 'Crisis', 'hpBelowPercent' => 10, 'iconRole' => 'power.crisis',
+    'variants' => [
+      ['skill' => 'Current technique', 'conditions' => [['type' => 'variable', 'name' => 'form', 'value' => 'first']],
+        'iconRole' => 'power.first'],
+      ['skill' => 'Current technique', 'conditions' => [['type' => 'variable', 'name' => 'form', 'value' => 'second']]],
+    ]]);
+  $actor = new Character('Current actor', 1, new Stats(), actorId: 'actor.test', crisisAbility: $ability);
+  $skills = SkillCatalog::load($root . '/assets');
+  foreach (['first' => 'power.first', 'second' => 'power.crisis'] as $form => $role) {
+    $this->state->setVariable('form', $form);
+    $notice = PowerUnlockShowcase::getNotices($this->abilities, [], $this->state, actor: $actor,
+      includeCrisis: true, skills: $skills)[0];
+    expect($notice->title)->toBe('Current technique')->and($notice->iconRole)->toBe($role);
+  }
+  $data = $ability->toArray();
+  expect(CrisisAbility::fromArray($data)->toArray())->toBe($data)
+    ->and($data['variants'][1])->not->toHaveKey('iconRole');
+  $data['variants'][0]['iconRole'] = '';
+  expect(fn() => CrisisAbility::fromArray($data))->toThrow(InvalidArgumentException::class, 'variants.iconRole');
+});
+
 it('owns each notice until dismissal, retries failed delivery and cancels only its own remaining queue entries', function () {
   $first = new NoticeContent('One', 'First'); $second = new NoticeContent('Two', 'Second');
   $operation = new NoticeSequenceOperation($this->modals, [$first, $second]);

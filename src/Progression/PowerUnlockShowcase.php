@@ -38,10 +38,10 @@ final class PowerUnlockShowcase
         hints: $ability->firstUse?->hints ?? []);
     }
     if ($includeCrisis) {
-      $skill = $actor?->crisisAbility?->getUnlockedSkill($actor, $state, $party, $skills)
+      $technique = $actor?->crisisAbility?->getUnlockedTechnique($actor, $state, $party, $skills)
         ?? throw new InvalidArgumentException('The showcase actor has no unlocked crisis technique.');
+      ['skill' => $skill, 'iconRole' => $iconRole] = $technique;
       PlayerText::assertSentence($skill->description, 'Showcase technique ' . $skill->name . ' description', allowEmpty: true);
-      $iconRole = $actor->crisisAbility->iconRole;
       $notices[] = new NoticeContent($skill->name, $skill->description,
         actorId: $iconRole === null ? $actor->actorId : null, iconRole: $iconRole);
     }

@@ -20,7 +20,7 @@ final readonly class CrisisAbility
 {
   /**
    * @param list<string> $states Any of these states also activates the ability.
-   * @param list<array{skill: string, conditions: list<array<string, mixed>>}> $variants
+   * @param list<array{skill: string, conditions: list<array<string, mixed>>, iconRole?: string}> $variants
    */
   private function __construct(
     public string $name,
@@ -67,8 +67,8 @@ final readonly class CrisisAbility
     }
     $normalized = [];
     foreach ($variants as $variant) {
-      if (!is_array($variant) || array_diff(array_keys($variant), ['skill', 'conditions']) !== []) {
-        throw new InvalidArgumentException('Each crisisAbility variant contains a skill and optional world conditions.');
+      if (!is_array($variant) || array_diff(array_keys($variant), ['skill', 'conditions', 'iconRole']) !== []) {
+        throw new InvalidArgumentException('Each crisisAbility variant contains a skill, optional world conditions and an optional acquisition icon role.');
       }
       $skill = self::requireReference($variant['skill'] ?? null, 'variants.skill');
       $conditions = $variant['conditions'] ?? [];
@@ -76,7 +76,9 @@ final readonly class CrisisAbility
         throw new InvalidArgumentException('crisisAbility variant conditions must be a list.');
       }
       WorldConditionEvaluator::validateAll($conditions, 'crisisAbility variant conditions');
-      $normalized[] = ['skill' => $skill, 'conditions' => $conditions];
+      $variantIconRole = isset($variant['iconRole']) ? self::requireReference($variant['iconRole'], 'variants.iconRole') : null;
+      $normalized[] = ['skill' => $skill, 'conditions' => $conditions,
+        ...($variantIconRole === null ? [] : ['iconRole' => $variantIconRole])];
     }
     return new self($name, trim($label), $description, $threshold === null ? null : (float) $threshold, $states, $normalized, $iconRole);
   }
@@ -109,6 +111,13 @@ final readonly class CrisisAbility
   public function getUnlockedSkill(Character $actor, ?GameState $gameState = null, ?Party $party = null,
     ?SkillCatalog $catalog = null): ?Skill
   {
+    return $this->getUnlockedTechnique($actor, $gameState, $party, $catalog)['skill'] ?? null;
+  }
+
+  /** @return array{skill: Skill, iconRole: ?string}|null Current technique and its acquisition presentation role. */
+  public function getUnlockedTechnique(Character $actor, ?GameState $gameState = null, ?Party $party = null,
+    ?SkillCatalog $catalog = null): ?array
+  {
     $selected = null;
     foreach ($this->variants as $variant) {
       if ($variant['conditions'] !== [] && ($gameState === null
@@ -116,9 +125,12 @@ final readonly class CrisisAbility
       if ($selected !== null) {
         throw new InvalidArgumentException(sprintf('Actor "%s" has overlapping %s variants.', $actor->actorId, $this->name));
       }
-      $selected = $variant['skill'];
+      $selected = $variant;
     }
-    return $selected === null ? null : $this->resolveSkill($selected, $catalog ?? SkillCatalog::getProjectCatalog());
+    return $selected === null ? null : [
+      'skill' => $this->resolveSkill($selected['skill'], $catalog ?? SkillCatalog::getProjectCatalog()),
+      'iconRole' => $selected['iconRole'] ?? $this->iconRole,
+    ];
   }
 
   /** Used by authoring validation before any battle state changes. */
