@@ -462,8 +462,8 @@ it('removes acting markers and labels while preserving command advance and retur
 
 it('draws only command-owned flash-step echoes and seeks the same atlas cells out of order', function (bool $targetClock) {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
-  $pose = new BattlerPose('graphical-canvas/synthetic-320x180.png', columns: 4, frames: [2],
-    fps: 24, loop: false, impactFrame: 0, entryFrames: [0, 1], exitFrames: [3]);
+  $pose = new BattlerPose('graphical-canvas/synthetic-320x180.png', columns: 4, rows: 2, frames: [2],
+    fps: 24, loop: false, impactFrame: 0, entryFrames: [0, 1], exitFrames: [3], guardFrame: 4);
   $travel = new \Ichiloto\Engine\Battle\Presentation\BattleTravelPlan([[969, 265], [700, 265]], 700, 265, -1, 600, 900);
   $effect = $targetClock ? new \Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline('flash', '',
     fps: 24, defaults: ['lengthFrames' => 1, 'poseClock' => 'target']) : null;
@@ -473,6 +473,9 @@ it('draws only command-owned flash-step echoes and seeks the same atlas cells ou
     BattlePoseRole::ATTACK, $catalog, $this->root);
   $echoes = static fn($frame): array => array_values(array_filter($frame->canvas->images,
     static fn(CanvasImage $image): bool => str_starts_with($image->id, 'command-echo-')));
+  foreach ([0, 99, 180, 214] as $frame) {
+    expect(graphicalCombatantImage($preview->getFrameAtIndex($frame)->canvas, $hero)->sourceRect?->y)->toBe(90);
+  }
   $transit = $preview->getFrameAtIndex(110);
   expect(graphicalCombatantImage($preview->getFrameAtIndex(107)->canvas, $hero)->sourceRect->x)->toBe(0)
     ->and(graphicalCombatantImage($preview->getFrameAtIndex(108)->canvas, $hero)->sourceRect->x)->toBe(80)
@@ -499,6 +502,7 @@ it('draws only command-owned flash-step echoes and seeks the same atlas cells ou
     function () use (&$impacts): void { $impacts++; }, static fn() => [], static fn() => null,
     movement: \Ichiloto\Engine\Animations\ActionMovement::FLASH_STEP, animationId: 1, flashStep: $plan->flashStep);
   $runner->begin();
+  expect(graphicalCombatantImage($presentation->frame($scene->ui->fieldWindow), $hero)->sourceRect?->y)->toBe(90);
   $runner->update(110 / 120);
   expect($runner->playback->presentationFailure)->toBeNull()
     ->and($runner->playback->plan->travel?->isPossible)->toBeTrue()
@@ -510,6 +514,28 @@ it('draws only command-owned flash-step echoes and seeks the same atlas cells ou
   $runner->dispose();
   expect($scene->ui->fieldWindow->getCommandPlayback())->toBeNull();
 })->with([false, true]);
+
+it('holds a stationary action rest cell through a later impact under reduced motion', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $asset = 'graphical-canvas/synthetic-320x180.png';
+  $pose = new BattlerPose($asset, columns: 2, frames: [0], fps: 24,
+    loop: false, restFrame: 1, impactFrame: 0);
+  $effect = new \Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline('held-strike', '', fps: 24,
+    cueSchedule: [['id' => 'contact', 'type' => 'applyEffect', 'frame' => 4, 'payload' => []]],
+    defaults: ['lengthFrames' => 8, 'poseClock' => 'target']);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
+    target: $effect, actionPoseOverride: $pose);
+  $impact = array_find($plan->timeline->cueSchedule, static fn(array $cue): bool => $cue['type'] === 'commandImpact')['frame'];
+  expect($impact)->toBeGreaterThan($plan->actionPoseEndFrame);
+  $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $hero, [$enemies[0]],
+    BattlePoseRole::ATTACK, $catalog, $this->root);
+  $getImage = static fn(int $frame, bool $reduced): CanvasImage =>
+    graphicalCombatantImage($preview->getFrameAtIndex($frame, $reduced)->canvas, $hero);
+  expect($getImage($impact - 1, true)->sourceRect?->x)->toBe(160)
+    ->and($getImage($impact, true)->sourceRect?->x)->toBe(160)
+    ->and($getImage($impact + 1, true)->asset)->not->toBe($asset)
+    ->and($getImage($impact, false)->asset)->not->toBe($asset);
+});
 
 it('does not replace removed acting markers with text when battler artwork is unavailable', function (bool $skinned) {
   [$battle, $catalog, $hero] = graphicalBattleFixture(skinned: $skinned);

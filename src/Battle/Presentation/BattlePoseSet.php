@@ -27,6 +27,9 @@ final readonly class BattlePoseSet
         || (in_array($role, [BattlePoseRole::MOVE->value, BattlePoseRole::RETURNING->value], true) && $pose->impactFrame !== null)) {
         throw new InvalidArgumentException('Advance poses must loop; movement poses carry no action impact anchor.');
       }
+      if ($pose->guardFrame !== null) {
+        throw new InvalidArgumentException('A guard frame belongs to an action pose binding.');
+      }
       if (($pose->entryFrames !== [] || $pose->exitFrames !== [])
         && !in_array($role, [BattlePoseRole::MOVE->value, BattlePoseRole::RETURNING->value], true)) {
         throw new InvalidArgumentException('Battle pose entry/exit sequences are supported only for move and return roles.');
@@ -37,7 +40,7 @@ final readonly class BattlePoseSet
         || $pose->impactFrame === null) {
         throw new InvalidArgumentException('Action poses require positive animation IDs and an impact entry on a once-playing pose.');
       }
-      if (($pose->entryFrames !== [] || $pose->exitFrames !== [])
+      if (($pose->guardFrame !== null || $pose->entryFrames !== [] || $pose->exitFrames !== [])
         && ($pose->impactFrame !== 0 || $pose->entryFrames === [] || $pose->exitFrames === [])) {
         throw new InvalidArgumentException('Action transit cells require both entry and exit sequences and a planted first frame.');
       }

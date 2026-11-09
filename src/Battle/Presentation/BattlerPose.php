@@ -46,6 +46,7 @@ final readonly class BattlerPose
     public array $entryFrames = [],
     public array $exitFrames = [],
     array $attachmentPoints = [],
+    public ?int $guardFrame = null,
   ) {
     SpriteValidation::validateAssetPath($asset);
     if ($impactFrame !== null && ($loop || $impactFrame < 0 || $impactFrame >= count($frames))) {
@@ -58,6 +59,9 @@ final readonly class BattlerPose
       || $restFrame < 0 || $restFrame >= $columns * $rows || !is_finite($pivotX) || !is_finite($pivotY)
       || min($pivotX, $pivotY) < 0 || max($pivotX, $pivotY) > 1) {
       throw new InvalidArgumentException('Battle poses require a bounded sheet, valid source frames, fps 1..120 and normalized pivots.');
+    }
+    if ($guardFrame !== null && ($guardFrame < 0 || $guardFrame >= $columns * $rows)) {
+      throw new InvalidArgumentException('Battle pose guardFrame requires a valid source cell number.');
     }
     foreach (['entryFrames' => $entryFrames, 'exitFrames' => $exitFrames] as $name => $sequence) {
       if (!array_is_list($sequence) || count($sequence) > 10000
@@ -112,6 +116,7 @@ final readonly class BattlerPose
       BattlePoseSequence::MAIN => $this->frames,
       BattlePoseSequence::ENTRY => $this->entryFrames,
       BattlePoseSequence::EXIT => $this->exitFrames,
+      BattlePoseSequence::GUARD => $this->guardFrame === null ? [] : [$this->guardFrame],
     };
   }
 

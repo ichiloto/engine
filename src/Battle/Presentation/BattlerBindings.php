@@ -57,7 +57,7 @@ final readonly class BattlerBindings
   private const array REFERENCE_KEYS = ['actor', 'height'];
   private const array BATTLER_KEYS = ['artwork', 'poses', 'actionPoses', 'scale', 'grounding', 'strikePoint'];
   private const array ARTWORK_KEYS = ['image', 'pivot'];
-  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan', 'bakedShadow', 'impactFrame', 'reach', 'entryFrames', 'exitFrames', 'attachmentPoints'];
+  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan', 'bakedShadow', 'impactFrame', 'reach', 'entryFrames', 'exitFrames', 'attachmentPoints', 'guardFrame'];
   private const array PIVOT_KEYS = ['x', 'y'];
   private const array PROFILE_KEYS = ['relativeSize', 'sourceSpan', 'horizontal'];
 
@@ -231,6 +231,7 @@ final readonly class BattlerBindings
       self::readSequenceFrames($pose, 'entryFrames', $at),
       self::readSequenceFrames($pose, 'exitFrames', $at),
       $points,
+      array_key_exists('guardFrame', $pose) ? self::readInteger($pose, 'guardFrame', 0, $at) : null,
     );
   }
 

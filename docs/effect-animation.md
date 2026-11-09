@@ -934,7 +934,9 @@ and image from their project pickers. The association belongs to that
 battler, so the same animation can use different sheets for different
 battlers and other animations retain their normal role poses. The entry
 uses the existing pose fields and requires `loop => false` and an
-`impactFrame` playback entry.
+`impactFrame` playback entry. Flash-step action poses may also set
+`guardFrame` to an atlas cell held during both stationary guard phases.
+The ordinary resting pose takes over when the command ends or is cancelled.
 
 The command clock aligns that entry with the target effect's `poseSyncFrame`
 or the start of the target phase. Entry zero starts the pose at the anchor,
@@ -943,8 +945,9 @@ An earlier pose sequence can use a positive impact entry. After the pose's
 last playback entry, the battler returns to its normal resting role while
 remaining effects finish. The same binding supplies release attachments,
 travel reach and the Editor battle preview. Reduced motion samples the pose
-rest cell within the same lifetime. Interruption and persistent battle
-reactions take precedence over the bound pose.
+rest cell. With a target pose clock, the rest cell holds through command
+impact. Interruption and persistent battle reactions take precedence over
+the bound pose.
 
 Persistent pose priority is knockout, guard, afflicted, enhanced, then idle.
 All harmful states count, including poison that does not block actions, and

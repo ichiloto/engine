@@ -205,7 +205,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     }
     if ($battler === $this->actor && $this->plan->actionPoseOverride !== null
       && !isset($this->reactions[spl_object_id($battler)])) {
-      return $this->isBoundActionPoseActive() ? $this->pose : $rest;
+      return $this->isBoundActionPoseActive($reducedMotion) ? $this->pose : $rest;
     }
     if ($battler === $this->actor && $this->plan->actionPoseStartFrame !== null
       && $this->session->currentFrame < $this->plan->actionPoseStartFrame
@@ -222,23 +222,28 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     return $rest;
   }
 
-  public function getBoundActionPose(CharacterInterface $battler, BattlePoseRole $role): ?BattlerPose
+  public function getBoundActionPose(CharacterInterface $battler, BattlePoseRole $role, bool $reducedMotion = false): ?BattlerPose
   {
     return $battler === $this->actor && $role === $this->pose && !isset($this->reactions[spl_object_id($battler)])
-      && $this->isBoundActionPoseActive() ? $this->plan->actionPoseOverride : null;
+      && $this->isBoundActionPoseActive($reducedMotion) ? $this->plan->actionPoseOverride : null;
   }
 
-  private function isBoundActionPoseActive(): bool
+  private function isBoundActionPoseActive(bool $reducedMotion): bool
   {
+    if ($this->plan->actionPoseOverride === null || $this->isCompleted) { return false; }
     if ($this->plan->flashStep !== null) {
-      return !$this->isCompleted && in_array($this->phase, ['advance', 'source', 'target', 'reaction', 'recovery', 'return'], true);
+      return in_array($this->phase, ['advance', 'source', 'target', 'reaction', 'recovery', 'return'], true)
+        || ($this->plan->actionPoseOverride->guardFrame !== null && in_array($this->phase, ['guard', 'finish'], true));
     }
-    if ($this->plan->actionPoseOverride === null || $this->plan->actionPoseEndFrame === null
-      || $this->isCompleted || $this->phase === 'advance' || $this->phase === 'enter-advance'
-      || $this->phase === 'exit-advance' || $this->getActorClockFrame() >= $this->plan->actionPoseEndFrame
-      || ($this->plan->actionPoseStartFrame !== null && $this->session->currentFrame < $this->plan->actionPoseStartFrame)) {
+    $start = $this->plan->actionPoseStartFrame;
+    if ($this->plan->actionPoseEndFrame === null || in_array($this->phase, ['advance', 'enter-advance', 'exit-advance'], true)
+      || ($start !== null && $this->session->currentFrame < $start)) {
       return false;
     }
+    if ($reducedMotion && $start !== null && (!$this->resolved || $this->session->currentFrame === $this->impactFrame)) {
+      return true;
+    }
+    if ($this->getActorClockFrame() >= $this->plan->actionPoseEndFrame) { return false; }
     return $this->plan->actionPoseOverride->impactFrame !== 0
       || $this->getActorClockFrame() >= $this->plan->actionPoseAnchorFrame;
   }
@@ -283,6 +288,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       return match ($this->phase) {
         'advance' => BattlePoseSequence::ENTRY,
         'return' => BattlePoseSequence::EXIT,
+        'guard', 'finish' => BattlePoseSequence::GUARD,
         default => BattlePoseSequence::MAIN,
       };
     }

@@ -10,4 +10,5 @@ enum BattlePoseSequence: string
   case MAIN = 'main';
   case ENTRY = 'entry';
   case EXIT = 'exit';
+  case GUARD = 'guard';
 }

@@ -685,7 +685,7 @@ final class GraphicalBattlePresentation
       $participant['poses'], $identity, $participant['scale']);
     $artworkScale = $available ? $bounds->width / $art->width / $slot->displayScale : null;
     $role = $playback?->getPoseRole($battler, $participant['poses'], $reducedMotion) ?? BattlePoseRole::getRestingRole($battler);
-    $actionPose = $includeOptionalArtwork ? $playback?->getBoundActionPose($battler, $role) : null;
+    $actionPose = $includeOptionalArtwork ? $playback?->getBoundActionPose($battler, $role, $reducedMotion) : null;
     $pose = $includeOptionalArtwork ? ($actionPose ?? $participant['poses']?->getPose($role)) : null;
     $usesKnockoutPose = false;
     $usesConcedePose = false;
