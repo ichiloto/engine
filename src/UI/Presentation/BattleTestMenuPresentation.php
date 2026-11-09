@@ -71,8 +71,8 @@ final class BattleTestMenuPresentation
       $y += $view->prose('battle-test-arena', sprintf('Arena  < %s >', $arena), new CanvasRectangle($inner->x, $y, $inner->width, $m->cellHeight));
     }
     $y += $m->sectionGap / 2;
-    $hints = $list->resolveHints();
-    $hintHeight = $hints === [] ? 0 : MenuActionHints::height($hints, $theme, $inner->width);
+    $hints = $list->resolveHints(includeOptional: $theme->showInputHints);
+    $hintHeight = $hints === [] ? 0 : MenuActionHints::height($hints, $theme, $inner->width, required: true);
     $noteHeight = $list->note === null ? 0 : count(MenuCanvas::wrap($list->note, max(1, (int) floor($inner->width / $m->cellWidth)))) * $m->cellHeight;
     $bottom = $inner->y + $inner->height - $hintHeight - ($hintHeight > 0 ? $m->sectionGap / 2 : 0);
     if ($list->note !== null) {
@@ -94,9 +94,9 @@ final class BattleTestMenuPresentation
       $view->rows('battle-test-rows', $rows, new MenuRowLayout(new CanvasRectangle($inner->x, $y, $inner->width, max($rowHeight, $bottom - $y)),
         $list->columns, $rowHeight, $m->cellWidth, $m->cellHeight, ellipsis: true), $list->selected ?? $list->anchor ?? 0);
     }
-    // A theme may hide input hints; then they take no room.
     if ($hintHeight > 0) {
-      $view->hints('battle-test-hints', $hints, new CanvasRectangle($inner->x, $inner->y + $inner->height - $hintHeight, $inner->width, $hintHeight));
+      $view->hints('battle-test-hints', $hints, new CanvasRectangle($inner->x, $inner->y + $inner->height - $hintHeight, $inner->width, $hintHeight),
+        required: true);
     }
   }
 

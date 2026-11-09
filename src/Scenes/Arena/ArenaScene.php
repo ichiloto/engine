@@ -530,7 +530,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
         hints: $focus === ArenaSetupEditor::PARTY ? $this->describePartyHints('Troops')
           : [['confirm', ($editor?->onComposeRow ?? false) ? 'Compose' : 'Fight'], ...(($editor?->offersArenas ?? false) ? [['left', 'Arena', 'right']] : []),
             [MenuPager::NEXT_ACTION, 'Party'], ['cancel', 'Quit']],
-        namesArena: true, anchor: $editor?->troopIndex),
+        namesArena: true, anchor: $editor?->troopIndex,
+        requiredHintActions: [MenuPager::NEXT_ACTION, MenuPager::PREVIOUS_ACTION]),
     };
   }
 
@@ -585,7 +586,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
         $partyFocused ? $this->describePartyHints('Test Troop')
           : [['confirm', 'Choose'], ...($arenas ? [['left', 'Arena', 'right']] : []),
             [MenuPager::NEXT_ACTION, 'Party'], ['cancel', 'Back']],
-        note: $this->keepStatus, namesArena: true, anchor: $composer->rowIndex),
+        note: $this->keepStatus, namesArena: true, anchor: $composer->rowIndex,
+        requiredHintActions: [MenuPager::NEXT_ACTION, MenuPager::PREVIOUS_ACTION]),
     };
   }
 

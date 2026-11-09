@@ -112,3 +112,25 @@ it('keeps every list row on one line, cutting a name that cannot fit with an ell
 
   expect($labels)->toHaveCount(1)->and($labels[0][2])->toEndWith("\u{2026}");
 });
+
+it('shows required pane navigation when the theme hides optional input hints', function () {
+  $list = new BattleTestMenuList('Troop', [['Rats', []]], 0,
+    [['confirm', 'Fight'], ['menu_page_next', 'Go to Party']],
+    requiredHintActions: ['menu_page_next']);
+  $input = new ReflectionProperty(\Ichiloto\Engine\IO\InputManager::class, 'config');
+  $original = $input->getValue();
+  try {
+    \Ichiloto\Engine\IO\InputManager::setBindings([]);
+    $canvas = BattleTestMenuPresentation::compose($this->theme, $list, true, [], null, null, null, null, false);
+    $hintRuns = [];
+    foreach ($canvas->textLayers as $layer) {
+      if (str_starts_with($layer->id, 'battle-test-hints')) {
+        array_push($hintRuns, ...array_column($layer->runs, 'text'));
+      }
+    }
+    expect(array_map(trim(...), $hintRuns))->toContain('Go to Party')->not->toContain('Fight')
+      ->and(array_column($list->resolveHints(), 'label'))->toBe(['Fight', 'Go to Party']);
+  } finally {
+    $input->setValue(null, $original);
+  }
+});

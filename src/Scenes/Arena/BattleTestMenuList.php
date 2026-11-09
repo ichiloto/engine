@@ -26,6 +26,7 @@ final readonly class BattleTestMenuList
    * @param string|null $note What the last action here came to, such as keeping a troop, shown beneath the rows.
    * @param bool $namesArena Whether the arena fights take place in belongs with this list, where arenas are offered.
    * @param ?int $anchor The row kept in view while the cursor is elsewhere (on the troop being fought while the party is set up).
+   * @param list<string> $requiredHintActions Actions essential to navigating this list.
    */
   public function __construct(
     public string $title,
@@ -36,13 +37,16 @@ final readonly class BattleTestMenuList
     public ?string $note = null,
     public bool $namesArena = false,
     public ?int $anchor = null,
+    public array $requiredHintActions = [],
   ) {}
 
   /** @return list<ActionHint> The hints, resolved through the active display profile. */
-  public function resolveHints(): array
+  public function resolveHints(bool $includeOptional = true): array
   {
+    $hints = $includeOptional ? $this->hints : array_values(array_filter($this->hints,
+      fn(array $hint): bool => in_array($hint[0], $this->requiredHintActions, true)));
     return array_map(static fn(array $hint): ActionHint => isset($hint[2])
-      ? ActionHints::resolvePair($hint[0], $hint[2], $hint[1]) : ActionHints::resolve($hint[0], $hint[1]), $this->hints);
+      ? ActionHints::resolvePair($hint[0], $hint[2], $hint[1]) : ActionHints::resolve($hint[0], $hint[1]), $hints);
   }
 
   /** @return list<string> The rows as the terminal lists them in a width, the note after a blank line. */
