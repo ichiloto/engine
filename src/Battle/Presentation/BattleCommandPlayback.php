@@ -203,6 +203,9 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       };
       if ($movement !== null && $poses?->getPose($movement) !== null) { return $movement; }
     }
+    if ($battler === $this->actor && $this->plan->actionPoseStartFrame !== null
+      && $this->session->currentFrame < $this->plan->actionPoseStartFrame
+      && !isset($this->reactions[spl_object_id($battler)])) { return $rest; }
     if ($battler === $this->actor && $this->plan->actionPoseOverride !== null
       && !isset($this->reactions[spl_object_id($battler)])) {
       return $this->isBoundActionPoseActive() ? $this->pose : $rest;
@@ -232,7 +235,8 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     }
     if ($this->plan->actionPoseOverride === null || $this->plan->actionPoseEndFrame === null
       || $this->isCompleted || $this->phase === 'advance' || $this->phase === 'enter-advance'
-      || $this->phase === 'exit-advance' || $this->getActorClockFrame() >= $this->plan->actionPoseEndFrame) {
+      || $this->phase === 'exit-advance' || $this->getActorClockFrame() >= $this->plan->actionPoseEndFrame
+      || ($this->plan->actionPoseStartFrame !== null && $this->session->currentFrame < $this->plan->actionPoseStartFrame)) {
       return false;
     }
     return $this->plan->actionPoseOverride->impactFrame !== 0
@@ -264,7 +268,9 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       return max(0, ($this->session->currentFrame - $this->plan->phases[$this->phase]['start']) / BattleCommandTimeline::FPS);
     }
     $reaction = $this->reactionFrames[spl_object_id($battler)] ?? null;
-    $start = $reaction ?? ($this->plan->phases['announce']['start'] ?? 0);
+    $start = $reaction ?? ($battler === $this->actor && $role === $this->pose
+      ? ($this->plan->actionPoseStartFrame ?? $this->plan->phases['announce']['start'] ?? 0)
+      : ($this->plan->phases['announce']['start'] ?? 0));
     $frame = $battler === $this->actor && $reaction === null && $role === $this->pose
       ? $this->getActorClockFrame() : $this->session->currentFrame;
     return max(0, ($frame - $start) / BattleCommandTimeline::FPS);
@@ -303,8 +309,10 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     if ($this->plan->flashStep !== null && $battler === $this->actor) { return 0.0; }
     if ($battler !== $this->actor || isset($this->reactionFrames[spl_object_id($battler)])
       || $this->plan->actionPoseAnchorFrame === null || !isset($this->plan->phases['announce'])) { return null; }
-    return max(0, ($this->plan->actionPoseAnchorFrame - $this->plan->phases['announce']['start'])
-      / BattleCommandTimeline::FPS);
+    $start = $this->plan->actionPoseStartFrame;
+    $anchor = $this->plan->actionPoseAnchorFrame;
+    return max(0, ($start === null ? $anchor - $this->plan->phases['announce']['start']
+      : $this->plan->getActionPoseClockFrame($anchor) - $start) / BattleCommandTimeline::FPS);
   }
 
   /** Drawing may hold a rest frame, but never seek the logical cue playhead. */

@@ -698,13 +698,20 @@ points rise by `lift`; optional `approach` sets the final control distance
 along the head heading as a fraction of the span. `clearance` adds a margin
 around unselected battlers. `depth` selects behind or front.
 
+Set `poseClock => 'target'` on a fixed, once-playing target effect to
+start the caster pose at target frame 0. Use the same cadence for the pose
+and effect, and set `poseSyncFrame` to the pose's synchronization entry.
+The default announcement clock remains available for other effects.
+
 The head clears the selected body except for the sample containing the
 resolved impact cue. The head and links route around unselected bodies.
+When a live pose point starts behind another battler, the occluded links
+draw behind the battler and the rest of the chain retains its chosen depth.
 A geometry failure is reported through presentation diagnostics. Damage and
 status still resolve on the ordinary command clock. Reduced motion holds the
 authored rest sample, and Terminal uses its independent effect tracks. The
-Editor exposes the same track and sample fields through its graphical effect
-records and production battle preview.
+Editor exposes the same track, pose clock and sample fields through its
+graphical effect records and production battle preview.
 
 A windowless capacity probe at Iron Verdict's two review reaches drew 87 and
 109 rotated images with two synthetic crops. A later isolated replay used the

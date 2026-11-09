@@ -24,6 +24,8 @@ final readonly class BattleCommandTimeline
   public const int FPS = 120;
   /** Command-clock frame for the action pose's authored synchronization entry. */
   public ?int $actionPoseAnchorFrame;
+  /** Target-clock poses begin with the effect instead of during the announcement. */
+  public ?int $actionPoseStartFrame;
   /** Exclusive completion boundary for the selected impact-anchored action pose. */
   public ?int $actionPoseEndFrame;
   public CompiledEffectTimeline $timeline;
@@ -77,6 +79,11 @@ final readonly class BattleCommandTimeline
       throw new InvalidArgumentException('Flash step requires a resolved route, action transit cells and a planted first frame.');
     }
     $actionPose = $actionPoseOverride ?? $actionPose;
+    $targetPoseClock = ($target?->defaults['poseClock'] ?? null)
+      === \Ichiloto\Engine\Animations\Timelines\EffectPoseClock::TARGET->value;
+    if (isset($source->defaults['poseClock'])) {
+      throw new InvalidArgumentException('A target pose clock belongs to the target effect lane.');
+    }
     if (isset($source->defaults['rangeTiming']) || isset($source->defaults['flightTiming'])) {
       throw new InvalidArgumentException('Battle range and flight timing belong to the target effect lane.');
     }
@@ -88,6 +95,7 @@ final readonly class BattleCommandTimeline
     if ($resultsOnly) {
       $this->flightTiming = null;
       $this->actionPoseAnchorFrame = null;
+      $this->actionPoseStartFrame = null;
       $this->actionPoseEndFrame = null;
       if (!is_finite($timings->statChanges) || $timings->statChanges < 0) {
         throw new InvalidArgumentException('Battle result duration must be finite and non-negative.');
@@ -337,6 +345,7 @@ final readonly class BattleCommandTimeline
     };
     usort($cues, static fn(array $a, array $b): int => [$a['frame'], $order($a)] <=> [$b['frame'], $order($b)]);
     $this->actionPoseAnchorFrame = $poseAnchor;
+    $this->actionPoseStartFrame = $targetPoseClock ? $phases['target']['start'] : null;
     $this->actionPoseEndFrame = $poseEnd;
     $this->phases = $phases;
     $this->restFrames = $restFrames;

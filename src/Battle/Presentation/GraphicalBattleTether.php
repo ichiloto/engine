@@ -80,14 +80,15 @@ final class GraphicalBattleTether
     $padding = $clearance + $radius;
     $main = BattleCubicFlightClearance::plan($guide, $head, $first, $second, $arena->height,
       $obstacles, $padding, width: $arena->width);
-    if ($main === null || $main->occludedDepartureDistance > 0) {
+    if ($main === null) {
       throw new RuntimeException('No tether path clears the unselected battlers.');
     }
     $waypoints = $main->getWaypoints();
+    $lead = null;
     if ($guide !== $grip) {
       $lead = BattleCubicFlightClearance::plan($grip, $guide, new Vector2($grip->x, $grip->y - $sample['guideGripLift'] * $scale),
         new Vector2($guide->x, $guide->y - $sample['guideHandLift'] * $scale), $arena->height, $obstacles, $padding, width: $arena->width);
-      if ($lead === null || $lead->occludedDepartureDistance > 0) {
+      if ($lead === null) {
         throw new RuntimeException('No tether path clears the unselected battlers between the two pose points.');
       }
       $waypoints = [...$lead->getWaypoints(), ...array_slice($waypoints, 1)];
@@ -102,11 +103,16 @@ final class GraphicalBattleTether
     $center = new PresentationSpritePivot(.5, .5);
     $crops = [new SpriteSourceRect(0, 0, $linkWidth, $linkSize['height']),
       new SpriteSourceRect($linkWidth, 0, $linkWidth, $linkSize['height'])];
+    $leadLength = $lead?->distance ?? 0.0;
+    $leadOcclusion = $lead?->occludedDepartureDistance ?? 0.0;
+    $mainOcclusionEnd = $leadLength + $main->occludedDepartureDistance;
     for ($index = 0; $index < $count && $path->distance > 0; $index++) {
-      $link = $path->getSampleAtProgress($index * $spacing / $path->distance);
+      $distance = $index * $spacing;
+      $link = $path->getSampleAtProgress($distance / $path->distance);
       $angle = (int) round(rad2deg(atan2($link['direction']->y, $link['direction']->x)));
+      $occluded = $distance < $leadOcclusion || ($distance >= $leadLength && $distance < $mainOcclusionEnd);
       $image = self::place($id . '-link-' . $index, $sample['links'], $crops[$index % 2], $link['point'],
-        $linkHeight, $angle, $center, $arena, $layer, $rotation, $clips);
+        $linkHeight, $angle, $center, $arena, $occluded ? 15 : $layer, $rotation, $clips);
       if ($image !== null) { $images[] = $image; }
     }
     return [...$images, $headImage];

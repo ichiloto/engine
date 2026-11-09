@@ -3581,10 +3581,10 @@ it('keeps inactive attack overhang out of the running start envelope', function 
     ->toBeLessThan($layout->battlerArea->y)->and($playback->presentationFailure)->toBeNull();
 });
 
-it('keeps a graphical tether on the current grip and selected recipient without changing command cues', function () {
+it('keeps a graphical tether on the current grip and selected recipient without changing command cues', function (bool $override) {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $asset = 'graphical-canvas/synthetic-320x180.png';
-  $pose = new BattlerPose($asset, columns: 2, frames: [0, 1, 1], fps: 10, loop: false, restFrame: 1, impactFrame: 1,
+  $pose = new BattlerPose($asset, columns: 2, frames: [0, 1, 1, 1], fps: 10, loop: false, restFrame: 1, impactFrame: 2,
     attachmentPoints: [
       ['cell' => 0, 'name' => 'grip', 'point' => ['x' => .7, 'y' => .3]],
       ['cell' => 1, 'name' => 'grip', 'point' => ['x' => .5, 'y' => .4]],
@@ -3593,26 +3593,28 @@ it('keeps a graphical tether on the current grip and selected recipient without 
   $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
     ui: $catalog->ui, defaultArena: 'arena.test', actorPoses: ['Hero' => new BattlePoseSet(['attack' => $pose])]);
   $data = [
-    'fps' => 10, 'lengthFrames' => 3, 'restFrame' => 1, 'poseSyncFrame' => 1,
+    'fps' => 10, 'lengthFrames' => 4, 'restFrame' => 2, 'poseSyncFrame' => 2, 'poseClock' => 'target',
     'tracks' => [
       ['id' => 'chain', 'type' => 'tether', 'grip' => 'grip', 'guide' => 'guide', 'head' => $asset,
         'headPivot' => ['x' => .5, 'y' => .5], 'headHeight' => 18, 'links' => $asset, 'linkHeight' => 8,
         'linkSpacing' => 7, 'keyframes' => [
           ['frame' => 0, 'x' => 65, 'y' => -100, 'targetWeight' => 0, 'rotation' => 28, 'lift' => 0],
-          ['frame' => 1, 'x' => 0, 'y' => 0, 'targetWeight' => 1, 'rotation' => 52, 'guideWeight' => 1, 'lift' => 12],
+          ['frame' => 1, 'x' => 75, 'y' => -100, 'targetWeight' => 0, 'rotation' => 28, 'lift' => 0],
           ['frame' => 2, 'x' => 0, 'y' => 0, 'targetWeight' => 1, 'rotation' => 52, 'guideWeight' => 1, 'lift' => 12],
+          ['frame' => 3, 'x' => 0, 'y' => 0, 'targetWeight' => 1, 'rotation' => 52, 'guideWeight' => 1, 'lift' => 12],
         ]],
       ['id' => 'stroke', 'type' => 'glyph', 'presentation' => 'terminal',
         'keyframes' => [['frame' => 1, 'content' => '*', 'position' => ['x' => 0, 'y' => 0]]]],
     ],
-    'cues' => [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 1]],
+    'cues' => [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 2]],
   ];
   $library = new EffectTimelineLibrary($this->root);
   $timeline = $library->compile('moving-tether', $data, true);
   $terminal = $library->compile('moving-tether', $data, true, \Ichiloto\Engine\Animations\Timelines\EffectPresentation::TERMINAL);
   expect(array_column($terminal->playbackSegments, 'layer'))->toBe(['glyph'])
     ->and($terminal->cueSchedule)->toBe($timeline->cueSchedule);
-  $plan = new BattleCommandTimeline(BattleTurnTimings::fromTotalDuration(1.6), target: $timeline, actionPose: $pose);
+  $plan = new BattleCommandTimeline(BattleTurnTimings::fromTotalDuration(1.6), target: $timeline,
+    actionPose: $override ? null : $pose, actionPoseOverride: $override ? $pose : null);
   $impact = $plan->actionPoseAnchorFrame;
   $first = $plan->getCommandFrameForAuthoredFrame('target', 0);
   $impactCues = array_values(array_filter($plan->timeline->cueSchedule, static fn(array $cue): bool => $cue['type'] === 'commandImpact'));
@@ -3622,9 +3624,12 @@ it('keeps a graphical tether on the current grip and selected recipient without 
   foreach ($enemies as $selected) {
     $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview(
       $battle, $plan, $hero, [$selected], BattlePoseRole::ATTACK, $catalog, $this->root);
+    $announcing = $preview->getFrameAtIndex($first - 1, imageRotation: true);
+    expect(graphicalCombatantImage($announcing->canvas, $hero)->asset)->toBe('graphical-canvas/synthetic-143x181.png');
     $before = $preview->getFrameAtIndex($first, imageRotation: true);
+    $second = $preview->getFrameAtIndex($plan->getCommandFrameForAuthoredFrame('target', 1), imageRotation: true);
     $contact = $preview->getFrameAtIndex($impact, imageRotation: true);
-    $recovery = $preview->getFrameAtIndex($plan->getCommandFrameForAuthoredFrame('target', 2), imageRotation: true);
+    $recovery = $preview->getFrameAtIndex($plan->getCommandFrameForAuthoredFrame('target', 3), imageRotation: true);
     $assertPoseGrip = static function ($frame, int $cel) use ($hero, $pose): array {
       $prefix = 'command-effect-target-chain-' . spl_object_id($hero);
       $weapon = array_column(array_values(array_filter($frame->canvas->images,
@@ -3639,6 +3644,7 @@ it('keeps a graphical tether on the current grip and selected recipient without 
       return [$weapon, $weapon[$prefix . '-head']];
     };
     $assertPoseGrip($before, 0);
+    $assertPoseGrip($second, 1);
     [$weapon, $head] = $assertPoseGrip($contact, 1);
     $reduced = $preview->getFrameAtIndex($first, reducedMotion: true, imageRotation: true);
     $assertPoseGrip($reduced, 1);
@@ -3666,4 +3672,25 @@ it('keeps a graphical tether on the current grip and selected recipient without 
 
   $data['tracks'][0]['keyframes'][1]['frame'] = 0;
   expect(fn() => $library->compile('invalid-tether', $data, true))->toThrow(InvalidArgumentException::class, 'nonoverlapping');
+})->with([false, true]);
+
+it('keeps the visible tether when its grip is occluded by another battler', function () {
+  $asset = 'graphical-canvas/synthetic-320x180.png';
+  $timeline = (new EffectTimelineLibrary($this->root))->compile('overlapping-grip', [
+    'fps' => 10, 'lengthFrames' => 1, 'tracks' => [[
+      'id' => 'chain', 'type' => 'tether', 'grip' => 'grip', 'head' => $asset, 'links' => $asset,
+      'headPivot' => ['x' => .5, 'y' => .5], 'headHeight' => 18, 'linkHeight' => 8, 'linkSpacing' => 7,
+      'keyframes' => [['frame' => 0, 'x' => 0, 'y' => 0, 'targetWeight' => 1, 'rotation' => 0, 'lift' => 0]],
+    ]],
+  ], true);
+  $sample = $timeline->playbackSegments[0]['drawCommands'][0]['payload'];
+  $images = \Ichiloto\Engine\Battle\Presentation\GraphicalBattleTether::compose('chain', $sample,
+    new BattleCanvasLayout(1350, 720), $this->root,
+    [2 => new CanvasRectangle(420, 300, 80, 80), 3 => new CanvasRectangle(800, 300, 80, 80)],
+    [1 => new Vector2(920, 400)], [1 => ['grip' => new Vector2(830, 340)]],
+    1, 2, true, true, true);
+  $layers = array_column($images, 'layer');
+  expect($layers[0])->toBeLessThan(BattleCanvasLayout::BATTLER_LAYER)
+    ->and($layers[count($layers) - 2])->toBeGreaterThan(BattleCanvasLayout::BATTLER_LAYER)
+    ->and($images[array_key_last($images)]->id)->toBe('chain-head');
 });
