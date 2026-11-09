@@ -29,7 +29,6 @@ use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Progression\{TutorialDirector, TutorialStartContext};
-use Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /**
@@ -360,7 +359,6 @@ class PlayerActionState extends TurnState
     $step = $director->getStepForView(self::TUTORIAL_SCREEN, self::TUTORIAL_COMMAND_VIEW);
     if ($step?->target['id'] === BattleCommandType::SUMMON->value) {
       $context->ui->commandWindow->setTutorialTarget(BattleCommandType::SUMMON);
-      $context->ui->commandContextWindow->setItems([], '', TutorialTerminalPresentation::getHint($step) ?? '');
     }
   }
 

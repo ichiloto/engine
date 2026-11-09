@@ -420,11 +420,16 @@ final class MenuCanvas
       return;
     }
 
-    $hint = ActionHints::resolve($step->action, $step->say ?? 'Continue');
+    $target->assertWithin($this->width, $this->height);
+    if ($step->say === null) {
+      $this->renderOutline('tutorial-target', $target, 'focus', 2, 1101);
+      return;
+    }
+
+    $hint = ActionHints::resolve($step->action, $step->say);
     if ($hint->control === null) {
       return;
     }
-    $target->assertWithin($this->width, $this->height);
     $right = $target->x + $target->width;
     $bottom = $target->y + $target->height;
     foreach ([

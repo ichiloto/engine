@@ -13,10 +13,10 @@ final class TutorialTerminalPresentation
 {
   public static function getHint(?TutorialStep $step, ?string $speakerName = null): ?string
   {
-    if ($step === null) {
+    $instruction = $step?->say;
+    if ($instruction === null) {
       return null;
     }
-    $instruction = $step->say ?? 'Continue';
     $label = $speakerName === null ? $instruction : $speakerName . ': ' . $instruction;
     $hint = ActionHints::resolve($step->action, $label);
     return $hint->control === null ? null : TerminalControlText::formatHint($hint);

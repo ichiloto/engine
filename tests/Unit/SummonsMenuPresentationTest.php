@@ -363,6 +363,14 @@ it('lights the visible tutorial row with the bound control and leaves missing ta
   $speaker = array_find($layers, static fn($layer) => $layer->id === 'tutorial-speaker');
   expect(implode('', array_column($speaker?->runs ?? [], 'text')))->toBe('Actor');
 
+  unset($step['say'], $step['speaker']);
+  $silentStep = TutorialStep::fromArray($step, 'Test guide');
+  $silent = SummonsMenuPresentation::compose($content, $theme, null, tutorial: $silentStep, tutorialRow: $step['target']['id']);
+  $tutorialLayers = array_filter($silent->textLayers, static fn($layer): bool => str_starts_with($layer->id, 'tutorial-'));
+  expect($tutorialLayers)->not->toBeEmpty()
+    ->and(array_all($tutorialLayers, static fn($layer): bool => str_starts_with($layer->id, 'tutorial-target')))->toBeTrue()
+    ->and(\Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation::getHint($silentStep))->toBeNull();
+
   $step['target']['id'] = 'absent';
   $missing = SummonsMenuPresentation::compose($content, $theme, null, tutorial: TutorialStep::fromArray($step, 'Test guide'), tutorialRow: $step['target']['id'], tutorialSpeaker: 'Actor');
   expect(array_any($missing->textLayers, static fn($layer): bool => str_starts_with($layer->id, 'tutorial-')))->toBeFalse();

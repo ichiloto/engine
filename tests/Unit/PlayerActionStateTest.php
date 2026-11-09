@@ -203,7 +203,7 @@ it('offers Summon guidance only when the command owner can afford a summon and l
     $showCommands();
     expect($saved->getTutorialPhase('battle.summon'))->toBe(TutorialPhase::PENDING)
       ->and($director->getActiveTutorial()?->id)->toBe('battle.summon')
-      ->and($screen->commandContextWindow->getEmptyMessage())->toContain('Choose Summon.')
+      ->and($screen->commandContextWindow->getEmptyMessage())->toBe('')
       ->and(array_column($screen->commandWindow->presentationSnapshot()->rows, 'tutorialTarget'))
       ->toContain(true)
       ->and($screen->commandWindow->activeCommandIndex)->toBe(0)
