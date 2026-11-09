@@ -74,7 +74,7 @@ final class CinematicScriptValidator
         ),
         'show_actor', 'hide_actor', 'remove_actor' => self::validateActorReference($command, $cinematicId, $commandPath),
         'field_animation' => self::validateFieldAnimation($command, $cinematicId, $commandPath),
-        'title_card', 'narration' => self::validateOptionalDuration($command, ['seconds'], $cinematicId, $commandPath),
+        'title_card', 'narration' => self::validateTimedText($command, $cinematicId, $commandPath),
         'transition' => self::validateTransition($command, $cinematicId, $commandPath),
         'cinematic_music' => self::validateCinematicMusic($command, $cinematicId, $commandPath),
         'common_event' => self::validateStableReference($command, 'id', $cinematicId, $commandPath),
@@ -104,6 +104,17 @@ final class CinematicScriptValidator
     $finish = CinematicCommandSchema::STORYBOOK_FINISH_FIELD;
     if (array_key_exists($finish, $command)) {
       self::validateRequiredBlock($command, $finish, $cinematicId, "$path/$finish");
+    }
+  }
+
+  /** @param array<string, mixed> $command */
+  private static function validateTimedText(array $command, string $cinematicId, string $path): void
+  {
+    self::validateOptionalDuration($command, ['seconds'], $cinematicId, $path);
+    try {
+      CinematicTextSurface::getFromCommand($command);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, $path . '/' . CinematicTextSurface::FIELD, $error->getMessage());
     }
   }
 

@@ -1,10 +1,12 @@
 <?php
 
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicPresentationManager;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicTextSurface;
 use Ichiloto\Engine\Cutscenes\Cinematics\TimedPresentationOperation;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
+use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContext;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
@@ -123,6 +125,36 @@ it('does not let an older operation clear or advance replacement text', function
     $current->cancel();
     expect($this->scene->getPresentationOverlay(1350, 720))->toBeNull();
 })->with([false, true]);
+
+it('reprojects the same scoped cue when the field surface changes', function (CinematicTextSurface $surface, bool $visibleGraphically) {
+    $grid = $this->scene->getPresentationContext()->grid;
+    $viewport = new ReflectionProperty(GameScene::class, 'fieldViewport');
+    $viewport->setValue($this->scene, new FieldViewport($grid));
+    $this->presentation->showOverlay('narration', 'A field-only cue.', surface: $surface);
+    $cue = $this->presentation->overlayPresentation;
+    $operation = new TimedPresentationOperation($this->presentation, 1.0);
+    $visibleInCanvas = fn() => $this->scene->getPresentationOverlay(1350, 720) !== null;
+    $visibleInCells = function (): bool {
+        $snapshot = Console::capturePresentation(135, 36, fn() => $this->presentation->render());
+        return str_contains(implode("\n", array_map(TerminalText::stripAnsi(...), $snapshot->rows)), 'A field-only cue.');
+    };
+
+    expect($this->scene->isGraphicalFieldPresented())->toBeTrue()
+        ->and($visibleInCanvas())->toBe($visibleGraphically)
+        ->and($visibleInCells())->toBe($visibleGraphically)
+        ->and($operation->update(.5))->toBeFalse();
+
+    $viewport->setValue($this->scene, null);
+    expect($this->scene->isGraphicalFieldPresented())->toBeFalse()
+        ->and($visibleInCanvas())->toBe(!$visibleGraphically)
+        ->and($visibleInCells())->toBe(!$visibleGraphically)
+        ->and($this->presentation->overlayPresentation)->toBe($cue)
+        ->and($operation->update(.5))->toBeTrue()
+        ->and($this->presentation->overlayPresentation)->toBeNull();
+})->with([
+    'Terminal text over the glyph field' => [CinematicTextSurface::TERMINAL, false],
+    'Graphical text over the graphical field' => [CinematicTextSurface::GRAPHICAL, true],
+]);
 
 it('retains standard Terminal windows when the graphical theme is invalid and does not mask their text', function () {
     ($this->writeTheme)(array_replace($this->theme, ['schema' => 'unsupported']));

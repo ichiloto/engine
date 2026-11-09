@@ -97,6 +97,15 @@ it('exports one authoritative runtime and authoring vocabulary', function () {
     ->and($schema['summonPlaybackFields'])->toContain('currentFrame', 'isPaused', 'isCompleted', 'isLooping');
 });
 
+it('validates the surface choice for each timed text command', function (string $type) {
+  $data = ['id' => 'surface-cue', 'name' => 'Surface Cue'];
+  $terminal = ['type' => $type, 'text' => 'Synthetic cue', 'presentation' => 'terminal'];
+
+  expect(CinematicDefinition::fromArrays($data, [$terminal])->commands)->toBe([$terminal])
+    ->and(fn() => CinematicDefinition::fromArrays($data, [array_replace($terminal, ['presentation' => 'invalid'])]))
+    ->toThrow(InvalidArgumentException::class, 'script[1]/presentation');
+})->with(['narration', 'title_card']);
+
 it('accepts a field timeline reference without changing legacy field-animation authoring', function () {
   $target = ['kind' => 'position', 'x' => 2, 'y' => 3];
   $commands = [

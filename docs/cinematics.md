@@ -637,6 +637,12 @@ policy under `ui.cinematics.narration.minimum_duration`,
 wrapped subtitle within the centred card. A duration of zero still suppresses
 either timed overlay immediately.
 
+An optional `presentation` field selects `all` (the default), `terminal`, or
+`graphical`. The active field projection decides whether to draw the overlay.
+A renderer or field-capability change can switch the visible projection during
+the cue. The operation, reading duration and following story commands use the
+same clock on every surface.
+
 `cinematic_music` supports `track`, `loop`, `fadeIn`, `fadeOut`,
 `completionBehavior`, and `restorePreviousMusic`. Completion behavior is
 `continue`, `stop`, or `restore_previous`; `restorePreviousMusic` remains a

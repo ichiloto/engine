@@ -917,6 +917,24 @@ it('keeps cinematic narration visible for the global reading-time floor', functi
   expect($session?->status)->toBe(EventExecutionStatus::YIELDED);
 });
 
+it('runs a scoped timed cue on the same story clock as ordinary narration', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $scene->installCinematicRuntime();
+
+  $session = $interpreter->run([
+    ['type' => 'title_card', 'text' => 'Synthetic cue', 'presentation' => 'terminal', 'seconds' => 1.25],
+    ['type' => 'set_switch', 'name' => 'after_scoped_cue', 'value' => true],
+  ]);
+
+  expect($scene->cinematicPresentation?->overlayPresentation?->surface->value)->toBe('terminal')
+    ->and($session?->pendingState['remainingSeconds'])->toBe(1.25);
+  $interpreter->update(1.0);
+  expect($scene->gameState->getSwitch('after_scoped_cue'))->toBeFalse();
+  $interpreter->update(.25);
+  expect($scene->cinematicPresentation?->overlayPresentation)->toBeNull()
+    ->and($scene->gameState->getSwitch('after_scoped_cue'))->toBeTrue();
+});
+
 it('centres title cards while left aligning narration inside its top centred box', function () {
   [$scene] = makeEventRuntime();
   $scene->installCinematicRuntime();

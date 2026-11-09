@@ -15,6 +15,7 @@ use Ichiloto\Engine\Cutscenes\Cinematics\CinematicEffectTarget;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicScriptValidator;
 use Ichiloto\Engine\Cutscenes\Cinematics\CameraOperation;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicSubjectResolver;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicTextSurface;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicTextTimingPolicy;
 use Ichiloto\Engine\Cutscenes\Cinematics\FieldAnimationOperation;
 use Ichiloto\Engine\Cutscenes\Cinematics\TimedPresentationOperation;
@@ -852,6 +853,7 @@ class EventInterpreter
           $type,
           $text,
           strval($command['title'] ?? ''),
+          CinematicTextSurface::getFromCommand($command),
         );
         $duration = max(0.0, floatval($command['seconds'] ?? 2.5));
 

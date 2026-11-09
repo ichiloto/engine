@@ -171,6 +171,12 @@ final class CinematicCommandSchema
         'lifecycle' => 'current positions at line start; real subject leases restore on failure; cleared at cinematic cleanup',
         'authoring' => 'pick subjects from the current map/cast and addressees from the bound speakers',
       ],
+      'timedTextPresentation' => [
+        'commands' => ['narration', 'title_card'],
+        'field' => CinematicTextSurface::FIELD,
+        'options' => array_column(CinematicTextSurface::cases(), 'value'),
+        'default' => CinematicTextSurface::ALL->value,
+      ],
       'textPresentation' => [
         'fields' => DialogueContext::TEXT_FIELDS,
         'emotion' => ['type' => 'non-empty string', 'default' => DialogueContext::DEFAULT_EMOTION,

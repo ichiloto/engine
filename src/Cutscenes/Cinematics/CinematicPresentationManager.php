@@ -40,9 +40,10 @@ final class CinematicPresentationManager
   {
   }
 
-  public function showOverlay(string $kind, string $text, string $title = ''): void
+  public function showOverlay(string $kind, string $text, string $title = '',
+    CinematicTextSurface $surface = CinematicTextSurface::ALL): void
   {
-    $this->overlay = new CinematicTextPresentation($kind, trim($text), trim($title));
+    $this->overlay = new CinematicTextPresentation($kind, trim($text), trim($title), $surface);
     $this->hasGraphicalOverlay = false;
   }
 
@@ -58,12 +59,13 @@ final class CinematicPresentationManager
   public function getOverlayCanvas(int $width, int $height, ?string $assetRoot): ?PresentationCanvas
   {
     $this->hasGraphicalOverlay = false;
-    if ($this->overlay === null || $assetRoot === null) { return null; }
+    $overlay = $this->getOverlayForActiveSurface();
+    if ($overlay === null || $assetRoot === null) { return null; }
     if ($this->dialogueAssetRoot !== $assetRoot) {
       $this->dialogueAssetRoot = $assetRoot;
       $this->dialoguePresentation = new DialogueScenePresentation($assetRoot);
     }
-    $canvas = $this->overlay->getCanvas($this->dialoguePresentation, $width, $height);
+    $canvas = $overlay->getCanvas($this->dialoguePresentation, $width, $height);
     $this->hasGraphicalOverlay = $canvas !== null;
     return $canvas;
   }
@@ -267,7 +269,14 @@ final class CinematicPresentationManager
   {
     // Text cells belong to the presentation host, not the square-tile field camera.
     $grid = $this->gameScene->getPresentationContext()?->grid;
-    $this->overlay?->renderTerminal($grid?->columns ?? Console::getWidth(), $grid?->rows ?? Console::getHeight());
+    $this->getOverlayForActiveSurface()?->renderTerminal($grid?->columns ?? Console::getWidth(), $grid?->rows ?? Console::getHeight());
+  }
+
+  private function getOverlayForActiveSurface(): ?CinematicTextPresentation
+  {
+    $overlay = $this->overlay;
+    if ($overlay === null || $overlay->surface === CinematicTextSurface::ALL) { return $overlay; }
+    return $overlay->surface->isVisible($this->gameScene->isGraphicalFieldPresented()) ? $overlay : null;
   }
 
   protected function renderTransition(): void
