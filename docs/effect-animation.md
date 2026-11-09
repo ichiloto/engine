@@ -699,10 +699,13 @@ point at weight 0 and from the selected body's centre at weight 1.
 points rise by `lift`. `curveFirstProgress` and `curveSecondProgress`
 position them along the span in order from 0 to 1, with defaults of one
 third and two thirds. Optional `approach` places the final control along
-the head heading as a fraction of the span. `clearance` adds a margin
-around unselected battlers. The head's rotated visible bounds guide
-clearance when PNG pixel inspection is available. `depth` selects behind
-or front for the head. `linkDepth` inherits that setting when omitted.
+the head heading as a fraction of the span. `depth` selects behind
+or front for the head, and `linkDepth` inherits it when omitted. The
+head and chain follow the authored curves while crossing behind
+bystanders. The head also passes behind its target outside the strike
+sample. At impact the head must reach the selected target while clearing
+other battlers. `clearance` adds a margin around bodies for those checks.
+The head uses rotated visible bounds when PNG pixel inspection is available.
 
 Set `poseClock => 'target'` on a fixed, once-playing target effect to
 start the caster pose at target frame 0. Use the same cadence for the pose

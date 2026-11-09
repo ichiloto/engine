@@ -3655,14 +3655,14 @@ it('keeps a graphical tether on the current grip and selected recipient without 
     expect($guideDistance)->toBeLessThan(4);
     $target = graphicalCombatantImage($contact->canvas, $selected)->destination;
     [, $retreatingHead] = $assertPoseGrip($recovery, 1);
-    $retreatingPaint = \Ichiloto\Engine\Rendering\Sprites\PngAssetBounds::getVisibleBounds($this->root, $retreatingHead)['bounds']
-      ?? $retreatingHead->getPaintBounds();
-    expect($retreatingPaint->y + $retreatingPaint->height <= $target->y + .000001
-      || $retreatingPaint->y >= $target->y + $target->height - .000001)->toBeTrue();
+    expect($retreatingHead->destination->y)->toBe($head->destination->y)
+      ->and($retreatingHead->layer)->toBeLessThan(BattleCanvasLayout::BATTLER_LAYER);
     $bystander = array_find($enemies, static fn($enemy): bool => $enemy !== $selected);
     $other = graphicalCombatantImage($contact->canvas, $bystander)->destination;
     expect($head->destination->x + $head->destination->width / 2)->toEqualWithDelta($target->x + $target->width / 2, 1)
+      ->and($head->layer)->toBeGreaterThan(BattleCanvasLayout::BATTLER_LAYER)
       ->and(array_all($weapon, static function (CanvasImage $image) use ($other): bool {
+        if ($image->layer < BattleCanvasLayout::BATTLER_LAYER) { return true; }
         $paint = $image->getPaintBounds();
         return $paint->x + $paint->width <= $other->x || $paint->x >= $other->x + $other->width
           || $paint->y + $paint->height <= $other->y || $paint->y >= $other->y + $other->height;
@@ -3723,4 +3723,33 @@ it('keeps the authored head position when only transparent padding crosses the t
   $headImage = $images[array_key_last($images)];
   expect($headImage->destination->y + $headImage->destination->height / 2)->toBe(390.0)
     ->and($headImage->getPaintBounds()->y)->toBeLessThan($target->y + $target->height);
+});
+
+it('keeps the head and chain on the authored path while a bystander crosses it', function () {
+  $asset = 'graphical-canvas/synthetic-320x180.png';
+  $timeline = (new EffectTimelineLibrary($this->root))->compile('tether-occlusion', [
+    'fps' => 10, 'lengthFrames' => 1, 'tracks' => [[
+      'id' => 'chain', 'type' => 'tether', 'grip' => 'grip', 'head' => $asset, 'links' => $asset,
+      'headPivot' => ['x' => .5, 'y' => .5], 'headHeight' => 18, 'linkHeight' => 8, 'linkSpacing' => 7,
+      'keyframes' => [['frame' => 0, 'x' => -180, 'y' => 0, 'targetWeight' => 1, 'rotation' => 0, 'lift' => 0]],
+    ]],
+  ], true);
+  $sample = $timeline->playbackSegments[0]['drawCommands'][0]['payload'];
+  $arena = new BattleCanvasLayout(1350, 720);
+  $target = new CanvasRectangle(420, 300, 80, 80);
+  $ground = [1 => new Vector2(920, 400)];
+  $points = [1 => ['grip' => new Vector2(830, 340)]];
+  $compose = fn(array $bodies): array => \Ichiloto\Engine\Battle\Presentation\GraphicalBattleTether::compose(
+    'chain', $sample, $arena, $this->root, $bodies, $ground, $points, 1, 2, false, true, true);
+  $open = $compose([2 => $target]);
+  $blocked = $compose([2 => $target, 3 => new CanvasRectangle(620, 310, 80, 80)]);
+  expect(array_column($open, 'id'))->toBe(array_column($blocked, 'id'));
+  foreach ($open as $index => $image) {
+    expect($blocked[$index]->destination)->toEqual($image->destination)
+      ->and($blocked[$index]->rotation)->toBe($image->rotation);
+  }
+  expect($open[array_key_last($open)]->layer)->toBe(180)
+    ->and($blocked[array_key_last($blocked)]->layer)->toBe(90)
+    ->and($blocked[0]->layer)->toBe(179)
+    ->and(array_any($blocked, static fn(CanvasImage $link): bool => $link->layer === 89))->toBeTrue();
 });
