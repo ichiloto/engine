@@ -151,6 +151,31 @@ final readonly class CanvasImage
     return new CanvasRectangle($left, $top, $right - $left, $bottom - $top, allowOutsideCanvas: true);
   }
 
+  /** @return array{float, float, float, float} Edges of a crop-relative pixel region in canvas space, before clipping. */
+  public function projectSourceBounds(int $sourceWidth, int $sourceHeight, int $left, int $top, int $width, int $height): array
+  {
+    $destination = $this->destination;
+    if ($this->flipX) { $left = $sourceWidth - $left - $width; }
+    if ($this->flipY) { $top = $sourceHeight - $top - $height; }
+    $scaleX = $destination->width / $sourceWidth;
+    $scaleY = $destination->height / $sourceHeight;
+    if (!$this->rotation) {
+      return [$destination->x + $left * $scaleX, $destination->y + $top * $scaleY,
+        $destination->x + ($left + $width) * $scaleX, $destination->y + ($top + $height) * $scaleY];
+    }
+    $scale = $sourceWidth >= $sourceHeight ? $scaleX : $scaleY;
+    [$cos, $sin] = self::getRotationComponents($this->rotation);
+    $pivotX = $this->pivot->x;
+    $pivotY = $this->pivot->y;
+    $offsetX = ($left + $width / 2 - $sourceWidth * $pivotX) * $scale;
+    $offsetY = ($top + $height / 2 - $sourceHeight * $pivotY) * $scale;
+    $centerX = $destination->x + $destination->width * $pivotX + $offsetX * $cos - $offsetY * $sin;
+    $centerY = $destination->y + $destination->height * $pivotY + $offsetX * $sin + $offsetY * $cos;
+    $halfWidth = (abs($cos) * $width + abs($sin) * $height) * $scale / 2;
+    $halfHeight = (abs($sin) * $width + abs($cos) * $height) * $scale / 2;
+    return [$centerX - $halfWidth, $centerY - $halfHeight, $centerX + $halfWidth, $centerY + $halfHeight];
+  }
+
   private static function assertUniformScale(CanvasRectangle $destination, SpriteSourceRect $crop): void
   {
     if (min(abs($destination->width * $crop->height / $crop->width - $destination->height),

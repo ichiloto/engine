@@ -12,6 +12,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetBounds;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use InvalidArgumentException;
 use RuntimeException;
@@ -37,7 +38,8 @@ final class GraphicalBattleTether
       $guide = self::interpolate($grip, $guidePoint, $sample['guideWeight']);
     }
 
-    $layer = $sample['depth'] === EffectImageDepth::BEHIND->value ? 89 : 179;
+    $headLayer = $sample['depth'] === EffectImageDepth::BEHIND->value ? 90 : 180;
+    $linkLayer = $sample['linkDepth'] === EffectImageDepth::BEHIND->value ? 89 : 179;
     $headSize = PngAssetPreflight::inspect($root, $sample['head']);
     $headCrop = new SpriteSourceRect(0, 0, $headSize['width'], $headSize['height']);
     $pivot = PresentationSpritePivot::fromArray($sample['headPivot']);
@@ -47,23 +49,24 @@ final class GraphicalBattleTether
     $clearance = $sample['clearance'] * $scale;
     $obstacles = array_diff_key($bounds, [$actor => true, $target => true]);
     $drawHead = static fn(Vector2 $point): ?CanvasImage => self::place($id . '-head', $sample['head'], $headCrop, $point,
-      $headHeight, $headAngle, $headPivot, $arena, $layer + 1, $rotation, $clips, $facing < 0);
+      $headHeight, $headAngle, $headPivot, $arena, $headLayer, $rotation, $clips, $facing < 0);
     $headImage = $drawHead($head);
     if ($headImage === null) { throw new RuntimeException('Tether head is outside the battle canvas.'); }
-    $paint = $headImage->getPaintBounds();
+    $paint = self::getHeadBounds($root, $headImage);
     $headObstacles = $contact ? $obstacles : [...$obstacles, $targetBody];
     $shift = self::getHeadClearanceShift($paint, $headObstacles, $clearance, $arena->height);
     if ($shift !== 0.0) {
       $head = new Vector2($head->x, $head->y + $shift);
       $headImage = $drawHead($head);
       if ($headImage === null) { throw new RuntimeException('Cleared tether head is outside the battle canvas.'); }
+      $paint = self::getHeadBounds($root, $headImage);
     }
-    if ($contact && !self::overlaps($headImage->getPaintBounds(), $targetBody)) {
+    if ($contact && !self::overlaps($paint, $targetBody)) {
       throw new RuntimeException('Tether head cannot reach the selected body at the impact sample.');
     }
 
-    $first = self::interpolate($guide, $head, 1 / 3);
-    $second = self::interpolate($guide, $head, 2 / 3);
+    $first = self::interpolate($guide, $head, $sample['curveFirstProgress']);
+    $second = self::interpolate($guide, $head, $sample['curveSecondProgress']);
     $first = new Vector2($first->x, $first->y - $sample['lift'] * $scale);
     $second = new Vector2($second->x, $second->y - $sample['lift'] * $scale);
     if ($sample['approach'] > 0) {
@@ -86,8 +89,12 @@ final class GraphicalBattleTether
     $waypoints = $main->getWaypoints();
     $lead = null;
     if ($guide !== $grip) {
-      $lead = BattleCubicFlightClearance::plan($grip, $guide, new Vector2($grip->x, $grip->y - $sample['guideGripLift'] * $scale),
-        new Vector2($guide->x, $guide->y - $sample['guideHandLift'] * $scale), $arena->height, $obstacles, $padding, width: $arena->width);
+      $leadFirst = new Vector2($grip->x + $sample['guideGripOffset'] * $scale * $facing,
+        $grip->y - $sample['guideGripLift'] * $scale);
+      $leadSecond = new Vector2($guide->x + $sample['guideHandOffset'] * $scale * $facing,
+        $guide->y - $sample['guideHandLift'] * $scale);
+      $lead = BattleCubicFlightClearance::plan($grip, $guide, $leadFirst, $leadSecond,
+        $arena->height, $obstacles, $padding, width: $arena->width);
       if ($lead === null) {
         throw new RuntimeException('No tether path clears the unselected battlers between the two pose points.');
       }
@@ -112,7 +119,7 @@ final class GraphicalBattleTether
       $angle = (int) round(rad2deg(atan2($link['direction']->y, $link['direction']->x)));
       $occluded = $distance < $leadOcclusion || ($distance >= $leadLength && $distance < $mainOcclusionEnd);
       $image = self::place($id . '-link-' . $index, $sample['links'], $crops[$index % 2], $link['point'],
-        $linkHeight, $angle, $center, $arena, $occluded ? 15 : $layer, $rotation, $clips);
+        $linkHeight, $angle, $center, $arena, $occluded ? 15 : $linkLayer, $rotation, $clips);
       if ($image !== null) { $images[] = $image; }
     }
     return [...$images, $headImage];
@@ -136,6 +143,13 @@ final class GraphicalBattleTether
       if ($rotated === null || $rotated->clipRect === null || $clips) { return $rotated; }
     }
     return CanvasImage::createClipped($id, $asset, $x, $y, $width, $height, $arena->width, $arena->height, $layer, $crop, $flip);
+  }
+
+  private static function getHeadBounds(string $root, CanvasImage $image): CanvasRectangle
+  {
+    if (!function_exists('imagecreatefrompng')) { return $image->getPaintBounds(); }
+    $visible = PngAssetBounds::getVisibleBounds($root, $image);
+    return $visible['bounds'] ?? throw new RuntimeException($visible['diagnostic'] ?? 'Tether head has no visible pixels.');
   }
 
   private static function overlaps(CanvasRectangle $a, CanvasRectangle $b): bool

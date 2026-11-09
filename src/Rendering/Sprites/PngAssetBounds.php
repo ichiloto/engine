@@ -35,22 +35,15 @@ final class PngAssetBounds
       [$size, $facts] = self::read($root, $image);
       $pixels = $facts['pixels'];
       if ($pixels === null || $image->opacity === 0.0) { return ['bounds' => null, 'diagnostic' => null]; }
-      [$left, $top, $width, $height] = $pixels;
-      if ($image->flipX) { $left = $size['width'] - $left - $width; }
-      if ($image->flipY) { $top = $size['height'] - $top - $height; }
-      $destination = $image->destination;
-      $x = $destination->x + $left * $destination->width / $size['width'];
-      $y = $destination->y + $top * $destination->height / $size['height'];
-      $right = $x + $width * $destination->width / $size['width'];
-      $bottom = $y + $height * $destination->height / $size['height'];
+      [$x, $y, $right, $bottom] = $image->projectSourceBounds($size['width'], $size['height'], ...$pixels);
       if ($image->clipRect !== null) {
         $x = max($x, $image->clipRect->x);
         $y = max($y, $image->clipRect->y);
         $right = min($right, $image->clipRect->x + $image->clipRect->width);
         $bottom = min($bottom, $image->clipRect->y + $image->clipRect->height);
       }
-      return ['bounds' => $right <= $x || $bottom <= $y ? null : new CanvasRectangle($x, $y, $right - $x, $bottom - $y),
-        'diagnostic' => null];
+      return ['bounds' => $right <= $x || $bottom <= $y ? null : new CanvasRectangle(
+        $x, $y, $right - $x, $bottom - $y, allowOutsideCanvas: true), 'diagnostic' => null];
     } catch (RuntimeException $error) {
       return ['bounds' => null, 'diagnostic' => $error->getMessage()];
     }

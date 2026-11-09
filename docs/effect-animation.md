@@ -680,7 +680,9 @@ effect tracks.
 `type => 'tether'` links the caster's current `grip` pose point to the moving
 head. An optional `guide` point takes over progressively as the keyframe's
 `guideWeight` goes from 0 to 1. `guideGripLift` and `guideHandLift` set the
-two vertical offsets on that first span. A separate track can draw a wake.
+two vertical offsets on that first span. `guideGripOffset` and
+`guideHandOffset` offset those controls toward the selected target, in
+logical pixels. A separate track can draw a wake.
 
 Use `head` and `links` PNGs. The head faces east at zero rotation, with
 `headPivot` marking its connection point. The link image contains two
@@ -694,9 +696,13 @@ Each keyframe supplies `frame`, optional `duration`, `x`, `y`,
 selected target. The offsets are measured from the caster's current ground
 point at weight 0 and from the selected body's centre at weight 1.
 `rotation` is the head's angle in degrees. The main span's two control
-points rise by `lift`; optional `approach` sets the final control distance
-along the head heading as a fraction of the span. `clearance` adds a margin
-around unselected battlers. `depth` selects behind or front.
+points rise by `lift`. `curveFirstProgress` and `curveSecondProgress`
+position them along the span in order from 0 to 1, with defaults of one
+third and two thirds. Optional `approach` places the final control along
+the head heading as a fraction of the span. `clearance` adds a margin
+around unselected battlers. The head's rotated visible bounds guide
+clearance when PNG pixel inspection is available. `depth` selects behind
+or front for the head. `linkDepth` inherits that setting when omitted.
 
 Set `poseClock => 'target'` on a fixed, once-playing target effect to
 start the caster pose at target frame 0. Use the same cadence for the pose

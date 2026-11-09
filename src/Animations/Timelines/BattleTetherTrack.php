@@ -19,11 +19,15 @@ final class BattleTetherTrack
   {
     CanvasCompositeValues::validateKeys($track,
       ['id', 'type', 'grip', 'head', 'headPivot', 'headHeight', 'links', 'linkHeight', 'linkSpacing', 'keyframes'],
-      ['presentation', 'guide', 'guideGripLift', 'guideHandLift', 'clearance', 'depth']);
+      ['presentation', 'guide', 'guideGripLift', 'guideHandLift', 'guideGripOffset', 'guideHandOffset',
+        'curveFirstProgress', 'curveSecondProgress', 'clearance', 'depth', 'linkDepth']);
     $depthValue = $track['depth'] ?? 'front';
+    $linkDepthValue = $track['linkDepth'] ?? $depthValue;
     $depth = is_string($depthValue) ? EffectImageDepth::tryFrom($depthValue) : null;
+    $linkDepth = is_string($linkDepthValue) ? EffectImageDepth::tryFrom($linkDepthValue) : null;
+    $depths = [EffectImageDepth::FRONT, EffectImageDepth::BEHIND];
     if ($playback !== 'once' || ($track['presentation'] ?? 'graphical') !== 'graphical'
-      || !in_array($depth, [EffectImageDepth::FRONT, EffectImageDepth::BEHIND], true)) {
+      || !in_array($depth, $depths, true) || !in_array($linkDepth, $depths, true)) {
       throw new InvalidArgumentException('A tether needs a once-playing graphical battle track with front or behind depth.');
     }
     foreach (['grip', ...(!array_key_exists('guide', $track) ? [] : ['guide'])] as $key) {
@@ -47,9 +51,16 @@ final class BattleTetherTrack
       'linkSpacing' => CanvasCompositeValues::getNumber($track['linkSpacing'], 1, 64),
       'guideGripLift' => CanvasCompositeValues::getNumber($track['guideGripLift'] ?? 0, -128, 128),
       'guideHandLift' => CanvasCompositeValues::getNumber($track['guideHandLift'] ?? 0, -128, 128),
+      'guideGripOffset' => CanvasCompositeValues::getNumber($track['guideGripOffset'] ?? 0, -128, 128),
+      'guideHandOffset' => CanvasCompositeValues::getNumber($track['guideHandOffset'] ?? 0, -128, 128),
+      'curveFirstProgress' => CanvasCompositeValues::getNumber($track['curveFirstProgress'] ?? 1 / 3, 0, 1),
+      'curveSecondProgress' => CanvasCompositeValues::getNumber($track['curveSecondProgress'] ?? 2 / 3, 0, 1),
       'clearance' => CanvasCompositeValues::getNumber($track['clearance'] ?? 0, 0, 64),
-      'depth' => $depth->value,
+      'depth' => $depth->value, 'linkDepth' => $linkDepth->value,
     ];
+    if ($config['curveFirstProgress'] > $config['curveSecondProgress']) {
+      throw new InvalidArgumentException('Tether curve controls require ordered progress from guide to head.');
+    }
     $frames = CanvasCompositeValues::getList($track['keyframes'], 1, min(10000, $length));
     $keyframes = [];
     $end = 0;

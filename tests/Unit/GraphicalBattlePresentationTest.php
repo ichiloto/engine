@@ -3655,9 +3655,10 @@ it('keeps a graphical tether on the current grip and selected recipient without 
     expect($guideDistance)->toBeLessThan(4);
     $target = graphicalCombatantImage($contact->canvas, $selected)->destination;
     [, $retreatingHead] = $assertPoseGrip($recovery, 1);
-    $retreatingPaint = $retreatingHead->getPaintBounds();
-    expect($retreatingPaint->y + $retreatingPaint->height <= $target->y || $retreatingPaint->y >= $target->y + $target->height)
-      ->toBeTrue();
+    $retreatingPaint = \Ichiloto\Engine\Rendering\Sprites\PngAssetBounds::getVisibleBounds($this->root, $retreatingHead)['bounds']
+      ?? $retreatingHead->getPaintBounds();
+    expect($retreatingPaint->y + $retreatingPaint->height <= $target->y + .000001
+      || $retreatingPaint->y >= $target->y + $target->height - .000001)->toBeTrue();
     $bystander = array_find($enemies, static fn($enemy): bool => $enemy !== $selected);
     $other = graphicalCombatantImage($contact->canvas, $bystander)->destination;
     expect($head->destination->x + $head->destination->width / 2)->toEqualWithDelta($target->x + $target->width / 2, 1)
@@ -3674,12 +3675,13 @@ it('keeps a graphical tether on the current grip and selected recipient without 
   expect(fn() => $library->compile('invalid-tether', $data, true))->toThrow(InvalidArgumentException::class, 'nonoverlapping');
 })->with([false, true]);
 
-it('keeps the visible tether when its grip is occluded by another battler', function () {
+it('keeps the visible tether when its grip is occluded by another battler', function (?string $linkDepth, int $linkLayer) {
   $asset = 'graphical-canvas/synthetic-320x180.png';
   $timeline = (new EffectTimelineLibrary($this->root))->compile('overlapping-grip', [
     'fps' => 10, 'lengthFrames' => 1, 'tracks' => [[
       'id' => 'chain', 'type' => 'tether', 'grip' => 'grip', 'head' => $asset, 'links' => $asset,
       'headPivot' => ['x' => .5, 'y' => .5], 'headHeight' => 18, 'linkHeight' => 8, 'linkSpacing' => 7,
+      ...($linkDepth === null ? [] : ['linkDepth' => $linkDepth]),
       'keyframes' => [['frame' => 0, 'x' => 0, 'y' => 0, 'targetWeight' => 1, 'rotation' => 0, 'lift' => 0]],
     ]],
   ], true);
@@ -3691,6 +3693,34 @@ it('keeps the visible tether when its grip is occluded by another battler', func
     1, 2, true, true, true);
   $layers = array_column($images, 'layer');
   expect($layers[0])->toBeLessThan(BattleCanvasLayout::BATTLER_LAYER)
-    ->and($layers[count($layers) - 2])->toBeGreaterThan(BattleCanvasLayout::BATTLER_LAYER)
+    ->and($layers[count($layers) - 2])->toBe($linkLayer)
+    ->and($layers[array_key_last($layers)])->toBeGreaterThan(BattleCanvasLayout::BATTLER_LAYER)
     ->and($images[array_key_last($images)]->id)->toBe('chain-head');
+})->with([[null, 179], ['behind', 89]]);
+
+it('keeps the authored head position when only transparent padding crosses the target', function () {
+  if (!function_exists('imagecreatefrompng')) { $this->markTestSkipped('Optional GD PNG inspection is unavailable.'); }
+  $head = 'graphical-canvas/padded-weapon.png';
+  $bitmap = imagecreatetruecolor(100, 100);
+  imagealphablending($bitmap, false);
+  imagesavealpha($bitmap, true);
+  imagefill($bitmap, 0, 0, imagecolorallocatealpha($bitmap, 0, 0, 0, 127));
+  imagefilledrectangle($bitmap, 46, 46, 54, 54, imagecolorallocate($bitmap, 200, 150, 100));
+  imagepng($bitmap, $this->root . '/' . $head);
+  $target = new CanvasRectangle(420, 300, 80, 80);
+  $timeline = (new EffectTimelineLibrary($this->root))->compile('padded-head', [
+    'fps' => 10, 'lengthFrames' => 1, 'tracks' => [[
+      'id' => 'chain', 'type' => 'tether', 'grip' => 'grip', 'head' => $head,
+      'links' => 'graphical-canvas/synthetic-320x180.png',
+      'headPivot' => ['x' => .5, 'y' => .5], 'headHeight' => 100, 'linkHeight' => 8, 'linkSpacing' => 7,
+      'keyframes' => [['frame' => 0, 'x' => 0, 'y' => 50, 'targetWeight' => 1, 'rotation' => 90, 'lift' => 0]],
+    ]],
+  ], true);
+  $sample = $timeline->playbackSegments[0]['drawCommands'][0]['payload'];
+  $images = \Ichiloto\Engine\Battle\Presentation\GraphicalBattleTether::compose('chain', $sample,
+    new BattleCanvasLayout(1350, 720), $this->root, [2 => $target],
+    [1 => new Vector2(920, 400)], [1 => ['grip' => new Vector2(830, 340)]], 1, 2, false, true, true);
+  $headImage = $images[array_key_last($images)];
+  expect($headImage->destination->y + $headImage->destination->height / 2)->toBe(390.0)
+    ->and($headImage->getPaintBounds()->y)->toBeLessThan($target->y + $target->height);
 });
