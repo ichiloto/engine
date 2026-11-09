@@ -2368,6 +2368,44 @@ it('advances nested parallel lanes deterministically with lane-local pending sta
     ]);
 });
 
+it('starts every nested parallel child on its cue without spending elapsed time before it starts', function () {
+  [$scene, $interpreter, $presentation] = makeEventRuntime();
+  $session = $interpreter->run([
+    ['type' => 'parallel', 'lanes' => [
+      ['id' => 'cue', 'commands' => [
+        ['type' => 'wait', 'seconds' => 0.25],
+        ['type' => 'record_event', 'name' => 'revealed'],
+        ['type' => 'parallel', 'lanes' => [
+          ['id' => 'dialogue', 'commands' => [['type' => 'text', 'text' => 'A cue.']]],
+          ['id' => 'interval', 'commands' => [
+            ['type' => 'wait', 'seconds' => 0.125],
+            ['type' => 'record_event', 'name' => 'concealed'],
+          ]],
+        ]],
+      ]],
+      ['id' => 'independent', 'commands' => [
+        ['type' => 'wait', 'seconds' => 0.375],
+        ['type' => 'record_event', 'name' => 'reference_clock'],
+      ]],
+    ]],
+    ['type' => 'record_event', 'name' => 'finished'],
+  ], 'nested-cue');
+
+  $interpreter->update(0.125);
+  expect($scene->gameState->storyEvents)->toBeEmpty();
+  $interpreter->update(0.125);
+  expect($presentation->kind)->toBe('text')
+    ->and($scene->gameState->storyEvents)->toBe(['revealed']);
+
+  $interpreter->update(0.125);
+  expect($scene->gameState->storyEvents)->toBe(['revealed', 'concealed', 'reference_clock'])
+    ->and($session->status)->toBe(EventExecutionStatus::YIELDED);
+  $presentation->resolveText();
+  $interpreter->update(0.0);
+  expect($scene->gameState->storyEvents)->toBe(['revealed', 'concealed', 'reference_clock', 'finished'])
+    ->and($session->status)->toBe(EventExecutionStatus::COMPLETED);
+});
+
 describe('shared field effect event commands', function () {
   beforeEach(function () {
     $this->effectProjectCwd = getcwd();
@@ -2554,7 +2592,8 @@ it('continues staged movement while a parallel dialogue lane owns presentation',
     ],
   ]], 'dialogue-motion');
 
-  $interpreter->update(0.1);
+  expect($presentation->kind)->toBe('text')
+    ->and($scene->cinematicStage?->require('runner')->position->x)->toBe(2.0);
   $interpreter->update(0.1);
 
   expect($presentation->kind)->toBe('text')

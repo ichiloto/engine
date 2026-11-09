@@ -174,9 +174,10 @@ return [[
 ```
 
 Parallelism is cooperative and deterministic. Each lane owns its frame stack,
-cursor, and pending operation. Every game tick advances lanes in authored
-order, and the parent completes only after all lanes complete. No operating-
-system threads are used. A `common_event` command calls an existing
+cursor, and pending operation. Newly reached groups start their child lanes in
+authored order on the same update, with zero elapsed time for those children.
+Later updates advance their waits and operations in that order. The parent
+completes only after all lanes complete. No operating-system threads are used. A `common_event` command calls an existing
 `assets/Events/<id>.php` module within the same session. Cinematic Common
 Events are validated recursively when loaded; malformed list shapes or
 command entries fail the cinematic with its ID, Common Event ID, lane, and

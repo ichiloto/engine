@@ -247,6 +247,13 @@ class EventInterpreter
         continue;
       }
 
+      // Start parallel children on their parent's cue. Elapsed time belongs to
+      // the commands already running at the start of this update.
+      if ($result === EventCommandResult::YIELDED && $lane->parallelGroup !== null
+        && $this->updatePendingCommand($session, $lane, 0.0)) {
+        continue;
+      }
+
       return;
     }
 
