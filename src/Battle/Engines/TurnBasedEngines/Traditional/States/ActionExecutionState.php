@@ -440,15 +440,22 @@ class ActionExecutionState extends TurnState
     $presentationSound = $this->resolveActionPresentationSound($action,
       $actionAnimation?->targetEffect === null ? $actionAnimation : null,
       $summonCutscene instanceof SummonCompiledCutscene, array_filter([$sourceEffect, $targetEffect]));
+    $playedDamageSounds = [];
     $this->command = new BattleCommandRunner($context, $actor, $targets, $action, $announcement,
       $timings, $sourceEffect, $targetEffect, $resolveAction, $this->buildStatChangePopupLines(...),
-      function (array $cue) use ($context, $focusTarget, $presentationSound, $targets): void {
+      function (array $cue) use ($context, $focusTarget, $presentationSound, $targets, &$playedDamageSounds): void {
         if ($cue['type'] === 'commandPhase' && $cue['payload']['phase'] === 'source'
           && $presentationSound instanceof SystemSound) {
           $context->game->audioManager->playSystemSound($presentationSound);
         } elseif ($cue['type'] === 'commandResult') {
-          $this->playDamageFeedbackSound($context, $cue['payload']['target'],
+          $sound = $this->getDamageFeedbackSound($cue['payload']['target'],
             $cue['payload']['previousHp'], $cue['payload']['result']);
+          // Per-target popups share a result beat. Play each feedback sound once on that beat.
+          $frame = $cue['frame'];
+          if ($sound !== null && !isset($playedDamageSounds[$frame][$sound->value])) {
+            $playedDamageSounds[$frame][$sound->value] = true;
+            $context->game->audioManager->playSystemSound($sound);
+          }
           // One foe read: its facts fill the Info window while the result shows.
           if (count($targets) === 1 && self::hasRevealedFacts($cue['payload']['result'])
             && ($info = BattlerInsight::getInfo($cue['payload']['target'])) !== '') {
@@ -532,18 +539,20 @@ class ActionExecutionState extends TurnState
     ?CombatTargetResult $result = null,
   ): void
   {
-    $actualHpLost = $result?->actualHpLost() ?? max(0, $previousHp - $target->stats->currentHp);
+    $sound = $this->getDamageFeedbackSound($target, $previousHp, $result);
+    if ($sound !== null) {
+      $context->game->audioManager->playSystemSound($sound);
+    }
+  }
 
+  private function getDamageFeedbackSound(CharacterInterface $target, int $previousHp, ?CombatTargetResult $result): ?SystemSound
+  {
+    $actualHpLost = $result?->actualHpLost() ?? max(0, $previousHp - $target->stats->currentHp);
     if ($actualHpLost < 1) {
-      return;
+      return null;
     }
 
-    $sound = match (true) {
-      ! $target instanceof Enemy => SystemSound::ACTOR_DAMAGE,
-      default => SystemSound::ENEMY_DAMAGE,
-    };
-
-    $context->game->audioManager->playSystemSound($sound);
+    return $target instanceof Enemy ? SystemSound::ENEMY_DAMAGE : SystemSound::ACTOR_DAMAGE;
   }
 
   /**
