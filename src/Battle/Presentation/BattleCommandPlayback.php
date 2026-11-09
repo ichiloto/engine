@@ -317,7 +317,8 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $segments = $rest ?? $this->session->getActiveSegments($frame);
     $segments = array_values(array_filter($segments, $presentation->acceptsSegment(...)));
     if ($terminal && $rest !== null) {
-      $segments = self::getVisibleTerminalRestSegments($segments, $this->session->getActiveSegments($frame));
+      $segments = self::getVisibleTerminalRestSegments($segments, $this->session->getActiveSegments($frame),
+        $this->plan->timeline->playbackSegments, $this->plan->restFrames);
     }
     $fallback = $this->plan->terminalTarget;
     if ($terminal && $this->phase === 'target' && $fallback !== null) {
@@ -328,14 +329,16 @@ final class BattleCommandPlayback implements BattleEffectPlayback
           && in_array($segment['layer'], ['glyph', 'text'], true)
           && $segment['startFrame'] <= $sample && $sample <= $segment['endFrame']));
       $active = $select($sourceFrame);
+      $restFrame = $fallback->defaults['restFrame'] ?? 0;
       array_push($segments, ...($reducedMotion
-        ? self::getVisibleTerminalRestSegments($select($fallback->defaults['restFrame'] ?? 0), $active) : $active));
+        ? self::getVisibleTerminalRestSegments($select($restFrame), $active, $this->plan->terminalSegments, ['target' => $restFrame])
+        : $active));
     }
     return \Ichiloto\Engine\Animations\Timelines\EffectSegmentComposition::compose($segments, $presentation);
   }
 
   /** A resting glyph or label keeps its authored visibility on the command clock. */
-  private static function getVisibleTerminalRestSegments(array $rest, array $active): array
+  private static function getVisibleTerminalRestSegments(array $rest, array $active, array $authored, array $restFrames): array
   {
     $visibleTracks = [];
     foreach ($active as $segment) {
@@ -350,12 +353,57 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     }
 
     $segments = [];
+    $sampledTracks = [];
     foreach ($rest as $segment) {
       if (in_array($segment['layer'], ['glyph', 'text'], true)) {
-        $segment['drawCommands'] = array_values(array_filter($segment['drawCommands'],
-          static fn(array $command): bool => isset($visibleTracks[self::getTerminalVisibilityTrack($segment['layer'], $command)])));
-        if ($segment['drawCommands'] === []) { continue; }
+        $commands = [];
+        foreach ($segment['drawCommands'] as $command) {
+          $track = self::getTerminalVisibilityTrack($segment['layer'], $command);
+          if (isset($visibleTracks[$track]) && ($command['visible'] ?? true)) {
+            $commands[] = $command;
+            $sampledTracks[$track] = true;
+          }
+        }
+        if ($commands === []) { continue; }
+        $segment['drawCommands'] = $commands;
       }
+      $segments[] = $segment;
+    }
+
+    $missingTracks = array_diff_key($visibleTracks, $sampledTracks);
+    if ($missingTracks === []) { return $segments; }
+
+    // A track outside the sequence rest still needs a stationary sample.
+    // Choose its nearest visible frame and keep the live clock as the visibility gate.
+    $samples = [];
+    foreach ($authored as $segmentIndex => $segment) {
+      if (!EffectPresentation::TERMINAL->acceptsSegment($segment) || !in_array($segment['layer'], ['glyph', 'text'], true)) {
+        continue;
+      }
+      foreach ($segment['drawCommands'] as $commandIndex => $command) {
+        $track = self::getTerminalVisibilityTrack($segment['layer'], $command);
+        if (!isset($missingTracks[$track]) || !($command['visible'] ?? true)) { continue; }
+        $lane = str_starts_with($command['trackId'], 'source-') ? 'source' : 'target';
+        $restFrame = $restFrames[$lane];
+        $frame = clamp($restFrame, $segment['startFrame'], $segment['endFrame']);
+        $rank = [abs($frame - $restFrame), $frame];
+        if (!isset($samples[$track]) || $rank < $samples[$track]['rank']) {
+          $samples[$track] = ['rank' => $rank, 'commands' => []];
+        }
+        if ($rank === $samples[$track]['rank']) {
+          $samples[$track]['commands'][] = [$segmentIndex, $commandIndex];
+        }
+      }
+    }
+    $commandsBySegment = [];
+    foreach ($samples as $sample) {
+      foreach ($sample['commands'] as [$segmentIndex, $commandIndex]) {
+        $commandsBySegment[$segmentIndex][$commandIndex] = true;
+      }
+    }
+    foreach ($commandsBySegment as $segmentIndex => $commands) {
+      $segment = $authored[$segmentIndex];
+      $segment['drawCommands'] = array_values(array_intersect_key($segment['drawCommands'], $commands));
       $segments[] = $segment;
     }
     return $segments;

@@ -316,8 +316,12 @@ it('samples terminal fallback at its own authored speed while target graphics fi
 it('keeps a reduced-motion Terminal impact glyph within its authored visibility window', function (bool $fallback) {
   $impact = ['mode' => 'frame', 'frame' => 4];
   $terminal = new CompiledEffectTimeline('terminal-impact', '', fps: 12, playbackSegments: [
-    ['startFrame' => 0, 'endFrame' => 3, 'layer' => 'glyph',
+    ['startFrame' => 0, 'endFrame' => 0, 'layer' => 'glyph',
+      'drawCommands' => [['trackId' => 'charge', 'content' => ',']]],
+    ['startFrame' => 1, 'endFrame' => 2, 'layer' => 'glyph',
       'drawCommands' => [['trackId' => 'charge', 'content' => '.']]],
+    ['startFrame' => 3, 'endFrame' => 3, 'layer' => 'glyph',
+      'drawCommands' => [['trackId' => 'charge', 'content' => ':', 'visible' => false]]],
     ['startFrame' => 4, 'endFrame' => 5, 'layer' => 'glyph',
       'drawCommands' => [['trackId' => 'contact', 'content' => '*']]],
   ], defaults: ['lengthFrames' => 8, 'restFrame' => 4, 'effectTiming' => $impact]);
@@ -332,7 +336,8 @@ it('keeps a reduced-motion Terminal impact glyph within its authored visibility 
   $playback = new BattleCommandPlayback($plan, $actor, [$actor], BattlePoseRole::ATTACK,
     function () use (&$hits) { $hits++; }, static fn() => null);
   $last = 0;
-  foreach ([0 => [[], 0], 39 => [[], 0], 40 => [['*'], 1], 59 => [['*'], 1], 60 => [[], 1]] as $tick => [$glyphs, $outcomes]) {
+  foreach ([0 => [['.'], 0], 19 => [['.'], 0], 29 => [['.'], 0], 30 => [[], 0],
+    39 => [[], 0], 40 => [['*'], 1], 59 => [['*'], 1], 60 => [[], 1]] as $tick => [$glyphs, $outcomes]) {
     $at = $plan->phases['target']['start'] + $tick;
     $playback->update(($at - $last) / BattleCommandTimeline::FPS);
     $last = $at;
