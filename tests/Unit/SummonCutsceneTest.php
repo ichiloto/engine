@@ -462,3 +462,24 @@ it('applies summon combat exactly once at end cue or explicit frame and after pr
   finally { $trigger->finish(); }
   expect($count)->toBe(1);
 });
+
+it('isolates authored summon variables from the loader and the companion file', function () {
+  $root = createTestDirectory('summon-source-scope-');
+  $directory = $root . '/arrival';
+  mkdir($directory);
+  file_put_contents($directory . '/arrival.data.php', <<<'PHP'
+<?php
+$timelinePath = 'not-the-timeline.php';
+return ['id' => 'arrival', 'name' => 'Arrival', 'linkedActionId' => 'Call', 'effectTiming' => ['mode' => 'end']];
+PHP);
+  file_put_contents($directory . '/arrival.timeline.php', <<<'PHP'
+<?php
+$data = 'local-timeline-data';
+return ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];
+PHP);
+
+  $definition = (new SummonCutsceneLibrary($root))->findById('arrival');
+
+  expect($definition?->id)->toBe('arrival')
+    ->and($definition?->fps)->toBe(12);
+});

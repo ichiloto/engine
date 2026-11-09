@@ -54,8 +54,9 @@ final class CinematicLibrary
     }
     [$dataFile, $scriptFile] = $files;
 
-    $data = require $dataFile;
-    $script = require $scriptFile;
+    $loadSource = static fn(string $source): mixed => require $source;
+    $data = $loadSource($dataFile);
+    $script = $loadSource($scriptFile);
 
     if (! is_array($data) || ! is_array($script)) {
       throw new RuntimeException(sprintf('Cinematic "%s" source files must return arrays.', $id));

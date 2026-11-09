@@ -24,6 +24,28 @@ it('discovers and hydrates original folder-based cinematic assets', function () 
     ->and($definition->extra['testFixture'])->toBe(['mapWidth' => 100, 'mapHeight' => 60]);
 });
 
+it('isolates authored cinematic variables from the loader and the companion file', function () {
+  $root = createTestDirectory('cinematic-source-scope-');
+  $directory = $root . '/arrival';
+  mkdir($directory);
+  file_put_contents($directory . '/arrival.data.php', <<<'PHP'
+<?php
+$scriptFile = 'not-the-script.php';
+return ['id' => 'arrival', 'name' => 'Arrival'];
+PHP);
+  file_put_contents($directory . '/arrival.script.php', <<<'PHP'
+<?php
+$id = 'local-stage-id';
+$data = 'local-script-data';
+return [['type' => 'wait', 'seconds' => 1]];
+PHP);
+
+  $definition = (new CinematicLibrary($root))->load('arrival');
+
+  expect($definition->id)->toBe('arrival')
+    ->and($definition->commands)->toBe([['type' => 'wait', 'seconds' => 1]]);
+});
+
 it('keeps stable identity independent from its display name', function () {
   $definition = CinematicDefinition::fromArrays([
     'id' => 'stable-opening',

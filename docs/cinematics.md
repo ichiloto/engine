@@ -31,6 +31,10 @@ assets/Cutscenes/Cinematics/<id>/<id>.data.php
 assets/Cutscenes/Cinematics/<id>/<id>.script.php
 ```
 
+Cinematic and summon PHP source files return their authored arrays independently.
+Local variables in one file are scoped to that file and cannot alter the loader
+or the companion file.
+
 `CinematicLibrary` discovers and hydrates this layout without booting a game
 scene. The folder name and the `id` in the data file must match. IDs use
 lowercase letters, numbers, `.`, `_`, and `-`; the display `name` may change

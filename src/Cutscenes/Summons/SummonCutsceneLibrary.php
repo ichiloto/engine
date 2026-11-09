@@ -125,7 +125,7 @@ final class SummonCutsceneLibrary
       return null;
     }
 
-    $payload = require $compiledPath;
+    $payload = (static fn(string $source): mixed => require $source)($compiledPath);
 
     return is_array($payload)
       ? SummonCompiledCutscene::fromArray($payload)
@@ -154,8 +154,9 @@ final class SummonCutsceneLibrary
       return null;
     }
 
-    $data = require $dataPath;
-    $timeline = require $timelinePath;
+    $loadSource = static fn(string $source): mixed => require $source;
+    $data = $loadSource($dataPath);
+    $timeline = $loadSource($timelinePath);
 
     if (! is_array($data) || ! is_array($timeline)) {
       throw new RuntimeException('Summon cutscene source files must return arrays.');
