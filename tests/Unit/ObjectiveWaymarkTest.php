@@ -309,7 +309,8 @@ it('gates event and NPC waymarks by what their map authors: conditions, cue cond
   ]]]);
   $data = require $root . '/Maps/garden/garden.data.php';
   $data['npcs'] = [['id' => 'jori', 'name' => 'Jori', 'sprite' => 'J', 'x' => 1, 'y' => 1,
-    'conditions' => [['type' => 'event', 'name' => 'jori_arrived']]]];
+    'conditions' => [['type' => 'event', 'name' => 'jori_arrived']],
+    'dialogue' => [['text' => 'The relay is open.']]]];
   file_put_contents($root . '/Maps/garden/garden.data.php', '<?php return ' . var_export($data, true) . ';');
   $gates = Ichiloto\Engine\Field\ProjectMapIndex::scan($root)->gates;
   $state = new GameState();
