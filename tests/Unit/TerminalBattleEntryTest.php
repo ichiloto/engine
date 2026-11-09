@@ -202,10 +202,9 @@ it('removes terminal entry motion under reduced motion while retaining the final
 
 it('emits only final terminal differences without clear sequences or an outgoing-field handoff flash', function (bool $tracking) {
   $stream = fopen('php://temp', 'w+');
-  new ReflectionProperty(Console::class, 'terminalOutputStream')->setValue(null, $stream);
-  new ReflectionProperty(Console::class, 'output')->setValue(null, null);
   Console::setLayerTracking($tracking);
   Console::setTerminalOutputEnabled(true);
+  new ReflectionProperty(Console::class, 'terminalOutputStream')->setValue(null, $stream);
   try {
     $state = ($this->begin)();
     $firstLength = ftell($stream);

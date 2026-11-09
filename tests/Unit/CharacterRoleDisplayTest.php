@@ -61,7 +61,7 @@ it('shows the assigned role throughout character information views', function ()
   $equipmentPanel = (new ReflectionClass(CharacterRoleEquipmentPanelProxy::class))
     ->newInstanceWithoutConstructor();
 
-  expect(implode("\n", $mainMenuPanel->getContent()))->toContain('Role: Vanguard')
+  expect(implode("\n", $mainMenuPanel->getContent()))->toMatch('/Role:\h+Vanguard/')
     ->and(implode("\n", $statusView->profileContentFor($character)))->toMatch('/Role +Vanguard/')
     ->and(implode("\n", $equipmentPanel->contentFor($character)))->toContain('Role: Vanguard');
 });

@@ -60,6 +60,7 @@ final class PlayerPresentationTestScene extends GameScene
 function getPlayerPresentationTransport(): FakeRendererTransport
 {
   $transport = new FakeRendererTransport();
+  $transport->acknowledgeFrames = true;
   $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["sprite_source_rect","tile_batches"]}')];
   return $transport;
 }
@@ -340,10 +341,11 @@ it('composes real field Player movement facing masking and duplicate detection i
   $player->position->x = -100;
   $player->render();
   $before = Console::snapshot();
+  $withoutPlayer = Console::snapshot(['player']);
   $this->runtime->present($this->scene);
   $frames = RetainedFrameState::replay($transport->sent);
   expect(Console::snapshot())->toEqual($before)
-    ->and(RetainedFrameState::getTextRows($frames[3], 20, 10))->toBe($before->rows)
+    ->and(RetainedFrameState::getTextRows($frames[3], 20, 10))->toBe($withoutPlayer->rows)
     ->and($frames[3]['sprites'][0]['x'])->toBe(-103);
 });
 

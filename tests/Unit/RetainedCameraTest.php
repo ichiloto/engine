@@ -118,9 +118,15 @@ it('keeps live retained scenery under moved and dismissed notifications in both 
   expect(Console::snapshot()->rows[2])->toBe('cdefghijklmn');
   if (!$output) { expect(ob_get_contents())->toBe(''); }
   Console::setTerminalOutputEnabled(true);
-  ob_clean();
-  Console::recomposeFrame($camera->renderMap(...), true);
-  expect(ob_get_contents())->not->toBe('');
+  $stream = fopen('php://temp', 'w+');
+  new ReflectionProperty(Console::class, 'terminalOutputStream')->setValue(null, $stream);
+  try {
+    Console::recomposeFrame($camera->renderMap(...), true);
+    rewind($stream);
+    expect(stream_get_contents($stream))->not->toBeEmpty();
+  } finally {
+    Console::setTerminalOutputEnabled(false);
+  }
 })->with([true, false]);
 
 it('restores blank margins outside a centered map without copying an edge tile', function () {

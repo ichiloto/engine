@@ -5,12 +5,12 @@ declare(strict_types=1);
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Events\Interpreter\EventPlayedDialoguePresentationInterface;
 use Ichiloto\Engine\Field\Enumerations\SkitBackdropSource;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\RegionCatalog;
 use Ichiloto\Engine\Field\SkitBackdrop;
 use Ichiloto\Engine\Field\SkitManager;
-use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationCatalog;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -28,15 +28,6 @@ final class SkitBackdropSceneProbe extends GameScene
   public Game $probeGame;
   public function __construct() {}
   public function getGame(): Game { return $this->probeGame; }
-}
-
-final class SkitBackdropManagerProbe extends SkitManager
-{
-  /** @var list<DialogueContext> */
-  public array $shown = [];
-  public function __construct(GameScene $scene) { $this->gameScene = $scene; }
-  public function playSkit(string $id, array $skit): void { $this->play($id, $skit); }
-  protected function showBeat(array $beat, float $speed, DialoguePlayback $playback): void { $this->shown[] = $beat['presentation']; }
 }
 
 function skitBackdropRegions(): RegionCatalog
@@ -137,17 +128,37 @@ it('gives every beat of a playing skit the place\'s backdrop and logs a missing 
   file_put_contents($this->root . '/assets/' . RegionCatalog::FILE, '<?php return ' . var_export(skitBackdropRegions()->toArray(), true) . ';');
   $binding = new ReflectionProperty(MapManager::class, 'skitBackdropBinding');
   $skit = ['title' => 'Synthetic', 'speed' => 20, 'beats' => [['speaker' => 'Guide', 'text' => 'One.'], ['speaker' => 'Guide', 'text' => 'Two.']]];
-  $manager = new SkitBackdropManagerProbe($scene);
+  $skits = [
+    'map-backdrop' => ['vale/square', ['region' => 'Synthetic Vale', 'skitBackdrop' => 'Graphics/Skits/Vale/Square.png']],
+    'region-backdrop' => ['vale/square', ['region' => 'Synthetic Vale']],
+    'synthetic-skit' => ['vale/inn', ['region' => 'Bare Region']],
+  ];
+  mkdir($this->root . '/assets/Data/Skits');
+  foreach (array_keys($skits) as $id) {
+    file_put_contents($this->root . '/assets/Data/Skits/' . $id . '.php',
+      '<?php return ' . var_export(['id' => $id, ...$skit], true) . ';');
+  }
+  $manager = new SkitManager($scene);
+  $presentation = $this->createStub(EventPlayedDialoguePresentationInterface::class);
+  $shown = [];
+  $presentation->method('beginPlayedDialogue')->willReturnCallback(
+    static function (string $text, string $speaker, DialogueContext $context) use (&$shown): void {
+      $shown[] = $context->backdrop;
+    }
+  );
+  $presentation->method('isComplete')->willReturn(true);
 
-  $binding->setValue($maps, ['region' => 'Synthetic Vale', 'skitBackdrop' => 'Graphics/Skits/Vale/Square.png']);
-  $manager->playSkit('synthetic-skit', $skit);
-  $binding->setValue($maps, ['region' => 'Synthetic Vale']);
-  $manager->playSkit('synthetic-skit', $skit);
-  new ReflectionProperty(GameScene::class, 'currentMapId')->setValue($scene, 'vale/inn');
-  $binding->setValue($maps, ['region' => 'Bare Region']);
-  $manager->playSkit('synthetic-skit', $skit);
+  $mapId = new ReflectionProperty(GameScene::class, 'currentMapId');
+  foreach ($skits as $id => [$map, $mapBinding]) {
+    $mapId->setValue($scene, $map);
+    $binding->setValue($maps, $mapBinding);
+    $playback = $manager->beginSkitPlayback($id, $presentation);
+    expect($playback->update(0.01))->toBeFalse()
+      ->and($playback->update(0.01))->toBeFalse()
+      ->and($playback->update(0.01))->toBeTrue();
+  }
 
-  expect(array_map(static fn(DialogueContext $context): ?string => $context->backdrop, $manager->shown))->toBe([
+  expect($shown)->toBe([
     'Graphics/Skits/Vale/Square.png', 'Graphics/Skits/Vale/Square.png',
     'Graphics/Skits/Vale/Region.png', 'Graphics/Skits/Vale/Region.png', null, null,
   ]);

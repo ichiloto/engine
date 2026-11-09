@@ -137,6 +137,7 @@ it('rebases saved elapsed time without retaining a stale frame delta or changing
     $lease = RuntimeClock::useClock($source);
     try {
         Time::setElapsedTime(0);
+        InputManager::setInputSource(new FakeInputSource(KeyCode::ENTER));
         InputManager::handleInput();
         $source->seconds += 2;
         Time::onGameUpdate();
