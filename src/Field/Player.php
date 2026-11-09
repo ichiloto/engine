@@ -395,7 +395,6 @@ class Player extends GameObject implements ThicketSubjectInterface
       return false;
     }
 
-    $this->handleCollision($collisionType);
     $fieldWasRecomposed = $this->updatePlayerPosition($direction, $camera, $previousSprite);
     if ($origin->x !== $this->position->x || $origin->y !== $this->position->y) {
       if ($stepOrigin === StepOrigin::PLAYER_INPUT) {
@@ -452,7 +451,7 @@ class Player extends GameObject implements ThicketSubjectInterface
     }
     $scene->income?->recordStep();
     $scene->encounterManager?->registerStep($collisionType, $destination);
-    if ($scene->mapManager->isAtSavePoint) {
+    if ($collisionType === CollisionType::SAVE_POINT && $scene->mapManager->isSavePointAt($this->position)) {
       $scene->arriveAtSavePoint();
     }
 
@@ -490,22 +489,6 @@ class Player extends GameObject implements ThicketSubjectInterface
     }
 
     return $this->scene;
-  }
-
-  /**
-   * Handles the collision.
-   *
-   * @param CollisionType|null $collisionType The collision type.
-   * @return void
-   */
-  protected function handleCollision(?CollisionType $collisionType): void
-  {
-    if (!$collisionType || $collisionType === CollisionType::NONE) {
-      $this->getGameScene()->mapManager->isAtSavePoint = false;
-      return;
-    }
-
-    $this->getGameScene()->mapManager->isAtSavePoint = ($collisionType === CollisionType::SAVE_POINT);
   }
 
   /**

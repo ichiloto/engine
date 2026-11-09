@@ -140,10 +140,10 @@ class MapManager implements CanRenderAt
   private mixed $declaredBackgroundMusic = null;
   private mixed $backgroundMusicVariants = [];
   private bool $hasMusicDeclaration = false;
-  /**
-   * @var bool Whether the player is at a save point.
-   */
-  public bool $isAtSavePoint = false;
+  /** Whether the player's current position has Save Point collision. */
+  public bool $isAtSavePoint {
+    get => ($position = $this->gameScene->player?->position) !== null && $this->isSavePointAt($position);
+  }
   /** The current source map's permission, installed with its geometry. */
   public private(set) MapSavePolicy $savePolicy = MapSavePolicy::SAVE_POINTS;
   /** Whether the player can save under the map policy or at a save point. */
@@ -225,6 +225,11 @@ class MapManager implements CanRenderAt
 
     $collisionType = $this->getCollision($x, $y);
     return !$collisionType->blocksMovement();
+  }
+
+  public function isSavePointAt(Vector2 $position): bool
+  {
+    return ($this->collisionMap[(int) $position->y][(int) $position->x] ?? null) === CollisionType::SAVE_POINT->value;
   }
 
   /** Whether a cell is a counter the player can talk across; false outside the map. */

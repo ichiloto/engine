@@ -307,17 +307,21 @@ it('resolves saved named NPC destinations before installation and refuses blocke
 
 
 it('uses the authored map save policy under every display name and keeps save-point access', function (): void {
-    [$root, $paths, $grid, $manager, $scene, $camera, $player] = createOccupancyLoadingFixture(text: '.');
+    [$root, $paths, $grid, $manager, $scene, $camera, $player] = createOccupancyLoadingFixture(text: '..');
     foreach ([['Maanda', 'anywhere', true], ['Renamed continent', 'anywhere', true],
         ['Overworld', 'save-points', false], ['Ordinary room', null, false]] as [$name, $policy, $allowed]) {
-        $data = ['name' => $name]; if ($policy !== null) { $data['savePolicy'] = $policy; }
+        $data = ['name' => $name, 'occupancy' => [[CollisionType::NONE, CollisionType::SAVE_POINT]]];
+        if ($policy !== null) { $data['savePolicy'] = $policy; }
         file_put_contents($paths['data'], '<?php return ' . var_export($data, true) . ';');
         $prepared = $manager->prepareMap('test/physical');
         $manager->applyPreparedMap($prepared, $player);
         expect($manager->canSave)->toBe($allowed)->and($scene->party->location->name)->toBe($name);
-        $manager->isAtSavePoint = true;
+        new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
+        $player->position->x = 1;
         expect($manager->canSave)->toBeTrue();
-        $manager->isAtSavePoint = false;
+        $player->position->x = 0;
+        expect($manager->canSave)->toBe($allowed);
+        new ReflectionProperty(GameScene::class, 'player')->setValue($scene, null);
     }
     $before = [$manager->canSave, $scene->party->location, $camera->worldSpace];
     foreach ([null, false, 'overworld', 'Anywhere', []] as $invalid) {
@@ -327,4 +331,29 @@ it('uses the authored map save policy under every display name and keeps save-po
                 ->and([$manager->canSave, $scene->party->location, $camera->worldSpace])->toBe($before);
         }
     }
+});
+
+it('derives save availability from the installed collision and the current player cell', function (): void {
+    [$root, $paths, $grid, $manager, $scene, $camera, $player] = createOccupancyLoadingFixture(text: '..');
+    $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()
+        ->onlyMethods(['removeTriggers', 'removeEventTriggers'])->getMock();
+    new ReflectionProperty(Player::class, 'position')->setValue($player, new Vector2(0, 0));
+    new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
+    $writeMap = static function (array $cells) use ($paths): void {
+        file_put_contents($paths['data'], '<?php return ' . var_export(['occupancy' => [$cells]], true) . ';');
+    };
+    $writeMap([CollisionType::SAVE_POINT, CollisionType::NONE]);
+    $manager->applyPreparedMap($manager->prepareMap('test/physical'), $player);
+    expect($manager->canSave)->toBeTrue();
+
+    $player->position->x = 1;
+    expect($manager->canSave)->toBeFalse();
+    $player->position->x = 0;
+    expect($manager->canSave)->toBeTrue();
+
+    $writeMap([CollisionType::NONE, CollisionType::SAVE_POINT]);
+    $manager->applyPreparedMap($manager->prepareMap('test/physical'), $player);
+    expect($manager->canSave)->toBeFalse();
+    $player->position->x = 1;
+    expect($manager->canSave)->toBeTrue();
 });

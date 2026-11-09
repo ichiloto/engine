@@ -98,7 +98,6 @@ final class SubjectOwnershipPlayer extends Player
 {
   protected function renderLocationHUDWindow(): void {}
   public function renderEventCues(): void {}
-  protected function handleCollision(?CollisionType $collisionType): void {}
 }
 
 final class SubjectOwnershipPresentation implements EventPresentationInterface
