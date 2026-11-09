@@ -38,6 +38,12 @@ final class ArenaSetupEditor
   public private(set) int $memberIndex = 0;
   public private(set) int $fieldIndex = 0;
   public private(set) int $choiceIndex = 0;
+  private string $partyReturnFocus = self::TROOPS;
+
+  /** The left pane keeps its list while the party pane has focus. */
+  public string $listFocus {
+    get => $this->focus === self::PARTY ? $this->partyReturnFocus : $this->focus;
+  }
 
   /**
    * @param list<string> $actorIds Every actor a member can be, in order.
@@ -132,7 +138,7 @@ final class ArenaSetupEditor
         : $this->troopIndex = max(0, min($this->troopRows - 1, $this->troopIndex + $step)),
       self::COMPOSER => $this->composer?->moveVertical($step),
       self::PARTY => $this->memberIndex + $step < 0
-        ? $this->focus = self::TROOPS
+        ? $this->focus = $this->partyReturnFocus
         : $this->memberIndex = min(BattleTestSetup::MAX_MEMBERS - 1, $this->memberIndex + $step),
       self::MEMBER => $this->fieldIndex = max(0, min(count($this->fields) - 1, $this->fieldIndex + $step)),
       self::CHOOSER => $this->choiceIndex = max(0, min(count($this->getChoices()) - 1, $this->choiceIndex + $step)),
@@ -155,6 +161,19 @@ final class ArenaSetupEditor
       'level' => $this->stepLevel($step),
       default => null,
     };
+  }
+
+  /** Page actions switch the top-level panes and step level inside a member. */
+  public function movePage(int $direction): void
+  {
+    if ($this->focus === self::MEMBER) {
+      $this->stepLevel(10 * $direction);
+    } elseif ($direction > 0 && ($this->focus === self::TROOPS
+      || ($this->focus === self::COMPOSER && $this->composer?->focus === TestTroopComposer::MEMBERS))) {
+      $this->enterParty();
+    } elseif ($direction < 0 && $this->focus === self::PARTY) {
+      $this->focus = $this->partyReturnFocus;
+    }
   }
 
   /** Changes the member's level by a step, within 1 and the actor's highest. */
@@ -238,7 +257,7 @@ final class ArenaSetupEditor
         if ($this->composer?->cancel() === TestTroopComposer::LEAVE) { $this->focus = self::TROOPS; }
         break;
       case self::PARTY:
-        $this->focus = self::TROOPS;
+        $this->focus = $this->partyReturnFocus;
         break;
       case self::MEMBER:
         $this->focus = self::PARTY;
@@ -270,6 +289,7 @@ final class ArenaSetupEditor
 
   private function enterParty(): void
   {
+    $this->partyReturnFocus = $this->focus;
     $this->focus = self::PARTY;
     $this->memberIndex = 0;
   }

@@ -161,3 +161,75 @@ it('chooses the arena with left and right on the troop list, the default first, 
   $plain->moveHorizontal(1);
   expect($plain->offersArenas)->toBeFalse()->and($plain->setup->arena)->toBeNull();
 });
+
+it('switches to Party from a scrolled troop row through the shared page actions', function () {
+  $editor = arenaSetupEditor(troops: 26);
+  $editor->selectTroop(17);
+  $scene = new class extends \Ichiloto\Engine\Scenes\Arena\ArenaScene {
+    public function __construct() {}
+    public function render(): void {}
+  };
+  new ReflectionProperty($scene, 'camera')->setValue($scene, $this->createStub(\Ichiloto\Engine\Rendering\Camera::class));
+  new ReflectionProperty($scene, 'editor')->setValue($scene, $editor);
+  new ReflectionProperty($scene, 'troops')->setValue($scene, array_map(
+    static fn(int $i) => new \Ichiloto\Engine\Entities\Troop('Troop ' . $i, []), range(1, 26)));
+
+  $input = new ReflectionClass(\Ichiloto\Engine\IO\InputManager::class);
+  $bindings = $input->getProperty('config');
+  $key = $input->getProperty('keyPress');
+  $priorKey = $input->getProperty('previousKeyPress');
+  $restore = [$bindings->getValue(), $key->getValue(), $priorKey->getValue()];
+  try {
+    \Ichiloto\Engine\IO\InputManager::setBindings([]);
+    $priorKey->setValue(null, null);
+    $list = $scene->describeList();
+    expect($list->selected)->toBe(17)
+      ->and($list->hints)->toContain(['menu_page_next', 'Party']);
+
+    $key->setValue(null, \Ichiloto\Engine\IO\Enumerations\KeyCode::PAGE_DOWN);
+    $scene->update();
+    $list = $scene->describeList();
+    expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)
+      ->and($editor->memberIndex)->toBe(0)
+      ->and($list->selected)->toBeNull()
+      ->and($list->anchor)->toBe(17)
+      ->and($list->hints)->toContain(['menu_page_previous', 'Troops']);
+
+    $key->setValue(null, \Ichiloto\Engine\IO\Enumerations\KeyCode::PAGE_UP);
+    $scene->update();
+    expect($editor->focus)->toBe(ArenaSetupEditor::TROOPS)
+      ->and($scene->describeList()->selected)->toBe(17);
+  } finally {
+    foreach ([$bindings, $key, $priorKey] as $index => $property) {
+      $property->setValue(null, $restore[$index]);
+    }
+  }
+});
+
+it('keeps the composed troop and its row when paging to Party and back', function () {
+  $composer = new \Ichiloto\Engine\Scenes\Arena\TestTroopComposer(['Rat'], static fn() => [3, 4]);
+  $editor = new ArenaSetupEditor(new BattleTestSetup([new BattleTestMember('hero', 5)]), 26, ['hero'],
+    static fn() => [], static fn() => [], static fn() => 99, composer: $composer);
+  $editor->selectTroop(26);
+  $editor->confirm();
+  $editor->confirm();
+  $editor->movePage(1);
+  expect($editor->focus)->toBe(ArenaSetupEditor::COMPOSER)
+    ->and($composer->focus)->toBe($composer::ENEMIES);
+  $editor->confirm();
+  $editor->moveVertical(1);
+  $row = $composer->rowIndex;
+  $troop = $composer->troop;
+  $editor->movePage(1);
+  expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)
+    ->and($editor->listFocus)->toBe(ArenaSetupEditor::COMPOSER);
+  $editor->confirm();
+  $editor->movePage(1);
+  expect($editor->member->level)->toBe(15)
+    ->and($editor->focus)->toBe(ArenaSetupEditor::MEMBER);
+  $editor->cancel();
+  $editor->movePage(-1);
+  expect($editor->focus)->toBe(ArenaSetupEditor::COMPOSER)
+    ->and($composer->rowIndex)->toBe($row)
+    ->and($composer->troop)->toBe($troop);
+});

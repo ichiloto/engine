@@ -2,7 +2,6 @@
 
 namespace Ichiloto\Engine\Scenes\Arena;
 
-use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Battle\Presentation\BattleFormationLayout;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Battle\Presentation\BattleStageSlot;
@@ -23,6 +22,7 @@ use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\UI\Presentation\BattleTestMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\MenuPager;
 use Ichiloto\Engine\UI\Presentation\MenuRowColumn;
 use Ichiloto\Engine\UI\Presentation\MenuTableText;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
@@ -194,10 +194,10 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       $editor->moveVertical($vertical > 0 ? 1 : -1);
     } elseif (abs($horizontal) > 0.1) {
       $editor->moveHorizontal($horizontal > 0 ? 1 : -1);
-    } elseif (Input::isButtonDown('menu_page_next')) {
-      $editor->stepLevel(10);
-    } elseif (Input::isButtonDown('menu_page_previous')) {
-      $editor->stepLevel(-10);
+    } elseif (Input::isButtonDown(MenuPager::NEXT_ACTION)) {
+      $editor->movePage(1);
+    } elseif (Input::isButtonDown(MenuPager::PREVIOUS_ACTION)) {
+      $editor->movePage(-1);
     } elseif (Input::isButtonDown('confirm') || Input::isButtonDown('action')) {
       $request = $editor->confirm();
     } elseif (Input::isButtonDown('cancel')
@@ -498,14 +498,15 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     $list = $this->describeList();
     $arena = $list->namesArena ? $this->getArenaName() : null;
     $this->listPanel?->setTitle($arena === null ? $list->title : sprintf('%s · Arena: < %s >', $list->title, $arena));
-    $this->listPanel?->setControlHints($list->resolveHints());
+    $hints = $list->resolveHints();
+    $partyFocused = $focus === ArenaSetupEditor::PARTY;
+    $this->listPanel?->setControlHints($partyFocused ? [] : $hints);
     // Each row follows the cursor's place, ` > `.
     $this->listPanel?->setContent($this->formatList($list->getTerminalRows($innerWidth - 3), $list->selected, $innerWidth,
-      self::LIST_HEIGHT - 2, $focus === ArenaSetupEditor::PARTY ? ArenaSetupEditor::TROOPS : $focus));
+      self::LIST_HEIGHT - 2, $this->editor?->listFocus ?? $focus));
     $this->listPanel?->render();
 
-    $this->infoPanel?->setControlHints($focus === ArenaSetupEditor::PARTY
-      ? [ActionHints::resolve('confirm', 'Edit'), ActionHints::resolve('cancel', 'Back')] : []);
+    $this->infoPanel?->setControlHints($partyFocused ? $hints : []);
     $this->infoPanel?->setContent($this->describeParty($innerWidth));
     $this->infoPanel?->render();
   }
@@ -520,15 +521,15 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     $editor = $this->editor;
     $focus = $editor?->focus ?? ArenaSetupEditor::TROOPS;
 
-    return match ($focus) {
+    return match ($editor?->listFocus ?? $focus) {
       ArenaSetupEditor::MEMBER => $this->describeMember(),
       ArenaSetupEditor::CHOOSER => $this->describeChoices(),
       ArenaSetupEditor::COMPOSER => $this->describeComposer(),
       default => new BattleTestMenuList('Troop', ...$this->listTroopRows(),
         selected: $focus === ArenaSetupEditor::TROOPS ? ($editor?->troopIndex ?? 0) : null,
-        hints: $focus === ArenaSetupEditor::PARTY ? [['confirm', 'Edit'], ['cancel', 'Back']]
+        hints: $focus === ArenaSetupEditor::PARTY ? $this->describePartyHints('Troops')
           : [['confirm', ($editor?->onComposeRow ?? false) ? 'Compose' : 'Fight'], ...(($editor?->offersArenas ?? false) ? [['left', 'Arena', 'right']] : []),
-            ['down', 'Party'], ['cancel', 'Quit']],
+            [MenuPager::NEXT_ACTION, 'Party'], ['cancel', 'Quit']],
         namesArena: true, anchor: $editor?->troopIndex),
     };
   }
@@ -555,6 +556,11 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       MenuRowColumn::fit(array_column(array_column($rows, 1), 1), label: Vocabulary::getTerm('stats.level_short'))]];
   }
 
+  private function describePartyHints(string $list): array
+  {
+    return [['confirm', 'Edit'], [MenuPager::PREVIOUS_ACTION, $list]];
+  }
+
   /** The test troop composer: its rows, the enemies to add, or what can be done to a member. */
   protected function describeComposer(): BattleTestMenuList
   {
@@ -563,6 +569,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       return new BattleTestMenuList('Test Troop', [], null);
     }
     $arenas = $this->editor?->offersArenas ?? false;
+    $partyFocused = $this->editor?->focus === ArenaSetupEditor::PARTY;
     $member = $composer->memberIndex === null ? null : $composer->troop->members[$composer->memberIndex] ?? null;
 
     return match ($composer->focus) {
@@ -574,8 +581,11 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       TestTroopComposer::PLACING => $this->describePlacing($composer, $member),
       default => new BattleTestMenuList('Test Troop',
         array_map(fn(string $row): array => [$this->describeComposerRow($composer, $row), []], $composer->rows),
-        $composer->rowIndex, [['confirm', 'Choose'], ...($arenas ? [['left', 'Arena', 'right']] : []), ['cancel', 'Back']],
-        note: $this->keepStatus, namesArena: true),
+        $partyFocused ? null : $composer->rowIndex,
+        $partyFocused ? $this->describePartyHints('Test Troop')
+          : [['confirm', 'Choose'], ...($arenas ? [['left', 'Arena', 'right']] : []),
+            [MenuPager::NEXT_ACTION, 'Party'], ['cancel', 'Back']],
+        note: $this->keepStatus, namesArena: true, anchor: $composer->rowIndex),
     };
   }
 

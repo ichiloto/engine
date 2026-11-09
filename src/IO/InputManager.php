@@ -158,6 +158,17 @@ class InputManager
     return self::getBindingsWithDefaults($bindings);
   }
 
+  private const array MENU_PAGE_CONTROLLERS = [
+    'menu_page_previous' => [
+      ['family' => 'gamepad.xbox', 'control' => 'left_shoulder', 'label' => 'LB'],
+      ['family' => 'gamepad.playstation', 'control' => 'left_shoulder', 'label' => 'L1'],
+    ],
+    'menu_page_next' => [
+      ['family' => 'gamepad.xbox', 'control' => 'right_shoulder', 'label' => 'RB'],
+      ['family' => 'gamepad.playstation', 'control' => 'right_shoulder', 'label' => 'R1'],
+    ],
+  ];
+
   /**
    * Adds shared actions for older projects without claiming authored controls.
    *
@@ -181,6 +192,9 @@ class InputManager
       $keys = array_values(array_filter($candidates, static fn(KeyCode $key): bool =>
         !array_any($bindings, static fn(array $binding): bool => in_array($key, $binding['keys'] ?? [], true))));
       $bindings[$action] = ['description' => $description, 'keys' => $keys];
+      if (isset(self::MENU_PAGE_CONTROLLERS[$action])) {
+        $bindings[$action]['controllers'] = self::MENU_PAGE_CONTROLLERS[$action];
+      }
     }
 
     if (! array_key_exists('dialogue_auto', $bindings)) {
