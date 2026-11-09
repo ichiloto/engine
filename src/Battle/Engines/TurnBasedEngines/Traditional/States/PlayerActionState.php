@@ -143,14 +143,14 @@ class PlayerActionState extends TurnState
     if ($this->selectionMode !== self::MODE_COMMAND) { return; }
     $available = $this->activeCharacter !== null && Input::isHeldInputAvailable()
       ? BattleCommandCatalog::getAvailableCrisisOption($this->activeCharacter, $context->party, $context->getGameState()) : null;
-    $this->heldAttackOption = $available !== null
-      && $this->getSelectedCommand($context)?->type === BattleCommandType::ATTACK && Input::isButtonHeld('right')
-        ? $available : null;
+    $command = $this->getSelectedCommand($context);
+    $canReveal = $available !== null && $command?->type === BattleCommandType::ATTACK;
+    $this->heldAttackOption = $canReveal && Input::isButtonHeld('right') ? $available : null;
     $window = $context->ui->commandWindow;
     $window->setAttackAlternative($available?->label, $this->heldAttackOption !== null);
-    $window->setControlHints($available === null ? [BattleControlHints::getInfoHint()] : [
+    $window->setControlHints(!$canReveal ? [BattleControlHints::getInfoHint()] : [
       \Ichiloto\Engine\IO\ActionHints::resolve('right', $this->heldAttackOption === null
-        ? 'Hold: ' . $this->activeCharacter->crisisAbility->name : 'Release: ' . $this->getSelectedCommand($context)->name),
+        ? 'Hold: ' . $this->activeCharacter->crisisAbility->name : 'Release: ' . $command->name),
     ]);
   }
 
@@ -455,11 +455,11 @@ class PlayerActionState extends TurnState
     $context->ui->commandWindow->setTutorialTarget(null);
     $this->activeTargetIndex = -1;
     $context->ui->commandWindow->setSelectionBlink(false);
+    $context->ui->commandWindow->setControlHints([BattleControlHints::getInfoHint()]);
     $context->ui->commandContextWindow->setMpBudget($this->activeCharacter->stats->currentMp);
     $context->ui->commandContextWindow->setItems($options, $command->name, $this->getEmptyMenuMessage($command->type));
     $context->ui->commandContextWindow->focus();
     if ($this->directAttackSelection) {
-      $context->ui->commandWindow->setControlHints([BattleControlHints::getInfoHint()]);
       $this->selectSubmenuOption($context);
     } else { $this->applyTargetingVisuals($context); }
   }

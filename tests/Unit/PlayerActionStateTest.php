@@ -705,8 +705,10 @@ it('reveals the live crisis technique only while semantic Right is held and conf
     new ReflectionMethod($state, 'loadCharacterActions')->invoke($state, $context);
     $refresh = function () use ($state, $context): void { InputManager::handleInput(); $state->update($context); };
     $label = fn() => $screen->commandWindow->presentationSnapshot()->rows[0]->label;
-    $refresh(); expect($label())->toBe('Attack');
+    $hintLabels = fn() => array_column($screen->commandWindow->getControlHints(), 'label');
+    $refresh(); expect($label())->toBe('Attack')->and($hintLabels())->toBe(['Hold: Surge']);
     new ReflectionMethod($state, 'beginSubmenuSelection')->invoke($state, $context);
+    expect($hintLabels())->toBe(['Info']);
     $nativeOptions = new ReflectionProperty(BattleCommandContextWindow::class, 'items')->getValue($screen->commandContextWindow);
     expect(array_column($nativeOptions, 'label'))->toBe(['Attack', 'Alternate strike']);
     new ReflectionMethod($state, 'returnToCommandSelection')->invoke($state, $context);
@@ -727,9 +729,12 @@ it('reveals the live crisis technique only while semantic Right is held and conf
       ->and($actor->stats->currentMp)->toBe(0)->and($turn->action)->toBeNull()
       ->and(new ReflectionMethod($state, 'resolveCommandInfo')->invoke($state, $context))->toBe('A test technique.');
     $screen->commandWindow->selectNext(); $refresh();
-    expect($label())->toBe('Attack')->and($screen->commandWindow->getActiveCommand()->type)->not->toBe(BattleCommandType::ATTACK);
-    $screen->commandWindow->selectPrevious(); $refresh(); expect($label())->toBe('Synthetic long finisher');
-    $input->release('physical-d'); $refresh(); expect($label())->toBe('Attack');
+    expect($label())->toBe('Attack')->and($screen->commandWindow->getActiveCommand()->type)->not->toBe(BattleCommandType::ATTACK)
+      ->and($hintLabels())->toBe(['Info']);
+    $screen->commandWindow->selectPrevious(); $refresh();
+    expect($label())->toBe('Synthetic long finisher')->and($hintLabels())->toBe(['Release: Attack']);
+    $input->release('physical-d'); $refresh();
+    expect($label())->toBe('Attack')->and($hintLabels())->toBe(['Hold: Surge']);
     $input->press('physical-d', KeyCode::d); $refresh();
     $clock->seconds += 2;
     $before = $income->ledger->getAccount('work')->progress;
@@ -743,7 +748,7 @@ it('reveals the live crisis technique only while semantic Right is held and conf
     expect($label())->toBe('Attack'); // Lost focus/source cannot leave the special latched.
     $input->press('physical-d', KeyCode::d); $refresh();
     $input->press('confirm', KeyCode::ENTER); $refresh();
-    expect($state->getSelectionMode())->toBe('target')
+    expect($state->getSelectionMode())->toBe('target')->and($hintLabels())->toBe(['Info'])
       ->and($screen->commandContextWindow->getActiveItem()->action)->toBeInstanceOf(\Ichiloto\Engine\Battle\Actions\CrisisSkillBattleAction::class)
       ->and($turn->action)->toBeNull()->and($actor->stats->currentMp)->toBe(0);
     $input->release('physical-d'); $refresh();
