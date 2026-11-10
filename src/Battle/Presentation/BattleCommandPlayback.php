@@ -451,15 +451,28 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $frame = $this->session->currentFrame;
     $advance = $this->plan->phases['advance'];
     $return = $this->plan->phases['return'];
-    if ($frame <= $advance['start']) { return 0.0; }
+    $keyed = $this->plan->flashStep->placeTransitOnPoseKeys ?? false;
+    if ($frame < $advance['start']) { return 0.0; }
     if ($frame < $advance['start'] + $advance['length']) {
-      return ($frame - $advance['start']) / $advance['length'];
+      return $this->getTransitFraction($frame, $advance, $keyed ? BattlePoseSequence::ENTRY : null);
     }
     if ($frame >= $return['start']) {
-      return max(0, 1 - ($frame - $return['start']) / $return['length']);
+      if ($frame >= $return['start'] + $return['length']) { return 0.0; }
+      return 1 - $this->getTransitFraction($frame, $return, $keyed ? BattlePoseSequence::EXIT : null);
     }
     return 1;
   }
+
+  /** Pose-keyed transit holds each interior sample for its entire pose cell. */
+  private function getTransitFraction(int $frame, array $window, ?BattlePoseSequence $sequence): float
+  {
+    $elapsed = $frame - $window['start'];
+    $length = $window['length'];
+    if ($sequence === null) { return $elapsed / $length; }
+    $count = count($this->plan->actionPoseOverride->getSequenceFrames($sequence));
+    return (intdiv($elapsed * $count, $length) + 1) / ($count + 1);
+  }
+
 
   /** Short damage recoil is presentation-only and pauses with the command. */
   public function getRecoilFraction(CharacterInterface $battler, bool $reducedMotion): float

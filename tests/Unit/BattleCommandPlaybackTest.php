@@ -98,6 +98,25 @@ it('plays a target effect across flash-step return and settle without extending 
     ->and($playback->getActiveSegments())->toBe([]);
 });
 
+it('holds each flash-step transit key at an interior route sample in both directions', function () {
+  $timing = new \Ichiloto\Engine\Animations\FlashStepTiming(24, 20, 3, 10, 3, 7, 2, placeTransitOnPoseKeys: true);
+  $pose = new \Ichiloto\Engine\Battle\Presentation\BattlerPose('fixture.png', columns: 4, frames: [3],
+    fps: 24, loop: false, impactFrame: 0, entryFrames: [0, 1, 2], exitFrames: [2, 1, 0]);
+  $travel = new \Ichiloto\Engine\Battle\Presentation\BattleTravelPlan([[0, 0], [400, 0]], 400, 0, 1, 600, 900);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .5, .1, .1),
+    travel: $travel, actionPoseOverride: $pose, flashStep: $timing);
+  $actor = new Character('Synthetic', 1, new Stats(currentHp: 100, totalHp: 100));
+  $playback = new BattleCommandPlayback($plan, $actor, [], BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
+  $playback->begin();
+  $previous = 0;
+  foreach ([99 => 0, 100 => 100, 104 => 100, 105 => 200, 109 => 200, 110 => 300, 114 => 300, 115 => 400,
+    164 => 400, 165 => 300, 169 => 300, 170 => 200, 174 => 200, 175 => 100, 179 => 100, 180 => 0] as $tick => $x) {
+    $playback->update(($tick - $previous) / 120);
+    expect($playback->getTravelOffset()->x)->toEqualWithDelta($x, .001);
+    $previous = $tick;
+  }
+});
+
 it('resolves once between target effects and reaction even when updates cross every stage', function () {
   $events = [];
   $playback = commandPlaybackFixture(resolve: function () use (&$events) { $events[] = 'impact'; },

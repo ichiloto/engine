@@ -12,7 +12,7 @@ final readonly class FlashStepTiming
 {
   public function __construct(public int $fps, public int $guardFrames, public int $advanceFrames,
     public int $holdFrames, public int $returnFrames, public int $settleFrames, public int $echoes,
-    public bool $overlapEffectTail = false)
+    public bool $overlapEffectTail = false, public bool $placeTransitOnPoseKeys = false)
   {
     if ($fps < 1 || $fps > 120 || $echoes < 0 || $echoes > 3
       || array_any([$guardFrames, $advanceFrames, $holdFrames, $returnFrames, $settleFrames],
@@ -24,20 +24,20 @@ final readonly class FlashStepTiming
   public static function fromArray(mixed $data): self
   {
     $fields = ['fps', 'guardFrames', 'advanceFrames', 'holdFrames', 'returnFrames', 'settleFrames', 'echoes'];
-    if (!is_array($data) || array_diff(array_keys($data), [...$fields, 'overlapEffectTail']) !== []
+    $flags = ['overlapEffectTail', 'placeTransitOnPoseKeys'];
+    if (!is_array($data) || array_diff(array_keys($data), [...$fields, ...$flags]) !== []
       || !array_all($fields, static fn(string $field): bool => is_int($data[$field] ?? null))
-      || (array_key_exists('overlapEffectTail', $data) && !is_bool($data['overlapEffectTail']))) {
+      || !array_all($flags, static fn(string $flag): bool => !array_key_exists($flag, $data) || is_bool($data[$flag]))) {
       throw new InvalidArgumentException('Flash step requires integer fps, guard, advance, hold, return, settle and echo fields.');
     }
     return new self(...array_map(static fn(string $field): int => $data[$field], $fields),
-      overlapEffectTail: $data['overlapEffectTail'] ?? false);
+      overlapEffectTail: $data['overlapEffectTail'] ?? false,
+      placeTransitOnPoseKeys: $data['placeTransitOnPoseKeys'] ?? false);
   }
 
   public function toArray(): array
   {
-    $data = get_object_vars($this);
-    if (!($data['overlapEffectTail'] ?? false)) { unset($data['overlapEffectTail']); }
-    return $data;
+    return array_filter(get_object_vars($this), static fn(int|bool $value): bool => $value !== false);
   }
 
   public function supportsPose(?BattlerPose $pose): bool
