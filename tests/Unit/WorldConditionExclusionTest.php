@@ -68,3 +68,12 @@ it('keeps numerically rounded operands distinct when their runtime predicates ca
         ->not->toBe(WorldConditionExclusion::getConjunctionKey([$float]))
         ->and(WorldConditionExclusion::proveExclusive([$integer], [[...$float, 'op' => '!=']]))->toBeFalse();
 });
+
+it('proves opposite results of the same any group without treating its members as individually required', function () {
+  $a = ['type' => 'event', 'name' => 'a'];
+  $b = ['type' => 'event', 'name' => 'b'];
+  $group = ['type' => 'any', 'conditions' => [$a, $b]];
+  expect(WorldConditionExclusion::proveExclusive([$group], [[...$group, 'conditions' => [$b, $a], 'negate' => true]]))
+    ->toBeTrue()
+    ->and(WorldConditionExclusion::proveExclusive([$group], [[...$a, 'negate' => true]]))->toBeFalse();
+});

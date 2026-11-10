@@ -20,6 +20,7 @@ use InvalidArgumentException;
  * Supported shapes (all accept `'negate' => true` to invert the result):
  * - `['type' => 'switch',   'name' => 'gate_open', 'value' => true]`
  * - `['type' => 'event',    'name' => 'met_the_king']`
+ * - `['type' => 'any',      'conditions' => [$first, $second]]`
  * - `['type' => 'map_event', 'name' => 'town/home', 'marker' => 'A']`
  * - `['type' => 'variable', 'name' => 'donations', 'op' => '>=', 'value' => 100]`
  * - `['type' => 'item',     'name' => 'Potion', 'quantity' => 2]`
@@ -34,6 +35,10 @@ use InvalidArgumentException;
  */
 class WorldConditionEvaluator
 {
+  private const int MAX_ANY_DEPTH = 4;
+  private const int MAX_ANY_MEMBERS = 32;
+  private const int MAX_ANY_TREE_MEMBERS = 256;
+
   /**
    * Validates authored conditions without evaluating or mutating runtime state.
    *
@@ -41,8 +46,17 @@ class WorldConditionEvaluator
    */
   public static function validateAll(array $conditions, string $source = 'world conditions'): void
   {
+    self::validateConditions($conditions, $source, 0);
+  }
+
+  private static function validateConditions(array $conditions, string $source, int $depth, ?int &$remaining = null): void
+  {
     foreach ($conditions as $index => $condition) {
       $conditionSource = sprintf('%s[%d]', $source, $index);
+
+      if ($remaining !== null && $remaining-- < 1) {
+        throw new InvalidArgumentException(sprintf('%s exceeds the any condition tree member limit.', $conditionSource));
+      }
 
       if (! is_array($condition)) {
         throw new InvalidArgumentException(sprintf('%s must be an array.', $conditionSource));
@@ -56,6 +70,16 @@ class WorldConditionEvaluator
           $conditionSource,
           is_scalar($typeValue) ? strval($typeValue) : get_debug_type($typeValue),
         ));
+      }
+
+      if ($type === WorldConditionType::ANY) {
+        $groupBudget = self::MAX_ANY_TREE_MEMBERS;
+        if ($remaining === null) {
+          self::validateAny($condition, $conditionSource, $depth + 1, $groupBudget);
+        } else {
+          self::validateAny($condition, $conditionSource, $depth + 1, $remaining);
+        }
+        continue;
       }
 
       if (! is_string($condition['name'] ?? null) || trim($condition['name']) === '') {
@@ -113,6 +137,39 @@ class WorldConditionEvaluator
     }
   }
 
+  private static function validateAny(array $condition, string $source, int $depth, int &$remaining): void
+  {
+    $members = $condition['conditions'] ?? null;
+    if (array_diff(array_keys($condition), ['type', 'conditions', 'negate']) !== []
+      || (array_key_exists('negate', $condition) && !is_bool($condition['negate']))
+      || !is_array($members) || !array_is_list($members) || $members === []
+      || count($members) > self::MAX_ANY_MEMBERS) {
+      throw new InvalidArgumentException(sprintf('%s any condition requires 1 through %d conditions and an optional boolean negate.',
+        $source, self::MAX_ANY_MEMBERS));
+    }
+    if ($depth > self::MAX_ANY_DEPTH) {
+      throw new InvalidArgumentException(sprintf('%s exceeds the any condition nesting limit of %d.', $source, self::MAX_ANY_DEPTH));
+    }
+    self::validateConditions($members, "$source.conditions", $depth, $remaining);
+  }
+
+  /**
+   * Yields leaf entries from a validated tree for reference and dependency checks.
+   *
+   * @param list<array<string, mixed>> $conditions
+   * @return iterable<array<string, mixed>>
+   */
+  public static function getConditionLeaves(array $conditions): iterable
+  {
+    foreach ($conditions as $condition) {
+      if (trim($condition['type']) === WorldConditionType::ANY->value) {
+        yield from self::getConditionLeaves($condition['conditions']);
+      } else {
+        yield $condition;
+      }
+    }
+  }
+
   /**
    * Determines whether every condition in the list holds.
    *
@@ -141,6 +198,19 @@ class WorldConditionEvaluator
         ));
 
         return false;
+      }
+
+      if ($type === WorldConditionType::ANY) {
+        try {
+          $remaining = self::MAX_ANY_TREE_MEMBERS;
+          self::validateAny($condition, 'world condition', 1, $remaining);
+        } catch (InvalidArgumentException $error) {
+          Debug::warn($error->getMessage());
+          return false;
+        }
+        $matches = self::evaluate($type, $condition, '', $gameState, $party, $questLog, $worldAbilities);
+        if ($matches === ($condition['negate'] ?? false)) { return false; }
+        continue;
       }
 
       if (($type === WorldConditionType::PRESENT_ACTOR
@@ -211,6 +281,11 @@ class WorldConditionEvaluator
   ): bool
   {
     return match ($type) {
+      WorldConditionType::ANY => array_any($condition['conditions'], static function (array $member) use ($gameState, $party, $questLog, $worldAbilities): bool {
+        $memberType = WorldConditionType::from(trim($member['type']));
+        $matches = self::evaluate($memberType, $member, trim($member['name'] ?? ''), $gameState, $party, $questLog, $worldAbilities);
+        return $matches !== ($member['negate'] ?? false);
+      }),
       WorldConditionType::WORLD_ABILITY => ($worldAbilities ?? WorldAbilityCatalog::getProjectCatalog())
         ->isUnlocked($name, $gameState, $party, $questLog),
       WorldConditionType::SWITCH => $gameState->getSwitch($name) === (bool) ($condition['value'] ?? true),

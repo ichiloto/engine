@@ -122,7 +122,7 @@ final class WorldAbilityCatalog implements ConfigInterface
     }
     if (isset($visited[$id])) { return; }
     $ability = $this->getAbility($id); $active[$id] = true;
-    foreach ($ability->conditions as $condition) {
+    foreach (WorldConditionEvaluator::getConditionLeaves($ability->conditions) as $condition) {
       if (trim($condition['type']) === WorldConditionType::WORLD_ABILITY->value) {
         $this->validateDependencies(trim($condition['name']), $active, $visited);
       }

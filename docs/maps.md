@@ -372,6 +372,27 @@ inn events stay with the counter or fixture they are authored on; a page
 offers either service with the `shop` and `inn` script commands when the
 NPC should own it.
 
+### World conditions
+
+A `conditions` list requires every entry to hold. An `any` entry succeeds
+when at least one of its member conditions holds. For example, this
+placement is visible before an event named `departed` or after an event
+named `returned`.
+
+```php
+'conditions' => [
+  ['type' => 'any', 'conditions' => [
+    ['type' => 'event', 'name' => 'departed', 'negate' => true],
+    ['type' => 'event', 'name' => 'returned'],
+  ]],
+],
+```
+
+A group accepts `negate` to require that none of its members hold. Groups
+contain 1 to 32 members, can nest up to four group levels, and can contain
+up to 256 descendant entries in total. The Engine validates every member
+before evaluating the group.
+
 ### NPC pages
 
 An NPC's ordered `dialogue` variants are its interaction pages, as RPG

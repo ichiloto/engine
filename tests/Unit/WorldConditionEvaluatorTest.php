@@ -7,7 +7,7 @@ use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Stats;
-use Ichiloto\Engine\Cutscenes\Summons\{SummonCutsceneDefinition, SummonWielderPolicy};
+use Ichiloto\Engine\Cutscenes\Summons\{SummonAvailability, SummonCutsceneDefinition, SummonWielderPolicy};
 use Ichiloto\Engine\Quests\QuestLog;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
@@ -35,6 +35,7 @@ it('publishes the complete stable condition vocabulary', function () {
     'quest',
     'switch',
     'event',
+    'any',
     'map_event',
     'variable',
     'item',
@@ -261,4 +262,64 @@ it('keeps unvalidated runtime coercion separate from narrowed condition admissio
   $state->setSwitch('gate');
   expect(fn() => WorldConditionEvaluator::validateAll($conditions))->toThrow(InvalidArgumentException::class)
     ->and(WorldConditionEvaluator::allHold($conditions, $state))->toBeTrue();
+});
+
+it('evaluates nested any groups with negation across saved world phases', function () {
+  $visited = ['type' => 'event', 'name' => 'visited'];
+  $returned = ['type' => 'event', 'name' => 'returned'];
+  $street = ['type' => 'any', 'conditions' => [
+    [...$visited, 'negate' => true],
+    ['type' => 'any', 'conditions' => [$returned]],
+  ]];
+  $house = [$visited, [...$returned, 'negate' => true]];
+  $state = new GameState();
+  WorldConditionEvaluator::validateAll([$street]);
+  expect(WorldConditionEvaluator::allHold([$street], $state))->toBeTrue()
+    ->and(WorldConditionEvaluator::allHold($house, $state))->toBeFalse();
+  $state->recordStoryEvent('visited');
+  $state = GameState::fromArray($state->toArray());
+  expect(WorldConditionEvaluator::allHold([$street], $state))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold($house, $state))->toBeTrue()
+    ->and(WorldConditionEvaluator::allHold([[...$street, 'negate' => true]], $state))->toBeTrue();
+  $state->recordStoryEvent('returned');
+  expect(WorldConditionEvaluator::allHold([$street, $visited], $state))->toBeTrue()
+    ->and(WorldConditionEvaluator::allHold($house, $state))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold([[...$street, 'negate' => true]], $state))->toBeFalse();
+});
+
+it('validates the complete any tree before evaluating or applying its negation', function () {
+  $valid = ['type' => 'event', 'name' => 'visited'];
+  $state = new GameState();
+  $state->recordStoryEvent('visited');
+  $invalid = [
+    ['type' => 'any', 'conditions' => []],
+    ['type' => 'any', 'conditions' => [$valid], 'name' => 'unexpected'],
+    ['type' => 'any', 'conditions' => [$valid, ['type' => 'event']]],
+    ['type' => 'any', 'conditions' => [$valid, ['type' => 'unknown', 'name' => 'bad']]],
+    ['type' => 'any', 'conditions' => array_fill(0, 33, $valid)],
+    ['type' => 'any', 'conditions' => array_fill(0, 8, ['type' => 'any', 'conditions' => array_fill(0, 32, $valid)])],
+  ];
+  $deep = $valid;
+  for ($level = 0; $level < 5; $level++) {
+    $deep = ['type' => 'any', 'conditions' => [$deep]];
+  }
+  $invalid[] = $deep;
+  foreach ($invalid as $group) {
+    expect(fn() => WorldConditionEvaluator::validateAll([$group]))->toThrow(InvalidArgumentException::class)
+      ->and(WorldConditionEvaluator::allHold([$group], $state))->toBeFalse()
+      ->and(WorldConditionEvaluator::allHold([[...$group, 'negate' => true]], $state))->toBeFalse();
+  }
+});
+
+it('shares any group validation and evaluation with summon availability', function () {
+  $state = new GameState();
+  $group = ['type' => 'any', 'conditions' => [
+    ['type' => 'event', 'name' => 'first'],
+    ['type' => 'event', 'name' => 'second'],
+  ]];
+  $availability = SummonAvailability::fromAuthored(['conditions' => [$group]]);
+  expect($availability->isValid())->toBeTrue()
+    ->and($availability->isSatisfied($state))->toBeFalse();
+  $state->recordStoryEvent('second');
+  expect($availability->isSatisfied($state))->toBeTrue();
 });

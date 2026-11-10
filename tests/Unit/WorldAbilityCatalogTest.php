@@ -149,3 +149,12 @@ it('validates first-use source and reads old saves with no presentation facts', 
   expect($state->hasSeenWorldAbilityPrompt('a'))->toBeFalse()->and($state->hasSeenWorldAbilityPrompt('b'))->toBeFalse()
     ->and($state->getSwitch('a'))->toBeTrue();
 });
+
+it('finds dependencies in every any branch even if an earlier branch already holds', function (string $dependency) {
+  $conditions = [['type' => 'any', 'conditions' => [
+    ['type' => 'event', 'name' => 'granted'],
+    ['type' => 'any', 'conditions' => [['type' => 'world_ability', 'name' => $dependency]]],
+  ]]];
+  expect(fn() => new WorldAbilityCatalog([['id' => 'power', 'name' => 'Power', 'conditions' => $conditions]]))
+    ->toThrow(InvalidArgumentException::class);
+})->with(['missing', 'power']);

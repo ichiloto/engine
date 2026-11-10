@@ -123,12 +123,20 @@ final class WorldConditionExclusion
      */
     private static function readTest(mixed $condition): ?array
     {
-        if (! is_array($condition) || ! is_scalar($condition['type'] ?? null) || ! is_scalar($condition['name'] ?? null)) {
+        if (! is_array($condition) || ! is_scalar($condition['type'] ?? null)) {
             return null;
         }
 
         $type = WorldConditionType::tryFrom(trim(strval($condition['type'])));
-        $name = trim(strval($condition['name']));
+        if ($type === WorldConditionType::ANY) {
+            try {
+                WorldConditionEvaluator::validateAll([$condition]);
+            } catch (\InvalidArgumentException) {
+                return null;
+            }
+            return ['any:' . self::getConjunctionKey($condition['conditions']), !($condition['negate'] ?? false)];
+        }
+        $name = is_scalar($condition['name'] ?? null) ? trim(strval($condition['name'])) : '';
 
         if (! $type instanceof WorldConditionType || $name === '') {
             return null;
@@ -148,6 +156,7 @@ final class WorldConditionExclusion
                 ? [$condition['quantity']] : null,
             WorldConditionType::QUEST => is_scalar($condition['status'] ?? 'completed') ? [strval($condition['status'] ?? 'completed')] : null,
             WorldConditionType::VARIABLE => self::readVariableParameters($condition, $holdsOn),
+            WorldConditionType::ANY => null,
         };
 
         if ($parameters === null) {

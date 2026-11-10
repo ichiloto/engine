@@ -60,6 +60,16 @@ final class SummonAvailability
       $typeValue = $condition['type'] ?? null;
       $nameValue = $condition['name'] ?? null;
 
+      if (is_string($typeValue) && trim($typeValue) === WorldConditionType::ANY->value) {
+        try {
+          WorldConditionEvaluator::validateAll([$condition], 'summon availability');
+        } catch (\InvalidArgumentException $error) {
+          $errors[] = $error->getMessage();
+        }
+        $normalized[] = $condition;
+        continue;
+      }
+
       if (! is_string($typeValue)) {
         $errors[] = sprintf('Availability condition %d has a malformed type.', $index + 1);
         $type = '';
