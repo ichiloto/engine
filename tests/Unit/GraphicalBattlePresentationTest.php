@@ -1004,6 +1004,8 @@ it('captures the authored horizontal exit in command playback without changing a
   $capture = $playback->getDetachedPosePoint('target-projectile', $hero);
   expect($playback->presentationFailure)->toBeNull()
     ->and($capture['fallback']->value)->toBe('horizontal-exit')
+    ->and($capture['targetOrder'])->toBe([spl_object_id($enemies[1]), spl_object_id($enemies[0])])
+    ->and($playback->targets)->toBe($enemies)
     ->and($capture['path']->getPositionAtProgress(1))->toEqual(new Vector2(-1, $capture['point']->y))
     ->and($resolved)->toBe(1);
 

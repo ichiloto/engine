@@ -22,13 +22,14 @@ final class BattleStraightShot
    * Resolve the same route for gameplay presentation and authoring diagnostics.
    *
    * @param non-empty-list<CanvasImage> $targets
-   * @return array{path: BattlePresentationPath, fallback: ?EffectStraightFlightFallback}|null
+   * @return array{path: BattlePresentationPath, fallback: ?EffectStraightFlightFallback, targetOrder: list<int>}|null
    */
   public static function planRoute(Vector2 $origin, array $targets, string $assetRoot, float $arenaWidth,
     bool $partySide, EffectFlightContact $contactMode, ?EffectStraightFlightFallback $fallback): ?array
   {
-    $path = self::planVisible($origin, $targets, $assetRoot, $contactMode);
-    if ($path !== null) { return ['path' => $path, 'fallback' => null]; }
+    $bounds = self::getVisibleTargetBounds($targets, $assetRoot);
+    $path = self::planThroughVisibleBounds($origin, $targets, $bounds, $assetRoot, $contactMode);
+    if ($path !== null) { return ['path' => $path, 'fallback' => null, 'targetOrder' => array_keys($targets)]; }
     if ($fallback === null) { return null; }
 
     $path = match ($fallback) {
@@ -37,12 +38,25 @@ final class BattleStraightShot
         [BattleEffectDirection::getOpponentsSign($partySide) < 0 ? -1.0 : $arenaWidth + 1.0, $origin->y],
       ]),
     };
-    return ['path' => $path, 'fallback' => $fallback];
+    $distance = array_map(static fn(CanvasRectangle $body): float => hypot(
+      $body->x + $body->width / 2 - $origin->x,
+      $body->y + $body->height / 2 - $origin->y,
+    ), $bounds);
+    // Stable sort keeps the command's resolved order for equal distances.
+    asort($distance, SORT_NUMERIC);
+    return ['path' => $path, 'fallback' => $fallback, 'targetOrder' => array_keys($distance)];
   }
 
   /** @param non-empty-list<CanvasImage> $targets */
   public static function planVisible(Vector2 $origin, array $targets, string $assetRoot,
     EffectFlightContact $contactMode = EffectFlightContact::EDGE): ?BattlePresentationPath
+  {
+    return self::planThroughVisibleBounds($origin, $targets, self::getVisibleTargetBounds($targets, $assetRoot),
+      $assetRoot, $contactMode);
+  }
+
+  /** @param non-empty-list<CanvasImage> $targets @return non-empty-list<CanvasRectangle> */
+  private static function getVisibleTargetBounds(array $targets, string $assetRoot): array
   {
     $bounds = [];
     foreach ($targets as $target) {
@@ -50,6 +64,13 @@ final class BattleStraightShot
       $bounds[] = $visible['bounds']
         ?? throw new RuntimeException($visible['diagnostic'] ?? 'Battle flight requires visible target artwork.');
     }
+    return $bounds;
+  }
+
+  /** @param non-empty-list<CanvasImage> $targets @param non-empty-list<CanvasRectangle> $bounds */
+  private static function planThroughVisibleBounds(Vector2 $origin, array $targets, array $bounds, string $assetRoot,
+    EffectFlightContact $contactMode): ?BattlePresentationPath
+  {
     $heading = self::plan($origin, $bounds)?->getSampleAtProgress(1)['direction'] ?? null;
     if ($heading === null) { return null; }
     $preferred = (int)round(rad2deg(atan2($heading->y, $heading->x)));

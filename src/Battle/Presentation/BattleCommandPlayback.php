@@ -14,7 +14,7 @@ use Throwable;
 
 /**
  * Combat resolves once at impact; inspection and rendering are side-effect free.
- * @phpstan-type DetachedPosePoint array{point: Vector2, casterX: float, recipientX: ?float, party: bool, path?: BattlePresentationPath, fallback?: ?EffectStraightFlightFallback}
+ * @phpstan-type DetachedPosePoint array{point: Vector2, casterX: float, recipientX: ?float, party: bool, path?: BattlePresentationPath, fallback?: ?EffectStraightFlightFallback, targetOrder?: list<int>}
  */
 final class BattleCommandPlayback implements BattleEffectPlayback
 {

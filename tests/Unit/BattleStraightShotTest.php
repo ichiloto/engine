@@ -109,6 +109,7 @@ it('uses a horizontal exit only for valid artwork with no common ray', function 
   $plan = static fn(array $targets, ?EffectStraightFlightFallback $fallback): ?array =>
     BattleStraightShot::planRoute($origin, $targets, $root, 100, $partySide, EffectFlightContact::EDGE, $fallback);
   $fallback = $plan([$near, $far], $policy);
+  $equal = new CanvasImage('equal', 'body.png', $near->destination);
   $direct = $plan([$near], $policy);
   $missing = new CanvasImage('missing', 'missing.png', $near->destination);
   expect($fallback['fallback'])->toBe($policy)
@@ -116,5 +117,7 @@ it('uses a horizontal exit only for valid artwork with no common ray', function 
     ->and($plan([$near, $far], null))->toBeNull()
     ->and($direct['path'])->not->toBeNull()
     ->and($direct['fallback'])->toBeNull()
+    ->and($direct['targetOrder'])->toBe([0])
+    ->and($plan([$far, $equal, $near], $policy)['targetOrder'])->toBe([1, 2, 0])
     ->and(fn() => $plan([$near, $missing], $policy))->toThrow(RuntimeException::class);
 })->with([true, false]);

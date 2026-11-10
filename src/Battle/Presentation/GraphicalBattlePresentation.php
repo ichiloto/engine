@@ -951,8 +951,12 @@ final class GraphicalBattlePresentation
               $straightShots[$key] = BattleStraightShot::planRoute($point, $targets, $this->assetRoot, $this->layout->width,
                 $this->participants[$id]['party'], $contactMode, $fallbackPolicy);
             }
-            $points[$id] += $straightShots[$key]
+            $shot = $straightShots[$key]
               ?? throw new RuntimeException('No straight battle flight can reach the selected targets in order.');
+            $points[$id]['path'] = $shot['path'];
+            $points[$id]['fallback'] = $shot['fallback'];
+            $points[$id]['targetOrder'] = array_map(
+              static fn(int $index): int => spl_object_id($sample->targets[$index]), $shot['targetOrder']);
             continue;
           }
           $waypoints = [[$point->x, $point->y]];
