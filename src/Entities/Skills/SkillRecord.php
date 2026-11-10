@@ -348,7 +348,7 @@ final class SkillRecord
           self::requireString($effect, 'stateId', $path));
       })(),
       'add_state' => (static function () use ($effect, $path): AddStateSkillEffect {
-        self::refuseUnknownKeys($effect, ['type', 'stateId', 'chancePercent', 'guaranteed'], $path);
+        self::refuseUnknownKeys($effect, ['type', 'stateId', 'chancePercent', 'guaranteed', 'trigger'], $path);
         $guaranteed = $effect['guaranteed'] ?? false;
         if (!is_bool($guaranteed)) {
           throw new InvalidArgumentException(sprintf('%sguaranteed must be boolean.', $path));
@@ -358,6 +358,9 @@ final class SkillRecord
           self::requireString($effect, 'stateId', $path),
           array_key_exists('chancePercent', $effect) ? self::requireInt($effect, 'chancePercent', $path) : 100,
           $guaranteed,
+          array_key_exists('trigger', $effect)
+            ? self::readEnum(SkillSecondaryTrigger::class, self::requireString($effect, 'trigger', $path), $path . 'trigger')
+            : SkillSecondaryTrigger::ALWAYS,
         );
       })(),
       'remove_state' => (static function () use ($effect, $path): RemoveStateSkillEffect {
@@ -441,9 +444,10 @@ final class SkillRecord
         'skill' => $effect->skill, 'stateId' => $effect->stateId],
       $effect instanceof AddStateSkillEffect => array_filter(
         ['type' => 'add_state', 'stateId' => $effect->stateId, 'chancePercent' => $effect->chancePercent,
-          'guaranteed' => $effect->guaranteed],
+          'guaranteed' => $effect->guaranteed, 'trigger' => $effect->trigger->value],
         static fn(mixed $value, string $key): bool => match ($key) {
-          'chancePercent' => $value !== 100, 'guaranteed' => $value !== false, default => true,
+          'chancePercent' => $value !== 100, 'guaranteed' => $value !== false,
+          'trigger' => $value !== SkillSecondaryTrigger::ALWAYS->value, default => true,
         },
         ARRAY_FILTER_USE_BOTH,
       ),

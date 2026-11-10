@@ -96,6 +96,13 @@ class SkillEffectContext
     return array_any($this->results, static fn(CombatHitResult $result): bool => $result->hit);
   }
 
+  public function hasLandedDamageOn(CharacterInterface $target): bool
+  {
+    $id = CombatResolver::identity($target);
+    return array_any($this->results, static fn(CombatHitResult $result): bool =>
+      $result->targetId === $id && $result->kind->isDamage() && $result->hit);
+  }
+
   public function recordSecondaryOutcome(string $type, string $id, bool $applied): void
   {
     $this->secondaryOutcomes[] = [

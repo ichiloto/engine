@@ -21,6 +21,7 @@ use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Skills\SkillInvocation;
 use Ichiloto\Engine\Entities\Skills\SkillRecord;
 use Ichiloto\Engine\Entities\Skills\SkillResolutionScope;
+use Ichiloto\Engine\Entities\Skills\SkillSecondaryTrigger;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 
 /** A record's data with only what every skill states. */
@@ -54,11 +55,22 @@ it('round trips explicit guaranteed state application and rejects conflicting ch
   ]])))->toThrow(InvalidArgumentException::class);
 });
 
-it('keeps old serialized state effects probabilistic when the new field is absent', function () {
+it('round trips the landed-hit trigger and rejects an unknown trigger', function () {
+  $effect = ['type' => 'add_state', 'stateId' => 'stun', 'trigger' => 'landedHit'];
+  $skill = SkillRecord::readSkill(minimalSkillData(['effects' => [$effect]]));
+  expect($skill->effects[0]->trigger)->toBe(SkillSecondaryTrigger::LANDED_HIT)
+    ->and(SkillRecord::writeSkill($skill)['effects'])->toBe([$effect]);
+  $effect['trigger'] = 'miss';
+  expect(fn() => SkillRecord::readSkill(minimalSkillData(['effects' => [$effect]])))
+    ->toThrow(InvalidArgumentException::class, 'trigger');
+});
+
+it('keeps old serialized state effects independent and probabilistic', function () {
   $effect = new AddStateSkillEffect('stun');
-  Closure::bind(function (): void { unset($this->guaranteed); }, $effect, AddStateSkillEffect::class)();
+  Closure::bind(function (): void { unset($this->guaranteed, $this->trigger); }, $effect, AddStateSkillEffect::class)();
   $restored = unserialize(serialize($effect));
-  expect($restored->guaranteed)->toBeFalse();
+  expect($restored->guaranteed)->toBeFalse()
+    ->and($restored->trigger)->toBe(SkillSecondaryTrigger::ALWAYS);
 });
 
 it('round-trips every kind and every effect type through record data', function () {

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities\Effects\SkillEffects;
 
 use Ichiloto\Engine\Entities\Skills\SkillEffectContext;
+use Ichiloto\Engine\Entities\Skills\SkillSecondaryTrigger;
 use Ichiloto\Engine\Entities\States\StateRegistry;
 use Ichiloto\Engine\Util\Debug;
 
@@ -22,6 +23,7 @@ use Ichiloto\Engine\Util\Debug;
 class AddStateSkillEffect extends SkillEffect
 {
   protected(set) bool $guaranteed = false;
+  protected(set) SkillSecondaryTrigger $trigger = SkillSecondaryTrigger::ALWAYS;
   /**
    * @param string $stateId The state to inflict.
    * @param int $chancePercent The base infliction chance.
@@ -30,12 +32,14 @@ class AddStateSkillEffect extends SkillEffect
     protected(set) string $stateId,
     protected(set) int $chancePercent = 100,
     bool $guaranteed = false,
+    SkillSecondaryTrigger $trigger = SkillSecondaryTrigger::ALWAYS,
   )
   {
     if ($guaranteed && $chancePercent !== 100) {
       throw new \InvalidArgumentException('A guaranteed state effect must use chancePercent 100.');
     }
     $this->guaranteed = $guaranteed;
+    $this->trigger = $trigger;
     parent::__construct('0');
   }
 
@@ -58,6 +62,7 @@ class AddStateSkillEffect extends SkillEffect
           'state',
           $state->id,
           ! $target->isKnockedOut
+            && $this->trigger->permits($context, $target)
             && $target->addState($state, $this->chancePercent, $context->random,
               $target === $context->user || $context->reactions?->turnOwner === $target, $this->guaranteed),
         );

@@ -1,5 +1,13 @@
 <?php
 
+use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
+use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
+use Ichiloto\Engine\Entities\Skills\SkillEffectExecutor;
+use Ichiloto\Engine\Entities\Skills\SkillInvocation;
+use Ichiloto\Engine\Entities\Skills\SkillSecondaryTrigger;
+use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Entities\States\HasStates;
 use Ichiloto\Engine\Entities\States\State;
 use Ichiloto\Engine\Entities\States\StateRegistry;
@@ -129,6 +137,43 @@ it('applies a guaranteed state effect to immune survivors while leaving knocked-
     $target->stats->currentHp = 0;
     new \Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect('stun', guaranteed: true)->apply($context);
     expect($target->hasState('stun'))->toBeFalse();
+  } finally { $registry->setValue(null, $before); }
+});
+
+it('applies a hit-linked state only to the surviving recipients whose damage landed', function () {
+  $state = stunState();
+  $independent = poisonState();
+  $registry = new ReflectionProperty(StateRegistry::class, 'states');
+  $before = $registry->getValue();
+  $registry->setValue(null, [getcwd() . '/assets/Data/states.php' => [
+    $state->id => $state, $independent->id => $independent,
+  ]]);
+  try {
+    $actor = new Character('Actor', 1, new Stats(currentHp: 100, totalHp: 100));
+    $hit = new Character('Target', 1, new Stats(currentHp: 100, totalHp: 100));
+    $miss = new Character('Target', 1, new Stats(currentHp: 100, totalHp: 100, evasion: 95));
+    $fallen = new Character('Target', 1, new Stats(currentHp: 1, totalHp: 1));
+    $skill = new SpecialSkill('Follow-up', '', '', 0, 0, invocation: new SkillInvocation(accuracy: 85, repeat: 2),
+      effects: [
+        new HPDamageSkillEffect('20', variance: 0),
+        new AddStateSkillEffect($state->id, guaranteed: true, trigger: SkillSecondaryTrigger::LANDED_HIT),
+        new AddStateSkillEffect($independent->id, guaranteed: true),
+      ]);
+    $executor = new SkillEffectExecutor(random: new class implements CombatRandomSource {
+      public function nextInt(int $minimum, int $maximum): int
+      {
+        return max($minimum, min(50, $maximum));
+      }
+    });
+    $result = $executor->execute($skill, $actor, [$hit, $miss, $fallen], 'follow-up', 'follow-up:1');
+    expect(array_column($result->hits(), 'hit'))->toBe([true, true, false, false, true])
+      ->and($hit->hasState($state->id))->toBeTrue()
+      ->and($miss->hasState($state->id))->toBeFalse()
+      ->and($miss->hasState($independent->id))->toBeTrue()
+      ->and($fallen->isKnockedOut)->toBeTrue()
+      ->and($fallen->hasState($state->id))->toBeFalse()
+      ->and($result->targets[0]->secondaryOutcomes[0]['applied'])->toBeTrue()
+      ->and($result->targets[1]->secondaryOutcomes[0]['applied'])->toBeFalse();
   } finally { $registry->setValue(null, $before); }
 });
 
