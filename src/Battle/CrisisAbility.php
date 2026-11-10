@@ -133,10 +133,17 @@ final readonly class CrisisAbility
     ];
   }
 
+  /** @return list<Skill> Distinct authored techniques for inspection without evaluating activation or world conditions. */
+  public function getVariantSkills(SkillCatalog $catalog): array
+  {
+    $references = array_unique(array_column($this->variants, 'skill'));
+    return array_values(array_map(fn(string $reference): Skill => $this->resolveSkill($reference, $catalog), $references));
+  }
+
   /** Used by authoring validation before any battle state changes. */
   public function validateSkills(SkillCatalog $catalog): void
   {
-    foreach ($this->variants as $variant) { $this->resolveSkill($variant['skill'], $catalog); }
+    $this->getVariantSkills($catalog);
   }
 
   /** @return array<string, mixed> */
