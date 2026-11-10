@@ -462,11 +462,8 @@ final class FieldEffectManager
     $cueMark = $cue !== null || $waymark !== null || $npcCue;
     // A renderer that draws the bob is told it once; any other is sent this frame's whole-pixel rise.
     $lift = $cueMark && !$this->bobsDeclared ? $this->catalog->cueStyle->getBobLift($this->clock, $reducedMotion) : 0;
-    // An NPC occupies its cell, so its cue floats above it.
-    if ($npcCue) { $position = new Vector2($position->x, $position->y - 1); }
+    if ($npcCue && $viewport !== null && !$viewport->containsWorldCell($position, $origin)) { return []; }
     if ($waymark !== null) {
-      // A character occupies its cell, so its waymark floats above it.
-      if ($object !== null) { $position = new Vector2($position->x, $position->y - 1); }
       $edge = $viewport === null ? null
         : FieldCueEdgePlacement::locatePixels($position, $origin, $viewport, $this->catalog->waymarks->inset);
       if ($edge !== null) {
@@ -475,6 +472,10 @@ final class FieldEffectManager
       }
       if ($this->isCuePresented($waymark->anchor->eventMarker)
         || ($waymark->anchor->objectId !== null && $this->isNpcCuePresented($waymark->anchor->objectId))) { return []; }
+    }
+    // The subject's cell determines visibility. Raise its marker only when there is room above it.
+    if (($npcCue || ($waymark !== null && $object !== null)) && ($viewport === null || $position->y - 1 >= $origin['y'])) {
+      $position = new Vector2($position->x, $position->y - 1);
     }
     $marks = $session->getSprites($position, $reducedMotion, $object?->getGraphicalSpriteMotion(), $this->isGuidance($id));
     if ($cueMark) {

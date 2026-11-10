@@ -8,7 +8,7 @@ use Ichiloto\Engine\Animations\Field\FieldScreenSprite;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
-use Ichiloto\Engine\Field\Waymarks\{FieldWaymark, FieldWaymarkAnchor, FieldWaymarkRole};
+use Ichiloto\Engine\Field\Waymarks\{FieldWaymark, FieldWaymarkAnchor, FieldWaymarkRole, FieldWaymarkTerminalPresenter};
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteFade;
@@ -258,6 +258,43 @@ it('draws an NPC cue above the NPC on its plate, follows it, and stands in for i
       $manager->getSprites([$npc], $this->view, ['x' => 0, 'y' => 0], false)), static fn(string $id) => str_contains($id, 'waymark')))
     ->not->toBe([]);
 });
+
+it('uses the live NPC position to switch between a waymark and its edge pointer', function (bool $cued) {
+  writeCueStyleProject($this->root, plate: 'Graphics/plate.png');
+  $manager = new FieldEffectManager($this->root);
+  $manager->setCapabilities(true, true);
+  $manager->installMap('map', [], null, []);
+  $origin = ['x' => 10, 'y' => 30];
+  $x = $origin['x'] + intdiv($this->view->columns, 2);
+  $top = new Vector2($x, $origin['y']);
+  $npc = makeCuedNpc($cued ? ['symbol' => '!', 'color' => 'bright-yellow'] : null, $top);
+  $manager->showNpcCues([$npc]);
+  $waymark = new FieldWaymark('w', FieldWaymarkRole::TARGET,
+    new FieldWaymarkAnchor($top, $npc->getGraphicalSpriteId()), 'Find Halen');
+  $manager->showWaymarks([$waymark]);
+
+  $topSprites = $manager->getSprites([$npc], $this->view, $origin, false);
+  expect($topSprites)->toHaveCount(2);
+  foreach ($topSprites as $sprite) {
+    expect($sprite)->not->toBeInstanceOf(FieldEdgeSprite::class)
+      ->and($sprite->getGraphicalSpriteWorldPosition())->toEqual($top);
+  }
+
+  $terminals = FieldWaymarkTerminalPresenter::place([$waymark], $manager->waymarkStyle,
+    static fn(Vector2 $cell): Vector2 => new Vector2($cell->x - $origin['x'], $cell->y - $origin['y']),
+    $this->view->columns, $this->view->rows, cuedMarkers: $cued
+      ? [FieldWaymarkTerminalPresenter::OBJECT_KEY . $npc->getGraphicalSpriteId() => true]
+      : []);
+  expect($terminals)->toBe([['x' => $x - $origin['x'], 'y' => 0, 'text' => $manager->waymarkStyle->styleSymbol()]]);
+
+  $bottom = new Vector2($x, $origin['y'] + $this->view->rows);
+  $npc->restoreFieldTransform($bottom, $npc->heading, '@');
+  $bottomSprites = $manager->getSprites([$npc], $this->view, $origin, false);
+  expect($bottomSprites)->toHaveCount(3);
+  $pointers = array_values(array_filter($bottomSprites, static fn($sprite) => $sprite instanceof FieldEdgeSprite));
+  expect($pointers)->toHaveCount(1)
+    ->and($pointers[0]->getGraphicalSpriteDefinition()->quarterTurns)->toBe(1);
+})->with(['waymark alone' => false, 'with an NPC cue' => true]);
 
 it('lets an NPC showing its own cue stand in for its Terminal waymark', function () {
   $waymark = new FieldWaymark('w', FieldWaymarkRole::TARGET, new FieldWaymarkAnchor(new Vector2(4, 3), 'npc:halen'), 'Find Halen');

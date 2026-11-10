@@ -56,10 +56,11 @@ final class FieldWaymarkTerminalPresenter
       $x = (int)$screen->x;
       $y = (int)$screen->y;
       if ($x >= 0 && $x < $width && $y >= 0 && $y < $height) {
-        if (($waymark->anchor->eventMarker !== null && isset($cuedMarkers[$waymark->anchor->eventMarker]))
-          || ($waymark->anchor->objectId !== null && isset($cuedMarkers[self::OBJECT_KEY . $waymark->anchor->objectId]))) { continue; }
-        // A character occupies its cell, so its waymark floats above it.
-        if ($waymark->anchor->objectId !== null && $y > 0) { $y--; }
+        if ($waymark->anchor->eventMarker !== null && isset($cuedMarkers[$waymark->anchor->eventMarker])) { continue; }
+        if ($waymark->anchor->objectId !== null && $y > 0) {
+          if (isset($cuedMarkers[self::OBJECT_KEY . $waymark->anchor->objectId])) { continue; }
+          $y--;
+        }
         $text = $style->styleSymbol($cueStyle);
       } else {
         $edge = self::locateEdge($x, $y, $width, $height, $style->inset);

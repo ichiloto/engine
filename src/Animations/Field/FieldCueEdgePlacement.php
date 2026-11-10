@@ -40,11 +40,9 @@ final class FieldCueEdgePlacement
    */
   public static function locatePixels(Vector2 $cell, array $origin, FieldViewport $view, int $inset = 0): ?array
   {
-    $x = $cell->x - $origin['x'];
-    $y = $cell->y - $origin['y'];
-    if ($x >= 0 && $x < $view->columns && $y >= 0 && $y < $view->rows) { return null; }
-    $dx = $x - ($view->columns - 1) / 2;
-    $dy = $y - ($view->rows - 1) / 2;
+    if ($view->containsWorldCell($cell, $origin)) { return null; }
+    $dx = $cell->x - $origin['x'] - ($view->columns - 1) / 2;
+    $dy = $cell->y - $origin['y'] - ($view->rows - 1) / 2;
     $index = ((int)round(atan2($dy, $dx) / (M_PI / 4)) + 8) % 8;
     $halfWidth = max(0, ($view->columns - 1) / 2 - $inset);
     $halfHeight = max(0, ($view->rows - 1) / 2 - $inset);

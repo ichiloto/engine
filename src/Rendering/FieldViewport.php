@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Rendering;
 
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSprite;
@@ -41,6 +42,14 @@ final readonly class FieldViewport
     // split evenly around the field.
     $this->columns = max(1, (int)floor($grid->columns * $grid->cellWidth / (self::TILE_SIZE * $zoom)));
     $this->rows = max(1, (int)floor($grid->rows * $grid->cellHeight / (self::TILE_SIZE * $zoom)));
+  }
+
+  /** @param array{x: int, y: int} $origin The viewport's top-left world cell. */
+  public function containsWorldCell(Vector2 $cell, array $origin): bool
+  {
+    $x = $cell->x - $origin['x'];
+    $y = $cell->y - $origin['y'];
+    return $x >= 0 && $x < $this->columns && $y >= 0 && $y < $this->rows;
   }
 
   /**
