@@ -4,6 +4,8 @@ use Ichiloto\Engine\Entities\Actors\ActorDefinition;
 use Ichiloto\Engine\Animations\ActionAnimationResolver;
 use Ichiloto\Engine\Entities\Enumerations\WeaponType;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
+use Ichiloto\Engine\Entities\Skills\BasicSkill;
+use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
 use Ichiloto\Engine\Util\Stores\ActorStore;
@@ -45,6 +47,19 @@ it('applies starting levels only to new actors and keeps authored recruitment un
   expect($authored->currentExp)->toBe($definition->data()['currentExp']);
   expect(fn() => $definition->createCharacter(startingLevel: 0))->toThrow(InvalidArgumentException::class)
     ->and(fn() => $definition->createCharacter($authored->toArray(), startingLevel: 4))->toThrow(InvalidArgumentException::class);
+});
+
+it('hydrates the same inherent attack reference against independent project snapshots', function () {
+  $first = new BasicSkill('Fixture Strike', '', '', 0, 0, animationId: 1);
+  $edited = new BasicSkill('Fixture Strike', '', '', 0, 0, animationId: 2);
+  $data = [...foundationActorDefinition()->data(), 'attackSkill' => $first->name];
+  $before = ActorDefinition::fromArray($data, skills: SkillCatalog::fromSkills(['fixture.php' => $first]));
+  $after = ActorDefinition::fromArray($data, skills: SkillCatalog::fromSkills(['fixture.php' => $edited]));
+
+  $original = $before->createCharacter();
+  expect($original->attackSkill)->toBe($first)
+    ->and($after->createCharacter($original->toArray())->attackSkill)->toBe($edited)
+    ->and($before->createCharacter()->attackSkill)->toBe($first);
 });
 
 it('hydrates every authored attack style without changing stats or equipment', function (WeaponType $type) {

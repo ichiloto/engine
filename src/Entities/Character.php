@@ -401,9 +401,10 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
    * Creates a character instance from an array.
    *
    * @param array $data The character data.
+   * @param SkillCatalog|null $skills The owning project snapshot when hydrating authored data.
    * @return Character The character instance.
    */
-  public static function fromArray(array $data): self
+  public static function fromArray(array $data, ?SkillCatalog $skills = null): self
   {
     // The class name lives inside the actor's `data` block. A `role` entry
     // may instead hold a hydrated CharacterRole (older saves), so only a
@@ -441,7 +442,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
         ? strval($data['actorId'])
         : (isset($data['id']) ? strval($data['id']) : strval($data['name'] ?? '')),
       ($data['attackStyle'] ?? null) === null ? null : WeaponType::require($data['attackStyle']),
-      self::resolveAttackSkill($data['attackSkill'] ?? null),
+      self::resolveAttackSkill($data['attackSkill'] ?? null, $skills),
       CounterAttackRule::fromArray($data['counterAttack'] ?? null),
       ($crisisReference = CrisisAbilityCatalog::requireReference($data['crisisAbility'] ?? null)) === null
         ? null : CrisisAbilityCatalog::fromProject()->getAbility($crisisReference),
@@ -1497,11 +1498,11 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
     }
   }
 
-  private static function resolveAttackSkill(mixed $reference): ?BasicSkill
+  private static function resolveAttackSkill(mixed $reference, ?SkillCatalog $skills): ?BasicSkill
   {
     return $reference === null
       ? null
-      : InherentAttack::resolveSkill($reference, SkillCatalog::getProjectCatalog(), 'actor');
+      : InherentAttack::resolveSkill($reference, $skills ?? SkillCatalog::getProjectCatalog(), 'actor');
   }
 
   /**

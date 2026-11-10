@@ -6,6 +6,7 @@ use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Battle\CounterAttackRule;
 use Ichiloto\Engine\Battle\CrisisAbilityCatalog;
 use Ichiloto\Engine\Entities\Enumerations\WeaponType;
+use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Entities\Stats\StatKey;
 use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
 use Ichiloto\Engine\Progression\ExperienceAwarder;
@@ -40,6 +41,7 @@ final class ActorDefinition
     array $fixedNaturalAdjustments = [],
     array $naturalVariants = [],
     public string $source = 'project actor definition',
+    private readonly ?SkillCatalog $skills = null,
   )
   {
     $id = trim($id);
@@ -97,7 +99,7 @@ final class ActorDefinition
   }
 
   /** @param array<string, mixed> $actorFile */
-  public static function fromArray(array $actorFile, string $source = 'project actor definition'): self
+  public static function fromArray(array $actorFile, string $source = 'project actor definition', ?SkillCatalog $skills = null): self
   {
     $data = is_array($actorFile['data'] ?? null) ? $actorFile['data'] : $actorFile;
     $id = $data['id'] ?? null;
@@ -112,6 +114,7 @@ final class ActorDefinition
       is_array($data['actorNaturalAdjustments'] ?? null) ? $data['actorNaturalAdjustments'] : [],
       is_array($data['naturalVariants'] ?? null) ? $data['naturalVariants'] : [],
       $source,
+      $skills,
     );
   }
 
@@ -132,7 +135,7 @@ final class ActorDefinition
     $data['actorNaturalAdjustments'] = $this->naturalAdjustmentsFor($variantId);
     $data['naturalVariantId'] = $variantId;
 
-    $character = Character::fromArray($data);
+    $character = Character::fromArray($data, $this->skills);
     if ($startingLevel !== null) {
       $level = min($startingLevel, $character->maxLevel);
       $experience = $character->getLevelExperienceThresholds()[$level]
