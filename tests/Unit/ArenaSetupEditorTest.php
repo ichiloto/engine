@@ -19,7 +19,7 @@ function arenaSetupEditor(array $members = [['hero', 5]], int $troops = 3): Aren
   );
 }
 
-it('moves from the troop list down into the party and back up, and fights or leaves from the list', function () {
+it('keeps the troops and the party as separate panes that only Tab and Shift+Tab switch between', function () {
   $editor = arenaSetupEditor();
 
   $editor->moveVertical(1);
@@ -27,16 +27,31 @@ it('moves from the troop list down into the party and back up, and fights or lea
   expect($editor->troopIndex)->toBe(2)->and($editor->focus)->toBe(ArenaSetupEditor::TROOPS)
     ->and($editor->confirm())->toBe(ArenaSetupEditor::FIGHT);
 
+  // Arrows stay inside their pane: past the last troop or above the first member nothing changes pane.
   $editor->moveVertical(1);
+  expect($editor->focus)->toBe(ArenaSetupEditor::TROOPS)->and($editor->troopIndex)->toBe(2);
+  $editor->movePane(1);
   expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)->and($editor->memberIndex)->toBe(0);
   $editor->moveVertical(-1);
+  expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)->and($editor->memberIndex)->toBe(0);
+  $editor->movePane(-1);
   expect($editor->focus)->toBe(ArenaSetupEditor::TROOPS)->and($editor->troopIndex)->toBe(2)
     ->and($editor->cancel())->toBe(ArenaSetupEditor::QUIT);
 });
 
+it('turns the troop list a page at a time without leaving it', function () {
+  $editor = arenaSetupEditor(troops: 29);
+  $editor->movePage(1, 16);
+  expect($editor->troopIndex)->toBe(16)->and($editor->focus)->toBe(ArenaSetupEditor::TROOPS);
+  $editor->movePage(1, 16);
+  expect($editor->troopIndex)->toBe(28)->and($editor->focus)->toBe(ArenaSetupEditor::TROOPS);
+  $editor->movePage(-1, 16);
+  expect($editor->troopIndex)->toBe(12);
+});
+
 it('changes a member\'s actor and level within the actor\'s limits', function () {
   $editor = arenaSetupEditor();
-  $editor->moveVertical(5);
+  $editor->movePane(1);
   $editor->confirm();
 
   expect($editor->focus)->toBe(ArenaSetupEditor::MEMBER)->and($editor->fields)->toBe(['actor', 'level', 'slot:Weapon', 'slot:Body']);
@@ -59,7 +74,7 @@ it('changes a member\'s actor and level within the actor\'s limits', function ()
 
 it('chooses equipment from what the slot can hold, starting on what is worn', function () {
   $editor = arenaSetupEditor();
-  $editor->moveVertical(3);
+  $editor->movePane(1);
   $editor->confirm();
   $editor->moveVertical(2);
   $editor->confirm();
@@ -79,7 +94,7 @@ it('chooses equipment from what the slot can hold, starting on what is worn', fu
 
 it('adds a member in an empty place and removes one, keeping the last', function () {
   $editor = arenaSetupEditor();
-  $editor->moveVertical(3);
+  $editor->movePane(1);
   $editor->moveVertical(2);
   expect($editor->member)->toBeNull();
   $editor->confirm();
@@ -91,7 +106,6 @@ it('adds a member in an empty place and removes one, keeping the last', function
   $editor->confirm();
   expect($editor->setup->members)->toHaveCount(1)->and($editor->focus)->toBe(ArenaSetupEditor::PARTY);
   $editor->moveVertical(-5);
-  $editor->moveVertical(3);
   $editor->confirm();
   expect($editor->fields)->not->toContain('remove');
 });
@@ -105,7 +119,7 @@ it('toggles command and resource selections through constrained pickers without 
       'magic' => [['id' => null, 'name' => 'Clear'], ['id' => 'Test Flame', 'name' => 'Test Flame']],
       'summons' => [['id' => null, 'name' => 'Clear'], ['id' => 'test-call', 'name' => 'Test Call']],
     });
-  $editor->moveVertical(1);
+  $editor->movePane(1);
   $editor->confirm();
   expect($editor->fields)->toBe(['actor', 'level', 'commands', 'skills', 'magic', 'summons']);
   $editor->moveVertical(2);
@@ -150,7 +164,7 @@ it('chooses the arena with left and right on the troop list, the default first, 
   expect($offered->setup->arena)->toBe('arena.lake');
 
   // Editing the party keeps the arena chosen.
-  $offered->moveVertical(5);
+  $offered->movePane(1);
   $offered->confirm();
   $offered->moveVertical(1);
   $offered->moveHorizontal(1);
@@ -162,7 +176,7 @@ it('chooses the arena with left and right on the troop list, the default first, 
   expect($plain->offersArenas)->toBeFalse()->and($plain->setup->arena)->toBeNull();
 });
 
-it('switches to Party from a scrolled troop row through the shared page actions', function () {
+it('switches to Party from a scrolled troop row with Tab and back with Shift+Tab', function () {
   $editor = arenaSetupEditor(troops: 26);
   $editor->selectTroop(17);
   $scene = new class extends \Ichiloto\Engine\Scenes\Arena\ArenaScene {
@@ -184,18 +198,18 @@ it('switches to Party from a scrolled troop row through the shared page actions'
     $priorKey->setValue(null, null);
     $list = $scene->describeList();
     expect($list->selected)->toBe(17)
-      ->and($list->hints)->toContain(['menu_page_next', 'Party']);
+      ->and($list->hints)->toContain(['character_next', 'Party']);
 
-    $key->setValue(null, \Ichiloto\Engine\IO\Enumerations\KeyCode::PAGE_DOWN);
+    $key->setValue(null, \Ichiloto\Engine\IO\Enumerations\KeyCode::TAB);
     $scene->update();
     $list = $scene->describeList();
     expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)
       ->and($editor->memberIndex)->toBe(0)
       ->and($list->selected)->toBeNull()
       ->and($list->anchor)->toBe(17)
-      ->and($list->hints)->toContain(['menu_page_previous', 'Troops']);
+      ->and($list->hints)->toContain(['character_previous', 'Troops']);
 
-    $key->setValue(null, \Ichiloto\Engine\IO\Enumerations\KeyCode::PAGE_UP);
+    $key->setValue(null, \Ichiloto\Engine\IO\Enumerations\KeyCode::SHIFT_TAB);
     $scene->update();
     expect($editor->focus)->toBe(ArenaSetupEditor::TROOPS)
       ->and($scene->describeList()->selected)->toBe(17);
@@ -206,29 +220,29 @@ it('switches to Party from a scrolled troop row through the shared page actions'
   }
 });
 
-it('keeps the composed troop and its row when paging to Party and back', function () {
+it('keeps the composed troop and its row when switching to Party and back', function () {
   $composer = new \Ichiloto\Engine\Scenes\Arena\TestTroopComposer(['Rat'], static fn() => [3, 4]);
   $editor = new ArenaSetupEditor(new BattleTestSetup([new BattleTestMember('hero', 5)]), 26, ['hero'],
     static fn() => [], static fn() => [], static fn() => 99, composer: $composer);
   $editor->selectTroop(26);
   $editor->confirm();
   $editor->confirm();
-  $editor->movePage(1);
+  $editor->movePane(1);
   expect($editor->focus)->toBe(ArenaSetupEditor::COMPOSER)
     ->and($composer->focus)->toBe($composer::ENEMIES);
   $editor->confirm();
   $editor->moveVertical(1);
   $row = $composer->rowIndex;
   $troop = $composer->troop;
-  $editor->movePage(1);
+  $editor->movePane(1);
   expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)
     ->and($editor->listFocus)->toBe(ArenaSetupEditor::COMPOSER);
   $editor->confirm();
-  $editor->movePage(1);
+  $editor->movePage(1, 16);
   expect($editor->member->level)->toBe(15)
     ->and($editor->focus)->toBe(ArenaSetupEditor::MEMBER);
   $editor->cancel();
-  $editor->movePage(-1);
+  $editor->movePane(-1);
   expect($editor->focus)->toBe(ArenaSetupEditor::COMPOSER)
     ->and($composer->rowIndex)->toBe($row)
     ->and($composer->troop)->toBe($troop);
@@ -236,8 +250,8 @@ it('keeps the composed troop and its row when paging to Party and back', functio
 
 it('offers starting conditions and the party\'s items only where they can be set, through the same small key set', function () {
   $plain = arenaSetupEditor();
-  $plain->movePage(1);
-  $plain->movePage(1);
+  $plain->movePane(1);
+  $plain->movePane(1);
   expect($plain->focus)->toBe(ArenaSetupEditor::PARTY)->and($plain->offersCondition)->toBeFalse();
 
   $stock = [new \Ichiloto\Engine\Scenes\Arena\BattleTestItem('item.potion', 99)];
@@ -255,7 +269,7 @@ it('offers starting conditions and the party\'s items only where they can be set
 
   // The setup's own items, an empty list here, are what the items editor starts from.
   expect($editor->inventoryEditor->items)->toBe([])->and($editor->inventoryEditor->rows)->toBe(['add', 'default']);
-  $editor->movePage(1);
+  $editor->movePane(1);
   $editor->confirm();
   expect($editor->fields)->toBe(['actor', 'level', 'hp', 'mp', 'states', 'slot:Weapon']);
   $editor->moveVertical(3);
@@ -264,11 +278,11 @@ it('offers starting conditions and the party\'s items only where they can be set
   $editor->confirm();
   expect($editor->member->mp)->toEqual(new \Ichiloto\Engine\Scenes\Arena\BattleTestVital(40, \Ichiloto\Engine\Scenes\Arena\BattleTestVitalUnit::POINTS));
   $editor->moveHorizontal(1);
-  $editor->movePage(-1);
+  $editor->movePage(-1, 16);
   $editor->moveHorizontal(-1);
   expect($editor->member->mp?->amount)->toBe(29);
   $editor->cancel();
-  $editor->movePage(1);
+  $editor->movePane(1);
   expect($editor->focus)->toBe(ArenaSetupEditor::ITEMS);
   $editor->confirm();
   $editor->confirm();
@@ -276,4 +290,9 @@ it('offers starting conditions and the party\'s items only where they can be set
   $editor->confirm();
   expect($editor->setup->inventory)->toEqual([new \Ichiloto\Engine\Scenes\Arena\BattleTestItem('item.potion', 2)])
     ->and($editor->cancel())->toBeNull()->and($editor->focus)->toBe(ArenaSetupEditor::PARTY);
+});
+
+it('plays no music on the setup menu, leaving the battle theme to the battle it opens', function () {
+  $scene = new ReflectionClass(\Ichiloto\Engine\Scenes\Arena\ArenaScene::class)->newInstanceWithoutConstructor();
+  expect($scene->getBackgroundMusic())->toBeNull();
 });

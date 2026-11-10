@@ -66,6 +66,9 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
   /** Wide enough for a member's whole help line: changing, stepping by ten, choosing and leaving its HP. */
   protected const int PANEL_WIDTH = 72;
   protected const int LIST_HEIGHT = 18;
+  /** The panes switch on the menus' shared next and previous actions (Tab and Shift+Tab), as the Journal's tabs do. */
+  public const string PANE_NEXT_ACTION = 'character_next';
+  public const string PANE_PREVIOUS_ACTION = 'character_previous';
   protected const int INFO_HEIGHT = BattleTestSetup::MAX_MEMBERS + 2;
   /** The setup option a caller may start the arena with, a {@see BattleTestSetup}. */
   public const string SETUP_OPTION = 'arena_setup';
@@ -115,11 +118,12 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
   private ?array $stage = null;
 
   /**
-   * @inheritDoc
+   * The setup menu is not a battle, so it plays no music; the battle theme
+   * starts with the battle scene it opens.
    */
   public function getBackgroundMusic(): ?string
   {
-    return $this->getConfiguredBackgroundMusic('audio.bgm.battle');
+    return null;
   }
 
   /**
@@ -202,10 +206,14 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       $editor->moveVertical($vertical > 0 ? 1 : -1);
     } elseif (abs($horizontal) > 0.1) {
       $editor->moveHorizontal($horizontal > 0 ? 1 : -1);
+    } elseif (Input::isButtonDown(self::PANE_NEXT_ACTION)) {
+      $editor->movePane(1);
+    } elseif (Input::isButtonDown(self::PANE_PREVIOUS_ACTION)) {
+      $editor->movePane(-1);
     } elseif (Input::isButtonDown(MenuPager::NEXT_ACTION)) {
-      $editor->movePage(1);
+      $editor->movePage(1, self::LIST_HEIGHT - 2);
     } elseif (Input::isButtonDown(MenuPager::PREVIOUS_ACTION)) {
-      $editor->movePage(-1);
+      $editor->movePage(-1, self::LIST_HEIGHT - 2);
     } elseif (Input::isButtonDown('confirm') || Input::isButtonDown('action')) {
       $request = $editor->confirm();
     } elseif (Input::isButtonDown('cancel')
@@ -545,9 +553,9 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
         selected: $focus === ArenaSetupEditor::TROOPS ? ($editor?->troopIndex ?? 0) : null,
         hints: $focus === ArenaSetupEditor::PARTY ? $this->describePartyHints('Troops')
           : [['confirm', ($editor?->onComposeRow ?? false) ? 'Compose' : 'Fight'], ...(($editor?->offersArenas ?? false) ? [['left', 'Arena', 'right']] : []),
-            [MenuPager::NEXT_ACTION, 'Party'], ['cancel', 'Quit']],
+            [self::PANE_NEXT_ACTION, 'Party'], ['cancel', 'Quit']],
         namesArena: true, anchor: $editor?->troopIndex,
-        requiredHintActions: [MenuPager::NEXT_ACTION, MenuPager::PREVIOUS_ACTION], requiresEveryHint: $focus === ArenaSetupEditor::PARTY),
+        requiredHintActions: [self::PANE_NEXT_ACTION, self::PANE_PREVIOUS_ACTION], requiresEveryHint: $focus === ArenaSetupEditor::PARTY),
     };
   }
 
@@ -575,8 +583,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
 
   private function describePartyHints(string $list): array
   {
-    return [['confirm', 'Edit'], [MenuPager::PREVIOUS_ACTION, $list],
-      ...($this->editor?->inventoryEditor === null ? [] : [[MenuPager::NEXT_ACTION, 'Items']])];
+    return [['confirm', 'Edit'], [self::PANE_PREVIOUS_ACTION, $list],
+      ...($this->editor?->inventoryEditor === null ? [] : [[self::PANE_NEXT_ACTION, 'Items']])];
   }
 
   /** The test troop composer: its rows, the enemies to add, or what can be done to a member. */
@@ -602,9 +610,9 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
         $partyFocused ? null : $composer->rowIndex,
         $partyFocused ? $this->describePartyHints('Test Troop')
           : [['confirm', 'Choose'], ...($arenas ? [['left', 'Arena', 'right']] : []),
-            [MenuPager::NEXT_ACTION, 'Party'], ['cancel', 'Back']],
+            [self::PANE_NEXT_ACTION, 'Party'], ['cancel', 'Back']],
         note: $this->keepStatus, namesArena: true, anchor: $composer->rowIndex,
-        requiredHintActions: [MenuPager::NEXT_ACTION, MenuPager::PREVIOUS_ACTION]),
+        requiredHintActions: [self::PANE_NEXT_ACTION, self::PANE_PREVIOUS_ACTION]),
     };
   }
 
@@ -938,9 +946,9 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     return new BattleTestMenuList($items->items === null ? 'Items (default stock)' : 'Items',
       $rows === [] ? [['The party holds no items.', []]] : $rows, $rows === [] ? null : $items->rowIndex,
       [...($rows === [] ? [] : [['confirm', match (true) { str_starts_with($row, 'item:') => 'Quantity', $row === 'add' => 'Add', $row === 'empty' => 'Start', default => 'Use' }]]),
-        [MenuPager::PREVIOUS_ACTION, 'Party'], ['cancel', 'Back']],
+        [self::PANE_PREVIOUS_ACTION, 'Party'], ['cancel', 'Back']],
       $rows === [] ? [] : [MenuRowColumn::fit(array_column(array_column($rows, 1), 0))],
-      requiredHintActions: [MenuPager::PREVIOUS_ACTION], requiresEveryHint: true);
+      requiredHintActions: [self::PANE_PREVIOUS_ACTION], requiresEveryHint: true);
   }
 
   protected function getActorName(string $actorId): string

@@ -320,16 +320,16 @@ it('folds the items into the staged menu: page to them from the party, choose a 
   $editor = new ReflectionProperty(ArenaScene::class, 'editor')->getValue($scene);
   $items = $editor->inventoryEditor;
 
-  $editor->movePage(1);
+  $editor->movePane(1);
   expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)
-    ->and($scene->describeList()->hints)->toContain([MenuPager::NEXT_ACTION, 'Items']);
-  $editor->movePage(1);
+    ->and($scene->describeList()->hints)->toContain([ArenaScene::PANE_NEXT_ACTION, 'Items']);
+  $editor->movePane(1);
   $list = $scene->describeList();
   expect($editor->focus)->toBe(ArenaSetupEditor::ITEMS)
     ->and($list->title)->toBe('Items (default stock)')
     ->and($list->rows)->toBe([['Start with no items', ['']], ['Potion', ['x99']], ['Ether', ['x99']]])
-    ->and($list->hints)->toContain(['confirm', 'Start'], [MenuPager::PREVIOUS_ACTION, 'Party'], ['cancel', 'Back'])
-    ->and($list->requiredHintActions)->toBe([MenuPager::PREVIOUS_ACTION]);
+    ->and($list->hints)->toContain(['confirm', 'Start'], [ArenaScene::PANE_PREVIOUS_ACTION, 'Party'], ['cancel', 'Back'])
+    ->and($list->requiredHintActions)->toBe([ArenaScene::PANE_PREVIOUS_ACTION]);
 
   // Ether: down to its row, confirm, down one, left ten.
   $editor->moveVertical(2);
@@ -339,8 +339,8 @@ it('folds the items into the staged menu: page to them from the party, choose a 
   expect($items->focus)->toBe(BattleTestInventoryFocus::QUANTITY)
     ->and($scene->describeList()->rows)->toBe([['Quantity', ['x88']]])
     ->and($scene->describeList()->hints)->toContain(['up', 'Quantity', 'down'], ['left', 'By 10', 'right'], ['confirm', 'Set']);
-  // A page step chooses nothing while a quantity is open.
-  $editor->movePage(-1);
+  // Shift+Tab chooses nothing while a quantity is open.
+  $editor->movePane(-1);
   expect($editor->focus)->toBe(ArenaSetupEditor::ITEMS);
   $editor->confirm();
   expect($editor->setup->inventory)->toEqual([new BattleTestItem('item.potion', 99), new BattleTestItem('item.ether', 88)]);
@@ -375,13 +375,13 @@ it('folds the items into the staged menu: page to them from the party, choose a 
   $editor->moveHorizontal(1);
   expect($editor->setup->inventory)->toEqual([new BattleTestItem('item.ether', 88), new BattleTestItem('item.potion', 2)]);
   $editor->cancel();
-  $editor->movePage(1);
+  $editor->movePane(1);
   $editor->moveVertical(10);
   expect($scene->describeList()->hints)->toContain(['confirm', 'Use']);
   $editor->confirm();
   expect($editor->setup->inventory)->toBeNull()->and($scene->describeList()->title)->toBe('Items (default stock)');
-  $editor->movePage(-1);
-  $editor->movePage(-1);
+  $editor->movePane(-1);
+  $editor->movePane(-1);
   expect($editor->focus)->toBe(ArenaSetupEditor::TROOPS);
 });
 
@@ -390,7 +390,7 @@ it('sets a member\'s starting HP, MP and states in the member editor, near the t
   $parties = [];
   $scene = battleConditionScene($this, $setup, $parties);
   $editor = new ReflectionProperty(ArenaScene::class, 'editor')->getValue($scene);
-  $editor->movePage(1);
+  $editor->movePane(1);
   $editor->confirm();
   expect(array_slice($editor->fields, 0, 5))->toBe(['actor', 'level', 'hp', 'mp', 'states'])
     ->and($scene->describeList()->note)->toBe('Surge needs HP below 10% or Presence.');
@@ -398,14 +398,14 @@ it('sets a member\'s starting HP, MP and states in the member editor, near the t
   // HP: left steps by one percent, a page step by ten; on other rows a page step still changes the level.
   $editor->moveVertical(2);
   $editor->moveHorizontal(-1);
-  $editor->movePage(-1);
+  $editor->movePage(-1, 16);
   expect($editor->member->hp)->toEqual(new BattleTestVital(89))
     ->and($editor->member->level)->toBe(1)
     ->and($scene->describeList()->rows[2])->toBe(['HP', ['< 89% >']])
     ->and($scene->describeList()->hints)->toContain(['left', 'Change', 'right'],
       [MenuPager::PREVIOUS_ACTION, 'HP by 10', MenuPager::NEXT_ACTION], ['confirm', 'Choose'], ['cancel', 'Done']);
   $editor->moveVertical(-1);
-  $editor->movePage(1);
+  $editor->movePage(1, 16);
   expect($editor->member->level)->toBe(11)
     ->and($scene->describeList()->hints)->toContain([MenuPager::PREVIOUS_ACTION, 'Lv by 10', MenuPager::NEXT_ACTION]);
 
@@ -429,11 +429,11 @@ it('sets a member\'s starting HP, MP and states in the member editor, near the t
   $editor->confirm();
   $editor->moveVertical(10);
   $editor->confirm();
-  $editor->movePage(1);
+  $editor->movePage(1, 16);
   $editor->moveHorizontal(1);
   expect($editor->member->hp?->unit)->toBe(BattleTestVitalUnit::POINTS);
   $maximum = $this->choices->getVitalMaximum($editor->setup, 0, 'hp');
-  foreach (range(1, intdiv($maximum, 10) + 1) as $step) { $editor->movePage(1); }
+  foreach (range(1, intdiv($maximum, 10) + 1) as $step) { $editor->movePage(1, 16); }
   expect($editor->member->hp?->amount)->toBe($maximum);
 
   // States toggle, none clears them, and Presence alone readies Surge at full HP.
@@ -470,7 +470,7 @@ it('shows the same setup through the Terminal and the graphical theme, the note 
   $parties = [];
   $scene = battleConditionScene($this, $setup, $parties);
   $editor = new ReflectionProperty(ArenaScene::class, 'editor')->getValue($scene);
-  $editor->movePage(1);
+  $editor->movePane(1);
   $editor->confirm();
   $list = $scene->describeList();
   $terminal = implode("\n", $list->getTerminalRows(53));
@@ -493,8 +493,8 @@ it('starts a custom stock empty in one action and adds only the selected quantit
   $parties = [];
   $scene = battleConditionScene($this, $setup, $parties);
   $editor = new ReflectionProperty(ArenaScene::class, 'editor')->getValue($scene);
-  $editor->movePage(1);
-  $editor->movePage(1);
+  $editor->movePane(1);
+  $editor->movePane(1);
 
   $editor->confirm();
   expect($editor->setup->inventory)->toBe([])
@@ -552,7 +552,7 @@ it('sets the form in the member editor and the note reads the chosen form\'s rea
   $parties = [];
   $scene = battleConditionScene($this, $setup, $parties);
   $editor = new ReflectionProperty(ArenaScene::class, 'editor')->getValue($scene);
-  $editor->movePage(1);
+  $editor->movePane(1);
   $editor->confirm();
 
   expect(array_slice($editor->fields, 0, 6))->toBe(['actor', 'level', 'hp', 'mp', 'states', 'form'])

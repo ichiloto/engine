@@ -177,14 +177,11 @@ final class ArenaSetupEditor
   public function moveVertical(int $step): void
   {
     match ($this->focus) {
-      self::TROOPS => $this->troopIndex + $step >= $this->troopRows && $step > 0
-        ? $this->enterParty()
-        : $this->troopIndex = max(0, min($this->troopRows - 1, $this->troopIndex + $step)),
+      // Each pane keeps its own cursor; only Tab and Shift+Tab move between them.
+      self::TROOPS => $this->troopIndex = max(0, min(max(0, $this->troopRows - 1), $this->troopIndex + $step)),
       self::COMPOSER => $this->composer?->moveVertical($step),
       self::ITEMS => $this->inventoryEditor?->moveVertical($step),
-      self::PARTY => $this->memberIndex + $step < 0
-        ? $this->focus = $this->partyReturnFocus
-        : $this->memberIndex = min(BattleTestSetup::MAX_MEMBERS - 1, $this->memberIndex + $step),
+      self::PARTY => $this->memberIndex = max(0, min(BattleTestSetup::MAX_MEMBERS - 1, $this->memberIndex + $step)),
       self::MEMBER => $this->fieldIndex = max(0, min(count($this->fields) - 1, $this->fieldIndex + $step)),
       self::CHOOSER => $this->choiceIndex = max(0, min(count($this->getChoices()) - 1, $this->choiceIndex + $step)),
     };
@@ -219,15 +216,12 @@ final class ArenaSetupEditor
   }
 
   /**
-   * Page actions switch the top-level panes (troops, party, items) and, inside
-   * a member, step its HP or MP by ten on their rows and its level by ten
-   * elsewhere.
+   * Tab and Shift+Tab (the menus' shared next and previous actions) switch
+   * the top-level panes: troops, party and items.
    */
-  public function movePage(int $direction): void
+  public function movePane(int $direction): void
   {
-    if ($this->focus === self::MEMBER) {
-      in_array($this->field, self::VITAL_FIELDS, true) ? $this->stepVital($this->field, 10 * $direction) : $this->stepLevel(10 * $direction);
-    } elseif ($direction > 0 && ($this->focus === self::TROOPS
+    if ($direction > 0 && ($this->focus === self::TROOPS
       || ($this->focus === self::COMPOSER && $this->composer?->focus === TestTroopComposer::MEMBERS))) {
       $this->enterParty();
     } elseif ($direction > 0 && $this->focus === self::PARTY && $this->inventoryEditor !== null) {
@@ -236,6 +230,20 @@ final class ArenaSetupEditor
       $this->focus = self::PARTY;
     } elseif ($direction < 0 && $this->focus === self::PARTY) {
       $this->focus = $this->partyReturnFocus;
+    }
+  }
+
+  /**
+   * Page actions turn the troop list a page of rows at a time and, inside a
+   * member, step its HP or MP by ten on their rows and its level by ten
+   * elsewhere.
+   */
+  public function movePage(int $direction, int $pageRows): void
+  {
+    if ($this->focus === self::MEMBER) {
+      in_array($this->field, self::VITAL_FIELDS, true) ? $this->stepVital($this->field, 10 * $direction) : $this->stepLevel(10 * $direction);
+    } elseif ($this->focus === self::TROOPS && $this->troopRows > 0) {
+      $this->troopIndex = max(0, min($this->troopRows - 1, $this->troopIndex + $direction * max(1, $pageRows)));
     }
   }
 

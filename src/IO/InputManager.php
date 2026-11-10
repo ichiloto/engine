@@ -181,6 +181,8 @@ class InputManager
       'info' => ['Read the next Info page; wrap to the first.', [KeyCode::i, KeyCode::I]],
       'menu_page_previous' => ['Show the previous menu page.', [KeyCode::PAGE_UP]],
       'menu_page_next' => ['Show the next menu page.', [KeyCode::PAGE_DOWN]],
+      'character_next' => ['Cycle to the next character, tab or pane.', [KeyCode::TAB]],
+      'character_previous' => ['Cycle to the previous character, tab or pane.', [KeyCode::SHIFT_TAB]],
       'map_view' => ['Switch between the local and world map.', [KeyCode::v, KeyCode::V]],
       'map_size' => ['Change the corner atlas size.', [KeyCode::F3]],
       'map_zoom' => ['Switch between the two map zoom levels.', [KeyCode::z, KeyCode::Z]],

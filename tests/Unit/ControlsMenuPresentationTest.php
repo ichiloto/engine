@@ -280,7 +280,7 @@ it('scrolls the full owner list in terminal and native without losing the active
   $rows = $this->owner->getPresentationContent()->rows;
   $total = count($rows);
   expect(controlsPresentationText($frame))->toContain('Command 49', '/ ' . $total);
-  $remainingActions = ['info', 'menu_page_previous', 'menu_page_next', 'map_view', 'map_size',
+  $remainingActions = ['info', 'menu_page_previous', 'menu_page_next', 'character_next', 'character_previous', 'map_view', 'map_size',
     'map_zoom', 'map_recenter', 'dialogue_auto', 'secondary_action', 'quick_save'];
   foreach ($remainingActions as $offset => $action) {
     controlsPresentationKey($this->owner, KeyCode::DOWN);

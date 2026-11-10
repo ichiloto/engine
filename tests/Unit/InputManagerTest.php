@@ -210,6 +210,19 @@ it('preserves an explicit Info entry including deliberate unbinding', function (
   'empty entry' => [[]],
 ]);
 
+it('defaults pane navigation to Tab and Shift Tab while preserving authored keys', function () {
+  $defaults = InputManager::getBindingsWithDefaults([]);
+  expect($defaults['character_next']['keys'])->toBe([KeyCode::TAB])
+    ->and($defaults['character_previous']['keys'])->toBe([KeyCode::SHIFT_TAB])
+    ->and($defaults['menu_page_next']['keys'])->toBe([KeyCode::PAGE_DOWN])
+    ->and($defaults['menu_page_previous']['keys'])->toBe([KeyCode::PAGE_UP]);
+  $authored = ['character_next' => ['keys' => [KeyCode::F2]], 'custom' => ['keys' => [KeyCode::SHIFT_TAB]]];
+  $resolved = InputManager::getBindingsWithDefaults($authored);
+  expect($resolved['character_next'])->toBe($authored['character_next'])
+    ->and($resolved['character_previous']['keys'])->toBe([])
+    ->and($resolved['custom'])->toBe($authored['custom']);
+});
+
 it('does not reapply defaults after an explicit live rebind or unbind', function () {
   InputManager::setBindings([]);
   expect(InputManager::setBinding('info', [KeyCode::F2]))->toBeTrue();

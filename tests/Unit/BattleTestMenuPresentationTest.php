@@ -115,8 +115,8 @@ it('keeps every list row on one line, cutting a name that cannot fit with an ell
 
 it('shows required pane navigation when the theme hides optional input hints', function () {
   $list = new BattleTestMenuList('Troop', [['Rats', []]], 0,
-    [['confirm', 'Fight'], ['menu_page_next', 'Go to Party']],
-    requiredHintActions: ['menu_page_next']);
+    [['confirm', 'Fight'], ['character_next', 'Go to Party']],
+    requiredHintActions: ['character_next']);
   $input = new ReflectionProperty(\Ichiloto\Engine\IO\InputManager::class, 'config');
   $original = $input->getValue();
   try {
