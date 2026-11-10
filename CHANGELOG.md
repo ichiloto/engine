@@ -4,6 +4,13 @@
 
 ### Removed
 
+- Removed acceptance of `add_state` effects with `trigger: landedHit` that can never apply.
+  `SkillRecord::readSkill` refuses one placed before any effect that lands damage on the
+  target, or on a skill with none. Effect types declare that they record damaging hits
+  (`SkillEffect::RECORDS_DAMAGING_HITS`; `hp_damage` and `hp_drain` today), and
+  `SkillRecord::getDamagingEffectTypes()` lists them for Editors. An `hp_damage` authored with
+  `resolutionKind: healing` records no damaging hit.
+
 - Removed the mandatory return-pose loop. An authored one-shot hop fits its
   entries across the return phase, preserving facing and handing off on landing.
   Advance remains looping. Full run-to-target geometry is a separate open request.

@@ -93,7 +93,27 @@ final class SkillRecord
    */
   public static function getEffectTypes(): array
   {
-    return [...array_keys(self::FORMULA_EFFECTS), ...array_keys(self::STATE_EFFECTS), ...array_keys(self::INSIGHT_EFFECTS)];
+    return array_keys(self::getEffectClasses());
+  }
+
+  /**
+   * The effect types that record a damaging hit when they land, as each type
+   * declares it ({@see SkillEffect::RECORDS_DAMAGING_HITS}), in the order
+   * editors offer them. A `landedHit` state effect needs one of these earlier
+   * in the same skill.
+   *
+   * @return list<string>
+   */
+  public static function getDamagingEffectTypes(): array
+  {
+    return array_keys(array_filter(self::getEffectClasses(),
+      static fn(string $class): bool => $class::RECORDS_DAMAGING_HITS));
+  }
+
+  /** @return array<string, class-string<SkillEffect>> Every effect class a record may name, by type. */
+  private static function getEffectClasses(): array
+  {
+    return [...self::FORMULA_EFFECTS, ...self::STATE_EFFECTS, ...self::INSIGHT_EFFECTS];
   }
 
   /**
@@ -133,6 +153,7 @@ final class SkillRecord
       'animationScale' => EffectScale::readValue($data['animationScale'] ?? null),
       'battleTargeting' => \Ichiloto\Engine\Battle\Formation\BattleTargeting::fromArray($data['battleTargeting'] ?? null),
     ];
+    self::assertLandedHitPlacement($arguments['effects']);
     $counterAttack = CounterAttackRule::fromArray($data['counterAttack'] ?? null);
     if ($arguments['occasion'] !== Occasion::BATTLE_SCREEN
       && array_any($arguments['effects'], static fn($effect): bool => $effect instanceof AddStateSkillEffect && $effect->delayTurns > 0)) {
@@ -277,6 +298,25 @@ final class SkillRecord
     }
 
     return $data;
+  }
+
+  /**
+   * Refuses a `landedHit` state effect that could never apply: one with no
+   * earlier effect in the skill that records a damaging hit on its target.
+   *
+   * @param list<SkillEffect> $effects
+   */
+  private static function assertLandedHitPlacement(array $effects): void
+  {
+    $damageRecorded = false;
+    foreach ($effects as $index => $effect) {
+      if ($effect instanceof AddStateSkillEffect && $effect->trigger === SkillSecondaryTrigger::LANDED_HIT && !$damageRecorded) {
+        throw new InvalidArgumentException(sprintf(
+          'effects.%d.trigger landedHit applies only after an earlier effect in this skill lands damage on the target (%s); place it after one.',
+          $index, implode(', ', self::getDamagingEffectTypes())));
+      }
+      $damageRecorded = $damageRecorded || $effect->recordsDamagingHits;
+    }
   }
 
   /**

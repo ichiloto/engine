@@ -9,6 +9,8 @@ use Ichiloto\Engine\Entities\Skills\SkillEffectContext;
 
 class HPDrainSkillEffect extends SkillEffect
 {
+  public const bool RECORDS_DAMAGING_HITS = true;
+
   public function repeatsWithInvocation(): bool
   {
     return true;
