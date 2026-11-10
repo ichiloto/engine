@@ -83,6 +83,7 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
    * @var bool $isShowing Whether the modal is showing.
    */
   protected bool $isShowing = false;
+  private ?UIManager $presentationOwner = null;
   /**
    * @var ItemList<ObserverInterface> $observers The observers.
    */
@@ -293,7 +294,8 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
       return;
     }
     $this->isShowing = true;
-    $this->getUIManager()?->present($this);
+    $this->presentationOwner = $this->getUIManager();
+    $this->presentationOwner?->present($this);
     $this->render();
     $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::SHOW, true));
   }
@@ -308,7 +310,8 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
         $this->erase();
       }
       $this->isShowing = false;
-      $this->getUIManager()?->dismiss($this);
+      $this->presentationOwner?->dismiss($this);
+      $this->presentationOwner = null;
       if (! $this->game->hasStopped()) {
         $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::HIDE, true));
       }

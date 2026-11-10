@@ -2,6 +2,8 @@
 
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Audio\AudioPlayback;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\GameObject;
@@ -27,6 +29,7 @@ use Ichiloto\Engine\IO\InputSources\HeldInputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\RendererClient;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
@@ -36,6 +39,9 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneExcursionResultInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
+use Ichiloto\Engine\Scenes\Performance\PerformancePhrase;
+use Ichiloto\Engine\Scenes\Performance\PerformanceSceneConfiguration;
+use Ichiloto\Engine\Scenes\Performance\PerformanceSequenceScene;
 use Ichiloto\Engine\Scenes\SceneExcursionOutcome;
 use Ichiloto\Engine\Scenes\SceneExcursionSession;
 use Ichiloto\Engine\Scenes\SceneExcursionStatus;
@@ -45,6 +51,8 @@ use Ichiloto\Engine\Scenes\Game\States\GameSceneState;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\UI\Modal\Modal;
 use Ichiloto\Engine\UI\Modal\ModalManager;
+use Ichiloto\Engine\UI\Presentation\MenuModalPresentation;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
@@ -56,6 +64,8 @@ require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 final class ExcursionTestGame extends Game
 {
   public array $tracks = [];
+  public array $cues = [];
+  public int $stoppedCues = 0;
   public function __construct()
   {
     $this->name = 'Synthetic excursion';
@@ -73,6 +83,15 @@ final class ExcursionTestGame extends Game
       public function __construct(private ExcursionTestGame $owner) {}
       public function playBackgroundMusic(string $track, bool $loop = true): void { $this->owner->tracks[] = $track; }
       public function stopBackgroundMusic(): void { $this->owner->tracks[] = null; }
+      public function playSystemSound(SystemSound $sound): void {}
+      public function startSoundEffect(string $path, float $volume = 1.0): ?AudioPlayback
+      {
+        $this->owner->cues[] = $path;
+        return new class($this->owner) extends AudioPlayback {
+          public function __construct(private ExcursionTestGame $owner) {}
+          public function stop(): void { ++$this->owner->stoppedCues; }
+        };
+      }
     };
   }
   public function __destruct() {}
@@ -245,6 +264,82 @@ it('retains the exact caller and shared UI then returns a structured Game result
   expect($this->manager->abandonSceneExcursion($session))->toBeFalse();
   expect($this->manager->getSceneExcursionSession($this->target))->toBeNull();
 })->with([false, true]);
+
+it('plays an untimed performance through shared choice input, returns to its caller and allows a new attempt', function () {
+  InputManager::setBindings([
+    'confirm' => ['keys' => [KeyCode::ENTER]], 'cancel' => ['keys' => [KeyCode::ESCAPE]],
+    'down' => ['keys' => [KeyCode::DOWN]], 'up' => ['keys' => [KeyCode::UP]],
+  ]);
+  $scene = new PerformanceSequenceScene($this->manager, 'Performance');
+  $this->manager->addScenes($scene);
+  $config = new PerformanceSceneConfiguration('Rehearsal', [
+    new PerformancePhrase('First phrase', ['Other line', 'Matching line'], 1),
+    new PerformancePhrase('Final phrase', ['Final line', 'Other line'], 0),
+  ], 'rehearsal-accompaniment');
+  $config = unserialize(serialize($config), ['allowed_classes' => [PerformanceSceneConfiguration::class]]);
+  $press = function (?KeyCode $key): void {
+    $this->input->key = $key;
+    InputManager::handleInput();
+    $this->manager->update();
+  };
+  $presentation = fn() => $scene->getUI()->getActivePresentations()[0]->getModalPresentation();
+
+  $session = $this->manager->beginSceneExcursion($this->caller, PerformanceSequenceScene::class, $config);
+  $press(null);
+  expect($presentation()->message)->toBe('First phrase')
+    ->and($this->game->cues)->toBe(['rehearsal-accompaniment']);
+  $theme = new MenuPresentationCatalog(createTestDirectory('performance-theme'), ['schema' => 'ichiloto.menu/1']);
+  $base = new PresentationCanvas(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT);
+  $canvas = MenuModalPresentation::compose($base, $presentation(), $theme);
+  $text = implode(' ', array_merge(...array_map(static fn($layer): array => array_column($layer->runs, 'text'), $canvas->textLayers)));
+  expect($text)->toContain('First phrase')->toContain('Matching line');
+  $press(KeyCode::ENTER);
+  expect($presentation()->message)->toBe('First phrase')->and($session->outcome)->toBeNull();
+  $press(KeyCode::DOWN);
+  expect($presentation()->activeIndex)->toBe(1);
+  $press(KeyCode::ENTER);
+  expect($presentation()->message)->toBe('Final phrase');
+  $press(KeyCode::ESCAPE);
+  expect($session->outcome->status)->toBe(SceneExcursionStatus::CANCELLED)
+    ->and($session->outcome->result->completedPhrases)->toBe(1)
+    ->and($this->manager->currentScene)->toBe($this->caller)
+    ->and($this->game->stoppedCues)->toBe(1)
+    ->and($scene->getUI()->getActivePresentations())->toBe([]);
+
+  $retry = $this->manager->beginSceneExcursion($this->caller, PerformanceSequenceScene::class, $config);
+  $press(null);
+  expect($presentation()->message)->toBe('First phrase');
+  $press(KeyCode::DOWN);
+  $press(KeyCode::ENTER);
+  $press(null);
+  $press(KeyCode::ENTER);
+  expect($retry->outcome->status)->toBe(SceneExcursionStatus::COMPLETED)
+    ->and($retry->outcome->result->completedPhrases)->toBe(2)
+    ->and($retry->outcome->result->totalPhrases)->toBe(2)
+    ->and($this->manager->currentScene)->toBe($this->caller)
+    ->and($this->caller->resumeHadInput)->toBeFalse()
+    ->and($this->game->cues)->toBe(['rehearsal-accompaniment', 'rehearsal-accompaniment'])
+    ->and($this->game->stoppedCues)->toBe(2)
+    ->and($this->game->tracks)->toBe(['caller-track', null, 'caller-track', null, 'caller-track'])
+    ->and($scene->getUI()->getActivePresentations())->toBe([]);
+});
+
+it('releases an open performance choice and its accompaniment when the excursion is abandoned', function () {
+  $scene = new PerformanceSequenceScene($this->manager, 'Performance');
+  $this->manager->addScenes($scene);
+  $config = new PerformanceSceneConfiguration('Rehearsal', [new PerformancePhrase('Phrase', ['Line'], 0)], 'cue');
+  $session = $this->manager->beginSceneExcursion($this->caller, PerformanceSequenceScene::class, $config);
+  $this->manager->update();
+  $ui = $scene->getUI();
+  $modal = $ui->getActivePresentations()[0];
+  expect($modal->isShowing())->toBeTrue();
+  expect($this->manager->abandonSceneExcursion($session))->toBeTrue();
+  $ui->commitPresentationChanges();
+  expect($session->outcome->status)->toBe(SceneExcursionStatus::ABANDONED)
+    ->and($modal->isShowing())->toBeFalse()
+    ->and(new ReflectionProperty(UIManager::class, 'presentations')->getValue($ui))->not->toHaveKey(spl_object_id($modal))
+    ->and($this->game->stoppedCues)->toBe(1);
+});
 
 it('rejects nested repeated wrong-caller and forged handles before any ownership change', function () {
   $session = $this->manager->beginSceneExcursion($this->caller, 1, getExcursionTestConfig());
