@@ -444,7 +444,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
       ($data['attackStyle'] ?? null) === null ? null : WeaponType::require($data['attackStyle']),
       self::resolveAttackSkill($data['attackSkill'] ?? null, $skills),
       CounterAttackRule::fromArray($data['counterAttack'] ?? null),
-      ($crisisReference = CrisisAbilityCatalog::requireReference($data['crisisAbility'] ?? null)) === null
+      ($crisisReference = CrisisAbilityCatalog::getActorReference($data)) === null
         ? null : CrisisAbilityCatalog::fromProject()->getAbility($crisisReference),
     );
 
@@ -1363,7 +1363,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
     $roleName = null;
 
     foreach ($data as $key => $value) {
-      if (in_array($key, ['states', 'battleCommandLoadout', 'attackStyle', 'attackSkill', 'counterAttack', 'crisisAbility'], true)) {
+      if (in_array($key, ['states', 'battleCommandLoadout', 'attackStyle', 'attackSkill', 'counterAttack', 'crisisAbility', 'superMove'], true)) {
         continue;
       }
 

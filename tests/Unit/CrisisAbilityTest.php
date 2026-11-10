@@ -181,6 +181,35 @@ it('uses current actor source rules when restoring old mutable state', function 
   });
 });
 
+it('reads the canonical Super Move from current actor data without saving its reference', function () {
+  withCrisisTestProject(function () {
+    file_put_contents(getcwd() . '/assets/Data/super-moves.php', '<?php return ' . var_export([
+      ['id' => 'test-surge', ...crisisTestData(['name' => 'Current surge'])],
+    ], true) . ';');
+
+    $actor = crisisTestActor();
+    $definition = ActorDefinition::fromArray(['id' => 'synthetic-actor', 'name' => 'Test actor',
+      'currentExp' => 1, 'stats' => $actor->stats->jsonSerialize(), 'superMove' => 'test-surge']);
+    $restored = $definition->createCharacter([...$actor->toArray(), 'superMove' => 'obsolete']);
+    expect($restored->crisisAbility?->name)->toBe('Current surge')
+      ->and($restored->stats->currentMp)->toBe(7)
+      ->and($restored->toArray())->not->toHaveKey('superMove');
+  });
+});
+
+it('rejects ambiguous Super Move project data', function () {
+  expect(fn() => ActorDefinition::fromArray(['id' => 'synthetic-actor',
+    'superMove' => 'test-surge', 'crisisAbility' => 'other']))
+    ->toThrow(InvalidArgumentException::class, 'different definitions');
+
+  withCrisisTestProject(function () {
+    file_put_contents(getcwd() . '/assets/Data/super-moves.php', '<?php return [];');
+    file_put_contents(getcwd() . '/assets/Data/crisis-abilities.php', '<?php return [];');
+    expect(fn() => \Ichiloto\Engine\Battle\CrisisAbilityCatalog::fromProject())
+      ->toThrow(InvalidArgumentException::class, 'one Super Move catalogue');
+  });
+});
+
 it('rejects malformed crisis configuration', function (array $overrides) {
   expect(fn() => CrisisAbility::fromArray(crisisTestData($overrides)))->toThrow(InvalidArgumentException::class);
 })->with([

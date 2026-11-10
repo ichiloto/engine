@@ -53,7 +53,7 @@ final class ActorDefinition
     $this->id = $id;
     InitialEquipment::fromArray($data['initialEquipment'] ?? [], $source);
     CounterAttackRule::fromArray($data['counterAttack'] ?? null);
-    CrisisAbilityCatalog::requireReference($data['crisisAbility'] ?? null);
+    CrisisAbilityCatalog::getActorReference($data);
     if (($data['attackStyle'] ?? null) !== null) {
       try {
         WeaponType::require($data['attackStyle']);

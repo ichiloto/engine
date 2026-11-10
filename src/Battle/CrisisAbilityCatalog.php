@@ -11,7 +11,9 @@ use InvalidArgumentException;
 /** Shared crisis definitions are project resources referenced by actors. Saves retain mutable actor state. */
 final class CrisisAbilityCatalog
 {
+  /** Legacy path used by older project and Editor versions. */
   public const string FILE = 'Data/crisis-abilities.php';
+  public const string SUPER_MOVE_FILE = 'Data/super-moves.php';
   /** @var array<string, CrisisAbility> */
   private array $abilities = [];
 
@@ -33,7 +35,15 @@ final class CrisisAbilityCatalog
 
   public static function fromProject(?string $assetRoot = null): self
   {
-    $filename = Path::join($assetRoot ?? Path::join(Path::getCurrentWorkingDirectory(), 'assets'), self::FILE);
+    $assetRoot ??= Path::join(Path::getCurrentWorkingDirectory(), 'assets');
+    $canonical = Path::join($assetRoot, self::SUPER_MOVE_FILE);
+    $legacy = Path::join($assetRoot, self::FILE);
+    if (is_file($canonical) && is_file($legacy)) {
+      throw new InvalidArgumentException(sprintf('Declare one Super Move catalogue per project (%s or %s).',
+        self::SUPER_MOVE_FILE, self::FILE));
+    }
+
+    $filename = is_file($canonical) ? $canonical : $legacy;
     if (!is_file($filename)) { return new self(); }
     $entries = require $filename;
     if (!is_array($entries)) { throw new InvalidArgumentException(sprintf('%s must return a list.', $filename)); }
@@ -76,11 +86,25 @@ final class CrisisAbilityCatalog
     }
   }
 
-  public static function requireReference(mixed $reference): ?string
+  /** @param array<string, mixed> $actorData */
+  public static function getActorReference(array $actorData): ?string
+  {
+    $legacy = self::requireReference($actorData['crisisAbility'] ?? null, 'crisisAbility');
+    if (!array_key_exists('superMove', $actorData)) { return $legacy; }
+
+    $canonical = self::requireReference($actorData['superMove'], 'superMove');
+    if (array_key_exists('crisisAbility', $actorData) && $legacy !== $canonical) {
+      throw new InvalidArgumentException('Actor superMove and crisisAbility reference different definitions.');
+    }
+
+    return $canonical;
+  }
+
+  public static function requireReference(mixed $reference, string $field = 'crisisAbility'): ?string
   {
     if ($reference === null) { return null; }
     if (!is_string($reference) || trim($reference) === '' || trim($reference) !== $reference) {
-      throw new InvalidArgumentException('Actor crisisAbility must reference a crisis ability id.');
+      throw new InvalidArgumentException(sprintf('Actor %s must reference a Super Move id.', $field));
     }
     return $reference;
   }
