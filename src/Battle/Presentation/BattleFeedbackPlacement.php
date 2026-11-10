@@ -29,17 +29,17 @@ final class BattleFeedbackPlacement
     $rises = array_unique([max(0, $preferredRise), (int)floor(max(0, $preferredRise) / 2), 0]);
     if ($aboveTarget) {
       $columnObstacles = [...$obstacles, ...$otherBattlers];
-      foreach ([0, $height] as $lift) {
+      // Descending top edges permit one upward sweep through intersecting obstacles per column.
+      usort($columnObstacles, static fn(CanvasRectangle $a, CanvasRectangle $b): int => $b->y <=> $a->y);
+      // Preserve normal placements and rise choices before searching the gaps.
+      foreach ([[0, false], [$height, false], [$height, true]] as [$lift, $searchColumnEdges]) {
         foreach ($rises as $rise) {
-          $envelope = self::getRecipientColumn($battler, $width, $height + $rise, $area, $columnObstacles, $lift);
+          $envelope = self::getRecipientColumn($battler, $width, $height + $rise, $area, $columnObstacles, $lift, $searchColumnEdges);
           if ($envelope !== null) {
             return ['bounds' => new CanvasRectangle($envelope->x, $envelope->y + $rise, $width, $height),
               'rise' => (float)$rise, 'envelope' => $envelope, 'overlap' => 0.0];
           }
         }
-        // Above a close badge or another overlay, try the next clear slot in the same column.
-        // Descending top edges permit one upward sweep through intersecting obstacles per column.
-        usort($columnObstacles, static fn(CanvasRectangle $a, CanvasRectangle $b): int => $b->y <=> $a->y);
       }
     }
     foreach ($rises as $rise) {
@@ -55,21 +55,38 @@ final class BattleFeedbackPlacement
 
   /** Try the recipient's column before giving up its shorter or stationary rise. */
   private static function getRecipientColumn(CanvasRectangle $battler, int $width, int $height,
-    CanvasRectangle $area, array $obstacles, int $lift): ?CanvasRectangle
+    CanvasRectangle $area, array $obstacles, int $lift, bool $searchEdges): ?CanvasRectangle
   {
     if ($width > $area->width || $height > $area->height) { return null; }
     $centerX = $battler->x + ($battler->width - $width) / 2;
     $y = min($area->y + $area->height - $height, $battler->y - $height - 4);
     if ($y < $area->y) { return null; }
     $minimum = max($area->y, $y - $lift);
+    $left = max($area->x, $battler->x - $width / 2);
+    $right = min($area->x + $area->width - $width, $battler->x + $battler->width - $width / 2);
+    if ($left > $right) { return null; }
+
+    $columns = [$centerX, $battler->x, $battler->x + $battler->width - $width];
+    if ($searchEdges) {
+      // The nearest clear gap starts at a boundary of the recipient column or an obstruction.
+      $columns = [$left, $right];
+      foreach ($obstacles as $obstacle) {
+        if ($obstacle->y < $y + $height && $obstacle->y + $obstacle->height > $minimum) {
+          $columns[] = $obstacle->x - $width;
+          $columns[] = $obstacle->x + $obstacle->width;
+        }
+      }
+      $columns = array_values(array_unique(array_map(static fn(float $x): float => max($left, min($right, $x)), $columns)));
+      usort($columns, static fn(float $a, float $b): int => abs($a - $centerX) <=> abs($b - $centerX));
+    }
+
     $nearest = null;
-    foreach ([$centerX, $battler->x, $battler->x + $battler->width - $width] as $x) {
+    foreach ($columns as $x) {
       $x = max($area->x, min($area->x + $area->width - $width, $x));
-      $center = $x + $width / 2;
-      if ($center < $battler->x || $center > $battler->x + $battler->width) { continue; }
+      if ($x < $left || $x > $right) { continue; }
       $top = $y;
       foreach ($obstacles as $other) {
-        if ($x < $other->x + $other->width && $x + $width > $other->x
+        if ($x < $other->x + $other->width && $x > $other->x - $width
           && $top < $other->y + $other->height && $top + $height > $other->y) {
           $top = $other->y - $height;
           if ($top < $minimum) { break; }

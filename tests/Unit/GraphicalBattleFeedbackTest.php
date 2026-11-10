@@ -431,3 +431,29 @@ it('keeps damage in its recipient column when a badge fills the low space', func
       ->and(graphicalFeedbackOverlap($box, $badge))->toBe(0.0);
   }
 });
+
+it('finds a clear damage slot between persistent badges and battler edges in the recipient column', function () {
+  $target = new CanvasRectangle(450, 510, 180, 80);
+  $back = new CanvasRectangle(360, 315, 195, 84);
+  $left = new CanvasRectangle(260, 410, 175, 82);
+  $attacker = new CanvasRectangle(610, 415, 300, 137);
+  $secondBadge = new CanvasRectangle(524, 468, 32, 36);
+  $badge = new CanvasRectangle(560, 462, 32, 44);
+  $participant = graphicalFeedbackParticipant(1, [
+    ['text' => 'CRITICAL', 'role' => BattleFeedbackRole::CRITICAL],
+    ['text' => '25', 'role' => BattleFeedbackRole::DAMAGE],
+  ], bounds: $target);
+  $others = array_map(static fn(int $id, CanvasRectangle $box): array =>
+    ['id' => $id, 'bounds' => $box, 'persistent' => [], 'popups' => []], [2, 3, 4], [$back, $left, $attacker]);
+  $layers = GraphicalBattleFeedback::compose(getGraphicalFeedbackLayout(), [$participant, ...$others], [], 10, [$secondBadge, $badge]);
+  expect($layers)->toHaveCount(2);
+  foreach ($layers as $layer) {
+    $box = $layer->paintBounds;
+    $center = $box->x + $box->width / 2;
+    expect($center)->toBeGreaterThanOrEqual($target->x)->toBeLessThanOrEqual($target->x + $target->width)
+      ->and($box->y + $box->height)->toBeLessThanOrEqual($target->y);
+    foreach ([$back, $left, $attacker, $secondBadge, $badge] as $obstacle) {
+      expect(graphicalFeedbackOverlap($box, $obstacle))->toBe(0.0);
+    }
+  }
+});
