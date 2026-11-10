@@ -90,7 +90,8 @@ final class BattleReactions
     $hit = $resolver->resolve(new CombatResolutionRequest($actionId, $executionId, $attacker,
       $counter->actor, 0, ResolutionKind::PHYSICAL_DAMAGE, forcedMissReason: 'decoy'));
     return new CombatActionResult($actionId, $executionId, CombatResolver::identity($attacker),
-      [new CombatTargetResult(CombatResolver::identity($counter->actor), [$hit])]);
+      [new CombatTargetResult(CombatResolver::identity($counter->actor), [$hit],
+        interceptingStateId: $counter->stance->state->id)]);
   }
 
   /** @return list<CounterAttack> */

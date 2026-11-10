@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Battle\Presentation;
 
 use Closure;
 use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\Actions\ExecutionEligibility;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
@@ -326,6 +327,16 @@ final class BattleCommandRunner
       default => BattlePoseRole::getRestingRole($target),
     };
     $this->playback->setReaction($target, $role, $startFrame);
+    if ($result?->interceptingStateId !== null) {
+      $effects = $this->context->ui->fieldWindow->getConditionEffects();
+      $frame = $startFrame ?? $this->playback->session->currentFrame;
+      $presentation = $this->context->ui->usesGraphicalField()
+        ? EffectPresentation::GRAPHICAL : EffectPresentation::TERMINAL;
+      $effect = $effects?->getInterceptionTimeline($result->interceptingStateId, $presentation);
+      if ($effect !== null && $effect->playbackSegments !== []) {
+        $this->playback->startResultEffect($target, $frame, $effect, $presentation);
+      }
+    }
     if ($target instanceof \Ichiloto\Engine\Entities\Enemies\Enemy && $hp > 0 && $target->isKnockedOut) {
       $this->playback->beginEnemyDefeat($target);
     }

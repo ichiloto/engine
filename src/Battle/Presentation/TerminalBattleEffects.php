@@ -292,8 +292,9 @@ final class TerminalBattleEffects
         $subjects = $screen || $anchor === 'caster' ? [$playback->actor] : $playback->targets;
         $seen = [];
         foreach ($subjects as $subject) {
-          if (isset($seen[spl_object_id($subject)])) { continue; }
-          $seen[spl_object_id($subject)] = true;
+          $id = spl_object_id($subject);
+          if (isset($seen[$id]) || (isset($data['hitSubject']) && $data['hitSubject'] !== $id)) { continue; }
+          $seen[$id] = true;
           $origin = $resolveOrigin($subject, $screen ? AnimationTargetPosition::SCREEN : $position);
           if ($origin === null) { continue; }
           $recipient = $anchor === 'caster'

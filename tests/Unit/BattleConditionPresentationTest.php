@@ -154,6 +154,21 @@ it('diagnoses unsafe persistent timelines without dispatching their cues or chan
   [['restFrame' => 1, 'tracks' => [['id' => 'gap', 'type' => 'glyph', 'anchor' => 'target', 'keyframes' => [['frame' => 0, 'content' => 'bad']]]]]],
 ]);
 
+it('validates the same interception source before authoring and at runtime', function () {
+  $root = createTestDirectory('interception-authoring');
+  writeConditionTimeline($root, 'contact', ['playback' => 'once']);
+  writeConditionTimeline($root, 'looping-contact');
+  $effects = new BattleConditionEffects(new EffectTimelineLibrary($root), ['interceptions' => [
+    'deflect' => 'contact', 'invalid' => 'looping-contact',
+  ]]);
+  $mode = \Ichiloto\Engine\Animations\Timelines\EffectPresentation::TERMINAL;
+  expect($effects->getInterceptionTimeline('deflect', $mode))->toEqual($effects->loadInterceptionTimeline('contact', $mode))
+    ->and($effects->getInterceptionTimeline('unknown', $mode))->toBeNull()
+    ->and(fn() => $effects->loadInterceptionTimeline('looping-contact', $mode))
+    ->toThrow(InvalidArgumentException::class, 'One-shot interception')
+    ->and($effects->getInterceptionTimeline('invalid', $mode))->toBeNull();
+});
+
 it('freezes ambient time on pause and releases its binding on discard without curing gameplay states', function () {
   $actor = new Character('Actor', 1, new Stats(currentHp: 100));
   $actor->addState(new State('condition', 'Condition', 'C'));

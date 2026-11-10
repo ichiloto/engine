@@ -44,6 +44,11 @@ class BattleFieldWindow extends Window implements \Ichiloto\Engine\Battle\Presen
     $this->conditionEffects = $effects;
   }
 
+  public function getConditionEffects(): ?\Ichiloto\Engine\Battle\Presentation\BattleConditionEffects
+  {
+    return $this->conditionEffects;
+  }
+
   public function advancePoseTime(float $seconds): void
   {
     if (!is_finite($seconds)) { throw new InvalidArgumentException('Battle pose time must be finite.'); }
