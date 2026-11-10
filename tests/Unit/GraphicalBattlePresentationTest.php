@@ -515,6 +515,48 @@ it('draws only command-owned flash-step echoes and seeks the same atlas cells ou
   expect($scene->ui->fieldWindow->getCommandPlayback())->toBeNull();
 })->with([false, true]);
 
+it('uses the same ranged action variant for the landing reach and the drawn atlas cell', function (bool $far) {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $baseline = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $ranges = array_map(static fn($enemy) => $baseline->measureActionRange($hero, [$enemy]), $enemies);
+  asort($ranges, SORT_NUMERIC);
+  [$nearIndex, $farIndex] = array_keys($ranges);
+  expect($ranges[$farIndex])->toBeGreaterThan($ranges[$nearIndex]);
+  $minDistance = ($ranges[$nearIndex] + $ranges[$farIndex]) / 2;
+  $target = $enemies[$far ? $farIndex : $nearIndex];
+  $reach = new \Ichiloto\Engine\Battle\Presentation\BattlePoseReach(.5, -.1);
+  $farReach = new \Ichiloto\Engine\Battle\Presentation\BattlePoseReach(.7, -.2);
+  $pose = new BattlerPose('graphical-canvas/synthetic-320x180.png', columns: 4, rows: 2, frames: [2],
+    fps: 24, loop: false, impactFrame: 0, reach: $reach, entryFrames: [0, 1], exitFrames: [3], guardFrame: 4,
+    farPose: new \Ichiloto\Engine\Battle\Presentation\BattlePoseRangeVariant($minDistance, [5], $farReach,
+      new \Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot(.45, .95)));
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $catalog->ui, defaultArena: $catalog->defaultArena,
+    actorPoses: ['Hero' => new BattlePoseSet([], actionPoses: [1 => $pose])]);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $travel = $presentation->planActionTravel($hero, [$target], new AttackAction('Contact'), animationId: 1,
+    movement: \Ichiloto\Engine\Animations\ActionMovement::FLASH_STEP);
+  expect($travel->isPossible)->toBeTrue()->and($travel->usesFarPose)->toBe($far);
+  $base = graphicalCombatantImage($presentation->frame(), $hero);
+  $unit = \Ichiloto\Engine\Rendering\Sprites\PngAssetBounds::getVisibleBounds($this->root, $base)['bounds']->height;
+  $offset = ($far ? $farReach : $reach)->getCanvasOffset($unit);
+  $end = $travel->getPositionAtProgress(1);
+  expect($end->x - $travel->contactX)->toEqualWithDelta($offset->x, .00001)
+    ->and($travel->contactY - $end->y)->toEqualWithDelta($offset->y, .00001);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
+    travel: $travel, actionPoseOverride: $pose, flashStep: new \Ichiloto\Engine\Animations\FlashStepTiming(24, 20, 3, 10, 3, 7, 2));
+  $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $hero, [$target],
+    BattlePoseRole::ATTACK, $catalog, $this->root);
+  $arrival = graphicalCombatantImage($preview->getFrameAtIndex(115)->canvas, $hero)->destination;
+  expect($arrival->x + $arrival->width * ($far ? .45 : .5))->toEqualWithDelta($end->x, .00001)
+    ->and($arrival->y + $arrival->height * ($far ? .95 : 1))->toEqualWithDelta($end->y, .00001);
+  $read = static fn(int $frame) => graphicalCombatantImage($preview->getFrameAtIndex($frame)->canvas, $hero)->sourceRect;
+  expect([$read(115)->x, $read(115)->y])->toBe($far ? [80, 90] : [160, 0])
+    ->and([$read(110)->x, $read(110)->y])->toBe([80, 0])
+    ->and([$read(170)->x, $read(170)->y])->toBe([240, 0])
+    ->and([$read(180)->x, $read(180)->y])->toBe([0, 90]);
+})->with([false, true]);
+
 it('holds a stationary action rest cell through a later impact under reduced motion', function () {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $asset = 'graphical-canvas/synthetic-320x180.png';

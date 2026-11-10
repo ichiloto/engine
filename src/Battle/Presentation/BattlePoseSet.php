@@ -27,8 +27,8 @@ final readonly class BattlePoseSet
         || (in_array($role, [BattlePoseRole::MOVE->value, BattlePoseRole::RETURNING->value], true) && $pose->impactFrame !== null)) {
         throw new InvalidArgumentException('Advance poses must loop; movement poses carry no action impact anchor.');
       }
-      if ($pose->guardFrame !== null) {
-        throw new InvalidArgumentException('A guard frame belongs to an action pose binding.');
+      if ($pose->guardFrame !== null || $pose->farPose !== null) {
+        throw new InvalidArgumentException('Guard frames and far variants belong to action pose bindings.');
       }
       if (($pose->entryFrames !== [] || $pose->exitFrames !== [])
         && !in_array($role, [BattlePoseRole::MOVE->value, BattlePoseRole::RETURNING->value], true)) {

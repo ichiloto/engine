@@ -28,7 +28,7 @@ final class BattleTravelPlanner
    */
   public static function plan(BattleTravelSubject $source, BattleTravelSubject $target, CanvasRectangle $arena,
     Vector2 $reach, array $blockers = [], ?Vector2 $strikePoint = null,
-    float $advanceSpeed = 600.0, float $returnSpeed = 900.0, ?int $facingSign = null): BattleTravelPlan
+    float $advanceSpeed = 600.0, float $returnSpeed = 900.0, ?int $facingSign = null, bool $usesFarPose = false): BattleTravelPlan
   {
     if (!is_finite($reach->x) || $reach->x < 0 || !is_finite($reach->y)
       || ($strikePoint !== null && (!is_finite($strikePoint->x) || !is_finite($strikePoint->y)))
@@ -72,6 +72,6 @@ final class BattleTravelPlanner
     if (BattleRectangleRoute::isOccupied($end, $obstacles)) { return $blocked(BattleTravelFailure::CONTACT_OCCUPIED); }
     $route = BattleRectangleRoute::findRoute($start, $end, $allowed, $obstacles);
     return $route === null ? $blocked(BattleTravelFailure::NO_ROUTE)
-      : new BattleTravelPlan($route, $contact[0], $contact[1], $sign, $advanceSpeed, $returnSpeed);
+      : new BattleTravelPlan($route, $contact[0], $contact[1], $sign, $advanceSpeed, $returnSpeed, usesFarPose: $usesFarPose);
   }
 }

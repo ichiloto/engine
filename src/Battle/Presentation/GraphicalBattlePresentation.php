@@ -155,7 +155,10 @@ final class GraphicalBattlePresentation
       : $this->scale->referenceHeight * $source['scale']->relativeSize * $this->getSlot($actor)->displayScale;
     $boundPose = $source['poses']?->getAnimationPose($animationId);
     $pose = $boundPose ?? $source['poses']?->getPose(BattlePoseRole::getForAction($action));
-    $reach = $pose?->reach?->getCanvasOffset($unit) ?? new Vector2(
+    $farPose = $boundPose?->farPose;
+    $usesFarPose = $farPose !== null && $this->measureActionRange($actor, $targets) >= $farPose->minDistance;
+    $poseReach = $usesFarPose ? $farPose->reach : $pose?->reach;
+    $reach = $poseReach?->getCanvasOffset($unit) ?? new Vector2(
       max(0, $sign < 0 ? $from['foot']->x - $body->x : $body->x + $body->width - $from['foot']->x), 0);
     // Movement cells fit the standing area; action-phase weapon overhang retains its existing presentation extent.
     $sequences = $movement === \Ichiloto\Engine\Animations\ActionMovement::FLASH_STEP
@@ -169,7 +172,7 @@ final class GraphicalBattlePresentation
       $this->layout->battlerArea ?? new CanvasRectangle(0, 0, $this->layout->width, $this->layout->getHudTop()),
       $reach, array_values(array_map(static fn(array $entry): CanvasRectangle => BattleFormationClearance::getFooting($entry['body']),
         array_diff_key($images, [$sourceId => true, $targetId => true]))), $strike,
-      $this->layout->advanceSpeed, $this->layout->returnSpeed, $sign);
+      $this->layout->advanceSpeed, $this->layout->returnSpeed, $sign, $usesFarPose);
   }
 
   /** @param list<array{?BattlerPose, BattlePoseSequence}> $sequences */
@@ -716,7 +719,8 @@ final class GraphicalBattlePresentation
           durationSeconds: $playback !== null && $candidateRole === $role->value
             ? $playback->getPoseDurationSeconds($battler, $role) : null,
           sequence: $playback !== null && $candidateRole === $role->value
-            ? $playback->getPoseSequence($battler, $role) : BattlePoseSequence::MAIN);
+            ? $playback->getPoseSequence($battler, $role) : BattlePoseSequence::MAIN,
+          useFarPose: $pose === $actionPose && ($playback?->plan->travel?->usesFarPose ?? false));
         if ($posed === null) { throw new RuntimeException('Pose image is unavailable.'); }
         $posedBounds = BattleFormationLayout::getPosePlacement($slot, $posed, $artworkScale,
           $this->layout, $participant['scale'], $this->scale, $pose->scaleSpan, $participant['poses']);

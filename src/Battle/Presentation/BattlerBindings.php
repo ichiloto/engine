@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use InvalidArgumentException;
 use RuntimeException;
@@ -57,7 +58,7 @@ final readonly class BattlerBindings
   private const array REFERENCE_KEYS = ['actor', 'height'];
   private const array BATTLER_KEYS = ['artwork', 'poses', 'actionPoses', 'scale', 'grounding', 'strikePoint'];
   private const array ARTWORK_KEYS = ['image', 'pivot'];
-  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan', 'bakedShadow', 'impactFrame', 'reach', 'entryFrames', 'exitFrames', 'attachmentPoints', 'guardFrame'];
+  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan', 'bakedShadow', 'impactFrame', 'reach', 'entryFrames', 'exitFrames', 'attachmentPoints', 'guardFrame', 'farPose'];
   private const array PIVOT_KEYS = ['x', 'y'];
   private const array PROFILE_KEYS = ['relativeSize', 'sourceSpan', 'horizontal'];
 
@@ -232,6 +233,19 @@ final readonly class BattlerBindings
       self::readSequenceFrames($pose, 'exitFrames', $at),
       $points,
       array_key_exists('guardFrame', $pose) ? self::readInteger($pose, 'guardFrame', 0, $at) : null,
+      array_key_exists('farPose', $pose) ? self::readFarPose($pose['farPose'], "{$at}.farPose") : null,
+    );
+  }
+
+  private static function readFarPose(mixed $data, string $at): BattlePoseRangeVariant
+  {
+    $pose = self::requireMap($data, $at);
+    self::assertKeys($pose, ['minDistance', 'frames', 'reach', 'pivot'], $at);
+    return new BattlePoseRangeVariant(
+      self::requireNumber($pose['minDistance'] ?? null, "{$at}.minDistance"),
+      self::readSequenceFrames($pose, 'frames', $at),
+      BattlePoseReach::fromArray($pose['reach'] ?? null, "{$at}.reach"),
+      array_key_exists('pivot', $pose) ? PresentationSpritePivot::fromArray($pose['pivot']) : null,
     );
   }
 

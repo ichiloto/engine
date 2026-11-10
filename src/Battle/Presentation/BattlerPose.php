@@ -47,6 +47,7 @@ final readonly class BattlerPose
     public array $exitFrames = [],
     array $attachmentPoints = [],
     public ?int $guardFrame = null,
+    public ?BattlePoseRangeVariant $farPose = null,
   ) {
     SpriteValidation::validateAssetPath($asset);
     if ($impactFrame !== null && ($loop || $impactFrame < 0 || $impactFrame >= count($frames))) {
@@ -59,6 +60,10 @@ final readonly class BattlerPose
       || $restFrame < 0 || $restFrame >= $columns * $rows || !is_finite($pivotX) || !is_finite($pivotY)
       || min($pivotX, $pivotY) < 0 || max($pivotX, $pivotY) > 1) {
       throw new InvalidArgumentException('Battle poses require a bounded sheet, valid source frames, fps 1..120 and normalized pivots.');
+    }
+    if ($farPose !== null && ($impactFrame === null || $impactFrame >= count($farPose->frames)
+      || array_any($farPose->frames, static fn(int $frame): bool => $frame >= $columns * $rows))) {
+      throw new InvalidArgumentException('Ranged action poses require a valid impact entry and cells on their action atlas.');
     }
     if ($guardFrame !== null && ($guardFrame < 0 || $guardFrame >= $columns * $rows)) {
       throw new InvalidArgumentException('Battle pose guardFrame requires a valid source cell number.');
@@ -110,10 +115,10 @@ final readonly class BattlerPose
   }
 
   /** @return list<int> Source cells on this sequence's independent clock. */
-  public function getSequenceFrames(BattlePoseSequence $sequence): array
+  public function getSequenceFrames(BattlePoseSequence $sequence, bool $useFarPose = false): array
   {
     return match ($sequence) {
-      BattlePoseSequence::MAIN => $this->frames,
+      BattlePoseSequence::MAIN => $useFarPose ? ($this->farPose?->frames ?? $this->frames) : $this->frames,
       BattlePoseSequence::ENTRY => $this->entryFrames,
       BattlePoseSequence::EXIT => $this->exitFrames,
       BattlePoseSequence::GUARD => $this->guardFrame === null ? [] : [$this->guardFrame],
@@ -127,14 +132,14 @@ final readonly class BattlerPose
   }
 
   /** Includes the strike entry and its last authored hold. */
-  public function getRecoverySeconds(): float
+  public function getRecoverySeconds(bool $useFarPose = false): float
   {
-    return $this->impactFrame === null ? 0.0 : (count($this->frames) - $this->impactFrame) / $this->fps;
+    return $this->impactFrame === null ? 0.0 : (count($this->getSequenceFrames(BattlePoseSequence::MAIN, $useFarPose)) - $this->impactFrame) / $this->fps;
   }
 
   public function getArtwork(string $assetRoot, float $elapsedSeconds, bool $reducedMotion = false,
     ?float $impactAtSeconds = null, ?float $durationSeconds = null,
-    BattlePoseSequence $sequence = BattlePoseSequence::MAIN): ?BattlerArtwork
+    BattlePoseSequence $sequence = BattlePoseSequence::MAIN, bool $useFarPose = false): ?BattlerArtwork
   {
     if (!is_finite($elapsedSeconds) || $elapsedSeconds < 0) {
       throw new InvalidArgumentException('Battle pose elapsed time must be finite and non-negative.');
@@ -145,7 +150,7 @@ final readonly class BattlerPose
     if ($durationSeconds !== null && (!is_finite($durationSeconds) || $durationSeconds <= 0)) {
       throw new InvalidArgumentException('An explicit pose duration must be finite and positive.');
     }
-    $frames = $this->getSequenceFrames($sequence);
+    $frames = $this->getSequenceFrames($sequence, $useFarPose);
     if ($frames === []) { return null; }
     $main = $sequence === BattlePoseSequence::MAIN;
     $size = PngAssetPreflight::getAvailableSize($assetRoot, $this->asset);
@@ -177,6 +182,8 @@ final readonly class BattlerPose
     $height = intdiv($size['height'], $this->rows);
     $crop = $this->columns * $this->rows === 1 ? null : new SpriteSourceRect(
       ($source % $this->columns) * $width, intdiv($source, $this->columns) * $height, $width, $height);
-    return new BattlerArtwork($this->asset, $width, $height, $this->pivotX * $width, $this->pivotY * $height, $crop);
+    $pivot = $main && !$reducedMotion && $useFarPose ? $this->farPose?->pivot : null;
+    return new BattlerArtwork($this->asset, $width, $height,
+      ($pivot?->x ?? $this->pivotX) * $width, ($pivot?->y ?? $this->pivotY) * $height, $crop);
   }
 }
