@@ -1023,8 +1023,6 @@ class MapManager implements CanRenderAt
     $bottomViewportPadding = $this->camera->screen->getHeight() - $verticalFocus - 1;
     $canScrollHorizontally = ! $this->screenIsWiderThanMap($this->camera->screen);
     $canScrollVertically = ! $this->screenIsTallerThanMap($this->camera->screen);
-    $maxX = max(0, $this->mapWidth - $this->camera->screen->getWidth());
-    $maxY = max(0, $this->mapHeight - $this->camera->screen->getHeight());
 
     if (! $canScrollHorizontally && ! $canScrollVertically) {
       return false;
@@ -1037,11 +1035,7 @@ class MapManager implements CanRenderAt
         }
         $playerDistanceFromLeftScreenEdge = $player->position->x - $this->camera->screen->getLeft();
         if ($playerDistanceFromLeftScreenEdge < $horizontalFocus) {
-          if (($player->position->x - $horizontalFocus) > 0) {
-            $newX = max(0, $this->camera->position->x - 1);
-            $this->camera->screen->setX(clamp($newX, 0, $maxX));
-            $didScroll = true;
-          }
+          $didScroll = $this->scrollCameraTo($this->camera->position->x - 1, $this->camera->position->y);
         }
         break;
 
@@ -1051,11 +1045,7 @@ class MapManager implements CanRenderAt
         }
         $playerDistanceFromRightScreenEdge = ($this->camera->screen->getRight() - 1) - $player->position->x;
         if ($playerDistanceFromRightScreenEdge < $rightViewportPadding) {
-          if (($player->position->x + $rightViewportPadding) < $this->mapWidth - 1) {
-            $newX = min($maxX, $this->camera->position->x + 1);
-            $this->camera->screen->setX(clamp($newX, 0, $maxX));
-            $didScroll = true;
-          }
+          $didScroll = $this->scrollCameraTo($this->camera->position->x + 1, $this->camera->position->y);
         }
         break;
 
@@ -1065,9 +1055,7 @@ class MapManager implements CanRenderAt
         }
         $playerDistanceFromTopScreenEdge = $player->position->y - $this->camera->screen->getTop();
         if ($playerDistanceFromTopScreenEdge < $verticalFocus) {
-          $newY = max(0, $this->camera->position->y - 1);
-          $this->camera->screen->setY(clamp($newY, 0, $maxY));
-          $didScroll = true;
+          $didScroll = $this->scrollCameraTo($this->camera->position->x, $this->camera->position->y - 1);
         }
         break;
 
@@ -1077,16 +1065,29 @@ class MapManager implements CanRenderAt
         }
         $playerDistanceFromBottomScreenEdge = ($this->camera->screen->getBottom() - 1) - $player->position->y;
         if ($playerDistanceFromBottomScreenEdge < $bottomViewportPadding) {
-          if (($player->position->y + $bottomViewportPadding) < $this->mapHeight - 1) {
-            $newY = min($maxY, $this->camera->position->y + 1);
-            $this->camera->screen->setY(clamp($newY, 0, $maxY));
-            $didScroll = true;
-          }
+          $didScroll = $this->scrollCameraTo($this->camera->position->x, $this->camera->position->y + 1);
         }
         break;
     }
 
     return $didScroll;
+  }
+
+  /**
+   * Moves the camera one step toward the player, as far as the map's edge allows. The map's edge rows and columns
+   * are part of the view like any other, so the clamp alone bounds the step.
+   *
+   * @return bool True if the camera moved.
+   */
+  private function scrollCameraTo(int $x, int $y): bool
+  {
+    $position = $this->camera->clampPosition(new Vector2($x, $y));
+    if ($position->x === $this->camera->position->x && $position->y === $this->camera->position->y) {
+      return false;
+    }
+    $this->camera->screen->setX($position->x);
+    $this->camera->screen->setY($position->y);
+    return true;
   }
 
   /**
