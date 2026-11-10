@@ -1130,7 +1130,9 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $this->tutorialDirector = null;
         if ($tutorials->definitions !== []) {
             (new TutorialProjectReferences($assetRoot))->validateCatalog($tutorials);
-            $this->tutorialDirector = new TutorialDirector($tutorials, $this->gameState);
+            $this->tutorialDirector = new TutorialDirector(
+                $tutorials, $this->gameState, $this->getGame()->getTutorialStartConditions(),
+            );
         }
         $this->tutorialCinematics = $this->tutorialDirector === null ? null : new CinematicLibrary($assetRoot . '/Cutscenes/Cinematics');
         $this->tutorialFollowOnDefinitions = [];

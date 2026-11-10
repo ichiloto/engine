@@ -11,6 +11,7 @@ use Ichiloto\Engine\Income\IncomeCatalog;
 use Ichiloto\Engine\Localization\WordForms;
 use Assegai\Collections\ItemList;
 use Assegai\Util\Path;
+use Closure;
 use Error;
 use Exception;
 use Ichiloto\Engine\Audio\AudioManager;
@@ -36,6 +37,7 @@ use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
 use Ichiloto\Engine\Entities\Elements\ElementRegistry;
+use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationPolicyRegistry;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Field\FieldActionRegistry;
@@ -90,6 +92,24 @@ class Game implements CanRun, SubjectInterface
 {
     private ?ProjectStateRegistry $projectStateRegistry = null;
     private ?SavedGameResumeRegistry $savedGameResumeRegistry = null;
+
+    /** @var array<string, Closure(Party, GameState): bool> */
+    private array $tutorialStartConditions = [];
+
+    /** @param callable(Party, GameState): bool $condition */
+    public function registerTutorialStartCondition(string $id, callable $condition): void
+    {
+        if (trim($id) === '' || isset($this->tutorialStartConditions[$id])) {
+            throw new \InvalidArgumentException('Expected a unique, non-empty tutorial id.');
+        }
+        $this->tutorialStartConditions[$id] = Closure::fromCallable($condition);
+    }
+
+    /** @return array<string, Closure(Party, GameState): bool> */
+    public function getTutorialStartConditions(): array
+    {
+        return $this->tutorialStartConditions;
+    }
 
     public function getSavedGameResumeRegistry(): SavedGameResumeRegistry
     {

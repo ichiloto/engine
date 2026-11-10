@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Progression;
 
+use Closure;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Entities\Party;
@@ -26,9 +27,11 @@ final class TutorialDirector
   /** @var array<array-key, bool> Last observed conditions during controlled play. */
   private array $automaticConditions = [];
 
+  /** @param array<string, Closure(Party, GameState): bool> $startConditions */
   public function __construct(
     private readonly TutorialCatalog $catalog,
     private readonly GameState $state,
+    private readonly array $startConditions = [],
   ) {}
 
   public function queueScriptTutorial(string $id): void
@@ -91,7 +94,7 @@ final class TutorialDirector
         if ($tutorial->startContext === $context && $tutorial->start === TutorialStartMode::AUTOMATIC
           && $this->state->getTutorialPhase($tutorial->id) === null
           && $this->canPresentFirstStep($tutorial, $canPresent)
-          && WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests)) {
+          && $this->isEligibleToStart($tutorial, $party, $quests)) {
           $this->state->setTutorialPhase($tutorial->id, TutorialPhase::PENDING);
         }
       }
@@ -124,11 +127,18 @@ final class TutorialDirector
         continue;
       }
       if ($this->canPresentFirstStep($tutorial, $canPresent)
-        && WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests)) {
+        && $this->isEligibleToStart($tutorial, $party, $quests)) {
         $this->beginTutorial($tutorial, false);
         return;
       }
     }
+  }
+
+  private function isEligibleToStart(TutorialDefinition $tutorial, ?Party $party, ?QuestLog $quests): bool
+  {
+    $condition = $this->startConditions[$tutorial->id] ?? null;
+    return WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests)
+      && ($condition === null || ($party !== null && $condition($party, $this->state)));
   }
 
   public function getActiveTutorial(): ?TutorialDefinition

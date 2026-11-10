@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandContext;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandReference;
@@ -13,7 +14,7 @@ use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Progression\TutorialPhase;
 use Ichiloto\Engine\Progression\TutorialStartContext;
 
-function makeTutorialDirector(GameState $state, bool $automatic = false, ?string $onFinish = null): TutorialDirector
+function makeTutorialDirector(GameState $state, bool $automatic = false, ?string $onFinish = null, array $startConditions = []): TutorialDirector
 {
   return new TutorialDirector(new TutorialCatalog([[
     'id' => 'guide.sample',
@@ -32,7 +33,7 @@ function makeTutorialDirector(GameState $state, bool $automatic = false, ?string
       'action' => 'confirm',
       'until' => ['type' => 'switch', 'name' => 'read'],
     ]],
-  ]]), $state);
+  ]]), $state, $startConditions);
 }
 
 beforeEach(function () {
@@ -72,6 +73,29 @@ it('defers a scripted lesson to stable field play and advances only on its view 
   $director->queueScriptTutorial('guide.sample');
   expect($director->getActiveTutorial())->toBeNull()
     ->and($restored->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::COMPLETED);
+});
+
+it('checks the current project condition before starting a restored pending lesson', function () {
+  $state = new GameState();
+  $director = makeTutorialDirector($state);
+  $director->queueScriptTutorial('guide.sample');
+  $restored = GameState::fromArray($state->toArray());
+  $party = new Party();
+  $party->setBattleSize(2);
+  $director = makeTutorialDirector($restored, startConditions: [
+    'guide.sample' => static fn(Party $currentParty, GameState $world): bool =>
+      $currentParty->battleSize === 3 && $world->getTutorialPhase('guide.sample') === TutorialPhase::PENDING,
+  ]);
+
+  $director->updateInStableField(false);
+  expect($director->getActiveTutorial())->toBeNull();
+  $director->updateInStableField(false, $party);
+  expect($director->getActiveTutorial())->toBeNull()
+    ->and($restored->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::PENDING);
+
+  $party->setBattleSize(3);
+  $director->updateInStableField(false, $party);
+  expect($director->getActiveTutorial()?->id)->toBe('guide.sample');
 });
 
 it('rewinds only the guided transition that Back reverses', function () {
