@@ -11,6 +11,7 @@ use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Animations\Timelines\EffectAnchorLifetime;
 use Ichiloto\Engine\Animations\Timelines\EffectFlightRoute;
+use Ichiloto\Engine\Animations\Timelines\EffectImpactTimingMode;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
 use InvalidArgumentException;
@@ -38,6 +39,7 @@ final readonly class BattleCommandTimeline
   public ?SummonCompiledCutscene $summon;
   /** Legacy target-stage access; source stages use the same lane-owned inspection methods below. */
   public ?CinematicStage $cinematicStage;
+  public bool $usesArenaImpact;
   /** @var array<string, CinematicStage> Each effect lane owns its own stage and authored clock. */
   private array $cinematicStages;
   /** @var array<string, list<array>> Unshifted authored segments for each stage. */
@@ -79,6 +81,10 @@ final readonly class BattleCommandTimeline
       throw new InvalidArgumentException('Flash step requires a resolved route, action transit cells and a planted first frame.');
     }
     $actionPose = $actionPoseOverride ?? $actionPose;
+    $this->usesArenaImpact = !$resultsOnly && ($target?->defaults['effectTiming']['mode'] ?? null) === EffectImpactTimingMode::ARENA->value;
+    if (($source?->defaults['effectTiming']['mode'] ?? null) === EffectImpactTimingMode::ARENA->value) {
+      throw new InvalidArgumentException('Arena impact belongs to the target effect lane.');
+    }
     $targetPoseClock = ($target?->defaults['poseClock'] ?? null)
       === \Ichiloto\Engine\Animations\Timelines\EffectPoseClock::TARGET->value;
     if (isset($source->defaults['poseClock'])) {
@@ -336,10 +342,15 @@ final readonly class BattleCommandTimeline
       'arrival' => $impact,
       'speed' => $flightTiming['speed'],
     ];
+    if ($this->usesArenaImpact && $this->cinematicStage !== null) {
+      $cues[] = ['id' => 'command-arena-restored', 'type' => 'commandArenaRestored',
+        'frame' => $phases['target']['start'] + $targetTiming->getFrameBoundary($this->cinematicStage->data['restoreFrame'], self::FPS),
+        'payload' => []];
+    }
     $cues[] = ['id' => 'command-impact', 'type' => 'commandImpact', 'frame' => $impact, 'payload' => []];
     $cues = [...$cues, ...array_values($detachments), ...array_values($targetGroupCaptures)];
     $order = static fn(array $cue): int => match ($cue['type']) {
-      'commandCapturePosePoint', 'commandCaptureTargetGroup' => 0, 'commandImpact' => 1, default => 2,
+      'commandCapturePosePoint', 'commandCaptureTargetGroup', 'commandArenaRestored' => 0, 'commandImpact' => 1, default => 2,
     };
     usort($cues, static fn(array $a, array $b): int => [$a['frame'], $order($a)] <=> [$b['frame'], $order($b)]);
     $this->actionPoseAnchorFrame = $poseAnchor;
@@ -357,7 +368,8 @@ final readonly class BattleCommandTimeline
   private static function getTargetImpactOffset(?CompiledEffectTimeline $target, ?EffectPlaybackTiming $clock, int $length): int
   {
     $timing = $target?->defaults['effectTiming'] ?? null;
-    if (is_array($timing) && in_array($timing['mode'] ?? 'end', ['frame', 'explicit_frame'], true)) {
+    $mode = $timing['mode'] ?? null;
+    if ($mode === 'explicit_frame' || (is_string($mode) && EffectImpactTimingMode::tryFrom($mode)?->usesFrame())) {
       return min($length, $clock->getFrameBoundary((int)($timing['frame'] ?? 0), self::FPS));
     }
     if (!is_array($timing) || ($timing['mode'] ?? 'end') === 'cue') {

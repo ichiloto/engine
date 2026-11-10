@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Cutscenes\Summons;
 
 use Closure;
+use Ichiloto\Engine\Animations\Timelines\EffectImpactTimingMode;
 
 /** Resolves one battle action at its authored cue, frame, or timeline end. */
 final class SummonEffectTrigger
@@ -20,7 +21,8 @@ final class SummonEffectTrigger
 
   public function onFrame(int $frame): void
   {
-    if (in_array(($this->timing['mode'] ?? SummonEffectTiming::DEFAULT_MODE), ['explicit_frame', 'frame'], true)
+    $mode = $this->timing['mode'] ?? SummonEffectTiming::DEFAULT_MODE;
+    if (($mode === 'explicit_frame' || EffectImpactTimingMode::tryFrom($mode)?->usesFrame())
       && $frame >= intval($this->timing['frame'] ?? PHP_INT_MAX)) {
       $this->applyOnce();
     }

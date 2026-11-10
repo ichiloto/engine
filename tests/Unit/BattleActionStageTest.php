@@ -118,3 +118,58 @@ it('keeps the command announcement over the source cut-in and restores controls 
   $runner->dispose();
   expect($screen->controlsRestored)->toBe(1)->and($screen->announcement)->toBeNull();
 })->with([false, true])->with([false, true]);
+
+it('restores the arena and publishes the real targets at the authored impact for both cinematic consumers', function (bool $summon) {
+  require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
+  [, $context, $screen] = \Tests\Support\Battle\createTargetExecutionFixture(false, true,
+    $this->createStub(\Ichiloto\Engine\Audio\AudioManager::class));
+  $actor = $context->party->members->toArray()[0];
+  $data = makeBattleActionStageSource('source.png');
+  $timing = ['mode' => 'arena', 'frame' => 7];
+  $stage = $summon
+    ? (new \Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneCompiler(assetRoot: $this->root))->compile(
+      \Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition::fromArrays([
+        'id' => 'summon-stage', 'name' => 'Synthetic summon', 'effectTiming' => $timing,
+      ], $data))
+    : $this->validator->compile('move-stage', [...$data, 'effectTiming' => $timing], forBattle: true);
+  $hits = 0;
+  $presented = [];
+  $runner = new \Ichiloto\Engine\Battle\Presentation\BattleCommandRunner($context, $actor, [$actor], null,
+    'Synthetic move', new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), null, $stage,
+    static function () use (&$hits): void { $hits++; }, static fn() => [],
+    static function (array $cue) use (&$presented): void {
+      if ($cue['type'] === 'commandResult') { $presented[] = $cue; }
+    });
+  $runner->begin();
+  $plan = $runner->playback->plan;
+  $beforeRestore = $plan->getCommandFrameForAuthoredFrame('target', 5);
+  $restore = $plan->getCommandFrameForAuthoredFrame('target', 6);
+  $impact = $plan->getCommandFrameForAuthoredFrame('target', 7);
+  $runner->update($beforeRestore / BattleCommandTimeline::FPS);
+  expect($plan->getCinematicStageFrame($beforeRestore, true)->active)->toBeTrue()
+    ->and($screen->controlsHidden)->toBe(1)->and($hits)->toBe(0);
+  $runner->update(($restore - $beforeRestore) / BattleCommandTimeline::FPS);
+  expect($plan->getCinematicStageFrame($restore, true)->active)->toBeFalse()
+    ->and($screen->controlsRestored)->toBe(1)->and($hits)->toBe(0);
+  $runner->update(($impact - $restore) / BattleCommandTimeline::FPS);
+  expect($hits)->toBe(1)
+    ->and(array_column($presented, 'frame'))->toBe([$impact])
+    ->and($presented[0]['payload']['target'])->toBe($actor);
+  $runner->update(10);
+  expect($hits)->toBe(1)->and($screen->controlsRestored)->toBe(1);
+})->with([false, true]);
+
+it('rejects an arena impact hidden by the stage and accepts independent terminal timing', function () {
+  $data = [...makeBattleActionStageSource('source.png'), 'effectTiming' => ['mode' => 'arena', 'frame' => 5]];
+  expect(fn() => $this->validator->compile('hidden-impact', $data, forBattle: true))
+    ->toThrow(InvalidArgumentException::class, 'after battlefield restoration');
+
+  $terminal = $this->validator->compile('terminal-impact', [
+    'fps' => 20, 'lengthFrames' => 4, 'effectTiming' => ['mode' => 'arena', 'frame' => 1],
+    'tracks' => [['id' => 'hit', 'type' => 'glyph', 'keyframes' => [['frame' => 1, 'duration' => 1, 'content' => '*']]]],
+  ], forBattle: true, presentation: EffectPresentation::TERMINAL);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $terminal);
+  $cue = array_find($plan->timeline->cueSchedule, static fn(array $cue): bool => $cue['type'] === 'commandImpact');
+  expect($cue['frame'])->toBe($plan->getCommandFrameForAuthoredFrame('target', 1))
+    ->and($plan->getCinematicStageFrame($cue['frame']))->toBeNull();
+});

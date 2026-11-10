@@ -362,13 +362,18 @@ final class EffectTimelineValidator
     }
     usort($cues, static fn(array $a, array $b): int => $a['frame'] <=> $b['frame']);
     $timing = $data['effectTiming'] ?? null;
-    if ($timing !== null && (!is_array($timing)
-      || !in_array($timing['mode'] ?? '', ['end', 'frame', 'cue'], true)
+    $mode = is_array($timing) && is_string($timing['mode'] ?? null) ? EffectImpactTimingMode::tryFrom($timing['mode']) : null;
+    if ($timing !== null && ($mode === null
       || array_diff(array_keys($timing), ['mode', 'frame', 'cueId']) !== []
-      || (($timing['mode'] ?? '') === 'frame' && (!is_int($timing['frame'] ?? null)
+      || ($mode->usesFrame() && (!is_int($timing['frame'] ?? null)
         || $timing['frame'] < 0 || $timing['frame'] >= $length))
-      || (($timing['mode'] ?? '') === 'cue' && !isset($cueIds[$timing['cueId'] ?? ''])))) {
+      || ($mode === EffectImpactTimingMode::CUE && !isset($cueIds[$timing['cueId'] ?? ''])))) {
       throw new InvalidArgumentException("Effect {$id} impact timing must identify a valid frame, cue or end.");
+    }
+    if ($mode === EffectImpactTimingMode::ARENA && ($playback !== 'once' || isset($timing['cueId'])
+      || ($presentation === EffectPresentation::GRAPHICAL
+        && ($stage === null || $timing['frame'] < $stage->data['restoreFrame'])))) {
+      throw new InvalidArgumentException("Effect {$id} arena impact requires a once-playing stage and a frame at or after battlefield restoration.");
     }
     $rangeTiming = null;
     if ($presentation === EffectPresentation::GRAPHICAL && array_key_exists('rangeTiming', $data)) {
@@ -376,7 +381,7 @@ final class EffectTimelineValidator
         throw new InvalidArgumentException("Effect {$id} range timing requires a fixed, once-playing battle target without a cinematic stage.");
       }
       $fixed = array_column($cues, 'frame');
-      if (($timing['mode'] ?? null) === 'frame') { $fixed[] = $timing['frame']; }
+      if ($mode?->usesFrame()) { $fixed[] = $timing['frame']; }
       foreach ($tracks as $track) {
         if (is_int($track['flight']['arrivalFrame'] ?? null)) { $fixed[] = $track['flight']['arrivalFrame']; }
         if ($track['type'] === 'trail') { $fixed[] = $track['fadeEndFrame']; }

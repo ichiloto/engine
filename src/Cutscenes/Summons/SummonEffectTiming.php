@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Cutscenes\Summons;
 
+use Ichiloto\Engine\Animations\Timelines\EffectImpactTimingMode;
 use Ichiloto\Engine\Util\Debug;
 
 /**
@@ -12,7 +13,8 @@ use Ichiloto\Engine\Util\Debug;
 final class SummonEffectTiming
 {
   public const string DEFAULT_MODE = 'end';
-  public const array AUTHORING_MODES = ['end', 'cue', 'frame'];
+  public const array AUTHORING_MODES = [EffectImpactTimingMode::END->value, EffectImpactTimingMode::CUE->value,
+    EffectImpactTimingMode::FRAME->value, EffectImpactTimingMode::ARENA->value];
 
   public function __construct(
     public string $mode = self::DEFAULT_MODE,

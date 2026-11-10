@@ -187,9 +187,14 @@ final class BattleCommandRunner
     }
     if ($cue['type'] === 'commandResolved') {
       if ($this->executionRefusal !== null) { $this->context->ui->alert($this->executionRefusal); }
-      elseif ($this->context->ui->usesGraphicalField() && $this->playback->plan->cinematicStage !== null) {
+      elseif ($this->context->ui->usesGraphicalField() && $this->playback->plan->cinematicStage !== null
+        && !$this->playback->plan->usesArenaImpact) {
         $this->resultsPending = true;
-      } else { $this->showResults(); }
+      } else { $this->showResults($this->playback->plan->usesArenaImpact ? $cue['frame'] : null); }
+      return;
+    }
+    if ($cue['type'] === 'commandArenaRestored') {
+      if ($this->hidControls) { $this->context->ui->showControls(); $this->hidControls = false; }
       return;
     }
     if ($cue['type'] === 'commandAnnouncementEnd') {
@@ -290,7 +295,7 @@ final class BattleCommandRunner
           $this->context->ui->fieldWindow->showStatChangePopup($target,
             ($this->formatResult)($target, $hp, $mp, $result), clearExisting: $index === 0, durationSeconds: $duration);
         }
-        ($this->presentCue)(['type' => 'commandResult', 'frame' => $this->playback->session->currentFrame,
+        ($this->presentCue)(['type' => 'commandResult', 'frame' => $startFrame ?? $this->playback->session->currentFrame,
           'payload' => ['target' => $target, 'previousHp' => $hp, 'result' => $result]]);
       } catch (\Throwable $error) { $this->playback->recordPresentationFailure($error); }
     }
