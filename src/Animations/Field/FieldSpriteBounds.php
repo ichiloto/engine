@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Animations\Field;
 
+use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
@@ -48,6 +49,29 @@ final readonly class FieldSpriteBounds
       ($surface->right - $offsetX) / $view->zoom, ($surface->bottom - $offsetY) / $view->zoom);
   }
 
+  /**
+   * Where a sprite's image rests now on the session surface, in surface
+   * pixels: through the camera and field viewport, as the renderer places
+   * the sprite the Game sends for it, or at its session-grid cell when it is
+   * pinned to the screen. Its bob, which the renderer animates, is left out.
+   */
+  public static function findSurfaceBounds(GraphicalSpriteProviderInterface $sprite, Camera $camera, FieldViewport $view): ?self
+  {
+    $definition = $sprite->getGraphicalSpriteDefinition();
+    if ($definition === null) { return null; }
+    $grid = $view->grid;
+    $position = $sprite->getGraphicalSpriteWorldPosition();
+    if ($sprite instanceof ScreenSpaceSpriteProviderInterface) {
+      return self::placeAtRest($definition, ($position->x + 0.5) * $grid->cellWidth, ($position->y + 1) * $grid->cellHeight, 1.0);
+    }
+    $cell = $camera->getScreenSpacePosition($position);
+    $tile = FieldViewport::TILE_SIZE * $view->zoom;
+    $offsetX = max(0, ($grid->columns * $grid->cellWidth - $view->columns * $tile) / 2);
+    $offsetY = max(0, ($grid->rows * $grid->cellHeight - $view->rows * $tile) / 2);
+
+    return self::placeAtRest($definition, $offsetX + ($cell->x + 0.5) * $tile, $offsetY + ($cell->y + 1) * $tile, $view->zoom);
+  }
+
   /** The smallest bounds holding all of these, or null for none. @param list<self|null> $bounds */
   public static function join(array $bounds): ?self
   {
@@ -67,13 +91,23 @@ final readonly class FieldSpriteBounds
       && $this->top < $other->bottom && $other->top < $this->bottom;
   }
 
-  /** An image placed at a ground anchor, in the pixels its anchor is given in. */
+  /** An image placed at a ground anchor, in the pixels its anchor is given in, with the top of its bob. */
   private static function place(GraphicalSpriteDefinition $definition, float $anchorX, float $anchorY): self
   {
-    $pivot = $definition->pivot ?? new PresentationSpritePivot(0.5, 1.0);
-    $left = $anchorX - $pivot->x * $definition->width;
-    $top = $anchorY - $pivot->y * $definition->height - $definition->lift;
+    $rest = self::placeAtRest($definition, $anchorX, $anchorY, 1.0);
 
-    return new self($left, $top - ($definition->bob?->height ?? 0), $left + $definition->width, $top + $definition->height);
+    return new self($rest->left, $rest->top - ($definition->bob?->height ?? 0), $rest->right, $rest->bottom);
+  }
+
+  /** An image at rest on a ground anchor: its pivot on the anchor, raised by its lift, all at this scale. */
+  private static function placeAtRest(GraphicalSpriteDefinition $definition, float $anchorX, float $anchorY, float $scale): self
+  {
+    $pivot = $definition->pivot ?? new PresentationSpritePivot(0.5, 1.0);
+    $width = $definition->width * $scale;
+    $height = $definition->height * $scale;
+    $left = $anchorX - $pivot->x * $width;
+    $top = $anchorY - $pivot->y * $height - $definition->lift * $scale;
+
+    return new self($left, $top, $left + $width, $top + $height);
   }
 }

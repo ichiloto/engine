@@ -148,6 +148,7 @@ final class CinematicStageManager
         ? fn(Vector2 $cell): bool => $appearance->position->x === $cell->x && $appearance->position->y === $cell->y
           && ($this->gameScene->npcManager?->canStageNpc($appearance) ?? false)
         : null,
+      plane: CinematicFieldPlane::getFromCommand($entry),
     );
     if ($this->animationPaused) { $actor->pauseGraphicalAnimation(); }
     ($this->actors[$id] ?? null)?->releaseVisual();
@@ -167,6 +168,11 @@ final class CinematicStageManager
     }
     if (array_key_exists('appearance', $entry)) {
       self::validateAppearance($entry);
+    }
+    // A world object's art is a compound field canvas among its map's tiles, never one image to lift.
+    if (CinematicFieldPlane::getFromCommand($entry) === CinematicFieldPlane::ABOVE_COVER
+      && (($entry['subject']['kind'] ?? null) === 'world_object')) {
+      throw new \InvalidArgumentException('A world object takeover draws in the field; plane aboveCover lifts staged characters and images.');
     }
     if (!array_key_exists('subject', $entry)) {
       if (array_key_exists('suppress', $entry)) {

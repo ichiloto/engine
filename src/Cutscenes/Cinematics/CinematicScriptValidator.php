@@ -282,6 +282,11 @@ final class CinematicScriptValidator
   public static function validateStagedActor(array $entry, string $cinematicId, string $path): void
   {
     try {
+      CinematicFieldPlane::getFromCommand($entry);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, $path . '/' . CinematicFieldPlane::FIELD_NAME, 'staged actor ' . $error->getMessage());
+    }
+    try {
       CinematicStageManager::validateBinding($entry);
     } catch (InvalidArgumentException $error) {
       throw self::failure($cinematicId, "$path/subject", $error->getMessage());
@@ -368,6 +373,11 @@ final class CinematicScriptValidator
       throw self::failure($cinematicId, $path, 'following field effects require a live field subject.');
     }
     self::validateOptionalDuration($command, ['secondsPerFrame'], $cinematicId, $path, positive: true);
+    try {
+      CinematicFieldPlane::getFromCommand($command);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, $path . '/' . CinematicFieldPlane::FIELD_NAME, 'field animation ' . $error->getMessage());
+    }
   }
 
   /** @param array<string, mixed> $command */

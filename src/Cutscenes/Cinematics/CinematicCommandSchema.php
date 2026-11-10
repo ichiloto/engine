@@ -75,7 +75,7 @@ final class CinematicCommandSchema
   ];
   public const array STAGED_ACTOR_FIELDS = [
     'id', 'sprite', 'asset', 'x', 'y', 'facing', 'faceToward', 'visible', 'collision', 'sprites', 'sprites2d',
-    'subject', 'suppress', 'replace', 'at', 'offset', 'appearance',
+    'subject', 'suppress', 'replace', 'at', 'offset', 'appearance', CinematicFieldPlane::FIELD_NAME,
   ];
   /** Map subjects whose authored look a staged actor can wear. */
   public const array STAGED_ACTOR_APPEARANCE_KINDS = ['npc'];
@@ -241,6 +241,15 @@ final class CinematicCommandSchema
         'frameOrder' => 'required non-empty source-cell list; row-major indices, repeats allowed',
         'defaults' => ['columns' => 1, 'rows' => 1, 'loop' => true, 'restFrame' => 0],
         'sourceRect' => 'optional sheet region; current image dimensions define its equal grid cells',
+      ],
+      'fieldPlane' => [
+        'field' => CinematicFieldPlane::FIELD_NAME,
+        'consumers' => ['field_animation', 'stage_actor'],
+        'options' => array_column(CinematicFieldPlane::cases(), 'value'),
+        'default' => CinematicFieldPlane::FIELD->value,
+        'aboveCover' => 'graphical only: drawn over the field, the active stage cover (a dim) and transition covers at full strength, '
+          . 'below cinematic text, map transfer covers and notifications; Terminal glyphs, placement, collision and saves are unchanged',
+        'refused' => 'aboveCover on a world_object takeover, whose art draws in the field',
       ],
       'fieldAnimation' => [
         'followField' => 'follow',

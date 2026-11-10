@@ -26,6 +26,10 @@ use Ichiloto\Engine\Cutscenes\Cinematics\CinematicController;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicLibrary;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicPresentationManager;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicFieldPlane;
+use Ichiloto\Engine\Cutscenes\Cinematics\StagedActor;
+use Ichiloto\Engine\Cutscenes\Presentation\CinematicAboveCoverPresentation;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Rendering\Tilesets\TileAnimation;
 use Ichiloto\Engine\UI\Accessibility;
@@ -144,6 +148,7 @@ use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInter
 class GameScene extends AbstractScene implements PlayActivitySourceInterface, GraphicalSpriteProviderHostInterface, SpriteThicketHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface, \Ichiloto\Engine\Events\Interpreter\EventExecutionHostInterface, \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface, \Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface, SceneFrameReadinessInterface
 {
     private ?FieldViewport $fieldViewport = null;
+    private ?CinematicAboveCoverPresentation $aboveCoverPresentation = null;
     private ?\Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming $dialogueFraming = null;
     private ?ScenePresentationContext $presentationContext = null;
     /** @var array{columns: int, rows: int}|null Camera geometry before an isolated presentation was attached. */
@@ -433,6 +438,13 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         if ($stage !== null) { $overlay = PresentationCanvas::composeOverlay($overlay, $stage); }
         $assetRoot = $this->presentationContext !== null ? $this->presentationContext->assetRoot
             : (isset($this->sceneManager) ? $this->getGame()->getRendererRuntime()?->getAssetRoot() : null);
+        // Images authored above the cover stack over the stage plane, its cover included, below cinematic text.
+        $lifted = $this->getAboveCoverSpriteProviders();
+        $above = $lifted !== [] && $assetRoot !== null && $this->fieldViewport !== null
+            ? ($this->aboveCoverPresentation ??= new CinematicAboveCoverPresentation())
+                ->compose($lifted, $this->camera, $this->fieldViewport, $assetRoot, $width, $height)
+            : null;
+        if ($above !== null) { $overlay = PresentationCanvas::composeOverlay($overlay, $above); }
         $text = $this->cinematicPresentation?->getOverlayCanvas($width, $height,
             $this->canPresentCinematicText() ? $assetRoot : null);
         if ($text !== null) { $overlay = PresentationCanvas::composeOverlay($overlay, $text); }
@@ -457,6 +469,8 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
             $layers[] = 'ui:'.spl_object_id($this->locationHUDWindow);
         }
         if ($this->canPresentCinematicCover()) { array_push($layers, 'cinematic-cover', 'transition'); }
+        // A lifted staged actor's graphical art is its presentation; its Terminal glyph never shows in its place.
+        foreach ($this->getAboveCoverSpriteProviders() as $lifted) { $layers[] = $lifted->getGraphicalSpriteId(); }
         if ($this->canPresentCinematicText()) {
             array_push($layers, ...($this->cinematicPresentation?->getOverlayExcludedLayers() ?? []));
         }
@@ -515,15 +529,47 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         return $this->mapThickets->findSpriteThicketAt((int)$cell->x, (int)$cell->y, Accessibility::prefersReducedMotion());
     }
 
+    /**
+     * Whether cinematic images authored above the cover are lifted onto the
+     * stage plane now: only while the renderer presents that plane over a
+     * graphical field. Otherwise they draw in the field, as every image did.
+     */
+    private function presentsAboveCoverPlane(): bool
+    {
+        return $this->hasGraphicalFieldPresentation() && $this->fieldViewport !== null && $this->canPresentCinematicStage()
+            && ($this->presentationContext === null || $this->presentationContext->graphical);
+    }
+
+    /**
+     * The staged actors and cinematic effect images drawn above the cinematic
+     * cover this frame ({@see CinematicFieldPlane::ABOVE_COVER}). A staged
+     * actor drawn by a world canvas (a bed), or with no liftable image now,
+     * stays in the field.
+     *
+     * @return list<GraphicalSpriteProviderInterface>
+     */
+    private function getAboveCoverSpriteProviders(): array
+    {
+        if (!$this->presentsAboveCoverPlane()) { return []; }
+        $actors = array_values(array_filter($this->cinematicStage?->all() ?? [], static fn(StagedActor $actor): bool =>
+            $actor->plane === CinematicFieldPlane::ABOVE_COVER && !$actor->isComposedInBed()
+            && $actor->getPresentationWorldCanvas() === null && CinematicAboveCoverPresentation::canLift($actor)));
+        return [...$actors,
+            ...($this->cinematicPresentation?->getEffectSprites($this->fieldViewport, CinematicFieldPlane::ABOVE_COVER) ?? [])];
+    }
+
     public function getGraphicalSpriteProviders(): iterable
     {
         $this->fieldEdgeSpriteIds = [];
         if ($this->hasGraphicalFieldPresentation()) {
+            $lifted = $this->presentsAboveCoverPlane();
+            $liftedActors = array_fill_keys(array_map(spl_object_id(...), $this->getAboveCoverSpriteProviders()), true);
             // Dialogue borrows field input; it does not replace field presentation.
             if ($this->player !== null && !($this->cinematicStage?->suppresses($this->player) ?? false)) {
                 yield $this->player;
             }
             foreach ($this->cinematicStage?->all() ?? [] as $actor) {
+                if (isset($liftedActors[spl_object_id($actor)])) { continue; }
                 if (!$actor->isComposedInBed() && $actor->getPresentationWorldCanvas() === null) { yield $actor; }
             }
             foreach ($this->npcManager?->getGraphicalSpriteProviders() ?? [] as $npc) {
@@ -536,7 +582,8 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
                 $this->camera->getWorldOrigin(), Accessibility::prefersReducedMotion(), $this->canPresentFieldGuidance(),
                 $this->player?->getGraphicalSpriteId(),
                 $this->camera->followsPlayer ? $this->player?->getGraphicalSpriteMotion() : null) ?? []),
-                ...($this->cinematicPresentation?->getEffectSprites($this->fieldViewport) ?? [])] as $effect) {
+                ...($this->cinematicPresentation?->getEffectSprites($this->fieldViewport,
+                    $lifted ? CinematicFieldPlane::FIELD : null) ?? [])] as $effect) {
                 if ($effect instanceof ScreenSpaceSpriteProviderInterface) {
                     $this->fieldEdgeSpriteIds[] = $effect->getGraphicalSpriteId();
                 }

@@ -24,6 +24,7 @@ final class FieldAnimationOperation implements EventPendingOperationInterface
     protected bool $screenSpace = false,
     ?float $secondsPerFrame = null,
     protected readonly ?CinematicEffectTarget $target = null,
+    CinematicFieldPlane $plane = CinematicFieldPlane::FIELD,
   )
   {
     if ($target !== null && ($screenSpace || !$target->isCurrent())) {
@@ -45,7 +46,7 @@ final class FieldAnimationOperation implements EventPendingOperationInterface
     }
     $this->session = new FieldEffectSession('cinematic-effect:' . spl_object_id($this),
       FieldEffectAnchor::createAtPosition($position), $timeline, $secondsPerFrame);
-    $this->presentation->presentEffect($this->session, $screenSpace, $target);
+    $this->presentation->presentEffect($this->session, $screenSpace, $target, $plane);
     FieldEffectSession::playCues($this->session->playback->takeCurrentFrameCues());
   }
 

@@ -88,6 +88,8 @@ final class StagedActor implements ThicketSubjectInterface
     public readonly bool $hasAuthoredFacing = false,
     /** A snapshot takes over drawing its cell when the original NPC leaves it. */
     private readonly ?\Closure $sharesPresentNpcCell = null,
+    /** Where its graphical art draws: among the field, or lifted above cinematic covers. */
+    public readonly CinematicFieldPlane $plane = CinematicFieldPlane::FIELD,
   )
   {
     $this->localFacing = $facing;

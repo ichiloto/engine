@@ -79,6 +79,15 @@
 
 ### Added
 
+- Cinematic `field_animation` commands, `stage_actor` commands and cast entries accept
+  `plane: aboveCover` to draw their graphical art over the active stage cover (a dim) at full
+  strength, below cinematic text, map transfer covers and notifications. The default `field`
+  plane is unchanged, Terminal glyphs keep their layers, and renderers that cannot present
+  the stage plane keep the art in the field. Validation refuses other values and lifted
+  `world_object` takeovers; `CinematicCommandSchema` exports the choice as `fieldPlane`.
+  Lifted images stand on their subject's current cell each frame, without the renderer's
+  step slides or camera eases.
+
 - `BattlerConditions::listStateIconRoles()` lists the optional theme icon roles condition badges
   draw for a project's states, each state's `status.state.<id>` then its
   `status.state.<id>.pending`, as `MapAtlasPresentation::listIconRoles()` does for map markers.

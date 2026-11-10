@@ -29,7 +29,7 @@ final class CinematicPresentationManager
   private ?DialogueScenePresentation $dialoguePresentation = null;
   private ?string $dialogueAssetRoot = null;
   private bool $hasGraphicalOverlay = false;
-  /** @var array<string, array{session: FieldEffectSession, screenSpace: bool, target: ?CinematicEffectTarget}> */
+  /** @var array<string, array{session: FieldEffectSession, screenSpace: bool, target: ?CinematicEffectTarget, plane: CinematicFieldPlane}> */
   private array $effects = [];
   /** @var array<string, array{session: CinematicStageSession}> */
   private array $stages = [];
@@ -75,10 +75,11 @@ final class CinematicPresentationManager
     return $this->hasGraphicalOverlay ? ['cinematic-overlay'] : [];
   }
 
-  public function presentEffect(FieldEffectSession $session, bool $screenSpace = false, ?CinematicEffectTarget $target = null): void
+  public function presentEffect(FieldEffectSession $session, bool $screenSpace = false, ?CinematicEffectTarget $target = null,
+    CinematicFieldPlane $plane = CinematicFieldPlane::FIELD): void
   {
     if (isset($this->effects[$session->id])) { $this->effects[$session->id]['session']->playback->pause(); }
-    $this->effects[$session->id] = ['session' => $session, 'screenSpace' => $screenSpace, 'target' => $target];
+    $this->effects[$session->id] = ['session' => $session, 'screenSpace' => $screenSpace, 'target' => $target, 'plane' => $plane];
   }
 
   public function hasEffect(string $id): bool { return isset($this->effects[$id]); }
@@ -160,13 +161,19 @@ final class CinematicPresentationManager
     return array_values(array_unique($layers));
   }
 
-  /** @return list<FieldEffectSprite> */
-  public function getEffectSprites(?FieldViewport $viewport): array
+  /**
+   * The images the cinematic's field effects show now: all of them, or only
+   * those authored on one plane when the host presents the planes apart.
+   *
+   * @return list<FieldEffectSprite>
+   */
+  public function getEffectSprites(?FieldViewport $viewport, ?CinematicFieldPlane $plane = null): array
   {
     if ($viewport === null) { return []; }
     $reducedMotion = Accessibility::prefersReducedMotion();
     $sprites = [];
     foreach ($this->effects as $effect) {
+      if ($plane !== null && $effect['plane'] !== $plane) { continue; }
       $target = $effect['target'];
       if ($target !== null && !$target->isCurrent()) { continue; }
       $position = $target?->getGraphicalPosition() ?? $effect['session']->anchor->cell;

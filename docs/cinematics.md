@@ -679,6 +679,29 @@ and their timeline's image extents/offsets. No actor-specific eye pixel is store
 in the shared Engine. Editors consume `fieldAnimation` in the cinematic schema
 for the follow checkbox and its constrained subject choices.
 
+An optional `plane` on `field_animation`, `stage_actor` and cast entries selects
+where the graphical art draws. `field`, the default, keeps it in the field world,
+under cinematic covers. `aboveCover` lifts its current image onto the cinematic
+stage plane: over the field, the active `play_stage` cover (a dim) and any
+transition cover, at full strength, and below cinematic text, map transfer
+covers and notifications. The image keeps the place, frame, size, layer order and
+opacity of its field sprite. Subject identity, timing, collision, events and saves
+are unchanged. Shared validation refuses any other value, and refuses
+`aboveCover` on a `world_object` takeover, whose art is a compound field canvas.
+For example, an eye-flare pose staged on the player with `'plane' => 'aboveCover'`
+and a shockwave `field_animation` with the same plane both draw over a dim that
+runs in a parallel lane.
+
+Terminal glyphs keep their existing layers on either plane; a stage dim has no
+Terminal part. A renderer that cannot present the stage plane keeps the art in
+the field. On the stage plane the image stands on its subject's current cell
+each frame. The renderer's step slides, camera eases, bobs and foliage belong to
+the field world and do not apply there, so a subject walking or a camera panning
+under the cover shows the lifted image moving cell by cell. A smooth moving image
+above the cover needs a negotiated world-anchored overlay image in the Renderer
+protocol, which is not built. A takeover composed in a bed stays in the field.
+Editors consume `fieldPlane` in the cinematic schema for the choice.
+
 Each command owns one session. Parallel commands compose with one another and
 with map effects; completing or cancelling one removes only its effects.
 Finishing a timed narration/title clears only its own overlay, not a newer cue,
