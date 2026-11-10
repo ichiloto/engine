@@ -269,8 +269,8 @@ it('offers starting conditions and the party\'s items only where they can be set
   expect($editor->focus)->toBe(ArenaSetupEditor::ITEMS);
   $editor->confirm();
   $editor->confirm();
-  $editor->moveVertical(1);
+  $editor->moveVertical(-1);
   $editor->confirm();
-  expect($editor->setup->inventory)->toEqual([new \Ichiloto\Engine\Scenes\Arena\BattleTestItem('item.potion', 98)])
+  expect($editor->setup->inventory)->toEqual([new \Ichiloto\Engine\Scenes\Arena\BattleTestItem('item.potion', 2)])
     ->and($editor->cancel())->toBeNull()->and($editor->focus)->toBe(ArenaSetupEditor::PARTY);
 });

@@ -11,8 +11,9 @@ use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 /**
  * Setting a battle test party's items, apart from drawing and input
  * devices, in the Shop's stages: the rows are the items the party holds
- * (the default stock until one is changed), then Add an item and, once the
- * items are set, Use the default stock. Confirm on an item chooses how many
+ * (the default stock until one is changed). The default list offers an
+ * empty custom inventory at its first row. Custom inventory offers adding
+ * an item and restoring the default stock. Confirm on an item chooses how many
  * the party holds, where none removes it; Add lists the items the party
  * does not hold yet and then asks how many. A quantity moves by one up and
  * down and by ten left and right ({@see QuantitySelector}); confirm keeps
@@ -21,13 +22,10 @@ use Ichiloto\Engine\Entities\Inventory\InventoryItem;
  */
 final class BattleTestInventoryEditor
 {
-  public const string ENTRIES = 'entries';
-  public const string CATALOGUE = 'catalogue';
-  public const string QUANTITY = 'quantity';
   /** What cancel on the rows asks of the battle test. */
   public const string LEAVE = 'leave';
 
-  public private(set) string $focus = self::ENTRIES;
+  public private(set) BattleTestInventoryFocus $focus = BattleTestInventoryFocus::ENTRIES;
   public private(set) int $rowIndex = 0;
   public private(set) int $catalogueIndex = 0;
   /** @var list<BattleTestItem>|null The items set; null while the party holds the default stock. */
@@ -53,7 +51,7 @@ final class BattleTestInventoryEditor
   public function load(?array $items): void
   {
     $this->items = $items === null ? null : BattleTestItem::requireUnique($items);
-    $this->focus = self::ENTRIES;
+    $this->focus = BattleTestInventoryFocus::ENTRIES;
     $this->rowIndex = 0;
     $this->quantity = null;
     $this->itemId = null;
@@ -73,9 +71,10 @@ final class BattleTestInventoryEditor
     }
   }
 
-  /** @var list<string> The rows: `item:<n>` for each item held, then `add` while more can be held, and `default` once the items are set. */
+  /** @var list<string> The available inventory actions and item rows. */
   public array $rows {
-    get => [...array_map(static fn(int $index): string => "item:{$index}", array_keys($this->entries)),
+    get => [...($this->items === null && $this->entries !== [] ? ['empty'] : []),
+      ...array_map(static fn(int $index): string => "item:{$index}", array_keys($this->entries)),
       ...($this->addable === [] || count($this->entries) >= BattleTestSetup::MAX_ITEMS ? [] : ['add']),
       ...($this->items === null ? [] : ['default'])];
   }
@@ -97,17 +96,17 @@ final class BattleTestInventoryEditor
   public function moveVertical(int $step): void
   {
     match ($this->focus) {
-      self::ENTRIES => $this->rowIndex = max(0, min(count($this->rows) - 1, $this->rowIndex + $step)),
-      self::CATALOGUE => $this->catalogueIndex = max(0, min(count($this->addable) - 1, $this->catalogueIndex + $step)),
+      BattleTestInventoryFocus::ENTRIES => $this->rowIndex = max(0, min(count($this->rows) - 1, $this->rowIndex + $step)),
+      BattleTestInventoryFocus::CATALOGUE => $this->catalogueIndex = max(0, min(count($this->addable) - 1, $this->catalogueIndex + $step)),
       // Down is less, as in the Shop.
-      self::QUANTITY => $this->quantity?->adjust($this->quantity->axisAdjustment($step, 0)),
+      BattleTestInventoryFocus::QUANTITY => $this->quantity?->adjust($this->quantity->axisAdjustment($step, 0)),
     };
   }
 
   /** Changes a quantity being chosen by ten; false where left and right mean nothing here. */
   public function moveHorizontal(int $step): bool
   {
-    if ($this->focus !== self::QUANTITY || $this->quantity === null) { return false; }
+    if ($this->focus !== BattleTestInventoryFocus::QUANTITY || $this->quantity === null) { return false; }
     $this->quantity->adjust($this->quantity->axisAdjustment(0, $step));
     return true;
   }
@@ -115,26 +114,29 @@ final class BattleTestInventoryEditor
   public function confirm(): void
   {
     switch ($this->focus) {
-      case self::ENTRIES:
+      case BattleTestInventoryFocus::ENTRIES:
         $row = $this->rows[$this->rowIndex] ?? '';
         $entry = $this->entryIndex === null ? null : $this->entries[$this->entryIndex] ?? null;
         if ($entry !== null) {
           $this->chooseQuantity($entry->itemId, $entry->quantity, 0, false);
+        } elseif ($row === 'empty') {
+          $this->items = [];
+          $this->rowIndex = 0;
         } elseif ($row === 'add') {
           $this->catalogueIndex = 0;
-          $this->focus = self::CATALOGUE;
+          $this->focus = BattleTestInventoryFocus::CATALOGUE;
         } elseif ($row === 'default') {
           $this->items = null;
           $this->rowIndex = 0;
         }
         return;
-      case self::CATALOGUE:
+      case BattleTestInventoryFocus::CATALOGUE:
         $choice = $this->addable[$this->catalogueIndex] ?? null;
         if ($choice !== null) {
-          $this->chooseQuantity($choice['id'], min(BattleTestSetup::ITEM_QUANTITY, $choice['maxQuantity']), 1, true);
+          $this->chooseQuantity($choice['id'], 1, 1, true);
         }
         return;
-      case self::QUANTITY:
+      case BattleTestInventoryFocus::QUANTITY:
         $this->keepQuantity();
         return;
     }
@@ -144,13 +146,13 @@ final class BattleTestInventoryEditor
   public function cancel(): ?string
   {
     switch ($this->focus) {
-      case self::ENTRIES:
+      case BattleTestInventoryFocus::ENTRIES:
         return self::LEAVE;
-      case self::CATALOGUE:
-        $this->focus = self::ENTRIES;
+      case BattleTestInventoryFocus::CATALOGUE:
+        $this->focus = BattleTestInventoryFocus::ENTRIES;
         return null;
-      case self::QUANTITY:
-        $this->focus = $this->adding ? self::CATALOGUE : self::ENTRIES;
+      case BattleTestInventoryFocus::QUANTITY:
+        $this->focus = $this->adding ? BattleTestInventoryFocus::CATALOGUE : BattleTestInventoryFocus::ENTRIES;
         $this->quantity = null;
         $this->itemId = null;
         $this->adding = false;
@@ -166,7 +168,7 @@ final class BattleTestInventoryEditor
     $this->quantity = new QuantitySelector($maximum, $minimum, $initial);
     $this->itemId = $itemId;
     $this->adding = $adding;
-    $this->focus = self::QUANTITY;
+    $this->focus = BattleTestInventoryFocus::QUANTITY;
   }
 
   /** Keeps the quantity chosen: an added item joins the end, an item at none leaves, any other takes its new quantity. */
@@ -185,10 +187,13 @@ final class BattleTestInventoryEditor
       } elseif ($index !== null) {
         $entries[$index] = $entries[$index]->withQuantity($quantity);
       }
+      if ($index !== null) {
+        $this->rowIndex = $index;
+      }
     }
     $this->items = array_values($entries);
     $this->rowIndex = max(0, min(count($this->rows) - 1, $this->rowIndex));
-    $this->focus = self::ENTRIES;
+    $this->focus = BattleTestInventoryFocus::ENTRIES;
     $this->quantity = null;
     $this->itemId = null;
     $this->adding = false;

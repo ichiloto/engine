@@ -906,11 +906,11 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     if ($items === null) {
       return new BattleTestMenuList('Items', [], null);
     }
-    if ($items->focus === BattleTestInventoryEditor::CATALOGUE) {
+    if ($items->focus === BattleTestInventoryFocus::CATALOGUE) {
       return new BattleTestMenuList('Add an item', array_map(static fn(array $choice): array => [$choice['name'], []], $items->addable),
         $items->catalogueIndex, [['confirm', 'Choose'], ['cancel', 'Back']], requiresEveryHint: true);
     }
-    if ($items->focus === BattleTestInventoryEditor::QUANTITY) {
+    if ($items->focus === BattleTestInventoryFocus::QUANTITY) {
       $quantity = $items->quantity?->quantity ?? 0;
 
       return new BattleTestMenuList($items->getItemName($items->itemId ?? ''),
@@ -924,13 +924,14 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       str_starts_with($row, 'item:') => [$items->getItemName($entries[(int) substr($row, 5)]->itemId),
         ['x' . $entries[(int) substr($row, 5)]->quantity]],
       $row === 'add' => ['+ Add an item', ['']],
+      $row === 'empty' => ['Start with no items', ['']],
       default => ['Use the default stock', ['']],
     }, $items->rows);
     $row = $items->rows[$items->rowIndex] ?? '';
 
     return new BattleTestMenuList($items->items === null ? 'Items (default stock)' : 'Items',
       $rows === [] ? [['The party holds no items.', []]] : $rows, $rows === [] ? null : $items->rowIndex,
-      [...($rows === [] ? [] : [['confirm', match (true) { str_starts_with($row, 'item:') => 'Quantity', $row === 'add' => 'Add', default => 'Use' }]]),
+      [...($rows === [] ? [] : [['confirm', match (true) { str_starts_with($row, 'item:') => 'Quantity', $row === 'add' => 'Add', $row === 'empty' => 'Start', default => 'Use' }]]),
         [MenuPager::PREVIOUS_ACTION, 'Party'], ['cancel', 'Back']],
       $rows === [] ? [] : [MenuRowColumn::fit(array_column(array_column($rows, 1), 0))],
       requiredHintActions: [MenuPager::PREVIOUS_ACTION], requiresEveryHint: true);

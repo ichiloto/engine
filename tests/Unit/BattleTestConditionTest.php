@@ -11,7 +11,7 @@ use Ichiloto\Engine\Entities\States\StateRegistry;
 use Ichiloto\Engine\Scenes\Arena\ArenaScene;
 use Ichiloto\Engine\Scenes\Arena\ArenaSetupEditor;
 use Ichiloto\Engine\Scenes\Arena\BattleTestChoices;
-use Ichiloto\Engine\Scenes\Arena\BattleTestInventoryEditor;
+use Ichiloto\Engine\Scenes\Arena\BattleTestInventoryFocus;
 use Ichiloto\Engine\Scenes\Arena\BattleTestItem;
 use Ichiloto\Engine\Scenes\Arena\BattleTestLoadoutCatalog;
 use Ichiloto\Engine\Scenes\Arena\BattleTestMember;
@@ -316,16 +316,16 @@ it('folds the items into the staged menu: page to them from the party, choose a 
   $list = $scene->describeList();
   expect($editor->focus)->toBe(ArenaSetupEditor::ITEMS)
     ->and($list->title)->toBe('Items (default stock)')
-    ->and($list->rows)->toBe([['Potion', ['x99']], ['Ether', ['x99']]])
-    ->and($list->hints)->toContain(['confirm', 'Quantity'], [MenuPager::PREVIOUS_ACTION, 'Party'], ['cancel', 'Back'])
+    ->and($list->rows)->toBe([['Start with no items', ['']], ['Potion', ['x99']], ['Ether', ['x99']]])
+    ->and($list->hints)->toContain(['confirm', 'Start'], [MenuPager::PREVIOUS_ACTION, 'Party'], ['cancel', 'Back'])
     ->and($list->requiredHintActions)->toBe([MenuPager::PREVIOUS_ACTION]);
 
   // Ether: down to its row, confirm, down one, left ten.
-  $editor->moveVertical(1);
+  $editor->moveVertical(2);
   $editor->confirm();
   $editor->moveVertical(1);
   $editor->moveHorizontal(-1);
-  expect($items->focus)->toBe(BattleTestInventoryEditor::QUANTITY)
+  expect($items->focus)->toBe(BattleTestInventoryFocus::QUANTITY)
     ->and($scene->describeList()->rows)->toBe([['Quantity', ['x88']]])
     ->and($scene->describeList()->hints)->toContain(['up', 'Quantity', 'down'], ['left', 'By 10', 'right'], ['confirm', 'Set']);
   // A page step chooses nothing while a quantity is open.
@@ -348,22 +348,21 @@ it('folds the items into the staged menu: page to them from the party, choose a 
   expect($editor->setup->inventory)->toEqual([new BattleTestItem('item.ether', 88)])
     ->and(array_column($scene->describeList()->rows, 0))->toBe(['Ether', '+ Add an item', 'Use the default stock']);
 
-  // Add the potion back, 99 offered at first.
+  // Add the potion back, starting at one.
   $editor->moveVertical(1);
   $editor->confirm();
   expect($scene->describeList()->rows)->toBe([['Potion', []]]);
   $editor->confirm();
-  $editor->moveVertical(1);
-  $editor->moveVertical(1);
+  $editor->moveVertical(-1);
   $editor->confirm();
-  expect($editor->setup->inventory)->toEqual([new BattleTestItem('item.ether', 88), new BattleTestItem('item.potion', 97)]);
+  expect($editor->setup->inventory)->toEqual([new BattleTestItem('item.ether', 88), new BattleTestItem('item.potion', 2)]);
 
   // The items persist through member edits and the stage menus, and the preview party holds them.
   $editor->cancel();
   $editor->confirm();
   $editor->moveVertical(1);
   $editor->moveHorizontal(1);
-  expect($editor->setup->inventory)->toEqual([new BattleTestItem('item.ether', 88), new BattleTestItem('item.potion', 97)]);
+  expect($editor->setup->inventory)->toEqual([new BattleTestItem('item.ether', 88), new BattleTestItem('item.potion', 2)]);
   $editor->cancel();
   $editor->movePage(1);
   $editor->moveVertical(10);
@@ -476,4 +475,22 @@ it('shows the same setup through the Terminal and the graphical theme, the note 
     ->toHaveCount(3)
     ->and($text)->toContain('< 9% >')->toContain('Surge ready: Test finisher')->toContain('9/100')
       ->toContain('Lv by 10')->toContain('Done');
+});
+
+it('starts a custom stock empty in one action and adds only the selected quantity', function () {
+  $setup = new BattleTestSetup([new BattleTestMember('hero', 1)]);
+  $parties = [];
+  $scene = battleConditionScene($this, $setup, $parties);
+  $editor = new ReflectionProperty(ArenaScene::class, 'editor')->getValue($scene);
+  $editor->movePage(1);
+  $editor->movePage(1);
+
+  $editor->confirm();
+  expect($editor->setup->inventory)->toBe([])
+    ->and(array_column($scene->describeList()->rows, 0))->toBe(['+ Add an item', 'Use the default stock']);
+  $editor->confirm();
+  $editor->confirm();
+  $editor->moveVertical(-1);
+  $editor->confirm();
+  expect($editor->setup->inventory)->toEqual([new BattleTestItem('item.potion', 2)]);
 });

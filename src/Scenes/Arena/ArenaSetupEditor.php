@@ -228,7 +228,7 @@ final class ArenaSetupEditor
       $this->enterParty();
     } elseif ($direction > 0 && $this->focus === self::PARTY && $this->inventoryEditor !== null) {
       $this->focus = self::ITEMS;
-    } elseif ($direction < 0 && $this->focus === self::ITEMS && $this->inventoryEditor?->focus === BattleTestInventoryEditor::ENTRIES) {
+    } elseif ($direction < 0 && $this->focus === self::ITEMS && $this->inventoryEditor?->focus === BattleTestInventoryFocus::ENTRIES) {
       $this->focus = self::PARTY;
     } elseif ($direction < 0 && $this->focus === self::PARTY) {
       $this->focus = $this->partyReturnFocus;
