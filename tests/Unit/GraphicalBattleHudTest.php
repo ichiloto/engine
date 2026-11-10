@@ -60,7 +60,9 @@ it('contains replaceable theme command icons and aligns labels independently of 
         ->and($icons[0]->destination->width)->toBe(16.0)
         ->and($icons[0]->destination->height)->toBe(8.0)
         ->and($icons[0]->destination->x)->toBe(180.0);
-      $labels = array_column($frame->textLayers, null, 'id')['hud-submenu-rows'];
+      $text = array_column($frame->textLayers, null, 'id');
+      expect($icons[0]->layer)->toBeGreaterThan($text['hud-submenu-highlight']->layer);
+      $labels = $text['hud-submenu-rows'];
       expect($labels->x)->toBe(204.0)
         ->and(array_column($labels->runs, 'text'))->toBe(['Attack', 'Custom strike (4 MP)']);
     }

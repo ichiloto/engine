@@ -31,6 +31,8 @@ use RuntimeException;
 /** Composes owned, live battle windows. It never selects or evaluates commands. */
 final class GraphicalBattleHud
 {
+  private const int ROW_DECORATION_LAYER = 1003;
+
   /** @return array<string, int> Decoded source costs, shared with arena preflight. */
   public static function preflight(BattleCanvasLayout $layout, string $assetRoot, array $battlefield = []): array
   {
@@ -93,7 +95,7 @@ final class GraphicalBattleHud
           if ($focus === $id) {
             $offset = self::cursorOffset($now, Accessibility::prefersReducedMotion() || !$row->affordable);
             self::renderImage($images, $text, $skin, 'selector', 'hud-cursor', new CanvasRectangle($x + 16 + $offset,
-              $rowY + ($pitch->cellHeight - 16) / 2, 16, 16), 1003, $assetRoot);
+              $rowY + ($pitch->cellHeight - 16) / 2, 16, 16), self::ROW_DECORATION_LAYER, $assetRoot);
           }
           if (Accessibility::prefersHighContrast()) { $color = PresentationColor::rgb(255, 255, 255); }
         }
@@ -108,7 +110,7 @@ final class GraphicalBattleHud
         if ($iconSpace > 0 && isset($icons[$row->iconRole ?? '']) && $iconRoot !== null) {
           array_push($images, ...MenuIconRegistry::containAsset($iconRoot, 'hud-submenu-icon-' . $row->index,
             $icons[$row->iconRole], new CanvasRectangle($x + 40, $rowY + ($pitch->cellHeight - 16) / 2, 16, 16),
-            1002, new CanvasRectangle($x + 40, $rowY, 16, $pitch->cellHeight)));
+            self::ROW_DECORATION_LAYER, new CanvasRectangle($x + 40, $rowY, 16, $pitch->cellHeight)));
         }
         // The row's own square at its right edge, as menus size their navigation chevrons.
         $alternativeSpace = $row->hasAlternative ? $pitch->cellHeight : 0;
@@ -233,7 +235,7 @@ final class GraphicalBattleHud
     CanvasRectangle $box, ?string $chevron, ?string $root): void
   {
     if ($chevron !== null && $root !== null) {
-      array_push($images, ...MenuIconRegistry::containAsset($root, 'hud-' . $id, $chevron, $box, 1003, $box));
+      array_push($images, ...MenuIconRegistry::containAsset($root, 'hud-' . $id, $chevron, $box, self::ROW_DECORATION_LAYER, $box));
       return;
     }
     self::line($text, $id, MenuDirection::RIGHT->getGlyph(chevron: true), $box->x, $box->y, $box->width,
