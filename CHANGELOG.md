@@ -79,6 +79,11 @@
 
 ### Added
 
+- `BattlerConditions::listStateIconRoles()` lists the optional theme icon roles condition badges
+  draw for a project's states, each state's `status.state.<id>` then its
+  `status.state.<id>.pending`, as `MapAtlasPresentation::listIconRoles()` does for map markers.
+  `BattlerConditions::getStateIconRole()` owns the key format, and condition badges use it.
+
 - The Battle Test sets each member's starting HP and MP (a percentage or points) and starting
   states, and the party's items and quantities. Both persist in the battle test setup and
   `Data/system.php`; a setup without items keeps the default stock of 99 of every non-equipment

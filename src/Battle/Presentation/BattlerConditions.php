@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\States\State;
 use Ichiloto\Engine\Entities\States\StateDisposition;
 
 /** A current projection, never a second state or stat-stage store. */
@@ -17,6 +18,37 @@ final class BattlerConditions
   private const array STAT_LABELS = ['attack' => 'ATK', 'defence' => 'DEF',
     'magicAttack' => 'MAT', 'magicDefence' => 'MDF', 'speed' => 'SPD',
     'grace' => 'GRC', 'evasion' => 'EVA'];
+
+  /** The theme icon role group every state badge draws from: `status.state.<stateId>`. */
+  public const string STATE_ICON_ROLE_PREFIX = 'status.state.';
+  /** The suffix of the role a pending state's badge draws: `status.state.<stateId>.pending`. */
+  public const string PENDING_STATE_ICON_ROLE_SUFFIX = '.pending';
+
+  /** The theme icon role a state's badge draws: the state's own, or the one for its pending badge. */
+  public static function getStateIconRole(string $stateId, bool $pending = false): string
+  {
+    $stateId = trim($stateId);
+    if ($stateId === '') { throw new \InvalidArgumentException('A state icon role requires a state id.'); }
+    return self::STATE_ICON_ROLE_PREFIX . $stateId . ($pending ? self::PENDING_STATE_ICON_ROLE_SUFFIX : '');
+  }
+
+  /**
+   * Every optional theme icon role the condition badges of these states draw,
+   * shared with theme authoring: each state's own role, then its pending role.
+   * A role the theme leaves unbound shows the state's icon or label instead.
+   *
+   * @param iterable<string|State> $states The project's states, or their ids.
+   * @return list<string>
+   */
+  public static function listStateIconRoles(iterable $states): array
+  {
+    $roles = [];
+    foreach ($states as $state) {
+      $id = $state instanceof State ? $state->id : $state;
+      array_push($roles, self::getStateIconRole($id), self::getStateIconRole($id, pending: true));
+    }
+    return array_values(array_unique($roles));
+  }
 
   /** A stat's short label (ATK, DEF ...), as condition badges and revealed stats show it. */
   public static function getStatLabel(string $stat): string
@@ -41,7 +73,7 @@ final class BattlerConditions
       if ($instance->isPending) {
         $label = $state->badgeLabel . '?';
         $entries[] = ['key' => 'state-pending:' . $state->id, 'name' => $state->name . ' (pending)',
-          'description' => '', 'glyph' => $label, 'iconKey' => 'status.state.' . $state->id . '.pending',
+          'description' => '', 'glyph' => $label, 'iconKey' => self::getStateIconRole($state->id, pending: true),
           'symbol' => 'state-pending:' . $state->id, 'label' => $label, 'badge' => $label,
           'polarity' => 'neutral', 'magnitude' => null];
         continue;
@@ -49,7 +81,7 @@ final class BattlerConditions
       $entries[] = ['key' => 'state:' . $state->id, 'name' => $state->name,
         'description' => $state->description,
         'glyph' => trim($state->icon) !== '' ? $state->icon : $state->name,
-        'iconKey' => 'status.state.' . $state->id, 'symbol' => 'state:' . $state->id,
+        'iconKey' => self::getStateIconRole($state->id), 'symbol' => 'state:' . $state->id,
         'label' => $state->badgeLabel, 'badge' => trim($state->icon) !== '' ? $state->icon : $state->badgeLabel,
         'polarity' => match ($state->disposition) {
           StateDisposition::BENEFICIAL => 'positive', StateDisposition::HARMFUL => 'negative',
