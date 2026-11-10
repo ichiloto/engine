@@ -162,7 +162,7 @@ it('marks a state a skill user gives itself as given by its bearer', function ()
   ]);
   $registry = new ReflectionProperty(Ichiloto\Engine\Entities\States\StateRegistry::class, 'states');
   $prior = $registry->getValue();
-  $registry->setValue(null, ['synthetic-guard' => new State('synthetic-guard', 'Guard', durationTurns: 1)]);
+  $registry->setValue(null, [getcwd() . '/assets/Data/states.php' => ['synthetic-guard' => new State('synthetic-guard', 'Guard', durationTurns: 1)]]);
   $user = protectionBattler();
   $ally = protectionBattler();
 

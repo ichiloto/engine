@@ -239,7 +239,7 @@ it('refunds MP for stat-stage requests with no net effect', function (string $st
 it('accounts for state infliction and removal regardless of persistence and refunds repeated no-ops', function (bool $persistent) {
   [$party, $caster, $ally] = makeFieldSkillParty();
   $state = new State('field-focus', 'Field Focus', durationTurns: 2, persistsAfterBattle: $persistent);
-  new ReflectionProperty(StateRegistry::class, 'states')->setValue(null, [$state->id => $state]);
+  new ReflectionProperty(StateRegistry::class, 'states')->setValue(null, [getcwd() . '/assets/Data/states.php' => [$state->id => $state]]);
   $executor = new FieldSkillExecutor(random: new SeededCombatRandomSource(12));
   $inflict = makeFieldEffectSkill(new AddStateSkillEffect($state->id));
   $cure = makeFieldEffectSkill(new RemoveStateSkillEffect([$state->id]));
@@ -268,7 +268,7 @@ it('accounts for state infliction and removal regardless of persistence and refu
 it('refunds MP when a state effect is resisted or misses', function (float $resistance, int $chance) {
   [$party, $caster, $ally] = makeFieldSkillParty();
   $state = new State('field-focus', 'Field Focus', durationTurns: 2);
-  new ReflectionProperty(StateRegistry::class, 'states')->setValue(null, [$state->id => $state]);
+  new ReflectionProperty(StateRegistry::class, 'states')->setValue(null, [getcwd() . '/assets/Data/states.php' => [$state->id => $state]]);
   $ally->setStateResistances([$state->id => $resistance]);
   $random = $this->createStub(CombatRandomSource::class);
   $random->method('nextInt')->willReturn(100);

@@ -94,7 +94,7 @@ it('wears off after its authored turns', function () {
 it('leaves survivors of a lethal hit in the state and the fallen without it', function () {
   $registry = new ReflectionProperty(StateRegistry::class, 'states');
   $previous = $registry->getValue();
-  $registry->setValue(null, ['heavy' => confusionState('heavy')]);
+  $registry->setValue(null, [getcwd() . '/assets/Data/states.php' => ['heavy' => confusionState('heavy')]]);
   $survivor = confusionBattler('Survivor', 100);
   $fallen = confusionBattler('Fallen', 5);
   $quake = new MagicSkill('Synthetic Quake', '', '', 0, 0, new ItemScope(ItemScopeSide::ENEMY, ItemScopeNumber::ALL,
