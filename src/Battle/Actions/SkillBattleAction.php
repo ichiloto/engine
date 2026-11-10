@@ -66,6 +66,9 @@ class SkillBattleAction extends BattleAction implements ExecutionEligibility
       if ($effect instanceof \Ichiloto\Engine\Entities\Effects\SkillEffects\PrepareCounterSkillEffect) {
         $effect->validate($this->reactions);
       }
+      if ($effect instanceof \Ichiloto\Engine\Entities\Effects\SkillEffects\PrepareResponseWindowSkillEffect) {
+        $effect->validate($this->skill, $this->reactions);
+      }
     }
     $actor->stats->currentMp -= $this->skill->cost;
     $executionId = $this->nextExecutionId();

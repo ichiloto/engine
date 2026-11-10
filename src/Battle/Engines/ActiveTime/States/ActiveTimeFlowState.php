@@ -236,6 +236,8 @@ class ActiveTimeFlowState extends PlayerActionState
       $maxPartyLevel,
       $gameState === null ? null : $gameState->getSwitch(...),
       $this->engine->random,
+      $this->engine->battleConfig->formation,
+      $this->engine->battleConfig->reactions->responseWindows,
     );
 
     $this->getAtbEngine()->queueImmediateTurn(

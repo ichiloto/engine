@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Entities\Skills;
 
+use Ichiloto\Engine\Battle\BattleReactions;
 use Ichiloto\Engine\Battle\Formation\BattleFormation;
 use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
@@ -21,6 +22,7 @@ final class SkillGroupEffectContext
     public readonly array $recipientContexts,
     public readonly CombatRandomSource $random,
     public readonly ?BattleFormation $formation,
+    public readonly ?BattleReactions $reactions = null,
   ) {}
 
   /** @return list<CharacterInterface> */

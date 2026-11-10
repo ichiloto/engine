@@ -15,7 +15,9 @@ use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDrainSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\MPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\MPDrainSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\PrepareResponseWindowSkillEffect;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
+use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Entities\States\State;
 use InvalidArgumentException;
@@ -23,6 +25,7 @@ use InvalidArgumentException;
 /** Battle-owned reaction leases. No actor save or presentation stores the selected foe. */
 final class BattleReactions
 {
+  public readonly BattleResponseWindows $responseWindows;
   public private(set) ?CharacterInterface $turnOwner = null;
   /** @var list<PreparedCounter> */
   private array $prepared = [];
@@ -30,11 +33,26 @@ final class BattleReactions
   private array $responses = [];
 
   public function __construct(private ?SkillCatalog $skills = null,
-    private readonly ?\Ichiloto\Engine\Battle\Resolution\CombatRandomSource $random = null) {}
+    private readonly ?\Ichiloto\Engine\Battle\Resolution\CombatRandomSource $random = null)
+  {
+    $this->responseWindows = new BattleResponseWindows();
+  }
+
+  public function resolveResponseSkill(string $name): Skill
+  {
+    $skill = ($this->skills ??= SkillCatalog::getProjectCatalog())->findSkill($name);
+    if ($skill === null
+      || !PrepareResponseWindowSkillEffect::canTargetOpposingParty($skill->occasion, $skill->scope, $skill->battleTargeting)
+      || PrepareResponseWindowSkillEffect::hasWarning($skill)) {
+      throw new InvalidArgumentException(sprintf('Response skill "%s" must be a battle-only follow-up targeting all living opponents.', $name));
+    }
+    return $skill;
+  }
 
   public function beginTurn(CharacterInterface $actor): void
   {
     $this->releaseInactiveCounters();
+    $this->responseWindows->releaseInactive();
     $this->turnOwner = $actor;
   }
 
@@ -107,6 +125,7 @@ final class BattleReactions
   {
     foreach ($this->prepared as $counter) { $counter->releaseStance(); }
     $this->prepared = $this->responses = [];
+    $this->responseWindows->clear();
     $this->turnOwner = null;
   }
 

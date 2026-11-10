@@ -40,6 +40,7 @@ abstract class BattleAction implements BattleActionInterface
     finally {
       $this->reactions = null; $this->allowInterception = true; $this->gauges = null; $this->formation = null;
       $reactions->releaseInactiveCounters();
+      $reactions->responseWindows->releaseInactive();
     }
   }
   /** The command's targeting contract, shared by selection and execution. */

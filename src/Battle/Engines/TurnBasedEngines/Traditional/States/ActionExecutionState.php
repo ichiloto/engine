@@ -160,12 +160,19 @@ class ActionExecutionState extends TurnState
 
     $party = $context->partyRoster->battlers;
     $troop = $context->troop->members->toArray();
+    $responseWindows = $this->engine->battleConfig->reactions->responseWindows;
+    $responseWindows->releaseInactive([...$party, ...$troop]);
     $isPartyActor = in_array($turn->battler, $party, true);
     // A confused battler (Fog, Dazed) may lose track of friend and foe and attack whoever is nearest to hand.
     $confused = BattleConfusion::resolve($turn->battler, $isPartyActor ? $party : $troop, $isPartyActor ? $troop : $party,
       $this->engine->random);
+    $responseAction = $confused === null ? $responseWindows->getReadyAction($turn->battler, $this->engine->random) : null;
     if ($confused !== null) {
       [$turn->action, $turn->targets] = $confused;
+    } elseif ($responseAction !== null) {
+      $turn->action = $responseAction;
+      $turn->targets = [];
+      $turn->targetAnchor = null;
     }
 
     if ($confused === null && $turn->action instanceof SkillBattleAction
@@ -213,11 +220,14 @@ class ActionExecutionState extends TurnState
       $targets,
       $turn->action,
       $actionName,
-      function () use ($turn, $context, $isPartyActor, $confused): void {
+      function () use ($turn, $context, $isPartyActor, $confused, $responseAction, $responseWindows): void {
         $turn->execute(new TurnExecutionContext(
           $this->engine,
           $this->engine->battleConfig,
         ));
+        if ($responseAction !== null) {
+          $responseWindows->consumeExecutedAction($turn->battler, $responseAction);
+        }
         if ($isPartyActor && $confused === null && $turn->action instanceof SkillBattleAction
           && $turn->action->lastResult !== null && BattleCommandCatalog::isSummonActionId($turn->action->skill->name)) {
           $context->getTutorialDirector()?->reportOutcome(
@@ -298,7 +308,11 @@ class ActionExecutionState extends TurnState
 
   protected function finishTurn(TurnStateExecutionContext $context): void
   {
-    if (($turn = $context->getCurrentTurn()) !== null) { $this->engine->recordTurnCompletion($context, $turn); }
+    if (($turn = $context->getCurrentTurn()) !== null) {
+      $this->engine->battleConfig->reactions->responseWindows->completeTurn($turn->battler,
+        [...$context->partyRoster->battlers, ...$context->troop->members->toArray()]);
+      $this->engine->recordTurnCompletion($context, $turn);
+    }
     $this->endingTurn = false;
     $context->advanceTurn();
     $this->transitionToResolutionIfNeeded($context);

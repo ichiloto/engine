@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Battle;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\NativeCombatRandomSource;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\PrepareResponseWindowSkillEffect;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Enemies\ActionCondition;
 use Ichiloto\Engine\Entities\Enemies\ActionPattern;
@@ -50,6 +51,7 @@ class EnemyActionEvaluator
     ?callable $switchLookup = null,
     ?CombatRandomSource $random = null,
     ?\Ichiloto\Engine\Battle\Formation\BattleFormation $formation = null,
+    ?BattleResponseWindows $responseWindows = null,
   ): array
   {
     $random ??= new NativeCombatRandomSource();
@@ -58,7 +60,9 @@ class EnemyActionEvaluator
     if (! empty($patterns)) {
       $usable = self::filterUsablePatterns($patterns, $enemy, $roundNumber, $maxPartyLevel, $switchLookup);
       $usable = array_values(array_filter($usable, static fn(ActionPattern $pattern): bool =>
-        $pattern->skill instanceof Skill && BattleTargetPolicy::getEligibleTargets(
+        $pattern->skill instanceof Skill
+          && (!($responseWindows?->isPending($enemy) ?? false) || !PrepareResponseWindowSkillEffect::hasWarning($pattern->skill))
+          && BattleTargetPolicy::getEligibleTargets(
           $pattern->skill->scope, $enemy, $troopTargets, $partyTargets, $formation, $pattern->skill->battleTargeting) !== []));
       $pattern = self::pickPattern($usable, $random);
 

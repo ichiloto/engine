@@ -120,6 +120,9 @@ abstract class TurnBasedEngine implements BattleEngineInterface
 
   public function handlePartyRosterChange(TurnStateExecutionContext $context): void
   {
+    $this->battleConfig?->reactions->responseWindows->releaseInactive([
+      ...$context->partyRoster->battlers, ...$context->troop->members->toArray(),
+    ]);
     $this->turnQueue->clear();
     $context->setTurns([]);
     $context->ui->characterNameWindow->setNames(array_map(

@@ -6,6 +6,7 @@ use Ichiloto\Engine\Battle\Resolution\ResolutionKind;
 use Ichiloto\Engine\Battle\CounterAttackRule;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\PrepareCounterSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\PrepareResponseWindowSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\ResetAtbSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDrainSkillEffect;
@@ -77,6 +78,7 @@ final class SkillRecord
     'prepare_counter' => PrepareCounterSkillEffect::class,
     'reset_atb' => ResetAtbSkillEffect::class,
     'change_formation' => \Ichiloto\Engine\Entities\Effects\SkillEffects\FormationSkillEffect::class,
+    'prepare_response_window' => PrepareResponseWindowSkillEffect::class,
   ];
 
   /** The effects that reveal what a battler hides, by type. */
@@ -135,6 +137,11 @@ final class SkillRecord
     if ($arguments['occasion'] !== Occasion::BATTLE_SCREEN
       && array_any($arguments['effects'], static fn($effect): bool => $effect instanceof AddStateSkillEffect && $effect->delayTurns > 0)) {
       throw new InvalidArgumentException('A delayed state effect requires a battle-only skill.');
+    }
+    if (array_any($arguments['effects'], static fn(SkillEffect $effect): bool => $effect instanceof PrepareResponseWindowSkillEffect)
+      && (count($arguments['effects']) !== 1 || !PrepareResponseWindowSkillEffect::canTargetOpposingParty(
+        $arguments['occasion'], $arguments['scope'], $arguments['battleTargeting']))) {
+      throw new InvalidArgumentException('A response-window warning must be the only effect and target all living opponents in battle.');
     }
     if (array_any($arguments['effects'], static fn($effect): bool => $effect instanceof PrepareCounterSkillEffect)
       && ($arguments['occasion'] !== Occasion::BATTLE_SCREEN
@@ -337,6 +344,11 @@ final class SkillRecord
     }
 
     return match ($type) {
+      'prepare_response_window' => (static function () use ($effect, $path): PrepareResponseWindowSkillEffect {
+        self::refuseUnknownKeys($effect, ['type', 'skill', 'responseTurns'], $path);
+        return new PrepareResponseWindowSkillEffect(self::requireString($effect, 'skill', $path),
+          self::requireInt($effect, 'responseTurns', $path));
+      })(),
       'change_formation' => (static function () use ($effect, $path): \Ichiloto\Engine\Entities\Effects\SkillEffects\FormationSkillEffect {
         self::refuseUnknownKeys($effect, ['type', 'operation'], $path);
         return new \Ichiloto\Engine\Entities\Effects\SkillEffects\FormationSkillEffect(
@@ -447,6 +459,8 @@ final class SkillRecord
       $effect instanceof \Ichiloto\Engine\Entities\Effects\SkillEffects\FormationSkillEffect => ['type' => 'change_formation', 'operation' => $effect->operation->value],
       $effect instanceof PrepareCounterSkillEffect => ['type' => 'prepare_counter',
         'skill' => $effect->skill, 'stateId' => $effect->stateId],
+      $effect instanceof PrepareResponseWindowSkillEffect => ['type' => 'prepare_response_window',
+        'skill' => $effect->skill, 'responseTurns' => $effect->responseTurns],
       $effect instanceof AddStateSkillEffect => array_filter(
         ['type' => 'add_state', 'stateId' => $effect->stateId, 'chancePercent' => $effect->chancePercent,
           'guaranteed' => $effect->guaranteed, 'trigger' => $effect->trigger->value, 'delayTurns' => $effect->delayTurns],

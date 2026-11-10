@@ -184,6 +184,7 @@ class BattleSimulator
     $resolver = new CombatResolver();
     $counters = new CounterAttackResolver($this->skills, $random);
     $reactions = new \Ichiloto\Engine\Battle\BattleReactions($this->skills, $random);
+    $responseWindows = $reactions->responseWindows;
     $turns = 0;
 
     try {
@@ -216,6 +217,7 @@ class BattleSimulator
 
         $isAlly = in_array($battler, $allies, true);
         $reactions->beginTurn($battler);
+        $responseWindows->releaseInactive([...$allies, ...$enemies]);
 
         if ($this->living($isAlly ? $enemies : $allies) === []) {
           break;
@@ -234,10 +236,12 @@ class BattleSimulator
           : BattleConfusion::resolve($battler, $isAlly ? $allies : $enemies, $isAlly ? $enemies : $allies, $random, $resolver);
 
         if (! $blocked) {
-          [$action, $chosen] = $confused ?? ($isAlly
+          $responseAction = $confused === null ? $responseWindows->getReadyAction($battler, $random, $resolver) : null;
+          [$action, $chosen] = $confused ?? ($responseAction === null ? null : [$responseAction, []]) ?? ($isAlly
             ? [InherentAttack::createAction($battler, $resolver, $random), []]
             : EnemyActionEvaluator::chooseAction(
-              $battler, $allies, $enemies, $turns, $this->highestLevelOf($allies), random: $random, formation: $battleConfig?->formation));
+              $battler, $allies, $enemies, $turns, $this->highestLevelOf($allies), random: $random,
+              formation: $battleConfig?->formation, responseWindows: $responseWindows));
           $targets = $confused !== null ? $chosen : BattleTargetPolicy::resolveTargets(
             $action->targetScope,
             $battler,
@@ -252,6 +256,9 @@ class BattleSimulator
           if ($targets !== []) {
             $targets = $reactions->resolveTargets($action, $battler, $targets, $allies, $enemies);
             $action->executeWithReactions($battler, $targets, $reactions, formation: $battleConfig?->formation);
+            if ($responseAction !== null) {
+              $responseWindows->consumeExecutedAction($battler, $responseAction);
+            }
 
             if (($result = $action->lastResult) !== null) {
               $this->recordResult($result, $battler, $targets, $isAlly, $damage, $hpLoss, $healing, $mitigation);
@@ -277,6 +284,7 @@ class BattleSimulator
             $hpLoss[$battler->name] = ($hpLoss[$battler->name] ?? 0.0) + $loss;
           }
         }
+        $responseWindows->completeTurn($battler, [...$allies, ...$enemies]);
       }
 
       if ($this->living($enemies) === []) {

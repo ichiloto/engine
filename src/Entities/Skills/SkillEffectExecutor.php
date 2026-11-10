@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Entities\Skills;
 
+use Ichiloto\Engine\Entities\Effects\SkillEffects\PrepareResponseWindowSkillEffect;
 use Ichiloto\Engine\Battle\Resolution\CombatActionResult;
 use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
@@ -50,7 +51,10 @@ final class SkillEffectExecutor
     $groupContexts = [];
     $groupEffects = array_values(array_filter($skill->effects, static fn($effect): bool =>
       $effect instanceof \Ichiloto\Engine\Entities\Effects\SkillEffects\GroupSkillEffect));
-    foreach ($groupEffects as $effect) { $effect->validateContext($formation, $targets); }
+    foreach ($groupEffects as $effect) {
+      $effect->validateContext($formation, $targets);
+      if ($effect instanceof PrepareResponseWindowSkillEffect) { $effect->validate($skill, $reactions); }
+    }
 
     foreach ($targets as $target) {
       if (! $target instanceof CharacterInterface) {
@@ -116,7 +120,7 @@ final class SkillEffectExecutor
       ];
     }
 
-    $groupContext = new SkillGroupEffectContext($actor, $groupContexts, $this->random, $formation);
+    $groupContext = new SkillGroupEffectContext($actor, $groupContexts, $this->random, $formation, $reactions);
     foreach ($groupEffects as $effect) { $effect->applyToGroup($groupContext); }
     foreach ($groupContext->getOutcomes() as $targetId => $outcomes) {
       $secondaryByTarget[$targetId] = [...($secondaryByTarget[$targetId] ?? []), ...$outcomes];
