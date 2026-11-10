@@ -380,3 +380,54 @@ it('accounts for six full result blocks with four party HUD rows under the share
   expect(count($hud->textLayers) + count($feedback))->toBeLessThanOrEqual(64);
   new PresentationCanvas(1350, 720, $hud->images, textLayers: [...$hud->textLayers, ...$feedback]);
 });
+
+it('keeps a damage stack over the struck body and clear of nearby bystanders', function (CanvasRectangle $target,
+  CanvasRectangle $above, CanvasRectangle $beside, CanvasRectangle $badge) {
+  $participants = [
+    graphicalFeedbackParticipant(1, [], [], $above),
+    graphicalFeedbackParticipant(2, [
+      ['text' => 'CRITICAL', 'role' => BattleFeedbackRole::CRITICAL],
+      ['text' => '25', 'role' => BattleFeedbackRole::DAMAGE],
+    ], [], $target),
+    graphicalFeedbackParticipant(3, [], [], $beside),
+  ];
+  foreach ([10.0, 10.6, 11.5] as $now) {
+    $layers = GraphicalBattleFeedback::compose(getGraphicalFeedbackLayout(), $participants, [], $now, [$badge]);
+    expect($layers)->toHaveCount(2);
+    foreach ($layers as $layer) {
+      $box = $layer->paintBounds;
+      expect($layer->id)->toStartWith('result-2-')
+        ->and($box->x + $box->width / 2)->toBeGreaterThan($target->x)
+        ->and($box->x + $box->width / 2)->toBeLessThan($target->x + $target->width)
+        ->and(graphicalFeedbackOverlap($box, $above))->toBe(0.0)
+        ->and(graphicalFeedbackOverlap($box, $beside))->toBe(0.0)
+        ->and(graphicalFeedbackOverlap($box, $badge))->toBe(0.0);
+    }
+  }
+})->with([
+  'front target' => [new CanvasRectangle(475, 503, 190, 77), new CanvasRectangle(390, 313, 190, 77),
+    new CanvasRectangle(270, 408, 190, 77), new CanvasRectangle(590, 455, 32, 32)],
+  'back target' => [new CanvasRectangle(270, 408, 190, 77), new CanvasRectangle(390, 313, 190, 77),
+    new CanvasRectangle(475, 503, 190, 77), new CanvasRectangle(385, 360, 32, 32)],
+]);
+
+it('keeps damage in its recipient column when a badge fills the low space', function () {
+  $target = new CanvasRectangle(280, 420, 175, 80);
+  $neighbour = new CanvasRectangle(400, 315, 160, 100);
+  $badge = new CanvasRectangle(287, 370, 40, 44);
+  $participant = graphicalFeedbackParticipant(1, [
+    ['text' => 'CRITICAL', 'role' => BattleFeedbackRole::CRITICAL],
+    ['text' => '25', 'role' => BattleFeedbackRole::DAMAGE],
+  ], bounds: $target);
+  $other = ['id' => 2, 'bounds' => $neighbour, 'persistent' => [], 'popups' => []];
+  $layers = GraphicalBattleFeedback::compose(getGraphicalFeedbackLayout(), [$participant, $other], [], 10, [$badge]);
+  expect($layers)->toHaveCount(2);
+  foreach ($layers as $layer) {
+    $box = $layer->paintBounds;
+    $center = $box->x + $box->width / 2;
+    expect($center)->toBeGreaterThanOrEqual($target->x)->toBeLessThanOrEqual($target->x + $target->width)
+      ->and($box->y + $box->height)->toBeLessThanOrEqual($badge->y)
+      ->and(graphicalFeedbackOverlap($box, $neighbour))->toBe(0.0)
+      ->and(graphicalFeedbackOverlap($box, $badge))->toBe(0.0);
+  }
+});

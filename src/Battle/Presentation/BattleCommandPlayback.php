@@ -17,6 +17,9 @@ use Throwable;
  */
 final class BattleCommandPlayback implements BattleEffectPlayback
 {
+  /** Maximum displacement as a share of the recoiling battler's slot width. */
+  public const float DAMAGE_RECOIL_FRACTION = .025;
+
   public readonly EffectPlaybackSession $session;
   private Closure $resolve;
   private Closure $presentCue;
@@ -479,7 +482,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     if ($reducedMotion || $this->getPoseRole($battler) !== BattlePoseRole::DAMAGE) { return 0; }
     $elapsed = $this->getPoseElapsedSeconds($battler);
-    return $elapsed >= .3 ? 0 : sin($elapsed * 80) * .025 * (1 - $elapsed / .3);
+    return $elapsed >= .3 ? 0 : sin($elapsed * 80) * self::DAMAGE_RECOIL_FRACTION * (1 - $elapsed / .3);
   }
 
   public function getShakeFraction(CharacterInterface $battler, bool $reducedMotion): float

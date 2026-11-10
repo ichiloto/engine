@@ -22,10 +22,27 @@ final class BattleFeedbackPlacement
 
   /** @return array{bounds: CanvasRectangle, rise: float, envelope: CanvasRectangle, overlap: float} */
   public static function moving(CanvasRectangle $battler, int $width, int $height, CanvasRectangle $area,
-    array $ui, array $occupied, int $preferredRise, array $otherBattlers = [], bool $beside = false): array
+    array $ui, array $occupied, int $preferredRise, array $otherBattlers = [], bool $beside = false,
+    bool $aboveTarget = false): array
   {
     $obstacles = [...self::obstacles($ui), ...$occupied];
-    foreach (array_unique([max(0, $preferredRise), (int)floor(max(0, $preferredRise) / 2), 0]) as $rise) {
+    $rises = array_unique([max(0, $preferredRise), (int)floor(max(0, $preferredRise) / 2), 0]);
+    if ($aboveTarget) {
+      $columnObstacles = [...$obstacles, ...$otherBattlers];
+      foreach ([0, $height] as $lift) {
+        foreach ($rises as $rise) {
+          $envelope = self::getRecipientColumn($battler, $width, $height + $rise, $area, $columnObstacles, $lift);
+          if ($envelope !== null) {
+            return ['bounds' => new CanvasRectangle($envelope->x, $envelope->y + $rise, $width, $height),
+              'rise' => (float)$rise, 'envelope' => $envelope, 'overlap' => 0.0];
+          }
+        }
+        // Above a close badge or another overlay, try the next clear slot in the same column.
+        // Descending top edges permit one upward sweep through intersecting obstacles per column.
+        usort($columnObstacles, static fn(CanvasRectangle $a, CanvasRectangle $b): int => $b->y <=> $a->y);
+      }
+    }
+    foreach ($rises as $rise) {
       if ($height + $rise > $area->height) { continue; }
       [$envelope, $overlap] = self::choose($battler, $width, $height + $rise, $area, $obstacles, true, $beside, $otherBattlers);
       if ($overlap === 0.0 || $rise === 0) {
@@ -34,6 +51,46 @@ final class BattleFeedbackPlacement
       }
     }
     throw new \RuntimeException('Battle feedback cannot fit the configured safe area without losing text.');
+  }
+
+  /** Try the recipient's column before giving up its shorter or stationary rise. */
+  private static function getRecipientColumn(CanvasRectangle $battler, int $width, int $height,
+    CanvasRectangle $area, array $obstacles, int $lift): ?CanvasRectangle
+  {
+    if ($width > $area->width || $height > $area->height) { return null; }
+    $centerX = $battler->x + ($battler->width - $width) / 2;
+    $y = min($area->y + $area->height - $height, $battler->y - $height - 4);
+    if ($y < $area->y) { return null; }
+    $minimum = max($area->y, $y - $lift);
+    $nearest = null;
+    foreach ([$centerX, $battler->x, $battler->x + $battler->width - $width] as $x) {
+      $x = max($area->x, min($area->x + $area->width - $width, $x));
+      $center = $x + $width / 2;
+      if ($center < $battler->x || $center > $battler->x + $battler->width) { continue; }
+      $top = $y;
+      foreach ($obstacles as $other) {
+        if ($x < $other->x + $other->width && $x + $width > $other->x
+          && $top < $other->y + $other->height && $top + $height > $other->y) {
+          $top = $other->y - $height;
+          if ($top < $minimum) { break; }
+        }
+      }
+      if ($top === $y) { return new CanvasRectangle($x, $y, $width, $height); }
+      if ($top >= $minimum && ($nearest === null || $top > $nearest->y)) {
+        $nearest = new CanvasRectangle($x, $top, $width, $height);
+      }
+    }
+    return $nearest;
+  }
+
+  private static function getOverlap(CanvasRectangle $candidate, array $others): float
+  {
+    $overlap = 0.0;
+    foreach ($others as $other) {
+      $overlap += max(0, min($candidate->x + $candidate->width, $other->x + $other->width) - max($candidate->x, $other->x))
+        * max(0, min($candidate->y + $candidate->height, $other->y + $other->height) - max($candidate->y, $other->y));
+    }
+    return $overlap;
   }
 
   /** @return list<CanvasRectangle> */
@@ -74,18 +131,10 @@ final class BattleFeedbackPlacement
     $getPlace = static fn(array $position): CanvasRectangle => new CanvasRectangle(
       max($area->x, min($area->x + $area->width - $width, $position[0])),
       max($area->y, min($area->y + $area->height - $height, $position[1])), $width, $height);
-    $getOverlap = static function (CanvasRectangle $candidate, array $others): float {
-      $overlap = 0.0;
-      foreach ($others as $other) {
-        $overlap += max(0, min($candidate->x + $candidate->width, $other->x + $other->width) - max($candidate->x, $other->x))
-          * max(0, min($candidate->y + $candidate->height, $other->y + $other->height) - max($candidate->y, $other->y));
-      }
-      return $overlap;
-    };
     $attached = array_map($getPlace, $positions);
     // Beside its battler, clear of everything; then beside it over a neighbour rather than away from it.
     foreach ([[...$obstacles, ...$neighbours], $obstacles] as $avoided) {
-      $free = array_find($attached, static fn(CanvasRectangle $candidate): bool => $getOverlap($candidate, $avoided) === 0.0);
+      $free = array_find($attached, static fn(CanvasRectangle $candidate): bool => self::getOverlap($candidate, $avoided) === 0.0);
       if ($free !== null) { return [$free, 0.0]; }
     }
     // UI edges add escape positions when several adjacent windows surround a battler.
@@ -112,12 +161,12 @@ final class BattleFeedbackPlacement
       + abs($place->y + $place->height - $battler->y);
     $escapes = array_map($getPlace, $escapes);
     usort($escapes, static fn(CanvasRectangle $a, CanvasRectangle $b): int => $getDistance($a) <=> $getDistance($b));
-    $free = array_find($escapes, static fn(CanvasRectangle $candidate): bool => $getOverlap($candidate, $obstacles) === 0.0);
+    $free = array_find($escapes, static fn(CanvasRectangle $candidate): bool => self::getOverlap($candidate, $obstacles) === 0.0);
     if ($free !== null) { return [$free, 0.0]; }
     $best = null;
     $leastOverlap = INF;
     foreach ([...$attached, ...$escapes] as $candidate) {
-      $overlap = $getOverlap($candidate, $obstacles);
+      $overlap = self::getOverlap($candidate, $obstacles);
       if ($overlap < $leastOverlap) { $best = $candidate; $leastOverlap = $overlap; }
     }
     // A deliberately full-screen modal still owns the screen; feedback must not paint over it.

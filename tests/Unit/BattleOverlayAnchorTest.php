@@ -14,6 +14,7 @@ use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationSnapshot;
 use Ichiloto\Engine\Battle\Presentation\BattleStageSlot;
 use Ichiloto\Engine\Battle\Presentation\BattleTargetCursor;
+use Ichiloto\Engine\Battle\Presentation\BattleTravelPlan;
 use Ichiloto\Engine\Battle\Presentation\BattleUiSkin;
 use Ichiloto\Engine\Battle\Presentation\BattlerArtwork;
 use Ichiloto\Engine\Battle\Presentation\BattlerPose;
@@ -280,6 +281,24 @@ it('keeps a front battler\'s icon at its own head when the battler behind it sta
     ->and($box->y)->toEqual(400 - $style->height - $style->headGap);
 });
 
+it('clears a neighbouring silhouette within the same head row', function () {
+  $style = new BattleConditionBadgeStyle();
+  $owner = new Character('Owner', 1, new Stats(currentHp: 100));
+  $neighbour = new Character('Neighbour', 1, new Stats(currentHp: 100));
+  poisonOverlayAnchorBattler($owner);
+  $ownerId = spl_object_id($owner);
+  $battlers = [$ownerId => $owner, spl_object_id($neighbour) => $neighbour];
+  $layout = new BattleHeadAttachmentLayout();
+  foreach ([0, 3] as $step) {
+    $body = new CanvasRectangle(600 + $step, 400, 150, 150);
+    $otherBody = new CanvasRectangle(685, 190, 150, 205);
+    $box = $layout->place($battlers, [$ownerId => $body, spl_object_id($neighbour) => $otherBody],
+      1350, 720, $style, null)[$ownerId][0]['bounds'];
+    expect($box->x)->toEqual($body->x + $body->width / 2 - $style->headGap - $style->size)
+      ->and($box->y)->toEqual($body->y - $style->height - $style->headGap);
+  }
+});
+
 it('returns a displaced icon to its home beside the head once the obstruction leaves', function () {
   $style = new BattleConditionBadgeStyle();
   $cursor = new BattleTargetCursor(array_fill_keys(['above', 'left', 'right'],
@@ -313,4 +332,46 @@ it('keeps a name beside its battler over a neighbour rather than carrying it awa
   expect($placed['overlap'])->toBe(0.0)->and(getOverlayAnchorGap($box, $battler))->toBeLessThanOrEqual(4.0)
     ->and($box->x + $box->width <= $cursor->x || $cursor->x + $cursor->width <= $box->x
       || $box->y + $box->height <= $cursor->y || $cursor->y + $cursor->height <= $box->y)->toBeTrue();
+});
+
+it('keeps a stationary target badge anchored through another battler\'s undrawn cursor movement', function () {
+  [$battle, $catalog, $members, $enemies] = createOverlayAnchorBattle($this->anchorRoot, [1350, 720, 10, 20], 'line');
+  $actor = $members[0];
+  $target = $enemies[0];
+  poisonOverlayAnchorBattler($target);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->anchorRoot);
+  $rest = $presentation->frame(now: 1);
+  $badgeId = 'status-badge-' . spl_object_id($target) . '-';
+  $home = array_find($rest->images, static fn($image) => str_starts_with($image->id, $badgeId))->destination;
+  $slot = $presentation->getSlot($actor);
+  // Its potential left cursor passes through the target badge during the attack.
+  $landing = [$home->x + 100, $home->y + 65];
+  $route = new BattleTravelPlan([[$slot->x, $slot->y], $landing], $home->x, $home->y, -1, 4000, 4000);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.2, .3, .3, .3, .3, .3, .3), travel: $route);
+  $playback = new BattleCommandPlayback($plan, $actor, [$target], BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
+  $playback->update($plan->phases['target']['start'] / BattleCommandTimeline::FPS + .02);
+  $frame = $presentation->frame(new BattlePresentationSnapshot($playback), now: 1);
+  $body = getOverlayAnchorBody($frame, $actor, $this->anchorRoot);
+  $envelopes = array_column($catalog->ui->skin->targetCursor->getPlacementOptions($body, 1350, 720), 'envelope');
+  expect(array_any($envelopes, static fn($box) => getOverlayAnchorGap($home, $box) === 0.0))->toBeTrue();
+  $badge = array_find($frame->images, static fn($image) => str_starts_with($image->id, $badgeId))->destination;
+  expect($badge->toArray())->toBe($home->toArray());
+});
+
+it('leaves room for the owner recoil before choosing a nearby clear badge slot', function () {
+  $style = new BattleConditionBadgeStyle();
+  $owner = new Character('Owner', 1, new Stats(currentHp: 100));
+  $neighbour = new Character('Neighbour', 1, new Stats(currentHp: 100));
+  poisonOverlayAnchorBattler($owner);
+  $id = spl_object_id($owner);
+  $other = spl_object_id($neighbour);
+  $layout = new BattleHeadAttachmentLayout();
+  $behind = new CanvasRectangle(298, 345, 90, 48);
+  $battlers = [$id => $owner, $other => $neighbour];
+  $rest = $layout->place($battlers, [$id => new CanvasRectangle(250, 400, 100, 130), $other => $behind],
+    1350, 720, $style, null, recoilClearance: [$id => 5.0])[$id][0]['bounds'];
+  $recoil = $layout->place($battlers, [$id => new CanvasRectangle(253, 400, 100, 130), $other => $behind],
+    1350, 720, $style, null, recoilClearance: [$id => 5.0])[$id][0]['bounds'];
+  expect($rest->x + $rest->width + 5)->toBeLessThanOrEqual($behind->x)
+    ->and($recoil->x - $rest->x)->toBe(3.0)->and($recoil->y)->toBe($rest->y);
 });

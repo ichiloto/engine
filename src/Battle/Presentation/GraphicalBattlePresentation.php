@@ -547,14 +547,25 @@ final class GraphicalBattlePresentation
         if ($shownPose !== null) {
           $attachmentPoints[$identity] = $shownPose->projectAttachmentPoints($drawn);
         }
-        // Its contact follows its feet through steps, recoil and poses, and fades with it. Engine-drawn
-        // contacts are composites; a ripple or burrow sheet is art and needs none.
+        // Travel already owns the moving ground anchor. Keep the resting contact shape as the
+        // travelling artwork changes, so a low weapon or cape cannot become a second footing.
+        $contactArtwork = $combatantImages[$identity];
+        $contactFootprint = $bounds->height;
+        if ($contact === BattlerContact::SHADOW && $elevation <= 0 && !$reducedMotion
+          && $playback?->actor === $battler && ($playback->plan->travel?->isPossible ?? false)
+          && !$usesKnockoutPose && !$usesConcedePose) {
+          $resting = $this->projectBattler($identity, $participant, null, false, $includeOptionalArtwork,
+            $field?->getPoseElapsedSeconds() ?? 0);
+          $contactArtwork = $resting['available'] ? self::projectTravelContactArtwork($resting['image'],
+            $resting['ground'], $groundAnchors[$identity], $image->flipX) : null;
+          $contactFootprint = $resting['image']->destination->height;
+        }
         $profile = $participant['scale'];
         $surface = BattlerGroundContact::compose('contact-' . $identity, $groundAnchors[$identity]->x, $groundAnchors[$identity]->y,
           $profile !== null && $this->scale !== null ? $this->scale->referenceHeight * $profile->relativeSize * $slot->displayScale
-            : $bounds->height, ($profile?->horizontal ?? false) || $usesKnockoutPose, $bounds->width, $elevation, $contact,
+            : $contactFootprint, ($profile?->horizontal ?? false) || $usesKnockoutPose, $bounds->width, $elevation, $contact,
           $this->layout, $this->arena, $participant['grounding'], $this->assetRoot, $field?->getPoseElapsedSeconds() ?? 0,
-          $reducedMotion, $combatantImages[$identity]->opacity, $combatantImages[$identity]);
+          $reducedMotion, $combatantImages[$identity]->opacity, $contactArtwork);
         array_push($images, ...$surface['images']);
         if ($compositing) { array_push($composites, ...$surface['composites']); }
         if (($defeat['pulse'] ?? false) && $compositing && $includeOptionalArtwork) {
@@ -652,7 +663,26 @@ final class GraphicalBattlePresentation
       array_push($text, ...$composition->textLayers);
       array_push($composites, ...$composition->composites);
     }
-    $badges = GraphicalBattleConditions::compose($this->layout, $conditionBattlers, $bodies, $this->assetRoot, $this->headAttachments);
+    $cursorBodies = $badgeRecoil = [];
+    if ($playback !== null && !$playback->isCompleted && !$reducedMotion) {
+      foreach ($playback->targets as $target) {
+        $identity = spl_object_id($target);
+        if (!isset($conditionBattlers[$identity])) { continue; }
+        $badgeRecoil[$identity] = $this->getSlot($target)->width * BattleCommandPlayback::DAMAGE_RECOIL_FRACTION;
+      }
+    }
+    if ($skin?->targetCursor !== null && $playback !== null && !$playback->isCompleted) {
+      foreach ([$playback->actor, ...$playback->targets] as $battler) {
+        $identity = spl_object_id($battler);
+        if (!isset($conditionBattlers[$identity])) { continue; }
+        $resting = $this->projectBattler($identity, $this->participants[$identity], null, $reducedMotion,
+          $includeOptionalArtwork, $field?->getPoseElapsedSeconds() ?? 0);
+        $cursorBodies[$identity] = $resting['available'] ? $this->locateBody($resting['image'], $identity)
+          : $resting['image']->destination;
+      }
+    }
+    $badges = GraphicalBattleConditions::compose($this->layout, $conditionBattlers, $bodies, $this->assetRoot, $this->headAttachments,
+      $cursorBodies, $cursorBounds, $badgeRecoil);
     array_push($images, ...$badges->images);
     array_push($text, ...$badges->textLayers);
     array_push($conditionAreas, ...$badges->getOverlayProtection());
@@ -740,6 +770,19 @@ final class GraphicalBattlePresentation
       $playback->recordPresentationFailure($error);
       return null;
     }
+  }
+
+  /** Places the resting contact sample at the current ground point and facing. */
+  private static function projectTravelContactArtwork(CanvasImage $resting, Vector2 $restingGround, Vector2 $ground,
+    bool $flipX): CanvasImage
+  {
+    $box = $resting->destination;
+    $relativeX = $box->x - $restingGround->x;
+    if ($flipX !== $resting->flipX) { $relativeX = -$relativeX - $box->width; }
+    return new CanvasImage($resting->id, $resting->asset,
+      new CanvasRectangle($ground->x + $relativeX, $ground->y + $box->y - $restingGround->y,
+        $box->width, $box->height, allowOutsideCanvas: true),
+      $resting->layer, $resting->sourceRect, flipX: $flipX, flipY: $resting->flipY);
   }
 
   private function projectBattler(int $identity, array $participant, ?BattleCommandPlayback $playback,

@@ -3709,6 +3709,57 @@ it('uses authored pose reach and target strike point on the same runtime impact 
     ->and($presentation->frame(new \Ichiloto\Engine\Battle\Presentation\BattlePresentationSnapshot($playback)))->not->toBeNull();
 });
 
+it('moves the resting ground contact through a strike with low weapon overhang', function () {
+  if (!function_exists('imagecreatefrompng')) { $this->markTestSkipped('Ground contact requires optional GD PNG support.'); }
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  foreach (['rest.png' => [[85, 20, 115, 180]], 'strike.png' => [[85, 20, 115, 180], [5, 174, 84, 178]]] as $file => $parts) {
+    $bitmap = imagecreatetruecolor(200, 200);
+    imagesavealpha($bitmap, true);
+    imagealphablending($bitmap, false);
+    imagefill($bitmap, 0, 0, imagecolorallocatealpha($bitmap, 0, 0, 0, 127));
+    $ink = imagecolorallocate($bitmap, 70, 80, 90);
+    foreach ($parts as [$left, $top, $right, $bottom]) {
+      imagefilledrectangle($bitmap, $left, $top, $right, $bottom, $ink);
+    }
+    imagepng($bitmap, $this->root . '/' . $file);
+  }
+  $layout = new BattleCanvasLayout(1350, 720, partySlots: $catalog->ui->partySlots,
+    battlerArea: new CanvasRectangle(0, 80, 1350, 520),
+    shadow: new \Ichiloto\Engine\Battle\Presentation\BattlerShadowStyle(PresentationColor::rgb(10, 10, 20)));
+  $catalog = new BattlePresentationCatalog($catalog->arenas,
+    ['Hero' => new BattlerArtwork('rest.png', 200, 200, 100, 181)], $catalog->enemies,
+    ui: $layout, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => new BattlePoseSet([
+      'idle' => new BattlerPose('rest.png', pivotY: .905),
+      'attack' => new BattlerPose('strike.png', loop: false, pivotY: .905),
+    ])]);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $travel = $presentation->planActionTravel($hero, [$enemies[0]], new AttackAction('Contact'));
+  expect($travel->isPossible)->toBeTrue();
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1,.1,.1,.1,.1,.1,.1), travel: $travel);
+  $playback = new BattleCommandPlayback($plan, $hero, [$enemies[0]], BattlePoseRole::ATTACK,
+    static fn() => null, static fn() => null);
+  $findShadow = static fn(PresentationCanvas $canvas) =>
+    array_find($canvas->composites, static fn($item): bool => $item->id === 'contact-' . spl_object_id($hero));
+  $rest = $findShadow($presentation->frame());
+  $playback->begin();
+  $playback->update($plan->phases['target']['start'] / 120);
+  $strikeFrame = $presentation->frame(new \Ichiloto\Engine\Battle\Presentation\BattlePresentationSnapshot($playback));
+  $strike = $findShadow($strikeFrame);
+  $restBrush = $rest->operations[0]->data['brush'];
+  $strikeBrush = $strike->operations[0]->data['brush'];
+  $offset = $playback->getTravelOffset();
+  expect(graphicalCombatantImage($strikeFrame, $hero)->asset)->toBe('strike.png')
+    ->and($strikeBrush['radius'][0])->toEqualWithDelta($restBrush['radius'][0], .01)
+    ->and($strikeBrush['radius'][1])->toEqualWithDelta($restBrush['radius'][1], .01)
+    ->and($strike->destination->x + $strikeBrush['center'][0])->toEqualWithDelta(
+      $rest->destination->x + $restBrush['center'][0] + $offset->x, .01)
+    ->and($strike->destination->y + $strikeBrush['center'][1])->toEqualWithDelta(
+      $rest->destination->y + $restBrush['center'][1] + $offset->y, .01);
+  $playback->update(10);
+  $returned = $findShadow($presentation->frame(new \Ichiloto\Engine\Battle\Presentation\BattlePresentationSnapshot($playback)));
+  expect($returned->destination)->toEqual($rest->destination);
+});
+
 it('keeps inactive attack overhang out of the running start envelope', function () {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $root = createTestDirectory('phase-owned-travel-envelope');

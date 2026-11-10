@@ -553,11 +553,13 @@ line, where staging, footing, effects and its contact meet the ground
 - Contact (`BattlerContact`): `shadow`, `ripple`, `burrow` or `none`, what is
   drawn where it meets the surface. Without its own choice: negative elevation
   in water ripples, negative on land burrows, everything else casts a shadow.
-- A grounded battler's shadow follows where its art actually meets the
-  ground, read every frame from the image as drawn (pose, crop, mirroring,
-  command movement) by `PngAssetBounds::getGroundContact()`, the same reader
-  battle overlays attach through, cached per content revision and crop, so
-  replaced art needs no metadata. The art's lower edge is each column's
+- The ground shadow samples the lower silhouette through
+  `PngAssetBounds::getGroundContact()`, cached per content revision and crop.
+  Stationary battlers use the pose they draw. A battler on a command travel
+  route carries its resting contact shape at the current ground point and
+  facing, so a low weapon or cape in an action frame cannot widen the contact.
+  Knockout art retains its drawn ground contact. Replacing art needs no
+  footprint metadata. The art's lower edge is each column's
   lowest solid pixel. In a three-quarter view the ground recedes up the
   screen, so a contact further back stands higher: every column whose lower
   edge lies within a depth of the lowest one touches the ground, that depth
@@ -1101,14 +1103,17 @@ art admission are not part of this public contract.
 
 Andrew’s 2026-10-18 review: “See this two images... see how the poisoned icon is pushed to the left when the selector shows up... that is wrong behaviour!”
 
-Condition badges own a fixed group centred above their battler, bounded by the
-canvas. Overlay-driven repositioning around cursors, names, damage, optional
-infliction effects and opaque UI is removed. Their first visible frame uses the
-same head anchor as settled frames. Permanent condition groups no longer use
-floating damage-feedback collision search; other overlays retain their own
-placement and layer/occlusion rules. Terminal conditions keep their independent
-head attachment through the shared TerminalBattleEffects origin. State identity,
-application, duration, damage and cures are unchanged.
+Condition badges follow their owner's visible head. During commands the potential
+cursor slots follow resting positions, while drawn cursors reserve their real
+envelopes. Badges prefer nearby cells clear of other battlers and leave room
+for their owner's recoil. In a crowded formation, a badge can remain attached
+to its own head in front of a battler behind it.
+
+Damage and Critical travel as one text block in the struck battler's column
+where room permits. The layout tries a shorter rise and another clear slot
+above the battler before placing the block beside it. The moving envelope
+clears badges, cursors, visible bodies and opaque UI in that column. Terminal
+conditions use their independent `TerminalBattleEffects` head attachment.
 
 
 ### Summons management presentation

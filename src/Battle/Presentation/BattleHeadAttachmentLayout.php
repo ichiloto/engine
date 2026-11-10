@@ -14,7 +14,7 @@ use WeakMap;
  * Every badge belongs to the head of its battler's drawn body. Each condition slot has a home cell in the head
  * rows beside the cursor, so a badge follows its battler as it moves or changes pose and adding, curing or
  * selecting never moves another badge. Badges never cover a cursor envelope, another badge or their own body;
- * another battler's body may stand behind them, as battlers stand behind one another. A badge whose home is
+ * they prefer a clear nearby cell when another battler stands behind the head. A badge whose home is
  * taken keeps its last place beside the head while that stays free, and returns home once it frees.
  */
 final class BattleHeadAttachmentLayout
@@ -31,15 +31,20 @@ final class BattleHeadAttachmentLayout
 
     /**
      * @param array<int, CanvasRectangle> $bodies Each battler's drawn body this frame.
+     * @param array<int, CanvasRectangle> $cursorBodies Stable bodies for undrawn cursor reservations during commands.
+     * @param list<CanvasRectangle> $drawnCursors Envelopes of actual cursors this frame.
+     * @param array<int, float> $recoilClearance Horizontal room around unrelated obstacles for the owner's recoil.
      * @return array<int, list<array{entry: array, bounds: CanvasRectangle}>>
      */
     public function place(array $battlers, array $bodies, int $width, int $height, BattleConditionBadgeStyle $style,
-        ?BattleTargetCursor $cursor): array
+        ?BattleTargetCursor $cursor, array $cursorBodies = [], array $drawnCursors = [], array $recoilClearance = []): array
     {
-        $reserved = [];
-        foreach ($bodies as $body) {
-            foreach ($cursor?->getPlacementOptions($body, $width, $height) ?? [] as $option) { $reserved[] = $option['envelope']; }
-        }
+        $cursorEnvelopes = static fn(CanvasRectangle $body): array =>
+            array_column($cursor?->getPlacementOptions($body, $width, $height) ?? [], 'envelope');
+        $potential = array_map($cursorEnvelopes, $cursorBodies + $bodies);
+        $commonReserved = [...$drawnCursors, ...array_merge(...$potential)];
+        $reserved = $nearbyBodies = [];
+        $drawnBodies = array_intersect_key($bodies, $battlers);
         $result = $pending = $placed = $cells = [];
         $place = function (int $id, array $entry, CanvasRectangle $box) use (&$result, &$placed, $battlers, $bodies): void {
             $result[$id][$entry['slot']] = ['entry' => $entry, 'bounds' => $box];
@@ -54,9 +59,20 @@ final class BattleHeadAttachmentLayout
             $entries = $this->slots->assign($battler, BattlerConditions::getEntries($battler));
             $this->offsets[$battler] = array_intersect_key($this->offsets[$battler] ?? [], array_column($entries, null, 'slot'));
             $cells[$id] = $this->getHeadCells($bodies[$id], $style, $cursor, $width, $height);
+            $neighbours = array_values(array_diff_key($drawnBodies, [$id => true]));
+            $margin = $recoilClearance[$id] ?? 0.0;
+            $nearbyBodies[$id] = $margin <= 0 ? $neighbours : array_map(
+                static fn(CanvasRectangle $box): CanvasRectangle => new CanvasRectangle(
+                    max(0, $box->x - $margin), $box->y,
+                    min($width, $box->x + $box->width + $margin) - max(0, $box->x - $margin), $box->height),
+                [...$neighbours, ...array_merge(...array_diff_key($potential, [$id => true]))]);
+            $reserved[$id] = isset($cursorBodies[$id])
+                ? [...$drawnCursors, ...array_merge(...array_replace($potential, [$id => $cursorEnvelopes($bodies[$id])]))]
+                : $commonReserved;
             foreach ($entries as $entry) {
                 $home = $cells[$id][$entry['slot']] ?? null;
-                if ($home !== null && self::canPlace($home, $width, $height, [...$reserved, $bodies[$id], ...$placed])) {
+                if ($home !== null && self::canPlace($home, $width, $height,
+                    [...$reserved[$id], $bodies[$id], ...$placed, ...$nearbyBodies[$id]])) {
                     $place($id, $entry, $home);
                 } else { $pending[] = [$id, $entry]; }
             }
@@ -66,7 +82,8 @@ final class BattleHeadAttachmentLayout
             $offset = ($this->offsets[$battlers[$id]] ?? [])[$entry['slot']] ?? null;
             [$x, $y] = $offset === null ? [-1, -1] : [self::getHeadX($bodies[$id]) + $offset[0], $bodies[$id]->y + $offset[1]];
             $box = $x < 0 || $y < 0 ? null : new CanvasRectangle($x, $y, $style->size, $style->height);
-            if ($box !== null && self::canPlace($box, $width, $height, [...$reserved, $bodies[$id], ...$placed])) {
+            if ($box !== null && self::canPlace($box, $width, $height,
+                [...$reserved[$id], $bodies[$id], ...$placed, ...$nearbyBodies[$id]])) {
                 $place($id, $entry, $box);
             } else { $searching[] = [$id, $entry]; }
         }
@@ -74,13 +91,23 @@ final class BattleHeadAttachmentLayout
             $body = $bodies[$id];
             $home = $cells[$id][$entry['slot']] ?? null;
             [$homeX, $homeY] = [$home?->x ?? self::getHeadX($body), $home?->y ?? $body->y - $style->height - $style->headGap];
-            $box = null;
-            foreach ([$cells[$id], $this->getFallbackCells($style, $width, $height)] as $candidates) {
-                usort($candidates, static fn(CanvasRectangle $a, CanvasRectangle $b): int =>
-                    abs($a->x - $homeX) + abs($a->y - $homeY) <=> abs($b->x - $homeX) + abs($b->y - $homeY));
-                $box = array_find($candidates, fn(CanvasRectangle $candidate): bool =>
-                    self::canPlace($candidate, $width, $height, [...$reserved, $body, ...$placed]));
-                if ($box !== null) { break; }
+            $distance = static fn(CanvasRectangle $cell): float => abs($cell->x - $homeX) + abs($cell->y - $homeY);
+            $candidates = $cells[$id];
+            usort($candidates, static fn(CanvasRectangle $a, CanvasRectangle $b): int => $distance($a) <=> $distance($b));
+            $obstacles = [...$reserved[$id], $body, ...$placed];
+            // Search the first two head rows on both sides before accepting a bystander's overlap.
+            // A badge should remain attached to its owner in crowded formations.
+            $nearby = array_filter($candidates, static fn(CanvasRectangle $cell): bool =>
+                $cell->y >= $body->y - 2 * $style->height - $style->headGap - $style->gap
+                && $cell->x < $body->x + $body->width + $style->size
+                && $cell->x + $cell->width > $body->x - $style->size);
+            $clear = [...$obstacles, ...$nearbyBodies[$id]];
+            $box = array_find($nearby, fn(CanvasRectangle $cell): bool => self::canPlace($cell, $width, $height, $clear))
+                ?? array_find($candidates, fn(CanvasRectangle $cell): bool => self::canPlace($cell, $width, $height, $obstacles));
+            if ($box === null) {
+                $fallback = $this->getFallbackCells($style, $width, $height);
+                usort($fallback, static fn(CanvasRectangle $a, CanvasRectangle $b): int => $distance($a) <=> $distance($b));
+                $box = array_find($fallback, fn(CanvasRectangle $cell): bool => self::canPlace($cell, $width, $height, $obstacles));
             }
             if ($box === null) { throw new RuntimeException('Battle condition badges cannot fit outside reserved battler and cursor slots.'); }
             $place($id, $entry, $box);
