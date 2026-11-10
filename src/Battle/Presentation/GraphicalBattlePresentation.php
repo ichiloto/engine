@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Animations\Timelines\EffectFlightContact;
 use Ichiloto\Engine\Animations\Timelines\EffectFlightRoute;
+use Ichiloto\Engine\Animations\Timelines\EffectStraightFlightFallback;
 use Ichiloto\Engine\Core\Clocks\RuntimeClock;
 
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
@@ -904,7 +905,7 @@ final class GraphicalBattlePresentation
     if (!array_any($playback->plan->timeline->cueSchedule, static fn(array $cue): bool =>
       $cue['type'] === 'commandCapturePosePoint')) { return; }
     $playback->bindPosePointCapture(function (BattleCommandPlayback $sample, string $anchor, string $name, ?string $route, ?array $curve,
-      ?float $clearance, ?string $contact) use ($reducedMotion, $idleSeconds): array {
+      ?float $clearance, ?string $contact, ?string $fallback) use ($reducedMotion, $idleSeconds): array {
       static $shotFrame = null, $straightShots = [];
       if ($shotFrame !== $sample->session->currentFrame) {
         $shotFrame = $sample->session->currentFrame;
@@ -944,11 +945,13 @@ final class GraphicalBattlePresentation
           if ($route === EffectFlightRoute::STRAIGHT->value) {
             $targets = array_map(static fn($target): CanvasImage => $geometry[spl_object_id($target)]['image'], $sample->targets);
             $contactMode = $contact === null ? EffectFlightContact::EDGE : EffectFlightContact::from($contact);
-            $key = $id . ':' . $name . ':' . $contactMode->value;
+            $fallbackPolicy = $fallback === null ? null : EffectStraightFlightFallback::from($fallback);
+            $key = $id . ':' . $name . ':' . $contactMode->value . ':' . $fallback;
             if (!array_key_exists($key, $straightShots)) {
-              $straightShots[$key] = BattleStraightShot::planVisible($point, $targets, $this->assetRoot, $contactMode);
+              $straightShots[$key] = BattleStraightShot::planRoute($point, $targets, $this->assetRoot, $this->layout->width,
+                $this->participants[$id]['party'], $contactMode, $fallbackPolicy);
             }
-            $points[$id]['path'] = $straightShots[$key]
+            $points[$id] += $straightShots[$key]
               ?? throw new RuntimeException('No straight battle flight can reach the selected targets in order.');
             continue;
           }

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Ichiloto\Engine\Animations\Timelines\EffectFlightContact;
+use Ichiloto\Engine\Animations\Timelines\EffectStraightFlightFallback;
 use Ichiloto\Engine\Battle\Presentation\BattleStraightShot;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
@@ -92,3 +93,28 @@ it('finishes a straight pierce inside the final painted body after passing an ea
     ->and($arrival->y)->toBeGreaterThan(6.0)->toBeLessThan(18.0)
     ->and(BattleStraightShot::planVisible(new Vector2(0, 12), [$far, $near], $root))->toBeNull();
 });
+
+it('uses a horizontal exit only for valid artwork with no common ray', function (bool $partySide) {
+  if (!function_exists('imagecreatefrompng')) { test()->markTestSkipped('Optional GD PNG inspection is unavailable.'); }
+  $root = createTestDirectory('ichiloto-horizontal-exit-');
+  imagepng(imagecreatetruecolor(10, 10), $root . '/body.png');
+
+  $origin = new Vector2($partySide ? 100 : 0, 50);
+  $nearX = $partySide ? 70 : 20;
+  $farX = $partySide ? 10 : 80;
+  $near = new CanvasImage('near', 'body.png', new CanvasRectangle($nearX, 5, 10, 10));
+  $far = new CanvasImage('far', 'body.png', new CanvasRectangle($farX, 80, 10, 10));
+  $policy = EffectStraightFlightFallback::HORIZONTAL_EXIT;
+
+  $plan = static fn(array $targets, ?EffectStraightFlightFallback $fallback): ?array =>
+    BattleStraightShot::planRoute($origin, $targets, $root, 100, $partySide, EffectFlightContact::EDGE, $fallback);
+  $fallback = $plan([$near, $far], $policy);
+  $direct = $plan([$near], $policy);
+  $missing = new CanvasImage('missing', 'missing.png', $near->destination);
+  expect($fallback['fallback'])->toBe($policy)
+    ->and($fallback['path']->getWaypoints())->toEqual([$origin, new Vector2($partySide ? -1 : 101, 50)])
+    ->and($plan([$near, $far], null))->toBeNull()
+    ->and($direct['path'])->not->toBeNull()
+    ->and($direct['fallback'])->toBeNull()
+    ->and(fn() => $plan([$near, $missing], $policy))->toThrow(RuntimeException::class);
+})->with([true, false]);

@@ -275,6 +275,7 @@ final readonly class BattleCommandTimeline
                 'attachmentPoint' => $command['payload']['attachmentPoint'],
                 'route' => $flight === null ? null : ($flight['route'] ?? EffectFlightRoute::WAYPOINTS->value),
                 ...(isset($flight['contact']) ? ['contact' => $flight['contact']] : []),
+                ...(isset($flight['fallback']) ? ['fallback' => $flight['fallback']] : []),
                 'curve' => $visualClock !== null ? ($flight['farCurve'] ?? $flight['curve'] ?? null) : ($flight['curve'] ?? null),
                 ...(!isset($flight['bystanderClearance']) ? [] : ['clearance' => (float)$flight['bystanderClearance']
                   + max($command['payload']['profile']['startRadius'], $command['payload']['profile']['endRadius'])])]];

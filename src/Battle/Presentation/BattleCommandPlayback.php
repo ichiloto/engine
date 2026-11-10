@@ -7,13 +7,14 @@ namespace Ichiloto\Engine\Battle\Presentation;
 use Closure;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackSession;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
+use Ichiloto\Engine\Animations\Timelines\EffectStraightFlightFallback;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Throwable;
 
 /**
  * Combat resolves once at impact; inspection and rendering are side-effect free.
- * @phpstan-type DetachedPosePoint array{point: Vector2, casterX: float, recipientX: ?float, party: bool, path?: BattlePresentationPath}
+ * @phpstan-type DetachedPosePoint array{point: Vector2, casterX: float, recipientX: ?float, party: bool, path?: BattlePresentationPath, fallback?: ?EffectStraightFlightFallback}
  */
 final class BattleCommandPlayback implements BattleEffectPlayback
 {
@@ -35,7 +36,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private bool $paused = false;
   private ?BattleFlightClock $flightClock = null;
   private ?float $arenaWidth = null;
-  /** @var ?Closure(self, string, string, ?string, ?array, ?float, ?string): array<int, DetachedPosePoint> */
+  /** @var ?Closure(self, string, string, ?string, ?array, ?float, ?string, ?string): array<int, DetachedPosePoint> */
   private ?Closure $capturePosePoints = null;
   /** @var array<string, array<int, DetachedPosePoint>> */
   private array $detachedPosePoints = [];
@@ -137,7 +138,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $this->captureTargetGroup = null;
   }
 
-  /** @param Closure(self, string, string, ?string, ?array, ?float, ?string): array<int, DetachedPosePoint> $capture */
+  /** @param Closure(self, string, string, ?string, ?array, ?float, ?string, ?string): array<int, DetachedPosePoint> $capture */
   public function bindPosePointCapture(Closure $capture, ?float $arenaWidth = null): void
   {
     $this->capturePosePoints = $capture;
@@ -526,7 +527,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
             $payload = $cue['payload'];
             $this->detachedPosePoints[$payload['trackId']] = ($this->capturePosePoints)(
               $this->samplePoseAtFrame($cue['frame']), $payload['anchor'], $payload['attachmentPoint'], $payload['route'],
-              $payload['curve'], $payload['clearance'] ?? null, $payload['contact'] ?? null);
+              $payload['curve'], $payload['clearance'] ?? null, $payload['contact'] ?? null, $payload['fallback'] ?? null);
             $flight = $this->plan->flightTiming;
             if ($this->arenaWidth !== null && ($flight['track'] ?? null) === $payload['trackId']) {
               $path = $this->detachedPosePoints[$payload['trackId']][spl_object_id($this->actor)]['path']

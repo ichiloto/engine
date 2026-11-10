@@ -470,7 +470,7 @@ final class EffectTimelineValidator
   private static function validateFlight(string $id, array $track, mixed $flight, int $length, bool $hasRange): void
   {
     if (($track['anchor'] ?? null) !== 'caster' || !isset($track['detachFrame'])
-      || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame', 'route', 'tipX', 'curve', 'farCurve', 'contact',
+      || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame', 'route', 'tipX', 'curve', 'farCurve', 'contact', 'fallback',
         ...($track['type'] === 'trail' ? ['bystanderClearance'] : [])]) !== []
       || !is_int($flight['arrivalFrame'] ?? null) || $flight['arrivalFrame'] <= $track['detachFrame']
       || $flight['arrivalFrame'] >= $length
@@ -482,6 +482,10 @@ final class EffectTimelineValidator
     if (array_key_exists('contact', $flight) && (($flight['route'] ?? null) !== EffectFlightRoute::STRAIGHT->value
       || !is_string($flight['contact']) || EffectFlightContact::tryFrom($flight['contact']) === null)) {
       throw new InvalidArgumentException("Effect {$id} contact mode requires straight flight and edge or interior.");
+    }
+    if (array_key_exists('fallback', $flight) && (($flight['route'] ?? null) !== EffectFlightRoute::STRAIGHT->value
+      || !is_string($flight['fallback']) || EffectStraightFlightFallback::tryFrom($flight['fallback']) === null)) {
+      throw new InvalidArgumentException("Effect {$id} flight fallback requires a straight route and a supported policy.");
     }
     if (($flight['route'] ?? null) === EffectFlightRoute::CUBIC->value) {
       self::validateCurve($id, $flight['curve'] ?? null);

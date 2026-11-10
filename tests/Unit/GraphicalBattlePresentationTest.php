@@ -976,6 +976,42 @@ it('curves from the captured pose point to the selected visible body at the auth
     ->toThrow(InvalidArgumentException::class, 'cubic flight requires');
 });
 
+it('captures the authored horizontal exit in command playback without changing action resolution', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $asset = 'graphical-canvas/synthetic-320x180.png';
+  $pose = new BattlerPose($asset, attachmentPoints: [
+    ['cell' => 0, 'name' => 'launch', 'point' => ['x' => .5, 'y' => .5]],
+  ]);
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $catalog->ui, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => new BattlePoseSet(['attack' => $pose])]);
+  $data = ['fps' => 10, 'lengthFrames' => 10, 'restFrame' => 8, 'tracks' => [[
+    'id' => 'projectile', 'type' => 'image', 'asset' => $asset, 'anchor' => 'caster', 'attachmentPoint' => 'launch',
+    'detachFrame' => 1, 'facing' => 'east', 'flight' => [
+      'route' => 'straight', 'arrivalFrame' => 8, 'fallback' => 'horizontal-exit',
+    ], 'keyframes' => [['frame' => 1, 'duration' => 9]],
+  ]], 'cues' => [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 8]]];
+  $library = new EffectTimelineLibrary($this->root);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
+    target: $library->compile('straight-exit', $data, true));
+  $resolved = 0;
+  $playback = new BattleCommandPlayback($plan, $hero, $enemies, BattlePoseRole::ATTACK,
+    static function () use (&$resolved): void { $resolved++; }, static fn() => null);
+  $view = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $view->bindCommandPosePoints($playback, false, 0);
+  $playback->begin();
+  $playback->update($playback->getDurationSeconds());
+
+  $capture = $playback->getDetachedPosePoint('target-projectile', $hero);
+  expect($playback->presentationFailure)->toBeNull()
+    ->and($capture['fallback']->value)->toBe('horizontal-exit')
+    ->and($capture['path']->getPositionAtProgress(1))->toEqual(new Vector2(-1, $capture['point']->y))
+    ->and($resolved)->toBe(1);
+
+  $data['tracks'][0]['flight']['route'] = 'waypoints';
+  expect(fn() => $library->compile('invalid-exit', $data, true))
+    ->toThrow(InvalidArgumentException::class, 'fallback requires a straight route');
+});
+
 it('chooses one range clock for the staff pose and release while keeping contact and terminal frames fixed', function () {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $asset = 'graphical-canvas/synthetic-320x180.png';
