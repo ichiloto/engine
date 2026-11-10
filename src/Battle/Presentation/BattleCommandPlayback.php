@@ -216,7 +216,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       && !isset($this->reactions[spl_object_id($battler)]) && $poses?->getPose($this->pose)?->impactFrame !== null) {
       return $this->pose;
     }
-    if (!in_array($this->phase, ['advance', 'return', 'finish'], true)) {
+    if (!in_array($this->phase, ['advance', 'return', 'finish', 'effect-tail'], true)) {
       return $this->reactions[spl_object_id($battler)] ?? ($battler === $this->actor ? $this->pose : $rest);
     }
     return $rest;

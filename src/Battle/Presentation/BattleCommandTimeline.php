@@ -144,7 +144,9 @@ final readonly class BattleCommandTimeline
       : EffectPlaybackTiming::createForBattlePhase($this->terminalTarget, $timings->effectAnimation);
     $phases = $cues = $segments = $restFrames = $restSegments = [];
     $detachments = $targetGroupCaptures = [];
-    $targetImpactEnd = 0;
+    $impact = 0;
+    $effectEnd = 0;
+    $overlapEffectTail = $flashStep->overlapEffectTail ?? false;
     $poseAnchor = null;
     $poseEnd = null;
     $holdEnd = null;
@@ -175,7 +177,8 @@ final readonly class BattleCommandTimeline
       'return' => $flashStep !== null ? $flashStep->returnFrames / $flashStep->fps
         : ($travel === null ? $timings->stepBack : ($travel->isPossible ? $travel->returnSeconds : 0)),
       ...$transition($returnPose, BattlePoseSequence::EXIT, 'exit-return'),
-      'finish' => $flashStep !== null ? $flashStep->settleFrames / $flashStep->fps : $timings->turnOver] as $phase => $seconds) {
+      'finish' => $flashStep !== null ? $flashStep->settleFrames / $flashStep->fps : $timings->turnOver,
+      ...($overlapEffectTail ? ['effect-tail' => 0] : [])] as $phase => $seconds) {
       if (!is_finite($seconds) || $seconds < 0) {
         throw new InvalidArgumentException('Battle command durations must be finite and non-negative.');
       }
@@ -185,14 +188,14 @@ final readonly class BattleCommandTimeline
       $length = $phase === 'announce' && !$showAnnouncement ? 0
         : max(1, $clock?->getFrameBoundary($clock->totalFrames, self::FPS) ?? (int)ceil($seconds * self::FPS));
       if ($flashStep !== null && in_array($phase, ['source', 'reaction'], true)) { $length = 0; }
-      if ($phase === 'target' && $this->terminalTiming !== null) {
-        $length = max($length, $this->terminalTiming->getFrameBoundary($this->terminalTiming->totalFrames, self::FPS));
-      }
-      if ($phase === 'target') { $targetImpactEnd = $cursor + $length; }
-      if ($phase === 'target' && $sourceEffectAnchor === SourceEffectAnchor::TARGET && $sourceTiming !== null) {
-        $length = max($length, $sourceTiming->getFrameBoundary($sourceTiming->totalFrames, self::FPS));
-      }
       if ($phase === 'target') {
+        $terminalLength = $this->terminalTiming?->getFrameBoundary($this->terminalTiming->totalFrames, self::FPS) ?? 0;
+        $length = max($length, $terminalLength);
+        $impact = $cursor + self::getTargetImpactOffset($target, $targetTiming, $length);
+        if ($sourceEffectAnchor === SourceEffectAnchor::TARGET && $sourceTiming !== null) {
+          $length = max($length, $sourceTiming->getFrameBoundary($sourceTiming->totalFrames, self::FPS));
+        }
+        $effectEnd = $cursor + $length;
         $syncFrame = $target?->defaults['poseSyncFrame'] ?? null;
         if ($syncFrame !== null && (!is_int($syncFrame) || $syncFrame < 0 || $syncFrame >= $targetTiming->totalFrames)) {
           throw new InvalidArgumentException('Battle action pose synchronization requires a valid target effect frame.');
@@ -200,7 +203,12 @@ final readonly class BattleCommandTimeline
         $poseAnchor = $cursor + ($syncFrame === null ? 0 : $targetTiming->getFrameBoundary($syncFrame, self::FPS));
         if ($flashStep !== null) {
           $poseAnchor = $cursor;
-          $holdEnd = $cursor + (int)ceil($flashStep->holdFrames * self::FPS / $flashStep->fps);
+          $holdLength = (int)ceil($flashStep->holdFrames * self::FPS / $flashStep->fps);
+          $holdEnd = $cursor + $holdLength;
+          // Preserve the impact and Terminal presentation before letting effects run through the return.
+          if ($overlapEffectTail) {
+            $length = min($length, max($holdLength, $terminalLength, $impact - $cursor));
+          }
         }
         if ($actionPose?->impactFrame !== null) {
           $poseEnd = $poseAnchor + (int)ceil($actionPose->getRecoverySeconds() * self::FPS);
@@ -216,6 +224,7 @@ final readonly class BattleCommandTimeline
       if ($phase === 'return' && $flashStep !== null) { $poseEnd = $cursor; }
       // Without movement artwork, retain the existing overlapping return/completion timing.
       if ($phase === 'finish' && $poseEnd !== null) { $length = max($length, $poseEnd - $cursor); }
+      if ($phase === 'effect-tail') { $length = max(0, $effectEnd - $cursor); }
       $phases[$phase] = ['start' => $cursor, 'length' => $length];
       if ($length > 0 || ($flashStep !== null && $phase === 'source')) {
         $cues[] = ['id' => 'command-' . $phase, 'type' => 'commandPhase', 'frame' => $cursor,
@@ -296,7 +305,8 @@ final readonly class BattleCommandTimeline
           if (in_array(strtolower($cue['type']), ['flash', 'shake'], true)) {
             $duration = $cue['payload']['durationFrames'] ?? max(1,
               $clock->getFrameBoundary($sourceFrame + ($cue['payload']['duration'] ?? 1), self::FPS) - $start);
-            $segments[] = ['startFrame' => $cue['frame'], 'endFrame' => min($cursor + $length - 1, $cue['frame'] + $duration - 1),
+            $laneEnd = $phase === 'target' ? $effectEnd : $cursor + $length;
+            $segments[] = ['startFrame' => $cue['frame'], 'endFrame' => min($laneEnd, $cue['frame'] + $duration) - 1,
               'layer' => strtolower($cue['type']), 'drawCommands' => [['trackId' => $lane . '-cue-' . $cue['id'],
                 'payload' => $cue['payload']]]];
           }
@@ -311,20 +321,6 @@ final readonly class BattleCommandTimeline
       $cues[] = ['id' => 'command-announcement-end', 'type' => 'commandAnnouncementEnd',
         'frame' => min($phases['announce']['start'] + $phases['announce']['length'], $phases['finish']['start']),
         'payload' => []];
-    }
-    // Summons retain their explicit cue/frame/end policy; ordinary effects may
-    // author an impact cue. No cue means resolution at the target stage's end.
-    $timing = $target?->defaults['effectTiming'] ?? null;
-    $impact = $targetImpactEnd;
-    if (is_array($timing) && in_array($timing['mode'] ?? 'end', ['frame', 'explicit_frame'], true)) {
-      $impact = min($impact, $phases['target']['start'] + $targetTiming->getFrameBoundary((int)($timing['frame'] ?? 0), self::FPS));
-    } elseif (!is_array($timing) || ($timing['mode'] ?? 'end') === 'cue') {
-      $cueId = $timing['cueId'] ?? null;
-      $cue = array_find($target?->cueSchedule ?? [], static fn(array $cue): bool => $cueId === null
-        ? $cue['type'] === 'applyEffect' : $cue['id'] === $cueId);
-      if ($cue !== null) {
-        $impact = min($impact, $phases['target']['start'] + $targetTiming->getFrameBoundary($cue['frame'], self::FPS));
-      }
     }
     $flightTiming = $target?->defaults['flightTiming'] ?? null;
     $release = $flightTiming === null ? null
@@ -353,6 +349,22 @@ final readonly class BattleCommandTimeline
     $this->timeline = new CompiledEffectTimeline('battle-command', '', fps: self::FPS,
       playbackSegments: $segments, cueSchedule: $cues,
       defaults: ['lengthFrames' => $cursor, 'restFrame' => $cursor - 1]);
+  }
+
+  /** Summons retain their explicit cue/frame/end policy; ordinary effects may author an impact cue. */
+  private static function getTargetImpactOffset(?CompiledEffectTimeline $target, ?EffectPlaybackTiming $clock, int $length): int
+  {
+    $timing = $target?->defaults['effectTiming'] ?? null;
+    if (is_array($timing) && in_array($timing['mode'] ?? 'end', ['frame', 'explicit_frame'], true)) {
+      return min($length, $clock->getFrameBoundary((int)($timing['frame'] ?? 0), self::FPS));
+    }
+    if (!is_array($timing) || ($timing['mode'] ?? 'end') === 'cue') {
+      $cueId = $timing['cueId'] ?? null;
+      $cue = array_find($target?->cueSchedule ?? [], static fn(array $cue): bool => $cueId === null
+        ? $cue['type'] === 'applyEffect' : $cue['id'] === $cueId);
+      if ($cue !== null) { return min($length, $clock->getFrameBoundary($cue['frame'], self::FPS)); }
+    }
+    return $length;
   }
 
   /** The caster uses the same presentation clock as its detached flight tracks. */

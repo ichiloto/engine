@@ -11,7 +11,8 @@ use Ichiloto\Engine\Battle\Presentation\BattlerPose;
 final readonly class FlashStepTiming
 {
   public function __construct(public int $fps, public int $guardFrames, public int $advanceFrames,
-    public int $holdFrames, public int $returnFrames, public int $settleFrames, public int $echoes)
+    public int $holdFrames, public int $returnFrames, public int $settleFrames, public int $echoes,
+    public bool $overlapEffectTail = false)
   {
     if ($fps < 1 || $fps > 120 || $echoes < 0 || $echoes > 3
       || array_any([$guardFrames, $advanceFrames, $holdFrames, $returnFrames, $settleFrames],
@@ -23,16 +24,20 @@ final readonly class FlashStepTiming
   public static function fromArray(mixed $data): self
   {
     $fields = ['fps', 'guardFrames', 'advanceFrames', 'holdFrames', 'returnFrames', 'settleFrames', 'echoes'];
-    if (!is_array($data) || count($data) !== count($fields)
-      || !array_all($fields, static fn(string $field): bool => is_int($data[$field] ?? null))) {
+    if (!is_array($data) || array_diff(array_keys($data), [...$fields, 'overlapEffectTail']) !== []
+      || !array_all($fields, static fn(string $field): bool => is_int($data[$field] ?? null))
+      || (array_key_exists('overlapEffectTail', $data) && !is_bool($data['overlapEffectTail']))) {
       throw new InvalidArgumentException('Flash step requires integer fps, guard, advance, hold, return, settle and echo fields.');
     }
-    return new self(...array_map(static fn(string $field): int => $data[$field], $fields));
+    return new self(...array_map(static fn(string $field): int => $data[$field], $fields),
+      overlapEffectTail: $data['overlapEffectTail'] ?? false);
   }
 
   public function toArray(): array
   {
-    return get_object_vars($this);
+    $data = get_object_vars($this);
+    if (!($data['overlapEffectTail'] ?? false)) { unset($data['overlapEffectTail']); }
+    return $data;
   }
 
   public function supportsPose(?BattlerPose $pose): bool

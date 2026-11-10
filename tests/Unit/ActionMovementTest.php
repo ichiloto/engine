@@ -30,6 +30,15 @@ it('round trips action-owned flash step timing and rejects incompatible timing',
       'flashStep' => [...$timing, 'echoes' => 4]]))->toThrow(InvalidArgumentException::class);
 });
 
+it('round trips effect overlap in the flash-step authoring data', function () {
+  $timing = ['fps' => 24, 'guardFrames' => 20, 'advanceFrames' => 3, 'holdFrames' => 10,
+    'returnFrames' => 3, 'settleFrames' => 7, 'echoes' => 2, 'overlapEffectTail' => true];
+  $data = ['id' => 1, 'movement' => 'flash-step', 'flashStep' => $timing];
+  expect(Animation::fromArray($data)->toArray()['flashStep'])->toBe($timing)
+    ->and(fn() => Animation::fromArray([...$data, 'flashStep' => [...$timing, 'overlapEffectTail' => 'true']]))
+    ->toThrow(InvalidArgumentException::class);
+});
+
 it('selects distinct movement bindings for bare Attack and explicit skills while sharing their effect resources', function () {
   $actor = new Character('Synthetic', 1, new Stats(currentHp: 100, totalHp: 100));
   $step = new Animation(1, 'Shared timeline from range', targetEffect: 'shared-hit');
