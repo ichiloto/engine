@@ -14,6 +14,7 @@ use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService;
 use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Quests\QuestLog;
+use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 
@@ -157,11 +158,16 @@ class TurnStateExecutionContext
   }
 
   /**
-   * Returns persistent world state when this battle belongs to a configured
-   * field scene. Standalone battles intentionally have no world state.
+   * Reads explicit test facts from the active battle, or the live campaign
+   * facts from the field scene for an ordinary battle.
    */
   public function getGameState(): ?GameState
   {
+    $scene = $this->game->sceneManager->currentScene ?? null;
+    $config = $scene instanceof BattleScene ? $scene->config : null;
+    if ($config instanceof BattleConfig && $config->partyRoster === $this->partyRoster && $config->testWorldState !== null) {
+      return $config->testWorldState;
+    }
     return $this->findCampaignScene()?->gameState;
   }
 

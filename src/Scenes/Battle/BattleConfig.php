@@ -19,6 +19,10 @@ use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
  */
 class BattleConfig implements SceneConfigurationInterface
 {
+  /** The optional world facts belong only to this test battle. */
+  public const string TEST_WORLD_STATE = 'battleTestWorldState';
+  public private(set) ?GameState $testWorldState = null;
+
   protected(set) BattleClassification $classification;
   protected(set) string $entryExecutionId;
   protected(set) ?BattleEntryContext $battleEntryContext = null;
@@ -93,6 +97,14 @@ class BattleConfig implements SceneConfigurationInterface
     ?BattlePartyRoster $partyRoster = null,
   )
   {
+    if (array_key_exists(self::TEST_WORLD_STATE, $this->settings)) {
+      $state = $this->settings[self::TEST_WORLD_STATE];
+      if (!$state instanceof GameState) {
+        throw new \InvalidArgumentException('A battle test world state must be a GameState.');
+      }
+      $this->testWorldState = $state;
+      unset($this->settings[self::TEST_WORLD_STATE]);
+    }
     $this->classification = $classification ?? $troop->classification;
     $policy = $this->getReservePolicy();
     if ($partyRoster !== null && ($partyRoster->party !== $party || $partyRoster->policy !== $policy)) {
@@ -241,6 +253,7 @@ class BattleConfig implements SceneConfigurationInterface
         'reactions',
         'formationOwner',
         'formation',
+        'testWorldState',
       ], true)) {
         continue;
       }
@@ -250,6 +263,7 @@ class BattleConfig implements SceneConfigurationInterface
       }
     }
 
+    $this->testWorldState = null;
     $this->events = is_array($data['events'] ?? null) ? $data['events'] : [];
     $this->settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
     $this->classification = BattleClassification::resolve(

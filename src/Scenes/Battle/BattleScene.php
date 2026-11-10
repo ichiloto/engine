@@ -568,7 +568,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
     $this->resultWindow = null;
     $this->shouldLoadGameOver = false;
     $gameScene = $this->getGame()->sceneManager->findScene(GameScene::class);
-    $worldState = $gameScene instanceof GameScene ? $gameScene->gameState : new GameState();
+    $worldState = $config->testWorldState ?? ($gameScene instanceof GameScene ? $gameScene->gameState : new GameState());
     $catalog = ConfigStore::has(BattleEntryRuleCatalog::class)
       ? ConfigStore::get(BattleEntryRuleCatalog::class)
       : BattleEntryRuleCatalog::empty();
