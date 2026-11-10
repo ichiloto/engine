@@ -1465,7 +1465,21 @@ it('plays commands through both real engines with poses advance impact reaction 
   $field = $scene->ui->fieldWindow;
   $baseline = array_column($presentation->frame($field)->images, null, 'id');
   $identity = 'combatant-' . spl_object_id($turn->battler);
+  $target = $turn->targets[0];
+  $selectionId = 'selected-' . spl_object_id($target);
+  $labelId = 'feedback-' . spl_object_id($target);
+  $selectTarget = $enemyActs ? $field->focusPartyBattler(...) : $field->focusOnTroopBattler(...);
+  $selectTarget(0);
+  $selection = $presentation->frame($field);
+  expect($field->getSelectedBattlers())->toBe([$target])
+    ->and(array_column($selection->indicators, 'id'))->toContain($selectionId)
+    ->and(array_column($selection->textLayers, 'id'))->toContain($labelId);
+
   $engine->run($context);
+  $execution = $presentation->frame($field);
+  expect($field->getSelectedBattlers())->toBeEmpty()
+    ->and(array_column($execution->indicators, 'id'))->not->toContain($selectionId)
+    ->and(array_column($execution->textLayers, 'id'))->not->toContain($labelId);
   $playback = $field->getCommandPlayback();
   expect($playback)->not->toBeNull()->and($action->executions)->toBe(0)->and($turn->isCompleted)->toBeFalse();
   new ReflectionProperty(Ichiloto\Engine\Core\Time::class, 'deltaTime')->setValue(null, .12);
@@ -1489,6 +1503,8 @@ it('plays commands through both real engines with poses advance impact reaction 
     ->and($turn->isCompleted)->toBeTrue()
     ->and($playback->getPoseRole($turn->targets[0]))->toBe(\Ichiloto\Engine\Battle\Presentation\BattlePoseRole::DAMAGE);
   $reaction = $presentation->frame($field);
+  expect($field->getSelectedBattlers())->toBeEmpty()
+    ->and(array_column($reaction->indicators, 'id'))->not->toContain($selectionId);
   expect($presentation->frame($field)->toArray())->toBe($reaction->toArray())->and($action->executions)->toBe(1);
   expect(array_column($reaction->composites, 'id'))->when(!$reduced,
     fn($expect) => $expect->toContain('command-tints-layer-101'));
@@ -1509,6 +1525,11 @@ it('plays commands through both real engines with poses advance impact reaction 
     ->and($presentation->frame($field)->composites)->toBeEmpty()
     ->and($field->getActingBattler())->toBeNull()->and($rest->destination)->toEqual($baseline[$identity]->destination)
     ->and($turnContext->getCurrentTurn())->toBeNull()->and($action->executions)->toBe(1);
+  expect($field->getSelectedBattlers())->toBeEmpty();
+  $selectTarget(0);
+  $selection = $presentation->frame($field);
+  expect(array_column($selection->indicators, 'id'))->toContain($selectionId)
+    ->and(array_column($selection->textLayers, 'id'))->toContain($labelId);
   $engine->stop();
 })->with([[false, false, false], [true, false, false], [true, true, false], [false, true, true]]);
 

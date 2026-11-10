@@ -392,10 +392,11 @@ class ActionExecutionState extends TurnState
       $this->command->begin();
       return;
     }
-    $focusTarget = $targets[0];
+    $primaryTarget = $targets[0];
 
     $this->highlightActor($context, $actor);
-    $this->highlightTarget($context, $focusTarget);
+    $context->ui->fieldWindow->clearTargetIndicators();
+    $context->ui->refreshField();
     $summonCutscene = $action !== null ? $this->resolveSummonCutscene($action) : null;
     $displayName = $summonCutscene instanceof SummonCompiledCutscene
       ? (trim(strval($summonCutscene->defaults['moveName'] ?? '')) ?: $actionName)
@@ -443,7 +444,7 @@ class ActionExecutionState extends TurnState
     $playedDamageSounds = [];
     $this->command = new BattleCommandRunner($context, $actor, $targets, $action, $announcement,
       $timings, $sourceEffect, $targetEffect, $resolveAction, $this->buildStatChangePopupLines(...),
-      function (array $cue) use ($context, $focusTarget, $presentationSound, $targets, &$playedDamageSounds): void {
+      function (array $cue) use ($context, $primaryTarget, $presentationSound, $targets, &$playedDamageSounds): void {
         if ($cue['type'] === 'commandPhase' && $cue['payload']['phase'] === 'source'
           && $presentationSound instanceof SystemSound) {
           $context->game->audioManager->playSystemSound($presentationSound);
@@ -462,7 +463,7 @@ class ActionExecutionState extends TurnState
             $context->ui->showMessage($info);
           }
         } elseif ($cue['type'] !== 'commandPhase') {
-          $this->handleSummonCue($context, $focusTarget, $cue, $cue['frame'], Accessibility::prefersReducedMotion());
+          $this->handleSummonCue($context, $primaryTarget, $cue, $cue['frame'], Accessibility::prefersReducedMotion());
         }
       }, terminalTarget: $targetEffect !== $terminalTarget ? $terminalTarget : null,
       targetScale: $actionAnimation === null ? \Ichiloto\Engine\Animations\EffectScale::DEFAULT
@@ -591,38 +592,6 @@ class ActionExecutionState extends TurnState
     $partyBattlers = $context->partyRoster->battlers;
     $actorIndex = array_search($actor, $partyBattlers, true);
     $context->ui->characterNameWindow->setActiveSelection(is_int($actorIndex) ? $actorIndex : -1);
-  }
-
-  /**
-   * Highlights the current action target on the battlefield.
-   *
-   * @param TurnStateExecutionContext $context The turn context.
-   * @param CharacterInterface $target The action target.
-   * @return void
-   */
-  protected function highlightTarget(TurnStateExecutionContext $context, CharacterInterface $target): void
-  {
-    $context->ui->fieldWindow->clearTargetIndicators();
-
-    if ($target instanceof Character) {
-      $partyBattlers = $context->partyRoster->battlers;
-      $targetIndex = array_search($target, $partyBattlers, true);
-
-      if (is_int($targetIndex)) {
-        $context->ui->fieldWindow->focusPartyBattler($targetIndex);
-      }
-    }
-
-    if ($target instanceof Enemy) {
-      $troopMembers = $context->troop->members->toArray();
-      $targetIndex = array_search($target, $troopMembers, true);
-
-      if (is_int($targetIndex)) {
-        $context->ui->fieldWindow->focusOnTroopBattler($targetIndex);
-      }
-    }
-
-    $context->ui->refreshField();
   }
 
   /**
