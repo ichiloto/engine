@@ -24,8 +24,8 @@ final class StateItemRandom implements CombatRandomSource
 beforeEach(function () {
   $this->registry = new ReflectionProperty(StateRegistry::class, 'states');
   $this->previousStates = $this->registry->getValue();
-  $this->registry->setValue(null, ['focus' => new State('focus', 'Focus', durationTurns: 1, persistsAfterBattle: true),
-    'ward' => new State('ward', 'Ward', durationTurns: 2)]);
+  $this->registry->setValue(null, [getcwd() . '/assets/Data/states.php' => ['focus' => new State('focus', 'Focus', durationTurns: 1, persistsAfterBattle: true),
+    'ward' => new State('ward', 'Ward', durationTurns: 2)]]);
 });
 afterEach(function () { $this->registry->setValue(null, $this->previousStates); });
 

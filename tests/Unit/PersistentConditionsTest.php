@@ -126,7 +126,7 @@ it('cures only the states authored as cured by rest and restores HP and MP', fun
 
 it('keeps field step progress through saves and restarts it when re-authored with fewer steps', function () {
   $venom = walkingVenom(['fieldTickSteps' => 5]);
-  new ReflectionProperty(StateRegistry::class, 'states')->setValue(null, ['venom' => $venom]);
+  new ReflectionProperty(StateRegistry::class, 'states')->setValue(null, [getcwd() . '/assets/Data/states.php' => ['venom' => $venom]]);
   $member = conditionsMember();
   $member->addState($venom);
   $member->tickFieldStep();
@@ -136,7 +136,7 @@ it('keeps field step progress through saves and restarts it when re-authored wit
   $restored = unserialize(serialize($member));
   expect($restored->states[0]->fieldSteps)->toBe(3);
 
-  new ReflectionProperty(StateRegistry::class, 'states')->setValue(null, ['venom' => walkingVenom(['fieldTickSteps' => 2])]);
+  new ReflectionProperty(StateRegistry::class, 'states')->setValue(null, [getcwd() . '/assets/Data/states.php' => ['venom' => walkingVenom(['fieldTickSteps' => 2])]]);
   $shortened = unserialize(serialize($member));
   expect($shortened->states[0]->fieldSteps)->toBe(1)
     ->and($shortened->tickFieldStep())->toHaveCount(1);

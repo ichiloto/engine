@@ -2,6 +2,7 @@
 
 use Ichiloto\Engine\Entities\States\HasStates;
 use Ichiloto\Engine\Entities\States\State;
+use Ichiloto\Engine\Entities\States\StateRegistry;
 use Ichiloto\Engine\Entities\States\StateInstance;
 use Ichiloto\Engine\Entities\States\StateDisposition;
 use Ichiloto\Engine\Entities\Stats;
@@ -112,9 +113,9 @@ it('honours an explicit guaranteed application while retaining normal state immu
 
 it('applies a guaranteed state effect to immune survivors while leaving knocked-out targets unchanged', function () {
   $state = stunState();
-  $registry = new ReflectionProperty(\Ichiloto\Engine\Entities\States\StateRegistry::class, 'states');
+  $registry = new ReflectionProperty(StateRegistry::class, 'states');
   $before = $registry->getValue();
-  $registry->setValue(null, ['stun' => $state]);
+  $registry->setValue(null, [getcwd() . '/assets/Data/states.php' => ['stun' => $state]]);
   try {
     $actor = new \Ichiloto\Engine\Entities\Character('Actor', 1, new Stats());
     $target = new \Ichiloto\Engine\Entities\Character('Target', 1, new Stats());
@@ -226,4 +227,33 @@ it('tracks remaining turns on instances', function () {
 
   $indefinite = new StateInstance(poisonState(), null);
   expect($indefinite->tickDuration())->toBeFalse();
+});
+
+it('keeps authored states scoped to the project and clears them on reset', function () {
+  $directory = getcwd();
+  $registry = new ReflectionProperty(StateRegistry::class, 'states');
+  $previous = $registry->getValue();
+  $first = createTestDirectory('ichiloto-states-first-');
+  $second = createTestDirectory('ichiloto-states-second-');
+  mkdir($first . '/assets/Data', 0777, true);
+  mkdir($second . '/assets/Data', 0777, true);
+  file_put_contents($first . '/assets/Data/states.php', "<?php return [['id' => 'presence', 'name' => 'First Presence']];");
+  file_put_contents($second . '/assets/Data/states.php', "<?php return [['id' => 'presence', 'name' => 'Second Presence'], ['id' => 'second-only', 'name' => 'Second Only']];");
+  StateRegistry::reset();
+
+  try {
+    chdir($first);
+    expect(StateRegistry::get('presence')?->name)->toBe('First Presence');
+    chdir($second);
+    expect(StateRegistry::get('presence')?->name)->toBe('Second Presence')
+      ->and(StateRegistry::get('second-only')?->name)->toBe('Second Only');
+    chdir($first);
+    expect(StateRegistry::get('second-only'))->toBeNull();
+    file_put_contents($first . '/assets/Data/states.php', "<?php return [['id' => 'presence', 'name' => 'Updated Presence']];");
+    StateRegistry::reset();
+    expect(StateRegistry::get('presence')?->name)->toBe('Updated Presence');
+  } finally {
+    chdir($directory);
+    $registry->setValue(null, $previous);
+  }
 });

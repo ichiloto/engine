@@ -42,15 +42,15 @@ function createPreparedBait(): BasicSkill
 
 beforeEach(function () {
   $this->preparedPriorStates = new ReflectionProperty(StateRegistry::class, 'states')->getValue();
-  new ReflectionProperty(StateRegistry::class, 'states')->setValue(null, [
-    'synthetic-decoy' => new State('synthetic-decoy', 'Decoy'),
-    'synthetic-stun' => new State('synthetic-stun', 'Stun', durationTurns: 1, preventsAction: true),
-  ]);
   $this->preparedCwd = getcwd();
   $this->preparedRoot = sys_get_temp_dir() . '/prepared-counter-' . uniqid();
   mkdir($this->preparedRoot);
   writeQueuedAttackEffects($this->preparedRoot);
   chdir($this->preparedRoot);
+  new ReflectionProperty(StateRegistry::class, 'states')->setValue(null, [getcwd() . '/assets/Data/states.php' => [
+    'synthetic-decoy' => new State('synthetic-decoy', 'Decoy'),
+    'synthetic-stun' => new State('synthetic-stun', 'Stun', durationTurns: 1, preventsAction: true),
+  ]]);
   $this->preparedDelta = new ReflectionProperty(Time::class, 'deltaTime')->getValue();
 });
 

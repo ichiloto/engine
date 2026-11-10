@@ -13,9 +13,7 @@ use Throwable;
  */
 class StateRegistry
 {
-  /**
-   * @var array<string, State>|null The cached states, keyed by id.
-   */
+  /** @var array<string, array<string, State>>|null States keyed by project source, then by state ID. */
   protected static ?array $states = null;
 
   /**
@@ -36,22 +34,21 @@ class StateRegistry
    */
   public static function all(): array
   {
-    if (self::$states !== null) {
-      return self::$states;
+    $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Data', 'states.php');
+    if (isset(self::$states[$filename])) {
+      return self::$states[$filename];
     }
 
-    self::$states = [];
-    $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Data', 'states.php');
-
     if (! file_exists($filename)) {
-      return self::$states;
+      return self::$states[$filename] = [];
     }
 
     $entries = require $filename;
 
+    $states = [];
     foreach (is_array($entries) ? $entries : [] as $entry) {
       if ($entry instanceof State) {
-        self::$states[$entry->id] = $entry;
+        $states[$entry->id] = $entry;
         continue;
       }
 
@@ -61,13 +58,13 @@ class StateRegistry
 
       try {
         $state = State::fromArray($entry);
-        self::$states[$state->id] = $state;
+        $states[$state->id] = $state;
       } catch (Throwable $exception) {
         Debug::warn(sprintf('Skipping invalid state definition: %s', $exception->getMessage()));
       }
     }
 
-    return self::$states;
+    return self::$states[$filename] = $states;
   }
 
   /**
