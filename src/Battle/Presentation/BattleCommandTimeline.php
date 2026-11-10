@@ -211,7 +211,8 @@ final readonly class BattleCommandTimeline
           }
         }
         if ($actionPose?->impactFrame !== null) {
-          $poseEnd = $poseAnchor + (int)ceil($actionPose->getRecoverySeconds($travel?->usesFarPose ?? false) * self::FPS);
+          $recovery = $actionPose->getRecoverySeconds($travel?->usesFarPose ?? false, $travel?->arrivalPose);
+          $poseEnd = $poseAnchor + (int)ceil($recovery * self::FPS);
           if ($this->rangeTiming !== null) {
             $authoredEnd = ($poseEnd - $cursor) / self::FPS / $targetTiming->secondsPerFrame;
             $poseEnd = $cursor + $targetTiming->getFrameBoundary(

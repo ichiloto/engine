@@ -938,6 +938,20 @@ uses the existing pose fields and requires `loop => false` and an
 `guardFrame` to an atlas cell held during both stationary guard phases.
 The ordinary resting pose takes over when the command ends or is cancelled.
 
+For a travelling action, `arrivalPoses` associates each angle band with its
+main `frames`, registered `reach`, and optional ground `pivot`. The
+direction is measured once from the visible Guard centre for Flash Step
+(or the resting body centre) to the target's registered strike point. With
+no registered point, it uses the approaching edge at the target's visible
+mid-height. Angles are in degrees, with forward positive on the horizontal
+axis and canvas-up negative on the vertical axis. Each entry supplies
+`minAngle` and `maxAngle`; bands are ordered and contiguous from −180 to
++180, including the lower bound and including +180 in the final band.
+The same chosen entry supplies the drawn cells, landing reach and recovery
+duration. Entry, exit and Guard cells keep their own sequences, and
+reduced motion draws the base rest cell. An action uses either angle bands
+or the existing `farPose` distance binding.
+
 The command clock aligns that entry with the target effect's `poseSyncFrame`
 or the start of the target phase. Entry zero starts the pose at the anchor,
 including on the first restored battlefield frame after a source cut-in.

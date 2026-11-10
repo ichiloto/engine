@@ -157,7 +157,25 @@ final class GraphicalBattlePresentation
     $pose = $boundPose ?? $source['poses']?->getPose(BattlePoseRole::getForAction($action));
     $farPose = $boundPose?->farPose;
     $usesFarPose = $farPose !== null && $this->measureActionRange($actor, $targets) >= $farPose->minDistance;
-    $poseReach = $usesFarPose ? $farPose->reach : $pose?->reach;
+    $strike = $recipient['strikePoint']?->getCanvasPosition($to['body'], $to['image']->flipX, $to['image']->flipY);
+    $arrivalPose = null;
+    if ($boundPose !== null && $boundPose->arrivalPoses !== []) {
+      $approach = $body;
+      if ($movement === \Ichiloto\Engine\Animations\ActionMovement::FLASH_STEP && $boundPose->guardFrame !== null) {
+        $guard = $this->projectBattler($sourceId, $source, null, false, true, $poseElapsedSeconds, guardPose: $boundPose);
+        $approach = $this->locateBody($guard['image'], $sourceId);
+        if ($mirror) {
+          $approach = new CanvasRectangle(2 * $from['foot']->x - $approach->x - $approach->width,
+            $approach->y, $approach->width, $approach->height);
+        }
+      }
+      $strike ??= new Vector2($sign < 0 ? $to['body']->x + $to['body']->width : $to['body']->x,
+        $to['body']->y + $to['body']->height / 2);
+      $angle = rad2deg(atan2($strike->y - ($approach->y + $approach->height / 2),
+        $sign * ($strike->x - ($approach->x + $approach->width / 2))));
+      $arrivalPose = $boundPose->selectArrivalPose($angle);
+    }
+    $poseReach = $arrivalPose?->reach ?? ($usesFarPose ? $farPose->reach : $pose?->reach);
     $reach = $poseReach?->getCanvasOffset($unit) ?? new Vector2(
       max(0, $sign < 0 ? $from['foot']->x - $body->x : $body->x + $body->width - $from['foot']->x), 0);
     // Movement cells fit the standing area; action-phase weapon overhang retains its existing presentation extent.
@@ -166,13 +184,12 @@ final class GraphicalBattlePresentation
       : [[$source['poses']?->getPose(BattlePoseRole::MOVE), BattlePoseSequence::MAIN],
         [$source['poses']?->getPose(BattlePoseRole::RETURNING), BattlePoseSequence::MAIN]];
     $envelope = $this->getTravelEnvelope($actor, $body, $mirror, $sequences);
-    $strike = $recipient['strikePoint']?->getCanvasPosition($to['body'], $to['image']->flipX, $to['image']->flipY);
     return BattleTravelPlanner::plan(new BattleTravelSubject($from['foot'], $envelope, $footing),
       new BattleTravelSubject($to['foot'], $to['body'], BattleFormationClearance::getFooting($to['body'])),
       $this->layout->battlerArea ?? new CanvasRectangle(0, 0, $this->layout->width, $this->layout->getHudTop()),
       $reach, array_values(array_map(static fn(array $entry): CanvasRectangle => BattleFormationClearance::getFooting($entry['body']),
         array_diff_key($images, [$sourceId => true, $targetId => true]))), $strike,
-      $this->layout->advanceSpeed, $this->layout->returnSpeed, $sign, $usesFarPose);
+      $this->layout->advanceSpeed, $this->layout->returnSpeed, $sign, $usesFarPose, $arrivalPose);
   }
 
   /** @param list<array{?BattlerPose, BattlePoseSequence}> $sequences */
@@ -726,7 +743,7 @@ final class GraphicalBattlePresentation
   }
 
   private function projectBattler(int $identity, array $participant, ?BattleCommandPlayback $playback,
-    bool $reducedMotion, bool $includeOptionalArtwork, float $idleSeconds): array
+    bool $reducedMotion, bool $includeOptionalArtwork, float $idleSeconds, ?BattlerPose $guardPose = null): array
   {
     $battler = $participant['battler'];
     $image = $participant['image'];
@@ -738,7 +755,7 @@ final class GraphicalBattlePresentation
       $participant['poses'], $identity, $participant['scale']);
     $artworkScale = $available ? $bounds->width / $art->width / $slot->displayScale : null;
     $role = $playback?->getPoseRole($battler, $participant['poses'], $reducedMotion) ?? BattlePoseRole::getRestingRole($battler);
-    $actionPose = $includeOptionalArtwork ? $playback?->getBoundActionPose($battler, $role, $reducedMotion) : null;
+    $actionPose = $includeOptionalArtwork ? ($guardPose ?? $playback?->getBoundActionPose($battler, $role, $reducedMotion)) : null;
     $pose = $includeOptionalArtwork ? ($actionPose ?? $participant['poses']?->getPose($role)) : null;
     $usesKnockoutPose = false;
     $usesConcedePose = false;
@@ -768,9 +785,13 @@ final class GraphicalBattlePresentation
             ? $playback->getPoseImpactSeconds($battler) : null,
           durationSeconds: $playback !== null && $candidateRole === $role->value
             ? $playback->getPoseDurationSeconds($battler, $role) : null,
-          sequence: $playback !== null && $candidateRole === $role->value
-            ? $playback->getPoseSequence($battler, $role) : BattlePoseSequence::MAIN,
-          useFarPose: $pose === $actionPose && ($playback?->plan->travel?->usesFarPose ?? false));
+          sequence: match (true) {
+            $pose === $guardPose => BattlePoseSequence::GUARD,
+            $playback !== null && $candidateRole === $role->value => $playback->getPoseSequence($battler, $role),
+            default => BattlePoseSequence::MAIN,
+          },
+          useFarPose: $pose === $actionPose && ($playback?->plan->travel?->usesFarPose ?? false),
+          arrivalPose: $pose === $actionPose ? $playback?->plan->travel?->arrivalPose : null);
         if ($posed === null) { throw new RuntimeException('Pose image is unavailable.'); }
         $posedBounds = BattleFormationLayout::getPosePlacement($slot, $posed, $artworkScale,
           $this->layout, $participant['scale'], $this->scale, $pose->scaleSpan, $participant['poses']);

@@ -162,3 +162,30 @@ it('loads authored move and separate return sheets through the shared role contr
     ->and($set->getPose(BattlePoseRole::MOVE)->loop)->toBeTrue()
     ->and($set->getPose(BattlePoseRole::RETURNING)->impactFrame)->toBeNull();
 });
+
+it('loads ordered arrival bands and refuses ambiguous or unusable action registrations', function () {
+  $action = [...$this->wisp['poses']['attack'], 'impactFrame' => 0];
+  $upper = ['minAngle' => -180, 'maxAngle' => -10, 'frames' => [2, 3], 'reach' => ['x' => .7, 'y' => -.3],
+    'pivot' => ['x' => .45, 'y' => .9]];
+  $level = ['minAngle' => -10, 'maxAngle' => 180, 'frames' => [0, 1], 'reach' => ['x' => .6, 'y' => -.1]];
+  $load = fn(array $data) => BattlerBindings::getFromArray(
+    ['enemies' => ['Wisp' => [...$this->wisp, 'actionPoses' => [1 => $data]]]], $this->root)
+      ->enemyPoses['Wisp']->getAnimationPose(1);
+  $pose = $load([...$action, 'arrivalPoses' => [$upper, $level]]);
+  expect($pose->selectArrivalPose(-180)->frames)->toBe([2, 3])
+    ->and($pose->selectArrivalPose(-10.001)->pivot?->x)->toBe(.45)
+    ->and($pose->selectArrivalPose(-10)->frames)->toBe([0, 1])
+    ->and($pose->selectArrivalPose(180)->reach->y)->toBe(-.1);
+  foreach ([
+    [$upper, [...$level, 'minAngle' => -9]],
+    [$upper, [...$level, 'minAngle' => -11]],
+    [$upper, [...$level, 'maxAngle' => 90]],
+    [$upper, [...$level, 'frames' => [4]]],
+    [$level, $upper],
+  ] as $invalid) {
+    expect(fn() => $load([...$action, 'arrivalPoses' => $invalid]))->toThrow(InvalidArgumentException::class);
+  }
+  expect(fn() => $load([...$action, 'arrivalPoses' => [$upper, $level],
+    'farPose' => ['minDistance' => .7, 'frames' => [2], 'reach' => ['x' => .7, 'y' => -.1]]]))
+    ->toThrow(InvalidArgumentException::class, 'only angle selection');
+});

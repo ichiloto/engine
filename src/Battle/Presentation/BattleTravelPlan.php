@@ -20,7 +20,8 @@ final class BattleTravelPlan
   /** @param list<array{float, float}> $points Resolved ground-anchor route, not a gameplay path. */
   public function __construct(array $points, public readonly float $contactX, public readonly float $contactY,
     public readonly int $facingSign, public readonly float $advanceSpeed, public readonly float $returnSpeed,
-    public readonly ?BattleTravelFailure $failure = null, public readonly bool $usesFarPose = false)
+    public readonly ?BattleTravelFailure $failure = null, public readonly bool $usesFarPose = false,
+    public readonly ?BattlePoseAngleVariant $arrivalPose = null)
   {
     if (!in_array($facingSign, [-1, 1], true) || !is_finite($contactX) || !is_finite($contactY)
       || !is_finite($advanceSpeed) || $advanceSpeed <= 0 || !is_finite($returnSpeed) || $returnSpeed <= 0

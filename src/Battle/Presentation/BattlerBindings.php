@@ -58,7 +58,7 @@ final readonly class BattlerBindings
   private const array REFERENCE_KEYS = ['actor', 'height'];
   private const array BATTLER_KEYS = ['artwork', 'poses', 'actionPoses', 'scale', 'grounding', 'strikePoint'];
   private const array ARTWORK_KEYS = ['image', 'pivot'];
-  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan', 'bakedShadow', 'impactFrame', 'reach', 'entryFrames', 'exitFrames', 'attachmentPoints', 'guardFrame', 'farPose'];
+  private const array POSE_KEYS = ['image', 'pivot', 'columns', 'rows', 'frames', 'fps', 'loop', 'restFrame', 'scaleSpan', 'bakedShadow', 'impactFrame', 'reach', 'entryFrames', 'exitFrames', 'attachmentPoints', 'guardFrame', 'farPose', 'arrivalPoses'];
   private const array PIVOT_KEYS = ['x', 'y'];
   private const array PROFILE_KEYS = ['relativeSize', 'sourceSpan', 'horizontal'];
 
@@ -234,6 +234,7 @@ final readonly class BattlerBindings
       $points,
       array_key_exists('guardFrame', $pose) ? self::readInteger($pose, 'guardFrame', 0, $at) : null,
       array_key_exists('farPose', $pose) ? self::readFarPose($pose['farPose'], "{$at}.farPose") : null,
+      array_key_exists('arrivalPoses', $pose) ? self::readArrivalPoses($pose['arrivalPoses'], "{$at}.arrivalPoses") : [],
     );
   }
 
@@ -247,6 +248,28 @@ final readonly class BattlerBindings
       BattlePoseReach::fromArray($pose['reach'] ?? null, "{$at}.reach"),
       array_key_exists('pivot', $pose) ? PresentationSpritePivot::fromArray($pose['pivot']) : null,
     );
+  }
+
+  /** @return list<BattlePoseAngleVariant> */
+  private static function readArrivalPoses(mixed $data, string $at): array
+  {
+    if (!is_array($data) || !array_is_list($data) || $data === []) {
+      throw new InvalidArgumentException("{$at}: expected a non-empty list of arrival poses.");
+    }
+    $arrivals = [];
+    foreach ($data as $index => $entry) {
+      $where = "{$at}.{$index}";
+      $pose = self::requireMap($entry, $where);
+      self::assertKeys($pose, ['minAngle', 'maxAngle', 'frames', 'reach', 'pivot'], $where);
+      $arrivals[] = new BattlePoseAngleVariant(
+        self::requireNumber($pose['minAngle'] ?? null, "{$where}.minAngle"),
+        self::requireNumber($pose['maxAngle'] ?? null, "{$where}.maxAngle"),
+        self::readSequenceFrames($pose, 'frames', $where),
+        BattlePoseReach::fromArray($pose['reach'] ?? null, "{$where}.reach"),
+        array_key_exists('pivot', $pose) ? PresentationSpritePivot::fromArray($pose['pivot']) : null,
+      );
+    }
+    return $arrivals;
   }
 
   /** @return list<int> Cell validity and resource bounds are shared with code-owned poses. */

@@ -591,6 +591,55 @@ it('uses the same ranged action variant for the landing reach and the drawn atla
     ->and([$read(180)->x, $read(180)->y])->toBe([0, 90]);
 })->with([false, true]);
 
+it('selects an arrival pose before travel from guard to the exact visible aim point', function (bool $higher) {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $target = $enemies[$higher ? 1 : 0];
+  $up = new \Ichiloto\Engine\Battle\Presentation\BattlePoseAngleVariant(-180, 0, [5, 6],
+    new \Ichiloto\Engine\Battle\Presentation\BattlePoseReach(.85, -.33),
+    new \Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot(.45, .95));
+  $down = new \Ichiloto\Engine\Battle\Presentation\BattlePoseAngleVariant(0, 180, [2],
+    new \Ichiloto\Engine\Battle\Presentation\BattlePoseReach(.7, -.2));
+  $pose = new BattlerPose('graphical-canvas/synthetic-320x180.png', columns: 4, rows: 2, frames: [3],
+    fps: 24, loop: false, impactFrame: 0, entryFrames: [0, 1], exitFrames: [3], guardFrame: 4, arrivalPoses: [$up, $down]);
+  $aim = new \Ichiloto\Engine\Battle\Presentation\BattlerStrikePoint(.8, .8);
+  $layout = new BattleCanvasLayout(1350, 720, partySlots: [getStageSlot(969, 275, 143, 181)]);
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $layout, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => new BattlePoseSet([], actionPoses: [1 => $pose])],
+    enemyStrikePoints: ['Twin' => $aim]);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $action = new AttackAction('Contact');
+  $travel = $presentation->planActionTravel($hero, [$target], $action, animationId: 1,
+    movement: \Ichiloto\Engine\Animations\ActionMovement::FLASH_STEP);
+  $selected = $higher ? $up : $down;
+  expect($travel->isPossible)->toBeTrue()->and($travel->arrivalPose)->toBe($selected);
+  $frame = $presentation->frame();
+  $visible = fn($canvas, $battler) => \Ichiloto\Engine\Rendering\Sprites\PngAssetBounds::getVisibleBounds(
+    $this->root, graphicalCombatantImage($canvas, $battler))['bounds'];
+  $expectedAim = $aim->getCanvasPosition($visible($frame, $target));
+  $source = $visible($frame, $hero);
+  $reach = $selected->reach->getCanvasOffset($source->height);
+  $end = $travel->getPositionAtProgress(1);
+  expect($travel->contactX)->toBe($expectedAim->x)->and($travel->contactY)->toBe($expectedAim->y)
+    ->and($end->x + $travel->facingSign * $reach->x)->toEqualWithDelta($expectedAim->x, .00001)
+    ->and($end->y + $reach->y)->toEqualWithDelta($expectedAim->y, .00001);
+
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
+    travel: $travel, actionPoseOverride: $pose, flashStep: new \Ichiloto\Engine\Animations\FlashStepTiming(24, 20, 3, 10, 3, 7, 2));
+  $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $hero, [$target],
+    BattlePoseRole::ATTACK, $catalog, $this->root);
+  $guard = $visible($preview->getFrameAtIndex(90)->canvas, $hero);
+  expect($expectedAim->y < $guard->y + $guard->height / 2)->toBe($higher);
+  // The higher target still lies below the home centre. Using Idle here selects the other band.
+  expect($expectedAim->y)->toBeGreaterThan($source->y + $source->height / 2);
+  $arrival = graphicalCombatantImage($preview->getFrameAtIndex(115)->canvas, $hero);
+  expect([$arrival->sourceRect->x, $arrival->sourceRect->y])->toBe($higher ? [80, 90] : [160, 0])
+    ->and($arrival->destination->x + $arrival->destination->width * ($selected->pivot?->x ?? .5))->toEqualWithDelta($end->x, .00001)
+    ->and($arrival->destination->y + $arrival->destination->height * ($selected->pivot?->y ?? 1))->toEqualWithDelta($end->y, .00001)
+    ->and($pose->getRecoverySeconds(arrivalPose: $selected))->toEqualWithDelta(count($selected->frames) / 24, .00001);
+  $atRest = graphicalCombatantImage($preview->getFrameAtIndex(115, true)->canvas, $hero);
+  expect([$atRest->sourceRect->x, $atRest->sourceRect->y])->toBe([0, 0]);
+})->with([false, true]);
+
 it('holds a stationary action rest cell through a later impact under reduced motion', function () {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $asset = 'graphical-canvas/synthetic-320x180.png';

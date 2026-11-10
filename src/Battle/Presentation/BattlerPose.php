@@ -24,6 +24,7 @@ final readonly class BattlerPose
    * @param non-empty-list<int> $frames Source cells in playback order.
    * @param list<int> $entryFrames One-shot source cells before the main movement.
    * @param list<int> $exitFrames One-shot source cells after the main movement.
+   * @param list<BattlePoseAngleVariant> $arrivalPoses Contiguous, ordered facing-relative angle bands.
    * @param list<array{cell: int, name: string, point: array{x: int|float, y: int|float}}> $attachmentPoints
    */
   public function __construct(
@@ -48,6 +49,7 @@ final readonly class BattlerPose
     array $attachmentPoints = [],
     public ?int $guardFrame = null,
     public ?BattlePoseRangeVariant $farPose = null,
+    public array $arrivalPoses = [],
   ) {
     SpriteValidation::validateAssetPath($asset);
     if ($impactFrame !== null && ($loop || $impactFrame < 0 || $impactFrame >= count($frames))) {
@@ -64,6 +66,21 @@ final readonly class BattlerPose
     if ($farPose !== null && ($impactFrame === null || $impactFrame >= count($farPose->frames)
       || array_any($farPose->frames, static fn(int $frame): bool => $frame >= $columns * $rows))) {
       throw new InvalidArgumentException('Ranged action poses require a valid impact entry and cells on their action atlas.');
+    }
+    if (!array_is_list($arrivalPoses) || ($arrivalPoses !== [] && ($impactFrame === null || $farPose !== null))) {
+      throw new InvalidArgumentException('Arrival poses require an action impact entry and use only angle selection.');
+    }
+    $nextAngle = BattlePoseAngleVariant::MIN_ANGLE;
+    foreach ($arrivalPoses as $arrival) {
+      if (!$arrival instanceof BattlePoseAngleVariant || $arrival->minAngle !== $nextAngle
+        || $impactFrame >= count($arrival->frames)
+        || array_any($arrival->frames, static fn(int $frame): bool => $frame >= $columns * $rows)) {
+        throw new InvalidArgumentException('Arrival poses need contiguous, ordered angle bands and valid impact entries and atlas cells.');
+      }
+      $nextAngle = $arrival->maxAngle;
+    }
+    if ($arrivalPoses !== [] && $nextAngle !== BattlePoseAngleVariant::MAX_ANGLE) {
+      throw new InvalidArgumentException('Arrival pose bands must cover -180..180 degrees.');
     }
     if ($guardFrame !== null && ($guardFrame < 0 || $guardFrame >= $columns * $rows)) {
       throw new InvalidArgumentException('Battle pose guardFrame requires a valid source cell number.');
@@ -114,11 +131,23 @@ final readonly class BattlerPose
     ), $this->pointsByCell[$cell] ?? []);
   }
 
+  /** The lower boundary belongs to its band. The last band also includes +180 degrees. */
+  public function selectArrivalPose(float $angle): BattlePoseAngleVariant
+  {
+    if (!is_finite($angle) || $angle < BattlePoseAngleVariant::MIN_ANGLE || $angle > BattlePoseAngleVariant::MAX_ANGLE) {
+      throw new InvalidArgumentException('An arrival angle must be finite and within -180..180 degrees.');
+    }
+    return array_find($this->arrivalPoses, static fn(BattlePoseAngleVariant $arrival): bool =>
+      $angle >= $arrival->minAngle && ($angle < $arrival->maxAngle || $arrival->maxAngle === BattlePoseAngleVariant::MAX_ANGLE))
+      ?? throw new InvalidArgumentException('The action pose has no arrival angle bands.');
+  }
+
   /** @return list<int> Source cells on this sequence's independent clock. */
-  public function getSequenceFrames(BattlePoseSequence $sequence, bool $useFarPose = false): array
+  public function getSequenceFrames(BattlePoseSequence $sequence, bool $useFarPose = false,
+    ?BattlePoseAngleVariant $arrivalPose = null): array
   {
     return match ($sequence) {
-      BattlePoseSequence::MAIN => $useFarPose ? ($this->farPose?->frames ?? $this->frames) : $this->frames,
+      BattlePoseSequence::MAIN => $arrivalPose?->frames ?? ($useFarPose ? $this->farPose?->frames : null) ?? $this->frames,
       BattlePoseSequence::ENTRY => $this->entryFrames,
       BattlePoseSequence::EXIT => $this->exitFrames,
       BattlePoseSequence::GUARD => $this->guardFrame === null ? [] : [$this->guardFrame],
@@ -132,14 +161,17 @@ final readonly class BattlerPose
   }
 
   /** Includes the strike entry and its last authored hold. */
-  public function getRecoverySeconds(bool $useFarPose = false): float
+  public function getRecoverySeconds(bool $useFarPose = false, ?BattlePoseAngleVariant $arrivalPose = null): float
   {
-    return $this->impactFrame === null ? 0.0 : (count($this->getSequenceFrames(BattlePoseSequence::MAIN, $useFarPose)) - $this->impactFrame) / $this->fps;
+    if ($this->impactFrame === null) { return 0.0; }
+    $frames = $this->getSequenceFrames(BattlePoseSequence::MAIN, $useFarPose, $arrivalPose);
+    return (count($frames) - $this->impactFrame) / $this->fps;
   }
 
   public function getArtwork(string $assetRoot, float $elapsedSeconds, bool $reducedMotion = false,
     ?float $impactAtSeconds = null, ?float $durationSeconds = null,
-    BattlePoseSequence $sequence = BattlePoseSequence::MAIN, bool $useFarPose = false): ?BattlerArtwork
+    BattlePoseSequence $sequence = BattlePoseSequence::MAIN, bool $useFarPose = false,
+    ?BattlePoseAngleVariant $arrivalPose = null): ?BattlerArtwork
   {
     if (!is_finite($elapsedSeconds) || $elapsedSeconds < 0) {
       throw new InvalidArgumentException('Battle pose elapsed time must be finite and non-negative.');
@@ -150,7 +182,7 @@ final readonly class BattlerPose
     if ($durationSeconds !== null && (!is_finite($durationSeconds) || $durationSeconds <= 0)) {
       throw new InvalidArgumentException('An explicit pose duration must be finite and positive.');
     }
-    $frames = $this->getSequenceFrames($sequence, $useFarPose);
+    $frames = $this->getSequenceFrames($sequence, $useFarPose, $arrivalPose);
     if ($frames === []) { return null; }
     $main = $sequence === BattlePoseSequence::MAIN;
     $size = PngAssetPreflight::getAvailableSize($assetRoot, $this->asset);
@@ -182,7 +214,7 @@ final readonly class BattlerPose
     $height = intdiv($size['height'], $this->rows);
     $crop = $this->columns * $this->rows === 1 ? null : new SpriteSourceRect(
       ($source % $this->columns) * $width, intdiv($source, $this->columns) * $height, $width, $height);
-    $pivot = $main && !$reducedMotion && $useFarPose ? $this->farPose?->pivot : null;
+    $pivot = $main && !$reducedMotion ? ($arrivalPose?->pivot ?? ($useFarPose ? $this->farPose?->pivot : null)) : null;
     return new BattlerArtwork($this->asset, $width, $height,
       ($pivot?->x ?? $this->pivotX) * $width, ($pivot?->y ?? $this->pivotY) * $height, $crop);
   }
