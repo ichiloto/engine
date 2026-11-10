@@ -8,7 +8,11 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
 
-/** Immutable frame intent; the field session, never the renderer, selected it. */
+/**
+ * Immutable frame intent; the field session, never the renderer, selected it.
+ * Subtypes keep the same construction contract so a fade preserves their kind.
+ * @phpstan-consistent-constructor
+ */
 readonly class FieldEffectSprite implements GraphicalSpriteProviderInterface
 {
   public function __construct(private string $id, private GraphicalSpriteDefinition $definition,

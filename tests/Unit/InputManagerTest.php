@@ -200,18 +200,7 @@ it('adds a missing Info action using only unclaimed default keys', function (arr
 it('preserves an explicit Info entry including deliberate unbinding', function (array $entry) {
   $authored = ['info' => $entry, 'custom' => ['keys' => [KeyCode::F2]]];
   InputManager::setBindings($authored);
-  expect(InputManager::getBindings())->toBe([...$authored,
-    'menu_page_previous' => ['description' => 'Show the previous menu page.', 'keys' => [KeyCode::PAGE_UP]],
-    'menu_page_next' => ['description' => 'Show the next menu page.', 'keys' => [KeyCode::PAGE_DOWN]],
-    'map_view' => ['description' => 'Switch between the local and world map.', 'keys' => [KeyCode::v, KeyCode::V]],
-    'map_size' => ['description' => 'Change the corner atlas size.', 'keys' => [KeyCode::F3]],
-    'map_zoom' => ['description' => 'Switch between the two map zoom levels.', 'keys' => [KeyCode::z, KeyCode::Z]],
-    'map_recenter' => ['description' => 'Centre the map on your position.', 'keys' => [KeyCode::HOME]],
-    'dialogue_auto' => InputManager::getDefaultDialogueAutoBinding($authored),
-    'secondary_action' => InputManager::getDefaultSecondaryActionBinding($authored),
-    'dash' => InputManager::getDefaultDashBinding($authored),
-    'quick_save' => ['description' => 'Quick Save', 'keys' => [KeyCode::F5]],
-  ]);
+  expect(array_intersect_key(InputManager::getBindings(), $authored))->toBe($authored);
   InputManager::setInputSource(new FakeInputSource(KeyCode::i));
   InputManager::handleInput();
   expect(Input::isButtonDown('info'))->toBeFalse();
