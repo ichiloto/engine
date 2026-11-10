@@ -8,7 +8,6 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\Game\States\EquipmentMenuState;
 use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
-use Ichiloto\Engine\Scenes\Game\States\MasteryMenuState;
 use Ichiloto\Engine\Scenes\Game\States\StatusViewState;
 use Ichiloto\Engine\Util\Debug;
 use RuntimeException;
@@ -98,12 +97,10 @@ class MainMenuCharacterSelectionMode extends MainMenuMode
       }
       $memberId = $this->characterSelectionMenu->activeCharacter?->actorId;
       $this->mainMenuState->setState($this->nextGameSceneState);
-      if ($this->nextGameSceneState instanceof MasteryMenuState) {
-        $this->mainMenuState->getGameScene()->reportTutorialOutcome(
-          MainMenuState::TUTORIAL_SCREEN, MainMenuState::TUTORIAL_PARTY, MainMenuState::TUTORIAL_MEMBER_CONFIRMED,
-          $memberId,
-        );
-      }
+      $this->mainMenuState->getGameScene()->reportTutorialOutcome(
+        MainMenuState::TUTORIAL_SCREEN, MainMenuState::TUTORIAL_PARTY, MainMenuState::TUTORIAL_MEMBER_CONFIRMED,
+        $memberId,
+      );
     }
   }
 }
