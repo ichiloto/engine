@@ -87,13 +87,30 @@ final class BattleConditionEffects
     return $this->loadValidatedTimeline($id, $presentation, loop: false);
   }
 
+  /** Loads a persistent state or stat-stage timeline for authoring validation. */
+  public function loadLoopingTimeline(string $id, EffectPresentation $presentation): CompiledEffectTimeline
+  {
+    return $this->loadValidatedTimeline($id, $presentation, loop: true);
+  }
+
+  /** Checks a battle-compiled timeline, including unsaved authoring data. */
+  public static function validateInterceptionTimeline(CompiledEffectTimeline $timeline): void
+  {
+    self::validateTimeline($timeline, loop: false);
+  }
+
+  /** Checks a battle-compiled timeline for a persistent state or stat stage. */
+  public static function validateLoopingTimeline(CompiledEffectTimeline $timeline): void
+  {
+    self::validateTimeline($timeline, loop: true);
+  }
+
   private function loadTimeline(string $key, EffectPresentation $presentation, bool $loop): ?CompiledEffectTimeline
   {
     $id = $this->bindings[$key] ?? null;
     if ($id === null) { return null; }
     try {
-      return $loop ? $this->loadValidatedTimeline($id, $presentation, loop: true)
-        : $this->loadInterceptionTimeline($id, $presentation);
+      return $this->loadValidatedTimeline($id, $presentation, $loop);
     } catch (Throwable $error) {
       $this->reportFailure($id . ':' . $presentation->value, $error);
       return null;
@@ -103,6 +120,12 @@ final class BattleConditionEffects
   private function loadValidatedTimeline(string $id, EffectPresentation $presentation, bool $loop): CompiledEffectTimeline
   {
     $timeline = $this->library->load($id, true, $presentation);
+    self::validateTimeline($timeline, $loop);
+    return $timeline;
+  }
+
+  private static function validateTimeline(CompiledEffectTimeline $timeline, bool $loop): void
+  {
     if ($timeline->cadence !== EffectCadence::FIXED || ($timeline->defaults['playback']['loop'] ?? false) !== $loop
       || $timeline->cueSchedule !== [] || isset($timeline->defaults['stage'])) {
       $kind = $loop ? 'Looping condition' : 'One-shot interception';
@@ -125,7 +148,6 @@ final class BattleConditionEffects
         && array_any($segment['drawCommands'], static fn(array $command): bool => $command['visible'] ?? true))) {
       throw new InvalidArgumentException('A condition effect needs a visible reduced-motion restFrame.');
     }
-    return $timeline;
   }
 
   public function reportFailure(string $key, Throwable $error): void
