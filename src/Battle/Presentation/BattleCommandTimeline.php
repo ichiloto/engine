@@ -40,6 +40,10 @@ final readonly class BattleCommandTimeline
   /** Legacy target-stage access; source stages use the same lane-owned inspection methods below. */
   public ?CinematicStage $cinematicStage;
   public bool $usesArenaImpact;
+  /** Frame interval for hit presentation when the selected straight flight exits horizontally. */
+  public int $fallbackHitSpacing;
+  public int $impactFrame;
+  public ?string $fallbackHitTrack;
   /** @var array<string, CinematicStage> Each effect lane owns its own stage and authored clock. */
   private array $cinematicStages;
   /** @var array<string, list<array>> Unshifted authored segments for each stage. */
@@ -70,7 +74,7 @@ final readonly class BattleCommandTimeline
     public bool $movementPoses = false, public ?BattleTravelPlan $travel = null,
     ?BattlerPose $movePose = null, ?BattlerPose $returnPose = null, ?float $projectedRange = null,
     public ?BattlerPose $actionPoseOverride = null,
-    public ?\Ichiloto\Engine\Animations\FlashStepTiming $flashStep = null)
+    public ?\Ichiloto\Engine\Animations\FlashStepTiming $flashStep = null, int $targetCount = 1)
   {
     $targetScale = EffectScale::readValue($targetScale, 'Battle target effect scale');
     if ($actionPoseOverride !== null && $actionPoseOverride->impactFrame === null) {
@@ -81,6 +85,8 @@ final readonly class BattleCommandTimeline
       throw new InvalidArgumentException('Flash step requires a resolved route, action transit cells and a planted first frame.');
     }
     $actionPose = $actionPoseOverride ?? $actionPose;
+    $this->fallbackHitTrack = $fallbackHitTrack = !$resultsOnly && isset($target->defaults['fallbackHitTrack'])
+      ? 'target-' . $target->defaults['fallbackHitTrack'] : null;
     $this->usesArenaImpact = !$resultsOnly && ($target?->defaults['effectTiming']['mode'] ?? null) === EffectImpactTimingMode::ARENA->value;
     if (($source?->defaults['effectTiming']['mode'] ?? null) === EffectImpactTimingMode::ARENA->value) {
       throw new InvalidArgumentException('Arena impact belongs to the target effect lane.');
@@ -100,6 +106,7 @@ final readonly class BattleCommandTimeline
     $this->rangeTiming = $rangeTiming !== null && $projectedRange >= $rangeTiming->minDistance ? $rangeTiming : null;
     if ($resultsOnly) {
       $this->flightTiming = null;
+      $this->fallbackHitSpacing = $this->impactFrame = 0;
       $this->actionPoseAnchorFrame = null;
       $this->actionPoseStartFrame = null;
       $this->actionPoseEndFrame = null;
@@ -146,6 +153,9 @@ final readonly class BattleCommandTimeline
       : EffectPlaybackTiming::createForBattlePhase($source, $timings->actionAnimation);
     $targetTiming = $this->targetTiming = $target === null ? null
       : EffectPlaybackTiming::createForBattlePhase($target, $timings->effectAnimation);
+    $this->fallbackHitSpacing = $fallbackHitTrack === null ? 0
+      : $targetTiming->getFrameBoundary($target->defaults['fallbackHitSpacingFrames'], self::FPS);
+    $fallbackHitTail = max(0, $targetCount - 1) * $this->fallbackHitSpacing;
     $this->terminalTiming = $this->terminalTarget === null ? null
       : EffectPlaybackTiming::createForBattlePhase($this->terminalTarget, $timings->effectAnimation);
     $phases = $cues = $segments = $restFrames = $restSegments = [];
@@ -194,6 +204,7 @@ final readonly class BattleCommandTimeline
       $length = $phase === 'announce' && !$showAnnouncement ? 0
         : max(1, $clock?->getFrameBoundary($clock->totalFrames, self::FPS) ?? (int)ceil($seconds * self::FPS));
       if ($flashStep !== null && in_array($phase, ['source', 'reaction'], true)) { $length = 0; }
+      if ($phase === 'reaction') { $length += $fallbackHitTail; }
       if ($phase === 'target') {
         $terminalLength = $this->terminalTiming?->getFrameBoundary($this->terminalTiming->totalFrames, self::FPS) ?? 0;
         $length = max($length, $terminalLength);
@@ -281,7 +292,8 @@ final readonly class BattleCommandTimeline
                 'attachmentPoint' => $command['payload']['attachmentPoint'],
                 'route' => $flight === null ? null : ($flight['route'] ?? EffectFlightRoute::WAYPOINTS->value),
                 ...(isset($flight['contact']) ? ['contact' => $flight['contact']] : []),
-                ...(isset($flight['fallback']) ? ['fallback' => $flight['fallback']] : []),
+                ...(isset($flight['fallback']) ? ['fallback' => $flight['fallback'],
+                  'arrival' => $cursor + $boundary($flight['arrivalFrame'])] : []),
                 'curve' => $visualClock !== null ? ($flight['farCurve'] ?? $flight['curve'] ?? null) : ($flight['curve'] ?? null),
                 ...(!isset($flight['bystanderClearance']) ? [] : ['clearance' => (float)$flight['bystanderClearance']
                   + max($command['payload']['profile']['startRadius'], $command['payload']['profile']['endRadius'])])]];
@@ -347,6 +359,10 @@ final readonly class BattleCommandTimeline
         'frame' => $phases['target']['start'] + $targetTiming->getFrameBoundary($this->cinematicStage->data['restoreFrame'], self::FPS),
         'payload' => []];
     }
+    if ($fallbackHitTrack !== null && ($detachments[$fallbackHitTrack]['payload']['arrival'] ?? null) !== $impact) {
+      throw new InvalidArgumentException('The horizontal exit arrival must own the spaced battle impact.');
+    }
+    $this->impactFrame = $impact;
     $cues[] = ['id' => 'command-impact', 'type' => 'commandImpact', 'frame' => $impact, 'payload' => []];
     $cues = [...$cues, ...array_values($detachments), ...array_values($targetGroupCaptures)];
     $order = static fn(array $cue): int => match ($cue['type']) {

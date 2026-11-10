@@ -36,7 +36,7 @@ final class EffectTimelineValidator
       $data = $variants[$presentation->value];
     }
     if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'loopFrom', 'restFrame', 'tracks', 'cues',
-      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'poseClock', 'rangeTiming', 'flightTiming'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
+      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'poseClock', 'rangeTiming', 'flightTiming', 'fallbackHitSpacingFrames'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
       throw new InvalidArgumentException("Effect {$id} accepts fps, lengthFrames, playback, loopFrom, restFrame, tracks and presentation cues.");
     }
     $length = $data['lengthFrames'] ?? null;
@@ -375,6 +375,24 @@ final class EffectTimelineValidator
         && ($stage === null || $timing['frame'] < $stage->data['restoreFrame'])))) {
       throw new InvalidArgumentException("Effect {$id} arena impact requires a once-playing stage and a frame at or after battlefield restoration.");
     }
+    $spacing = $data['fallbackHitSpacingFrames'] ?? null;
+    if (array_key_exists('fallbackHitSpacingFrames', $data) && (!is_int($spacing) || $spacing < 1 || $spacing > $fps
+      || $playback !== 'once' || $cadence !== EffectCadence::FIXED)) {
+      throw new InvalidArgumentException("Effect {$id} fallback hit spacing requires a fixed, once-playing effect and 1..fps authored frames.");
+    }
+    $spacedFlight = null;
+    if ($spacing !== null && $presentation === EffectPresentation::GRAPHICAL) {
+      $flights = array_values(array_filter($tracks, static fn(array $track): bool =>
+        ($track['flight']['fallback'] ?? null) === EffectStraightFlightFallback::HORIZONTAL_EXIT->value
+        && $presentation->acceptsSegment(['presentation' => $track['presentation'] ?? 'all'])));
+      $spacedFlight = count($flights) === 1 ? $flights[0] : null;
+      $impact = self::getAuthoredImpactFrame($cues, $timing);
+      if ($spacedFlight === null || $spacedFlight['flight']['arrivalFrame'] !== $impact
+        || ($spacedFlight['flight']['holdFrame'] ?? $impact) !== $impact
+        || ($stage !== null && $spacedFlight['detachFrame'] < $stage->data['restoreFrame'])) {
+        throw new InvalidArgumentException("Effect {$id} spaced fallback hits require one horizontal exit from the arena with arrival at impact.");
+      }
+    }
     $rangeTiming = null;
     if ($presentation === EffectPresentation::GRAPHICAL && array_key_exists('rangeTiming', $data)) {
       if ($stage !== null || $forSummon || $playback !== 'once' || $cadence !== EffectCadence::FIXED) {
@@ -405,6 +423,7 @@ final class EffectTimelineValidator
         ...($poseSyncFrame === null ? [] : ['poseSyncFrame' => $poseSyncFrame]),
         ...($poseClock === EffectPoseClock::ANNOUNCEMENT ? [] : ['poseClock' => $poseClock->value]),
         ...($rangeTiming ?? []),
+        ...($spacedFlight === null ? [] : ['fallbackHitSpacingFrames' => $spacing, 'fallbackHitTrack' => $spacedFlight['id']]),
         ...($flightTiming === null ? [] : ['flightTiming' => $flightTiming]),
         'playback' => ['loop' => $playback === 'loop', 'loopFrom' => $loopFrom],
         ...($stage === null ? [] : ['stage' => $stage->data])]);
@@ -428,17 +447,22 @@ final class EffectTimelineValidator
       throw new InvalidArgumentException("Effect {$id} flight timing needs a track ID and speed of 0.05..20 arena widths per second.");
     }
     $track = array_find($tracks, static fn(array $track): bool => ($track['id'] ?? null) === $trackId);
-    $impact = match ($timing['mode'] ?? 'cue') {
-      'frame' => $timing['frame'],
-      'cue' => array_find($cues, static fn(array $cue): bool => isset($timing['cueId'])
-        ? $cue['id'] === $timing['cueId'] : $cue['type'] === 'applyEffect')['frame'] ?? null,
-      default => null,
-    };
+    $impact = self::getAuthoredImpactFrame($cues, $timing);
     if (!self::canTimeFlightFromTrack($track) || $impact !== $track['flight']['arrivalFrame']
       || ($track['flight']['holdFrame'] ?? $impact) !== $impact) {
       throw new InvalidArgumentException("Effect {$id} flight timing requires a graphical flight whose arrival owns the impact cue.");
     }
     return ['track' => $trackId, 'release' => $track['detachFrame'], 'arrival' => $impact, 'speed' => (float)$speed];
+  }
+
+  private static function getAuthoredImpactFrame(array $cues, ?array $timing): ?int
+  {
+    return match ($timing['mode'] ?? 'cue') {
+      'frame', 'arena' => $timing['frame'],
+      'cue' => array_find($cues, static fn(array $cue): bool => isset($timing['cueId'])
+        ? $cue['id'] === $timing['cueId'] : $cue['type'] === 'applyEffect')['frame'] ?? null,
+      default => null,
+    };
   }
 
   private static function compileTrail(string $id, array $track, int $length, string $playback, bool $hasRange): array

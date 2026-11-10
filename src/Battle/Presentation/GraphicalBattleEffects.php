@@ -133,6 +133,7 @@ final class GraphicalBattleEffects
         if ($targetGroup !== null || in_array($anchor, ['screen', 'legacy-screen'], true)
           || ($segment['layer'] === 'flash' && ($data['scope'] ?? '') === 'screen')) { $subjects = [null]; }
         foreach ($subjects as $subject) {
+          if (isset($data['hitSubject']) && ($subject === null || $data['hitSubject'] !== spl_object_id($subject))) { continue; }
           $box = $targetGroup?->bounds ?? ($subject === null ? null : ($bounds[spl_object_id($subject)] ?? null));
           $isDetached = $playback instanceof BattleCommandPlayback && isset($data['detachFrame'])
             && $playback->session->currentFrame >= $data['detachFrame'];
@@ -150,6 +151,8 @@ final class GraphicalBattleEffects
               $release['path'], $frame, $data, $arena));
             continue;
           }
+          if (($release['fallback'] ?? null) !== null && isset($data['flight'])
+            && ($reducedMotion || $playback->session->currentFrame >= $data['flight']['arrivalFrame'])) { continue; }
           $recipient = $anchor === 'caster'
             ? array_find($playback->targets, static fn($target): bool => $target !== $playback->actor) : $subject;
           $casterX = $release['casterX'] ?? ($groundAnchors[spl_object_id($playback->actor)] ?? null)?->x;

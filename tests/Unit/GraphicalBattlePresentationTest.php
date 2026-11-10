@@ -976,7 +976,7 @@ it('curves from the captured pose point to the selected visible body at the auth
     ->toThrow(InvalidArgumentException::class, 'cubic flight requires');
 });
 
-it('captures the authored horizontal exit in command playback without changing action resolution', function () {
+it('captures the authored horizontal exit in command playback without changing action resolution', function (bool $reducedMotion) {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $asset = 'graphical-canvas/synthetic-320x180.png';
   $pose = new BattlerPose($asset, attachmentPoints: [
@@ -984,21 +984,39 @@ it('captures the authored horizontal exit in command playback without changing a
   ]);
   $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
     ui: $catalog->ui, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => new BattlePoseSet(['attack' => $pose])]);
-  $data = ['fps' => 10, 'lengthFrames' => 10, 'restFrame' => 8, 'tracks' => [[
+  $data = ['fps' => 10, 'lengthFrames' => 10, 'restFrame' => 8, 'fallbackHitSpacingFrames' => 2, 'tracks' => [[
     'id' => 'projectile', 'type' => 'image', 'asset' => $asset, 'anchor' => 'caster', 'attachmentPoint' => 'launch',
     'detachFrame' => 1, 'facing' => 'east', 'flight' => [
       'route' => 'straight', 'arrivalFrame' => 8, 'fallback' => 'horizontal-exit',
     ], 'keyframes' => [['frame' => 1, 'duration' => 9]],
+  ], [
+    'id' => 'hit-glow', 'type' => 'image', 'asset' => $asset, 'anchor' => 'target',
+    'keyframes' => [['frame' => 8, 'duration' => 1]],
   ]], 'cues' => [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 8]]];
   $library = new EffectTimelineLibrary($this->root);
   $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
-    target: $library->compile('straight-exit', $data, true));
+    target: $library->compile('straight-exit', $data, true), targetCount: count($enemies));
   $resolved = 0;
   $playback = new BattleCommandPlayback($plan, $hero, $enemies, BattlePoseRole::ATTACK,
     static function () use (&$resolved): void { $resolved++; }, static fn() => null);
   $view = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
-  $view->bindCommandPosePoints($playback, false, 0);
+  $view->bindCommandPosePoints($playback, $reducedMotion, 0);
   $playback->begin();
+  $playback->update(($plan->impactFrame - 1) / BattleCommandTimeline::FPS);
+  $near = spl_object_id($enemies[1]);
+  $far = spl_object_id($enemies[0]);
+  $drawnHits = static function () use ($view, $playback, $reducedMotion): array {
+    $canvas = $view->frame(new \Ichiloto\Engine\Battle\Presentation\BattlePresentationSnapshot($playback),
+      reducedMotion: $reducedMotion);
+    return array_values(array_filter(array_column($canvas->images, 'id'),
+      static fn(string $id): bool => str_contains($id, 'target-hit-glow')));
+  };
+  expect($drawnHits())->toBe([]);
+  $playback->update(1 / BattleCommandTimeline::FPS);
+  expect($playback->getFallbackHitFrames())->toBe([$near => $plan->impactFrame, $far => $plan->impactFrame + 24])
+    ->and($drawnHits())->toBe(['command-effect-target-hit-glow-' . $near]);
+  $playback->update(24 / BattleCommandTimeline::FPS);
+  expect($drawnHits())->toBe(['command-effect-target-hit-glow-' . $far]);
   $playback->update($playback->getDurationSeconds());
 
   $capture = $playback->getDetachedPosePoint('target-projectile', $hero);
@@ -1009,10 +1027,13 @@ it('captures the authored horizontal exit in command playback without changing a
     ->and($capture['path']->getPositionAtProgress(1))->toEqual(new Vector2(-1, $capture['point']->y))
     ->and($resolved)->toBe(1);
 
+  $data['cues'][0]['frame'] = 7;
+  expect(fn() => $library->compile('early-impact', $data, true))
+    ->toThrow(InvalidArgumentException::class, 'with arrival at impact');
   $data['tracks'][0]['flight']['route'] = 'waypoints';
   expect(fn() => $library->compile('invalid-exit', $data, true))
     ->toThrow(InvalidArgumentException::class, 'fallback requires a straight route');
-});
+})->with([false, true]);
 
 it('chooses one range clock for the staff pose and release while keeping contact and terminal frames fixed', function () {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();

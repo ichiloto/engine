@@ -40,6 +40,8 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private ?Closure $capturePosePoints = null;
   /** @var array<string, array<int, DetachedPosePoint>> */
   private array $detachedPosePoints = [];
+  /** @var array<int, int> Selected combatant identity to command impact frame, in presentation order. */
+  private array $fallbackHitFrames = [];
   /** @var ?Closure(self): ?BattleEffectTargetGroup */
   private ?Closure $captureTargetGroup = null;
   /** @var array<string, ?BattleEffectTargetGroup> */
@@ -132,7 +134,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   public function cancel(): void
   {
     $this->cancelled = true;
-    $this->defeats = $this->detachedPosePoints = [];
+    $this->defeats = $this->detachedPosePoints = $this->fallbackHitFrames = [];
     $this->capturePosePoints = null;
     $this->targetGroups = [];
     $this->captureTargetGroup = null;
@@ -164,6 +166,17 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $point['point'] = clone $point['point'];
     return $point;
   }
+  /** @return array<int, int> Each selected target's presentation beat when the horizontal exit was used. */
+  public function getFallbackHitFrames(): array
+  {
+    return $this->fallbackHitFrames;
+  }
+
+  public function isAwaitingFallbackHit(CharacterInterface $battler): bool
+  {
+    return ($this->fallbackHitFrames[spl_object_id($battler)] ?? 0) > $this->session->currentFrame;
+  }
+
   public function pause(): void { $this->paused = true; $this->session->pause(); }
   public function resume(): void { $this->paused = false; $this->session->resume(); }
 
@@ -197,6 +210,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   public function getPoseRole(CharacterInterface $battler, ?BattlePoseSet $poses = null, bool $reducedMotion = false): BattlePoseRole
   {
     $rest = BattlePoseRole::getRestingRole($battler);
+    if ($rest === BattlePoseRole::KNOCKOUT && $this->isAwaitingFallbackHit($battler)) { return BattlePoseRole::IDLE; }
     if ($this->cancelled || $this->isCompleted || $rest === BattlePoseRole::KNOCKOUT || $rest === BattlePoseRole::CONCEDE) { return $rest; }
     if (!$reducedMotion && $this->plan->movementPoses && !$this->plan->resultsOnly && $battler === $this->actor
       && !isset($this->reactions[spl_object_id($battler)])) {
@@ -352,7 +366,52 @@ final class BattleCommandPlayback implements BattleEffectPlayback
         ? self::getVisibleTerminalRestSegments($select($restFrame), $active, $this->plan->terminalSegments, ['target' => $restFrame])
         : $active));
     }
+    if (!$terminal && $reducedMotion && $this->plan->fallbackHitTrack !== null && $frame < $this->plan->impactFrame) {
+      // A rest sample taken at impact must not show the hit during the approach.
+      $segments = [...self::filterSpacedHitSegments($segments, false),
+        ...self::filterSpacedHitSegments($this->session->getActiveSegments($frame), true)];
+    }
+    if (!$terminal && $this->fallbackHitFrames !== [] && $frame >= $this->plan->impactFrame) {
+      $segments = $this->getSpacedHitSegments($segments, $frame);
+    }
     return \Ichiloto\Engine\Animations\Timelines\EffectSegmentComposition::compose($segments, $presentation);
+  }
+
+  /** Keep the ordinary lane and sample only its hit tracks on each recipient's own clock. */
+  private function getSpacedHitSegments(array $active, int $frame): array
+  {
+    $segments = self::filterSpacedHitSegments($active, false);
+    foreach ($this->fallbackHitFrames as $id => $hitFrame) {
+      $delay = $hitFrame - $this->plan->impactFrame;
+      $sample = $frame - $delay;
+      if ($sample < $this->plan->impactFrame) { continue; }
+      foreach (self::filterSpacedHitSegments($this->session->getActiveSegments($sample), true) as $segment) {
+        foreach ($segment['drawCommands'] as &$command) { $command['payload']['hitSubject'] = $id; }
+        unset($command);
+        $segment['startFrame'] += $delay;
+        $segment['endFrame'] += $delay;
+        $segments[] = $segment;
+      }
+    }
+    return $segments;
+  }
+
+  private static function filterSpacedHitSegments(array $segments, bool $keepHits): array
+  {
+    $filtered = [];
+    foreach ($segments as $segment) {
+      $segment['drawCommands'] = array_values(array_filter($segment['drawCommands'],
+        static fn(array $command): bool => self::isSpacedHitCommand($command) === $keepHits));
+      if ($segment['drawCommands'] !== []) { $filtered[] = $segment; }
+    }
+    return $filtered;
+  }
+
+  private static function isSpacedHitCommand(array $command): bool
+  {
+    $data = $command['payload'] ?? [];
+    return str_starts_with($command['trackId'], 'target-') && ($data['anchor'] ?? null) === 'target'
+      && !isset($data['detachFrame']) && ($data['scope'] ?? null) !== 'screen';
   }
 
   /** A resting glyph or label keeps its authored visibility on the command clock. */
@@ -495,6 +554,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       foreach ($segment['drawCommands'] as $command) {
         if (!($command['visible'] ?? true)) { continue; }
         $data = $command['payload'] ?? [];
+        if (isset($data['hitSubject']) && $data['hitSubject'] !== spl_object_id($battler)) { continue; }
         $matches = match ($data['anchor'] ?? 'target') {
           'caster' => $battler === $this->actor,
           'screen', 'legacy-screen' => true,
@@ -528,6 +588,14 @@ final class BattleCommandPlayback implements BattleEffectPlayback
             $this->detachedPosePoints[$payload['trackId']] = ($this->capturePosePoints)(
               $this->samplePoseAtFrame($cue['frame']), $payload['anchor'], $payload['attachmentPoint'], $payload['route'],
               $payload['curve'], $payload['clearance'] ?? null, $payload['contact'] ?? null, $payload['fallback'] ?? null);
+            if ($payload['trackId'] === $this->plan->fallbackHitTrack) {
+              $shot = $this->detachedPosePoints[$payload['trackId']][spl_object_id($this->actor)] ?? null;
+              if (($shot['fallback'] ?? null) === EffectStraightFlightFallback::HORIZONTAL_EXIT) {
+                foreach ($shot['targetOrder'] as $index => $id) {
+                  $this->fallbackHitFrames[$id] = $this->plan->impactFrame + $index * $this->plan->fallbackHitSpacing;
+                }
+              }
+            }
             $flight = $this->plan->flightTiming;
             if ($this->arenaWidth !== null && ($flight['track'] ?? null) === $payload['trackId']) {
               $path = $this->detachedPosePoints[$payload['trackId']][spl_object_id($this->actor)]['path']
@@ -565,6 +633,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     }
     $sample->reactions = $this->reactions;
     $sample->reactionFrames = $this->reactionFrames;
+    $sample->fallbackHitFrames = $this->fallbackHitFrames;
     return $sample;
   }
 

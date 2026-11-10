@@ -173,3 +173,45 @@ it('rejects an arena impact hidden by the stage and accepts independent terminal
   expect($cue['frame'])->toBe($plan->getCommandFrameForAuthoredFrame('target', 1))
     ->and($plan->getCinematicStageFrame($cue['frame']))->toBeNull();
 });
+
+it('presents fallback results and reactions in captured order while resolving combat once', function () {
+  require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
+  [, $context, $screen, $actor, $bystander, $targets] = \Tests\Support\Battle\createTargetExecutionFixture(false, false,
+    $this->createStub(\Ichiloto\Engine\Audio\AudioManager::class));
+  [$far, $near] = $targets;
+  $target = $this->validator->compile('horizontal-impact', ['fps' => 20, 'lengthFrames' => 8, 'restFrame' => 5,
+    'fallbackHitSpacingFrames' => 2,
+    'tracks' => [['id' => 'ray', 'type' => 'image', 'asset' => 'target.png', 'anchor' => 'caster',
+      'attachmentPoint' => 'release', 'detachFrame' => 1,
+      'flight' => ['route' => 'straight', 'fallback' => 'horizontal-exit', 'arrivalFrame' => 5],
+      'keyframes' => [['frame' => 1, 'duration' => 5]]]],
+    'cues' => [['id' => 'impact', 'type' => 'applyEffect', 'frame' => 5]]], forBattle: true);
+  $resolved = [];
+  $results = [];
+  $runner = new \Ichiloto\Engine\Battle\Presentation\BattleCommandRunner($context, $actor, $targets, null,
+    'Synthetic impact', new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), null, $target,
+    static function () use (&$resolved, $targets): void {
+      foreach ($targets as $recipient) { $resolved[] = $recipient; $recipient->stats->currentHp -= 10; }
+    }, static fn() => [],
+    static function (array $cue) use (&$results): void {
+      if ($cue['type'] === 'commandResult') { $results[] = [$cue['payload']['target'], $cue['frame']]; }
+    });
+  $runner->begin();
+  $runner->playback->bindPosePointCapture(static fn(): array => [spl_object_id($actor) => [
+    'point' => new \Ichiloto\Engine\Core\Vector2(100, 50), 'casterX' => 100, 'recipientX' => 50, 'party' => true,
+    'path' => new \Ichiloto\Engine\Battle\Presentation\BattlePresentationPath([[100, 50], [-1, 50]]),
+    'fallback' => \Ichiloto\Engine\Animations\Timelines\EffectStraightFlightFallback::HORIZONTAL_EXIT,
+    'targetOrder' => [spl_object_id($near), spl_object_id($far)],
+  ]]);
+  $impact = $runner->playback->plan->impactFrame;
+  $runner->update($impact / BattleCommandTimeline::FPS);
+  expect($resolved)->toBe([$far, $near])->and($results)->toBe([[$near, $impact]])
+    ->and($runner->playback->getPoseRole($near))->toBe(BattlePoseRole::DAMAGE)
+    ->and($runner->playback->getPoseRole($far))->toBe(BattlePoseRole::IDLE)
+    ->and($bystander->stats->currentHp)->toBe(0);
+  $runner->update(12 / BattleCommandTimeline::FPS);
+  expect($results)->toBe([[$near, $impact], [$far, $impact + 12]])
+    ->and($runner->playback->getPoseRole($far))->toBe(BattlePoseRole::DAMAGE);
+  $runner->update(10);
+  expect($resolved)->toBe([$far, $near])->and($results)->toHaveCount(2);
+});

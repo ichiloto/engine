@@ -33,6 +33,8 @@ final class BattleCommandRunner
   private ?string $executionRefusal = null;
   private bool $resultsPresented = false;
   private bool $resultsPending = false;
+  /** @var list<array{target: CharacterInterface, frame: int, clear: bool}> */
+  private array $scheduledResults = [];
   private bool $announcementVisible = false;
 
   /** @param list<CharacterInterface> $targets */
@@ -91,7 +93,7 @@ final class BattleCommandRunner
       movementPoses: $movementPoses, travel: $travel,
       movePose: $movementPoses ? $movePose : null, returnPose: $movementPoses ? $returnPose : null,
       projectedRange: isset($target->defaults['rangeTiming']) ? $this->context->ui->measureActionRange($actor, $targets) : null,
-      actionPoseOverride: $actionPoseOverride, flashStep: $flashStep),
+      actionPoseOverride: $actionPoseOverride, flashStep: $flashStep, targetCount: count($targets)),
       $actor, $targets, $pose,
       function () use ($resolve): void {
         if (($refusal = $this->getExecutionRefusal()) !== null) {
@@ -126,6 +128,7 @@ final class BattleCommandRunner
   {
     if ($this->disposed) { return; }
     $this->playback->update($seconds);
+    $this->showScheduledResults($this->playback->session->currentFrame);
     if ($this->executionRefusal !== null && $this->playback->isCancelled) {
       $this->beginRefusal($this->executionRefusal);
     }
@@ -138,6 +141,7 @@ final class BattleCommandRunner
   public function dispose(): void
   {
     $this->disposed = true;
+    $this->scheduledResults = [];
     $this->announcementVisible = false;
     $this->playback->cancel();
     $field = $this->context->ui->fieldWindow;
@@ -179,6 +183,7 @@ final class BattleCommandRunner
   private function handleCue(array $cue): void
   {
     if ($this->playback->isCancelled) { return; }
+    $this->showScheduledResults($cue['frame']);
     if ($cue['type'] === 'enemyDefeated') {
       if ($this->playback->defeatStyle->audio) {
         $this->context->game->audioManager->playSystemSound(\Ichiloto\Engine\Audio\Enumerations\SystemSound::ENEMY_COLLAPSE);
@@ -188,9 +193,12 @@ final class BattleCommandRunner
     if ($cue['type'] === 'commandResolved') {
       if ($this->executionRefusal !== null) { $this->context->ui->alert($this->executionRefusal); }
       elseif ($this->context->ui->usesGraphicalField() && $this->playback->plan->cinematicStage !== null
-        && !$this->playback->plan->usesArenaImpact) {
+        && !$this->playback->plan->usesArenaImpact && $this->playback->getFallbackHitFrames() === []) {
         $this->resultsPending = true;
-      } else { $this->showResults($this->playback->plan->usesArenaImpact ? $cue['frame'] : null); }
+      } else {
+        $authoredImpact = $this->playback->plan->usesArenaImpact || $this->playback->getFallbackHitFrames() !== [];
+        $this->showResults($authoredImpact ? $cue['frame'] : null);
+      }
       return;
     }
     if ($cue['type'] === 'commandArenaRestored') {
@@ -207,6 +215,12 @@ final class BattleCommandRunner
       if (strtolower($cue['type']) === 'showmessage'
         && trim(strval($cue['payload']['text'] ?? $cue['payload']['message'] ?? '')) !== '') {
         $this->announcementVisible = false;
+      }
+      $data = $cue['payload'] ?? [];
+      if ($this->playback->getFallbackHitFrames() !== [] && $cue['frame'] >= $this->playback->plan->impactFrame
+        && in_array(strtolower($cue['type']), ['flash', 'shake'], true)
+        && ($data['anchor'] ?? null) === 'target' && ($data['scope'] ?? null) === 'target') {
+        return; // The individually timed target segments own these graphical effects.
       }
       ($this->presentCue)($cue);
       return;
@@ -260,8 +274,6 @@ final class BattleCommandRunner
     $this->resultsPresented = true;
     $this->resultsPending = false;
     $this->context->ui->characterStatusWindow->setCharacters($this->context->partyRoster->battlers);
-    $duration = max(0, ($this->playback->plan->phases['return']['start'] - $this->playback->session->currentFrame)
-      / BattleCommandTimeline::FPS);
     $targets = $this->playback->targets;
     $actor = $this->playback->actor;
     $actorId = CombatResolver::identity($actor);
@@ -271,33 +283,59 @@ final class BattleCommandRunner
       || $actor->stats->currentHp !== $this->previousVitals[spl_object_id($actor)][0])) {
       $targets[] = $actor;
     }
-    foreach ($targets as $index => $target) {
-      [$hp, $mp] = $this->previousVitals[spl_object_id($target)];
-      $identity = CombatResolver::identity($target);
-      $result = array_find($this->commandResult?->targets ?? [],
-        static fn(CombatTargetResult $result): bool => $result->targetId === $identity);
-      $lost = $result?->actualHpLost() ?? max(0, $hp - $target->stats->currentHp);
-      $restored = $result?->actualHpRestored() ?? max(0, $target->stats->currentHp - $hp);
-      $role = match (true) {
-        $target->isKnockedOut => BattlePoseRole::KNOCKOUT,
-        $lost > 0 => BattlePoseRole::DAMAGE,
-        $restored > 0 => BattlePoseRole::HEAL,
-        ($result?->resourceChange?->mpLost ?? max(0, $mp - $target->stats->currentMp)) > 0 => BattlePoseRole::DAMAGE,
-        ($result?->resourceChange?->mpRestored ?? max(0, $target->stats->currentMp - $mp)) > 0 => BattlePoseRole::HEAL,
-        default => BattlePoseRole::getRestingRole($target),
-      };
-      $this->playback->setReaction($target, $role, $startFrame);
-      if ($target instanceof \Ichiloto\Engine\Entities\Enemies\Enemy && $hp > 0 && $target->isKnockedOut) {
-        $this->playback->beginEnemyDefeat($target);
-      }
-      try {
-        if (!$this->action instanceof \Ichiloto\Engine\Battle\Actions\GuardAction) {
-          $this->context->ui->fieldWindow->showStatChangePopup($target,
-            ($this->formatResult)($target, $hp, $mp, $result), clearExisting: $index === 0, durationSeconds: $duration);
-        }
-        ($this->presentCue)(['type' => 'commandResult', 'frame' => $startFrame ?? $this->playback->session->currentFrame,
-          'payload' => ['target' => $target, 'previousHp' => $hp, 'result' => $result]]);
-      } catch (\Throwable $error) { $this->playback->recordPresentationFailure($error); }
+    $frames = $this->playback->getFallbackHitFrames();
+    if ($frames !== []) {
+      $frame = $startFrame ?? $this->playback->session->currentFrame;
+      $this->scheduledResults = array_map(static fn(CharacterInterface $target): array =>
+        ['target' => $target, 'frame' => $frames[spl_object_id($target)] ?? $frame, 'clear' => false], $targets);
+      usort($this->scheduledResults, static fn(array $a, array $b): int => $a['frame'] <=> $b['frame']);
+      $this->scheduledResults[0]['clear'] = true;
+      $this->showScheduledResults($frame);
+      return;
     }
+    foreach ($targets as $index => $target) {
+      $this->showResult($target, $index === 0, $startFrame);
+    }
+  }
+
+  private function showScheduledResults(int $frame): void
+  {
+    if ($this->playback->isCancelled) { return; }
+    while ($this->scheduledResults !== [] && $this->scheduledResults[0]['frame'] <= $frame) {
+      $result = array_shift($this->scheduledResults);
+      $this->showResult($result['target'], $result['clear'], $result['frame']);
+    }
+  }
+
+  private function showResult(CharacterInterface $target, bool $clear, ?int $startFrame): void
+  {
+    $duration = max(0, ($this->playback->plan->phases['return']['start'] - $this->playback->session->currentFrame)
+      / BattleCommandTimeline::FPS);
+    [$hp, $mp] = $this->previousVitals[spl_object_id($target)];
+    $identity = CombatResolver::identity($target);
+    $result = array_find($this->commandResult?->targets ?? [],
+      static fn(CombatTargetResult $result): bool => $result->targetId === $identity);
+    $lost = $result?->actualHpLost() ?? max(0, $hp - $target->stats->currentHp);
+    $restored = $result?->actualHpRestored() ?? max(0, $target->stats->currentHp - $hp);
+    $role = match (true) {
+      $target->isKnockedOut => BattlePoseRole::KNOCKOUT,
+      $lost > 0 => BattlePoseRole::DAMAGE,
+      $restored > 0 => BattlePoseRole::HEAL,
+      ($result?->resourceChange?->mpLost ?? max(0, $mp - $target->stats->currentMp)) > 0 => BattlePoseRole::DAMAGE,
+      ($result?->resourceChange?->mpRestored ?? max(0, $target->stats->currentMp - $mp)) > 0 => BattlePoseRole::HEAL,
+      default => BattlePoseRole::getRestingRole($target),
+    };
+    $this->playback->setReaction($target, $role, $startFrame);
+    if ($target instanceof \Ichiloto\Engine\Entities\Enemies\Enemy && $hp > 0 && $target->isKnockedOut) {
+      $this->playback->beginEnemyDefeat($target);
+    }
+    try {
+      if (!$this->action instanceof \Ichiloto\Engine\Battle\Actions\GuardAction) {
+        $this->context->ui->fieldWindow->showStatChangePopup($target,
+          ($this->formatResult)($target, $hp, $mp, $result), clearExisting: $clear, durationSeconds: $duration);
+      }
+      ($this->presentCue)(['type' => 'commandResult', 'frame' => $startFrame ?? $this->playback->session->currentFrame,
+        'payload' => ['target' => $target, 'previousHp' => $hp, 'result' => $result]]);
+    } catch (\Throwable $error) { $this->playback->recordPresentationFailure($error); }
   }
 }

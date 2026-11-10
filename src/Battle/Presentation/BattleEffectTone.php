@@ -22,7 +22,7 @@ final class BattleEffectTone
         $seen = [];
         foreach ($subjects as $subject) {
           $id = spl_object_id($subject);
-          if (isset($seen[$id])) { continue; }
+          if (isset($seen[$id]) || (isset($data['hitSubject']) && $data['hitSubject'] !== $id)) { continue; }
           $seen[$id] = true;
           $multipliers[$id] = ($multipliers[$id] ?? 1.0) * $data['brightness'];
         }

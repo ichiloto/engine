@@ -501,7 +501,7 @@ final class GraphicalBattlePresentation
       $bodyOffsets[$identity] = count($images);
       $popups = array_filter($feedback, static fn(array $popup) => $popup['battler'] === $battler);
       $defeat = $playback?->getEnemyDefeatTreatment($battler, $reducedMotion);
-      if (!$participant['party'] && $battler->isKnockedOut
+      if (!$participant['party'] && $battler->isKnockedOut && !$playback?->isAwaitingFallbackHit($battler)
         && ($defeat !== null ? !$defeat['visible'] : $popups === [])) { continue; }
       $conditionBattlers[$identity] = $battler;
       $condition = $this->conditionEffects->createPlayback($battler, $field?->getPoseElapsedSeconds() ?? 0, $includeOptionalArtwork);
@@ -856,7 +856,7 @@ final class GraphicalBattlePresentation
     }
     // The body rises or sinks by its elevation, hidden below the surface line; a knocked-out one lies on the ground.
     $elevation = BattlerGroundContact::getElevation($participant['grounding'], $participant['habitat'], $this->layout,
-      $battler->isKnockedOut, $shownPose);
+      $battler->isKnockedOut && !$playback?->isAwaitingFallbackHit($battler), $shownPose);
     $contact = BattlerGroundContact::getContact($participant['grounding'], $participant['habitat'], $elevation, $shownPose);
     [$bounds, $clip] = BattlerGroundContact::place($bounds, BattlerGroundContact::getOffset($elevation, $slot, $this->scale),
       $slot->y, $this->layout);
