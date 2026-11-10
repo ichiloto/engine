@@ -1,11 +1,16 @@
 <?php
 
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleReactions;
 use Ichiloto\Engine\Battle\CounterAttackResolver;
 use Ichiloto\Engine\Battle\CounterAttackRule;
+use Ichiloto\Engine\Battle\Presentation\BattleCanvasLayout;
+use Ichiloto\Engine\Battle\Presentation\BattleConditionEffects;
+use Ichiloto\Engine\Battle\Presentation\GraphicalBattleEffects;
+use Ichiloto\Engine\Battle\Presentation\TerminalBattleEffects;
 use Ichiloto\Engine\Battle\Resolution\SeededCombatRandomSource;
 use Ichiloto\Engine\Battle\Simulation\BattleSimulator;
 use Ichiloto\Engine\Core\Time;
@@ -21,9 +26,11 @@ use Ichiloto\Engine\Entities\Skills\SkillRecord;
 use Ichiloto\Engine\Entities\States\State;
 use Ichiloto\Engine\Entities\States\StateRegistry;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use function Tests\Support\Battle\createTargetExecutionFixture;
 use function Tests\Support\Battle\queueTargetExecution;
 use function Tests\Support\Battle\writeQueuedAttackEffects;
+use function Tests\Support\Rendering\writeTestPng;
 
 require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
 
@@ -93,6 +100,7 @@ it('draws only the chosen foes attack, skips its whole repeated invocation and r
   $attack->executeWithReactions($foe, $targets, $reactions);
   expect($attack->lastResult->hits())->toHaveCount(1)
     ->and($attack->lastResult->hits()[0]->missReason)->toBe('decoy')
+    ->and($attack->lastResult->targets[0]->interceptingStateId)->toBe('synthetic-decoy')
     ->and($owner->stats->currentHp)->toBe(100)->and($ally->stats->currentHp)->toBe(100)
     ->and($owner->hasState('synthetic-stun'))->toBeFalse()->and($owner->hasState('synthetic-decoy'))->toBeFalse()
     ->and($foe->stats->currentMp)->toBe(16);
@@ -200,15 +208,79 @@ it('runs the diverted miss and counter through the shared live turn playback wit
     $reactions = new BattleReactions($catalog, new SeededCombatRandomSource(1));
     new ReflectionProperty(\Ichiloto\Engine\Scenes\Battle\BattleConfig::class, 'reactionOwner')->setValue($engine->battleConfig, $reactions);
     $reactions->prepareCounter($owner, $enemies[0], new CounterAttackRule('Synthetic reply'), StateRegistry::get('synthetic-decoy'));
+    $effect = ['fps' => 10, 'lengthFrames' => 48, 'restFrame' => 1];
+    $assetRoot = $this->preparedRoot . '/assets';
+    if ($graphical) { writeTestPng($assetRoot . '/decoy.png', 8, 4); }
+    $directory = $assetRoot . '/Animations/interception';
+    mkdir($directory, 0777, true);
+    $variants = ['presentations' => [
+      'graphical' => $effect + ['tracks' => [[
+        'id' => 'contact', 'type' => 'image', 'asset' => 'decoy.png', 'anchor' => 'target',
+        'sheet' => ['columns' => 2, 'rows' => 1],
+        'keyframes' => [['frame' => 0, 'sourceFrame' => 0], ['frame' => 1, 'sourceFrame' => 1]],
+      ]]],
+      'terminal' => $effect + ['tracks' => [[
+        'id' => 'contact', 'type' => 'glyph', 'anchor' => 'target',
+        'keyframes' => [['frame' => 0, 'content' => 'X'], ['frame' => 1, 'content' => 'Y']],
+      ]]],
+    ]];
+    file_put_contents($directory . '/interception.timeline.php', '<?php return ' . var_export($variants, true) . ';');
+    $effects = new BattleConditionEffects(
+      $context->getEffectTimelineLibrary(), ['interceptions' => ['synthetic-decoy' => 'interception']]);
+    $presentation = $graphical ? EffectPresentation::GRAPHICAL : EffectPresentation::TERMINAL;
+    expect($effects->getInterceptionTimeline('synthetic-decoy', $presentation))->not->toBeNull();
+    $screen->fieldWindow->setConditionEffects($effects);
     $hp = $owner->stats->currentHp;
     $turn = queueTargetExecution($fixture, new AttackAction('Attack'), [$ally], $enemies[0]);
     expect($turn->targets)->toBe([$owner]);
     new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, 1 / 60);
     $responded = false;
+    $observedContact = false;
+    $heldPastAttack = false;
     for ($tick = 0; $tick < 900 && $context->getCurrentTurn() !== null; $tick++) {
-      if ($screen->fieldWindow->getCommandPlayback()?->actor === $owner) { $responded = true; }
+      $playback = $screen->fieldWindow->getCommandPlayback();
+      if ($playback !== null) {
+        $contact = array_find(array_merge(...array_column(
+          $playback->getActiveSegments(reducedMotion: true, terminal: !$graphical), 'drawCommands')),
+          static fn(array $command): bool => str_starts_with($command['trackId'], 'result-'));
+        if ($contact !== null && !$observedContact) {
+          expect($contact['payload']['hitSubject'])->toBe(spl_object_id($owner))
+            ->and($owner->hasState('synthetic-decoy'))->toBeFalse()
+            ->and($playback->actor)->toBe($enemies[0]);
+          if ($graphical) {
+            $bounds = [spl_object_id($owner) => new CanvasRectangle(100, 100, 40, 80),
+              spl_object_id($ally) => new CanvasRectangle(300, 100, 40, 80),
+              spl_object_id($enemies[0]) => new CanvasRectangle(500, 100, 40, 80)];
+            $arena = new BattleCanvasLayout(1440, 840);
+            foreach ([false, true] as $reducedMotion) {
+              $frame = GraphicalBattleEffects::compose($playback, $arena, $bounds, $assetRoot, $reducedMotion);
+              $images = array_values(array_filter($frame->images, static fn($image): bool => $image->asset === 'decoy.png'));
+              expect($images)->toHaveCount(1)
+                ->and($images[0]->sourceRect->x)->toBe($reducedMotion ? 4 : 0)
+                ->and($images[0]->destination->x + $images[0]->destination->width / 2)->toBe(120.0);
+            }
+          } else {
+            $effects = new TerminalBattleEffects();
+            $resolve = static fn($subject): array => ['x' => $subject === $owner ? 15 : 30, 'y' => 8];
+            foreach ([false, true] as $reducedMotion) {
+              $symbol = $reducedMotion ? 'Y' : 'X';
+              $draws = $effects->compose($playback, $resolve, $reducedMotion)['draws'];
+              expect(array_values(array_filter($draws, static fn(array $draw): bool => $draw['text'] === $symbol)))
+                ->toBe([['text' => $symbol, 'x' => 15, 'y' => 8]]);
+            }
+          }
+          $observedContact = true;
+        }
+        if ($contact !== null && $playback->session->isCompleted) { $heldPastAttack = true; }
+        if ($playback->actor === $owner && !$responded) {
+          expect($contact)->toBeNull();
+          $responded = true;
+        }
+      }
       $engine->actionExecutionState->update($context);
     }
+    expect($observedContact)->toBeTrue();
+    expect($heldPastAttack)->toBeTrue();
     expect($responded)->toBeTrue()->and($owner->stats->currentHp)->toBe($hp)
       ->and($owner->hasState('synthetic-decoy'))->toBeFalse()
       ->and($owner->stats->currentMp)->toBe(48)->and($context->getCurrentTurn())->toBeNull();

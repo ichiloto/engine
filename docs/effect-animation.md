@@ -1140,6 +1140,7 @@ Optional animation bindings remain:
 ```php
 'ui' => ['battle' => ['conditions' => [
   'states' => ['state-id' => 'state-aura'],
+  'interceptions' => ['state-id' => 'state-contact'],
   'statStages' => ['speed' => ['positive' => 'speed-up', 'negative' => 'speed-down']],
 ]]],
 ```
@@ -1161,6 +1162,14 @@ flash, shake and all cues (including audio and applyEffect) are rejected for
 persistent conditions. This prevents repeated gameplay/audio and flashing at
 rest. Multiple conditions compose independently, including clear-before-draw
 inside each condition, rather than erasing another condition's layers.
+
+An interception timeline uses the same state IDs and resource references. It is
+a fixed, non-looping effect with a visible reduced-motion rest frame and tracks
+attached to the target. The intercepted attack carries the consumed state ID
+in its resolved target result. The effect starts on that target at the miss,
+plays on the command clock, and clears before any queued response starts.
+Graphical and Terminal tracks use their own presentation variant. A missing
+binding leaves the ordinary miss and counter intact.
 
 An optional `tone` track changes the current battler image's intrinsic
 brightness. It retains crop, placement, opacity, clip, mirroring and draw order;

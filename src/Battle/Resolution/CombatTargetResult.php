@@ -14,6 +14,7 @@ final readonly class CombatTargetResult
     public array $hits,
     public array $secondaryOutcomes = [],
     public ?CombatResourceChange $resourceChange = null,
+    public ?string $interceptingStateId = null,
   )
   {
   }

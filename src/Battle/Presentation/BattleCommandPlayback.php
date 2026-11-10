@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Closure;
+use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
+use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
+use Ichiloto\Engine\Animations\Timelines\EffectSegmentComposition;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackSession;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Animations\Timelines\EffectStraightFlightFallback;
@@ -48,8 +51,12 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private array $targetGroups = [];
   /** @var array<int, array{battler: \Ichiloto\Engine\Entities\Enemies\Enemy, start: float, cleared: bool}> */
   private array $defeats = [];
+  /** @var list<array{subject: int, start: float, timing: EffectPlaybackTiming, timeline: CompiledEffectTimeline, presentation: EffectPresentation}> */
+  private array $resultEffects = [];
+  private float $resultEffectsEnd = 0;
 
   public bool $isCompleted { get => $this->cancelled || ($this->session->isCompleted
+    && $this->elapsedSeconds >= $this->resultEffectsEnd
     && ($this->flightClock === null || $this->elapsedSeconds >= $this->getDurationSeconds())
     && !array_any($this->defeats, static fn(array $defeat): bool => !$defeat['cleared'])); }
   public bool $isCancelled { get => $this->cancelled; }
@@ -114,13 +121,16 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       $advance = max(0, $targetFrame - $this->session->currentFrame) / BattleCommandTimeline::FPS;
     }
     $this->dispatch($this->session->update($advance)->crossedCues);
+    // A result cue can extend presentation while crossing this update.
+    $this->elapsedSeconds = max($this->elapsedSeconds, min($this->resultEffectsEnd, $previous + $seconds));
   }
 
   public function getDurationSeconds(): float
   {
     $duration = $this->session->timing->durationSeconds;
-    return $this->flightClock === null ? $duration : max($this->flightClock->getElapsedSeconds($duration),
+    $commandEnd = $this->flightClock === null ? $duration : max($this->flightClock->getElapsedSeconds($duration),
       ($this->plan->actionPoseEndFrame ?? 0) / BattleCommandTimeline::FPS);
+    return max($commandEnd, $this->resultEffectsEnd);
   }
 
   /** The elapsed boundary at which an authored command frame can first be observed. */
@@ -135,6 +145,8 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     $this->cancelled = true;
     $this->defeats = $this->detachedPosePoints = $this->fallbackHitFrames = [];
+    $this->resultEffects = [];
+    $this->resultEffectsEnd = 0;
     $this->capturePosePoints = null;
     $this->targetGroups = [];
     $this->captureTargetGroup = null;
@@ -345,6 +357,10 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     if ($this->isCompleted) { return []; }
     $frame = $this->session->currentFrame;
     $presentation = $terminal ? EffectPresentation::TERMINAL : EffectPresentation::GRAPHICAL;
+    $resultEffects = $this->getResultEffectSegments($reducedMotion, $presentation);
+    if ($this->session->isCompleted && $this->elapsedSeconds < $this->resultEffectsEnd) {
+      return EffectSegmentComposition::compose($resultEffects, $presentation);
+    }
     $rest = $reducedMotion ? ($this->plan->restSegments[$this->phase] ?? null) : null;
     $segments = $rest ?? $this->session->getActiveSegments($frame);
     $segments = array_values(array_filter($segments, $presentation->acceptsSegment(...)));
@@ -374,7 +390,45 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     if (!$terminal && $this->fallbackHitFrames !== [] && $frame >= $this->plan->impactFrame) {
       $segments = $this->getSpacedHitSegments($segments, $frame);
     }
-    return \Ichiloto\Engine\Animations\Timelines\EffectSegmentComposition::compose($segments, $presentation);
+    return [...EffectSegmentComposition::compose($segments, $presentation),
+      ...EffectSegmentComposition::compose($resultEffects, $presentation)];
+  }
+
+  public function startResultEffect(CharacterInterface $target, int $frame, CompiledEffectTimeline $timeline,
+    EffectPresentation $presentation): void
+  {
+    if ($this->cancelled || !in_array($target, $this->targets, true)) { return; }
+    $start = $this->getElapsedSecondsAtFrame($frame);
+    $timing = new EffectPlaybackTiming($timeline);
+    $this->resultEffects[] = ['subject' => spl_object_id($target), 'start' => $start,
+      'timing' => $timing, 'timeline' => $timeline, 'presentation' => $presentation];
+    $this->resultEffectsEnd = max($this->resultEffectsEnd, $start + $timing->durationSeconds);
+  }
+
+  private function getResultEffectSegments(bool $reducedMotion, EffectPresentation $presentation): array
+  {
+    $segments = [];
+    foreach ($this->resultEffects as $index => $effect) {
+      if ($effect['presentation'] !== $presentation) { continue; }
+      $seconds = $this->elapsedSeconds - $effect['start'];
+      if ($seconds < 0 || $seconds >= $effect['timing']->durationSeconds) { continue; }
+      $timeline = $effect['timeline'];
+      $frame = $reducedMotion ? (int)($timeline->defaults['restFrame'] ?? 0)
+        : $effect['timing']->getFrameCountAt($seconds);
+      $active = array_filter($timeline->playbackSegments, static fn(array $segment): bool =>
+        $segment['startFrame'] <= $frame && $frame <= $segment['endFrame']);
+      foreach (EffectSegmentComposition::compose($active) as $segment) {
+        $segment['clearBeforeDraw'] = false;
+        foreach ($segment['drawCommands'] as &$command) {
+          $command['trackId'] = 'result-' . $index . '-' . $command['trackId'];
+          $command['payload']['anchor'] = 'target';
+          $command['payload']['hitSubject'] = $effect['subject'];
+        }
+        unset($command);
+        $segments[] = $segment;
+      }
+    }
+    return $segments;
   }
 
   /** Keep the ordinary lane and sample only its hit tracks on each recipient's own clock. */
