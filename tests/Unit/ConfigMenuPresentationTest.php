@@ -306,8 +306,8 @@ it('uses chevrons for controllable values without borrowing comparison or unknow
   $data['icons'] = ['unknown' => 'arrow.png', 'comparison.previous' => 'arrow.png', 'comparison.next' => 'arrow.png'];
   $frame = ConfigMenuPresentation::compose($this->menu, new MenuPresentationCatalog($this->root, $data));
   expect($frame->images)->toBeEmpty()
-    ->and(configPresentationText($frame)['config-previous-0'])->toMatch('/^\x{2039}+$/u')
-    ->and(configPresentationText($frame)['config-next-0'])->toMatch('/^\x{203A}+$/u');
+    ->and(configPresentationText($frame)['config-previous-0'])->toMatch('/^<+$/')
+    ->and(configPresentationText($frame)['config-next-0'])->toMatch('/^>+$/');
   $small = ConfigMenuPresentation::compose($this->menu, new MenuPresentationCatalog($this->root, $data), width: 960, height: 540);
   expect(configPresentationText($small)['config-scroll-up'])->toBe("\u{2227}")
     ->and(configPresentationText($small)['config-scroll-down'])->toBe("\u{2228}");

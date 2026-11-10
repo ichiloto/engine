@@ -21,6 +21,7 @@ use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\UI\Presentation\ControlGlyphPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuActionHints;
+use Ichiloto\Engine\UI\Presentation\MenuDirection;
 use Ichiloto\Engine\UI\Presentation\MenuIconRegistry;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\TerminalControlText;
@@ -37,7 +38,8 @@ final class GraphicalBattleHud
       ...($layout->skin?->textures ?? []), ...($layout->skin?->targetCursor?->textures ?? []),
     ]);
     if ($layout->skin !== null) {
-      foreach (self::getCommandIcons($layout->skin, $assetRoot) as $asset) {
+      foreach ([...self::getCommandIcons($layout->skin, $assetRoot),
+        ...array_filter([self::getAlternativeChevron($layout->skin, $assetRoot)])] as $asset) {
         $textures[] = CanvasNineSlice::getFromPng($assetRoot, $asset);
       }
     }
@@ -62,6 +64,7 @@ final class GraphicalBattleHud
     $images = $text = [];
     $iconRoot = $assetRoot ?? $skin->icons?->assetRoot;
     $icons = $iconRoot === null ? [] : self::getCommandIcons($skin, $iconRoot);
+    $chevron = $iconRoot === null ? null : self::getAlternativeChevron($skin, $iconRoot);
     $pitch = $arena->uiGrid;
     $ox = ($arena->width - 135 * $pitch->cellWidth) / 2;
     $oy = ($arena->height - 36 * $pitch->cellHeight) / 2;
@@ -107,12 +110,13 @@ final class GraphicalBattleHud
             $icons[$row->iconRole], new CanvasRectangle($x + 40, $rowY + ($pitch->cellHeight - 16) / 2, 16, 16),
             1002, new CanvasRectangle($x + 40, $rowY, 16, $pitch->cellHeight)));
         }
-        $alternativeSpace = $row->hasAlternative ? 16 : 0;
+        // The row's own square at its right edge, as menus size their navigation chevrons.
+        $alternativeSpace = $row->hasAlternative ? $pitch->cellHeight : 0;
         self::line($rowText, $id . '-row-' . $rowIndex, $row->label, $x + 40 + $iconSpace, $rowY,
           $width - 48 - $iconSpace - $alternativeSpace, $pitch->cellHeight, $color, cellWidth: $pitch->cellWidth);
         if ($row->hasAlternative) {
-          self::line($text, $id . '-alternative-' . $rowIndex, '›', $x + $width - 24, $rowY,
-            16, $pitch->cellHeight, $skin->colors['focus'], cellWidth: 8, centered: true);
+          self::renderAlternative($images, $text, $skin, $id . '-alternative-' . $rowIndex, new CanvasRectangle(
+            $x + $width - 8 - $alternativeSpace, $rowY, $alternativeSpace, $alternativeSpace), $chevron, $iconRoot);
         }
       }
       self::column($text, $id . '-rows', $rowText);
@@ -211,6 +215,29 @@ final class GraphicalBattleHud
       }
     }
     return $icons;
+  }
+
+  /** The theme's "next" navigation chevron, shared with menus, when its artwork is available. */
+  private static function getAlternativeChevron(BattleUiSkin $skin, string $root): ?string
+  {
+    $asset = $skin->icons?->icons[MenuDirection::RIGHT->getIconRole(chevron: true)] ?? null;
+    return $asset !== null && PngAssetPreflight::getAvailableSize($root, $asset) !== null ? $asset : null;
+  }
+
+  /**
+   * A row's static "more to the right" signal, in the focus colour: the theme's navigation chevron contained in
+   * the row's square, or without that artwork the shared chevron glyph filling the same square. It never takes
+   * the list cursor's artwork or motion.
+   */
+  private static function renderAlternative(array &$images, array &$text, BattleUiSkin $skin, string $id,
+    CanvasRectangle $box, ?string $chevron, ?string $root): void
+  {
+    if ($chevron !== null && $root !== null) {
+      array_push($images, ...MenuIconRegistry::containAsset($root, 'hud-' . $id, $chevron, $box, 1003, $box));
+      return;
+    }
+    self::line($text, $id, MenuDirection::RIGHT->getGlyph(chevron: true), $box->x, $box->y, $box->width,
+      (int)$box->height, $skin->colors['focus'], cellWidth: (int)$box->width);
   }
 
   private static function renderGauge(array &$images, BattleUiSkin $skin, string $role, int $index,

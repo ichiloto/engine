@@ -18,6 +18,7 @@ use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\UI\Presentation\MenuDirection;
 use Ichiloto\Engine\UI\Presentation\MenuIconRegistry;
 
 function hudTestSkin(?MenuIconRegistry $icons = null): BattleUiSkin
@@ -405,7 +406,7 @@ it('fits the held technique beside a right affordance while keeping party panels
   $ordinary = $compose('Attack'); $special = $compose('Long technique name');
   foreach ([$ordinary, $special] as $frame) {
     $layers = array_column($frame->textLayers, null, 'id');
-    expect($layers['hud-command-alternative-0']->runs[0]->text)->toBe('›')
+    expect($layers['hud-command-alternative-0']->runs[0]->text)->toBe(MenuDirection::RIGHT->getGlyph(chevron: true))
       ->and($layers['hud-submenu-title']->x)->toBe(276.0)
       ->and($layers['hud-names-title']->x)->toBe(776.0);
     foreach ($layers['hud-command-rows']->runs as $run) {
@@ -414,4 +415,55 @@ it('fits the held technique beside a right affordance while keeping party panels
   }
   $a = array_column($ordinary->textLayers, null, 'id'); $b = array_column($special->textLayers, null, 'id');
   expect($a['hud-names-rows'])->toEqual($b['hud-names-rows'])->and($a['hud-hp-rows'])->toEqual($b['hud-hp-rows']);
+});
+
+it('signals a held alternative with the theme navigation chevron, row sized, static and apart from the cursor', function (): void {
+  $root = sys_get_temp_dir() . '/ichiloto-hud-chevron-' . bin2hex(random_bytes(4));
+  mkdir($root);
+  $hud = new BattleHudSnapshot(commands: new BattleHudListSnapshot('Command', '', [
+    new BattleHudRow(0, 'Attack', true, hasAlternative: true), new BattleHudRow(1, 'Defend', false),
+  ], 0, 0, 4, 2, 1, 1, preferredColumns: 26));
+  $find = static fn(array $items, string $prefix): array => array_values(array_filter($items,
+    static fn($item): bool => str_starts_with($item->id, $prefix)));
+  try {
+    file_put_contents($root . '/next.png', "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 32, 32));
+    $arena = getHudTestLayout(new MenuIconRegistry($root, ['navigation.next' => 'next.png']));
+    $pitch = $arena->uiGrid;
+    $rowY = $arena->getHudTop() + $pitch->cellHeight;
+    $frame = GraphicalBattleHud::compose($arena, $hud, 'command', 0, $root);
+    $chevrons = $find($frame->images, 'hud-command-alternative-');
+    $highlight = array_column($frame->textLayers, null, 'id')['hud-command-highlight'];
+    expect($chevrons)->toHaveCount(1)
+      ->and($chevrons[0]->id)->toStartWith('hud-command-alternative-0')
+      ->and($chevrons[0]->asset)->toBe('next.png')
+      ->and($chevrons[0]->destination->width)->toEqual($pitch->cellHeight)
+      ->and($chevrons[0]->destination->height)->toEqual($pitch->cellHeight)
+      ->and($chevrons[0]->destination->y + $chevrons[0]->destination->height / 2)->toEqual($rowY + $pitch->cellHeight / 2)
+      ->and($chevrons[0]->layer)->toBeGreaterThan($highlight->layer)
+      ->and($find($frame->textLayers, 'hud-command-alternative-'))->toBe([])
+      ->and(GraphicalBattleHud::preflight($arena, $root))->toBe(['next.png' => 32 * 32 * 4]);
+    // Only the list cursor oscillates; the chevron holds still and never borrows the selector's artwork.
+    $later = GraphicalBattleHud::compose($arena, $hud, 'command', 0.6, $root);
+    expect($find($later->images, 'hud-command-alternative-'))->toEqual($chevrons)
+      ->and(array_filter([...$frame->images, ...$later->images], static fn($image): bool =>
+        str_starts_with($image->id, 'hud-command-alternative-') && $image->asset === 'selector.png'))->toBe([]);
+
+    // Without the artwork, the shared chevron glyph fills the same square in the focus colour.
+    unlink($root . '/next.png');
+    foreach ([0, 0.6] as $now) {
+      $fallback = GraphicalBattleHud::compose($arena, $hud, 'command', $now, $root);
+      $glyphs = $find($fallback->textLayers, 'hud-command-alternative-');
+      expect($find($fallback->images, 'hud-command-alternative-'))->toBe([])
+        ->and($glyphs)->toHaveCount(1)
+        ->and($glyphs[0]->id)->toBe('hud-command-alternative-0')
+        ->and($glyphs[0]->runs[0]->text)->toBe(MenuDirection::RIGHT->getGlyph(chevron: true))
+        ->and($glyphs[0]->runs[0]->foreground)->toEqual($arena->skin->colors['focus'])
+        ->and([$glyphs[0]->grid->cellWidth, $glyphs[0]->grid->cellHeight])->toBe([$pitch->cellHeight, $pitch->cellHeight])
+        ->and($glyphs[0]->x)->toEqual($chevrons[0]->destination->x)
+        ->and($glyphs[0]->y)->toEqual($rowY);
+    }
+  } finally {
+    foreach (glob($root . '/*') ?: [] as $path) { unlink($path); }
+    rmdir($root);
+  }
 });
