@@ -306,13 +306,14 @@ class ActionExecutionState extends TurnState
     $context->runTurnEndEvents();
   }
 
-  /** @param array<int, array{state: object, hpDelta: int, expired: bool}> $events */
+  /** @param array<int, array{state: object, hpDelta: int, expired: bool, activated?: true}> $events */
   protected function buildStateTickPopupLines(array $events): array
   {
-    return array_values(array_map(static fn(array $event): array => [
-      'text' => sprintf('%+d %s', $event['hpDelta'], $event['state']->name),
-      'color' => $event['hpDelta'] < 0 ? Color::LIGHT_RED : Color::LIGHT_GREEN,
-    ], array_filter($events, static fn(array $event): bool => $event['hpDelta'] !== 0)));
+    return array_values(array_map(static fn(array $event): array => isset($event['activated'])
+      ? ['text' => $event['state']->name, 'color' => Color::YELLOW]
+      : ['text' => sprintf('%+d %s', $event['hpDelta'], $event['state']->name),
+        'color' => $event['hpDelta'] < 0 ? Color::LIGHT_RED : Color::LIGHT_GREEN],
+      array_filter($events, static fn(array $event): bool => $event['hpDelta'] !== 0 || isset($event['activated']))));
   }
 
   private function disposeCommand(TurnStateExecutionContext $context): void

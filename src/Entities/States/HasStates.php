@@ -38,7 +38,7 @@ trait HasStates
   {
     $rate = 1.0;
     foreach ($this->states as $instance) {
-      if ($instance->remainingTurns !== 0) { $rate *= $instance->state->atbRate; }
+      if (!$instance->isPending && $instance->remainingTurns !== 0) { $rate *= $instance->state->atbRate; }
     }
     return $rate;
   }
@@ -117,6 +117,7 @@ trait HasStates
    * @param int $chancePercent The base infliction chance (before resistance).
    * @param bool $givenByBearer Defers the first tick when a state is received during the bearer's current turn, including its own effects and interrupting responses.
    * @param bool $guaranteed True when an authored effect guarantees application, bypassing resistance and the chance roll.
+   * @param int $delayTurns Bearer turns completed before the state takes effect in battle.
    * @return bool True when the state was newly inflicted.
    */
   public function addState(
@@ -125,6 +126,7 @@ trait HasStates
     ?CombatRandomSource $random = null,
     bool $givenByBearer = false,
     bool $guaranteed = false,
+    int $delayTurns = 0,
   ): bool
   {
     $effectiveChance = $this->getStateApplicationChance($state, $chancePercent, $guaranteed);
@@ -136,7 +138,7 @@ trait HasStates
       return false;
     }
 
-    $this->states[] = new StateInstance($state, $state->durationTurns, awaitsNextTurn: $givenByBearer);
+    $this->states[] = new StateInstance($state, $state->durationTurns, awaitsNextTurn: $givenByBearer, delayTurns: $delayTurns);
 
     return true;
   }
@@ -144,7 +146,7 @@ trait HasStates
   /** Available application chance without rolling or changing live state; shared by effects and menu previews. */
   public function getStateApplicationChance(State $state, int $chancePercent = 100, bool $guaranteed = false): int
   {
-    if ($this->hasState($state->id)) { return 0; }
+    if (array_any($this->states, static fn(StateInstance $instance): bool => $instance->state->id === $state->id)) { return 0; }
     return $guaranteed ? 100 : intval(round(clamp($chancePercent, 0, 100) * ($this->stateResistances[$state->id] ?? 1.0)));
   }
 
@@ -174,7 +176,7 @@ trait HasStates
   public function hasState(string $stateId): bool
   {
     foreach ($this->states as $instance) {
-      if ($instance->state->id === trim($stateId)) {
+      if (!$instance->isPending && $instance->state->id === trim($stateId)) {
         return true;
       }
     }
@@ -190,7 +192,7 @@ trait HasStates
   public function getActionBlockingState(): ?State
   {
     foreach ($this->states as $instance) {
-      if ($instance->state->preventsAction) {
+      if (!$instance->isPending && $instance->state->preventsAction) {
         return $instance->state;
       }
     }
@@ -207,7 +209,7 @@ trait HasStates
   {
     $rate = 1.0;
     foreach ($this->states as $instance) {
-      $rate *= $instance->state->damageTakenRate;
+      if (!$instance->isPending) { $rate *= $instance->state->damageTakenRate; }
     }
 
     return $rate;
@@ -218,12 +220,22 @@ trait HasStates
   {
     $modifier = 0;
     foreach ($this->states as $instance) {
-      if ($instance->remainingTurns !== 0) {
+      if (!$instance->isPending && $instance->remainingTurns !== 0) {
         $modifier += $instance->state->accuracyModifier;
       }
     }
 
     return $modifier;
+  }
+
+  /** Combines active state rates for the bearer's outgoing physical damage. */
+  public function getPhysicalDamageDealtRate(): float
+  {
+    $rate = 1.0;
+    foreach ($this->states as $instance) {
+      if (!$instance->isPending) { $rate *= $instance->state->physicalDamageDealtRate; }
+    }
+    return $rate;
   }
 
   /**
@@ -234,7 +246,7 @@ trait HasStates
   public function isCoveringAllies(): bool
   {
     foreach ($this->states as $instance) {
-      if ($instance->state->coversAllies) {
+      if (!$instance->isPending && $instance->state->coversAllies) {
         return true;
       }
     }
@@ -251,7 +263,7 @@ trait HasStates
   {
     $chance = 0;
     foreach ($this->states as $instance) {
-      $chance = max($chance, $instance->state->confusionChancePercent);
+      if (!$instance->isPending) { $chance = max($chance, $instance->state->confusionChancePercent); }
     }
 
     return $chance;
@@ -262,6 +274,7 @@ trait HasStates
   {
     $disposition = StateDisposition::NEUTRAL;
     foreach ($this->states as $instance) {
+      if ($instance->isPending) { continue; }
       if ($instance->state->preventsAction || $instance->state->disposition === StateDisposition::HARMFUL) {
         return StateDisposition::HARMFUL;
       }
@@ -275,7 +288,7 @@ trait HasStates
   /**
    * Applies one turn of state ticks: HP deltas and duration expiry.
    *
-   * @return array<int, array{state: State, hpDelta: int, expired: bool}> One event per live state, in application order.
+   * @return array<int, array{state: State, hpDelta: int, expired: bool, activated?: true}> One event per live state, in application order.
    */
   public function tickStates(): array
   {
@@ -286,6 +299,12 @@ trait HasStates
       if ($instance->awaitsNextTurn) {
         $instance->awaitsNextTurn = false;
         $events[] = ['state' => $instance->state, 'hpDelta' => 0, 'expired' => false];
+        continue;
+      }
+      if ($instance->isPending) {
+        $activated = $instance->advanceDelay();
+        $events[] = ['state' => $instance->state, 'hpDelta' => 0, 'expired' => false,
+          ...($activated ? ['activated' => true] : [])];
         continue;
       }
 
@@ -436,7 +455,7 @@ trait HasStates
     $this->isGuarding = false;
     $this->states = array_values(array_filter(
       $this->states,
-      static fn(StateInstance $instance): bool => $instance->state->persistsAfterBattle
+      static fn(StateInstance $instance): bool => !$instance->isPending && $instance->state->persistsAfterBattle
     ));
   }
 }

@@ -24,6 +24,7 @@ class AddStateSkillEffect extends SkillEffect
 {
   protected(set) bool $guaranteed = false;
   protected(set) SkillSecondaryTrigger $trigger = SkillSecondaryTrigger::ALWAYS;
+  protected(set) int $delayTurns = 0;
   /**
    * @param string $stateId The state to inflict.
    * @param int $chancePercent The base infliction chance.
@@ -33,13 +34,18 @@ class AddStateSkillEffect extends SkillEffect
     protected(set) int $chancePercent = 100,
     bool $guaranteed = false,
     SkillSecondaryTrigger $trigger = SkillSecondaryTrigger::ALWAYS,
+    int $delayTurns = 0,
   )
   {
     if ($guaranteed && $chancePercent !== 100) {
       throw new \InvalidArgumentException('A guaranteed state effect must use chancePercent 100.');
     }
+    if ($delayTurns < 0) {
+      throw new \InvalidArgumentException('State activation delay cannot be negative.');
+    }
     $this->guaranteed = $guaranteed;
     $this->trigger = $trigger;
+    $this->delayTurns = $delayTurns;
     parent::__construct('0');
   }
 
@@ -64,7 +70,7 @@ class AddStateSkillEffect extends SkillEffect
           ! $target->isKnockedOut
             && $this->trigger->permits($context, $target)
             && $target->addState($state, $this->chancePercent, $context->random,
-              $target === $context->user || $context->reactions?->turnOwner === $target, $this->guaranteed),
+              $target === $context->user || $context->reactions?->turnOwner === $target, $this->guaranteed, $this->delayTurns),
         );
       }
     }

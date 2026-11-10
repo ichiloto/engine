@@ -12,7 +12,7 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
  */
 class Turn
 {
-  /** @var array<int, array{state: \Ichiloto\Engine\Entities\States\State, hpDelta: int, expired: bool}>|null */
+  /** @var array<int, array{state: \Ichiloto\Engine\Entities\States\State, hpDelta: int, expired: bool, activated?: true}>|null */
   private ?array $endStateEvents = null;
   /**
    * @var bool Whether the turn is completed.

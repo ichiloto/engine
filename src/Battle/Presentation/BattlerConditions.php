@@ -38,6 +38,14 @@ final class BattlerConditions
     }
     foreach ($battler->states ?? [] as $instance) {
       $state = $instance->state;
+      if ($instance->isPending) {
+        $label = $state->badgeLabel . '?';
+        $entries[] = ['key' => 'state-pending:' . $state->id, 'name' => $state->name . ' (pending)',
+          'description' => '', 'glyph' => $label, 'iconKey' => 'status.state.' . $state->id . '.pending',
+          'symbol' => 'state-pending:' . $state->id, 'label' => $label, 'badge' => $label,
+          'polarity' => 'neutral', 'magnitude' => null];
+        continue;
+      }
       $entries[] = ['key' => 'state:' . $state->id, 'name' => $state->name,
         'description' => $state->description,
         'glyph' => trim($state->icon) !== '' ? $state->icon : $state->name,

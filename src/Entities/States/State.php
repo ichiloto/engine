@@ -26,6 +26,7 @@ class State
   /** Declared default preserves states restored from older saves. */
   protected(set) float $atbRate = 1.0;
   protected(set) int $accuracyModifier = 0;
+  protected(set) float $physicalDamageDealtRate = 1.0;
   /** The badge label length derived from the name when none is authored. */
   protected const int DERIVED_LABEL_LENGTH = 3;
 
@@ -63,6 +64,7 @@ class State
    * @param int $confusionChancePercent The chance, 0 to 100, that on each of its turns the bearer loses track of friend and
    *   foe and makes its ordinary attack on a random battler of either side instead of acting (Confusion); 0 never.
    * @param int $accuracyModifier Adds percentage points to the bearer's rolled hit chances while active.
+   * @param float $physicalDamageDealtRate Scales physical damage the bearer deals while active.
    */
   public function __construct(
     protected(set) string $id,
@@ -84,6 +86,7 @@ class State
     protected(set) int $confusionChancePercent = 0,
     float $atbRate = 1.0,
     int $accuracyModifier = 0,
+    float $physicalDamageDealtRate = 1.0,
   )
   {
     if ($fieldTickSteps !== null && $fieldTickSteps < 1) {
@@ -101,8 +104,12 @@ class State
     if ($accuracyModifier < -100 || $accuracyModifier > 100) {
       throw new InvalidArgumentException(sprintf('State "%s" accuracyModifier must be between -100 and 100.', $id));
     }
+    if (!is_finite($physicalDamageDealtRate) || $physicalDamageDealtRate < 0.0) {
+      throw new InvalidArgumentException(sprintf('State "%s" physicalDamageDealtRate must be a finite non-negative multiplier.', $id));
+    }
     $this->atbRate = $atbRate;
     $this->accuracyModifier = $accuracyModifier;
+    $this->physicalDamageDealtRate = $physicalDamageDealtRate;
   }
 
   /**
@@ -157,6 +164,10 @@ class State
     if (!is_int($accuracyModifier)) {
       throw new InvalidArgumentException(sprintf('State "%s" accuracyModifier must be a whole number of percentage points.', $id));
     }
+    $physicalDamageDealtRate = array_key_exists('physicalDamageDealtRate', $data) ? $data['physicalDamageDealtRate'] : 1.0;
+    if (!is_int($physicalDamageDealtRate) && !is_float($physicalDamageDealtRate)) {
+      throw new InvalidArgumentException(sprintf('State "%s" physicalDamageDealtRate must be a number.', $id));
+    }
 
     return new self(
       $id,
@@ -178,6 +189,7 @@ class State
       $confusionChance,
       (float) $atbRate,
       $accuracyModifier,
+      (float) $physicalDamageDealtRate,
     );
   }
 }

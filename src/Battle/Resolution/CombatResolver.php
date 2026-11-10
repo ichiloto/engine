@@ -79,6 +79,8 @@ final class CombatResolver
       ? min(CombatCalibration::MAX_ORDINARY_MITIGATION, $defensive / ($defensive + CombatCalibration::DEFENCE_CONSTANT))
       : 0.0;
     $afterMitigation = $request->rawMagnitude * (1.0 - $mitigationRate);
+    $outgoingRate = $request->kind === ResolutionKind::PHYSICAL_DAMAGE
+      && method_exists($request->actor, 'getPhysicalDamageDealtRate') ? $request->actor->getPhysicalDamageDealtRate() : 1.0;
     $criticalChance = intval(clamp(
       $request->baseCriticalChance + intdiv($actor->stats->grace, CombatCalibration::GRACE_CRITICAL_DIVISOR) + $equipmentCritical,
       CombatCalibration::CRITICAL_CHANCE_FLOOR,
@@ -89,7 +91,7 @@ final class CombatResolver
       : null;
     $critical = $request->criticalEligible
       && ($request->guaranteedCritical || $criticalRoll <= $criticalChance);
-    $afterCritical = $critical ? $afterMitigation * $request->criticalMultiplier : $afterMitigation;
+    $afterCritical = $afterMitigation * $outgoingRate * ($critical ? $request->criticalMultiplier : 1.0);
     $guardApplied = $request->guardEligible && $request->kind->isDamage() && ($request->target->isGuarding ?? false);
     $afterGuard = $guardApplied ? $afterCritical * CombatCalibration::GUARD_FACTOR : $afterCritical;
     // Protective states (Barrier) scale every hit a guard could block; a rate of 0 blocks it outright.
@@ -104,7 +106,7 @@ final class CombatResolver
     $roundedMagnitude = intval(round(abs($resolved), 0, PHP_ROUND_HALF_UP));
 
     if ($request->kind->isDamage() && $affinity['outcome'] !== ElementalOutcome::NULL
-      && $affinity['outcome'] !== ElementalOutcome::ABSORB && $protection > 0.0) {
+      && $affinity['outcome'] !== ElementalOutcome::ABSORB && $protection > 0.0 && $outgoingRate > 0.0) {
       $roundedMagnitude = max($request->minimumDamage, $roundedMagnitude);
     }
 

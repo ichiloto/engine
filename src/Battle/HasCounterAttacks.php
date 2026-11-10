@@ -14,7 +14,7 @@ trait HasCounterAttacks
   {
     $rules = $this->counterAttack === null ? [] : [$this->counterAttack];
     foreach ($this->states as $instance) {
-      if ($instance->remainingTurns !== 0 && $instance->state->counterAttack !== null) {
+      if (!$instance->isPending && $instance->remainingTurns !== 0 && $instance->state->counterAttack !== null) {
         $rules[] = $instance->state->counterAttack;
       }
     }

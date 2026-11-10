@@ -65,12 +65,25 @@ it('round trips the landed-hit trigger and rejects an unknown trigger', function
     ->toThrow(InvalidArgumentException::class, 'trigger');
 });
 
+it('round trips state delay on battle skills and refuses negative or field delays', function () {
+  $effect = ['type' => 'add_state', 'stateId' => 'slow', 'delayTurns' => 1];
+  $skill = SkillRecord::readSkill(minimalSkillData(['effects' => [$effect]]));
+  expect($skill->effects[0]->delayTurns)->toBe(1)
+    ->and(SkillRecord::writeSkill($skill)['effects'])->toBe([$effect]);
+  expect(fn() => SkillRecord::readSkill(minimalSkillData(['occasion' => 'Always', 'effects' => [$effect]])))
+    ->toThrow(InvalidArgumentException::class, 'battle-only');
+  $effect['delayTurns'] = -1;
+  expect(fn() => SkillRecord::readSkill(minimalSkillData(['effects' => [$effect]])))
+    ->toThrow(InvalidArgumentException::class, 'cannot be negative');
+});
+
 it('keeps old serialized state effects independent and probabilistic', function () {
   $effect = new AddStateSkillEffect('stun');
-  Closure::bind(function (): void { unset($this->guaranteed, $this->trigger); }, $effect, AddStateSkillEffect::class)();
+  Closure::bind(function (): void { unset($this->guaranteed, $this->trigger, $this->delayTurns); }, $effect, AddStateSkillEffect::class)();
   $restored = unserialize(serialize($effect));
   expect($restored->guaranteed)->toBeFalse()
-    ->and($restored->trigger)->toBe(SkillSecondaryTrigger::ALWAYS);
+    ->and($restored->trigger)->toBe(SkillSecondaryTrigger::ALWAYS)
+    ->and($restored->delayTurns)->toBe(0);
 });
 
 it('round-trips every kind and every effect type through record data', function () {

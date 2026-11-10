@@ -50,8 +50,7 @@ final class BattleReactions
       unset($this->prepared[$index]);
     }
     // An unrelated grant with the same state identity belongs to its own owner.
-    if ($actor->hasState($stance->id)) { return false; }
-    $actor->addState($stance, givenByBearer: true, guaranteed: true);
+    if (!$actor->addState($stance, givenByBearer: true, guaranteed: true)) { return false; }
     $instance = array_find($actor->states, static fn($instance): bool => $instance->state->id === $stance->id);
     if ($instance === null) { return false; }
     $this->prepared[] = new PreparedCounter($actor, $opponent, $rule, $instance);

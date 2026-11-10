@@ -1533,7 +1533,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
         ],
         array_values(array_filter(
           $this->states,
-          static fn(StateInstance $instance): bool => $instance->state->persistsAfterBattle
+          static fn(StateInstance $instance): bool => !$instance->isPending && $instance->state->persistsAfterBattle
         ))
       ),
       'permanentGrowth' => $this->permanentGrowth->jsonSerialize(),

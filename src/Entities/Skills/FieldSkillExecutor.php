@@ -6,6 +6,7 @@ use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
 use Ichiloto\Engine\Battle\Resolution\NativeCombatRandomSource;
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
@@ -47,7 +48,8 @@ final class FieldSkillExecutor
   {
     if (!$party->participants->contains($caster)) { return $this->failure(FieldSkillFailureReason::CASTER_NOT_PRESENT); }
 
-    if (! in_array($skill->occasion, [Occasion::ALWAYS, Occasion::MENU_SCREEN], true)) {
+    if (! in_array($skill->occasion, [Occasion::ALWAYS, Occasion::MENU_SCREEN], true)
+      || array_any($skill->effects, static fn($effect): bool => $effect instanceof AddStateSkillEffect && $effect->delayTurns > 0)) {
       return $this->failure(FieldSkillFailureReason::WRONG_OCCASION);
     }
 

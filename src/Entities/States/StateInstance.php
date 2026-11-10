@@ -9,6 +9,10 @@ namespace Ichiloto\Engine\Entities\States;
  */
 class StateInstance
 {
+  public private(set) int $remainingDelayTurns = 0;
+
+  public bool $isPending { get => $this->remainingDelayTurns > 0; }
+
   /**
    * @param State $state The state definition.
    * @param int|null $remainingTurns Turns left before expiry; null lasts until cured.
@@ -20,8 +24,21 @@ class StateInstance
     public ?int $remainingTurns = null,
     public int $fieldSteps = 0,
     public bool $awaitsNextTurn = false,
+    int $delayTurns = 0,
   )
   {
+    if ($delayTurns < 0) {
+      throw new \InvalidArgumentException('State activation delay cannot be negative.');
+    }
+    $this->remainingDelayTurns = $delayTurns;
+  }
+
+  /** Counts one pending turn and reports the transition to active. */
+  public function advanceDelay(): bool
+  {
+    if (!$this->isPending) { return false; }
+    $this->remainingDelayTurns--;
+    return $this->remainingDelayTurns === 0;
   }
 
   /**
@@ -31,7 +48,7 @@ class StateInstance
    */
   public function advanceFieldStep(): bool
   {
-    if ($this->state->fieldTickSteps === null) {
+    if ($this->isPending || $this->state->fieldTickSteps === null) {
       return false;
     }
 

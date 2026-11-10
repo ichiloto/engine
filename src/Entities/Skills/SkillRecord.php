@@ -132,6 +132,10 @@ final class SkillRecord
       'battleTargeting' => \Ichiloto\Engine\Battle\Formation\BattleTargeting::fromArray($data['battleTargeting'] ?? null),
     ];
     $counterAttack = CounterAttackRule::fromArray($data['counterAttack'] ?? null);
+    if ($arguments['occasion'] !== Occasion::BATTLE_SCREEN
+      && array_any($arguments['effects'], static fn($effect): bool => $effect instanceof AddStateSkillEffect && $effect->delayTurns > 0)) {
+      throw new InvalidArgumentException('A delayed state effect requires a battle-only skill.');
+    }
     if (array_any($arguments['effects'], static fn($effect): bool => $effect instanceof PrepareCounterSkillEffect)
       && ($arguments['occasion'] !== Occasion::BATTLE_SCREEN
         || $arguments['scope']->side !== ItemScopeSide::ENEMY
@@ -348,7 +352,7 @@ final class SkillRecord
           self::requireString($effect, 'stateId', $path));
       })(),
       'add_state' => (static function () use ($effect, $path): AddStateSkillEffect {
-        self::refuseUnknownKeys($effect, ['type', 'stateId', 'chancePercent', 'guaranteed', 'trigger'], $path);
+        self::refuseUnknownKeys($effect, ['type', 'stateId', 'chancePercent', 'guaranteed', 'trigger', 'delayTurns'], $path);
         $guaranteed = $effect['guaranteed'] ?? false;
         if (!is_bool($guaranteed)) {
           throw new InvalidArgumentException(sprintf('%sguaranteed must be boolean.', $path));
@@ -361,6 +365,7 @@ final class SkillRecord
           array_key_exists('trigger', $effect)
             ? self::readEnum(SkillSecondaryTrigger::class, self::requireString($effect, 'trigger', $path), $path . 'trigger')
             : SkillSecondaryTrigger::ALWAYS,
+          array_key_exists('delayTurns', $effect) ? self::requireInt($effect, 'delayTurns', $path) : 0,
         );
       })(),
       'remove_state' => (static function () use ($effect, $path): RemoveStateSkillEffect {
@@ -444,10 +449,10 @@ final class SkillRecord
         'skill' => $effect->skill, 'stateId' => $effect->stateId],
       $effect instanceof AddStateSkillEffect => array_filter(
         ['type' => 'add_state', 'stateId' => $effect->stateId, 'chancePercent' => $effect->chancePercent,
-          'guaranteed' => $effect->guaranteed, 'trigger' => $effect->trigger->value],
+          'guaranteed' => $effect->guaranteed, 'trigger' => $effect->trigger->value, 'delayTurns' => $effect->delayTurns],
         static fn(mixed $value, string $key): bool => match ($key) {
           'chancePercent' => $value !== 100, 'guaranteed' => $value !== false,
-          'trigger' => $value !== SkillSecondaryTrigger::ALWAYS->value, default => true,
+          'trigger' => $value !== SkillSecondaryTrigger::ALWAYS->value, 'delayTurns' => $value !== 0, default => true,
         },
         ARRAY_FILTER_USE_BOTH,
       ),
