@@ -34,6 +34,9 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Progression\TutorialCatalog;
+use Ichiloto\Engine\Progression\TutorialDirector;
+use Ichiloto\Engine\Progression\TutorialPhase;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
@@ -427,6 +430,43 @@ it('keeps field casting failures inspectable without spending MP', function () {
   expect(implode('', skillMenuText(SkillMenuPresentation::compose($state->getPresentationContent(), $theme))))
     ->toContain('Not enough MP for Alpha Restore.')->toContain('3 MP');
   expect($this->actor->stats->currentMp)->toBe(0)->and($this->ally->stats->currentHp)->toBe(30);
+});
+
+it('guides an actual field cast and completes only after the selected recipient benefits', function () {
+  $spellName = $this->spell->name;
+  $this->actor->stats->currentHp = $this->actor->stats->totalHp;
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.restore', 'title' => 'Restore', 'category' => 'Field', 'start' => 'script', 'replay' => 'none',
+    'steps' => [[
+      'target' => ['screen' => 'magic', 'view' => 'use', 'id' => $spellName],
+      'action' => 'confirm', 'say' => 'Choose a healing spell.',
+      'until' => ['outcome' => 'magic.spell-selected', 'subject' => $spellName],
+    ], [
+      'target' => ['screen' => 'magic', 'view' => 'target', 'id' => 'injured-ally'],
+      'action' => 'confirm', 'say' => 'Choose an injured ally.',
+      'until' => ['outcome' => 'magic.cast', 'subject' => $spellName],
+    ]],
+  ]]), $this->flags);
+  new ReflectionProperty(GameScene::class, 'tutorialDirector')->setValue($this->scene, $director);
+  $director->queueScriptTutorial('guide.restore');
+  $director->updateInStableField(false);
+  $state = skillMenuOwner($this, true);
+  $theme = new MenuPresentationCatalog($this->root, skillMenuTheme());
+  expect(implode(' ', skillMenuText(SkillMenuPresentation::compose($state->getPresentationContent(), $theme))))
+    ->toContain('Choose a healing spell.');
+  skillMenuKey($state, KeyCode::ENTER);
+  expect($state->getPresentationContent()->tutorialRowIndex)->toBe(1)
+    ->and(implode(' ', skillMenuText(SkillMenuPresentation::compose($state->getPresentationContent(), $theme))))
+    ->toContain('Choose an injured ally.');
+  skillMenuKey($state, KeyCode::ESCAPE);
+  expect($director->getActiveTutorial())->not->toBeNull()->and($this->actor->stats->currentMp)->toBe(20);
+  skillMenuKey($state, KeyCode::ENTER);
+  skillMenuKey($state, KeyCode::ENTER);
+  expect($director->getActiveTutorial())->not->toBeNull()->and($this->actor->stats->currentMp)->toBe(20);
+  skillMenuKey($state, KeyCode::DOWN);
+  skillMenuKey($state, KeyCode::ENTER);
+  expect($this->flags->getTutorialPhase('guide.restore'))->toBe(TutorialPhase::COMPLETED)
+    ->and($this->actor->stats->currentMp)->toBe(17)->and($this->ally->stats->currentHp)->toBe(55);
 });
 
 it('submits an actual menu canvas with a supported modal and restores it without consuming menu input', function (bool $magic) {

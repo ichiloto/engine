@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Progression\TutorialStep;
 use Ichiloto\Engine\UI\Text\MenuInfoText;
 
 /** Fresh read-only display projection of an existing Abilities/Magic owner, never saved state. */
@@ -33,6 +34,9 @@ final readonly class SkillMenuContent
     public string $confirmLabel,
     public bool $targeting = false,
     public ?MenuInfoText $infoModel = null,
+    public ?TutorialStep $tutorial = null,
+    public ?int $tutorialRowIndex = null,
+    public ?string $tutorialSpeaker = null,
   ) {}
 
   /** The selected entry's heading and fields, then its requirement or guidance text, for renderers that read it as one sheet.

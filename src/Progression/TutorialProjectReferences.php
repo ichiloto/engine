@@ -9,6 +9,8 @@ use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerAct
 use Ichiloto\Engine\Scenes\Game\States\SummonsMenuState as Summons;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicLibrary;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
+use Ichiloto\Engine\Entities\Enumerations\Occasion;
+use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Progression\Mastery\MasteryBoard;
 use Ichiloto\Engine\Progression\Mastery\MasteryCatalog;
@@ -37,6 +39,10 @@ final class TutorialProjectReferences
       TutorialReferenceSource::SUMMON => array_column(
         (new SummonCutsceneLibrary($this->assetRoot . '/Cutscenes/Summons', assetRoot: $this->assetRoot))->load(), 'id',
       ),
+      TutorialReferenceSource::FIELD_MAGIC => array_keys(array_filter(
+        SkillCatalog::load($this->assetRoot)->getSkills(), static fn($skill): bool => $skill instanceof MagicSkill
+          && in_array($skill->occasion, [Occasion::ALWAYS, Occasion::MENU_SCREEN], true),
+      )),
       TutorialReferenceSource::MASTERY_REGION => array_column($this->getMasteryBoard()->tree->regions, 'id'),
       TutorialReferenceSource::MASTERY_FAMILY => array_column(array_merge(...array_values($this->getMasteryBoard()->families)), 'id'),
       TutorialReferenceSource::MASTERY_NODE => array_column($this->getMasteryBoard()->tree->nodes, 'id'),

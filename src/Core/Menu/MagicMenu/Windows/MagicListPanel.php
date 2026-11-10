@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Core\Menu\MagicMenu\Windows;
 
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\SelectionStyle;
+use Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation;
 use Ichiloto\Engine\UI\Windows\Window;
 
 /**
@@ -29,6 +30,7 @@ class MagicListPanel extends Window
    * @var int The current top-of-window scroll offset.
    */
   protected int $scrollOffset = 0;
+  private ?int $tutorialIndex = null;
 
   /**
    * Sets the visible entries and active selection.
@@ -38,10 +40,11 @@ class MagicListPanel extends Window
    * @param bool $focused Whether the focus is on the list; a list the focus is above keeps its place unlit.
    * @return void
    */
-  public function setEntries(array $entries, int $activeIndex = -1, bool $focused = true): void
+  public function setEntries(array $entries, int $activeIndex = -1, bool $focused = true, ?int $tutorialIndex = null): void
   {
     $this->entries = array_values(array_map('strval', $entries));
     $this->focused = $focused;
+    $this->tutorialIndex = $tutorialIndex;
     $this->activeIndex = empty($this->entries)
       ? -1
       : clamp($activeIndex, 0, count($this->entries) - 1);
@@ -69,7 +72,9 @@ class MagicListPanel extends Window
         $availableWidth
       );
 
-      if ($this->focused && $actualIndex === $this->activeIndex) {
+      if ($actualIndex === $this->tutorialIndex) {
+        $line = TutorialTerminalPresentation::highlight($line);
+      } elseif ($this->focused && $actualIndex === $this->activeIndex) {
         $line = SelectionStyle::apply($line);
       }
 
@@ -78,6 +83,12 @@ class MagicListPanel extends Window
 
     $this->setContent($content);
     $this->render();
+  }
+
+  public function isEntryVisible(int $index): bool
+  {
+    return isset($this->entries[$index]) && $index >= $this->scrollOffset
+      && $index < $this->scrollOffset + max(1, $this->height - 2);
   }
 
   /**

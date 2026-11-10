@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Progression;
 
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerActionState as BattleInput;
 use Ichiloto\Engine\Scenes\Game\States\MainMenuState as MainMenu;
+use Ichiloto\Engine\Scenes\Game\States\MagicMenuState as MagicMenu;
 use Ichiloto\Engine\Scenes\Game\States\MasteryMenuState as Mastery;
 use Ichiloto\Engine\Scenes\Game\States\SummonsMenuState as Summons;
 use Ichiloto\Engine\UI\Presentation\MasteryMenuLevel;
@@ -58,6 +59,20 @@ final class TutorialScreenCatalog
           'targets' => [Summons::TUTORIAL_ASSIGNABLE_HOLDER], 'targetSource' => 'actor', 'targetPrefix' => 'member-',
           'actions' => ['confirm'],
           'outcomes' => [Summons::TUTORIAL_ASSIGNED => 'summon'],
+        ],
+      ],
+      MagicMenu::TUTORIAL_SCREEN => [
+        MagicMenu::TUTORIAL_USE => [
+          'targets' => [], 'targetSource' => TutorialReferenceSource::FIELD_MAGIC->value, 'actions' => ['confirm'],
+          'outcomes' => [
+            MagicMenu::TUTORIAL_SPELL_SELECTED => TutorialReferenceSource::FIELD_MAGIC->value,
+            MagicMenu::TUTORIAL_CAST => TutorialReferenceSource::FIELD_MAGIC->value,
+          ],
+        ],
+        MagicMenu::TUTORIAL_TARGET => [
+          'targets' => [MagicMenu::TUTORIAL_INJURED_ALLY], 'targetSource' => 'actor', 'targetPrefix' => 'member-',
+          'actions' => ['confirm', 'up', 'down'],
+          'outcomes' => [MagicMenu::TUTORIAL_CAST => TutorialReferenceSource::FIELD_MAGIC->value],
         ],
       ],
       BattleInput::TUTORIAL_SCREEN => [

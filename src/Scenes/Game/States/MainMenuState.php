@@ -83,6 +83,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         OpenSummonsMenuCommand::class => 'summons',
         OpenMasteryMenuCommand::class => 'mastery',
         OpenPartyOrderCommand::class => 'order',
+        OpenMagicMenuCommand::class => 'magic',
     ];
 
     public static function getTutorialCommandId(object $command): ?string
