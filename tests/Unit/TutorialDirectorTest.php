@@ -74,6 +74,26 @@ it('defers a scripted lesson to stable field play and advances only on its view 
     ->and($restored->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::COMPLETED);
 });
 
+it('rewinds only the guided transition that Back reverses', function () {
+  $state = new GameState();
+  $director = makeTutorialDirector($state);
+  $director->queueScriptTutorial('guide.sample');
+  $director->updateInStableField(false);
+  $director->rewindStepOnBack('menu', 'detail', 'result');
+  expect($director->getStepForView('menu', 'detail'))->not->toBeNull();
+
+  $director->reportOutcome('menu', 'detail', 'sample.applied', 'sample');
+  $director->rewindStepOnBack('menu', 'result', 'other');
+  $director->rewindStepOnBack('other', 'result', 'detail');
+  expect($director->getStepForView('menu', 'result'))->not->toBeNull();
+
+  $director->rewindStepOnBack('menu', 'result', 'detail');
+  expect($director->getStepForView('menu', 'detail'))->not->toBeNull()
+    ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::PENDING);
+  $director->reportOutcome('menu', 'detail', 'sample.applied', 'sample');
+  expect($director->getStepForView('menu', 'result'))->not->toBeNull();
+});
+
 it('offers practice for skipped lessons and leaves saved progress unchanged', function () {
   $state = new GameState();
   $director = makeTutorialDirector($state);

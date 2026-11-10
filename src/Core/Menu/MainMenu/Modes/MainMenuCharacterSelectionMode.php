@@ -86,7 +86,11 @@ class MainMenuCharacterSelectionMode extends MainMenuMode
   {
     if (Input::isButtonDown("cancel")) {
       play_sound(SystemSound::CANCEL);
+      $this->mainMenuState->getGameScene()->tutorialDirector?->rewindStepOnBack(
+        MainMenuState::TUTORIAL_SCREEN, MainMenuState::TUTORIAL_PARTY, MainMenuState::TUTORIAL_COMMANDS,
+      );
       $this->mainMenuState->setMode(new MainMenuCommandSelectionMode($this->mainMenuState));
+      return;
     }
 
     if (Input::isButtonDown("confirm")) {

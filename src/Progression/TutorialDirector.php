@@ -165,6 +165,17 @@ final class TutorialDirector
     }
   }
 
+  /** Rewinds a guided view transition when Back reverses it. */
+  public function rewindStepOnBack(string $screen, string $view, string $previousView): void
+  {
+    $previous = $this->active?->steps[$this->stepIndex - 1] ?? null;
+    if ($previous !== null && $previous->target['screen'] === $screen
+      && $previous->target['view'] === $previousView && $this->getStepForView($screen, $view) !== null) {
+      $this->stepIndex--;
+      $this->stepFocusApplied = false;
+    }
+  }
+
   public function evaluateStepCondition(string $screen, string $view, ?Party $party = null, ?QuestLog $quests = null): void
   {
     $step = $this->getStepForView($screen, $view);
