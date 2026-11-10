@@ -853,6 +853,26 @@ round trips; a map-specific bypass or extra loading delay does not solve it.
 > GPUI read one list model, `BattleTestMenuList`, and the Terminal reads as
 > before.
 >
+> **Battle-test starting condition and party items (2026-11-10):** each
+> `BattleTestMember` may start a fight at a chosen HP and MP
+> (`BattleTestVital`: a percentage of its maximum or exact points) and with
+> chosen states from the project's `StateRegistry`; `BattleTestSetup` holds
+> the party's items (`BattleTestItem` entries), or the default stock of 99 of
+> every non-equipment item when none are set. `createParty()` applies both to
+> every fight, preview and composed troop, so the ordinary crisis gate,
+> state expiry and item use run on real state. `ProjectBattleTest` and the
+> setup share one key list (`BattleTestSetup::KEYS`). In the arena, HP, MP and
+> States sit under the level in the member editor (left and right step one, a
+> page step ten, confirm offers full, the crisis threshold the actor's own
+> ability defines, none, and the other unit); a page step from the party opens
+> its items, set in the Shop's stages (`BattleTestInventoryEditor` over
+> `QuantitySelector`). The member's note states whether its crisis ability is
+> ready, by the ability's own rule. Open gap: a battle test has no game in
+> progress, so a crisis ability whose every form is chosen by world conditions
+> (Last Legend's Kaelion, by `kaelion_curse_state`) is active but offers no
+> technique there; choosing a form for a battle test needs a decision on how a
+> test supplies world state.
+>
 > **Simulator action choice (2026-10-20):** `--runs` measured both sides with
 > the built-in x1 `AttackAction` and ignored enemy patterns, so a project whose
 > actors attack with an authored `attackSkill` (Last Legend's x4 Attack) and

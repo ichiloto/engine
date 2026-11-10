@@ -12,12 +12,14 @@ use Ichiloto\Engine\Battle\BattleCommandType;
  * input devices: the arena reads semantic moves (up, down, left, right, a
  * page step, confirm, cancel) and passes them here, and draws what this
  * says. Focus moves from the troop list down into the party, into one
- * member's actor, level and equipment, and into a list of what a slot can
- * hold, and back out again with cancel. Where arenas are offered (a
- * graphical renderer draws them), left and right on the troop list, and in
- * the composer, choose the one fights take place in. After the troops, a
- * row composes a test troop ({@see TestTroopComposer}), to fight and,
- * where someone keeps troops, keep.
+ * member's actor, level, starting HP, MP and states, and equipment, and into
+ * a list of what one of them can be, and back out again with cancel. A page
+ * step switches between the troop list, the party and, where items can be
+ * set, the party's items ({@see BattleTestInventoryEditor}). Where arenas
+ * are offered (a graphical renderer draws them), left and right on the troop
+ * list, and in the composer, choose the one fights take place in. After the
+ * troops, a row composes a test troop ({@see TestTroopComposer}), to fight
+ * and, where someone keeps troops, keep.
  */
 final class ArenaSetupEditor
 {
@@ -26,12 +28,17 @@ final class ArenaSetupEditor
   public const string MEMBER = 'member';
   public const string CHOOSER = 'chooser';
   public const string COMPOSER = 'composer';
+  public const string ITEMS = 'items';
   /** Confirm on the troop list asks for a fight; cancel there asks to leave. */
   public const string FIGHT = 'fight';
   public const string QUIT = 'quit';
   /** The composer asks to fight its test troop, or to keep it as a troop. */
   public const string FIGHT_TEST = 'fight-test';
   public const string KEEP = 'keep';
+  /** A member's fields that step by one with left and right and by ten with a page step. */
+  public const array VITAL_FIELDS = ['hp', 'mp'];
+  /** A member's fields whose choices are toggled, several at once. */
+  private const array TOGGLED_FIELDS = ['commands', 'skills', 'magic', 'summons', 'states'];
 
   public private(set) string $focus = self::TROOPS;
   public private(set) int $troopIndex = 0;
@@ -52,6 +59,10 @@ final class ArenaSetupEditor
    * @param Closure(string): int $maxLevelFor An actor's highest level.
    * @param Closure(BattleTestMember, string): list<array{id: ?string, name: string}>|null $loadoutChoicesFor Shared resource pickers.
    * @param list<string> $arenaKeys The arenas fights may take place in, by key; none when nothing draws them.
+   * @param Closure(BattleTestMember, string): list<array{id: ?string, name: string}>|null $conditionChoicesFor What a member's
+   *   `hp`, `mp` and `states` may be ({@see BattleTestChoices::getConditionChoices()}); none leaves the starting condition unset.
+   * @param Closure(BattleTestMember, string): int|null $vitalMaximumFor A member's maximum `hp` or `mp`, to count points within.
+   * @param BattleTestInventoryEditor|null $inventoryEditor Setting the party's items; none where they cannot be set.
    */
   public function __construct(
     public private(set) BattleTestSetup $setup,
@@ -63,7 +74,12 @@ final class ArenaSetupEditor
     private readonly ?Closure $loadoutChoicesFor = null,
     private readonly array $arenaKeys = [],
     public readonly ?TestTroopComposer $composer = null,
-  ) {}
+    private readonly ?Closure $conditionChoicesFor = null,
+    private readonly ?Closure $vitalMaximumFor = null,
+    public readonly ?BattleTestInventoryEditor $inventoryEditor = null,
+  ) {
+    $this->inventoryEditor?->load($setup->inventory);
+  }
 
   /** The rows of the troop list: the troops, then composing a test troop where it can be. */
   public int $troopRows {
@@ -73,6 +89,11 @@ final class ArenaSetupEditor
   /** Whether the cursor is on the troop list's row that composes a test troop. */
   public bool $onComposeRow {
     get => $this->composer !== null && $this->troopIndex === $this->troopCount;
+  }
+
+  /** Whether a member's starting HP, MP and states can be set here. */
+  public bool $offersCondition {
+    get => $this->conditionChoicesFor !== null && $this->vitalMaximumFor !== null;
   }
 
   /** The troops changed (one was kept); the cursor stays on the same row, or the last. */
@@ -93,39 +114,59 @@ final class ArenaSetupEditor
     get => $this->setup->members[$this->memberIndex] ?? null;
   }
 
-  /** The member's fields: actor, level, each equipment slot, and removal when the party has more than one member. */
+  /**
+   * The member's fields: actor, level, the starting HP, MP and states where they can be set, each
+   * equipment slot, the test loadout, and removal when the party has more than one member.
+   */
   public array $fields {
     get {
       $member = $this->member;
       if ($member === null) { return []; }
 
-      return ['actor', 'level', ...array_map(static fn(string $slot): string => "slot:{$slot}", ($this->slotsFor)($member->actorId)),
+      return ['actor', 'level', ...($this->offersCondition ? ['hp', 'mp', 'states'] : []),
+        ...array_map(static fn(string $slot): string => "slot:{$slot}", ($this->slotsFor)($member->actorId)),
         ...($this->loadoutChoicesFor === null ? [] : ['commands', 'skills', 'magic', 'summons']),
         ...(count($this->setup->members) > 1 ? ['remove'] : [])];
     }
   }
 
-  /** @return list<array{id: ?string, name: string}> What the slot being chosen for can hold. */
+  /** The member's field the cursor is on, or an empty string outside a member. */
+  public string $field {
+    get => $this->fields[$this->fieldIndex] ?? '';
+  }
+
+  /** Whether the field being chosen for takes several choices, each toggled, rather than one. */
+  public bool $choosesSeveral {
+    get => in_array($this->field, self::TOGGLED_FIELDS, true);
+  }
+
+  /** @return list<array{id: ?string, name: string}> What the field being chosen for can be. */
   public function getChoices(): array
   {
-    $field = $this->fields[$this->fieldIndex] ?? '';
+    $field = $this->field;
 
     if ($this->member === null) { return []; }
-    return str_starts_with($field, 'slot:')
-      ? ($this->choicesFor)($this->member->actorId, substr($field, 5))
-      : ($this->loadoutChoicesFor === null ? [] : ($this->loadoutChoicesFor)($this->member, $field));
+    return match (true) {
+      str_starts_with($field, 'slot:') => ($this->choicesFor)($this->member->actorId, substr($field, 5)),
+      in_array($field, [...self::VITAL_FIELDS, 'states'], true) => $this->conditionChoicesFor === null ? []
+        : ($this->conditionChoicesFor)($this->member, $field),
+      default => $this->loadoutChoicesFor === null ? [] : ($this->loadoutChoicesFor)($this->member, $field),
+    };
   }
 
   public function isChoiceSelected(?string $id): bool
   {
     $member = $this->member;
-    $field = $this->fields[$this->fieldIndex] ?? '';
+    $field = $this->field;
     if ($member === null) { return false; }
     return match ($field) {
       'commands' => $id === null ? $member->commands === null
         : in_array(BattleCommandType::tryFrom($id), $member->commands ?? BattleCommandType::cases(), true),
       'skills', 'magic' => $id !== null && in_array($id, $member->skills, true),
       'summons' => $id !== null && in_array($id, $member->summons, true),
+      'states' => $id === null ? $member->states === [] : in_array($id, $member->states, true),
+      'hp' => $id === $member->hp?->format(),
+      'mp' => $id === $member->mp?->format(),
       default => $id === ($member->equipment[substr($field, 5)] ?? null),
     };
   }
@@ -137,6 +178,7 @@ final class ArenaSetupEditor
         ? $this->enterParty()
         : $this->troopIndex = max(0, min($this->troopRows - 1, $this->troopIndex + $step)),
       self::COMPOSER => $this->composer?->moveVertical($step),
+      self::ITEMS => $this->inventoryEditor?->moveVertical($step),
       self::PARTY => $this->memberIndex + $step < 0
         ? $this->focus = $this->partyReturnFocus
         : $this->memberIndex = min(BattleTestSetup::MAX_MEMBERS - 1, $this->memberIndex + $step),
@@ -145,9 +187,17 @@ final class ArenaSetupEditor
     };
   }
 
-  /** Left and right change the arena on the troop list, and the member's actor or level. */
+  /**
+   * Left and right change the arena on the troop list, a quantity of the
+   * party's items by ten, and the member's actor, level, HP or MP.
+   */
   public function moveHorizontal(int $step): void
   {
+    if ($this->focus === self::ITEMS) {
+      $this->inventoryEditor?->moveHorizontal($step);
+
+      return;
+    }
     if ($this->focus === self::TROOPS || ($this->focus === self::COMPOSER && !($this->composer?->moveHorizontal($step) ?? false))) {
       $this->stepArena($step);
 
@@ -156,21 +206,30 @@ final class ArenaSetupEditor
 
     $member = $this->member;
     if ($this->focus !== self::MEMBER || $member === null) { return; }
-    match ($this->fields[$this->fieldIndex] ?? '') {
+    match ($this->field) {
       'actor' => $this->changeActor($member, $step),
       'level' => $this->stepLevel($step),
+      'hp', 'mp' => $this->stepVital($this->field, $step),
       default => null,
     };
   }
 
-  /** Page actions switch the top-level panes and step level inside a member. */
+  /**
+   * Page actions switch the top-level panes (troops, party, items) and, inside
+   * a member, step its HP or MP by ten on their rows and its level by ten
+   * elsewhere.
+   */
   public function movePage(int $direction): void
   {
     if ($this->focus === self::MEMBER) {
-      $this->stepLevel(10 * $direction);
+      in_array($this->field, self::VITAL_FIELDS, true) ? $this->stepVital($this->field, 10 * $direction) : $this->stepLevel(10 * $direction);
     } elseif ($direction > 0 && ($this->focus === self::TROOPS
       || ($this->focus === self::COMPOSER && $this->composer?->focus === TestTroopComposer::MEMBERS))) {
       $this->enterParty();
+    } elseif ($direction > 0 && $this->focus === self::PARTY && $this->inventoryEditor !== null) {
+      $this->focus = self::ITEMS;
+    } elseif ($direction < 0 && $this->focus === self::ITEMS && $this->inventoryEditor?->focus === BattleTestInventoryEditor::ENTRIES) {
+      $this->focus = self::PARTY;
     } elseif ($direction < 0 && $this->focus === self::PARTY) {
       $this->focus = $this->partyReturnFocus;
     }
@@ -183,6 +242,23 @@ final class ArenaSetupEditor
     if ($this->focus !== self::MEMBER || $member === null) { return; }
     $level = max(1, min(($this->maxLevelFor)($member->actorId), $member->level + $step));
     $this->setup = $this->setup->withMember($this->memberIndex, $member->withLevel($level));
+  }
+
+  /**
+   * Changes the HP or MP the member starts with by a step in the unit it is
+   * counted in: percent within 0 and 100, points within 0 and the member's
+   * maximum. Full is 100 percent.
+   */
+  public function stepVital(string $field, int $step): void
+  {
+    $member = $this->member;
+    if ($this->focus !== self::MEMBER || $member === null || $this->vitalMaximumFor === null || !in_array($field, self::VITAL_FIELDS, true)) {
+      return;
+    }
+    $vital = ($field === 'hp' ? $member->hp : $member->mp) ?? BattleTestVital::createFull();
+    $next = $vital->withAmount($vital->amount + $step, $vital->unit === BattleTestVitalUnit::POINTS
+      ? ($this->vitalMaximumFor)($member, $field) : 100);
+    $this->setup = $this->setup->withMember($this->memberIndex, $field === 'hp' ? $member->withHp($next) : $member->withMp($next));
   }
 
   /** @return self::FIGHT|self::FIGHT_TEST|self::KEEP|null A fight to start or a troop to keep, when confirm asks for one. */
@@ -201,6 +277,10 @@ final class ArenaSetupEditor
           TestTroopComposer::KEEP => self::KEEP,
           default => null,
         };
+      case self::ITEMS:
+        $this->inventoryEditor?->confirm();
+        $this->setup = $this->setup->withInventory($this->inventoryEditor?->items);
+        return null;
       case self::PARTY:
         // An empty place becomes a new member, the first actor not yet in the party.
         if ($this->member === null) {
@@ -214,17 +294,18 @@ final class ArenaSetupEditor
         $this->fieldIndex = 0;
         return null;
       case self::MEMBER:
-        $field = $this->fields[$this->fieldIndex] ?? '';
+        $field = $this->field;
         if ($field === 'remove') {
           $this->setup = $this->setup->withMember($this->memberIndex, null);
           $this->memberIndex = min($this->memberIndex, count($this->setup->members) - 1);
           $this->focus = self::PARTY;
-        } elseif (str_starts_with($field, 'slot:')) {
-          $current = $this->member?->equipment[substr($field, 5)] ?? null;
-          $this->choiceIndex = max(0, (int) array_search($current, array_column($this->getChoices(), 'id'), true));
-          $this->focus = self::CHOOSER;
-        } elseif (in_array($field, ['commands', 'skills', 'magic', 'summons'], true)) {
+        } elseif ($this->choosesSeveral) {
           $this->choiceIndex = 0;
+          $this->focus = self::CHOOSER;
+        } elseif (str_starts_with($field, 'slot:') || in_array($field, self::VITAL_FIELDS, true)) {
+          // One choice: the cursor starts on what is chosen now.
+          $choices = $this->getChoices();
+          $this->choiceIndex = max(0, (int) array_find_key($choices, fn(array $choice): bool => $this->isChoiceSelected($choice['id'])));
           $this->focus = self::CHOOSER;
         }
         return null;
@@ -232,13 +313,16 @@ final class ArenaSetupEditor
         $choice = $this->getChoices()[$this->choiceIndex] ?? null;
         $member = $this->member;
         if ($choice !== null && $member !== null) {
-          $field = $this->fields[$this->fieldIndex];
-          if (!str_starts_with($field, 'slot:')) {
-            $this->toggleLoadoutChoice($member, $field, $choice['id']);
+          $field = $this->field;
+          if ($this->choosesSeveral) {
+            $this->toggleChoice($member, $field, $choice['id']);
             return null;
           }
-          $this->setup = $this->setup->withMember($this->memberIndex,
-            $member->withEquipment(substr($this->fields[$this->fieldIndex], 5), $choice['id']));
+          $this->setup = $this->setup->withMember($this->memberIndex, match ($field) {
+            'hp' => $member->withHp($choice['id'] === null ? null : BattleTestVital::parse($choice['id'])),
+            'mp' => $member->withMp($choice['id'] === null ? null : BattleTestVital::parse($choice['id'])),
+            default => $member->withEquipment(substr($field, 5), $choice['id']),
+          });
         }
         $this->focus = self::MEMBER;
         return null;
@@ -255,6 +339,9 @@ final class ArenaSetupEditor
         return self::QUIT;
       case self::COMPOSER:
         if ($this->composer?->cancel() === TestTroopComposer::LEAVE) { $this->focus = self::TROOPS; }
+        break;
+      case self::ITEMS:
+        if ($this->inventoryEditor?->cancel() === BattleTestInventoryEditor::LEAVE) { $this->focus = self::PARTY; }
         break;
       case self::PARTY:
         $this->focus = $this->partyReturnFocus;
@@ -294,7 +381,8 @@ final class ArenaSetupEditor
     $this->memberIndex = 0;
   }
 
-  private function toggleLoadoutChoice(BattleTestMember $member, string $field, ?string $id): void
+  /** Toggles one of several choices; the first choice, with no id, clears them or, for commands, restores the normal menu. */
+  private function toggleChoice(BattleTestMember $member, string $field, ?string $id): void
   {
     if ($field === 'commands') {
       $commands = $member->commands ?? BattleCommandType::cases();
@@ -306,14 +394,18 @@ final class ArenaSetupEditor
       }
       $member = $member->withCommands($id === null ? null : $commands);
     } else {
-      $selected = $field === 'summons' ? $member->summons : $member->skills;
+      $selected = match ($field) { 'summons' => $member->summons, 'states' => $member->states, default => $member->skills };
       if ($id === null) {
-        $selected = $field === 'summons' ? [] : array_values(array_diff($selected, array_column($this->getChoices(), 'id')));
+        $selected = $field === 'skills' || $field === 'magic' ? array_values(array_diff($selected, array_column($this->getChoices(), 'id'))) : [];
       } else {
         $selected = in_array($id, $selected, true)
           ? array_values(array_diff($selected, [$id])) : [...$selected, $id];
       }
-      $member = $field === 'summons' ? $member->withSummons($selected) : $member->withSkills($selected);
+      $member = match ($field) {
+        'summons' => $member->withSummons($selected),
+        'states' => $member->withStates($selected),
+        default => $member->withSkills($selected),
+      };
     }
     $this->setup = $this->setup->withMember($this->memberIndex, $member);
   }

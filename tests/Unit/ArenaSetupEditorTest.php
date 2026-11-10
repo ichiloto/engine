@@ -233,3 +233,44 @@ it('keeps the composed troop and its row when paging to Party and back', functio
     ->and($composer->rowIndex)->toBe($row)
     ->and($composer->troop)->toBe($troop);
 });
+
+it('offers starting conditions and the party\'s items only where they can be set, through the same small key set', function () {
+  $plain = arenaSetupEditor();
+  $plain->movePage(1);
+  $plain->movePage(1);
+  expect($plain->focus)->toBe(ArenaSetupEditor::PARTY)->and($plain->offersCondition)->toBeFalse();
+
+  $stock = [new \Ichiloto\Engine\Scenes\Arena\BattleTestItem('item.potion', 99)];
+  $editor = new ArenaSetupEditor(new BattleTestSetup([new BattleTestMember('hero', 5)], inventory: []), 1, ['hero'],
+    static fn() => ['Weapon'], static fn() => [['id' => null, 'name' => '(None)']], static fn() => 99,
+    conditionChoicesFor: static fn($member, string $field): array => $field === 'states'
+      ? [['id' => null, 'name' => '(None)'], ['id' => 'focus', 'name' => 'Focus']]
+      : [['id' => null, 'name' => 'Full'], ['id' => '0%', 'name' => 'Knocked out'], ['id' => '40', 'name' => 'In points: 40 of 40']],
+    vitalMaximumFor: static fn() => 40,
+    inventoryEditor: new \Ichiloto\Engine\Scenes\Arena\BattleTestInventoryEditor(
+      static fn() => [['id' => 'item.potion', 'name' => 'Potion', 'maxQuantity' => 99]], static fn() => $stock));
+
+  // The setup's own items, an empty list here, are what the items editor starts from.
+  expect($editor->inventoryEditor->items)->toBe([])->and($editor->inventoryEditor->rows)->toBe(['add', 'default']);
+  $editor->movePage(1);
+  $editor->confirm();
+  expect($editor->fields)->toBe(['actor', 'level', 'hp', 'mp', 'states', 'slot:Weapon']);
+  $editor->moveVertical(3);
+  $editor->confirm();
+  $editor->moveVertical(2);
+  $editor->confirm();
+  expect($editor->member->mp)->toEqual(new \Ichiloto\Engine\Scenes\Arena\BattleTestVital(40, \Ichiloto\Engine\Scenes\Arena\BattleTestVitalUnit::POINTS));
+  $editor->moveHorizontal(1);
+  $editor->movePage(-1);
+  $editor->moveHorizontal(-1);
+  expect($editor->member->mp?->amount)->toBe(29);
+  $editor->cancel();
+  $editor->movePage(1);
+  expect($editor->focus)->toBe(ArenaSetupEditor::ITEMS);
+  $editor->confirm();
+  $editor->confirm();
+  $editor->moveVertical(1);
+  $editor->confirm();
+  expect($editor->setup->inventory)->toEqual([new \Ichiloto\Engine\Scenes\Arena\BattleTestItem('item.potion', 98)])
+    ->and($editor->cancel())->toBeNull()->and($editor->focus)->toBe(ArenaSetupEditor::PARTY);
+});

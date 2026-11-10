@@ -29,6 +29,11 @@
 
 ### Changed
 
+- The Terminal battle test panels are 72 columns wide so a member's whole help line fits, and the
+  member editor's hints follow the row: Change only where left and right act, Choose only where
+  confirm opens choices. Battle test notes stay beneath the rows however far they scroll. The
+  member, choice and item screens show every hint under themes that hide optional hints.
+
 - Authored `move` and optional `return` battle roles loop on their movement
   phase clocks and hand off to action/rest poses. For actors with these roles,
   removed action-pose sliding during return: anchored recovery finishes before
@@ -66,6 +71,12 @@
   Editor consumers share `SkitPlaybackDefinition` for trigger and SFX fields.
 
 ### Added
+
+- The Battle Test sets each member's starting HP and MP (a percentage or points) and starting
+  states, and the party's items and quantities. Both persist in the battle test setup and
+  `Data/system.php`; a setup without items keeps the default stock of 99 of every non-equipment
+  item. In the arena, HP, MP and States sit under the level, the crisis threshold is offered from
+  the actor's own ability, and a page step from the party opens its items in the Shop's stages.
 
 - Named NPC placements may select replaceable static, character-sheet or animated resting art.
   The existing saved placement id owns the selection; physical occupancy and Terminal glyphs remain unchanged.

@@ -10,8 +10,10 @@ use Ichiloto\Engine\Battle\BattleCommandType;
 
 /**
  * One member of a battle test party: which actor, at what level, wearing
- * what. Equipment names items by definition id, keyed by slot name; a slot
- * left out or null is empty.
+ * what, and how it starts the fight. Equipment names items by definition
+ * id, keyed by slot name; a slot left out or null is empty. A member starts
+ * with full HP and MP and no states unless its starting HP, MP or states
+ * are set.
  */
 final readonly class BattleTestMember
 {
@@ -20,6 +22,9 @@ final readonly class BattleTestMember
    * @param list<BattleCommandType>|null $commands Null keeps the normal command menu.
    * @param list<string> $skills Additional learned skill or spell names, for this test only.
    * @param list<string> $summons Additional summon ids, available without story unlocks in this test only.
+   * @param BattleTestVital|null $hp The HP the member starts with; null for full.
+   * @param BattleTestVital|null $mp The MP the member starts with; null for full.
+   * @param list<string> $states The states the member starts with, by state id.
    */
   public function __construct(
     public string $actorId,
@@ -28,6 +33,9 @@ final readonly class BattleTestMember
     public ?array $commands = null,
     public array $skills = [],
     public array $summons = [],
+    public ?BattleTestVital $hp = null,
+    public ?BattleTestVital $mp = null,
+    public array $states = [],
   )
   {
     if (trim($actorId) === '') {
@@ -37,7 +45,7 @@ final readonly class BattleTestMember
       throw new InvalidArgumentException('A battle test member\'s level is at least 1.');
     }
     new BattleCommandLoadout($commands);
-    foreach (['skills' => $skills, 'summons' => $summons] as $kind => $references) {
+    foreach (['skills' => $skills, 'summons' => $summons, 'states' => $states] as $kind => $references) {
       if (!array_is_list($references)) {
         throw new InvalidArgumentException("Battle test {$kind} must be a list.");
       }
@@ -55,14 +63,16 @@ final readonly class BattleTestMember
    * A member as project data writes one: `actor` and `level`, and optionally
    * `equipment` (slot name to item definition id, or null for empty),
    * `commands` (command type values; omitted keeps the normal menu),
-   * `skills` and `summons`. Anything else is refused, never ignored.
+   * `skills`, `summons`, `hp` and `mp` (each `['percent' => int]` or
+   * `['points' => int]`; omitted is full) and `states` (state ids).
+   * Anything else is refused, never ignored.
    *
    * @param array<string, mixed> $data
    * @throws InvalidArgumentException When the data is not a member.
    */
   public static function fromArray(array $data): self
   {
-    $unknown = array_diff(array_keys($data), ['actor', 'level', 'equipment', 'commands', 'skills', 'summons']);
+    $unknown = array_diff(array_keys($data), ['actor', 'level', 'equipment', 'commands', 'skills', 'summons', 'hp', 'mp', 'states']);
     if ($unknown !== []) {
       throw new InvalidArgumentException('A battle test member has no ' . implode(', ', $unknown) . '.');
     }
@@ -83,18 +93,28 @@ final readonly class BattleTestMember
       }
       $commands = array_map(BattleCommandType::from(...), $commands);
     }
-    foreach (['skills', 'summons'] as $kind) {
+    foreach (['skills', 'summons', 'states'] as $kind) {
       if (!is_array($data[$kind] ?? [])) {
         throw new InvalidArgumentException("A battle test member's {$kind} are a list.");
       }
     }
+    $vitals = [];
+    foreach (['hp', 'mp'] as $vital) {
+      $value = $data[$vital] ?? null;
+      if ($value !== null && !is_array($value)) {
+        throw new InvalidArgumentException("A battle test member's starting {$vital} is written as percent or points.");
+      }
+      $vitals[$vital] = $value === null ? null : BattleTestVital::fromArray($value);
+    }
 
-    return new self($data['actor'], $data['level'], $equipment, $commands, $data['skills'] ?? [], $data['summons'] ?? []);
+    return new self($data['actor'], $data['level'], $equipment, $commands, $data['skills'] ?? [], $data['summons'] ?? [],
+      $vitals['hp'], $vitals['mp'], $data['states'] ?? []);
   }
 
   /**
    * The member as project data writes it, leaving out what is at its default:
-   * no equipment, the normal command menu, no skills, no summons.
+   * no equipment, the normal command menu, no skills, no summons, full HP and
+   * MP, no states.
    *
    * @return array<string, mixed>
    */
@@ -107,41 +127,74 @@ final readonly class BattleTestMember
       'commands' => $this->commands === null ? null : array_map(static fn(BattleCommandType $command): string => $command->value, $this->commands),
       'skills' => $this->skills,
       'summons' => $this->summons,
+      'hp' => $this->hp?->toArray(),
+      'mp' => $this->mp?->toArray(),
+      'states' => $this->states,
     ], static fn(mixed $value, string $key): bool => in_array($key, ['actor', 'level'], true)
-      || ($key === 'commands' ? $value !== null : $value !== []), ARRAY_FILTER_USE_BOTH);
+      || (in_array($key, ['commands', 'hp', 'mp'], true) ? $value !== null : $value !== []), ARRAY_FILTER_USE_BOTH);
   }
 
-  /** Another actor in this place, at the same level and with nothing equipped, since what one actor wears another may not. */
+  /**
+   * Another actor in this place, at the same level and starting condition,
+   * with nothing equipped and no test loadout, since what one actor wears or
+   * is granted another may not.
+   */
   public function withActor(string $actorId): self
   {
-    return new self($actorId, $this->level, []);
+    return new self($actorId, $this->level, hp: $this->hp, mp: $this->mp, states: $this->states);
   }
 
   public function withLevel(int $level): self
   {
-    return new self($this->actorId, max(1, $level), $this->equipment, $this->commands, $this->skills, $this->summons);
+    return new self($this->actorId, max(1, $level), $this->equipment, $this->commands, $this->skills, $this->summons,
+      $this->hp, $this->mp, $this->states);
   }
 
   public function withEquipment(string $slotName, ?string $itemId): self
   {
-    return new self($this->actorId, $this->level, [...$this->equipment, $slotName => $itemId], $this->commands, $this->skills, $this->summons);
+    return new self($this->actorId, $this->level, [...$this->equipment, $slotName => $itemId], $this->commands, $this->skills,
+      $this->summons, $this->hp, $this->mp, $this->states);
   }
 
   /** @param list<BattleCommandType>|null $commands */
   public function withCommands(?array $commands): self
   {
-    return new self($this->actorId, $this->level, $this->equipment, $commands, $this->skills, $this->summons);
+    return new self($this->actorId, $this->level, $this->equipment, $commands, $this->skills, $this->summons,
+      $this->hp, $this->mp, $this->states);
   }
 
   /** @param list<string> $skills */
   public function withSkills(array $skills): self
   {
-    return new self($this->actorId, $this->level, $this->equipment, $this->commands, $skills, $this->summons);
+    return new self($this->actorId, $this->level, $this->equipment, $this->commands, $skills, $this->summons,
+      $this->hp, $this->mp, $this->states);
   }
 
   /** @param list<string> $summons */
   public function withSummons(array $summons): self
   {
-    return new self($this->actorId, $this->level, $this->equipment, $this->commands, $this->skills, $summons);
+    return new self($this->actorId, $this->level, $this->equipment, $this->commands, $this->skills, $summons,
+      $this->hp, $this->mp, $this->states);
+  }
+
+  /** The member starting with this HP; null, or the whole maximum, for full. */
+  public function withHp(?BattleTestVital $hp): self
+  {
+    return new self($this->actorId, $this->level, $this->equipment, $this->commands, $this->skills, $this->summons,
+      $hp === null || $hp->isFull ? null : $hp, $this->mp, $this->states);
+  }
+
+  /** The member starting with this MP; null, or the whole maximum, for full. */
+  public function withMp(?BattleTestVital $mp): self
+  {
+    return new self($this->actorId, $this->level, $this->equipment, $this->commands, $this->skills, $this->summons,
+      $this->hp, $mp === null || $mp->isFull ? null : $mp, $this->states);
+  }
+
+  /** @param list<string> $states The states the member starts with, by state id. */
+  public function withStates(array $states): self
+  {
+    return new self($this->actorId, $this->level, $this->equipment, $this->commands, $this->skills, $this->summons,
+      $this->hp, $this->mp, $states);
   }
 }

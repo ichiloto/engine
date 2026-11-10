@@ -8,7 +8,9 @@ use Ichiloto\Engine\Battle\Presentation\BattleStageSlot;
 use Ichiloto\Engine\Entities\Enemies\EnemyHabitat;
 use Ichiloto\Engine\Battle\Presentation\TerminalBattleEffects;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\States\StateRegistry;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -43,11 +45,14 @@ use Throwable;
  * a fresh party and a fresh troop, so nothing one battle does (experience,
  * levels, gold, items, states, defeated enemies) carries into the next.
  *
- * Down from the troop list moves into the party; confirm edits a member;
- * left and right change its actor and level (a page step changes the level
- * by ten); confirm on a slot chooses its equipment; cancel steps back out.
- * In a graphical renderer, left and right on the troop list choose the
- * battle presentation's arena the fights take place in.
+ * Down from the troop list, or a page step, moves into the party; confirm
+ * edits a member; left and right change its actor, level and starting HP
+ * and MP (a page step changes them by ten); confirm on its HP, MP, states
+ * or a slot chooses from what it can be; cancel steps back out. A page step
+ * from the party moves to its items, which start as the default stock;
+ * confirm on one chooses how many the party holds, as a shop does. In a
+ * graphical renderer, left and right on the troop list choose the battle
+ * presentation's arena the fights take place in.
  *
  * After the troops, a row composes a test troop: pick enemies, move them
  * on the stage where a graphical renderer draws it, fight it, and keep it
@@ -58,7 +63,8 @@ use Throwable;
  */
 class ArenaScene extends AbstractScene implements CanvasProviderInterface
 {
-  protected const int PANEL_WIDTH = 60;
+  /** Wide enough for a member's whole help line: changing, stepping by ten, choosing and leaving its HP. */
+  protected const int PANEL_WIDTH = 72;
   protected const int LIST_HEIGHT = 18;
   protected const int INFO_HEIGHT = BattleTestSetup::MAX_MEMBERS + 2;
   /** The setup option a caller may start the arena with, a {@see BattleTestSetup}. */
@@ -394,6 +400,9 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       $keeper = $this->getGame()->options[self::KEEPER_OPTION] ?? null;
       $this->troopKeeper = $keeper instanceof BattleTestTroopKeeper ? $keeper : $this->getGame()->consumeLaunchTroopKeeper();
 
+      // The member as edited, in its place in the setup as it stands.
+      $placed = fn(BattleTestMember $member): BattleTestSetup => $this->editor->setup->withMember($this->editor->memberIndex, $member);
+
       return new ArenaSetupEditor(
         $setup,
         count($this->troops),
@@ -401,11 +410,12 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
         $choices->getSlotNames(...),
         $choices->getEquipmentChoices(...),
         $choices->getMaxLevel(...),
-        // The member as edited, in its place in the setup as it stands.
-        fn(BattleTestMember $member, string $field): array => $choices->getLoadoutChoices(
-          $this->editor->setup->withMember($this->editor->memberIndex, $member), $this->editor->memberIndex, $field),
+        fn(BattleTestMember $member, string $field): array => $choices->getLoadoutChoices($placed($member), $this->editor->memberIndex, $field),
         array_map(strval(...), array_keys($this->arenaChoices)),
         $this->createComposer(),
+        fn(BattleTestMember $member, string $field): array => $choices->getConditionChoices($placed($member), $this->editor->memberIndex, $field),
+        fn(BattleTestMember $member, string $field): int => $choices->getVitalMaximum($placed($member), $this->editor->memberIndex, $field),
+        new BattleTestInventoryEditor($choices->getItemChoices(...), $choices->getDefaultStock(...)),
       );
     } catch (Throwable $exception) {
       Debug::error(sprintf('The arena could not set up a party: %s', $exception->getMessage()));
@@ -501,9 +511,11 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     $hints = $list->resolveHints();
     $partyFocused = $focus === ArenaSetupEditor::PARTY;
     $this->listPanel?->setControlHints($partyFocused ? [] : $hints);
-    // Each row follows the cursor's place, ` > `.
-    $this->listPanel?->setContent($this->formatList($list->getTerminalRows($innerWidth - 3), $list->selected, $innerWidth,
-      self::LIST_HEIGHT - 2, $this->editor?->listFocus ?? $focus));
+    // Each row follows the cursor's place, ` > `; the note stays beneath the rows, however far they scroll.
+    $note = $list->getTerminalNote($innerWidth - 2);
+    $note = $note === [] ? [] : ['', ...array_map(static fn(string $line): string => ' ' . $line, $note)];
+    $this->listPanel?->setContent([...$this->formatList($list->getTerminalRows($innerWidth - 3), $list->selected, $innerWidth,
+      max(1, self::LIST_HEIGHT - 2 - count($note)), $this->editor?->listFocus ?? $focus), ...$note]);
     $this->listPanel?->render();
 
     $this->infoPanel?->setControlHints($partyFocused ? $hints : []);
@@ -524,6 +536,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     return match ($editor?->listFocus ?? $focus) {
       ArenaSetupEditor::MEMBER => $this->describeMember(),
       ArenaSetupEditor::CHOOSER => $this->describeChoices(),
+      ArenaSetupEditor::ITEMS => $this->describeItems(),
       ArenaSetupEditor::COMPOSER => $this->describeComposer(),
       default => new BattleTestMenuList('Troop', ...$this->listTroopRows(),
         selected: $focus === ArenaSetupEditor::TROOPS ? ($editor?->troopIndex ?? 0) : null,
@@ -531,7 +544,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
           : [['confirm', ($editor?->onComposeRow ?? false) ? 'Compose' : 'Fight'], ...(($editor?->offersArenas ?? false) ? [['left', 'Arena', 'right']] : []),
             [MenuPager::NEXT_ACTION, 'Party'], ['cancel', 'Quit']],
         namesArena: true, anchor: $editor?->troopIndex,
-        requiredHintActions: [MenuPager::NEXT_ACTION, MenuPager::PREVIOUS_ACTION]),
+        requiredHintActions: [MenuPager::NEXT_ACTION, MenuPager::PREVIOUS_ACTION], requiresEveryHint: $focus === ArenaSetupEditor::PARTY),
     };
   }
 
@@ -559,7 +572,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
 
   private function describePartyHints(string $list): array
   {
-    return [['confirm', 'Edit'], [MenuPager::PREVIOUS_ACTION, $list]];
+    return [['confirm', 'Edit'], [MenuPager::PREVIOUS_ACTION, $list],
+      ...($this->editor?->inventoryEditor === null ? [] : [[MenuPager::NEXT_ACTION, 'Items']])];
   }
 
   /** The test troop composer: its rows, the enemies to add, or what can be done to a member. */
@@ -786,7 +800,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       $levels === [] ? '?' : (min($levels) === max($levels) ? (string) min($levels) : min($levels) . '-' . max($levels))]];
   }
 
-  /** The member being edited: its actor, level, equipment, test loadout and removal. */
+  /** The member being edited: its actor, level, starting condition, equipment, test loadout and removal. */
   protected function describeMember(): BattleTestMenuList
   {
     $editor = $this->editor;
@@ -800,6 +814,10 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       $rows[] = match (true) {
         $field === 'actor' => ['Actor', [sprintf('< %s >', $this->getActorName($member->actorId))]],
         $field === 'level' => [Vocabulary::getTerm('stats.level_short'), [sprintf('< %d >', $member->level)]],
+        $field === 'hp' => [Vocabulary::getTerm('stats.hp', 'HP'), [sprintf('< %s >', $member->hp?->format() ?? 'Full')]],
+        $field === 'mp' => [Vocabulary::getTerm('stats.mp', 'MP'), [sprintf('< %s >', $member->mp?->format() ?? 'Full')]],
+        $field === 'states' => ['States', [$member->states === [] ? '(None)'
+          : implode(', ', array_map(static fn(string $id): string => StateRegistry::get($id)?->name ?? $id, $member->states))]],
         $field === 'remove' => ['Remove from the party', ['']],
         $field === 'commands' => ['Commands', [$member->commands === null ? '(Normal)' : implode(', ', array_column($member->commands, 'value'))]],
         $field === 'skills' || $field === 'magic' => [ucfirst($field), ['Choose extra learned actions']],
@@ -808,24 +826,114 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
           [($id = $member->equipment[substr($field, 5)] ?? null) === null ? '(None)' : $items->displayNameFor($id)]],
       };
     }
+    // Each row says what its controls do there: left and right change the actor, level, HP and MP; a page step moves
+    // HP or MP by ten on their rows and the level by ten elsewhere; confirm chooses on every row but the actor and level.
+    $field = $editor->field;
+    $stepped = match ($field) {
+      'hp' => Vocabulary::getTerm('stats.hp', 'HP'),
+      'mp' => Vocabulary::getTerm('stats.mp', 'MP'),
+      default => Vocabulary::getTerm('stats.level_short'),
+    };
+    $changes = in_array($field, ['actor', 'level', ...ArenaSetupEditor::VITAL_FIELDS], true);
 
     return new BattleTestMenuList($this->getActorName($member->actorId), $rows, $editor->fieldIndex,
-      [['left', 'Change', 'right'], ['confirm', 'Choose'], ['cancel', 'Done']],
-      [MenuRowColumn::fit(array_column(array_column($rows, 1), 0), HorizontalAlignment::LEFT)]);
+      [...($changes ? [['left', 'Change', 'right']] : []), [MenuPager::PREVIOUS_ACTION, $stepped . ' by 10', MenuPager::NEXT_ACTION],
+        ...(in_array($field, ['actor', 'level'], true) ? [] : [['confirm', $field === 'remove' ? 'Remove' : 'Choose']]),
+        ['cancel', 'Done']],
+      [MenuRowColumn::fit(array_column(array_column($rows, 1), 0), HorizontalAlignment::LEFT)],
+      note: $this->describeCrisisReadiness($editor->memberIndex), requiresEveryHint: true);
   }
 
-  /** What the selected slot can hold, or the test grants a loadout field can be given. */
+  /**
+   * Whether the member's crisis ability is ready as the fight starts, by the
+   * ability's own rule on the party the setup builds: the technique it
+   * offers, or what activates it. None for a member without one.
+   */
+  protected function describeCrisisReadiness(int $memberIndex): ?string
+  {
+    $character = $this->previewParty?->members?->toArray()[$memberIndex] ?? null;
+    $ability = $character instanceof Character ? $character->crisisAbility : null;
+    if ($ability === null) {
+      return null;
+    }
+    if ($ability->isActive($character)) {
+      try {
+        // A battle test has no game in progress, so a form chosen by the story does not apply.
+        $skill = $ability->getAvailableSkill($character, null, $this->previewParty);
+      } catch (Throwable $error) {
+        return sprintf('%s cannot be used: %s', $ability->name, $error->getMessage());
+      }
+
+      return $skill === null ? sprintf('%s is active, but none of its forms applies in a battle test.', $ability->name)
+        : sprintf('%s ready: %s', $ability->name, $skill->name);
+    }
+    $threshold = $ability->hpBelowPercent;
+    $conditions = [
+      ...($threshold === null ? [] : [sprintf('%s below %s%%', Vocabulary::getTerm('stats.hp', 'HP'),
+        floor($threshold) === $threshold ? (string) (int) $threshold : (string) $threshold)]),
+      ...array_map(static fn(string $id): string => StateRegistry::get($id)?->name ?? $id, $ability->states),
+    ];
+
+    return sprintf('%s needs %s.', $ability->name, implode(' or ', $conditions));
+  }
+
+  /** What the field being chosen for can be: equipment, a starting amount, starting states, or test grants. */
   protected function describeChoices(): BattleTestMenuList
   {
     $editor = $this->editor;
-    $field = $editor?->fields[$editor->fieldIndex] ?? '';
+    $field = $editor?->field ?? '';
     $equipment = str_starts_with($field, 'slot:');
+    $several = $editor?->choosesSeveral ?? false;
     $choices = $editor?->getChoices() ?? [];
-    $rows = array_map(static fn($choice): array => [$equipment ? $choice['name']
+    $rows = array_map(static fn($choice): array => [! $several ? $choice['name']
       : (($editor?->isChoiceSelected($choice['id']) ? '[x] ' : '[ ] ') . $choice['name']), []], $choices);
-    return new BattleTestMenuList(sprintf('%s for %s', $equipment ? substr($field, 5) : ucfirst($field), $this->getActorName($editor?->member?->actorId ?? '')),
-      $rows, $editor?->choiceIndex, $equipment ? [['confirm', 'Equip'], ['cancel', 'Back']] : [['confirm', 'Toggle'], ['cancel', 'Done']],
-      note: $equipment ? null : 'Test grants only.');
+    $title = match (true) {
+      $equipment => substr($field, 5),
+      $field === 'hp' => Vocabulary::getTerm('stats.hp', 'HP'),
+      $field === 'mp' => Vocabulary::getTerm('stats.mp', 'MP'),
+      default => ucfirst($field),
+    };
+
+    return new BattleTestMenuList(sprintf('%s for %s', $title, $this->getActorName($editor?->member?->actorId ?? '')),
+      $rows, $editor?->choiceIndex, $several ? [['confirm', 'Toggle'], ['cancel', 'Done']] : [['confirm', $equipment ? 'Equip' : 'Set'], ['cancel', 'Back']],
+      note: in_array($field, ['commands', 'skills', 'magic', 'summons'], true) ? 'Test grants only.' : null, requiresEveryHint: true);
+  }
+
+  /** The party's items: what it holds, the items it could add, or how many of one it holds. */
+  protected function describeItems(): BattleTestMenuList
+  {
+    $items = $this->editor?->inventoryEditor;
+    if ($items === null) {
+      return new BattleTestMenuList('Items', [], null);
+    }
+    if ($items->focus === BattleTestInventoryEditor::CATALOGUE) {
+      return new BattleTestMenuList('Add an item', array_map(static fn(array $choice): array => [$choice['name'], []], $items->addable),
+        $items->catalogueIndex, [['confirm', 'Choose'], ['cancel', 'Back']], requiresEveryHint: true);
+    }
+    if ($items->focus === BattleTestInventoryEditor::QUANTITY) {
+      $quantity = $items->quantity?->quantity ?? 0;
+
+      return new BattleTestMenuList($items->getItemName($items->itemId ?? ''),
+        [[$quantity === 0 ? 'Remove from the items' : 'Quantity', ['x' . $quantity]]], 0,
+        [['up', 'Quantity', 'down'], ['left', 'By 10', 'right'],
+          ['confirm', $items->adding ? 'Add' : ($quantity === 0 ? 'Remove' : 'Set')], ['cancel', 'Back']],
+        [MenuRowColumn::fit(['x' . $quantity])], requiresEveryHint: true);
+    }
+    $entries = $items->entries;
+    $rows = array_map(static fn(string $row): array => match (true) {
+      str_starts_with($row, 'item:') => [$items->getItemName($entries[(int) substr($row, 5)]->itemId),
+        ['x' . $entries[(int) substr($row, 5)]->quantity]],
+      $row === 'add' => ['+ Add an item', ['']],
+      default => ['Use the default stock', ['']],
+    }, $items->rows);
+    $row = $items->rows[$items->rowIndex] ?? '';
+
+    return new BattleTestMenuList($items->items === null ? 'Items (default stock)' : 'Items',
+      $rows === [] ? [['The party holds no items.', []]] : $rows, $rows === [] ? null : $items->rowIndex,
+      [...($rows === [] ? [] : [['confirm', match (true) { str_starts_with($row, 'item:') => 'Quantity', $row === 'add' => 'Add', default => 'Use' }]]),
+        [MenuPager::PREVIOUS_ACTION, 'Party'], ['cancel', 'Back']],
+      $rows === [] ? [] : [MenuRowColumn::fit(array_column(array_column($rows, 1), 0))],
+      requiredHintActions: [MenuPager::PREVIOUS_ACTION], requiresEveryHint: true);
   }
 
   protected function getActorName(string $actorId): string

@@ -11,10 +11,11 @@ use InvalidArgumentException;
  * The battle test a project keeps in its system data, as RPG Maker keeps its
  * Battle Test troop and party: an optional `battleTest` entry in
  * Data/system.php naming the troop to preselect, the party
- * ({@see BattleTestSetup}) and its arena. These are test settings: normal
- * play never reads them and saves never hold them. With no party the test
- * uses the starting party; a party that is present but malformed is refused,
- * never replaced by another.
+ * ({@see BattleTestSetup}), its arena and its items. These are test
+ * settings: normal play never reads them and saves never hold them. With no
+ * party the test uses the starting party, with the arena and items kept
+ * here; a party that is present but malformed is refused, never replaced by
+ * another.
  */
 final readonly class ProjectBattleTest
 {
@@ -25,31 +26,36 @@ final readonly class ProjectBattleTest
    * @param string|null $troop The troop the arena preselects, by name; null for none.
    * @param BattleTestSetup|null $setup The party and arena; null for the starting party.
    * @param string|null $arena The arena when no party is set (a setup carries its own).
+   * @param list<BattleTestItem>|null $inventory The items when no party is set (a setup carries its own); null for the default stock.
    */
   public function __construct(
     public ?string $troop = null,
     public ?BattleTestSetup $setup = null,
     public ?string $arena = null,
+    public ?array $inventory = null,
   ) {
     if ($troop !== null && trim($troop) === '') {
       throw new InvalidArgumentException('A battle test troop is named, or left out.');
     }
-    if ($setup !== null && $arena !== null) {
-      throw new InvalidArgumentException('A battle test party carries its own arena.');
+    if ($setup !== null && ($arena !== null || $inventory !== null)) {
+      throw new InvalidArgumentException('A battle test party carries its own arena and items.');
+    }
+    if ($inventory !== null) {
+      BattleTestItem::requireUnique($inventory);
     }
   }
 
   /**
    * The entry as Data/system.php writes it: optional `troop`, `members` (as
-   * {@see BattleTestSetup::fromArray()}) and `arena`. Anything else is
-   * refused, never ignored.
+   * {@see BattleTestSetup::fromArray()}), `arena` and `inventory`. Anything
+   * else is refused, never ignored.
    *
    * @param array<string, mixed> $data
    * @throws InvalidArgumentException When the entry is malformed.
    */
   public static function fromArray(array $data): self
   {
-    $unknown = array_diff(array_keys($data), ['troop', 'members', 'arena', 'battleSize']);
+    $unknown = array_diff(array_keys($data), ['troop', ...BattleTestSetup::KEYS]);
     if ($unknown !== []) {
       throw new InvalidArgumentException('A project battle test has no ' . implode(', ', $unknown) . '.');
     }
@@ -58,7 +64,8 @@ final readonly class ProjectBattleTest
       throw new InvalidArgumentException('A project battle test\'s troop is a troop name.');
     }
     if (array_key_exists('members', $data)) {
-      return new self($troop, BattleTestSetup::fromArray(array_intersect_key($data, ['members' => true, 'arena' => true, 'battleSize' => true])));
+      // Every key a setup writes is the setup's, validated and forwarded together.
+      return new self($troop, BattleTestSetup::fromArray(array_intersect_key($data, array_flip(BattleTestSetup::KEYS))));
     }
     if (array_key_exists('battleSize', $data)) { throw new InvalidArgumentException('A battle test capacity requires an explicit member list.'); }
     $arena = $data['arena'] ?? null;
@@ -66,7 +73,8 @@ final readonly class ProjectBattleTest
       throw new InvalidArgumentException('A project battle test\'s arena is an arena key.');
     }
 
-    return new self($troop, null, $arena);
+    return new self($troop, null, $arena,
+      array_key_exists('inventory', $data) ? BattleTestItem::listFromArray($data['inventory']) : null);
   }
 
   /**
@@ -97,12 +105,13 @@ final readonly class ProjectBattleTest
       ...($this->troop === null ? [] : ['troop' => $this->troop]),
       ...($this->setup?->toArray() ?? []),
       ...($this->arena === null ? [] : ['arena' => $this->arena]),
+      ...($this->inventory === null ? [] : ['inventory' => array_map(static fn(BattleTestItem $item): array => $item->toArray(), $this->inventory)]),
     ];
   }
 
   /**
    * The setup a battle test starts from: the project's party when it keeps
-   * one, else the starting party; with the project's arena either way. An
+   * one, else the starting party with the project's arena and items. An
    * editor passes the starting party as it stands, unsaved edits included;
    * otherwise it is read from Data/system.php.
    *
@@ -114,6 +123,7 @@ final readonly class ProjectBattleTest
     if ($this->setup !== null) { return $battleSize === null ? $this->setup : $this->setup->withBattleSize($battleSize); }
     return ($startingParty === null
       ? BattleTestSetup::getFromStartingParty($actors)
-      : BattleTestSetup::getFromPartyReferences($actors, $startingParty, $battleSize ?? \Ichiloto\Engine\Entities\Party::BATTLE_SIZE))->withArena($this->arena);
+      : BattleTestSetup::getFromPartyReferences($actors, $startingParty, $battleSize ?? \Ichiloto\Engine\Entities\Party::BATTLE_SIZE))
+      ->withArena($this->arena)->withInventory($this->inventory);
   }
 }
