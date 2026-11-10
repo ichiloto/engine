@@ -865,6 +865,13 @@ final class HireCarriage implements ScriptCommandHandlerInterface
 
 The game reads the declarations at startup and refuses to start when one is
 malformed or names a handler that does not exist or implement the contract.
+An operation that selects follow-up commands from its result can implement
+`EventPendingContinuationInterface`. After the operation finishes, the
+interpreter runs those commands in the same lane before the caller's next
+command. For example, a completed activity can return a Common Event and a
+cancelled sitting can return an empty list. An abandoned lane cancels the
+operation without reading a continuation.
+
 Before a handler runs, the interpreter checks the command against its fields
 and fails the script closed with every problem and the command path; script
 validation applies the same checks. Authored cinematic skips reject

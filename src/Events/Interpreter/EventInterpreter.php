@@ -1194,13 +1194,18 @@ class EventInterpreter
       return true;
     }
 
-    if ($lane->pendingOperation instanceof EventPendingOperationInterface) {
-      if (! $lane->pendingOperation->update($deltaSeconds)) {
+    $operation = $lane->pendingOperation;
+    if ($operation !== null) {
+      if (! $operation->update($deltaSeconds)) {
         return false;
       }
 
+      $commands = $operation instanceof EventPendingContinuationInterface
+        ? $this->commandList($session, $operation->getContinuationCommands(), "$type/continuation")
+        : [];
       if ($type === 'play_skit') { $session->releasePresentation($lane); }
       $lane->completePendingCommand();
+      $lane->pushFrame($commands, "$type:continuation");
       return true;
     }
 

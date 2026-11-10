@@ -17,7 +17,7 @@ use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandOutcome;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionStatus;
 use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
-use Ichiloto\Engine\Events\Interpreter\EventPendingOperationInterface;
+use Ichiloto\Engine\Events\Interpreter\EventPendingContinuationInterface;
 use Ichiloto\Engine\Events\Interpreter\EventPresentationInterface;
 use Ichiloto\Engine\Events\ModalEvent;
 use Ichiloto\Engine\IO\Console\Console;
@@ -625,7 +625,7 @@ final class ExcursionEventCommand implements ScriptCommandHandlerInterface
   }
 }
 
-final class ExcursionEventOperation implements EventPendingOperationInterface
+final class ExcursionEventOperation implements EventPendingContinuationInterface
 {
   public int $cancels = 0;
   public ?SceneExcursionOutcome $received = null;
@@ -638,6 +638,12 @@ final class ExcursionEventOperation implements EventPendingOperationInterface
       throw new RuntimeException('The synthetic excursion did not return.');
     }
     return true;
+  }
+  public function getContinuationCommands(): array
+  {
+    return $this->received?->status === SceneExcursionStatus::COMPLETED
+      ? [['type' => 'set_variable', 'name' => 'continued', 'value' => 10]]
+      : [];
   }
   public function cancel(): void { $this->cancels++; $this->manager->abandonSceneExcursion($this->session); }
 }
@@ -676,7 +682,7 @@ it('retains the real waiting event and resumes its Game pending operation exactl
   $caller = new ExcursionEventCaller($this->manager);
   $this->manager->addScenes($caller)->loadScene(ExcursionEventCaller::class);
   $event = $caller->startEventScript([
-    ['type' => 'synthetic_excursion'], ['type' => 'set_variable', 'name' => 'continued', 'value' => 1],
+    ['type' => 'synthetic_excursion'], ['type' => 'set_variable', 'name' => 'continued', 'op' => 'add', 'value' => 1],
   ], 'synthetic-wait');
   expect($event->status)->toBe(EventExecutionStatus::YIELDED)->and($caller->finishedEvents)->toBe([])
     ->and($this->manager->currentScene)->toBe($this->target)->and($caller->isStarted())->toBeTrue();
@@ -688,7 +694,7 @@ it('retains the real waiting event and resumes its Game pending operation exactl
   $this->manager->update();
   $this->manager->update();
   expect($caller->operation->received)->toBe($outcome)->and($event->status)->toBe(EventExecutionStatus::COMPLETED)
-    ->and($caller->gameState->getVariable('continued'))->toBe(1)
+    ->and($caller->gameState->getVariable('continued'))->toBe($cancelled ? 1 : 11)
     ->and($caller->finishedEvents)->toBe([[$event, true]])->and($caller->operation->cancels)->toBe(0);
 })->with([false, true]);
 
