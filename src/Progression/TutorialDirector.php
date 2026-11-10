@@ -83,7 +83,8 @@ final class TutorialDirector
   {
     if ($context === TutorialStartContext::BATTLE_COMMAND) {
       foreach ($this->catalog->definitions as $tutorial) {
-        if ($tutorial->startContext === $context && $this->state->getTutorialPhase($tutorial->id) === null
+        if ($tutorial->startContext === $context && $tutorial->start === TutorialStartMode::AUTOMATIC
+          && $this->state->getTutorialPhase($tutorial->id) === null
           && WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests)) {
           $this->state->setTutorialPhase($tutorial->id, TutorialPhase::PENDING);
         }
@@ -200,7 +201,7 @@ final class TutorialDirector
     return array_find($this->catalog->definitions, fn(TutorialDefinition $tutorial): bool =>
       $tutorial->start === TutorialStartMode::SCRIPT
       && $this->state->getTutorialPhase($tutorial->id) === TutorialPhase::PENDING
-      && !$this->hasBoundControls($tutorial)
+      && ($tutorial->startContext === TutorialStartContext::BATTLE_COMMAND || !$this->hasBoundControls($tutorial))
       && WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests));
   }
 

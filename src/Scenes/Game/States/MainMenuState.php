@@ -75,11 +75,14 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
     public const string TUTORIAL_SCREEN = 'main-menu';
     public const string TUTORIAL_COMMANDS = 'commands';
     public const string TUTORIAL_PARTY = 'party';
+    public const string TUTORIAL_ORDER = 'order';
     public const string TUTORIAL_COMMAND_OPENED = 'menu.command-opened';
     public const string TUTORIAL_MEMBER_CONFIRMED = 'menu.member-confirmed';
+    public const string TUTORIAL_ORDER_COMMITTED = 'party.order-committed';
     public const array TUTORIAL_COMMAND_TARGETS = [
         OpenSummonsMenuCommand::class => 'summons',
         OpenMasteryMenuCommand::class => 'mastery',
+        OpenPartyOrderCommand::class => 'order',
     ];
 
     public static function getTutorialCommandId(object $command): ?string
@@ -513,11 +516,12 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         }
     }
 
-    private function getTutorialView(): ?string
+    public function getTutorialView(): ?string
     {
         return match (true) {
             $this->mode instanceof MainMenuCommandSelectionMode => self::TUTORIAL_COMMANDS,
             $this->mode instanceof MainMenuCharacterSelectionMode => self::TUTORIAL_PARTY,
+            $this->mode instanceof MainMenuPartyOrderMode => self::TUTORIAL_ORDER,
             default => null,
         };
     }
@@ -525,7 +529,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
     private function focusTutorialTarget(TutorialStep $step): bool
     {
         $id = $step->target['id'];
-        if ($step->target['view'] === self::TUTORIAL_PARTY) {
+        if ($step->target['view'] !== self::TUTORIAL_COMMANDS) {
             return $this->characterSelectionMenu?->focusTutorialMember($id) ?? false;
         }
         $menu = $this->mainMenu;
@@ -544,7 +548,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         $view = $this->getTutorialView();
         $step = $view === null ? null : $this->getGameScene()->getTutorialPresentationStep(self::TUTORIAL_SCREEN, $view);
         $command = $view === self::TUTORIAL_COMMANDS ? $step : null;
-        $member = $view === self::TUTORIAL_PARTY ? $step : null;
+        $member = $view === self::TUTORIAL_PARTY || $view === self::TUTORIAL_ORDER ? $step : null;
         $this->mainMenu?->showTutorialCommand($command?->target['id']);
         $memberVisible = $this->characterSelectionMenu?->showTutorialMember($member?->target['id']);
         $visibleStep = $memberVisible ? $member : $command;

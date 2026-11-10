@@ -13,7 +13,7 @@ final class StartTutorialCommand implements ScriptCommandHandlerInterface
   {
     $id = $command['tutorial'] ?? null;
     if ($context->battle !== null || !is_string($id) || $context->scene->tutorialDirector === null) {
-      throw new InvalidArgumentException('start_tutorial requires a declared field tutorial.');
+      throw new InvalidArgumentException('start_tutorial queues a declared lesson from a field script.');
     }
 
     $context->scene->tutorialDirector->queueScriptTutorial($id);

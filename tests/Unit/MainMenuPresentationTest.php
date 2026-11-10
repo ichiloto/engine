@@ -748,6 +748,40 @@ it('keeps owner source mark destination focus and command selection independent 
     ->and($menu->getActiveItem()->getLabel())->toBe('Order');
 })->with([false, true]);
 
+it('completes an Order lesson only on a committed frontline swap through the ordinary menu', function () {
+  $actor = $this->party->participants[0];
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.order', 'title' => 'Order', 'category' => 'Field', 'start' => 'script', 'replay' => 'none',
+    'steps' => [[
+      'target' => ['screen' => 'main-menu', 'view' => 'commands', 'id' => 'order'],
+      'action' => 'confirm', 'until' => ['outcome' => 'menu.command-opened', 'subject' => 'order'],
+    ], [
+      'target' => ['screen' => 'main-menu', 'view' => 'order', 'id' => 'member-' . $actor->actorId],
+      'action' => 'confirm', 'say' => 'Move a frontline member.',
+      'until' => ['outcome' => 'party.order-committed', 'subject' => $actor->actorId],
+    ]],
+  ]]), $this->scene->gameState);
+  new ReflectionProperty(GameScene::class, 'tutorialDirector')->setValue($this->scene, $director);
+  $director->queueScriptTutorial('guide.order');
+  $director->updateInStableField(false);
+  $this->state->mainMenu->setActiveItemByLabel('Order');
+  mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  expect($this->state->getTutorialView())->toBe('order')
+    ->and($director->getStepForView('main-menu', 'order'))->not->toBeNull();
+  $canvas = $this->state->canvas(new MenuPresentationCatalog($this->root, mainMenuPresentationTheme(false)));
+  expect(implode(' ', mainMenuPresentationText($canvas)))->toContain('Move a frontline member.');
+
+  $this->state->characterSelectionMenu->focusPanelByIndex(0);
+  mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  mainMenuPresentationKey(KeyCode::C, $this->state);
+  expect($director->getActiveTutorial())->not->toBeNull()->and($this->party->participants[0])->toBe($actor);
+  mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  $this->state->characterSelectionMenu->focusPanelByIndex(3);
+  mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  expect($director->getActiveTutorial())->toBeNull()->and($this->party->participants[3])->toBe($actor)
+    ->and($this->scene->gameState->getTutorialPhase('guide.order'))->toBe(\Ichiloto\Engine\Progression\TutorialPhase::COMPLETED);
+});
+
 it('preserves character selection and routes the real selected actor through the existing command', function () {
   $target = new class(new SceneStateContext($this->scene)) extends EquipmentMenuState {
     public function enter(): void {}

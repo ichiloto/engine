@@ -258,7 +258,7 @@ final class EngineScriptCommands
       'type' => 'start_tutorial',
       'class' => StartTutorialCommand::class,
       'label' => 'Start Guided Tutorial',
-      'description' => 'Queues a lesson for the next stable field frame and continues the script.',
+      'description' => 'Queues a lesson for its field or battle command context and continues the script.',
       'fields' => [
         ['key' => 'tutorial', 'label' => 'Tutorial', 'kind' => 'reference', 'reference' => 'tutorial', 'required' => true],
       ],

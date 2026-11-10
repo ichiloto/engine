@@ -262,3 +262,29 @@ it('starts contextual lessons only at their own live entry and preserves interru
   $director->enterContext(TutorialStartContext::BATTLE_COMMAND, true);
   expect($director->getActiveTutorial())->toBeNull();
 });
+
+it('queues a voluntary Guard lesson from the field and keeps it pending until its command is usable', function () {
+  $state = new GameState();
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.guard', 'title' => 'Guard', 'category' => 'Combat',
+    'start' => 'script', 'startContext' => 'battle-command', 'replay' => 'read',
+    'steps' => [[
+      'target' => ['screen' => 'battle', 'view' => 'command', 'id' => 'guard'],
+      'action' => 'confirm', 'say' => 'Choose Guard.', 'until' => ['outcome' => 'guard.executed'],
+    ]],
+  ]]), $state);
+  $director->enterContext(TutorialStartContext::BATTLE_COMMAND, true);
+  expect($state->getTutorialPhase('guide.guard'))->toBeNull();
+  $director->queueScriptTutorial('guide.guard');
+  $director->updateInStableField(false);
+  expect($director->getActiveTutorial())->toBeNull()->and($director->getSkippableTutorial()?->id)->toBe('guide.guard');
+  $director->enterContext(TutorialStartContext::BATTLE_COMMAND, false, canPresent: static fn() => false);
+  expect($director->getActiveTutorial())->toBeNull();
+  $director->enterContext(TutorialStartContext::BATTLE_COMMAND, false, canPresent: static fn() => true);
+  $director->reportOutcome('battle', 'command', 'summon.executed');
+  expect($director->getActiveTutorial()?->id)->toBe('guide.guard');
+  $director->reportOutcome('battle', 'command', 'guard.executed');
+  $director->queueScriptTutorial('guide.guard');
+  expect($director->getActiveTutorial())->toBeNull()
+    ->and($state->getTutorialPhase('guide.guard'))->toBe(TutorialPhase::COMPLETED);
+});

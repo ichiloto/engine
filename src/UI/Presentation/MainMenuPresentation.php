@@ -33,9 +33,9 @@ final class MainMenuPresentation
     if ((!$commandsFocused && !$mode instanceof MainMenuCharacterSelectionMode && !$mode instanceof MainMenuPartyOrderMode)
       || $state->mainMenu === null || $state->characterSelectionMenu === null) { return null; }
 
-    $tutorial = $mode instanceof MainMenuPartyOrderMode ? null : $state->getGameScene()->getTutorialPresentationStep(
-      MainMenuState::TUTORIAL_SCREEN, $commandsFocused ? MainMenuState::TUTORIAL_COMMANDS : MainMenuState::TUTORIAL_PARTY,
-    );
+    $tutorialView = $state->getTutorialView();
+    $tutorial = $tutorialView === null ? null : $state->getGameScene()->getTutorialPresentationStep(
+      MainMenuState::TUTORIAL_SCREEN, $tutorialView);
     $view = new MenuCanvas($theme, time: $time);
     $m = $theme->metrics;
     $p = $m->panelPadding;

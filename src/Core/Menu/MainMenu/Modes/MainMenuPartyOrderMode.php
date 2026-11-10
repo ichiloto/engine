@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Menu\MainMenu\CharacterSelectionMenu;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
 
 /**
  * Handles party reordering inside the main menu.
@@ -156,7 +157,8 @@ class MainMenuPartyOrderMode extends MainMenuMode
       return;
     }
 
-    $party = $this->mainMenuState->getGameScene()->party;
+    $scene = $this->mainMenuState->getGameScene();
+    $party = $scene->party;
     $members = $party->participants->toArray();
     $sourceMember = $members[$this->sourceIndex] ?? null;
     $destinationMember = $members[$activeIndex] ?? null;
@@ -166,6 +168,10 @@ class MainMenuPartyOrderMode extends MainMenuMode
     }
 
     $party->swapMembers($this->sourceIndex, $activeIndex);
+    if (min($this->sourceIndex, $activeIndex) < $party->battleSize) {
+      $scene->reportTutorialOutcome(MainMenuState::TUTORIAL_SCREEN, MainMenuState::TUTORIAL_ORDER,
+        MainMenuState::TUTORIAL_ORDER_COMMITTED, $sourceMember->actorId);
+    }
     $this->sourceIndex = null;
     $this->getCharacterSelectionMenu()->clearMarkedPanel();
     $this->getCharacterSelectionMenu()->refreshMembers();

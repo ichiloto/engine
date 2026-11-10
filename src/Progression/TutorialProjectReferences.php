@@ -81,7 +81,8 @@ final class TutorialProjectReferences
           throw new InvalidArgumentException($where . ' must use a view owned by its start context.');
         }
         if ($tutorial->startContext === TutorialStartContext::BATTLE_COMMAND
-          && (count($tutorial->steps) !== 1 || ($step->until['outcome'] ?? null) !== BattleInput::TUTORIAL_SUMMON_EXECUTED)) {
+          && (count($tutorial->steps) !== 1 || !isset(BattleInput::TUTORIAL_COMMAND_OUTCOMES[$id])
+            || ($step->until['outcome'] ?? null) !== BattleInput::TUTORIAL_COMMAND_OUTCOMES[$id])) {
           throw new InvalidArgumentException($where . ' must complete at the committed battle action.');
         }
         $declaration = $views[$screen][$view] ?? null;

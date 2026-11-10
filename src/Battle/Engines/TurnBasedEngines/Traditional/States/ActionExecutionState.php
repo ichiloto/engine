@@ -14,6 +14,7 @@ use Ichiloto\Engine\Animations\AnimationLibrary;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\ExecutionEligibility;
+use Ichiloto\Engine\Battle\Actions\GuardAction;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
@@ -234,6 +235,11 @@ class ActionExecutionState extends TurnState
             PlayerActionState::TUTORIAL_SCREEN, PlayerActionState::TUTORIAL_COMMAND_VIEW,
             PlayerActionState::TUTORIAL_SUMMON_EXECUTED,
           );
+        }
+        if ($isPartyActor && $turn->action instanceof GuardAction
+          && $turn->battler instanceof Character && $turn->battler->isGuarding) {
+          $context->getTutorialDirector()?->reportOutcome(PlayerActionState::TUTORIAL_SCREEN,
+            PlayerActionState::TUTORIAL_COMMAND_VIEW, PlayerActionState::TUTORIAL_GUARD_EXECUTED);
         }
       }
     );

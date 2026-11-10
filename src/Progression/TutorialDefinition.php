@@ -45,8 +45,9 @@ final readonly class TutorialDefinition
 
     $rawContext = $data['startContext'] ?? TutorialStartContext::FIELD->value;
     $startContext = is_string($rawContext) ? TutorialStartContext::tryFrom($rawContext) : null;
-    if ($startContext === null || ($start === TutorialStartMode::SCRIPT && $startContext !== TutorialStartContext::FIELD)) {
-      throw new InvalidArgumentException($source . ' requires a valid automatic start context or the default field context.');
+    if ($startContext === null || ($start === TutorialStartMode::SCRIPT
+      && !in_array($startContext, [TutorialStartContext::FIELD, TutorialStartContext::BATTLE_COMMAND], true))) {
+      throw new InvalidArgumentException($source . ' requires a valid start context. Scripts can queue field and battle-command lessons.');
     }
     if ($startContext === TutorialStartContext::BATTLE_COMMAND && $replay === TutorialReplayMode::PRACTICE) {
       throw new InvalidArgumentException($source . ' requires Read, Watch or no replay for a battle lesson.');

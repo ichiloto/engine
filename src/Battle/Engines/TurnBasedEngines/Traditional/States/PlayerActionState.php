@@ -41,6 +41,11 @@ class PlayerActionState extends TurnState
   public const string TUTORIAL_SCREEN = 'battle';
   public const string TUTORIAL_COMMAND_VIEW = 'command';
   public const string TUTORIAL_SUMMON_EXECUTED = 'summon.executed';
+  public const string TUTORIAL_GUARD_EXECUTED = 'guard.executed';
+  public const array TUTORIAL_COMMAND_OUTCOMES = [
+    BattleCommandType::SUMMON->value => self::TUTORIAL_SUMMON_EXECUTED,
+    BattleCommandType::GUARD->value => self::TUTORIAL_GUARD_EXECUTED,
+  ];
 
   protected const string MODE_COMMAND = 'command';
   protected const string MODE_SUBMENU = 'submenu';
@@ -335,30 +340,33 @@ class PlayerActionState extends TurnState
   {
     $director = $context->getTutorialDirector();
     $actor = $this->activeCharacter;
+    $window = $context->ui->commandWindow;
     if ($actor === null || !$actor->isFighting || $actor->getActionBlockingState() !== null
-      || !$director?->canOfferContext(TutorialStartContext::BATTLE_COMMAND)
-      || !array_any($context->ui->commandWindow->commands, static fn(BattleCommand $command): bool =>
-        $command->type === BattleCommandType::SUMMON)) {
+      || !$director?->canOfferContext(TutorialStartContext::BATTLE_COMMAND)) {
       return;
     }
-
-    $options = BattleCommandCatalog::buildOptions(
-      $actor, $context->party, BattleCommandType::SUMMON, gameState: $context->getGameState(),
-    );
-    if (!array_any($options, fn(BattleCommandOption $option): bool =>
-      $option->mpCost <= $actor->stats->currentMp && $this->getEligibleOptionTargets($context, $option) !== [])) {
-      return;
-    }
+    $canPresent = function (\Ichiloto\Engine\Progression\TutorialStep $step) use ($window, $actor, $context): bool {
+      $command = BattleCommandType::tryFrom($step->target['id']);
+      if ($command === null || !array_any($window->commands,
+        static fn(BattleCommand $entry): bool => $entry->type === $command)) {
+        return false;
+      }
+      if ($command !== BattleCommandType::SUMMON) { return true; }
+      $options = BattleCommandCatalog::buildOptions($actor, $context->party, $command, gameState: $context->getGameState());
+      return array_any($options, fn(BattleCommandOption $option): bool =>
+        $option->mpCost <= $actor->stats->currentMp && $this->getEligibleOptionTargets($context, $option) !== []);
+    };
 
     $director->enterContext(
       TutorialStartContext::BATTLE_COMMAND,
       (bool) config(ProjectConfig::class, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true),
       $context->party,
       $context->getQuestLog(),
+      $canPresent,
     );
     $step = $director->getStepForView(self::TUTORIAL_SCREEN, self::TUTORIAL_COMMAND_VIEW);
-    if ($step?->target['id'] === BattleCommandType::SUMMON->value) {
-      $context->ui->commandWindow->setTutorialTarget(BattleCommandType::SUMMON);
+    if ($step !== null && $canPresent($step)) {
+      $window->setTutorialTarget(BattleCommandType::tryFrom($step->target['id']));
     }
   }
 
