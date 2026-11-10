@@ -66,12 +66,22 @@ beforeEach(function () {
   file_put_contents($this->root . '/assets/Data/crisis-abilities.php', '<?php return ' . var_export([
     ['id' => 'surge.hero', 'name' => 'Surge', 'hpBelowPercent' => 10.0, 'states' => ['presence'],
       'variants' => [['skill' => 'Test finisher']]],
+    // A synthetic shape-shifter whose technique depends on story facts, and on a quest no test fight can set.
+    ['id' => 'surge.shifter', 'name' => 'Surge', 'hpBelowPercent' => 10.0, 'states' => ['presence'], 'variants' => [
+      ['skill' => 'Plain Cut', 'conditions' => [['type' => 'variable', 'name' => 'shifter_form', 'op' => '==', 'value' => 0]]],
+      ['skill' => 'Beast Rend', 'conditions' => [['type' => 'variable', 'name' => 'shifter_form', 'op' => '==', 'value' => 'beast']]],
+      ['skill' => 'Twin Howl', 'conditions' => [['type' => 'variable', 'name' => 'shifter_form', 'op' => '==', 'value' => 'twin'],
+        ['type' => 'switch', 'name' => 'moon_up', 'value' => true]]],
+      ['skill' => 'Relic Strike', 'conditions' => [['type' => 'quest', 'name' => 'relic-quest']]],
+    ]],
   ], true) . ';');
-  writeSkillRecords($this->root, new SpecialSkill('Test finisher', 'A synthetic finishing technique.', '', 0, 0));
+  writeSkillRecords($this->root, ...array_map(static fn(string $name): SpecialSkill => new SpecialSkill($name, 'A synthetic technique.', '', 0, 0),
+    ['Test finisher', 'Plain Cut', 'Beast Rend', 'Twin Howl', 'Relic Strike']));
   chdir($this->root);
   StateRegistry::reset();
   $this->items = new ItemStore();
-  $this->actors = new ActorStore(definitions: [battleConditionActor('hero', 'surge.hero'), battleConditionActor('mage')]);
+  $this->actors = new ActorStore(definitions: [battleConditionActor('hero', 'surge.hero'), battleConditionActor('mage'),
+    battleConditionActor('shifter', 'surge.shifter')]);
   $this->choices = new BattleTestChoices($this->actors, $this->items, BattleTestLoadoutCatalog::getProjectCatalog());
   ConfigStore::put(ActorStore::class, $this->actors);
   ConfigStore::put(ItemStore::class, $this->items);
@@ -84,7 +94,7 @@ afterEach(function () {
 });
 
 /** An arena scene that records each party it would fight with, instead of starting a battle. */
-function battleConditionScene(object $test, BattleTestSetup $setup, array &$parties): ArenaScene
+function battleConditionScene(object $test, BattleTestSetup $setup, array &$parties, array &$settings = []): ArenaScene
 {
   if (! is_dir($test->root . '/assets/Graphics/Enemies')) {
     mkdir($test->root . '/assets/Graphics/Enemies', 0777, true);
@@ -99,11 +109,12 @@ function battleConditionScene(object $test, BattleTestSetup $setup, array &$part
     'startingPositions' => ['player' => []], 'startingParty' => ['hero']];");
 
   // Neither the constructor nor a battle runs: the fight's party is recorded as it would start.
-  $manager = new class($parties) extends SceneManager {
-    public function __construct(private array &$recorded) {}
+  $manager = new class($parties, $settings) extends SceneManager {
+    public function __construct(private array &$recorded, private array &$recordedSettings) {}
     public function loadBattleScene(Party $party, \Ichiloto\Engine\Entities\Troop $troop, array $events = [], array $extraSettings = []): void
     {
       $this->recorded[] = $party;
+      $this->recordedSettings[] = $extraSettings;
     }
   };
   $game = new class($setup) extends Game {
@@ -493,4 +504,102 @@ it('starts a custom stock empty in one action and adds only the selected quantit
   $editor->moveVertical(-1);
   $editor->confirm();
   expect($editor->setup->inventory)->toEqual([new BattleTestItem('item.potion', 2)]);
+});
+
+it('derives a member\'s forms from the story facts its crisis ability\'s forms reference, and finds one by technique or value', function () {
+  $forms = $this->choices->getFormChoices('shifter');
+
+  expect(array_column($forms, 'name'))->toBe(['None', 'Plain Cut (Shifter form: 0)', 'Beast Rend (Shifter form: Beast)',
+      'Twin Howl (Shifter form: Twin, Moon up: On)'])
+    ->and(array_column($forms, 'technique'))->toBe([null, 'Plain Cut', 'Beast Rend', 'Twin Howl'])
+    ->and($forms[3]['world']?->toArray())->toBe(['variables' => ['shifter_form' => 'twin'], 'switches' => ['moon_up' => true]])
+    // A form chosen by a quest no test fight can set is not offered; actors whose techniques depend on no facts have no forms.
+    ->and(array_column($forms, 'technique'))->not->toContain('Relic Strike')
+    ->and($this->choices->getFormChoices('hero'))->toBe([])
+    ->and($this->choices->findForm('shifter', 'beast rend')?->toArray())->toBe(['variables' => ['shifter_form' => 'beast']])
+    ->and($this->choices->findForm('shifter', 'BEAST')?->toArray())->toBe(['variables' => ['shifter_form' => 'beast']])
+    ->and($this->choices->findForm('shifter', '0')?->toArray())->toBe(['variables' => ['shifter_form' => 0]])
+    ->and($this->choices->findForm('shifter', 'werewolf'))->toBeNull();
+});
+
+it('offers the technique of the chosen form in each fight, from a fresh world state that never reaches a save', function () {
+  $parties = [];
+  $settings = [];
+  $base = new BattleTestSetup([new BattleTestMember('shifter', 1, hp: new BattleTestVital(9))]);
+  foreach ($this->choices->getFormChoices('shifter') as $choice) {
+    $setup = $base->withMember(0, $base->members[0]->withWorld($choice['world']))->withArena('arena.lake')->withBattleSize(2);
+    $scene = battleConditionScene($this, $setup, $parties, $settings);
+    new ReflectionMethod(ArenaScene::class, 'fight')->invoke($scene, 0);
+    new ReflectionMethod(ArenaScene::class, 'fight')->invoke($scene, 0);
+  }
+  $offered = [];
+  foreach ($parties as $index => $party) {
+    $state = $settings[$index][\Ichiloto\Engine\Scenes\Battle\BattleConfig::TEST_WORLD_STATE] ?? null;
+    $shifter = $party->members->toArray()[0];
+    $offered[] = BattleCommandCatalog::getAvailableCrisisOption($shifter, $party, $state)?->label;
+  }
+
+  expect($offered)->toBe([null, null, 'Plain Cut', 'Plain Cut', 'Beast Rend', 'Beast Rend', 'Twin Howl', 'Twin Howl'])
+    ->and($settings[0])->toBe(['battleArena' => 'arena.lake'])
+    // Each fight gets its own state; the party, and so a save, holds none of it.
+    ->and($settings[2][\Ichiloto\Engine\Scenes\Battle\BattleConfig::TEST_WORLD_STATE])
+    ->not->toBe($settings[3][\Ichiloto\Engine\Scenes\Battle\BattleConfig::TEST_WORLD_STATE])
+    ->and(json_encode($parties[4]->members->toArray()[0]->toArray()))->not->toContain('shifter_form');
+});
+
+it('sets the form in the member editor and the note reads the chosen form\'s readiness', function () {
+  $setup = new BattleTestSetup([new BattleTestMember('shifter', 1, states: ['presence']), new BattleTestMember('hero', 1)]);
+  $parties = [];
+  $scene = battleConditionScene($this, $setup, $parties);
+  $editor = new ReflectionProperty(ArenaScene::class, 'editor')->getValue($scene);
+  $editor->movePage(1);
+  $editor->confirm();
+
+  expect(array_slice($editor->fields, 0, 6))->toBe(['actor', 'level', 'hp', 'mp', 'states', 'form'])
+    ->and($scene->describeList()->note)->toBe('Surge is active, but none of its forms applies; choose its Form.')
+    ->and($scene->describeList()->rows[5])->toBe(['Form', ['< None >']]);
+  $editor->moveVertical(5);
+  $editor->moveHorizontal(1);
+  $editor->moveHorizontal(1);
+  expect($editor->member->world?->toArray())->toBe(['variables' => ['shifter_form' => 'beast']])
+    ->and($scene->describeList()->rows[5])->toBe(['Form', ['< Beast Rend >']])
+    ->and($scene->describeList()->note)->toBe('Surge ready: Beast Rend')
+    ->and($scene->describeList()->hints)->toContain(['left', 'Change', 'right'], ['confirm', 'Choose']);
+  $editor->confirm();
+  expect($editor->focus)->toBe(ArenaSetupEditor::CHOOSER)->and($editor->choiceIndex)->toBe(2);
+  $editor->moveVertical(1);
+  $editor->confirm();
+  expect($scene->describeList()->note)->toBe('Surge ready: Twin Howl');
+
+  // The form belongs to the actor: another actor has none, and members without forms show no row.
+  $editor->cancel();
+  $editor->moveVertical(1);
+  $editor->confirm();
+  expect($editor->fields)->not->toContain('form');
+  expect(BattleTestMember::fromArray($editor->setup->members[0]->toArray()))->toEqual($editor->setup->members[0])
+    ->and($editor->setup->members[0]->toArray()['world'])->toBe(['variables' => ['shifter_form' => 'twin'], 'switches' => ['moon_up' => true]])
+    ->and($editor->setup->members[0]->withActor('hero')->world)->toBeNull()
+    ->and(BattleTestSetup::fromArray($editor->setup->toArray()))->toEqual($editor->setup);
+});
+
+it('names a form the member does not have and two members whose forms disagree', function () {
+  $beast = new \Ichiloto\Engine\Scenes\Arena\BattleTestWorld(['shifter_form' => 'beast']);
+  $setup = new BattleTestSetup([
+    new BattleTestMember('shifter', 1, world: new \Ichiloto\Engine\Scenes\Arena\BattleTestWorld(['shifter_form' => 'werewolf'])),
+    new BattleTestMember('hero', 1, world: $beast),
+  ]);
+  $conflict = new BattleTestSetup([new BattleTestMember('shifter', 1, world: $beast),
+    new BattleTestMember('shifter', 1, world: new \Ichiloto\Engine\Scenes\Arena\BattleTestWorld(['shifter_form' => 0]))]);
+
+  expect($setup->getProblems($this->actors, $this->items))->toBe([
+    'Member 1 (shifter): Shifter form: Werewolf is not one of its forms (Shifter form: 0; Shifter form: Beast; Shifter form: Twin, Moon up: On).',
+    'Member 2 (hero): Shifter form: Beast is not one of its forms (it has none).',
+    'Members choose forms that set one story fact differently, so a fight cannot have both.',
+  ])->and($conflict->getProblems($this->actors, $this->items))
+    ->toBe(['Members choose forms that set one story fact differently, so a fight cannot have both.'])
+    ->and($conflict->createWorldState())->toBeNull()
+    ->and(fn() => BattleTestMember::fromArray(['actor' => 'shifter', 'level' => 1, 'world' => ['variables' => []]]))
+    ->toThrow(InvalidArgumentException::class, 'at least one story fact')
+    ->and(fn() => BattleTestMember::fromArray(['actor' => 'shifter', 'level' => 1, 'world' => ['flags' => []]]))
+    ->toThrow(InvalidArgumentException::class, 'has no flags');
 });

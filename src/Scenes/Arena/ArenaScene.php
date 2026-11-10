@@ -105,6 +105,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
   protected ?BattleTestTroopKeeper $troopKeeper = null;
   /** What the last attempt to keep a composed troop came to, shown until the next. */
   protected ?string $keepStatus = null;
+  /** What a battle test member may be given, shared with the editor's choices. */
+  protected ?BattleTestChoices $battleTestChoices = null;
   /** The game's menu theme, once read; none draws the battle test in the terminal's windows. */
   private ?MenuPresentationCatalog $menuTheme = null;
   private bool $menuThemeLoaded = false;
@@ -392,6 +394,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     try {
       $actors = ConfigStore::get(ActorStore::class);
       $choices = new BattleTestChoices($actors, ConfigStore::get(ItemStore::class), BattleTestLoadoutCatalog::getProjectCatalog());
+      $this->battleTestChoices = $choices;
       $this->projectBattleTest = $this->getGame()->consumeLaunchBattleTest() ?? ProjectBattleTest::loadFromProject();
       $setup = $this->getGame()->options[self::SETUP_OPTION] ?? null;
       $setup = $setup instanceof BattleTestSetup
@@ -816,6 +819,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
         $field === 'level' => [Vocabulary::getTerm('stats.level_short'), [sprintf('< %d >', $member->level)]],
         $field === 'hp' => [Vocabulary::getTerm('stats.hp', 'HP'), [sprintf('< %s >', $member->hp?->format() ?? 'Full')]],
         $field === 'mp' => [Vocabulary::getTerm('stats.mp', 'MP'), [sprintf('< %s >', $member->mp?->format() ?? 'Full')]],
+        $field === 'form' => ['Form', [sprintf('< %s >', array_find($this->battleTestChoices?->getFormChoices($member->actorId) ?? [],
+          fn(array $choice): bool => $editor->isChoiceSelected($choice['id']))['technique'] ?? 'None')]],
         $field === 'states' => ['States', [$member->states === [] ? '(None)'
           : implode(', ', array_map(static fn(string $id): string => StateRegistry::get($id)?->name ?? $id, $member->states))]],
         $field === 'remove' => ['Remove from the party', ['']],
@@ -834,7 +839,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       'mp' => Vocabulary::getTerm('stats.mp', 'MP'),
       default => Vocabulary::getTerm('stats.level_short'),
     };
-    $changes = in_array($field, ['actor', 'level', ...ArenaSetupEditor::VITAL_FIELDS], true);
+    $changes = in_array($field, ['actor', 'level', 'form', ...ArenaSetupEditor::VITAL_FIELDS], true);
 
     return new BattleTestMenuList($this->getActorName($member->actorId), $rows, $editor->fieldIndex,
       [...($changes ? [['left', 'Change', 'right']] : []), [MenuPager::PREVIOUS_ACTION, $stepped . ' by 10', MenuPager::NEXT_ACTION],
@@ -858,13 +863,14 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     }
     if ($ability->isActive($character)) {
       try {
-        // A battle test has no game in progress, so a form chosen by the story does not apply.
-        $skill = $ability->getAvailableSkill($character, null, $this->previewParty);
+        // The same story facts the fight is given: the members' chosen forms, or none.
+        $skill = $ability->getAvailableSkill($character, $this->editor?->setup->createWorldState(), $this->previewParty);
       } catch (Throwable $error) {
         return sprintf('%s cannot be used: %s', $ability->name, $error->getMessage());
       }
 
-      return $skill === null ? sprintf('%s is active, but none of its forms applies in a battle test.', $ability->name)
+      return $skill === null ? sprintf('%s is active, but none of its forms applies%s', $ability->name,
+          ($this->battleTestChoices?->getFormChoices($character->actorId) ?? []) === [] ? ' in a battle test.' : '; choose its Form.')
         : sprintf('%s ready: %s', $ability->name, $skill->name);
     }
     $threshold = $ability->hpBelowPercent;

@@ -867,11 +867,22 @@ round trips; a map-specific bypass or extra loading delay does not solve it.
 > ability defines, none, and the other unit); a page step from the party opens
 > its items, set in the Shop's stages (`BattleTestInventoryEditor` over
 > `QuantitySelector`). The member's note states whether its crisis ability is
-> ready, by the ability's own rule. Open gap: a battle test has no game in
-> progress, so a crisis ability whose every form is chosen by world conditions
-> (Last Legend's Kaelion, by `kaelion_curse_state`) is active but offers no
-> technique there; choosing a form for a battle test needs a decision on how a
-> test supplies world state.
+> ready, by the ability's own rule.
+>
+> **Battle-test forms (2026-11-10, Andrew: "Pick his form (Rec.)"):** a member
+> whose crisis ability's forms are chosen by story facts a test can set (a
+> variable compared with `==`, a switch, a story event) gets a Form row under
+> its States. The choices are derived from the ability's own conditions
+> (`BattleTestWorld::listCharacterForms()`), named by the technique each form
+> offers and the facts that choose it; forms gated by anything else (items,
+> quests, the party) are not offered. The member keeps the facts as `world`
+> (`BattleTestWorld`); every fight gets a fresh `GameState` from them through
+> `BattleConfig::TEST_WORLD_STATE`, which the shared execution context and
+> entry rules read only for that battle, and the member note reads the same
+> state. Campaign battles keep the GameScene's state, and saves never hold the
+> facts. Facts that are not one of the member's forms, or that two members
+> set differently, are setup problems. Labels come from the authored technique
+> and a readable form of the facts; the Engine has no project-specific forms.
 >
 > **Simulator action choice (2026-10-20):** `--runs` measured both sides with
 > the built-in x1 `AttackAction` and ignored enemy patterns, so a project whose

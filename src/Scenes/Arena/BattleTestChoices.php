@@ -20,12 +20,15 @@ use Ichiloto\Engine\Util\Stores\ItemStore;
  * and states a member may start with, and the items the party may carry,
  * each a choice the setup would accept ({@see BattleTestSetup::getProblems()}).
  */
-final readonly class BattleTestChoices
+final class BattleTestChoices
 {
+  /** @var array<string, list<array{world: BattleTestWorld, technique: string}>> Each actor's forms, read once: they depend on its authored crisis ability alone. */
+  private array $forms = [];
+
   public function __construct(
-    private ActorStore $actors,
-    private ItemStore $items,
-    private BattleTestLoadoutCatalog $loadouts,
+    private readonly ActorStore $actors,
+    private readonly ItemStore $items,
+    private readonly BattleTestLoadoutCatalog $loadouts,
   ) {}
 
   /** @return list<string> The actor's equipment slot names, in its own order. */
@@ -123,6 +126,9 @@ final readonly class BattleTestChoices
     if ($member === null) {
       return [];
     }
+    if ($field === 'form') {
+      return $this->getFormChoices($member->actorId);
+    }
     if ($field === 'states') {
       return [['id' => null, 'name' => '(None)'], ...array_values(array_map(
         static fn(State $state): array => ['id' => $state->id, 'name' => $state->name], StateRegistry::all()))];
@@ -144,6 +150,50 @@ final readonly class BattleTestChoices
       ? sprintf('In points: %d of %d', $other->amount, $maximum) : sprintf('In percent: %s', $other->format())];
 
     return $choices;
+  }
+
+  /**
+   * The forms an actor's techniques may take in a test fight, by the story
+   * facts its crisis ability's forms depend on ({@see BattleTestWorld::listCharacterForms()}):
+   * none first, then each form, named by the technique it offers and the
+   * facts that choose it. Each choice's id is the facts as project data
+   * writes them, and `world` holds them. No choices for an actor whose
+   * techniques depend on no such facts.
+   *
+   * @return list<array{id: ?string, name: string, world: ?BattleTestWorld, technique: ?string}>
+   */
+  public function getFormChoices(string $actorId): array
+  {
+    $forms = $this->listForms($actorId);
+
+    return $forms === [] ? [] : [['id' => null, 'name' => 'None', 'world' => null, 'technique' => null], ...array_map(static fn(array $form): array => [
+      'id' => self::getWorldKey($form['world']), 'name' => sprintf('%s (%s)', $form['technique'], $form['world']->describe()),
+      'world' => $form['world'], 'technique' => $form['technique']], $forms)];
+  }
+
+  /**
+   * One of an actor's forms, by the technique it offers or a value of the
+   * facts that choose it, ignoring case; none when no form matches.
+   */
+  public function findForm(string $actorId, string $reference): ?BattleTestWorld
+  {
+    $reference = mb_strtolower(trim($reference));
+    $form = array_find($this->listForms($actorId), static fn(array $form): bool => mb_strtolower($form['technique']) === $reference
+      || in_array($reference, array_map(static fn(int|float|string $value): string => mb_strtolower((string) $value), $form['world']->variables), true));
+
+    return $form['world'] ?? null;
+  }
+
+  /** @return list<array{world: BattleTestWorld, technique: string}> */
+  private function listForms(string $actorId): array
+  {
+    return $this->forms[$actorId] ??= BattleTestWorld::listCharacterForms($this->createProbe($actorId));
+  }
+
+  /** The id a choice of story facts goes by: the facts as project data writes them. */
+  public static function getWorldKey(?BattleTestWorld $world): ?string
+  {
+    return $world === null ? null : json_encode($world->toArray(), JSON_THROW_ON_ERROR);
   }
 
   /** A member's maximum HP or MP as it fights: at its level and in its equipment. */

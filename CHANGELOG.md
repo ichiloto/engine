@@ -77,6 +77,10 @@
   `Data/system.php`; a setup without items keeps the default stock of 99 of every non-equipment
   item. In the arena, HP, MP and States sit under the level, the crisis threshold is offered from
   the actor's own ability, and a page step from the party opens its items in the Shop's stages.
+- A Battle Test member whose crisis techniques depend on story facts gets a Form row; each fight
+  starts from a fresh world state holding the chosen form's facts, never the campaign or a save.
+  Menu rows show their labels whole; a long text figure wraps beside them, and a row without
+  figures may use the whole width.
 
 - Named NPC placements may select replaceable static, character-sheet or animated resting art.
   The existing saved placement id owns the selection; physical occupancy and Terminal glyphs remain unchanged.

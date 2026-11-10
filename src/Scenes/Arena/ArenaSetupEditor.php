@@ -12,7 +12,7 @@ use Ichiloto\Engine\Battle\BattleCommandType;
  * input devices: the arena reads semantic moves (up, down, left, right, a
  * page step, confirm, cancel) and passes them here, and draws what this
  * says. Focus moves from the troop list down into the party, into one
- * member's actor, level, starting HP, MP and states, and equipment, and into
+ * member's actor, level, starting HP, MP, states and form, and equipment, and into
  * a list of what one of them can be, and back out again with cancel. A page
  * step switches between the troop list, the party and, where items can be
  * set, the party's items ({@see BattleTestInventoryEditor}). Where arenas
@@ -60,7 +60,7 @@ final class ArenaSetupEditor
    * @param Closure(BattleTestMember, string): list<array{id: ?string, name: string}>|null $loadoutChoicesFor Shared resource pickers.
    * @param list<string> $arenaKeys The arenas fights may take place in, by key; none when nothing draws them.
    * @param Closure(BattleTestMember, string): list<array{id: ?string, name: string}>|null $conditionChoicesFor What a member's
-   *   `hp`, `mp` and `states` may be ({@see BattleTestChoices::getConditionChoices()}); none leaves the starting condition unset.
+   *   `hp`, `mp`, `states` and `form` may be ({@see BattleTestChoices::getConditionChoices()}); none leaves the starting condition unset.
    * @param Closure(BattleTestMember, string): int|null $vitalMaximumFor A member's maximum `hp` or `mp`, to count points within.
    * @param BattleTestInventoryEditor|null $inventoryEditor Setting the party's items; none where they cannot be set.
    */
@@ -115,7 +115,8 @@ final class ArenaSetupEditor
   }
 
   /**
-   * The member's fields: actor, level, the starting HP, MP and states where they can be set, each
+   * The member's fields: actor, level, the starting HP, MP and states where they can be set, its form where
+   * its techniques depend on story facts a test fight can set, each
    * equipment slot, the test loadout, and removal when the party has more than one member.
    */
   public array $fields {
@@ -124,6 +125,7 @@ final class ArenaSetupEditor
       if ($member === null) { return []; }
 
       return ['actor', 'level', ...($this->offersCondition ? ['hp', 'mp', 'states'] : []),
+        ...($this->offersCondition && ($this->conditionChoicesFor)($member, 'form') !== [] ? ['form'] : []),
         ...array_map(static fn(string $slot): string => "slot:{$slot}", ($this->slotsFor)($member->actorId)),
         ...($this->loadoutChoicesFor === null ? [] : ['commands', 'skills', 'magic', 'summons']),
         ...(count($this->setup->members) > 1 ? ['remove'] : [])];
@@ -148,7 +150,7 @@ final class ArenaSetupEditor
     if ($this->member === null) { return []; }
     return match (true) {
       str_starts_with($field, 'slot:') => ($this->choicesFor)($this->member->actorId, substr($field, 5)),
-      in_array($field, [...self::VITAL_FIELDS, 'states'], true) => $this->conditionChoicesFor === null ? []
+      in_array($field, [...self::VITAL_FIELDS, 'states', 'form'], true) => $this->conditionChoicesFor === null ? []
         : ($this->conditionChoicesFor)($this->member, $field),
       default => $this->loadoutChoicesFor === null ? [] : ($this->loadoutChoicesFor)($this->member, $field),
     };
@@ -167,6 +169,7 @@ final class ArenaSetupEditor
       'states' => $id === null ? $member->states === [] : in_array($id, $member->states, true),
       'hp' => $id === $member->hp?->format(),
       'mp' => $id === $member->mp?->format(),
+      'form' => $id === BattleTestChoices::getWorldKey($member->world),
       default => $id === ($member->equipment[substr($field, 5)] ?? null),
     };
   }
@@ -189,7 +192,7 @@ final class ArenaSetupEditor
 
   /**
    * Left and right change the arena on the troop list, a quantity of the
-   * party's items by ten, and the member's actor, level, HP or MP.
+   * party's items by ten, and the member's actor, level, HP, MP or form.
    */
   public function moveHorizontal(int $step): void
   {
@@ -210,6 +213,7 @@ final class ArenaSetupEditor
       'actor' => $this->changeActor($member, $step),
       'level' => $this->stepLevel($step),
       'hp', 'mp' => $this->stepVital($this->field, $step),
+      'form' => $this->stepForm($member, $step),
       default => null,
     };
   }
@@ -261,6 +265,16 @@ final class ArenaSetupEditor
     $this->setup = $this->setup->withMember($this->memberIndex, $field === 'hp' ? $member->withHp($next) : $member->withMp($next));
   }
 
+  /** Steps the member's form through its choices, none first, round to the start. */
+  private function stepForm(BattleTestMember $member, int $step): void
+  {
+    $choices = $this->getChoices();
+    if ($choices === []) { return; }
+    $index = array_find_key($choices, fn(array $choice): bool => $this->isChoiceSelected($choice['id'])) ?? 0;
+    $next = $choices[(($index + $step) % count($choices) + count($choices)) % count($choices)];
+    $this->setup = $this->setup->withMember($this->memberIndex, $member->withWorld($next['world'] ?? null));
+  }
+
   /** @return self::FIGHT|self::FIGHT_TEST|self::KEEP|null A fight to start or a troop to keep, when confirm asks for one. */
   public function confirm(): ?string
   {
@@ -302,7 +316,7 @@ final class ArenaSetupEditor
         } elseif ($this->choosesSeveral) {
           $this->choiceIndex = 0;
           $this->focus = self::CHOOSER;
-        } elseif (str_starts_with($field, 'slot:') || in_array($field, self::VITAL_FIELDS, true)) {
+        } elseif (str_starts_with($field, 'slot:') || in_array($field, [...self::VITAL_FIELDS, 'form'], true)) {
           // One choice: the cursor starts on what is chosen now.
           $choices = $this->getChoices();
           $this->choiceIndex = max(0, (int) array_find_key($choices, fn(array $choice): bool => $this->isChoiceSelected($choice['id'])));
@@ -321,6 +335,7 @@ final class ArenaSetupEditor
           $this->setup = $this->setup->withMember($this->memberIndex, match ($field) {
             'hp' => $member->withHp($choice['id'] === null ? null : BattleTestVital::parse($choice['id'])),
             'mp' => $member->withMp($choice['id'] === null ? null : BattleTestVital::parse($choice['id'])),
+            'form' => $member->withWorld($choice['world'] ?? null),
             default => $member->withEquipment(substr($field, 5), $choice['id']),
           });
         }

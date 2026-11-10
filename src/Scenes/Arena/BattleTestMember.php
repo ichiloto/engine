@@ -25,6 +25,7 @@ final readonly class BattleTestMember
    * @param BattleTestVital|null $hp The HP the member starts with; null for full.
    * @param BattleTestVital|null $mp The MP the member starts with; null for full.
    * @param list<string> $states The states the member starts with, by state id.
+   * @param BattleTestWorld|null $world The story facts the member's form depends on, for test fights only; null for none.
    */
   public function __construct(
     public string $actorId,
@@ -36,6 +37,7 @@ final readonly class BattleTestMember
     public ?BattleTestVital $hp = null,
     public ?BattleTestVital $mp = null,
     public array $states = [],
+    public ?BattleTestWorld $world = null,
   )
   {
     if (trim($actorId) === '') {
@@ -64,7 +66,8 @@ final readonly class BattleTestMember
    * `equipment` (slot name to item definition id, or null for empty),
    * `commands` (command type values; omitted keeps the normal menu),
    * `skills`, `summons`, `hp` and `mp` (each `['percent' => int]` or
-   * `['points' => int]`; omitted is full) and `states` (state ids).
+   * `['points' => int]`; omitted is full), `states` (state ids) and `world`
+   * ({@see BattleTestWorld::fromArray()}, the story facts its form depends on).
    * Anything else is refused, never ignored.
    *
    * @param array<string, mixed> $data
@@ -72,7 +75,7 @@ final readonly class BattleTestMember
    */
   public static function fromArray(array $data): self
   {
-    $unknown = array_diff(array_keys($data), ['actor', 'level', 'equipment', 'commands', 'skills', 'summons', 'hp', 'mp', 'states']);
+    $unknown = array_diff(array_keys($data), ['actor', 'level', 'equipment', 'commands', 'skills', 'summons', 'hp', 'mp', 'states', 'world']);
     if ($unknown !== []) {
       throw new InvalidArgumentException('A battle test member has no ' . implode(', ', $unknown) . '.');
     }
@@ -107,14 +110,19 @@ final readonly class BattleTestMember
       $vitals[$vital] = $value === null ? null : BattleTestVital::fromArray($value);
     }
 
+    $world = $data['world'] ?? null;
+    if ($world !== null && !is_array($world)) {
+      throw new InvalidArgumentException("A battle test member's world is a map of story facts.");
+    }
+
     return new self($data['actor'], $data['level'], $equipment, $commands, $data['skills'] ?? [], $data['summons'] ?? [],
-      $vitals['hp'], $vitals['mp'], $data['states'] ?? []);
+      $vitals['hp'], $vitals['mp'], $data['states'] ?? [], $world === null ? null : BattleTestWorld::fromArray($world));
   }
 
   /**
    * The member as project data writes it, leaving out what is at its default:
    * no equipment, the normal command menu, no skills, no summons, full HP and
-   * MP, no states.
+   * MP, no states, no story facts.
    *
    * @return array<string, mixed>
    */
@@ -130,14 +138,15 @@ final readonly class BattleTestMember
       'hp' => $this->hp?->toArray(),
       'mp' => $this->mp?->toArray(),
       'states' => $this->states,
+      'world' => $this->world?->toArray(),
     ], static fn(mixed $value, string $key): bool => in_array($key, ['actor', 'level'], true)
-      || (in_array($key, ['commands', 'hp', 'mp'], true) ? $value !== null : $value !== []), ARRAY_FILTER_USE_BOTH);
+      || (in_array($key, ['commands', 'hp', 'mp', 'world'], true) ? $value !== null : $value !== []), ARRAY_FILTER_USE_BOTH);
   }
 
   /**
    * Another actor in this place, at the same level and starting condition,
-   * with nothing equipped and no test loadout, since what one actor wears or
-   * is granted another may not.
+   * with nothing equipped, no test loadout and no form, since what one actor
+   * wears, is granted or becomes another may not.
    */
   public function withActor(string $actorId): self
   {
@@ -147,54 +156,61 @@ final readonly class BattleTestMember
   public function withLevel(int $level): self
   {
     return new self($this->actorId, max(1, $level), $this->equipment, $this->commands, $this->skills, $this->summons,
-      $this->hp, $this->mp, $this->states);
+      $this->hp, $this->mp, $this->states, $this->world);
   }
 
   public function withEquipment(string $slotName, ?string $itemId): self
   {
     return new self($this->actorId, $this->level, [...$this->equipment, $slotName => $itemId], $this->commands, $this->skills,
-      $this->summons, $this->hp, $this->mp, $this->states);
+      $this->summons, $this->hp, $this->mp, $this->states, $this->world);
   }
 
   /** @param list<BattleCommandType>|null $commands */
   public function withCommands(?array $commands): self
   {
     return new self($this->actorId, $this->level, $this->equipment, $commands, $this->skills, $this->summons,
-      $this->hp, $this->mp, $this->states);
+      $this->hp, $this->mp, $this->states, $this->world);
   }
 
   /** @param list<string> $skills */
   public function withSkills(array $skills): self
   {
     return new self($this->actorId, $this->level, $this->equipment, $this->commands, $skills, $this->summons,
-      $this->hp, $this->mp, $this->states);
+      $this->hp, $this->mp, $this->states, $this->world);
   }
 
   /** @param list<string> $summons */
   public function withSummons(array $summons): self
   {
     return new self($this->actorId, $this->level, $this->equipment, $this->commands, $this->skills, $summons,
-      $this->hp, $this->mp, $this->states);
+      $this->hp, $this->mp, $this->states, $this->world);
   }
 
   /** The member starting with this HP; null, or the whole maximum, for full. */
   public function withHp(?BattleTestVital $hp): self
   {
     return new self($this->actorId, $this->level, $this->equipment, $this->commands, $this->skills, $this->summons,
-      $hp === null || $hp->isFull ? null : $hp, $this->mp, $this->states);
+      $hp === null || $hp->isFull ? null : $hp, $this->mp, $this->states, $this->world);
   }
 
   /** The member starting with this MP; null, or the whole maximum, for full. */
   public function withMp(?BattleTestVital $mp): self
   {
     return new self($this->actorId, $this->level, $this->equipment, $this->commands, $this->skills, $this->summons,
-      $this->hp, $mp === null || $mp->isFull ? null : $mp, $this->states);
+      $this->hp, $mp === null || $mp->isFull ? null : $mp, $this->states, $this->world);
+  }
+
+  /** The member whose form depends on these story facts in test fights; null for none. */
+  public function withWorld(?BattleTestWorld $world): self
+  {
+    return new self($this->actorId, $this->level, $this->equipment, $this->commands, $this->skills, $this->summons,
+      $this->hp, $this->mp, $this->states, $world);
   }
 
   /** @param list<string> $states The states the member starts with, by state id. */
   public function withStates(array $states): self
   {
     return new self($this->actorId, $this->level, $this->equipment, $this->commands, $this->skills, $this->summons,
-      $this->hp, $this->mp, $states);
+      $this->hp, $this->mp, $states, $this->world);
   }
 }

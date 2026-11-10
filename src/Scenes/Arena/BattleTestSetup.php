@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Scenes\Arena;
 
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\SystemData;
+use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
@@ -158,8 +160,10 @@ final readonly class BattleTestSetup
    * project does not have, a level beyond its actor's highest, a slot the
    * actor does not have, equipment that is not equipment, does not fit its
    * slot or cannot be worn by the actor, a starting state the project does
-   * not define, starting points beyond the member's maximum, a party that
-   * would start the fight knocked out, and items the party cannot hold.
+   * not define, starting points beyond the member's maximum, story facts
+   * that are not one of the member's forms or that disagree between members,
+   * a party that would start the fight knocked out, and items the party
+   * cannot hold.
    *
    * @return list<string> The problems, each naming its member or the items; empty when the setup can be built.
    */
@@ -203,6 +207,11 @@ final readonly class BattleTestSetup
           $memberProblems[] = "the project has no state {$stateId}.";
         }
       }
+      if ($member->world !== null && !array_any(BattleTestWorld::listCharacterForms($character),
+        static fn(array $form): bool => $form['world']->equals($member->world))) {
+        $forms = array_map(static fn(array $form): string => $form['world']->describe(), BattleTestWorld::listCharacterForms($character));
+        $memberProblems[] = sprintf('%s is not one of its forms (%s).', $member->world->describe(), $forms === [] ? 'it has none' : implode('; ', $forms));
+      }
       // Points are checked against the member as it fights, at its level and in its equipment.
       if ($memberProblems === [] && ($member->hp?->unit === BattleTestVitalUnit::POINTS || $member->mp?->unit === BattleTestVitalUnit::POINTS)) {
         $built = $this->createMemberCharacter($member, $actors, $items);
@@ -218,6 +227,9 @@ final readonly class BattleTestSetup
       foreach ($loadouts?->getProblems($member, $character) ?? [] as $problem) {
         $problems[] = "{$place}: {$problem}";
       }
+    }
+    if ($this->findWorld() === false) {
+      $problems[] = 'Members choose forms that set one story fact differently, so a fight cannot have both.';
     }
     if (array_all($this->members, static fn(BattleTestMember $member): bool => $member->hp?->amount === 0)) {
       $problems[] = 'Every member starts knocked out, so there is no fight; give one member some HP.';
@@ -331,14 +343,43 @@ final readonly class BattleTestSetup
   }
 
   /**
-   * The settings a fight from this setup passes its battle: the arena,
-   * when one is chosen.
+   * The settings a fight from this setup passes its battle: the arena, when
+   * one is chosen, and a fresh world state holding the members' story
+   * facts, when any are set ({@see createWorldState()}).
    *
-   * @return array<string, string>
+   * @return array<string, mixed>
    */
   public function getBattleSettings(): array
   {
-    return $this->arena === null ? [] : ['battleArena' => $this->arena];
+    $world = $this->createWorldState();
+
+    return [...($this->arena === null ? [] : ['battleArena' => $this->arena]),
+      ...($world === null ? [] : [BattleConfig::TEST_WORLD_STATE => $world])];
+  }
+
+  /**
+   * A fresh world state for one test fight, holding every member's story
+   * facts; none when no member sets any. Each call makes a new one, so
+   * nothing a fight does to it reaches the next.
+   */
+  public function createWorldState(): ?GameState
+  {
+    $world = $this->findWorld();
+
+    return $world === null || $world === false ? null : $world->createGameState();
+  }
+
+  /** @return BattleTestWorld|false|null Every member's facts together, none when no member sets any, false when two disagree. */
+  private function findWorld(): BattleTestWorld|false|null
+  {
+    $world = null;
+    foreach ($this->members as $member) {
+      if ($member->world === null) { continue; }
+      $world = $world === null ? $member->world : $world->merge($member->world);
+      if ($world === null) { return false; }
+    }
+
+    return $world;
   }
 
   /**
