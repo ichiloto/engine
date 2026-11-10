@@ -495,6 +495,14 @@ final class GraphicalBattlePresentation
       }
       if ($participant['available']) {
         if ($includeOptionalArtwork && !$reducedMotion && $playback?->actor === $battler) {
+          $unit = $this->scale !== null && $participant['scale'] !== null
+            ? $this->scale->referenceHeight * $participant['scale']->relativeSize * $slot->displayScale
+            : $slot->height;
+          $wake = $this->getTransitWake($playback, $groundAnchors[$identity], $unit, $imageFlips);
+          if ($wake !== null) {
+            $images[] = $wake;
+            $bodyOffsets[$identity]++;
+          }
           foreach ($playback->getFlashStepEchoes() as $echoIndex => $echo) {
             $pose = $this->projectBattler($identity, $participant, $echo['sample'], false, true, $field?->getPoseElapsedSeconds() ?? 0);
             $ghost = $pose['image'];
@@ -675,6 +683,48 @@ final class GraphicalBattlePresentation
    * @return array{image: CanvasImage, available: bool, slot: BattlerSlot, ground: Vector2,
    *   pose: ?BattlerPose, usesKnockoutPose: bool, usesConcedePose: bool, elevation: float, contact: BattlerContact}
    */
+  /** The wake follows the drawn ground pivot and the route's current direction. */
+  private function getTransitWake(BattleCommandPlayback $playback, Vector2 $ground, float $unit, bool $imageFlips): ?CanvasImage
+  {
+    $wake = $playback->plan->flashStep->wake ?? null;
+    $travel = $playback->plan->travel;
+    $phase = $playback->phase;
+    if ($wake === null || !$travel?->isPossible || $playback->isCompleted || !in_array($phase, ['advance', 'return'], true)) {
+      return null;
+    }
+    $window = $playback->plan->phases[$phase];
+    $elapsed = $playback->session->currentFrame - $window['start'];
+    $index = intdiv($elapsed * count($wake->opacityPercent), $window['length']);
+    $opacity = $wake->opacityPercent[$index] / 100;
+    if ($opacity <= 0) { return null; }
+    $returning = $phase === 'return';
+    $direction = $travel->getHorizontalDirectionAtProgress($playback->getAdvanceFraction()) * ($returning ? -1 : 1);
+    $flip = $direction > 0;
+    if ($flip && !$imageFlips) {
+      $playback->recordPresentationFailure(new RuntimeException('Renderer cannot mirror the authored transit wake.'));
+      return null;
+    }
+    $size = PngAssetPreflight::getAvailableSize($this->assetRoot, $wake->image);
+    $crop = $wake->crop;
+    if ($size === null || $crop->x + $crop->width > $size['width'] || $crop->y + $crop->height > $size['height']) {
+      $playback->recordPresentationFailure(new RuntimeException('Transit wake crop is unavailable in ' . $wake->image));
+      return null;
+    }
+    $horizontalSpan = abs($travel->getPositionAtProgress(1)->x - $travel->getPositionAtProgress(0)->x);
+    $width = max(1, round(min($wake->maxWidth * $unit, $wake->baseWidth * $unit + $horizontalSpan * $wake->widthPerDistance)));
+    $height = max(1, round($wake->height * $unit));
+    $gap = $returning ? 0 : $wake->outboundGap * $unit;
+    $x = $ground->x + ($flip ? -$gap - $width : $gap);
+    try {
+      return CanvasImage::createClipped('command-transit-wake', $wake->image, round($x), round($ground->y + $wake->offsetY * $unit),
+        $width, $height, $this->layout->width, $this->layout->height, BattleCanvasLayout::BATTLER_LAYER - 1, $crop,
+        flipX: $flip, opacity: $opacity);
+    } catch (\InvalidArgumentException $error) {
+      $playback->recordPresentationFailure($error);
+      return null;
+    }
+  }
+
   private function projectBattler(int $identity, array $participant, ?BattleCommandPlayback $playback,
     bool $reducedMotion, bool $includeOptionalArtwork, float $idleSeconds): array
   {

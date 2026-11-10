@@ -515,6 +515,40 @@ it('draws only command-owned flash-step echoes and seeks the same atlas cells ou
   expect($scene->ui->fieldWindow->getCommandPlayback())->toBeNull();
 })->with([false, true]);
 
+it('draws authored wake only during transit behind the moving actor with reversed return art', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $asset = 'graphical-canvas/synthetic-320x180.png';
+  $pose = new BattlerPose($asset, columns: 4, rows: 2, frames: [2],
+    fps: 24, loop: false, impactFrame: 0, entryFrames: [0, 1, 2], exitFrames: [3, 2, 1], guardFrame: 4);
+  $travel = new \Ichiloto\Engine\Battle\Presentation\BattleTravelPlan([[969, 265], [700, 265]], 700, 265, -1, 600, 900);
+  $crop = new SpriteSourceRect(20, 20, 100, 25);
+  $wake = new \Ichiloto\Engine\Animations\FlashStepWake($asset, $crop, .3, .6, .08, -.4, .02, .2, [25, 34, 25]);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
+    travel: $travel, actionPoseOverride: $pose,
+    flashStep: new \Ichiloto\Engine\Animations\FlashStepTiming(24, 20, 3, 10, 3, 7, 2,
+      placeTransitOnPoseKeys: true, wake: $wake));
+  $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $hero, [$enemies[0]],
+    BattlePoseRole::ATTACK, $catalog, $this->root);
+  $unit = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root)->getSlot($hero)->height;
+  $read = static fn($frame, bool $reduced = false) => array_find($preview->getFrameAtIndex($frame, $reduced)->canvas->images,
+    static fn(CanvasImage $image): bool => $image->id === 'command-transit-wake');
+  foreach ([99, 115, 164, 180, 214] as $frame) { expect($read($frame))->toBeNull(); }
+  foreach ([100 => .25, 105 => .34, 114 => .25, 165 => .25, 170 => .34, 179 => .25] as $frame => $opacity) {
+    $image = $read($frame);
+    $body = graphicalCombatantImage($preview->getFrameAtIndex($frame)->canvas, $hero);
+    $pivotX = $body->destination->x + $body->destination->width * $pose->pivotX;
+    $pivotY = $body->destination->y + $body->destination->height * $pose->pivotY;
+    $returning = $frame >= 165;
+    $width = round(min(.6 * $unit, .3 * $unit + 269 * .2));
+    $x = $returning ? $pivotX - $width : $pivotX + .02 * $unit;
+    expect($image->flipX)->toBe($returning)->and($image->opacity)->toBe($opacity)
+      ->and($image->layer)->toBeLessThan($body->layer)->and($image->sourceRect)->toEqual($crop)
+      ->and($image->destination->width)->toBe($width)->and($image->destination->height)->toBe(round(.08 * $unit))
+      ->and($image->destination->x)->toBe(round($x))->and($image->destination->y)->toBe(round($pivotY - .4 * $unit))
+      ->and($read($frame, true))->toBeNull();
+  }
+});
+
 it('uses the same ranged action variant for the landing reach and the drawn atlas cell', function (bool $far) {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $baseline = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);

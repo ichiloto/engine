@@ -92,7 +92,7 @@ final readonly class CanvasImage
   /** Clip source pixels at the viewport edge without moving the artwork's attachment point. */
   public static function createClipped(string $id, string $asset, float $x, float $y, float $width, float $height,
     int $canvasWidth, int $canvasHeight, int $layer, SpriteSourceRect $sourceRect,
-    bool $flipX = false, bool $flipY = false): ?self
+    bool $flipX = false, bool $flipY = false, float $opacity = 1): ?self
   {
     if (!is_finite($x) || !is_finite($y) || !is_finite($width) || !is_finite($height)
       || $width <= 0 || $height <= 0 || $width > CanvasValidation::MAX_EXTENT || $height > CanvasValidation::MAX_EXTENT
@@ -119,7 +119,7 @@ final readonly class CanvasImage
     return new self($id, $asset,
       new CanvasRectangle($destinationX, $destinationY, $destinationRight - $destinationX, $destinationBottom - $destinationY),
       $layer, new SpriteSourceRect($sourceRect->x + ($flipX ? $right : $left),
-        $sourceRect->y + ($flipY ? $bottom : $top), $pixelsWide, $pixelsHigh), flipX: $flipX, flipY: $flipY);
+        $sourceRect->y + ($flipY ? $bottom : $top), $pixelsWide, $pixelsHigh), opacity: $opacity, flipX: $flipX, flipY: $flipY);
   }
 
   /** Keep the full source and pivot. The bounded viewport clips the rotated output. */

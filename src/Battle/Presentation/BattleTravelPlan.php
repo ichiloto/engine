@@ -43,4 +43,11 @@ final class BattleTravelPlan
     if ($this->path === null) { throw new LogicException('A blocked battle travel plan has no sampleable route: ' . $this->failure->value); }
     return $this->path->getPositionAtProgress($returning ? 1 - $progress : $progress);
   }
+
+  public function getHorizontalDirectionAtProgress(float $progress): int
+  {
+    if ($this->path === null) { throw new LogicException('A blocked battle travel plan has no direction.'); }
+    $x = $this->path->getSampleAtProgress($progress)['direction']?->x ?? 0.0;
+    return $x == 0.0 ? $this->facingSign : ($x <=> 0.0);
+  }
 }
