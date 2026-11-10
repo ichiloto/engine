@@ -77,7 +77,12 @@ final class TutorialDirector
         [null, TutorialPhase::PENDING], true));
   }
 
-  /** Called by the voluntary library visit or an eligible player battle command window. */
+  /**
+   * Called by the voluntary library visit or an eligible player battle command window.
+   *
+   * The screen supplies canPresent to say whether a step's target is usable there now. A battle-command
+   * lesson is discovered only when its first step is usable, so an unusable command never records it.
+   */
   public function enterContext(TutorialStartContext $context, bool $automaticPrompts, ?Party $party = null,
     ?QuestLog $quests = null, ?callable $canPresent = null): void
   {
@@ -85,6 +90,7 @@ final class TutorialDirector
       foreach ($this->catalog->definitions as $tutorial) {
         if ($tutorial->startContext === $context && $tutorial->start === TutorialStartMode::AUTOMATIC
           && $this->state->getTutorialPhase($tutorial->id) === null
+          && $this->canPresentFirstStep($tutorial, $canPresent)
           && WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests)) {
           $this->state->setTutorialPhase($tutorial->id, TutorialPhase::PENDING);
         }
@@ -117,7 +123,7 @@ final class TutorialDirector
         || !$this->hasBoundControls($tutorial)) {
         continue;
       }
-      if (($canPresent === null || $canPresent($tutorial->steps[0]))
+      if ($this->canPresentFirstStep($tutorial, $canPresent)
         && WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests)) {
         $this->beginTutorial($tutorial, false);
         return;
@@ -246,6 +252,12 @@ final class TutorialDirector
   public function deferFailedFollowOn(string $id): void
   {
     $this->failedFollowOns[$id] = true;
+  }
+
+  /** Without a screen predicate the context itself is the only presentation requirement. */
+  private function canPresentFirstStep(TutorialDefinition $tutorial, ?callable $canPresent): bool
+  {
+    return $canPresent === null || $canPresent($tutorial->steps[0]);
   }
 
   private function hasBoundControls(TutorialDefinition $tutorial): bool
