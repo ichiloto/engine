@@ -81,39 +81,51 @@ final class BattleConditionEffects
     return $this->loadTimeline('interception:' . $stateId, $presentation, loop: false);
   }
 
+  /** Loads an authored timeline without the runtime fallback, for authoring validation. */
+  public function loadInterceptionTimeline(string $id, EffectPresentation $presentation): CompiledEffectTimeline
+  {
+    return $this->loadValidatedTimeline($id, $presentation, loop: false);
+  }
+
   private function loadTimeline(string $key, EffectPresentation $presentation, bool $loop): ?CompiledEffectTimeline
   {
     $id = $this->bindings[$key] ?? null;
     if ($id === null) { return null; }
     try {
-      $timeline = $this->library->load($id, true, $presentation);
-      if ($timeline->cadence !== EffectCadence::FIXED || ($timeline->defaults['playback']['loop'] ?? false) !== $loop
-        || $timeline->cueSchedule !== [] || isset($timeline->defaults['stage'])) {
-        $kind = $loop ? 'Looping condition' : 'One-shot interception';
-        throw new InvalidArgumentException($kind . ' effects require fixed presentation without cues or a stage.');
-      }
-      $anchors = $loop ? ['target', 'caster'] : ['target'];
-      foreach ($timeline->playbackSegments as $segment) {
-        if (!in_array($segment['layer'], ['image', 'glyph', 'text', 'tone'], true)) {
-          throw new InvalidArgumentException('Condition effects accept attached image, glyph, text and tone tracks.');
-        }
-        foreach ($segment['drawCommands'] as $command) {
-          if (!in_array($command['payload']['anchor'] ?? 'target', $anchors, true)) {
-            throw new InvalidArgumentException('Condition effects must attach to their battler, not the screen.');
-          }
-        }
-      }
-      $rest = $timeline->defaults['restFrame'] ?? 0;
-      if ($timeline->playbackSegments !== [] && !array_any($timeline->playbackSegments, static fn(array $segment): bool =>
-        $segment['startFrame'] <= $rest && $rest <= $segment['endFrame']
-          && array_any($segment['drawCommands'], static fn(array $command): bool => $command['visible'] ?? true))) {
-        throw new InvalidArgumentException('A condition effect needs a visible reduced-motion restFrame.');
-      }
-      return $timeline;
+      return $loop ? $this->loadValidatedTimeline($id, $presentation, loop: true)
+        : $this->loadInterceptionTimeline($id, $presentation);
     } catch (Throwable $error) {
       $this->reportFailure($id . ':' . $presentation->value, $error);
       return null;
     }
+  }
+
+  private function loadValidatedTimeline(string $id, EffectPresentation $presentation, bool $loop): CompiledEffectTimeline
+  {
+    $timeline = $this->library->load($id, true, $presentation);
+    if ($timeline->cadence !== EffectCadence::FIXED || ($timeline->defaults['playback']['loop'] ?? false) !== $loop
+      || $timeline->cueSchedule !== [] || isset($timeline->defaults['stage'])) {
+      $kind = $loop ? 'Looping condition' : 'One-shot interception';
+      throw new InvalidArgumentException($kind . ' effects require fixed presentation without cues or a stage.');
+    }
+    $anchors = $loop ? ['target', 'caster'] : ['target'];
+    foreach ($timeline->playbackSegments as $segment) {
+      if (!in_array($segment['layer'], ['image', 'glyph', 'text', 'tone'], true)) {
+        throw new InvalidArgumentException('Condition effects accept attached image, glyph, text and tone tracks.');
+      }
+      foreach ($segment['drawCommands'] as $command) {
+        if (!in_array($command['payload']['anchor'] ?? 'target', $anchors, true)) {
+          throw new InvalidArgumentException('Condition effects must attach to their battler, not the screen.');
+        }
+      }
+    }
+    $rest = $timeline->defaults['restFrame'] ?? 0;
+    if ($timeline->playbackSegments !== [] && !array_any($timeline->playbackSegments, static fn(array $segment): bool =>
+      $segment['startFrame'] <= $rest && $rest <= $segment['endFrame']
+        && array_any($segment['drawCommands'], static fn(array $command): bool => $command['visible'] ?? true))) {
+      throw new InvalidArgumentException('A condition effect needs a visible reduced-motion restFrame.');
+    }
+    return $timeline;
   }
 
   public function reportFailure(string $key, Throwable $error): void
