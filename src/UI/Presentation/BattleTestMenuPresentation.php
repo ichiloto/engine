@@ -91,8 +91,12 @@ final class BattleTestMenuPresentation
       $rowHeight = (int) ceil(max($m->cellHeight + $theme->rows->metrics->separatorWidth, $theme->rows->metrics->cursorHeight,
         min($m->rowHeight, $m->cellHeight + $m->sectionGap / 3)));
       // The row under the cursor stays in view, or the one the list keeps there while the cursor is elsewhere.
-      $view->rows('battle-test-rows', $rows, new MenuRowLayout(new CanvasRectangle($inner->x, $y, $inner->width, max($rowHeight, $bottom - $y)),
-        $list->columns, $rowHeight, $m->cellWidth, $m->cellHeight, ellipsis: true), $list->selected ?? $list->anchor ?? 0);
+      // Every label shows whole; a long text figure wraps beside it instead.
+      $layout = new MenuRowLayout(new CanvasRectangle($inner->x, $y, $inner->width, max($rowHeight, $bottom - $y)),
+        $list->columns, $rowHeight, $m->cellWidth, $m->cellHeight, ellipsis: true);
+      $view->rows('battle-test-rows', $rows, $layout->withWholeLabels(array_column(array_filter($list->rows,
+        static fn(array $row): bool => implode('', $row[1]) !== ''), 0), $theme->rows->metrics),
+        $list->selected ?? $list->anchor ?? 0);
     }
     if ($hintHeight > 0) {
       $view->hints('battle-test-hints', $hints, new CanvasRectangle($inner->x, $inner->y + $inner->height - $hintHeight, $inner->width, $hintHeight),

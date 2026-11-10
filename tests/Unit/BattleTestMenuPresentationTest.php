@@ -134,3 +134,26 @@ it('shows required pane navigation when the theme hides optional input hints', f
     $input->setValue(null, $original);
   }
 });
+
+it('shows every row label whole, wrapping a long text figure beside it instead of cutting the label', function () {
+  $left = \Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment::LEFT;
+  $rows = [['Actor', ['< Kaelion >']], ['Accessory', ['(None)']], ['Commands', ['(Normal)']],
+    ['Skills', ['Choose extra learned actions for this member']], ['Remove from the party', ['']]];
+  $columns = [MenuRowColumn::fit(array_column(array_column($rows, 1), 0), $left)];
+  $canvas = BattleTestMenuPresentation::compose($this->theme, new BattleTestMenuList('Kaelion', $rows, 1, columns: $columns), true,
+    [], null, null, null, null, false);
+  $runs = array_merge(...array_map(static fn($layer): array => array_map(static fn($run): string => $run->text, $layer->runs), $canvas->textLayers));
+
+  expect($runs)->toContain('Accessory', 'Commands', 'Remove from the party')
+    ->and(implode(' ', $runs))->not->toContain('…')->toContain('Choose extra')->toContain('member');
+
+  $viewport = static fn(int $width) => new CanvasRectangle(0, 0, $width, 400);
+  $layout = new \Ichiloto\Engine\UI\Presentation\MenuRowLayout($viewport(200), [new MenuRowColumn(6), new MenuRowColumn(30, $left)],
+    24, 10, 24, ellipsis: true);
+  $whole = $layout->withWholeLabels(['A label'], $this->theme->rows->metrics);
+  expect($whole->columns[0]->cells)->toBe(6)->and($whole->columns[1]->cells)->toBeLessThan(30)
+    ->and($whole->columns[1]->cells)->toBeGreaterThanOrEqual(\Ichiloto\Engine\UI\Presentation\MenuRowLayout::MIN_TEXT_COLUMN_CELLS)
+    ->and($whole->wrapText)->toBeTrue()
+    ->and(new \Ichiloto\Engine\UI\Presentation\MenuRowLayout($viewport(900), $layout->columns, 24, 10, 24)
+      ->withWholeLabels(['A label'], $this->theme->rows->metrics)->columns)->toBe($layout->columns);
+});

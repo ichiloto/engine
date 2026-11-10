@@ -191,14 +191,15 @@ final class MenuRowPainter
       throw new InvalidArgumentException("Menu row {$row->id} must supply every configured value column, including empty fields.");
     }
     $cells = $layout->textCells($metrics);
-    $labelCells = $cells - $layout->valueCells($metrics);
+    $labelCells = $layout->getLabelCells($row, $metrics);
     $runs = [];
     $lines = $layout->labelLines($row->label, $labelCells - $iconCells);
     $lineCount = count($lines);
     foreach ($lines as $line => $text) {
       if ($text !== '') { $runs[] = new PresentationTextRun($line, $iconCells, $text, $color); }
     }
-    $column = $labelCells;
+    // Value columns keep their places, whether or not this row's label reaches over empty ones.
+    $column = $cells - $layout->valueCells($metrics);
     foreach ($layout->columns as $index => $definition) {
       $column += $definition->gap ?? $metrics->gapCells;
       $value = $row->values[$index];

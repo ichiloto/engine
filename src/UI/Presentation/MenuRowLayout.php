@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 use InvalidArgumentException;
 
 /** The owner supplies the viewport and visible subset; this class does not paginate. */
@@ -73,7 +74,7 @@ final readonly class MenuRowLayout
     $iconCells = $hasIcon ? (int)ceil($metrics->iconWidth / $this->cellWidth) + $metrics->gapCells : 0;
     $cells = $row->kind->isAction()
       ? (int)floor(($this->viewport->width - 2 * ($metrics->padding + $iconCells * $this->cellWidth)) / $this->cellWidth)
-      : $this->textCells($metrics) - $this->valueCells($metrics) - $iconCells;
+      : $this->getLabelCells($row, $metrics) - $iconCells;
     $lines = count($row->kind->isAction() ? $this->lines($row->label, $cells) : $this->labelLines($row->label, $cells));
     foreach ($row->values as $index => $value) {
       $column = $this->columns[$index] ?? throw new InvalidArgumentException('Menu value column missing.');
@@ -81,6 +82,48 @@ final readonly class MenuRowLayout
     }
     return $this->rowHeight + ($lines - 1) * $this->cellHeight;
   }
+
+  /**
+   * The layout giving every label its whole width: where the widest label
+   * and the columns do not fit together, left-aligned text columns give
+   * way, from the last, down to a readable width, and their text wraps
+   * rather than being cut. Figure columns (right-aligned or labelled) keep
+   * their width. Unchanged where everything fits or nothing can give way.
+   *
+   * @param list<string> $labels The labels of the rows that show figures; a row without one takes the whole width ({@see getLabelCells()}).
+   */
+  public function withWholeLabels(array $labels, MenuRowMetrics $metrics, int $iconCells = 0): self
+  {
+    $widest = max([1, ...array_map(static fn(string $label): int => mb_strlen($label, 'UTF-8'), $labels)]) + $iconCells;
+    $excess = $widest + $this->valueCells($metrics) - $this->textCells($metrics);
+    $columns = $this->columns;
+    for ($index = count($columns) - 1; $index >= 0 && $excess > 0; $index--) {
+      $column = $columns[$index];
+      $give = $column->alignment === HorizontalAlignment::LEFT && $column->label === null
+        ? min($excess, $column->cells - self::MIN_TEXT_COLUMN_CELLS) : 0;
+      if ($give > 0) {
+        $columns[$index] = new MenuRowColumn($column->cells - $give, $column->alignment, null, $column->gap);
+        $excess -= $give;
+      }
+    }
+
+    return $columns === $this->columns ? $this
+      : new self($this->viewport, $columns, $this->rowHeight, $this->cellWidth, $this->cellHeight, true, $this->ellipsis);
+  }
+
+  /**
+   * The cells a row's label may take: those the value columns leave, or the
+   * whole row where it has no figure to show, since nothing sits beside it.
+   */
+  public function getLabelCells(MenuRow $row, MenuRowMetrics $metrics): int
+  {
+    $figures = array_any($row->values, static fn(MenuRowValue $value): bool => $value->text !== '' || $value->direction !== null);
+
+    return $this->textCells($metrics) - ($figures ? $this->valueCells($metrics) : 0);
+  }
+
+  /** The narrowest a text column gives way to, so its words stay readable when they wrap. */
+  public const int MIN_TEXT_COLUMN_CELLS = 12;
 
   public function textCells(MenuRowMetrics $metrics): int
   {
