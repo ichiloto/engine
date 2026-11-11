@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Scenes\Arena;
 
+use Ichiloto\Engine\Core\SystemData;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 use InvalidArgumentException;
 
@@ -47,7 +48,7 @@ final readonly class ProjectBattleTest
 
   /**
    * The entry as Data/system.php writes it: optional `troop`, `members` (as
-   * {@see BattleTestSetup::fromArray()}), `arena` and `inventory`. Anything
+   * {@see BattleTestSetup::fromArray()}), `arena`, `battleSize` and `inventory`. Anything
    * else is refused, never ignored.
    *
    * @param array<string, mixed> $data
@@ -109,6 +110,18 @@ final readonly class ProjectBattleTest
     ];
   }
 
+  /** Resolve the preset's frontline against the supplied draft or saved project settings. */
+  public function getBattleSize(?int $projectBattleSize = null): int
+  {
+    return $this->setup?->configuredBattleSize ?? $projectBattleSize ?? self::readProjectBattleSize();
+  }
+
+  private static function readProjectBattleSize(): int
+  {
+    $system = is_file('assets/Data/system.php') ? asset('Data/system.php', true) : [];
+    return SystemData::getBattlePartySize(is_array($system) ? ($system['battle'] ?? null) : null);
+  }
+
   /**
    * The setup a battle test starts from: the project's party when it keeps
    * one, else the starting party with the project's arena and items. An
@@ -116,14 +129,17 @@ final readonly class ProjectBattleTest
    * otherwise it is read from Data/system.php.
    *
    * @param list<mixed>|null $startingParty The starting party's actor references, or null to read them.
+   * @param int|null $battleSize The draft project size, or null to read the saved value.
    * @throws InvalidArgumentException When no party can be set up.
    */
   public function createSetup(ActorStore $actors, ?array $startingParty = null, ?int $battleSize = null): BattleTestSetup
   {
-    if ($this->setup !== null) { return $battleSize === null ? $this->setup : $this->setup->withBattleSize($battleSize); }
+    if ($this->setup !== null) {
+      return $this->setup->withBattleSize($this->getBattleSize($battleSize));
+    }
     return ($startingParty === null
-      ? BattleTestSetup::getFromStartingParty($actors)
-      : BattleTestSetup::getFromPartyReferences($actors, $startingParty, $battleSize ?? \Ichiloto\Engine\Entities\Party::BATTLE_SIZE))
+      ? BattleTestSetup::getFromStartingParty($actors, $battleSize)
+      : BattleTestSetup::getFromPartyReferences($actors, $startingParty, $this->getBattleSize($battleSize)))
       ->withArena($this->arena)->withInventory($this->inventory);
   }
 }

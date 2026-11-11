@@ -5,6 +5,7 @@ use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Entities\Actors\ActorDefinition;
 use Ichiloto\Engine\Scenes\Arena\BattleTestMember;
 use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
+use Ichiloto\Engine\Scenes\Arena\ProjectBattleTest;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
@@ -486,8 +487,27 @@ it('sets up the starting party an editor passes as it stands, the same way as th
 
 it('round trips an eight-member battle test and preserves its capacity across arena changes', function () {
   $entry = ['members' => array_map(fn($n) => ['actor' => 'actor.' . $n, 'level' => 1], range(1, 8)), 'battleSize' => 8];
-  $project = \Ichiloto\Engine\Scenes\Arena\ProjectBattleTest::fromArray($entry);
+  $project = ProjectBattleTest::fromArray($entry);
   expect($project->toArray())->toEqual($entry)
+    ->and($project->createSetup($this->actors, ['hero'], 3)->battleSize)->toBe(8)
     ->and($project->setup->withArena('synthetic')->battleSize)->toBe(8)
     ->and($project->setup->withMember(0, $project->setup->members[1])->battleSize)->toBe(8);
+});
+
+it('keeps an explicitly selected three and inherits the project size only when omitted', function () {
+  file_put_contents($this->root . '/assets/Data/system.php', "<?php return ['title' => 'Test', 'currency' => [],
+    'startingPositions' => ['player' => []], 'startingParty' => ['hero'], 'battle' => ['partySize' => 8]];");
+  $entry = ['members' => [['actor' => 'hero', 'level' => 1], ['actor' => 'veteran', 'level' => 1]]];
+  $explicit = ProjectBattleTest::fromArray([...$entry, 'battleSize' => 3]);
+  $inherited = ProjectBattleTest::fromArray($entry);
+
+  expect($explicit->toArray()['battleSize'] ?? null)->toBe(3)
+    ->and($explicit->createSetup($this->actors, ['hero'], 8)->battleSize)->toBe(3)
+    ->and($inherited->toArray())->toBe($entry)
+    ->and($inherited->setup->withArena('synthetic')->withInventory([])->withMember(1, null)->toArray())->not->toHaveKey('battleSize')
+    ->and($inherited->createSetup($this->actors, ['hero'], 1)->battleSize)->toBe(1)
+    ->and($inherited->createSetup($this->actors)->createParty($this->actors, $this->items)->battleSize)->toBe(8)
+    ->and($inherited->createSetup($this->actors, ['hero'])->battleSize)->toBe(8)
+    ->and((new ProjectBattleTest())->createSetup($this->actors, ['hero'])->battleSize)->toBe(8)
+    ->and((new ProjectBattleTest())->createSetup($this->actors, battleSize: 1)->battleSize)->toBe(1);
 });

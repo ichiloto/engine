@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Core;
 use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
 use Ichiloto\Engine\Battle\EncounterAdvantage;
 use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleConfig;
+use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\Progression\ProgressionSettings;
 
@@ -52,9 +53,11 @@ readonly class SystemData
     return $this->battle->opening;
   }
 
-  private static function validatePartySize(mixed $value): int
+  public static function getBattlePartySize(mixed $battleData): int
   {
-    if (!is_int($value) || $value < 1 || $value > \Ichiloto\Engine\Entities\Party::MAX_BATTLE_SIZE) {
+    $battle = is_array($battleData) ? $battleData : [];
+    $value = $battle['partySize'] ?? Party::BATTLE_SIZE;
+    if (!is_int($value) || $value < 1 || $value > Party::MAX_BATTLE_SIZE) {
       throw new \InvalidArgumentException('battle.partySize must be an integer between 1 and 8.');
     }
     return $value;
@@ -70,7 +73,7 @@ readonly class SystemData
     EncounterAdvantage::validateChances($preemptive, $ambush);
 
     return json_decode(json_encode([
-      'partySize' => self::validatePartySize($battleArray['partySize'] ?? \Ichiloto\Engine\Entities\Party::BATTLE_SIZE),
+      'partySize' => self::getBattlePartySize($battleArray),
       'engine' => BattleEngineType::fromValue($battleArray['engine'] ?? null)->value,
       'opening' => [
         'preemptiveChancePercent' => $preemptive,

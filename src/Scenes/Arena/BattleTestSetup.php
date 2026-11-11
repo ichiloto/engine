@@ -39,16 +39,20 @@ final readonly class BattleTestSetup
   /** The keys project data writes a setup with ({@see fromArray()}), for every reader that embeds one. */
   public const array KEYS = ['members', 'arena', 'battleSize', 'inventory'];
 
+  public ?int $configuredBattleSize;
+  public int $battleSize;
+
   /**
    * @param list<BattleTestMember> $members
    * @param string|null $arena The battle presentation's arena to fight in, by key; null for its default.
    *   Graphical presentation only: it changes nothing a fight does.
+   * @param int|null $battleSize The selected frontline size; null to inherit the project size when resolved.
    * @param list<BattleTestItem>|null $inventory The party's items, each once; null for the default stock.
    */
-  public function __construct(public array $members, public ?string $arena = null, public int $battleSize = Party::BATTLE_SIZE,
+  public function __construct(public array $members, public ?string $arena = null, ?int $battleSize = null,
     public ?array $inventory = null)
   {
-    if ($battleSize < 1 || $battleSize > Party::MAX_BATTLE_SIZE) {
+    if ($battleSize !== null && ($battleSize < 1 || $battleSize > Party::MAX_BATTLE_SIZE)) {
       throw new InvalidArgumentException('A battle test frontline has 1 to 8 members.');
     }
     if ($members === [] || count($members) > self::MAX_MEMBERS || !array_is_list($members)) {
@@ -57,18 +61,20 @@ final readonly class BattleTestSetup
     if ($inventory !== null) {
       BattleTestItem::requireUnique($inventory);
     }
+    $this->configuredBattleSize = $battleSize;
+    $this->battleSize = $battleSize ?? Party::BATTLE_SIZE;
   }
 
   /**
    * The setup a new game starts with: the system's starting party, each
    * actor at its authored level and wearing its authored equipment.
    */
-  public static function getFromStartingParty(ActorStore $actors): self
+  public static function getFromStartingParty(ActorStore $actors, ?int $battleSize = null): self
   {
     $system = asset('Data/system.php', true);
 
     $system = SystemData::fromArray(is_array($system) ? $system : []);
-    return self::getFromPartyReferences($actors, $system->startingParty, $system->battle->partySize);
+    return self::getFromPartyReferences($actors, $system->startingParty, $battleSize ?? $system->battle->partySize);
   }
 
   /**
@@ -118,19 +124,18 @@ final readonly class BattleTestSetup
     }
     $inventory = array_key_exists('inventory', $data) ? BattleTestItem::listFromArray($data['inventory']) : null;
 
-    return new self(array_map(BattleTestMember::fromArray(...), $members), $arena, $data['battleSize'] ?? Party::BATTLE_SIZE, $inventory);
+    return new self(array_map(BattleTestMember::fromArray(...), $members), $arena, $data['battleSize'] ?? null, $inventory);
   }
 
   /**
-   * The setup as project data writes it; the arena only when one is chosen,
-   * the inventory only when it is set.
+   * The setup as project data writes it, including only configured options.
    *
    * @return array<string, mixed>
    */
   public function toArray(): array
   {
     return [
-      ...($this->battleSize === Party::BATTLE_SIZE ? [] : ['battleSize' => $this->battleSize]),
+      ...($this->configuredBattleSize === null ? [] : ['battleSize' => $this->configuredBattleSize]),
       'members' => array_map(static fn(BattleTestMember $member): array => $member->toArray(), $this->members),
       ...($this->arena === null ? [] : ['arena' => $this->arena]),
       ...($this->inventory === null ? [] : ['inventory' => array_map(static fn(BattleTestItem $item): array => $item->toArray(), $this->inventory)]),
@@ -271,7 +276,7 @@ final readonly class BattleTestSetup
         array_splice($members, $index, 1);
       }
 
-      return new self($members, $this->arena, $this->battleSize, $this->inventory);
+      return new self($members, $this->arena, $this->configuredBattleSize, $this->inventory);
     }
     if ($index >= count($members)) {
       $members[] = $member;
@@ -279,7 +284,7 @@ final readonly class BattleTestSetup
       $members[$index] = $member;
     }
 
-    return new self(array_slice($members, 0, self::MAX_MEMBERS), $this->arena, $this->battleSize, $this->inventory);
+    return new self(array_slice($members, 0, self::MAX_MEMBERS), $this->arena, $this->configuredBattleSize, $this->inventory);
   }
 
   public function withBattleSize(int $size): self
@@ -290,13 +295,13 @@ final readonly class BattleTestSetup
   /** The setup fighting in an arena of the battle presentation, by key; null for its default. */
   public function withArena(?string $arena): self
   {
-    return new self($this->members, $arena === null || trim($arena) === '' ? null : $arena, $this->battleSize, $this->inventory);
+    return new self($this->members, $arena === null || trim($arena) === '' ? null : $arena, $this->configuredBattleSize, $this->inventory);
   }
 
   /** @param list<BattleTestItem>|null $inventory The party's items; null for the default stock. */
   public function withInventory(?array $inventory): self
   {
-    return new self($this->members, $this->arena, $this->battleSize, $inventory);
+    return new self($this->members, $this->arena, $this->configuredBattleSize, $inventory);
   }
 
   /**
