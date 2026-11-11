@@ -1081,13 +1081,7 @@ class MapManager implements CanRenderAt
    */
   private function scrollCameraTo(int $x, int $y): bool
   {
-    $position = $this->camera->clampPosition(new Vector2($x, $y));
-    if ($position->x === $this->camera->position->x && $position->y === $this->camera->position->y) {
-      return false;
-    }
-    $this->camera->screen->setX($position->x);
-    $this->camera->screen->setY($position->y);
-    return true;
+    return $this->camera->scrollTo($x, $y);
   }
 
   /**

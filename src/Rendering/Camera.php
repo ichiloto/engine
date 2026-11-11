@@ -719,6 +719,27 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   }
 
   /**
+   * Scrolls the view to a world position, as far as the map's edge allows. The camera owns its presentation motion:
+   * a scroll ends any transition and retires a motion declared for the origin it leaves, so a retained renderer never
+   * sees one motion id carry two origins.
+   *
+   * @return bool True if the view moved.
+   */
+  public function scrollTo(int $x, int $y): bool
+  {
+    $position = $this->clampPosition(new Vector2($x, $y));
+    if ($position->x === $this->position->x && $position->y === $this->position->y) {
+      return false;
+    }
+    $this->transition = null;
+    $before = $this->getWorldOrigin();
+    $this->screen->setX($position->x);
+    $this->screen->setY($position->y);
+    if ($before !== $this->getWorldOrigin()) { $this->presentationMotion = null; }
+    return true;
+  }
+
+  /**
    * Resizes the camera viewport to match the current screen size.
    *
    * @param int $width The new viewport width.
