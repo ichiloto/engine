@@ -12,11 +12,10 @@ use Ichiloto\Engine\Entities\Party;
  * Where the arena's setup is and what each move does, apart from drawing and
  * input devices: the arena reads semantic moves (up, down, left, right, a
  * page step, confirm, cancel) and passes them here, and draws what this
- * says. Focus moves from the troop list down into the party, into one
- * member's actor, level, starting HP, MP, states and form, and equipment, and into
- * a list of what one of them can be, and back out again with cancel. A page
- * step switches between the troop list, the party and, where items can be
- * set, the party's items ({@see BattleTestInventoryEditor}). Where arenas
+ * says. Pane actions switch between troops, party and items. Confirm opens
+ * a member or item choice, and cancel closes that choice or leaves its
+ * enclosing setup context. Member fields include the actor, level, starting
+ * HP, MP, states, form and equipment. Where arenas
  * are offered (a graphical renderer draws them), left and right on the troop
  * list, and in the composer, choose the one fights take place in. After the
  * troops, a row composes a test troop ({@see TestTroopComposer}), to fight
@@ -30,8 +29,9 @@ final class ArenaSetupEditor
   public const string CHOOSER = 'chooser';
   public const string COMPOSER = 'composer';
   public const string ITEMS = 'items';
-  /** Confirm on the troop list asks for a fight; cancel there asks to leave. */
+  /** Confirm on the troop list asks for a fight. */
   public const string FIGHT = 'fight';
+  /** Cancelling the root setup asks to leave from any pane. */
   public const string QUIT = 'quit';
   /** The composer asks to fight its test troop, or to keep it as a troop. */
   public const string FIGHT_TEST = 'fight-test';
@@ -47,6 +47,12 @@ final class ArenaSetupEditor
   public private(set) int $fieldIndex = 0;
   public private(set) int $choiceIndex = 0;
   private string $partyReturnFocus = self::TROOPS;
+
+  /** Party and Items share the composer context when opened from its troop list. */
+  public bool $isInTroopComposer {
+    get => $this->focus === self::COMPOSER
+      || ($this->focus !== self::TROOPS && $this->partyReturnFocus === self::COMPOSER);
+  }
 
   /** The left pane keeps its list while the party pane has focus. */
   public string $listFocus {
@@ -363,7 +369,7 @@ final class ArenaSetupEditor
     return null;
   }
 
-  /** @return self::QUIT|null Leaving, when cancel on the troop list asks for it. */
+  /** @return self::QUIT|null Leaving the root setup or cancelling a confirmed subcontext. */
   public function cancel(): ?string
   {
     switch ($this->focus) {
@@ -373,10 +379,14 @@ final class ArenaSetupEditor
         if ($this->composer?->cancel() === TestTroopComposer::LEAVE) { $this->focus = self::TROOPS; }
         break;
       case self::ITEMS:
-        if ($this->inventoryEditor?->cancel() === BattleTestInventoryEditor::LEAVE) { $this->focus = self::PARTY; }
-        break;
       case self::PARTY:
-        $this->focus = $this->partyReturnFocus;
+        if ($this->focus === self::ITEMS && $this->inventoryEditor?->cancel() !== BattleTestInventoryEditor::LEAVE) {
+          return null;
+        }
+        if (!$this->isInTroopComposer) {
+          return self::QUIT;
+        }
+        $this->focus = self::TROOPS;
         break;
       case self::MEMBER:
         $this->focus = self::PARTY;

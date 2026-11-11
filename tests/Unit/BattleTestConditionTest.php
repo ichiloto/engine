@@ -336,6 +336,7 @@ it('changes the battle test frontline from one to eight through the party pane',
   expect($editor->setup->battleSize)->toBe(Party::MAX_BATTLE_SIZE)->and($setup->battleSize)->toBe(Party::BATTLE_SIZE);
 
   $list = $scene->describeList();
+  expect($list->hints)->toContain(['cancel', 'Quit']);
   $title = new ReflectionMethod(ArenaScene::class, 'getPartyTitle')->invoke($scene);
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false]);
   $canvas = BattleTestMenuPresentation::compose($theme, $list, false, $scene->listPartyStats(), Party::MAX_BATTLE_SIZE - 1,
@@ -369,7 +370,7 @@ it('folds the items into the staged menu: page to them from the party, choose a 
   expect($editor->focus)->toBe(ArenaSetupEditor::ITEMS)
     ->and($list->title)->toBe('Items (default stock)')
     ->and($list->rows)->toBe([['Start with no items', ['']], ['Potion', ['x99']], ['Ether', ['x99']]])
-    ->and($list->hints)->toContain(['confirm', 'Start'], [ArenaScene::PANE_PREVIOUS_ACTION, 'Party'], ['cancel', 'Back'])
+    ->and($list->hints)->toContain(['confirm', 'Start'], [ArenaScene::PANE_PREVIOUS_ACTION, 'Party'], ['cancel', 'Quit'])
     ->and($list->requiredHintActions)->toBe([ArenaScene::PANE_PREVIOUS_ACTION]);
 
   // Ether: down to its row, confirm, down one, left ten.
@@ -382,7 +383,9 @@ it('folds the items into the staged menu: page to them from the party, choose a 
     ->and($scene->describeList()->hints)->toContain(['up', 'Quantity', 'down'], ['left', 'By 10', 'right'], ['confirm', 'Set']);
   // Shift+Tab chooses nothing while a quantity is open.
   $editor->movePane(-1);
-  expect($editor->focus)->toBe(ArenaSetupEditor::ITEMS);
+  expect($editor->focus)->toBe(ArenaSetupEditor::ITEMS)
+    ->and($items->focus)->toBe(BattleTestInventoryFocus::QUANTITY)
+    ->and($scene->describeList()->hints)->toContain(['cancel', 'Back']);
   $editor->confirm();
   expect($editor->setup->inventory)->toEqual([new BattleTestItem('item.potion', 99), new BattleTestItem('item.ether', 88)]);
 
@@ -391,7 +394,9 @@ it('folds the items into the staged menu: page to them from the party, choose a 
   $editor->confirm();
   $editor->moveHorizontal(-1);
   $editor->cancel();
-  expect($editor->setup->inventory[0]->quantity)->toBe(99);
+  expect($editor->setup->inventory[0]->quantity)->toBe(99)
+    ->and($editor->focus)->toBe(ArenaSetupEditor::ITEMS)
+    ->and($items->focus)->toBe(BattleTestInventoryFocus::ENTRIES);
   $editor->confirm();
   foreach (range(1, 10) as $step) { $editor->moveHorizontal(-1); }
   expect($scene->describeList()->rows)->toBe([['Remove from the items', ['x0']]])
@@ -410,7 +415,7 @@ it('folds the items into the staged menu: page to them from the party, choose a 
   expect($editor->setup->inventory)->toEqual([new BattleTestItem('item.ether', 88), new BattleTestItem('item.potion', 2)]);
 
   // The items persist through member edits and the stage menus, and the preview party holds them.
-  $editor->cancel();
+  $editor->movePane(-1);
   $editor->confirm();
   $editor->moveVertical(1);
   $editor->moveHorizontal(1);

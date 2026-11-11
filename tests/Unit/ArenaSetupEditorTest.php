@@ -34,6 +34,7 @@ it('keeps the troops and the party as separate panes that only Tab and Shift+Tab
   expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)->and($editor->memberIndex)->toBe(0);
   $editor->moveVertical(-1);
   expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)->and($editor->memberIndex)->toBe(0);
+  expect($editor->cancel())->toBe(ArenaSetupEditor::QUIT)->and($editor->focus)->toBe(ArenaSetupEditor::PARTY);
   $editor->movePane(-1);
   expect($editor->focus)->toBe(ArenaSetupEditor::TROOPS)->and($editor->troopIndex)->toBe(2)
     ->and($editor->cancel())->toBe(ArenaSetupEditor::QUIT);
@@ -246,6 +247,9 @@ it('keeps the composed troop and its row when switching to Party and back', func
   expect($editor->focus)->toBe(ArenaSetupEditor::COMPOSER)
     ->and($composer->rowIndex)->toBe($row)
     ->and($composer->troop)->toBe($troop);
+  $editor->movePane(1);
+  expect($editor->cancel())->toBeNull()->and($editor->focus)->toBe(ArenaSetupEditor::TROOPS)
+    ->and($composer->troop)->toBe($troop);
 });
 
 it('offers starting conditions and the party\'s items only where they can be set, through the same small key set', function () {
@@ -289,7 +293,7 @@ it('offers starting conditions and the party\'s items only where they can be set
   $editor->moveVertical(-1);
   $editor->confirm();
   expect($editor->setup->inventory)->toEqual([new \Ichiloto\Engine\Scenes\Arena\BattleTestItem('item.potion', 2)])
-    ->and($editor->cancel())->toBeNull()->and($editor->focus)->toBe(ArenaSetupEditor::PARTY);
+    ->and($editor->cancel())->toBe(ArenaSetupEditor::QUIT)->and($editor->focus)->toBe(ArenaSetupEditor::ITEMS);
 });
 
 it('plays no music on the setup menu, leaving the battle theme to the battle it opens', function () {

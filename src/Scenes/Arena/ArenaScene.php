@@ -588,7 +588,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
   private function describePartyHints(string $list): array
   {
     return [['confirm', 'Edit'], ['left', 'Frontline', 'right'], [self::PANE_PREVIOUS_ACTION, $list],
-      ...($this->editor?->inventoryEditor === null ? [] : [[self::PANE_NEXT_ACTION, 'Items']])];
+      ...($this->editor?->inventoryEditor === null ? [] : [[self::PANE_NEXT_ACTION, 'Items']]),
+      ['cancel', $this->editor?->isInTroopComposer ? 'Back' : 'Quit']];
   }
 
   /** The test troop composer: its rows, the enemies to add, or what can be done to a member. */
@@ -952,7 +953,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     return new BattleTestMenuList($items->items === null ? 'Items (default stock)' : 'Items',
       $rows === [] ? [['The party holds no items.', []]] : $rows, $rows === [] ? null : $items->rowIndex,
       [...($rows === [] ? [] : [['confirm', match (true) { str_starts_with($row, 'item:') => 'Quantity', $row === 'add' => 'Add', $row === 'empty' => 'Start', default => 'Use' }]]),
-        [self::PANE_PREVIOUS_ACTION, 'Party'], ['cancel', 'Back']],
+        [self::PANE_PREVIOUS_ACTION, 'Party'], ['cancel', $this->editor->isInTroopComposer ? 'Back' : 'Quit']],
       $rows === [] ? [] : [MenuRowColumn::fit(array_column(array_column($rows, 1), 0))],
       requiredHintActions: [self::PANE_PREVIOUS_ACTION], requiresEveryHint: true);
   }
