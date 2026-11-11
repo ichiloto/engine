@@ -6,10 +6,13 @@ writes them; `SkillRecord::getEffectTypes()` lists every type, and the Editor
 offers the same list. States are authored in `assets/Data/states.php` and read
 by `StateRegistry`.
 
-## Crisis techniques
+<a id="crisis-techniques"></a>
 
-An actor may reference a project resource with `'crisisAbility' => 'surge'`.
-The resource lives in `assets/Data/crisis-abilities.php`, a list of records:
+## Super Moves
+
+An actor references its Super Move resource with `'superMove' => 'surge'`.
+The catalogue at `assets/Data/super-moves.php` returns a list of records.
+It may load individual declarative records and return the combined list.
 
 ```php
 return [[
@@ -26,7 +29,7 @@ return [[
 ```
 
 HP strictly below the authored percentage, or any listed active state, makes
-the crisis active for a conscious actor. Availability reads current resources
+the Super Move active for a conscious actor. Availability reads current resources
 and states and changes no MP. Each variant references a normal basic or special
 skill and shared world conditions. Exactly one matching variant offers a
 technique. Overlapping variants are reported as an authoring error. A queued
@@ -41,11 +44,21 @@ activation. It uses the same variant conditions and skill catalog as combat.
 changes HP, MP, learned skills or saved state. This lets a power-reveal notice
 name an unlocked technique while the actor is healthy.
 
-The Editor's Crisis Abilities category authors these records and variants;
-the actor page selects their stable resource IDs. Skill and state references
-use the shared pickers. Actor saves keep mutable resources and persistent states;
-the current project source supplies crisis rules when the actor is reconstructed.
-Battle condition badges project current crisis activation.
+Existing projects may continue to read `assets/Data/crisis-abilities.php`
+and the actor key `crisisAbility`. Migrate the catalogue and actor references
+together. Engine rejects a project containing both catalogue files or an
+actor with conflicting declarations. The resource IDs stay the same.
+
+In the Editor, open **Database → Super Moves** to author activation and
+variants. The actor's **Super Move** row selects a resource by its stable ID.
+For a project using the legacy catalogue, run **Migrate to Super Moves** from
+the command palette. The legacy catalogue is readable before migration.
+Migration moves the catalogue and updates actor references in one transaction.
+One Undo restores the previous catalogue and references.
+
+Actor saves keep mutable resources and persistent states. The current actor
+source supplies the Super Move when that actor is reconstructed. Battle
+condition badges display the project-defined activation label.
 
 On clients that report held input, holding the semantic Right navigation control
 while Attack is highlighted reveals the available technique; releasing it
@@ -97,10 +110,11 @@ effect selector and state picker round-trip these records with Undo/Redo.
 | Type | Values | What it does |
 | --- | --- | --- |
 | `hp_damage`, `hp_drain`, `hp_recover`, `mp_damage`, `mp_drain`, `mp_recover` | `formula`, `element`, `variance`, `isCriticalHit`; `hp_damage` also `resolutionKind` | Changes HP or MP by the formula's amount |
-| `add_state` | `stateId`, `chancePercent` (default 100), `guaranteed` (default false) | Afflicts each surviving target; ordinary effects use state resistance, and explicitly guaranteed effects bypass resistance and the chance roll |
+| `add_state` | `stateId`, `chancePercent` (default 100), `guaranteed` (default false), `trigger` (default `always`), `delayTurns` (default 0) | Afflicts a surviving target. Ordinary applications use state resistance. A guaranteed application bypasses resistance and the chance roll. |
 | `remove_state` | `stateIds`, `chancePercent` (default 100) | Rolls to cure each listed state the target has |
 | `modify_stat_stage` | `stat`, `delta`, `affectsUser` | Raises or lowers a stat stage for the battle |
 | `prepare_counter` | `skill`, `stateId` | Draws the selected opponent's next attack into a decoy miss, then queues one response |
+| `prepare_response_window` | `skill`, `responseTurns` | Warns the living opposing party and schedules a follow-up after their response turns |
 | `reset_atb` | — | Resets a surviving target's ATB gauge and removes its ready-queue entry |
 | `reveal` | `facts`, `chancePercent` (1 to 100, default 100) | Reveals facts about each foe for the rest of the battle |
 
@@ -112,6 +126,35 @@ An explicitly guaranteed state effect uses `guaranteed: true` and a 100% base
 chance. It applies once to a survivor even when that target resists the state.
 Already active states retain their existing duration and identity. Existing
 effects and older serialized effects keep their ordinary resistance behavior.
+
+Use `trigger => 'landedHit'` to require an earlier damaging hit on the same
+surviving recipient in the same invocation. Place the state effect after a
+damaging effect. Skill record validation rejects a landed-hit state before any
+damaging effect.
+
+For a battle-only skill, a positive `delayTurns` leaves the state pending
+until the bearer completes that many turns. Counting starts after the bearer's
+current turn if the application happens during it. The active state begins
+with its full duration. A pending state holds its identity and has its own
+badge. Pending states clear at battle exit.
+
+### Telegraphed follow-up skills
+
+Author a warning as a battle-only skill with Enemy / All / Alive scope and
+this sole effect:
+
+```php
+['type' => 'prepare_response_window', 'skill' => 'Follow-up', 'responseTurns' => 1]
+```
+
+The referenced skill is a separate battle-only Enemy / All / Alive skill.
+Give the warning its own invocation message and add the warning to the
+enemy's action patterns. The battle snapshots living opponents when the
+warning resolves. Guard and forced passes count as completed responses. A
+knocked-out or departing responder drops from the wait. The enemy uses its
+ordinary patterns while waiting. Once the window is ready, its next legal
+action executes the follow-up against current living opponents. Battle exit
+clears the window.
 
 ### Prepared counters
 
@@ -292,6 +335,7 @@ nothing.
 | `persistsAfterBattle`, `fieldTickSteps`, `fieldTickKnocksOut`, `curedByRest` | Life outside battle |
 | `disposition` | `harmful` (default), `beneficial` or `neutral` |
 | `counterAttack`, `damageTakenRate`, `coversAllies` | Counters, protection and Cover |
+| `physicalDamageDealtRate` | Multiplies the active bearer's outgoing physical damage. Default 1. |
 | `atbRate` | Multiplies ATB fill pace; default 1, 0 pauses fill |
 
 ### Confusion

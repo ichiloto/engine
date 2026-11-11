@@ -29,20 +29,30 @@ save pipeline, including actor aliases. The Editor authors the project size and
 selection/regroup commands through the existing source-preserving schemas and
 Actor pickers. Terminal formations and synchronized four-row battle-HUD paging
 cover eight combatants; graphical staging retains theme-owned formations.
-Battle Test's former four-member ceiling is removed. See
-[Party capacity and temporary groups](story-events.md#party-capacity-and-temporary-groups).
+Battle Test accepts eight configured members and a separate active frontline
+limit from 1–8. A preset's explicit `battleSize`, including three, survives
+serialization. An omitted limit inherits the project's current size through
+`ProjectBattleTest::createSetup()`; editor callers can supply an unsaved System
+size. The Party pane adjusts the limit. Next/previous pane actions retain each
+pane's selection and scroll position. Cancel closes an opened choice before it
+leaves Battle Test. Editor preview, GUI controls and Console roster overrides
+must use the same resolution contract; their remaining work is tracked in the
+[rendering integration roadmap](rendering/integration-roadmap.md).
+See [Party capacity and temporary groups](story-events.md#party-capacity-and-temporary-groups).
 This does not implement a particular game's split/reunion scene, change its
 normal party size, add controller devices or authorize native launches.
 
-## Crisis techniques — in progress, 29 October 2026
+## Super Moves — shared runtime and authoring
 
-Project-authored crisis resources now define HP/status activation and
-world-conditioned skill variants. The initial runtime reads live resources,
-rechecks queued actions, retains ordinary Attack, and projects a crisis badge.
-Current-source actor reconstruction keeps the resource definition out of saved
-mutable actor state. Synthetic runtime and Editor round-trip checks cover this
-foundation. Full delivery still requires the secondary-command interaction,
-authored formation/line effects and integrated presentation.
+Project-authored Super Moves define HP/status activation and world-conditioned
+skill variants. The runtime reads live resources, rechecks queued actions,
+and displays the project-defined activation badge. On held-input clients, hold Right
+on Attack to reveal the available technique. Confirm keeps that choice through
+target selection. Releasing Right before confirmation restores Attack.
+Event-only clients use the Attack choice menu. Current-source actor
+reconstruction keeps the resource definition out of saved mutable actor state.
+The Editor authors these resources and actor assignments through the shared
+condition and reference pickers.
 BattleConfig now owns renderer-independent front/back rows and lanes keyed by
 combatant instances. Troop member `battlePosition` declarations and optional
 per-battle party slot positions seed it; reserve replacements synchronize at the
@@ -56,9 +66,9 @@ after all damage, with live/counter/simulator context ownership. Graphical and
 terminal frames now project those mutations over their original presentation
 anchors while preserving battler identity, theme sizing, footing and side bounds.
 Battle configuration validates positions without freezing pre-battle party edits.
-Authored move integration, the final crisis command interaction and production
-presentation remain required for full crisis delivery.
-See [Crisis techniques](skill-effects-and-states.md#crisis-techniques).
+Game projects own their technique bindings and artwork. See
+[Super Moves](skill-effects-and-states.md#super-moves) and the
+[rendering integration roadmap](rendering/integration-roadmap.md).
 
 Prepared decoy counters now divert a selected opponent's next damaging command,
 force one whole-invocation miss and queue a normal counter response. Traditional,
@@ -70,8 +80,7 @@ part of the ongoing delivery.
 ATB reset effects now use the active engine's gauge/ready-queue owner. State-owned
 ATB pace supports temporary slowing, acceleration and paused fill, including
 restoration when cured and legacy-state defaults. Traditional combat retains its
-turn rules and reports timing effects unapplied. Formation/line mechanics and
-production presentation remain in progress.
+turn rules and reports timing effects unapplied.
 
 Explicit guaranteed state effects now bypass resistance and the chance roll on
 surviving targets. Existing effects keep their resistance rules; older saved
@@ -1031,6 +1040,11 @@ surface, boss phases, and scheduled/delayed battle actions.
 
 ## Cinematic and summon runtime gate ✅ *shipped 2026-08*
 
+**Renderer follow-up.** Cinematic art on the `aboveCover` plane follows the
+current field cell. Smooth movement and camera easing above the cover require
+a world-anchored overlay image in the Renderer protocol. The
+[cinematic contract](cinematics.md) describes the current stage-plane behavior.
+
 > Status: the Engine runtime gate is complete and awaiting orchestration
 > review. It does not claim completion of the separate Editor authoring gate.
 
@@ -1256,6 +1270,19 @@ fields inject the protected-write property on their own scene; normal field
 configuration registers it automatically. `UIManager::deactivateElement()` and
 `removeElement()` clear only the owned element's presentation and Console layer,
 preserving notifications and unrelated UI.
+
+### Untimed performance sequences
+
+`PerformanceSequenceScene` runs an ordered series of choice prompts through
+the shared modal presentation in Terminal and graphical renderers. Register
+the scene and pass `PerformanceSceneConfiguration` to `beginSceneExcursion()`.
+The configuration contains a title, `PerformancePhrase` entries with their
+choices and zero-based correct choice, and an optional sound reference. A
+correct choice advances to the next prompt. An incorrect choice repeats the
+current prompt. Cancel returns to the caller, and a new sitting starts with
+the first prompt. The scene owns the accompaniment playback and stops it on
+exit. `PerformanceResult` reports the completed and total phrase counts. The
+calling game owns the content, event continuation and any saved progression.
 
 The optional [project secondary field action](rendering/input-sources.md#project-secondary-field-action)
 uses semantic input independently of ordinary Talk. The generic

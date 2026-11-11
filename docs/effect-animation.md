@@ -248,6 +248,12 @@ into this field session without changing their exact frame duration, colours,
 offsets, blank frames or last-frame hold. One-shot commands reject loops;
 map-owned ambient sessions retain loop ownership.
 
+Set `plane => 'aboveCover'` on a cinematic field effect or staged actor to
+draw its graphical image above the active dim. The default `field` plane
+draws with the map. The stage plane uses the subject's current cell, while
+Terminal glyphs keep their field layers. See [cinematic presentation commands](cinematics.md#existing-presentation-commands)
+for layering, renderer support and authoring constraints.
+
 Last Legend's Listening Stone rite now references `field-healing-aura`:
 25 fps, 18 ticks, three ticks per original frame, preserving its full 0.72
 seconds independently of battle healing. No authored legacy `field_animation`
@@ -625,8 +631,23 @@ one ray through painted pixels in each selected recipient’s displayed crop,
 following the targeting order. Engine traces the current crop, mirror and clip
 at release, using the renderer’s whole-degree headings. If the projected
 formation has no shared drawable ray, the presentation reports that geometry
-and the action still uses its existing combat cue. A directional
-straight image can also set `flight.tipX` to a normalized source X along its
+and the action still uses its existing combat cue. To give the flight a
+horizontal exit instead, set `flight.fallback => 'horizontal-exit'`. The
+ray then leaves the arena in the caster's opponent-facing direction at the
+release height. `BattleStraightShot::planRoute()` reports the selected path,
+whether it used the exit and the order of the supplied recipients.
+
+For a fixed, once-playing graphical target effect, set the optional
+`fallbackHitSpacingFrames` to 1 through `fps` authored frames. Declare
+one horizontal-exit flight whose arrival owns the impact, with release
+on or after arena restoration for a staged sequence. When the flight exits,
+target-anchored hit tracks, reactions and popups play nearest first using
+the captured visible body centres. Equal distances keep the resolved order.
+Combat resolves once in its original order. A direct ray keeps one shared
+hit. Preview hosts pass the resolved `targetCount` when constructing
+`BattleCommandTimeline` so it reserves the same reaction time as live play.
+
+A directional straight image can also set `flight.tipX` to a normalized source X along its
 pivot row. The rear pivot stays at the release point on the first flight frame.
 The tip reaches the final contact at `arrivalFrame`. When space is tight, the
 image scales uniformly so the tip still has at least its own reach in which to
@@ -997,6 +1018,9 @@ All seven stat identities (`attack`, `defence`, `magicAttack`, `magicDefence`,
 `speed`, `grace`, `evasion`) have independent `positive` and `negative` keys.
 States use `status.state.<State::id>`, never display names, glyphs or directories;
 poison and stun therefore retain their dedicated identity after a rename.
+Pending states use the separate `status.state.<State::id>.pending` role.
+`BattlerConditions::listStateIconRoles()` supplies both roles for each project
+state so the Editor can offer them before an image is bound.
 Procedural badges include an up/down arrow (or neutral marker); dedicated
 positive/negative artwork owns its own polarity treatment. A readable signed
 stage number remains outside every stat icon. State polarity comes from authored
@@ -2598,6 +2622,12 @@ lifetime accommodates the overlapping caster effect. Damage still follows the
 target effect's existing `effectTiming`, cue or original target-end policy;
 an overlapping caster effect does not move that resolution cue. For a hit at
 target start, author the target effect's existing frame-0 impact policy.
+For a staged target, `effectTiming => ['mode' => 'arena', 'frame' => N]`
+returns controls at the stage's exclusive restore boundary and resolves at
+the authored frame `N`, at or after that boundary. Put the arena hit imagery
+on the target tracks and let the actual selected battlers supply their
+placement. Summon cinematic definitions use the same mode through their
+existing effect timing. Paired Terminal effects can use their own timing.
 `sourceEffectAnchor: 'source'` is the compatibility default and is omitted when
 serializing unchanged animation data. The target anchor supports battlefield
 tracks; a source cinematic stage requires its existing sequential source lane.
