@@ -1654,6 +1654,8 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
             fn() => $this->fieldEffects?->clear(),
             fn() => $this->mapManager?->clearWorldObjects(),
             fn() => $this->setPresentationContext(null),
+            fn() => $this->achievementManager?->release(),
+            fn() => $this->questManager?->release(),
             fn() => parent::stop(),
         ] as $cleanup) {
             try {

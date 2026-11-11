@@ -62,15 +62,16 @@ class QuestObjective
    *
    * @param GameState|null $gameState The current persistent world state.
    * @param Party|null $party The current party, for item-backed conditions.
+   * @param QuestLog|null $questLog The owning campaign quest progress.
    * @return string The spoiler-safe current description.
    */
-  public function displayDescription(?GameState $gameState = null, ?Party $party = null): string
+  public function displayDescription(?GameState $gameState = null, ?Party $party = null, ?QuestLog $questLog = null): string
   {
     if (
       $this->revealedDescription === ''
       || $this->revealConditions === []
       || $gameState === null
-      || ! WorldConditionEvaluator::allHold($this->revealConditions, $gameState, $party)
+      || ! WorldConditionEvaluator::allHold($this->revealConditions, $gameState, $party, $questLog)
     ) {
       return $this->description;
     }

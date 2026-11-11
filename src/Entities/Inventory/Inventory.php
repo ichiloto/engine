@@ -21,6 +21,27 @@ class Inventory
 {
   /** @var \WeakMap<self, ItemStore>|null Project catalogues are transient and never enter saved inventory. */
   private static ?\WeakMap $projectStores = null;
+  /** @var \WeakMap<self, \WeakReference<QuestManager>>|null Inventory changes belong to their campaign. */
+  private static ?\WeakMap $questManagers = null;
+
+  public function bindQuestManager(QuestManager $manager): void
+  {
+    self::$questManagers ??= new \WeakMap();
+    self::$questManagers[$this] = \WeakReference::create($manager);
+  }
+
+  private function notifyInventoryChanged(): void
+  {
+    $binding = self::$questManagers[$this] ?? null;
+    if ($binding !== null) {
+      $manager = $binding->get();
+      if ($manager !== null && !$manager->isReleased) { $manager->syncCollectObjectives(); }
+      return;
+    }
+    // An explicitly owned catalogue can be loaded before a campaign acquires progression.
+    if (isset(self::$projectStores[$this])) { return; }
+    QuestManager::current()?->syncCollectObjectives();
+  }
 
   /** Bind the catalogue of the project that owns this campaign inventory. */
   public function bindItemStore(ItemStore $store): void
@@ -169,7 +190,7 @@ class Inventory
       $this->inventoryItems->add($item);
     }
 
-    QuestManager::current()?->syncCollectObjectives();
+    $this->notifyInventoryChanged();
   }
 
   /**
@@ -199,7 +220,7 @@ class Inventory
       }
     }
 
-    QuestManager::current()?->syncCollectObjectives();
+    $this->notifyInventoryChanged();
   }
 
   /**

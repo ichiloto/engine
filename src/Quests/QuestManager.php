@@ -37,6 +37,33 @@ class QuestManager
    * @var QuestManager|null The manager bound to the running game scene.
    */
   protected static ?QuestManager $current = null;
+  /** @var \WeakReference<self>|null */
+  private ?\WeakReference $previousManager = null;
+  private bool $released = false;
+
+  public bool $isReleased { get => $this->released; }
+
+  /** Release this campaign's compatibility binding without disturbing another active owner. */
+  public function release(): void
+  {
+    if ($this->released) { return; }
+    if (self::$current === $this) {
+      self::$current = $this->previousManager?->get();
+    } else {
+      $cursor = self::$current;
+      while ($cursor !== null) {
+        $previous = $cursor->previousManager?->get();
+        if ($previous === $this) {
+          $cursor->previousManager = $this->previousManager;
+          break;
+        }
+        $cursor = $previous;
+      }
+    }
+    $this->previousManager = null;
+    $this->released = true;
+  }
+
   /**
    * @var array<string, Quest> The authored quests, keyed by id.
    */
@@ -60,7 +87,9 @@ class QuestManager
   {
     $this->log = new QuestLog();
     $this->quests = self::loadQuestDefinitions($assetRoot);
+    $this->previousManager = self::$current === null ? null : \WeakReference::create(self::$current);
     self::$current = $this;
+    $this->gameScene->party?->inventory?->bindQuestManager($this);
   }
 
   /**
@@ -375,7 +404,7 @@ class QuestManager
           continue;
         }
 
-        $label = $objective->displayDescription($gameState, $party);
+        $label = $objective->displayDescription($gameState, $party, $log);
 
         foreach ($objective->waymarks as $waymarkIndex => $waymark) {
           if ($waymark->holds($gameState, $party, $log)) {
@@ -392,7 +421,7 @@ class QuestManager
   /** Resolves one objective's current spoiler-safe journal text. */
   public function describeObjective(QuestObjective $objective): string
   {
-    return $objective->displayDescription($this->gameScene->gameState, $this->gameScene->party);
+    return $objective->displayDescription($this->gameScene->gameState, $this->gameScene->party, $this->log);
   }
 
   /**
@@ -667,7 +696,8 @@ class QuestManager
     return WorldConditionEvaluator::allHold(
       $quest->prerequisites,
       $this->gameScene->gameState,
-      $this->gameScene->party
+      $this->gameScene->party,
+      $this->log,
     );
   }
 

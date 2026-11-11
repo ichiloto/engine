@@ -15,6 +15,7 @@ final class ProjectStateRegistry
     private bool $preparing = false;
     private bool $restoring = false;
     private bool $started = false;
+    private ?object $snapshotScope = null;
 
     /** @var list<string> Unknown data is retained but cannot be used or changed without its policy. */
     public array $diagnostics {
@@ -89,7 +90,7 @@ final class ProjectStateRegistry
     /** @param array<string, array{version: int, data: array<array-key, mixed>}> $snapshot */
     public function restoreSnapshot(array $snapshot): void
     {
-        if ($this->restoring) {
+        if ($this->restoring || $this->snapshotScope !== null) {
             throw new ProjectStateException('A campaign restoration is already in progress.');
         }
         $prepared = $this->prepareSnapshot($snapshot);
@@ -97,25 +98,55 @@ final class ProjectStateRegistry
         $this->started = true;
     }
 
-    /** Restore before field consumers run; roll back project state if scene configuration fails. */
-    public function runWithSnapshot(array $snapshot, Closure $configure): void
+    /**
+     * Acquire one campaign snapshot for a field setup or a detached preview.
+     * The owner must commit successful field setup or release temporary/failed work.
+     * @param array<string, array{version: int, data: array<array-key, mixed>}> $snapshot
+     */
+    public function acquireSnapshot(array $snapshot): ProjectStateScope
     {
+        $this->assertMutable();
         if ($this->restoring) {
             throw new ProjectStateException('Nested campaign restoration is unsupported.');
         }
+        if ($this->snapshotScope !== null) {
+            throw new ProjectStateException('Complete the current project-state scope before restoring another campaign.');
+        }
         $previous = $this->snapshot;
         $started = $this->started;
-        $this->restoreSnapshot($snapshot);
+        $prepared = $this->prepareSnapshot($snapshot);
+        $owner = new \stdClass();
+        $this->snapshot = $prepared;
+        $this->started = true;
+        $this->snapshotScope = $owner;
+        return new ProjectStateScope(function (bool $restore) use ($owner, $previous, $started): void {
+            $this->assertMutable();
+            if ($this->restoring || $this->snapshotScope !== $owner) {
+                throw new ProjectStateException('Only the owning project-state scope may finish restoration.');
+            }
+            if ($restore) {
+                $this->snapshot = $previous;
+                $this->started = $started;
+            }
+            $this->snapshotScope = null;
+        });
+    }
+
+    /** Restore before field consumers run; roll back project state if scene configuration fails. */
+    public function runWithSnapshot(array $snapshot, Closure $configure): void
+    {
+        $scope = $this->acquireSnapshot($snapshot);
         $this->restoring = true;
         try {
             $configure();
         } catch (Throwable $failure) {
-            $this->snapshot = $previous;
-            $this->started = $started;
+            $this->restoring = false;
+            $scope->release();
             throw $failure;
         } finally {
             $this->restoring = false;
         }
+        $scope->commit();
     }
 
     /** @return array<array-key, mixed> A detached value, not a mutable reference. */
