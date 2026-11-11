@@ -30,7 +30,8 @@ final class BattleTestMenuPresentation
 
   /**
    * @param list<array{0: string, 1: array<string, string>}> $party Each member's name and its figures by label.
-   * @param ?int $partySelected The member chosen while the party is being set up.
+   * @param ?int $partySelected The member to highlight while the party is being set up.
+   * @param int $partyAnchor The member kept in view while another pane has focus.
    * @param ?string $arena The arena fights take place in, where arenas are offered.
    * @param ?int $outlined The test troop member to outline on the stage.
    * @param bool $compositing Whether the renderer draws composites, such as battlers' shadows.
@@ -39,7 +40,7 @@ final class BattleTestMenuPresentation
   public static function compose(MenuPresentationCatalog $theme, BattleTestMenuList $list, bool $listFocused,
     array $party, ?int $partySelected, ?string $arena, ?BattleFormationLayout $stage, ?int $outlined, bool $placing,
     ?string $stageIssue = null, float $time = 0, bool $compositing = true, int $width = PresentationCanvas::DEFAULT_WIDTH,
-    int $height = PresentationCanvas::DEFAULT_HEIGHT, string $partyTitle = 'Party'): PresentationCanvas
+    int $height = PresentationCanvas::DEFAULT_HEIGHT, string $partyTitle = 'Party', int $partyAnchor = 0): PresentationCanvas
   {
     $view = new MenuCanvas($theme, $width, $height, $time);
     $m = $theme->metrics;
@@ -54,7 +55,7 @@ final class BattleTestMenuPresentation
 
     self::renderList($view, $theme, $list, $listFocused, $arena, $listBox);
     self::renderStage($view, $theme, $stage, $outlined, $placing, $stageIssue, $stageBox, $compositing);
-    self::renderParty($view, $theme, $party, $partySelected, $partyBox, $partyTitle);
+    self::renderParty($view, $theme, $party, $partySelected, $partySelected ?? $partyAnchor, $partyBox, $partyTitle);
 
     return $view->finish();
   }
@@ -140,7 +141,7 @@ final class BattleTestMenuPresentation
 
   /** @param list<array{0: string, 1: array<string, string>}> $party */
   private static function renderParty(MenuCanvas $view, MenuPresentationCatalog $theme, array $party, ?int $selected,
-    CanvasRectangle $box, string $title): void
+    int $anchor, CanvasRectangle $box, string $title): void
   {
     $m = $theme->metrics;
     $p = $m->panelPadding;
@@ -162,7 +163,7 @@ final class BattleTestMenuPresentation
     $preferredHeight = min($m->rowHeight, intdiv((int) $availableHeight, max(self::PARTY_ROWS, count($rows))));
     $rowHeight = max($preferredHeight, MenuRowLayout::getMinimumRowHeight($m->cellHeight, $theme->rows->metrics));
     $view->rows('battle-test-members', $rows, new MenuRowLayout(new CanvasRectangle($inner->x, $y, $inner->width, $availableHeight),
-      $columns, $rowHeight, $m->cellWidth, $m->cellHeight, ellipsis: true), $selected);
+      $columns, $rowHeight, $m->cellWidth, $m->cellHeight, ellipsis: true), $anchor);
   }
 
   /** A rectangle kept inside another, for an outline that never leaves its picture. */

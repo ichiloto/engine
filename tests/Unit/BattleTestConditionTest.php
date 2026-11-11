@@ -346,6 +346,12 @@ it('changes the battle test frontline from one to eight through the party pane',
   expect($title)->toBe('Party · Frontline limit 8')->and($text)->toContain($title)
     ->and($hintText)->toContain('Frontline')
     ->and(array_column($canvas->textLayers, 'id'))->toContain('battle-test-members-battle-test-member-7-text');
+
+  $editor->movePane(-1);
+  $unfocused = BattleTestMenuPresentation::compose($theme, $scene->describeList(), true, $scene->listPartyStats(), null,
+    null, null, null, false, partyTitle: $title, partyAnchor: Party::MAX_BATTLE_SIZE - 1);
+  expect(array_column($unfocused->textLayers, 'id'))->toContain('battle-test-members-battle-test-member-7-text')
+    ->and(array_column($unfocused->images, 'id'))->not->toContain('battle-test-members-battle-test-member-7-selected');
 });
 
 it('folds the items into the staged menu: page to them from the party, choose a quantity as a shop does, add, remove and reset', function () {

@@ -45,14 +45,12 @@ use Throwable;
  * a fresh party and a fresh troop, so nothing one battle does (experience,
  * levels, gold, items, states, defeated enemies) carries into the next.
  *
- * Down from the troop list, or a page step, moves into the party; confirm
- * edits a member; left and right change its actor, level and starting HP
- * and MP (a page step changes them by ten); confirm on its HP, MP, states
- * or a slot chooses from what it can be; cancel steps back out. A page step
- * from the party moves to its items, which start as the default stock;
- * confirm on one chooses how many the party holds, as a shop does. In a
- * graphical renderer, left and right on the troop list choose the battle
- * presentation's arena the fights take place in.
+ * The next and previous pane actions move between Troops, Party and Items.
+ * In Party, left and right change the frontline size and confirm edits the
+ * selected member. Within member setup, left and right change the focused
+ * field and page steps adjust level, HP or MP by ten. In Items, confirm
+ * chooses the quantity to carry. In a graphical renderer, left and right
+ * on the troop list choose the arena.
  *
  * After the troops, a row composes a test troop: pick enemies, move them
  * on the stage where a graphical renderer draws it, fight it, and keep it
@@ -694,7 +692,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
         $focus !== ArenaSetupEditor::PARTY, $this->listPartyStats(),
         in_array($focus, [ArenaSetupEditor::PARTY, ArenaSetupEditor::MEMBER, ArenaSetupEditor::CHOOSER], true) ? $editor->memberIndex : null,
         $this->getArenaName(), $stage, $outlined, $composer?->focus === TestTroopComposer::PLACING, $issue,
-        compositing: $runtime->supports(RendererSessionConfig::CANVAS_COMPOSITING), partyTitle: $this->getPartyTitle());
+        compositing: $runtime->supports(RendererSessionConfig::CANVAS_COMPOSITING), partyTitle: $this->getPartyTitle(),
+        partyAnchor: $editor->memberIndex);
     } catch (Throwable $error) {
       if ($this->presentationError !== $error->getMessage()) {
         Debug::error('The battle test menu is drawn in the terminal\'s windows: ' . $error->getMessage());
