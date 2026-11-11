@@ -201,8 +201,7 @@ final class EffectTimelineValidator
       }
       $placement = $onStage ? CinematicStage::validatePlacement($track['placement'] ?? null, $stage, $trackPath . '.placement') : null;
       $hasImages = $hasImages || !$onStage;
-      if (!is_string($track['asset'] ?? null)) { throw new InvalidArgumentException("Effect {$id} image track needs an asset path."); }
-      SpriteValidation::validateAssetPath($track['asset']);
+      $defaultAsset = array_key_exists('asset', $track) ? $track['asset'] : null;
       $sheet = $track['sheet'] ?? ['columns' => 1, 'rows' => 1];
       $cells = $track['cells'] ?? ['width' => 1, 'height' => 1];
       foreach ([[$sheet, ['columns', 'rows']], [$cells, ['width', 'height']]] as [$geometry, $keys]) {
@@ -269,10 +268,7 @@ final class EffectTimelineValidator
         }
         PresentationSpritePivot::fromArray($pivot);
       }
-      $size = PngAssetPreflight::inspect($this->assetRoot, $track['asset']);
-      if ($size['width'] % $sheet['columns'] !== 0 || $size['height'] % $sheet['rows'] !== 0) {
-        throw new InvalidArgumentException("Effect {$id} image does not divide into its sheet grid.");
-      }
+      $defaultSize = array_key_exists('asset', $track) ? $this->inspectImageSource($id, $defaultAsset, $sheet) : null;
       $frames = $track['keyframes'] ?? null;
       if (!is_array($frames) || !array_is_list($frames) || $frames === [] || count($frames) > 10000) {
         throw new InvalidArgumentException("Effect {$id} image track needs a list of keyframes.");
@@ -280,11 +276,11 @@ final class EffectTimelineValidator
       $keyframes = [];
       foreach ($frames as $frameIndex => $frame) {
         $framePath = $trackPath . '.keyframes[' . $frameIndex . ']';
-        if (!is_array($frame) || array_diff(array_keys($frame), ['frame', 'duration', 'sourceFrame', 'position',
+        if (!is_array($frame) || array_diff(array_keys($frame), ['frame', 'duration', 'asset', 'sourceFrame', 'position',
           ...($forBattle || $forStage ? ['flipX', 'flipY'] : []), ...($onStage ? ['opacity'] : [])]) !== []
           || (array_key_exists('flipX', $frame) && !is_bool($frame['flipX']))
           || (array_key_exists('flipY', $frame) && !is_bool($frame['flipY']))) {
-          throw new InvalidArgumentException("Effect {$id} keyframes accept frame, duration, sourceFrame, position and boolean flipX/flipY.");
+          throw new InvalidArgumentException("Effect {$id} keyframes accept frame, duration, asset, sourceFrame, position and boolean flipX/flipY.");
         }
         $at = $frame['frame'] ?? null;
         $duration = $frame['duration'] ?? 1;
@@ -297,7 +293,10 @@ final class EffectTimelineValidator
           || (!$onStage && (!is_int($position['x'] ?? null) || !is_int($position['y'] ?? null)))) {
           throw new InvalidArgumentException("Effect {$id} has an invalid keyframe range, sourceFrame or cell offset.");
         }
-        $keyframes[] = ['frame' => $at, 'duration' => $duration, 'assetId' => $track['asset'], 'position' => $position,
+        $asset = array_key_exists('asset', $frame) ? $frame['asset'] : $defaultAsset;
+        $size = array_key_exists('asset', $frame) || $defaultSize === null
+          ? $this->inspectImageSource($id, $asset, $sheet) : $defaultSize;
+        $keyframes[] = ['frame' => $at, 'duration' => $duration, 'assetId' => $asset, 'position' => $position,
           'payload' => ['sourceFrame' => $source, 'columns' => $sheet['columns'], 'rows' => $sheet['rows'],
             'frameWidth' => intdiv($size['width'], $sheet['columns']), 'frameHeight' => intdiv($size['height'], $sheet['rows']),
             'cells' => $cells, 'depth' => $depth, ...(isset($track['fit']) ? ['fit' => $fit->value] : []),
@@ -427,6 +426,23 @@ final class EffectTimelineValidator
         ...($flightTiming === null ? [] : ['flightTiming' => $flightTiming]),
         'playback' => ['loop' => $playback === 'loop', 'loopFrom' => $loopFrom],
         ...($stage === null ? [] : ['stage' => $stage->data])]);
+  }
+
+  /**
+   * @param array{columns: int, rows: int} $sheet
+   * @return array{width: int, height: int}
+   */
+  private function inspectImageSource(string $id, mixed $asset, array $sheet): array
+  {
+    if (!is_string($asset)) {
+      throw new InvalidArgumentException("Effect {$id} image keyframe needs an asset path or a track asset default.");
+    }
+    SpriteValidation::validateAssetPath($asset);
+    $size = PngAssetPreflight::inspect($this->assetRoot, $asset);
+    if ($size['width'] % $sheet['columns'] !== 0 || $size['height'] % $sheet['rows'] !== 0) {
+      throw new InvalidArgumentException("Effect {$id} image does not divide into its sheet grid.");
+    }
+    return $size;
   }
 
   /** Whether this authored track can own distance-based flight timing. */

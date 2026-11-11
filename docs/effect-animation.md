@@ -132,12 +132,13 @@ item 4, not completion of those phases.
 `Animations/<id>/<id>.timeline.php` returns `fps` (1..120),
 `lengthFrames`, `playback` (`once` or `loop`), optional zero-based
 `restFrame` (default 0), and a list of `tracks`. Image tracks have a
-stable `id`, `type => image`, asset-root-relative PNG `asset`, optional
+stable `id`, `type => image`, optional asset-root-relative PNG `asset` default, optional
 `sheet => ['columns' => 8, 'rows' => 1]`, optional
 `cells => ['width' => 2, 'height' => 2]` for its visual size in 48-pixel
 field cells, `depth => behind|front`, and `keyframes`. A keyframe names its
 zero-based `frame`, optional `duration` (default 1), `sourceFrame` (row-major
-sheet index, default 0), and optional cell offset `position => ['x' => 0,
+sheet index, default 0), optional asset-root-relative PNG `asset` selecting
+that keyframe's source file, and optional cell offset `position => ['x' => 0,
 'y' => 0]`. Optional `fit => contain` preserves the current source-frame aspect
 ratio inside the authored cells box; omission or `fit => stretch` preserves
 existing independent width/height sizing. Containment uses the frame crop, not
@@ -152,6 +153,29 @@ Independent terminal/graphical sequences and per-track capability selection
 apply to field playback too; unselected image and edge PNGs are not terminal
 dependencies. The shared segment composition filters capabilities before
 depth ordering and `clearBeforeDraw`, without clearing another session's art.
+
+The same per-keyframe image source contract applies to field, battle, summon
+and standalone cinematic-stage tracks. A track may use a single sheet, separate
+PNG frames, or a mixture. Each keyframe selects its explicit `asset` or the
+track's default; it never inherits an earlier keyframe's override. Without a
+track default, every keyframe must name a file. Declared defaults and overrides
+are validated even when another file is selected later. `sourceFrame` remains
+the cell index within the selected file, using the track's shared `sheet` grid.
+Each file must divide into that grid; current file dimensions determine the
+crop and fit. Track identity, placement, depth and timing remain stable across
+file changes. Separate frames use one image track with multiple keyframes and
+retain the 32-track and 10,000-keyframe bounds. For example:
+
+```php
+['id' => 'motion', 'type' => 'image', 'keyframes' => [
+    ['frame' => 0, 'duration' => 2, 'asset' => 'Graphics/Effects/start.png'],
+    ['frame' => 2, 'duration' => 2, 'asset' => 'Graphics/Effects/follow.png'],
+]]
+```
+
+GUI authoring must select these files through the shared asset picker and
+preserve their root-relative references on source round trips. Runtime
+admission does not establish completion of that Editor workflow.
 
 A map may declare `fieldEffects` as a list of `id`, `effect` (timeline id),
 and `anchor => ['cell' => ['x' => 3, 'y' => 5]]` or
