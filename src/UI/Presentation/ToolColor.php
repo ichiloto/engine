@@ -24,4 +24,13 @@ enum ToolColor: string
   case SUCCESS = 'success';
   case DANGER_FILL = 'danger_fill';
   case GRID = 'grid';
+  case OVERLAY_DOOR = 'overlay_door';
+  case OVERLAY_WALK = 'overlay_walk';
+  case OVERLAY_ENTRANCE = 'overlay_entrance';
+  case OVERLAY_NO_ENTRANCE = 'overlay_no_entrance';
+  case OVERLAY_PLACED = 'overlay_placed';
+  case OVERLAY_WALK_START = 'overlay_walk_start';
+  case OVERLAY_WALK_WAYPOINT = 'overlay_walk_waypoint';
+  case OVERLAY_WALK_ENDPOINT = 'overlay_walk_endpoint';
+  case SCRIM = 'scrim';
 }

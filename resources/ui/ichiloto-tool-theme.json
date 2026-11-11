@@ -17,7 +17,16 @@
     "focus": "#7cbcf0",
     "success": "#6cc58a",
     "danger_fill": "#5a2a2e",
-    "grid": "#1f232b"
+    "grid": "#1f232b",
+    "overlay_door": "#b48ead",
+    "overlay_walk": "#3ec7b4",
+    "overlay_entrance": "#6cc58a",
+    "overlay_no_entrance": "#e06c6c",
+    "overlay_placed": "#e0b252",
+    "overlay_walk_start": "#6cc58a",
+    "overlay_walk_waypoint": "#e0b252",
+    "overlay_walk_endpoint": "#e06c6c",
+    "scrim": "#000000"
   },
   "terminal": {
     "background": 0,
@@ -36,6 +45,15 @@
     "focus": 14,
     "success": 10,
     "danger_fill": 1,
-    "grid": 0
+    "grid": 0,
+    "overlay_door": 13,
+    "overlay_walk": 6,
+    "overlay_entrance": 10,
+    "overlay_no_entrance": 9,
+    "overlay_placed": 11,
+    "overlay_walk_start": 10,
+    "overlay_walk_waypoint": 11,
+    "overlay_walk_endpoint": 9,
+    "scrim": 0
   }
 }
