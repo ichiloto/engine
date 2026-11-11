@@ -4232,10 +4232,12 @@ rebind/default/cancel behaviour, and distinguishes failed persistence from a
 successful session-only binding. Consumed edges cannot bind or navigate again.
 Replaceable display glyphs are not physical-controller detection.
 
-Remaining UI gaps include Main Menu Quit confirmation parity with Pause and
-graphical GUI authoring of themes and shared artwork-role bindings, not a
-mandatory graphical workflow in the terminal editor. Runtime composition does
-not establish authoring support. The [layered-tilemap correction roadmap](../layered-tilemaps.md#graphical-correction-roadmap)
+Main Menu Quit now opens on Cancel and confirms To Title and Exit through the
+shared modal presentation. Both confirmations start on Cancel and show the
+unsaved-progress warning. Cancelling a confirmation restores the destination
+selection. Host shutdown ends the flow before it can open another modal or
+execute a destination. Graphical GUI authoring of themes and shared artwork-role
+bindings remains open. Runtime composition does not establish authoring support. The [layered-tilemap correction roadmap](../layered-tilemaps.md#graphical-correction-roadmap)
 owns the six-stage field-map work, concrete GUI gaps and removal of the
 graphical-marker/crop workflow from the TUI while preserving terminal editing,
 shared gameplay identity, existing data and source-safe round trips.
