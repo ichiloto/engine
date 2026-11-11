@@ -18,7 +18,14 @@ final readonly class PlayerPresentationConfig
 
   public static function load(): self
   {
-    $data = asset('Data/Entities/player.php', true);
+    return self::loadFromProject(getcwd() . '/assets');
+  }
+
+  public static function loadFromProject(string $assetRoot): self
+  {
+    $filename = $assetRoot . '/Data/Entities/player.php';
+    if (!is_file($filename)) { throw new \RuntimeException('Player presentation not found: ' . $filename); }
+    $data = require $filename;
     return self::fromArray(is_array($data) ? $data : []);
   }
 

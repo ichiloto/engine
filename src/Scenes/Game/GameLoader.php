@@ -12,7 +12,6 @@ use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\Field\PlayerSpriteSet;
 use Ichiloto\Engine\Field\PlayerPresentationConfig;
 use Ichiloto\Engine\IO\SaveManager;
-use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use RuntimeException;
@@ -24,51 +23,26 @@ use RuntimeException;
  */
 class GameLoader
 {
-  /**
-   * The instance of this singleton.
-   * @var GameLoader|null
-   */
-  protected static ?GameLoader $instance = null;
-  /**
-   * @var ItemStore The item store.
-   */
-  protected ItemStore $itemStore;
-  protected ActorStore $actorStore;
+  public readonly string $assetRoot;
 
-  /**
-   * GameLoader constructor.
-   *
-   * @param Game $game The game.
-   */
-  private function __construct(protected Game $game)
-  {
-    $itemStore = ConfigStore::get(ItemStore::class);
-
-    if (! $itemStore instanceof ItemStore) {
-      throw new RuntimeException('Item store not found.');
+  /** The Game owns this loader and the project stores supplied at its bootstrap. */
+  public function __construct(
+    public readonly Game $game,
+    public readonly ActorStore $actorStore,
+    public readonly ItemStore $itemStore,
+    string $assetRoot,
+  ) {
+    $root = realpath($assetRoot);
+    if ($root === false || !is_dir($root)) {
+      throw new \InvalidArgumentException('Game loading requires an existing project asset root.');
     }
-    $this->itemStore = $itemStore;
-    $actorStore = ConfigStore::get(ActorStore::class);
-
-    if (! $actorStore instanceof ActorStore) {
-      throw new RuntimeException('Actor store not found.');
-    }
-
-    $this->actorStore = $actorStore;
+    $this->assetRoot = $root;
   }
 
-  /**
-   * Returns the instance of this singleton.
-   *
-   * @param Game $game The game.
-   */
+  /** Existing callers resolve the loader owned by their Game. */
   public static function getInstance(Game $game): self
   {
-    if (self::$instance === null) {
-      self::$instance = new GameLoader($game);
-    }
-
-    return self::$instance;
+    return $game->getGameLoader();
   }
 
   /**
@@ -79,12 +53,15 @@ class GameLoader
    */
   public function loadNewGame(?GameStartLocation $start = null): GameConfig
   {
-    $systemData = asset('Data/system.php', true) ?? throw new RuntimeException('System data not found.');
+    $filename = $this->assetRoot . '/Data/system.php';
+    if (!is_file($filename)) { throw new RuntimeException('System data not found: ' . $filename); }
+    $systemData = require $filename;
     if (!is_array($systemData)) {
       throw new RuntimeException('System data is not an array.');
     }
     $systemData = SystemData::fromArray($systemData);
     $party = new Party();
+    $party->inventory->bindItemStore($this->itemStore);
     $party->setBattleSize($systemData->battle->partySize);
 
     foreach ($systemData->startingParty as $member) {
@@ -135,6 +112,7 @@ class GameLoader
   {
     $savedGame = SaveManager::getInstance($this->game)->loadSaveFile($saveFilePath);
 
+    $savedGame->config->party->inventory->bindItemStore($this->itemStore);
     return $savedGame->config;
   }
 
@@ -145,6 +123,6 @@ class GameLoader
    */
   protected function loadPlayerSprites(): PlayerSpriteSet
   {
-    return PlayerPresentationConfig::load()->terminal;
+    return PlayerPresentationConfig::loadFromProject($this->assetRoot)->terminal;
   }
 }

@@ -19,6 +19,28 @@ use InvalidArgumentException;
  */
 class Inventory
 {
+  /** @var \WeakMap<self, ItemStore>|null Project catalogues are transient and never enter saved inventory. */
+  private static ?\WeakMap $projectStores = null;
+
+  /** Bind the catalogue of the project that owns this campaign inventory. */
+  public function bindItemStore(ItemStore $store): void
+  {
+    $current = self::$projectStores[$this] ?? null;
+    if ($current !== null && $current !== $store) {
+      throw new \LogicException('Inventory is already bound to another project item catalogue.');
+    }
+    self::$projectStores ??= new \WeakMap();
+    self::$projectStores[$this] = $store;
+  }
+
+  private function getItemStore(): ?ItemStore
+  {
+    $owned = self::$projectStores[$this] ?? null;
+    if ($owned !== null) { return $owned; }
+    $legacy = ConfigStore::has(ItemStore::class) ? ConfigStore::get(ItemStore::class) : null;
+    return $legacy instanceof ItemStore ? $legacy : null;
+  }
+
   /**
    * The default capacity of the inventory.
    */
@@ -200,7 +222,7 @@ class Inventory
   /** Returns held quantity through the one stable-id/name/alias contract. */
   public function getQuantity(string $reference, string $context = 'checking inventory quantity'): int
   {
-    if (! ConfigStore::has(ItemStore::class)) {
+    if ($this->getItemStore() === null) {
       $normalized = strtolower(trim($reference));
       $hasLocalMatch = array_any(
         $this->inventoryItems->toArray(),
@@ -290,13 +312,8 @@ class Inventory
 
   private function resolveDefinitionId(string $reference, string $context): string
   {
-    if (ConfigStore::has(ItemStore::class)) {
-      $store = ConfigStore::get(ItemStore::class);
-
-      if ($store instanceof ItemStore) {
-        return $store->requireDefinitionId($reference, $context);
-      }
-    }
+    $store = $this->getItemStore();
+    if ($store !== null) { return $store->requireDefinitionId($reference, $context); }
 
     // Standalone embedders and unit-level inventories may have no project
     // catalogue. Exact held stable IDs and current names remain deterministic;

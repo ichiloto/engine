@@ -182,11 +182,10 @@ beforeEach(function () {
     $this->game = new StartupGameProbe($this->manager);
     new ReflectionProperty(SceneManager::class, 'game')->setValue($this->manager, $this->game);
     $this->manager->field = new StartupFieldProbe($this->game);
-    $this->loader = new ReflectionClass(GameLoader::class)->newInstanceWithoutConstructor();
-    new ReflectionProperty(GameLoader::class, 'game')->setValue($this->loader, $this->game);
-    new ReflectionProperty(GameLoader::class, 'actorStore')->setValue($this->loader, new ActorStore(definitions: []));
-    new ReflectionProperty(GameLoader::class, 'itemStore')->setValue($this->loader, new ItemStore());
-    new ReflectionProperty(GameLoader::class, 'instance')->setValue(null, $this->loader);
+    $this->actors = new ActorStore(definitions: []);
+    $this->items = new ItemStore();
+    $this->loader = createTestGameLoader($this->game, $this->actors, $this->items, $this->root . '/assets');
+    $this->game->bindGameLoader($this->loader);
     new ReflectionProperty(SceneManager::class, 'instance')->setValue(null, $this->manager);
 });
 
@@ -449,8 +448,8 @@ it('evaluates NPC item eligibility against the authored starting party inventory
     $items->set('item.tonic', new Item('Tonic', 'Synthetic consumable.', '!', 1, id: 'item.tonic'));
     $items->set('item.sigil', new Item('Sigil', 'Synthetic key item.', 'i', 0, id: 'item.sigil', isKeyItem: true));
     ConfigStore::put(ItemStore::class, $items);
-    new ReflectionProperty(GameLoader::class, 'actorStore')->setValue($this->loader, $actors);
-    new ReflectionProperty(GameLoader::class, 'itemStore')->setValue($this->loader, $items);
+    foreach ($actors->getActorIds() as $id) { $this->actors->set($id, $actors->require($id, 'startup fixture')); }
+    foreach ($items->getItemIds() as $id) { $this->items->set($id, $items->get($id)); }
     $system = require $this->root . '/assets/Data/system.php';
     $system['startingParty'] = ['fixture.hero'];
     $system['startingInventory'] = [['item' => 'item.tonic', 'quantity' => 2], 'item.sigil'];

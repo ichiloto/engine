@@ -403,8 +403,7 @@ it('validates through GameLoader without hydrating the previous campaign', funct
         $scene->configure(createProjectStateConfig(['fixture/progress' => ['version' => 2, 'data' => ['resourceId' => 'resource-b', 'count' => 10]]]));
         $slot = $manager->save($scene, 1);
         $game->getProjectStateRegistry()->replaceStates(['fixture/progress' => ['resourceId' => 'resource-a', 'count' => 6]]);
-        $loader = new ReflectionClass(GameLoader::class)->newInstanceWithoutConstructor();
-        new ReflectionProperty(GameLoader::class, 'game')->setValue($loader, $game);
+        $loader = createTestGameLoader($game);
         $config = $loader->loadSavedGame($slot->path);
         expect($config->projectState['fixture/progress']['data']['count'])->toBe(10)
             ->and($game->getProjectStateRegistry()->getState('fixture/progress')['count'])->toBe(6);
@@ -470,10 +469,7 @@ it('loads an actual synthetic new-game configuration empty and resets old progre
         $registry = $game->getProjectStateRegistry();
         $registry->restoreSnapshot(['fixture/progress' => ['version' => 2, 'data' => ['resourceId' => 'resource-a', 'count' => 8]],
             'unavailable/previous' => ['version' => 1, 'data' => ['receipt' => 'old-campaign']]]);
-        $loader = new ReflectionClass(GameLoader::class)->newInstanceWithoutConstructor();
-        new ReflectionProperty(GameLoader::class, 'game')->setValue($loader, $game);
-        new ReflectionProperty(GameLoader::class, 'actorStore')->setValue($loader, new ActorStore(definitions: []));
-        new ReflectionProperty(GameLoader::class, 'itemStore')->setValue($loader, new ItemStore());
+        $loader = createTestGameLoader($game, new ActorStore(definitions: []), new ItemStore(), $root . '/assets');
         $newGame = $loader->loadNewGame();
         expect($newGame->projectState)->toBe([])->and($registry->getState('fixture/progress')['count'])->toBe(8);
         new ProjectStateSceneProbe($game)->configure($newGame);

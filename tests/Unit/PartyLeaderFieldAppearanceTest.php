@@ -314,11 +314,8 @@ it('loads new and saved games through GameLoader with configured ownership and c
     'startingPositions' => ['player' => ['destinationMap' => 'synthetic-map',
       'spawnPoint' => ['x' => 7, 'y' => 4], 'spawnSprite' => 'West']],
   ], true) . ';');
-  $loader = makeBareScene(GameLoader::class);
-  new ReflectionProperty(GameLoader::class, 'game')->setValue($loader, $this->game);
-  new ReflectionProperty(GameLoader::class, 'actorStore')->setValue($loader, $this->store);
   file_put_contents($this->root . '/assets/Data/items.php', '<?php return [];');
-  new ReflectionProperty(GameLoader::class, 'itemStore')->setValue($loader, new ItemStore());
+  $loader = createTestGameLoader($this->game, $this->store, new ItemStore(), $this->root . '/assets');
   $new = $loader->loadNewGame();
   expect(($this->createPlayer)($new)->getGraphicalSpriteDefinition()->asset)
     ->toBe($followsLeader ? $this->secondRole['sheet'] : $this->fixedRole['sheet']);

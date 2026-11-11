@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Core;
 use Ichiloto\Engine\Core\Clocks\RuntimeClock;
 
 use Ichiloto\Engine\Scenes\Game\GameConfig;
+use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Ichiloto\Engine\Income\IncomeCatalog;
@@ -91,6 +92,22 @@ use Throwable;
 class Game implements CanRun, SubjectInterface
 {
     private ?ProjectStateRegistry $projectStateRegistry = null;
+    private ?GameLoader $gameLoader = null;
+
+    /** Bind content once, including for hosts that deliberately skip native Game bootstrap. */
+    public function bindGameLoader(GameLoader $loader): void
+    {
+        if ($loader->game !== $this || $this->gameLoader !== null) {
+            throw new \LogicException('Bind one project loader owned by this Game.');
+        }
+        $this->gameLoader = $loader;
+        $this->itemStore = $loader->itemStore;
+    }
+
+    public function getGameLoader(): GameLoader
+    {
+        return $this->gameLoader ?? throw new \LogicException('Bind this Game’s project loader before loading a campaign.');
+    }
     private ?SavedGameResumeRegistry $savedGameResumeRegistry = null;
 
     /** @var array<string, Closure(Party, GameState): bool> */
@@ -592,15 +609,17 @@ class Game implements CanRun, SubjectInterface
         ConfigStore::remove(DashSettings::class);
         ConfigStore::put(DashSettings::class, DashSettings::fromSystemData($systemPayload));
         ElementRegistry::configure(is_array($systemPayload['elements'] ?? null) ? $systemPayload['elements'] : []);
-        ConfigStore::put(ActorStore::class, new ActorStore());
-        $actorStore = ConfigStore::get(ActorStore::class);
+        $actorStore = new ActorStore();
+        ConfigStore::put(ActorStore::class, $actorStore);
         ConfigStore::put(
             BattleEntryRuleCatalog::class,
             BattleEntryRuleCatalog::fromProject(
-                actorStore: $actorStore instanceof ActorStore ? $actorStore : null,
+                actorStore: $actorStore,
             ),
         );
-        ConfigStore::put(ItemStore::class, new ItemStore());
+        $itemStore = new ItemStore();
+        ConfigStore::put(ItemStore::class, $itemStore);
+        $this->bindGameLoader(new GameLoader($this, $actorStore, $itemStore, getcwd() . '/assets'));
         ConfigStore::put(KnowledgeCatalog::class, KnowledgeCatalog::fromProject());
         ConfigStore::put(EnemyStore::class, new EnemyStore());
     }
@@ -918,7 +937,6 @@ class Game implements CanRun, SubjectInterface
         if ($startupMode !== GameStartupMode::NEW_GAME && $this->pendingLaunchCheckpoint === null) {
             $this->showSplashScreens();
         }
-        $this->buildItemStore();
         $this->handleGameEvents();
 
         $this->startInitialScene($startupMode);
@@ -1190,23 +1208,6 @@ o888o `Y8bod8P' o888o o888o o888o o888o `Y8bod8P'   "888" `Y8bod8P'
                                                                    v1.0.0
 SPLASH_SCREEN;
         $this->renderSplashScreenTexture($splashScreen);
-    }
-
-    /**
-     * Build the item store. This is where all the items in the game are stored.
-     *
-     * @return void
-     * @throws NotFoundException If the item store is not an instance of ItemStore.
-     */
-    private function buildItemStore(): void
-    {
-        if ($itemStore = ConfigStore::get(ItemStore::class)) {
-            if (!$itemStore instanceof ItemStore) {
-                throw new NotFoundException(ItemStore::class);
-            }
-
-            $this->itemStore = $itemStore;
-        }
     }
 
     /**

@@ -15,6 +15,7 @@ use Ichiloto\Engine\Tests\Support\TemporaryFixtures;
 require_once __DIR__ . '/Support/TemporaryFixtures.php';
 require_once __DIR__ . '/Support/TemporaryFixtureTestCase.php';
 require_once __DIR__ . '/Support/PassiveGame.php';
+require_once __DIR__ . '/Support/GameLoaderFixtures.php';
 require_once __DIR__ . '/Support/BattleStageFixtures.php';
 require_once __DIR__ . '/Support/AudioTestDoubles.php';
 

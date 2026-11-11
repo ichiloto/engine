@@ -13,6 +13,9 @@ use Stringable;
  */
 interface InventoryItemInterface extends CanCompare, Stringable
 {
+  /** Stable project definition identity, shared by item and equipment consumers. */
+  public string $id { get; }
+
   /**
    * @var string $name The name of the item.
    */
