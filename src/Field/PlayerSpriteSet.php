@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
@@ -354,13 +355,14 @@ class PlayerSpriteSet
    */
   public static function sanitizeSpriteRow(string $row): string
   {
-    if (preg_match_all('/\X/u', $row, $matches) === false) {
+    $graphemes = TerminalText::splitGraphemes($row);
+    if ($graphemes === false) {
       return $row;
     }
 
     $sanitized = '';
 
-    foreach ($matches[0] as $grapheme) {
+    foreach ($graphemes as $grapheme) {
       $codepoints = preg_split('//u', $grapheme, -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
       if (count($codepoints) < 2 || ! self::containsUnsafeEmojiComponent($codepoints)) {

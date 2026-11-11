@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Animations;
 
+use Ichiloto\Engine\IO\Console\TerminalText;
+
 /**
  * Represents a single drawable cell in an animation frame.
  *
@@ -70,10 +72,7 @@ final class AnimationCell
    */
   private static function normalizeSymbol(string $symbol): string
   {
-    if (preg_match('/^\X/u', $symbol, $matches) !== 1) {
-      return ' ';
-    }
-
-    return $matches[0];
+    $graphemes = TerminalText::splitGraphemes($symbol);
+    return $graphemes === false ? ' ' : ($graphemes[0] ?? ' ');
   }
 }

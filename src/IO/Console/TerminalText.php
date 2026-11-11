@@ -48,6 +48,38 @@ final class TerminalText
   }
 
   /**
+   * Split raw UTF-8 without formatting or normalizing its bytes.
+   * ICU supplies segmentation when intl is installed; the declared polyfill
+   * supplies it otherwise, including hosts whose PCRE grapheme rules differ.
+   * Invalid UTF-8 returns false, matching the native function's contract.
+   *
+   * @return list<string>|false
+   */
+  public static function splitGraphemes(string $text): array|false
+  {
+    if (preg_match('/[^\x20-\x7E]/', $text) === 0) { return str_split($text); }
+    if (!mb_check_encoding($text, 'UTF-8')) { return false; }
+    return grapheme_str_split($text);
+  }
+
+  /** @return list<string> Controls retain their bytes; only intervening text is segmented. */
+  private static function tokenizeControls(string $text, bool $includeTags = false): array
+  {
+    $controls = substr(self::ANSI_PATTERN, 1, -1) . ($includeTags ? '|<[^<>\x1b]*>' : '');
+    $pieces = preg_split('/(' . $controls . ')/u', $text, -1, PREG_SPLIT_DELIM_CAPTURE);
+    if ($pieces === false) { return []; }
+    $tokens = [];
+    foreach ($pieces as $index => $piece) {
+      if ($piece === '') { continue; }
+      if ($index % 2 === 1) { $tokens[] = $piece; continue; }
+      $graphemes = self::splitGraphemes($piece);
+      if ($graphemes === false) { return []; }
+      array_push($tokens, ...$graphemes);
+    }
+    return $tokens;
+  }
+
+  /**
    * Removes ANSI control codes from the given text.
    *
    * @param string $text The text to clean.
@@ -139,9 +171,7 @@ final class TerminalText
     $symbols = [];
     $activeAnsi = '';
     $style = new SgrStyleState();
-    preg_match_all('/\x1B\[[0-9;?]*[ -\/]*[@-~]|\X/u', $text, $matches);
-
-    foreach ($matches[0] ?? [] as $token) {
+    foreach (self::tokenizeControls($text) as $token) {
       if (preg_match(self::ANSI_PATTERN, $token) === 1) {
         $style->apply($token);
         $activeAnsi = $style->prefix();
@@ -181,7 +211,8 @@ final class TerminalText
    */
   public static function composeSourceCell(string $symbol, string $prefix = '', string $suffix = ''): string
   {
-    if (preg_match('/\A\X\z/u', $symbol) !== 1 || preg_match('/[\x00-\x1f\x7f]/u', $symbol) === 1) {
+    $graphemes = self::splitGraphemes($symbol);
+    if ($graphemes === false || count($graphemes) !== 1 || preg_match('/[\x00-\x1f\x7f]/u', $symbol) === 1) {
       throw new \InvalidArgumentException('A source cell contains one printable literal grapheme.');
     }
     if (strpbrk($symbol, '<>\\') === false) { return $prefix . $symbol . $suffix; }
@@ -225,8 +256,8 @@ final class TerminalText
     if (strpbrk($text, "<\\\e") === false) {
       $glyphs = null;
       if (preg_match('/[^\x20-\x7e]/', $text) === 0) { $glyphs = str_split($text); }
-      elseif (preg_match('/\p{Cc}/u', $text) === 0 && preg_match_all('/\X/u', $text, $plain) !== false) {
-        $glyphs = $plain[0];
+      elseif (preg_match('/\p{Cc}/u', $text) === 0 && ($plain = self::splitGraphemes($text)) !== false) {
+        $glyphs = $plain;
       }
       if ($glyphs !== null) {
         return array_map(static fn(string $glyph): array => ['symbol' => $glyph, 'prefix' => '', 'suffix' => ''], $glyphs);
@@ -242,10 +273,9 @@ final class TerminalText
       self::$formatter->getStyleStack()->reset();
       if ($expected === []) { return []; }
       $ansi = substr(self::ANSI_PATTERN, 1, -1);
-      preg_match_all('/' . $ansi . '|<[^<>\x1b]*>|\X/u', $text, $matches);
       $frames = $stack = $cells = $styleKeys = [];
       $hasAnsi = false;
-      foreach ($matches[0] ?? [] as $token) {
+      foreach (self::tokenizeControls($text, includeTags: true) as $token) {
         if ($token[0] === "\e" && preg_match(self::ANSI_PATTERN, $token) === 1) {
           $hasAnsi = true;
           continue;
@@ -275,8 +305,7 @@ final class TerminalText
         }
         // Unrecognised tags are literal text. Do not format source graphemes:
         // the display formatter may normalise Unicode, but source must not.
-        preg_match_all('/\X/u', $token, $glyphs);
-        foreach ($glyphs[0] ?? [] as $glyph) {
+        foreach (self::splitGraphemes($token) ?: [] as $glyph) {
           $cells[] = ['glyph' => $glyph, 'frames' => $stack];
         }
       }
@@ -637,11 +666,8 @@ final class TerminalText
       return $text;
     }
 
-    return preg_replace_callback(
-      '/\X/u',
-      static fn(array $match): string => self::stabilizeSymbol($match[0]),
-      $text
-    ) ?? $text;
+    $graphemes = self::splitGraphemes($text);
+    return $graphemes === false ? $text : implode('', array_map(self::stabilizeSymbol(...), $graphemes));
   }
 
   /**
@@ -819,10 +845,17 @@ final class TerminalText
     $pieces = [];
     $start = $offset = 0;
     $length = strlen($text);
+    // Compute source boundaries once, rather than repeatedly segmenting suffixes.
+    $boundaries = [];
+    $boundary = 0;
+    foreach (self::splitGraphemes($text) ?: [] as $grapheme) {
+      $boundary += strlen($grapheme);
+      $boundaries[$boundary] = true;
+    }
     while (($at = strpos($text, '</>', $offset)) !== false) {
       $end = $offset = $at + 3;
       if ($end === $length || ($at > 0 && $text[$at - 1] === '\\')
-        || preg_match('/\G\X/u', $text, $grapheme, 0, $end - 1) !== 1 || $grapheme[0] !== '>') {
+        || !isset($boundaries[$end])) {
         continue;
       }
       $pieces[] = substr($text, $start, $end - $start);

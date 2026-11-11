@@ -94,9 +94,8 @@ final class TextViewport
   /** Cells a single line occupies under the same budget as wrap(), for aligning structured columns. */
   public static function measure(string $text): int
   {
-    preg_match_all('/\X/u', $text, $symbols);
     return array_sum(array_map(static fn(string $symbol): int => max(TerminalText::getSymbolWidth($symbol),
-      mb_strlen($symbol, 'UTF-8')), $symbols[0]));
+      mb_strlen($symbol, 'UTF-8')), TerminalText::splitGraphemes($text) ?: []));
   }
 
   /** Complete graphemes fit both terminal cell widths and Canvas scalar budgets.
@@ -118,8 +117,9 @@ final class TextViewport
         $start = $offset + 1;
         continue;
       }
-      preg_match_all('/\X/u', $token, $symbols, PREG_OFFSET_CAPTURE);
-      $sizes = array_map(fn($item) => max(TerminalText::getSymbolWidth($item[0]), mb_strlen($item[0], 'UTF-8')), $symbols[0]);
+      $symbols = TerminalText::splitGraphemes($token);
+      if ($symbols === false) { throw new InvalidArgumentException('Text requires UTF-8.'); }
+      $sizes = array_map(fn(string $symbol) => max(TerminalText::getSymbolWidth($symbol), mb_strlen($symbol, 'UTF-8')), $symbols);
       $tokenWidth = array_sum($sizes);
       $whitespace = preg_match('/\A[^\S\x{00A0}\x{202F}]+\z/u', $token) === 1;
       if (!$whitespace && $width > 0 && $width + $tokenWidth > $columns
@@ -129,7 +129,8 @@ final class TextViewport
         $width = 0;
         $start = $offset;
       }
-      foreach ($symbols[0] as $index => [$symbol, $relative]) {
+      $relative = 0;
+      foreach ($symbols as $index => $symbol) {
         $size = $sizes[$index];
         if ($size > $columns) { throw new InvalidArgumentException('A complete text grapheme exceeds the viewport width.'); }
         if ($width + $size > $columns) {
@@ -140,6 +141,7 @@ final class TextViewport
         }
         $line .= $symbol;
         $width += $size;
+        $relative += strlen($symbol);
       }
     }
     $lines[] = [$start, $line];
