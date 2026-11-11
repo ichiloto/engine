@@ -152,7 +152,7 @@ beforeEach(function () {
   foreach ([Console::class, InputManager::class, ActionHints::class, ConfigStore::class, Debug::class, ModalManager::class, AudioManager::class] as $class) {
     $this->savedStatics[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/ichiloto-main-menu-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-main-menu-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   foreach (['portrait', 'cursor', 'surface', 'focus'] as $name) { mainMenuPresentationPng($this->root . '/' . $name . '.png', 73, 41); }
   Debug::configure(['log_directory' => $this->root . '/logs']);

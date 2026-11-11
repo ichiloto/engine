@@ -135,7 +135,7 @@ beforeEach(function () {
   foreach ([Console::class, InputManager::class, ActionHints::class, ConfigStore::class, Debug::class, ModalManager::class, AudioManager::class, Time::class] as $class) {
     $this->savedStatics[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/ichiloto-journal-menu-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-journal-menu-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   journalMenuPng($this->root . '/surface.png');
   Debug::configure(['log_directory' => $this->root . '/logs']);

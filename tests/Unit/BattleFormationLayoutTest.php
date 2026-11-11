@@ -39,7 +39,7 @@ beforeEach(function () {
   foreach ([Debug::class, ConfigStore::class] as $class) {
     $this->statics[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/ichiloto-formation-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-formation-' . bin2hex(random_bytes(6));
   mkdir($this->root);
   Debug::configure(['log_directory' => $this->root . '/logs']);
   foreach (['arena' => [240, 120], 'hero' => [100, 200], 'idle' => [200, 200], 'enemy' => [160, 100]] as $id => $size) {

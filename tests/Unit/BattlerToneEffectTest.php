@@ -12,7 +12,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasImage, CanvasRectangle}
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-state-tone-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-state-tone-' . bin2hex(random_bytes(6));
   mkdir($this->root . '/Animations/armed', 0777, true);
   $this->data = ['fps' => 10, 'lengthFrames' => 2, 'restFrame' => 1, 'playback' => 'loop', 'tracks' => [
     ['id' => 'shade', 'type' => 'tone', 'anchor' => 'target', 'presentation' => 'graphical', 'keyframes' => [

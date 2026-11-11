@@ -36,7 +36,7 @@ function skitBackdropRegions(): RegionCatalog
 }
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/skit-backdrop-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/skit-backdrop-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/assets/Data/Actors', 0777, true);
   $this->debugState = new ReflectionClass(Debug::class)->getStaticProperties();
   Debug::configure(['log_directory' => $this->root]);

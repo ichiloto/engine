@@ -38,7 +38,7 @@ function scaledStrikeData(array $position = ['x' => 0, 'y' => 0]): array
 }
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-effect-scale-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-effect-scale-' . bin2hex(random_bytes(6));
   mkdir($this->root);
   $this->debug = new ReflectionClass(Debug::class)->getStaticProperties();
   Debug::configure(['log_directory' => $this->root]);

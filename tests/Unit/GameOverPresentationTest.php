@@ -89,7 +89,7 @@ beforeEach(function () {
     SaveManager::class, GameLoader::class, EventManager::class, UIManager::class, ModalManager::class, ActionHints::class] as $class) {
     $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/ichiloto-game-over-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-game-over-' . bin2hex(random_bytes(5));
   mkdir($this->root);
   Debug::configure(['log_directory' => $this->root]);
   Console::setTerminalOutputEnabled(false);

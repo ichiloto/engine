@@ -159,9 +159,7 @@ beforeEach(function () {
 
 afterEach(function () {
   $this->interpreter->failActiveSession('Synthetic fixture teardown.');
-  // Teardown may write its final diagnostic after the shared fixture cleanup.
-  $GLOBALS['ichilotoTestDirectories'][$this->fixtureRoot] = $this->fixtureRoot;
-  cleanUpTestDirectories();
+  // Shared fixture cleanup follows this local teardown, including its final diagnostic.
   new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, $this->previousDelta);
   new ReflectionProperty(ConfigStore::class, 'store')->setValue(null, $this->configState);
   new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $this->eventState);

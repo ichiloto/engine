@@ -64,7 +64,7 @@ it('leaves an impossible body at its original scale for clearance diagnostics', 
 });
 
 it('reads visible body clearance from current pixels and retains the independent padded frame and pivot', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-body-footing-' . bin2hex(random_bytes(6));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-body-footing-' . bin2hex(random_bytes(6));
   mkdir($root);
   $image = imagecreatetruecolor(100, 100);
   imagealphablending($image, false);

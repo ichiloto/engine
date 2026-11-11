@@ -91,13 +91,13 @@ describe('income schedule validation', function () {
   });
 
   it('is off for a project without an income file', function () {
-    $catalog = IncomeCatalog::fromProject(sys_get_temp_dir() . '/no-such-project/assets/Data/income.php');
+    $catalog = IncomeCatalog::fromProject(\getTestTemporaryDirectory() . '/no-such-project/assets/Data/income.php');
 
     expect($catalog->getSchedules())->toBe([]);
   });
 
   it('reads a project file and applies the documented defaults', function () {
-    $file = tempnam(sys_get_temp_dir(), 'income') . '.php';
+    $file = tempnam(\getTestTemporaryDirectory(), 'income') . '.php';
     file_put_contents($file, '<?php return ' . var_export(['schedules' => [
       incomeSchedule(['cadence' => 'active_time', 'interval' => 600]),
     ]], true) . ';');

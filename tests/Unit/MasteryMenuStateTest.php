@@ -185,7 +185,7 @@ beforeEach(function () {
     $this->savedStatics[$class] = new ReflectionClass($class)->getStaticProperties();
   }
   $this->cwd = getcwd();
-  $this->root = sys_get_temp_dir() . '/ichiloto-mastery-state-' . bin2hex(random_bytes(4));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-mastery-state-' . bin2hex(random_bytes(4));
   writeMasteryMenuProject($this->root);
   chdir($this->root);
   MasteryCatalog::forgetProjectCatalogs();
@@ -255,7 +255,7 @@ function masteryMenuNativeSession(MasteryMenuState $state): Closure
 {
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
-  $client->start(new RendererSessionConfig('Mastery', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  $client->start(new RendererSessionConfig('Mastery', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: [RendererSessionConfig::KEY_TRANSITIONS]));
   $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
     'capabilities' => ['sprite_source_rect', RendererSessionConfig::KEY_TRANSITIONS]]))];

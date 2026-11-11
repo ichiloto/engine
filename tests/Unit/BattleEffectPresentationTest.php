@@ -35,7 +35,7 @@ function battleImageEffectData(?string $anchor = null): array
 }
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-battle-effects-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-battle-effects-' . bin2hex(random_bytes(6));
   mkdir($this->root);
   $this->debug = new ReflectionClass(Debug::class)->getStaticProperties();
   Debug::configure(['log_directory' => $this->root]);
@@ -327,7 +327,7 @@ it('rejects malformed battle data at the definition boundary', function (array $
   [['payload' => 'invalid']], [['payload' => ['color' => []]]], [['payload' => ['anchor' => 'arbitrary']]]]);
 
 it('does not load a timeline symlink outside its asset root', function () {
-  $outside = tempnam(sys_get_temp_dir(), 'ichiloto-outside-effect-');
+  $outside = tempnam(\getTestTemporaryDirectory(), 'ichiloto-outside-effect-');
   file_put_contents($outside, '<?php throw new RuntimeException("must not execute");');
   mkdir($this->root . '/Animations/escape', 0777, true);
   symlink($outside, $this->root . '/Animations/escape/escape.timeline.php');

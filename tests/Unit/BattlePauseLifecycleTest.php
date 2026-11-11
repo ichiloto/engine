@@ -438,7 +438,7 @@ it('makes only owned Config and unskinned Pause cells opaque over the retained b
 });
 
 it('uses shared menu-only Config over the frozen battle with honest optional fallback and original back focus', function (string $themeState) {
-  $root = sys_get_temp_dir() . '/ichiloto-pause-config-' . bin2hex(random_bytes(5));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-pause-config-' . bin2hex(random_bytes(5));
   mkdir($root . '/Data/Presentation', 0777, true);
   $debug = new ReflectionClass(Debug::class)->getStaticProperties();
   Debug::configure(['log_directory' => $root . '/logs']);

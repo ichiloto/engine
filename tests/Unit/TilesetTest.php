@@ -49,7 +49,7 @@ function writeTilesetProject(string $root, array $sheets = ['A2' => [768, 576], 
 }
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-tileset-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-tileset-' . bin2hex(random_bytes(6));
   mkdir($this->root, 0777, true);
 });
 

@@ -128,7 +128,7 @@ it('changes non-looping poses at their boundary but never ahead of it', function
 })->with(range(1, 120));
 
 it('reads the current pose asset dimensions rather than freezing the previous PNG size', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-pose-' . bin2hex(random_bytes(6));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-pose-' . bin2hex(random_bytes(6));
   mkdir($root);
   try {
     $pose = new BattlerPose('pose.png', columns: 2, frames: [0, 1]);

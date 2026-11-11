@@ -11,7 +11,7 @@ function collisionDictionaryManager(): MapManager
 
 function writeCollisionDictionary(string $body): string
 {
-  $path = tempnam(sys_get_temp_dir(), 'ichiloto-collisions-');
+  $path = tempnam(\getTestTemporaryDirectory(), 'ichiloto-collisions-');
 
   if ($path === false) {
     throw new RuntimeException('Unable to create a collision dictionary fixture.');

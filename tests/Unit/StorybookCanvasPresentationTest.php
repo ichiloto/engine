@@ -120,7 +120,7 @@ beforeEach(function () {
         public function playSystemSound(SystemSound $sound): void {}
     };
     new ReflectionProperty(PassiveGame::class, 'audioManager')->setValue($this->canvasGame, $silent);
-    $this->canvasRoot = sys_get_temp_dir() . '/ichiloto-storybook-canvas-' . bin2hex(random_bytes(5));
+    $this->canvasRoot = \getTestTemporaryDirectory() . '/ichiloto-storybook-canvas-' . bin2hex(random_bytes(5));
     mkdir($this->canvasRoot);
 });
 

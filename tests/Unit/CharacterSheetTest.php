@@ -72,7 +72,7 @@ it('accepts only sheet, index and layer, never authored sizes, anchors or frames
 ]);
 
 it('keeps the terminal glyph when a sheet is missing or the wrong shape', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-character-sheet-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-character-sheet-' . bin2hex(random_bytes(4));
   mkdir($root);
   try {
     $guard = new CharacterSheetAssetGuard($root, 'Test');

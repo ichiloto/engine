@@ -86,7 +86,7 @@ beforeEach(function () {
     ModalManager::class, AudioManager::class, NotificationManager::class, Time::class, EventManager::class] as $class) {
     $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/ichiloto-shop-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-shop-' . bin2hex(random_bytes(5));
   mkdir($this->root);
   Debug::configure(['log_directory' => $this->root]);
   Console::setTerminalOutputEnabled(false);

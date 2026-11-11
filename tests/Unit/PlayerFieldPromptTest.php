@@ -120,7 +120,7 @@ beforeEach(function () {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['graphics' => ['field' => ['zoom' => 2.0]],
         'ui' => ['hud' => ['location' => false]]]));
     ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 40]));
-    $this->root = sys_get_temp_dir() . '/ichiloto-player-prompt-' . bin2hex(random_bytes(8));
+    $this->root = \getTestTemporaryDirectory() . '/ichiloto-player-prompt-' . bin2hex(random_bytes(8));
     mkdir($this->root);
     Debug::configure(['log_directory' => $this->root]);
     $this->transport = new FakeRendererTransport();

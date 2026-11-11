@@ -45,7 +45,7 @@ beforeEach(function () {
   Console::setLayerTracking(true);
   $this->scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
   // Staged character sheets are checked against the running renderer's asset root.
-  $this->assetRoot = sys_get_temp_dir() . '/ichiloto-cinematic-graphics-' . bin2hex(random_bytes(4));
+  $this->assetRoot = \getTestTemporaryDirectory() . '/ichiloto-cinematic-graphics-' . bin2hex(random_bytes(4));
   writeCharacterSheetPng($this->assetRoot . '/' . characterSheetData()['sheet'], 48, 48);
   [$game] = makeSceneAudioGame();
   $game->useRendererRuntime(new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']),

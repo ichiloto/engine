@@ -328,7 +328,7 @@ beforeEach(function () {
     ConfigStore::class, Timers::class, Debug::class] as $class) {
     $this->staticBefore[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->logDirectory = sys_get_temp_dir() . '/ichiloto-teardown-' . bin2hex(random_bytes(8));
+  $this->logDirectory = \getTestTemporaryDirectory() . '/ichiloto-teardown-' . bin2hex(random_bytes(8));
   $this->previousDirectory = getcwd();
   Debug::configure(['log_directory' => $this->logDirectory]);
   putSceneAudioConfig(['save' => ['autosave' => true]]);

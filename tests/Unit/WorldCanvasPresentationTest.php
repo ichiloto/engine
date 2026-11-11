@@ -35,7 +35,7 @@ function createWorldCanvasPresenter(array $without = []): array
   $grid = new RendererGridConfig(10, 5, 48, 48);
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
-  $session = new RendererSessionConfig('Synthetic groups', sys_get_temp_dir(), $grid, RendererProtocolVersion::V2);
+  $session = new RendererSessionConfig('Synthetic groups', \getTestTemporaryDirectory(), $grid, RendererProtocolVersion::V2);
   $client->start($session);
   $caps = array_values(array_diff($session->getNegotiableCapabilities(), $without));
   $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',

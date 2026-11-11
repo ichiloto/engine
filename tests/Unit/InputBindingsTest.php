@@ -19,7 +19,7 @@ beforeEach(function () {
   foreach ([InputManager::class, ConfigStore::class, EventManager::class, Debug::class] as $class) {
     $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->playerRoot = sys_get_temp_dir() . '/ichiloto-bindings-' . bin2hex(random_bytes(6));
+  $this->playerRoot = \getTestTemporaryDirectory() . '/ichiloto-bindings-' . bin2hex(random_bytes(6));
   mkdir($this->playerRoot);
   Debug::configure(['log_directory' => $this->playerRoot . '/logs']);
   ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));

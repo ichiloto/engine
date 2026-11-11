@@ -83,7 +83,7 @@ it('reads authored place types and a map\'s place type, and loads a project with
         ->and(fn() => PlaceTypeCatalog::readMapPlaceType(['placeType' => 'Big Town']))->toThrow(InvalidArgumentException::class)
         ->and(fn() => $types->getName('cave'))->toThrow(InvalidArgumentException::class, "Unknown place type 'cave'");
 
-    $root = sys_get_temp_dir() . '/place-types-' . bin2hex(random_bytes(4));
+    $root = \getTestTemporaryDirectory() . '/place-types-' . bin2hex(random_bytes(4));
     mkdir($root . '/Data', 0777, true);
     try {
         expect(PlaceTypeCatalog::load($root)->getIds())->toBe([]);

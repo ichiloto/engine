@@ -163,7 +163,7 @@ class ConsoleBufferedWriteProbeStream
  */
 function writePayloadThroughConsole(string $payload): ?int
 {
-  $sinkPath = tempnam(sys_get_temp_dir(), 'ichiloto-console-sink-');
+  $sinkPath = tempnam(\getTestTemporaryDirectory(), 'ichiloto-console-sink-');
 
   $descriptors = [
     0 => ['pipe', 'r'],

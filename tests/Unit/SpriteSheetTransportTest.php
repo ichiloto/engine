@@ -21,7 +21,7 @@ require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 it('keeps legacy hello and whole-image sprite shapes unchanged', function () {
-  $session = new RendererSessionConfig('Legacy', sys_get_temp_dir());
+  $session = new RendererSessionConfig('Legacy', \getTestTemporaryDirectory());
   $sprite = new PresentationSprite('player', 'hero.png', 4, 3, 56, 56);
   expect($session->hello()->payload)->not->toHaveKey('requiredCapabilities')
     ->and($sprite->toArray())->not->toHaveKey('sourceRect')
@@ -31,7 +31,7 @@ it('keeps legacy hello and whole-image sprite shapes unchanged', function () {
 it('negotiates source rectangles with either hello and removes stateless v1 presentation output', function ($protocol) {
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
-  $session = new RendererSessionConfig('Sheets', sys_get_temp_dir(), protocol: $protocol,
+  $session = new RendererSessionConfig('Sheets', \getTestTemporaryDirectory(), protocol: $protocol,
     requiredCapabilities: [RendererSessionConfig::SPRITE_SOURCE_RECT]);
   $client->start($session);
   $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => $protocol->value,
@@ -55,7 +55,7 @@ it('negotiates source rectangles with either hello and removes stateless v1 pres
     ->and($frames[0]['sprites'][0]['sourceRect']['x'])->toBe(0)
     ->and($transport->sent[1]->protocol)->toBe(RendererProtocolVersion::V2)
     ->and(array_column($transport->sent[1]->payload['operations'], 'kind'))->toBe(['sprite']);
-  $client->start(new RendererSessionConfig('Legacy restart', sys_get_temp_dir(), protocol: $protocol));
+  $client->start(new RendererSessionConfig('Legacy restart', \getTestTemporaryDirectory(), protocol: $protocol));
   expect($client->supports('sprite_source_rect'))->toBeFalse();
 })->with([RendererProtocolVersion::V1, RendererProtocolVersion::V2]);
 
@@ -74,7 +74,7 @@ it('rejects cropped presentation unless the capability was requested and acknowl
 })->with([false, true]);
 
 it('rejects missing acknowledgments in both real pipe transport and shared clients', function ($protocol) {
-  $session = new RendererSessionConfig('Sheets', sys_get_temp_dir(), protocol: $protocol,
+  $session = new RendererSessionConfig('Sheets', \getTestTemporaryDirectory(), protocol: $protocol,
     requiredCapabilities: ['sprite_source_rect']);
   $transport = new ProcessRendererTransport(new RendererProcessConfig([
     PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', 'normal',
@@ -95,7 +95,7 @@ it('completes source-rectangle request and acknowledgment over actual process pi
   ]));
   $client = new RendererClient($transport);
   try {
-    $client->start(new RendererSessionConfig('Sheets', sys_get_temp_dir(), protocol: $protocol,
+    $client->start(new RendererSessionConfig('Sheets', \getTestTemporaryDirectory(), protocol: $protocol,
       requiredCapabilities: ['sprite_source_rect']));
     $client->pump();
     expect($client->supports('sprite_source_rect'))->toBeTrue()->and($client->shutdown())->toBe(0);
@@ -108,6 +108,6 @@ it('rejects malformed capability acknowledgments', function ($capabilities) {
 })->with(['null', '{}', 'true', '[1]', '["bad name"]', '["sprite_source_rect","sprite_source_rect"]']);
 
 it('rejects malformed or unsupported capability requests', function ($capabilities) {
-  expect(fn() => new RendererSessionConfig('Bad', sys_get_temp_dir(), requiredCapabilities: $capabilities))
+  expect(fn() => new RendererSessionConfig('Bad', \getTestTemporaryDirectory(), requiredCapabilities: $capabilities))
     ->toThrow(InvalidArgumentException::class);
 })->with([[[null]], [[[]]], [['unknown']], [['sprite_source_rect', 'sprite_source_rect']], [['name' => 'sprite_source_rect']]]);

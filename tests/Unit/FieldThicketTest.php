@@ -175,11 +175,11 @@ describe('sprite thickets', function () {
       ->and($sprite->toArray(thicket: true)['thicket'])->toBe(['depth' => 20, 'opacity' => 0.0, 'rustle' => ['layer' => 'tiles:features']])
       ->and($plain->toArray(thicket: true))->toBe($plain->toArray())
       ->and($sprite->withoutMotion()->thicket)->toBe($thicket)
-      ->and(new RendererSessionConfig('Thickets', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2)->getNegotiableCapabilities())
+      ->and(new RendererSessionConfig('Thickets', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2)->getNegotiableCapabilities())
       ->toContain(RendererSessionConfig::SPRITE_THICKET)
-      ->and(new RendererSessionConfig('Thickets', sys_get_temp_dir())->getNegotiableCapabilities())
+      ->and(new RendererSessionConfig('Thickets', \getTestTemporaryDirectory())->getNegotiableCapabilities())
       ->not->toContain(RendererSessionConfig::SPRITE_THICKET)
-      ->and(fn() => new RendererSessionConfig('Thickets', sys_get_temp_dir(), requiredCapabilities: [RendererSessionConfig::SPRITE_THICKET]))
+      ->and(fn() => new RendererSessionConfig('Thickets', \getTestTemporaryDirectory(), requiredCapabilities: [RendererSessionConfig::SPRITE_THICKET]))
       ->toThrow(InvalidArgumentException::class);
   });
 

@@ -18,7 +18,7 @@ use Ichiloto\Engine\UI\Presentation\MenuRowColumn;
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-battle-test-menu-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-battle-test-menu-' . bin2hex(random_bytes(6));
   mkdir($this->root);
   \Tests\Support\Rendering\writeTestPng($this->root . '/cave.png', 400, 300);
   \Tests\Support\Rendering\writeTestPng($this->root . '/bat.png', 80, 60);

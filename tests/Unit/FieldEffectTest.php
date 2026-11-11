@@ -60,7 +60,7 @@ function createFieldCue(string $kind = 'story', int $x = 100, int $y = 7, array 
 }
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-field-effects-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-field-effects-' . bin2hex(random_bytes(6));
   mkdir($this->root);
   $this->debugState = new ReflectionClass(Debug::class)->getStaticProperties();
   Debug::configure(['log_directory' => $this->root]);

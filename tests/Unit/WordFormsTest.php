@@ -37,7 +37,7 @@ it('leaves words the project does not name to the inflector rules', function () 
 });
 
 it('reads a project without word forms as having none', function () {
-  $root = sys_get_temp_dir() . '/word-forms-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/word-forms-' . bin2hex(random_bytes(4));
   mkdir($root . '/Data', 0777, true);
 
   try {

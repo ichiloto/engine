@@ -124,7 +124,7 @@ final class VoiceTestSkits extends SkitManager
 
 beforeEach(function () {
   $this->originalDirectory = getcwd();
-  $this->voiceTemp = sys_get_temp_dir() . '/ichiloto-voice-' . bin2hex(random_bytes(6));
+  $this->voiceTemp = \getTestTemporaryDirectory() . '/ichiloto-voice-' . bin2hex(random_bytes(6));
   mkdir($this->voiceTemp . '/assets/Audio/Voice/Skits/sample', 0777, true);
   file_put_contents($this->voiceTemp . '/assets/Audio/Voice/Skits/sample/line.mp3', 'fake test audio');
   $this->voicePath = $this->voiceTemp . '/assets/Audio/Voice/Skits/sample/line.mp3';

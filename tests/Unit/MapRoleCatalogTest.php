@@ -47,7 +47,7 @@ it('reads a map\'s role from its data and refuses a malformed one', function () 
 });
 
 it('loads a project without roles as none, and the project file when there is one', function () {
-    $root = sys_get_temp_dir() . '/map-roles-' . bin2hex(random_bytes(4));
+    $root = \getTestTemporaryDirectory() . '/map-roles-' . bin2hex(random_bytes(4));
     mkdir($root . '/Data', 0777, true);
     try {
         expect(MapRoleCatalog::load($root)->getIds())->toBe([]);

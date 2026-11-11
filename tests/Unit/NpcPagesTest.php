@@ -81,7 +81,7 @@ it('reads a reusable NPC page that transfers as a route used by talking to the N
       ['id' => 'story', 'conditions' => [['type' => 'event', 'name' => 'arrived']], 'script' => [['type' => 'transfer', 'map' => 'garden', 'x' => 0, 'y' => 0]],
         'reusable' => false],
       ['conditions' => [['type' => 'event', 'name' => 'briefed']], 'script' => $transfer],
-    ]])]], [], sys_get_temp_dir());
+    ]])]], [], \getTestTemporaryDirectory());
 
   expect($routes)->toHaveCount(1)
     ->and($routes[0]->destination)->toBe('mine')->and($routes[0]->marker)->toBe('@npc:mentor')

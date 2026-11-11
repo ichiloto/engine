@@ -11,7 +11,7 @@ use function Tests\Support\Rendering\writeTestPng;
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 beforeEach(function () {
-  $this->effectRoot = sys_get_temp_dir() . '/ichiloto-effect-contract-' . bin2hex(random_bytes(6));
+  $this->effectRoot = \getTestTemporaryDirectory() . '/ichiloto-effect-contract-' . bin2hex(random_bytes(6));
   mkdir($this->effectRoot);
   writeTestPng($this->effectRoot . '/sheet.png', 16, 8);
   $this->effects = new EffectTimelineLibrary($this->effectRoot);
@@ -248,7 +248,7 @@ it('refuses mixed incomplete or nested sequence ownership', function (array $dat
 ]);
 
 it('refuses a timeline symlink escaping the asset root without evaluating it', function () {
-  $outside = tempnam(sys_get_temp_dir(), 'ichiloto-effect-escape-');
+  $outside = tempnam(\getTestTemporaryDirectory(), 'ichiloto-effect-escape-');
   file_put_contents($outside, '<?php throw new LogicException("must not execute");');
   mkdir($this->effectRoot . '/Animations/escape', 0777, true);
   symlink($outside, $this->effectRoot . '/Animations/escape/escape.timeline.php');
@@ -267,7 +267,7 @@ it('lists the timelines an asset root holds by identity, without reading them', 
   file_put_contents($this->effectRoot . '/Animations/ember-burst/ember-burst.timeline.php', '<?php return [];');
   file_put_contents($this->effectRoot . '/Animations/Bad Id/Bad Id.timeline.php', '<?php return [];');
   file_put_contents($this->effectRoot . '/Animations/misnamed/other.timeline.php', '<?php return [];');
-  $outside = tempnam(sys_get_temp_dir(), 'ichiloto-effect-escape-');
+  $outside = tempnam(\getTestTemporaryDirectory(), 'ichiloto-effect-escape-');
   mkdir($this->effectRoot . '/Animations/escape');
   symlink($outside, $this->effectRoot . '/Animations/escape/escape.timeline.php');
 

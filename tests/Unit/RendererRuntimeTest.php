@@ -253,7 +253,7 @@ it('updates native activation state without consuming semantic input', function 
 });
 
 it('runs a real PHP-only peer through the protocol two retained runtime lifecycle', function () {
-  $capture = tempnam(sys_get_temp_dir(), 'runtime-version-');
+  $capture = tempnam(\getTestTemporaryDirectory(), 'runtime-version-');
   $process = new RendererProcessConfig([PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', 'ready_key', $capture]);
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig($process, __DIR__), new ProcessRendererTransport($process));
   try {
@@ -291,7 +291,7 @@ it('uploads initial retained state once and does not rebuild it for staged or pr
 
 it('invalidates once for a drained resize or rejection batch and resends complete retained state without losing keys', function (bool $rejected) {
   $debug = new ReflectionClass(Debug::class)->getStaticProperties();
-  $directory = sys_get_temp_dir() . '/retained-runtime-' . bin2hex(random_bytes(6));
+  $directory = \getTestTemporaryDirectory() . '/retained-runtime-' . bin2hex(random_bytes(6));
   Debug::configure(['log_directory' => $directory]);
   try {
     $this->runtime->start('Resynchronize', 12, 4);
@@ -332,7 +332,7 @@ describe('repeated retained-frame rejection diagnostics', function () {
   beforeEach(function () {
     $this->warningState = new ReflectionClass(Debug::class)->getStaticProperties();
     $this->traceState = new ReflectionClass(\Ichiloto\Engine\Diagnostics\LatencyTrace::class)->getStaticProperties();
-    $this->warningDirectory = sys_get_temp_dir() . '/runtime-rejection-warnings-' . bin2hex(random_bytes(6));
+    $this->warningDirectory = \getTestTemporaryDirectory() . '/runtime-rejection-warnings-' . bin2hex(random_bytes(6));
     Debug::configure(['log_directory' => $this->warningDirectory]);
     $this->feedbackTrace = [];
     \Ichiloto\Engine\Diagnostics\LatencyTrace::configure(function (array $record): void {
@@ -535,7 +535,7 @@ it('refuses restart before start or after final shutdown without acquiring a ren
 });
 
 it('restarts a real PHP pipe peer with a new retained generation and the same runtime input source', function () {
-  $capture = tempnam(sys_get_temp_dir(), 'runtime-restart-');
+  $capture = tempnam(\getTestTemporaryDirectory(), 'runtime-restart-');
   $process = new RendererProcessConfig([PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', 'ready_key', $capture]);
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig($process, __DIR__), new ProcessRendererTransport($process));
   try {
@@ -601,7 +601,7 @@ it('keeps presentation delivery bounded when a complete frame exceeds the I/O bu
 });
 
 it('resumes a large cold world through a slow real pipe while keeping input and latest scene changes', function (string $scenario) {
-  $capture = tempnam(sys_get_temp_dir(), 'retained-cold-');
+  $capture = tempnam(\getTestTemporaryDirectory(), 'retained-cold-');
   $process = new RendererProcessConfig([PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', $scenario, $capture],
     ioBudgetBytes: 8192);
   $transport = new ProcessRendererTransport($process);

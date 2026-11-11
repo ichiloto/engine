@@ -81,7 +81,7 @@ beforeEach(function () {
   Console::setTerminalOutputEnabled(false);
   ConfigStore::put(ProjectConfig::class, new CreditsLifecycleConfig(['name' => 'Example game',
     'audio' => ['master_volume' => 0, 'music' => false, 'sfx' => false]]));
-  $this->root = sys_get_temp_dir() . '/credits-lifecycle-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/credits-lifecycle-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/assets/Data', 0777, true);
   $this->cwd = getcwd();
   chdir($this->root);

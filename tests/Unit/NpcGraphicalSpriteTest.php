@@ -152,7 +152,7 @@ beforeEach(function () {
     new ReflectionProperty(Console::class, $name)->setValue(null, $value);
   }
   putSceneAudioConfig(['ui' => ['hud' => ['location' => false]]]);
-  $this->root = sys_get_temp_dir() . '/ichiloto-npc-graphics-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-npc-graphics-' . bin2hex(random_bytes(5));
   mkdir($this->root);
   writeCharacterSheetPng($this->root . '/' . NPC_TEST_SHEET, 4, 6);
   Debug::configure(['log_directory' => $this->root]);

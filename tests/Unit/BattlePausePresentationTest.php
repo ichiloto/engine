@@ -173,13 +173,13 @@ it('rejects incomplete declared skins and leaves legacy catalogs optional', func
   $textures = $skin->textures; unset($textures['focus']);
   expect(fn() => new BattlePauseSkin($textures, $skin->colors))->toThrow(InvalidArgumentException::class)
     ->and((new BattlePresentationCatalog([], [], []))->pause)->toBeNull();
-  $root = sys_get_temp_dir() . '/ichiloto-pause-absent-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-pause-absent-' . bin2hex(random_bytes(4));
   mkdir($root);
   try { GraphicalBattlePause::preflight($skin, $root); } finally { rmdir($root); }
 });
 
 it('retains healthy pause buttons and centered controls when other textures are unavailable', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-pause-fallback-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-pause-fallback-' . bin2hex(random_bytes(4));
   mkdir($root);
   $skin = pauseSkinFixture();
   $now = 0.0;
@@ -206,7 +206,7 @@ it('retains healthy pause buttons and centered controls when other textures are 
 });
 
 it('does not reinterpret invalid texture geometry as missing optional artwork', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-pause-geometry-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-pause-geometry-' . bin2hex(random_bytes(4));
   mkdir($root);
   $skin = pauseSkinFixture();
   $textures = $skin->textures;

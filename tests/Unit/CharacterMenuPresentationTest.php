@@ -120,7 +120,7 @@ beforeEach(function () {
   foreach ([Console::class, InputManager::class, ActionHints::class, ConfigStore::class, Debug::class, ModalManager::class, \Ichiloto\Engine\Audio\AudioManager::class] as $class) {
     $this->savedStatics[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/ichiloto-character-menu-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-character-menu-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   foreach (['unknown', 'staff', 'head', 'cursor', 'portrait', 'state', 'focus'] as $name) {
     characterMenuPng($this->root . '/' . $name . '.png', $name === 'portrait' ? 73 : 31, $name === 'portrait' ? 39 : 47);

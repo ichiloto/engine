@@ -9,7 +9,7 @@ require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 beforeEach(function () {
     MapCompilationCache::clear();
-    $this->cacheRoot = sys_get_temp_dir() . '/map-compilation-' . bin2hex(random_bytes(8));
+    $this->cacheRoot = \getTestTemporaryDirectory() . '/map-compilation-' . bin2hex(random_bytes(8));
     mkdir($this->cacheRoot . '/layers', 0700, true);
 });
 afterEach(function () {

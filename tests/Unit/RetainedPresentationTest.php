@@ -76,7 +76,7 @@ it('uploads a world once and emits only a viewport for every scrolling direction
 it('reconciles world row edits against delivered state and rebuilds the world after invalidation', function () {
     $transport = new FakeRendererTransport();
     $client = new RendererClient($transport);
-    $client->start(new RendererSessionConfig('test', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2));
+    $client->start(new RendererSessionConfig('test', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2));
     $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["world_row_diffs"]}')];
     $client->pump();
     $sender = new RetainedPresentation($client);

@@ -11,7 +11,7 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 beforeEach(function () {
   $this->originalDirectory = getcwd();
-  $this->projectRoot = sys_get_temp_dir() . '/ichiloto-player-settings-' . bin2hex(random_bytes(6));
+  $this->projectRoot = \getTestTemporaryDirectory() . '/ichiloto-player-settings-' . bin2hex(random_bytes(6));
   mkdir($this->projectRoot);
   chdir($this->projectRoot);
   $this->previousConfigs = new ReflectionClass(ConfigStore::class)->getStaticProperties();

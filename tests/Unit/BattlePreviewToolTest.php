@@ -4,7 +4,7 @@ require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
 
 function runBattlePreviewTool(array $arguments, bool $acknowledgeSelection = true, bool $cleanupFails = false, ?string $input = null, bool $pipeRenderer = false): array
 {
-    $directory = sys_get_temp_dir() . '/battle-preview-' . bin2hex(random_bytes(6));
+    $directory = \getTestTemporaryDirectory() . '/battle-preview-' . bin2hex(random_bytes(6));
     mkdir($directory);
     $directory = realpath($directory) ?: throw new RuntimeException('Cannot resolve owned preview fixture directory.');
     $fixturePath = $directory . '/fixture.php';
@@ -136,7 +136,7 @@ it('keeps the full default or acknowledges exactly selected preview identities w
     ]);
 
 it('verifies real queued combat through the preview driver without a native launch', function (bool $reduced) {
-    $root = sys_get_temp_dir() . '/queued-preview-driver-' . bin2hex(random_bytes(6));
+    $root = \getTestTemporaryDirectory() . '/queued-preview-driver-' . bin2hex(random_bytes(6));
     $process = null;
     try {
         \Tests\Support\Battle\writeQueuedAttackEffects($root, 8);
@@ -207,7 +207,7 @@ it('runs owned fixture cleanup on success and failure and never reports success 
 
 it('runs the native command fixture through actual queued party and enemy actions without changing project assets or settings',
     function (?array $subjects, bool $reduced) {
-        $root = sys_get_temp_dir() . '/queued-battle-preview-' . bin2hex(random_bytes(6));
+        $root = \getTestTemporaryDirectory() . '/queued-battle-preview-' . bin2hex(random_bytes(6));
         $fixture = null;
         $cwd = getcwd();
         $delta = new ReflectionProperty(\Ichiloto\Engine\Core\Time::class, 'deltaTime')->getValue();

@@ -14,7 +14,7 @@ function runScenePreviewTool(array $arguments = [], ?string $peerScenario = null
     string $fixtureName = 'ScenePreview.php', ?string $startupInput = null, bool $closeStartupInput = true,
     bool $terminalOnly = false): array
 {
-    $directory = sys_get_temp_dir() . '/scene-preview-' . bin2hex(random_bytes(6));
+    $directory = \getTestTemporaryDirectory() . '/scene-preview-' . bin2hex(random_bytes(6));
     mkdir($directory);
     $process = null;
     try {

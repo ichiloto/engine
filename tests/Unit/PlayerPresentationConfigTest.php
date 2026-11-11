@@ -80,7 +80,7 @@ function getPlayerSheetFrame(string $direction, int $pattern = 1): array
 beforeEach(function () {
   $this->runtime = null;
   $this->oldDirectory = getcwd();
-  $this->root = sys_get_temp_dir() . '/ichiloto-s6-' . uniqid();
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-s6-' . uniqid();
   mkdir($this->root . '/assets/Data/Entities', 0777, true);
   chdir($this->root);
   $this->states = [];

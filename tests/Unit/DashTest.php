@@ -189,7 +189,7 @@ it('binds dash to Shift where nothing claims it, keycapped as Shift, with room f
 it('keeps Always Dash a player setting that the project may author first', function () {
   InputManager::setInputSource(new FakeHeldInputSource());
   ConfigStore::put(DashSettings::class, new DashSettings(true, 2.0));
-  $root = sys_get_temp_dir() . '/ichiloto-dash-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-dash-' . bin2hex(random_bytes(4));
   mkdir($root);
   try {
     ConfigStore::put(PlayerSettings::class, $player = new PlayerSettings($root));

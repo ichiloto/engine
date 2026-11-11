@@ -264,10 +264,10 @@ it('pages read-only Key Items through the actual state canvas without an authore
     $data['metrics'] = ['cellWidth' => 8, 'cellHeight' => 18, 'rowHeight' => 32, 'panelPadding' => 16];
     $data['colors'] = ['panel' => [244, 237, 217], 'text' => [30, 35, 50]];
   }
-  $theme = new MenuPresentationCatalog(sys_get_temp_dir(), $data);
+  $theme = new MenuPresentationCatalog(\getTestTemporaryDirectory(), $data);
   // An already-loaded theme exercises state delegation without files or a native process.
   $this->game->useRendererRuntime(new RendererRuntime(new RendererRuntimeConfig(
-    new RendererProcessConfig(['not-launched']), sys_get_temp_dir()), new FakeRendererTransport()));
+    new RendererProcessConfig(['not-launched']), \getTestTemporaryDirectory()), new FakeRendererTransport()));
   new ReflectionProperty($owner, 'menuThemeLoaded')->setValue($owner, true);
   new ReflectionProperty($owner, 'menuTheme')->setValue($owner, $theme);
   $readCanvas = function () use ($owner, $theme): string {

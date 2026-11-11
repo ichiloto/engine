@@ -15,7 +15,7 @@ require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 beforeEach(function () {
   if (!function_exists('imagecreatefrompng')) { $this->markTestSkipped('Optional visible-pixel diagnostics require GD.'); }
-  $this->root = sys_get_temp_dir() . '/ichiloto-clearance-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-clearance-' . bin2hex(random_bytes(6));
   mkdir($this->root);
   \Tests\Support\Rendering\writeTestPng($this->root . '/image.png', 10, 10);
   $textures = [];

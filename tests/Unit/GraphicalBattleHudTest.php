@@ -42,7 +42,7 @@ function getHudTestLayout(?MenuIconRegistry $icons = null): BattleCanvasLayout
 }
 
 it('contains replaceable theme command icons and aligns labels independently of legacy abbreviations', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-hud-icons-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-hud-icons-' . bin2hex(random_bytes(4));
   mkdir($root);
   $hud = new BattleHudSnapshot(context: new BattleHudListSnapshot('Attack', '', [
     new BattleHudRow(0, 'Attack', true, iconRole: 'command.attack'),
@@ -245,7 +245,7 @@ it('right aligns resource values at stable right edges as digits grow and shrink
 });
 
 it('retains healthy HUD artwork and themed gauges when optional textures disappear and return', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-hud-fallback-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-hud-fallback-' . bin2hex(random_bytes(4));
   mkdir($root);
   $arena = getHudTestLayout();
   $hud = new BattleHudSnapshot(hudTestList('Command', ['Attack']), status: new BattleHudStatusSnapshot('', '',
@@ -273,7 +273,7 @@ it('retains healthy HUD artwork and themed gauges when optional textures disappe
 });
 
 it('keeps the combined battlefield and healthy HUD image budget strict', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-hud-budget-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-hud-budget-' . bin2hex(random_bytes(4));
   mkdir($root);
   try {
     foreach (['panel.png', 'arena.png'] as $asset) {
@@ -295,7 +295,7 @@ it('draws a panel\'s control hints as keycaps from the menu theme and keeps its 
     new \Ichiloto\Engine\IO\ActionHint('battle_back', 'Back', \Ichiloto\Engine\IO\ControlHint::keyboard(\Ichiloto\Engine\IO\Enumerations\KeyCode::C))];
   $list = new BattleHudListSnapshot('Magic', '[I] Info  [C] Back', [new BattleHudRow(0, 'Cure', true)], 0, 0, 4, 1, 1, 1, hints: $hints);
   $hud = new BattleHudSnapshot(context: $list);
-  $theme = new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog(sys_get_temp_dir(), ['schema' => 'ichiloto.menu/1']);
+  $theme = new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog(\getTestTemporaryDirectory(), ['schema' => 'ichiloto.menu/1']);
   $keys = GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'submenu', 0, null, $theme);
   $layers = array_column($keys->textLayers, null, 'id');
   $help = array_values(array_filter($keys->textLayers, fn($layer) => str_starts_with($layer->id, 'hud-submenu-help')));
@@ -328,9 +328,9 @@ function hudOutcomeTexts(\Ichiloto\Engine\Rendering\Presentation\Canvas\Presenta
 }
 
 it('draws every battle result in a themed panel above the battlefield with its controls as keys alone', function (int $width, int $height, int $cellWidth, int $cellHeight) {
-  $logs = sys_get_temp_dir() . '/ichiloto-hud-outcome-' . bin2hex(random_bytes(4));
+  $logs = \getTestTemporaryDirectory() . '/ichiloto-hud-outcome-' . bin2hex(random_bytes(4));
   \Ichiloto\Engine\Util\Debug::configure(['log_directory' => $logs]);
-  $theme = new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog(sys_get_temp_dir(), ['schema' => 'ichiloto.menu/1']);
+  $theme = new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog(\getTestTemporaryDirectory(), ['schema' => 'ichiloto.menu/1']);
   $arena = new BattleCanvasLayout($width, $height, $cellWidth, $cellHeight, skin: hudTestSkin(),
     feedbackArea: new CanvasRectangle(0, $height / 9, $width, $height * 0.63));
   $results = [
@@ -366,7 +366,7 @@ it('draws every battle result in a themed panel above the battlefield with its c
 })->with([[1350, 720, 10, 20], [1920, 1080, 14, 30], [945, 540, 7, 15]]);
 
 it('stacks a battle result below a visible battle message instead of covering either', function () {
-  $theme = new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog(sys_get_temp_dir(), ['schema' => 'ichiloto.menu/1']);
+  $theme = new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog(\getTestTemporaryDirectory(), ['schema' => 'ichiloto.menu/1']);
   $frame = GraphicalBattleHud::compose(getHudTestLayout(), new BattleHudSnapshot(message: 'Could not escape!',
     outcome: new \Ichiloto\Engine\Battle\Presentation\BattleOutcomeSnapshot('Defeat', ['The party has been wiped out.'], hudOutcomeHints())),
     null, 0, null, $theme);
@@ -378,7 +378,7 @@ it('stacks a battle result below a visible battle message instead of covering ei
 });
 
 it('reports a battle result whose keys read as text because the project has no menu theme', function () {
-  $logs = sys_get_temp_dir() . '/ichiloto-hud-outcome-' . bin2hex(random_bytes(4));
+  $logs = \getTestTemporaryDirectory() . '/ichiloto-hud-outcome-' . bin2hex(random_bytes(4));
   \Ichiloto\Engine\Util\Debug::configure(['log_directory' => $logs]);
   $fallbacks = new \Ichiloto\Engine\Rendering\Presentation\PresentationFallbackReport();
   $hud = new BattleHudSnapshot(outcome: new \Ichiloto\Engine\Battle\Presentation\BattleOutcomeSnapshot('Escaped',
@@ -392,7 +392,7 @@ it('reports a battle result whose keys read as text because the project has no m
 });
 
 it('rejects a battle result the canvas cannot hold instead of truncating it', function () {
-  $theme = new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog(sys_get_temp_dir(), ['schema' => 'ichiloto.menu/1']);
+  $theme = new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog(\getTestTemporaryDirectory(), ['schema' => 'ichiloto.menu/1']);
   $long = new \Ichiloto\Engine\Battle\Presentation\BattleOutcomeSnapshot('Victory', [str_repeat('x', 140)], hudOutcomeHints());
   expect(fn() => GraphicalBattleHud::compose(getHudTestLayout(), new BattleHudSnapshot(outcome: $long), null, 0, null, $theme))
     ->toThrow(RuntimeException::class, 'its window must wrap it');
@@ -420,7 +420,7 @@ it('fits the held technique beside a right affordance while keeping party panels
 });
 
 it('signals a held alternative with the theme navigation chevron, row sized, static and apart from the cursor', function (): void {
-  $root = sys_get_temp_dir() . '/ichiloto-hud-chevron-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-hud-chevron-' . bin2hex(random_bytes(4));
   mkdir($root);
   $hud = new BattleHudSnapshot(commands: new BattleHudListSnapshot('Command', '', [
     new BattleHudRow(0, 'Attack', true, hasAlternative: true), new BattleHudRow(1, 'Defend', false),

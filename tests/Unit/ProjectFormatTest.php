@@ -49,7 +49,7 @@ it('refuses a project from a newer engine instead of misreading it', function ()
 it('refuses to boot a project whose ichiloto.json records another format', function (string $json, string $message) {
   $originalDirectory = getcwd();
   $originalConfig = new ReflectionProperty(ConfigStore::class, 'store')->getValue();
-  $root = sys_get_temp_dir() . '/' . uniqid('ichiloto-project-format-', true);
+  $root = \getTestTemporaryDirectory() . '/' . uniqid('ichiloto-project-format-', true);
   mkdir($root . '/assets/Data', 0777, true);
   file_put_contents($root . '/ichiloto.json', $json);
   chdir($root);

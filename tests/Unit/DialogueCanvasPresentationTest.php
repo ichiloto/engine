@@ -64,7 +64,7 @@ function getDialogueTestLine(string $speaker = 'Display Hero', ?DialogueContext 
 }
 
 beforeEach(function () {
-    $this->root = sys_get_temp_dir() . '/ichiloto-dialogue-' . bin2hex(random_bytes(6));
+    $this->root = \getTestTemporaryDirectory() . '/ichiloto-dialogue-' . bin2hex(random_bytes(6));
     mkdir($this->root);
     foreach (['frame', 'hero', 'happy', 'background'] as $name) { writeDialogueTestPng($this->root . '/' . $name . '.png'); }
     $this->debugState = new ReflectionClass(Debug::class)->getStaticProperties();

@@ -21,7 +21,7 @@ require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
 
 beforeEach(function () {
   $this->atbCwd = getcwd();
-  $this->atbRoot = sys_get_temp_dir() . '/atb-effects-' . uniqid();
+  $this->atbRoot = \getTestTemporaryDirectory() . '/atb-effects-' . uniqid();
   mkdir($this->atbRoot);
   writeQueuedAttackEffects($this->atbRoot);
   chdir($this->atbRoot);

@@ -14,7 +14,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
 
 beforeEach(function () {
-    $this->root = sys_get_temp_dir() . '/ichiloto-timed-dialogue-' . bin2hex(random_bytes(6));
+    $this->root = \getTestTemporaryDirectory() . '/ichiloto-timed-dialogue-' . bin2hex(random_bytes(6));
     mkdir($this->root . '/Data/Presentation', 0777, true);
     $this->consoleBefore = new ReflectionClass(Console::class)->getStaticProperties();
     $this->debugBefore = new ReflectionClass(Debug::class)->getStaticProperties();

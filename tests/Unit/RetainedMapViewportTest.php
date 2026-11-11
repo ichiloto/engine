@@ -86,7 +86,7 @@ beforeEach(function () {
     Console::setLayerTracking(true);
     Console::setRetainedWorldPresentation(true);
     Console::syncDimensions(8, 4);
-    $this->root = sys_get_temp_dir() . '/ichiloto-retained-map-' . bin2hex(random_bytes(8));
+    $this->root = \getTestTemporaryDirectory() . '/ichiloto-retained-map-' . bin2hex(random_bytes(8));
     mkdir($this->root);
     Debug::configure(['log_directory' => $this->root]);
     $this->scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();

@@ -81,7 +81,7 @@ function runRetainedBenchmarkProcess(string $project, array $options = []): arra
 }
 
 beforeEach(function () {
-    $this->benchmarkDirectory = sys_get_temp_dir() . '/ichiloto-retained-benchmark-' . bin2hex(random_bytes(6));
+    $this->benchmarkDirectory = \getTestTemporaryDirectory() . '/ichiloto-retained-benchmark-' . bin2hex(random_bytes(6));
     mkdir($this->benchmarkDirectory);
 });
 

@@ -135,7 +135,7 @@ function heldInputSession(bool $transitions = true, bool $modifiers = false): ar
   $client = new RendererClient($transport);
   $required = $transitions ? [RendererSessionConfig::KEY_TRANSITIONS] : [];
   if ($modifiers) { $required[] = RendererSessionConfig::MODIFIER_CONTROLS; }
-  $client->start(new RendererSessionConfig('Held input', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  $client->start(new RendererSessionConfig('Held input', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: $required));
   $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
     'capabilities' => ['sprite_source_rect', ...$required]]))];
@@ -229,7 +229,7 @@ it('rejects transitions a session did not subscribe to and unidentified keys in 
 });
 
 it('holds Shift alone as the dash control only in a session that subscribed to modifier controls', function () {
-  expect(fn() => new RendererSessionConfig('Modifiers', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  expect(fn() => new RendererSessionConfig('Modifiers', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: [RendererSessionConfig::MODIFIER_CONTROLS]))->toThrow(InvalidArgumentException::class, 'key_transitions');
   [$transport, $client] = heldInputSession();
   $transport->batches[] = [heldKey('shift')];
@@ -266,7 +266,7 @@ it('keeps OS repeats in the event-only key stream while only presses releases an
     ->and($client->drainEvents())->toBe([]);
   // The event-only stream keeps its bound; a flood of transitions is rejected as a batch.
   $bounded = new RendererClient($small = new FakeRendererTransport(), maxPendingKeys: 2);
-  $bounded->start(new RendererSessionConfig('Bound', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  $bounded->start(new RendererSessionConfig('Bound', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: [RendererSessionConfig::KEY_TRANSITIONS]));
   $small->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["key_transitions"]}')];
   $bounded->pump();

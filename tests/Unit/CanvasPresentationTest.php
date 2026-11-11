@@ -45,7 +45,7 @@ function canvasPresenter(array $capabilities, ?RendererGridConfig $grid = null):
 {
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
-  $client->start(new RendererSessionConfig('Canvas', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  $client->start(new RendererSessionConfig('Canvas', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: $capabilities));
   $transport->batches[] = [RendererEvent::fromJson(json_encode([
     'protocol' => 2, 'type' => 'ready', 'capabilities' => $capabilities,
@@ -78,7 +78,7 @@ it('requires negotiated fitting support without queuing a partial canvas', funct
   $sent = count($transport->sent);
   expect(fn() => $presenter->prepareCanvas($canvas))->toThrow(RendererProtocolException::class, 'canvas_viewport_fit');
   expect(count($transport->sent))->toBe($sent);
-  expect(fn() => new RendererSessionConfig('Invalid', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  expect(fn() => new RendererSessionConfig('Invalid', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: [RendererSessionConfig::CANVAS_VIEWPORT_FIT]))->toThrow(InvalidArgumentException::class, 'graphical_canvas');
 });
 
@@ -333,9 +333,9 @@ it('validates optional image brightness without changing legacy opacity or wire 
 });
 
 it('negotiates image tone and updates retained brightness without resetting unrelated canvas entities', function () {
-  expect(fn() => new RendererSessionConfig('Tone', sys_get_temp_dir(), requiredCapabilities: ['canvas_image_tone']))
+  expect(fn() => new RendererSessionConfig('Tone', \getTestTemporaryDirectory(), requiredCapabilities: ['canvas_image_tone']))
     ->toThrow(InvalidArgumentException::class);
-  expect(fn() => new RendererSessionConfig('Tone', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  expect(fn() => new RendererSessionConfig('Tone', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: ['canvas_image_tone']))->toThrow(InvalidArgumentException::class);
   $rect = new CanvasRectangle(20, 20, 40, 60);
   $make = fn($brightness) => new PresentationCanvas(100, 100, [
@@ -361,9 +361,9 @@ it('negotiates image tone and updates retained brightness without resetting unre
 it('negotiates a bottom fade and removes it from the retained image when cleared', function () {
   $capability = RendererSessionConfig::CANVAS_IMAGE_BOTTOM_FADE;
   $graphical = RendererSessionConfig::GRAPHICAL_CANVAS;
-  expect(fn() => new RendererSessionConfig('Fade', sys_get_temp_dir(), requiredCapabilities: [$capability]))
+  expect(fn() => new RendererSessionConfig('Fade', \getTestTemporaryDirectory(), requiredCapabilities: [$capability]))
     ->toThrow(InvalidArgumentException::class)
-    ->and(fn() => new RendererSessionConfig('Fade', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+    ->and(fn() => new RendererSessionConfig('Fade', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
       requiredCapabilities: [$capability]))->toThrow(InvalidArgumentException::class, 'graphical_canvas');
   $bounds = new CanvasRectangle(20, 20, 40, 60);
   $fade = new CanvasImageBottomFade([0.48, 0.50, 0.47], 0.06);
@@ -392,7 +392,7 @@ it('negotiates independent image flips and removes them on retained replacement'
   $make = fn(bool $flip) => new PresentationCanvas(100, 100, [
     new CanvasImage('stroke', 'synthetic.png', $rect, flipX: $flip, flipY: $flip),
   ]);
-  expect(fn() => new RendererSessionConfig('Flip', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  expect(fn() => new RendererSessionConfig('Flip', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: ['canvas_image_flip']))->toThrow(InvalidArgumentException::class);
   [$legacy, $oldPeer] = canvasPresenter(['graphical_canvas']);
   expect(fn() => $legacy->presentCanvas($make(true)))->toThrow(RendererProtocolException::class, 'canvas_image_flip');
@@ -470,7 +470,7 @@ it('rejects mixed legacy and canvas frames without changing legacy wire shapes',
 });
 
 it('requires v2 requested and acknowledged canvas and crop capabilities even for blank canvases', function () {
-  expect(fn() => new RendererSessionConfig('v1', sys_get_temp_dir(), requiredCapabilities: ['graphical_canvas']))
+  expect(fn() => new RendererSessionConfig('v1', \getTestTemporaryDirectory(), requiredCapabilities: ['graphical_canvas']))
     ->toThrow(InvalidArgumentException::class);
   [$presenter, $transport] = canvasPresenter([]);
   expect(fn() => $presenter->presentCanvas(new PresentationCanvas(1, 1)))->toThrow(RendererProtocolException::class, 'graphical_canvas');
@@ -488,7 +488,7 @@ it('negotiates the new capability over real process pipes and rejects old render
     PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', $scenario,
   ]));
   $client = new RendererClient($transport);
-  $session = new RendererSessionConfig('Canvas', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  $session = new RendererSessionConfig('Canvas', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: ['graphical_canvas']);
   try {
     if ($scenario === 'normal') {

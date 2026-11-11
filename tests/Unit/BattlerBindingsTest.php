@@ -13,7 +13,7 @@ require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 /** Battle art bound as data. Synthetic identities and images only. */
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-bindings-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-bindings-' . bin2hex(random_bytes(6));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   writeTestPng($this->root . '/Graphics/Hero/Idle.png', 50, 100);
   writeTestPng($this->root . '/Graphics/Wisp/Idle.png', 40, 80);

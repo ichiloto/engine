@@ -90,7 +90,7 @@ beforeEach(function () {
   foreach ([Console::class, ConfigStore::class, Debug::class] as $class) { $this->statics[$class] = new ReflectionClass($class)->getStaticProperties(); }
   Console::setTerminalOutputEnabled(false);
   ConfigStore::put(ProjectConfig::class, new TitlePresentationMemoryConfig(['audio' => ['master_volume' => 0, 'music' => false, 'sfx' => false]]));
-  $this->root = sys_get_temp_dir() . '/ichiloto-title-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-title-' . bin2hex(random_bytes(5));
   mkdir($this->root);
   Debug::configure(['log_directory' => $this->root]);
   foreach (['day', 'night', 'logo', 'banner', 'bird'] as $file) { writeTitleTestPng($this->root . '/' . $file . '.png', 61, 41); }

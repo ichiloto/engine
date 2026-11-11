@@ -33,7 +33,7 @@ function fieldMotionPresentation(array $capabilities): array
 {
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
-  $client->start(new RendererSessionConfig('Slides', sys_get_temp_dir(), new RendererGridConfig(20, 10),
+  $client->start(new RendererSessionConfig('Slides', \getTestTemporaryDirectory(), new RendererGridConfig(20, 10),
     RendererProtocolVersion::V2));
   $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
     'capabilities' => $capabilities]))];

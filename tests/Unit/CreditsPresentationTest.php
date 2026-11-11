@@ -88,7 +88,7 @@ it('advances by update time without catching up pauses or long frame stalls', fu
 });
 
 it('clips a complete credit roll independently of rendering and theme', function (array $data) {
-  $theme = new MenuPresentationCatalog(sys_get_temp_dir(), ['schema' => 'ichiloto.menu/1', ...$data]);
+  $theme = new MenuPresentationCatalog(\getTestTemporaryDirectory(), ['schema' => 'ichiloto.menu/1', ...$data]);
   $content = new CreditsContent([['title' => 'Made by', 'lines' => array_map(static fn(int $i) => 'Contributor ' . $i, range(1, 80))]]);
   $playback = CreditsMenuPresentation::createPlayback($content, $theme);
   $viewport = CreditsMenuPresentation::getViewport($theme);

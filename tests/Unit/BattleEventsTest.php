@@ -91,7 +91,7 @@ function battleEventRunner(array $pages, array $enemies, array $party = [], ?Bat
 
 beforeEach(function () {
   $this->debugBefore = new ReflectionClass(Debug::class)->getStaticProperties();
-  $this->logs = sys_get_temp_dir() . '/ichiloto-battle-events-' . bin2hex(random_bytes(4));
+  $this->logs = \getTestTemporaryDirectory() . '/ichiloto-battle-events-' . bin2hex(random_bytes(4));
   mkdir($this->logs);
   Debug::configure(['log_directory' => $this->logs]);
 });

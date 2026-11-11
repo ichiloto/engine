@@ -77,7 +77,7 @@ beforeEach(function () {
   $this->originalConfig = new ReflectionProperty(ConfigStore::class, 'store')->getValue();
   $this->originalElements = new ReflectionProperty(ElementRegistry::class, 'elements')->getValue();
   $this->originalPolicy = new ReflectionProperty(EquipmentOptimizationPolicyRegistry::class, 'policy')->getValue();
-  $this->root = sys_get_temp_dir() . '/' . uniqid('ichiloto-optimization-bootstrap-', true);
+  $this->root = \getTestTemporaryDirectory() . '/' . uniqid('ichiloto-optimization-bootstrap-', true);
   $this->project = writeOptimizationBootstrapProject($this->root, 'first');
   $this->game = new EquipmentOptimizationBootstrapGame();
   chdir($this->project);

@@ -79,7 +79,7 @@ final class FailureCleanupOperation implements EventPendingOperationInterface
 
 beforeEach(function () {
   $this->debugBefore = new ReflectionClass(Debug::class)->getStaticProperties();
-  $this->logs = sys_get_temp_dir() . '/ichiloto-failure-cleanup-' . bin2hex(random_bytes(4));
+  $this->logs = \getTestTemporaryDirectory() . '/ichiloto-failure-cleanup-' . bin2hex(random_bytes(4));
   mkdir($this->logs);
   Debug::configure(['log_directory' => $this->logs]);
   $this->scene = new FailureCleanupScene();

@@ -22,7 +22,7 @@ it('removes technical destination diagnostics from player feedback while refusin
     foreach ([Console::class, NotificationManager::class, EventManager::class, Time::class, ConfigStore::class, AudioManager::class, ModalManager::class, \Ichiloto\Engine\Util\Debug::class] as $class) {
         $saved[$class] = new ReflectionClass($class)->getStaticProperties();
     }
-    $root = sys_get_temp_dir() . '/ichiloto-layer-transfer-' . bin2hex(random_bytes(8));
+    $root = \getTestTemporaryDirectory() . '/ichiloto-layer-transfer-' . bin2hex(random_bytes(8));
     mkdir($root . '/layers', recursive: true);
     $paths = ['id' => 'destination', 'data' => $root . '/destination.data.php',
         'event' => $root . '/destination.event.php', 'map' => $root . '/destination.map.php'];

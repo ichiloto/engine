@@ -345,7 +345,7 @@ it('never replays a reused action result when its queued command cannot execute'
 
 it('preserves turn-owned legacy effect cadence through the actual queued command',
   function (bool $activeTime, bool $graphical, bool $reducedMotion) {
-    $root = sys_get_temp_dir() . '/ichiloto-paced-cells-' . bin2hex(random_bytes(5));
+    $root = \getTestTemporaryDirectory() . '/ichiloto-paced-cells-' . bin2hex(random_bytes(5));
     $previous = getcwd();
     $catalogState = [];
     foreach (['battleAnimations', 'battleSummons', 'missingAnimationIds'] as $name) {
@@ -402,7 +402,7 @@ it('preserves turn-owned legacy effect cadence through the actual queued command
 
 it('runs equipped and explicit attack choreography through queued combat, pause, results and cleanup',
   function (?WeaponType $weaponType, bool $double, bool $enemy, bool $activeTime, bool $graphical, bool $east, bool $reducedMotion) {
-    $root = sys_get_temp_dir() . '/ichiloto-queued-effects-' . bin2hex(random_bytes(5));
+    $root = \getTestTemporaryDirectory() . '/ichiloto-queued-effects-' . bin2hex(random_bytes(5));
     $previous = getcwd();
     $catalogState = [];
     foreach (['battleAnimations', 'battleSummons', 'missingAnimationIds'] as $name) {

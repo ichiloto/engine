@@ -364,7 +364,7 @@ it('completes Summon guidance only after an accepted action executes', function 
 
 it('replaces scene-owned summon assets between battles even when the action state survives', function () {
   $previous = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-battle-summon-' . uniqid();
+  $root = \getTestTemporaryDirectory() . '/ichiloto-battle-summon-' . uniqid();
   $directory = $root . '/assets/Cutscenes/Summons/call';
   mkdir($directory, 0777, true);
   $data = $directory . '/call.data.php';
@@ -554,7 +554,7 @@ it('lets loaded source and target effect audio override generic cues but not sil
 
 it('resolves explicit animation ids and removes implicit display-name selection', function () {
   $previous = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-action-animation-' . uniqid();
+  $root = \getTestTemporaryDirectory() . '/ichiloto-action-animation-' . uniqid();
   mkdir($root . '/assets/Data', 0777, true);
   $path = $root . '/assets/Data/animations.php';
   try {
@@ -584,7 +584,7 @@ it('resolves explicit animation ids and removes implicit display-name selection'
 
 it('uses attack effects for typed basic skills and preserves an explicit effect override', function () {
   $previous = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-basic-attack-effect-' . uniqid();
+  $root = \getTestTemporaryDirectory() . '/ichiloto-basic-attack-effect-' . uniqid();
   mkdir($root . '/assets/Data', 0777, true);
   $path = $root . '/assets/Data/animations.php';
   try {

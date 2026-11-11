@@ -12,7 +12,7 @@ use Ichiloto\Engine\UI\Presentation\QuestJournalPresentation;
 use Ichiloto\Engine\UI\Text\TextViewport;
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-menu-controls-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-menu-controls-' . bin2hex(random_bytes(5));
   mkdir($this->root);
   $chunk = static fn(string $type, string $bytes): string => pack('N', strlen($bytes)) . $type . $bytes
     . pack('N', crc32($type . $bytes));

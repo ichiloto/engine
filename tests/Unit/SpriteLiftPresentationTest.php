@@ -26,7 +26,7 @@ function spriteLiftPresentation(array $capabilities): array
 {
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
-  $client->start(new RendererSessionConfig('Lift', sys_get_temp_dir(), new RendererGridConfig(20, 10),
+  $client->start(new RendererSessionConfig('Lift', \getTestTemporaryDirectory(), new RendererGridConfig(20, 10),
     RendererProtocolVersion::V2));
   $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
     'capabilities' => $capabilities]))];
@@ -35,13 +35,13 @@ function spriteLiftPresentation(array $capabilities): array
 }
 
 it('offers sprite_lift as a protocol 2 drawing feature only', function () {
-  $v2 = new RendererSessionConfig('Lift', sys_get_temp_dir(), new RendererGridConfig(20, 10), RendererProtocolVersion::V2);
+  $v2 = new RendererSessionConfig('Lift', \getTestTemporaryDirectory(), new RendererGridConfig(20, 10), RendererProtocolVersion::V2);
   expect($v2->getNegotiableCapabilities())->toContain(RendererSessionConfig::SPRITE_LIFT)
-    ->and(new RendererSessionConfig('Lift', sys_get_temp_dir())->getNegotiableCapabilities())
+    ->and(new RendererSessionConfig('Lift', \getTestTemporaryDirectory())->getNegotiableCapabilities())
     ->not->toContain(RendererSessionConfig::SPRITE_LIFT)
-    ->and(new RendererSessionConfig('Lift', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+    ->and(new RendererSessionConfig('Lift', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
       requiredCapabilities: [RendererSessionConfig::SPRITE_LIFT])->requiredCapabilities)->toBe(['sprite_lift'])
-    ->and(fn() => new RendererSessionConfig('Lift', sys_get_temp_dir(), requiredCapabilities: [RendererSessionConfig::SPRITE_LIFT]))
+    ->and(fn() => new RendererSessionConfig('Lift', \getTestTemporaryDirectory(), requiredCapabilities: [RendererSessionConfig::SPRITE_LIFT]))
     ->toThrow(InvalidArgumentException::class);
 });
 

@@ -47,7 +47,7 @@ beforeEach(function () {
   $this->saved = [];
   foreach ([InputManager::class, ActionHints::class, Debug::class] as $class) { $this->saved[$class] = new ReflectionClass($class)->getStaticProperties(); }
   ActionHints::useProvider(null);
-  $this->root = sys_get_temp_dir() . '/ichiloto-action-hints-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-action-hints-' . bin2hex(random_bytes(5));
   mkdir($this->root);
   Debug::configure(['log_directory' => $this->root]);
   actionHintPng($this->root . '/glyph.png', 81, 37);

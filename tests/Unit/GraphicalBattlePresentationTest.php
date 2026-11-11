@@ -336,7 +336,7 @@ beforeEach(function () {
   $this->statics = [];
   foreach ([Console::class, ConfigStore::class, InputManager::class, Debug::class, Ichiloto\Engine\Core\Time::class,
     \Ichiloto\Engine\Battle\BattleCommandCatalog::class] as $class) { $this->statics[$class] = new ReflectionClass($class)->getStaticProperties(); }
-  $this->logRoot = sys_get_temp_dir() . '/ichiloto-battle-logs-' . bin2hex(random_bytes(5));
+  $this->logRoot = \getTestTemporaryDirectory() . '/ichiloto-battle-logs-' . bin2hex(random_bytes(5));
   Debug::configure(['log_directory' => $this->logRoot]);
   new ReflectionProperty(Console::class, 'terminalHandedBack')->setValue(null, false);
   Console::setTerminalOutputEnabled(false);
@@ -1352,7 +1352,7 @@ it('keeps a statically registered creature the same size in differently sized fo
 
 it('selects each supplied command pose in both real battle engines and returns to the persistent state', function (bool $atb, bool $reduced, string $role) {
   $previous = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-all-command-poses-' . bin2hex(random_bytes(5));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-all-command-poses-' . bin2hex(random_bytes(5));
   $summonDirectory = $root . '/assets/Cutscenes/Summons/test';
   mkdir($summonDirectory, 0777, true);
   file_put_contents($summonDirectory . '/test.data.php', "<?php return ['id' => 'test', 'name' => 'Caller', 'linkedActionId' => 'Authored Call'];");
@@ -1887,7 +1887,7 @@ it('keeps command visual cues owned by presenters instead of applying legacy ful
 
 it('loads numeric animation source and target effects through actual command execution', function (bool $broken) {
   $cwd = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-command-project-' . bin2hex(random_bytes(6));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-command-project-' . bin2hex(random_bytes(6));
   mkdir($root . '/assets/Data', 0777, true);
   mkdir($root . '/assets/Animations/spark', 0777, true);
   copy(__DIR__ . '/../Fixtures/Renderer/test-sprite.png', $root . '/assets/spark.png');
@@ -1949,7 +1949,7 @@ it('loads numeric animation source and target effects through actual command exe
 
 it('loads migrated paced terminal treatments without cells through either battle engine and presentation', function (bool $atb, bool $graphical, bool $reduced) {
   $cwd = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-paced-command-' . bin2hex(random_bytes(6));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-paced-command-' . bin2hex(random_bytes(6));
   mkdir($root . '/assets/Data', 0777, true);
   mkdir($root . '/assets/Animations/paced', 0777, true);
   copy(__DIR__ . '/../Fixtures/Renderer/test-sprite.png', $root . '/assets/spark.png');
@@ -2010,7 +2010,7 @@ it('loads migrated paced terminal treatments without cells through either battle
 
 it('plays two explicitly authored slash passes after caster art with one real command resolution', function (bool $atb, bool $reduced) {
   $previous = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-dual-effect-' . bin2hex(random_bytes(6));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-dual-effect-' . bin2hex(random_bytes(6));
   mkdir($root . '/assets/Data', 0777, true);
   mkdir($root . '/assets/graphical-canvas', 0777, true);
   foreach (['synthetic-143x181.png', 'synthetic-320x180.png'] as $file) {
@@ -2738,7 +2738,7 @@ it('replaces a real battle canvas with the normal scene frame through the shared
 });
 
 it('loads current optional metadata without persisting it in battle state', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-battle-catalog-' . bin2hex(random_bytes(5));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-battle-catalog-' . bin2hex(random_bytes(5));
   $file = $root . '/' . BattlePresentationCatalog::FILE;
   mkdir(dirname($file), 0777, true);
   try {
@@ -2770,7 +2770,7 @@ it('rejects malformed typed artwork and independent placement geometry', functio
 ]);
 
 it('keeps battle configuration playable when graphical capabilities are unavailable', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-battle-startup-' . bin2hex(random_bytes(5));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-battle-startup-' . bin2hex(random_bytes(5));
   $file = $root . '/' . BattlePresentationCatalog::FILE;
   mkdir(dirname($file), 0777, true);
   copy(__DIR__ . '/../Fixtures/BattlePresentation/catalog.php', $file);
@@ -2793,7 +2793,7 @@ it('keeps battle configuration playable when graphical capabilities are unavaila
 });
 
 it('configures shared UI for consecutive encounters while terminal ignores optional assets', function (bool $native, bool $compositing, bool $results) {
-  $root = sys_get_temp_dir() . '/ichiloto-shared-ui-' . bin2hex(random_bytes(5));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-shared-ui-' . bin2hex(random_bytes(5));
   $file = $root . '/' . BattlePresentationCatalog::FILE;
   mkdir(dirname($file), 0777, true);
   copy(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', $file);
@@ -2870,7 +2870,7 @@ PHP;
 })->with([[true, true], [true, false], [false, false]])->with([true, false]);
 
 it('logs unusable shared UI assets or capabilities and still starts combat', function (?string $missing) {
-  $root = sys_get_temp_dir() . '/ichiloto-shared-ui-invalid-' . bin2hex(random_bytes(5));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-shared-ui-invalid-' . bin2hex(random_bytes(5));
   $file = $root . '/' . BattlePresentationCatalog::FILE;
   mkdir(dirname($file), 0777, true);
   copy(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', $file);
@@ -3084,7 +3084,7 @@ it('renders the whole image when the authored crop no longer exists in it', func
 });
 
 it('accepts replacement images at the same asset path without changing character identity or catalog', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-replaceable-battler-' . bin2hex(random_bytes(5));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-replaceable-battler-' . bin2hex(random_bytes(5));
   mkdir($root);
   copy($this->root . '/graphical-canvas/synthetic-320x180.png', $root . '/arena.png');
   copy($this->root . '/graphical-canvas/synthetic-143x181.png', $root . '/twin.png');
@@ -3114,7 +3114,7 @@ it('accepts replacement images at the same asset path without changing character
 });
 
 it('retains a prepared reference scale through live resolution replacements without changing gameplay or identity', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-live-reference-scale-' . bin2hex(random_bytes(5));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-live-reference-scale-' . bin2hex(random_bytes(5));
   mkdir($root);
   copy($this->root . '/graphical-canvas/synthetic-320x180.png', $root . '/arena.png');
   copy($this->root . '/graphical-canvas/synthetic-143x181.png', $root . '/twin.png');
@@ -3149,7 +3149,7 @@ it('retains a prepared reference scale through live resolution replacements with
 });
 
 it('derives whole battler dimensions and preserves normalized pivots across replacements', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-whole-battler-' . bin2hex(random_bytes(5));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-whole-battler-' . bin2hex(random_bytes(5));
   mkdir($root);
   try {
     copy($this->root . '/graphical-canvas/synthetic-143x181.png', $root . '/hero.png');
@@ -3175,7 +3175,7 @@ it('derives whole battler dimensions and preserves normalized pivots across repl
 });
 
 it('keeps a prepared battle usable as individual background battler and target assets disappear', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-live-battle-assets-' . bin2hex(random_bytes(5));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-live-battle-assets-' . bin2hex(random_bytes(5));
   mkdir($root . '/graphical-canvas', 0777, true);
   $assets = ['test-sprite.png', 'graphical-canvas/synthetic-320x180.png', 'graphical-canvas/synthetic-143x181.png'];
   foreach ($assets as $asset) { copy($this->root . '/' . $asset, $root . '/' . $asset); }

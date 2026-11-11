@@ -10,7 +10,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-target-group-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-target-group-' . bin2hex(random_bytes(6));
   mkdir($this->root);
   \Tests\Support\Rendering\writeTestPng($this->root . '/effect.png', 12, 8);
   $this->actor = new Character('Same name', 1, new Stats());

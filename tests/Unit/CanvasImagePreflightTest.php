@@ -7,7 +7,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-canvas-budget-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-canvas-budget-' . bin2hex(random_bytes(5));
   mkdir($this->root);
   // Header-only fixtures exercise PHP preflight, not the native PNG decoder.
   $this->png = function (string $name, int $width, int $height): void {

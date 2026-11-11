@@ -57,7 +57,7 @@ beforeEach(function () {
   foreach ([Console::class, ConfigStore::class, Debug::class] as $class) {
     $this->savedStatics[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/ichiloto-condition-menus-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-condition-menus-' . bin2hex(random_bytes(5));
   mkdir($this->root, 0777, true);
   writeTestPng($this->root . '/venom.png', 31, 47);
   Debug::configure(['log_directory' => $this->root . '/logs']);

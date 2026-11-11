@@ -100,7 +100,7 @@ function writeSaveManagerTestPayload(string $path, string $content): void
 
 it('leaves absent player data untouched while listing saves and resolving quick-save paths', function () {
   $original = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-save-read-' . bin2hex(random_bytes(6));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-save-read-' . bin2hex(random_bytes(6));
   mkdir($root);
   try {
     chdir($root);

@@ -26,7 +26,7 @@ function battleTestActor(string $id, int $currentExp = 0): ActorDefinition
 beforeEach(function () {
   $this->originalDirectory = getcwd();
   $this->originalConfig = new ReflectionProperty(ConfigStore::class, 'store')->getValue();
-  $this->root = sys_get_temp_dir() . '/' . uniqid('ichiloto-battle-test-', true);
+  $this->root = \getTestTemporaryDirectory() . '/' . uniqid('ichiloto-battle-test-', true);
   mkdir($this->root . '/assets/Data', 0777, true);
   file_put_contents($this->root . '/assets/Data/items.php', <<<'ITEMS'
   <?php

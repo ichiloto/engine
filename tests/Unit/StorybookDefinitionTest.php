@@ -81,7 +81,7 @@ it('keeps narration readable with diagnostics for an unusable optional picture r
 ]);
 
 it('reads current optional picture facts and preserves text after missing corrupt or replaced artwork', function () {
-    $root = sys_get_temp_dir() . '/storybook-picture-' . bin2hex(random_bytes(8));
+    $root = \getTestTemporaryDirectory() . '/storybook-picture-' . bin2hex(random_bytes(8));
     mkdir($root);
     $statics = [];
     foreach ([PngAssetPreflight::class, Debug::class] as $class) { $statics[$class] = new ReflectionClass($class)->getStaticProperties(); }

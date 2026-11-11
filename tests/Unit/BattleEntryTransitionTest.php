@@ -173,7 +173,7 @@ beforeEach(function () {
   Console::setTerminalOutputEnabled(false);
   Console::syncDimensions(135, 36);
   Console::clear();
-  $this->root = sys_get_temp_dir() . '/entry-transition-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/entry-transition-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   $data = var_export(getScreenTransitionFixture(), true);
   file_put_contents($this->root . '/' . ScreenTransitionCatalog::FILE,

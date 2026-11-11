@@ -9,7 +9,7 @@ use Ichiloto\Engine\Rendering\Sprites\PngAssetBounds;
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-visible-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-visible-' . bin2hex(random_bytes(6));
   mkdir($this->root);
   $this->readInChild = function (bool $withoutDecoder = false): array {
     $code = 'require ' . var_export(dirname(__DIR__, 2) . '/vendor/autoload.php', true) . '; '

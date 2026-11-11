@@ -101,7 +101,7 @@ beforeEach(function () {
   foreach ([Console::class, InputManager::class, ConfigStore::class, AudioManager::class, ActionHints::class, Debug::class] as $class) {
     $this->statics[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/ichiloto-config-menu-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-config-menu-' . bin2hex(random_bytes(5));
   mkdir($this->root);
   Debug::configure(['log_directory' => $this->root]);
   foreach (['surface', 'arrow', 'thumb'] as $file) { configPresentationPng($this->root . '/' . $file . '.png', 71, 39); }

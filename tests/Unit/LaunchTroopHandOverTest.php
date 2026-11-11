@@ -4,7 +4,7 @@ use Ichiloto\Engine\Core\GameLaunchContext;
 use Ichiloto\Engine\Scenes\Arena\LaunchTroopHandOver;
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-handover-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-handover-' . bin2hex(random_bytes(6));
   mkdir($this->root);
 });
 

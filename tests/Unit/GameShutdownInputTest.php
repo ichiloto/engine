@@ -189,7 +189,7 @@ beforeEach(function () {
     'output' => null, 'terminalOutputStream' => null] as $name => $value) {
     new ReflectionProperty(Console::class, $name)->setValue(null, $value);
   }
-  $this->logDirectory = sys_get_temp_dir() . '/ichiloto-shutdown-input-' . bin2hex(random_bytes(8));
+  $this->logDirectory = \getTestTemporaryDirectory() . '/ichiloto-shutdown-input-' . bin2hex(random_bytes(8));
   Debug::configure(['log_directory' => $this->logDirectory]);
   Timers::clear();
   Timers::setFrameTick(null);

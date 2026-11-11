@@ -50,7 +50,7 @@ function createPreparedBait(): BasicSkill
 beforeEach(function () {
   $this->preparedPriorStates = new ReflectionProperty(StateRegistry::class, 'states')->getValue();
   $this->preparedCwd = getcwd();
-  $this->preparedRoot = sys_get_temp_dir() . '/prepared-counter-' . uniqid();
+  $this->preparedRoot = \getTestTemporaryDirectory() . '/prepared-counter-' . uniqid();
   mkdir($this->preparedRoot);
   writeQueuedAttackEffects($this->preparedRoot);
   chdir($this->preparedRoot);

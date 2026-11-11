@@ -101,7 +101,7 @@ beforeEach(function () {
   $this->camera = new Camera($this->scene, 20, 10, worldSpace: array_fill(0, 30, str_repeat('.', 40)));
   new ReflectionProperty(GameScene::class, 'camera')->setValue($this->scene, $this->camera);
   $this->terminalSprites = ['north' => ['^^'], 'east' => ['>>'], 'south' => ['vv'], 'west' => ['<<']];
-  $this->assetRoot = sys_get_temp_dir() . '/ichiloto-player-sprite-' . bin2hex(random_bytes(4));
+  $this->assetRoot = \getTestTemporaryDirectory() . '/ichiloto-player-sprite-' . bin2hex(random_bytes(4));
   $this->sheet = characterSheetData()['sheet'];
   writeCharacterSheetPng($this->assetRoot . '/' . $this->sheet, 48, 48);
   $this->graphicalSprites = CharacterSheet::fromArray(characterSheetData());

@@ -452,7 +452,7 @@ beforeEach(function () {
   ob_start();
   Console::syncDimensions(24, 8);
   Console::setLayerTracking(true);
-  $this->assetRoot = sys_get_temp_dir() . '/ichiloto-subject-ownership-' . bin2hex(random_bytes(4));
+  $this->assetRoot = \getTestTemporaryDirectory() . '/ichiloto-subject-ownership-' . bin2hex(random_bytes(4));
   // 48 x 48 frames: a standard sheet's frame rects are whole multiples of 48.
   writeCharacterSheetPng($this->assetRoot . '/' . characterSheetData()['sheet'], 48, 48);
   writeTestPng($this->assetRoot . '/Loop.png', 24, 10);

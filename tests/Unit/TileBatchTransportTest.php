@@ -34,7 +34,7 @@ function tileBatch(string $id = 'terrain', int $column = 0): PresentationTileBat
 }
 
 it('negotiates terrain at startup and fails closed without acknowledgement', function ($scenario) {
-  $session = new RendererSessionConfig('Tiles', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  $session = new RendererSessionConfig('Tiles', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: ['sprite_source_rect', 'tile_batches']);
   $transport = new ProcessRendererTransport(new RendererProcessConfig([
     PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', $scenario,
@@ -52,7 +52,7 @@ it('negotiates terrain at startup and fails closed without acknowledgement', fun
 })->with(['normal', 'capabilities']);
 
 it('rejects tile capabilities in v1 and explicitly removes stateless presenter tile batches', function () {
-  expect(fn() => new RendererSessionConfig('Tiles', sys_get_temp_dir(), requiredCapabilities: ['tile_batches']))
+  expect(fn() => new RendererSessionConfig('Tiles', \getTestTemporaryDirectory(), requiredCapabilities: ['tile_batches']))
     ->toThrow(InvalidArgumentException::class);
   $transport = new FakeRendererTransport();
   $presenter = new RendererPresentation(new RendererClient($transport), new RendererGridConfig(2,1));
@@ -63,7 +63,7 @@ it('rejects tile capabilities in v1 and explicitly removes stateless presenter t
 it('retains terrain identity removes omitted worlds and resets after rejected terrain delivery', function () {
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
-  $client->start(new RendererSessionConfig('Tiles', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  $client->start(new RendererSessionConfig('Tiles', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: ['tile_batches']));
   $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["tile_batches"]}')];
   $client->pump();

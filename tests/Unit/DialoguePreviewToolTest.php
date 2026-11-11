@@ -1,7 +1,7 @@
 <?php
 
 it('previews a different skit backdrop over the snapshot\'s while preserving non-actor speaker bindings', function () {
-    $directory = sys_get_temp_dir() . '/dialogue-preview-' . bin2hex(random_bytes(6));
+    $directory = \getTestTemporaryDirectory() . '/dialogue-preview-' . bin2hex(random_bytes(6));
     mkdir($directory . '/Data/Presentation', 0777, true);
     $chunk = static fn($type, $data) => pack('N', strlen($data)) . $type . $data . pack('N', crc32($type . $data));
     $png = "\x89PNG\r\n\x1a\n" . $chunk('IHDR', pack('NNCCCCC', 48, 64, 8, 6, 0, 0, 0))

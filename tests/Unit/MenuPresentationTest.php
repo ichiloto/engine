@@ -49,7 +49,7 @@ function menuPresentationPng(string $path, int $width, int $height): void
 }
 
 beforeEach(function () {
-  $this->menuRoot = sys_get_temp_dir() . '/ichiloto-menu-rows-' . bin2hex(random_bytes(5));
+  $this->menuRoot = \getTestTemporaryDirectory() . '/ichiloto-menu-rows-' . bin2hex(random_bytes(5));
   mkdir($this->menuRoot);
   $this->debugStatics = new ReflectionClass(Debug::class)->getStaticProperties();
   Debug::configure(['log_directory' => $this->menuRoot]);

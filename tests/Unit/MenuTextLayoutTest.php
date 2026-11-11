@@ -77,7 +77,7 @@ it('keeps Unicode scalars nonbreaking words whitespace and wrap alignment unchan
 })->with(HorizontalAlignment::cases());
 
 it('uses the same formatted layout for shared menu prose without changing its source or centering', function () {
-  $theme = new MenuPresentationCatalog(sys_get_temp_dir(), ['schema' => 'ichiloto.menu/1']);
+  $theme = new MenuPresentationCatalog(\getTestTemporaryDirectory(), ['schema' => 'ichiloto.menu/1']);
   $view = new MenuCanvas($theme, 500, 200);
   $source = 'Press ' . Color::apply('T', Color::YELLOW) . ' to watch.';
   $view->prose('hint', $source, new CanvasRectangle(20, 20, 190, 100), alignment: HorizontalAlignment::CENTER);

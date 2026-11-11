@@ -80,7 +80,7 @@ function masteryPresentationContent(array $overrides = []): MasteryMenuContent
 }
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-mastery-menu-' . bin2hex(random_bytes(4));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-mastery-menu-' . bin2hex(random_bytes(4));
   mkdir($this->root);
   $this->theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false,
     'mastery' => ['regionColors' => ['storms' => [151, 205, 234]]]]);

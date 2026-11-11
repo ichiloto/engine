@@ -272,7 +272,7 @@ it('discards held directions and a queued tap on renderer restart and walks only
   $transport->onStart = static function (FakeRendererTransport $peer): void {
     $peer->batches = [[RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["key_transitions"]}')]];
   };
-  $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), sys_get_temp_dir(),
+  $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), \getTestTemporaryDirectory(),
     requiredCapabilities: [RendererSessionConfig::KEY_TRANSITIONS]), $transport);
   $frame = function (array $events) use ($transport, $runtime): void {
     $transport->batches[] = array_map(RendererEvent::fromJson(...), $events);

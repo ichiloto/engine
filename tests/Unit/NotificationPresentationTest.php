@@ -95,7 +95,7 @@ beforeEach(function () {
     EventManager::class, NotificationManager::class, AudioManager::class, ModalManager::class] as $class) {
     $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/notification-ui-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/notification-ui-' . bin2hex(random_bytes(5));
   mkdir($this->root);
   Debug::configure(['log_directory' => $this->root]);
   Console::setTerminalOutputEnabled(false);

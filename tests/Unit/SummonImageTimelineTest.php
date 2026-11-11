@@ -14,7 +14,7 @@ use function Tests\Support\Rendering\writeTestPng;
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-summon-images-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-summon-images-' . bin2hex(random_bytes(6));
   mkdir($this->root);
   writeTestPng($this->root . '/sheet.png', 16, 8);
   $this->source = ['fps' => 12, 'lengthFrames' => 4, 'restFrame' => 2, 'tracks' => [[

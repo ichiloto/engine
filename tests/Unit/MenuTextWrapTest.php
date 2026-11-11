@@ -52,7 +52,7 @@ it('retains codepoints without lost whitespace or over-budget rows across narrow
 });
 
 it('measures and paints wrapped labels values and centered commands through the same lines', function () {
-  $theme = new MenuPresentationCatalog(sys_get_temp_dir(), ['schema' => 'ichiloto.menu/1']);
+  $theme = new MenuPresentationCatalog(\getTestTemporaryDirectory(), ['schema' => 'ichiloto.menu/1']);
   $view = new MenuCanvas($theme, 500, 500);
   $layout = new MenuRowLayout(new CanvasRectangle(20, 20, 240, 200), [new MenuRowColumn(5)], 40, 10, 24, true);
   $row = new MenuRow('record', 'Use S-Potion', [new MenuRowValue('Cost now')]);

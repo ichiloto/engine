@@ -8,7 +8,7 @@ use Tests\Support\Rendering\RetainedFrameState;
 require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 it('runs native smoke entry points on protocol two using a silent PHP pipe peer', function (string $tool, bool $recover) {
-  $directory = sys_get_temp_dir() . '/retained-smoke-' . bin2hex(random_bytes(6));
+  $directory = \getTestTemporaryDirectory() . '/retained-smoke-' . bin2hex(random_bytes(6));
   mkdir($directory);
   $executable = $directory . '/renderer'; $capture = $directory . '/wire.ndjson';
   $stub = __DIR__ . '/../Fixtures/Renderer/renderer-stub.php';

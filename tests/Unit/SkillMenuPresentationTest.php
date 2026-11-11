@@ -150,7 +150,7 @@ beforeEach(function () {
     \Ichiloto\Engine\Events\EventManager::class] as $class) {
     $this->savedStatics[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/ichiloto-skill-menu-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-skill-menu-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   foreach (['portrait', 'cursor', 'surface', 'focus', 'ability', 'magic'] as $name) { skillMenuPng($this->root . '/' . $name . '.png'); }
   Debug::configure(['log_directory' => $this->root . '/logs']);

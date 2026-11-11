@@ -145,7 +145,7 @@ it('reacts the surface around a sunk body with a back layer behind it and a fron
   }
   expect($front->operations[0]->data['masks'][0]['contours'][0][0])->toBe([0.0, (float) ($front->height / 2)]);
 
-  $root = sys_get_temp_dir() . '/ichiloto-contact-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-contact-' . bin2hex(random_bytes(4));
   writeTestPng($root . '/Effects/RippleBack.png', 400, 50);
   writeTestPng($root . '/Effects/RippleLip.png', 100, 50);
   $sheet = static fn(string $asset, int $columns): BattlerPose => new BattlerPose($asset, columns: $columns,

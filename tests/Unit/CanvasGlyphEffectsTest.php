@@ -34,7 +34,7 @@ function glyphEffectsTestPresenter(array $requested, ?array $acknowledged): arra
 {
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
-  $client->start(new RendererSessionConfig('Glyph effects', sys_get_temp_dir(),
+  $client->start(new RendererSessionConfig('Glyph effects', \getTestTemporaryDirectory(),
     protocol: RendererProtocolVersion::V2, requiredCapabilities: $requested));
   if ($acknowledged !== null) {
     $transport->batches[] = [RendererEvent::fromJson(json_encode([
@@ -168,12 +168,12 @@ it('requires both protocol v2 and graphical canvas for glyph effects capability'
   $canvas = RendererSessionConfig::GRAPHICAL_CANVAS;
   $effects = RendererSessionConfig::CANVAS_GLYPH_EFFECTS;
   foreach ([[$effects], [$canvas, $effects]] as $capabilities) {
-    expect(fn() => new RendererSessionConfig('Glyph', sys_get_temp_dir(), protocol: RendererProtocolVersion::V1,
+    expect(fn() => new RendererSessionConfig('Glyph', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V1,
       requiredCapabilities: $capabilities))->toThrow(InvalidArgumentException::class);
   }
-  expect(fn() => new RendererSessionConfig('Glyph', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  expect(fn() => new RendererSessionConfig('Glyph', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: [$effects]))->toThrow(InvalidArgumentException::class, 'require graphical_canvas');
-  $session = new RendererSessionConfig('Glyph', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  $session = new RendererSessionConfig('Glyph', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: [$canvas, $effects]);
   expect($session->hello()->protocol)->toBe(RendererProtocolVersion::V2)
     ->and($session->hello()->payload['requiredCapabilities'])->toBe([$canvas, $effects]);

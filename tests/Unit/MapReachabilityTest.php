@@ -427,7 +427,7 @@ it('reports malformed declared occupancy instead of checking glyph-derived colli
 });
 
 it('reaches maps only through arrivals the player can get to from the start', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-reachability-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-reachability-' . bin2hex(random_bytes(4));
   $assets = "{$root}/assets";
   mkdir("{$assets}/Data", 0777, true);
   mkdir("{$assets}/Events", 0777, true);
@@ -477,7 +477,7 @@ it('reaches maps only through arrivals the player can get to from the start', fu
 });
 
 it('wakes the party where an innkeeper script says, on the map running it', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-reachability-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-reachability-' . bin2hex(random_bytes(4));
   $assets = "{$root}/assets";
   mkdir("{$assets}/Data", 0777, true);
   mkdir("{$assets}/Events", 0777, true);
@@ -537,7 +537,7 @@ it('uses the authored transfer door for script routes and reports stale referenc
 });
 
 it('reads a door marker painted in two places as one event on exactly those cells', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-reachability-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-reachability-' . bin2hex(random_bytes(4));
   $assets = "{$root}/assets";
   mkdir("{$assets}/Data", 0777, true);
   // D leaves the town by the east edge and again by a south gap; the walled

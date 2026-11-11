@@ -18,7 +18,7 @@ use Ichiloto\Engine\Util\Stores\ItemStore;
  */
 function writeEnemyCatalogProject(array $records): string
 {
-  $root = sys_get_temp_dir() . '/ichiloto-enemy-catalog-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-enemy-catalog-' . bin2hex(random_bytes(4));
   mkdir($root . '/assets/Data/Enemies', 0777, true);
   mkdir($root . '/assets/Graphics/Enemies', 0777, true);
   file_put_contents($root . '/assets/Graphics/Enemies/blob.txt', " (o) \n/   \\\n");

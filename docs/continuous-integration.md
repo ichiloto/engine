@@ -31,3 +31,24 @@ These headless checks are not a native GPUI, interactive terminal, audio-device,
 Windows/WSL, or WSLg acceptance test. The historical native Linux/WSLg validation
 gap remains until those checks are performed. The Last Legend game suite and its
 expensive battle simulations are owned by the game repository, not this workflow.
+
+## Temporary test files
+
+Use `createTestDirectory()` for a fixture directory, or
+`getTestTemporaryDirectory()` as the base for files, `tempnam()` and diagnostic
+paths. The shared `TemporaryFixtureTestCase` removes the test's namespace after
+all local teardown handlers have released their resources. Helpers evaluated
+outside a test retain a separate process namespace until shutdown. Manual
+`cleanUpTestDirectories()` clears the current scope without ending it.
+
+`tests/Support/TemporaryFixtures.php` holds a filesystem lock for each run.
+Normal and fatal exits remove owned contents; a later process recovers a killed
+run only after its lock is available. Generated lockless runs left by late
+destructor diagnostics are recovered too. Links are removed without traversing
+their targets, and cleanup errors name the path and fail verification. Actual
+project assets, saves and deliberate review exports are separate resources.
+
+With a shared `vendor` symlink, Pest discovers its setup relative to the vendor
+installation. Select the candidate's tests with `--test-directory` relative to
+that installation's project root and use its explicit PHPUnit configuration;
+verify the loaded setup before qualifying changes to test infrastructure.

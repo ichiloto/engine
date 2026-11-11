@@ -31,7 +31,7 @@ use function Tests\Support\Rendering\writeTestPng;
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-command-preview-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-command-preview-' . bin2hex(random_bytes(5));
   mkdir($this->root);
   writeTestPng($this->root . '/arena.png', 40, 30);
   writeTestPng($this->root . '/body.png', 8, 16);

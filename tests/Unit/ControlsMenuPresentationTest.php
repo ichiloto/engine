@@ -98,7 +98,7 @@ beforeEach(function () {
   foreach ([InputManager::class, ActionHints::class, Console::class, ConfigStore::class, Debug::class] as $class) {
     $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/ichiloto-controls-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-controls-' . bin2hex(random_bytes(5));
   mkdir($this->root);
   ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->root));
   $chunk = fn($type, $bytes) => pack('N', strlen($bytes)) . $type . $bytes . pack('N', crc32($type . $bytes));

@@ -250,7 +250,7 @@ it('rejects unsolicited or duplicate preparation replies before admitting other 
 })->with([false, true]);
 
 it('carries typed text through process pipes without stealing frame feedback or input', function () {
-  $capture = tempnam(sys_get_temp_dir(), 'text-query-');
+  $capture = tempnam(\getTestTemporaryDirectory(), 'text-query-');
   if ($capture === false) { throw new RuntimeException('Cannot create synthetic pipe capture.'); }
   $transport = new ProcessRendererTransport(new RendererProcessConfig(
     [PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', 'project_text', $capture],

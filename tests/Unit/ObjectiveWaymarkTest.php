@@ -432,12 +432,12 @@ it('never moves a waymark glyph for the player: the player shows on a shared cel
 
 it('reads an authored waymark style beside the cue bindings and refuses invalid styles', function () {
   $catalog = FieldPresentationCatalog::fromArray(['waymarks' => ['color' => 'bright-cyan', 'symbol' => '*', 'inset' => 1]],
-    sys_get_temp_dir());
+    \getTestTemporaryDirectory());
 
   expect($catalog->waymarks->color)->toBe('bright-cyan')
     ->and($catalog->waymarks->symbol)->toBe('*')
     ->and($catalog->waymarks->inset)->toBe(1)
-    ->and(FieldPresentationCatalog::fromArray([], sys_get_temp_dir())->waymarks)->toEqual(new FieldWaymarkStyle())
+    ->and(FieldPresentationCatalog::fromArray([], \getTestTemporaryDirectory())->waymarks)->toEqual(new FieldWaymarkStyle())
     ->and(fn() => FieldWaymarkStyle::fromArray(['symbol' => '!!']))->toThrow(InvalidArgumentException::class)
     ->and(fn() => FieldWaymarkStyle::fromArray(['inset' => 9]))->toThrow(InvalidArgumentException::class)
     ->and(fn() => FieldWaymarkStyle::fromArray(['arrows' => []]))->toThrow(InvalidArgumentException::class);

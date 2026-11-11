@@ -31,7 +31,7 @@ it('carries expanded v2 identities through the client source manager and case-se
   $code = KeyCode::from($identity);
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
-  $client->start(new RendererSessionConfig('Input', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2));
+  $client->start(new RendererSessionConfig('Input', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2));
   $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'key', 'key' => $identity]))];
   InputManager::setInputSource(new RendererInputSource($client));
   InputManager::setBindings(['existing-action' => ['keys' => [$code]], 'different-action' => ['keys' => [KeyCode::from($other)]]]);

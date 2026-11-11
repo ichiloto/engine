@@ -136,7 +136,7 @@ it('uses ids alone despite duplicate display names and names matching another id
 });
 
 it('loads a legacy file provisionally without writing and drops name and file aliases after migration', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-legacy-actor-' . bin2hex(random_bytes(6));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-legacy-actor-' . bin2hex(random_bytes(6));
   mkdir($root);
   $path = $root . '/unrelated-filename.php';
   $data = foundationActorDefinition()->data();

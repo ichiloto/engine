@@ -17,7 +17,7 @@ use function Tests\Support\Rendering\writeTestPng;
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 it('keeps two strokes visible and independently oriented for recipients on either side with one resolution', function (bool $reduced) {
-  $root = sys_get_temp_dir() . '/ichiloto-direction-' . bin2hex(random_bytes(5));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-direction-' . bin2hex(random_bytes(5));
   mkdir($root);
   writeTestPng($root . '/stroke.png', 8, 4);
   try {
@@ -67,7 +67,7 @@ it('keeps two strokes visible and independently oriented for recipients on eithe
 })->with([false, true]);
 
 it('contains cinematic frames in different battle areas using current replaceable art without resolving combat', function (bool $reduced) {
-  $root = sys_get_temp_dir() . '/ichiloto-battle-fit-' . bin2hex(random_bytes(5));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-battle-fit-' . bin2hex(random_bytes(5));
   mkdir($root);
   writeTestPng($root . '/cinematic.png', 32, 9);
   try {
@@ -106,7 +106,7 @@ it('contains cinematic frames in different battle areas using current replaceabl
 })->with([false, true]);
 
 it('keeps contained directional images on each stable ground point rather than a pose rectangle edge', function (bool $reduced) {
-  $root = sys_get_temp_dir() . '/ichiloto-ground-fit-' . bin2hex(random_bytes(5));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-ground-fit-' . bin2hex(random_bytes(5));
   mkdir($root);
   writeTestPng($root . '/effect.png', 128, 32);
   try {
@@ -143,7 +143,7 @@ it('keeps contained directional images on each stable ground point rather than a
 })->with([false, true]);
 
 it('raises an opponent-facing ward in front of each recipient by its side, not by where the caster stands', function (bool $reduced) {
-  $root = sys_get_temp_dir() . '/ichiloto-ward-' . bin2hex(random_bytes(5));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-ward-' . bin2hex(random_bytes(5));
   mkdir($root);
   writeTestPng($root . '/ward.png', 64, 32);
   try {

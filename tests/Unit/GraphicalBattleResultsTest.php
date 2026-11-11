@@ -345,7 +345,7 @@ it('contains separate menu and bust artwork without enlarging a menu portrait in
 });
 
 it('validates asset presence, source bounds, unique decoded costs and one-density roles', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-results-test-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-results-test-' . bin2hex(random_bytes(4));
   mkdir($root);
   $skin = resultsSkinFixture();
   try {
@@ -379,7 +379,7 @@ it('validates asset presence, source bounds, unique decoded costs and one-densit
 });
 
 it('contains current portrait and icon images after same-path replacements without changing rewards', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-results-replacement-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-results-replacement-' . bin2hex(random_bytes(4));
   mkdir($root);
   $legacy = new CanvasNineSlice('actor.png', new SpriteSourceRect(0, 0, 100, 120));
   $skin = resultsSkinFixture(['actor-1' => ['menu' => $legacy, 'bust' => $legacy]], ['inventory' => $legacy]);
@@ -421,7 +421,7 @@ it('renders signed 64-bit totals without truncation or overlap', function () {
 });
 
 it('validates every portrait but budgets Primary pages and individual busts separately over the battlefield', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-results-stages-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-results-stages-' . bin2hex(random_bytes(4));
   mkdir($root);
   $png = static function (string $name, int $width, int $height) use ($root): void {
     static $revision = 0;
@@ -492,7 +492,7 @@ it('uses admitted semantic item and skill icons rather than falling back for kno
 });
 
 it('keeps healthy Results artwork above fallback panels with complete rewards and controls', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-results-fallback-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-results-fallback-' . bin2hex(random_bytes(4));
   mkdir($root);
   try {
     foreach (['exp.png', 'portrait.png', 'button.png'] as $asset) {
@@ -517,7 +517,7 @@ it('keeps healthy Results artwork above fallback panels with complete rewards an
 });
 
 it('fits all-missing Results textures over a full four-member HUD without dropping either surface', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-combined-fallback-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-combined-fallback-' . bin2hex(random_bytes(4));
   mkdir($root);
   try {
     $list = new BattleHudListSnapshot('Title', 'Help', array_map(
@@ -541,7 +541,7 @@ it('fits all-missing Results textures over a full four-member HUD without droppi
 
 
 it('preflights the actual reward cards instead of impossible sliding portrait windows', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-results-pages-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-results-pages-' . bin2hex(random_bytes(4));
   mkdir($root);
   $png = static fn(string $name, int $w, int $h) => file_put_contents($root . '/' . $name,
     "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', $w, $h));
@@ -572,7 +572,7 @@ it('preflights the actual reward cards instead of impossible sliding portrait wi
 });
 
 it('keeps five and six member graphical Results over large animation sheets on a capable session', function (int $members) {
-  $root = sys_get_temp_dir() . '/ichiloto-results-regions-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-results-regions-' . bin2hex(random_bytes(4));
   mkdir($root);
   $png = static fn(string $name, int $w, int $h) => file_put_contents($root . '/' . $name,
     "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', $w, $h));

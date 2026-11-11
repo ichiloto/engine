@@ -89,7 +89,7 @@ beforeEach(function () {
     \Ichiloto\Engine\Audio\AudioManager::class] as $class) {
     $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/ichiloto-items-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-items-' . bin2hex(random_bytes(5));
   mkdir($this->root);
   Debug::configure(['log_directory' => $this->root]);
   new ReflectionProperty(\Ichiloto\Engine\Audio\AudioManager::class, 'instance')->setValue(null, null);

@@ -10,7 +10,10 @@ use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\UIManager;
 use Tests\Support\PassiveGame;
+use Ichiloto\Engine\Tests\Support\TemporaryFixtures;
 
+require_once __DIR__ . '/Support/TemporaryFixtures.php';
+require_once __DIR__ . '/Support/TemporaryFixtureTestCase.php';
 require_once __DIR__ . '/Support/PassiveGame.php';
 require_once __DIR__ . '/Support/BattleStageFixtures.php';
 require_once __DIR__ . '/Support/AudioTestDoubles.php';
@@ -26,7 +29,7 @@ require_once __DIR__ . '/Support/AudioTestDoubles.php';
 |
 */
 
-// pest()->extend(Tests\TestCase::class)->in('Feature');
+pest()->extend(\Ichiloto\Engine\Tests\Support\TemporaryFixtureTestCase::class)->in(__DIR__);
 
 /*
 |--------------------------------------------------------------------------
@@ -45,12 +48,7 @@ uses()->beforeEach(function () {
     Ichiloto\Engine\IO\Console\TerminalCapabilities::reset();
 })->in(__DIR__);
 
-uses()->afterEach(function () {
-    cleanUpTestDirectories();
-})->in(__DIR__);
-
-// Fatal process exits cannot run per-test teardown.
-register_shutdown_function('cleanUpTestDirectories');
+// TemporaryFixtures owns shutdown cleanup and recovery of killed process runs.
 
 /*
 |--------------------------------------------------------------------------
@@ -78,40 +76,22 @@ expect()->extend('toBeOne', function () {
 |
 */
 
+/** The current test's synthetic temporary namespace, or the process scope outside tests. */
+function getTestTemporaryDirectory(): string
+{
+    return TemporaryFixtures::getDirectory();
+}
+
 /** Creates a fixture directory owned by the current test's teardown. */
 function createTestDirectory(string $prefix): string
 {
-    $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid($prefix, true);
-    mkdir($root, 0700, true);
-    $root = realpath($root) ?: throw new RuntimeException('Cannot resolve the owned test directory.');
-    $GLOBALS['ichilotoTestDirectories'][$root] = $root;
-
-    return $root;
+    return TemporaryFixtures::createDirectory($prefix);
 }
 
-/** Removes registered fixtures, including when a test fails before its last line. */
+/** Cleanup errors fail the test and name the owned path and filesystem reason. */
 function cleanUpTestDirectories(): void
 {
-    foreach ($GLOBALS['ichilotoTestDirectories'] ?? [] as $root) {
-        if (! is_dir($root) || is_link($root)) {
-            continue;
-        }
-
-        $files = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::CHILD_FIRST,
-        );
-
-        foreach ($files as $file) {
-            $file->isDir() && ! $file->isLink()
-                ? rmdir($file->getPathname())
-                : unlink($file->getPathname());
-        }
-
-        rmdir($root);
-    }
-
-    $GLOBALS['ichilotoTestDirectories'] = [];
+    TemporaryFixtures::clearCurrentTest();
 }
 
 /**

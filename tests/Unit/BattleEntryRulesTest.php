@@ -68,7 +68,7 @@ function battleEntryRule(
 
 it('preserves current behaviour when the project has no battle entry rule file', function () {
   [$party, $actors] = battleEntryTestParty();
-  $catalog = BattleEntryRuleCatalog::fromProject(sys_get_temp_dir() . '/missing-battle-entry-' . uniqid() . '.php');
+  $catalog = BattleEntryRuleCatalog::fromProject(\getTestTemporaryDirectory() . '/missing-battle-entry-' . uniqid() . '.php');
   $config = new BattleConfig($party, new Troop('Encounter'), entryExecutionId: 'execution.empty');
 
   (new BattleEntryRuleRunner($catalog))->apply($config, new GameState());
@@ -457,7 +457,7 @@ it('fails atomically when a matched rule targets an actor absent from the entry 
 });
 
 it('continues real Game startup with disabled bad actor rules and logs their file and field', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-battle-entry-startup-' . uniqid();
+  $root = \getTestTemporaryDirectory() . '/ichiloto-battle-entry-startup-' . uniqid();
   mkdir($root . '/assets/Data/Actors', 0777, true);
   file_put_contents($root . '/ichiloto.json', '{"id":"battle-entry-startup-fixture","format":' . \Ichiloto\Engine\Core\ProjectFormat::CURRENT . '}');
   file_put_contents($root . '/assets/Data/save-compatibility.php', '<?php return ["contentVersion" => 0];');

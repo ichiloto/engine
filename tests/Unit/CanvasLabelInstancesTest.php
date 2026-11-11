@@ -29,7 +29,7 @@ function createLabelInstancePresenter(bool $instances = true): array
   $grid = new RendererGridConfig(135, 72, 10, 10);
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
-  $session = new RendererSessionConfig('Instance admission', sys_get_temp_dir(), $grid, RendererProtocolVersion::V2);
+  $session = new RendererSessionConfig('Instance admission', \getTestTemporaryDirectory(), $grid, RendererProtocolVersion::V2);
   $client->start($session);
   $capabilities = $session->getNegotiableCapabilities();
   if (!$instances) { $capabilities = array_values(array_diff($capabilities, [RendererSessionConfig::CANVAS_LABEL_INSTANCES])); }

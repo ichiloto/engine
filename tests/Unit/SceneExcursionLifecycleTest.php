@@ -358,7 +358,7 @@ it('rejects nested repeated wrong-caller and forged handles before any ownership
 it('prevents a physically held confirmation from leaking across entry and return after idle frames', function () {
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
-  $client->start(new RendererSessionConfig('Synthetic excursion input', sys_get_temp_dir(),
+  $client->start(new RendererSessionConfig('Synthetic excursion input', \getTestTemporaryDirectory(),
     protocol: RendererProtocolVersion::V2, requiredCapabilities: [RendererSessionConfig::KEY_TRANSITIONS]));
   $event = static fn(string $type, array $payload = []): RendererEvent => RendererEvent::fromJson(
     json_encode(['protocol' => 2, 'type' => $type, ...$payload], JSON_THROW_ON_ERROR));
