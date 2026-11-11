@@ -328,6 +328,97 @@ it('invalidates once for a drained resize or rejection batch and resends complet
   }
 })->with(['resize only' => [false], 'resize plus rejected update' => [true]]);
 
+describe('repeated retained-frame rejection diagnostics', function () {
+  beforeEach(function () {
+    $this->warningState = new ReflectionClass(Debug::class)->getStaticProperties();
+    $this->traceState = new ReflectionClass(\Ichiloto\Engine\Diagnostics\LatencyTrace::class)->getStaticProperties();
+    $this->warningDirectory = sys_get_temp_dir() . '/runtime-rejection-warnings-' . bin2hex(random_bytes(6));
+    Debug::configure(['log_directory' => $this->warningDirectory]);
+    $this->feedbackTrace = [];
+    \Ichiloto\Engine\Diagnostics\LatencyTrace::configure(function (array $record): void {
+      $this->feedbackTrace[] = $record;
+    });
+    $this->runtime->start('Rejection diagnostics', 12, 4);
+    Console::write('RETAINED', 0, 0);
+    $this->runtime->present(null);
+    $this->rejectFrame = function (string $message): void {
+      $this->transport->batches[] = [RendererEvent::fromJson(json_encode([
+        'protocol' => 2, 'type' => 'frame_rejected', 'generation' => count($this->transport->sent),
+        'expectedGeneration' => 0, 'message' => $message, 'resyncRequired' => true,
+      ], JSON_THROW_ON_ERROR))];
+      $this->runtime->present(null);
+    };
+    $this->readWarnings = fn(): string => file_get_contents($this->warningDirectory . '/warning.log');
+  });
+
+  afterEach(function () {
+    try { $this->runtime->shutdown(); }
+    finally {
+      \Ichiloto\Engine\Diagnostics\LatencyTrace::configure();
+      foreach ([Debug::class => $this->warningState,
+        \Ichiloto\Engine\Diagnostics\LatencyTrace::class => $this->traceState] as $class => $state) {
+        foreach ($state as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
+      }
+      foreach (glob($this->warningDirectory . '/*') as $file) { unlink($file); }
+      if (is_dir($this->warningDirectory)) { rmdir($this->warningDirectory); }
+    }
+  });
+
+  it('summarizes repeats across pumps while preserving every rejection, resync and input event', function () {
+    ($this->rejectFrame)('origin changed');
+    ($this->rejectFrame)('origin changed');
+    ($this->rejectFrame)('origin changed');
+    expect(substr_count(($this->readWarnings)(), '[WARN]'))->toBe(1);
+
+    $last = end($this->transport->sent)->payload;
+    $this->transport->batches[] = [RendererEvent::fromJson(json_encode([
+      'protocol' => 2, 'type' => 'frame_ack', 'generation' => $last['generation'],
+      'frame' => $last['frame'], 'presented' => false,
+    ], JSON_THROW_ON_ERROR)), RendererEvent::fromJson('{"protocol":2,"type":"key","key":"up"}')];
+    $this->runtime->pump();
+    ($this->rejectFrame)('origin changed');
+    expect(substr_count(($this->readWarnings)(), '[WARN]'))->toBe(1)
+      ->and(InputManager::getInputSource()->poll())->toBe(KeyCode::UP);
+
+    ($this->rejectFrame)('missing base');
+    expect(($this->readWarnings)())->toContain('repeated 3 additional times: origin changed')
+      ->and(substr_count(($this->readWarnings)(), '[WARN]'))->toBe(3);
+    ($this->rejectFrame)('missing base');
+    expect(substr_count(($this->readWarnings)(), '[WARN]'))->toBe(3);
+    acknowledgeRuntimePresentation($this->runtime, $this->transport);
+    expect(($this->readWarnings)())->toContain('repeated 1 additional times: missing base')
+      ->and(substr_count(($this->readWarnings)(), '[WARN]'))->toBe(4);
+    ($this->rejectFrame)('missing base');
+    expect(substr_count(($this->readWarnings)(), '[WARN]'))->toBe(5)
+      ->and($this->transport->sent)->toHaveCount(8);
+    foreach (array_slice($this->transport->sent, 1) as $message) {
+      expect($message->payload['reset'])->toBeTrue();
+    }
+    $rejections = array_values(array_filter($this->feedbackTrace,
+      static fn(array $record): bool => $record['stage'] === 'presentation.frame.rejected'));
+    expect(array_column($rejections, 'message'))->toBe([
+      'origin changed', 'origin changed', 'origin changed', 'origin changed',
+      'missing base', 'missing base', 'missing base',
+    ]);
+  });
+
+  it('flushes pending counts at a session boundary and starts the next session cleanly', function (bool $restart) {
+    ($this->rejectFrame)('unrecovered rejection');
+    ($this->rejectFrame)('unrecovered rejection');
+    expect(substr_count(($this->readWarnings)(), '[WARN]'))->toBe(1);
+    if ($restart) { $this->runtime->restart(); }
+    else { $this->runtime->shutdown(); }
+    expect(($this->readWarnings)())->toContain('repeated 1 additional times: unrecovered rejection')
+      ->and(substr_count(($this->readWarnings)(), '[WARN]'))->toBe(2);
+    if ($restart) {
+      ($this->rejectFrame)('unrecovered rejection');
+      expect(substr_count(($this->readWarnings)(), '[WARN]'))->toBe(3);
+    }
+    $this->runtime->shutdown();
+    expect(substr_count(($this->readWarnings)(), '[WARN]'))->toBe($restart ? 3 : 2);
+  })->with(['shutdown' => [false], 'restart' => [true]]);
+});
+
 it('continues real gameplay and semantic input after a rejected update instead of stopping the game', function () {
   $game = new RendererRuntimeGameProbe();
   $game->useRendererRuntime($this->runtime);

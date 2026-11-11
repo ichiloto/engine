@@ -50,6 +50,8 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
   private bool $closed = false;
   private bool $closeRequested = false;
   private bool $resetText = true;
+  private ?string $lastFrameRejection = null;
+  private int $repeatedFrameRejections = 0;
   private ?ScreenTransitionTreatment $handoffTreatment = null;
   private ?RetainedFrame $handoffFrame = null;
   private ?RetainedFrame $sceneFrame = null;
@@ -100,6 +102,7 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     if (!$this->started || $this->closed || $this->session === null) {
       throw new LogicException('Renderer restart requires an active runtime.');
     }
+    $this->flushFrameRejectionWarnings();
     try { $this->client->shutdown(); }
     catch (RendererTransportException $error) {
       if ($this->client->isRunning()) { throw $error; }
@@ -161,13 +164,14 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
         LatencyTrace::record('presentation.frame.rejected', ['generation' => $event->generation,
           'expected_generation' => $event->expectedGeneration, 'resync_required' => $event->resyncRequired,
           'message' => $event->message]);
-        Debug::warn('Renderer rejected a presentation update: ' . $event->message . '. Retained state will be resynchronized.');
+        $this->recordFrameRejectionWarning($event->message);
         $invalidate = true;
         $expectedGeneration = max($expectedGeneration ?? 0, $event->expectedGeneration ?? 0);
       } elseif ($event->type === RendererEventType::RESIZED) {
         $invalidate = true;
       } elseif ($event->type === RendererEventType::FRAME_ACK) {
         $this->presentation?->acknowledge($event->generation, $event->presented);
+        if ($event->presented === true) { $this->flushFrameRejectionWarnings(); }
         LatencyTrace::record('presentation.frame.acknowledged', ['generation' => $event->generation,
           'frame' => $event->frame, 'presented' => $event->presented]);
       } elseif ($event->type === RendererEventType::ERROR) {
@@ -182,6 +186,28 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     if ($this->closeRequested) {
       throw new RendererWindowClosed('Renderer window closed.');
     }
+  }
+
+  /** Coalesce diagnostic writes only; every rejection still drives trace and retained-state recovery. */
+  private function recordFrameRejectionWarning(?string $message): void
+  {
+    if ($this->lastFrameRejection !== null && $this->lastFrameRejection === $message) {
+      $this->repeatedFrameRejections++;
+      return;
+    }
+    $this->flushFrameRejectionWarnings();
+    Debug::warn('Renderer rejected a presentation update: ' . $message . '. Retained state will be resynchronized.');
+    $this->lastFrameRejection = $message;
+  }
+
+  private function flushFrameRejectionWarnings(): void
+  {
+    if ($this->repeatedFrameRejections > 0) {
+      Debug::warn('Renderer presentation rejection repeated ' . $this->repeatedFrameRejections
+        . ' additional times: ' . $this->lastFrameRejection . '.');
+    }
+    $this->lastFrameRejection = null;
+    $this->repeatedFrameRejections = 0;
   }
 
   public function getTextPreparationSession(): ?object
@@ -346,6 +372,7 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     if ($this->closed) {
       return $this->transport->getExitCode();
     }
+    $this->flushFrameRejectionWarnings();
     $this->closed = true;
     $this->endScreenHandoff();
     if (!$this->started) {
