@@ -139,7 +139,8 @@ it('holds an enemy above its knockout floor against hits and damaging states', f
   $target->setKnockoutFloorPercent(25);
 
   $hit = new CombatResolver()->resolve(new CombatResolutionRequest(actionId: 'test', executionId: 'test:1',
-    actor: $actor, target: $target, rawMagnitude: 500, kind: ResolutionKind::TRUE_DAMAGE));
+    actor: $actor, target: $target, rawMagnitude: 500, kind: ResolutionKind::TRUE_DAMAGE,
+    baseAccuracy: null, criticalEligible: false));
 
   expect($target->stats->currentHp)->toBe(25)->and($target->isKnockedOut)->toBeFalse()
     ->and($hit->actualHpLost)->toBe(5);
@@ -150,7 +151,8 @@ it('holds an enemy above its knockout floor against hits and damaging states', f
 
   $plain = battleEventEnemy('Plain', 30);
   new CombatResolver()->resolve(new CombatResolutionRequest(actionId: 'test', executionId: 'test:2',
-    actor: $actor, target: $plain, rawMagnitude: 500, kind: ResolutionKind::TRUE_DAMAGE));
+    actor: $actor, target: $plain, rawMagnitude: 500, kind: ResolutionKind::TRUE_DAMAGE,
+    baseAccuracy: null, criticalEligible: false));
   expect($plain->isKnockedOut)->toBeTrue();
 });
 
