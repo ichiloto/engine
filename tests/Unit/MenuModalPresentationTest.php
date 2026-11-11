@@ -252,7 +252,11 @@ it('layers supported modals above the complete four-party menu through either th
   }
   foreach ($modalText as $text) {
     if (!preg_match('/menu-modal-choice-\d+-text/', $text->id)) { continue; }
-    expect($text->x + $text->bounds->width / 2)->toEqualWithDelta($text->clipRect->x + $text->clipRect->width / 2, 0.000001);
+    if ($modal->getModalPresentation()->vertical) {
+      expect($text->x)->toBe($text->clipRect->x + MenuPresentationCatalog::load($this->root)->rows->metrics->padding);
+    } else {
+      expect($text->x + $text->bounds->width / 2)->toEqualWithDelta($text->clipRect->x + $text->clipRect->width / 2, 0.000001);
+    }
   }
   expect(array_filter(array_column($modalText, 'id'), fn($id) => str_contains($id, 'separator')))->toBeEmpty();
   expect(array_filter([...array_column($modalText, 'id'), ...array_column($frame->images, 'id')],
@@ -649,7 +653,7 @@ it('fits the complete largest integer quantity without widening beyond the modal
   }
 });
 
-it('batches default focus and primitive outline edges without changing any filled pixel or the centered command label', function (bool $primitive) {
+it('batches focus edges while preserving pixels and each button or command label alignment', function (bool $primitive) {
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']);
   $base = new PresentationCanvas(450, 100, textLayers: array_map(fn($i) => new CanvasTextLayer('base-' . $i, 0, 0, 0,
     new RendererGridConfig(1, 1, 10, 10), [new PresentationTextRun(0, 0, 'A', $theme->colors['text'])]), range(0, 60)));
@@ -682,7 +686,8 @@ it('batches default focus and primitive outline edges without changing any fille
   };
   expect($pixels($frame->textLayers))->toBe($pixels($overlay->textLayers))->and(count($frame->textLayers))->toBeLessThanOrEqual(64);
   $label = array_find($frame->textLayers, fn($text) => $text->id === 'menu-modal-choice-0-text');
-  expect($label->x + $label->bounds->width / 2)->toBe(190.0);
+  if ($primitive) { expect($label->x + $label->bounds->width / 2)->toBe(190.0); }
+  else { expect($label->x)->toBe($bounds->x + $theme->rows->metrics->padding); }
 })->with([false, true]);
 
 it('fits a notice portrait or semantic icon beside its text using the current theme', function (bool $art, bool $portrait) {

@@ -176,14 +176,19 @@ final class MenuRowPainter
     $iconCells = $hasIcon ? (int)ceil($metrics->iconWidth / $layout->cellWidth) + $metrics->gapCells : 0;
     $length = mb_strlen($row->label, 'UTF-8');
     if ($row->kind->isAction()) {
-      $available = $bounds->width - 2 * ($metrics->padding + $iconCells * $layout->cellWidth);
+      $centered = $row->kind->getLabelAlignment() === HorizontalAlignment::CENTER;
+      $cells = $layout->getLabelCells($row, $metrics) - $iconCells * ($centered ? 2 : 1);
       if ($length === 0) { return; }
-      $lines = $layout->lines($row->label, (int)floor($available / $layout->cellWidth));
+      $lines = $layout->lines($row->label, $cells);
       $length = max(array_map(mb_strlen(...), $lines));
       $runs = [];
-      foreach ($lines as $line => $text) { $runs[] = new PresentationTextRun($line, intdiv($length - mb_strlen($text), 2), $text, $color); }
+      foreach ($lines as $line => $text) {
+        $runs[] = new PresentationTextRun($line, $centered ? intdiv($length - mb_strlen($text), 2) : 0, $text, $color);
+      }
+      $x = $centered ? $bounds->x + ($bounds->width - $length * $layout->cellWidth) / 2
+        : $bounds->x + $metrics->padding + $iconCells * $layout->cellWidth;
       $this->text[] = new CanvasTextLayer($id . '-text', $this->contentLayer,
-        $bounds->x + ($bounds->width - $length * $layout->cellWidth) / 2, $y,
+        $x, $y,
         new RendererGridConfig($length, count($lines), $layout->cellWidth, $layout->cellHeight), $runs, $bounds);
       return;
     }

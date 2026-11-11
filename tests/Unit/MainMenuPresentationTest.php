@@ -225,7 +225,7 @@ it('projects all current fields and commands through two themes with independent
     foreach ($this->state->mainMenu->getItems() as $index => $command) {
       $label = $layers['main-command-' . $index . '-text'];
       expect($text[$label->id])->toBe($command->getLabel())
-        ->and($label->x + $label->grid->columns * $label->grid->cellWidth / 2)->toBe($label->clipRect->x + $label->clipRect->width / 2);
+        ->and($label->x)->toBe($label->clipRect->x + (new MenuPresentationCatalog($this->root, mainMenuPresentationTheme($alternative)))->rows->metrics->padding);
     }
     expect($text['main-info-value'])->toBe($this->state->mainMenu->getActiveItem()->getDescription())
       ->and($text['main-money-title'])->toBe('Tokens')->and($text['main-money-value'])->toBe('4,321 T')
@@ -795,7 +795,19 @@ it('preserves character selection and routes the real selected actor through the
   expect($target->character)->toBe($this->party->members->toArray()[1]);
 });
 
-it('renders all thirteen actual command variants centered and honors disabled owner actions', function () {
+it('keeps Terminal command labels left aligned after the selection gutter', function () {
+  $menu = $this->state->mainMenu;
+  $menu->render();
+  $window = new ReflectionProperty($menu, 'window')->getValue($menu);
+  expect($window->getAlignment()->horizontalAlignment)->toBe(\Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment::LEFT);
+  foreach ($menu->getItems() as $index => $command) {
+    $line = TerminalText::stripAnsi($window->getContent()[$index]);
+    expect(TerminalText::sliceSymbols($line, 2, TerminalText::displayWidth($command->getLabel())))
+      ->toBe($command->getLabel());
+  }
+});
+
+it('removes centered command labels for all variants and honors disabled owner actions', function () {
   $menu = $this->state->mainMenu;
   $commands = $menu->getItems()->toArray();
   array_splice($commands, 4, 0, [new OpenSummonsMenuCommand($menu), new OpenQuestsMenuCommand($menu), new OpenRecordsMenuCommand($menu)]);
@@ -807,6 +819,12 @@ it('renders all thirteen actual command variants centered and honors disabled ow
     $frame = $this->state->canvas(new MenuPresentationCatalog($this->root, mainMenuPresentationTheme($alternative)));
     $labels = array_filter(array_keys(mainMenuPresentationText($frame)), fn($id) => preg_match('/^main-command-\d+-text$/', $id));
     expect($labels)->toHaveCount(13);
+    $skin = new MenuPresentationCatalog($this->root, mainMenuPresentationTheme($alternative));
+    foreach ($frame->textLayers as $layer) {
+      if (!in_array($layer->id, $labels, true)) { continue; }
+      expect($layer->x)->toBe($layer->clipRect->x + $skin->rows->metrics->padding)
+        ->and(array_unique(array_column($layer->runs, 'column')))->toBe([0]);
+    }
     expect(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'main-command-' . $menu->activeIndex . '-cursor')))->toBeEmpty();
   }
   mainMenuPresentationKey(KeyCode::ENTER, $this->state);

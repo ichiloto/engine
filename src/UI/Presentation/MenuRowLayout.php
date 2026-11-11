@@ -92,9 +92,8 @@ final readonly class MenuRowLayout
   public function heightFor(MenuRow $row, MenuRowMetrics $metrics, bool $hasIcon): int
   {
     $iconCells = $hasIcon ? (int)ceil($metrics->iconWidth / $this->cellWidth) + $metrics->gapCells : 0;
-    $cells = $row->kind->isAction()
-      ? (int)floor(($this->viewport->width - 2 * ($metrics->padding + $iconCells * $this->cellWidth)) / $this->cellWidth)
-      : $this->getLabelCells($row, $metrics) - $iconCells;
+    $cells = $this->getLabelCells($row, $metrics)
+      - $iconCells * ($row->kind === MenuRowKind::BUTTON ? 2 : 1);
     $lines = count($row->kind->isAction() ? $this->lines($row->label, $cells) : $this->labelLines($row->label, $cells));
     foreach ($row->values as $index => $value) {
       $column = $this->columns[$index] ?? throw new InvalidArgumentException('Menu value column missing.');

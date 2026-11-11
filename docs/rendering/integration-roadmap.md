@@ -4079,6 +4079,15 @@ They need not restate Engine defaults or provide drawing callbacks.
 centred maximum menu envelope, and theme metrics own typography and spacing.
 The same envelope applies to Main Menu, Config and other full menus.
 
+Command rows are lists: labels align left after the cursor and icon gutters,
+with a full-row selection and the existing oscillating list cursor. Button
+labels alone are centered independently of cursors, icons and input hints;
+buttons keep steady focus treatments. `MenuRowKind` owns this alignment, and
+the shared painter and row measurement apply it to Main Menu, vertical modal
+choices and every other command-row consumer. Wrapped command lines share one
+left origin. This removes the earlier shared centering of command labels.
+Terminal commands retain their left-aligned text after the selection gutter.
+
 Game Over now projects the existing scene's Load Game, To Title and Exit
 commands onto a centred graphical panel with shared theme frames and buttons.
 Its title uses `vocab.game.game_over`; a project without menu artwork retains

@@ -112,18 +112,41 @@ it('keeps all numeric columns right aligned and comparison indicators independen
   expect($rightEdges[0])->toBe($rightEdges[1])->toBe($rightEdges[2]);
 });
 
-it('centers the complete command label regardless of icons selection focus or cursor drift', function () {
+it('left aligns command labels after their icon and cursor gutter independently of cursor drift', function () {
   $layout = new MenuRowLayout(new CanvasRectangle(21.5, 0, 401, 40));
   $row = new MenuRow('equip', 'Equip', kind: MenuRowKind::COMMAND, icon: WeaponType::STAFF, selected: true, focused: true);
   $frames = array_map(fn($time) => MenuRowPainter::compose(450, 40, 'commands', [$row], $layout,
     menuPresentationSkin(), $this->menuIcons, $time), [0, 0.6]);
   $text = array_column($frames[0]->textLayers, null, 'id')['commands-equip-text'];
-  expect($text->x + $text->bounds->width / 2)->toBe(222.0)
+  $metrics = menuPresentationSkin()->metrics;
+  $iconCells = (int)ceil($metrics->iconWidth / $layout->cellWidth) + $metrics->gapCells;
+  expect($text->x)->toBe($layout->viewport->x + $metrics->padding + $iconCells * $layout->cellWidth)
+    ->and($text->runs[0]->column)->toBe(0)
     ->and($frames[0]->textLayers)->toEqual($frames[1]->textLayers);
   $first = array_column($frames[0]->images, null, 'id');
   $second = array_column($frames[1]->images, null, 'id');
   expect($first['commands-equip-icon-1-1'])->toEqual($second['commands-equip-icon-1-1'])
     ->and($second['commands-equip-cursor-1-1']->destination->x - $first['commands-equip-cursor-1-1']->destination->x)->toBe(4.0);
+});
+
+it('keeps wrapped command lines at one list origin while button lines stay centered', function () {
+  $skin = menuPresentationSkin();
+  $layout = new MenuRowLayout(new CanvasRectangle(10, 0, 220, 160), wrapText: true);
+  foreach ([MenuRowKind::COMMAND, MenuRowKind::BUTTON] as $kind) {
+    $row = new MenuRow('action', 'A longer command followed by short words', kind: $kind, icon: WeaponType::STAFF);
+    $height = $layout->heightFor($row, $skin->metrics, true);
+    $layout = new MenuRowLayout(new CanvasRectangle(10, 0, 220, $height), wrapText: true);
+    $frame = MenuRowPainter::compose(240, $height, 'wrapped', [$row], $layout, $skin, $this->menuIcons);
+    $text = array_find($frame->textLayers, fn($layer) => $layer->id === 'wrapped-action-text');
+    expect($text->grid->rows)->toBeGreaterThan(1)
+      ->and($text->bounds->y + $text->bounds->height)->toBeLessThanOrEqual($layout->viewport->y
+        + $layout->heightFor($row, $skin->metrics, true));
+    if ($kind === MenuRowKind::COMMAND) {
+      expect(array_unique(array_column($text->runs, 'column')))->toBe([0]);
+    } else {
+      expect($text->bounds->x + $text->bounds->width / 2)->toBe($layout->viewport->x + $layout->viewport->width / 2);
+    }
+  }
 });
 
 it('uses steady focused buttons without cursors while retaining command artwork and centered labels', function () {
@@ -439,9 +462,10 @@ it('renders the same records and commands with a second art theme without changi
     ->and($pictures['menu-current-icon-1-1']->destination->height)->toBe(12.0)
     ->and($pictures['menu-candidate-cursor-1-1']->destination->width)->toBe(9.0)
     ->and($pictures['menu-candidate-cursor-1-1']->destination->height)->toBe(27.0);
-  foreach ([$a, $b] as $text) {
+  foreach ([[$a, menuPresentationSkin()], [$b, $theme]] as [$text, $skin]) {
     $label = $text['menu-equip-action-text'];
-    expect($label->x + $label->bounds->width / 2)->toBe(320.0);
+    $iconCells = (int)ceil($skin->metrics->iconWidth / $layout->cellWidth) + $skin->metrics->gapCells;
+    expect($label->x)->toBe($layout->viewport->x + $skin->metrics->padding + $iconCells * $layout->cellWidth);
   }
   $moving = array_column($later->images, null, 'id');
   expect($later->textLayers)->toEqual($second->textLayers)
