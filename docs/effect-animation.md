@@ -639,8 +639,12 @@ whether it used the exit and the order of the supplied recipients.
 
 For a fixed, once-playing graphical target effect, set the optional
 `fallbackHitSpacingFrames` to 1 through `fps` authored frames. Declare
-one horizontal-exit flight whose arrival owns the impact, with release
-on or after arena restoration for a staged sequence. When the flight exits,
+one horizontal-exit flight whose arrival owns the impact. A staged sequence
+may capture and advance that flight while the cinematic owns the view; the
+impact must occur at or after arena restoration. This removes the earlier
+requirement to delay release until restoration, so the return can coincide
+with the first hit. The live arena stays hidden until its authored return.
+When the flight exits,
 target-anchored hit tracks, reactions and popups play nearest first using
 the captured visible body centres. Equal distances keep the resolved order.
 Combat resolves once in its original order. A direct ray keeps one shared

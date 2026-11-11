@@ -69,6 +69,22 @@ it('maps source and target stages to their own clocks, art and reduced-motion fr
     ->and($plan->getCinematicStageSegments($plan->phases['reaction']['start']))->toBe([]);
 })->with([false, true]);
 
+it('refuses spaced results hidden by a stage with frame or cue impact timing', function (array $timing) {
+  $data = makeBattleActionStageSource('source.png');
+  $data['effectTiming'] = $timing;
+  $data['fallbackHitSpacingFrames'] = 1;
+  $data['cues'] = [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 5]];
+  $data['tracks'][] = ['id' => 'ray', 'type' => 'image', 'asset' => 'target.png', 'anchor' => 'caster',
+    'attachmentPoint' => 'release', 'detachFrame' => 2,
+    'flight' => ['route' => 'straight', 'fallback' => 'horizontal-exit', 'arrivalFrame' => 5],
+    'keyframes' => [['frame' => 2, 'duration' => 4]]];
+  expect(fn() => $this->validator->compile('hidden-spaced-impact', $data, forBattle: true))
+    ->toThrow(InvalidArgumentException::class, 'after battlefield restoration');
+})->with([
+  'frame' => [['mode' => 'frame', 'frame' => 5]],
+  'cue' => [['mode' => 'cue', 'cueId' => 'hit']],
+]);
+
 it('keeps cut-in inspection pure, resolves at the target once, and cancels before impact without an outcome', function (bool $cancel) {
   $target = new CompiledEffectTimeline('impact', '', fps: 10,
     cueSchedule: [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 1, 'payload' => []]], defaults: ['lengthFrames' => 2]);
@@ -215,3 +231,63 @@ it('presents fallback results and reactions in captured order while resolving co
   $runner->update(10);
   expect($resolved)->toBe([$far, $near])->and($results)->toHaveCount(2);
 });
+
+it('captures concealed flight and starts nearest-first results when the arena returns', function (bool $cancel, bool $activeTime) {
+  require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
+  [, $context, $screen, $actor, $bystander, $targets] = \Tests\Support\Battle\createTargetExecutionFixture($activeTime, true,
+    $this->createStub(\Ichiloto\Engine\Audio\AudioManager::class));
+  // The isolated screen has no native host; the release geometry is supplied below.
+  $scene = new ReflectionClass(\Ichiloto\Engine\Scenes\Battle\BattleScene::class)->newInstanceWithoutConstructor();
+  new ReflectionProperty(\Ichiloto\Engine\Battle\UI\BattleScreen::class, 'battleScene')->setValue($screen, $scene);
+  [$far, $near] = $targets;
+  $data = makeBattleActionStageSource('source.png');
+  $data['lengthFrames'] = 10;
+  $data['stage']['covers'] = [];
+  $data['effectTiming'] = ['mode' => 'arena', 'frame' => 6];
+  $data['fallbackHitSpacingFrames'] = 1;
+  $data['tracks'][] = ['id' => 'ray', 'type' => 'image', 'asset' => 'target.png', 'anchor' => 'caster',
+    'attachmentPoint' => 'release', 'detachFrame' => 2,
+    'flight' => ['route' => 'straight', 'fallback' => 'horizontal-exit', 'arrivalFrame' => 6],
+    'keyframes' => [['frame' => 2, 'duration' => 5]]];
+  $target = $this->validator->compile('concealed-flight', $data, forBattle: true);
+  $hits = $captures = 0;
+  $results = [];
+  $runner = new \Ichiloto\Engine\Battle\Presentation\BattleCommandRunner($context, $actor, $targets, null,
+    'Synthetic impact', new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), null, $target,
+    static function () use (&$hits): void { $hits++; }, static fn() => [],
+    static function (array $cue) use (&$results): void {
+      if ($cue['type'] === 'commandResult') { $results[] = [$cue['payload']['target'], $cue['frame']]; }
+    });
+  $runner->begin();
+  $runner->playback->bindPosePointCapture(static function () use (&$captures, $actor, $near, $far): array {
+    $captures++;
+    return [spl_object_id($actor) => [
+      'point' => new \Ichiloto\Engine\Core\Vector2(100, 50), 'casterX' => 100, 'recipientX' => 50, 'party' => true,
+      'path' => new \Ichiloto\Engine\Battle\Presentation\BattlePresentationPath([[100, 50], [-1, 50]]),
+      'fallback' => \Ichiloto\Engine\Animations\Timelines\EffectStraightFlightFallback::HORIZONTAL_EXIT,
+      'targetOrder' => [spl_object_id($near), spl_object_id($far)],
+    ]];
+  });
+  $plan = $runner->playback->plan;
+  $before = $plan->getCommandFrameForAuthoredFrame('target', 5);
+  $impact = $plan->getCommandFrameForAuthoredFrame('target', 6);
+  $runner->update($before / BattleCommandTimeline::FPS);
+  expect($captures)->toBe(1)->and($hits)->toBe(0)->and($results)->toBe([])
+    ->and($plan->getCinematicStageFrame($before)->active)->toBeTrue()
+    ->and($screen->controlsRestored)->toBe(0);
+  if ($cancel) {
+    $runner->dispose();
+    $runner->update(10);
+    expect($hits)->toBe(0)->and($results)->toBe([])->and($screen->controlsRestored)->toBe(1);
+    return;
+  }
+  $runner->update(($impact - $before) / BattleCommandTimeline::FPS);
+  expect($hits)->toBe(1)->and($plan->getCinematicStageFrame($impact)->active)->toBeFalse()
+    ->and($results)->toBe([[$near, $impact]])->and($screen->controlsRestored)->toBe(1);
+  $second = $plan->getCommandFrameForAuthoredFrame('target', 7);
+  $runner->update(($second - $impact) / BattleCommandTimeline::FPS);
+  expect($results)->toBe([[$near, $impact], [$far, $second]]);
+  $runner->update(10);
+  expect($hits)->toBe(1)->and($captures)->toBe(1)->and($results)->toHaveCount(2)
+    ->and($bystander->stats->currentHp)->toBe(0);
+})->with([false, true])->with([false, true]);

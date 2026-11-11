@@ -389,8 +389,8 @@ final class EffectTimelineValidator
       $impact = self::getAuthoredImpactFrame($cues, $timing);
       if ($spacedFlight === null || $spacedFlight['flight']['arrivalFrame'] !== $impact
         || ($spacedFlight['flight']['holdFrame'] ?? $impact) !== $impact
-        || ($stage !== null && $spacedFlight['detachFrame'] < $stage->data['restoreFrame'])) {
-        throw new InvalidArgumentException("Effect {$id} spaced fallback hits require one horizontal exit from the arena with arrival at impact.");
+        || ($stage !== null && $impact < $stage->data['restoreFrame'])) {
+        throw new InvalidArgumentException("Effect {$id} spaced fallback hits require one horizontal exit with arrival at impact, at or after battlefield restoration.");
       }
     }
     $rangeTiming = null;
