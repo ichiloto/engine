@@ -28,11 +28,15 @@ final readonly class MenuThemeMetrics
     public int $buttonMinHeight = 0,
     public ?int $buttonCellWidth = null,
     public ?int $buttonCellHeight = null,
+    public int $panelBorderWidth = 0,
   ) {
     if ($cellWidth < 4 || $cellWidth > 32 || $cellHeight < 8 || $cellHeight > 64
       || $rowHeight < $cellHeight + 1 || $rowHeight > 128 || $panelPadding < 0 || $panelPadding > 64
       || $sectionGap < 0 || $sectionGap > 64 || $portraitSize < 16 || $portraitSize > 192) {
       throw new InvalidArgumentException('Menu typography and spacing must fit the supported presentation bounds.');
+    }
+    if ($panelBorderWidth < 0 || $panelBorderWidth > 16) {
+      throw new InvalidArgumentException('Menu panel borders must be in 0..16 pixels.');
     }
     if ($buttonMinWidth < 0 || $buttonMinWidth > PresentationCanvas::DEFAULT_WIDTH || $buttonMinHeight < 0 || $buttonMinHeight > 128
       || ($buttonCellWidth !== null && ($buttonCellWidth < 4 || $buttonCellWidth > 32))

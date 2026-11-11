@@ -28,8 +28,10 @@ use Ichiloto\Engine\UI\Presentation\MenuPager;
 use Ichiloto\Engine\UI\Presentation\MenuRowColumn;
 use Ichiloto\Engine\UI\Presentation\MenuTableText;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
-use Ichiloto\Engine\UI\SelectionStyle;
-use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
+use Ichiloto\Engine\UI\Presentation\ToolTheme;
+use Ichiloto\Engine\UI\Presentation\ToolColor;
+use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\UI\Windows\BorderPacks\SlimBorderPack;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
@@ -108,9 +110,9 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
   protected ?string $keepStatus = null;
   /** What a battle test member may be given, shared with the editor's choices. */
   protected ?BattleTestChoices $battleTestChoices = null;
-  /** The game's menu theme, once read; none draws the battle test in the terminal's windows. */
-  private ?MenuPresentationCatalog $menuTheme = null;
-  private bool $menuThemeLoaded = false;
+  /** Engine chrome is independent of the project whose battles are previewed. */
+  private ?ToolTheme $toolTheme = null;
+  private ?MenuPresentationCatalog $toolMenuTheme = null;
   private ?string $presentationError = null;
   /** @var array{key: string, stage: ?BattleFormationLayout, issue: ?string}|null The stage last composed, kept while what it shows is unchanged. */
   private ?array $stage = null;
@@ -483,7 +485,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
    */
   protected function buildPanels(): void
   {
-    $borderPack = new DefaultBorderPack();
+    $borderPack = new SlimBorderPack();
+    $theme = $this->getToolTheme();
     $this->leftMargin = max(0, intdiv(get_screen_width() - self::PANEL_WIDTH, 2));
     $this->topMargin = max(0, intdiv(get_screen_height() - (self::LIST_HEIGHT + self::INFO_HEIGHT), 2));
 
@@ -494,7 +497,9 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       new Vector2($this->leftMargin, $this->topMargin),
       self::PANEL_WIDTH,
       self::LIST_HEIGHT,
-      $borderPack
+      $borderPack,
+      backgroundColor: $theme->getTerminalColor(ToolColor::BACKGROUND),
+      foregroundColor: $theme->getTerminalColor(ToolColor::TEXT)
     );
 
     $this->infoPanel = new Window(
@@ -503,7 +508,9 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       new Vector2($this->leftMargin, $this->topMargin + self::LIST_HEIGHT),
       self::PANEL_WIDTH,
       self::INFO_HEIGHT,
-      $borderPack
+      $borderPack,
+      backgroundColor: $theme->getTerminalColor(ToolColor::BACKGROUND),
+      foregroundColor: $theme->getTerminalColor(ToolColor::TEXT)
     );
   }
 
@@ -656,9 +663,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
   }
 
   /**
-   * The battle test as a graphical renderer draws it, in the game's menu
-   * theme ({@see BattleTestMenuPresentation}); none in the terminal, or
-   * without a theme, where the arena's windows are drawn.
+   * Engine tool controls beside the game's battle stage. Terminal windows
+   * retain the same semantic tool palette through its ANSI mapping.
    */
   public function getPresentationCanvas(): ?PresentationCanvas
   {
@@ -668,19 +674,10 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       return null;
     }
     try {
-      if (! $this->menuThemeLoaded) {
-        $this->menuThemeLoaded = true;
-        $theme = MenuPresentationCatalog::load($runtime->getAssetRoot());
-        foreach ($theme === null ? [] : MenuPresentationCatalog::CAPABILITIES as $capability) {
-          if (! $runtime->supports($capability)) {
-            throw new \RuntimeException("The renderer lacks {$capability} for the battle test menu.");
-          }
-        }
-        $this->menuTheme = $theme;
+      foreach ([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_CLIP_OPACITY] as $capability) {
+        if (!$runtime->supports($capability)) { return null; }
       }
-      if ($this->menuTheme === null) {
-        return null;
-      }
+      $this->toolMenuTheme ??= $this->getToolTheme()->createMenuCatalog($runtime->getAssetRoot());
       $focus = $editor->focus;
       $composer = $editor->composer;
       $composing = $focus === ArenaSetupEditor::COMPOSER || $editor->onComposeRow;
@@ -689,7 +686,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       ['stage' => $stage, 'issue' => $issue] = $this->composeStage($runtime->supports(RendererSessionConfig::SPRITE_SOURCE_RECT),
         $runtime->getAssetRoot(), $composing);
 
-      return BattleTestMenuPresentation::compose($this->menuTheme, $this->describeList(),
+      return BattleTestMenuPresentation::compose($this->toolMenuTheme, $this->describeList(),
         $focus !== ArenaSetupEditor::PARTY, $this->listPartyStats(),
         in_array($focus, [ArenaSetupEditor::PARTY, ArenaSetupEditor::MEMBER, ArenaSetupEditor::CHOOSER], true) ? $editor->memberIndex : null,
         $this->getArenaName(), $stage, $outlined, $composer?->focus === TestTroopComposer::PLACING, $issue,
@@ -703,6 +700,11 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
 
       return null;
     }
+  }
+
+  private function getToolTheme(): ToolTheme
+  {
+    return $this->toolTheme ??= ToolTheme::load();
   }
 
   /**
@@ -797,7 +799,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     $content = [];
     foreach (array_slice($rows, $offset, $visibleRows, true) as $index => $row) {
       $line = TerminalText::padRight(sprintf(' %s %s', $index === $selected ? '>' : ' ', $row), $width);
-      $content[] = $index === $selected ? SelectionStyle::apply($line) : $line;
+      $content[] = $index === $selected ? Color::apply($line, $this->getToolTheme()->getTerminalColor(ToolColor::ACCENT)) : $line;
     }
 
     return array_pad($content, $visibleRows, '');
@@ -983,7 +985,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     }
     $editor = $this->editor;
     if ($editor !== null && $editor->focus !== ArenaSetupEditor::TROOPS && isset($rows[$editor->memberIndex])) {
-      $rows[$editor->memberIndex] = SelectionStyle::apply($rows[$editor->memberIndex]);
+      $rows[$editor->memberIndex] = Color::apply($rows[$editor->memberIndex], $this->getToolTheme()->getTerminalColor(ToolColor::ACCENT));
     }
 
     return $rows;

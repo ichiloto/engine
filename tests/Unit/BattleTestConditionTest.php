@@ -649,3 +649,37 @@ it('names a form the member does not have and two members whose forms disagree',
     ->and(fn() => BattleTestMember::fromArray(['actor' => 'shifter', 'level' => 1, 'world' => ['flags' => []]]))
     ->toThrow(InvalidArgumentException::class, 'has no flags');
 });
+
+
+it('draws Engine tool chrome without evaluating a project menu theme and keeps Terminal tool colours', function (bool $projectTheme) {
+  ConfigStore::put(\Ichiloto\Engine\Util\Config\PlaySettings::class,
+    new \Ichiloto\Engine\Util\Config\PlaySettings(['width' => 135, 'height' => 36]));
+  $parties = [];
+  $scene = battleConditionScene($this, new BattleTestSetup([new BattleTestMember('hero', 1)]), $parties);
+  $assets = $this->root . '/assets';
+  if ($projectTheme) {
+    mkdir($assets . '/Data/Presentation');
+    file_put_contents($assets . '/Data/Presentation/menus.php', "<?php throw new RuntimeException('A tool must never read the game theme.');");
+  }
+  require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+  $transport = new \Tests\Support\Input\FakeRendererTransport();
+  $transport->batches[] = [\Ichiloto\Engine\Rendering\Transport\RendererEvent::fromJson(
+    '{"protocol":2,"type":"ready","capabilities":["graphical_canvas","canvas_clip_opacity"]}')];
+  $runtime = new \Ichiloto\Engine\Rendering\Runtime\RendererRuntime(
+    new \Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig(
+      new \Ichiloto\Engine\Rendering\Transport\RendererProcessConfig(['not-launched']), $assets), $transport);
+  $scene->getGame()->useRendererRuntime($runtime);
+  try {
+    $runtime->start('Synthetic tool', 80, 30);
+    $canvas = $scene->getPresentationCanvas();
+    expect($canvas)->toBeInstanceOf(\Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas::class);
+    $theme = \Ichiloto\Engine\UI\Presentation\ToolTheme::load();
+    $background = array_find($canvas->textLayers, fn($layer) => $layer->id === 'menu-background');
+    expect($background?->runs[0]->background)->toEqual($theme->getColor(\Ichiloto\Engine\UI\Presentation\ToolColor::BACKGROUND))
+      ->and($canvas->images)->toBe([]);
+    new ReflectionMethod($scene, 'buildPanels')->invoke($scene);
+    $panel = new ReflectionProperty($scene, 'listPanel')->getValue($scene);
+    expect($panel->getForegroundColor())->toBe($theme->getTerminalColor(\Ichiloto\Engine\UI\Presentation\ToolColor::TEXT))
+      ->and($panel->getBackgroundColor())->toBe($theme->getTerminalColor(\Ichiloto\Engine\UI\Presentation\ToolColor::BACKGROUND));
+  } finally { $runtime->shutdown(); }
+})->with([false, true]);

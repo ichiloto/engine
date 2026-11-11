@@ -157,3 +157,16 @@ it('shows every row label whole, wrapping a long text figure beside it instead o
     ->and(new \Ichiloto\Engine\UI\Presentation\MenuRowLayout($viewport(900), $layout->columns, 24, 10, 24)
       ->withWholeLabels(['A label'], $this->theme->rows->metrics)->columns)->toBe($layout->columns);
 });
+
+
+it('uses Engine tool chrome while preserving the game stage assets and their crop', function () {
+  $theme = \Ichiloto\Engine\UI\Presentation\ToolTheme::load()->createMenuCatalog($this->root);
+  $stage = BattleFormationLayout::compose($this->catalog, 'cave', [['enemyId' => 'Bat', 'slot' => null]], [], $this->root);
+  $canvas = BattleTestMenuPresentation::compose($theme, new BattleTestMenuList('Troop', [['Bat', ['1']]], 0),
+    true, [], null, 'Cave', $stage, null, false);
+  expect(array_column($canvas->images, 'asset'))->toBe(['cave.png', 'bat.png'])
+    ->and($canvas->images[0]->sourceRect)->toEqual(new SpriteSourceRect(50, 40, 300, 160));
+  $edges = array_filter($canvas->textLayers, fn($layer) => str_starts_with($layer->id, 'battle-test-list-outline-'));
+  expect($edges)->not->toBeEmpty();
+  foreach ($edges as $edge) { expect($edge->runs[0]->background)->toEqual($theme->colors['edge']); }
+});

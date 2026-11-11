@@ -4072,6 +4072,21 @@ paths share these lifecycle constraints.
 
 ## Shared menu presentation
 
+Ichiloto developer tools own their chrome. The Engine resource
+`resources/ui/ichiloto-tool-theme.json` (`ichiloto.tool-theme/1`) carries all
+semantic GUI chrome colours and their ANSI16 mappings. `ToolColor` names the
+closed set; `ToolTheme` validates the resource and builds the existing menu
+components without project frames, icons or control artwork. Battle Test uses
+this palette even when a game has no menu theme, with plain panel borders and
+blue selection. This removes project menu-theme loading and configured game
+selection colours from Battle Test setup. Terminal windows use the same
+resource's mappings. The previewed stage, battlers, effects and actual battle
+screens keep the game's presentation. Scene, dialogue and battle preview
+launchers display their supplied content and expose controls through standard
+input/stdin; they draw no separate tool chrome to recolour. Renderer diagnostic
+smoke patterns are test content. GUI editor consumption remains Claude-owned;
+shared token delivery alone does not verify its adoption.
+
 Engine owns components, layout and navigation adapters. Games supply replaceable
 artwork, palette and spacing through `assets/Data/Presentation/menus.php`.
 They need not restate Engine defaults or provide drawing callbacks.

@@ -12,8 +12,8 @@ use Ichiloto\Engine\Scenes\Arena\BattleTestMenuList;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 
 /**
- * The battle test as a graphical renderer shows it, in the game's own menu
- * theme: the list being worked in (troops, a member's setup, the test troop
+ * Engine tool chrome surrounds the list being worked in (troops, a member's
+ * setup, the test troop
  * composer) beside the battle's stage, which is the battle's own resting
  * picture of the chosen troop on the chosen arena with the party standing
  * on it, scaled into its frame; the party beneath. The member chosen in the

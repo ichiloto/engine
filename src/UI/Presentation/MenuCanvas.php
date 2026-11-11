@@ -54,7 +54,12 @@ final class MenuCanvas
     $art = $this->theme->frames[$role] ?? $this->theme->frames['panel'] ?? null;
     $images = $art?->images($this->theme->assetRoot, $id, $bounds, $layer, $borderLayer) ?? [];
     if ($images !== []) { array_push($this->images, ...$images); }
-    else { $this->fill($id, $bounds, 'panel', $layer); }
+    else {
+      $this->fill($id, $bounds, 'panel', $layer);
+      if ($this->theme->metrics->panelBorderWidth > 0) {
+        $this->renderOutline($id, $bounds, 'edge', $this->theme->metrics->panelBorderWidth, $borderLayer ?? $layer + 1);
+      }
+    }
   }
 
   /** Theme-owned flat surfaces also serve section headers and scroll indicators. */
