@@ -30,6 +30,23 @@ function makeTutorialCatalogTestRecord(): array
   ];
 }
 
+it('keeps authored Guide summaries independent of live instruction steps and absent metadata', function () {
+  $source = makeTutorialCatalogTestRecord();
+  $old = new TutorialCatalog([$source]);
+  $source['summary'] = 'Review the existing menu choices.';
+  $withSummary = new TutorialCatalog([$source]);
+  $plain = $old->findTutorial('guide.sample');
+  $guide = $withSummary->findTutorial('guide.sample');
+  expect($plain->summary)->toBeNull()->and($guide->summary)->toBe($source['summary'])
+    ->and(serialize($guide->steps))->toBe(serialize($plain->steps))
+    ->and($guide->replay)->toBe($plain->replay);
+});
+
+it('rejects malformed authored Guide summaries', function (mixed $summary) {
+  $source = [...makeTutorialCatalogTestRecord(), 'summary' => $summary];
+  expect(fn() => new TutorialCatalog([$source]))->toThrow(InvalidArgumentException::class, 'summary');
+})->with(['', '   ', null, false, 4, [[]]]);
+
 it('loads ordered tutorial steps with view-qualified targets and independent completion sources', function () {
   $tutorial = (new TutorialCatalog([makeTutorialCatalogTestRecord()]))->findTutorial('guide.sample');
 

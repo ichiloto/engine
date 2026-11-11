@@ -156,6 +156,12 @@ final class SummonAvailability
     }
 
     switch ($type) {
+      case WorldConditionType::PLAY_STATISTIC->value:
+        if (!WorldConditionEvaluator::isPlayStatisticConditionValid($condition)) {
+          $errors[] = sprintf('Availability condition %d needs a known play statistic and nonnegative integer comparison.', $position);
+        }
+        break;
+
       case WorldConditionType::SWITCH->value:
         if (array_key_exists('value', $condition) && ! is_bool($condition['value'])) {
           $errors[] = sprintf('Availability condition %d has a non-boolean switch value.', $position);

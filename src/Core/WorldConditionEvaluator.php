@@ -23,6 +23,7 @@ use InvalidArgumentException;
  * - `['type' => 'any',      'conditions' => [$first, $second]]`
  * - `['type' => 'map_event', 'name' => 'town/home', 'marker' => 'A']`
  * - `['type' => 'variable', 'name' => 'donations', 'op' => '>=', 'value' => 100]`
+ * - `['type' => 'play_statistic', 'name' => 'battles_won', 'op' => '>=', 'value' => 1]`
  * - `['type' => 'item',     'name' => 'Potion', 'quantity' => 2]`
  * - `['type' => 'key_item', 'name' => 'Rusty Key']`
  * - `['type' => 'assigned_summons', 'name' => 'party', 'quantity' => 2]`
@@ -49,12 +50,13 @@ class WorldConditionEvaluator
     self::validateConditions($conditions, $source, 0);
   }
 
-  private static function validateConditions(array $conditions, string $source, int $depth, ?int &$remaining = null): void
+  /** Each outer any group starts a budget; nested members share that integer budget. */
+  private static function validateConditions(array $conditions, string $source, int $depth, int &$remaining = PHP_INT_MAX): void
   {
     foreach ($conditions as $index => $condition) {
       $conditionSource = sprintf('%s[%d]', $source, $index);
 
-      if ($remaining !== null && $remaining-- < 1) {
+      if ($remaining-- < 1) {
         throw new InvalidArgumentException(sprintf('%s exceeds the any condition tree member limit.', $conditionSource));
       }
 
@@ -74,7 +76,7 @@ class WorldConditionEvaluator
 
       if ($type === WorldConditionType::ANY) {
         $groupBudget = self::MAX_ANY_TREE_MEMBERS;
-        if ($remaining === null) {
+        if ($depth === 0) {
           self::validateAny($condition, $conditionSource, $depth + 1, $groupBudget);
         } else {
           self::validateAny($condition, $conditionSource, $depth + 1, $remaining);
@@ -112,6 +114,11 @@ class WorldConditionEvaluator
           && !is_float($condition['value']) && !is_string($condition['value'])) {
           throw new InvalidArgumentException(sprintf('%s variable field "value" must be a number or string.', $conditionSource));
         }
+      }
+
+      if ($type === WorldConditionType::PLAY_STATISTIC && !self::isPlayStatisticConditionValid($condition)) {
+        throw new InvalidArgumentException(sprintf('%s play_statistic requires a known counter, comparison operator and nonnegative integer value.',
+          $conditionSource));
       }
 
       if ($type === WorldConditionType::ITEM
@@ -219,6 +226,10 @@ class WorldConditionEvaluator
         return false;
       }
 
+      if ($type === WorldConditionType::PLAY_STATISTIC && !self::isPlayStatisticConditionValid($condition)) {
+        return false;
+      }
+
       $name = trim(strval($condition['name'] ?? ''));
 
       if ($type === WorldConditionType::MAP_EVENT
@@ -243,6 +254,16 @@ class WorldConditionEvaluator
     }
 
     return true;
+  }
+
+  /** @param array<string, mixed> $condition */
+  public static function isPlayStatisticConditionValid(array $condition): bool
+  {
+    return array_diff(array_keys($condition), ['type', 'name', 'op', 'value', 'negate']) === []
+      && is_string($condition['name'] ?? null) && PlayStatistic::tryFrom(trim($condition['name'])) !== null
+      && in_array($condition['op'] ?? '==', ['==', '!=', '>', '>=', '<', '<='], true)
+      && is_int($condition['value'] ?? null) && $condition['value'] >= 0
+      && (!array_key_exists('negate', $condition) || is_bool($condition['negate']));
   }
 
   /** @param array<string, mixed> $condition */
@@ -297,6 +318,8 @@ class WorldConditionEvaluator
         strval($condition['op'] ?? '=='),
         $condition['value'] ?? 0
       ),
+      WorldConditionType::PLAY_STATISTIC => self::compare(
+        $gameState->getPlayStatistic(PlayStatistic::from($name)), $condition['op'] ?? '==', $condition['value']),
       WorldConditionType::ITEM => ($party?->inventory?->getQuantity($name, 'evaluating an item world condition') ?? 0) >= max(1, intval($condition['quantity'] ?? 1)),
       WorldConditionType::ASSIGNED_SUMMONS => match (AssignedSummonScope::from($name)) {
         AssignedSummonScope::PARTY => count($party?->getAssignedSummonIds() ?? []) >= $condition['quantity'],

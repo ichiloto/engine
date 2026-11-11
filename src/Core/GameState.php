@@ -58,6 +58,31 @@ class GameState
   /** @var array<array-key, true> Follow-ons explicitly queued by a live lesson. */
   private array $tutorialFollowOns = [];
 
+  /** @var array<string, int> Recorded gameplay counters, separate from authored variables. */
+  private array $playStatistics = [];
+
+  public function getPlayStatistic(PlayStatistic $statistic): int
+  {
+    return $this->playStatistics[$statistic->value] ?? 0;
+  }
+
+  /** Records a positive contribution without overflowing the saved integer. */
+  public function incrementPlayStatistic(PlayStatistic $statistic, int $amount = 1): void
+  {
+    if ($amount < 1) { throw new \InvalidArgumentException('A play statistic increment must be positive.'); }
+    $current = $this->getPlayStatistic($statistic);
+    $this->ensurePlayStatisticMinimum($statistic, $current + min($amount, PHP_INT_MAX - $current));
+  }
+
+  /** Imports a proven historical lower bound without reducing or replaying recorded progress. */
+  public function ensurePlayStatisticMinimum(PlayStatistic $statistic, int $minimum): void
+  {
+    if ($minimum < 0) { throw new \InvalidArgumentException('A play statistic minimum cannot be negative.'); }
+    if ($minimum <= $this->getPlayStatistic($statistic)) { return; }
+    $this->playStatistics[$statistic->value] = $minimum;
+    $this->onChange?->__invoke('play_statistic', $statistic->value);
+  }
+
   public function getTutorialPhase(string $id): ?TutorialPhase
   {
     return $this->tutorials[trim($id)] ?? null;
@@ -298,7 +323,7 @@ class GameState
   }
 
   /**
-   * @return array{switches: array<string, bool>, variables: array<string, int|float|string>, storyEvents: string[], completedEvents: array<string, true>, visitedMaps: array<string, true>, knownLandmarks: array<string, array<string, true>>, worldAbilityPrompts: array<string,true>, tutorials: array<string,string>, tutorialFollowOns: array<array-key,true>}
+   * @return array{switches: array<string, bool>, variables: array<string, int|float|string>, storyEvents: string[], completedEvents: array<string, true>, visitedMaps: array<string, true>, knownLandmarks: array<string, array<string, true>>, worldAbilityPrompts: array<string,true>, tutorials: array<string,string>, tutorialFollowOns: array<array-key,true>, playStatistics: array<string,int>}
    */
   public function toArray(): array
   {
@@ -312,6 +337,7 @@ class GameState
       'worldAbilityPrompts' => $this->worldAbilityPrompts,
       'tutorials' => array_map(static fn(TutorialPhase $phase): string => $phase->value, $this->tutorials),
       'tutorialFollowOns' => $this->tutorialFollowOns,
+      'playStatistics' => $this->playStatistics,
     ];
   }
 
@@ -335,6 +361,7 @@ class GameState
     $this->worldAbilityPrompts = $restored->worldAbilityPrompts;
     $this->tutorials = $restored->tutorials;
     $this->tutorialFollowOns = $restored->tutorialFollowOns;
+    $this->playStatistics = $restored->playStatistics;
   }
 
   /**
@@ -344,6 +371,13 @@ class GameState
   public static function fromArray(array $data): self
   {
     $state = new self();
+
+    foreach (is_array($data['playStatistics'] ?? null) ? $data['playStatistics'] : [] as $name => $count) {
+      $statistic = is_string($name) ? PlayStatistic::tryFrom($name) : null;
+      if ($statistic !== null && is_int($count) && $count >= 0) {
+        $state->playStatistics[$statistic->value] = $count;
+      }
+    }
 
     foreach ((array) ($data['switches'] ?? []) as $name => $value) {
       $state->setSwitch((string) $name, (bool) $value);

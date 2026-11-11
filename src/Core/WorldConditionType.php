@@ -13,6 +13,7 @@ enum WorldConditionType: string
   case ANY = 'any';
   case MAP_EVENT = 'map_event';
   case VARIABLE = 'variable';
+  case PLAY_STATISTIC = 'play_statistic';
   case ITEM = 'item';
   case KEY_ITEM = 'key_item';
   case WORLD_ABILITY = 'world_ability';

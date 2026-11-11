@@ -38,6 +38,7 @@ it('publishes the complete stable condition vocabulary', function () {
     'any',
     'map_event',
     'variable',
+    'play_statistic',
     'item',
     'key_item',
     'world_ability',

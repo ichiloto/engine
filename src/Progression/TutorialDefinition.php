@@ -25,11 +25,12 @@ final readonly class TutorialDefinition
     public TutorialReplayMode $replay,
     public ?string $demo,
     public ?string $onFinish,
+    public ?string $summary,
   ) {}
 
   public static function fromArray(mixed $data): self
   {
-    if (!is_array($data) || array_diff(array_keys($data), ['id', 'category', 'title', 'trigger', 'start', 'startContext', 'steps', 'replay', 'demo', 'onFinish']) !== []) {
+    if (!is_array($data) || array_diff(array_keys($data), ['id', 'category', 'title', 'summary', 'trigger', 'start', 'startContext', 'steps', 'replay', 'demo', 'onFinish']) !== []) {
       throw new InvalidArgumentException('Expected a tutorial definition.');
     }
 
@@ -37,6 +38,8 @@ final readonly class TutorialDefinition
     $source = 'Tutorial ' . $data['id'];
     self::assertText($data['category'] ?? null, $source . ' category');
     self::assertText($data['title'] ?? null, $source . ' title');
+    $summary = array_key_exists('summary', $data) ? $data['summary'] : null;
+    if (array_key_exists('summary', $data)) { self::assertText($summary, $source . ' summary'); }
     $start = is_string($data['start'] ?? null) ? TutorialStartMode::tryFrom($data['start']) : null;
     $replay = is_string($data['replay'] ?? null) ? TutorialReplayMode::tryFrom($data['replay']) : null;
     if ($start === null || $replay === null) {
@@ -83,7 +86,7 @@ final readonly class TutorialDefinition
       self::assertText($onFinish, $source . ' follow-on script id');
     }
 
-    return new self($data['id'], $data['category'], $data['title'], $trigger, $start, $startContext, $steps, $replay, $demo, $onFinish);
+    return new self($data['id'], $data['category'], $data['title'], $trigger, $start, $startContext, $steps, $replay, $demo, $onFinish, $summary);
   }
 
   /** @phpstan-assert non-empty-string $value */

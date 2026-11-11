@@ -8,12 +8,12 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Events\BattleOutcome;
 use Ichiloto\Engine\Battle\Presentation\BattleRewards;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\PlayStatistic;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Progression\ExperienceAwarder;
 use Ichiloto\Engine\Progression\Mastery\MasteryVocabulary;
-use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 
@@ -51,6 +51,7 @@ final readonly class BattleConclusion
    */
   public function concludeVictory(BattleScene $scene): void
   {
+    if ($scene->result !== null) { return; }
     $experience = 0;
     $skillPoints = 0;
     $gold = 0;
@@ -93,9 +94,10 @@ final readonly class BattleConclusion
         Vocabulary::getTerm('currency.name', 'Gold'))] = (string)($gold - $goldReceived);
     }
 
-    $questManager = QuestManager::current();
     $gameScene = $this->game->sceneManager->findScene(GameScene::class);
-    $knowledge = $gameScene instanceof GameScene && $gameScene->isStarted() ? $gameScene->knowledge : null;
+    $campaign = $gameScene instanceof GameScene && $gameScene->isStarted() && $gameScene->party === $this->party;
+    $questManager = $campaign ? $gameScene->questManager : null;
+    $knowledge = $campaign ? $gameScene->knowledge : null;
 
     foreach ($this->troop->members->toArray() as $enemy) {
       $questManager?->recordDefeat($enemy->name);
@@ -148,12 +150,16 @@ final readonly class BattleConclusion
     $scene->result = new BattleResult('Victory', $lines, $items, $entries,
       new BattleRewards($experience, $goldReceived, $progressionResults, $rewardItems, $rewardSummary,
         skillPointsPerMember: $skillPoints));
+    if ($campaign) {
+      $gameScene->gameState->incrementPlayStatistic(PlayStatistic::BATTLES_WON);
+    }
     $scene->setState($scene->victoryState);
   }
 
   /** Shows the defeat results; the scene's defeat policy decides what follows. */
   public function concludeDefeat(BattleScene $scene): void
   {
+    if ($scene->result !== null) { return; }
     $scene->result = new BattleResult('Defeat', [
       'The party has been wiped out.',
     ]);
@@ -163,6 +169,7 @@ final readonly class BattleConclusion
   /** Ends the battle as an escape, with no rewards. */
   public function concludeEscape(BattleScene $scene): void
   {
+    if ($scene->result !== null) { return; }
     play_sound(SystemSound::ESCAPE);
     $scene->result = new BattleResult('Escaped', [
       'The party slipped away!',

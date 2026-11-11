@@ -1196,6 +1196,8 @@ class GameScene extends AbstractScene implements PlayActivitySourceInterface, Gr
         $this->player->activate();
         $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
         $this->setState($this->fieldState);
+        // Restored facts can meet conditions before the next player-driven state change.
+        $this->achievementManager->evaluateConditionalAchievements();
         $this->startConfiguredFieldEvents();
     }
 

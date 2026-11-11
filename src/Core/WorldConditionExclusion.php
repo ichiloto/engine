@@ -156,6 +156,8 @@ final class WorldConditionExclusion
                 ? [$condition['quantity']] : null,
             WorldConditionType::QUEST => is_scalar($condition['status'] ?? 'completed') ? [strval($condition['status'] ?? 'completed')] : null,
             WorldConditionType::VARIABLE => self::readVariableParameters($condition, $holdsOn),
+            WorldConditionType::PLAY_STATISTIC => WorldConditionEvaluator::isPlayStatisticConditionValid($condition)
+                ? self::readVariableParameters($condition, $holdsOn) : null,
             WorldConditionType::ANY => null,
         };
 

@@ -91,9 +91,36 @@ RPG-Maker "event pages" lite.
 - `event` — passes when the named story event has been recorded.
 - `variable` — compares with `op` (`==`, `!=`, `>`, `>=`, `<`, `<=`)
   against `value`. `op` defaults to `==`.
+- `play_statistic` — compares an Engine-owned `PlayStatistic` counter against a
+  nonnegative integer `value`, with the same operators and default. For example,
+  `['type' => 'play_statistic', 'name' => 'battles_won', 'op' => '>=', 'value' => 1]`.
+  Unknown counters and malformed comparisons fail closed, including under negation.
 - `item` — passes when the party holds the named item.
 - Any condition takes `'negate' => true` to invert it ("only while the
   bridge is NOT destroyed").
+
+## Gameplay statistics
+
+`GameState` saves its Engine-owned counters in `playStatistics`. Authored
+variables remain independent. `PlayStatistic::BATTLES_WON` advances once when
+the shared battle conclusion publishes a victory for a started campaign.
+Scripted victories use the same conclusion; escape, defeat and detached battle
+tests add no victory. A published battle result cannot be concluded again:
+repeated calls neither award rewards again nor replace the outcome.
+
+The ordinary world-state observer re-evaluates achievement conditions after a
+counter changes. Scene restoration also reconciles conditional achievements
+after all saved facts and the field are ready. Snapshots, rollback and
+`GameConfig` save serialization preserve counters and observer ownership.
+
+Old saves without counters start with no recorded total. A project's content
+migration may import a proven lower bound using
+`ensurePlayStatisticMinimum(PlayStatistic::BATTLES_WON, 1)`, preserving any
+higher recorded count. Enemy defeat counts are per enemy; they cannot be
+summed into an exact historical battle total. Migration must use actual saved
+victory evidence and preserve already-earned achievements and unrelated state.
+Future victories are counted directly. This condition is read-only; event
+`sets` do not write Engine statistics through a variable alias.
 
 ## Writing state on completion (`sets`)
 
