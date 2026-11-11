@@ -313,6 +313,41 @@ it('rebuilds the starting items and conditions for every fight, a listed troop o
   expect(count($parties))->toBe(3)->and($fresh->stats->currentHp)->toBe(50)->and($fresh->hasState('poison'))->toBeTrue();
 });
 
+it('changes the battle test frontline from one to eight through the party pane', function () {
+  $members = array_fill(0, Party::MAX_BATTLE_SIZE, new BattleTestMember('hero', 1));
+  $setup = new BattleTestSetup($members, inventory: [new BattleTestItem('item.potion', 3)]);
+  $parties = [];
+  $scene = battleConditionScene($this, $setup, $parties);
+  $editor = new ReflectionProperty(ArenaScene::class, 'editor')->getValue($scene);
+
+  $editor->movePane(1);
+  $editor->moveHorizontal(-1);
+  $editor->moveHorizontal(-1);
+  $editor->moveHorizontal(-1);
+  $fight = new ReflectionMethod(ArenaScene::class, 'fight');
+  foreach (range(1, Party::MAX_BATTLE_SIZE) as $count) {
+    expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)->and($editor->setup->battleSize)->toBe($count);
+    $fight->invoke($scene, 0);
+    $party = $parties[array_key_last($parties)];
+    expect(count($party->battlers))->toBe($count)->and(count($party->members))->toBe(Party::MAX_BATTLE_SIZE)
+      ->and($party->inventory->getQuantityById('item.potion'))->toBe(3);
+    $editor->moveHorizontal(1);
+  }
+  expect($editor->setup->battleSize)->toBe(Party::MAX_BATTLE_SIZE)->and($setup->battleSize)->toBe(Party::BATTLE_SIZE);
+
+  $list = $scene->describeList();
+  $title = new ReflectionMethod(ArenaScene::class, 'getPartyTitle')->invoke($scene);
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false]);
+  $canvas = BattleTestMenuPresentation::compose($theme, $list, false, $scene->listPartyStats(), Party::MAX_BATTLE_SIZE - 1,
+    null, null, null, false, partyTitle: $title);
+  $text = implode(' ', array_map(static fn($layer): string => implode('', array_column($layer->runs, 'text')), $canvas->textLayers));
+  $hintLayers = array_filter($canvas->textLayers, static fn($layer): bool => str_starts_with($layer->id, 'battle-test-hints'));
+  $hintText = implode(' ', array_map(static fn($layer): string => implode('', array_column($layer->runs, 'text')), $hintLayers));
+  expect($title)->toBe('Party · Frontline limit 8')->and($text)->toContain($title)
+    ->and($hintText)->toContain('Frontline')
+    ->and(array_column($canvas->textLayers, 'id'))->toContain('battle-test-members-battle-test-member-7-text');
+});
+
 it('folds the items into the staged menu: page to them from the party, choose a quantity as a shop does, add, remove and reset', function () {
   $setup = new BattleTestSetup([new BattleTestMember('hero', 1)]);
   $parties = [];

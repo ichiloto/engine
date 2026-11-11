@@ -34,11 +34,12 @@ final class BattleTestMenuPresentation
    * @param ?string $arena The arena fights take place in, where arenas are offered.
    * @param ?int $outlined The test troop member to outline on the stage.
    * @param bool $compositing Whether the renderer draws composites, such as battlers' shadows.
+   * @param string $partyTitle The party heading shared with the Terminal panel.
    */
   public static function compose(MenuPresentationCatalog $theme, BattleTestMenuList $list, bool $listFocused,
     array $party, ?int $partySelected, ?string $arena, ?BattleFormationLayout $stage, ?int $outlined, bool $placing,
     ?string $stageIssue = null, float $time = 0, bool $compositing = true, int $width = PresentationCanvas::DEFAULT_WIDTH,
-    int $height = PresentationCanvas::DEFAULT_HEIGHT): PresentationCanvas
+    int $height = PresentationCanvas::DEFAULT_HEIGHT, string $partyTitle = 'Party'): PresentationCanvas
   {
     $view = new MenuCanvas($theme, $width, $height, $time);
     $m = $theme->metrics;
@@ -53,7 +54,7 @@ final class BattleTestMenuPresentation
 
     self::renderList($view, $theme, $list, $listFocused, $arena, $listBox);
     self::renderStage($view, $theme, $stage, $outlined, $placing, $stageIssue, $stageBox, $compositing);
-    self::renderParty($view, $theme, $party, $partySelected, $partyBox);
+    self::renderParty($view, $theme, $party, $partySelected, $partyBox, $partyTitle);
 
     return $view->finish();
   }
@@ -88,8 +89,8 @@ final class BattleTestMenuPresentation
         selected: $selected, focused: $focused && $selected);
     }
     if ($rows !== []) {
-      $rowHeight = (int) ceil(max($m->cellHeight + $theme->rows->metrics->separatorWidth, $theme->rows->metrics->cursorHeight,
-        min($m->rowHeight, $m->cellHeight + $m->sectionGap / 3)));
+      $rowHeight = max(MenuRowLayout::getMinimumRowHeight($m->cellHeight, $theme->rows->metrics),
+        (int) ceil(max($theme->rows->metrics->cursorHeight, min($m->rowHeight, $m->cellHeight + $m->sectionGap / 3))));
       // The row under the cursor stays in view, or the one the list keeps there while the cursor is elsewhere.
       // Every label shows whole; a long text figure wraps beside it instead.
       $layout = new MenuRowLayout(new CanvasRectangle($inner->x, $y, $inner->width, max($rowHeight, $bottom - $y)),
@@ -138,13 +139,14 @@ final class BattleTestMenuPresentation
   }
 
   /** @param list<array{0: string, 1: array<string, string>}> $party */
-  private static function renderParty(MenuCanvas $view, MenuPresentationCatalog $theme, array $party, ?int $selected, CanvasRectangle $box): void
+  private static function renderParty(MenuCanvas $view, MenuPresentationCatalog $theme, array $party, ?int $selected,
+    CanvasRectangle $box, string $title): void
   {
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $view->frame('battle-test-party', $box);
     $inner = new CanvasRectangle($box->x + $p, $box->y + $p, $box->width - 2 * $p, $box->height - 2 * $p);
-    $y = $inner->y + $view->prose('battle-test-party-title', 'Party', new CanvasRectangle($inner->x, $inner->y, $inner->width, $m->cellHeight), 'accent');
+    $y = $inner->y + $view->prose('battle-test-party-title', $title, new CanvasRectangle($inner->x, $inner->y, $inner->width, $m->cellHeight), 'accent');
     if ($party === []) {
       $view->prose('battle-test-party-empty', 'No party could be built from this project.', new CanvasRectangle($inner->x, $y, $inner->width, $m->cellHeight), 'disabled');
       return;
@@ -156,9 +158,11 @@ final class BattleTestMenuPresentation
       $rows[] = new MenuRow('battle-test-member-' . $index, $name, array_map(static fn(string $figure): MenuRowValue => new MenuRowValue($figure),
         array_values($stats)), selected: $index === $selected, focused: $index === $selected);
     }
-    $rowHeight = (int) max($m->cellHeight, floor(($inner->y + $inner->height - $y) / max(self::PARTY_ROWS, count($rows))));
-    $view->rows('battle-test-members', $rows, new MenuRowLayout(new CanvasRectangle($inner->x, $y, $inner->width, $inner->y + $inner->height - $y),
-      $columns, min($rowHeight, (int) max($m->cellHeight, $m->rowHeight)), $m->cellWidth, $m->cellHeight, ellipsis: true), $selected);
+    $availableHeight = $inner->y + $inner->height - $y;
+    $preferredHeight = min($m->rowHeight, intdiv((int) $availableHeight, max(self::PARTY_ROWS, count($rows))));
+    $rowHeight = max($preferredHeight, MenuRowLayout::getMinimumRowHeight($m->cellHeight, $theme->rows->metrics));
+    $view->rows('battle-test-members', $rows, new MenuRowLayout(new CanvasRectangle($inner->x, $y, $inner->width, $availableHeight),
+      $columns, $rowHeight, $m->cellWidth, $m->cellHeight, ellipsis: true), $selected);
   }
 
   /** A rectangle kept inside another, for an outline that never leaves its picture. */

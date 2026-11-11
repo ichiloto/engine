@@ -529,6 +529,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       max(1, self::LIST_HEIGHT - 2 - count($note)), $this->editor?->listFocus ?? $focus), ...$note]);
     $this->listPanel?->render();
 
+    $this->infoPanel?->setTitle($this->getPartyTitle());
     $this->infoPanel?->setControlHints($partyFocused ? $hints : []);
     $this->infoPanel?->setContent($this->describeParty($innerWidth));
     $this->infoPanel?->render();
@@ -581,9 +582,14 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       MenuRowColumn::fit(array_column(array_column($rows, 1), 1), label: Vocabulary::getTerm('stats.level_short'))]];
   }
 
+  private function getPartyTitle(): string
+  {
+    return $this->editor === null ? 'Party' : sprintf('Party · Frontline limit %d', $this->editor->setup->battleSize);
+  }
+
   private function describePartyHints(string $list): array
   {
-    return [['confirm', 'Edit'], [self::PANE_PREVIOUS_ACTION, $list],
+    return [['confirm', 'Edit'], ['left', 'Frontline', 'right'], [self::PANE_PREVIOUS_ACTION, $list],
       ...($this->editor?->inventoryEditor === null ? [] : [[self::PANE_NEXT_ACTION, 'Items']])];
   }
 
@@ -612,7 +618,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
           : [['confirm', 'Choose'], ...($arenas ? [['left', 'Arena', 'right']] : []),
             [self::PANE_NEXT_ACTION, 'Party'], ['cancel', 'Back']],
         note: $this->keepStatus, namesArena: true, anchor: $composer->rowIndex,
-        requiredHintActions: [self::PANE_NEXT_ACTION, self::PANE_PREVIOUS_ACTION]),
+        requiredHintActions: $partyFocused ? [self::PANE_NEXT_ACTION, self::PANE_PREVIOUS_ACTION, 'left']
+          : [self::PANE_NEXT_ACTION, self::PANE_PREVIOUS_ACTION]),
     };
   }
 
@@ -687,7 +694,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
         $focus !== ArenaSetupEditor::PARTY, $this->listPartyStats(),
         in_array($focus, [ArenaSetupEditor::PARTY, ArenaSetupEditor::MEMBER, ArenaSetupEditor::CHOOSER], true) ? $editor->memberIndex : null,
         $this->getArenaName(), $stage, $outlined, $composer?->focus === TestTroopComposer::PLACING, $issue,
-        compositing: $runtime->supports(RendererSessionConfig::CANVAS_COMPOSITING));
+        compositing: $runtime->supports(RendererSessionConfig::CANVAS_COMPOSITING), partyTitle: $this->getPartyTitle());
     } catch (Throwable $error) {
       if ($this->presentationError !== $error->getMessage()) {
         Debug::error('The battle test menu is drawn in the terminal\'s windows: ' . $error->getMessage());

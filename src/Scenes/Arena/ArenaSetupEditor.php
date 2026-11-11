@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Scenes\Arena;
 
 use Closure;
 use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Entities\Party;
 
 /**
  * Where the arena's setup is and what each move does, apart from drawing and
@@ -188,11 +189,19 @@ final class ArenaSetupEditor
   }
 
   /**
-   * Left and right change the arena on the troop list, a quantity of the
-   * party's items by ten, and the member's actor, level, HP, MP or form.
+   * Left and right change the arena on the troop list, the frontline limit
+   * on the party pane, a quantity in Items by ten, or the focused member field.
    */
   public function moveHorizontal(int $step): void
   {
+    if ($this->focus === self::PARTY) {
+      $size = max(1, min(Party::MAX_BATTLE_SIZE, $this->setup->battleSize + $step));
+      if ($size !== $this->setup->battleSize) {
+        $this->setup = $this->setup->withBattleSize($size);
+      }
+
+      return;
+    }
     if ($this->focus === self::ITEMS) {
       $this->inventoryEditor?->moveHorizontal($step);
 

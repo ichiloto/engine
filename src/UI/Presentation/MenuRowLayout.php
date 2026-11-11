@@ -135,12 +135,18 @@ final readonly class MenuRowLayout
     return array_sum(array_map(fn(MenuRowColumn $column) => $column->cells + ($column->gap ?? $metrics->gapCells), $this->columns));
   }
 
+  public static function getMinimumRowHeight(int $cellHeight, MenuRowMetrics $metrics, bool $hasSeparateTreatment = false): int
+  {
+    return max($cellHeight + ($hasSeparateTreatment ? 0 : (int) ceil($metrics->separatorWidth)),
+      (int) floor(2 * $metrics->focusWidth) + 1);
+  }
+
   public function assertFits(MenuRowMetrics $metrics, bool $hasSeparateTreatment = false): void
   {
     $cells = $this->textCells($metrics);
     if ($cells < 1 || $cells > RendererGridConfig::MAX_COLUMNS || $this->valueCells($metrics) >= $cells
-      || (!$hasSeparateTreatment && $metrics->separatorWidth + $this->cellHeight > $this->rowHeight)
-      || 2 * $metrics->focusWidth >= min($this->rowHeight, $this->viewport->width)
+      || $this->rowHeight < self::getMinimumRowHeight($this->cellHeight, $metrics, $hasSeparateTreatment)
+      || 2 * $metrics->focusWidth >= $this->viewport->width
       || $metrics->accentWidth > $this->viewport->width) {
       throw new InvalidArgumentException('Menu columns and theme metrics require a larger row or viewport within Canvas limits.');
     }
