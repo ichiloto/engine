@@ -69,6 +69,13 @@ use function Tests\Support\Battle\createTargetingTestScreen;
 require_once __DIR__ . '/../Support/Battle/InteractiveCommandFixture.php';
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 
+it('keeps production announcement text in the shared silent command fixture', function () {
+  $screen = createTargetingTestScreen();
+  $screen->showMessage("Synthetic actor\nGuard");
+
+  expect($screen->messageWindow->presentationSnapshot())->toBe("Synthetic actor\nGuard");
+});
+
 it('opens role-aware battle commands and routes renamed labels by identity in both battle engines', function (bool $activeTime) {
   $priorConfig = new ReflectionClass(ConfigStore::class)->getStaticProperties();
   putSceneAudioConfig(['locale' => 'alternate', 'vocab' => [

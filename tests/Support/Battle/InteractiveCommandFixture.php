@@ -14,13 +14,16 @@ use Ichiloto\Engine\Battle\UI\BattleCharacterStatusWindow;
 use Ichiloto\Engine\Battle\UI\BattleCommandContextWindow;
 use Ichiloto\Engine\Battle\UI\BattleCommandWindow;
 use Ichiloto\Engine\Battle\UI\BattleFieldWindow;
+use Ichiloto\Engine\Battle\UI\BattleMessageWindow;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 
 
 /**
@@ -34,6 +37,14 @@ class BattleCommandWindowTargetingTestProxy extends BattleCommandWindow
   public function updateContent(): void
   {
     // Skip terminal rendering for battle target-selection tests.
+  }
+}
+
+class BattleMessageWindowTargetingTestProxy extends BattleMessageWindow
+{
+  public function render(?int $x = null, ?int $y = null): void
+  {
+    // Keep the real message content and skip terminal painting.
   }
 }
 
@@ -241,6 +252,9 @@ function createTargetingTestEnemy(string $name): Enemy
 function createTargetingTestScreen(): BattleScreenTargetingTestProxy
 {
   $screen = (new ReflectionClass(BattleScreenTargetingTestProxy::class))->newInstanceWithoutConstructor();
+  setTestProperty($screen, 'screenDimensions', new Rect(0, 0, BattleScreen::WIDTH, BattleScreen::HEIGHT));
+  setTestProperty($screen, 'borderPack', new DefaultBorderPack());
+  setTestProperty($screen, 'messageWindow', new BattleMessageWindowTargetingTestProxy($screen));
   $commandWindow = (new ReflectionClass(BattleCommandWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
   $characterNameWindow = (new ReflectionClass(BattleCharacterNameWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
   $commandContextWindow = (new ReflectionClass(BattleCommandContextWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
