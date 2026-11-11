@@ -8,7 +8,7 @@ use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Events\AchievementEvent;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
-use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Core\Campaign\CampaignContextInterface;
 use Ichiloto\Engine\Util\Debug;
 use Throwable;
 
@@ -41,14 +41,15 @@ class AchievementManager
    * AchievementManager constructor.
    *
    * @param Game $game The game.
-   * @param GameScene $gameScene The owning game scene.
+   * @param CampaignContextInterface $gameScene The campaign facts, supplied by a field or detached session.
    */
   public function __construct(
     protected Game $game,
-    protected GameScene $gameScene,
+    protected CampaignContextInterface $gameScene,
+    ?string $assetRoot = null,
   )
   {
-    $this->achievements = self::loadDefinitions();
+    $this->achievements = self::loadDefinitions($assetRoot);
     self::$current = $this;
   }
 
@@ -77,9 +78,9 @@ class AchievementManager
    *
    * @return array<string, Achievement> The achievements, keyed by id.
    */
-  public static function loadDefinitions(): array
+  public static function loadDefinitions(?string $assetRoot = null): array
   {
-    $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Data', 'achievements.php');
+    $filename = Path::join($assetRoot ?? Path::join(Path::getCurrentWorkingDirectory(), 'assets'), 'Data', 'achievements.php');
 
     if (! file_exists($filename)) {
       return [];

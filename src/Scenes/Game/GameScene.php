@@ -145,7 +145,7 @@ use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInter
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameScene extends AbstractScene implements PlayActivitySourceInterface, GraphicalSpriteProviderHostInterface, SpriteThicketHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface, \Ichiloto\Engine\Events\Interpreter\EventExecutionHostInterface, \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface, \Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface, SceneFrameReadinessInterface
+class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\CampaignContextInterface, PlayActivitySourceInterface, GraphicalSpriteProviderHostInterface, SpriteThicketHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface, \Ichiloto\Engine\Events\Interpreter\EventExecutionHostInterface, \Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface, \Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface, SceneFrameReadinessInterface
 {
     private ?FieldViewport $fieldViewport = null;
     private ?CinematicAboveCoverPresentation $aboveCoverPresentation = null;

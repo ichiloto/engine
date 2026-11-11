@@ -10,7 +10,7 @@ use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
-use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Core\Campaign\CampaignContextInterface;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Assegai\Util\Path;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -50,15 +50,16 @@ class QuestManager
    * QuestManager constructor.
    *
    * @param Game $game The game.
-   * @param GameScene $gameScene The owning game scene.
+   * @param CampaignContextInterface $gameScene The campaign facts, supplied by a field or detached session.
    */
   public function __construct(
     protected Game $game,
-    protected GameScene $gameScene,
+    protected CampaignContextInterface $gameScene,
+    ?string $assetRoot = null,
   )
   {
     $this->log = new QuestLog();
-    $this->quests = self::loadQuestDefinitions();
+    $this->quests = self::loadQuestDefinitions($assetRoot);
     self::$current = $this;
   }
 
@@ -87,9 +88,9 @@ class QuestManager
    *
    * @return array<string, Quest> The quests, keyed by id.
    */
-  public static function loadQuestDefinitions(): array
+  public static function loadQuestDefinitions(?string $assetRoot = null): array
   {
-    $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Data', 'quests.php');
+    $filename = Path::join($assetRoot ?? Path::join(Path::getCurrentWorkingDirectory(), 'assets'), 'Data', 'quests.php');
 
     if (! file_exists($filename)) {
       return [];
