@@ -42,6 +42,26 @@ final readonly class MenuRowLayout
     return (int)floor($this->viewport->height / $this->rowHeight);
   }
 
+  /**
+   * Measures a table's columns from their headings and complete values. Both
+   * the heading and records use the same result; owners retain pagination.
+   * @param list<MenuRow> $rows
+   */
+  public static function measureTable(CanvasRectangle $viewport, array $rows, MenuRowMetrics $metrics,
+    int $rowHeight = 40, int $cellWidth = 10, int $cellHeight = 24, ?MenuRow $heading = null): self
+  {
+    $measured = $heading === null ? $rows : [$heading, ...$rows];
+    $count = max([0, ...array_map(static fn(MenuRow $row): int => count($row->values), $measured)]);
+    $columns = [];
+    $available = max(1, (int)floor(($viewport->width - 2 * $metrics->padding) / $cellWidth));
+    for ($i = 0; $i < $count; $i++) {
+      $widest = max([1, ...array_map(static fn(MenuRow $row): int => mb_strlen($row->values[$i]->text ?? '', 'UTF-8'), $measured)]);
+      $columns[] = new MenuRowColumn(min($available, $widest), HorizontalAlignment::LEFT, gap: $metrics->gapCells);
+    }
+    return (new self($viewport, $columns, $rowHeight, $cellWidth, $cellHeight, wrapText: true))
+      ->withWholeLabels(array_column($measured, 'label'), $metrics);
+  }
+
   /** Complete scalar text is wrapped, never elided. Values retain their own aligned columns. */
   public function lines(string $text, int $cells): array
   {

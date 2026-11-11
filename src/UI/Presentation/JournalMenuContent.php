@@ -25,5 +25,14 @@ final readonly class JournalMenuContent
     public bool $journal,
     public ?JournalDocument $document = null,
     public ?string $confirmLabel = 'View details',
-  ) {}
+    /** @var list<string> Label heading followed by one heading for each value column. */
+    public array $columnHeadings = [],
+  ) {
+    if (!array_is_list($columnHeadings)
+      || array_any($columnHeadings, static fn(mixed $heading): bool => !is_string($heading) || trim($heading) === '')
+      || ($columnHeadings !== [] && array_any($rows,
+        static fn(array $row): bool => count($row['values']) !== count($columnHeadings) - 1))) {
+      throw new \InvalidArgumentException('A journal table declares one heading for its label and each value column.');
+    }
+  }
 }

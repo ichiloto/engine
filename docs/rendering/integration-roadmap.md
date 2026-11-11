@@ -4223,6 +4223,23 @@ and measured pages for complete terminal/native scrolling; shortened previews
 retain full detail text. Back restores selection. Secret and undiscovered
 entries are filtered before presentation.
 
+Records supplies explicit table headings: Achievement / Status / Requirement,
+Record / Type / Knowledge, and Guide / Category. The shared table measures
+headings and values together; shortened list previews retain the complete
+reading content. Record types and Guide categories use authored display text,
+and knowledge depth has player-facing enum labels. Empty classification fields
+and classification identical to the record name are omitted. Guide metadata
+supplies its summary; the existing replay owner supplies its action. The title,
+tabs and Points summary keep their positions across all three Records tabs.
+Terminal reserves its column-heading row outside the record pagination count
+and fits its panels to the actual screen height, including 80 by 24.
+
+Records measures and draws each detail sheet with the same viewport and theme.
+Parallel detail columns retain all their reading lines through the shared
+layout's page-height calculation; their physical placement remains within the
+Info panel. Summons, quest, Magic and Abilities details retain their own content
+and presentation contracts.
+
 Terminal journals use the shared horizontal tabs and Window border/help
 pagination, never fake right padding or content rows. Native text and markers
 are batched, and tab headers are measured after wrapping.

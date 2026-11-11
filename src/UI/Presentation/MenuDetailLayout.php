@@ -28,6 +28,12 @@ final readonly class MenuDetailLayout
     return self::measure($this->lines, $this->style, $lineHeight);
   }
 
+  /** Parallel columns fit physically together; the reading page includes every column's lines. */
+  public function getPageHeight(MenuDetailViewport $area): int
+  {
+    return $this->isColumnar ? max($area->height, array_sum(array_column($this->measureLines($area->lineHeight), 'height'))) : $area->height;
+  }
+
   /**
    * @param list<MenuDetailLine> $lines
    * @return list<array{height: int, top: int}>

@@ -262,7 +262,7 @@ it('reaches complete long quest and earned report text in terminal and graphical
     else {
       $panel = new ReflectionProperty($state, $records ? 'infoPanel' : 'listPanel')->getValue($state);
       $painted = array_slice($panel->getContent(), 0, count($page->lines));
-      expect(array_map(TerminalText::stripAnsi(...), $painted))->toBe($page->lines);
+      expect(array_map(fn($line) => rtrim(TerminalText::stripAnsi($line)), $painted))->toBe(array_map(rtrim(...), $page->lines));
     }
     if ($page->first + count($page->lines) === $page->total) { break; }
     journalMenuKey($state, KeyCode::DOWN);
@@ -534,6 +534,73 @@ it('names record types by their authored label and reads a summon record from it
     chdir($cwd);
   }
 });
+
+it('keeps field columns semantic and omits missing or name-equivalent classification', function () {
+  $this->knowledge = new KnowledgeProgressService(new KnowledgeCatalog([
+    'recordTypes' => [['id' => 'internal.kind', 'label' => 'Creatures']],
+    'subjects' => [
+      ['id' => 'first', 'recordType' => 'internal.kind', 'displayName' => 'Cave Finch', 'species' => ' cave finch ',
+        'quickCard' => 'A current field note.'],
+      ['id' => 'second', 'recordType' => 'internal.kind', 'displayName' => 'Silver Finch', 'family' => 'Finches',
+        'species' => 'Mountain finch', 'quickCard' => 'A second current note.'],
+    ],
+  ]));
+  foreach (['first', 'second'] as $id) { $this->knowledge->discoverSubject($id); }
+  new ReflectionProperty($this->scene, 'knowledge')->setValue($this->scene, $this->knowledge);
+  $state = journalMenuOwner($this, true);
+  $content = $state->getPresentationContent();
+  expect($content->columnHeadings)->toBe(['Record', 'Type', 'Knowledge'])
+    ->and(array_column($content->rows, 'values'))->toBe([['Creatures', 'Discovered'], ['Creatures', 'Discovered']])
+    ->and(array_column($content->details->getEntries(), 'label'))->not->toContain('Family', 'Species')
+    ->and($content->details->text)->toContain('A current field note.')->not->toContain('internal.kind');
+  $theme = new MenuPresentationCatalog($this->root, [...journalMenuTheme(), 'details' => [
+    'columns' => 2, 'minColumnCells' => 40, 'recordMinHeight' => 40, 'headingMinHeight' => 28,
+  ]]);
+  $area = JournalMenuPresentation::pageSize($content, $theme);
+  $layout = $content->details->layout($area->columns, $theme->createDetailStyle(), $area);
+  $page = $state->getPresentationPage($area, $theme->createDetailStyle());
+  expect($layout->isColumnar)->toBeTrue()->and($page->rows)->toBeGreaterThan($area->height);
+  $frame = JournalMenuPresentation::compose($content, $theme, $page);
+  expect(implode('', journalMenuText($frame)))->toContain('A current field note.', 'Creatures', 'Discovered');
+  journalMenuKey($state, KeyCode::DOWN);
+  $entries = $state->getPresentationContent()->details->getEntries();
+  expect(array_find($entries, fn($entry) => $entry->label === 'Family')?->text)->toBe('Finches')
+    ->and(array_find($entries, fn($entry) => $entry->label === 'Species')?->text)->toBe('Mountain finch');
+});
+
+it('keeps Records header and column headings stable while showing authored Guide coverage and replay', function (bool $alternative, int $width, int $height) {
+  $this->flags->setTutorialPhase('guide', TutorialPhase::COMPLETED);
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide', 'category' => 'Battle', 'title' => 'Review a Contract',
+    'summary' => 'Review the caller assigned to a contract.', 'start' => 'script', 'replay' => 'read',
+    'steps' => [['say' => 'Open the contracts.', 'target' => ['screen' => 'main-menu', 'view' => 'commands', 'id' => 'summons'],
+      'action' => 'confirm', 'until' => ['outcome' => 'menu.command-opened', 'subject' => 'summons']]],
+  ]]), $this->flags);
+  new ReflectionProperty($this->scene, 'tutorialDirector')->setValue($this->scene, $director);
+  $snapshot = $this->flags->toArray();
+  $state = journalMenuOwner($this, true);
+  $theme = new MenuPresentationCatalog($this->root, journalMenuTheme($alternative));
+  $headers = [];
+  for ($i = 0; $i < 3; $i++) {
+    $content = $state->getPresentationContent();
+    $page = $state->getPresentationPage(JournalMenuPresentation::pageSize($content, $theme, $width, $height), $theme->createDetailStyle());
+    $frame = JournalMenuPresentation::compose($content, $theme, $page, width: $width, height: $height);
+    $text = journalMenuText($frame);
+    expect(implode('', $text))->toContain('Points: 25')
+      ->and(array_filter(array_keys($text), fn($id) => str_starts_with($id, 'journal-columns')))->not->toBeEmpty();
+    $headers[] = array_values(array_filter($frame->textLayers,
+      fn($layer) => in_array($layer->id, ['journal-title', 'journal-summary-value'], true)));
+    if ($content->tabs[$content->tabIndex] === 'Guide') {
+      expect($content->rows[0]['values'])->toBe(['Battle'])
+        ->and($content->details->text)->toContain('Review the caller assigned to a contract.', 'Read')
+        ->and(implode('', $text))->toContain('Review the caller assigned to a contract.')
+        ->and($content->confirmLabel)->toBe('Read');
+    }
+    journalMenuKey($state, KeyCode::Q);
+  }
+  expect($headers[0])->toEqual($headers[1])->toEqual($headers[2])
+    ->and($this->flags->toArray())->toBe($snapshot);
+})->with([false, true])->with([[1350, 720], [1280, 720], [960, 540]]);
 
 it('opens encountered guides from Records and practises on the live menu without changing the save', function () {
   $entry = [

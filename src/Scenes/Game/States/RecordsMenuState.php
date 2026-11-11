@@ -15,6 +15,11 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\UI\Presentation\MenuCanvas;
+use Ichiloto\Engine\UI\Presentation\MenuRow;
+use Ichiloto\Engine\UI\Presentation\MenuRowValue;
+use Ichiloto\Engine\UI\Presentation\MenuRowLayout;
+use Ichiloto\Engine\UI\Presentation\MenuRowMetrics;
+use Ichiloto\Engine\UI\Presentation\MenuTableText;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 use RuntimeException;
@@ -192,8 +197,8 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
       } elseif ($row instanceof TutorialDefinition) {
         $rows[] = ['label' => $row->title, 'values' => [$row->category]];
       } else {
-        $rows[] = ['label' => $row->displayName, 'values' => [$row->family ?? $row->species ?? $this->getRecordTypeName($row),
-          strtolower($knowledge->progress->depth($row->id)->name)]];
+        $rows[] = ['label' => $row->displayName, 'values' => [$this->getRecordTypeName($row),
+          $knowledge->progress->depth($row->id)->getLabel()]];
       }
     }
     $row = $this->rows[$this->activeIndex] ?? null;
@@ -207,11 +212,13 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
           MenuDetailEntry::createProse($unlocked ? 'Unlocked' : 'Locked'), MenuDetailEntry::createField('Points', (string)$row->points)];
     } elseif ($row instanceof KnowledgeSubject) {
       $depth = $knowledge->progress->depth($row->id);
-      $sections = [[...self::createProse($row->displayName), ...self::createField('Type', $this->getRecordTypeName($row)),
-        ...self::createField('Family', $row->family ?? ''), ...self::createField('Species', $row->species ?? ''),
-        MenuDetailEntry::createField('Depth', strtolower($depth->name))],
-        self::createProse($depth->value >= KnowledgeDepth::OBSERVED->value && $row->deepCard !== null
-          ? $row->deepCard : $row->quickCard)];
+      $sections = [[MenuDetailEntry::createHeading($row->displayName),
+        ...self::createProse($depth->value >= KnowledgeDepth::OBSERVED->value && $row->deepCard !== null
+          ? $row->deepCard : $row->quickCard)],
+        [...self::createField('Type', $this->getRecordTypeName($row)),
+          ...self::createClassificationField('Family', $row->family, $row->displayName),
+          ...self::createClassificationField('Species', $row->species, $row->displayName),
+          MenuDetailEntry::createField('Knowledge', $depth->getLabel())]];
       // A record of a summon reads that summon's own information rather than a copy of it.
       $summon = $row->summonId === null ? null : $this->findSummon($row->summonId);
       if ($summon !== null) { array_push($sections, ...SummonInfoSheet::createSections($summon)); }
@@ -228,10 +235,16 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
       }
     }
     if ($row instanceof TutorialDefinition) {
-      $sections[] = [MenuDetailEntry::createProse($row->title)];
+      $sections[] = [MenuDetailEntry::createHeading($row->title), ...self::createProse($row->summary ?? '')];
+      $action = $this->getGuideAction($row);
+      $sections[] = [MenuDetailEntry::createField('Category', $row->category),
+        MenuDetailEntry::createField('Steps', (string)count($row->steps)),
+        ...self::createField('Replay', $action ?? '')];
       if ($this->viewingDetail) {
-        foreach ($row->steps as $step) {
-          array_push($sections[0], ...self::createProse($step->say ?? ''));
+        foreach ($row->steps as $index => $step) {
+          if ($step->say !== null) {
+            $sections[] = [MenuDetailEntry::createHeading('Step ' . ($index + 1)), ...self::createProse($step->say)];
+          }
         }
       }
     }
@@ -242,14 +255,19 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
       RecordsMenuTab::GUIDE => 'Guide',
     }, $tabs);
     return new JournalMenuContent('Records', $labels, (int)array_search($this->tab, $tabs, true),
-      $this->tab === RecordsMenuTab::GUIDE ? '' : 'Points: ' . ($manager?->earnedPoints() ?? 0), $rows, $this->activeIndex,
+      'Points: ' . ($manager?->earnedPoints() ?? 0), $rows, $this->activeIndex,
       match ($this->tab) {
         RecordsMenuTab::ACHIEVEMENTS => 'No achievements authored.',
         RecordsMenuTab::FIELD_INDEX => 'No field records discovered.',
         RecordsMenuTab::GUIDE => 'No guides discovered.',
       },
       $row === null ? '' : $this->tab->value . ':' . $row->id, new MenuDetailSheet($sections), '', $this->viewingDetail, false,
-      confirmLabel: $row instanceof TutorialDefinition ? $this->getGuideAction($row) : 'View details');
+      confirmLabel: $row instanceof TutorialDefinition ? $this->getGuideAction($row) : 'View details',
+      columnHeadings: match ($this->tab) {
+        RecordsMenuTab::ACHIEVEMENTS => ['Achievement', 'Status', 'Requirement'],
+        RecordsMenuTab::FIELD_INDEX => ['Record', 'Type', 'Knowledge'],
+        RecordsMenuTab::GUIDE => ['Guide', 'Category'],
+      });
   }
 
   public function getPresentationPage(MenuDetailViewport $area, MenuDetailStyle $style = new MenuDetailStyle()): TextPage
@@ -294,12 +312,14 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
   {
     $width = min(self::MENU_WIDTH, max(20, get_screen_width()));
     $left = max(0, intdiv(get_screen_width() - $width, 2));
-    $height = self::SUMMARY_PANEL_HEIGHT + self::LIST_PANEL_HEIGHT + self::INFO_PANEL_HEIGHT;
+    $height = min(self::SUMMARY_PANEL_HEIGHT + self::LIST_PANEL_HEIGHT + self::INFO_PANEL_HEIGHT, max(12, get_screen_height()));
+    $infoHeight = min(self::INFO_PANEL_HEIGHT, max(4, intdiv($height - self::SUMMARY_PANEL_HEIGHT, 2)));
+    $listHeight = $height - self::SUMMARY_PANEL_HEIGHT - $infoHeight;
     $top = max(0, intdiv(get_screen_height() - $height, 2));
     $border = new DefaultBorderPack();
     $this->summaryPanel = new MagicTabPanel('Records', '', new Vector2($left, $top), $width, self::SUMMARY_PANEL_HEIGHT, $border, heightPolicy: WindowHeightPolicy::FIXED);
-    $this->listPanel = new Window('', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT), $width, self::LIST_PANEL_HEIGHT, $border, heightPolicy: WindowHeightPolicy::FIXED);
-    $this->infoPanel = new Window('Info', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT + self::LIST_PANEL_HEIGHT), $width, self::INFO_PANEL_HEIGHT, $border, heightPolicy: WindowHeightPolicy::FIXED);
+    $this->listPanel = new Window('', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT), $width, $listHeight, $border, heightPolicy: WindowHeightPolicy::FIXED);
+    $this->infoPanel = new Window('Info', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT + $listHeight), $width, $infoHeight, $border, heightPolicy: WindowHeightPolicy::FIXED);
   }
 
   protected function refreshUI(): void
@@ -308,18 +328,33 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
     $this->syncReading($content);
     $width = $this->listPanel->getContentWidth() - 2;
     $capacity = $this->listPanel->getContentHeight();
+    $panelCapacity = $capacity;
     assert($this->summaryPanel instanceof MagicTabPanel);
     $this->summaryPanel->setTabs($content->tabs, $content->tabIndex);
     $this->summaryPanel->setContent([...$this->summaryPanel->getContent(), $content->summary]);
     $first = max(0, min($this->activeIndex - $capacity + 1, count($content->rows) - $capacity));
     $lines = [];
-    foreach (array_slice($content->rows, $first, $capacity, true) as $i => $row) {
-      $line = ($i === $this->activeIndex ? '> ' : '  ') . TextViewport::preview(implode(' | ', [$row['label'], ...$row['values']]), $width);
+    $tableRows = array_map(static fn(array $row): MenuRow => new MenuRow('record', $row['label'],
+      array_map(static fn(string $value): MenuRowValue => new MenuRowValue(TextViewport::preview($value, $width)), $row['values'])), $content->rows);
+    $heading = JournalMenuPresentation::createHeading($content);
+    $layout = MenuRowLayout::measureTable(new CanvasRectangle(0, 0, $width, $capacity), $tableRows,
+      new MenuRowMetrics(padding: 0, gapCells: MenuTableText::GAP), 1, 1, 1, $heading);
+    $labelCells = max(1, $width - MenuTableText::getColumnCells($layout->columns));
+    if ($heading !== null) {
+      $lines[] = '  ' . MenuTableText::formatRow($heading->label, array_column($heading->values, 'text'), $layout->columns, $labelCells);
+      $capacity--;
+      $first = max(0, min($this->activeIndex - $capacity + 1, count($content->rows) - $capacity));
+    }
+    $visibleRows = array_slice($content->rows, $first, $capacity, true);
+    foreach ($visibleRows as $i => $row) {
+      $values = array_map(static fn(string $value, int $column): string =>
+        TextViewport::preview($value, $layout->columns[$column]->cells), $row['values'], array_keys($row['values']));
+      $line = ($i === $this->activeIndex ? '> ' : '  ') . MenuTableText::formatRow($row['label'], $values, $layout->columns, $labelCells);
       $lines[] = $i === $this->activeIndex ? SelectionStyle::apply($line) : $line;
     }
-    $this->listPanel->setHelp($content->rows === [] ? '' : sprintf('%d-%d / %d', $first + 1, $first + count($lines), count($content->rows)));
+    $this->listPanel->setHelp($content->rows === [] ? '' : sprintf('%d-%d / %d', $first + 1, $first + count($visibleRows), count($content->rows)));
     if ($content->rows === []) { $lines[] = $content->emptyText; }
-    $this->listPanel->setContent(array_pad($lines, $capacity, ''));
+    $this->listPanel->setContent(array_pad($lines, $panelCapacity, ''));
     $metadata = !$this->viewingDetail && $content->rows !== [] && $content->confirmLabel !== null
       ? [$content->confirmLabel] : [];
     $page = $content->details->createPage($this->reading, new MenuDetailViewport($width, $this->infoPanel->getContentHeight() - count($metadata)),
@@ -366,6 +401,12 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
   private static function createField(string $label, string $value): array
   {
     return trim($value) === '' ? [] : [MenuDetailEntry::createField($label, $value)];
+  }
+
+  /** Classification adds information only when it differs from the record's own name. */
+  private static function createClassificationField(string $label, ?string $value, string $name): array
+  {
+    return $value === null || strcasecmp(trim($value), trim($name)) === 0 ? [] : self::createField($label, $value);
   }
 
   /** @return non-empty-list<RecordsMenuTab> */

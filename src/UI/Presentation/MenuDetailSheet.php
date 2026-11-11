@@ -82,7 +82,7 @@ final readonly class MenuDetailSheet
     $heights = array_column($layout->measureLines($area->lineHeight), 'height');
     // A column arrangement is only chosen when everything fits, so its page is the whole sheet.
     return $viewport->createLayoutPage($layout->getWrappedLines(), $area->columns,
-      $layout->isColumnar ? max($area->height, array_sum($heights)) : $area->height, $heights);
+      $layout->getPageHeight($area), $heights);
   }
 
   /** @return list<MenuDetailLine> One section's lines; fields share the section's label column. */

@@ -164,6 +164,25 @@ it('centers terminal journals using the actual panel height sum', function (bool
     ->and($state->info()->getPosition()->y + $state->info()->getHeight())->toBe($state->header()->getPosition()->y + $height);
 })->with([false, true]);
 
+it('fits Records panels and aligned table headings in compact and full Terminal sizes', function (int $width, int $height) {
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => $width, 'height' => $height]));
+  Console::syncDimensions($width, $height);
+  $state = new JournalTerminalRecordsState(new SceneStateContext($this->scene));
+  $state->enter();
+  foreach ([$state->header(), $state->list(), $state->info()] as $panel) {
+    expect($panel->getPosition()->y)->toBeGreaterThanOrEqual(0)
+      ->and($panel->getPosition()->y + $panel->getHeight())->toBeLessThanOrEqual($height)
+      ->and($panel->getWidth())->toBeLessThanOrEqual($width);
+    foreach ($panel->getContent() as $line) {
+      expect(TerminalText::displayWidth($line))->toBeLessThanOrEqual($panel->getContentWidth());
+    }
+  }
+  $lines = array_map(TerminalText::stripAnsi(...), $state->list()->getContent());
+  expect($lines[0])->toContain('Record', 'Type', 'Knowledge')
+    ->and(strpos($lines[0], 'Type'))->toBe(strrpos($lines[1], 'place'))
+    ->and(strpos($lines[0], 'Knowledge'))->toBe(strpos($lines[1], 'Discovered'));
+})->with([[80, 24], [135, 36]]);
+
 it('puts list pagination in the supported bottom-left border and uses every content row', function (bool $records) {
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 135, 'height' => 36]));
   Console::syncDimensions(135, 36);
@@ -186,12 +205,12 @@ it('puts list pagination in the supported bottom-left border and uses every cont
   }
   $state->enter();
   $list = $state->list();
-  $capacity = $list->getContentHeight();
+  $capacity = $list->getContentHeight() - ($records ? 1 : 0);
   foreach ([false, true] as $last) {
     if ($last) { journalTerminalKey($state, KeyCode::UP); }
     $expected = $last ? sprintf('%d-40 / 40', 41 - $capacity) : sprintf('1-%d / 40', $capacity);
     expect($list->getHelp())->toBe($expected)
-      ->and(count(array_filter($list->getContent(), fn($line) => trim(TerminalText::stripAnsi($line)) !== '')))->toBe($capacity)
+      ->and(count(array_filter($list->getContent(), fn($line) => trim(TerminalText::stripAnsi($line)) !== '')))->toBe($list->getContentHeight())
       ->and(implode('', $list->getContent()))->not->toContain($expected);
     $border = new ReflectionMethod(Window::class, 'getBottomBorder')->invoke($list);
     expect($border)->toStartWith($list->getBorderPack()->getBottomLeftCorner() . $list->getBorderPack()->getHorizontalBorder() . $expected)
