@@ -45,6 +45,8 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private array $detachedPosePoints = [];
   /** @var array<int, int> Selected combatant identity to command impact frame, in presentation order. */
   private array $fallbackHitFrames = [];
+  /** @var array<int, int> Graphical contact frames; gameplay and reactions keep their own impact. */
+  private array $targetContactFrames = [];
   /** @var ?Closure(self): ?BattleEffectTargetGroup */
   private ?Closure $captureTargetGroup = null;
   /** @var array<string, ?BattleEffectTargetGroup> */
@@ -144,6 +146,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   public function cancel(): void
   {
     $this->cancelled = true;
+    $this->targetContactFrames = [];
     $this->defeats = $this->detachedPosePoints = $this->fallbackHitFrames = [];
     $this->resultEffects = [];
     $this->resultEffectsEnd = 0;
@@ -183,6 +186,9 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     return $this->fallbackHitFrames;
   }
+
+  /** @return array<int, int> Selected identities in their captured front-crossing order. */
+  public function getTargetContactFrames(): array { return $this->targetContactFrames; }
 
   public function isAwaitingFallbackHit(CharacterInterface $battler): bool
   {
@@ -390,6 +396,9 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     if (!$terminal && $this->fallbackHitFrames !== [] && $frame >= $this->plan->impactFrame) {
       $segments = $this->getSpacedHitSegments($segments, $frame);
     }
+    if (!$terminal && $this->plan->targetContactSequence !== null) {
+      $segments = $this->getTargetContactSegments($segments, $frame, $reducedMotion);
+    }
     return [...EffectSegmentComposition::compose($segments, $presentation),
       ...EffectSegmentComposition::compose($resultEffects, $presentation)];
   }
@@ -425,6 +434,43 @@ final class BattleCommandPlayback implements BattleEffectPlayback
           $command['payload']['hitSubject'] = $effect['subject'];
         }
         unset($command);
+        $segments[] = $segment;
+      }
+    }
+    return $segments;
+  }
+
+  /** Sample only the authored contact tracks per recipient; inspection never delivers cues. */
+  private function getTargetContactSegments(array $active, int $frame, bool $reducedMotion): array
+  {
+    $sequence = $this->plan->targetContactSequence;
+    $select = static fn(array $command): bool => in_array($command['trackId'], $sequence->tracks, true);
+    $filter = static function (array $segments, bool $contacts) use ($select): array {
+      foreach ($segments as &$segment) {
+        $segment['drawCommands'] = array_values(array_filter($segment['drawCommands'],
+          static fn(array $command): bool => $select($command) === $contacts));
+      }
+      unset($segment);
+      return array_values(array_filter($segments, static fn(array $segment): bool => $segment['drawCommands'] !== []));
+    };
+    $segments = $filter($active, false);
+    foreach ($this->targetContactFrames as $id => $contactFrame) {
+      $delay = $contactFrame - $sequence->firstFrame;
+      $sample = $frame - $delay;
+      if ($sample < $sequence->firstFrame) { continue; }
+      foreach ($filter($this->session->getActiveSegments($sample), true) as $segment) {
+        foreach ($segment['drawCommands'] as &$command) {
+          if ($reducedMotion) {
+            foreach ($this->plan->timeline->playbackSegments as $original) {
+              $first = array_find($original['drawCommands'], static fn(array $draw): bool => $draw['trackId'] === $command['trackId']);
+              if ($first !== null) { $command = $first; break; }
+            }
+          }
+          $command['payload']['hitSubject'] = $id;
+        }
+        unset($command);
+        $segment['startFrame'] += $delay;
+        $segment['endFrame'] += $delay;
         $segments[] = $segment;
       }
     }
@@ -627,6 +673,15 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     foreach ($cues as $cue) {
       if ($this->cancelled) { return; }
+      if ($cue['type'] === 'commandCaptureTargetContacts') {
+        try {
+          if ($this->captureTargetGroup === null) { throw new \RuntimeException('Target contact sequencing requires the shared body capture.'); }
+          $group = ($this->captureTargetGroup)($this->samplePoseAtFrame($cue['frame']));
+          if ($group !== null) { $this->targetContactFrames = $this->plan->targetContactSequence->getContactFrames($group); }
+          elseif ($this->targets !== []) { throw new \RuntimeException('Target contact sequencing has no selected body capture.'); }
+        } catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
+        continue;
+      }
       if ($cue['type'] === 'commandCaptureTargetGroup') {
         if ($this->captureTargetGroup !== null) {
           try {
@@ -688,6 +743,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $sample->reactions = $this->reactions;
     $sample->reactionFrames = $this->reactionFrames;
     $sample->fallbackHitFrames = $this->fallbackHitFrames;
+    $sample->targetContactFrames = $this->targetContactFrames;
     return $sample;
   }
 

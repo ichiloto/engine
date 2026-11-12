@@ -44,6 +44,7 @@ final readonly class BattleCommandTimeline
   public int $fallbackHitSpacing;
   public int $impactFrame;
   public ?string $fallbackHitTrack;
+  public ?BattleTargetContactSequence $targetContactSequence;
   /** @var array<string, CinematicStage> Each effect lane owns its own stage and authored clock. */
   private array $cinematicStages;
   /** @var array<string, list<array>> Unshifted authored segments for each stage. */
@@ -60,7 +61,7 @@ final readonly class BattleCommandTimeline
   public function requiresGraphicalAnchorCapture(): bool
   {
     return array_any($this->timeline->cueSchedule, static fn(array $cue): bool =>
-      $cue['type'] === 'commandCapturePosePoint' || $cue['type'] === 'commandCaptureTargetGroup');
+      $cue['type'] === 'commandCapturePosePoint' || in_array($cue['type'], ['commandCaptureTargetGroup', 'commandCaptureTargetContacts'], true));
   }
 
   /**
@@ -87,6 +88,10 @@ final readonly class BattleCommandTimeline
     $actionPose = $actionPoseOverride ?? $actionPose;
     $this->fallbackHitTrack = $fallbackHitTrack = !$resultsOnly && isset($target->defaults['fallbackHitTrack'])
       ? 'target-' . $target->defaults['fallbackHitTrack'] : null;
+    $targetContacts = null;
+    if (isset($source->defaults['targetContactSequence'])) {
+      throw new InvalidArgumentException('Target contact sequencing belongs to the target effect lane.');
+    }
     $this->usesArenaImpact = !$resultsOnly && ($target?->defaults['effectTiming']['mode'] ?? null) === EffectImpactTimingMode::ARENA->value;
     if (($source?->defaults['effectTiming']['mode'] ?? null) === EffectImpactTimingMode::ARENA->value) {
       throw new InvalidArgumentException('Arena impact belongs to the target effect lane.');
@@ -106,6 +111,7 @@ final readonly class BattleCommandTimeline
     $this->rangeTiming = $rangeTiming !== null && $projectedRange >= $rangeTiming->minDistance ? $rangeTiming : null;
     if ($resultsOnly) {
       $this->flightTiming = null;
+      $this->targetContactSequence = null;
       $this->fallbackHitSpacing = $this->impactFrame = 0;
       $this->actionPoseAnchorFrame = null;
       $this->actionPoseStartFrame = null;
@@ -258,6 +264,16 @@ final readonly class BattleCommandTimeline
         if ($effect === null || $clock === null) { continue; }
         $rest = clamp((int)($effect->defaults['restFrame'] ?? $clock->totalFrames - 1), 0, $clock->totalFrames - 1);
         $range = $lane === 'target' ? $this->rangeTiming : null;
+        if ($lane === 'target' && isset($effect->defaults['targetContactSequence'])) {
+          $contact = $effect->defaults['targetContactSequence'];
+          $targetContacts = new BattleTargetContactSequence(
+            $cursor + $clock->getFrameBoundary($contact['firstFrame'], self::FPS),
+            $cursor + $clock->getFrameBoundary($contact['lastFrame'], self::FPS),
+            BattleContactDirection::from($contact['direction']),
+            array_map(static fn(string $track): string => 'target-' . $track, $contact['tracks']));
+          $cues[] = ['id' => 'capture-target-contacts', 'type' => 'commandCaptureTargetContacts',
+            'frame' => $targetContacts->firstFrame, 'payload' => []];
+        }
         $restFrames[$lane] = $cursor + $clock->getFrameBoundary($range?->getPresentationFrame($rest) ?? $rest, self::FPS);
         $restSegments[$phase] ??= [];
         foreach ($effect->playbackSegments as $segment) {
@@ -342,6 +358,7 @@ final readonly class BattleCommandTimeline
         'frame' => min($phases['announce']['start'] + $phases['announce']['length'], $phases['finish']['start']),
         'payload' => []];
     }
+    $this->targetContactSequence = $targetContacts;
     $flightTiming = $target?->defaults['flightTiming'] ?? null;
     $release = $flightTiming === null ? null
       : $phases['target']['start'] + $targetTiming->getFrameBoundary($flightTiming['release'], self::FPS);
@@ -366,7 +383,7 @@ final readonly class BattleCommandTimeline
     $cues[] = ['id' => 'command-impact', 'type' => 'commandImpact', 'frame' => $impact, 'payload' => []];
     $cues = [...$cues, ...array_values($detachments), ...array_values($targetGroupCaptures)];
     $order = static fn(array $cue): int => match ($cue['type']) {
-      'commandCapturePosePoint', 'commandCaptureTargetGroup', 'commandArenaRestored' => 0, 'commandImpact' => 1, default => 2,
+      'commandCapturePosePoint', 'commandCaptureTargetGroup', 'commandCaptureTargetContacts', 'commandArenaRestored' => 0, 'commandImpact' => 1, default => 2,
     };
     usort($cues, static fn(array $a, array $b): int => [$a['frame'], $order($a)] <=> [$b['frame'], $order($b)]);
     $this->actionPoseAnchorFrame = $poseAnchor;

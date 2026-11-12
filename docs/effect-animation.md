@@ -675,6 +675,35 @@ Combat resolves once in its original order. A direct ray keeps one shared
 hit. Preview hosts pass the resolved `targetCount` when constructing
 `BattleCommandTimeline` so it reserves the same reaction time as live play.
 
+A target effect can author an advancing graphical contact front independently
+of a projectile or the command's combat impact:
+
+```php
+'targetContactSequence' => [
+  'firstFrame' => 20, 'lastFrame' => 28, 'direction' => 'west',
+  'tracks' => ['splash', 'contact-flash'],
+],
+```
+
+Use fixed once playback and select graphical target image, flash or shake
+tracks. Their keys use the first contact's clock; leave enough sequence length
+for the last contact's delay. At `firstFrame`, the shared host captures every
+selected body's visible bounds. An east/west front reaches their facing edges
+in geometric order across `firstFrame` through `lastFrame`. Equal edges contact
+together; one recipient contacts at `firstFrame`. Ground depth and equal names
+do not change identity or select additional targets. This capture is independent
+of effect-start target-group anchors. A stage must restore before the first
+contact. The current contract refuses range/flight clocks and projectile fallback
+spacing on the same effect, with an authoring diagnostic.
+
+Only the referenced tracks use the per-recipient sample clock. Other tracks,
+the command's single impact, actual outcomes, costs and reactions keep their
+existing clocks. Terminal content is independently compiled. Reduced motion
+holds each contact track's first drawing during its real visibility intervals;
+inspection and scrubbing never dispatch damage. Ordinary effects and summons
+use this same descriptor. Flat summon source round trips preserve it. Editor
+pickers and final Game bindings remain separate consumer work.
+
 A directional straight image can also set `flight.tipX` to a normalized source X along its
 pivot row. The rear pivot stays at the release point on the first flight frame.
 The tip reaches the final contact at `arrivalFrame`. When space is tight, the

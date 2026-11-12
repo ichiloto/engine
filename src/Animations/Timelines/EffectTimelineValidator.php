@@ -36,7 +36,7 @@ final class EffectTimelineValidator
       $data = $variants[$presentation->value];
     }
     if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'loopFrom', 'restFrame', 'tracks', 'cues',
-      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'poseClock', 'rangeTiming', 'flightTiming', 'fallbackHitSpacingFrames'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
+      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'poseClock', 'rangeTiming', 'flightTiming', 'fallbackHitSpacingFrames', 'targetContactSequence'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
       throw new InvalidArgumentException("Effect {$id} accepts fps, lengthFrames, playback, loopFrom, restFrame, tracks and presentation cues.");
     }
     $length = $data['lengthFrames'] ?? null;
@@ -392,6 +392,17 @@ final class EffectTimelineValidator
         throw new InvalidArgumentException("Effect {$id} spaced fallback hits require one horizontal exit with arrival at impact, at or after battlefield restoration.");
       }
     }
+    $contacts = null;
+    if (array_key_exists('targetContactSequence', $data) && $presentation === EffectPresentation::GRAPHICAL) {
+      if ($playback !== 'once' || $cadence !== EffectCadence::FIXED || $spacing !== null
+        || isset($data['rangeTiming']) || isset($data['flightTiming'])) {
+        throw new InvalidArgumentException("Effect {$id} target contacts require fixed once playback independent of flight spacing or variable clocks.");
+      }
+      $contacts = \Ichiloto\Engine\Battle\Presentation\BattleTargetContactSequence::fromArray($data['targetContactSequence'], $length, $tracks);
+      if ($stage !== null && $contacts->firstFrame < $stage->data['restoreFrame']) {
+        throw new InvalidArgumentException("Effect {$id} target contacts must begin at or after battlefield restoration.");
+      }
+    }
     $rangeTiming = null;
     if ($presentation === EffectPresentation::GRAPHICAL && array_key_exists('rangeTiming', $data)) {
       if ($stage !== null || $forSummon || $playback !== 'once' || $cadence !== EffectCadence::FIXED) {
@@ -421,6 +432,7 @@ final class EffectTimelineValidator
         ...($timing === null ? [] : ['effectTiming' => $timing]),
         ...($poseSyncFrame === null ? [] : ['poseSyncFrame' => $poseSyncFrame]),
         ...($poseClock === EffectPoseClock::ANNOUNCEMENT ? [] : ['poseClock' => $poseClock->value]),
+        ...($contacts === null ? [] : ['targetContactSequence' => $contacts->toArray()]),
         ...($rangeTiming ?? []),
         ...($spacedFlight === null ? [] : ['fallbackHitSpacingFrames' => $spacing, 'fallbackHitTrack' => $spacedFlight['id']]),
         ...($flightTiming === null ? [] : ['flightTiming' => $flightTiming]),

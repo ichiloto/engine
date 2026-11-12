@@ -886,7 +886,7 @@ final class GraphicalBattlePresentation
   public function bindCommandPosePoints(BattleCommandPlayback $playback, bool $reducedMotion, float $idleSeconds): void
   {
     if (array_any($playback->plan->timeline->cueSchedule, static fn(array $cue): bool =>
-      $cue['type'] === 'commandCaptureTargetGroup')) {
+      in_array($cue['type'], ['commandCaptureTargetGroup', 'commandCaptureTargetContacts'], true))) {
       $playback->bindTargetGroupCapture(function (BattleCommandPlayback $sample) use ($reducedMotion, $idleSeconds): ?BattleEffectTargetGroup {
         $clock = $idleSeconds + $sample->session->currentFrame / BattleCommandTimeline::FPS;
         $bounds = $grounds = $sides = [];
