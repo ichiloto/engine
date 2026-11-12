@@ -200,7 +200,6 @@ beforeEach(function () {
     $this->staticState[$class] = new ReflectionClass($class)->getStaticProperties();
   }
   new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, null);
   Debug::configure(['log_directory' => createTestDirectory('excursion-log-')]);
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['audio' => ['music' => false, 'sfx' => false]]));
   ConfigStore::put(PlaySettings::class, new PlaySettings(['screenDimensions' => ['width' => 40, 'height' => 12]]));

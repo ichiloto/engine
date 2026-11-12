@@ -631,15 +631,14 @@ it('navigates through thirty Save slots wraps both ends and confirms the actual 
     public function playSystemSound(SystemSound $sound): void {}
   };
   new ReflectionProperty(Game::class, 'audioManager')->setValue($this->game, $audio);
-  $alerts = new class extends ModalManager {
+  $alerts = new class($this->game) extends ModalManager {
     public array $messages = [];
-    public function __construct() {}
     public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
     {
       $this->messages[] = $message;
     }
   };
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $alerts);
+  $this->game->bindModalManager($alerts);
   new ReflectionProperty(Console::class, 'game')->setValue(null, $this->game);
   $press(KeyCode::ENTER);
   expect($this->manager->loadSlot(30)->slot->slot)->toBe(30)

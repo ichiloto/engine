@@ -28,7 +28,6 @@ final class MainMenuExitDialogs extends ModalManager
   public array $answers = [];
   public array $dialogs = [];
   public ?Closure $onSelect = null;
-  public function __construct() {}
   public function select(string $message, array $options, string $title = '', int $default = 0,
     ?Vector2 $position = null, int $width = DEFAULT_SELECT_DIALOG_WIDTH, int $height = DEFAULT_SELECT_DIALOG_HEIGHT): int
   {
@@ -52,9 +51,9 @@ beforeEach(function () {
   $this->scene->method('getGame')->willReturn($this->game);
   $this->menu = $this->createStub(MenuInterface::class);
   $this->menu->method('getScene')->willReturn($this->scene);
-  $this->dialogs = new MainMenuExitDialogs();
+  $this->dialogs = new MainMenuExitDialogs($this->game);
   new ReflectionProperty(Console::class, 'game')->setValue(null, $this->game);
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->dialogs);
+  $this->game->bindModalManager($this->dialogs);
   $this->command = new OpenQuitMenuCommand($this->menu);
   $this->context = new MenuCommandExecutionContext([], new NullOutput(), $this->menu, $this->scene);
 });

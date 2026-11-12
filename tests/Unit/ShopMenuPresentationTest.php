@@ -123,7 +123,6 @@ beforeEach(function () {
     'left' => ['keys' => [KeyCode::LEFT]], 'right' => ['keys' => [KeyCode::RIGHT]],
   ]);
   $this->runtime = null;
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, null);
   ob_start();
   $this->state->enter();
   $this->theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false]);

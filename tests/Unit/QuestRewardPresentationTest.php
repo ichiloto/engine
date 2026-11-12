@@ -118,8 +118,6 @@ it('describes invalid rewards without crashing and keeps valid rewards visible',
 });
 
 it('removes per-level toasts and retains quest reward details in one acknowledged summary', function (bool $quiet) {
-  $saved = new ReflectionProperty(ModalManager::class, 'instance')->getValue();
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, null);
   $game = new class extends Game {
     public function __construct() {}
     public function __destruct() {}
@@ -128,19 +126,17 @@ it('removes per-level toasts and retains quest reward details in one acknowledge
   $results = array_map(fn($name) => new ExperienceAwardResult(new Character($name, 0, new Stats()), 1000, 1, 4,
     learnedAbilities: ['Dual Slash'], learnedMagic: ['Burn 1']), ['Hero', 'Friend']);
   $manager = new QuestCompletionPresentationProbe($game, $results, $quest);
-  try {
-    $manager->finishQuest($quest, $quiet);
-    $manager->finishQuest($quest, $quiet);
-    $modals = ModalManager::getInstance($game);
-    $pending = new ReflectionProperty($modals, 'pendingAlerts')->getValue($modals);
-    expect($manager->grants)->toBe(1)
-      ->and($manager->notices)->toBe($quiet ? [] : [['Quest Complete', 'A named quest', 'quest.complete']]);
-    if ($quiet) { expect($pending)->toBe([]); }
-    else {
-      expect($pending)->toHaveCount(1)->and($pending[0]['title'])->toBe('A named quest')
-        ->and($pending[0]['message'])->toBe("Rewards: 200 G, 1000 EXP\nHero reached Level 4. Learned Dual Slash, Burn 1.\nFriend reached Level 4. Learned Dual Slash, Burn 1.");
-    }
-  } finally { new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $saved); }
+  $manager->finishQuest($quest, $quiet);
+  $manager->finishQuest($quest, $quiet);
+  $modals = ModalManager::getInstance($game);
+  $pending = new ReflectionProperty($modals, 'pendingAlerts')->getValue($modals);
+  expect($manager->grants)->toBe(1)
+    ->and($manager->notices)->toBe($quiet ? [] : [['Quest Complete', 'A named quest', 'quest.complete']]);
+  if ($quiet) { expect($pending)->toBe([]); }
+  else {
+    expect($pending)->toHaveCount(1)->and($pending[0]['title'])->toBe('A named quest')
+      ->and($pending[0]['message'])->toBe("Rewards: 200 G, 1000 EXP\nHero reached Level 4. Learned Dual Slash, Burn 1.\nFriend reached Level 4. Learned Dual Slash, Burn 1.");
+  }
 })->with([false, true]);
 
 it('keeps progress notices terse while retaining complete objective prose in the quest definition', function () {

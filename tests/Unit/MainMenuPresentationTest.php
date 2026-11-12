@@ -1040,15 +1040,14 @@ it('keeps the Save menu usable and reports plain feedback when local storage ref
   $manager->method('getSaveSlots')->willReturn($slots);
   $manager->method('save')->willThrowException(new RuntimeException('Permission denied at /private/path'));
   new ReflectionProperty($this->scene->sceneManager, 'saveManager')->setValue($this->scene->sceneManager, $manager);
-  $modals = new class extends ModalManager {
+  $modals = new class($this->game) extends ModalManager {
     public array $alerts = [];
-    public function __construct() {}
     public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
     {
       $this->alerts[] = [$message, $title];
     }
   };
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $modals);
+  $this->game->bindModalManager($modals);
   $state = new SaveMenuState(new SceneStateContext($this->scene));
   new ReflectionProperty($this->scene, 'state')->setValue($this->scene, $state);
   $state->enter();

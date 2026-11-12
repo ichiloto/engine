@@ -281,37 +281,33 @@ it('arrives only once the step has slid into its cell, and at once without a sli
     public array $events = [];
     public function onNotify(object $entity, Ichiloto\Engine\Events\Interfaces\EventInterface $event): void { $this->events[] = $event; }
   };
-  $modals = $this->getMockBuilder(Ichiloto\Engine\UI\Modal\ModalManager::class)->disableOriginalConstructor()->onlyMethods(['alert'])->getMock();
+  $noticeGame = new SpritePresentationTestGame();
+  $modals = $this->getMockBuilder(Ichiloto\Engine\UI\Modal\ModalManager::class)->setConstructorArgs([$noticeGame])->onlyMethods(['alert'])->getMock();
   $notices = [];
   $modals->expects($this->exactly(2))->method('alert')
     ->willReturnCallback(function (string $message, string $title) use (&$notices): void { $notices[] = $title; });
-  $modalState = new ReflectionProperty(Ichiloto\Engine\UI\Modal\ModalManager::class, 'instance')->getValue();
-  new ReflectionProperty(Ichiloto\Engine\UI\Modal\ModalManager::class, 'instance')->setValue(null, $modals);
-  new ReflectionProperty(Console::class, 'game')->setValue(null, new SpritePresentationTestGame());
-  try {
-    // A graphical step onto the save point: the notice and the observers wait for the slide.
-    $this->player->addObserver($arrivals);
-    expect($this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
-      ->and([$this->player->position->x, $this->player->position->y])->toBe([7.0, 3.0])
-      ->and($arrivals->events)->toBe([])->and($notices)->toBe([]);
-    $this->player->advanceGraphicalAnimation(0.01);
-    $this->player->completeArrival();
-    expect($arrivals->events)->toBe([])->and($notices)->toBe([]);
-    $this->player->advanceGraphicalAnimation(1.0);
-    $this->player->completeArrival();
-    expect($arrivals->events)->toHaveCount(1)->and($notices)->toBe(['Save Point']);
-    $this->player->completeArrival();
-    expect($arrivals->events)->toHaveCount(1);
+  $noticeGame->bindModalManager($modals);
+  new ReflectionProperty(Console::class, 'game')->setValue(null, $noticeGame);
+  // A graphical step onto the save point: the notice and the observers wait for the slide.
+  $this->player->addObserver($arrivals);
+  expect($this->player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
+    ->and([$this->player->position->x, $this->player->position->y])->toBe([7.0, 3.0])
+    ->and($arrivals->events)->toBe([])->and($notices)->toBe([]);
+  $this->player->advanceGraphicalAnimation(0.01);
+  $this->player->completeArrival();
+  expect($arrivals->events)->toBe([])->and($notices)->toBe([]);
+  $this->player->advanceGraphicalAnimation(1.0);
+  $this->player->completeArrival();
+  expect($arrivals->events)->toHaveCount(1)->and($notices)->toBe(['Save Point']);
+  $this->player->completeArrival();
+  expect($arrivals->events)->toHaveCount(1);
 
-    // A terminal player has no slide, so it arrives as it steps, as it always has.
-    $terminal = new Player($this->scene, 'Terminal hero', new Vector2(7, 4), new Rect(0, 0, 1, 1), ['vv'],
-      MovementHeading::SOUTH, $this->terminalSprites);
-    $terminal->addObserver($arrivals);
-    expect($terminal->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
-      ->and($arrivals->events)->toHaveCount(2)->and($notices)->toBe(['Save Point', 'Save Point']);
-  } finally {
-    new ReflectionProperty(Ichiloto\Engine\UI\Modal\ModalManager::class, 'instance')->setValue(null, $modalState);
-  }
+  // A terminal player has no slide, so it arrives as it steps, as it always has.
+  $terminal = new Player($this->scene, 'Terminal hero', new Vector2(7, 4), new Rect(0, 0, 1, 1), ['vv'],
+    MovementHeading::SOUTH, $this->terminalSprites);
+  $terminal->addObserver($arrivals);
+  expect($terminal->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue()
+    ->and($arrivals->events)->toHaveCount(2)->and($notices)->toBe(['Save Point', 'Save Point']);
 })->with([false, true]);
 
 it('completes a pending arrival before the next step so none is skipped', function (bool $terminalOutput) {

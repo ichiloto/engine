@@ -139,7 +139,6 @@ beforeEach(function () {
   }
   Timers::setFrameTick(null);
   ActionHints::useProvider(null);
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, null);
   new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   new ReflectionProperty(NotificationManager::class, 'instance')->setValue(null, null);
   $this->root = \getTestTemporaryDirectory() . '/ichiloto-menu-modal-' . bin2hex(random_bytes(5));

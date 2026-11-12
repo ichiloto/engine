@@ -18,7 +18,6 @@ use Ichiloto\Engine\Util\Stores\ItemStore;
 final class ShopPurchaseAlerts extends ModalManager
 {
   public array $messages = [];
-  public function __construct() {}
   public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
   {
     $this->messages[] = $message;
@@ -27,21 +26,19 @@ final class ShopPurchaseAlerts extends ModalManager
 
 beforeEach(function () {
   $this->consoleGameBefore = new ReflectionProperty(Console::class, 'game')->getValue();
-  $this->modalBefore = new ReflectionProperty(ModalManager::class, 'instance')->getValue();
   $this->configBefore = new ReflectionClass(ConfigStore::class)->getStaticProperties();
   $game = new class extends Game {
     public function __construct() {}
     public function __destruct() {}
   };
   new ReflectionProperty(Console::class, 'game')->setValue(null, $game);
-  $this->alerts = new ShopPurchaseAlerts();
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->alerts);
+  $this->alerts = new ShopPurchaseAlerts($game);
+  $game->bindModalManager($this->alerts);
   putSceneAudioConfig([]);
 });
 
 afterEach(function () {
   new ReflectionProperty(Console::class, 'game')->setValue(null, $this->consoleGameBefore);
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->modalBefore);
   foreach ($this->configBefore as $name => $value) {
     new ReflectionProperty(ConfigStore::class, $name)->setValue(null, $value);
   }

@@ -108,6 +108,21 @@ class Game implements CanRun, SubjectInterface
     {
         return $this->gameLoader ?? throw new \LogicException('Bind this Game’s project loader before loading a campaign.');
     }
+    /** Resolve the notice/modal queue owned by this Game, including non-native hosts. */
+    public function getModalManager(): ModalManager
+    {
+        return $this->modalManager ??= new ModalManager($this);
+    }
+
+    /** Install one explicitly constructed presenter before its first use. */
+    public function bindModalManager(ModalManager $manager): void
+    {
+        if (isset($this->modalManager) || $manager->game !== $this) {
+            throw new \LogicException('Bind one modal manager owned by this Game before its first use.');
+        }
+        $this->modalManager = $manager;
+    }
+
     private ?SavedGameResumeRegistry $savedGameResumeRegistry = null;
 
     /** @var array<string, Closure(Party, GameState): bool> */

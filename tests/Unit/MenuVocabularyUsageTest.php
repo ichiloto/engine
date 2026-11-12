@@ -85,7 +85,6 @@ class MenuVocabularyGameProbe extends Game
 class MenuVocabularyAlerts extends ModalManager
 {
   public array $messages = [];
-  public function __construct() { $this->modals = new Stack(ModalInterface::class); }
   public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
   {
     $this->messages[] = $message;
@@ -140,9 +139,8 @@ beforeEach(function () {
   $this->context = new SceneStateContext($this->scene);
   $this->menu = $this->createStub(MenuInterface::class);
   $this->menu->method('getScene')->willReturn($this->scene);
-  $this->alerts = new MenuVocabularyAlerts();
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->alerts);
-  new ReflectionProperty($this->game, 'modalManager')->setValue($this->game, $this->alerts);
+  $this->alerts = new MenuVocabularyAlerts($this->game);
+  $this->game->bindModalManager($this->alerts);
   $saves = $this->createStub(SaveManager::class);
   $saves->method('hasSaveFiles')->willReturn(true);
   new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $saves);

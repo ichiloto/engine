@@ -23,10 +23,6 @@ use Ichiloto\Engine\UI\Presentation\PresentationDeliveryReceipt;
 class ModalManager implements CanUpdate, CanRender
 {
   /**
-   * @var ModalManager|null $instance The instance of the modal manager.
-   */
-  protected static ?self $instance = null;
-  /**
    * @var Stack<ModalInterface> $modals The stack of modals.
    */
   protected Stack $modals;
@@ -48,13 +44,13 @@ class ModalManager implements CanUpdate, CanRender
    *
    * @param Game $game The game instance.
    */
-  private function __construct(protected Game $game)
+  public function __construct(public readonly Game $game)
   {
     $this->modals = new Stack(ModalInterface::class);
   }
 
   /**
-   * Returns the singleton instance of the modal manager.
+   * Returns the modal manager owned by this Game.
    *
    * @param Game $game The game instance.
    *
@@ -62,11 +58,7 @@ class ModalManager implements CanUpdate, CanRender
    */
   public static function getInstance(Game $game): self
   {
-    if (!self::$instance) {
-      self::$instance = new self($game);
-    }
-
-    return self::$instance;
+    return $game->getModalManager();
   }
 
   /**

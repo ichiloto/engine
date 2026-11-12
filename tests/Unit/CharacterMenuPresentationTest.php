@@ -65,7 +65,6 @@ class CharacterMenuGameProbe extends Game
 class CharacterMenuAlerts extends ModalManager
 {
   public array $messages = [];
-  public function __construct() { $this->modals = new Stack(ModalInterface::class); }
   public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void { $this->messages[] = $message; }
 }
 
@@ -131,8 +130,8 @@ beforeEach(function () {
   Console::setTerminalOutputEnabled(false);
   $this->game = new CharacterMenuGameProbe();
   new ReflectionProperty(\Ichiloto\Engine\Audio\AudioManager::class, 'instance')->setValue(null, null);
-  $this->alerts = new CharacterMenuAlerts();
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->alerts);
+  $this->alerts = new CharacterMenuAlerts($this->game);
+  $this->game->bindModalManager($this->alerts);
   new ReflectionProperty(Console::class, 'game')->setValue(null, $this->game);
   $manager = makeBareScene(SceneManager::class);
   new ReflectionProperty($manager, 'game')->setValue($manager, $this->game);

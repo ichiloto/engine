@@ -824,8 +824,9 @@ final class NpcTalkProbeModalManager extends ModalManager
   public array $pages = [];
   public array $dialogueLines = [];
 
-  public function __construct(private readonly Closure $speaker)
+  public function __construct(Game $game, private readonly Closure $speaker)
   {
+    parent::__construct($game);
   }
 
   public function showText(
@@ -848,8 +849,8 @@ final class NpcTalkProbeModalManager extends ModalManager
 /** Installs the probe for the guide NPC the test configures. */
 function installNpcTalkProbe(object $test): NpcTalkProbeModalManager
 {
-  $probe = new NpcTalkProbeModalManager(fn(): Npc => $test->manager->findById('guide'));
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $probe);
+  $probe = new NpcTalkProbeModalManager($test->scene->getGame(), fn(): Npc => $test->manager->findById('guide'));
+  $test->scene->getGame()->bindModalManager($probe);
   new ReflectionProperty(Console::class, 'game')->setValue(null, $test->scene->getGame());
 
   return $probe;

@@ -113,7 +113,6 @@ class InnRestTestModals extends ModalManager
 {
   public int $choice = 0;
   public int $alerts = 0;
-  public function __construct() {}
   public function select(string $message, array $options, string $title = '', int $default = 0,
     ?Vector2 $position = null, int $width = DEFAULT_SELECT_DIALOG_WIDTH, int $height = DEFAULT_SELECT_DIALOG_HEIGHT): int
   { return $this->choice; }
@@ -185,9 +184,9 @@ beforeEach(function () {
   $this->scene = new InnRestTestScene($this->game);
   $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(40, 15, 10, 20),
     static fn(string $capability): bool => true));
-  $this->modals = new InnRestTestModals();
+  $this->modals = new InnRestTestModals($this->game);
   new ReflectionProperty(Console::class, 'game')->setValue(null, $this->game);
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->modals);
+  $this->game->bindModalManager($this->modals);
   new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, $this->game->audioManager);
   $this->scene->refreshFieldMusic();
   $this->game->audioManager->calls = [];
@@ -197,7 +196,6 @@ afterEach(function () {
   $this->scene->cinematicPresentation->clear();
   Timers::setFrameTick(null);
   new ReflectionProperty(Console::class, 'game')->setValue(null, null);
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, null);
   new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, null);
   $this->scene = $this->game = $this->modals = null;
   gc_collect_cycles();

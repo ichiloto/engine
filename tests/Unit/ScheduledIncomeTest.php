@@ -381,14 +381,6 @@ function createIncomeBattleScene(): BattleScene
 }
 
 describe('scenes', function () {
-  beforeEach(function () {
-    $property = new ReflectionProperty(ModalManager::class, 'instance');
-    $this->previousIncomeModals = $property->getValue();
-    $property->setValue(null, null);
-  });
-  afterEach(function () {
-    new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->previousIncomeModals);
-  });
   it('reports battle commands as play, openings and results as presentation, and its pause as paused', function () {
     $scene = createIncomeBattleScene();
     new ReflectionProperty(BattleScene::class, 'resultsPlayback')->setValue($scene,

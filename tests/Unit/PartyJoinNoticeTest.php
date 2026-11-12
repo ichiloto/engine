@@ -22,9 +22,7 @@ final class PartyJoinNoticeGame extends Game
 }
 
 beforeEach(function () {
-  $this->savedModals = new ReflectionProperty(ModalManager::class, 'instance')->getValue();
   $this->savedConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, null);
   $this->game = new PartyJoinNoticeGame();
   $this->party = new Party();
   $this->scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
@@ -32,7 +30,8 @@ beforeEach(function () {
   $sceneManager = makeBareScene(\Ichiloto\Engine\Scenes\SceneManager::class);
   new ReflectionProperty($sceneManager, 'game')->setValue($sceneManager, $this->game);
   new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($this->scene, $sceneManager);
-  $this->modals = ModalManager::getInstance($this->game);
+  $this->modals = new PartyJoinNoticeDeliveryProbe($this->game);
+  $this->game->bindModalManager($this->modals);
   $this->begin = fn() => new ReflectionMethod(GameScene::class, 'beginRecruitmentNotices')->invoke($this->scene);
   $this->flush = fn() => new ReflectionMethod(GameScene::class, 'queueRecruitmentNotices')->invoke($this->scene);
   $this->release = fn() => new ReflectionMethod(GameScene::class, 'releaseRecruitmentNotices')->invoke($this->scene);
@@ -41,7 +40,6 @@ beforeEach(function () {
 
 afterEach(function () {
   ($this->release)();
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->savedModals);
   $this->savedConfig === null ? ConfigStore::remove(ProjectConfig::class) : ConfigStore::put(ProjectConfig::class, $this->savedConfig);
 });
 
@@ -118,11 +116,6 @@ it('retains unacknowledged joins and refuses acknowledgement in a different orde
 final class PartyJoinNoticeDeliveryProbe extends ModalManager
 {
   public array $delivered = [];
-  public function __construct(Game $game)
-  {
-    $this->game = $game;
-    $this->modals = new \Assegai\Collections\Stack(\Ichiloto\Engine\UI\Interfaces\ModalInterface::class);
-  }
   protected function showPendingNotice(NoticeContent $notice): void { $this->delivered[] = $notice; }
 }
 
@@ -132,8 +125,6 @@ it('holds following field commands and completion until all real joins are ackno
   try {
     $state = new \Ichiloto\Engine\Core\GameState();
     new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene, $state);
-    $this->modals = new PartyJoinNoticeDeliveryProbe($this->game);
-    new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->modals);
     ($this->begin)();
     $interpreter = new \Ichiloto\Engine\Events\Interpreter\EventInterpreter($this->scene,
       scriptCommands: \Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog::createEngineCatalog());

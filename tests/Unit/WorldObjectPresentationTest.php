@@ -1847,7 +1847,6 @@ it('removes retained inactive field sign tickets on excursion and preserves usab
         }
         public function configure(\Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface $config): void {}
     };
-    new ReflectionProperty(\Ichiloto\Engine\UI\Modal\ModalManager::class, 'instance')->setValue(null, null);
     $manager->addScenes($field, $target);
     $manager->currentScene = $field;
     $excursion = $manager->beginSceneExcursion($field, 1, new \Ichiloto\Engine\Scenes\Game\GameConfig(

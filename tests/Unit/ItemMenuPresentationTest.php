@@ -60,7 +60,6 @@ class ItemMenuAlerts extends ModalManager
   public bool $confirmation = false;
   public ?int $amount = null;
   public ?Closure $onAlert = null;
-  public function __construct() { $this->modals = new \Assegai\Collections\Stack(\Ichiloto\Engine\UI\Interfaces\ModalInterface::class); }
   public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
   {
     $this->messages[] = $message;
@@ -93,13 +92,13 @@ beforeEach(function () {
   mkdir($this->root);
   Debug::configure(['log_directory' => $this->root]);
   new ReflectionProperty(\Ichiloto\Engine\Audio\AudioManager::class, 'instance')->setValue(null, null);
-  $this->alerts = new ItemMenuAlerts();
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->alerts);
   Console::setTerminalOutputEnabled(false);
   Console::enterAlternateScreen();
   Console::syncDimensions(135, 36);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 135, 'height' => 36]));
   $this->game = $game = new ItemMenuGameProbe();
+  $this->alerts = new ItemMenuAlerts($this->game);
+  $this->game->bindModalManager($this->alerts);
   $audio = new class extends \Ichiloto\Engine\Audio\AudioManager {
     public function __construct() {}
     public function playSystemSound(\Ichiloto\Engine\Audio\Enumerations\SystemSound $sound): void {}

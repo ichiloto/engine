@@ -148,7 +148,6 @@ beforeEach(function () {
     ConfigStore::put(PlaySettings::class, new PlaySettings(['screenDimensions' => ['width' => 80, 'height' => 24]]));
     ConfigStore::put(KnowledgeCatalog::class, KnowledgeCatalog::empty());
     new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
-    new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, null);
     new ReflectionProperty(MapManager::class, 'instance')->setValue(null, null);
     InputManager::setInputSource(new class implements InputSourceInterface {
         public function poll(): ?KeyCode { return null; }
