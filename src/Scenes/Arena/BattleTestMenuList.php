@@ -1,0 +1,71 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Ichiloto\Engine\Scenes\Arena;
+
+use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\IO\ActionHint;
+use Ichiloto\Engine\UI\Presentation\MenuRowColumn;
+use Ichiloto\Engine\UI\Presentation\MenuTableText;
+
+/**
+ * One list of the battle test as it stands, for any presentation to draw:
+ * its title, its rows (each a one-line label and a figure for each column),
+ * the columns those figures line up in, the row the cursor is on, and what the
+ * semantic actions do here. The Terminal and graphical presentations lay the
+ * rows out by the same columns and show the same hints, each its own way.
+ */
+final readonly class BattleTestMenuList
+{
+  /**
+   * @param list<array{0: string, 1: list<string>}> $rows Each row's label and its figures, one per column.
+   * @param list<MenuRowColumn> $columns
+   * @param list<array{0: string, 1: string, 2?: string}> $hints Each semantic action and what it does here, with the
+   *   action paired with it (right with left) when one label covers both.
+   * @param string|null $note What the last action here came to, such as keeping a troop, shown beneath the rows.
+   * @param bool $namesArena Whether the arena fights take place in belongs with this list, where arenas are offered.
+   * @param ?int $anchor The row kept in view while the cursor is elsewhere (on the troop being fought while the party is set up).
+   * @param list<string> $requiredHintActions Actions essential to navigating this list.
+   * @param bool $requiresEveryHint Whether every hint here is essential, shown even where a theme hides optional hints:
+   *   controls a list cannot be used without, such as stepping a quantity or a starting amount.
+   */
+  public function __construct(
+    public string $title,
+    public array $rows,
+    public ?int $selected,
+    public array $hints = [],
+    public array $columns = [],
+    public ?string $note = null,
+    public bool $namesArena = false,
+    public ?int $anchor = null,
+    public array $requiredHintActions = [],
+    public bool $requiresEveryHint = false,
+  ) {}
+
+  /** @return list<ActionHint> The hints, resolved through the active display profile. */
+  public function resolveHints(bool $includeOptional = true): array
+  {
+    $hints = $includeOptional || $this->requiresEveryHint ? $this->hints : array_values(array_filter($this->hints,
+      fn(array $hint): bool => in_array($hint[0], $this->requiredHintActions, true)));
+    return array_map(static fn(array $hint): ActionHint => isset($hint[2])
+      ? ActionHints::resolvePair($hint[0], $hint[2], $hint[1]) : ActionHints::resolve($hint[0], $hint[1]), $hints);
+  }
+
+  /** @return list<string> The rows as the terminal lists them in a width. */
+  public function getTerminalRows(int $width): array
+  {
+    $labels = array_column($this->rows, 0);
+    $cells = MenuTableText::getLabelCells($labels, $this->columns, $width);
+    return array_map(fn(array $row): string => MenuTableText::formatRow($row[0], $row[1], $this->columns, $cells), $this->rows);
+  }
+
+  /**
+   * @return list<string> The note as the terminal shows it beneath the rows, wrapped to a width; none without a note.
+   *   It stays beneath them however far the rows scroll, as the graphical presentation keeps it.
+   */
+  public function getTerminalNote(int $width): array
+  {
+    return $this->note === null ? [] : explode("\n", wordwrap($this->note, max(1, $width), "\n", true));
+  }
+}

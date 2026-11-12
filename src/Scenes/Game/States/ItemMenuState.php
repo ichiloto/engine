@@ -79,7 +79,7 @@ class ItemMenuState extends GameSceneState implements CanRender, CanvasProviderI
   /**
    * The height of the target status panel.
    */
-  protected const int TARGET_STATUS_PANEL_HEIGHT = 4;
+  protected const int TARGET_STATUS_PANEL_HEIGHT = 5;
   /**
    * The height of the target selection panel.
    */

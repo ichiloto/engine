@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Cutscenes\Cinematics;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
+use Ichiloto\Engine\Field\MapDoorReference;
 use InvalidArgumentException;
 use Ichiloto\Engine\Events\Interpreter\MovementRouteRunner;
 
@@ -57,10 +58,13 @@ final class CinematicScriptValidator
 
       match ($type) {
         'text' => self::validateText($command, $cinematicId, $commandPath),
+        'play_skit' => self::validateStableReference($command, 'skit', $cinematicId, $commandPath),
+        'play_storybook' => self::validateStorybookPlayback($command, $cinematicId, $commandPath),
         'sequence' => self::validateRequiredBlock($command, 'commands', $cinematicId, "$commandPath/sequence"),
         'parallel' => self::validateParallel($command, $cinematicId, $commandPath),
         'branch' => self::validateBranch($command, $cinematicId, $commandPath),
         'choice' => self::validateChoice($command, $cinematicId, $commandPath),
+        MapDoorReference::COMMAND => self::validateDoorReference($command, $cinematicId, $commandPath),
         'move_route' => self::validateMoveRoute($command, $cinematicId, $commandPath),
         'camera' => self::validateCamera($command, $cinematicId, $commandPath),
         'stage_actor' => self::validateStagedActor(
@@ -70,7 +74,7 @@ final class CinematicScriptValidator
         ),
         'show_actor', 'hide_actor', 'remove_actor' => self::validateActorReference($command, $cinematicId, $commandPath),
         'field_animation' => self::validateFieldAnimation($command, $cinematicId, $commandPath),
-        'title_card', 'narration' => self::validateOptionalDuration($command, ['seconds'], $cinematicId, $commandPath),
+        'title_card', 'narration' => self::validateTimedText($command, $cinematicId, $commandPath),
         'transition' => self::validateTransition($command, $cinematicId, $commandPath),
         'cinematic_music' => self::validateCinematicMusic($command, $cinematicId, $commandPath),
         'common_event' => self::validateStableReference($command, 'id', $cinematicId, $commandPath),
@@ -81,12 +85,51 @@ final class CinematicScriptValidator
   }
 
   /** @param array<string, mixed> $command */
+  public static function validateDoorReference(array $command, string $cinematicId, string $path): void
+  {
+    try {
+      MapDoorReference::fromCommand($command);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, $path, $error->getMessage());
+    }
+  }
+
+  public static function validateStorybookPlayback(array $command, string $cinematicId, string $path): void
+  {
+    $id = $command['storybook'] ?? null;
+    if (!is_string($id) || preg_match(\Ichiloto\Engine\Messaging\Storybook\StorybookDefinition::ID_PATTERN, $id) !== 1) {
+      throw self::failure($cinematicId, $path, 'storybook must be a selected stable lowercase reference.');
+    }
+
+    $finish = CinematicCommandSchema::STORYBOOK_FINISH_FIELD;
+    if (array_key_exists($finish, $command)) {
+      self::validateRequiredBlock($command, $finish, $cinematicId, "$path/$finish");
+    }
+  }
+
+  /** @param array<string, mixed> $command */
+  private static function validateTimedText(array $command, string $cinematicId, string $path): void
+  {
+    self::validateOptionalDuration($command, ['seconds'], $cinematicId, $path);
+    try {
+      CinematicTextSurface::getFromCommand($command);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, $path . '/' . CinematicTextSurface::FIELD, $error->getMessage());
+    }
+  }
+
+  /** @param array<string, mixed> $command */
   protected static function validateText(array $command, string $cinematicId, string $path): void
   {
     try {
       DialogueContext::getFromText($command);
     } catch (InvalidArgumentException $error) {
       throw self::failure($cinematicId, "$path/emotion", $error->getMessage());
+    }
+    try {
+      CinematicConversation::validateLine($command);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, "$path/facing", $error->getMessage());
     }
   }
 
@@ -239,6 +282,11 @@ final class CinematicScriptValidator
   public static function validateStagedActor(array $entry, string $cinematicId, string $path): void
   {
     try {
+      CinematicFieldPlane::getFromCommand($entry);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, $path . '/' . CinematicFieldPlane::FIELD_NAME, 'staged actor ' . $error->getMessage());
+    }
+    try {
       CinematicStageManager::validateBinding($entry);
     } catch (InvalidArgumentException $error) {
       throw self::failure($cinematicId, "$path/subject", $error->getMessage());
@@ -259,9 +307,9 @@ final class CinematicScriptValidator
       throw self::failure($cinematicId, $path, 'staged actor id is required.');
     }
 
-    if (! array_key_exists('subject', $entry)
+    if (! array_key_exists('subject', $entry) && ! array_key_exists('appearance', $entry)
       && ! array_key_exists('sprite', $entry) && trim(strval($entry['asset'] ?? '')) === '') {
-      throw self::failure($cinematicId, $path, 'staged actor requires a sprite or asset reference.');
+      throw self::failure($cinematicId, $path, 'staged actor requires a sprite, asset reference or appearance.');
     }
 
     foreach (['x', 'y'] as $coordinate) {
@@ -276,10 +324,10 @@ final class CinematicScriptValidator
       }
     }
 
-    if (array_key_exists('facing', $entry)
-      && ! in_array(strtolower(trim(strval($entry['facing']))), ['north', 'south', 'east', 'west'], true)
-    ) {
-      throw self::failure($cinematicId, $path, 'staged actor facing must be north, south, east, or west.');
+    try {
+      CinematicFacing::validate($entry);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, $path, 'staged actor ' . lcfirst($error->getMessage()));
     }
   }
 
@@ -317,7 +365,19 @@ final class CinematicScriptValidator
     }
 
     self::validateSubject($target, $cinematicId, "$path/target", allowScreenPosition: true);
+    if (array_key_exists('follow', $command) && !is_bool($command['follow'])) {
+      throw self::failure($cinematicId, $path, 'field animation follow must be boolean.');
+    }
+    if (($command['follow'] ?? false) && !in_array(strtolower(trim(strval($target['kind'] ?? $target['subject'] ?? ''))),
+      array_diff(CinematicCommandSchema::SUBJECT_KINDS, ['position', 'screen_position', 'marker']), true)) {
+      throw self::failure($cinematicId, $path, 'following field effects require a live field subject.');
+    }
     self::validateOptionalDuration($command, ['secondsPerFrame'], $cinematicId, $path, positive: true);
+    try {
+      CinematicFieldPlane::getFromCommand($command);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, $path . '/' . CinematicFieldPlane::FIELD_NAME, 'field animation ' . $error->getMessage());
+    }
   }
 
   /** @param array<string, mixed> $command */

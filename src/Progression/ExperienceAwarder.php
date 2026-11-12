@@ -5,11 +5,13 @@ namespace Ichiloto\Engine\Progression;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Progression\Mastery\MasteryProgression;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use InvalidArgumentException;
 
 /**
- * The single progression path for battle, quest, script, and migration EXP.
+ * The single progression path for battle, quest, script, and migration EXP,
+ * and for the Mastery points (SP) the same rewards give.
  */
 final class ExperienceAwarder
 {
@@ -17,10 +19,13 @@ final class ExperienceAwarder
   {
   }
 
-  public static function award(Character $character, int $experience): ExperienceAwardResult
+  public static function award(Character $character, int $experience, int $skillPoints = 0): ExperienceAwardResult
   {
     if ($experience < 0) {
       throw new InvalidArgumentException('Experience awards cannot be negative.');
+    }
+    if ($skillPoints < 0) {
+      throw new InvalidArgumentException('Mastery point awards cannot be negative.');
     }
 
     $settings = ConfigStore::has(ProgressionSettings::class)
@@ -32,17 +37,22 @@ final class ExperienceAwarder
 
     $before = ProgressionSnapshot::capture($character);
     $oldLevel = $before->level;
+    $previousTotalHp = $character->stats->totalHp;
+    $previousTotalMp = $character->stats->totalMp;
     $character->addExperience($experience);
     $newLevel = $character->level;
 
     // Level recovery is part of progression, not generic stat recalculation.
     // Keeping it here makes battle, quest, and scripted EXP agree while
     // equipment changes and save hydration continue to preserve damage.
-    if ($newLevel > $oldLevel && $settings->restoreVitalsOnLevelUp) {
-      $character->restoreVitals();
+    if ($newLevel > $oldLevel) {
+      $settings->levelUpRecovery->recover($character, $previousTotalHp, $previousTotalMp);
     }
 
-    return self::grantAutomaticRoleSkills($character, $oldLevel, $newLevel, $experience, $before);
+    // Points join the total before the map is brought up to the new level, which may open free nodes.
+    $character->mastery->addPoints($skillPoints);
+
+    return self::grantAutomaticRoleSkills($character, $oldLevel, $newLevel, $experience, $before, $skillPoints);
   }
 
   /**
@@ -50,17 +60,18 @@ final class ExperienceAwarder
    *
    * @return ExperienceAwardResult[]
    */
-  public static function awardParty(Party $party, int $experience): array
+  public static function awardParty(Party $party, int $experience, int $skillPoints = 0): array
   {
     return array_map(
-      static fn(Character $character): ExperienceAwardResult => self::award($character, $experience),
+      static fn(Character $character): ExperienceAwardResult => self::award($character, $experience, $skillPoints),
       $party->members->toArray(),
     );
   }
 
   /**
-   * Reconciles only automatic role-level grants at or below the restored level.
-   * This is safe to repeat and never touches optional book learnables.
+   * Reconciles automatic role-level grants at or below the restored level, and
+   * the character's Mastery Map with what they know and their level. This is
+   * safe to repeat and never touches optional book learnables.
    */
   public static function reconcileAutomaticRoleSkills(Character $character): ExperienceAwardResult
   {
@@ -73,6 +84,7 @@ final class ExperienceAwarder
     int $maximumInclusiveLevel,
     int $experience,
     ?ProgressionSnapshot $before = null,
+    int $skillPoints = 0,
   ): ExperienceAwardResult
   {
     $abilities = [];
@@ -97,6 +109,17 @@ final class ExperienceAwarder
         'kind' => $grant->skill instanceof MagicSkill ? 'Magic' : 'Ability', 'cost' => $grant->skill->cost];
     }
 
+    // The Mastery Map comes up to what the character knows and their level: free nodes that opened are learned.
+    foreach (MasteryProgression::forCharacter($character)?->reconcile($character)->learned ?? [] as $skill) {
+      if ($skill instanceof MagicSkill) {
+        $magic[] = $skill->name;
+      } else {
+        $abilities[] = $skill->name;
+      }
+      $details[] = ['name' => $skill->name, 'description' => $skill->description,
+        'kind' => $skill instanceof MagicSkill ? 'Magic' : 'Ability', 'cost' => $skill->cost];
+    }
+
     return new ExperienceAwardResult(
       $character,
       $experience,
@@ -107,6 +130,7 @@ final class ExperienceAwarder
       $before,
       ProgressionSnapshot::capture($character),
       $details,
+      $skillPoints,
     );
   }
 }

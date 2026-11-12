@@ -105,10 +105,10 @@ it('draws distinct stat pictograms and color-independent up and down geometry', 
   expect(array_unique(array_map(static fn($pair) => serialize($pair[1]), $patterns)))->toHaveCount(7);
 });
 
-it('uses poison and stun identity rather than mutable display names or icons', function () {
+it('uses state identity and authored badge labels rather than mutable display names or icons', function () {
   $actor = new Character('Actor', 1, new Stats(currentHp: 100));
-  $actor->addState(new State('poison', 'Renamed one', 'same'));
-  $actor->addState(new State('stun', 'Renamed two', 'same'));
+  $actor->addState(new State('poison', 'Renamed one', 'same', label: 'PSN'));
+  $actor->addState(new State('stun', 'Renamed two', 'same', label: 'STN'));
   $entries = BattlerConditions::getEntries($actor);
   expect(array_column($entries, 'iconKey'))->toBe(['status.state.poison', 'status.state.stun'])
     ->and(array_column($entries, 'symbol'))->toBe(['state:poison', 'state:stun'])
@@ -185,8 +185,8 @@ it('contains independently bound replaceable artwork while keeping direction and
 
 it('removes cured expired and zero-stage badges immediately and restores live ones after revival', function () {
   $actor = new Character('Actor', 1, new Stats(currentHp: 100));
-  $actor->addState(new State('poison', 'Poison', durationTurns: 1));
-  $actor->addState(new State('stun', 'Stun'));
+  $actor->addState(new State('poison', 'Poison', label: 'PSN', durationTurns: 1));
+  $actor->addState(new State('stun', 'Stun', label: 'STN'));
   $actor->setStatStage('speed', 1);
   $before = serialize($actor);
   expect(composeConditionBadgeFixture($actor, $this->badgeRoot)->getOverlayProtection())->toHaveCount(3)
@@ -208,8 +208,8 @@ it('places wrapped badges clear of UI battlers and one another for same-name par
   foreach ([350, 850] as $x) {
     $actor = new Character('Same name', 1, new Stats(currentHp: 100));
     foreach (Character::buffableStats() as $stat) { $actor->setStatStage($stat, 4); }
-    $actor->addState(new State('poison', 'Poison'));
-    $actor->addState(new State('stun', 'Stun'));
+    $actor->addState(new State('poison', 'Poison', label: 'PSN'));
+    $actor->addState(new State('stun', 'Stun', label: 'STN'));
     $battlers[spl_object_id($actor)] = $actor;
     $bounds[spl_object_id($actor)] = new CanvasRectangle($x, 260, 100, 160);
   }
@@ -235,8 +235,8 @@ it('batches a dense concurrent roster within the existing canvas layer budget', 
   foreach (range(0, 7) as $index) {
     $actor = new Character('Same name', 1, new Stats(currentHp: 100));
     foreach (Character::buffableStats() as $stat) { $actor->setStatStage($stat, $index % 2 === 0 ? 4 : -4); }
-    $actor->addState(new State('poison', 'Poison'));
-    $actor->addState(new State('stun', 'Stun'));
+    $actor->addState(new State('poison', 'Poison', label: 'PSN'));
+    $actor->addState(new State('stun', 'Stun', label: 'STN'));
     $battlers[spl_object_id($actor)] = $actor;
     $bounds[spl_object_id($actor)] = new CanvasRectangle(100 + $index % 4 * 300, 230 + intdiv($index, 4) * 300, 80, 120);
   }
@@ -269,15 +269,15 @@ it('keeps persistent badges through animation gaps failed bindings and reduced m
   $party->addMember(new Character('Second', 1, new Stats(currentHp: 100)));
   $party->addMember(new Character('Third', 1, new Stats(currentHp: 100)));
   $party->addMember($reserve);
-  $actor->addState(new State('poison', 'Poison'));
+  $actor->addState(new State('poison', 'Poison', label: 'PSN'));
   $actor->setStatStage('attack', 2);
   $reserve->setStatStage('speed', 3);
   $battle = new BattleConfig($party, new Troop('Empty', []), settings: ['reservePolicy' => 'replace_after_wipeout']);
   $catalog = new BattlePresentationCatalog(['test' => new BattleArenaDefinition('Test',
     new CanvasImage('arena', 'arena.png', new CanvasRectangle(0, 0, 1350, 720)))],
     array_fill_keys(['Actor', 'Second', 'Third', 'Reserve'], new BattlerArtwork('actor.png', 16, 16, 8, 16)), [],
-    ui: new BattleCanvasLayout(1350, 720, partySlots: [new BattlerSlot(900, 240, 100, 100),
-      new BattlerSlot(1000, 400, 100, 100), new BattlerSlot(1100, 560, 100, 100)]), defaultArena: 'test');
+    ui: new BattleCanvasLayout(1350, 720, partySlots: [getStageSlot(900, 240, 100, 100),
+      getStageSlot(1000, 400, 100, 100), getStageSlot(1100, 560, 100, 100)]), defaultArena: 'test');
   mkdir($this->badgeRoot . '/Animations/loop', 0777, true);
   file_put_contents($this->badgeRoot . '/Animations/loop/loop.timeline.php', '<?php return ' . var_export([
     'fps' => 10, 'lengthFrames' => 3, 'restFrame' => 0, 'playback' => 'loop', 'tracks' => [[
@@ -313,11 +313,11 @@ it('keeps newly applied and settled state badges at one head anchor through tran
   $catalog = new BattlePresentationCatalog(['test' => new BattleArenaDefinition('Test',
     new CanvasImage('arena', 'arena.png', new CanvasRectangle(0, 0, 1350, 720)))],
     ['Actor' => new BattlerArtwork('actor.png', 16, 16, 8, 16)], [],
-    ui: new BattleCanvasLayout(1350, 720, partySlots: [new BattlerSlot(600, 280, 100, 160)], skin: $skin,
+    ui: new BattleCanvasLayout(1350, 720, partySlots: [getStageSlot(600, 280, 100, 160)], skin: $skin,
       feedbackArea: new CanvasRectangle(0, 80, 1350, 452)), defaultArena: 'test');
   $presentation = GraphicalBattlePresentation::prepare(new BattleConfig($party, new Troop('Empty', [])), $catalog, $this->badgeRoot);
   $body = array_find($presentation->frame(now: 1)->images, static fn($image) => $image->asset === 'actor.png')->destination;
-  $actor->addState(new State('poison', 'Poison'));
+  $actor->addState(new State('poison', 'Poison', label: 'PSN'));
   $first = null;
   foreach ([true, false, true, false] as $selection) {
     // A transient opaque effect/banner occupies the head, just as an infliction or target label can.
@@ -379,7 +379,7 @@ it('loads badge geometry and semantic icons through the real project catalogue r
 it('leaves complete semantic state artwork free of duplicate frame direction and text', function () {
   writeTestPng($this->badgeRoot . '/state.png', 32, 32);
   $actor = new Character('Actor', 1, new Stats(currentHp: 100));
-  $actor->addState(new State('poison', 'Poison'));
+  $actor->addState(new State('poison', 'Poison', label: 'PSN'));
   $skin = createConditionBadgeSkin($this->badgeRoot, ['status.state.poison' => 'state.png']);
   $frame = composeConditionBadgeFixture($actor, $this->badgeRoot, $skin);
   expect($frame->images[0]->destination->width)->toBe(32.0)
@@ -400,8 +400,8 @@ it('reserves every cursor orientation and keeps all surviving badge slots throug
   $actors = $bounds = [];
   foreach (range(0, 1) as $index) {
     $actor = new Character('Same name', 1, new Stats(currentHp: 100));
-    $actor->addState(new State('poison', 'Poison'));
-    $actor->addState(new State('stun', 'Stun'));
+    $actor->addState(new State('poison', 'Poison', label: 'PSN'));
+    $actor->addState(new State('stun', 'Stun', label: 'STN'));
     $actors[spl_object_id($actor)] = $actor;
     $bounds[spl_object_id($actor)] = new CanvasRectangle($edge ? ($index === 0 ? 0 : 1270) : 350 + $index * 500,
       $edge ? 0 : 260, 80, 120);
@@ -445,8 +445,8 @@ it('reserves every cursor orientation and keeps all surviving badge slots throug
 
 it('keeps terminal condition slots on the head row and to the right through cures', function () {
   $actor = new Character('Actor', 1, new Stats(currentHp: 100));
-  $actor->addState(new State('poison', 'Poison'));
-  $actor->addState(new State('stun', 'Stun'));
+  $actor->addState(new State('poison', 'Poison', label: 'PSN'));
+  $actor->addState(new State('stun', 'Stun', label: 'STN'));
   $effects = new BattleConditionEffects(new EffectTimelineLibrary($this->badgeRoot));
   $first = $effects->createPlayback($actor, 0)->getActiveSegments(terminal: true);
   $stun = $first[1]['drawCommands'][0]['position'];

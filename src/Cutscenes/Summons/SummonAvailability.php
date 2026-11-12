@@ -60,6 +60,16 @@ final class SummonAvailability
       $typeValue = $condition['type'] ?? null;
       $nameValue = $condition['name'] ?? null;
 
+      if (is_string($typeValue) && trim($typeValue) === WorldConditionType::ANY->value) {
+        try {
+          WorldConditionEvaluator::validateAll([$condition], 'summon availability');
+        } catch (\InvalidArgumentException $error) {
+          $errors[] = $error->getMessage();
+        }
+        $normalized[] = $condition;
+        continue;
+      }
+
       if (! is_string($typeValue)) {
         $errors[] = sprintf('Availability condition %d has a malformed type.', $index + 1);
         $type = '';
@@ -146,6 +156,12 @@ final class SummonAvailability
     }
 
     switch ($type) {
+      case WorldConditionType::PLAY_STATISTIC->value:
+        if (!WorldConditionEvaluator::isPlayStatisticConditionValid($condition)) {
+          $errors[] = sprintf('Availability condition %d needs a known play statistic and nonnegative integer comparison.', $position);
+        }
+        break;
+
       case WorldConditionType::SWITCH->value:
         if (array_key_exists('value', $condition) && ! is_bool($condition['value'])) {
           $errors[] = sprintf('Availability condition %d has a non-boolean switch value.', $position);
@@ -170,6 +186,18 @@ final class SummonAvailability
           if ((! is_int($quantity) && ! (is_string($quantity) && ctype_digit($quantity))) || intval($quantity) < 1) {
             $errors[] = sprintf('Availability condition %d has an invalid item quantity.', $position);
           }
+        }
+        break;
+
+      case WorldConditionType::ASSIGNED_SUMMONS->value:
+        if (!WorldConditionEvaluator::isAssignedSummonsConditionValid($condition)) {
+          $errors[] = sprintf('Availability condition %d requires party and a positive assigned summon quantity.', $position);
+        }
+        break;
+
+      case WorldConditionType::PRESENT_PARTY_SIZE->value:
+        if (!WorldConditionEvaluator::isPresentPartySizeConditionValid($condition)) {
+          $errors[] = sprintf('Availability condition %d requires a supported present-party scope and a positive party size.', $position);
         }
         break;
 

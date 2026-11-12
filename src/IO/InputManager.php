@@ -2,11 +2,14 @@
 
 namespace Ichiloto\Engine\IO;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Ichiloto\Engine\IO\Saves\SaveFeatures;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\KeyboardEvent;
+use Ichiloto\Engine\Field\PlayerDash;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -43,6 +46,8 @@ class InputManager
   private static ?InputSourceInterface $inputSource = null;
   /** Held controls and press edges; populated only by sources that report releases. */
   private static ?KeyHoldState $holds = null;
+  /** Monotonic seconds of the last press or held control; null before any input update. */
+  private static ?float $lastInputAt = null;
   /** Completed input updates, so a consumer can tell it skipped one (a menu, a modal, a battle). */
   private static int $inputUpdates = 0;
   /**
@@ -136,18 +141,48 @@ class InputManager
     self::$config = self::getBindingsWithDefaults($bindings);
   }
 
+  /** Reads authored semantic actions and Engine defaults without installing input or player overrides. */
+  public static function getProjectBindings(string $projectRoot): array
+  {
+    $file = rtrim($projectRoot, '/\\') . '/input.php';
+    if (!is_file($file)) { throw new RuntimeException('Project input bindings do not exist: ' . $file); }
+    $bindings = (static fn(string $path): mixed => require $path)($file);
+    if (!is_array($bindings) || array_any($bindings, static fn(mixed $binding): bool => !is_array($binding))) {
+      throw new \InvalidArgumentException($file . ' must return an action-to-binding map.');
+    }
+    foreach (array_keys($bindings) as $action) {
+      if (!is_string($action) || trim($action) === '') {
+        throw new \InvalidArgumentException($file . ' must name each semantic action explicitly.');
+      }
+    }
+    return self::getBindingsWithDefaults($bindings);
+  }
+
+  private const array MENU_PAGE_CONTROLLERS = [
+    'menu_page_previous' => [
+      ['family' => 'gamepad.xbox', 'control' => 'left_shoulder', 'label' => 'LB'],
+      ['family' => 'gamepad.playstation', 'control' => 'left_shoulder', 'label' => 'L1'],
+    ],
+    'menu_page_next' => [
+      ['family' => 'gamepad.xbox', 'control' => 'right_shoulder', 'label' => 'RB'],
+      ['family' => 'gamepad.playstation', 'control' => 'right_shoulder', 'label' => 'R1'],
+    ],
+  ];
+
   /**
    * Adds shared actions for older projects without claiming authored controls.
    *
    * @param array<string, array{description?: string, keys?: KeyCode[]}> $bindings
    * @return array<string, array{description?: string, keys?: KeyCode[]}>
    */
-  private static function getBindingsWithDefaults(array $bindings): array
+  public static function getBindingsWithDefaults(array $bindings): array
   {
     foreach ([
       'info' => ['Read the next Info page; wrap to the first.', [KeyCode::i, KeyCode::I]],
       'menu_page_previous' => ['Show the previous menu page.', [KeyCode::PAGE_UP]],
       'menu_page_next' => ['Show the next menu page.', [KeyCode::PAGE_DOWN]],
+      'character_next' => ['Cycle to the next character, tab or pane.', [KeyCode::TAB]],
+      'character_previous' => ['Cycle to the previous character, tab or pane.', [KeyCode::SHIFT_TAB]],
       'map_view' => ['Switch between the local and world map.', [KeyCode::v, KeyCode::V]],
       'map_size' => ['Change the corner atlas size.', [KeyCode::F3]],
       'map_zoom' => ['Switch between the two map zoom levels.', [KeyCode::z, KeyCode::Z]],
@@ -159,6 +194,9 @@ class InputManager
       $keys = array_values(array_filter($candidates, static fn(KeyCode $key): bool =>
         !array_any($bindings, static fn(array $binding): bool => in_array($key, $binding['keys'] ?? [], true))));
       $bindings[$action] = ['description' => $description, 'keys' => $keys];
+      if (isset(self::MENU_PAGE_CONTROLLERS[$action])) {
+        $bindings[$action]['controllers'] = self::MENU_PAGE_CONTROLLERS[$action];
+      }
     }
 
     if (! array_key_exists('dialogue_auto', $bindings)) {
@@ -166,6 +204,9 @@ class InputManager
     }
     if (! array_key_exists('secondary_action', $bindings)) {
       $bindings['secondary_action'] = self::getDefaultSecondaryActionBinding($bindings);
+    }
+    if (! array_key_exists(PlayerDash::ACTION, $bindings)) {
+      $bindings[PlayerDash::ACTION] = self::getDefaultDashBinding($bindings);
     }
 
     if (!array_key_exists('quick_save', $bindings)) {
@@ -202,6 +243,23 @@ class InputManager
       !array_any($bindings, static fn(array $binding): bool => in_array($key, $binding['keys'] ?? [], true))));
     return ['description' => 'Perform a secondary field action.', 'keys' => $keys,
       'controllers' => self::WEST_FACE_CONTROLLERS];
+  }
+
+  /**
+   * Holding B to dash, as the Game Boy Advance Final Fantasy releases do.
+   * Reserved data, as the other controller identities are.
+   */
+  public const array DASH_CONTROLLERS = [
+    ['family' => 'gamepad.xbox', 'control' => 'face_east', 'label' => 'B'],
+    ['family' => 'gamepad.playstation', 'control' => 'face_east', 'label' => 'Circle'],
+  ];
+
+  /** RPG Maker's dash key, Shift, when nothing else claims it. Only a held-input source reports it. */
+  public static function getDefaultDashBinding(array $bindings = []): array
+  {
+    $claimed = array_any($bindings, static fn(array $binding): bool => in_array(KeyCode::SHIFT, $binding['keys'] ?? [], true));
+    return ['description' => 'Hold to dash. With Always Dash on, hold to walk.', 'keys' => $claimed ? [] : [KeyCode::SHIFT],
+      'controllers' => self::DASH_CONTROLLERS];
   }
 
   /** Consume the current sampled edges, preserving held controls and unread input for the next owner. */
@@ -278,6 +336,9 @@ class InputManager
     try {
       self::$keyPress = self::getInputSource()->poll();
       self::updateHeldState();
+      if (self::$keyPress !== null || self::getHolds()->isAnyKeyHeld || self::$lastInputAt === null) {
+        self::$lastInputAt = RuntimeClock::getSeconds();
+      }
     } catch (Throwable $error) {
       // A failed or disconnected source can no longer vouch for any held key.
       self::getHolds()->clear();
@@ -439,6 +500,15 @@ class InputManager
   {
     $source = self::getInputSource();
     return $source instanceof HeldInputSourceInterface && $source->canReportHeldState();
+  }
+
+  /**
+   * Seconds since the player last pressed or held a control. The first
+   * input update counts as input, so a session starts active, not idle.
+   */
+  public static function getSecondsSinceInput(): float
+  {
+    return self::$lastInputAt === null ? 0.0 : max(0.0, RuntimeClock::getSeconds() - self::$lastInputAt);
   }
 
   /** The number of input updates so far; each game loop iteration and modal poll is one. */

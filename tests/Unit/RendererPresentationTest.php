@@ -46,8 +46,11 @@ it('compares immutable sprite values strictly and includes their removal in fram
   $two = new PresentationSprite('1', '1.png', 0, 0, 32, 48);
   expect($this->presentation->present($this->snapshot, [$one]))->toBeTrue()
     ->and($this->presentation->present($this->snapshot, [clone $one]))->toBeFalse()
-    ->and($this->presentation->present($this->snapshot, [$two]))->toBeTrue()
-    ->and($this->presentation->present($this->snapshot))->toBeTrue()
+    ->and($this->presentation->present($this->snapshot, [$two]))->toBeTrue();
+  // Two frames are in flight. Acknowledge presentation before expecting the
+  // removal frame to be queued; this test protects removal, not queue capacity.
+  $this->presentation->acknowledge(2, true);
+  expect($this->presentation->present($this->snapshot))->toBeTrue()
     ->and(RetainedFrameState::replay($this->transport->sent)[2]['sprites'])->toBe([])
     ->and($this->transport->sent[2]->payload['operations'])->toBe([['op' => 'remove', 'kind' => 'sprite', 'id' => '1']]);
 });

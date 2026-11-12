@@ -9,9 +9,18 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetBounds;
 use RuntimeException;
 
-/** Reports authored resting-formation clearance; never moves or rescales battlers. */
+/**
+ * Reports resting-formation clearance; never moves or rescales battlers.
+ * Battlers stand in depth and a nearer one may cover part of one behind it,
+ * as on any staged battlefield; what must not happen is two standing on the
+ * same ground. Each one's footing is the lowest {@see FOOT_DEPTH} of its
+ * visible art across the middle {@see FOOT_WIDTH} of it.
+ */
 final class BattleFormationClearance
 {
+  public const float FOOT_DEPTH = 0.12;
+  public const float FOOT_WIDTH = 0.6;
+
   /**
    * @param list<CanvasImage> $party
    * @param list<CanvasImage> $enemies
@@ -44,20 +53,20 @@ final class BattleFormationClearance
       if ($bounds === null) { continue; }
       foreach (array_slice($images, $index + 1) as $other) {
         $otherBounds = $visible[$other->id] ?? null;
-        if ($otherBounds !== null && self::overlaps($bounds, $otherBounds)) {
-          $issues[$image->id][] = 'Visible artwork overlaps battler ' . ($battlerLabels[$other->id] ?? $other->id) . '.';
-          $issues[$other->id][] = 'Visible artwork overlaps battler ' . ($battlerLabels[$image->id] ?? $image->id) . '.';
+        if ($otherBounds !== null && self::overlaps(self::getFooting($bounds), self::getFooting($otherBounds))) {
+          $issues[$image->id][] = 'Stands on the same ground as battler ' . ($battlerLabels[$other->id] ?? $other->id) . '.';
+          $issues[$other->id][] = 'Stands on the same ground as battler ' . ($battlerLabels[$image->id] ?? $image->id) . '.';
         }
       }
       $cursor = $layout->skin?->targetCursor;
       if ($cursor === null) { continue; }
       $area = in_array($image->id, $enemyIds, true) ? $layout->enemyArea : $layout->partyArea;
+      // The battle's cursor clears the authored regions, as at runtime; other battlers may stand behind it.
       $occupied = [...self::getOutsideAreas($layout, $layout->battlerArea), ...self::getOutsideAreas($layout, $area)];
-      foreach ($visible as $id => $otherBounds) { if ($id !== $image->id) { $occupied[] = $otherBounds; } }
       try {
-        // Runtime cursors attach to the full posed rectangle, not an inferred body.
-        $placed = $cursor->layout($image->destination, $layout->width, $layout->height, occupied: $occupied);
-        if ($placed === null) { $issues[$image->id][] = 'No target cursor placement clears the authored region and other battlers.'; }
+        // Runtime cursors attach to the visible body as drawn, as every battle overlay does.
+        $placed = $cursor->layout($bounds, $layout->width, $layout->height, occupied: $occupied);
+        if ($placed === null) { $issues[$image->id][] = 'No target cursor placement clears the authored region.'; }
       } catch (RuntimeException $error) { $issues[$image->id][] = $error->getMessage(); }
     }
     return $issues;
@@ -75,6 +84,15 @@ final class BattleFormationClearance
     return $bounds->x >= $area->x - $epsilon && $bounds->y >= $area->y - $epsilon
       && $bounds->x + $bounds->width <= $area->x + $area->width + $epsilon
       && $bounds->y + $bounds->height <= $area->y + $area->height + $epsilon;
+  }
+
+  /** The ground a battler's visible art stands on. */
+  public static function getFooting(CanvasRectangle $visible): CanvasRectangle
+  {
+    $width = $visible->width * self::FOOT_WIDTH;
+    $depth = max(1, $visible->height * self::FOOT_DEPTH);
+    return new CanvasRectangle($visible->x + ($visible->width - $width) / 2, $visible->y + $visible->height - $depth,
+      $width, $depth);
   }
 
   private static function overlaps(CanvasRectangle $one, CanvasRectangle $two): bool

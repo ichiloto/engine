@@ -46,14 +46,20 @@ class BattleRewards
    * @param int $experience The experience points.
    * @param int $gold The gold.
    * @param DropItem[]|array<array{item: string, rate: float}> $items The items.
+   * @param int $skillPoints The Mastery points (SP) each party member earns, as they earn the EXP.
    * @throws RequiredFieldException If a required field is missing.
    */
   public function __construct(
     protected(set) int $experience,
     protected(set) int $gold,
-    array $items
+    array $items,
+    protected(set) int $skillPoints = 0,
   )
   {
+    if ($skillPoints < 0) {
+      throw new \InvalidArgumentException('Mastery point rewards cannot be negative.');
+    }
+
     // The store resolves item names, so rewards that name no items need no
     // store. Demanding one up front made an empty rewards object impossible
     // to build in authoring tools that have no game running.

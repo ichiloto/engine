@@ -14,6 +14,8 @@ enum BattlePoseRole: string
 {
   case IDLE = 'idle';
   case ATTACK = 'attack';
+  case MOVE = 'move';
+  case RETURNING = 'return';
   case SKILL = 'skill';
   case MAGIC = 'magic';
   case SUMMON = 'summon';
@@ -25,6 +27,8 @@ enum BattlePoseRole: string
   case AFFLICTED = 'afflicted';
   case ENHANCED = 'enhanced';
   case KNOCKOUT = 'knockout';
+  /** An enemy that conceded the battle: it rests on screen out of the fight. */
+  case CONCEDE = 'concede';
 
   public static function getForAction(?BattleAction $action): self
   {
@@ -42,6 +46,7 @@ enum BattlePoseRole: string
   {
     return match (true) {
       $battler->isKnockedOut => self::KNOCKOUT,
+      ($battler->hasConceded ?? false) => self::CONCEDE,
       ($battler->isGuarding ?? false) => self::GUARD,
       method_exists($battler, 'getStateDisposition') && $battler->getStateDisposition() === StateDisposition::HARMFUL => self::AFFLICTED,
       method_exists($battler, 'getActionBlockingState') && $battler->getActionBlockingState() !== null => self::AFFLICTED,

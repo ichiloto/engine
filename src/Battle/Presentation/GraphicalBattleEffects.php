@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Animations\EffectScale;
+use Ichiloto\Engine\Animations\Timelines\EffectImageDepth;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageFit;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageTint;
@@ -11,6 +13,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
@@ -22,19 +25,39 @@ use RuntimeException;
 /** Retained effect layers inspect the command lane, never dispatch combat cues. */
 final class GraphicalBattleEffects
 {
-  /** @param array<int, CanvasRectangle> $bounds Combatant instance identities.
+  /** @return ?array{point: Vector2, direction: ?Vector2, progress: float, distance: float} */
+  private static function sampleFlight(BattleCommandPlayback $playback, ?BattlePresentationPath $path,
+    array $data, bool $reducedMotion): ?array
+  {
+    if ($path === null) {
+      $playback->recordPresentationFailure(new InvalidArgumentException('Battle projectile release has no captured path.'));
+      return null;
+    }
+    $arrival = $data['flight']['arrivalFrame'];
+    $sample = $data['flight']['holdFrame'] ?? $arrival;
+    $sample = min($sample, $reducedMotion ? $arrival : $playback->session->currentFrame);
+    $progress = $sample >= $arrival ? 1.0 : ($sample - $data['detachFrame']) / ($arrival - $data['detachFrame']);
+    return [...$path->getSampleAtProgress($progress), 'progress' => $progress, 'distance' => $path->distance];
+  }
+
+  /** @param array<int, CanvasRectangle> $bounds Combatant instance identity => its drawn body; head, centre and feet attach to it.
    * @param array<int, CanvasImage> $battlerImages Current visible poses, including crop, motion and opacity.
    * @param array<int, Vector2>|null $groundAnchors Current posed ground points; rectangle-only hosts use bottom centres.
+   * @param array<int, bool> $partySides Combatant identity => whether it stands with the party; opponent-facing tracks read it.
+   * @param array<int, array<string, Vector2>> $attachmentPoints Named points projected from each current pose cell.
+   * @param array<string, int>|null $subjectFrontImages Optional output map of effect image id to subject identity.
    */
   public static function compose(BattleEffectPlayback $playback, BattleCanvasLayout $arena,
     array $bounds, string $assetRoot, bool $reducedMotion, array $battlerImages = [], bool $imageFlips = true,
-    bool $compositing = true, ?array $groundAnchors = null): PresentationCanvas
+    bool $compositing = true, ?array $groundAnchors = null, array $partySides = [], bool $maskFlips = true,
+    array $attachmentPoints = [], bool $imageRotation = false, bool $imageClips = true,
+    bool $coverageDabs = false, bool $textureStrip = false, ?array &$subjectFrontImages = null): PresentationCanvas
   {
     $groundAnchors ??= array_map(static fn(CanvasRectangle $box): Vector2 =>
       new Vector2($box->x + $box->width / 2, $box->y + $box->height), $bounds);
     $hadConditionFailure = $playback instanceof BattlerConditionEffect && $playback->hasPresentationFailure;
     $images = $text = $composites = [];
-    $tints = [];
+    $tints = $contactRails = $relativeSubjects = [];
     $summon = $playback instanceof BattleCommandPlayback ? $playback->plan->summon : null;
     if ($summon !== null && !$reducedMotion) {
       if (in_array($playback->phase, ['summon-in', 'summon-out'], true)) {
@@ -58,46 +81,128 @@ final class GraphicalBattleEffects
       }
     }
     foreach ($playback->getActiveSegments($reducedMotion) as $segment) {
+      if ($segment['layer'] === 'tone') { continue; } // Owned by the current battler image, preserving draw order.
       foreach ($segment['drawCommands'] as $command) {
         if (!($command['visible'] ?? true)) { continue; }
         $data = $command['payload'] ?? [];
         $anchor = $data['anchor'] ?? 'target';
         if ($anchor === 'stage') { continue; }
+        if ($segment['layer'] === 'tether') {
+          try {
+            if (!$playback instanceof BattleCommandPlayback || count($playback->targets) !== 1) {
+              throw new InvalidArgumentException('A battle tether requires one selected recipient other than its caster.');
+            }
+            $actorId = spl_object_id($playback->actor);
+            $targetId = spl_object_id($playback->targets[array_key_first($playback->targets)]);
+            if ($actorId === $targetId) {
+              throw new InvalidArgumentException('A battle tether requires a recipient other than its caster.');
+            }
+            $impact = array_find($playback->plan->timeline->cueSchedule,
+              static fn(array $cue): bool => $cue['type'] === 'commandImpact')['frame'];
+            [$start, $end] = $data['contactWindow'];
+            $contact = $start <= $impact && $impact <= $end;
+            $parts = GraphicalBattleTether::compose('command-effect-' . $command['trackId'] . '-' . $actorId,
+              $data, $arena, $assetRoot, $bounds, $groundAnchors, $attachmentPoints, $actorId, $targetId,
+              $contact, $imageRotation, $imageClips);
+            array_push($images, ...$parts);
+          } catch (InvalidArgumentException | RuntimeException $error) {
+            $playback->recordPresentationFailure($error);
+          }
+          continue;
+        }
+        $targetGroup = null;
+        if ($anchor === 'target-group') {
+          try {
+            $lane = $data['capturedTargetGroup'] ?? null;
+            if ($lane !== null && $playback instanceof BattleCommandPlayback) {
+              $targetGroup = $playback->getCapturedTargetGroup($lane);
+              if ($targetGroup === null && $playback->targets !== []) {
+                throw new RuntimeException('Target-group effect has no captured ground placement.');
+              }
+            } else {
+              $targetGroup = BattleEffectTargetGroup::collectTargets($playback->targets, $bounds, $groundAnchors, $partySides);
+            }
+          }
+          catch (RuntimeException $error) { $playback->recordPresentationFailure($error); continue; }
+          if ($targetGroup === null) { continue; }
+        }
         $subjects = [];
         foreach ($anchor === 'caster' ? [$playback->actor] : $playback->targets as $subject) {
           $subjects[spl_object_id($subject)] = $subject;
         }
-        if (in_array($anchor, ['screen', 'legacy-screen'], true)
+        if ($targetGroup !== null || in_array($anchor, ['screen', 'legacy-screen'], true)
           || ($segment['layer'] === 'flash' && ($data['scope'] ?? '') === 'screen')) { $subjects = [null]; }
         foreach ($subjects as $subject) {
-          $box = $subject === null ? null : ($bounds[spl_object_id($subject)] ?? null);
-          if ($subject !== null && $box === null) { continue; }
-          $oriented = $command;
+          if (isset($data['hitSubject']) && ($subject === null || $data['hitSubject'] !== spl_object_id($subject))) { continue; }
+          $box = $targetGroup?->bounds ?? ($subject === null ? null : ($bounds[spl_object_id($subject)] ?? null));
+          $isDetached = $playback instanceof BattleCommandPlayback && isset($data['detachFrame'])
+            && $playback->session->currentFrame >= $data['detachFrame'];
+          if (!$isDetached && $reducedMotion && isset($data['flight'])) { continue; }
+          if ($subject !== null && $box === null && !$isDetached) { continue; }
+          $release = $subject === null || !$isDetached ? null : $playback->getDetachedPosePoint($command['trackId'], $subject);
+          if ($segment['layer'] === 'trail') {
+            if (!$compositing || !$coverageDabs || !$isDetached) { continue; }
+            if (($release['path'] ?? null) === null) {
+              $playback->recordPresentationFailure(new InvalidArgumentException('Battle trail release has no captured path.'));
+              continue;
+            }
+            $frame = $reducedMotion ? $data['restSampleFrame'] : $playback->session->currentFrame;
+            array_push($composites, ...GraphicalBattleTrail::compose('command-effect-' . $command['trackId'] . '-' . spl_object_id($subject),
+              $release['path'], $frame, $data, $arena));
+            continue;
+          }
+          if (($release['fallback'] ?? null) !== null && isset($data['flight'])
+            && ($reducedMotion || $playback->session->currentFrame >= $data['flight']['arrivalFrame'])) { continue; }
           $recipient = $anchor === 'caster'
             ? array_find($playback->targets, static fn($target): bool => $target !== $playback->actor) : $subject;
-          $casterX = ($groundAnchors[spl_object_id($playback->actor)] ?? null)?->x;
-          $recipientX = $recipient === null ? null : ($groundAnchors[spl_object_id($recipient)] ?? null)?->x;
-          if ($casterX !== null && $recipientX !== null) {
-            $oriented = BattleEffectDirection::orientCommand($command, $casterX, $recipientX);
-          }
+          $casterX = $release['casterX'] ?? ($groundAnchors[spl_object_id($playback->actor)] ?? null)?->x;
+          $recipientX = $release !== null ? $release['recipientX'] : ($targetGroup?->getGroundOrigin()->x
+            ?? ($recipient === null ? null : ($groundAnchors[spl_object_id($recipient)] ?? null)?->x));
+          $flight = $isDetached && isset($data['flight'])
+            ? self::sampleFlight($playback, $release['path'] ?? null, $data, $reducedMotion) : null;
+          if ($isDetached && isset($data['flight']) && $flight === null) { continue; }
+          $direction = $flight['direction'] ?? null;
+          if ($direction !== null && $casterX !== null) { $recipientX = $casterX + $direction->x; }
+          $oriented = BattleEffectDirection::orientForSubject($command, $casterX, $recipientX,
+            $release['party'] ?? $targetGroup?->partySide ?? ($subject === null ? null : ($partySides[spl_object_id($subject)] ?? null)));
+          $facing = $data['facing'] ?? null;
+          $autoMirrored = ($oriented['payload']['flipX'] ?? false) !== ($data['flipX'] ?? false);
           $data = $oriented['payload'] ?? [];
-          $id = 'command-effect-' . $oriented['trackId'] . '-' . ($subject === null ? 'screen' : spl_object_id($subject));
+          $basis = ($facing === 'west') !== $autoMirrored ? 180 : 0;
+          $rotation = $imageRotation && $direction !== null && $facing !== null
+            ? (int)round(rad2deg(atan2($direction->y, $direction->x)) - $basis) : 0;
+          $rotation = ($rotation % 360 + 360) % 360;
+          $id = 'command-effect-' . $oriented['trackId'] . '-' . ($targetGroup !== null ? 'target-group'
+            : ($subject === null ? 'screen' : spl_object_id($subject)));
           $position = $oriented['position'] ?? ['x' => 0, 'y' => 0];
           $attachment = $data['attachment'] ?? $data['legacyPosition'] ?? 'center';
-          $ground = $subject === null ? null : ($groundAnchors[spl_object_id($subject)] ?? null);
+          $ground = $targetGroup?->getGroundOrigin() ?? ($subject === null ? null : ($groundAnchors[spl_object_id($subject)] ?? null));
           try {
             if ($attachment === 'ground' && $ground === null) {
               throw new InvalidArgumentException('Battle effect ground attachment requires the subject ground point.');
             }
-            $x = $box === null ? ($anchor === 'legacy-screen' ? 2 * $arena->uiGrid->cellWidth : $arena->width / 2)
-              : ($attachment === 'ground' ? $ground->x : $box->x + $box->width / 2);
-            $y = $box === null ? ($anchor === 'legacy-screen' ? 2 * $arena->uiGrid->cellHeight : $arena->height / 2)
+            $point = null;
+            if (isset($data['attachmentPoint'])) {
+              $point = $subject === null ? null : ($isDetached
+                ? ($release['point'] ?? null)
+                : ($attachmentPoints[spl_object_id($subject)][$data['attachmentPoint']] ?? null));
+              if ($point === null) {
+                throw new InvalidArgumentException('Current battle pose has no effect attachment point ' . $data['attachmentPoint'] . '.');
+              }
+            }
+            $point = $flight['point'] ?? $point;
+            $x = $point?->x ?? ($box === null ? ($anchor === 'legacy-screen' ? 2 * $arena->uiGrid->cellWidth : $arena->width / 2)
+              : ($attachment === 'ground' ? $ground->x : $box->x + $box->width / 2));
+            $y = $point?->y ?? ($box === null ? ($anchor === 'legacy-screen' ? 2 * $arena->uiGrid->cellHeight : $arena->height / 2)
               : match ($attachment) {
                 'ground' => $ground->y,
                 'head' => $box->y, 'feet' => $box->y + $box->height, default => $box->y + $box->height / 2,
-              };
-            $x += ($position['x'] ?? 0) * $arena->uiGrid->cellWidth;
-            $y += ($position['y'] ?? 0) * $arena->uiGrid->cellHeight;
+              });
+            // A binding's scale sizes images about their pivot and anchor; offsets scale with them so the
+            // composition holds. Glyphs and text keep their cells.
+            $scale = $segment['layer'] === 'image' ? (float)($data['scale'] ?? EffectScale::DEFAULT) : EffectScale::DEFAULT;
+            $x += ($position['x'] ?? 0) * $arena->uiGrid->cellWidth * $scale;
+            $y += ($position['y'] ?? 0) * $arena->uiGrid->cellHeight * $scale;
             switch ($segment['layer']) {
               case 'image':
                 if (!$imageFlips && (($data['flipX'] ?? false) || ($data['flipY'] ?? false))) {
@@ -117,22 +222,80 @@ final class GraphicalBattleEffects
                 }
                 $frameWidth = intdiv($size['width'], $columns);
                 $frameHeight = intdiv($size['height'], $rows);
-                $width = min($arena->width, ($data['cells']['width'] ?? null) === null
-                  ? $frameWidth : $data['cells']['width'] * 48);
-                $height = min($arena->height, ($data['cells']['height'] ?? null) === null
-                  ? $frameHeight : $data['cells']['height'] * 48);
-                $fitted = CanvasImageFit::parse($data['fit'] ?? 'stretch')->getSize($frameWidth, $frameHeight, $width, $height);
+                $crop = new SpriteSourceRect(($source % $columns) * $frameWidth,
+                  intdiv($source, $columns) * $frameHeight, $frameWidth, $frameHeight);
+                if ($compositing && $textureStrip && $targetGroup !== null && isset($data['contactRail'])) {
+                  $rail = $contactRails[spl_object_id($targetGroup)] ??= BattleEffectContactRail::fit($targetGroup);
+                  $strip = GraphicalBattleStrip::compose($id, $asset, $crop, $rail, $arena, $data, $x - $ground->x, $y - $ground->y);
+                  if ($strip !== null) { $composites[] = $strip; }
+                  break;
+                }
+                $width = min($arena->width, (int)round((($data['cells']['width'] ?? null) === null
+                  ? $frameWidth : $data['cells']['width'] * 48) * $scale));
+                $height = min($arena->height, (int)round((($data['cells']['height'] ?? null) === null
+                  ? $frameHeight : $data['cells']['height'] * 48) * $scale));
+                $fit = isset($data['flight']) && $facing !== null ? CanvasImageFit::CONTAIN
+                  : CanvasImageFit::parse($data['fit'] ?? 'stretch');
+                $fitted = $fit->getSize($frameWidth, $frameHeight, $width, $height);
                 $width = $fitted['width'];
                 $height = $fitted['height'];
+                if ($targetGroup !== null && ($data['span'] ?? false)) {
+                  // One group composition, preserving source proportions and
+                  // depth-varying ground identity. Cells are its minimum size.
+                  $growth = max(1.0, $targetGroup->spanWidth * $scale / $width);
+                  $width *= $growth; $height *= $growth;
+                  $x += ($position['x'] ?? 0) * $arena->uiGrid->cellWidth * $scale * ($growth - 1);
+                  $y += ($position['y'] ?? 0) * $arena->uiGrid->cellHeight * $scale * ($growth - 1);
+                }
                 $pivot = $data['pivot'] ?? ['x' => .5, 'y' => .5];
+                if ($flight !== null && isset($data['flight']['tipX'])) {
+                  $tipLength = abs($data['flight']['tipX'] - $pivot['x']) * $width;
+                  if ($flight['distance'] <= 0.0) {
+                    throw new InvalidArgumentException('Battle projectile has no distance to its arrival contact.');
+                  }
+                  // Keep at least as much visible travel as shaft ahead of the release pivot.
+                  $maximumTipLength = $flight['distance'] / 2;
+                  if ($tipLength > $maximumTipLength) {
+                    $fitScale = $maximumTipLength / $tipLength;
+                    $width *= $fitScale;
+                    $height *= $fitScale;
+                    $tipLength = $maximumTipLength;
+                  }
+                  $angle = deg2rad($rotation + $basis);
+                  $offset = $tipLength * $flight['progress'];
+                  $x -= cos($angle) * $offset;
+                  $y -= sin($angle) * $offset;
+                }
                 if ($data['flipX'] ?? false) { $pivot['x'] = 1 - $pivot['x']; }
                 if ($data['flipY'] ?? false) { $pivot['y'] = 1 - $pivot['y']; }
-                $image = CanvasImage::createClipped($id, $asset, $x - $width * $pivot['x'], $y - $height * $pivot['y'],
-                  $width, $height, $arena->width, $arena->height,
-                  ($data['depth'] ?? 'front') === 'behind' ? 90 : 180,
-                  new SpriteSourceRect(($source % $columns) * $frameWidth,
-                    intdiv($source, $columns) * $frameHeight, $frameWidth, $frameHeight),
-                  flipX: $data['flipX'] ?? false, flipY: $data['flipY'] ?? false);
+                $depth = $data['depth'] ?? EffectImageDepth::FRONT->value;
+                $layer = match ($depth) {
+                  EffectImageDepth::BEHIND->value => 90,
+                  EffectImageDepth::SUBJECT_FRONT->value => BattleCanvasLayout::BATTLER_LAYER,
+                  default => 180,
+                };
+                if ($depth === EffectImageDepth::SUBJECT_FRONT->value && $subject !== null) {
+                  $relativeSubjects[$id] = spl_object_id($subject);
+                }
+                $flipX = $data['flipX'] ?? false;
+                $flipY = $data['flipY'] ?? false;
+                $left = $x - $width * $pivot['x'];
+                $top = $y - $height * $pivot['y'];
+                if ($rotation !== 0) {
+                  $angle = deg2rad($rotation);
+                  $offsetX = ($position['x'] ?? 0) * $arena->uiGrid->cellWidth * $scale;
+                  $offsetY = ($position['y'] ?? 0) * $arena->uiGrid->cellHeight * $scale;
+                  $rotated = CanvasImage::createRotated($id, $asset,
+                    new CanvasRectangle($left + $offsetX * (cos($angle) - 1) - $offsetY * sin($angle),
+                      $top + $offsetX * sin($angle) + $offsetY * (cos($angle) - 1), $width, $height, allowOutsideCanvas: true),
+                    $arena->width, $arena->height, $layer, $crop, $flipX, $flipY, $rotation, new PresentationSpritePivot(...$pivot));
+                  if ($rotated === null || $rotated->clipRect === null || $imageClips) {
+                    if ($rotated !== null) { $images[] = $rotated; }
+                    break;
+                  }
+                }
+                $image = CanvasImage::createClipped($id, $asset, $left, $top, $width, $height,
+                  $arena->width, $arena->height, $layer, $crop, $flipX, $flipY);
                 if ($image !== null) { $images[] = $image; }
                 break;
               case 'glyph':
@@ -189,6 +352,9 @@ final class GraphicalBattleEffects
     foreach ($tints as $identity => $layers) {
       if (!$compositing) { continue; }
       try {
+        if (!$maskFlips && ($battlerImages[$identity]->flipX || $battlerImages[$identity]->flipY)) {
+          throw new InvalidArgumentException('Renderer cannot mirror image-alpha masks for this battler tint.');
+        }
         $tint = CanvasImageTint::composeLayers('command-tint-' . $identity, $battlerImages[$identity], $layers, $assetRoot);
         $tintAreas[] = $tint->clipRect ?? $tint->destination;
         // Surface opacity cannot be distributed through overlapping operations.
@@ -215,8 +381,9 @@ final class GraphicalBattleEffects
     }
     if ($playback instanceof BattlerConditionEffect && !$hadConditionFailure && $playback->hasPresentationFailure) {
       return self::compose($playback, $arena, $bounds, $assetRoot, $reducedMotion, $battlerImages,
-        $imageFlips, $compositing, $groundAnchors);
+        $imageFlips, $compositing, $groundAnchors, $partySides, $maskFlips, subjectFrontImages: $subjectFrontImages);
     }
+    if ($subjectFrontImages !== null) { $subjectFrontImages += $relativeSubjects; }
     return new PresentationCanvas($arena->width, $arena->height, $images, textLayers: $text, composites: $composites,
       protectedAreas: [...$tintAreas,
         ...array_map(static fn(CanvasImage $image) => $image->clipRect ?? $image->destination, $images),

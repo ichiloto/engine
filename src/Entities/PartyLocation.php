@@ -18,13 +18,15 @@ class PartyLocation
    */
   public const string DEFAULT_LOCATION_REGION = 'N/A';
 
-  /**
-   * @var string The party location's name in a human-readable format.
-   */
+  /** @var list<string> Place first, then a distinct region; authored values remain unchanged. */
+  public array $displayNames {
+    get => array_values(array_unique(array_filter([trim($this->name), trim($this->region)],
+      static fn(string $name): bool => $name !== '')));
+  }
+
+  /** The region and place in the existing summary order, with each name shown once. */
   public string $prettyLocation {
-    get {
-      return "{$this->region} - {$this->name}";
-    }
+    get => implode(' - ', array_reverse($this->displayNames));
   }
 
   /**

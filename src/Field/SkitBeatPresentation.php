@@ -17,10 +17,12 @@ final readonly class SkitBeatPresentation
 
   public static function getFromBeat(string $assets, string $skitId, array $beat, DialoguePresentationCatalog $catalogue, ?string $actorId = null): self
   {
+    $speaker = array_key_exists('actor', $beat) ? '' : ($beat['speaker'] ?? '');
+    $identity = $catalogue->resolveSpeakerId($actorId, is_string($speaker) ? $speaker : '');
     $emotion = $beat['emotion'] ?? self::NEUTRAL_EMOTION;
-    $emotions = $actorId === null ? [] : ($catalogue->actors[$actorId]['emotions'] ?? []);
+    $emotions = $identity === null ? [] : ($catalogue->actors[$identity]['emotions'] ?? $catalogue->resources[$identity]['emotions'] ?? []);
     if (! is_string($emotion) || ($emotion !== self::NEUTRAL_EMOTION && (! is_array($emotions) || ! array_key_exists($emotion, $emotions)))) {
-      Debug::warn("Unknown skit emotion for " . ($actorId ?? 'non-actor speaker') . " in $skitId; using Neutral.");
+      Debug::warn("Unknown skit emotion for " . ($identity ?? 'unbound speaker') . " in $skitId; using Neutral.");
       $emotion = self::NEUTRAL_EMOTION;
     }
 

@@ -5,7 +5,7 @@ use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-icon-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-icon-' . bin2hex(random_bytes(6));
   mkdir($this->root . '/Graphics/System', 0777, true);
   file_put_contents($this->root . '/Graphics/System/Game.icns', 'icns');
   file_put_contents($this->root . '/Graphics/System/Game.png', 'png');

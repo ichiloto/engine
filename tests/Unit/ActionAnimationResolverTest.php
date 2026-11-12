@@ -57,7 +57,7 @@ it('uses authored basic weapons without granting equipment and lets equipped wea
 
 it('exposes one closed role list shared by authoring and animation validation', function () {
   $roles = ActionAnimationResolver::getSupportedRoles();
-  expect($roles)->toBe(['attack', 'skill', 'restorative', 'attack-unarmed',
+  expect($roles)->toBe(['attack', 'skill', 'restorative', 'buff', 'debuff', 'attack-unarmed',
     ...array_map(static fn(WeaponType $type): string => 'attack-' . strtolower($type->value), WeaponType::cases())])
     ->and($roles)->toBe(array_values(array_unique($roles)));
   foreach ($roles as $role) {

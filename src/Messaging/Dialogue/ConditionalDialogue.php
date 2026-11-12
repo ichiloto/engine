@@ -38,6 +38,9 @@ use Ichiloto\Engine\Entities\Party;
  */
 final class ConditionalDialogue
 {
+  /** Fields that mark an entry as a variant (an NPC page) rather than a line. */
+  public const array VARIANT_FIELDS = ['lines', 'script', 'conditions', 'sets', 'scriptId', 'cinematicId', 'cue', 'reusable', 'speakers'];
+
   /**
    * ConditionalDialogue constructor.
    */
@@ -48,7 +51,7 @@ final class ConditionalDialogue
   /**
    * Determines whether the authored dialogue uses conditional variants.
    *
-   * A variant is recognised by carrying `lines`, `script`, or `conditions`;
+   * A variant is recognised by carrying any of {@see self::VARIANT_FIELDS};
    * anything else is treated as a plain page list, so existing content keeps
    * working untouched.
    *
@@ -62,7 +65,7 @@ final class ConditionalDialogue
         continue;
       }
 
-      if (isset($entry['lines']) || isset($entry['script']) || isset($entry['conditions'])) {
+      if (array_intersect(array_keys($entry), self::VARIANT_FIELDS) !== []) {
         return true;
       }
     }

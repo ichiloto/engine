@@ -608,7 +608,8 @@ class Console
       self::$terminalViewportDirty = false;
       self::$terminalOffsetX = self::$terminalOffsetY = 0;
       self::closeTerminalOutputStream();
-    } elseif (self::$output !== null) {
+    } else {
+      self::$output ??= new ConsoleOutput();
       self::openTerminalOutputStream();
     }
   }
@@ -637,16 +638,22 @@ class Console
     'height' => DEFAULT_SCREEN_HEIGHT,
   ]): void
   {
-    $availableSize = self::getAvailableSize();
+    // A buffer-only host owns its declared geometry, without acquiring a physical output device.
+    $availableSize = self::$terminalOutputEnabled ? self::getAvailableSize() : [
+      'width' => $options['width'] ?? DEFAULT_SCREEN_WIDTH,
+      'height' => $options['height'] ?? DEFAULT_SCREEN_HEIGHT,
+    ];
 
     self::$game = $game;
     self::$terminalHandedBack = false;
     Console::cursor()->disableBlinking();
     self::$width = intval($options['width'] ?? $availableSize['width']);
     self::$height = intval($options['height'] ?? $availableSize['height']);
-    self::syncTerminalViewport($availableSize['width'], $availableSize['height'], repaint: false);
-    self::$output = new ConsoleOutput();
-    self::openTerminalOutputStream();
+    if (self::$terminalOutputEnabled) {
+      self::syncTerminalViewport($availableSize['width'], $availableSize['height'], repaint: false);
+      self::$output ??= new ConsoleOutput();
+      self::openTerminalOutputStream();
+    }
     self::clear();
   }
 
@@ -2114,16 +2121,19 @@ class Console
    * @param string $message The message to show.
    * @param string $title The title of the dialog.
    * @param int $width The width of the dialog.
+   * @param string $confirmLabel The confirming button's label, such as "Yes".
+   * @param string $cancelLabel The declining button's label, such as "No".
    * @return bool Whether the user confirmed or not.
    * @throws Exception If the game instance is not set.
    */
-  public static function confirm(string $message, string $title = 'Confirm', int $width = DEFAULT_DIALOG_WIDTH): bool
+  public static function confirm(string $message, string $title = 'Confirm', int $width = DEFAULT_DIALOG_WIDTH,
+    string $confirmLabel = 'OK', string $cancelLabel = 'Cancel'): bool
   {
     if (!self::$game) {
       throw new RuntimeException('The game instance is not set.');
     }
 
-    return ModalManager::getInstance(self::$game)->confirm($message, $title, $width);
+    return ModalManager::getInstance(self::$game)->confirm($message, $title, $width, $confirmLabel, $cancelLabel);
   }
 
   /**

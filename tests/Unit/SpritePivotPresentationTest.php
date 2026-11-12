@@ -14,11 +14,11 @@ use Tests\Support\Input\FakeRendererTransport;
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 
 it('offers sprite pivots only as an optional protocol two capability', function () {
-  $config = new RendererSessionConfig('Pivot', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2);
+  $config = new RendererSessionConfig('Pivot', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2);
   expect($config->getNegotiableCapabilities())->toContain(RendererSessionConfig::SPRITE_PIVOT)
     ->and($config->requiredCapabilities)->toBe([])
-    ->and(new RendererSessionConfig('Legacy', sys_get_temp_dir())->getNegotiableCapabilities())->not->toContain('sprite_pivot')
-    ->and(fn() => new RendererSessionConfig('Legacy', sys_get_temp_dir(), requiredCapabilities: ['sprite_pivot']))
+    ->and(new RendererSessionConfig('Legacy', \getTestTemporaryDirectory())->getNegotiableCapabilities())->not->toContain('sprite_pivot')
+    ->and(fn() => new RendererSessionConfig('Legacy', \getTestTemporaryDirectory(), requiredCapabilities: ['sprite_pivot']))
     ->toThrow(InvalidArgumentException::class);
 });
 
@@ -49,7 +49,7 @@ it('keeps omitted-pivot serialization unchanged and orders images by cells rathe
 
 it('negotiates pivot uploads and clears a replaced pivot without changing the ground cell', function (bool $supported) {
   $debug = new ReflectionClass(Debug::class)->getStaticProperties();
-  $root = sys_get_temp_dir() . '/ichiloto-pivot-wire-' . bin2hex(random_bytes(6));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-pivot-wire-' . bin2hex(random_bytes(6));
   mkdir($root);
   Debug::configure(['log_directory' => $root]);
   try {

@@ -52,7 +52,7 @@ it('retains codepoints without lost whitespace or over-budget rows across narrow
 });
 
 it('measures and paints wrapped labels values and centered commands through the same lines', function () {
-  $theme = new MenuPresentationCatalog(sys_get_temp_dir(), ['schema' => 'ichiloto.menu/1']);
+  $theme = new MenuPresentationCatalog(\getTestTemporaryDirectory(), ['schema' => 'ichiloto.menu/1']);
   $view = new MenuCanvas($theme, 500, 500);
   $layout = new MenuRowLayout(new CanvasRectangle(20, 20, 240, 200), [new MenuRowColumn(5)], 40, 10, 24, true);
   $row = new MenuRow('record', 'Use S-Potion', [new MenuRowValue('Cost now')]);
@@ -80,4 +80,31 @@ it('preserves the opt-in wrapping guard and invalid-width diagnostics', function
   expect(fn() => $layout->lines('Too long', 3))->toThrow(InvalidArgumentException::class)
     ->and(fn() => MenuCanvas::wrap('Text', 0))->toThrow(RuntimeException::class)
     ->and(fn() => MenuTextWrap::lines("\xFF", 5))->toThrow(InvalidArgumentException::class);
+});
+
+it('fits wrapped text into a number of lines and shows any cut with an ellipsis', function () {
+  expect(MenuTextWrap::fitLines('One two three', 7, 2))->toBe(['One two', ' three'])
+    ->and(MenuTextWrap::fitLines('One two three four five', 7, 2))->toBe(['One two', " three\u{2026}"])
+    ->and(MenuTextWrap::fitLines('One two three', 7, 1))->toBe(["One tw\u{2026}"]);
+});
+
+
+it('keeps original paragraph slices and colours in finite graphical pages', function (int $columns, int $rows) {
+  $source = "<info>A complete styled paragraph with words.</info>\n\nAnother paragraph 日本語 cafe\u{0301} stays visible. ";
+  $pages = MenuTextWrap::paginate($source, $columns, $rows);
+  $plain = \Ichiloto\Engine\IO\Console\TerminalText::stripAnsi(\Ichiloto\Engine\IO\Console\TerminalText::formatStyles($source));
+  expect(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi(implode('', $pages)))->toBe($plain);
+  foreach ($pages as $page) {
+    expect(count(new \Ichiloto\Engine\UI\Presentation\MenuTextLayout($page, $columns)->lines))->toBeLessThanOrEqual($rows);
+  }
+})->with([[8, 3], [17, 4], [40, 2]]);
+
+
+it('refuses unreadable pagination inputs and keeps nonbreaking words together across page boundaries', function () {
+  expect(fn() => MenuTextWrap::paginate("\xFF", 10, 2))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => MenuTextWrap::paginate('Text', 0, 2))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => MenuTextWrap::paginate('Text', 10, 0))->toThrow(InvalidArgumentException::class);
+  $pages = MenuTextWrap::paginate("First a\u{00A0}b next.", 5, 1);
+  expect(implode('', $pages))->toBe("First a\u{00A0}b next.")
+    ->and(array_any($pages, fn($page) => str_contains($page, "a\u{00A0}b")))->toBeTrue();
 });

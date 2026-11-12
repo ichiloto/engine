@@ -9,7 +9,9 @@
         "assegaiphp/collections": "^0.3.2",
         "amasiye/figlet": "^1.2.1",
         "assegaiphp/util": "^0.4.3",
-        "voku/portable-ascii": "^2.0"
+        "atatusoft-ltd/plural": "^1.2",
+        "voku/portable-ascii": "^2.0",
+        "symfony/polyfill-intl-grapheme": "^1.33"
     },
     "require-dev": {
         "phpstan/phpstan": "^2.0",

@@ -30,6 +30,12 @@ final class EventExecutionSession
     unset($this->movingSubjects[spl_object_id($subject)]);
   }
 
+  /** Active movement owns its subject's heading until its route releases it. */
+  public function isMovingSubject(object $subject): bool
+  {
+    return isset($this->movingSubjects[spl_object_id($subject)]);
+  }
+
   public function rememberMovementRoute(string $id, MovementRouteRecord $route): void
   {
     if (isset($this->movementRoutes[$id])) {

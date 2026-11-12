@@ -25,9 +25,11 @@ to a string.
 
 ## Spawn data names a heading
 
-Anything that places the player, the starting position in `system.php`,
-`TransferPlayerTrigger`, and `SleepEventTrigger`, takes a `spawnSprite`. Give
-it a **heading name** rather than art:
+The starting position in `system.php` uses `spawnSprite` to set the first
+facing. Map transfers preserve the player's facing by default. Supply
+`spawnSprite` on a `TransferPlayerTrigger` when the arrival deliberately turns
+the player. When a spawn or wake-up sets a facing, give it a **heading name**
+rather than art:
 
 ```php
 'spawnSprite' => [

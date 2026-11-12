@@ -19,6 +19,10 @@ use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
  */
 class BattleConfig implements SceneConfigurationInterface
 {
+  /** The optional world facts belong only to this test battle. */
+  public const string TEST_WORLD_STATE = 'battleTestWorldState';
+  public private(set) ?GameState $testWorldState = null;
+
   protected(set) BattleClassification $classification;
   protected(set) string $entryExecutionId;
   protected(set) ?BattleEntryContext $battleEntryContext = null;
@@ -26,6 +30,52 @@ class BattleConfig implements SceneConfigurationInterface
   protected(set) array $appliedEntryRuleIds = [];
   private bool $hasEvaluatedEntryRules = false;
   private ?BattlePartyRoster $roster = null;
+  private ?\Ichiloto\Engine\Battle\Formation\BattleFormation $formationOwner = null;
+  public \Ichiloto\Engine\Battle\Formation\BattleFormation $formation {
+    get => $this->getFormation();
+  }
+
+  public function getFormation(): \Ichiloto\Engine\Battle\Formation\BattleFormation
+  {
+    $party = $this->partyRoster->battlers;
+    $troop = $this->troop->members->toArray();
+    $partyPositions = $this->readPartyPositions($party);
+    $troopPositions = array_map($this->troop->getBattlePosition(...), $troop);
+    if ($this->formationOwner === null) {
+      return $this->formationOwner = new \Ichiloto\Engine\Battle\Formation\BattleFormation($party, $troop, $partyPositions, $troopPositions);
+    }
+    $this->formationOwner->synchronizeSide('party', $party, $partyPositions);
+    $this->formationOwner->synchronizeSide('troop', $troop, $troopPositions);
+    return $this->formationOwner;
+  }
+
+  private function readPartyPositions(array $party): array
+  {
+    $authored = $this->settings['partyFormation'] ?? [];
+    if (!is_array($authored) || !array_is_list($authored) || count($authored) > Party::MAX_BATTLE_SIZE) {
+      throw new \InvalidArgumentException('partyFormation requires at most eight logical positions or null.');
+    }
+    $positions = array_map(static fn($data) => $data === null ? null
+      : \Ichiloto\Engine\Battle\Formation\BattlePosition::fromArray($data, 'partyFormation'), $authored);
+    return array_map(static fn(int $index) => $positions[$index] ?? null, array_keys($party));
+  }
+
+  /** Configuration validation does not acquire the live battle roster before setup is finished. */
+  private function validateFormation(): void
+  {
+    $party = $this->roster?->battlers ?? $this->party->battlers->toArray();
+    $troop = $this->troop->members->toArray();
+    new \Ichiloto\Engine\Battle\Formation\BattleFormation($party, $troop, $this->readPartyPositions($party),
+      array_map($this->troop->getBattlePosition(...), $troop));
+  }
+  private ?\Ichiloto\Engine\Battle\BattleReactions $reactionOwner = null;
+  public \Ichiloto\Engine\Battle\BattleReactions $reactions {
+    get => $this->getReactions();
+  }
+  public function getReactions(?\Ichiloto\Engine\Battle\Resolution\CombatRandomSource $random = null): \Ichiloto\Engine\Battle\BattleReactions
+  {
+    return $this->reactionOwner ??= new \Ichiloto\Engine\Battle\BattleReactions(random: $random);
+  }
   public BattlePartyRoster $partyRoster {
     get => $this->roster ??= new BattlePartyRoster($this->party, $this->getReservePolicy());
   }
@@ -47,6 +97,14 @@ class BattleConfig implements SceneConfigurationInterface
     ?BattlePartyRoster $partyRoster = null,
   )
   {
+    if (array_key_exists(self::TEST_WORLD_STATE, $this->settings)) {
+      $state = $this->settings[self::TEST_WORLD_STATE];
+      if (!$state instanceof GameState) {
+        throw new \InvalidArgumentException('A battle test world state must be a GameState.');
+      }
+      $this->testWorldState = $state;
+      unset($this->settings[self::TEST_WORLD_STATE]);
+    }
     $this->classification = $classification ?? $troop->classification;
     $policy = $this->getReservePolicy();
     if ($partyRoster !== null && ($partyRoster->party !== $party || $partyRoster->policy !== $policy)) {
@@ -55,6 +113,7 @@ class BattleConfig implements SceneConfigurationInterface
     $this->roster = $partyRoster;
     $entryExecutionId = is_string($entryExecutionId) ? trim($entryExecutionId) : '';
     $this->entryExecutionId = $entryExecutionId !== '' ? $entryExecutionId : bin2hex(random_bytes(16));
+    $this->validateFormation();
   }
 
   public function entryContext(GameState $worldState): BattleEntryContext
@@ -190,6 +249,11 @@ class BattleConfig implements SceneConfigurationInterface
         'hasEvaluatedEntryRules',
         'roster',
         'partyRoster',
+        'reactionOwner',
+        'reactions',
+        'formationOwner',
+        'formation',
+        'testWorldState',
       ], true)) {
         continue;
       }
@@ -199,6 +263,7 @@ class BattleConfig implements SceneConfigurationInterface
       }
     }
 
+    $this->testWorldState = null;
     $this->events = is_array($data['events'] ?? null) ? $data['events'] : [];
     $this->settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
     $this->classification = BattleClassification::resolve(
@@ -212,5 +277,8 @@ class BattleConfig implements SceneConfigurationInterface
     $this->hasEvaluatedEntryRules = false;
     $this->getReservePolicy();
     $this->roster = null;
+    $this->reactionOwner = null;
+    $this->formationOwner = null;
+    $this->validateFormation();
   }
 }

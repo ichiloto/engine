@@ -70,6 +70,8 @@ class EnemyActionState extends TurnState
       $maxPartyLevel,
       $gameState === null ? null : $gameState->getSwitch(...),
       $this->engine->random,
+      $this->engine->battleConfig->formation,
+      $this->engine->battleConfig->reactions->responseWindows,
     );
   }
 }

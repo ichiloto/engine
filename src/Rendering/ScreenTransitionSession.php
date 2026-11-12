@@ -37,6 +37,7 @@ final class ScreenTransitionSession
     ?callable $cleanup = null,
     private bool $enabled = true,
     private bool $revealing = false,
+    private bool $graphicalOnly = false,
   )
   {
     if ($transition instanceof ScreenTransitionTreatment) {
@@ -49,7 +50,7 @@ final class ScreenTransitionSession
       $this->cleanup = Closure::fromCallable($cleanup);
       return;
     }
-    if (! $transition->isEnabled() || $frames === []) {
+    if (!$transition->isEnabled() || (!$graphicalOnly && $frames === [])) {
       $this->isComplete = true;
     }
   }
@@ -72,6 +73,11 @@ final class ScreenTransitionSession
     $deltaSeconds = max(0.0, $deltaSeconds);
     $duration = $this->transition->durationMs / 1000;
     $this->traversalElapsed = min($duration, $this->traversalElapsed + min($duration, $deltaSeconds));
+    if ($this->graphicalOnly) {
+      $this->isComplete = $this->traversalElapsed + PHP_FLOAT_EPSILON >= $duration;
+      return $this->isComplete;
+    }
+
     $this->elapsed += $deltaSeconds;
     $frameSeconds = max(0.001, ($this->transition->durationMs / 1000) / count($this->frames));
 
@@ -113,7 +119,7 @@ final class ScreenTransitionSession
   public function getPresentationCanvas(int $width, int $height): ?PresentationCanvas
   {
     if (!$this->transition instanceof ScreenTransition || !$this->transition->isEnabled()
-      || $this->frames === [] || $this->phase === ScreenTransitionPhase::CANCELLED) {
+      || (!$this->graphicalOnly && $this->frames === []) || $this->phase === ScreenTransitionPhase::CANCELLED) {
       return null;
     }
     $progress = $this->traversalElapsed / ($this->transition->durationMs / 1000);

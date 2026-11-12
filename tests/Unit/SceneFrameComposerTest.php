@@ -74,6 +74,7 @@ final class CompositionSceneProbe extends GameScene implements WorldCanvasProvid
   public ?string $followId = 'actor';
   public array $screenIds = ['screen-effect'];
   public bool $invalidMembership = false;
+  public ?\Ichiloto\Engine\Rendering\Presentation\PresentationCameraMotion $cameraMotion = null;
   private array $textMembers = [];
   public function __construct(public RendererGridConfig $grid, UIManager $ui)
   {
@@ -103,7 +104,7 @@ final class CompositionSceneProbe extends GameScene implements WorldCanvasProvid
     }
     $viewport = $this->world === null ? null : new FieldViewport($this->grid)->createViewport(array_values($this->textMembers),
       $sprites, $tiles, $this->world->id, $this->camera->getWorldOrigin(), $this->tileFrame,
-      $this->followId, $this->screenIds);
+      $this->followId, $this->screenIds, cameraMotion: $this->cameraMotion);
     return $this->invalidMembership ? new PresentationViewport(1, 0, 0, $viewport->clipRect,
       spriteIds: ['not-in-frame']) : $viewport;
   }
@@ -164,7 +165,7 @@ beforeEach(function () {
     new CompositionScreenSpriteProbe('screen-effect', new Vector2(1, 1), $definition),
     new CompositionSpriteProbe('terminal-only', new Vector2(6, 3), null)];
   $this->text = array_map(static fn($id) => new PresentationTextLayer($id,
-    str_starts_with($id, 'ui:') ? 1000 : 1, [new PresentationTextRun(0, 0, '.')]),
+    str_starts_with($id, 'ui:') ? \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI : 1, [new PresentationTextRun(0, 0, '.')]),
     ['map:terrain', 'actor', 'edge', 'screen-effect', 'terminal-only', 'ui:dialogue']);
   $this->captures = [];
   $this->capture = function (array $excluded, array $worldLayers): ConsolePresentationSnapshot {
@@ -181,7 +182,7 @@ afterEach(function () {
   }
 });
 
-it('shares Camera projection and map identity while retaining field-edge and screen-pinned sprites', function () {
+it('shares Camera projection and map identity while retaining field-edge and screen-pinned sprites in place of their terminal glyphs', function () {
   $camera = $this->scene->camera->captureState();
   $frame = $this->composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture);
   $actor = array_find($frame->sprites, fn($sprite) => $sprite->id === 'actor');
@@ -193,9 +194,9 @@ it('shares Camera projection and map identity while retaining field-edge and scr
     ->and($frame->world)->toBe($this->scene->world)
     ->and($frame->viewport->worldOriginX)->toBe(3)->and($frame->viewport->worldOriginY)->toBe(2)
     ->and($frame->viewport->spriteIds)->toBe(['actor', 'edge'])->and($frame->viewport->follow->spriteId)->toBe('actor')
-    ->and($frame->viewport->tileFrame)->toBe(7)->and($this->captures[0][0])->toBe(['actor', 'screen-effect'])
+    ->and($frame->viewport->tileFrame)->toBe(7)->and($this->captures[0][0])->toBe(['actor', 'edge', 'screen-effect'])
     ->and($this->captures[0][1])->toBe($frame->world->textLayerIds)
-    ->and(array_column($frame->snapshot->textLayers, 'id'))->toBe(['edge', 'terminal-only', 'ui:dialogue'])
+    ->and(array_column($frame->snapshot->textLayers, 'id'))->toBe(['terminal-only', 'ui:dialogue'])
     ->and($this->scene->camera->captureState())->toEqual($camera);
   $this->actor->definition = GraphicalSpriteDefinition::fromArray(['asset' => 'Other/Replacement.png', 'layer' => 10]);
   $replacement = $this->composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture);
@@ -220,7 +221,7 @@ it('collects an isolated layered field through the production Console capture bo
     Console::withLayer('map:terrain', fn() => Console::write('....', 0, 0));
     Console::withLayer('actor', fn() => Console::write('A', 4, 2), 100);
     Console::withLayer('terminal-only', fn() => Console::write('T', 3, 1), 100);
-    Console::withLayer('ui:dialogue', fn() => Console::write('Speak', 0, 3), 1000);
+    Console::withLayer('ui:dialogue', fn() => Console::write('Speak', 0, 3), \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
   };
   $frame = $this->composer->composeFrame($this->scene, $this->grid, fn($capability) => true,
     fn(array $excluded, array $worldLayers) => Console::capturePresentation($this->grid->columns,
@@ -241,7 +242,7 @@ it('composes full preview snapshots without consuming runtime text deltas or acq
   Console::setLayerTracking(true);
   Console::syncDimensions(8, 4);
   Console::getRetainedPresentationChanges(reset: true);
-  Console::withLayer('runtime-only', fn() => Console::write('LIVE', 0, 0), 1000);
+  Console::withLayer('runtime-only', fn() => Console::write('LIVE', 0, 0), \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
   $cursor = new ReflectionProperty(Console::class, 'retainedPresentation')->getValue();
   $input = InputManager::getInputSource();
   $frame = $this->composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture);
@@ -278,7 +279,7 @@ it('prepares the same retained field from full snapshots and reset changes witho
   $actorPut = array_find($wire['operations'], fn($operation) => $operation['op'] === 'put'
     && $operation['kind'] === 'sprite' && $operation['id'] === 'actor');
   expect($worldPut['id'])->toBe($full->world->id)
-    ->and(array_column($wire['operations'], 'op'))->toContain('worldRows')
+    ->and(array_any($wire['operations'], fn($operation) => in_array($operation['op'], ['worldRows', 'worldRowRuns'], true)))->toBeTrue()
     ->and($actorPut['value']['sourceRect'])->toBe($this->actor->definition->sourceRect->toArray())
     ->and($actorPut['value']['motion'])->toBe($this->actor->motion->toArray());
   $preview->acknowledge(1, true);
@@ -376,10 +377,10 @@ it('resynchronizes runtime text after composition validation fails and leaves or
     $this->root, cellWidth: 48, cellHeight: 48), $transport);
   try {
     $runtime->start('Synthetic runtime', 8, 4);
-    Console::withLayer('ui:kept', fn() => Console::write('BEFORE', 0, 0), 1000);
+    Console::withLayer('ui:kept', fn() => Console::write('BEFORE', 0, 0), \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
     expect($runtime->present($this->scene))->toBeTrue()->and($runtime->present($this->scene))->toBeFalse()
       ->and($this->scene->refreshes)->toBe(0);
-    Console::withLayer('ui:kept', fn() => Console::write('AFTER!', 0, 0), 1000);
+    Console::withLayer('ui:kept', fn() => Console::write('AFTER!', 0, 0), \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
     $this->scene->invalidMembership = true;
     expect(fn() => $runtime->present($this->scene))->toThrow(InvalidArgumentException::class)
       ->and($transport->sent)->toHaveCount(1);
@@ -398,7 +399,7 @@ it('rejects mixed replacement and field ownership and invalid field layering ins
   expect(fn() => new SceneFrameComposition(null))->toThrow(InvalidArgumentException::class)
     ->and(fn() => new SceneFrameComposition(null, world: $this->scene->world, canvas: new PresentationCanvas(384, 192)))
       ->toThrow(InvalidArgumentException::class);
-  $this->actor->definition = GraphicalSpriteDefinition::fromArray(['asset' => 'Replaceable/Actor.png', 'layer' => 1000]);
+  $this->actor->definition = GraphicalSpriteDefinition::fromArray(['asset' => 'Replaceable/Actor.png', 'layer' => \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI]);
   expect(fn() => $this->composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture))
     ->toThrow(InvalidArgumentException::class);
 });
@@ -481,4 +482,61 @@ it('applies an explicit graphical layer suppression when its overlay intentional
   $terminal=$this->composer->composeFrame($this->scene,$this->grid,fn()=>false,$this->capture);
   expect($this->captures[0][0])->not->toContain('cinematic-cover')
     ->and(array_column($terminal->snapshot->textLayers,'id'))->toContain('cinematic-cover');
+});
+
+it('reports dialogue and modals it cannot theme instead of leaving them in Terminal cells silently', function (?array $catalogue, string $report) {
+  if ($catalogue !== null) {
+    mkdir($this->root . '/Data/Presentation', 0700, true);
+    file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export($catalogue, true) . ';');
+  }
+  $owner = $this->getStubBuilder(TextBoxModal::class)->disableOriginalConstructor()
+    ->onlyMethods(['getDialogueSnapshot'])->getStub();
+  $owner->method('getDialogueSnapshot')->willReturn(new DialogueSnapshot('Synthetic speaker', 'Synthetic page.',
+    'Synthetic page.', false, 0, 1, false, WindowPosition::BOTTOM, new DialogueContext()));
+  $ui = $this->getStubBuilder(UIManager::class)->disableOriginalConstructor()
+    ->onlyMethods(['getActivePresentations'])->getStub();
+  $ui->method('getActivePresentations')->willReturn([$owner]);
+  new ReflectionProperty(GameScene::class, 'uiManager')->setValue($this->scene, $ui);
+  $this->grid = $this->scene->grid = new RendererGridConfig(80, 30, 16, 24);
+  $composer = new SceneFrameComposer($this->root);
+  $first = $composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture);
+  $composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture);
+  // The owner keeps its Terminal cells, and the fallback is logged once.
+  expect($first->canvas)->toBeNull()
+    ->and($this->captures[0][0])->not->toContain('ui:' . spl_object_id($owner))
+    ->and(substr_count(file_get_contents($this->root . '/warning.log'), $report))->toBe(1);
+})->with([
+  'without a catalogue' => [null, 'no dialogue presentation catalogue'],
+  'with a catalogue that has no theme' => [['schema' => 'ichiloto.dialogue/1'], 'catalogue has no theme'],
+]);
+
+
+it('adapts explicit camera motion independently and preserves world-canvas membership', function () {
+  $motion = new \Ichiloto\Engine\Rendering\Presentation\PresentationCameraMotion('framing', .2);
+  $this->scene->cameraMotion = $motion;
+  $this->scene->groups = [new PresentationWorldCanvas('sign', 7, 4,
+    new PresentationSpritePivot(.5, 1), new PresentationCanvas(48, 24), 10)->createProjected(3, 2)];
+  $supported = $this->composer->composeFrame($this->scene, $this->grid,
+    fn($feature) => $feature !== RendererSessionConfig::FIELD_MOTION, $this->capture);
+  expect($supported->viewport->cameraMotion)->toBe($motion)->and($supported->viewport->follow)->toBeNull()
+    ->and($supported->viewport->worldCanvasIds)->toBe(['sign']);
+  $unsupported = $this->composer->composeFrame($this->scene, $this->grid,
+    fn($feature) => $feature !== RendererSessionConfig::CAMERA_MOTION, $this->capture);
+  expect($unsupported->viewport->cameraMotion)->toBeNull()->and($unsupported->viewport->follow)->not->toBeNull()
+    ->and($unsupported->viewport->worldOriginX)->toBe($supported->viewport->worldOriginX)
+    ->and($unsupported->viewport->worldCanvasIds)->toBe(['sign']);
+
+  $store = \Ichiloto\Engine\Util\Config\ConfigStore::class;
+  $configClass = \Ichiloto\Engine\Util\Config\ProjectConfig::class;
+  $prior = $store::has($configClass) ? $store::get($configClass) : null;
+  try {
+    $store::put($configClass, new class extends \Ichiloto\Engine\Util\Config\ProjectConfig {
+      protected function load(): array { return ['accessibility' => ['reducedMotion' => true]]; }
+    });
+    $reduced = $this->composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture);
+    expect($reduced->viewport->cameraMotion)->toBeNull()->and($reduced->viewport->worldCanvasIds)->toBe(['sign']);
+  } finally {
+    if ($prior === null) { $store::remove($configClass); }
+    else { $store::put($configClass, $prior); }
+  }
 });

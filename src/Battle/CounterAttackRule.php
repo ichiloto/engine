@@ -47,6 +47,7 @@ final readonly class CounterAttackRule
       || !in_array($skill->occasion, [Occasion::ALWAYS, Occasion::BATTLE_SCREEN], true)
       || $skill->scope->side !== ItemScopeSide::ENEMY
       || $skill->scope->number !== ItemScopeNumber::ONE
+      || ($skill->battleTargeting !== null && $skill->battleTargeting->shape !== \Ichiloto\Engine\Battle\Formation\BattleTargetShape::SCOPE)
       || $skill->scope->status !== ItemScopeStatus::ALIVE
       || ($skill->scope->targetCount !== null && $skill->scope->targetCount !== 1)
       || $skill->cost < 0 || $skill->requiredWeapons !== []

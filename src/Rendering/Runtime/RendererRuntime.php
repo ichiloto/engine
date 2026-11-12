@@ -7,12 +7,16 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePageLayout;
+use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
+use Ichiloto\Engine\UI\Modal\StorybookReadingCapacity;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\SceneFrameComposer;
+use Ichiloto\Engine\Rendering\Presentation\SceneFrameReadinessInterface;
+use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\Presentation\RetainedFrame;
 use Ichiloto\Engine\Rendering\ScreenTransitionPhase;
@@ -46,12 +50,16 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
   private bool $closed = false;
   private bool $closeRequested = false;
   private bool $resetText = true;
+  private ?string $lastFrameRejection = null;
+  private int $repeatedFrameRejections = 0;
   private ?ScreenTransitionTreatment $handoffTreatment = null;
   private ?RetainedFrame $handoffFrame = null;
   private ?RetainedFrame $sceneFrame = null;
   private ScreenTransitionPhase $handoffPhase = ScreenTransitionPhase::GATHER;
   private float $handoffProgress = 0;
   public private(set) bool $windowActive = true;
+  /** The world of the newest frame the renderer window has shown; null before one, or without a session. */
+  public ?PresentationWorld $presentedWorld { get => $this->presentation?->presentedWorld; }
   public private(set) ?RendererGridConfig $grid = null;
 
   public function __construct(private readonly RendererRuntimeConfig $config, ?RendererTransportInterface $transport = null)
@@ -94,6 +102,7 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     if (!$this->started || $this->closed || $this->session === null) {
       throw new LogicException('Renderer restart requires an active runtime.');
     }
+    $this->flushFrameRejectionWarnings();
     try { $this->client->shutdown(); }
     catch (RendererTransportException $error) {
       if ($this->client->isRunning()) { throw $error; }
@@ -115,13 +124,35 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
 
   public function pump(): void
   {
+    $this->serviceTraffic();
+  }
+
+  /** Feed a staged world from idle frame time, using the same ordered event consumer and write limits. */
+  public function serviceWorldDeliveryUntil(int $deadline): void
+  {
+    while ($this->presentation?->hasPendingWorldDelivery() === true && $deadline - hrtime(true) >= 1_000_000) {
+      $this->pump();
+      if ($deadline - hrtime(true) < 1_000_000 || !$this->presentation->hasPendingWorldDelivery()) { return; }
+      if (!$this->presentation->continueWorldUpload($deadline)) {
+        $wait = min(2_000_000, $deadline - hrtime(true));
+        if ($wait > 0) { $this->serviceTraffic($wait / 1_000_000_000); }
+      }
+    }
+  }
+
+  private function serviceTraffic(float $waitSeconds = 0.0): void
+  {
     if ($this->closeRequested) {
       throw new RendererWindowClosed('Renderer window closed.');
     }
     if (!$this->started || $this->closed) {
       return;
     }
-    $this->client->pump();
+    if ($waitSeconds > 0.0) {
+      $this->client->waitForTraffic($waitSeconds);
+    } else {
+      $this->client->pump();
+    }
     $invalidate = false;
     $expectedGeneration = null;
     foreach ($this->client->drainEvents() as $event) {
@@ -133,13 +164,14 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
         LatencyTrace::record('presentation.frame.rejected', ['generation' => $event->generation,
           'expected_generation' => $event->expectedGeneration, 'resync_required' => $event->resyncRequired,
           'message' => $event->message]);
-        Debug::warn('Renderer rejected a presentation update: ' . $event->message . '. Retained state will be resynchronized.');
+        $this->recordFrameRejectionWarning($event->message);
         $invalidate = true;
         $expectedGeneration = max($expectedGeneration ?? 0, $event->expectedGeneration ?? 0);
       } elseif ($event->type === RendererEventType::RESIZED) {
         $invalidate = true;
       } elseif ($event->type === RendererEventType::FRAME_ACK) {
         $this->presentation?->acknowledge($event->generation, $event->presented);
+        if ($event->presented === true) { $this->flushFrameRejectionWarnings(); }
         LatencyTrace::record('presentation.frame.acknowledged', ['generation' => $event->generation,
           'frame' => $event->frame, 'presented' => $event->presented]);
       } elseif ($event->type === RendererEventType::ERROR) {
@@ -154,6 +186,28 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     if ($this->closeRequested) {
       throw new RendererWindowClosed('Renderer window closed.');
     }
+  }
+
+  /** Coalesce diagnostic writes only; every rejection still drives trace and retained-state recovery. */
+  private function recordFrameRejectionWarning(?string $message): void
+  {
+    if ($this->lastFrameRejection !== null && $this->lastFrameRejection === $message) {
+      $this->repeatedFrameRejections++;
+      return;
+    }
+    $this->flushFrameRejectionWarnings();
+    Debug::warn('Renderer rejected a presentation update: ' . $message . '. Retained state will be resynchronized.');
+    $this->lastFrameRejection = $message;
+  }
+
+  private function flushFrameRejectionWarnings(): void
+  {
+    if ($this->repeatedFrameRejections > 0) {
+      Debug::warn('Renderer presentation rejection repeated ' . $this->repeatedFrameRejections
+        . ' additional times: ' . $this->lastFrameRejection . '.');
+    }
+    $this->lastFrameRejection = null;
+    $this->repeatedFrameRejections = 0;
   }
 
   public function getTextPreparationSession(): ?object
@@ -177,6 +231,12 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
 
   public function present(?SceneInterface $scene, ?NotificationManager $notifications = null): bool
   {
+    return \Ichiloto\Engine\Rendering\Presentation\PresentationSession::runForSession(
+      $this->supports(...), fn() => $this->presentSession($scene, $notifications));
+  }
+
+  private function presentSession(?SceneInterface $scene, ?NotificationManager $notifications): bool
+  {
     if ($notifications !== null) { $this->setNotificationManager($notifications); }
     $notifications ??= $this->notificationManager;
     $started = LatencyTrace::getTimeNow();
@@ -184,6 +244,10 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     $this->pump();
     if ($this->presentation === null || $this->closed) {
       throw new LogicException('Renderer presentation requires an active session.');
+    }
+    if ($scene instanceof SceneFrameReadinessInterface && !$scene->canPresentSceneFrame()) {
+      LatencyTrace::end('presentation.end', $started, ['changed' => false]);
+      return false;
     }
     if ($scene instanceof CanvasOverlayProviderInterface && $this->supports(RendererSessionConfig::CANVAS_OVERLAY)) {
       $overlayStarted = LatencyTrace::getTimeNow();
@@ -200,7 +264,7 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
       $compositionStarted = LatencyTrace::getTimeNow();
       $composition = $this->frameComposer->composeFrame($scene, $this->grid, $this->supports(...),
         fn(array $excluded, array $worldLayers) => Console::getRetainedPresentationChanges($excluded, $this->resetText, $worldLayers),
-        $notifications, refreshOverlay: false);
+        $notifications, refreshOverlay: false, textPreparation: $this);
       LatencyTrace::end('presentation.compose', $compositionStarted);
       $this->resetText = $composition->snapshot === null;
       $prepareStarted = LatencyTrace::getTimeNow();
@@ -288,11 +352,27 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     return $this->frameComposer->getDialoguePageLayout($speaker, $context, $help, $width);
   }
 
+  /**
+   * Negotiate a storybook's prose area before the shared reader opens; the renderer never pages narration.
+   * A host passes the logical surface its modals compose over (a battle's arena canvas); the field grid otherwise.
+   * Null when no themed graphical projection draws the reader, so the Terminal reader alone sets capacity.
+   */
+  public function getStorybookReadingCapacity(StorybookDefinition $book, ?int $width = null, ?int $height = null): ?StorybookReadingCapacity
+  {
+    if ($this->grid === null || !$this->supports(RendererSessionConfig::GRAPHICAL_CANVAS)
+      || !$this->supports(RendererSessionConfig::CANVAS_CLIP_OPACITY) || !$this->supports(RendererSessionConfig::SPRITE_SOURCE_RECT)) {
+      return null;
+    }
+    return $this->frameComposer->getStorybookReadingCapacity($book, $width ?? $this->grid->columns * $this->grid->cellWidth,
+      $height ?? $this->grid->rows * $this->grid->cellHeight);
+  }
+
   public function shutdown(): ?int
   {
     if ($this->closed) {
       return $this->transport->getExitCode();
     }
+    $this->flushFrameRejectionWarnings();
     $this->closed = true;
     $this->endScreenHandoff();
     if (!$this->started) {

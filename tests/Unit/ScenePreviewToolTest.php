@@ -14,7 +14,7 @@ function runScenePreviewTool(array $arguments = [], ?string $peerScenario = null
     string $fixtureName = 'ScenePreview.php', ?string $startupInput = null, bool $closeStartupInput = true,
     bool $terminalOnly = false): array
 {
-    $directory = sys_get_temp_dir() . '/scene-preview-' . bin2hex(random_bytes(6));
+    $directory = \getTestTemporaryDirectory() . '/scene-preview-' . bin2hex(random_bytes(6));
     mkdir($directory);
     $process = null;
     try {
@@ -27,7 +27,7 @@ function runScenePreviewTool(array $arguments = [], ?string $peerScenario = null
                 . var_export($peerScenario, true) . ", __DIR__ . '/wire.jsonl'];\nrequire $stub;\n");
             chmod($peer, 0700);
             $mode = ['--renderer=' . $peer];
-            if (!in_array($peerScenario, ['dialogue_preview', 'scene_preview_start_key'], true)) {
+            if (!in_array($peerScenario, ['dialogue_preview', 'scene_preview_start_key', 'scene_preview_close'], true)) {
                 $factory = var_export($fixturePath, true);
                 $fixturePath = $directory . '/fixture.php';
                 file_put_contents($fixturePath, "<?php\n\$factory = require $factory;\n"
@@ -218,9 +218,10 @@ it('never claims acceptance after a clock, completion, verification or cleanup f
 ]);
 
 it('shuts down its owned peer when the window closes before completion', function () {
-    $result = runScenePreviewTool([], 'close_wait');
+    $result = runScenePreviewTool([], 'scene_preview_close');
     expect($result['exit'])->toBe(1)->and($result['stdout'])->toBe('')->and($result['stderr'])->toContain('Renderer window closed')
-        ->and($result['cleanup']['stops'])->toBe(1);
+        ->and($result['cleanup']['stops'])->toBe(1)
+        ->and(array_column($result['wire'], 'type'))->toContain('frame');
 });
 
 it('refuses empty, duplicate, unknown selections and invalid duration bounds', function (array $arguments, string $message) {

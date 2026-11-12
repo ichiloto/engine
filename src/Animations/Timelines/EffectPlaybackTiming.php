@@ -87,7 +87,7 @@ final class EffectPlaybackTiming
   }
 
   /** Half-open boundaries never put a cue or new crop before its authored time. */
-  public function getFrameBoundary(int $frame, int $outputFps): int
+  public function getFrameBoundary(int|float $frame, int $outputFps): int
   {
     $frames = $this->frameDurationSeconds === null
       ? max(0, $frame) * max(1, $outputFps) / ($this->fps * $this->effectiveSpeed)

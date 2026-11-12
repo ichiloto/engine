@@ -13,7 +13,7 @@ require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 /** Battle art bound as data. Synthetic identities and images only. */
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-bindings-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-bindings-' . bin2hex(random_bytes(6));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   writeTestPng($this->root . '/Graphics/Hero/Idle.png', 50, 100);
   writeTestPng($this->root . '/Graphics/Wisp/Idle.png', 40, 80);
@@ -67,6 +67,18 @@ it('joins the battlers code registers, under the one scale reference', function 
     ->and($catalog->scale->referenceActorId)->toBe('Hero')
     ->and($catalog->scale->getProfile('Wisp', false))->toEqual(new BattlerScale(.5, .8, true))
     ->and($catalog->scale->getProfile('Hero', true))->toEqual(new BattlerScale(1, .75));
+});
+
+it('binds how a battler meets the surface: its elevation, its contact, and art that paints its own shadow', function () {
+  ($this->bind)(['enemies' => ['Wisp' => [...$this->wisp, 'grounding' => ['elevation' => .4, 'contactWidth' => 1.2],
+    'poses' => ['knockout' => ['image' => 'Graphics/Wisp/Attack.png', 'bakedShadow' => true]]],
+    'Ember' => [...$this->wisp, 'grounding' => ['bakedShadow' => true]]]]);
+  $catalog = BattlePresentationCatalog::load($this->root);
+
+  expect($catalog->enemyGrounding['Wisp']->toArray())->toBe(['elevation' => .4, 'contactWidth' => 1.2])
+    ->and($catalog->enemyPoses['Wisp']->getPose(BattlePoseRole::KNOCKOUT)->bakedShadow)->toBeTrue()
+    ->and($catalog->enemyGrounding['Ember']->bakedShadow)->toBeTrue()
+    ->and($catalog->actorGrounding)->toBe([]);
 });
 
 it('loads code ownership separately so unsaved binding edits can be validated without disk mutations', function () {
@@ -124,4 +136,56 @@ it('refuses what it cannot read, naming where in the file', function (array $dat
 it('is absent until a project binds battlers as data', function () {
   expect(BattlerBindings::load($this->root))->toBeNull()
     ->and(array_keys(BattlePresentationCatalog::load($this->root)->actors))->toBe(['Hero']);
+});
+
+
+it('reads an impact playback-entry index strictly through the shared pose binding', function () {
+  $data = ['enemies' => ['Wisp' => $this->wisp]];
+  $data['enemies']['Wisp']['poses']['attack']['impactFrame'] = 2;
+  $binding = BattlerBindings::getFromArray($data, $this->root);
+  expect($binding->enemyPoses['Wisp']->getPose(BattlePoseRole::ATTACK)->impactFrame)->toBe(2);
+  foreach (['2', 4, -1] as $invalid) {
+    $data['enemies']['Wisp']['poses']['attack']['impactFrame'] = $invalid;
+    expect(fn() => BattlerBindings::getFromArray($data, $this->root))->toThrow(InvalidArgumentException::class);
+  }
+});
+
+
+it('loads authored move and separate return sheets through the shared role contract', function () {
+  $pose = ['image' => 'Graphics/Wisp/Attack.png', 'columns' => 4, 'frames' => [0,1,2,3], 'fps' => 12];
+  ($this->bind)(['enemies' => ['Wisp' => [...$this->wisp, 'poses' => [
+    'move' => $pose, 'return' => [...$pose, 'frames' => [3,2,1,0]],
+  ]]]]);
+  $set = BattlePresentationCatalog::load($this->root)->enemyPoses['Wisp'];
+  expect($set->getPose(BattlePoseRole::MOVE)->frames)->toBe([0,1,2,3])
+    ->and($set->getPose(BattlePoseRole::RETURNING)->frames)->toBe([3,2,1,0])
+    ->and($set->getPose(BattlePoseRole::MOVE)->loop)->toBeTrue()
+    ->and($set->getPose(BattlePoseRole::RETURNING)->impactFrame)->toBeNull();
+});
+
+it('loads ordered arrival bands and refuses ambiguous or unusable action registrations', function () {
+  $action = [...$this->wisp['poses']['attack'], 'impactFrame' => 0];
+  $upper = ['minAngle' => -180, 'maxAngle' => -10, 'frames' => [2, 3], 'reach' => ['x' => .7, 'y' => -.3],
+    'pivot' => ['x' => .45, 'y' => .9]];
+  $level = ['minAngle' => -10, 'maxAngle' => 180, 'frames' => [0, 1], 'reach' => ['x' => .6, 'y' => -.1]];
+  $load = fn(array $data) => BattlerBindings::getFromArray(
+    ['enemies' => ['Wisp' => [...$this->wisp, 'actionPoses' => [1 => $data]]]], $this->root)
+      ->enemyPoses['Wisp']->getAnimationPose(1);
+  $pose = $load([...$action, 'arrivalPoses' => [$upper, $level]]);
+  expect($pose->selectArrivalPose(-180)->frames)->toBe([2, 3])
+    ->and($pose->selectArrivalPose(-10.001)->pivot?->x)->toBe(.45)
+    ->and($pose->selectArrivalPose(-10)->frames)->toBe([0, 1])
+    ->and($pose->selectArrivalPose(180)->reach->y)->toBe(-.1);
+  foreach ([
+    [$upper, [...$level, 'minAngle' => -9]],
+    [$upper, [...$level, 'minAngle' => -11]],
+    [$upper, [...$level, 'maxAngle' => 90]],
+    [$upper, [...$level, 'frames' => [4]]],
+    [$level, $upper],
+  ] as $invalid) {
+    expect(fn() => $load([...$action, 'arrivalPoses' => $invalid]))->toThrow(InvalidArgumentException::class);
+  }
+  expect(fn() => $load([...$action, 'arrivalPoses' => [$upper, $level],
+    'farPose' => ['minDistance' => .7, 'frames' => [2], 'reach' => ['x' => .7, 'y' => -.1]]]))
+    ->toThrow(InvalidArgumentException::class, 'only angle selection');
 });

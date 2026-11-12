@@ -8,24 +8,26 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\UI\Text\TextPage;
 use Ichiloto\Engine\UI\Text\MenuInfoText;
+use Ichiloto\Engine\Progression\TutorialStep;
 use RuntimeException;
 
 /** Summon contracts use the shared menu frames, records, text viewport and semantic hints. */
 final class SummonsMenuPresentation
 {
-  /** @return array{int, int} Owner uses the same finite detail viewport for semantic scrolling. */
-  public static function getDetailPageSize(SummonsMenuContent $content, MenuPresentationCatalog $theme,
-    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): array
+  /** The owner pages Info through this same finite viewport for semantic scrolling. */
+  public static function getDetailViewport(SummonsMenuContent $content, MenuPresentationCatalog $theme,
+    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): MenuDetailViewport
   {
     $body = self::getGeometry($content, $theme, $width, $height)['body'];
     $m = $theme->metrics;
-    return [(int)floor(($body->width - 2 * $m->panelPadding) / $m->cellWidth),
-      (int)floor(($body->height - 2 * $m->panelPadding) / $m->cellHeight)];
+    return new MenuDetailViewport((int)floor(($body->width - 2 * $m->panelPadding) / $m->cellWidth),
+      (int)floor($body->height - 2 * $m->panelPadding), $m->cellHeight);
   }
 
   public static function compose(SummonsMenuContent $content, MenuPresentationCatalog $theme, ?TextPage $page,
     ?MenuInfoText $infoModel = null, float $time = 0,
-    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): PresentationCanvas
+    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT,
+    ?TutorialStep $tutorial = null, ?string $tutorialRow = null, ?string $tutorialSpeaker = null): PresentationCanvas
   {
     $g = self::getGeometry($content, $theme, $width, $height);
     $m = $theme->metrics;
@@ -33,18 +35,19 @@ final class SummonsMenuPresentation
     $view = new MenuCanvas($theme, $width, $height, $time);
     $view->frame('summons-summary', $g['summary']);
     $view->prose('summons-title', $content->title, $g['title'], 'accent');
-    $view->prose('summons-character', implode("\n", $content->summary), $g['identity']);
+    $view->prose('summons-character', implode("\n", $content->summary), $g['identity'], 'muted');
     if ($g['portrait'] !== null && $content->character !== null) { $view->portrait($content->character->actorId, $g['portrait'], 'summons-portrait'); }
     $view->frame('summons-contracts', $g['body']);
     $body = new CanvasRectangle($g['body']->x + $p, $g['body']->y + $p,
       $g['body']->width - 2 * $p, $g['body']->height - 2 * $p);
+    $target = null;
     if ($content->detailsOpen) {
-      [$columns, $rows] = self::getDetailPageSize($content, $theme, $width, $height);
-      if ($page === null || $page->columns !== $columns || $page->rows !== $rows) {
+      $area = self::getDetailViewport($content, $theme, $width, $height);
+      if ($page === null || $content->details === null || $page->columns !== $area->columns) {
         throw new RuntimeException('Summon contract page must match its measured viewport.');
       }
-      $view->prose('summons-detail', implode("\n", $page->lines), $body);
-      if ($page->total > $page->rows) {
+      $view->details('summons-detail', $content->details->layout($area->columns, $theme->createDetailStyle(), $area), $page, $body);
+      if ($page->total > count($page->lines)) {
         $view->renderBorderCaption('summons-detail-range', $page->range(),
           new CanvasRectangle($body->x, $g['body']->y + $g['body']->height - $p, $body->width, $p));
       }
@@ -53,15 +56,16 @@ final class SummonsMenuPresentation
     } else {
       $cells = (int)floor(($body->width - 2 * $theme->rows->metrics->padding) / $m->cellWidth);
       $valueWidth = max(1, (int)floor($cells / 4));
-      $view->rows('summons-entry', $content->rows,
+      $target = $view->rows('summons-entry', $content->rows,
         new MenuRowLayout($body, [new MenuRowColumn($valueWidth), new MenuRowColumn($valueWidth)],
-          $m->rowHeight, $m->cellWidth, $m->cellHeight, true), $content->index);
+          $m->rowHeight, $m->cellWidth, $m->cellHeight, true), $content->index, $tutorialRow);
     }
     $view->frame('summons-info', $g['info'], 'quiet');
     MenuInfoPanel::renderContent($view, 'summons', $g['description'], $content->description, $content->status,
       infoModel: $infoModel,
       rangeBounds: new CanvasRectangle($g['description']->x, $g['info']->y + $g['info']->height - $p, $body->width, $p));
     if ($g['hints'] !== null) { $view->hints('summons-hints', $content->hints, $g['hints']); }
+    $view->renderTutorialSpotlight($tutorial, $target, $tutorialSpeaker);
     return $view->finish();
   }
 

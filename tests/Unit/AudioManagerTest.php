@@ -1,6 +1,8 @@
 <?php
 
 use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Audio\Enumerations\AudioBus;
+use Ichiloto\Engine\Audio\Enumerations\CountKind;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Audio\AudioPlayback;
 use Ichiloto\Engine\Audio\CinematicMusicRequest;
@@ -16,212 +18,6 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 
-/**
- * A ProjectConfig stand-in backed by a plain array.
- */
-class AudioArrayConfigStub implements ConfigInterface
-{
-  public function __construct(private array $values = [])
-  {
-  }
-
-  public function get(string $path, mixed $default = null): mixed
-  {
-    $segments = explode('.', $path);
-    $value = $this->values;
-
-    foreach ($segments as $segment) {
-      if (! is_array($value) || ! array_key_exists($segment, $value)) {
-        return $default;
-      }
-
-      $value = $value[$segment];
-    }
-
-    return $value;
-  }
-
-  public function set(string $path, mixed $value): void
-  {
-    $segments = explode('.', $path);
-    $target = &$this->values;
-
-    foreach ($segments as $segment) {
-      if (! isset($target[$segment]) || ! is_array($target[$segment])) {
-        $target[$segment] = [];
-      }
-
-      $target = &$target[$segment];
-    }
-
-    $target = $value;
-  }
-
-  public function has(string $path): bool
-  {
-    $sentinel = new stdClass();
-
-    return $this->get($path, $sentinel) !== $sentinel;
-  }
-
-  public function persist(): void
-  {
-  }
-}
-
-/**
- * A backend that accepts every file and records nothing platform-specific.
- */
-class FakeAudioBackend implements AudioBackendInterface
-{
-  public function __construct(
-    private array $extensions = ['ogg', 'wav', 'mp3'],
-    private bool $loopsNatively = true,
-    private bool $seekable = false
-  )
-  {
-  }
-
-  public function getExecutableName(): string
-  {
-    return 'fake-player';
-  }
-
-  public function isAvailable(): bool
-  {
-    return true;
-  }
-
-  public function supportsNativeLooping(): bool
-  {
-    return $this->loopsNatively;
-  }
-
-  public function supports(string $filePath): bool
-  {
-    $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
-
-    return in_array($extension, $this->extensions, true);
-  }
-
-  public function supportsSeeking(): bool
-  {
-    return $this->seekable;
-  }
-
-  public function buildCommand(string $filePath, float $volume, bool $loop, float $startAtSeconds = 0.0): array
-  {
-    $command = ['fake-player', sprintf('%.2F', $volume), $loop ? 'loop' : 'once'];
-
-    if ($startAtSeconds > 0) {
-      $command[] = sprintf('start=%.2F', $startAtSeconds);
-    }
-
-    $command[] = $filePath;
-
-    return $command;
-  }
-}
-
-/**
- * An AudioManager whose backends are injected and whose spawns are recorded
- * instead of launching real audio players.
- */
-class TestableAudioManager extends AudioManager
-{
-  /**
-   * @var array<int, string[]> Every argv list passed to spawn().
-   */
-  public array $spawnedCommands = [];
-
-  /**
-   * @var float|null The track duration reported instead of probing ffprobe.
-   */
-  public ?float $fakeTrackDuration = null;
-
-  /**
-   * Rewinds the current playback's spawn timestamp so elapsed-position logic
-   * can be exercised without sleeping in tests.
-   */
-  public function pretendBgmHasPlayedFor(float $seconds): void
-  {
-    $this->bgmStartedAt = microtime(true) - $seconds;
-  }
-
-  protected function probeTrackDuration(?string $filePath): ?float
-  {
-    return $this->fakeTrackDuration;
-  }
-
-  /**
-   * @var AudioPlayback[] Every playback handle returned by spawn().
-   */
-  public array $spawnedPlaybacks = [];
-
-  /**
-   * @param AudioBackendInterface[] $testBackends
-   */
-  public function __construct(Game $game, protected array $testBackends)
-  {
-    parent::__construct($game);
-  }
-
-  protected function createBackends(): array
-  {
-    return $this->testBackends;
-  }
-
-  protected function spawn(array $command): ?AudioPlayback
-  {
-    $this->spawnedCommands[] = $command;
-
-    // A real, harmless process so handle bookkeeping is exercised for real.
-    $playback = AudioPlayback::start(['sleep', '30']);
-
-    if ($playback !== null) {
-      $this->spawnedPlaybacks[] = $playback;
-    }
-
-    return $playback;
-  }
-}
-
-/**
- * Creates a Game instance without running its heavyweight constructor.
- */
-function makeAudioTestGame(): Game
-{
-  return new PassiveGame();
-}
-
-/**
- * Creates a temporary assets tree containing the given audio files and returns
- * its root directory.
- *
- * @param string[] $relativePaths
- */
-function makeAudioAssetsRoot(array $relativePaths): string
-{
-  $root = createTestDirectory('ichiloto-audio-test-');
-
-  foreach ($relativePaths as $relativePath) {
-    $absolutePath = $root . DIRECTORY_SEPARATOR . $relativePath;
-
-    if (! is_dir(dirname($absolutePath))) {
-      mkdir(dirname($absolutePath), 0777, true);
-    }
-
-    file_put_contents($absolutePath, 'stub');
-  }
-
-  return $root;
-}
-
-function putAudioProjectConfig(array $values): void
-{
-  ConfigStore::put(ProjectConfig::class, new AudioArrayConfigStub($values));
-}
-
 afterEach(function () {
   putAudioProjectConfig([]);
 });
@@ -231,11 +27,27 @@ afterEach(function () {
 it('builds an mpv command with volume and native looping', function () {
   $backend = new MpvBackend();
 
-  expect($backend->buildCommand('/tmp/theme.ogg', 0.75, true))
-    ->toBe(['mpv', '--no-video', '--no-terminal', '--really-quiet', '--volume=75', '--loop-file=inf', '--', '/tmp/theme.ogg'])
+  // mpv's volume is cubic: 50 plays at an eighth of the amplitude.
+  expect($backend->buildCommand('/tmp/theme.ogg', 0.125, true))
+    ->toBe(['mpv', '--no-video', '--no-terminal', '--really-quiet', '--volume=50', '--loop-file=inf', '--', '/tmp/theme.ogg'])
     ->and($backend->buildCommand('/tmp/hit.wav', 1.0, false))
     ->toBe(['mpv', '--no-video', '--no-terminal', '--really-quiet', '--volume=100', '--', '/tmp/hit.wav']);
 });
+
+it('plays every gain at the same level through cubic and linear players', function (float $gain) {
+  $mpv = new MpvBackend()->buildCommand('/tmp/a.wav', $gain, false)[4];
+  $paplay = new PaplayBackend()->buildCommand('/tmp/a.wav', $gain, false)[1];
+  $afplay = new AfplayBackend()->buildCommand('/tmp/a.wav', $gain, false)[2];
+  $ffplay = new FfplayBackend()->buildCommand('/tmp/a.wav', $gain, false)[6];
+
+  // Each player's own gain: mpv and PulseAudio cube their volume fraction.
+  expect(((float)substr($mpv, strlen('--volume=')) / 100) ** 3)->toEqualWithDelta($gain, 0.002)
+    ->and(((int)substr($paplay, strlen('--volume=')) / 65536) ** 3)->toEqualWithDelta($gain, 0.002)
+    // afplay takes two decimals and ffplay whole percents.
+    ->and((float)$afplay)->toEqualWithDelta($gain, 0.006)
+    ->and((int)$ffplay / 100)->toEqualWithDelta($gain, 0.006);
+})->with(['silent' => 0.0, 'EXP tally under master 75' => 0.225, 'counter under master 75' => 0.2625,
+  'master 75' => 0.75, 'full' => 1.0]);
 
 it('builds an ffplay command with volume and native looping', function () {
   $backend = new FfplayBackend();
@@ -247,7 +59,8 @@ it('builds an ffplay command with volume and native looping', function () {
 it('builds a paplay command with pulse volume units', function () {
   $backend = new PaplayBackend();
 
-  expect($backend->buildCommand('/tmp/hit.wav', 0.5, false))
+  // PulseAudio's volume is cubic: 50% plays at an eighth of the amplitude.
+  expect($backend->buildCommand('/tmp/hit.wav', 0.125, false))
     ->toBe(['paplay', '--volume=32768', '/tmp/hit.wav']);
 });
 
@@ -670,26 +483,26 @@ it('skips files no available backend can decode', function () {
 
 /* System sounds */
 
-it('plays a system sound through its configured track', function () {
+it('plays a system sound through its configured track', function (SystemSound $sound) {
   $root = makeAudioAssetsRoot(['level-up.wav']);
   putAudioProjectConfig([
     'audio' => [
       'sfx' => true,
       'master_volume' => 50,
       'sounds' => [
-        'level_up' => "$root/level-up.wav",
+        $sound->value => "$root/level-up.wav",
       ],
     ],
   ]);
 
   $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
-  $manager->playSystemSound(SystemSound::LEVEL_UP);
+  $manager->playSystemSound($sound);
 
   expect($manager->spawnedCommands)->toHaveCount(1)
     ->and($manager->spawnedCommands[0])->toBe(['fake-player', '0.50', 'once', "$root/level-up.wav"]);
 
   $manager->shutdown();
-});
+})->with([SystemSound::LEVEL_UP, SystemSound::PARTY_JOIN]);
 
 it('switches and restores cinematic music through non-blocking authored fades', function () {
   putAudioProjectConfig(['audio' => ['music' => true, 'master_volume' => 100]]);
@@ -769,4 +582,356 @@ it('stays silent for a system sound the project has not configured', function ()
   expect($manager->spawnedCommands)->toBe([]);
 
   $manager->shutdown();
+});
+
+/* System sound volume and looping sound effects */
+
+it('plays a system sound at its authored volume under the master volume', function () {
+  $root = makeAudioAssetsRoot(['cursor.wav']);
+  putAudioProjectConfig(['audio' => ['sfx' => true, 'master_volume' => 50,
+    'sounds' => ['cursor' => "$root/cursor.wav"], 'sound_volumes' => ['cursor' => 40]]]);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+
+  $manager->playSystemSound(SystemSound::CURSOR);
+
+  expect($manager->spawnedCommands)->toBe([['fake-player', '0.20', 'once', "$root/cursor.wav"]])
+    ->and($manager->getSystemSoundVolume(SystemSound::CONFIRM))->toBe(1.0);
+  $manager->shutdown();
+});
+
+it('loops a system sound natively at its authored volume until the handle stops it', function () {
+  $root = makeAudioAssetsRoot(['tick.wav']);
+  putAudioProjectConfig(['audio' => ['sfx' => true, 'master_volume' => 80,
+    'sounds' => ['counter' => "$root/tick.wav"], 'sound_volumes' => ['counter' => 50]]]);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend(loopsNatively: false), new FakeAudioBackend()]);
+
+  $loop = $manager->startSystemSoundLoop(SystemSound::COUNTER);
+  $manager->update();
+
+  expect($loop)->not->toBeNull()->and($loop->isAudible)->toBeTrue()
+    ->and($manager->spawnedCommands)->toBe([['fake-player', '0.40', 'loop', "$root/tick.wav"]]);
+  $player = $manager->spawnedPlaybacks[0];
+  $loop->stop();
+  $loop->stop();
+  $manager->update();
+  expect($loop->isStopped)->toBeTrue()->and($player->isRunning)->toBeFalse()
+    ->and($manager->spawnedCommands)->toHaveCount(1);
+});
+
+it('respawns a loop on a player that cannot loop by itself, and stays silent after a failure', function () {
+  $root = makeAudioAssetsRoot(['tick.wav']);
+  putAudioProjectConfig(['audio' => ['sfx' => true, 'master_volume' => 100]]);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend(loopsNatively: false)]);
+  $manager->playerCommand = ['true'];
+
+  $loop = $manager->startSoundEffectLoop("$root/tick.wav");
+  usleep(100_000);
+  $manager->update();
+
+  expect($manager->spawnedCommands)->toBe([['fake-player', '1.00', 'once', "$root/tick.wav"],
+    ['fake-player', '1.00', 'once', "$root/tick.wav"]]);
+
+  $manager->playerCommand = ['false'];
+  usleep(100_000);
+  $manager->update();
+  usleep(100_000);
+  $manager->update();
+  $manager->update();
+  expect($manager->spawnedCommands)->toHaveCount(3)->and($loop->isAudible)->toBeFalse()
+    ->and($loop->isStopped)->toBeFalse();
+  $loop->stop();
+});
+
+it('keeps a loop silent while sound effects are off or the volume is zero, and resumes it live', function () {
+  $root = makeAudioAssetsRoot(['tick.wav']);
+  $config = new AudioArrayConfigStub(['audio' => ['sfx' => false, 'master_volume' => 100]]);
+  ConfigStore::put(ProjectConfig::class, $config);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+
+  $loop = $manager->startSoundEffectLoop("$root/tick.wav");
+  $manager->update();
+  expect($manager->spawnedCommands)->toBe([])->and($loop->isAudible)->toBeFalse();
+
+  $config->set('audio.sfx', true);
+  $manager->update();
+  expect($manager->spawnedCommands)->toHaveCount(1)->and($loop->isAudible)->toBeTrue();
+
+  $player = $manager->spawnedPlaybacks[0];
+  $config->set('audio.master_volume', 0);
+  $manager->update();
+  expect($player->isRunning)->toBeFalse()->and($loop->isAudible)->toBeFalse()
+    ->and($manager->spawnedCommands)->toHaveCount(1);
+
+  $config->set('audio.master_volume', 60);
+  $manager->update();
+  expect($manager->spawnedCommands[1])->toBe(['fake-player', '0.60', 'loop', "$root/tick.wav"]);
+  $manager->shutdown();
+  expect($loop->isStopped)->toBeTrue()->and($manager->spawnedPlaybacks[1]->isRunning)->toBeFalse();
+});
+
+it('has no loop for an unconfigured or missing sound', function () {
+  putAudioProjectConfig(['audio' => ['sfx' => true, 'sounds' => ['counter' => '/nowhere/tick.wav']]]);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+
+  expect($manager->startSystemSoundLoop(SystemSound::COUNTER))->toBeNull()
+    ->and($manager->startSystemSoundLoop(SystemSound::CURSOR))->toBeNull()
+    ->and($manager->spawnedCommands)->toBe([]);
+});
+
+/* The counter tick */
+
+it('plays one counter tick for overlapping counts and stops when the last count releases it', function () {
+  $manager = makeCounterTickManager();
+  $tick = $manager->counterSound;
+  [$experience, $points] = [new stdClass(), new stdClass()];
+
+  $tick->holdTick($experience);
+  $tick->holdTick($points);
+  $manager->update();
+  $tick->holdTick($experience);
+  $tick->holdTick($points);
+  $manager->update();
+
+  expect($manager->spawnedCommands)->toHaveCount(1)->and($tick->isPlaying)->toBeTrue();
+  $tick->releaseTick($experience);
+  expect($tick->isPlaying)->toBeTrue();
+  $tick->releaseTick($points);
+  expect($tick->isPlaying)->toBeFalse()->and($manager->spawnedPlaybacks[0]->isRunning)->toBeFalse();
+
+  $tick->holdTick($points);
+  expect($manager->spawnedCommands)->toHaveCount(2);
+  $manager->shutdown();
+  expect($tick->isPlaying)->toBeFalse()->and($tick->isHeld)->toBeFalse();
+});
+
+it('lapses a counter tick hold that is not renewed, so a frozen or discarded count cannot keep it playing', function () {
+  $manager = makeCounterTickManager();
+  $tick = $manager->counterSound;
+  $count = new stdClass();
+
+  $tick->holdTick($count);
+  $manager->update();
+  expect($tick->isPlaying)->toBeTrue();
+  $manager->update();
+  expect($tick->isPlaying)->toBeFalse()->and($manager->spawnedPlaybacks[0]->isRunning)->toBeFalse();
+
+  $tick->holdTick($count);
+  unset($count);
+  $manager->update();
+  expect($tick->isHeld)->toBeFalse()->and($tick->isPlaying)->toBeFalse();
+});
+
+it('loops each kind of count on its own system sound', function (CountKind $kind, string $file) {
+  $manager = makeCounterTickManager(bindsExpTally: true);
+  $count = new stdClass();
+
+  $manager->counterSound->holdTick($count, $kind);
+  $manager->update();
+  $manager->counterSound->holdTick($count, $kind);
+  $manager->update();
+
+  expect(listSpawnedSoundFiles($manager))->toBe([$file]);
+  $manager->counterSound->releaseTick($count);
+  expect($manager->counterSound->isPlaying)->toBeFalse()->and($manager->spawnedPlaybacks[0]->isRunning)->toBeFalse();
+  $manager->shutdown();
+})->with([
+  'EXP dispensing plays the EXP tally' => [CountKind::EXPERIENCE, 'tally.wav'],
+  'any other count plays the counter' => [CountKind::GENERAL, 'tick.wav'],
+]);
+
+it('counts EXP on the generic counter when the game binds no EXP tally, but never hides a bound tally that cannot play', function () {
+  $manager = makeCounterTickManager();
+  $count = new stdClass();
+  $manager->counterSound->holdTick($count, CountKind::EXPERIENCE);
+  expect(listSpawnedSoundFiles($manager))->toBe(['tick.wav']);
+  $manager->shutdown();
+
+  $root = makeAudioAssetsRoot(['tick.wav']);
+  putAudioProjectConfig(['audio' => ['sfx' => true, 'master_volume' => 100,
+    'sounds' => ['counter' => "$root/tick.wav", 'exp_tally' => "$root/missing-tally.wav"]]]);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+  $manager->counterSound->holdTick($count, CountKind::EXPERIENCE);
+  expect($manager->spawnedCommands)->toBe([])->and($manager->counterSound->isPlaying)->toBeFalse();
+  $manager->shutdown();
+});
+
+it('keeps one loop for overlapping kinds: the sounding count keeps it, then the earliest remaining holder takes over', function () {
+  $manager = makeCounterTickManager(bindsExpTally: true);
+  $tick = $manager->counterSound;
+  [$experience, $points] = [new stdClass(), new stdClass()];
+
+  $tick->holdTick($experience, CountKind::EXPERIENCE);
+  $tick->holdTick($points);
+  $manager->update();
+  $tick->holdTick($points);
+  $tick->holdTick($experience, CountKind::EXPERIENCE);
+  $manager->update();
+  expect(listSpawnedSoundFiles($manager))->toBe(['tally.wav']);
+
+  // The EXP count ends; the points count still moves, so the counter takes over.
+  $tick->releaseTick($experience);
+  expect(listSpawnedSoundFiles($manager))->toBe(['tally.wav', 'tick.wav'])
+    ->and($manager->spawnedPlaybacks[0]->isRunning)->toBeFalse()->and($tick->isPlaying)->toBeTrue();
+
+  // An EXP count joining a sounding counter does not interrupt it.
+  $tick->holdTick($experience, CountKind::EXPERIENCE);
+  $tick->holdTick($points);
+  $manager->update();
+  expect(listSpawnedSoundFiles($manager))->toBe(['tally.wav', 'tick.wav']);
+  $tick->releaseTick($points);
+  expect(listSpawnedSoundFiles($manager))->toBe(['tally.wav', 'tick.wav', 'tally.wav'])
+    ->and(array_filter($manager->spawnedPlaybacks, static fn($player) => $player->isRunning))->toHaveCount(1);
+  $tick->releaseTick($experience);
+  expect($tick->isPlaying)->toBeFalse()
+    ->and(array_filter($manager->spawnedPlaybacks, static fn($player) => $player->isRunning))->toBe([]);
+  $manager->shutdown();
+});
+
+it('shares one uninterrupted counter loop between kinds that fall back to it', function () {
+  $manager = makeCounterTickManager();
+  $tick = $manager->counterSound;
+  [$experience, $points] = [new stdClass(), new stdClass()];
+
+  $tick->holdTick($experience, CountKind::EXPERIENCE);
+  $tick->holdTick($points);
+  $tick->releaseTick($experience);
+  $tick->holdTick($experience, CountKind::EXPERIENCE);
+
+  expect(listSpawnedSoundFiles($manager))->toBe(['tick.wav'])->and($manager->spawnedPlaybacks[0]->isRunning)->toBeTrue();
+  $manager->shutdown();
+});
+
+it('plays no EXP tally while sound effects are muted', function () {
+  $manager = makeCounterTickManager(['sfx' => false, 'master_volume' => 100], bindsExpTally: true);
+  $count = new stdClass();
+
+  foreach ([1, 2] as $_) {
+    $manager->counterSound->holdTick($count, CountKind::EXPERIENCE);
+    $manager->update();
+  }
+
+  expect($manager->spawnedCommands)->toBe([]);
+  $manager->shutdown();
+});
+
+it('plays no counter tick while sound effects are muted', function () {
+  $manager = makeCounterTickManager(['sfx' => false, 'master_volume' => 100]);
+  $count = new stdClass();
+
+  $manager->counterSound->holdTick($count);
+  $manager->update();
+  $manager->counterSound->holdTick($count);
+  $manager->update();
+
+  expect($manager->spawnedCommands)->toBe([]);
+  $manager->shutdown();
+});
+
+/* Audio buses: master x bus x the sound's own volume */
+
+it('plays each bus at the master volume times its own volume times the sound\'s authored volume', function () {
+  $root = makeAudioAssetsRoot(['theme.ogg', 'cursor.wav', 'line.wav']);
+  putAudioProjectConfig(['audio' => ['music' => true, 'sfx' => true, 'master_volume' => 50,
+    'music_volume' => 60, 'sfx_volume' => 40, 'voice_volume' => 80,
+    'sounds' => ['cursor' => "$root/cursor.wav"], 'sound_volumes' => ['cursor' => 50]]]);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+
+  $manager->playBackgroundMusic("$root/theme.ogg");
+  $manager->playSystemSound(SystemSound::CURSOR);
+  $manager->playSoundEffect("$root/cursor.wav");
+  $manager->playSpeech("$root/line.wav");
+
+  expect(array_column($manager->spawnedCommands, 1))->toBe(['0.30', '0.10', '0.20', '0.40'])
+    ->and($manager->getBusGain(AudioBus::MUSIC))->toEqualWithDelta(0.3, 1e-9)
+    ->and($manager->getBusVolume(AudioBus::EFFECTS))->toBe(0.4);
+  $manager->shutdown();
+});
+
+it('plays a bus the game authors no volume for at the master volume, and reads a broken one as full', function () {
+  $root = makeAudioAssetsRoot(['hit.wav']);
+  putAudioProjectConfig(['audio' => ['sfx' => true, 'master_volume' => 70, 'music_volume' => 'loud']]);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+
+  $manager->playSoundEffect("$root/hit.wav");
+
+  expect($manager->spawnedCommands[0][1])->toBe('0.70')
+    ->and($manager->getBusVolume(AudioBus::MUSIC))->toBe(1.0)
+    ->and($manager->getBusVolume(AudioBus::VOICE))->toBe(1.0);
+  $manager->shutdown();
+});
+
+it('starts no player for a sound whose bus volume is zero, and keeps the bus switch independent', function () {
+  $root = makeAudioAssetsRoot(['hit.wav', 'line.wav']);
+  putAudioProjectConfig(['audio' => ['sfx' => true, 'master_volume' => 100, 'sfx_volume' => 0]]);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+
+  $manager->playSoundEffect("$root/hit.wav");
+  expect($manager->spawnedCommands)->toBe([])
+    ->and($manager->isBusEnabled(AudioBus::EFFECTS))->toBeTrue()
+    ->and($manager->playSpeech("$root/line.wav"))->not->toBeNull();
+  $manager->shutdown();
+});
+
+it('applies a music volume change to the music already playing, at its current position', function () {
+  $config = new AudioArrayConfigStub(['audio' => ['music' => true, 'master_volume' => 80, 'music_volume' => 100]]);
+  ConfigStore::put(ProjectConfig::class, $config);
+  $root = makeAudioAssetsRoot(['theme.ogg']);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend(loopsNatively: false, seekable: true)]);
+  $manager->playBackgroundMusic("$root/theme.ogg");
+  $manager->update();
+  $manager->pretendBgmHasPlayedFor(12.0);
+
+  $config->set('audio.music_volume', 50);
+  $manager->update();
+  // An Effects change leaves the music alone.
+  $config->set('audio.sfx_volume', 10);
+  $manager->update();
+
+  expect($manager->spawnedCommands)->toHaveCount(2)
+    ->and($manager->spawnedCommands[1][1])->toBe('0.40')
+    ->and($manager->spawnedCommands[1][3])->toStartWith('start=12')
+    ->and($manager->spawnedPlaybacks[0]->isRunning)->toBeFalse();
+  $manager->shutdown();
+});
+
+it('follows the Effects volume live on a running loop, silences it at zero and resumes it', function () {
+  $manager = makeCounterTickManager(['sfx' => true, 'master_volume' => 80, 'sfx_volume' => 50]);
+  $config = ConfigStore::get(ProjectConfig::class);
+  $count = new stdClass();
+
+  $manager->counterSound->holdTick($count);
+  $manager->update();
+  $first = $manager->spawnedPlaybacks[0];
+  $config->set('audio.sfx_volume', 25);
+  $manager->counterSound->holdTick($count);
+  $manager->update();
+  $config->set('audio.music_volume', 10);
+  $manager->counterSound->holdTick($count);
+  $manager->update();
+  expect(array_column($manager->spawnedCommands, 1))->toBe(['0.40', '0.20'])->and($first->isRunning)->toBeFalse();
+
+  $config->set('audio.sfx_volume', 0);
+  $manager->counterSound->holdTick($count);
+  $manager->update();
+  expect($manager->spawnedPlaybacks[1]->isRunning)->toBeFalse()->and($manager->spawnedCommands)->toHaveCount(2);
+
+  $config->set('audio.sfx_volume', 100);
+  $manager->counterSound->holdTick($count);
+  $manager->update();
+  expect($manager->spawnedCommands[2][1])->toBe('0.80');
+  $manager->shutdown();
+});
+
+it('lets every bus switch decide whether an automated launch is silent', function () {
+  $config = new class(['audio' => ['music' => false, 'sfx' => false]]) extends ProjectConfig {
+    protected function load(): array { return $this->options; }
+  };
+  $config->set('audio.voice', false);
+  \Ichiloto\Engine\Audio\AudioMutePreflight::assertMuted($config);
+  foreach (AudioBus::cases() as $bus) {
+    $config->set($bus->getEnabledConfigPath(), true);
+    expect(fn() => \Ichiloto\Engine\Audio\AudioMutePreflight::assertMuted($config))
+      ->toThrow(RuntimeException::class, $bus->getEnabledConfigPath());
+    $config->set($bus->getEnabledConfigPath(), false);
+  }
 });

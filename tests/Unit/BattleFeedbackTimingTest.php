@@ -12,9 +12,9 @@ it('projects a bounded rise and grouped fade without changing the existing resul
 });
 
 it('reads presentation seconds from hrtime or an injected clock', function () {
-  $before = hrtime(true) / 1_000_000_000;
+  $before = \Ichiloto\Engine\Core\Clocks\RuntimeClock::getSeconds();
   $now = new BattleFeedbackTiming()->now();
-  $after = hrtime(true) / 1_000_000_000;
+  $after = \Ichiloto\Engine\Core\Clocks\RuntimeClock::getSeconds();
 
   expect($now)->toBeGreaterThanOrEqual($before)->toBeLessThanOrEqual($after)
     ->and(new BattleFeedbackTiming(static fn(): float => 123.25)->now())->toBe(123.25);

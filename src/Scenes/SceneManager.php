@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Ichiloto\Engine\IO\Console\Console;
 
 use Assegai\Collections\ItemList;
@@ -261,7 +263,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     $this->currentScene?->update();
   }
 
-  protected function getTransitionTime(): float { return hrtime(true) / 1_000_000_000; }
+  protected function getTransitionTime(): float { return RuntimeClock::getSeconds(); }
 
   /**
    * Returns a registered scene by class name without loading it.
@@ -803,7 +805,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     }
 
     if ($this->currentScene instanceof GameScene && $battleResult !== null) {
-      $this->currentScene->resumeEventAfterBattle($battleResult);
+      $this->currentScene->concludeBattle($battleResult);
     }
   }
 

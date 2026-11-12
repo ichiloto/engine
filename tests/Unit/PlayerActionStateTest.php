@@ -22,6 +22,9 @@ use Ichiloto\Engine\Battle\UI\BattleCommandWindow;
 use Ichiloto\Engine\Battle\UI\BattleFieldWindow;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Progression\{TutorialCatalog, TutorialDirector, TutorialPhase};
+use Ichiloto\Engine\Quests\QuestLog;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
@@ -51,239 +54,27 @@ use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\Audio\AudioManager;
 use Tests\Support\Input\FakeInputSource;
 
+use Tests\Support\Battle\BattleCommandWindowTargetingTestProxy;
+use Tests\Support\Battle\BattleCharacterNameWindowTargetingTestProxy;
+use Tests\Support\Battle\BattleCharacterStatusWindowTargetingTestProxy;
+use Tests\Support\Battle\BattleCommandContextWindowTargetingTestProxy;
+use Tests\Support\Battle\BattleFieldWindowTargetingTestProxy;
+use Tests\Support\Battle\BattleScreenTargetingTestProxy;
+use Tests\Support\Battle\GameTargetingTestProxy;
+use Tests\Support\Battle\PlayerActionStateTestProxy;
+use function Tests\Support\Battle\setTestProperty;
+use function Tests\Support\Battle\createTargetingTestEnemy;
+use function Tests\Support\Battle\createTargetingTestScreen;
+
+require_once __DIR__ . '/../Support/Battle/InteractiveCommandFixture.php';
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 
-class BattleCommandWindowTargetingTestProxy extends BattleCommandWindow
-{
-  public function updateContent(): void
-  {
-    // Skip terminal rendering for battle target-selection tests.
-  }
-}
+it('keeps production announcement text in the shared silent command fixture', function () {
+  $screen = createTargetingTestScreen();
+  $screen->showMessage("Synthetic actor\nGuard");
 
-class BattleCharacterNameWindowTargetingTestProxy extends BattleCharacterNameWindow
-{
-  public function updateContent(): void
-  {
-    // Skip terminal rendering for battle target-selection tests.
-  }
-}
-
-class BattleCharacterStatusWindowTargetingTestProxy extends BattleCharacterStatusWindow
-{
-  public function updateContent(): void
-  {
-    // These tests exercise state transitions, not terminal painting.
-  }
-
-  public function setAtbPercentages(array $atbPercentages): void
-  {
-    // Skip terminal rendering for active-time flow tests.
-  }
-}
-
-class BattleCommandContextWindowTargetingTestProxy extends BattleCommandContextWindow
-{
-  public function updateContent(): void
-  {
-    // Skip terminal rendering for battle target-selection tests.
-  }
-
-  public function clear(): void
-  {
-    $this->items = [];
-    $this->activeIndex = -1;
-    $this->scrollOffset = 0;
-    $this->blinkActiveSelection = false;
-    $this->titleBase = '';
-    $this->emptyMessage = '';
-    $this->setTitle('');
-    $this->setHelp('');
-    $this->setContent(array_fill(0, self::HEIGHT - 2, ''));
-  }
-}
-
-class BattleFieldWindowTargetingTestProxy extends BattleFieldWindow
-{
-  public array $renderedFocus = [];
-
-  protected function renderTroopFocusMarker(Enemy $battler, bool $blink): void
-  {
-    $this->renderedFocus[] = $battler;
-  }
-
-  protected function renderPartyFocusMarker(Character $battler, int $index, bool $blink): void
-  {
-    $this->renderedFocus[] = $battler;
-  }
-
-  public function getQueuedTroopTargets(): array
-  {
-    return $this->queuedTroopTargets;
-  }
-
-  public function getFocusedTroopIndex(): ?int
-  {
-    return $this->focusedTroopIndexes[0] ?? null;
-  }
-
-  public function getFocusedIndexes(ItemScopeSide $side): array
-  {
-    return $side === ItemScopeSide::ALLY ? $this->focusedPartyIndexes : $this->focusedTroopIndexes;
-  }
-
-  public function isBlinkingTroopFocus(): bool
-  {
-    return $this->blinkFocusedTroop;
-  }
-
-  public function resolveTroopIdlePositionForTest(Enemy $battler): Vector2
-  {
-    return $this->getTroopIdlePosition($battler);
-  }
-
-  public function getPartyZoneLeftForTest(): int
-  {
-    return $this->getPartyZoneLeft();
-  }
-
-  public function getTroopAvailableWidthForTest(Vector2 $position): int
-  {
-    return $this->getTroopAvailableWidth($position);
-  }
-}
-
-class BattleScreenTargetingTestProxy extends BattleScreen
-{
-  public string $lastAlert = '';
-  public int $recomposeCount = 0;
-
-  public function refreshField(): void
-  {
-    // Field refresh is not needed for this state-only unit test.
-  }
-
-  public function recomposeField(): void
-  {
-    $this->recomposeCount++;
-  }
-
-  public function setState(\Ichiloto\Engine\Battle\UI\States\BattleScreenState $state): void
-  {
-  }
-
-  public function hideMessage(): void
-  {
-  }
-
-  public function refresh(): void
-  {
-  }
-
-  public function alert(string $text): void
-  {
-    $this->lastAlert = $text;
-  }
-}
-
-class GameTargetingTestProxy extends Game
-{
-  public function __destruct()
-  {
-    // Avoid full terminal teardown for isolated battle-state tests.
-  }
-}
-
-class PlayerActionStateTestProxy extends PlayerActionState
-{
-  public function setActiveCharacterIndexForTest(int $index): void
-  {
-    $this->activeCharacterIndex = $index;
-  }
-
-  public function loadCharacterActionsForTest(TurnStateExecutionContext $context): void
-  {
-    $this->loadCharacterActions($context);
-  }
-
-  public function beginSubmenuSelectionForTest(TurnStateExecutionContext $context): void
-  {
-    $this->beginSubmenuSelection($context);
-  }
-
-  public function selectSubmenuOptionForTest(TurnStateExecutionContext $context): void
-  {
-    $this->selectSubmenuOption($context);
-  }
-
-  public function cycleTargetForTest(TurnStateExecutionContext $context, int $step): void
-  {
-    $this->cycleTarget($context, $step);
-  }
-
-  public function queueActionForActiveCharacterForTest(TurnStateExecutionContext $context): void
-  {
-    $this->queueActionForActiveCharacter($context);
-  }
-
-  public function showFocusedInfoForTest(TurnStateExecutionContext $context): void
-  {
-    $this->showFocusedInfo($context);
-  }
-}
-
-function setTestProperty(object $object, string $property, mixed $value): void
-{
-  $reflection = new ReflectionObject($object);
-
-  while (! $reflection->hasProperty($property)) {
-    $reflection = $reflection->getParentClass();
-
-    if (! $reflection) {
-      throw new RuntimeException("Property {$property} not found.");
-    }
-  }
-
-  $reflectionProperty = $reflection->getProperty($property);
-  $reflectionProperty->setValue($object, $value);
-}
-
-function createTargetingTestEnemy(string $name): Enemy
-{
-  $enemy = (new ReflectionClass(Enemy::class))->newInstanceWithoutConstructor();
-
-  setTestProperty($enemy, 'name', $name);
-  setTestProperty($enemy, 'level', 1);
-  setTestProperty($enemy, 'stats', new Stats(currentHp: 30, attack: 4, defence: 2, speed: 1));
-  setTestProperty($enemy, 'imagePath', '');
-  setTestProperty($enemy, 'image', ['@']);
-  setTestProperty($enemy, 'position', new Vector2(10, 5));
-
-  return $enemy;
-}
-
-function createTargetingTestScreen(): BattleScreenTargetingTestProxy
-{
-  $screen = (new ReflectionClass(BattleScreenTargetingTestProxy::class))->newInstanceWithoutConstructor();
-  $commandWindow = (new ReflectionClass(BattleCommandWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
-  $characterNameWindow = (new ReflectionClass(BattleCharacterNameWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
-  $commandContextWindow = (new ReflectionClass(BattleCommandContextWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
-  $fieldWindow = (new ReflectionClass(BattleFieldWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
-  $characterStatusWindow = (new ReflectionClass(BattleCharacterStatusWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
-
-  setTestProperty($screen, 'commandWindow', $commandWindow);
-  setTestProperty($screen, 'characterNameWindow', $characterNameWindow);
-  setTestProperty($screen, 'commandContextWindow', $commandContextWindow);
-  setTestProperty($screen, 'fieldWindow', $fieldWindow);
-  setTestProperty($screen, 'characterStatusWindow', $characterStatusWindow);
-  setTestProperty(
-    $screen,
-    'playerActionState',
-    new \Ichiloto\Engine\Battle\UI\States\PlayerActionState($screen),
-  );
-
-  return $screen;
-}
+  expect($screen->messageWindow->presentationSnapshot())->toBe("Synthetic actor\nGuard");
+});
 
 it('opens role-aware battle commands and routes renamed labels by identity in both battle engines', function (bool $activeTime) {
   $priorConfig = new ReflectionClass(ConfigStore::class)->getStaticProperties();
@@ -335,6 +126,105 @@ it('opens role-aware battle commands and routes renamed labels by identity in bo
   }
 })->with(['traditional' => false, 'active time' => true]);
 
+it('offers Summon guidance only when the command owner can afford a summon and legally target it', function (bool $activeTime) {
+  $priorConfig = new ReflectionClass(ConfigStore::class)->getStaticProperties();
+  $priorCwd = getcwd();
+  $priorBindings = InputManager::getBindings();
+  InputManager::setBindings(['action' => ['keys' => [KeyCode::ENTER]]]);
+  $root = createTestDirectory('battle-guide-summon');
+  $summon = $root . '/assets/Cutscenes/Summons/sample';
+  mkdir($summon, 0777, true);
+  mkdir($root . '/assets/Data', 0777, true);
+  file_put_contents($summon . '/sample.data.php',
+    "<?php return ['id' => 'sample', 'name' => 'Sample', 'linkedActionId' => 'Call Sample'];");
+  file_put_contents($summon . '/sample.timeline.php',
+    "<?php return ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];");
+  writeSkillRecords($root, new SpecialSkill('Call Sample', '', '', 4, 0,
+    new ItemScope(ItemScopeSide::ENEMY, ItemScopeNumber::ONE, ItemScopeStatus::ALIVE)));
+  chdir($root);
+  putSceneAudioConfig([]);
+  BattleCommandCatalog::beginBattle();
+
+  try {
+    $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
+    $party = new Party();
+    $actor = new Character('Caller', 1, new Stats(currentHp: 100, currentMp: 1, totalMp: 10));
+    $party->addMember($actor);
+    $enemy = createTargetingTestEnemy('Target');
+    $troop = new Troop('Synthetic', [$enemy]);
+    $screen = createTargetingTestScreen();
+    setTestProperty($screen->commandWindow, 'height', BattleCommandWindow::HEIGHT);
+    $screen->commandWindow->setTitle('Command');
+    $screen->commandWindow->setHelp('');
+    $engine = $activeTime ? new ActiveTimeBattleEngine($game) : new TraditionalTurnBasedBattleEngine($game);
+    $engine->configure($activeTime ? new ActiveTimeBattleConfig($party, $troop, $screen)
+      : new TurnBasedBattleConfig($party, $troop, $screen));
+    $saved = new GameState();
+    $quests = new QuestLog();
+    $director = new TutorialDirector(new TutorialCatalog([[
+      'id' => 'battle.summon', 'title' => 'Summon', 'category' => 'Battle',
+      'start' => 'automatic', 'startContext' => 'battle-command', 'replay' => 'read',
+      'trigger' => [['type' => 'quest', 'name' => 'training', 'status' => 'active']],
+      'steps' => [[
+        'target' => ['screen' => 'battle', 'view' => 'command', 'id' => 'summon'],
+        'action' => 'action', 'say' => 'Choose Summon.', 'until' => ['outcome' => 'summon.executed'],
+      ]],
+    ]]), $saved);
+    $context = new class($game, $party, $troop, $screen, $director, $quests) extends TurnStateExecutionContext {
+      public function __construct(Game $game, Party $party, Troop $troop, BattleScreen $screen,
+        private TutorialDirector $director, private QuestLog $quests)
+      {
+        parent::__construct($game, $party, $troop, $screen, []);
+      }
+      public function getTutorialDirector(): ?TutorialDirector { return $this->director; }
+      public function getQuestLog(): ?QuestLog { return $this->quests; }
+    };
+    $context->setTurns([new Turn($actor)]);
+    $state = $activeTime ? $engine->turnInitState : new PlayerActionStateTestProxy($engine);
+    $showCommands = function () use ($activeTime, $state, $context, $actor): void {
+      if ($activeTime) {
+        new ReflectionMethod($state, 'activateReadyCharacter')->invoke($state, $context, $actor);
+      } else {
+        $state->setActiveCharacterIndexForTest(0);
+        $state->loadCharacterActionsForTest($context);
+      }
+    };
+
+    expect($saved->getTutorialPhase('battle.summon'))->toBeNull();
+    $showCommands();
+    expect($saved->getTutorialPhase('battle.summon'))->toBeNull()
+      ->and($screen->commandContextWindow->getEmptyMessage())->toBe('');
+    $actor->stats->currentMp = 4;
+    $showCommands();
+    expect($saved->getTutorialPhase('battle.summon'))->toBeNull();
+    $quests->accept('training', 1);
+    $actor->stats->currentMp = 1;
+    $showCommands();
+    expect($saved->getTutorialPhase('battle.summon'))->toBeNull();
+    $actor->stats->currentMp = 4;
+    $hp = $enemy->stats->currentHp;
+    $enemy->stats->currentHp = 0;
+    $showCommands();
+    expect($saved->getTutorialPhase('battle.summon'))->toBeNull();
+    $enemy->stats->currentHp = $hp;
+    $showCommands();
+    expect($saved->getTutorialPhase('battle.summon'))->toBe(TutorialPhase::PENDING)
+      ->and($director->getActiveTutorial()?->id)->toBe('battle.summon')
+      ->and($screen->commandContextWindow->getEmptyMessage())->toBe('')
+      ->and(array_column($screen->commandWindow->presentationSnapshot()->rows, 'tutorialTarget'))
+      ->toContain(true)
+      ->and($screen->commandWindow->activeCommandIndex)->toBe(0)
+      ->and($actor->stats->currentMp)->toBe(4);
+  } finally {
+    BattleCommandCatalog::endBattle();
+    chdir($priorCwd);
+    InputManager::setBindings($priorBindings);
+    foreach ($priorConfig as $key => $value) {
+      new ReflectionProperty(ConfigStore::class, $key)->setValue(null, $value);
+    }
+  }
+})->with(['traditional' => false, 'active time' => true]);
+
 it('applies shared opening advantages only to the traditional first round', function (string $opening) {
   $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
   $screen = createTargetingTestScreen();
@@ -363,7 +253,13 @@ it('applies shared opening advantages only to the traditional first round', func
 })->with(['party', 'troop']);
 
 it('keeps authored enemy formations out of the player-party render zone', function () {
-  $fieldWindow = (new ReflectionClass(BattleFieldWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
+  $screen = createTargetingTestScreen(); $fieldWindow = $screen->fieldWindow;
+  $game = new ReflectionClass(GameTargetingTestProxy::class)->newInstanceWithoutConstructor();
+  $engine = new TraditionalTurnBasedBattleEngine($game);
+  $engine->configure(new TurnBasedBattleConfig(new Party(), new Troop('Geometry', []), $screen));
+  $scene = new ReflectionClass(\Ichiloto\Engine\Scenes\Battle\BattleScene::class)->newInstanceWithoutConstructor();
+  setTestProperty($scene, 'config', $engine->battleConfig); setTestProperty($screen, 'battleScene', $scene);
+  setTestProperty($fieldWindow, 'battleScreen', $screen);
   setTestProperty($fieldWindow, 'partyBattlerPositions', new PartyBattlerPositions());
 
   $wolf = createTargetingTestEnemy('Wolf');
@@ -529,6 +425,7 @@ class ActiveTimeBattleEngineCaptureProxy extends ActiveTimeBattleEngine
     CharacterInterface $battler,
     BattleAction $action,
     array $targets,
+    ?CharacterInterface $targetAnchor = null,
   ): void
   {
     $this->capturedBattler = $battler;
@@ -758,3 +655,132 @@ it('requires separate target confirmation for submenu commands and allows cancel
   'random any enemies' => [ItemScopeSide::ENEMY, ItemScopeNumber::RANDOM, ItemScopeStatus::ANY, [0, 1, 2]],
   'random living either side' => [ItemScopeSide::ENEMY_ALLY, ItemScopeNumber::RANDOM, ItemScopeStatus::ALIVE, [0, 1, 3, 4]],
 ])->with(['magic', 'skill', 'item']);
+
+
+require_once __DIR__ . '/../Support/Input/FakeHeldInputSource.php';
+
+it('reveals the live crisis technique only while semantic Right is held and confirms through normal targeting', function (bool $activeTime): void {
+  require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
+  $clock = new \Tests\Support\ManualRuntimeClock();
+  $lease = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($clock);
+  $statics = [];
+  foreach ([InputManager::class, ConfigStore::class] as $class) { $statics[$class] = new ReflectionClass($class)->getStaticProperties(); }
+  $cwd = getcwd(); $root = createTestDirectory('ichiloto-held-crisis-');
+  writeSkillRecords($root, new SpecialSkill('Synthetic long finisher', 'A test technique.', '', 0, 0));
+  try {
+    chdir($root); new ReflectionProperty(InputManager::class, 'eventManager')->setValue(null, null);
+    InputManager::setBindings(['right' => ['keys' => [KeyCode::d]], 'action' => ['keys' => [KeyCode::ENTER]]]);
+    $input = new \Tests\Support\Input\FakeHeldInputSource(); InputManager::setInputSource($input);
+    $game = new ReflectionClass(GameTargetingTestProxy::class)->newInstanceWithoutConstructor();
+    setTestProperty($game, 'audioManager', $this->createStub(AudioManager::class));
+    $campaign = new ReflectionClass(\Ichiloto\Engine\Scenes\Game\GameScene::class)->newInstanceWithoutConstructor();
+    $income = new \Ichiloto\Engine\Income\IncomeService(
+      new \Ichiloto\Engine\Income\IncomeCatalog(['schedules' => [[
+        'id' => 'work', 'name' => 'Work', 'cadence' => 'active_time',
+        'interval' => 10, 'amount' => 1, 'idleTimeout' => 1,
+      ]]]),
+      new \Ichiloto\Engine\Income\IncomeLedger(),
+      new \Ichiloto\Engine\Core\GameState(),
+      new Party(),
+    );
+    setTestProperty($campaign, 'income', $income);
+    setTestProperty($campaign, 'gameState', new \Ichiloto\Engine\Core\GameState());
+    $scenes = $this->createStub(\Ichiloto\Engine\Scenes\SceneManager::class);
+    $scenes->method('findScene')->willReturn($campaign);
+    setTestProperty($game, 'sceneManager', $scenes);
+    $playing = $this->createMockForIntersectionOfInterfaces([
+      \Ichiloto\Engine\Scenes\Interfaces\SceneInterface::class,
+      \Ichiloto\Engine\Core\Interfaces\PlayActivitySourceInterface::class,
+    ]);
+    $playing->method('getPlayActivity')->willReturn(\Ichiloto\Engine\Core\PlayActivity::PLAYING);
+    $campaign->advanceActivePlay(0, $playing);
+    $actor = new Character('Synthetic actor', 1, new Stats(currentHp: 9, totalHp: 100, currentMp: 0, totalMp: 30),
+      abilityBook: new AbilityBook([new BasicSkill('Alternate strike', 'Another authored basic attack.', '', 0, 0)]),
+      actorId: 'synthetic-actor', crisisAbility: \Ichiloto\Engine\Battle\CrisisAbility::fromArray([
+        'name' => 'Surge', 'hpBelowPercent' => 10, 'variants' => [['skill' => 'Synthetic long finisher']],
+      ]));
+    $party = new Party(); $party->addMember($actor);
+    $troop = new Troop('Test', [createTargetingTestEnemy('Enemy')]); $screen = createTargetingTestScreen();
+    setTestProperty($screen->commandWindow, 'height', 6);
+    $screen->commandWindow->setTitle('Command');
+    $engine = $activeTime ? new ActiveTimeBattleEngineCaptureProxy($game) : new TraditionalTurnBasedBattleEngine($game);
+    $engine->configure($activeTime ? new ActiveTimeBattleConfig($party, $troop, $screen) : new TurnBasedBattleConfig($party, $troop, $screen));
+    $context = new TurnStateExecutionContext($game, $party, $troop, $screen, []); $turn = new Turn($actor); $context->setTurns([$turn]);
+    setTestProperty($engine, 'turnStateExecutionContext', $context);
+    $state = $activeTime ? new ActiveTimeFlowState($engine) : new PlayerActionState($engine);
+    setTestProperty($state, 'activeCharacterIndex', 0);
+    new ReflectionMethod($state, 'loadCharacterActions')->invoke($state, $context);
+    $refresh = function () use ($state, $context): void { InputManager::handleInput(); $state->update($context); };
+    $label = fn() => $screen->commandWindow->presentationSnapshot()->rows[0]->label;
+    $hintLabels = fn() => array_column($screen->commandWindow->getControlHints(), 'label');
+    $refresh(); expect($label())->toBe('Attack')->and($hintLabels())->toBe(['Hold: Surge']);
+    new ReflectionMethod($state, 'beginSubmenuSelection')->invoke($state, $context);
+    expect($hintLabels())->toBe(['Info']);
+    $nativeOptions = new ReflectionProperty(BattleCommandContextWindow::class, 'items')->getValue($screen->commandContextWindow);
+    expect(array_column($nativeOptions, 'label'))->toBe(['Attack', 'Alternate strike']);
+    new ReflectionMethod($state, 'returnToCommandSelection')->invoke($state, $context);
+    $clock->seconds += 2;
+    $input->press('ignored', KeyCode::F8); $refresh();
+    $campaign->advanceActivePlay(0.5, $playing);
+    expect($income->ledger->getAccount('work')->progress)->toBe(0.0);
+
+    $input->press('physical-d', KeyCode::d); $refresh();
+    $campaign->advanceActivePlay(0.5, $playing);
+    expect($income->ledger->getAccount('work')->progress)->toBe(0.5);
+
+    $clock->seconds += 2;
+    $refresh();
+    $campaign->advanceActivePlay(0.5, $playing);
+    expect($income->ledger->getAccount('work')->progress)->toBe(0.5);
+    expect($label())->toBe('Synthetic long finisher')->and($screen->commandWindow->getActiveCommand()->type)->toBe(BattleCommandType::ATTACK)
+      ->and($actor->stats->currentMp)->toBe(0)->and($turn->action)->toBeNull()
+      ->and(new ReflectionMethod($state, 'resolveCommandInfo')->invoke($state, $context))->toBe('A test technique.');
+    $screen->commandWindow->selectNext(); $refresh();
+    expect($label())->toBe('Attack')->and($screen->commandWindow->getActiveCommand()->type)->not->toBe(BattleCommandType::ATTACK)
+      ->and($hintLabels())->toBe(['Info']);
+    $screen->commandWindow->selectPrevious(); $refresh();
+    expect($label())->toBe('Synthetic long finisher')->and($hintLabels())->toBe(['Release: Attack']);
+    $input->release('physical-d'); $refresh();
+    expect($label())->toBe('Attack')->and($hintLabels())->toBe(['Hold: Surge']);
+    $input->press('physical-d', KeyCode::d); $refresh();
+    $clock->seconds += 2;
+    $before = $income->ledger->getAccount('work')->progress;
+    $actor->stats->currentHp = 10;
+    $refresh();
+    expect($label())->toBe('Attack');
+    $campaign->advanceActivePlay(0.5, $playing);
+    expect($income->ledger->getAccount('work')->progress)->toBe($before);
+    $actor->stats->currentHp = 9; $refresh(); expect($label())->toBe('Synthetic long finisher');
+    $input->transitions[] = \Ichiloto\Engine\IO\KeyTransition::reset(); $refresh();
+    expect($label())->toBe('Attack'); // Lost focus/source cannot leave the special latched.
+    $input->press('physical-d', KeyCode::d); $refresh();
+    $input->press('confirm', KeyCode::ENTER); $refresh();
+    expect($state->getSelectionMode())->toBe('target')->and($hintLabels())->toBe(['Info'])
+      ->and($screen->commandContextWindow->getActiveItem()->action)->toBeInstanceOf(\Ichiloto\Engine\Battle\Actions\CrisisSkillBattleAction::class)
+      ->and($turn->action)->toBeNull()->and($actor->stats->currentMp)->toBe(0);
+    $input->release('physical-d'); $refresh();
+    expect($state->getSelectionMode())->toBe('target');
+    $input->press('cancel', KeyCode::c); $refresh();
+    expect($state->getSelectionMode())->toBe('command');
+    expect($label())->toBe('Attack');
+    InputManager::setInputSource(new FakeInputSource(KeyCode::d)); $refresh();
+    new ReflectionMethod($state, 'beginSubmenuSelection')->invoke($state, $context);
+    expect($state->getSelectionMode())->toBe('submenu');
+    $screen->commandContextWindow->selectNext(); $screen->commandContextWindow->selectNext();
+    expect($screen->commandContextWindow->getActiveItem()->action)->toBeInstanceOf(\Ichiloto\Engine\Battle\Actions\CrisisSkillBattleAction::class);
+    InputManager::setInputSource($input);
+    new ReflectionMethod($state, 'returnToCommandSelection')->invoke($state, $context);
+    $input->press('physical-d', KeyCode::d); $refresh();
+    $input->press('confirm', KeyCode::ENTER); $refresh();
+    $input->release('physical-d')->release('confirm'); $refresh();
+    expect($state->getSelectionMode())->toBe('target')->and($turn->action)->toBeNull();
+    $input->press('confirm', KeyCode::ENTER); $refresh();
+    $queued = $activeTime ? $engine->capturedAction : $turn->action;
+    expect($queued)->toBeInstanceOf(\Ichiloto\Engine\Battle\Actions\CrisisSkillBattleAction::class)
+      ->and($queued->name)->toBe('Synthetic long finisher')->and($actor->stats->currentMp)->toBe(0);
+  } finally {
+    $lease->close();
+    chdir($cwd);
+    foreach ($statics as $class => $values) { foreach ($values as $key => $value) { new ReflectionProperty($class, $key)->setValue(null, $value); } }
+  }
+})->with(['traditional' => false, 'active time' => true]);

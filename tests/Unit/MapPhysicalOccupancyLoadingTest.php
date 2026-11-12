@@ -85,9 +85,10 @@ function createOccupancyLoadingFixture(bool $layered = false, string $text = "##
     return [$root, $paths, $gridPath, $manager, $scene, $camera, $player];
 }
 
-it('prepares and installs explicit physical cells through the existing atomic map path', function (bool $layered) {
+it('prepares and installs explicit physical cells through the existing atomic map path', function (bool $layered, bool $packed) {
     [$root, $paths, $grid, $manager, $scene, $camera, $player] = createOccupancyLoadingFixture($layered);
-    $rows = [[CollisionType::NONE, CollisionType::COUNTER], [CollisionType::SAVE_POINT, CollisionType::ENCOUNTER]];
+    $rows = $packed ? ['packedRows' => ['0A', '67']]
+        : [[CollisionType::NONE, CollisionType::COUNTER], [CollisionType::SAVE_POINT, CollisionType::ENCOUNTER]];
     file_put_contents($paths['data'], '<?php return ' . var_export(['name' => 'Physical', 'occupancy' => $rows], true) . ';');
     $prepared = $manager->prepareMap('test/physical');
     expect($prepared->collisions)->toBe([[0, 10], [6, 7]])
@@ -116,7 +117,12 @@ it('prepares and installs explicit physical cells through the existing atomic ma
         ->and($manager->getCollision(0, 1))->toBe(CollisionType::SAVE_POINT)
         ->and($manager->getCollision(1, 1))->toBe(CollisionType::ENCOUNTER)
         ->and($manager->dictionaryCalls)->toBe(0);
-})->with([false, true]);
+})->with([
+    'legacy grid with enum rows' => [false, false],
+    'legacy grid with packed rows' => [false, true],
+    'layered grid with enum rows' => [true, false],
+    'layered grid with packed rows' => [true, true],
+]);
 
 it('preserves unmigrated legacy and layered passage including the default dictionary', function (bool $layered) {
     [$root, $paths, $grid, $manager] = createOccupancyLoadingFixture($layered, ";?\nx~");
@@ -228,7 +234,7 @@ it('keeps real graphical layer sheet and offset changes independent of resolved 
         $after = $manager->prepareMap('test/physical');
         expect($after->tiles)->toBe($before->tiles)
             ->and($after->collisions)->toBe($before->collisions)
-            ->and($after->graphics->layers[0]->tiles)->toBe([[4, 0], [0, 1]])
+            ->and($after->graphics->layers[0]->readTiles())->toBe([[4, 0], [0, 1]])
             ->and($after->graphics->offsets)->toBe(['floor' => [0.5, -0.5]])
             ->and($after->graphics->tileset->getUsableSheets($root . '/assets')['tileSize'])->toBe(4)
             ->and($after->graphics->tileset->isAbove(1))->toBeTrue();
@@ -237,10 +243,117 @@ it('keeps real graphical layer sheet and offset changes independent of resolved 
             $terminalEdit = $manager->prepareMap('test/physical');
             expect($terminalEdit->tiles)->not->toBe($after->tiles)
                 ->and($terminalEdit->collisions)->toBe($after->collisions)
-                ->and($terminalEdit->graphics->layers[0]->tiles)->toBe($after->graphics->layers[0]->tiles)
+                ->and($terminalEdit->graphics->layers[0]->readTiles())->toBe($after->graphics->layers[0]->readTiles())
                 ->and($terminalEdit->graphics->offsets)->toBe($after->graphics->offsets);
         }
     } finally {
         chdir($workingDirectory);
     }
 })->with([false, true]);
+
+it('loads a map painted in terrain kinds with its kinds\' passage and encounter terrain, and leaves other maps alone', function () {
+    [$root, $paths, $grid, $manager, $scene, $camera, $player] = createOccupancyLoadingFixture(true, ".^\n~.");
+    mkdir($root . '/assets/Data/Tilesets', 0700, true);
+    file_put_contents($root . '/assets/Data/Tilesets/kinds.php', '<?php return ' . var_export(['name' => 'Kinds',
+        'sheets' => ['A1' => 'Graphics/A1.png', 'A2' => 'Graphics/A2.png'], 'kinds' => [
+            'meadow' => ['name' => 'Meadow', 'layer' => 'terrain', 'glyph' => '<fg=green>.</>', 'art' => ['layer' => 'ground', 'tile' => 2816],
+                'passage' => 'walk', 'encounters' => 'meadow', 'atlas' => 'ground'],
+            'peaks' => ['name' => 'Peaks', 'layer' => 'terrain', 'glyph' => '<fg=white>^</>', 'art' => ['awaiting' => true], 'passage' => 'solid', 'atlas' => 'highland'],
+        ]], true) . ';');
+    // The game's dictionary says otherwise for both glyphs; the kinds decide them on the map that opts in.
+    $manager->dictionary = ['.' => CollisionType::SOLID, '^' => CollisionType::NONE, '~' => CollisionType::SOLID];
+    $workingDirectory = getcwd();
+    chdir($root);
+    try {
+        file_put_contents($paths['data'], '<?php return ' . var_export(['tileset' => 'kinds'], true) . ';');
+        expect($manager->prepareMap('test/physical')->collisions)->toBe([[1, 0], [1, 1]]);
+
+        file_put_contents($paths['data'], '<?php return ' . var_export(['tileset' => 'kinds', 'terrainKinds' => true], true) . ';');
+        $prepared = $manager->prepareMap('test/physical');
+        expect($prepared->collisions)->toBe([[7, 1], [1, 7]])
+            ->and($prepared->encounterTerrain?->getTerrainAt(0, 0))->toBe('meadow')
+            ->and($prepared->encounterTerrain?->getTerrainAt(1, 0))->toBeNull()
+            ->and($prepared->overview?->terrain?->getRole(1, 0))->toBe('highland');
+
+        file_put_contents($paths['data'], '<?php return ' . var_export(['tileset' => 'missing', 'terrainKinds' => true], true) . ';');
+        expect(fn() => $manager->prepareMap('test/physical'))
+            ->toThrow(InvalidArgumentException::class, 'tileset missing cannot be read, so its passage is unknown');
+    } finally {
+        chdir($workingDirectory);
+    }
+});
+
+
+it('resolves saved named NPC destinations before installation and refuses blocked or overlapping current destinations', function () {
+    [$root, $paths, $grid, $manager, $scene] = createOccupancyLoadingFixture(text: "....\n....\n....");
+    new ReflectionProperty(GameScene::class, 'npcManager')->setValue($scene, new \Ichiloto\Engine\Field\NpcManager($scene));
+    $entry = ['id' => 'arriving', 'name' => 'Arriving', 'x' => 0, 'y' => 0,
+        'placements' => ['meeting' => ['x' => 3, 'y' => 1]]];
+    $data = ['id' => 'test/physical', 'npcs' => [$entry]];
+    file_put_contents($paths['data'], '<?php return ' . var_export($data, true) . ';');
+    $scene->gameState->setVariable(\Ichiloto\Engine\Field\NpcPlacementSet::getStateKey('test/physical', 'arriving'), 'meeting');
+    $prepared = $manager->prepareMap('test/physical');
+    expect((int)$prepared->npcs[0]->position->x)->toBe(3)
+        ->and((int)$prepared->npcs[0]->position->y)->toBe(1)->and($scene->npcManager->npcs)->toBe([]);
+    $data['npcs'][] = ['id' => 'other', 'name' => 'Other', 'x' => 3, 'y' => 1];
+    file_put_contents($paths['data'], '<?php return ' . var_export($data, true) . ';');
+    expect(fn() => $manager->prepareMap('test/physical'))->toThrow(InvalidArgumentException::class, 'overlaps');
+    $data['npcs'] = [$entry];
+    file_put_contents($paths['data'], '<?php return ' . var_export($data, true) . ';');
+    file_put_contents($grid, \Ichiloto\Engine\Field\MapGridSource::buildSource("....\n...#\n....", 'MAP'));
+    expect(fn() => $manager->prepareMap('test/physical'))->toThrow(InvalidArgumentException::class, 'clear physical floor')
+        ->and($scene->npcManager->npcs)->toBe([]);
+});
+
+
+it('uses the authored map save policy under every display name and keeps save-point access', function (): void {
+    [$root, $paths, $grid, $manager, $scene, $camera, $player] = createOccupancyLoadingFixture(text: '..');
+    foreach ([['Maanda', 'anywhere', true], ['Renamed continent', 'anywhere', true],
+        ['Overworld', 'save-points', false], ['Ordinary room', null, false]] as [$name, $policy, $allowed]) {
+        $data = ['name' => $name, 'occupancy' => [[CollisionType::NONE, CollisionType::SAVE_POINT]]];
+        if ($policy !== null) { $data['savePolicy'] = $policy; }
+        file_put_contents($paths['data'], '<?php return ' . var_export($data, true) . ';');
+        $prepared = $manager->prepareMap('test/physical');
+        $manager->applyPreparedMap($prepared, $player);
+        expect($manager->canSave)->toBe($allowed)->and($scene->party->location->name)->toBe($name);
+        new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
+        $player->position->x = 1;
+        expect($manager->canSave)->toBeTrue();
+        $player->position->x = 0;
+        expect($manager->canSave)->toBe($allowed);
+        new ReflectionProperty(GameScene::class, 'player')->setValue($scene, null);
+    }
+    $before = [$manager->canSave, $scene->party->location, $camera->worldSpace];
+    foreach ([null, false, 'overworld', 'Anywhere', []] as $invalid) {
+        file_put_contents($paths['data'], '<?php return ' . var_export(['savePolicy' => $invalid], true) . ';');
+        foreach (['prepareMap', 'readMapDataFromFile'] as $reader) {
+            expect(fn() => $manager->$reader('test/physical'))->toThrow(InvalidArgumentException::class, 'savePolicy')
+                ->and([$manager->canSave, $scene->party->location, $camera->worldSpace])->toBe($before);
+        }
+    }
+});
+
+it('derives save availability from the installed collision and the current player cell', function (): void {
+    [$root, $paths, $grid, $manager, $scene, $camera, $player] = createOccupancyLoadingFixture(text: '..');
+    $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()
+        ->onlyMethods(['removeTriggers', 'removeEventTriggers'])->getMock();
+    new ReflectionProperty(Player::class, 'position')->setValue($player, new Vector2(0, 0));
+    new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
+    $writeMap = static function (array $cells) use ($paths): void {
+        file_put_contents($paths['data'], '<?php return ' . var_export(['occupancy' => [$cells]], true) . ';');
+    };
+    $writeMap([CollisionType::SAVE_POINT, CollisionType::NONE]);
+    $manager->applyPreparedMap($manager->prepareMap('test/physical'), $player);
+    expect($manager->canSave)->toBeTrue();
+
+    $player->position->x = 1;
+    expect($manager->canSave)->toBeFalse();
+    $player->position->x = 0;
+    expect($manager->canSave)->toBeTrue();
+
+    $writeMap([CollisionType::NONE, CollisionType::SAVE_POINT]);
+    $manager->applyPreparedMap($manager->prepareMap('test/physical'), $player);
+    expect($manager->canSave)->toBeFalse();
+    $player->position->x = 1;
+    expect($manager->canSave)->toBeTrue();
+});

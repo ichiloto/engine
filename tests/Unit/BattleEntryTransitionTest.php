@@ -173,13 +173,14 @@ beforeEach(function () {
   Console::setTerminalOutputEnabled(false);
   Console::syncDimensions(135, 36);
   Console::clear();
-  $this->root = sys_get_temp_dir() . '/entry-transition-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/entry-transition-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   $data = var_export(getScreenTransitionFixture(), true);
   file_put_contents($this->root . '/' . ScreenTransitionCatalog::FILE,
     '<?php return new \\Ichiloto\\Engine\\Rendering\\ScreenTransitionCatalog(['
     . "'gilded-sweep' => new \\Ichiloto\\Engine\\Rendering\\ScreenTransitionTreatment({$data})], battle: 'gilded-sweep');");
   $this->transport = new FakeRendererTransport();
+  $this->transport->acknowledgeFrames = true;
   $capabilities = ['graphical_canvas', 'canvas_compositing', 'canvas_overlay', 'window_activation'];
   $this->transport->onStart = static function ($peer) use ($capabilities): void {
     $peer->batches = [[RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $capabilities]))]];
@@ -389,3 +390,32 @@ it('cleans up a failure preparing the covered composition without starting comba
   $this->manager->render(); $this->runtime->present($this->other);
   expect(RetainedFrameState::getLatestFrame($this->transport->sent))->not->toHaveKey('canvas');
 });
+
+it('carries explicit standalone world facts from battle loading to the running battle and drops them on return', function (bool $activeTime) {
+  if (!$activeTime) {
+    new ReflectionProperty(Game::class, 'engine')->setValue($this->game,
+      new \Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine($this->game));
+  }
+  ConfigStore::get(ProjectConfig::class)->set('ui.transitions.style', 'none');
+  $world = new \Ichiloto\Engine\Core\GameState();
+  $world->setVariable('form', 'test-form');
+
+  $this->manager->loadBattleScene($this->party, $this->troop, extraSettings: [BattleConfig::TEST_WORLD_STATE => $world]);
+  $property = new ReflectionProperty(\Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedEngine::class, 'turnStateExecutionContext');
+  $context = $property->getValue($this->game->engine);
+  expect($this->manager->currentScene)->toBe($this->battle)
+    ->and($this->battle->config->settings)->not->toHaveKey(BattleConfig::TEST_WORLD_STATE)
+    ->and($context->getGameState())->toBe($world)
+    ->and($context->getGameState()->getVariable('form'))->toBe('test-form');
+  $this->manager->returnFromBattleScene();
+  expect($context->getGameState())->toBeNull();
+  $laterWorld = new \Ichiloto\Engine\Core\GameState();
+  $laterWorld->setVariable('form', 'another-form');
+  $this->manager->loadBattleScene($this->party, $this->troop, extraSettings: [BattleConfig::TEST_WORLD_STATE => $laterWorld]);
+  expect($property->getValue($this->game->engine)->getGameState())->toBe($laterWorld)
+    ->and($context->getGameState())->toBeNull();
+
+  $this->manager->returnFromBattleScene();
+  $this->manager->loadBattleScene($this->party, $this->troop);
+  expect($property->getValue($this->game->engine)->getGameState())->toBeNull();
+})->with([false, true]);

@@ -26,6 +26,12 @@ final readonly class MapReachabilityReport
   {
   }
 
+  /** The same report with further problems found on the same map. */
+  public function withProblems(array $problems): self
+  {
+    return new self($this->mapId, $this->reachableCells, [...$this->problems, ...$problems], $this->spokenToCells);
+  }
+
   /** Whether the player can stand on a cell. */
   public function isReachable(int $x, int $y): bool
   {
@@ -44,6 +50,17 @@ final readonly class MapReachabilityReport
     }
 
     return false;
+  }
+
+  /**
+   * Whether the player can use an event: stand on a cell where it answers,
+   * inside its area or, for a faced object, on an approach its engagement and
+   * facing allow. An object's own solid cells are never stood on, so asking
+   * whether its area is reachable answers a different question.
+   */
+  public function canEngage(ReachabilityEvent $event): bool
+  {
+    return $this->isAnyReachable($event->getStandingArea());
   }
 
   /** Whether the player can speak to the NPC on a cell, beside it or across one counter cell. */

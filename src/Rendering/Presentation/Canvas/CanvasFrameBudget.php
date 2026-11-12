@@ -16,12 +16,15 @@ final class CanvasFrameBudget
     if (!array_is_list($canvases) || count($canvases) > 1025) {
       throw new InvalidArgumentException('Canvas frame roots require a list of at most 1025 canvases.');
     }
-    $images = $indicators = $text = $labels = $runs = $scalars = $pixels = $operations = $nodes = 0;
+    $images = $indicators = $text = $labels = $runs = $scalars = 0;
+    $compositeCount = 0;
+    foreach ($canvases as $canvas) {
+      if (!$canvas instanceof PresentationCanvas) { throw new InvalidArgumentException('Canvas frame roots require typed canvases.'); }
+      $compositeCount += count($canvas->composites);
+    }
+    CanvasCompositeBudget::assertSurfaceCount($compositeCount, 'Aggregate canvases');
     $composites = [];
     foreach ($canvases as $canvas) {
-      if (!$canvas instanceof PresentationCanvas) {
-        throw new InvalidArgumentException('Canvas frame roots require typed canvases.');
-      }
       $images += count($canvas->images);
       $indicators += count($canvas->indicators);
       $text += count($canvas->textLayers);
@@ -42,24 +45,8 @@ final class CanvasFrameBudget
           }
         }
       }
-      // Measurements carry geometry, not source text; native layout admission counts label lines/scalars.
-      if (count($composites) + count($canvas->composites) > 8) {
-        throw new InvalidArgumentException('Aggregate canvases exceed composite limits.');
-      }
-      foreach ($canvas->composites as $composite) {
-        $pixels += $composite->width * $composite->height;
-        $operations += count($composite->operations);
-        foreach ($composite->operations as $operation) {
-          $nodes += count($operation->data['displacement']['offsets'] ?? []);
-        }
-        if ($pixels > 8388608 || $operations > 256 || $nodes > 16384) {
-          throw new InvalidArgumentException('Aggregate canvases exceed composite raster, operation or displacement limits.');
-        }
-        $composites[] = $composite;
-      }
+      array_push($composites, ...$canvas->composites);
     }
-    if (CanvasCompositeBudget::getWork($composites) > CanvasCompositeBudget::MAX_WORK) {
-      throw new InvalidArgumentException('Aggregate canvases exceed cold raster work limits.');
-    }
+    CanvasCompositeBudget::assertWithin($composites, 'Aggregate canvases');
   }
 }

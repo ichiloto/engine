@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\UI\Modal;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 
 use Override;
@@ -10,13 +12,14 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\IO\Input;
-use Ichiloto\Engine\IO\InputBindings;
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePaginationBuilder;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueSnapshot;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationProviderInterface;
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
@@ -59,6 +62,7 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
    * @var float $nextPrintTime The next print time.
    */
   protected float $nextPrintTime = 0;
+  private ?float $pausedAt = null;
   /**
    * @var int $leftMargin The left margin.
    */
@@ -143,6 +147,7 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
   public function show(): void
   {
     InputManager::consumeCurrentInput();
+    $this->pausedAt = null;
     parent::show();
     $this->leftMargin = $this->rect->getX();
     $this->topMargin = $this->rect->getY();
@@ -158,11 +163,27 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
     $this->refreshPlaybackHelp();
   }
 
-  /**
-   * @inheritDoc
-   */
+  /** Freeze the current page while an outer presentation owns input. */
+  public function pausePlayback(?float $now = null): void
+  {
+    if ($this->pausedAt !== null) { return; }
+    $this->pausedAt = $now ?? RuntimeClock::getSeconds();
+    $this->playback?->pause($this->pausedAt);
+  }
+
+  public function resumePlayback(?float $now = null): void
+  {
+    if ($this->pausedAt === null) { return; }
+    $now ??= RuntimeClock::getSeconds();
+    if ($this->nextPrintTime > 0.0) { $this->nextPrintTime += max(0.0, $now - $this->pausedAt); }
+    $this->playback?->resume($now);
+    $this->pausedAt = null;
+  }
+
+  /** @inheritDoc */
   public function update(): void
   {
+    if ($this->pausedAt !== null) { return; }
     if ($this->isPrinting) {
       $this->updateContent();
     }
@@ -178,7 +199,7 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
     } elseif ($this->playback !== null && Input::isButtonPressed('dialogue_auto')) {
       $this->playback->toggleAuto();
     } elseif ($this->playback?->canAdvance(
-      microtime(true), $this->isPrinting, ! isset($this->messagePages[$this->currentPageIndex + 1]),
+      RuntimeClock::getSeconds(), $this->isPrinting, ! isset($this->messagePages[$this->currentPageIndex + 1]),
     )) {
       $this->submit();
     }
@@ -188,17 +209,19 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
   private function refreshPlaybackHelp(): void
   {
     if ($this->playback !== null) {
-      $bindings = new InputBindings();
-      $hints = sprintf('%s:continue %s:Auto %s', $bindings->describeKeys('confirm'),
-        $bindings->describeKeys('dialogue_auto'), $this->playback->auto ? 'on' : 'off');
+      // The advance key shows alone, the same while typing and waiting, as the graphical footer does.
+      $hints = TerminalControlText::formatControl(ActionHints::resolveControl('dialogue_auto'))
+        . ' Auto ' . ($this->playback->auto ? 'On' : 'Off') . TerminalControlText::SEPARATOR
+        . TerminalControlText::formatControl(ActionHints::resolveControl('confirm'));
       $this->help = $this->authoredHelp === '' ? $hints : $this->authoredHelp . ' ' . $hints;
     }
   }
 
   public function updateContent(): void
   {
+    if ($this->pausedAt !== null) { return; }
     if ($this->isPrinting) {
-      $now = microtime(true);
+      $now = RuntimeClock::getSeconds();
 
       if ($now >= $this->nextPrintTime) {
         $speed = is_finite($this->charactersPerSecond) ? max(1.0, $this->charactersPerSecond) : self::DEFAULT_TYPING_SPEED;

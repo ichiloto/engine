@@ -19,6 +19,57 @@ use InvalidArgumentException;
  */
 class Inventory
 {
+  /** @var \WeakMap<self, ItemStore>|null Project catalogues are transient and never enter saved inventory. */
+  private static ?\WeakMap $projectStores = null;
+  /** @var \WeakMap<self, \WeakReference<QuestManager>>|null Inventory changes belong to their campaign. */
+  private static ?\WeakMap $questManagers = null;
+
+  public function bindQuestManager(QuestManager $manager): void
+  {
+    self::$questManagers ??= new \WeakMap();
+    self::$questManagers[$this] = \WeakReference::create($manager);
+  }
+
+  /** Release only this binding and restore the still-active owner for this inventory. */
+  public function releaseQuestManager(QuestManager $owner, ?QuestManager $previous): void
+  {
+    if ((self::$questManagers[$this] ?? null)?->get() !== $owner) { return; }
+    if ($previous !== null && !$previous->isReleased) { $this->bindQuestManager($previous); }
+    // Retain a retired binding when there is no predecessor, so legacy global delivery stays quiet.
+  }
+
+  private function notifyInventoryChanged(): void
+  {
+    $binding = self::$questManagers[$this] ?? null;
+    if ($binding !== null) {
+      $manager = $binding->get();
+      if ($manager !== null && !$manager->isReleased) { $manager->syncCollectObjectives(); }
+      return;
+    }
+    // An explicitly owned catalogue can be loaded before a campaign acquires progression.
+    if (isset(self::$projectStores[$this])) { return; }
+    QuestManager::current()?->syncCollectObjectives();
+  }
+
+  /** Bind the catalogue of the project that owns this campaign inventory. */
+  public function bindItemStore(ItemStore $store): void
+  {
+    $current = self::$projectStores[$this] ?? null;
+    if ($current !== null && $current !== $store) {
+      throw new \LogicException('Inventory is already bound to another project item catalogue.');
+    }
+    self::$projectStores ??= new \WeakMap();
+    self::$projectStores[$this] = $store;
+  }
+
+  private function getItemStore(): ?ItemStore
+  {
+    $owned = self::$projectStores[$this] ?? null;
+    if ($owned !== null) { return $owned; }
+    $legacy = ConfigStore::has(ItemStore::class) ? ConfigStore::get(ItemStore::class) : null;
+    return $legacy instanceof ItemStore ? $legacy : null;
+  }
+
   /**
    * The default capacity of the inventory.
    */
@@ -147,7 +198,7 @@ class Inventory
       $this->inventoryItems->add($item);
     }
 
-    QuestManager::current()?->syncCollectObjectives();
+    $this->notifyInventoryChanged();
   }
 
   /**
@@ -177,7 +228,7 @@ class Inventory
       }
     }
 
-    QuestManager::current()?->syncCollectObjectives();
+    $this->notifyInventoryChanged();
   }
 
   /**
@@ -200,7 +251,7 @@ class Inventory
   /** Returns held quantity through the one stable-id/name/alias contract. */
   public function getQuantity(string $reference, string $context = 'checking inventory quantity'): int
   {
-    if (! ConfigStore::has(ItemStore::class)) {
+    if ($this->getItemStore() === null) {
       $normalized = strtolower(trim($reference));
       $hasLocalMatch = array_any(
         $this->inventoryItems->toArray(),
@@ -290,13 +341,8 @@ class Inventory
 
   private function resolveDefinitionId(string $reference, string $context): string
   {
-    if (ConfigStore::has(ItemStore::class)) {
-      $store = ConfigStore::get(ItemStore::class);
-
-      if ($store instanceof ItemStore) {
-        return $store->requireDefinitionId($reference, $context);
-      }
-    }
+    $store = $this->getItemStore();
+    if ($store !== null) { return $store->requireDefinitionId($reference, $context); }
 
     // Standalone embedders and unit-level inventories may have no project
     // catalogue. Exact held stable IDs and current names remain deterministic;

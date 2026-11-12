@@ -21,6 +21,7 @@ use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Skills\SkillInvocation;
 use Ichiloto\Engine\Entities\Skills\SkillRecord;
 use Ichiloto\Engine\Entities\Skills\SkillResolutionScope;
+use Ichiloto\Engine\Entities\Skills\SkillSecondaryTrigger;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 
 /** A record's data with only what every skill states. */
@@ -40,6 +41,83 @@ function minimalSkillData(array $overrides = []): array
     ...$overrides,
   ];
 }
+
+it('round trips explicit guaranteed state application and rejects conflicting chance data', function () {
+  $data = minimalSkillData(['effects' => [['type' => 'add_state', 'stateId' => 'stun', 'guaranteed' => true]]]);
+  $skill = SkillRecord::readSkill($data);
+  expect($skill->effects[0]->guaranteed)->toBeTrue()
+    ->and(SkillRecord::writeSkill($skill)['effects'])->toBe($data['effects']);
+  expect(fn() => SkillRecord::readSkill(minimalSkillData(['effects' => [
+    ['type' => 'add_state', 'stateId' => 'stun', 'guaranteed' => true, 'chancePercent' => 25],
+  ]])))->toThrow(InvalidArgumentException::class);
+  expect(fn() => SkillRecord::readSkill(minimalSkillData(['effects' => [
+    ['type' => 'add_state', 'stateId' => 'stun', 'guaranteed' => 'true'],
+  ]])))->toThrow(InvalidArgumentException::class);
+});
+
+it('round trips the landed-hit trigger and rejects an unknown trigger', function () {
+  $damage = ['type' => 'hp_damage', 'formula' => '10'];
+  $effect = ['type' => 'add_state', 'stateId' => 'stun', 'trigger' => 'landedHit'];
+  $skill = SkillRecord::readSkill(minimalSkillData(['effects' => [$damage, $effect]]));
+  expect($skill->effects[1]->trigger)->toBe(SkillSecondaryTrigger::LANDED_HIT)
+    ->and(SkillRecord::writeSkill($skill)['effects'][1])->toBe($effect);
+  $effect['trigger'] = 'miss';
+  expect(fn() => SkillRecord::readSkill(minimalSkillData(['effects' => [$damage, $effect]])))
+    ->toThrow(InvalidArgumentException::class, 'trigger');
+});
+
+it('accepts a landed-hit state after any effect type that records a damaging hit', function () {
+  expect(SkillRecord::getDamagingEffectTypes())->toBe(['hp_damage', 'hp_drain']);
+  foreach (SkillRecord::getDamagingEffectTypes() as $type) {
+    $skill = SkillRecord::readSkill(minimalSkillData(['effects' => [
+      ['type' => $type, 'formula' => '10'],
+      ['type' => 'add_state', 'stateId' => 'poison'],
+      ['type' => 'add_state', 'stateId' => 'stun', 'trigger' => 'landedHit'],
+    ]]));
+    expect($skill->effects[2]->trigger)->toBe(SkillSecondaryTrigger::LANDED_HIT);
+  }
+});
+
+it('refuses a landed-hit state placed before damage or on a skill without damage', function (array $effects, int $index) {
+  expect(fn() => SkillRecord::readSkill(minimalSkillData(['effects' => $effects])))
+    ->toThrow(InvalidArgumentException::class,
+      "effects.{$index}.trigger landedHit applies only after an earlier effect in this skill lands damage on the target (hp_damage, hp_drain)");
+})->with([
+  'before the damage' => [[
+    ['type' => 'add_state', 'stateId' => 'stun', 'trigger' => 'landedHit'],
+    ['type' => 'hp_damage', 'formula' => '10'],
+  ], 0],
+  'with no damaging effect' => [[
+    ['type' => 'mp_damage', 'formula' => '5'],
+    ['type' => 'hp_recover', 'formula' => '5'],
+    ['type' => 'add_state', 'stateId' => 'stun', 'trigger' => 'landedHit'],
+  ], 2],
+  'after damage authored to heal' => [[
+    ['type' => 'hp_damage', 'formula' => '10', 'resolutionKind' => 'healing'],
+    ['type' => 'add_state', 'stateId' => 'stun', 'trigger' => 'landedHit'],
+  ], 1],
+]);
+
+it('round trips state delay on battle skills and refuses negative or field delays', function () {
+  $effect = ['type' => 'add_state', 'stateId' => 'slow', 'delayTurns' => 1];
+  $skill = SkillRecord::readSkill(minimalSkillData(['effects' => [$effect]]));
+  expect($skill->effects[0]->delayTurns)->toBe(1)
+    ->and(SkillRecord::writeSkill($skill)['effects'])->toBe([$effect]);
+  expect(fn() => SkillRecord::readSkill(minimalSkillData(['occasion' => 'Always', 'effects' => [$effect]])))
+    ->toThrow(InvalidArgumentException::class, 'battle-only');
+  $effect['delayTurns'] = -1;
+  expect(fn() => SkillRecord::readSkill(minimalSkillData(['effects' => [$effect]])))
+    ->toThrow(InvalidArgumentException::class, 'cannot be negative');
+});
+
+it('keeps old serialized state effects independent and probabilistic', function () {
+  $effect = new AddStateSkillEffect('stun');
+  Closure::bind(function (): void { unset($this->guaranteed, $this->trigger, $this->delayTurns); }, $effect, AddStateSkillEffect::class)();
+  $restored = unserialize(serialize($effect));
+  expect($restored->guaranteed)->toBeFalse()
+    ->and($restored->trigger)->toBe(SkillSecondaryTrigger::ALWAYS)
+    ->and($restored->delayTurns)->toBe(0);
+});
 
 it('round-trips every kind and every effect type through record data', function () {
   $effects = [

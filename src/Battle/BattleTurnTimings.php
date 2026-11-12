@@ -21,18 +21,25 @@ class BattleTurnTimings
   {
   }
 
+  /** The share of a turn budget the announcement is read for when its category authors no reading time. */
+  public const float ANNOUNCEMENT_SHARE = 0.28;
+
   /**
    * Creates a timing profile by distributing the given total duration.
    *
-   * @param float $totalDurationSeconds The total action duration in seconds.
+   * The announcement may be read for its own time, independent of the
+   * budget: the budget then paces only the beats around it.
+   *
+   * @param float $totalDurationSeconds The turn budget its phases share, in seconds.
+   * @param float|null $announcementSeconds How long the announcement is read, else its share of the budget.
    * @return self
    */
-  public static function fromTotalDuration(float $totalDurationSeconds): self
+  public static function fromTotalDuration(float $totalDurationSeconds, ?float $announcementSeconds = null): self
   {
     // Favor the announcement, visible effect beat, and result beat so players can read the action.
     return new self(
       $totalDurationSeconds * 0.07,
-      $totalDurationSeconds * 0.28,
+      $announcementSeconds ?? $totalDurationSeconds * self::ANNOUNCEMENT_SHARE,
       $totalDurationSeconds * 0.12,
       $totalDurationSeconds * 0.18,
       $totalDurationSeconds * 0.07,

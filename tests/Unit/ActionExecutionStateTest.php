@@ -36,6 +36,8 @@ use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -45,9 +47,16 @@ use Ichiloto\Engine\Battle\BattlePacing;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedEngine;
 use Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline;
 use Ichiloto\Engine\Core\Time;
+use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Progression\{TutorialCatalog, TutorialDirector, TutorialPhase, TutorialStartContext};
+use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
+use Ichiloto\Engine\Scenes\SceneManager;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\UI\Accessibility;
 use function Tests\Support\Battle\createTargetExecutionFixture;
+use function Tests\Support\Battle\queueTargetExecution;
 
 require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
 
@@ -56,6 +65,8 @@ final class ActionEffectTrace
   public array $events = [];
   public array $frames = [];
   public array $targetFrames = [];
+  public array $resultSounds = [];
+  public array $popups = [];
   public bool $renderFailed = false;
 
   public function __construct(public string $renderMode) {}
@@ -70,7 +81,7 @@ final class ActionEffectField extends BattleFieldWindow
   public function clearMagicCastEffects(): void {}
   public function clearStatChangePopups(): void {}
   public function showStatChangePopup(CharacterInterface $battler, array $lines, bool $clearExisting = true,
-    float $durationSeconds = 0.0): void {}
+    float $durationSeconds = 0.0): void { $this->trace->popups[] = $battler->name; }
   public function clearBattleFlash(): void
   {
     $this->trace->events[] = 'clear-flash';
@@ -151,6 +162,7 @@ function runActionEffectPlayback(
   ?Animation $animation = null,
   bool $graphical = true,
   ?string $moveName = null,
+  array $damage = [7],
 ): array
 {
   $previousConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
@@ -158,13 +170,14 @@ function runActionEffectPlayback(
   ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
   try {
     $trace ??= new ActionEffectTrace($renderMode);
-    $audio = new class extends AudioManager {
-      public function __construct() {}
-      public function playSystemSound(SystemSound $sound): void {}
+    $audio = new class($trace) extends AudioManager {
+      public function __construct(private ActionEffectTrace $trace) {}
+      public function playSystemSound(SystemSound $sound): void { $this->trace->resultSounds[] = $sound; }
       public function playSoundEffect(string $path): void {}
     };
     [$engine, $context, $prototype, $actor, , $enemies] = createTargetExecutionFixture(false, $graphical, $audio);
     $target = $enemies[0];
+    $targets = array_slice([...$enemies, $actor], 0, count($damage));
     $screen = new ActionEffectScreen($trace, $prototype, $graphical,
       new BattleTurnTimings(0, 0, 0, $effectDisplaySeconds, 0, 0, 0));
     new ReflectionProperty(TurnStateExecutionContext::class, 'ui')->setValue($context, $screen);
@@ -183,11 +196,11 @@ function runActionEffectPlayback(
     $state = new ActionEffectState($engine, $cutscene, $animation);
     $resolutions = 0;
     new ReflectionMethod(ActionExecutionState::class, 'performTurnSequence')->invoke(
-      $state, $context, $actor, [$target], $cutscene === null ? null
+      $state, $context, $actor, $targets, $cutscene === null ? null
         : new SkillBattleAction(new SpecialSkill('Fixture', '', '', 0, 0)), 'Fixture',
-      function () use ($target, $trace, $afterResolution, &$resolutions): void {
+      function () use ($targets, $damage, $trace, $afterResolution, &$resolutions): void {
         $resolutions++;
-        $target->stats->currentHp -= 7;
+        foreach ($targets as $index => $battler) { $battler->stats->currentHp -= $damage[$index]; }
         $trace->events[] = 'resolve';
         if ($afterResolution !== null) { $afterResolution(); }
       },
@@ -238,6 +251,16 @@ it('resolves an authored summon once at cue, frame or end through the action sta
   'end reduced motion' => [['mode' => 'end'], 'normal', true, [3]],
 ])->with([true, false]);
 
+it('plays each damage sound once for simultaneous results and still shows every target popup', function (bool $graphical): void {
+  $trace = new ActionEffectTrace('normal');
+  $result = runActionEffectPlayback(['mode' => 'cue', 'cueId' => 'impact'], 'normal', false,
+    trace: $trace, graphical: $graphical, damage: [7, 7, 5]);
+
+  expect($result['resolutions'])->toBe(1)
+    ->and($trace->resultSounds)->toBe([SystemSound::ENEMY_DAMAGE, SystemSound::ACTOR_DAMAGE])
+    ->and($trace->popups)->toBe(['Enemy A', 'Enemy B', 'Caster']);
+})->with(['graphical' => true, 'Terminal' => false]);
+
 it('preserves a gameplay failure when summon cleanup also fails', function () {
   $trace = new ActionEffectTrace('cleanup-fail');
   $attempts = 0;
@@ -279,9 +302,69 @@ it('diagnoses renderer type errors without restoring the removed blocking battle
     ->and($result['events'])->toContain('clear-flash');
 });
 
+it('completes Summon guidance only after an accepted action executes', function (int $mp, TutorialPhase $expected) {
+  $previous = getcwd();
+  $priorBindings = InputManager::getBindings();
+  InputManager::setBindings(['action' => ['keys' => [KeyCode::ENTER]]]);
+  $clock = new ReflectionProperty(Time::class, 'deltaTime');
+  $previousDelta = $clock->getValue();
+  $root = createTestDirectory('battle-guide-result');
+  $folder = $root . '/assets/Cutscenes/Summons/sample';
+  mkdir($folder, 0777, true);
+  file_put_contents($folder . '/sample.data.php',
+    "<?php return ['id' => 'sample', 'name' => 'Sample', 'linkedActionId' => 'Call Sample'];");
+  file_put_contents($folder . '/sample.timeline.php',
+    "<?php return ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];");
+
+  try {
+    chdir($root);
+    BattleCommandCatalog::beginBattle();
+    $fixture = createTargetExecutionFixture(false, false, $this->createStub(AudioManager::class));
+    [$engine, $context, , $actor, , $enemies] = $fixture;
+    $saved = new GameState();
+    $catalog = new TutorialCatalog([[
+      'id' => 'battle.summon', 'title' => 'Summon', 'category' => 'Battle',
+      'start' => 'automatic', 'startContext' => 'battle-command', 'replay' => 'read',
+      'steps' => [[
+        'target' => ['screen' => 'battle', 'view' => 'command', 'id' => 'summon'],
+        'action' => 'action', 'say' => 'Choose Summon.', 'until' => ['outcome' => 'summon.executed'],
+      ]],
+    ]]);
+    $director = new TutorialDirector($catalog, $saved);
+    $director->enterContext(TutorialStartContext::BATTLE_COMMAND, true);
+    $scene = makeBareScene(GameScene::class);
+    new ReflectionProperty($scene, 'tutorialDirector')->setValue($scene, $director);
+    new ReflectionProperty($scene, 'gameState')->setValue($scene, $saved);
+    $manager = new class($scene) extends SceneManager {
+      public function __construct(private GameScene $field) {}
+      public function findScene(string $className): ?SceneInterface { return $this->field; }
+    };
+    new ReflectionProperty($context->game, 'sceneManager')->setValue($context->game, $manager);
+    $actor->stats->currentMp = $mp;
+    $action = new SkillBattleAction(new SpecialSkill('Call Sample', '', '', 4, 0, new ItemScope(ItemScopeSide::ENEMY)));
+    $turn = queueTargetExecution($fixture, $action, [$enemies[0]]);
+    expect($saved->getTutorialPhase('battle.summon'))->toBe(TutorialPhase::PENDING);
+    $clock->setValue(null, .05);
+    for ($tick = 0; $tick < 300 && !$turn->isCompleted; $tick++) {
+      $engine->state->update($context);
+    }
+    expect($turn->isCompleted)->toBeTrue()
+      ->and($saved->getTutorialPhase('battle.summon'))->toBe($expected)
+      ->and($actor->stats->currentMp)->toBe($mp >= 4 ? $mp - 4 : $mp);
+  } finally {
+    BattleCommandCatalog::endBattle();
+    $clock->setValue(null, $previousDelta);
+    chdir($previous);
+    InputManager::setBindings($priorBindings);
+  }
+})->with([
+  'accepted' => [4, TutorialPhase::COMPLETED],
+  'refused after MP drops' => [3, TutorialPhase::PENDING],
+]);
+
 it('replaces scene-owned summon assets between battles even when the action state survives', function () {
   $previous = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-battle-summon-' . uniqid();
+  $root = \getTestTemporaryDirectory() . '/ichiloto-battle-summon-' . uniqid();
   $directory = $root . '/assets/Cutscenes/Summons/call';
   mkdir($directory, 0777, true);
   $data = $directory . '/call.data.php';
@@ -471,7 +554,7 @@ it('lets loaded source and target effect audio override generic cues but not sil
 
 it('resolves explicit animation ids and removes implicit display-name selection', function () {
   $previous = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-action-animation-' . uniqid();
+  $root = \getTestTemporaryDirectory() . '/ichiloto-action-animation-' . uniqid();
   mkdir($root . '/assets/Data', 0777, true);
   $path = $root . '/assets/Data/animations.php';
   try {
@@ -501,7 +584,7 @@ it('resolves explicit animation ids and removes implicit display-name selection'
 
 it('uses attack effects for typed basic skills and preserves an explicit effect override', function () {
   $previous = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-basic-attack-effect-' . uniqid();
+  $root = \getTestTemporaryDirectory() . '/ichiloto-basic-attack-effect-' . uniqid();
   mkdir($root . '/assets/Data', 0777, true);
   $path = $root . '/assets/Data/animations.php';
   try {

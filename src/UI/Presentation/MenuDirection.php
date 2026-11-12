@@ -17,8 +17,9 @@ enum MenuDirection: string
   public function getGlyph(bool $chevron = false): string
   {
     if ($chevron) {
+      // Left and right match the size of the up and down glyphs; single guillemets read too small.
       return match ($this) {
-        self::LEFT => "\u{2039}", self::RIGHT => "\u{203A}",
+        self::LEFT => '<', self::RIGHT => '>',
         self::UP => "\u{2227}", self::DOWN => "\u{2228}",
       };
     }
@@ -28,11 +29,16 @@ enum MenuDirection: string
     };
   }
 
-  /** Comparison arrows and navigation chevrons never borrow each other's artwork. */
+  /** The theme icon role: comparison arrows and navigation chevrons never borrow each other's artwork. */
+  public function getIconRole(bool $chevron = false): string
+  {
+    return ($chevron ? 'navigation.' : 'comparison.') . $this->value;
+  }
+
   public function getImages(?MenuIconRegistry $icons, string $id, CanvasRectangle $bounds, int $layer,
     bool $chevron = false): array
   {
-    $asset = $icons?->icons[($chevron ? 'navigation.' : 'comparison.') . $this->value] ?? null;
+    $asset = $icons?->icons[$this->getIconRole($chevron)] ?? null;
     return $asset === null ? [] : $icons->contain($id, $asset, $bounds, $layer, $bounds);
   }
 }

@@ -26,7 +26,23 @@ final class MenuLayout
 
   public static function getButtonWidth(MenuPresentationCatalog $theme, string $label, float $available): float
   {
-    return min($available, max(self::MIN_BUTTON_CELLS * $theme->metrics->cellWidth,
-      mb_strlen($label) * $theme->metrics->cellWidth + 2 * $theme->rows->metrics->padding));
+    $cell = $theme->metrics->getButtonCellWidth();
+    return min($available, max($theme->metrics->buttonMinWidth, self::MIN_BUTTON_CELLS * $cell,
+      mb_strlen($label) * $cell + 2 * $theme->rows->metrics->padding));
+  }
+
+  public static function getButtonHeight(MenuPresentationCatalog $theme, ?int $preferred = null): int
+  {
+    $metrics = $theme->metrics;
+    return max($preferred ?? $metrics->rowHeight, $metrics->buttonMinHeight,
+      (int)ceil($metrics->getButtonCellHeight() + $theme->rows->metrics->separatorWidth));
+  }
+
+  public static function getButtonLayout(MenuPresentationCatalog $theme, CanvasRectangle $bounds,
+    ?int $preferredHeight = null, bool $wrapText = false): MenuRowLayout
+  {
+    return new MenuRowLayout($bounds, rowHeight: min((int)floor($bounds->height), self::getButtonHeight($theme, $preferredHeight)),
+      cellWidth: $theme->metrics->getButtonCellWidth(), cellHeight: $theme->metrics->getButtonCellHeight(),
+      wrapText: $wrapText);
   }
 }

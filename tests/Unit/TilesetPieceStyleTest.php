@@ -20,8 +20,8 @@ it('separates piece presentation from plain glyphs using the shared map style pa
   $piece = readStyledPiece([$row]);
   $layer = new MapLayer('fixtures', 1, false, 'synthetic', $row);
   expect($piece->glyphs)->toBe([['a', 'b', 'c']])
-    ->and($piece->grid)->toBe($layer->grid)
-    ->and($piece->glyphs)->toBe($layer->glyphs)
+    ->and($piece->grid)->toBe($layer->readGrid())
+    ->and($piece->glyphs)->toBe($layer->readGlyphs())
     ->and([$piece->width, $piece->height])->toBe([3, 1]);
   foreach ($piece->grid[0] as $x => $cell) {
     expect(TerminalText::visibleSymbols($cell))->toBe([$cell])
@@ -63,8 +63,8 @@ it('retains single-cell Unicode graphemes in both styled and plain geometry', fu
   $row = "<fg=green>e\u{0301}</>x";
   $piece = readStyledPiece([$row]);
   $layer = new MapLayer('fixtures', 1, false, 'synthetic', $row);
-  expect($piece->glyphs)->toBe($layer->glyphs)
-    ->and($piece->grid)->toBe($layer->grid)
+  expect($piece->glyphs)->toBe($layer->readGlyphs())
+    ->and($piece->grid)->toBe($layer->readGrid())
     ->and(array_map(TerminalText::symbolCount(...), $piece->glyphs[0]))->toBe([1, 1])
     ->and([$piece->width, $piece->height])->toBe([2, 1]);
 });
@@ -149,9 +149,9 @@ it('stamps styled cells through the existing map contract without changing colli
   $plainSet = new MapLayerSet([$terrain, $plain]);
   $types = ['.' => CollisionType::NONE, 'a' => CollisionType::SOLID, 'b' => CollisionType::COUNTER,
     'c' => CollisionType::PASS_THROUGH];
-  expect($styled->grid)->toBe($piece->grid)->and($styled->glyphs)->toBe($piece->glyphs)
-    ->and($styledSet->gameplayOwners)->toBe($plainSet->gameplayOwners)
-    ->and($styledSet->gameplayOwners)->toBe([[0, 1, 0], [1, 1, 0]])
+  expect($styled->readGrid())->toBe($piece->grid)->and($styled->readGlyphs())->toBe($piece->glyphs)
+    ->and($styledSet->readGameplayOwners())->toBe($plainSet->readGameplayOwners())
+    ->and($styledSet->readGameplayOwners())->toBe([[0, 1, 0], [1, 1, 0]])
     ->and(MapCollisionResolver::resolveLayers($styledSet, $types))->toBe(MapCollisionResolver::resolveLayers($plainSet, $types))
     ->and(MapCollisionResolver::resolveLayers($styledSet, $types))->toBe([
       [CollisionType::NONE->value, CollisionType::SOLID->value, CollisionType::NONE->value],

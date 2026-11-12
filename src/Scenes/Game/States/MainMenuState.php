@@ -10,9 +10,13 @@ use Ichiloto\Engine\Core\Menu\Commands\OpenControlsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenEquipmentMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenItemsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenMagicMenuCommand;
+use Ichiloto\Engine\Core\Menu\Commands\OpenMasteryMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenQuestsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenRecordsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenSummonsMenuCommand;
+use Ichiloto\Engine\Core\Menu\Commands\SkipTutorialCommand;
+use Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation;
+use Ichiloto\Engine\Progression\TutorialStep;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Core\Menu\Commands\OpenPartyOrderCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenQuitMenuCommand;
@@ -68,6 +72,31 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
 {
     use MenuCanvasState { getPresentationCanvas as private getActiveMenuCanvas; }
 
+    public const string TUTORIAL_SCREEN = 'main-menu';
+    public const string TUTORIAL_COMMANDS = 'commands';
+    public const string TUTORIAL_PARTY = 'party';
+    public const string TUTORIAL_ORDER = 'order';
+    public const string TUTORIAL_COMMAND_OPENED = 'menu.command-opened';
+    public const string TUTORIAL_MEMBER_CONFIRMED = 'menu.member-confirmed';
+    public const string TUTORIAL_ORDER_COMMITTED = 'party.order-committed';
+    public const array TUTORIAL_COMMAND_TARGETS = [
+        OpenSummonsMenuCommand::class => 'summons',
+        OpenMasteryMenuCommand::class => 'mastery',
+        OpenPartyOrderCommand::class => 'order',
+        OpenMagicMenuCommand::class => 'magic',
+    ];
+
+    public static function getTutorialCommandId(object $command): ?string
+    {
+        foreach (self::TUTORIAL_COMMAND_TARGETS as $class => $id) {
+            if ($command instanceof $class) {
+                return $id;
+            }
+        }
+
+        return null;
+    }
+
     public function getPresentationCanvas(): ?PresentationCanvas
     {
         return $this->mode === null || (!$this->supplementalPanelsVisible && !$this->mode instanceof MainMenuConfigMode)
@@ -110,6 +139,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
      * The height of the main menu.
      */
     protected const int MAIN_MENU_HEIGHT = 35;
+    private const int INFO_PANEL_HEIGHT = 3;
     /**
      * The width of the menu options.
      */
@@ -206,7 +236,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
 
     public function getPartyPresentationIndex(): int
     {
-        $members = $this->party->members->toArray();
+        $members = $this->party->participants->toArray();
         if ($this->mode instanceof MainMenuCharacterSelectionMode || $this->mode instanceof MainMenuPartyOrderMode) {
             $index = $this->characterSelectionMenu?->getActivePanelIndex();
             if ($index !== null && isset($members[$index])) { return $index; }
@@ -218,7 +248,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
     /** Remember gameplay identity, so reordering and submenu re-entry do not retain a stale position. */
     public function rememberPartyPresentationCharacter(?Character $character): void
     {
-        if ($character !== null && in_array($character, $this->party->members->toArray(), true)) {
+        if ($character !== null && in_array($character, $this->party->participants->toArray(), true)) {
             $this->partyPresentationCharacter = $character;
         }
     }
@@ -237,7 +267,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         $pages = MainMenuPresentation::getPartyPagination($this, $this->menuTheme);
         $target = $pages->getAdjacentRecordIndex($index, $direction);
         if ($target === $index) { return true; }
-        $character = $this->party->members->toArray()[$target] ?? null;
+        $character = $this->party->participants->toArray()[$target] ?? null;
         if (!$character instanceof Character) { return true; }
         $this->rememberPartyPresentationCharacter($character);
         if (!$this->mode instanceof MainMenuCommandSelectionMode) {
@@ -297,6 +327,10 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
     {
         $this->borderPack = new DefaultBorderPack();
         $this->settingsManager = new MainMenuSettingsManager();
+        $infoWidth = min(self::MAIN_MENU_WIDTH, max(1, Console::getWidth() - $this->leftMargin));
+        $extraInfoRows = (int)($infoWidth < self::MAIN_MENU_WIDTH);
+        $infoHeight = self::INFO_PANEL_HEIGHT + $extraInfoRows;
+        $bodyTop = $this->topMargin + $infoHeight;
 
         $this->mainMenu = new MainMenu(
             $this->context->getScene(),
@@ -304,9 +338,9 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
             '',
             rect: new Rect(
                 $this->leftMargin,
-                $this->topMargin + 3,
+                $bodyTop,
                 self::MENU_OPTIONS_WIDTH,
-                self::MENU_OPTIONS_HEIGHT
+                self::MENU_OPTIONS_HEIGHT - $extraInfoRows
             ),
             borderPack: $this->borderPack
         );
@@ -315,6 +349,11 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
             ->addItem(new OpenAbilityMenuCommand($this->mainMenu))
             ->addItem(new OpenEquipmentMenuCommand($this->mainMenu))
             ->addItem(new OpenMagicMenuCommand($this->mainMenu));
+
+        // Each character's own skills are learned on their Mastery Map, when the project gives them one.
+        if (MasteryMenuState::projectHasMaps()) {
+            $this->mainMenu->addItem(new OpenMasteryMenuCommand($this->mainMenu));
+        }
 
         // Only currently available summons belong in player management.
         if (! empty(SummonsMenuState::loadSummons($this->getGameScene()->gameState, $this->party))) {
@@ -329,7 +368,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
 
         // Records collect achievements and the bestiary; the entry appears
         // as soon as a project authors either.
-        if (RecordsMenuState::projectHasRecords()) {
+        if ($this->getGameScene()->tutorialDirector !== null || RecordsMenuState::projectHasRecords()) {
             $this->mainMenu->addItem(new OpenRecordsMenuCommand($this->mainMenu));
         }
 
@@ -342,11 +381,15 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         if ($this->canSave) {
             $this->mainMenu->addItem(new OpenSaveMenuCommand($this->mainMenu));
         }
+        $scene = $this->getGameScene();
+        if ($scene->tutorialDirector?->getSkippableTutorial($scene->party, $scene->questManager?->log) !== null) {
+            $this->mainMenu->addItem(new SkipTutorialCommand($this->mainMenu));
+        }
         $this->mainMenu->addItem(new OpenQuitMenuCommand($this->mainMenu));
         $this->mainMenu->updateWindowContent();
 
         $infoPanelPosition = new Vector2($this->leftMargin, $this->topMargin);
-        $this->infoPanel = new InfoPanel($infoPanelPosition, $this->borderPack);
+        $this->infoPanel = new InfoPanel($infoPanelPosition, $this->borderPack, $infoWidth, $infoHeight);
         $this->infoPanel->setText($this->mainMenu->getActiveItem()->getDescription());
 
         $playTimePanelPosition = new Vector2($this->leftMargin, $this->topMargin + 25);
@@ -360,7 +403,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         $partyLocation = $this->getGameScene()->party->location;
         $locationDetailPosition = new Vector2($this->leftMargin, $this->topMargin + 31);
         $this->locationDetailPanel = new LocationDetailPanel($locationDetailPosition, $this->borderPack);
-        $this->locationDetailPanel->setLocation($partyLocation?->name, $partyLocation?->region);
+        $this->locationDetailPanel->setLocation($partyLocation?->name ?? '', $partyLocation?->region ?? '');
 
         $this->characterSelectionMenu = new CharacterSelectionMenu(
             $this->context->getScene(),
@@ -368,9 +411,9 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
             '',
             rect: new Rect(
                 $this->leftMargin + self::MENU_OPTIONS_WIDTH,
-                $this->topMargin + 3,
+                $bodyTop,
                 self::MAIN_MENU_WIDTH - self::MENU_OPTIONS_WIDTH,
-                self::MAIN_MENU_HEIGHT - 3
+                self::MAIN_MENU_HEIGHT - $infoHeight
             ),
             borderPack: $this->borderPack
         );
@@ -379,9 +422,9 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         $this->configSelectionWindow = new ConfigSelectionWindow(
             new Rect(
                 $this->leftMargin,
-                $this->topMargin + 3,
+                $bodyTop,
                 self::MAIN_MENU_WIDTH,
-                self::MAIN_MENU_HEIGHT - 3 - self::CONFIG_DESCRIPTION_HEIGHT
+                self::MAIN_MENU_HEIGHT - $infoHeight - self::CONFIG_DESCRIPTION_HEIGHT
             ),
             $this->settingsManager,
             $this->borderPack
@@ -440,9 +483,10 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         $this->mode?->exit();
         $this->mode = $mode;
         $this->mode->enter();
+        $this->refreshTerminalTutorial();
         if (($mode instanceof MainMenuCharacterSelectionMode || $mode instanceof MainMenuPartyOrderMode)
             && $this->partyPresentationCharacter !== null && $this->getPresentationCanvas() !== null) {
-            $index = array_search($this->partyPresentationCharacter, $this->party->members->toArray(), true);
+            $index = array_search($this->partyPresentationCharacter, $this->party->participants->toArray(), true);
             if (is_int($index)) { $this->characterSelectionMenu?->focusPanelByIndex($index); }
         }
     }
@@ -458,13 +502,65 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
             $this->nextTimeUpdate = Time::getTime() + $this->updateInterval;
         }
 
+        $scene = $this->getGameScene();
+        $view = $this->getTutorialView();
+        $scene->evaluateTutorialView(self::TUTORIAL_SCREEN, $view);
+        if ($view !== null) {
+            $step = $scene->getTutorialPresentationStep(self::TUTORIAL_SCREEN, $view);
+            $scene->tutorialDirector?->applyStepFocus($step, $this->focusTutorialTarget(...));
+        }
         if (Input::isButtonDown(MenuPager::NEXT_ACTION) && $this->changePartyPage(1)) { return; }
         if (Input::isButtonDown(MenuPager::PREVIOUS_ACTION) && $this->changePartyPage(-1)) { return; }
         $this->mode->update();
+        if ($this->getGameScene()->state === $this) {
+            $this->refreshTerminalTutorial();
+        }
+    }
+
+    public function getTutorialView(): ?string
+    {
+        return match (true) {
+            $this->mode instanceof MainMenuCommandSelectionMode => self::TUTORIAL_COMMANDS,
+            $this->mode instanceof MainMenuCharacterSelectionMode => self::TUTORIAL_PARTY,
+            $this->mode instanceof MainMenuPartyOrderMode => self::TUTORIAL_ORDER,
+            default => null,
+        };
+    }
+
+    private function focusTutorialTarget(TutorialStep $step): bool
+    {
+        $id = $step->target['id'];
+        if ($step->target['view'] !== self::TUTORIAL_COMMANDS) {
+            return $this->characterSelectionMenu?->focusTutorialMember($id) ?? false;
+        }
+        $menu = $this->mainMenu;
+        if ($menu === null) { return false; }
+        $item = array_find($menu->getItems()->toArray(), static fn($item): bool => self::getTutorialCommandId($item) === $id);
+        if ($item === null) { return false; }
+
+        $menu->setActiveItem($item);
+        $menu->updateWindowContent();
+        $this->infoPanel?->setText($item->getDescription());
+        return true;
+    }
+
+    private function refreshTerminalTutorial(): void
+    {
+        $view = $this->getTutorialView();
+        $step = $view === null ? null : $this->getGameScene()->getTutorialPresentationStep(self::TUTORIAL_SCREEN, $view);
+        $command = $view === self::TUTORIAL_COMMANDS ? $step : null;
+        $member = $view === self::TUTORIAL_PARTY || $view === self::TUTORIAL_ORDER ? $step : null;
+        $this->mainMenu?->showTutorialCommand($command?->target['id']);
+        $memberVisible = $this->characterSelectionMenu?->showTutorialMember($member?->target['id']);
+        $visibleStep = $memberVisible ? $member : $command;
+        $this->infoPanel?->showTutorialHint(TutorialTerminalPresentation::presentInstruction(
+            $visibleStep, $this->getGameScene()->getTutorialSpeakerName($visibleStep),
+        ));
     }
 
     public function exit(): void
     {
+        TutorialTerminalPresentation::clearInstruction();
         $this->rememberActivePartyPresentationCharacter();
     }
 
@@ -523,6 +619,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
      */
     public function resume(): void
     {
+        $this->refreshTerminalTutorial();
         $this->getGameScene()->locationHUDWindow->deactivate();
         $this->infoPanel?->render();
 

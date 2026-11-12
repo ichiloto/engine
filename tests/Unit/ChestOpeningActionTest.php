@@ -38,14 +38,13 @@ beforeEach(function () {
   };
   new ReflectionProperty($game, 'audioManager')->setValue($game, $this->audio);
   new ReflectionProperty(Console::class, 'game')->setValue(null, $game);
-  $this->alerts = new class extends ModalManager {
+  $this->alerts = new class($game) extends ModalManager {
     public array $messages = [];
-    public function __construct() {}
     public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void {
       $this->messages[] = $message;
     }
   };
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->alerts);
+  $game->bindModalManager($this->alerts);
   $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
   $manager = new ReflectionClass(SceneManager::class)->newInstanceWithoutConstructor();
   new ReflectionProperty($manager, 'game')->setValue($manager, $game);

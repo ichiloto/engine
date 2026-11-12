@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\ShopMenu\Modes;
 
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Exception;
 use Ichiloto\Engine\Core\Menu\QuantitySelector;
@@ -117,11 +118,9 @@ class PurchaseConfirmationMode extends ShopMenuMode
    */
   public function enter(): void
   {
-    $this->state->mainPanel->setHelp('esc:Cancel, enter:Confirm');
-    $this->state->infoPanel->setText(sprintf(
-      'Use the arrow keys to adjust the quantity of the item to %s.',
-      $this->isShopPurchase ? 'sell' : 'purchase',
-    ));
+    $this->state->mainPanel->setControlHints([ActionHints::resolvePair('up', 'down', 'Quantity'),
+      ActionHints::resolve('confirm', 'Confirm'), ActionHints::resolve('cancel', 'Cancel')]);
+    $this->state->infoPanel->setText(sprintf('Choose how many to %s.', $this->isShopPurchase ? 'sell' : 'purchase'));
     $this->quantitySelector = new QuantitySelector($this->maxQuantity);
     $this->symbol = Vocabulary::getTerm('currency.symbol', 'G');
     $this->updateWindowContent();

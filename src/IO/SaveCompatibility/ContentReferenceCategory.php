@@ -23,4 +23,6 @@ enum ContentReferenceCategory: string
   case STORY_EVENT = 'story_events';
   case ENEMY = 'enemies';
   case ACHIEVEMENT = 'achievements';
+  /** Saved knowledge progress; an alias folds a retired subject's progress into its successor. */
+  case KNOWLEDGE_SUBJECT = 'knowledge_subjects';
 }

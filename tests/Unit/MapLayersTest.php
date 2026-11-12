@@ -25,7 +25,7 @@ final class LayeredMapManagerProbe extends MapManager
 }
 
 beforeEach(function () {
-    $this->directory = sys_get_temp_dir() . '/ichiloto-layers-' . bin2hex(random_bytes(8));
+    $this->directory = \getTestTemporaryDirectory() . '/ichiloto-layers-' . bin2hex(random_bytes(8));
     mkdir($this->directory . '/layers', recursive: true);
 });
 

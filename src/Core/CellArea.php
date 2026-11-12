@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core;
 
+use Closure;
 use InvalidArgumentException;
 
 /**
@@ -35,23 +36,48 @@ final class CellArea
     get => new Vector2($this->cells[0][0], $this->cells[0][1]);
   }
 
-  /**
-   * @param list<array{int, int}> $cells Distinct cells as [x, y].
-   */
-  private function __construct(array $cells)
+  /** @param iterable<array{int, int}> $source */
+  private function __construct(iterable $source, ?Closure $checkpoint = null)
   {
-    usort($cells, static fn(array $a, array $b): int => [$a[1], $a[0]] <=> [$b[1], $b[0]]);
-    $index = [];
-
-    foreach ($cells as [$x, $y]) {
-      $index["{$x},{$y}"] = true;
+    $cells = $index = [];
+    $needsSorting = false;
+    $previousX = $previousY = null;
+    $minX = $minY = PHP_INT_MAX;
+    $maxX = $maxY = PHP_INT_MIN;
+    $processed = 0;
+    foreach ($source as $cell) {
+      if ($checkpoint !== null && ++$processed === 256) {
+        $checkpoint();
+        $processed = 0;
+      }
+      if (! is_array($cell) || ! array_is_list($cell) || count($cell) !== 2 || ! is_int($cell[0]) || ! is_int($cell[1])) {
+        throw new InvalidArgumentException('An area cell must be [x, y] with whole numbers.');
+      }
+      [$x, $y] = $cell;
+      $key = "{$x},{$y}";
+      if (isset($index[$key])) { continue; }
+      $index[$key] = true;
+      $cells[] = $cell;
+      if ($previousY !== null && ($y < $previousY || ($y === $previousY && $x < $previousX))) {
+        $needsSorting = true;
+      }
+      [$previousX, $previousY] = [$x, $y];
+      $minX = min($minX, $x);
+      $minY = min($minY, $y);
+      $maxX = max($maxX, $x);
+      $maxY = max($maxY, $y);
+    }
+    if ($cells === []) {
+      throw new InvalidArgumentException('An area needs at least one cell.');
+    }
+    $checkpoint?->__invoke();
+    if ($needsSorting) {
+      usort($cells, static fn(array $a, array $b): int => ($a[1] <=> $b[1]) ?: ($a[0] <=> $b[0]));
     }
 
-    $xs = array_column($cells, 0);
-    $ys = array_column($cells, 1);
     $this->cells = $cells;
     $this->index = $index;
-    $this->bounds = new Rect(min($xs), min($ys), max($xs) - min($xs) + 1, max($ys) - min($ys) + 1);
+    $this->bounds = new Rect($minX, $minY, $maxX - $minX + 1, $maxY - $minY + 1);
   }
 
   /**
@@ -60,37 +86,27 @@ final class CellArea
    * @param iterable<array{int, int}> $cells Cells as [x, y]; repeats are merged.
    * @throws InvalidArgumentException When there are no cells or a cell is not two whole numbers.
    */
-  public static function fromCells(iterable $cells): self
+  public static function fromCells(iterable $cells, ?Closure $checkpoint = null): self
   {
-    $distinct = [];
-
-    foreach ($cells as $cell) {
-      if (! is_array($cell) || ! array_is_list($cell) || count($cell) !== 2 || ! is_int($cell[0]) || ! is_int($cell[1])) {
-        throw new InvalidArgumentException('An area cell must be [x, y] with whole numbers.');
-      }
-
-      $distinct["{$cell[0]},{$cell[1]}"] = $cell;
-    }
-
-    if ($distinct === []) {
-      throw new InvalidArgumentException('An area needs at least one cell.');
-    }
-
-    return new self(array_values($distinct));
+    return new self($cells, $checkpoint);
   }
 
   /** Builds the area every cell of a rectangle covers. */
-  public static function fromRect(Rect $rect): self
+  public static function fromRect(Rect $rect, ?Closure $checkpoint = null): self
   {
-    $cells = [];
-
-    for ($y = $rect->getY(); $y < $rect->getY() + $rect->getHeight(); $y++) {
-      for ($x = $rect->getX(); $x < $rect->getX() + $rect->getWidth(); $x++) {
-        $cells[] = [$x, $y];
+    $cells = (static function () use ($rect): \Generator {
+      $left = $rect->getX();
+      $top = $rect->getY();
+      $right = $left + $rect->getWidth();
+      $bottom = $top + $rect->getHeight();
+      for ($y = $top; $y < $bottom; $y++) {
+        for ($x = $left; $x < $right; $x++) {
+          yield [$x, $y];
+        }
       }
-    }
+    })();
 
-    return self::fromCells($cells);
+    return self::fromCells($cells, $checkpoint);
   }
 
   /**
@@ -101,7 +117,7 @@ final class CellArea
    * @param string $where Where it is, for messages.
    * @throws InvalidArgumentException When it is neither shape.
    */
-  public static function fromArray(mixed $area, string $where = 'area'): self
+  public static function fromArray(mixed $area, string $where = 'area', ?Closure $checkpoint = null): self
   {
     if (is_array($area) && array_key_exists('cells', $area)) {
       if (! is_array($area['cells'])) {
@@ -109,7 +125,7 @@ final class CellArea
       }
 
       try {
-        return self::fromCells($area['cells']);
+        return self::fromCells($area['cells'], $checkpoint);
       } catch (InvalidArgumentException $exception) {
         throw new InvalidArgumentException("{$where}: {$exception->getMessage()}", previous: $exception);
       }
@@ -118,7 +134,7 @@ final class CellArea
     if (is_array($area) && is_int($area['x'] ?? null) && is_int($area['y'] ?? null)
       && is_int($area['width'] ?? null) && is_int($area['height'] ?? null)
       && $area['width'] > 0 && $area['height'] > 0) {
-      return self::fromRect(new Rect($area['x'], $area['y'], $area['width'], $area['height']));
+      return self::fromRect(new Rect($area['x'], $area['y'], $area['width'], $area['height']), $checkpoint);
     }
 
     throw new InvalidArgumentException("{$where} needs cells as a list of [x, y], or whole-number x, y, width and height.");

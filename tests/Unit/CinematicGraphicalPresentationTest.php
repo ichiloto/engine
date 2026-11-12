@@ -45,7 +45,7 @@ beforeEach(function () {
   Console::setLayerTracking(true);
   $this->scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
   // Staged character sheets are checked against the running renderer's asset root.
-  $this->assetRoot = sys_get_temp_dir() . '/ichiloto-cinematic-graphics-' . bin2hex(random_bytes(4));
+  $this->assetRoot = \getTestTemporaryDirectory() . '/ichiloto-cinematic-graphics-' . bin2hex(random_bytes(4));
   writeCharacterSheetPng($this->assetRoot . '/' . characterSheetData()['sheet'], 48, 48);
   [$game] = makeSceneAudioGame();
   $game->useRendererRuntime(new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']),
@@ -84,6 +84,8 @@ it('projects staged sheets with independent identities and PHP-owned route anima
   $this->stage->advanceGraphicalAnimation(0.08);
   expect($one->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(['x' => 96, 'y' => 96, 'width' => 48, 'height' => 48])
     ->and($two->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(['x' => 48, 'y' => 0, 'width' => 48, 'height' => 48]);
+  // The next step begins once this one has shown.
+  $this->stage->advanceGraphicalAnimation(16 / 60 - 0.08);
   $this->stage->move('one', Vector2::right());
   $this->stage->advanceGraphicalAnimation(0.08);
   expect($one->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
@@ -148,12 +150,12 @@ it('emits opaque cinematic overlays and covers above world sprites and clears th
   $render();
   $frame = Tests\Support\Rendering\RetainedFrameState::replay($transport->sent)[0];
   expect($frame['sprites'])->toHaveCount(1)
-    ->and(array_column($frame['textLayers'], 'layer'))->toContain(1020, 3000)
+    ->and(array_column($frame['textLayers'], 'layer'))->toContain(\Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI + 20, 3000)
     ->and(Console::charAt(7, 4))->toBe('#');
   $this->presentation->clear();
   $render();
   $restored = Tests\Support\Rendering\RetainedFrameState::replay($transport->sent)[1];
-  expect(array_column($restored['textLayers'], 'layer'))->not->toContain(1020, 3000)
+  expect(array_column($restored['textLayers'], 'layer'))->not->toContain(\Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI + 20, 3000)
     ->and($restored['sprites'])->toBe($frame['sprites'])
     ->and(array_column($transport->sent[1]->payload['operations'], 'kind'))->not->toContain('sprite');
 });
@@ -204,7 +206,7 @@ it('rejects malformed staged graphics with an actionable cast path', function ($
   'authored pixel size' => [['asset' => 'pose.png', 'width' => 56, 'height' => 56]],
   'authored anchor' => [['asset' => 'pose.png', 'anchor' => 'bottom_center']],
   'bad path' => [['asset' => '../pose.png']],
-  'reserved UI layer' => [['asset' => 'pose.png', 'layer' => 1000]],
+  'reserved field guidance layer' => [['asset' => 'pose.png', 'layer' => 1000]],
   'bad crop' => [['asset' => 'pose.png', 'sourceRect' => ['x' => -1, 'y' => 0, 'width' => 256, 'height' => 256]]],
   'empty footprint' => [['asset' => 'pose.png', 'cells' => ['width' => 0, 'height' => 1]]],
   'per-direction images' => [['north' => ['asset' => 'north.png'], 'east' => ['asset' => 'east.png'],
@@ -212,7 +214,7 @@ it('rejects malformed staged graphics with an actionable cast path', function ($
   'sheet with authored size' => [['sheet' => 'Graphics/Characters/Heroes.png', 'width' => 48]],
   'sheet index out of range' => [['sheet' => 'Graphics/Characters/Heroes.png', 'index' => 8]],
   'sheet unsafe path' => [['sheet' => '../Heroes.png']],
-  'sheet reserved UI layer' => [['sheet' => 'Graphics/Characters/Heroes.png', 'layer' => 1000]],
+  'sheet reserved field guidance layer' => [['sheet' => 'Graphics/Characters/Heroes.png', 'layer' => 1000]],
 ]);
 
 it('slides staged steps at the pace that moves them and a pose image as well as a sheet', function () {
@@ -233,3 +235,50 @@ it('slides staged steps at the pace that moves them and a pose image as well as 
   $pose->hide();
   expect($sheet->getGraphicalSpriteMotion())->toBeNull()->and($pose->getGraphicalSpriteMotion())->toBeNull();
 });
+
+it('keeps an NPC snapshot on its offscreen solid cell while the camera pans and the original leaves', function () {
+  new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene, new \Ichiloto\Engine\Core\GameState());
+  $npcs = new \Ichiloto\Engine\Field\NpcManager($this->scene);
+  new ReflectionProperty(GameScene::class, 'npcManager')->setValue($this->scene, $npcs);
+  $npcs->configure([['id' => 'synthetic-gate', 'name' => 'Gate', 'sprite' => 'x', 'x' => 35, 'y' => 12, 'facing' => 'west',
+    'sprites' => ['west' => 'x', 'north' => '|'], 'sprites2d' => characterSheetData(),
+    'conditions' => [['type' => 'event', 'name' => 'synthetic_gate_opened', 'negate' => true]]]]);
+  $gate = $npcs->findById('synthetic-gate');
+  expect($npcs->canStageNpc($gate))->toBeTrue();
+
+  $map = makeBareScene(\Ichiloto\Engine\Field\MapManager::class);
+  new ReflectionProperty(\Ichiloto\Engine\Field\MapManager::class, 'gameScene')->setValue($map, $this->scene);
+  $cells = array_fill(0, 30, array_fill(0, 60, \Ichiloto\Engine\Events\Enumerations\CollisionType::NONE->value));
+  $cells[12][35] = \Ichiloto\Engine\Events\Enumerations\CollisionType::SOLID->value;
+  new ReflectionProperty(\Ichiloto\Engine\Field\MapManager::class, 'collisionMap')->setValue($map, $cells);
+  new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
+
+  $staged = $this->stage->add(['id' => 'closed-gate', 'appearance' => ['kind' => 'npc', 'id' => 'synthetic-gate'],
+    'at' => ['kind' => 'npc', 'id' => 'synthetic-gate']]);
+  expect($staged->isVisible)->toBeFalse();
+  $this->scene->gameState->recordStoryEvent('synthetic_gate_opened');
+  $this->camera->moveTo(35, 12);
+  expect($staged->isVisible)->toBeTrue()->and($this->stage->actorAt(35, 12))->toBeNull();
+  $definition = $staged->getGraphicalSpriteDefinition();
+  // 48 x 48 frames: west is row 1 of the sheet's first character, standing on pattern 1.
+  expect($staged->sprite)->toBe(['x'])->and($staged->facing->name)->toBe('WEST')
+    ->and([$staged->position->x, $staged->position->y])->toBe([35.0, 12.0])
+    ->and($staged->hasCollision)->toBeFalse()
+    ->and($definition?->asset)->toBe(characterSheetData()['sheet'])
+    ->and($definition?->sourceRect->toArray())->toBe(['x' => 48, 'y' => 48, 'width' => 48, 'height' => 48])
+    ->and($staged->subject)->toBeNull()->and($this->stage->suppresses($gate))->toBeFalse();
+  // Turning the staged look uses the NPC's own directional glyphs.
+  $this->stage->move('closed-gate', Vector2::up(), faceOnly: true);
+  expect($staged->sprite)->toBe(['|']);
+});
+
+it('rejects an appearance beside another look or naming no map NPC', function (array $entry, string $message) {
+  new ReflectionProperty(GameScene::class, 'npcManager')->setValue($this->scene, new \Ichiloto\Engine\Field\NpcManager($this->scene));
+  expect(fn() => $this->stage->add(['id' => 'look', 'x' => 1, 'y' => 1, ...$entry]))->toThrow(Exception::class, $message);
+})->with([
+  'beside a glyph' => [['appearance' => ['kind' => 'npc', 'id' => 'gate'], 'sprite' => 'x'], 'remove sprite'],
+  'beside a sheet' => [['appearance' => ['kind' => 'npc', 'id' => 'gate'], 'sprites2d' => characterSheetData()], 'remove sprites2d'],
+  'unsupported kind' => [['appearance' => ['kind' => 'world_object', 'id' => 'gate']], 'appearance requires kind npc'],
+  'without id' => [['appearance' => ['kind' => 'npc']], 'appearance requires kind npc'],
+  'absent from the map' => [['appearance' => ['kind' => 'npc', 'id' => 'gate']], 'appearance NPC "gate" is not on map'],
+]);

@@ -9,12 +9,22 @@ use Ichiloto\Engine\IO\Console\TerminalText;
 /** Terminal cell layout only; callers retain semantic icons, selection and values. */
 final class TerminalMenuRow
 {
+  /** Text cells draw a record separator as a rule line of this glyph. */
+  public const string RULE = "\u{2500}";
+
   public static function composeIconLabel(string $icon, string $label, int $iconWidth = 0): string
   {
     $label = TerminalText::stabilize($label);
     if ($icon === '') { return $label; }
     $icon = TerminalText::stabilize($icon);
     return TerminalText::padRight($icon, max($iconWidth, TerminalText::displayWidth($icon))) . ' ' . $label;
+  }
+
+  /** One label/value data field in the shared Terminal style: the label without added punctuation, the value in its column. */
+  public static function composeField(string $label, string $value, int $width, string $prefix = '',
+    string $valueAlignment = 'left', ?int $labelWidth = null): string
+  {
+    return self::compose($label, $value, $width, $prefix, valueAlignment: $valueAlignment, labelWidth: $labelWidth);
   }
 
   /** Reserve the value first so fitting a long label never clips a price or quantity. */

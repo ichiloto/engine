@@ -7,6 +7,8 @@ namespace Ichiloto\Engine\Rendering\Tilesets;
 use Ichiloto\Engine\Field\MapTileLayer;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
+use Ichiloto\Engine\Field\Doorway;
+use Ichiloto\Engine\Field\Enumerations\DoorwayEntrance;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use InvalidArgumentException;
 
@@ -20,6 +22,18 @@ use InvalidArgumentException;
  * leaves its respective destination as it was. Runtime collision reads map
  * occupancy, with legacy glyph passage only when map occupancy is absent.
  *
+ * An overhang declares how many top rows are upright art above the ground
+ * footprint. Those rows contain only space glyphs and null occupancy, leaving
+ * their backing unchanged. Ground height is height minus overhang; the default
+ * zero retains every existing row's meaning.
+ *
+ * A piece whose art paints doors, such as a building, declares them as its
+ * doorway ({@see Doorway}): cells relative to its top-left cell, each with
+ * where its entrance lies. Wherever the piece stands whole on a map, each
+ * door must meet an entrance exactly so
+ * ({@see \Ichiloto\Engine\Field\Validation\MapDoorwayRule}); a door entered
+ * on its opening is walked on in the piece's own occupancy.
+ *
  * A connected piece (`'connects' => 'lines'`), such as a wall, is drawn one
  * cell at a time and joins the cells of the same piece beside it: each cell
  * takes the glyph and tiles of the shape its neighbours give it, and drawing
@@ -27,7 +41,7 @@ use InvalidArgumentException;
  */
 final readonly class TilesetPiece
 {
-  public const array FIELDS = ['name', 'layer', 'glyphs', 'tiles', 'connects', 'effect', 'keeps', 'occupancy'];
+  public const array FIELDS = ['name', 'layer', 'glyphs', 'tiles', 'connects', 'effect', 'keeps', 'occupancy', 'doorway', 'overhang'];
   /** Cells join the cells beside them across and down, like a wall or fence. */
   public const string LINES = 'lines';
   /** A line cell's shapes: joined only across, only down, or both ways (corners, junctions and lone posts). */
@@ -38,6 +52,8 @@ final readonly class TilesetPiece
   public int $width;
   /** Cells down. */
   public int $height;
+  /** Ground rows below the visual overhang; derived once because this value object is readonly. */
+  public int $groundHeight;
   /** @var list<list<string>> Styled display cells, using the same contract as MapLayer::grid. */
   public array $grid;
   /** @var list<list<string>> Plain glyphs; logical geometry never depends on style. */
@@ -54,6 +70,8 @@ final readonly class TilesetPiece
   public array $keeps;
   /** @var list<list<CollisionType|null>>|null Explicit physical recipe; null cells leave the destination unchanged, absence means no recipe. */
   public ?array $occupancy;
+  /** @var list<array{x: int, y: int, entrance: DoorwayEntrance}> Where the art paints doors, relative to the top-left cell; empty when it paints none. */
+  public array $doorway;
 
   /**
    * @param list<list<string>> $glyphs One visible character per cell, optionally styled, by row; one cell for a connected piece.
@@ -64,6 +82,8 @@ final readonly class TilesetPiece
    * @param array<string, string>|null $sourceShapeGrid Original connected shape strings, before display formatting.
    * @param list<string> $keeps Tile layers preserved under the stamped footprint, never layers this piece writes.
    * @param list<list<CollisionType|null>>|null $occupancy Final physical cells over the logical geometry, independent of glyphs, tiles and connected shape.
+   * @param list<array{x: int, y: int, entrance: DoorwayEntrance}> $doorway Read door cells ({@see Doorway::readCells()}) within the piece.
+   * @param int $overhang Top visual rows that stamp tiles only; ground rows own glyphs and physical occupancy.
    */
   public function __construct(
     public string $id,
@@ -79,6 +99,8 @@ final readonly class TilesetPiece
     ?array $sourceShapeGrid = null,
     array $keeps = [],
     ?array $occupancy = null,
+    array $doorway = [],
+    public int $overhang = 0,
   ) {
     $this->keeps = self::readKeptLayers($keeps, array_keys($tiles + $shapeTiles), "Piece {$id}");
     $this->sourceCells = $glyphs;
@@ -90,8 +112,20 @@ final readonly class TilesetPiece
     $this->shapes = array_map(TerminalText::stripAnsi(...), $this->shapeGrid);
     $this->height = count($glyphs);
     $this->width = count($glyphs[0] ?? []);
+    if ($overhang < 0 || $overhang >= $this->height) {
+      throw new InvalidArgumentException("Piece {$id} overhang must be at least zero and below its height {$this->height}; at least one ground row is required.");
+    }
+    if ($overhang > 0 && $connects !== null) {
+      throw new InvalidArgumentException("Piece {$id} connected pieces cannot declare an overhang.");
+    }
+    $this->groundHeight = $this->height - $overhang;
     $this->occupancy = $occupancy === null ? null
       : self::readOccupancy($occupancy, $this->width, $this->height, "Piece {$id}");
+    if ($connects !== null && $doorway !== []) {
+      throw new InvalidArgumentException("Piece {$id} connected pieces do not paint doors; stamp a door as a piece of its own.");
+    }
+    $this->doorway = self::checkDoorway($doorway, $this->width, $this->height, $this->occupancy, "Piece {$id}");
+    $this->assertOverhang();
   }
 
   /**
@@ -125,6 +159,13 @@ final readonly class TilesetPiece
     }
     if ($connects !== null && $connects !== self::LINES) {
       throw new InvalidArgumentException("{$context} connects must be '" . self::LINES . "'.");
+    }
+    $overhang = array_key_exists('overhang', $data) ? $data['overhang'] : 0;
+    if (!is_int($overhang) || $overhang < 0) {
+      throw new InvalidArgumentException("{$context} overhang must be a whole number of at least zero.");
+    }
+    if ($overhang > 0 && $connects !== null) {
+      throw new InvalidArgumentException("{$context} connected pieces cannot declare an overhang.");
     }
     $layers = $data['tiles'] ?? [];
     if (!is_array($layers)) {
@@ -173,8 +214,63 @@ final readonly class TilesetPiece
     }
     $occupancy = array_key_exists('occupancy', $data)
       ? self::readOccupancy($data['occupancy'], $width, count($glyphs), $context) : null;
+    $doorway = [];
+    if (array_key_exists('doorway', $data)) {
+      if (!array_any($tiles, static fn(array $rows): bool => array_any($rows,
+        static fn(array $row): bool => array_any($row, static fn(string $tile): bool => $tile !== '0')))) {
+        throw new InvalidArgumentException("{$context} doorway needs graphical tiles to identify its stamped instances.");
+      }
+      $doorway = self::checkDoorway(Doorway::readCells($data['doorway'], $context), $width, count($glyphs), $occupancy, $context);
+    }
     return new self($id, $data['name'], $data['layer'], $glyphs, $tiles, effect: $effect, sourceRows: $rows, keeps: $keeps,
-      occupancy: $occupancy);
+      occupancy: $occupancy, doorway: $doorway, overhang: $overhang);
+  }
+
+  /** Validates authored visual rows without deriving a physical footprint from artwork. */
+  private function assertOverhang(): void
+  {
+    if ($this->overhang === 0) { return; }
+    $context = "Piece {$this->id}";
+    if ($this->occupancy === null) {
+      throw new InvalidArgumentException("{$context} overhang requires explicit occupancy; the ground rows own the physical footprint.");
+    }
+    for ($y = 0; $y < $this->overhang; $y++) {
+      foreach ($this->glyphs[$y] as $x => $glyph) {
+        if ($glyph !== ' ') {
+          throw new InvalidArgumentException("{$context} overhang cell {$x}, {$y} must be a space; overhang rows draw over the wall and stamp no glyph.");
+        }
+        if ($this->occupancy[$y][$x] !== null) {
+          throw new InvalidArgumentException("{$context} overhang occupancy cell {$x}, {$y} must be null; overhang rows never change collision.");
+        }
+      }
+    }
+    foreach ($this->doorway as $cell) {
+      if ($cell['y'] < $this->overhang) {
+        throw new InvalidArgumentException("{$context} doorway cell {$cell['x']}, {$cell['y']} lies in its overhang; painted doors belong to ground rows.");
+      }
+    }
+  }
+
+  /**
+   * Door cells lie within the piece, and a door entered on its opening is not
+   * solid in the piece's own occupancy.
+   *
+   * @param list<array{x: int, y: int, entrance: DoorwayEntrance}> $cells
+   * @param list<list<CollisionType|null>>|null $occupancy
+   * @return list<array{x: int, y: int, entrance: DoorwayEntrance}>
+   */
+  private static function checkDoorway(array $cells, int $width, int $height, ?array $occupancy, string $context): array
+  {
+    foreach ($cells as $cell) {
+      [$x, $y] = [$cell['x'], $cell['y']];
+      if ($x < 0 || $y < 0 || $x >= $width || $y >= $height) {
+        throw new InvalidArgumentException("{$context} doorway cell {$x}, {$y} lies outside its {$width} by {$height} cells.");
+      }
+      if ($cell['entrance'] === DoorwayEntrance::ON && ($occupancy[$y][$x] ?? null)?->blocksMovement() === true) {
+        throw new InvalidArgumentException("{$context} doorway cell {$x}, {$y} is entered on its opening, so its occupancy cannot block movement.");
+      }
+    }
+    return $cells;
   }
 
   /** @return list<list<CollisionType|null>> */
@@ -232,6 +328,9 @@ final readonly class TilesetPiece
   /** @param array<array-key, mixed> $data @param array<array-key, mixed> $layers @param list<string> $keeps */
   private static function readConnected(string $id, array $data, array $layers, array $keeps, string $context): self
   {
+    if (array_key_exists('doorway', $data)) {
+      throw new InvalidArgumentException("{$context} connected pieces do not paint doors; stamp a door as a piece of its own.");
+    }
     $glyphs = $data['glyphs'] ?? null;
     if (!is_array($glyphs) || array_diff(self::LINE_SHAPES, array_keys($glyphs)) !== [] || array_diff(array_keys($glyphs), self::LINE_SHAPES) !== []) {
       throw new InvalidArgumentException("{$context} glyphs must name one glyph for each of " . implode(', ', self::LINE_SHAPES) . '.');

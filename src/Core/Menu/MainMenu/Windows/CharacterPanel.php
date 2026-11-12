@@ -28,6 +28,23 @@ class CharacterPanel extends Window implements CanFocus
    * @var bool Whether this panel is marked as the first swap selection.
    */
   protected bool $isMarked = false;
+  private bool $tutorialTarget = false;
+
+  public function showTutorialTarget(bool $target): void
+  {
+    $this->setSelectionState($this->isFocused, $this->isMarked, $target);
+  }
+
+  public function setSelectionState(bool $focused, bool $marked, bool $tutorialTarget): void
+  {
+    if ($focused === $this->isFocused && $marked === $this->isMarked && $tutorialTarget === $this->tutorialTarget) {
+      return;
+    }
+    $this->isFocused = $focused;
+    $this->isMarked = $marked;
+    $this->tutorialTarget = $tutorialTarget;
+    $this->applyHighlightState();
+  }
   /**
    * @var string[] The neutral character record before selection styling.
    */
@@ -60,6 +77,7 @@ class CharacterPanel extends Window implements CanFocus
    * @param string $hp
    * @param string $mp
    * @param string $role
+   * @param string $conditions The member's condition badges, shown after the name.
    * @return void
    */
   public function setDetails(
@@ -67,20 +85,21 @@ class CharacterPanel extends Window implements CanFocus
     int $level,
     string $hp,
     string $mp,
-    string $role = 'N/A'
+    string $role = 'N/A',
+    string $conditions = '',
   ): void
   {
     $leftMargin = 18;
     $fields = [
       ['Role:', $role],
-      [Vocabulary::getTerm('stats.level', 'Lv'), (string)$level],
+      [Vocabulary::getTerm('stats.level_short'), (string)$level],
       [Vocabulary::getTerm('stats.hp', 'HP'), $hp],
       [Vocabulary::getTerm('stats.mp', 'MP'), $mp],
     ];
     $fieldWidth = max(15, ...array_map(static fn(array $field): int =>
       TerminalText::displayWidth($field[0]) + 1 + TerminalText::displayWidth($field[1]), $fields));
     $prefix = str_repeat(' ', $leftMargin);
-    $this->details = [$prefix . $name];
+    $this->details = [$prefix . ($conditions === '' ? $name : $name . '  ' . $conditions)];
     foreach ($fields as [$label, $value]) {
       $this->details[] = $prefix . TerminalMenuRow::compose($label, $value, $fieldWidth);
     }
@@ -150,11 +169,15 @@ class CharacterPanel extends Window implements CanFocus
     // structural chrome neutral and style only the record content.
     $this->foregroundColor = null;
     $isSelected = $this->isFocused || $this->isMarked;
+    $tutorialTarget = $this->tutorialTarget;
     $this->setContent(
       array_map(
-        static fn(string $line): string => $isSelected && $line !== ''
-          ? SelectionStyle::apply($line)
-          : $line,
+        static fn(string $line): string => match (true) {
+          $line === '' => $line,
+          $tutorialTarget => SelectionStyle::applyMarked($line),
+          $isSelected => SelectionStyle::apply($line),
+          default => $line,
+        },
         $this->details,
       )
     );

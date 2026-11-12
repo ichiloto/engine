@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\UI\Windows\SaveSlotPage;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
@@ -223,8 +224,7 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
   protected function getSaveControlHelp(): string
   {
     $hints = [ActionHints::resolve('confirm', 'Save'), ActionHints::resolve('back', 'Back')];
-    return implode('  ', array_map(static fn($hint): string =>
-      ($hint->control?->label ?? 'Unbound') . ': ' . $hint->label, $hints));
+    return TerminalControlText::formatHints($hints);
   }
 
   /**

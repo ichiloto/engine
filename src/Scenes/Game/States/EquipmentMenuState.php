@@ -203,7 +203,8 @@ class EquipmentMenuState extends GameSceneState implements CanvasProviderInterfa
     $page = $this->menuInfoText->getPage($this->equipmentInfoPanel->getPresentationText(), null,
       max(1, $this->equipmentInfoPanel->getContentWidth() - 2));
     $this->equipmentInfoPanel->setContent(array_pad($page->lines, 2, ''));
-    $this->equipmentInfoPanel->setHelp($page->total > 2 ? $page->range() : '');
+    if ($page->total > 2) { $this->equipmentInfoPanel->setHelp($page->range()); }
+    else { $this->equipmentInfoPanel->setControlHints(CharacterMenuPresentation::getCharacterHints()); }
     $this->equipmentInfoPanel->render();
   }
 
@@ -368,7 +369,7 @@ class EquipmentMenuState extends GameSceneState implements CanvasProviderInterfa
       new Rect($this->leftMargin, $this->topMargin + self::EQUIPMENT_COMMAND_PANEL_HEIGHT + self::EQUIPMENT_ASSIGNMENT_PANEL_HEIGHT, self::EQUIPMENT_INFO_PANEL_WIDTH, self::EQUIPMENT_INFO_PANEL_HEIGHT),
       $this->borderPack
     );
-    $this->equipmentInfoPanel->setHelp('tab:Next s-tab:Prev esc:Back');
+    $this->equipmentInfoPanel->setControlHints(CharacterMenuPresentation::getCharacterHints());
     $this->renderUI();
   }
 
@@ -476,7 +477,7 @@ class EquipmentMenuState extends GameSceneState implements CanvasProviderInterfa
    */
   protected function selectCharacterByOffset(int $offset): void
   {
-    $characters = $this->getGameScene()->party->members->toArray();
+    $characters = $this->getGameScene()->party->participants->toArray();
     $totalCharacters = count($characters);
 
     if ($totalCharacters < 2) {

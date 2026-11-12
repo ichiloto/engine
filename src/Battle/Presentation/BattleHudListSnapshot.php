@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\IO\ActionHint;
 use InvalidArgumentException;
 
 /** Selection is retained state, not a claim that this panel owns input focus. */
@@ -24,7 +25,11 @@ final readonly class BattleHudListSnapshot
     public int $currentPage,
     public int $totalPages,
     public string $emptyMessage = '',
+    /** @var list<ActionHint> What the panel's controls do, when its help shows controls. */
+    public array $hints = [],
+    public int $preferredColumns = 14,
   ) {
+    if ($preferredColumns < 1) { throw new InvalidArgumentException('Battle HUD preferred width must be positive.'); }
     if (!array_is_list($rows) || $visibleRowCount < 0 || $visibleRowCount > 4 || count($rows) > $visibleRowCount) {
       throw new InvalidArgumentException('Battle HUD lists must fit their four-row viewport.');
     }

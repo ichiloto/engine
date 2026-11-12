@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\IO\SaveCompatibility;
 
 use Ichiloto\Engine\Exceptions\InvalidSaveCompatibilityManifestException;
+use Ichiloto\Engine\Exceptions\MissingSaveMigrationException;
 use Ichiloto\Engine\Exceptions\TombstonedSaveReferenceException;
 use JsonException;
 use Throwable;
@@ -12,13 +13,17 @@ use Throwable;
  */
 final readonly class SaveCompatibilityManifest
 {
-  /** Declarative position edit keys of a migration step, in the order they apply. */
-  private const array DECLARED_POSITION_EDITS = ['mapShifts', 'mapRemovals', 'relocations'];
+  /**
+   * Declarative edit keys of a migration step, in the order they apply:
+   * edits that keep a save on its map, then retirements that move it to
+   * another map.
+   */
+  private const array DECLARED_POSITION_EDITS = ['mapShifts', 'mapRemovals', 'relocations', 'mapRetirements'];
 
   /**
    * @param array<string, array<string, string>> $aliases
    * @param array<string, array<string, true>> $tombstones
-   * @param array<int, class-string<ContentMigrationInterface>|list<SavedPositionEdit>> $migrations
+   * @param array<int, string|list<SavedPositionEdit|MapRetirement>> $migrations
    */
   private function __construct(
     public string $projectId,
@@ -26,6 +31,7 @@ final readonly class SaveCompatibilityManifest
     private array $aliases,
     private array $tombstones,
     private array $migrations,
+    private string $source,
   )
   {
   }
@@ -33,7 +39,10 @@ final readonly class SaveCompatibilityManifest
   /**
    * Loads the canonical project id and PHP compatibility manifest.
    */
-  public static function fromProjectRoot(string $projectRoot): self
+  public static function fromProjectRoot(
+    string $projectRoot,
+    ContentMigrationResolution $migrationResolution = ContentMigrationResolution::EAGER,
+  ): self
   {
     $projectRoot = rtrim($projectRoot, DIRECTORY_SEPARATOR);
     $projectPath = $projectRoot . DIRECTORY_SEPARATOR . 'ichiloto.json';
@@ -88,7 +97,7 @@ final readonly class SaveCompatibilityManifest
       ));
     }
 
-    return self::fromArray($projectId, $data, $manifestPath);
+    return self::fromArray($projectId, $data, $manifestPath, $migrationResolution);
   }
 
   /**
@@ -96,7 +105,12 @@ final readonly class SaveCompatibilityManifest
    *
    * @param array<string, mixed> $data
    */
-  public static function fromArray(string $projectId, array $data, string $source = 'save compatibility manifest'): self
+  public static function fromArray(
+    string $projectId,
+    array $data,
+    string $source = 'save compatibility manifest',
+    ContentMigrationResolution $migrationResolution = ContentMigrationResolution::EAGER,
+  ): self
   {
     $projectId = trim($projectId);
 
@@ -116,9 +130,9 @@ final readonly class SaveCompatibilityManifest
     $aliases = self::normalizeAliases($data['aliases'] ?? [], $source);
     $tombstones = self::normalizeTombstones($data['tombstones'] ?? [], $source);
     self::validateAliasGraph($aliases, $tombstones, $source);
-    $migrations = self::normalizeMigrations($data['migrations'] ?? [], $rawVersion, $source);
+    $migrations = self::normalizeMigrations($data['migrations'] ?? [], $rawVersion, $source, $migrationResolution);
 
-    return new self($projectId, $rawVersion, $aliases, $tombstones, $migrations);
+    return new self($projectId, $rawVersion, $aliases, $tombstones, $migrations, $source);
   }
 
   /**
@@ -135,6 +149,28 @@ final readonly class SaveCompatibilityManifest
 
     if (is_array($migration)) {
       return new DeclaredPositionContentMigration($migration, $this->aliasesFor(ContentReferenceCategory::MAP));
+    }
+
+    if (! class_exists($migration)) {
+      throw new MissingSaveMigrationException(sprintf(
+        'Project %s requires content migration %d to %d class "%s", which is unavailable in this host (%s).',
+        $this->projectId,
+        $version,
+        $version + 1,
+        $migration,
+        $this->source,
+      ));
+    }
+
+    if (! is_subclass_of($migration, ContentMigrationInterface::class)) {
+      throw new InvalidSaveCompatibilityManifestException(sprintf(
+        '%s content migration %d to %d class "%s" must implement %s.',
+        $this->source,
+        $version,
+        $version + 1,
+        $migration,
+        ContentMigrationInterface::class,
+      ));
     }
 
     return new $migration();
@@ -375,9 +411,14 @@ final readonly class SaveCompatibilityManifest
 
   /**
    * @param mixed $rawMigrations
-   * @return array<int, class-string<ContentMigrationInterface>|list<SavedPositionEdit>>
+   * @return array<int, string|list<SavedPositionEdit|MapRetirement>>
    */
-  private static function normalizeMigrations(mixed $rawMigrations, int $contentVersion, string $source): array
+  private static function normalizeMigrations(
+    mixed $rawMigrations,
+    int $contentVersion,
+    string $source,
+    ContentMigrationResolution $migrationResolution,
+  ): array
   {
     if (! is_array($rawMigrations)) {
       throw new InvalidSaveCompatibilityManifestException(sprintf('%s migrations must be a list.', $source));
@@ -434,7 +475,8 @@ final readonly class SaveCompatibilityManifest
         continue;
       }
 
-      if ($class === '' || ! is_subclass_of($class, ContentMigrationInterface::class)) {
+      if ($class === '' || ($migrationResolution === ContentMigrationResolution::EAGER
+        && ! is_subclass_of($class, ContentMigrationInterface::class))) {
         throw new InvalidSaveCompatibilityManifestException(sprintf(
           '%s migrations[%s] class "%s" must implement %s.',
           $source,
@@ -464,12 +506,12 @@ final readonly class SaveCompatibilityManifest
    * the runtime and the Editor's validation share.
    *
    * A step declares a project migration `class`, or declared position edits,
-   * never both kinds. Shifts apply before removals, then relocations, each
-   * list in authored order.
+   * never both kinds. Shifts apply before removals, then relocations, then
+   * retirements, each list in authored order.
    *
    * @param array<mixed> $entry The migration step.
    * @param string $where Where the step is, for error messages.
-   * @return list<SavedPositionEdit>|null The edits, or null for a class step.
+   * @return list<SavedPositionEdit|MapRetirement>|null The edits, or null for a class step.
    * @throws InvalidSaveCompatibilityManifestException When the step is malformed.
    */
   public static function readDeclaredPositionEdits(array $entry, string $where): ?array
@@ -482,7 +524,7 @@ final readonly class SaveCompatibilityManifest
 
     if ($hasClass === ($declared !== [])) {
       throw new InvalidSaveCompatibilityManifestException(sprintf(
-        '%s must declare either a class or declared position edits (mapShifts, mapRemovals, relocations), not both or neither.',
+        '%s must declare either a class or declared position edits (mapShifts, mapRemovals, relocations, mapRetirements), not both or neither.',
         $where
       ));
     }
@@ -506,6 +548,7 @@ final readonly class SaveCompatibilityManifest
           'mapShifts' => MapShift::fromArray($rawEdit, $entryWhere),
           'mapRemovals' => MapRemoval::createFromArray($rawEdit, $entryWhere),
           'relocations' => PositionRelocation::fromArray($rawEdit, $entryWhere),
+          'mapRetirements' => MapRetirement::createFromArray($rawEdit, $entryWhere),
         };
       }
     }

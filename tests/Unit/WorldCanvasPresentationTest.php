@@ -35,7 +35,7 @@ function createWorldCanvasPresenter(array $without = []): array
   $grid = new RendererGridConfig(10, 5, 48, 48);
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
-  $session = new RendererSessionConfig('Synthetic groups', sys_get_temp_dir(), $grid, RendererProtocolVersion::V2);
+  $session = new RendererSessionConfig('Synthetic groups', \getTestTemporaryDirectory(), $grid, RendererProtocolVersion::V2);
   $client->start($session);
   $caps = array_values(array_diff($session->getNegotiableCapabilities(), $without));
   $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
@@ -66,10 +66,10 @@ it('serializes globally unique mixed ranks and preserves them through capture ov
   $frame = $presenter->prepareFrame($text, $actors, $viewport, $world, worldCanvases: $groups);
   expect($transport->sent)->toBe([]);
   $presenter->presentFrame($frame);
+  $presenter->acknowledge(end($transport->sent)->payload['generation'], true);
   $values = $presenter->captureFrame()->values;
-  expect($values['sprite']['actor-behind']['order'])->toBe(0)
-    ->and($values['world_canvas']['board']['order'])->toBe(1)
-    ->and($values['sprite']['actor-front']['order'])->toBe(2)
+  expect($values['sprite']['actor-behind']['order'])->toBeLessThan($values['world_canvas']['board']['order'])
+    ->and($values['world_canvas']['board']['order'])->toBeLessThan($values['sprite']['actor-front']['order'])
     ->and($values['world_canvas']['board']['canvas']['labels'][0])->toBe($groups[0]->canvas->labels[0]->toArray());
   $overlay = new PresentationCanvas(480, 240, [new CanvasImage('notice', 'notice.png', new CanvasRectangle(0, 0, 20, 20))]);
   $transport->sent = [];
@@ -88,14 +88,17 @@ it('updates the complete local group once for a new label and removes it on menu
   $viewport = $viewport->selectWorldCanvases(['board']);
   $group = createWorldCanvasProbe();
   $presenter->present($text, viewport: $viewport, world: $world, worldCanvases: [$group]);
+  $presenter->acknowledge(end($transport->sent)->payload['generation'], true);
   $initial = $transport->sent;
   $transport->sent = [];
   expect($presenter->present($text, viewport: $viewport, world: $world, worldCanvases: [$group]))->toBeFalse();
   $replacement = createWorldCanvasProbe(layoutId: 'translated-replacement');
   $presenter->present($text, viewport: $viewport, world: $world, worldCanvases: [$replacement]);
+  $presenter->acknowledge(end($transport->sent)->payload['generation'], true);
   expect($transport->sent[0]->payload['operations'])->toHaveCount(1)
     ->and($transport->sent[0]->payload['operations'][0]['kind'])->toBe('world_canvas');
   $presenter->presentCanvas(new PresentationCanvas(48, 24, labels: $replacement->canvas->labels));
+  $presenter->acknowledge(end($transport->sent)->payload['generation'], true);
   $latest = RetainedFrameState::getLatestFrame([...$initial, ...$transport->sent]);
   expect($latest)->not->toHaveKeys(['worldCanvases', 'viewport', 'worlds'])
     ->and($latest['canvas']['labels'][0]['layoutId'])->toBe('translated-replacement');

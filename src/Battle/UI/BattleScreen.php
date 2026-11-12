@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Battle\UI;
 
 use Ichiloto\Engine\Battle\BattlePacing;
+use Ichiloto\Engine\Battle\Presentation\BattlerPose;
+use Ichiloto\Engine\Battle\Presentation\BattlePoseRole;
 use Ichiloto\Engine\Battle\UI\States\BattleScreenState;
 use Ichiloto\Engine\Battle\UI\States\PlayerActionState;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
@@ -79,6 +81,11 @@ class BattleScreen implements CanRender, CanUpdate
   }
   /** @var list<CharacterInterface> */
   public array $partyBattlers { get => $this->battleScene->partyBattlers; }
+
+  public function getBattleConfig(): ?\Ichiloto\Engine\Scenes\Battle\BattleConfig
+  {
+    return isset($this->battleScene) ? $this->battleScene->config : null;
+  }
   /**
    * @var Troop The troop in the battle scene.
    */
@@ -338,6 +345,36 @@ class BattleScreen implements CanRender, CanUpdate
   public function usesGraphicalField(): bool
   {
     return isset($this->battleScene) && $this->battleScene->graphicalPresentation !== null;
+  }
+
+  public function getActionPose(CharacterInterface $battler, BattlePoseRole $role, ?int $animationId = null): ?BattlerPose
+  {
+    $presentation = isset($this->battleScene) ? $this->battleScene->graphicalPresentation : null;
+    return $animationId === null ? $presentation?->getPose($battler, $role)
+      : $presentation?->getAnimationPose($battler, $animationId);
+  }
+
+  public function bindCommandPosePoints(\Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback $playback): void
+  {
+    if (!$playback->plan->requiresGraphicalAnchorCapture() || !$this->usesGraphicalField()) { return; }
+    $this->battleScene->graphicalPresentation?->bindCommandPosePoints($playback,
+      \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion(), $this->fieldWindow->getPoseElapsedSeconds());
+  }
+
+  public function measureActionRange(CharacterInterface $actor, array $targets): ?float
+  {
+    return $this->battleScene->graphicalPresentation?->measureActionRange($actor, $targets);
+  }
+
+  /** Resolve graphical travel once, before playback; Terminal has no graphical participant geometry. */
+  public function planActionTravel(CharacterInterface $actor, array $targets, \Ichiloto\Engine\Battle\BattleAction $action,
+    ?int $animationId = null, \Ichiloto\Engine\Animations\ActionMovement $movement = \Ichiloto\Engine\Animations\ActionMovement::RUN_TO_TARGET
+  ): ?\Ichiloto\Engine\Battle\Presentation\BattleTravelPlan
+  {
+    return $this->battleScene->graphicalPresentation?->planActionTravel($actor, $targets, $action,
+      $this->fieldWindow->getPoseElapsedSeconds(),
+      $this->battleScene->getGame()->getRendererRuntime()?->supports(\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_IMAGE_FLIP) ?? false,
+      $animationId, $movement);
   }
 
   /** Only these owned windows may supply the temporary graphical UI. */

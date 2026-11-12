@@ -9,7 +9,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasRectangle,CanvasTextLay
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 
-/** Generic bed, bag, home and columned-building pixel pictograms; optional theme artwork replaces them. */
+/** Generic bed, bag, home, columned-building and objective pixel pictograms; optional theme artwork replaces them. */
 final class MapAtlasPictograms
 {
     public static function createLayer(array $markers, CanvasRectangle $bounds, MenuPresentationCatalog $theme,
@@ -27,6 +27,7 @@ final class MapAtlasPictograms
                 MapLandmarkCategory::HOME=>['0001000','0011100','0111110','1100011','0101010','0101010','0111110'],
                 MapLandmarkCategory::ORGANIZATION=>['0001000','0111110','1111111','0101010','0101010','0101010','1111111'],
                 'route'=>['0001000','0001000','0001000','1001001','0101010','0011100','0001000'],
+                'objective'=>['0011100','0011100','0011100','0011100','0011100','0000000','0011100'],
                 'building'=>['1111111','1111111','1111111','1111111','1111111','1111111','1111111'],
                 default=>['0001000','0011100','0111110','1111111','0111110','0011100','0001000'],
             };

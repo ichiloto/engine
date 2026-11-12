@@ -4,18 +4,49 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Rendering\Presentation\Canvas;
 
+use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use InvalidArgumentException;
 
 /** Validated plain drawing data, without callbacks, expressions or renderer-owned time. */
 final readonly class CanvasCompositeOperation
 {
   public array $data;
+  public ?CanvasTextureStrip $textureStrip;
   /** @var list<CanvasWorldSubject> Validated map-owned image groups, independent of wire encoding. */
   public array $worldSubjects;
 
   public function __construct(array $data)
   {
     $type = $data['type'] ?? '';
+    if ($type === 'texture_strip') {
+      CanvasCompositeValues::validateKeys($data, ['type', 'asset', 'sourceRect', 'geometry'], ['opacity', 'blend', 'masks', 'flipX', 'flipY']);
+      if (!is_array($data['geometry'])) {
+        throw new InvalidArgumentException('Texture strip geometry must be a descriptor.');
+      }
+      $this->textureStrip = new CanvasTextureStrip($data['geometry']);
+      if (($data['blend'] ?? 'source_over') !== 'source_over' || ($data['masks'] ?? []) !== []) {
+        throw new InvalidArgumentException('Texture strips use source-over composition without masks.');
+      }
+      $crop = $data['sourceRect'];
+      CanvasCompositeValues::validateKeys($crop, ['x', 'y', 'width', 'height']);
+      if (!array_all($crop, static fn(mixed $value): bool => is_int($value))) {
+        throw new InvalidArgumentException('Texture strip source rectangle requires integer pixels.');
+      }
+      $source = new SpriteSourceRect($crop['x'], $crop['y'], $crop['width'], $crop['height']);
+      $this->data = ['type' => $type, 'asset' => CanvasCompositeValues::getAsset($data['asset']),
+        'sourceRect' => $source->toArray(), 'geometry' => $this->textureStrip->toArray(),
+        'flipX' => CanvasCompositeValues::getBoolean($data['flipX'] ?? false),
+        'flipY' => CanvasCompositeValues::getBoolean($data['flipY'] ?? false),
+        'opacity' => CanvasCompositeValues::getNumber($data['opacity'] ?? 1, 0, 1), 'blend' => 'source_over', 'masks' => []];
+      $this->worldSubjects = [];
+      return;
+    }
+    $this->textureStrip = null;
+    if ($type === 'coverage_dabs') {
+      $this->data = self::getCoverageDabs($data);
+      $this->worldSubjects = [];
+      return;
+    }
     $worldSubjects = [];
     $required = match ($type) {
       'image' => ['asset', 'destination'], 'fill' => ['destination', 'brush'], 'stroke' => ['points', 'width', 'brush'],
@@ -23,7 +54,7 @@ final readonly class CanvasCompositeOperation
       default => throw new InvalidArgumentException('Unsupported composite operation.'),
     };
     CanvasCompositeValues::validateKeys($data, ['type', ...$required],
-      ['opacity', 'blend', 'masks', ...($type === 'image' ? ['source', 'displacement'] : ($type === 'world' ? ['source'] : []))]);
+      ['opacity', 'blend', 'masks', ...match ($type) { 'image' => ['source', 'displacement'], 'world' => ['source'], 'stroke' => ['dash'], default => [] }]);
     $blend = $data['blend'] ?? 'source_over';
     if (!in_array($blend, ['source_over', 'screen'], true)) { throw new InvalidArgumentException('Unsupported composite blend.'); }
     $result = ['type' => $type, 'opacity' => CanvasCompositeValues::getNumber($data['opacity'] ?? 1, 0, 1),
@@ -33,6 +64,13 @@ final readonly class CanvasCompositeOperation
       $result['points'] = array_map(CanvasCompositeValues::getPoint(...), CanvasCompositeValues::getList($data['points'], 2, 256));
       $result['width'] = CanvasCompositeValues::getNumber($data['width'], 0, 256);
       if ($result['width'] <= 0) { throw new InvalidArgumentException('Composite strokes require positive width.'); }
+      if (isset($data['dash'])) {
+        // Dashes of a length with gaps between, measured along the whole line from its first point.
+        CanvasCompositeValues::validateKeys($data['dash'], ['length', 'gap']);
+        $result['dash'] = ['length' => CanvasCompositeValues::getNumber($data['dash']['length'], 0, 4096),
+          'gap' => CanvasCompositeValues::getNumber($data['dash']['gap'], 0, 4096)];
+        if (min($result['dash']) <= 0) { throw new InvalidArgumentException('Composite stroke dashes and gaps must be positive.'); }
+      }
     }
     if ($type === 'world') {
       if (!is_string($data['worldId'])) { throw new InvalidArgumentException('A world overview requires a retained world id.'); }
@@ -80,6 +118,33 @@ final readonly class CanvasCompositeOperation
     }
     $this->data = $result;
     $this->worldSubjects = $worldSubjects;
+  }
+
+  private static function getCoverageDabs(array $data): array
+  {
+    CanvasCompositeValues::validateKeys($data, ['type', 'dabs', 'falloff', 'alphaSteps', 'minimumAlpha', 'bands'],
+      ['opacity', 'blend', 'masks']);
+    if (($data['blend'] ?? 'source_over') !== 'source_over' || ($data['masks'] ?? []) !== []) {
+      throw new InvalidArgumentException('Coverage dabs use source-over composition without masks.');
+    }
+    $dabs = [];
+    foreach (CanvasCompositeValues::getList($data['dabs'], 1, 128) as $dab) {
+      CanvasCompositeValues::validateKeys($dab, ['center', 'radius', 'opacity']);
+      $dabs[] = [
+        'center' => CanvasCompositeValues::getPoint($dab['center']),
+        'radius' => CanvasCompositeValues::getNumber($dab['radius'], PHP_FLOAT_MIN, 64),
+        'opacity' => CanvasCompositeValues::getNumber($dab['opacity'], 0, 1),
+      ];
+    }
+    $brush = new CanvasCoverageBrush(array_intersect_key($data, array_flip(CanvasCoverageBrush::FIELDS)));
+    return [
+      'type' => 'coverage_dabs',
+      'dabs' => $dabs,
+      ...$brush->data,
+      'opacity' => CanvasCompositeValues::getNumber($data['opacity'] ?? 1, 0, 1),
+      'blend' => 'source_over',
+      'masks' => [],
+    ];
   }
 
   public function assertWithin(int $width, int $height): void

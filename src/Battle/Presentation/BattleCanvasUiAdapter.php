@@ -5,12 +5,20 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueScenePresentation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 
-/** Transitional adapter: explicit window footprints, never battlefield glyph inference. */
+/**
+ * Transitional adapter: explicit window footprints, never battlefield glyph inference.
+ *
+ * A skinned battle draws every battle window itself, and the frame composer draws the scene's dialogue and
+ * modals over the battle when the project themes them, so neither is copied here in Terminal cells. Any
+ * Terminal presentation still projected over a skinned battle is reported, never drawn silently.
+ */
 final class BattleCanvasUiAdapter
 {
   /** @return list<CanvasTextLayer> */
@@ -25,13 +33,17 @@ final class BattleCanvasUiAdapter
     $top = $screen->screenDimensions->getTop();
     $owned = $screen->presentationWindows();
     if ($arena->skin !== null) {
-      $owned = array_filter($owned, static fn($window) => !in_array($window,
-        [$screen->commandWindow, $screen->commandContextWindow, $screen->characterNameWindow,
-          $screen->characterStatusWindow, $screen->messageWindow], true));
+      $owned = array_values(array_filter($owned, static fn($window) => !BattleHudSnapshot::isPresentedWindow($screen, $window)));
+      foreach ($owned as $window) {
+        $scene->presentationFallbacks->report(sprintf(
+          'Battle window %s has no graphical presentation; its Terminal cells are drawn over the battle.', $window::class));
+      }
     }
     $windows = array_map(static fn($window) => [
       $window->getPosition()->x, $window->getPosition()->y, $window->getWidth(), $window->getHeight(),
     ], $owned);
+    $root = $scene->getGame()->getRendererRuntime()?->getAssetRoot();
+    $ownersComposed = $root !== null && DialogueScenePresentation::composesSceneOwners($root);
     $layers = [];
     foreach (Console::presentationSnapshot()->textLayers as $layer) {
       if ($includeField && $layer->id === 'world') {
@@ -43,9 +55,15 @@ final class BattleCanvasUiAdapter
           $layers[] = new CanvasTextLayer('battle-field', 0, $originX, $originY, $grid, $runs);
         }
       }
+      $owner = PresentationLayerPolicy::isUiLayer($layer->id);
+      if ($owner && $ownersComposed) { continue; }
       $regions = $layer->id === 'world' ? $windows : [[$left, $top, $grid->columns, $grid->rows]];
       $runs = self::clipRuns($layer->runs, $regions, $left, $top, $grid->columns, $grid->rows);
       if ($runs !== []) {
+        if ($owner) {
+          $scene->presentationFallbacks->report('Battle dialogue and modals have no graphical theme (no '
+            . 'dialogue presentation catalogue); their Terminal cells are drawn over the battle.');
+        }
         $layers[] = new CanvasTextLayer('battle-ui-' . count($layers), ($arena->skin === null ? 1000 : 1500) + count($layers), $originX, $originY, $grid, $runs);
       }
     }

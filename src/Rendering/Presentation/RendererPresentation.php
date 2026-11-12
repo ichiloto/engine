@@ -36,6 +36,13 @@ final class RendererPresentation
 
   public function hasPendingUpload(): bool { return $this->retained->hasPendingUpload(); }
 
+  public function hasPendingWorldDelivery(): bool { return $this->retained->hasPendingWorldDelivery(); }
+
+  public function continueWorldUpload(int $deadline): bool { return $this->retained->continueWorldUpload($deadline); }
+
+  /** The world of the newest frame the renderer has shown. */
+  public ?PresentationWorld $presentedWorld { get => $this->retained->presentedWorld; }
+
   public function acknowledge(int $generation, bool $presented): void { $this->retained->acknowledge($generation, $presented); }
 
   public function captureFrame(): RetainedFrame { return $this->retained->captureFrame(); }
@@ -44,18 +51,28 @@ final class RendererPresentation
     ?PresentationViewport $viewport = null, ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null,
     array $worldCanvases = []): RetainedFrame
   {
-    return $this->submitPresentation($snapshot, $sprites, [], $viewport, $world, $canvasOverlay, true, $worldCanvases);
+    return PresentationSession::runForSession($this->client->supports(...), fn() =>
+      $this->submitPresentation($snapshot, $sprites, [], $viewport, $world, $canvasOverlay, true, $worldCanvases));
   }
 
   public function prepareCanvas(PresentationCanvas $canvas, ?PresentationWorld $world = null): RetainedFrame
   {
-    $this->validateCanvas($canvas);
-    $this->validateCanvasFrame([$canvas]);
-    return $this->retained->prepareCanvas($canvas, $world);
+    return PresentationSession::runForSession($this->client->supports(...), function () use ($canvas, $world): RetainedFrame {
+      $this->validateCanvas($canvas);
+      $this->validateCanvasFrame([$canvas]);
+      return $this->retained->prepareCanvas($canvas, $world);
+    });
   }
 
   public function presentFrame(RetainedFrame $frame, ?PresentationCanvas $screenOverlay = null): bool
   {
+    return PresentationSession::runForSession($this->client->supports(...), fn() =>
+      $this->presentPreparedFrame($frame, $screenOverlay));
+  }
+
+  private function presentPreparedFrame(RetainedFrame $frame, ?PresentationCanvas $screenOverlay): bool
+  {
+    $this->validateCameraMotion($frame->viewport);
     $this->validateWorldCanvases($frame->worldCanvases);
     if ($frame->canvas !== null) { $this->validateCanvas($frame->canvas, $frame->canvasIsOverlay); }
     if ($screenOverlay !== null) {
@@ -83,7 +100,8 @@ final class RendererPresentation
     array $sprites = [], array $tileBatches = [], ?PresentationViewport $viewport = null,
     ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null, array $worldCanvases = []): bool
   {
-    return $this->submitPresentation($snapshot, $sprites, $tileBatches, $viewport, $world, $canvasOverlay, false, $worldCanvases);
+    return PresentationSession::runForSession($this->client->supports(...), fn() =>
+      $this->submitPresentation($snapshot, $sprites, $tileBatches, $viewport, $world, $canvasOverlay, false, $worldCanvases));
   }
 
   private function submitPresentation(ConsoleFrameSnapshot|ConsolePresentationSnapshot|ConsolePresentationChanges $snapshot,
@@ -103,6 +121,7 @@ final class RendererPresentation
     if ($tileBatches !== []) {
       throw new RendererProtocolException('Stateless tile batches have been removed. Supply retained world layers instead.');
     }
+    $this->validateCameraMotion($viewport);
     $slides = $viewport?->follow !== null || array_any($sprites, static fn($sprite): bool => $sprite->motion !== null);
     if ($slides && !$this->client->supports(RendererSessionConfig::FIELD_MOTION)) {
       throw new RendererProtocolException('Sprite slides and camera follow require negotiated field_motion support.');
@@ -133,12 +152,22 @@ final class RendererPresentation
       : $this->retained->present($snapshot, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases);
   }
 
+  private function validateCameraMotion(PresentationViewport|array|null $viewport): void
+  {
+    $hasMotion = $viewport instanceof PresentationViewport ? $viewport->cameraMotion !== null : isset($viewport['cameraMotion']);
+    if ($hasMotion && !$this->client->supports(RendererSessionConfig::CAMERA_MOTION)) {
+      throw new RendererProtocolException('Camera transitions require negotiated camera_motion support.');
+    }
+  }
+
   /** Graphical frames do not require a Console snapshot or use its cell dimensions. */
   public function presentCanvas(PresentationCanvas $canvas, ?PresentationWorld $world = null): bool
   {
-    $this->validateCanvas($canvas);
-    $this->validateCanvasFrame([$canvas]);
-    return $this->retained->presentCanvas($canvas, $world);
+    return PresentationSession::runForSession($this->client->supports(...), function () use ($canvas, $world): bool {
+      $this->validateCanvas($canvas);
+      $this->validateCanvasFrame([$canvas]);
+      return $this->retained->presentCanvas($canvas, $world);
+    });
   }
 
   /** Admission is for the complete candidate, not one root or one prepared layout at a time.
@@ -170,6 +199,12 @@ final class RendererPresentation
     if ($canvas->composites !== [] && !$this->client->supports(RendererSessionConfig::CANVAS_COMPOSITING)) {
       throw new RendererProtocolException('Canvas raster operations require negotiated canvas_compositing support.');
     }
+    if (!$this->client->supports(RendererSessionConfig::CANVAS_IMAGE_ALPHA_FLIP)
+      && array_any($canvas->composites, static fn($composite): bool => array_any($composite->operations,
+        static fn($operation): bool => array_any($operation->data['masks'], static fn(array $mask): bool =>
+          ($mask['flipX'] ?? false) || ($mask['flipY'] ?? false))))) {
+      throw new RendererProtocolException('Mirrored image-alpha masks require negotiated canvas_image_alpha_flip support.');
+    }
     $compositeIds = array_fill_keys(array_column($canvas->composites, 'id'), true);
     $imageIds = array_fill_keys(array_column($canvas->images, 'id'), true);
     if (array_any($canvas->indicators, static fn($indicator) => !isset($imageIds[$indicator->imageId]) && isset($compositeIds[$indicator->imageId]))
@@ -186,9 +221,28 @@ final class RendererPresentation
       && !$this->client->supports(RendererSessionConfig::MAP_OVERVIEW_VIEWPORT)) {
       throw new RendererProtocolException('World map source windows require negotiated map_overview_viewport support.');
     }
+    if (array_any($canvas->composites, static fn($composite) => array_any($composite->operations,
+        static fn($operation) => isset($operation->data['dash'])))
+      && !$this->client->supports(RendererSessionConfig::CANVAS_STROKE_DASHES)) {
+      throw new RendererProtocolException('Dashed composite strokes require negotiated canvas_stroke_dashes support.');
+    }
+    if (array_any($canvas->composites, static fn($composite): bool => array_any($composite->operations,
+        static fn($operation): bool => $operation->data['type'] === 'coverage_dabs'))
+      && !$this->client->supports(RendererSessionConfig::CANVAS_COVERAGE_DABS)) {
+      throw new RendererProtocolException('Coverage dabs require negotiated canvas_coverage_dabs support.');
+    }
+    if (array_any($canvas->composites, static fn($composite): bool => array_any($composite->operations,
+        static fn($operation): bool => $operation->textureStrip !== null))
+      && !$this->client->supports(RendererSessionConfig::CANVAS_TEXTURE_STRIP)) {
+      throw new RendererProtocolException('Texture strips require negotiated canvas_texture_strip support.');
+    }
     if ($canvas->labels !== [] && (!$this->client->supports(RendererSessionConfig::CANVAS_LABELS)
       || !$this->client->supports(RendererSessionConfig::TEXT_LAYOUT))) {
       throw new RendererProtocolException('Canvas labels require negotiated canvas_labels and text_layout support.');
+    }
+    if (array_any($canvas->labels, static fn($label) => $label->visibleBytes !== null)
+      && !$this->client->supports(RendererSessionConfig::CANVAS_TEXT_REVEAL)) {
+      throw new RendererProtocolException('Canvas label reveal requires negotiated canvas_text_reveal support.');
     }
     if (array_any($canvas->labels, static fn($label) => $label->rotation !== 0)
       && !$this->client->supports(RendererSessionConfig::CANVAS_TEXT_180)) {
@@ -200,6 +254,12 @@ final class RendererPresentation
       }
       if ($image->brightness !== 1.0 && !$this->client->supports(RendererSessionConfig::CANVAS_IMAGE_TONE)) {
         throw new RendererProtocolException('Canvas image brightness requires negotiated canvas_image_tone support.');
+      }
+      if ($image->bottomFade !== null && !$this->client->supports(RendererSessionConfig::CANVAS_IMAGE_BOTTOM_FADE)) {
+        throw new RendererProtocolException('Canvas image bottom fade requires negotiated canvas_image_bottom_fade support.');
+      }
+      if ($image->rotation !== null && !$this->client->supports(RendererSessionConfig::CANVAS_IMAGE_ROTATION)) {
+        throw new RendererProtocolException('Canvas image rotation requires negotiated canvas_image_rotation support.');
       }
       if ($image->sourceRect !== null && !$this->client->supports(RendererSessionConfig::SPRITE_SOURCE_RECT)) {
         throw new RendererProtocolException('Canvas image crops require negotiated sprite_source_rect support.');

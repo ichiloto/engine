@@ -14,15 +14,25 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextureFallback;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
+use Ichiloto\Engine\Rendering\Presentation\PresentationFallbackReport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\UI\Accessibility;
+use Ichiloto\Engine\UI\Presentation\ControlGlyphPresentation;
+use Ichiloto\Engine\UI\Presentation\MenuActionHints;
+use Ichiloto\Engine\UI\Presentation\MenuDirection;
 use Ichiloto\Engine\UI\Presentation\MenuIconRegistry;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
+use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
+use RuntimeException;
 
 /** Composes owned, live battle windows. It never selects or evaluates commands. */
 final class GraphicalBattleHud
 {
+  private const int ROW_DECORATION_LAYER = 1003;
+
   /** @return array<string, int> Decoded source costs, shared with arena preflight. */
   public static function preflight(BattleCanvasLayout $layout, string $assetRoot, array $battlefield = []): array
   {
@@ -30,7 +40,8 @@ final class GraphicalBattleHud
       ...($layout->skin?->textures ?? []), ...($layout->skin?->targetCursor?->textures ?? []),
     ]);
     if ($layout->skin !== null) {
-      foreach (self::getCommandIcons($layout->skin, $assetRoot) as $asset) {
+      foreach ([...self::getCommandIcons($layout->skin, $assetRoot),
+        ...array_filter([self::getAlternativeChevron($layout->skin, $assetRoot)])] as $asset) {
         $textures[] = CanvasNineSlice::getFromPng($assetRoot, $asset);
       }
     }
@@ -40,26 +51,36 @@ final class GraphicalBattleHud
       CanvasTextureFallback::getAvailableTextures($textures, $assetRoot))], $assetRoot)['sources'];
   }
 
+  /**
+   * @param MenuPresentationCatalog|null $controls The menu theme, whose control sets draw each panel's hints as keycaps;
+   *   without it a panel's help reads as the Terminal's text, and that fallback is reported.
+   * @param PresentationFallbackReport|null $fallbacks Where the owner logs a fallback; without one each is logged directly.
+   */
   public static function compose(BattleCanvasLayout $arena, BattleHudSnapshot $hud, ?string $focus, float $now,
-    ?string $assetRoot = null): PresentationCanvas
+    ?string $assetRoot = null, ?MenuPresentationCatalog $controls = null,
+    ?PresentationFallbackReport $fallbacks = null): PresentationCanvas
   {
+    $fallbacks ??= new PresentationFallbackReport();
     $skin = $arena->skin;
     if ($skin === null) { return new PresentationCanvas($arena->width, $arena->height); }
     $images = $text = [];
     $iconRoot = $assetRoot ?? $skin->icons?->assetRoot;
     $icons = $iconRoot === null ? [] : self::getCommandIcons($skin, $iconRoot);
+    $chevron = $iconRoot === null ? null : self::getAlternativeChevron($skin, $iconRoot);
     $pitch = $arena->uiGrid;
     $ox = ($arena->width - 135 * $pitch->cellWidth) / 2;
     $oy = ($arena->height - 36 * $pitch->cellHeight) / 2;
-    $y = $oy + 30 * $pitch->cellHeight;
-    $height = 6 * $pitch->cellHeight;
-    foreach ([['command', $hud->commands, 0, 14], ['submenu', $hud->context, 14, 62], ['names', $hud->names, 76, 24]] as [$id, $list, $column, $columns]) {
+    $y = $arena->getHudTop();
+    $height = BattleCanvasLayout::HUD_ROWS * $pitch->cellHeight;
+    $commandColumns = min(52, max(14, $hud->commands?->preferredColumns ?? 14));
+    foreach ([['command', $hud->commands, 0, $commandColumns], ['submenu', $hud->context, $commandColumns, 76 - $commandColumns], ['names', $hud->names, 76, 24]] as [$id, $list, $column, $columns]) {
       if ($list === null) { continue; }
       $x = $ox + $column * $pitch->cellWidth;
       $width = $columns * $pitch->cellWidth;
       self::renderImage($images, $text, $skin, 'panel', 'hud-' . $id, new CanvasRectangle($x, $y, $width, $height), 1000, $assetRoot);
       self::line($text, $id . '-title', $list->title, $x + 16, $y + 2, $width - 32, 16, $skin->colors['focus'], cellWidth: 8);
-      self::line($text, $id . '-help', $list->help, $x + 16, $y + $height - 18, $width - 32, 16, $skin->colors['muted'], cellWidth: 8);
+      self::renderHelp($images, $text, $id, $list, new CanvasRectangle($x + 16, $y + $height - 18, $width - 32, 16),
+        $skin, $arena, $controls, $fallbacks);
       $rowText = [];
       // Keep one aligned text column even when some optional icons are unavailable.
       $iconSpace = $id === 'submenu' && array_any($list->rows,
@@ -74,17 +95,31 @@ final class GraphicalBattleHud
           if ($focus === $id) {
             $offset = self::cursorOffset($now, Accessibility::prefersReducedMotion() || !$row->affordable);
             self::renderImage($images, $text, $skin, 'selector', 'hud-cursor', new CanvasRectangle($x + 16 + $offset,
-              $rowY + ($pitch->cellHeight - 16) / 2, 16, 16), 1003, $assetRoot);
+              $rowY + ($pitch->cellHeight - 16) / 2, 16, 16), self::ROW_DECORATION_LAYER, $assetRoot);
           }
           if (Accessibility::prefersHighContrast()) { $color = PresentationColor::rgb(255, 255, 255); }
+        }
+        if ($row->tutorialTarget) {
+          $accent = Accessibility::prefersHighContrast() ? PresentationColor::rgb(255, 255, 255) : $skin->colors['focus'];
+          if (!$row->selected) {
+            self::line($text, $id . '-tutorial-' . $rowIndex, '!', $x + 40 - $pitch->cellWidth, $rowY,
+              $pitch->cellWidth, $pitch->cellHeight, $accent, cellWidth: $pitch->cellWidth);
+          }
+          if ($row->affordable) { $color = $accent; }
         }
         if ($iconSpace > 0 && isset($icons[$row->iconRole ?? '']) && $iconRoot !== null) {
           array_push($images, ...MenuIconRegistry::containAsset($iconRoot, 'hud-submenu-icon-' . $row->index,
             $icons[$row->iconRole], new CanvasRectangle($x + 40, $rowY + ($pitch->cellHeight - 16) / 2, 16, 16),
-            1002, new CanvasRectangle($x + 40, $rowY, 16, $pitch->cellHeight)));
+            self::ROW_DECORATION_LAYER, new CanvasRectangle($x + 40, $rowY, 16, $pitch->cellHeight)));
         }
+        // The row's own square at its right edge, as menus size their navigation chevrons.
+        $alternativeSpace = $row->hasAlternative ? $pitch->cellHeight : 0;
         self::line($rowText, $id . '-row-' . $rowIndex, $row->label, $x + 40 + $iconSpace, $rowY,
-          $width - 48 - $iconSpace, $pitch->cellHeight, $color, cellWidth: $pitch->cellWidth);
+          $width - 48 - $iconSpace - $alternativeSpace, $pitch->cellHeight, $color, cellWidth: $pitch->cellWidth);
+        if ($row->hasAlternative) {
+          self::renderAlternative($images, $text, $skin, $id . '-alternative-' . $rowIndex, new CanvasRectangle(
+            $x + $width - 8 - $alternativeSpace, $rowY, $alternativeSpace, $alternativeSpace), $chevron, $iconRoot);
+        }
       }
       self::column($text, $id . '-rows', $rowText);
       if ($list->rows === [] && $list->emptyMessage !== '') {
@@ -136,14 +171,21 @@ final class GraphicalBattleHud
       self::column($text, 'mp-unknown', $mpUnknown);
       self::column($text, 'atb-fallback', $atbFallback);
     }
+    // The battle's messages, then its result, read in the band above the battlefield, clear of every battler.
+    $bandTop = $oy + $pitch->cellHeight;
     if ($hud->message !== null) {
-      $bounds = new CanvasRectangle($ox + 2 * $pitch->cellWidth, $oy + $pitch->cellHeight,
+      $bounds = new CanvasRectangle($ox + 2 * $pitch->cellWidth, $bandTop,
         131 * $pitch->cellWidth, min($arena->height - $oy - $pitch->cellHeight,
           (max(1, $hud->messageRows) + 2) * $pitch->cellHeight));
       self::renderImage($images, $text, $skin, 'quiet', 'hud-message', $bounds, 1000, $assetRoot);
       self::line($text, 'message', $hud->message, $bounds->x + 16, $bounds->y + $pitch->cellHeight,
         $bounds->width - 32, $pitch->cellHeight, $skin->colors['text'], cellWidth: $pitch->cellWidth,
         rows: max(1, (int)floor($bounds->height / $pitch->cellHeight) - 2), centered: true);
+      $bandTop = $bounds->y + $bounds->height + $pitch->cellHeight / 2;
+    }
+    if ($hud->outcome !== null) {
+      self::renderOutcome($images, $text, $hud->outcome, $ox + 2 * $pitch->cellWidth, $bandTop,
+        131 * $pitch->cellWidth, $skin, $arena, $assetRoot, $controls, $fallbacks);
     }
     if (!CanvasTextureFallback::isAvailable($skin->textures['panel'], $assetRoot)
       || !CanvasTextureFallback::isAvailable($skin->textures['quiet'], $assetRoot)) {
@@ -175,6 +217,29 @@ final class GraphicalBattleHud
       }
     }
     return $icons;
+  }
+
+  /** The theme's "next" navigation chevron, shared with menus, when its artwork is available. */
+  private static function getAlternativeChevron(BattleUiSkin $skin, string $root): ?string
+  {
+    $asset = $skin->icons?->icons[MenuDirection::RIGHT->getIconRole(chevron: true)] ?? null;
+    return $asset !== null && PngAssetPreflight::getAvailableSize($root, $asset) !== null ? $asset : null;
+  }
+
+  /**
+   * A row's static "more to the right" signal, in the focus colour: the theme's navigation chevron contained in
+   * the row's square, or without that artwork the shared chevron glyph filling the same square. It never takes
+   * the list cursor's artwork or motion.
+   */
+  private static function renderAlternative(array &$images, array &$text, BattleUiSkin $skin, string $id,
+    CanvasRectangle $box, ?string $chevron, ?string $root): void
+  {
+    if ($chevron !== null && $root !== null) {
+      array_push($images, ...MenuIconRegistry::containAsset($root, 'hud-' . $id, $chevron, $box, self::ROW_DECORATION_LAYER, $box));
+      return;
+    }
+    self::line($text, $id, MenuDirection::RIGHT->getGlyph(chevron: true), $box->x, $box->y, $box->width,
+      (int)$box->height, $skin->colors['focus'], cellWidth: (int)$box->width);
   }
 
   private static function renderGauge(array &$images, BattleUiSkin $skin, string $role, int $index,
@@ -211,6 +276,102 @@ final class GraphicalBattleHud
     $parts = CanvasTextureFallback::render($skin->textures[$role], $id, $bounds, $layer, $skin->colors[$color], $assetRoot, $clip);
     array_push($images, ...$parts['images']);
     array_push($text, ...$parts['textLayers']);
+  }
+
+  /**
+   * The battle's result in a panel centred in the band above the battlefield, as wide as its content: its title,
+   * the page the result window shows, and each control that acts on it as its key alone, at the panel's foot.
+   * The window keeps the result, its reveal, its pages and its input. A result that cannot fit is an error,
+   * never truncated.
+   */
+  private static function renderOutcome(array &$images, array &$text, BattleOutcomeSnapshot $outcome,
+    float $x, float $y, float $width, BattleUiSkin $skin, BattleCanvasLayout $arena, ?string $assetRoot,
+    ?MenuPresentationCatalog $controls, PresentationFallbackReport $fallbacks): void
+  {
+    $pitch = $arena->uiGrid;
+    // Clear of the panel frame's corners.
+    $padding = 24;
+    $keys = [];
+    foreach ($outcome->hints as $hint) {
+      array_push($keys, $hint->control, ...($hint->pairedAction === null ? [] : [$hint->pairedControl]));
+    }
+    $glyphs = $controls === null ? null
+      : new ControlGlyphPresentation($controls, 'hud-outcome-keys', [$pitch->cellWidth, $pitch->cellHeight], 1002);
+    $keyText = TerminalControlText::formatControls($keys);
+    $keyCells = $keys === [] ? 0 : ($glyphs === null ? TerminalText::displayWidth($keyText)
+      : array_sum(array_map($glyphs->measureCells(...), $keys)) + count($keys) - 1);
+    $page = $outcome->pageCount > 1 ? ($outcome->pageIndex + 1) . ' / ' . $outcome->pageCount : '';
+    // A centred page count keeps clear of the keys on both sides.
+    $footerCells = $page === '' ? $keyCells : mb_strlen($page) + 2 * ($keyCells + 1);
+    $contentCells = max($footerCells, ...array_map(static fn(string $line): int =>
+      TerminalText::displayWidth(TerminalText::stripAnsi($line)), [$outcome->title, ...$outcome->lines]));
+    $available = (int)floor(($width - 2 * $padding) / $pitch->cellWidth);
+    if ($contentCells > $available) {
+      throw new RuntimeException('A battle result line exceeds its panel; its window must wrap it.');
+    }
+    $columns = min($available, max(36, $contentCells + 4));
+    // The title, then the page, then the controls, each set apart by half a row.
+    $gap = $pitch->cellHeight / 2;
+    $lineRows = max(1, count($outcome->lines));
+    $hasFooter = $keyCells + mb_strlen($page) > 0;
+    $bounds = new CanvasRectangle($x + ($width - $columns * $pitch->cellWidth - 2 * $padding) / 2, $y,
+      $columns * $pitch->cellWidth + 2 * $padding,
+      2 * $padding + (1 + $lineRows) * $pitch->cellHeight + $gap + ($hasFooter ? $gap + $pitch->cellHeight : 0));
+    if ($bounds->y + $bounds->height > $arena->height) {
+      throw new RuntimeException('The battle result exceeds the battle canvas; its window must paginate it.');
+    }
+    $inner = new CanvasRectangle($bounds->x + $padding, $bounds->y + $padding, $columns * $pitch->cellWidth,
+      $bounds->height - 2 * $padding);
+    self::renderImage($images, $text, $skin, 'panel', 'hud-outcome', $bounds, 1000, $assetRoot);
+    self::line($text, 'outcome-title', $outcome->title, $inner->x, $inner->y, $inner->width, $pitch->cellHeight,
+      $skin->colors['focus'], cellWidth: $pitch->cellWidth, centered: true);
+    self::line($text, 'outcome-lines', implode("\n", $outcome->lines), $inner->x, $inner->y + $pitch->cellHeight + $gap,
+      $inner->width, $pitch->cellHeight, $skin->colors['text'], cellWidth: $pitch->cellWidth,
+      rows: $lineRows, centered: true);
+    $footer = new CanvasRectangle($inner->x, $inner->y + $inner->height - $pitch->cellHeight, $inner->width, $pitch->cellHeight);
+    if ($page !== '') {
+      self::line($text, 'outcome-page', $page, $footer->x, $footer->y, $footer->width, $pitch->cellHeight,
+        $skin->colors['muted'], cellWidth: $pitch->cellWidth, centered: true);
+    }
+    if ($keys === []) { return; }
+    if ($glyphs === null) {
+      $fallbacks->report('Battle result controls read as text: the project has no menu theme to draw keycaps.');
+      self::line($text, 'outcome-keys', $keyText, $footer->x, $footer->y, $footer->width, $pitch->cellHeight,
+        $skin->colors['muted'], cellWidth: $pitch->cellWidth, rightAligned: true);
+      return;
+    }
+    // Each control alone, right to left from the panel's inner edge.
+    $right = $footer->x + $footer->width;
+    foreach (array_reverse($keys, true) as $index => $control) {
+      $box = $glyphs->renderControl('hud-outcome-key-' . $index, $control,
+        new CanvasRectangle($footer->x, $footer->y, $right - $footer->x, $footer->height), HorizontalAlignment::RIGHT);
+      $right = $box->x - $pitch->cellWidth;
+    }
+    $drawn = $glyphs->compose($arena->width, $arena->height);
+    array_push($images, ...$drawn->images);
+    array_push($text, ...$drawn->textLayers);
+  }
+
+  /** A panel's hints as keycaps on the help line when the theme can draw them and they fit; otherwise its help text, reported. */
+  private static function renderHelp(array &$images, array &$text, string $id, BattleHudListSnapshot $list,
+    CanvasRectangle $bounds, BattleUiSkin $skin, BattleCanvasLayout $arena, ?MenuPresentationCatalog $controls,
+    PresentationFallbackReport $fallbacks): void
+  {
+    $cell = [8, (int)$bounds->height];
+    if ($list->hints !== [] && $controls !== null
+      && MenuActionHints::height($list->hints, $controls, $bounds->width, true, $cell) <= $bounds->height) {
+      $canvas = MenuActionHints::compose($arena->width, $arena->height, 'hud-' . $id . '-help', $list->hints, $controls,
+        $bounds, true, $cell, 1002);
+      array_push($images, ...$canvas->images);
+      array_push($text, ...$canvas->textLayers);
+      return;
+    }
+    if ($list->hints !== []) {
+      $fallbacks->report($controls === null
+        ? "Battle {$id} hints read as text: the project has no menu theme to draw keycaps."
+        : "Battle {$id} hints read as text: their keycaps do not fit the panel's help line.");
+    }
+    self::line($text, $id . '-help', $list->help, $bounds->x, $bounds->y, $bounds->width, (int)$bounds->height, $skin->colors['muted'], cellWidth: 8);
   }
 
   private static function line(array &$layers, string $id, string $label, float $x, float $y, float $width, int $height,

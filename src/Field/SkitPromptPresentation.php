@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field;
 
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\IO\ActionHint;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -35,7 +36,7 @@ final class SkitPromptPresentation
     $width = min(44, Console::getWidth() - 6);
     if ($width < 1) { Console::removeOverlay(self::LAYER); return; }
     $lines = MenuTextWrap::lines($prompt->title, $width);
-    array_push($lines, ...MenuTextWrap::lines(($hint->control?->label ?? 'Unbound') . ': ' . $hint->label, $width));
+    array_push($lines, ...MenuTextWrap::lines(TerminalControlText::formatHint($hint), $width));
     $border = new SlimBorderPack();
     $lines = [
       $border->getTopLeftCorner() . str_repeat($border->getHorizontalBorder(), $width + 2) . $border->getTopRightCorner(),

@@ -20,7 +20,7 @@ use Ichiloto\Engine\Util\Stores\ClassStore;
  */
 function writeSkillCatalogProject(array $files): string
 {
-  $root = sys_get_temp_dir() . '/ichiloto-skill-catalog-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-skill-catalog-' . bin2hex(random_bytes(4));
   mkdir($root . '/assets/Data/' . SkillCatalog::DIRECTORY, 0777, true);
 
   foreach ($files as $file => $contents) {

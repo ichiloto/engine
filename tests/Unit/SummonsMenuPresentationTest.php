@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonWielderPolicy;
@@ -10,13 +11,18 @@ use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\ActionHintProvider;
 use Ichiloto\Engine\IO\ControlHint;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Progression\{TutorialCatalog, TutorialDirector, TutorialPhase, TutorialStep};
+use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
+use Ichiloto\Engine\UI\Presentation\SummonsMenuPresentation;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\States\SummonsMenuState;
+use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Text\TextViewport;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\UI\Presentation\SummonsMenuView;
 use Ichiloto\Engine\UI\Presentation\SummonEquipmentSlot;
 use Ichiloto\Engine\IO\InputManager;
@@ -122,8 +128,13 @@ it('exposes complete long contracts through the shared scroll viewport and seman
   expect($texts)->toContain('Pad', 'Scroll down')->not->toContain('enter:', 'tab:', 'c:');
   $viewport = new ReflectionProperty($state, 'detailViewport')->getValue($state);
   $page = new ReflectionProperty($state, 'lastDetailPage')->getValue($state);
-  expect($page->total)->toBeGreaterThan($page->rows)->and($page->source)->toContain('Contract line 100');
-  for ($i = 0; $i < $page->total; $i++) { $viewport->scroll(1, $page); $page = $viewport->page($page->columns, $page->rows); }
+  expect($page->total)->toBeGreaterThan(count($page->lines))->and($page->source)->toContain('Contract line 100');
+  // Semantic scrolling through the owner's own measured Canvas pages reaches the end.
+  for ($i = 0; $i < $page->total; $i++) {
+    $viewport->scroll(1, $page);
+    new ReflectionMethod($state, 'composeMenuCanvas')->invoke($state, $theme, 0.0);
+    $page = new ReflectionProperty($state, 'lastDetailPage')->getValue($state);
+  }
   expect(implode("\n", $page->lines))->toContain('Contract line 100');
   new ReflectionMethod($state, 'composeMenuCanvas')->invoke($state, $theme, 0.0);
   $help = new ReflectionMethod($state, 'getActionHints')->invoke($state);
@@ -140,7 +151,7 @@ it('removes eligibility rosters and only offers assignable summons in the Equipm
   $state = createSummonsMenuProbe([$allowed, $future], true);
   $before = serialize([$allowed->wielders, $future->wielders]);
   expect(array_column($state->getPresentationContent()->rows, 'label'))->toBe(['Allowed spirit']);
-  $detail = new ReflectionMethod($state, 'getDetailText')->invoke($state);
+  $detail = new ReflectionMethod($state, 'getDetailSheet')->invoke($state)->text;
   expect($detail)->not->toContain('future.identity', 'Wielders', 'One bearer', 'Actor')
     ->and($state->getPresentationContent()->status)->toBeNull();
   $later = new Character('Later hero', 1, new Stats(currentHp: 100), actorId: 'future.identity');
@@ -299,4 +310,174 @@ it('refreshes a reordered party before accepting confirmation against an obsolet
   summonMenuKey($state, KeyCode::ENTER);
   expect($first->hasSummon('spirit'))->toBeFalse()->and($other->hasSummon('spirit'))->toBeFalse()
     ->and(array_column($state->getPresentationContent()->rows, 'label'))->toBe([$other->name, $first->name]);
+});
+
+it('reads Info as Move, Profile and Resistances with every resistance row, keeping legacy matchups visible', function () {
+  $definition = new SummonCutsceneDefinition('spirit', 'Spirit', 'Its move description.', 'Spirit move',
+    lore: 'Spirit lore.', element: 'Fire', strengths: ['Ice'], weaknesses: ['Water'], attributes: ['Power' => 'A', 'Speed' => 3],
+    elementAffinities: ['Fire' => 0.25, 'Earth' => 0.0], effectiveAgainst: ['Wind']);
+  $state = createSummonsMenuProbe([$definition]);
+  new ReflectionProperty($state, 'view')->setValue($state, SummonsMenuView::INFO);
+  new ReflectionProperty($state, 'selectedSummonId')->setValue($state, 'spirit');
+  $sheet = new ReflectionMethod($state, 'getDetailSheet')->invoke($state);
+  $entries = $sheet->getEntries();
+  $headings = array_column(array_filter($entries, fn($entry) => $entry->kind === \Ichiloto\Engine\UI\Presentation\MenuDetailKind::HEADING), 'text');
+  $icons = fn(string $label) => array_column(array_find($entries, fn($entry) => $entry->label === $label)->icons, 'name');
+  expect($headings)->toBe(['Move', 'Profile', 'Resistances'])
+    ->and($icons('Effective against'))->toBe(['Wind', 'Ice'])
+    ->and($icons('Weaknesses'))->toBe(['Water'])
+    ->and($icons('Greater Resistances'))->toBe(['Fire'])
+    ->and($icons('Immunities'))->toBe(['Earth'])
+    ->and($icons('Lesser Resistances'))->toBe([])->and($icons('Absorbed Elements'))->toBe([])
+    ->and(array_find($entries, fn($entry) => $entry->label === 'Speed')->kind)->toBe(\Ichiloto\Engine\UI\Presentation\MenuDetailKind::NUMBER);
+  // A summon with only the legacy lists keeps them and marks the unrecorded tiers.
+  $legacy = new SummonCutsceneDefinition('legacy', 'Legacy', weaknesses: ['Water']);
+  new ReflectionProperty(SummonsMenuState::class, 'availableSummons')->setValue($state, [$legacy]);
+  new ReflectionProperty($state, 'selectedSummonId')->setValue($state, 'legacy');
+  new ReflectionMethod($state, 'refreshUI')->invoke($state);
+  $entries = new ReflectionMethod($state, 'getDetailSheet')->invoke($state)->getEntries();
+  $value = fn(string $label) => array_find($entries, fn($entry) => $entry->label === $label);
+  expect(array_column($value('Weaknesses')->icons, 'name'))->toBe(['Water'])
+    ->and($value('Immunities')->text)->toBe('Not recorded')->and($value('Effective against')->text)->toBe('Not recorded');
+});
+
+it('lights the visible tutorial row with the bound control and leaves missing targets undimmed', function () {
+  ActionHints::useProvider(new class implements ActionHintProvider {
+    public function controlForAction(string $action): ?ControlHint { return new ControlHint('controller', $action, 'Pad'); }
+  });
+  $theme = new MenuPresentationCatalog($this->summonsRoot, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false]);
+  $state = createSummonsMenuProbe([new SummonCutsceneDefinition('sample', 'Spirit')]);
+  $content = $state->getPresentationContent();
+  $step = [
+    'target' => ['screen' => 'summons', 'view' => 'list', 'id' => 'sample'],
+    'action' => 'confirm',
+    'until' => ['outcome' => 'summon.opened', 'subject' => 'sample'],
+    'say' => 'Open the contract.',
+    'speaker' => 'actor.synthetic',
+  ];
+  $frame = SummonsMenuPresentation::compose($content, $theme, null, tutorial: TutorialStep::fromArray($step, 'Test guide'), tutorialRow: $step['target']['id'], tutorialSpeaker: 'Actor');
+  $layers = $frame->textLayers;
+  $guideText = implode('', array_merge(...array_map(static fn($layer) => array_column($layer->runs, 'text'), $layers)));
+  expect(array_any($layers, static fn($layer): bool => str_starts_with($layer->id, 'tutorial-target')))->toBeTrue()
+    ->and($guideText)->toContain('Pad', 'Open the contract.');
+  $speaker = array_find($layers, static fn($layer) => $layer->id === 'tutorial-speaker');
+  expect(implode('', array_column($speaker?->runs ?? [], 'text')))->toBe('Actor');
+  $panel = array_find($layers, static fn($layer) => $layer->id === 'tutorial-hint-panel')->clipRect;
+  expect($panel->x + $panel->width / 2)->toEqual($frame->width / 2)
+    ->and($panel->y + $panel->height / 2)->toEqual($frame->height / 2);
+
+  $contextual = SummonsMenuPresentation::compose($content, $theme, null,
+    tutorial: TutorialStep::fromArray([...$step, 'placement' => 'contextual'], 'Test guide'), tutorialRow: $step['target']['id']);
+  $contextPanel = array_find($contextual->textLayers, static fn($layer) => $layer->id === 'tutorial-hint-panel')->clipRect;
+  expect($contextPanel->toArray())->not->toBe($panel->toArray());
+
+  $terminal = \Ichiloto\Engine\IO\Console\Console::class;
+  $present = \Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation::class;
+  $centered = $terminal::capturePresentation(60, 15, function () use ($terminal, $present, $step): void {
+    $terminal::write('live underlay', 22, 7);
+    expect($present::presentInstruction(TutorialStep::fromArray($step, 'Test guide'), 'Actor'))->toBeNull();
+  });
+  $rows = array_column(array_column($centered->textLayers, null, 'id')['tutorial-instruction']->runs, 'row');
+  expect([min($rows), max($rows)])->toBe([6, 8])
+    ->and(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($centered->rows[7]))->toContain('Open the contract.')->not->toContain('live underlay');
+  $cleared = $terminal::capturePresentation(60, 15, function () use ($terminal, $present, $step): void {
+    $present::presentInstruction(TutorialStep::fromArray($step, 'Test guide'), 'Actor');
+    $terminal::write('updated underlay', 22, 7);
+    expect($present::presentInstruction(TutorialStep::fromArray([...$step, 'placement' => 'contextual'], 'Test guide'), 'Actor'))
+      ->toContain('Open the contract.');
+  });
+  expect(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($cleared->rows[7]))->toContain('updated underlay')
+    ->and(array_column($cleared->textLayers, 'id'))->not->toContain('tutorial-instruction');
+  expect(fn() => TutorialStep::fromArray([...$step, 'placement' => 'corner'], 'Test guide'))
+    ->toThrow(InvalidArgumentException::class, 'placement must be centered or contextual');
+
+  unset($step['say'], $step['speaker']);
+  $silentStep = TutorialStep::fromArray($step, 'Test guide');
+  $silent = SummonsMenuPresentation::compose($content, $theme, null, tutorial: $silentStep, tutorialRow: $step['target']['id']);
+  $tutorialLayers = array_filter($silent->textLayers, static fn($layer): bool => str_starts_with($layer->id, 'tutorial-'));
+  expect($tutorialLayers)->not->toBeEmpty()
+    ->and(array_all($tutorialLayers, static fn($layer): bool => str_starts_with($layer->id, 'tutorial-target')))->toBeTrue()
+    ->and(\Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation::getHint($silentStep))->toBeNull();
+
+  $step['target']['id'] = 'absent';
+  $missing = SummonsMenuPresentation::compose($content, $theme, null, tutorial: TutorialStep::fromArray($step, 'Test guide'), tutorialRow: $step['target']['id'], tutorialSpeaker: 'Actor');
+  expect(array_any($missing->textLayers, static fn($layer): bool => str_starts_with($layer->id, 'tutorial-')))->toBeFalse();
+});
+
+it('selects a current assignable holder for the guide without highlighting Release', function () {
+  $definition = new SummonCutsceneDefinition('sample', 'Spirit', wielders: new SummonWielderPolicy());
+  $state = createSummonsMenuProbe([$definition]);
+  $holder = $state->party->leader;
+  $other = new Character('Other', 1, new Stats(currentHp: 100), actorId: 'actor.other');
+  $state->party->addMember($other);
+  expect($state->party->assignSummon($definition, $holder))->toBeTrue();
+  new ReflectionProperty($state, 'view')->setValue($state, SummonsMenuView::HOLDERS);
+  new ReflectionProperty($state, 'selectedSummonId')->setValue($state, 'sample');
+  $record = [
+    'target' => ['screen' => 'summons', 'view' => 'holders', 'id' => 'assignable'],
+    'action' => 'confirm',
+    'until' => ['outcome' => 'summon.assigned', 'subject' => 'sample'],
+  ];
+  $resolve = new ReflectionMethod($state, 'resolveTutorialRow');
+  expect($resolve->invoke($state, TutorialStep::fromArray($record, 'Test guide')))->toBe('member-actor.other');
+  $record['target']['id'] = 'member-actor.synthetic';
+  expect($resolve->invoke($state, TutorialStep::fromArray($record, 'Test guide')))->toBeNull();
+});
+
+
+it('offers contract guidance on a voluntary visit when a held contract can be reassigned', function () {
+  ConfigStore::put(ProjectConfig::class, new class extends ProjectConfig {
+    protected function load(): array { return []; }
+  });
+  $folder = $this->summonsRoot . '/assets/Cutscenes/Summons/example';
+  mkdir($folder, 0777, true);
+  file_put_contents($folder . '/example.data.php',
+    "<?php return ['id' => 'example', 'name' => 'Example', 'wielders' => ['exclusive' => true]];");
+  file_put_contents($folder . '/example.timeline.php',
+    "<?php return ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];");
+  $state = createSummonsMenuProbe([], characterContext: true);
+  $scene = $state->getGameScene();
+  $game = new class extends Game {
+    public function __construct() {}
+    public function __destruct() {}
+  };
+  $manager = makeBareScene(SceneManager::class);
+  new ReflectionProperty($manager, 'game')->setValue($manager, $game);
+  new ReflectionProperty($scene, 'sceneManager')->setValue($scene, $manager);
+  new ReflectionProperty(GameScene::class, 'locationHUDWindow')->setValue($scene, makeBareScene(LocationHUDWindow::class));
+  $scene->gameState->setSwitch('ready');
+  $scene->gameState->setTutorialPhase('guide.library', TutorialPhase::PENDING);
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.library', 'title' => 'Contracts', 'category' => 'Summons',
+    'start' => 'automatic', 'startContext' => 'summons-library', 'replay' => 'practice',
+    'trigger' => [['type' => 'switch', 'name' => 'ready']],
+    'steps' => [[
+      'target' => ['screen' => 'summons', 'view' => 'list', 'id' => 'assigned-contract'],
+      'action' => 'confirm', 'until' => ['outcome' => 'summon.opened'],
+    ]],
+  ]]), $scene->gameState);
+  new ReflectionProperty(GameScene::class, 'tutorialDirector')->setValue($scene, $director);
+  $state->party->leader->assignSummon('example');
+
+  $previous = getcwd();
+  try {
+    chdir($this->summonsRoot);
+    $state->enter();
+    expect($director->getActiveTutorial())->toBeNull();
+    $state->exit();
+    $state->openLibrary();
+    $state->enter();
+    expect($director->getActiveTutorial())->toBeNull();
+    $state->exit();
+    $state->party->addMember(new Character('Other', 1, new Stats(currentHp: 100), actorId: 'actor.other'));
+    $state->enter();
+    expect($director->getActiveTutorial()?->id)->toBe('guide.library');
+    $step = $director->getStepForView('summons', 'list');
+    expect(new ReflectionMethod($state, 'resolveTutorialRow')->invoke($state, $step))->toBe('example');
+    $state->exit();
+    expect($director->getActiveTutorial())->toBeNull()
+      ->and($scene->gameState->getTutorialPhase('guide.library'))->toBe(TutorialPhase::PENDING);
+  } finally {
+    chdir($previous);
+  }
 });

@@ -6,16 +6,20 @@ namespace Ichiloto\Engine\Rendering\Presentation;
 
 use Closure;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
+use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePageLayout;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueScenePresentation;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
+use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
+use Ichiloto\Engine\UI\Modal\StorybookReadingCapacity;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteCollector;
+use Ichiloto\Engine\Rendering\Text\TextPreparationProviderInterface;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
@@ -27,10 +31,13 @@ final class SceneFrameComposer
 {
   private readonly GraphicalSpriteCollector $collector;
   private readonly DialogueScenePresentation $dialogue;
+  /** Where a graphical field reports a subject it can only show by its terminal glyph. */
+  public readonly PresentationFallbackReport $fallbacks;
 
   public function __construct(string $assetRoot)
   {
     $this->collector = new GraphicalSpriteCollector();
+    $this->fallbacks = new PresentationFallbackReport();
     $this->dialogue = new DialogueScenePresentation($assetRoot);
   }
 
@@ -42,14 +49,17 @@ final class SceneFrameComposer
    * Runtime refreshes Terminal overlays before cached handoffs; isolated previews refresh them here.
    */
   public function composeFrame(SceneInterface|FramePresentationSourceInterface|null $scene, RendererGridConfig $grid, Closure $supports,
-    Closure $collectText, ?NotificationManager $notifications = null, bool $refreshOverlay = true): SceneFrameComposition
+    Closure $collectText, ?NotificationManager $notifications = null, bool $refreshOverlay = true,
+    ?TextPreparationProviderInterface $textPreparation = null): SceneFrameComposition
   {
-    return PngAssetPreflight::runWithSnapshot(fn() => $this->composeSnapshot($scene, $grid, $supports,
-      $collectText, $notifications, $refreshOverlay));
+    return PresentationSession::runForSession($supports, fn() =>
+      PngAssetPreflight::runWithSnapshot(fn() => $this->composeSnapshot($scene, $grid, $supports,
+        $collectText, $notifications, $refreshOverlay, $textPreparation)));
   }
 
   private function composeSnapshot(SceneInterface|FramePresentationSourceInterface|null $scene, RendererGridConfig $grid, Closure $supports,
-    Closure $collectText, ?NotificationManager $notifications, bool $refreshOverlay): SceneFrameComposition
+    Closure $collectText, ?NotificationManager $notifications, bool $refreshOverlay,
+    ?TextPreparationProviderInterface $textPreparation): SceneFrameComposition
   {
     $overlaySupported = $supports(RendererSessionConfig::CANVAS_OVERLAY);
     if ($refreshOverlay && $scene instanceof CanvasOverlayProviderInterface && $overlaySupported) {
@@ -58,11 +68,13 @@ final class SceneFrameComposer
     $width = $grid->columns * $grid->cellWidth;
     $height = $grid->rows * $grid->cellHeight;
     $canvas = $scene instanceof CanvasProviderInterface ? $scene->getPresentationCanvas() : null;
-    $dialogue = $scene instanceof SceneInterface ? $this->dialogue->compose($scene, $canvas, $width, $height,
+    $dialogue = $this->dialogue->compose($scene instanceof SceneInterface ? $scene : null, $canvas, $width, $height,
       $overlaySupported && $supports(RendererSessionConfig::GRAPHICAL_CANVAS)
         && $supports(RendererSessionConfig::CANVAS_CLIP_OPACITY) && $supports(RendererSessionConfig::SPRITE_SOURCE_RECT),
       $supports(RendererSessionConfig::GRAPHICAL_CANVAS) && $supports(RendererSessionConfig::CANVAS_CLIP_OPACITY)
-        && $supports(RendererSessionConfig::SPRITE_SOURCE_RECT), $supports(RendererSessionConfig::CANVAS_IMAGE_TONE)) : null;
+        && $supports(RendererSessionConfig::SPRITE_SOURCE_RECT), $supports(RendererSessionConfig::CANVAS_IMAGE_TONE),
+      array_all([RendererSessionConfig::TEXT_LAYOUT, RendererSessionConfig::CANVAS_LABELS,
+        RendererSessionConfig::TEXT_BLOCK_LAYOUT, RendererSessionConfig::CANVAS_TEXT_REVEAL], $supports), $textPreparation);
     $canvas = $dialogue !== null ? $dialogue->canvas : $canvas;
     if ($canvas !== null && !($dialogue?->isOverlay ?? false)) {
       $sceneOverlay = $scene instanceof CanvasOverlayProviderInterface && $overlaySupported
@@ -75,8 +87,12 @@ final class SceneFrameComposer
         : PresentationCanvas::composeOverlay($sceneOverlay, $noticeCanvas));
     }
     $collection = LatencyTrace::getTimeNow();
-    $sprites = $scene instanceof SceneInterface || $scene === null ? $this->collector->collect($scene)
-      : PresentationSprite::orderedList($scene->getPresentationSprites());
+    $unpresented = [];
+    if ($scene instanceof SceneInterface || $scene === null) {
+      ['sprites' => $sprites, 'unpresented' => $unpresented] = $this->collector->collectPresentation($scene);
+    } else {
+      $sprites = PresentationSprite::orderedList($scene->getPresentationSprites());
+    }
     $slides = $supports(RendererSessionConfig::FIELD_MOTION);
     if (!$slides) { $sprites = array_map(static fn($sprite) => $sprite->withoutMotion(), $sprites); }
     LatencyTrace::end('presentation.sprites', $collection, ['count' => count($sprites)]);
@@ -86,10 +102,14 @@ final class SceneFrameComposer
           'sourceRect' => $sprite->sourceRect?->toArray()], $sprites)]);
     }
     PresentationLayerPolicy::assertWorldSprites($sprites);
-    // Keep off-grid sprites for renderer clipping without concealing Terminal edge cells.
-    $visible = array_filter($sprites, static fn($sprite) => $sprite->x >= 0 && $sprite->x < $grid->columns
-      && $sprite->y >= 0 && $sprite->y < $grid->rows);
-    $excluded = array_map(static fn($sprite) => $sprite->id, $visible);
+    // A sprite is its subject's graphical presentation wherever it stands: off-grid sprites stay for renderer
+    // clipping, and their subject's terminal layer never shows in its place. A wide terminal glyph whose subject
+    // stands just past the left edge would otherwise leave its tail on screen as a glyph.
+    $excluded = array_map(static fn($sprite) => $sprite->id, $sprites);
+    // A world canvas presents its owners just as a sprite presents its subject.
+    // Exclude those terminal layers before collecting text, including cinematic takeovers.
+    $groups = $scene instanceof WorldCanvasProviderInterface ? $scene->getPresentationWorldCanvases() : [];
+    foreach ($groups as $group) { array_push($excluded, ...$group->canvas->presentationOwners); }
     $sceneOverlay = $scene instanceof CanvasOverlayProviderInterface && $overlaySupported
       ? $scene->getPresentationOverlay($width, $height) : null;
     if ($scene instanceof CanvasOverlayProviderInterface && $overlaySupported) {
@@ -102,10 +122,13 @@ final class SceneFrameComposer
     $snapshotStart = LatencyTrace::getTimeNow();
     $snapshot = $collectText(array_values($excluded), $world?->textLayerIds ?? []);
     LatencyTrace::end('presentation.snapshot', $snapshotStart);
+    if ($world !== null) { $this->reportGlyphSubjects($unpresented, $snapshot); }
     $viewport = $scene instanceof FrameViewportProviderInterface
       ? $scene->getPresentationViewport($snapshot, $sprites, []) : null;
     if (!$slides) { $viewport = $viewport?->withoutFollow(); }
-    $groups = $scene instanceof WorldCanvasProviderInterface ? $scene->getPresentationWorldCanvases() : [];
+    if (!$supports(RendererSessionConfig::CAMERA_MOTION) || Accessibility::prefersReducedMotion()) {
+      $viewport = $viewport?->withoutCameraMotion();
+    }
     if ($groups !== []) {
       if (!$supports(RendererSessionConfig::WORLD_CANVAS) || !$supports(RendererSessionConfig::FRAME_VIEWPORT)) {
         throw new RendererProtocolException('Field canvases require negotiated world_canvas and frame_viewport support.');
@@ -115,8 +138,9 @@ final class SceneFrameComposer
         throw new RendererProtocolException('Field canvases require their selected field world and viewport.');
       }
       foreach ($groups as $group) {
-        if ($group->layer < PresentationLayerPolicy::FIELD_EFFECT_BEHIND || $group->layer >= PresentationLayerPolicy::UI) {
-          throw new \InvalidArgumentException('Automatic Game world canvases require layers -1..999; UI layers are reserved.');
+        if (!PresentationLayerPolicy::isFieldWorldLayer($group->layer)) {
+          throw new \InvalidArgumentException('Automatic Game world canvases require backdrop layer ' . PresentationLayerPolicy::FIELD_BACKDROP
+            . ' or layers -1..999; guidance and UI layers are reserved.');
         }
       }
       $viewport = $viewport->selectWorldCanvases(array_column($groups, 'id'));
@@ -129,5 +153,36 @@ final class SceneFrameComposer
   public function getDialoguePageLayout(string $speaker, DialogueContext $context, string $help, int $width): ?DialoguePageLayout
   {
     return $this->dialogue->getPageLayout($speaker, $context, $help, $width);
+  }
+
+  /** The themed storybook frame's prose area on a surface; null when scene owners keep their Terminal cells. */
+  public function getStorybookReadingCapacity(StorybookDefinition $book, int $width, int $height): ?StorybookReadingCapacity
+  {
+    return $this->dialogue->getStorybookReadingCapacity($book, $width, $height);
+  }
+
+  /**
+   * Reports each field subject the graphical field shows by its terminal
+   * glyph because it has no sprite: its own terminal layer is drawn with
+   * visible glyphs this frame. Graceful degradation keeps play going; the
+   * report keeps the missing presentation from passing unnoticed.
+   *
+   * @param list<string> $unpresented Subject ids presented this frame without a sprite.
+   */
+  private function reportGlyphSubjects(array $unpresented, ConsolePresentationSnapshot|ConsolePresentationChanges $text): void
+  {
+    if ($unpresented === []) { return; }
+    $subjects = array_fill_keys($unpresented, true);
+    $layers = $text instanceof ConsolePresentationSnapshot
+      ? array_map(static fn(PresentationTextLayer $layer): array => [$layer->id, $layer->runs], $text->textLayers)
+      : array_map(static fn(array $layer): array => [$layer['id'], array_merge(...array_column($layer['rows'], 'runs'))],
+        $text->layers);
+    foreach ($layers as [$id, $runs]) {
+      if (!isset($subjects[$id])) { continue; }
+      $glyphs = trim(implode('', array_map(static fn(PresentationTextRun $run): string => $run->text, $runs)));
+      if ($glyphs === '') { continue; }
+      $this->fallbacks->report(sprintf("Field subject '%s' has no graphical sprite; the graphical field draws its terminal glyph '%s' instead.",
+        $id, $glyphs));
+    }
   }
 }

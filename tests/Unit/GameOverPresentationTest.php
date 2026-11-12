@@ -89,7 +89,7 @@ beforeEach(function () {
     SaveManager::class, GameLoader::class, EventManager::class, UIManager::class, ModalManager::class, ActionHints::class] as $class) {
     $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/ichiloto-game-over-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-game-over-' . bin2hex(random_bytes(5));
   mkdir($this->root);
   Debug::configure(['log_directory' => $this->root]);
   Console::setTerminalOutputEnabled(false);
@@ -115,8 +115,7 @@ beforeEach(function () {
     public function getLatestLoadableSaveFile(bool $includeQuickSaves = false): ?string { return $this->available ? '/synthetic/loadable.iedata' : null; }
   };
   new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->saves);
-  new ReflectionProperty(GameLoader::class, 'instance')->setValue(null,
-    new ReflectionClass(GameLoader::class)->newInstanceWithoutConstructor());
+  $this->game->bindGameLoader(createTestGameLoader($this->game));
   $this->manager = new ReflectionClass(SceneManager::class)->newInstanceWithoutConstructor();
   new ReflectionProperty($this->manager, 'game')->setValue($this->manager, $this->game);
   new ReflectionProperty($this->manager, 'saveManager')->setValue($this->manager, $this->saves);

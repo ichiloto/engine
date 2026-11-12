@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Scenes\Title;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\UI\Accessibility;
@@ -50,7 +52,7 @@ trait TitleCanvasPresentation
   protected function advanceTitlePresentation(): void
   {
     if ($this->titlePlayback === null) { return; }
-    $now = hrtime(true) / 1e9;
+    $now = RuntimeClock::getSeconds();
     $game = isset($this->sceneManager) ? $this->getGame() : null;
     $windowActive = $game?->getRendererRuntime()?->windowActive ?? true;
     $modal = isset($game->modalManager) ? $game->modalManager->currentModal : null;

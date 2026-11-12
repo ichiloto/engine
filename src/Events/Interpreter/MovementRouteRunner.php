@@ -4,8 +4,10 @@ namespace Ichiloto\Engine\Events\Interpreter;
 
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Cutscenes\Cinematics\StagedActor;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicFacing;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicRelativePosition;
 use Ichiloto\Engine\Exceptions\MovementRouteException;
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Field\Npc;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -17,6 +19,7 @@ use Ichiloto\Engine\UI\Accessibility;
 final class MovementRouteRunner implements EventPendingOperationInterface
 {
   public const array DIRECTIONS = ['up', 'down', 'left', 'right'];
+  private const array HEADING_DIRECTIONS = ['NORTH' => 'up', 'SOUTH' => 'down', 'WEST' => 'left', 'EAST' => 'right'];
 
   /** @var array<int, array<string, mixed>> */
   protected array $steps;
@@ -89,8 +92,9 @@ final class MovementRouteRunner implements EventPendingOperationInterface
     }
 
     if (Accessibility::prefersReducedMotion()) {
+      // Each waypoint leg may add one closing turn to its planned cells.
       $maximumUnits = 1 + count($this->waypoints)
-        * MovementRoutePlanner::MAX_VISITED_CELLS;
+        * (MovementRoutePlanner::MAX_VISITED_CELLS + 1);
 
       foreach ($this->steps as $step) {
         $maximumUnits += max(1, intval($step['count'] ?? 1));
@@ -145,7 +149,7 @@ final class MovementRouteRunner implements EventPendingOperationInterface
     $succeeded = $this->gameScene->moveAtPace($stepSeconds, fn(): bool => match ($subject) {
       'player' => $faceOnly
         ? $this->facePlayer($direction)
-        : ($this->gameScene->player?->tryMove($direction, $this->gameScene->camera) ?? false),
+        : ($this->gameScene->player?->tryMove($direction, $this->gameScene->camera, StepOrigin::SCRIPTED) ?? false),
       'npc' => $faceOnly
         ? $this->gameScene->npcManager?->faceNpc(strval($this->command['npcId'] ?? ''), $direction) ?? false
         : $this->gameScene->npcManager?->moveNpcById(strval($this->command['npcId'] ?? ''), $direction) ?? false,
@@ -245,6 +249,15 @@ final class MovementRouteRunner implements EventPendingOperationInterface
       }
       $this->steps = MovementRoutePlanner::plan($this->gameScene, $this->routeSubject->position,
         $target, $this->routeSubject instanceof Npc);
+      try {
+        $heading = CinematicFacing::resolve($this->gameScene, $point, $target);
+      } catch (\InvalidArgumentException|\RuntimeException $error) {
+        throw new MovementRouteException('Movement-route waypoint facing: ' . $error->getMessage(), previous: $error);
+      }
+      if ($heading !== null) {
+        // Arriving leaves the subject facing what the waypoint names, as one turn after the leg's last step.
+        $this->steps[] = ['direction' => self::HEADING_DIRECTIONS[$heading->name], 'count' => 1, 'faceOnly' => true];
+      }
     }
   }
 
@@ -276,18 +289,23 @@ final class MovementRouteRunner implements EventPendingOperationInterface
       throw new MovementRouteException('Movement-route waypoints must be a non-empty list.');
     }
     foreach ($points as $point) {
+      if (is_array($point)) {
+        try { CinematicFacing::validate($point); }
+        catch (\InvalidArgumentException $error) { throw new MovementRouteException($error->getMessage(), previous: $error); }
+      }
       if (is_array($point) && (array_key_exists('at', $point) || array_key_exists('offset', $point))) {
-        if (array_diff(array_keys($point), ['at', 'offset']) !== []) {
-          throw new MovementRouteException('A relative waypoint accepts only at and offset.');
+        if (array_diff(array_keys($point), ['at', 'offset', ...CinematicFacing::FIELDS]) !== []) {
+          throw new MovementRouteException('A relative waypoint accepts only at, offset and an end facing.');
         }
         try { CinematicRelativePosition::validate($point); }
         catch (\InvalidArgumentException $error) { throw new MovementRouteException($error->getMessage(), previous: $error); }
         continue;
       }
-      if (!is_array($point) || $point === [] || array_diff(array_keys($point), ['x', 'y']) !== []) {
+      $cell = is_array($point) ? array_diff_key($point, array_flip(CinematicFacing::FIELDS)) : null;
+      if (!is_array($cell) || $cell === [] || array_diff(array_keys($cell), ['x', 'y']) !== []) {
         throw new MovementRouteException('Each movement-route waypoint requires x and/or y.');
       }
-      foreach ($point as $value) {
+      foreach ($cell as $value) {
         if (!is_int($value) || $value < 0) {
           throw new MovementRouteException('Movement-route waypoint coordinates must be non-negative integers.');
         }

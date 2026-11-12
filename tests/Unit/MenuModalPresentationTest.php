@@ -139,10 +139,9 @@ beforeEach(function () {
   }
   Timers::setFrameTick(null);
   ActionHints::useProvider(null);
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, null);
   new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   new ReflectionProperty(NotificationManager::class, 'instance')->setValue(null, null);
-  $this->root = sys_get_temp_dir() . '/ichiloto-menu-modal-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-menu-modal-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   modalMenuPng($this->root . '/art.png');
   Debug::configure(['log_directory' => $this->root . '/logs']);
@@ -252,7 +251,11 @@ it('layers supported modals above the complete four-party menu through either th
   }
   foreach ($modalText as $text) {
     if (!preg_match('/menu-modal-choice-\d+-text/', $text->id)) { continue; }
-    expect($text->x + $text->bounds->width / 2)->toEqualWithDelta($text->clipRect->x + $text->clipRect->width / 2, 0.000001);
+    if ($modal->getModalPresentation()->vertical) {
+      expect($text->x)->toBe($text->clipRect->x + MenuPresentationCatalog::load($this->root)->rows->metrics->padding);
+    } else {
+      expect($text->x + $text->bounds->width / 2)->toEqualWithDelta($text->clipRect->x + $text->clipRect->width / 2, 0.000001);
+    }
   }
   expect(array_filter(array_column($modalText, 'id'), fn($id) => str_contains($id, 'separator')))->toBeEmpty();
   expect(array_filter([...array_column($modalText, 'id'), ...array_column($frame->images, 'id')],
@@ -418,7 +421,7 @@ it('marks only single-confirmation Alert snapshots for the acknowledgement layou
     ->toThrow(InvalidArgumentException::class);
 });
 
-it('centers the Alert message and its modest acknowledgement button', function (bool $art, bool $showInputHints, string $message) {
+it('centers single-line Alert text and acknowledgement buttons while left-aligning multiline prose', function (bool $art, bool $showInputHints, string $message) {
   $theme = new MenuPresentationCatalog($this->root, [...modalMenuTheme($art), 'showInputHints' => $showInputHints]);
   $snapshot = new AlertModal($this->game, $message, 'Alert')->getModalPresentation();
   $frame = MenuModalPresentation::compose(new PresentationCanvas(1350, 720), $snapshot, $theme);
@@ -444,8 +447,11 @@ it('centers the Alert message and its modest acknowledgement button', function (
     ->and($text->grid->cellWidth)->toBe($m->cellWidth)->and($text->grid->cellHeight)->toBe($m->cellHeight)
     ->and(count($frame->textLayers))->toBeLessThanOrEqual(64);
   foreach ($text->runs as $run) {
-    expect($text->x + ($run->column + mb_strlen($run->text) / 2) * $m->cellWidth)
-      ->toEqualWithDelta($box->x + $box->width / 2, $m->cellWidth / 2);
+    if ($text->grid->rows > 1) { expect($run->column)->toBe(0); }
+    else {
+      expect($text->x + ($run->column + mb_strlen($run->text) / 2) * $m->cellWidth)
+        ->toEqualWithDelta($box->x + $box->width / 2, $m->cellWidth / 2);
+    }
   }
   if (!$showInputHints) {
     expect($hints)->toBeNull()->and(array_filter(array_column($frame->images, 'id'),
@@ -547,6 +553,52 @@ it('batches only fully visible nonoverlapping text without changing paint positi
   expect(CanvasTextBatch::compact($overlapping))->toBe($overlapping);
 });
 
+it('packs solid fills onto pixel lattices only when over budget, painting the same pixels in the same order', function () {
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']);
+  $fill = static fn(string $id, CanvasRectangle $box, string $color, int $layer = 40): CanvasTextLayer => new CanvasTextLayer($id, $layer,
+    $box->x, $box->y, new RendererGridConfig(1, 1, (int)ceil($box->width), (int)ceil($box->height)),
+    [new PresentationTextRun(0, 0, ' ', background: $theme->colors[$color])], $box);
+  $layers = [];
+  for ($i = 0; $i < 40; $i++) {
+    // A slider: its track, then its fill painted over it.
+    $layers[] = $fill("track-$i", new CanvasRectangle(10, $i * 12, 100, 8), 'edge');
+    $layers[] = $fill("fill-$i", new CanvasRectangle(10, $i * 12 + 3, 50.25 + $i, 2), 'accent');
+  }
+  // Glyphs over one track keep it, and the fill over it, where they were.
+  $layers[] = new CanvasTextLayer('glyph', 40, 20, 0, new RendererGridConfig(1, 1, 8, 8),
+    [new PresentationTextRun(0, 0, 'x', $theme->colors['text'])]);
+  $paint = static function (array $layers): array {
+    $pixels = [];
+    foreach ($layers as $text) {
+      foreach ($text->runs as $run) {
+        if ($run->background === null) { continue; }
+        $box = $text->clipRect ?? $text->bounds;
+        for ($cell = 0; $cell < mb_strlen($run->text); $cell++) {
+          $x0 = $text->x + ($run->column + $cell) * $text->grid->cellWidth;
+          $y0 = $text->y + $run->row * $text->grid->cellHeight;
+          for ($y = (int)floor($y0); $y < $y0 + $text->grid->cellHeight; $y++) {
+            for ($x = (int)floor($x0); $x < $x0 + $text->grid->cellWidth; $x++) {
+              if ($x + 0.5 >= $box->x && $x + 0.5 < $box->x + $box->width && $y + 0.5 >= $box->y && $y + 0.5 < $box->y + $box->height) {
+                $pixels["$x:$y"] = $run->background->toArray();
+              }
+            }
+          }
+        }
+      }
+    }
+    ksort($pixels);
+    return $pixels;
+  };
+
+  $packed = CanvasTextBatch::compact($layers);
+  $ids = array_column($packed, 'id');
+
+  expect(count($packed))->toBeLessThanOrEqual(64)->and($paint($packed))->toBe($paint($layers))
+    ->and($ids)->toContain('track-0', 'fill-0', 'glyph')
+    ->and(array_filter($packed, fn($text) => $text->grid->cellWidth === 1 && $text->grid->cellHeight === 1))->not->toBeEmpty()
+    ->and(CanvasTextBatch::compact(array_slice($layers, 0, 64)))->toBe(array_slice($layers, 0, 64));
+});
+
 it('stacks quantity chevrons to the right while independently centering the value and Continue', function (bool $art, int $amount) {
   $data = [...modalMenuTheme(false), 'showInputHints' => false];
   if ($art) {
@@ -600,7 +652,7 @@ it('fits the complete largest integer quantity without widening beyond the modal
   }
 });
 
-it('batches default focus and primitive outline edges without changing any filled pixel or the centered command label', function (bool $primitive) {
+it('batches focus edges while preserving pixels and each button or command label alignment', function (bool $primitive) {
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']);
   $base = new PresentationCanvas(450, 100, textLayers: array_map(fn($i) => new CanvasTextLayer('base-' . $i, 0, 0, 0,
     new RendererGridConfig(1, 1, 10, 10), [new PresentationTextRun(0, 0, 'A', $theme->colors['text'])]), range(0, 60)));
@@ -633,5 +685,255 @@ it('batches default focus and primitive outline edges without changing any fille
   };
   expect($pixels($frame->textLayers))->toBe($pixels($overlay->textLayers))->and(count($frame->textLayers))->toBeLessThanOrEqual(64);
   $label = array_find($frame->textLayers, fn($text) => $text->id === 'menu-modal-choice-0-text');
-  expect($label->x + $label->bounds->width / 2)->toBe(190.0);
+  if ($primitive) { expect($label->x + $label->bounds->width / 2)->toBe(190.0); }
+  else { expect($label->x)->toBe($bounds->x + $theme->rows->metrics->padding); }
 })->with([false, true]);
+
+it('fits a notice portrait or semantic icon beside its text using the current theme', function (bool $art, bool $portrait) {
+  $data = [...modalMenuTheme($art), 'icons' => ['power.synthetic' => 'art.png']];
+  $theme = new MenuPresentationCatalog($this->root, $data);
+  $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('A new companion', 'A member joined the party.',
+    actorId: $portrait ? 'actor.0' : null, iconRole: $portrait ? null : 'power.synthetic');
+  $modal = new ModalPresentation($notice->title, $notice->message, ['OK'], 0, singleConfirmation: true, notice: $notice);
+  $frame = MenuModalPresentation::compose(new PresentationCanvas(1350, 720), $modal, $theme);
+  $images = array_values(array_filter($frame->images, static fn($image): bool =>
+    str_starts_with($image->id, $portrait ? 'menu-modal-notice-portrait' : 'menu-modal-notice-icon')
+      && !str_contains($image->id, '-frame')));
+  $layers = array_column($frame->textLayers, null, 'id');
+  expect($images)->not->toBeEmpty();
+  foreach ($images as $image) {
+    $image->destination->assertWithin(1350, 720);
+    expect($image->asset)->toBe('art.png')
+      ->and($image->destination->x + $image->destination->width)->toBeLessThanOrEqual($layers['menu-modal-message']->clipRect->x);
+  }
+  $button = $layers['menu-modal-choice-0-text'];
+  expect($button->clipRect->x + $button->clipRect->width / 2)->toBe(675.0);
+})->with([false, true])->with([false, true]);
+
+it('keeps a text notice readable when its theme has no optional artwork binding', function () {
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']);
+  $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('Power gained', 'An acquired technique.', iconRole: 'power.synthetic');
+  $frame = MenuModalPresentation::compose(new PresentationCanvas(1350, 720),
+    new ModalPresentation($notice->title, $notice->message, ['OK'], 0, singleConfirmation: true, notice: $notice), $theme);
+  expect(array_filter($frame->images, static fn($image): bool => str_contains($image->id, 'notice')))->toBeEmpty();
+  $layers = array_column($frame->textLayers, null, 'id');
+  expect(implode('', array_column($layers['menu-modal-message']->runs, 'text')))->toBe($notice->message)
+    ->and($layers['menu-modal-message']->clipRect->x + $layers['menu-modal-message']->clipRect->width / 2)->toBe(675.0);
+});
+
+it('plays a notice sound once on showing and keeps ordinary dismissal ownership', function () {
+  $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('New power', 'An unlocked technique.',
+    sound: SystemSound::NOTIFICATION);
+  $modal = new \Ichiloto\Engine\UI\Modal\NoticeModal($this->game, $notice);
+  $modal->show(); $modal->show();
+  expect($this->audio->sounds)->toBe([SystemSound::NOTIFICATION])->and($modal->isShowing())->toBeTrue();
+  $modal->hide();
+  expect($modal->isShowing())->toBeFalse();
+  $modal->show();
+  expect($this->audio->sounds)->toBe([SystemSound::NOTIFICATION, SystemSound::NOTIFICATION]);
+  $modal->hide();
+});
+
+
+it('keeps semantic notice hints in the reading area when ordinary menu hints are hidden', function (bool $art) {
+  InputManager::setBindings(['move_fast' => ['keys' => [KeyCode::R]]]);
+  $theme = new MenuPresentationCatalog($this->root, [...modalMenuTheme($art), 'showInputHints' => false]);
+  $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('Movement', 'Move more quickly.',
+    hints: [['action' => 'move_fast', 'label' => 'Hold to move']]);
+  $modal = new ModalPresentation($notice->title, $notice->message, ['OK'], 0, singleConfirmation: true, notice: $notice);
+  $frame = MenuModalPresentation::compose(new PresentationCanvas(960, 540), $modal, $theme);
+  $hintLayers = array_filter($frame->textLayers, static fn($layer) => str_starts_with($layer->id, 'menu-modal-notice-hints'));
+  $hintText = implode(' ', array_map(static fn($layer) => implode('', array_column($layer->runs, 'text')), $hintLayers));
+  expect($hintText)->toContain('R', 'Hold to move')->and($hintLayers)->not->toBeEmpty();
+  $box = getModalMenuFrameBounds($frame);
+  foreach ($hintLayers as $layer) {
+    expect($layer->bounds->y)->toBeGreaterThanOrEqual($box->y)
+      ->and($layer->bounds->y + $layer->bounds->height)->toBeLessThanOrEqual($box->y + $box->height);
+  }
+  expect(array_filter($frame->textLayers, static fn($layer) => $layer->id === 'menu-modal-hints'))->toBeEmpty();
+})->with([false, true]);
+
+it('retains paginated terminal reading and the bound semantic hint without adding control prose to the graphical body', function () {
+  InputManager::setBindings(['move_fast' => ['keys' => [KeyCode::R]]]);
+  $message = implode("\n", array_fill(0, 12, 'A complete reading line.'));
+  $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('Movement', $message,
+    hints: [['action' => 'move_fast', 'label' => 'Hold to move']]);
+  $modal = new \Ichiloto\Engine\UI\Modal\NoticeModal($this->game, $notice);
+  $fit = new ReflectionMethod($modal, 'fitContentToWidth');
+  $submit = new ReflectionMethod($modal, 'submit');
+  $pages = new ReflectionProperty($modal, 'pages')->getValue($modal);
+  expect(count($pages))->toBeGreaterThan(1)->and(implode("\n", $pages))->toBe($message);
+  foreach ($pages as $page) {
+    $fit->invoke($modal);
+    $content = new ReflectionProperty($modal, 'content')->getValue($modal);
+    expect(implode("\n", $content))->toContain('[R] Hold to move')
+      ->and($modal->getModalPresentation()->message)->toBe($page)
+      ->and($modal->getPresentationBounds()->getHeight())->toBeLessThanOrEqual(get_screen_height());
+    if ($modal->buttons !== ['OK']) { $submit->invoke($modal); }
+  }
+});
+
+
+it('paginates original graphical paragraphs at the portrait-adjusted width without terminal soft breaks', function (bool $art) {
+  ($this->startCanvas)($art, false);
+  $source = str_repeat('An original complete phrase stays with its neighbouring words. ', 45)
+    . "\n\nA final paragraph remains intact.";
+  $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('Acquired power', $source, actorId: 'actor.0');
+  $modal = new \Ichiloto\Engine\UI\Modal\NoticeModal($this->game, $notice);
+  $pages = new ReflectionProperty($modal, 'pages')->getValue($modal);
+  expect(count($pages))->toBeGreaterThan(1)->and(implode('', $pages))->toBe($source);
+  $theme = MenuPresentationCatalog::load($this->root);
+  foreach ($pages as $page) {
+    $snapshot = $modal->getModalPresentation();
+    expect($snapshot->message)->toBe($page)->and($snapshot->sourceMessage)->toBe($source);
+    $base = new PresentationCanvas(1350, 720);
+    $reading = MenuModalPresentation::measureReadingArea($base, $snapshot, $theme);
+    $canvas = MenuModalPresentation::compose($base, $snapshot, $theme);
+    $body = array_find($canvas->textLayers, fn($layer) => $layer->id === 'menu-modal-message');
+    expect($body->grid->columns)->toBe($reading['messageColumns'])
+      ->and($body->grid->rows)->toBeLessThanOrEqual($reading['maximumRows']);
+    foreach ($body->runs as $run) { if ($body->grid->rows > 1) { expect($run->column)->toBe(0); } }
+    if ($modal->buttons !== ['OK']) { new ReflectionMethod($modal, 'submit')->invoke($modal); }
+  }
+})->with([false, true]);
+
+
+it('releases only a failed blocking modal and restores the previous input owner', function (string $kind) {
+  $before = $this->scene->getUI()->getActivePresentations();
+  $parent = $this->createMock(\Ichiloto\Engine\UI\Interfaces\ModalInterface::class);
+  $this->manager->open($parent);
+  $failure = new RuntimeException('Synthetic modal callback failure');
+  InputManager::setInputSource(new FakeInputSource());
+  Timers::setFrameTick(static function () use ($failure): void { throw $failure; });
+  $operation = match ($kind) {
+    'alert' => fn() => $this->manager->alert('Information'),
+    'confirm' => fn() => $this->manager->confirm('Proceed?'),
+    'prompt' => fn() => $this->manager->prompt('Name', default: 'Initial'),
+    'select' => fn() => $this->manager->select('Choose', ['First', 'Second']),
+    'quantity' => fn() => $this->manager->selectQuantity('Amount', 5),
+    'text' => fn() => $this->manager->showText('Words'),
+    'credits' => fn() => $this->manager->showCredits(new \Ichiloto\Engine\UI\Presentation\CreditsContent([
+      ['title' => 'People', 'lines' => ['Someone']],
+    ])),
+  };
+  try { $operation(); $this->fail('The callback must fail.'); }
+  catch (RuntimeException $error) { expect($error)->toBe($failure); }
+  expect($this->manager->currentModal)->toBe($parent)
+    ->and($this->scene->getUI()->getActivePresentations())->toBe($before);
+})->with(['alert', 'confirm', 'prompt', 'select', 'quantity', 'text', 'credits']);
+
+it('preserves another modal opened by a failing callback while removing the abandoned blocking owner', function () {
+  $parent = $this->createMock(\Ichiloto\Engine\UI\Interfaces\ModalInterface::class);
+  $child = $this->createMock(\Ichiloto\Engine\UI\Interfaces\ModalInterface::class);
+  $this->manager->open($parent);
+  InputManager::setInputSource(new FakeInputSource());
+  $failure = new RuntimeException('Nested callback failure');
+  Timers::setFrameTick(function () use ($child, $failure): void {
+    $this->manager->open($child);
+    throw $failure;
+  });
+  expect(fn() => $this->manager->select('Choose', ['First', 'Second']))->toThrow($failure);
+  $entries = new ReflectionProperty(ModalManager::class, 'modals')->getValue($this->manager)->toArray();
+  expect(array_map(spl_object_id(...), $entries))->toBe([spl_object_id($parent), spl_object_id($child)]);
+  Timers::setFrameTick(null);
+  InputManager::setInputSource(new FakeInputSource(KeyCode::ENTER));
+  expect($this->manager->confirm('Next operation'))->toBeTrue()
+    ->and($this->manager->currentModal)->toBe($child);
+});
+
+it('rolls back a failed asynchronous show while preserving the original failure and previous owner', function () {
+  $before = $this->scene->getUI()->getActivePresentations();
+  $parent = $this->createMock(\Ichiloto\Engine\UI\Interfaces\ModalInterface::class);
+  $this->manager->open($parent);
+  $failure = new RuntimeException('Asynchronous show failure');
+  $modal = new class($this->game, 'Information', 'Title') extends AlertModal {
+    public RuntimeException $failure;
+    public function show(): void { parent::show(); throw $this->failure; }
+  };
+  $modal->failure = $failure;
+  expect(fn() => $this->manager->open($modal))->toThrow($failure);
+  expect($this->manager->currentModal)->toBe($parent)
+    ->and($modal->isShowing())->toBeFalse()
+    ->and($this->scene->getUI()->getActivePresentations())->toBe($before);
+});
+
+
+it('retries a queued delivery after failure without leaving a modal that blocks the queue', function (bool $notice) {
+  $before = $this->scene->getUI()->getActivePresentations();
+  $owner = new stdClass();
+  $receipt = null;
+  if ($notice) {
+    $this->manager->queueNotice(new \Ichiloto\Engine\UI\Modal\NoticeContent('Acquired', 'A complete notice.'), $owner);
+  } else {
+    $receipt = $this->manager->queueTrackedAlert('A complete alert.', 'Information');
+  }
+  $failure = new RuntimeException('Interrupted queued delivery');
+  InputManager::setInputSource(new FakeInputSource());
+  Timers::setFrameTick(static function () use ($failure): void { throw $failure; });
+  expect(fn() => $this->manager->processPendingAlerts())->toThrow($failure);
+  expect($this->manager->currentModal)->toBeNull()
+    ->and($this->scene->getUI()->getActivePresentations())->toBe($before);
+  if ($notice) { expect($this->manager->hasPendingNotices($owner))->toBeTrue(); }
+  else { expect($receipt->isTerminal)->toBeFalse(); }
+  Timers::setFrameTick(null);
+  InputManager::setInputSource(new FakeInputSource(KeyCode::ENTER));
+  $this->manager->processPendingAlerts();
+  expect($this->manager->currentModal)->toBeNull()
+    ->and($this->manager->hasPendingNotices($owner))->toBeFalse()
+    ->and($this->scene->getUI()->getActivePresentations())->toBe($before);
+  if ($receipt !== null) { expect($receipt->isComplete)->toBeTrue(); }
+  expect(new ReflectionProperty(ModalManager::class, 'pendingAlerts')->getValue($this->manager))->toBe([]);
+})->with([false, true]);
+
+
+it('pauses income for event-owned modal overlays and resumes the underlying timed presentation', function (string $sceneKind, string $kind) {
+  $scene = $this->scene;
+  $manager = $this->game->sceneManager;
+  if ($sceneKind === 'battle') {
+    $scene = makeBareScene(\Ichiloto\Engine\Scenes\Battle\BattleScene::class);
+    new ReflectionProperty($scene, 'sceneManager')->setValue($scene, $manager);
+    new ReflectionProperty($scene, 'uiManager')->setValue($scene, $this->scene->getUI());
+    new ReflectionProperty($scene, 'state')->setValue($scene,
+      makeBareScene(\Ichiloto\Engine\Scenes\Battle\States\BattleEventState::class));
+    $manager->currentScene = $scene;
+  } else {
+    new ReflectionProperty($scene, 'state')->setValue($scene,
+      makeBareScene(\Ichiloto\Engine\Scenes\Game\States\CutsceneState::class));
+  }
+  $host = $this->createMock(\Ichiloto\Engine\Events\Interpreter\EventPresentationHostInterface::class);
+  $host->method('getGame')->willReturn($this->game);
+  $presentation = new \Ichiloto\Engine\Events\Interpreter\ModalEventPresentation($host);
+  $income = new \Ichiloto\Engine\Income\IncomeService(
+    new \Ichiloto\Engine\Income\IncomeCatalog(['schedules' => [[
+      'id' => 'wage', 'name' => 'Wage', 'cadence' => 'active_time', 'interval' => 1800,
+      'amount' => 200, 'delivery' => 'hold',
+    ]]]), new \Ichiloto\Engine\Income\IncomeLedger(), new GameState(), new Party());
+  $presenting = \Ichiloto\Engine\Core\PlayActivity::PRESENTING;
+  expect($scene->getPlayActivity())->toBe($presenting);
+  $income->advanceActivePlay(0.5, $presenting, 9999);
+  try {
+    match ($kind) {
+      'dialogue' => $presentation->beginText('An event-owned line.', 'Speaker'),
+      'choice' => $presentation->beginChoice('Choose.', ['First', 'Second']),
+      'book' => $presentation->beginStorybook(\Ichiloto\Engine\Messaging\Storybook\StorybookDefinition::fromArray([
+        'id' => 'synthetic-book', 'title' => 'Story', 'narrator' => 'Narrator',
+        'pages' => [['id' => 'one', 'text' => 'A complete page.']],
+      ])),
+    };
+    // Cooperative event surfaces own input through UIManager, outside the blocking stack.
+    expect($this->manager->currentModal)->toBeNull()->and($scene->getUI()->getActivePresentations())->not->toBeEmpty();
+    for ($frame = 1; $frame <= 7200; ++$frame) {
+      $income->advanceActivePlay(0.5, $scene->getPlayActivity(), $frame * 0.5);
+    }
+    expect($income->getHeldPay('wage'))->toBe(0)
+      ->and($income->ledger->getAccount('wage')->progress)->toBe(0.5)
+      ->and($scene->getPlayActivity())->toBe(\Ichiloto\Engine\Core\PlayActivity::PAUSED);
+  } finally { $presentation->reset(); }
+  // Hide releases ownership before rendering commits its deferred dismissal.
+  expect($scene->getPlayActivity())->toBe($presenting);
+  $income->advanceActivePlay(0.5, $scene->getPlayActivity(), 9999);
+  expect($income->ledger->getAccount('wage')->progress)->toBe(1.0);
+})->with([
+  'field dialogue' => ['field', 'dialogue'], 'field choice' => ['field', 'choice'], 'field book' => ['field', 'book'],
+  'battle dialogue' => ['battle', 'dialogue'], 'battle choice' => ['battle', 'choice'], 'battle book' => ['battle', 'book'],
+]);

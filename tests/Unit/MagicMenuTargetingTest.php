@@ -26,7 +26,8 @@ it('opens one-ally target selection before spending MP or applying effects', fun
     ->and($caster->stats->currentMp)->toBe($startingMp)
     ->and($ally->stats->currentHp)->toBe(30)
     ->and(invokeMagicMenuMethod($state, 'getListPanelTitle'))->toBe('Choose Target')
-    ->and(invokeMagicMenuMethod($state, 'getInfoHelpText'))->toBe('enter:Cast  c:Back');
+    ->and(array_column(invokeMagicMenuMethod($state, 'getInfoHints'), 'label'))->toBe(['Cast', 'Back'])
+    ->and(array_column(invokeMagicMenuMethod($state, 'getInfoHints'), 'action'))->toBe(['confirm', 'cancel']);
 });
 
 it('commits the selected target through the field-skill executor', function () {

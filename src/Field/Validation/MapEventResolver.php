@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field\Validation;
 
+use Closure;
 use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Events\MapEventDefinition;
+use Ichiloto\Engine\Field\MapAreaCatalog;
 use Ichiloto\Engine\Field\WorldObjectPlacement;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use InvalidArgumentException;
@@ -14,14 +16,22 @@ use InvalidArgumentException;
 /** Resolves the {@see MapEventDefinition} envelope for runtime, Editor drafts and validation. */
 final class MapEventResolver
 {
-    public static function inspect(array $data, array $eventLayer, string $mapId): MapEventResolution
+    public static function inspect(array $data, array $eventLayer, string $mapId, ?Closure $checkpoint = null): MapEventResolution
     {
+        try { $mapAreas = MapAreaCatalog::readMap($data, $eventLayer, $checkpoint); }
+        catch (InvalidArgumentException $error) {
+            return new MapEventResolution([], [new MapValidationIssue($mapId, 'map.area', $error->getMessage(),
+                path: ['areas'], hint: 'Declare unique named areas within the physical map.')]);
+        }
+        $checkpoint?->__invoke();
         $areas = [];
         foreach ($eventLayer as $y => $row) {
             foreach ($row as $x => $cell) {
+                if ($cell === ' ') { continue; }
                 $marker = TerminalText::stripAnsi($cell);
                 if (trim($marker) !== '') { $areas[$marker][] = [$x, $y]; }
             }
+            $checkpoint?->__invoke();
         }
         $events = $data['events'] ?? [];
         if (!is_array($events)) {
@@ -51,24 +61,32 @@ final class MapEventResolver
                         throw new InvalidArgumentException("Event '{$marker}' subject owns its area; remove its painted marker cells and authored area.");
                     }
                     $subject = $definition['subject'];
-                    if (!is_array($subject) || array_diff(array_keys($subject), ['kind', 'id']) !== []
-                        || ($subject['kind'] ?? null) !== 'world_object') {
-                        throw new InvalidArgumentException("Event '{$marker}' subject requires kind world_object and a stable id.");
+                    if (!is_array($subject) || array_diff(array_keys($subject), MapEventDefinition::SUBJECT_FIELDS) !== []
+                        || !in_array($subject['kind'] ?? null, MapEventDefinition::SUBJECT_KINDS, true)
+                        || !is_string($subject['id'] ?? null)) {
+                        throw new InvalidArgumentException("Event '{$marker}' subject requires a supported kind and a stable id.");
                     }
-                    $id = WorldObjectPlacement::requireId($subject['id'] ?? null);
-                    $placements ??= WorldObjectPlacement::readMap($data, $eventLayer);
-                    $placement = $placements[$id] ?? throw new InvalidArgumentException("Event '{$marker}' subject '{$id}' was not found on map {$mapId}.");
-                    $cells = $placement->cells;
+                    $id = $subject['id'];
+                    if ($subject['kind'] === 'area') {
+                        $cells = $mapAreas->getArea($id)->cells;
+                        $subjectConditions = [];
+                    } else {
+                        $id = WorldObjectPlacement::requireId($id);
+                        $placements ??= WorldObjectPlacement::readMap($data, $eventLayer);
+                        $placement = $placements[$id] ?? throw new InvalidArgumentException("Event '{$marker}' subject '{$id}' was not found on map {$mapId}.");
+                        $cells = $placement->cells;
+                        $subjectConditions = $placement->conditions;
+                    }
                     $conditions = $definition['conditions'] ?? [];
                     if (!is_array($conditions) || !array_is_list($conditions)) {
                         throw new InvalidArgumentException("Event '{$marker}' conditions require a list.");
                     }
                     WorldConditionEvaluator::validateAll($conditions, "events/{$marker}/conditions");
-                    $definition['conditions'] = [...$placement->conditions, ...$conditions];
+                    $definition['conditions'] = [...$subjectConditions, ...$conditions];
                 } elseif ($cells === []) {
                     throw new InvalidArgumentException("Event marker '{$marker}' was not found in {$mapId}.");
                 }
-                $definition['area'] = CellArea::fromCells($cells)->toArray();
+                $definition['area'] = CellArea::fromCells($cells, $checkpoint)->toArray();
                 $definition['marker'] = $marker;
                 $resolved[] = $definition;
             } catch (InvalidArgumentException $error) {
@@ -80,6 +98,6 @@ final class MapEventResolver
             $issues[] = new MapValidationIssue($mapId, 'event.unmapped', "Unmapped event markers found in {$mapId}: {$marker}.", (string) $marker,
                 $cells, ['events'], 'Define the event or remove its unowned marker cells.');
         }
-        return new MapEventResolution($resolved, $issues);
+        return new MapEventResolution($resolved, $issues, $mapAreas);
     }
 }

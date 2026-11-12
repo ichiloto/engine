@@ -28,6 +28,8 @@ use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\ActionHintProvider;
 use Ichiloto\Engine\IO\ControlHint;
+use Ichiloto\Engine\Progression\TutorialCatalog;
+use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
@@ -150,7 +152,7 @@ beforeEach(function () {
   foreach ([Console::class, InputManager::class, ActionHints::class, ConfigStore::class, Debug::class, ModalManager::class, AudioManager::class] as $class) {
     $this->savedStatics[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/ichiloto-main-menu-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-main-menu-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   foreach (['portrait', 'cursor', 'surface', 'focus'] as $name) { mainMenuPresentationPng($this->root . '/' . $name . '.png', 73, 41); }
   Debug::configure(['log_directory' => $this->root . '/logs']);
@@ -223,7 +225,7 @@ it('projects all current fields and commands through two themes with independent
     foreach ($this->state->mainMenu->getItems() as $index => $command) {
       $label = $layers['main-command-' . $index . '-text'];
       expect($text[$label->id])->toBe($command->getLabel())
-        ->and($label->x + $label->grid->columns * $label->grid->cellWidth / 2)->toBe($label->clipRect->x + $label->clipRect->width / 2);
+        ->and($label->x)->toBe($label->clipRect->x + (new MenuPresentationCatalog($this->root, mainMenuPresentationTheme($alternative)))->rows->metrics->padding);
     }
     expect($text['main-info-value'])->toBe($this->state->mainMenu->getActiveItem()->getDescription())
       ->and($text['main-money-title'])->toBe('Tokens')->and($text['main-money-value'])->toBe('4,321 T')
@@ -746,6 +748,40 @@ it('keeps owner source mark destination focus and command selection independent 
     ->and($menu->getActiveItem()->getLabel())->toBe('Order');
 })->with([false, true]);
 
+it('completes an Order lesson only on a committed frontline swap through the ordinary menu', function () {
+  $actor = $this->party->participants[0];
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.order', 'title' => 'Order', 'category' => 'Field', 'start' => 'script', 'replay' => 'none',
+    'steps' => [[
+      'target' => ['screen' => 'main-menu', 'view' => 'commands', 'id' => 'order'],
+      'action' => 'confirm', 'until' => ['outcome' => 'menu.command-opened', 'subject' => 'order'],
+    ], [
+      'target' => ['screen' => 'main-menu', 'view' => 'order', 'id' => 'member-' . $actor->actorId],
+      'action' => 'confirm', 'say' => 'Move a frontline member.',
+      'until' => ['outcome' => 'party.order-committed', 'subject' => $actor->actorId],
+    ]],
+  ]]), $this->scene->gameState);
+  new ReflectionProperty(GameScene::class, 'tutorialDirector')->setValue($this->scene, $director);
+  $director->queueScriptTutorial('guide.order');
+  $director->updateInStableField(false);
+  $this->state->mainMenu->setActiveItemByLabel('Order');
+  mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  expect($this->state->getTutorialView())->toBe('order')
+    ->and($director->getStepForView('main-menu', 'order'))->not->toBeNull();
+  $canvas = $this->state->canvas(new MenuPresentationCatalog($this->root, mainMenuPresentationTheme(false)));
+  expect(implode(' ', mainMenuPresentationText($canvas)))->toContain('Move a frontline member.');
+
+  $this->state->characterSelectionMenu->focusPanelByIndex(0);
+  mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  mainMenuPresentationKey(KeyCode::C, $this->state);
+  expect($director->getActiveTutorial())->not->toBeNull()->and($this->party->participants[0])->toBe($actor);
+  mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  $this->state->characterSelectionMenu->focusPanelByIndex(3);
+  mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  expect($director->getActiveTutorial())->toBeNull()->and($this->party->participants[3])->toBe($actor)
+    ->and($this->scene->gameState->getTutorialPhase('guide.order'))->toBe(\Ichiloto\Engine\Progression\TutorialPhase::COMPLETED);
+});
+
 it('preserves character selection and routes the real selected actor through the existing command', function () {
   $target = new class(new SceneStateContext($this->scene)) extends EquipmentMenuState {
     public function enter(): void {}
@@ -759,7 +795,19 @@ it('preserves character selection and routes the real selected actor through the
   expect($target->character)->toBe($this->party->members->toArray()[1]);
 });
 
-it('renders all thirteen actual command variants centered and honors disabled owner actions', function () {
+it('keeps Terminal command labels left aligned after the selection gutter', function () {
+  $menu = $this->state->mainMenu;
+  $menu->render();
+  $window = new ReflectionProperty($menu, 'window')->getValue($menu);
+  expect($window->getAlignment()->horizontalAlignment)->toBe(\Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment::LEFT);
+  foreach ($menu->getItems() as $index => $command) {
+    $line = TerminalText::stripAnsi($window->getContent()[$index]);
+    expect(TerminalText::sliceSymbols($line, 2, TerminalText::displayWidth($command->getLabel())))
+      ->toBe($command->getLabel());
+  }
+});
+
+it('removes centered command labels for all variants and honors disabled owner actions', function () {
   $menu = $this->state->mainMenu;
   $commands = $menu->getItems()->toArray();
   array_splice($commands, 4, 0, [new OpenSummonsMenuCommand($menu), new OpenQuestsMenuCommand($menu), new OpenRecordsMenuCommand($menu)]);
@@ -771,6 +819,12 @@ it('renders all thirteen actual command variants centered and honors disabled ow
     $frame = $this->state->canvas(new MenuPresentationCatalog($this->root, mainMenuPresentationTheme($alternative)));
     $labels = array_filter(array_keys(mainMenuPresentationText($frame)), fn($id) => preg_match('/^main-command-\d+-text$/', $id));
     expect($labels)->toHaveCount(13);
+    $skin = new MenuPresentationCatalog($this->root, mainMenuPresentationTheme($alternative));
+    foreach ($frame->textLayers as $layer) {
+      if (!in_array($layer->id, $labels, true)) { continue; }
+      expect($layer->x)->toBe($layer->clipRect->x + $skin->rows->metrics->padding)
+        ->and(array_unique(array_column($layer->runs, 'column')))->toBe([0]);
+    }
     expect(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'main-command-' . $menu->activeIndex . '-cursor')))->toBeEmpty();
   }
   mainMenuPresentationKey(KeyCode::ENTER, $this->state);
@@ -798,7 +852,7 @@ it('wraps live labels and semantic hints without overlapping records or descript
   $text = mainMenuPresentationText($frame);
   expect($text['main-command-0-text'])->toBe($label)->and($text['main-info-value'])->toBe($description)
     ->and($text['main-party-0-identity-text'])->toBe($member->name)
-    ->and($text['main-hints'])->toContain(' ' . $controlLabel . ' : Confirm', ' ' . $controlLabel . ' : Cancel')->not->toContain('ESC')
+    ->and($text['main-hints'])->toContain($controlLabel . ' Confirm', $controlLabel . ' Cancel')->not->toContain('ESC')
     ->and($source->keys)->toBe([KeyCode::ENTER]);
   $layers = array_column($frame->textLayers, null, 'id');
   $hints = $layers['main-hints'];
@@ -812,8 +866,8 @@ it('wraps live labels and semantic hints without overlapping records or descript
   ActionHints::useProvider(null);
   InputManager::setBindings([]);
   $frame = $this->state->canvas($theme);
-  $expected = 'Unbound: Confirm  Unbound: Cancel';
-  if (isset(mainMenuPresentationText($frame)['main-party-pager-counter'])) { $expected .= '   Page Up : Prev   Page Down : Next'; }
+  $expected = 'Unbound ConfirmUnbound Cancel';
+  if (isset(mainMenuPresentationText($frame)['main-party-pager-counter'])) { $expected .= 'PgUp PrevPgDn Next'; }
   expect(mainMenuPresentationText($frame)['main-hints'])->toBe($expected);
 })->with([false, true]);
 
@@ -821,12 +875,11 @@ it('refreshes compact hints and profile glyphs on the real four-party menu witho
   InputManager::setBindings(['confirm' => ['keys' => [KeyCode::SPACE, KeyCode::ENTER]],
     'cancel' => ['keys' => [KeyCode::C, KeyCode::c, KeyCode::ESCAPE]]]);
   $data = mainMenuPresentationTheme($alternative);
-  $data['icons']['input.profile-one.confirm'] = 'surface.png';
-  $data['icons']['input.profile-two.confirm'] = 'focus.png';
+  $data['controls'] = ['profile-one' => ['glyphs' => ['confirm' => 'surface.png']], 'profile-two' => ['glyphs' => ['confirm' => 'focus.png']]];
   $theme = new MenuPresentationCatalog($this->root, $data);
   $this->state->mainMenu->setActiveItemByLabel('Order');
   $frame = $this->state->canvas($theme);
-  expect(mainMenuPresentationText($frame)['main-hints'])->toBe(' Enter : Confirm   Escape : Cancel');
+  expect(mainMenuPresentationText($frame)['main-hints'])->toBe('Enter ConfirmEsc Cancel');
   $provider = new class implements ActionHintProvider {
     public function __construct(public string $family = 'profile-one') {}
     public function controlForAction(string $action): ?ControlHint { return new ControlHint($this->family, $action, 'Primary ' . $action); }
@@ -841,7 +894,7 @@ it('refreshes compact hints and profile glyphs on the real four-party menu witho
     $frame = $this->state->canvas($theme);
     expect(count($frame->textLayers))->toBeLessThanOrEqual(64)
       ->and(mainMenuPresentationText($frame))->toHaveKeys(['main-party-0-identity-text', 'main-party-3-identity-text'])
-      ->and(mainMenuPresentationText($frame)['main-hints'])->toBe(': Confirm   Primary cancel : Cancel')
+      ->and(mainMenuPresentationText($frame)['main-hints'])->toBe(' ConfirmPrimary cancel Cancel')
       ->and(array_column(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'main-hints-control-')), 'asset'))->toBe([$asset])
       ->and($this->state->getPresentationMode())->toBe($mode)->and(InputManager::getBindings())->toBe($bindings)
       ->and($source->keys)->toBe([KeyCode::ENTER]);
@@ -854,7 +907,7 @@ it('refreshes compact hints and profile glyphs on the real four-party menu witho
     ->and($this->state->getPresentationMode())->toBeInstanceOf(MainMenuPartyOrderMode::class);
   ActionHints::useProvider(null);
   InputManager::setBinding('cancel', [KeyCode::Q]);
-  expect(mainMenuPresentationText($this->state->canvas($theme))['main-hints'])->toBe(' Enter : Confirm   Q : Cancel');
+  expect(mainMenuPresentationText($this->state->canvas($theme))['main-hints'])->toBe('Enter ConfirmQ Cancel');
 })->with([false, true]);
 
 it('contains replacement portraits using current PNG facts and preserves valid unique instances', function () {
@@ -885,7 +938,7 @@ it('uses shared Config when themed and overlays alerts without changing the acti
   expect($configFrame)->not->toBeNull();
   $configRuns = array_merge(...array_map(fn($layer) => array_column($layer->runs, 'text'), $configFrame->textLayers));
   expect($this->state->getPresentationMode())->toBeInstanceOf(MainMenuConfigMode::class)
-    ->and($configRuns)->toContain('Config', 'Volume', '75%', 'Sets the master volume for music, sound effects and voice.', 'Cancel');
+    ->and($configRuns)->toContain('Config', 'Master Volume', '75%', 'Sets the master volume for music, sound effects and voice.', 'Cancel');
   $config = $this->state->getPresentationMode()->getConfigMenu();
   InputManager::setBindings([...InputManager::getBindings(), 'down' => ['keys' => [KeyCode::DOWN]]]);
   mainMenuPresentationKey(KeyCode::DOWN, $this->state);
@@ -939,7 +992,7 @@ it('connects in-game Save to the shared themed canvas and modal lifecycle withou
   expect($this->scene->getPresentationCanvas())->toBeNull();
   $terminal = new ReflectionProperty($state, 'helpWindow')->getValue($state);
   expect(implode(' ', $terminal->getContent()))->toContain('Rest Point', '01:00:00')
-    ->and($terminal->getHelp())->toContain('Enter: Save', 'Escape: Back');
+    ->and($terminal->getHelp())->toContain('[Enter] Save', '[Esc] Back');
 
   $themeData = mainMenuPresentationTheme($alternative);
   file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export($themeData, true) . ';');
@@ -987,15 +1040,14 @@ it('keeps the Save menu usable and reports plain feedback when local storage ref
   $manager->method('getSaveSlots')->willReturn($slots);
   $manager->method('save')->willThrowException(new RuntimeException('Permission denied at /private/path'));
   new ReflectionProperty($this->scene->sceneManager, 'saveManager')->setValue($this->scene->sceneManager, $manager);
-  $modals = new class extends ModalManager {
+  $modals = new class($this->game) extends ModalManager {
     public array $alerts = [];
-    public function __construct() {}
     public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
     {
       $this->alerts[] = [$message, $title];
     }
   };
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $modals);
+  $this->game->bindModalManager($modals);
   $state = new SaveMenuState(new SceneStateContext($this->scene));
   new ReflectionProperty($this->scene, 'state')->setValue($this->scene, $state);
   $state->enter();
@@ -1168,4 +1220,219 @@ it('replaces only the unavailable main menu portrait and retains other cards and
     ->and(file_get_contents($this->root . '/logs/warning.log'))->toContain('broken.png');
   mainMenuPresentationPng($this->root . '/broken.png', 33, 55);
   expect(array_column($this->scene->getPresentationCanvas()->images, 'asset'))->toContain('broken.png');
+});
+
+it('shows each member\'s conditions beside their resources in both renderers', function (bool $alternative) {
+  mainMenuPresentationPng($this->root . '/venom.png', 31, 47);
+  $member = $this->party->members->toArray()[1];
+  $member->addState(new \Ichiloto\Engine\Entities\States\State('venom', 'Venom', 'V', 'Saps HP.', label: 'VNM'));
+  $member->addState(new \Ichiloto\Engine\Entities\States\State('daze', 'Daze', '', '', label: 'DZE'));
+  $theme = mainMenuPresentationTheme($alternative);
+  $theme['icons']['status.state.venom'] = 'venom.png';
+  $frame = $this->state->canvas(new MenuPresentationCatalog($this->root, $theme));
+  $layers = array_column($frame->textLayers, null, 'id');
+  $hp = $layers['main-party-1-resources-hp-text'];
+  $badges = array_values(array_filter($frame->images, fn($image) => $image->asset === 'venom.png'));
+  $labels = array_values(array_filter($frame->textLayers, fn($layer) => str_starts_with($layer->id, 'main-party-1-conditions-')));
+
+  expect($badges)->toHaveCount(1)
+    ->and(array_column($labels[0]->runs, 'text'))->toBe(['DZE'])
+    ->and($badges[0]->destination->x)->toBeGreaterThanOrEqual($hp->clipRect->x + $hp->clipRect->width)
+    ->and($labels[0]->x)->toBeGreaterThan($badges[0]->destination->x)
+    ->and(array_filter(array_column($frame->textLayers, 'id'), fn($id) => str_contains($id, 'main-party-0-conditions')))->toBe([]);
+
+  $this->state->characterSelectionMenu->refreshMembers();
+  $panels = new ReflectionProperty($this->state->characterSelectionMenu, 'characterPanels')->getValue($this->state->characterSelectionMenu);
+  expect(TerminalText::stripAnsi($panels[1]->getContent()[0]))->toContain('Actor 1  V DZE')
+    ->and(TerminalText::stripAnsi($panels[0]->getContent()[0]))->not->toContain('DZE');
+})->with([false, true]);
+
+
+it('shares distinct location names between terminal summaries and both graphical themes without changing map data', function (string $name, string $region, array $expected) {
+  $location = new PartyLocation($name, $region);
+  $this->party->location = $location;
+  new ReflectionProperty($this->state, 'locationDetailPanel')->getValue($this->state)->setLocation($name, $region);
+  expect($location->displayNames)->toBe($expected)
+    ->and($location->prettyLocation)->toBe(implode(' - ', array_reverse($expected)))
+    ->and($location->name)->toBe($name)->and($location->region)->toBe($region)
+    ->and($this->state->getPresentationSummaries()['location']['lines'])->toBe($expected);
+  foreach ([false, true] as $alternative) {
+    $frame = $this->state->canvas(new MenuPresentationCatalog($this->root, mainMenuPresentationTheme($alternative)));
+    expect(mainMenuPresentationText($frame)['main-location-value'] ?? '')->toBe(implode('', $expected));
+  }
+})->with([
+  'same place and region' => ['Synthetic Port', 'Synthetic Port', ['Synthetic Port']],
+  'distinct region' => ['Synthetic Port', 'Synthetic Coast', ['Synthetic Port', 'Synthetic Coast']],
+  'region only' => ['', 'Synthetic Coast', ['Synthetic Coast']],
+  'place only' => ['Synthetic Port', '', ['Synthetic Port']],
+  'no label' => ['', '', []],
+  'display whitespace' => [' Synthetic Port ', 'Synthetic Port', ['Synthetic Port']],
+]);
+
+it('marks a real Terminal tutorial command without moving the ordinary menu cursor', function () {
+  $menu = $this->state->mainMenu;
+  $command = new \Ichiloto\Engine\Core\Menu\Commands\OpenSummonsMenuCommand($menu);
+  $menu->addItem($command);
+  $window = new ReflectionProperty($menu, 'window')->getValue($menu);
+  $active = $menu->activeIndex;
+  $menu->showTutorialCommand('summons');
+  $highlighted = array_find($window->getContent(), static fn(string $line): bool => str_contains($line, $command->getLabel()));
+  expect($highlighted)->toContain(\Ichiloto\Engine\UI\SelectionStyle::resolveColor()->getAlternateIntensity()->value)
+    ->and($menu->activeIndex)->toBe($active);
+
+  $menu->showTutorialCommand(null);
+  expect($window->getContent())->not->toContain($highlighted);
+});
+
+
+it('renders the speaker and full Terminal tutorial guidance and restores the description when it ends', function (int $width, int $lineCount, ?string $placement) {
+  Console::syncDimensions($width, 42);
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => $width, 'height' => 42]));
+  $instruction = 'Open the inventory and check what is inside the newly unlocked section.';
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.sample',
+    'title' => 'Sample',
+    'category' => 'Field',
+    'start' => 'script',
+    'replay' => 'practice',
+    'steps' => [[
+      'target' => ['screen' => MainMenuState::TUTORIAL_SCREEN, 'view' => MainMenuState::TUTORIAL_COMMANDS, 'id' => 'summons'],
+      'action' => 'confirm',
+      'say' => $instruction,
+      'speaker' => 'actor.0',
+      ...($placement === null ? [] : ['placement' => $placement]),
+      'until' => ['outcome' => 'sample.opened'],
+    ]],
+  ]]), $this->scene->gameState);
+  new ReflectionProperty(GameScene::class, 'tutorialDirector')->setValue($this->scene, $director);
+  $director->queueScriptTutorial('guide.sample');
+  $director->updateInStableField(false);
+  $this->state->enter();
+
+  $panel = $this->state->infoPanel;
+  $start = (int)$panel->getPosition()->y + 1;
+  $readPanel = static fn(): array => array_map(
+    static fn(string $row): string => trim(TerminalText::stripAnsi(TerminalText::sliceSymbols($row, (int)$panel->getPosition()->x + 2, $panel->getContentWidth()))),
+    array_slice(Console::getBuffer(), $start, $lineCount),
+  );
+  $description = $panel->getDescription();
+  expect($description)->not->toBe('')->not->toBe($instruction);
+  if ($placement === 'contextual') {
+    expect(implode(' ', $readPanel()))->toBe('[Enter] Actor 0: ' . $instruction);
+  } else {
+    $runs = array_column(Console::presentationSnapshot()->textLayers, null, 'id')['tutorial-instruction']->runs;
+    $rows = array_column($runs, 'row');
+    $lines = [];
+    foreach ($runs as $run) {
+      if ($run->row === min($rows) || $run->row === max($rows)) { continue; }
+      $lines[$run->row] = ($lines[$run->row] ?? '') . $run->text;
+    }
+    expect(implode(' ', array_map(static fn(string $line): string => trim(str_replace('║', '', $line)), $lines)))
+      ->toBe('[Enter] Actor 0: ' . $instruction)
+      ->and($readPanel()[0])->toBe($description);
+  }
+
+  $director->reportOutcome(MainMenuState::TUTORIAL_SCREEN, MainMenuState::TUTORIAL_COMMANDS, 'sample.opened');
+  $this->state->setMode(new MainMenuCommandSelectionMode($this->state));
+  expect($readPanel()[0])->toBe($description);
+})->with([[135, 1, null], [80, 2, null], [135, 1, 'contextual'], [80, 2, 'contextual']]);
+
+it('evaluates an authored world condition only in its live tutorial view', function () {
+  $screen = MainMenuState::TUTORIAL_SCREEN;
+  $view = MainMenuState::TUTORIAL_COMMANDS;
+  $target = ['screen' => $screen, 'view' => $view, 'id' => 'summons'];
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.world',
+    'title' => 'World guide',
+    'category' => 'Field',
+    'start' => 'script',
+    'replay' => 'practice',
+    'steps' => [
+      ['target' => $target, 'action' => 'confirm', 'until' => ['type' => 'switch', 'name' => 'ready']],
+      ['target' => $target, 'action' => 'confirm', 'until' => ['outcome' => 'menu.command-opened', 'subject' => 'summons']],
+    ],
+  ]]), $this->scene->gameState);
+  new ReflectionProperty(GameScene::class, 'tutorialDirector')->setValue($this->scene, $director);
+  $director->queueScriptTutorial('guide.world');
+  $director->updateInStableField(false);
+
+  $this->state->execute();
+  expect($director->getStepForView($screen, $view)?->until)->toBe(['type' => 'switch', 'name' => 'ready']);
+
+  $this->state->setMode(new MainMenuConfigMode($this->state));
+  $this->scene->gameState->setSwitch('ready');
+  $this->state->execute();
+  expect($director->getStepForView($screen, $view)?->until)->toBe(['type' => 'switch', 'name' => 'ready']);
+
+  $this->state->setMode(new MainMenuCommandSelectionMode($this->state));
+  $this->state->execute();
+  expect($director->getStepForView($screen, $view)?->until)
+    ->toBe(['outcome' => 'menu.command-opened', 'subject' => 'summons']);
+  $this->scene->reportTutorialOutcome($screen, $view, 'menu.command-opened', 'mastery');
+  expect($director->getStepForView($screen, $view))->not->toBeNull();
+  $this->scene->reportTutorialOutcome($screen, $view, 'menu.command-opened', 'summons');
+  expect($director->getActiveTutorial())->toBeNull();
+});
+
+it('honours authored tutorial focus once while the real menu keeps navigation', function (bool $focus) {
+  $menu = $this->state->mainMenu;
+  $target = new OpenSummonsMenuCommand($menu);
+  $menu->addItem($target);
+  $original = $menu->getActiveItem();
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.focus',
+    'title' => 'Focus guide',
+    'category' => 'Field',
+    'start' => 'script',
+    'replay' => 'practice',
+    'steps' => [[
+      'target' => ['screen' => MainMenuState::TUTORIAL_SCREEN, 'view' => MainMenuState::TUTORIAL_COMMANDS, 'id' => 'summons'],
+      'action' => 'confirm',
+      'until' => ['outcome' => 'menu.command-opened', 'subject' => 'summons'],
+      'focus' => $focus,
+    ]],
+  ]]), $this->scene->gameState);
+  new ReflectionProperty(GameScene::class, 'tutorialDirector')->setValue($this->scene, $director);
+  $director->queueScriptTutorial('guide.focus');
+  $director->updateInStableField(false);
+
+  $this->state->execute();
+  expect($menu->getActiveItem())->toBe($focus ? $target : $original);
+  InputManager::setBindings([...InputManager::getBindings(), 'up' => ['keys' => [KeyCode::UP]]]);
+  mainMenuPresentationPageKey(KeyCode::UP, $this->state);
+  $playerChoice = $menu->getActiveItem();
+  expect($playerChoice)->not->toBe($focus ? $target : $original);
+  InputManager::handleInput();
+  $this->state->execute();
+  expect($menu->getActiveItem())->toBe($playerChoice);
+
+  $director->skipActiveTutorial();
+  expect($director->startPractice('guide.focus'))->toBeTrue();
+  $this->state->execute();
+  expect($menu->getActiveItem())->toBe($focus ? $target : $playerChoice);
+})->with([true, false]);
+
+it('shows the selected Terminal party members and keeps a swap source across pages', function () {
+  for ($i = 4; $i < 8; $i++) {
+    $this->party->addMember(new Character('Actor ' . $i, 0, new Stats(), actorId: 'actor.' . $i));
+  }
+  InputManager::setBindings([...InputManager::getBindings(), 'down' => ['keys' => [KeyCode::DOWN]]]);
+  $this->state->setMode(new MainMenuPartyOrderMode($this->state));
+  $menu = $this->state->characterSelectionMenu;
+  $screen = static fn(): string => TerminalText::stripAnsi(implode("\n", Console::getBuffer()));
+  expect($screen())->toContain('Actor 0', 'Actor 3', '1–4 / 8');
+
+  mainMenuPresentationPageKey(KeyCode::ENTER, $this->state);
+  for ($i = 0; $i < 4; $i++) {
+    mainMenuPresentationPageKey(KeyCode::DOWN, $this->state);
+  }
+  expect($menu->activeCharacter?->actorId)->toBe('actor.4')
+    ->and($menu->getMarkedPanelIndex())->toBe(0)
+    ->and($screen())->toContain('Actor 4', 'Actor 7', '5–8 / 8');
+
+  mainMenuPresentationPageKey(KeyCode::ENTER, $this->state);
+  expect($this->party->participants->toArray()[0]->actorId)->toBe('actor.4')
+    ->and($menu->activeCharacter?->actorId)->toBe('actor.0')
+    ->and($menu->getMarkedPanelIndex())->toBeNull()
+    ->and($screen())->toContain('Actor 0', 'Actor 7', '5–8 / 8');
 });

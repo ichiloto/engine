@@ -19,6 +19,8 @@ use Ichiloto\Engine\Entities\ItemScope as SkillScope;
 abstract class Skill implements SkillInterface
 {
   protected(set) ?int $animationId = null;
+  /** How large the bound animation's target effect plays; see {@see \Ichiloto\Engine\Animations\EffectScale}. */
+  protected(set) float $animationScale = \Ichiloto\Engine\Animations\EffectScale::DEFAULT;
 
   /**
    * @var SkillEffect[] The effects of the skill.
@@ -43,6 +45,7 @@ abstract class Skill implements SkillInterface
    * @param SkillEffect[] $effects The effects of the skill.
    * @param Weapon[] $requiredWeapons The required weapons of the skill.
    * @param int|null $animationId The stable animation id, or null for legacy selection.
+   * @param float $animationScale How large the bound animation's target effect plays.
    */
   public function __construct(
     protected(set) string $name,
@@ -57,10 +60,18 @@ abstract class Skill implements SkillInterface
     array $requiredWeapons = [],
     ?int $animationId = null,
     protected(set) ?CounterAttackRule $counterAttack = null,
+    float $animationScale = \Ichiloto\Engine\Animations\EffectScale::DEFAULT,
+    ?\Ichiloto\Engine\Battle\Formation\BattleTargeting $battleTargeting = null,
   )
   {
     $this->animationId = $animationId;
+    $battleTargeting?->validateScope($scope, $occasion);
+    $this->battleTargeting = $battleTargeting;
+    $this->animationScale = \Ichiloto\Engine\Animations\EffectScale::readValue($animationScale);
     foreach ($effects as $effect) {
+      if ($effect instanceof \Ichiloto\Engine\Entities\Effects\SkillEffects\FormationSkillEffect && $occasion !== Occasion::BATTLE_SCREEN) {
+        throw new \InvalidArgumentException('Formation effects require a battle-only skill.');
+      }
       if ($effect instanceof SkillEffect) {
         $this->effects[] = $effect;
       }
@@ -73,6 +84,9 @@ abstract class Skill implements SkillInterface
     }
   }
 
+  /** Missing in historical serialized skills; ordinary scope/cover behavior remains the default. */
+  protected(set) ?\Ichiloto\Engine\Battle\Formation\BattleTargeting $battleTargeting = null;
+
   /**
    * Restores declared skill fields, including the historical weapon-list name.
    * @param array<string, mixed> $data
@@ -80,6 +94,7 @@ abstract class Skill implements SkillInterface
   public function __unserialize(array $data): void
   {
     $this->counterAttack = null;
+    $this->battleTargeting = null;
     foreach ($data as $key => $value) {
       $name = str_contains($key, "\0") ? substr($key, strrpos($key, "\0") + 1) : $key;
       if ($name === 'requiredWeapon') {

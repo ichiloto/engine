@@ -81,7 +81,7 @@ beforeEach(function () {
   Console::setTerminalOutputEnabled(false);
   ConfigStore::put(ProjectConfig::class, new CreditsLifecycleConfig(['name' => 'Example game',
     'audio' => ['master_volume' => 0, 'music' => false, 'sfx' => false]]));
-  $this->root = sys_get_temp_dir() . '/credits-lifecycle-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/credits-lifecycle-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/assets/Data', 0777, true);
   $this->cwd = getcwd();
   chdir($this->root);
@@ -151,7 +151,7 @@ it('returns automatically after the last line leaves the viewport', function () 
   $this->scene->openCredits($this->sections);
   $property = new ReflectionProperty(TitleScene::class, 'creditsPlayback');
   $clock = $property->getValue($this->scene);
-  $now = hrtime(true) / 1e9;
+  $now = \Ichiloto\Engine\Core\Clocks\RuntimeClock::getSeconds();
   for ($tick = 1; !$clock->finished; $tick++) { $clock->advance($now + $tick / 10); }
   $this->scene->tickCredits();
   expect($property->getValue($this->scene))->toBeNull()->and($this->scene->getSelectedIndex())->toBe(3);

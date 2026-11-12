@@ -95,7 +95,6 @@ final class ConfigMenu
     if ($horizontal !== 0.0 || Input::isButtonDown('confirm')) {
       $setting = $this->selection->getActiveSetting();
       if (!$setting instanceof GameSetting) { return; }
-      play_sound(SystemSound::CURSOR);
       try {
         $label = $this->settingsManager->cycle($setting, $horizontal < 0 ? -1 : 1);
         $this->statusMessage = sprintf('%s set to %s.', $setting->label, $label);
@@ -105,6 +104,8 @@ final class ConfigMenu
         $this->statusMessage = 'Could not save settings. Your choice is active for this session.';
         $this->statusError = true;
       }
+      // After the change, so a volume is heard at its new level.
+      play_sound(SystemSound::CURSOR);
       $this->selection->updateContent();
       $this->render();
     }

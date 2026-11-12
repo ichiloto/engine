@@ -55,8 +55,8 @@ it('lets a battle override the project battle theme through its settings', funct
   putSceneAudioConfig(['audio' => ['bgm' => ['battle' => 'clash-of-steel']]]);
 
   $scene = makeBareScene(BattleScene::class);
-  $party = (new ReflectionClass(Ichiloto\Engine\Entities\Party::class))->newInstanceWithoutConstructor();
-  $troop = (new ReflectionClass(Ichiloto\Engine\Entities\Troop::class))->newInstanceWithoutConstructor();
+  $party = new \Ichiloto\Engine\Entities\Party();
+  $troop = new \Ichiloto\Engine\Entities\Troop('Synthetic');
   new ReflectionProperty(BattleScene::class, 'config')
     ->setValue($scene, new BattleConfig($party, $troop, settings: ['bgm' => 'boss-theme']));
 
@@ -79,8 +79,8 @@ it('lets a battle override the project victory theme through its settings', func
   putSceneAudioConfig(['audio' => ['bgm' => ['victory' => 'crystal-fanfare']]]);
 
   $scene = makeBareScene(BattleScene::class);
-  $party = (new ReflectionClass(Ichiloto\Engine\Entities\Party::class))->newInstanceWithoutConstructor();
-  $troop = (new ReflectionClass(Ichiloto\Engine\Entities\Troop::class))->newInstanceWithoutConstructor();
+  $party = new \Ichiloto\Engine\Entities\Party();
+  $troop = new \Ichiloto\Engine\Entities\Troop('Synthetic');
   new ReflectionProperty(BattleScene::class, 'config')
     ->setValue($scene, new BattleConfig($party, $troop, settings: ['victory_bgm' => 'boss-fanfare']));
 

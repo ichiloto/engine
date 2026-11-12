@@ -2,10 +2,17 @@
 
 namespace Ichiloto\Engine\Core;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
+use Ichiloto\Engine\Scenes\Game\GameConfig;
+use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Audio\FieldMusicCatalog;
+use Ichiloto\Engine\Income\IncomeCatalog;
+use Ichiloto\Engine\Localization\WordForms;
 use Assegai\Collections\ItemList;
 use Assegai\Util\Path;
+use Closure;
 use Error;
 use Exception;
 use Ichiloto\Engine\Audio\AudioManager;
@@ -31,6 +38,7 @@ use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
 use Ichiloto\Engine\Entities\Elements\ElementRegistry;
+use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationPolicyRegistry;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Field\FieldActionRegistry;
@@ -42,6 +50,8 @@ use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\IO\LaunchDataRoot;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Scenes\Arena\BattleTestTroopKeeper;
+use Ichiloto\Engine\Scenes\Arena\LaunchTroopHandOver;
 use Ichiloto\Engine\Scenes\Arena\ProjectBattleTest;
 use Ichiloto\Engine\Rendering\Launch\ApplicationIcon;
 use Ichiloto\Engine\Rendering\Launch\RendererLaunchIntent;
@@ -62,6 +72,8 @@ use Ichiloto\Engine\UI\Windows\DebugWindow;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Progression\ProgressionSettings;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
+use Ichiloto\Engine\Field\DashSettings;
 use Ichiloto\Engine\Util\Config\InputConfig;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\PlayerSettings;
@@ -80,7 +92,64 @@ use Throwable;
 class Game implements CanRun, SubjectInterface
 {
     private ?ProjectStateRegistry $projectStateRegistry = null;
+    private ?GameLoader $gameLoader = null;
+
+    /** Bind content once, including for hosts that deliberately skip native Game bootstrap. */
+    public function bindGameLoader(GameLoader $loader): void
+    {
+        if ($loader->game !== $this || $this->gameLoader !== null) {
+            throw new \LogicException('Bind one project loader owned by this Game.');
+        }
+        $this->gameLoader = $loader;
+        $this->itemStore = $loader->itemStore;
+    }
+
+    public function getGameLoader(): GameLoader
+    {
+        return $this->gameLoader ?? throw new \LogicException('Bind this Game’s project loader before loading a campaign.');
+    }
+    /** The bound project owns content paths; legacy terminal bootstrap uses its working directory. */
+    public function getProjectAssetRoot(): string
+    {
+        return $this->gameLoader?->assetRoot
+            ?? $this->getRendererRuntime()?->getAssetRoot()
+            ?? getcwd() . '/assets';
+    }
+
+    /** Resolve the notice/modal queue owned by this Game, including non-native hosts. */
+    public function getModalManager(): ModalManager
+    {
+        return $this->modalManager ??= new ModalManager($this);
+    }
+
+    /** Install one explicitly constructed presenter before its first use. */
+    public function bindModalManager(ModalManager $manager): void
+    {
+        if (isset($this->modalManager) || $manager->game !== $this) {
+            throw new \LogicException('Bind one modal manager owned by this Game before its first use.');
+        }
+        $this->modalManager = $manager;
+    }
+
     private ?SavedGameResumeRegistry $savedGameResumeRegistry = null;
+
+    /** @var array<string, Closure(Party, GameState): bool> */
+    private array $tutorialStartConditions = [];
+
+    /** @param callable(Party, GameState): bool $condition */
+    public function registerTutorialStartCondition(string $id, callable $condition): void
+    {
+        if (trim($id) === '' || isset($this->tutorialStartConditions[$id])) {
+            throw new \InvalidArgumentException('Expected a unique, non-empty tutorial id.');
+        }
+        $this->tutorialStartConditions[$id] = Closure::fromCallable($condition);
+    }
+
+    /** @return array<string, Closure(Party, GameState): bool> */
+    public function getTutorialStartConditions(): array
+    {
+        return $this->tutorialStartConditions;
+    }
 
     public function getSavedGameResumeRegistry(): SavedGameResumeRegistry
     {
@@ -186,7 +255,9 @@ class Game implements CanRun, SubjectInterface
 
     private ?GameLaunchContext $pendingLaunchContext = null;
     private ?CinematicDefinition $pendingLaunchCinematic = null;
+    private ?GameConfig $pendingLaunchCheckpoint = null;
     private ?ProjectBattleTest $pendingLaunchBattleTest = null;
+    private ?BattleTestTroopKeeper $pendingLaunchTroopKeeper = null;
     private ?string $launchDataRoot = null;
     private bool $launchPrepared = false;
     private ?GameStartupMode $resolvedStartupMode = null;
@@ -548,22 +619,30 @@ class Game implements CanRun, SubjectInterface
         ProjectFormat::assertSupported(config(AppConfig::class, ProjectFormat::KEY));
         ConfigStore::put(PlayerSettings::class, new PlayerSettings(dataRoot: $this->launchDataRoot));
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
+        // The project's word forms reach the inflector before any name is inflected.
+        WordForms::fromProject()->registerExceptions();
         ConfigStore::put(FieldMusicCatalog::class, FieldMusicCatalog::fromProject());
+        ConfigStore::put(IncomeCatalog::class, IncomeCatalog::fromProject());
+        ConfigStore::put(WorldAbilityCatalog::class, WorldAbilityCatalog::fromProject());
 
         ConfigStore::put(InputConfig::class, new InputConfig());
         ConfigStore::remove(ProgressionSettings::class);
         $systemPayload = asset('Data/system.php', true);
         ConfigStore::put(ProgressionSettings::class, ProgressionSettings::fromSystemData($systemPayload));
+        ConfigStore::remove(DashSettings::class);
+        ConfigStore::put(DashSettings::class, DashSettings::fromSystemData($systemPayload));
         ElementRegistry::configure(is_array($systemPayload['elements'] ?? null) ? $systemPayload['elements'] : []);
-        ConfigStore::put(ActorStore::class, new ActorStore());
-        $actorStore = ConfigStore::get(ActorStore::class);
+        $actorStore = new ActorStore();
+        ConfigStore::put(ActorStore::class, $actorStore);
         ConfigStore::put(
             BattleEntryRuleCatalog::class,
             BattleEntryRuleCatalog::fromProject(
-                actorStore: $actorStore instanceof ActorStore ? $actorStore : null,
+                actorStore: $actorStore,
             ),
         );
-        ConfigStore::put(ItemStore::class, new ItemStore());
+        $itemStore = new ItemStore();
+        ConfigStore::put(ItemStore::class, $itemStore);
+        $this->bindGameLoader(new GameLoader($this, $actorStore, $itemStore, getcwd() . '/assets'));
         ConfigStore::put(KnowledgeCatalog::class, KnowledgeCatalog::fromProject());
         ConfigStore::put(EnemyStore::class, new EnemyStore());
     }
@@ -785,6 +864,14 @@ class Game implements CanRun, SubjectInterface
      */
     public function run(): void
     {
+        \Ichiloto\Engine\Rendering\Presentation\PresentationSession::runForSession(
+            fn(string $capability): bool => $this->rendererRuntime?->supports($capability) ?? false,
+            $this->runSession(...),
+        );
+    }
+
+    private function runSession(): void
+    {
         try {
             $framePacing = new FramePacing($this->options['fps'] ?? DEFAULT_FPS);
             $this->start();
@@ -821,6 +908,13 @@ class Game implements CanRun, SubjectInterface
                 }
 
                 $sleepTime = $framePacing->getRemainingSleepMicroseconds($frameStartedNanoseconds, hrtime(true));
+                if ($sleepTime > 0 && $this->rendererRuntime !== null) {
+                    $deadline = hrtime(true) + min($sleepTime, 16_667) * 1_000;
+                    $scene = $this->sceneManager->currentScene;
+                    if ($scene instanceof GameScene) { $scene->serviceMapTransferPreparationUntil($deadline); }
+                    $this->rendererRuntime->serviceWorldDeliveryUntil($deadline);
+                    $sleepTime = $framePacing->getRemainingSleepMicroseconds($frameStartedNanoseconds, hrtime(true));
+                }
                 if ($sleepTime > 0) {
                     usleep($sleepTime);
                 }
@@ -863,10 +957,9 @@ class Game implements CanRun, SubjectInterface
             Timers::setFrameTick($this->updateBlockedFrame(...), $this->presentBlockedFrame(...));
         }
 
-        if ($startupMode !== GameStartupMode::NEW_GAME) {
+        if ($startupMode !== GameStartupMode::NEW_GAME && $this->pendingLaunchCheckpoint === null) {
             $this->showSplashScreens();
         }
-        $this->buildItemStore();
         $this->handleGameEvents();
 
         $this->startInitialScene($startupMode);
@@ -894,14 +987,24 @@ class Game implements CanRun, SubjectInterface
     {
         $context = $this->pendingLaunchContext;
         $cinematic = $this->pendingLaunchCinematic;
+        $checkpoint = $this->pendingLaunchCheckpoint;
         $this->pendingLaunchContext = null;
         $this->pendingLaunchCinematic = null;
+        $this->pendingLaunchCheckpoint = null;
+        if ($checkpoint !== null) {
+            $this->sceneManager->loadSavedGame($checkpoint);
+            return;
+        }
         if ($context?->battleTest !== null) {
             $this->pendingLaunchBattleTest = $context->battleTest;
+            // The launching editor keeps the troops the test composes, through the launch's data root.
+            $this->pendingLaunchTroopKeeper = $context->keepTroops && $context->dataRoot !== null
+                ? new LaunchTroopHandOver($context->dataRoot) : null;
             try {
                 $this->sceneManager->loadScene(ArenaScene::class);
             } finally {
                 $this->pendingLaunchBattleTest = null;
+                $this->pendingLaunchTroopKeeper = null;
             }
             return;
         }
@@ -955,11 +1058,20 @@ class Game implements CanRun, SubjectInterface
         return $test;
     }
 
+    /** Who keeps the troops a launched battle test composes, once; none when the launch keeps none. */
+    public function consumeLaunchTroopKeeper(): ?BattleTestTroopKeeper
+    {
+        $keeper = $this->pendingLaunchTroopKeeper;
+        $this->pendingLaunchTroopKeeper = null;
+        return $keeper;
+    }
+
     protected function preflightLaunchContext(): void
     {
         try {
             if ($this->pendingLaunchContext !== null) {
                 $this->pendingLaunchCinematic = GameLaunchPreflight::validate($this, $this->pendingLaunchContext);
+                $this->pendingLaunchCheckpoint = GameLaunchPreflight::prepareCheckpoint($this, $this->pendingLaunchContext);
             }
         } catch (Throwable $error) {
             $this->clearPendingLaunch();
@@ -971,6 +1083,7 @@ class Game implements CanRun, SubjectInterface
     {
         $this->pendingLaunchContext = null;
         $this->pendingLaunchCinematic = null;
+        $this->pendingLaunchCheckpoint = null;
         $this->pendingLaunchBattleTest = null;
     }
 
@@ -1080,7 +1193,7 @@ class Game implements CanRun, SubjectInterface
         if ($this->rendererRuntime !== null) {
             Timers::wait($duration);
         } else {
-            usleep(intval($duration * 1000000));
+            RuntimeClock::sleep($duration);
         }
         Console::clear();
     }
@@ -1118,23 +1231,6 @@ o888o `Y8bod8P' o888o o888o o888o o888o `Y8bod8P'   "888" `Y8bod8P'
                                                                    v1.0.0
 SPLASH_SCREEN;
         $this->renderSplashScreenTexture($splashScreen);
-    }
-
-    /**
-     * Build the item store. This is where all the items in the game are stored.
-     *
-     * @return void
-     * @throws NotFoundException If the item store is not an instance of ItemStore.
-     */
-    private function buildItemStore(): void
-    {
-        if ($itemStore = ConfigStore::get(ItemStore::class)) {
-            if (!$itemStore instanceof ItemStore) {
-                throw new NotFoundException(ItemStore::class);
-            }
-
-            $this->itemStore = $itemStore;
-        }
     }
 
     /**
@@ -1215,6 +1311,15 @@ SPLASH_SCREEN;
         InputManager::handleInput();
     }
 
+    /** Reports an accepted action from a scene that is acting for the campaign. */
+    public function recordPlayerActivity(): void
+    {
+        $campaign = isset($this->sceneManager) ? $this->sceneManager->findScene(GameScene::class) : null;
+        if ($campaign instanceof GameScene) {
+            $campaign->recordPlayerActivity();
+        }
+    }
+
     /**
      * Update the game.
      *
@@ -1233,6 +1338,11 @@ SPLASH_SCREEN;
         $this->sceneManager->update();
         if ($this->terminalCleanedUp) {
             return;
+        }
+        // Active play belongs to the campaign, whichever scene ran this frame.
+        $campaign = $this->sceneManager->findScene(GameScene::class);
+        if ($campaign instanceof GameScene) {
+            $campaign->advanceActivePlay(Time::getDeltaTime(), $this->sceneManager->currentScene);
         }
 
         $this->modalManager->processPendingAlerts();

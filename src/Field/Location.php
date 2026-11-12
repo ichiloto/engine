@@ -16,7 +16,7 @@ readonly class Location
    *
    * @param string $mapFilename The map filename.
    * @param Vector2 $playerPosition The player position.
-   * @param array|null $playerSprite The player sprite.
+   * @param array|null $playerSprite An authored arrival sprite or heading name; null preserves the player’s facing.
    */
   public function __construct(
     public string $mapFilename,

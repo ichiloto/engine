@@ -4,6 +4,8 @@ use Ichiloto\Engine\Entities\Actors\ActorDefinition;
 use Ichiloto\Engine\Animations\ActionAnimationResolver;
 use Ichiloto\Engine\Entities\Enumerations\WeaponType;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
+use Ichiloto\Engine\Entities\Skills\BasicSkill;
+use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
 use Ichiloto\Engine\Util\Stores\ActorStore;
@@ -14,6 +16,51 @@ function foundationActorDefinition(): ActorDefinition
 
   return $store->require('actor.hero', 'loading the project-backed actor test fixture');
 }
+
+it('builds a recruit at the requested level using its own growth and level-gated skills', function () {
+  $baseline = foundationActorDefinition()->createCharacter();
+  $role = new \Ichiloto\Engine\Entities\Roles\CharacterRole(
+    $baseline, 'Recruit test',
+    skillsToLearn: [
+      new \Ichiloto\Engine\Entities\Roles\SkillToLearn(3, new \Ichiloto\Engine\Entities\Skills\SpecialSkill('Early', '', '', 0, 0)),
+      new \Ichiloto\Engine\Entities\Roles\SkillToLearn(8, new \Ichiloto\Engine\Entities\Skills\SpecialSkill('Later', '', '', 0, 0)),
+    ],
+  );
+  $definition = ActorDefinition::fromArray([...foundationActorDefinition()->data(), 'role' => $role]);
+  $atFive = $definition->createCharacter(startingLevel: 5);
+  $expected = $definition->createCharacter();
+  $expected->addExperience($expected->getLevelExperienceThresholds()[5] - $expected->currentExp);
+  expect($atFive->level)->toBe(5)
+    ->and($atFive->stats->jsonSerialize())->toBe($expected->stats->jsonSerialize())
+    ->and(array_column($atFive->abilityBook->getLearnedAbilities(), 'name'))->toBe(['Early']);
+
+  $highDefinition = ActorDefinition::fromArray([...$definition->data(), 'currentExp' => $atFive->getLevelExperienceThresholds()[9]]);
+  $lower = $highDefinition->createCharacter(startingLevel: 2);
+  expect($lower->level)->toBe(2)->and($lower->abilityBook->getLearnedAbilities())->toBeEmpty();
+  $capped = $definition->createCharacter(startingLevel: 999);
+  expect($capped->level)->toBe($capped->maxLevel);
+});
+
+it('applies starting levels only to new actors and keeps authored recruitment unchanged by default', function () {
+  $definition = foundationActorDefinition();
+  $authored = $definition->createCharacter();
+  expect($authored->currentExp)->toBe($definition->data()['currentExp']);
+  expect(fn() => $definition->createCharacter(startingLevel: 0))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => $definition->createCharacter($authored->toArray(), startingLevel: 4))->toThrow(InvalidArgumentException::class);
+});
+
+it('hydrates the same inherent attack reference against independent project snapshots', function () {
+  $first = new BasicSkill('Fixture Strike', '', '', 0, 0, animationId: 1);
+  $edited = new BasicSkill('Fixture Strike', '', '', 0, 0, animationId: 2);
+  $data = [...foundationActorDefinition()->data(), 'attackSkill' => $first->name];
+  $before = ActorDefinition::fromArray($data, skills: SkillCatalog::fromSkills(['fixture.php' => $first]));
+  $after = ActorDefinition::fromArray($data, skills: SkillCatalog::fromSkills(['fixture.php' => $edited]));
+
+  $original = $before->createCharacter();
+  expect($original->attackSkill)->toBe($first)
+    ->and($after->createCharacter($original->toArray())->attackSkill)->toBe($edited)
+    ->and($before->createCharacter()->attackSkill)->toBe($first);
+});
 
 it('hydrates every authored attack style without changing stats or equipment', function (WeaponType $type) {
   $data = foundationActorDefinition()->data();
@@ -89,7 +136,7 @@ it('uses ids alone despite duplicate display names and names matching another id
 });
 
 it('loads a legacy file provisionally without writing and drops name and file aliases after migration', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-legacy-actor-' . bin2hex(random_bytes(6));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-legacy-actor-' . bin2hex(random_bytes(6));
   mkdir($root);
   $path = $root . '/unrelated-filename.php';
   $data = foundationActorDefinition()->data();

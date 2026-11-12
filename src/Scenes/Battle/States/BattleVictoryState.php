@@ -61,9 +61,13 @@ class BattleVictoryState extends BattleSceneState
     if (($playback = $this->scene->resultsPlayback) !== null) {
       $playback->update($this->resetClockBoundary ? 0 : max(0, Time::getDeltaTime()));
       $this->resetClockBoundary = false;
+      $before = [$playback->currentStage(), $playback->isComplete(), $playback->isExiting(), $playback->scrollOffset];
       $direction = Input::getAxis(AxisName::VERTICAL);
       if ($direction !== 0.0) { $playback->navigate($direction > 0 ? 1 : -1); }
       $confirmed = Input::isButtonDown('action') && $playback->confirm();
+      if ($before !== [$playback->currentStage(), $playback->isComplete(), $playback->isExiting(), $playback->scrollOffset]) {
+        $this->scene->getGame()->recordPlayerActivity();
+      }
       if ($confirmed || $playback->isFinished()) {
         $this->scene->shouldLoadGameOver = false;
         $this->setState($this->scene->endState);
@@ -78,10 +82,12 @@ class BattleVictoryState extends BattleSceneState
       if ($this->scene->resultWindow && ! $this->scene->resultWindow->isComplete()) {
         if (! $revealedThisFrame) {
           $this->scene->resultWindow->advance();
+          $this->scene->getGame()->recordPlayerActivity();
         }
         return;
       }
 
+      $this->scene->getGame()->recordPlayerActivity();
       $this->scene->shouldLoadGameOver = false;
       $this->setState($this->scene->endState);
     }

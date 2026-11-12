@@ -17,6 +17,8 @@ final readonly class RendererEvent
   public const string CONTROL_PATTERN = '/^[a-z0-9_]{1,32}$/D';
   /** The Rust protocol and process transport share this whole-line ceiling, not a smaller message limit. */
   public const int MAX_TEXT_REPLY_BYTES = 4194304;
+  /** Covers the complete drawing and subscribed-input feature set, with bounded forward-compatible names. */
+  public const int MAX_CAPABILITIES = 64;
 
   /**
    * @param list<string> $capabilities
@@ -119,7 +121,7 @@ final readonly class RendererEvent
       }
     }
     $capabilities = property_exists($object, 'capabilities') ? $object->capabilities : [];
-    if (!is_array($capabilities) || !array_is_list($capabilities) || count($capabilities) > 32) {
+    if (!is_array($capabilities) || !array_is_list($capabilities) || count($capabilities) > self::MAX_CAPABILITIES) {
       throw new RendererProtocolException('Renderer capabilities must be a bounded list of strings.');
     }
     foreach ($capabilities as $capability) {

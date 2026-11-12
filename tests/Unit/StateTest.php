@@ -1,7 +1,16 @@
 <?php
 
+use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
+use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
+use Ichiloto\Engine\Entities\Skills\SkillEffectExecutor;
+use Ichiloto\Engine\Entities\Skills\SkillInvocation;
+use Ichiloto\Engine\Entities\Skills\SkillSecondaryTrigger;
+use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Entities\States\HasStates;
 use Ichiloto\Engine\Entities\States\State;
+use Ichiloto\Engine\Entities\States\StateRegistry;
 use Ichiloto\Engine\Entities\States\StateInstance;
 use Ichiloto\Engine\Entities\States\StateDisposition;
 use Ichiloto\Engine\Entities\Stats;
@@ -12,6 +21,7 @@ function makeAfflictable(int $hp = 100): object
     use HasStates;
 
     public Stats $stats;
+    public int $knockoutFloor = 0;
     public bool $isKnockedOut {
       get {
         return $this->stats->currentHp <= 0;
@@ -98,6 +108,73 @@ it('never inflicts at zero chance', function () {
   $battler = makeAfflictable();
 
   expect($battler->addState(poisonState(), 0))->toBeFalse();
+});
+
+it('honours an explicit guaranteed application while retaining normal state immunity', function () {
+  $battler = makeAfflictable();
+  $battler->setStateResistances(['stun' => 0.0]);
+  expect($battler->addState(stunState()))->toBeFalse()
+    ->and($battler->addState(stunState(), guaranteed: true))->toBeTrue()
+    ->and($battler->hasState('stun'))->toBeTrue()
+    ->and($battler->addState(stunState(), guaranteed: true))->toBeFalse();
+});
+
+it('applies a guaranteed state effect to immune survivors while leaving knocked-out targets unchanged', function () {
+  $state = stunState();
+  $registry = new ReflectionProperty(StateRegistry::class, 'states');
+  $before = $registry->getValue();
+  $registry->setValue(null, [getcwd() . '/assets/Data/states.php' => ['stun' => $state]]);
+  try {
+    $actor = new \Ichiloto\Engine\Entities\Character('Actor', 1, new Stats());
+    $target = new \Ichiloto\Engine\Entities\Character('Target', 1, new Stats());
+    $target->setStateResistances(['stun' => 0.0]);
+    $context = new \Ichiloto\Engine\Entities\Skills\SkillEffectContext($actor, $target);
+    new \Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect('stun')->apply($context);
+    expect($target->hasState('stun'))->toBeFalse();
+    new \Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect('stun', guaranteed: true)->apply($context);
+    expect($target->hasState('stun'))->toBeTrue();
+    $target->removeState('stun');
+    $target->stats->currentHp = 0;
+    new \Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect('stun', guaranteed: true)->apply($context);
+    expect($target->hasState('stun'))->toBeFalse();
+  } finally { $registry->setValue(null, $before); }
+});
+
+it('applies a hit-linked state only to the surviving recipients whose damage landed', function () {
+  $state = stunState();
+  $independent = poisonState();
+  $registry = new ReflectionProperty(StateRegistry::class, 'states');
+  $before = $registry->getValue();
+  $registry->setValue(null, [getcwd() . '/assets/Data/states.php' => [
+    $state->id => $state, $independent->id => $independent,
+  ]]);
+  try {
+    $actor = new Character('Actor', 1, new Stats(currentHp: 100, totalHp: 100));
+    $hit = new Character('Target', 1, new Stats(currentHp: 100, totalHp: 100));
+    $miss = new Character('Target', 1, new Stats(currentHp: 100, totalHp: 100, evasion: 95));
+    $fallen = new Character('Target', 1, new Stats(currentHp: 1, totalHp: 1));
+    $skill = new SpecialSkill('Follow-up', '', '', 0, 0, invocation: new SkillInvocation(accuracy: 85, repeat: 2),
+      effects: [
+        new HPDamageSkillEffect('20', variance: 0),
+        new AddStateSkillEffect($state->id, guaranteed: true, trigger: SkillSecondaryTrigger::LANDED_HIT),
+        new AddStateSkillEffect($independent->id, guaranteed: true),
+      ]);
+    $executor = new SkillEffectExecutor(random: new class implements CombatRandomSource {
+      public function nextInt(int $minimum, int $maximum): int
+      {
+        return max($minimum, min(50, $maximum));
+      }
+    });
+    $result = $executor->execute($skill, $actor, [$hit, $miss, $fallen], 'follow-up', 'follow-up:1');
+    expect(array_column($result->hits(), 'hit'))->toBe([true, true, false, false, true])
+      ->and($hit->hasState($state->id))->toBeTrue()
+      ->and($miss->hasState($state->id))->toBeFalse()
+      ->and($miss->hasState($independent->id))->toBeTrue()
+      ->and($fallen->isKnockedOut)->toBeTrue()
+      ->and($fallen->hasState($state->id))->toBeFalse()
+      ->and($result->targets[0]->secondaryOutcomes[0]['applied'])->toBeTrue()
+      ->and($result->targets[1]->secondaryOutcomes[0]['applied'])->toBeFalse();
+  } finally { $registry->setValue(null, $before); }
 });
 
 it('ticks HP formulas with a damage floor of one', function () {
@@ -195,4 +272,33 @@ it('tracks remaining turns on instances', function () {
 
   $indefinite = new StateInstance(poisonState(), null);
   expect($indefinite->tickDuration())->toBeFalse();
+});
+
+it('keeps authored states scoped to the project and clears them on reset', function () {
+  $directory = getcwd();
+  $registry = new ReflectionProperty(StateRegistry::class, 'states');
+  $previous = $registry->getValue();
+  $first = createTestDirectory('ichiloto-states-first-');
+  $second = createTestDirectory('ichiloto-states-second-');
+  mkdir($first . '/assets/Data', 0777, true);
+  mkdir($second . '/assets/Data', 0777, true);
+  file_put_contents($first . '/assets/Data/states.php', "<?php return [['id' => 'presence', 'name' => 'First Presence']];");
+  file_put_contents($second . '/assets/Data/states.php', "<?php return [['id' => 'presence', 'name' => 'Second Presence'], ['id' => 'second-only', 'name' => 'Second Only']];");
+  StateRegistry::reset();
+
+  try {
+    chdir($first);
+    expect(StateRegistry::get('presence')?->name)->toBe('First Presence');
+    chdir($second);
+    expect(StateRegistry::get('presence')?->name)->toBe('Second Presence')
+      ->and(StateRegistry::get('second-only')?->name)->toBe('Second Only');
+    chdir($first);
+    expect(StateRegistry::get('second-only'))->toBeNull();
+    file_put_contents($first . '/assets/Data/states.php', "<?php return [['id' => 'presence', 'name' => 'Updated Presence']];");
+    StateRegistry::reset();
+    expect(StateRegistry::get('presence')?->name)->toBe('Updated Presence');
+  } finally {
+    chdir($directory);
+    $registry->setValue(null, $previous);
+  }
 });

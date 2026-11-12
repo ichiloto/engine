@@ -54,12 +54,13 @@ class BattleCharacterNameWindow extends Window implements CanFocus
     $position = new Vector2($leftMargin, $topMargin);
     parent::__construct(
       'Name',
-      'c:Cancel',
+      '',
       $position,
       self::WIDTH,
       self::HEIGHT,
       $this->battleScreen->borderPack
     );
+    $this->setControlHints([BattleControlHints::getBackHint('Cancel')]);
   }
 
   /**
@@ -77,15 +78,21 @@ class BattleCharacterNameWindow extends Window implements CanFocus
   public function presentationSnapshot(): BattleHudListSnapshot
   {
     $visibleRowCount = self::HEIGHT - 2;
+    $offset = $this->getFirstVisibleIndex();
     $rows = [];
-    foreach (array_slice($this->names, 0, $visibleRowCount, true) as $index => $name) {
+    foreach (array_slice($this->names, $offset, $visibleRowCount, true) as $index => $name) {
       $rows[] = new BattleHudRow($index, $name, $this->activeIndex === $index);
     }
 
     return new BattleHudListSnapshot(
-      $this->title, $this->help, $rows, $this->activeIndex, 0,
-      $visibleRowCount, count($this->names), 1, 1,
+      $this->title, $this->help, $rows, $this->activeIndex, $offset,
+      $visibleRowCount, count($this->names), intdiv($offset, $visibleRowCount) + 1, max(1, (int) ceil(count($this->names) / $visibleRowCount)), hints: $this->getControlHints(),
     );
+  }
+
+  private function getFirstVisibleIndex(): int
+  {
+    return intdiv(min(max(0, count($this->names) - 1), max(0, $this->activeIndex)), self::HEIGHT - 2) * (self::HEIGHT - 2);
   }
 
   /**
@@ -98,7 +105,9 @@ class BattleCharacterNameWindow extends Window implements CanFocus
     $content = [];
     $availableWidth = $this->getContentWidth();
 
-    foreach ($this->names as $index => $name) {
+    $offset = $this->getFirstVisibleIndex();
+    $this->battleScreen->characterStatusWindow->setFirstVisibleIndex($offset);
+    foreach (array_slice($this->names, $offset, self::HEIGHT - 2, true) as $index => $name) {
       $prefix = $this->activeIndex === $index ? '>' : ' ';
       $line = TerminalText::padRight(" $prefix $name", $availableWidth);
 

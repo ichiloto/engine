@@ -14,7 +14,7 @@ it('reads only a literal nowdoc while preserving its grid content', function ():
 });
 
 it('refuses executable and non-nowdoc grids without executing them', function (string $source): void {
-    $marker = sys_get_temp_dir() . '/ichiloto-map-grid-execution-' . bin2hex(random_bytes(8));
+    $marker = \getTestTemporaryDirectory() . '/ichiloto-map-grid-execution-' . bin2hex(random_bytes(8));
     $source = str_replace('EXECUTION_MARKER', var_export($marker, true), $source);
 
     try {

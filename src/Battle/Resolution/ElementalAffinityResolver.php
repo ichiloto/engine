@@ -45,15 +45,18 @@ final class ElementalAffinityResolver
 
     $multiplier = floatval($target->getElementMultiplier($element));
 
-    return [
-      'outcome' => match (true) {
-        $multiplier < 0.0 => ElementalOutcome::ABSORB,
-        $multiplier === 0.0 => ElementalOutcome::NULL,
-        $multiplier < 1.0 => ElementalOutcome::RESIST,
-        $multiplier > 1.0 => ElementalOutcome::WEAK,
-        default => ElementalOutcome::NORMAL,
-      },
-      'multiplier' => $multiplier,
-    ];
+    return ['outcome' => self::classify($multiplier), 'multiplier' => $multiplier];
+  }
+
+  /** The outcome one affinity multiplier gives, as combat applies it. */
+  public static function classify(float $multiplier): ElementalOutcome
+  {
+    return match (true) {
+      $multiplier < 0.0 => ElementalOutcome::ABSORB,
+      $multiplier === 0.0 => ElementalOutcome::NULL,
+      $multiplier < 1.0 => ElementalOutcome::RESIST,
+      $multiplier > 1.0 => ElementalOutcome::WEAK,
+      default => ElementalOutcome::NORMAL,
+    };
   }
 }

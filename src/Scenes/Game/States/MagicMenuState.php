@@ -2,6 +2,11 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\IO\ActionHint;
+use Ichiloto\Engine\UI\Presentation\MenuDetailStyle;
+use Ichiloto\Engine\UI\Text\TextViewport;
+use Ichiloto\Engine\UI\Presentation\MenuDetailViewport;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Localization\Vocabulary;
@@ -23,6 +28,7 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\Progression\TutorialStep;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
@@ -36,6 +42,7 @@ use Ichiloto\Engine\UI\Presentation\MenuRowKind;
 use Ichiloto\Engine\UI\Presentation\MenuRowValue;
 use Ichiloto\Engine\UI\Presentation\SkillMenuContent;
 use Ichiloto\Engine\UI\Presentation\SkillMenuPresentation;
+use Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation;
 
 /**
  * Displays the field magic-management screen for a single party member.
@@ -45,6 +52,13 @@ use Ichiloto\Engine\UI\Presentation\SkillMenuPresentation;
 class MagicMenuState extends GameSceneState implements CanvasProviderInterface
 {
     use MenuCanvasState;
+
+    public const string TUTORIAL_SCREEN = 'magic';
+    public const string TUTORIAL_USE = 'use';
+    public const string TUTORIAL_TARGET = 'target';
+    public const string TUTORIAL_INJURED_ALLY = 'injured-ally';
+    public const string TUTORIAL_SPELL_SELECTED = 'magic.spell-selected';
+    public const string TUTORIAL_CAST = 'magic.cast';
 
     protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
     {
@@ -94,7 +108,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
             ? get_engine_message('magic.empty_discovered', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic'))
             : get_engine_message('magic.empty_learned', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic')));
         if ($skill !== null) {
-            $fields = ['MP Cost' => (string)$skill->cost, 'Occasion' => $this->formatOccasionLabel($skill->occasion),
+            $fields = [Vocabulary::getLabel('stats.mp', 'MP') . ' Cost' => (string)$skill->cost, 'Occasion' => $this->formatOccasionLabel($skill->occasion),
                 'Scope' => $skill->scope->side->value];
             if ($targeting) {
                 $target = $this->targetCandidates[$index] ?? null;
@@ -102,8 +116,8 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
                 if ($target !== null) {
                     $fields['Target'] = $target->name;
                     $fields['Status'] = $target->isKnockedOut ? 'Knocked Out' : 'Ready';
-                    $fields['HP'] = number_format($target->effectiveStats->currentHp) . ' / ' . number_format($target->effectiveStats->totalHp);
-                    $fields['MP'] = number_format($target->effectiveStats->currentMp) . ' / ' . number_format($target->effectiveStats->totalMp);
+                    $fields[Vocabulary::getLabel('stats.hp', 'HP')] = number_format($target->effectiveStats->currentHp) . ' / ' . number_format($target->effectiveStats->totalHp);
+                    $fields[Vocabulary::getLabel('stats.mp', 'MP')] = number_format($target->effectiveStats->currentMp) . ' / ' . number_format($target->effectiveStats->totalMp);
                 }
             } elseif ($learnable !== null) {
                 $fields['Status'] = $learnable->getStatusLabel($actor, $this->party, $events);
@@ -117,6 +131,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
             $detail = $tab === 'Learn' ? 'Discovered spells and their learning requirements will appear here.'
                 : 'Use magic will appear here once this character has learned or acquired spells.';
         }
+        $tutorial = $this->getTutorialStep();
         return new SkillMenuContent($actor, BattleCommandType::MAGIC->label(), $this->tabs, $this->activeTabIndex,
             ['Learned ' . BattleCommandType::MAGIC->label() => (string)count($book->getLearnedSpells()),
                 'Ready to Learn' => (string)$book->getReadyToLearnCount($actor, $this->party, $events),
@@ -124,7 +139,42 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
             $skill?->name ?? ($tab === 'Sort' ? Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'Spell') . ' Order' : $empty), $fields, $detail, $rows,
             $this->getListPanelTitle(), $index, $empty, $this->getPresentationDescription(), $this->statusMessage,
             $targeting ? 'Cast' : match ($tab) { 'Learn' => 'Learn', 'Sort' => 'Apply', default => 'Cast' }, $targeting,
-            infoModel: $this->menuInfoText);
+            infoModel: $this->menuInfoText, tutorial: $tutorial,
+            tutorialRowIndex: $tutorial === null ? null : $this->getTutorialRowIndex($tutorial),
+            tutorialSpeaker: $this->getGameScene()->getTutorialSpeakerName($tutorial));
+    }
+
+    private function getTutorialView(): ?string
+    {
+        return $this->isSelectingTarget() ? self::TUTORIAL_TARGET
+            : (($this->tabs[$this->activeTabIndex] ?? 'Use') === 'Use' ? self::TUTORIAL_USE : null);
+    }
+
+    private function getTutorialStep(): ?TutorialStep
+    {
+        $view = $this->getTutorialView();
+        return $view === null ? null : $this->getGameScene()->getTutorialPresentationStep(self::TUTORIAL_SCREEN, $view);
+    }
+
+    private function getTutorialRowIndex(TutorialStep $step): ?int
+    {
+        $id = $step->target['id'];
+        if ($this->isSelectingTarget()) {
+            return array_find_key($this->targetCandidates, static fn(Character $target): bool =>
+                $id === 'member-' . $target->actorId || ($id === self::TUTORIAL_INJURED_ALLY
+                    && !$target->isKnockedOut && $target->isWounded));
+        }
+        return array_find_key($this->character?->spellbook->getLearnedSpells() ?? [],
+            static fn(MagicSkill $spell): bool => $spell->name === $id);
+    }
+
+    private function focusTutorialTarget(TutorialStep $step): bool
+    {
+        $index = $this->getTutorialRowIndex($step);
+        if ($index === null) { return false; }
+        if ($this->isSelectingTarget()) { $this->activeTargetIndex = $index; }
+        else { $this->activeUseIndex = $index; }
+        return true;
     }
 
     protected const int MAGIC_MENU_WIDTH = 110;
@@ -308,6 +358,12 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
      */
     protected function normalizeSelectionIndexes(): void
     {
+        // A character with nothing left to learn here shows no Learn tab; their own skills may come from a Mastery Map.
+        $current = $this->tabs[$this->activeTabIndex] ?? null;
+        $this->tabs = array_values(array_filter(['Use', 'Learn', 'Sort'], fn(string $tab): bool => $tab !== 'Learn'
+            || ($this->character?->spellbook->getLearnableSpells() ?? []) !== []));
+        $index = $current === null ? false : array_search($current, $this->tabs, true);
+        $this->activeTabIndex = $index === false ? clamp($this->activeTabIndex, 0, count($this->tabs) - 1) : $index;
         $useCount = count($this->character?->spellbook->getLearnedSpells() ?? []);
         $learnCount = count($this->character?->spellbook->getLearnableSpells() ?? []);
         $sortCount = count($this->sortOptions);
@@ -334,7 +390,9 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         $this->detailPanel?->render();
 
         $this->listPanel?->setTitle($this->getListPanelTitle());
-        $this->listPanel?->setEntries($this->buildListEntries(), $this->getActiveEntryIndex());
+        $tutorial = $this->getTutorialStep();
+        $tutorialIndex = $tutorial === null ? null : $this->getTutorialRowIndex($tutorial);
+        $this->listPanel?->setEntries($this->buildListEntries(), $this->getActiveEntryIndex(), tutorialIndex: $tutorialIndex);
 
         $this->infoPanel?->setContent($this->buildInfoLines());
         $this->infoPanel?->render();
@@ -358,7 +416,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
             sprintf(' %s', $this->character->name),
             sprintf(
                 ' %s %-3d  %s %9s / %-9s  %s %5s / %-5s',
-                Vocabulary::getTerm('stats.level', 'Lv'),
+                Vocabulary::getTerm('stats.level_short'),
                 $this->character->level,
                 Vocabulary::getTerm('stats.hp', 'HP'),
                 number_format($this->character->effectiveStats->currentHp),
@@ -381,88 +439,19 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
     protected function buildDetailLines(): array
     {
         $availableLines = self::CONTENT_PANEL_HEIGHT - 2;
-        $availableWidth = self::DETAIL_PANEL_WIDTH - 4;
-        $sourceLines = $this->isSelectingTarget()
-            ? $this->buildTargetDetailLines()
-            : match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
-                'Use' => $this->buildUseDetailLines(),
-                'Learn' => $this->buildLearnDetailLines(),
-                'Sort' => $this->buildSortDetailLines(),
-                default => [],
-            };
+        $content = $this->getPresentationContent();
+        // The Terminal panel also names the learn source; the graphical fields omit it because they do not scroll.
+        $learnable = !$this->isSelectingTarget() && ($this->tabs[$this->activeTabIndex] ?? 'Use') === 'Learn'
+            ? $this->getActiveLearnableSpell() : null;
+        $source = $learnable === null ? [] : ['Source' => $learnable->note !== '' ? $learnable->note : 'Unrecorded'];
+        $sheet = $content?->getDetailSheet($source);
+        if ($sheet === null) { return array_fill(0, $availableLines, ''); }
+        // The panel shows the sheet's first page with the shared Terminal headings and record rules.
+        $width = self::DETAIL_PANEL_WIDTH - 4;
+        $style = MenuDetailStyle::createTerminal();
+        $page = $sheet->createPage(new TextViewport(), new MenuDetailViewport($width, $availableLines), $style);
 
-        $lines = [];
-
-        foreach ($sourceLines as $line) {
-            foreach (explode("\n", wrap_text($line, max(1, $availableWidth))) as $wrappedLine) {
-                $lines[] = TerminalText::truncateToWidth($wrappedLine, $availableWidth);
-            }
-        }
-
-        return array_slice(array_pad($lines, $availableLines, ''), 0, $availableLines);
-    }
-
-    /**
-     * Builds the detail text for the Use tab.
-     *
-     * @return string[] The detail lines.
-     */
-    protected function buildUseDetailLines(): array
-    {
-        $spell = $this->getActiveUseSpell();
-
-        if (!$spell instanceof MagicSkill) {
-            return [
-                get_engine_message('magic.empty_learned', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic')),
-                '',
-                'Use magic will appear here once this character has learned or acquired spells.',
-            ];
-        }
-
-        return [
-            $spell->name,
-            sprintf('%s Cost : %d', Vocabulary::getTerm('stats.mp', 'MP'), $spell->cost),
-            sprintf('Occasion: %s', $this->formatOccasionLabel($spell->occasion)),
-            sprintf('Scope   : %s', $spell->scope->side->value),
-            '',
-            $spell->description,
-        ];
-    }
-
-    /**
-     * Builds target and spell details while a one-target cast is pending.
-     *
-     * @return string[] The target detail lines.
-     */
-    protected function buildTargetDetailLines(): array
-    {
-        $spell = $this->pendingUseSpell;
-        $target = $this->targetCandidates[$this->activeTargetIndex] ?? null;
-
-        if (!$spell instanceof MagicSkill || !$target instanceof Character) {
-            return ['No eligible target.'];
-        }
-
-        return [
-            $spell->name,
-            sprintf('Caster: %s', $this->character?->name ?? 'Unknown'),
-            sprintf('Cost  : %d %s', $spell->cost, Vocabulary::getTerm('stats.mp', 'MP')),
-            '',
-            sprintf('Target: %s', $target->name),
-            sprintf('Status: %s', $target->isKnockedOut ? 'Knocked Out' : 'Ready'),
-            sprintf(
-                '%-6s: %s / %s',
-                Vocabulary::getTerm('stats.hp', 'HP'),
-                number_format($target->effectiveStats->currentHp),
-                number_format($target->effectiveStats->totalHp),
-            ),
-            sprintf(
-                '%-6s: %s / %s',
-                Vocabulary::getTerm('stats.mp', 'MP'),
-                number_format($target->effectiveStats->currentMp),
-                number_format($target->effectiveStats->totalMp),
-            ),
-        ];
+        return array_pad($sheet->layout($width, $style)->getTerminalLines($page, $width), $availableLines, '');
     }
 
     /**
@@ -492,37 +481,6 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
     }
 
     /**
-     * Builds the detail text for the Learn tab.
-     *
-     * @return string[] The detail lines.
-     */
-    protected function buildLearnDetailLines(): array
-    {
-        $learnableSpell = $this->getActiveLearnableSpell();
-
-        if (!$learnableSpell instanceof LearnableSpell || !$this->character instanceof Character) {
-            return [
-                get_engine_message('magic.empty_discovered', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic')),
-                '',
-                'Discovered spells and their learning requirements will appear here.',
-            ];
-        }
-
-        $progress = $learnableSpell->requirement->describeProgress($this->character, $this->party, $learnableSpell->trainingHours, $this->getGameScene()->storyEvents);
-
-        return [
-            $learnableSpell->skill->name,
-            sprintf('Status  : %s', $learnableSpell->getStatusLabel($this->character, $this->party, $this->getGameScene()->storyEvents)),
-            sprintf('Occasion: %s', $this->formatOccasionLabel($learnableSpell->skill->occasion)),
-            $learnableSpell->note !== '' ? sprintf('Source  : %s', $learnableSpell->note) : 'Source  : Unrecorded',
-            '',
-            $progress !== '' ? $progress : 'No additional requirements.',
-            '',
-            $learnableSpell->skill->description,
-        ];
-    }
-
-    /**
      * Returns the selected learnable spell, if any.
      *
      * @return LearnableSpell|null The selected learnable spell.
@@ -530,25 +488,6 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
     protected function getActiveLearnableSpell(): ?LearnableSpell
     {
         return $this->character?->spellbook->getLearnableSpells()[$this->activeLearnIndex] ?? null;
-    }
-
-    /**
-     * Builds the detail text for the Sort tab.
-     *
-     * @return string[] The detail lines.
-     */
-    protected function buildSortDetailLines(): array
-    {
-        return [
-            Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'Spell') . ' Order',
-            '',
-            sprintf('Current: %s', $this->character?->spellbook->getSortOrder()->value ?? SpellSortOrder::A_TO_Z->value),
-            '',
-            'A-Z keeps learned magic alphabetical.',
-            'Z-A reverses the learned magic list.',
-            '',
-            'Apply a sort order to reorganize the Use tab.',
-        ];
     }
 
     /**
@@ -712,22 +651,23 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
     }
 
     /**
-     * Returns the small help string shown on the info-panel border.
+     * The controls shown on the info-panel border.
      *
-     * @return string The help text.
+     * @return list<ActionHint> The hints.
      */
-    protected function getInfoHelpText(): string
+    protected function getInfoHints(): array
     {
         if ($this->isSelectingTarget()) {
-            return 'enter:Cast  c:Back';
+            return [ActionHints::resolve('confirm', 'Cast'), ActionHints::resolve('cancel', 'Back')];
         }
-
-        return match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
-            'Use' => 'enter:Cast  c:Cancel',
-            'Learn' => 'enter:Learn  c:Cancel',
-            'Sort' => 'enter:Apply  c:Cancel',
-            default => 'c:Cancel',
+        $confirm = match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
+            'Use' => 'Cast',
+            'Learn' => 'Learn',
+            'Sort' => 'Apply',
+            default => null,
         };
+
+        return [...($confirm === null ? [] : [ActionHints::resolve('confirm', $confirm)]), ActionHints::resolve('cancel', 'Cancel')];
     }
 
     /**
@@ -739,8 +679,13 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
     {
         $page = $this->menuInfoText->getPage($this->getPresentationDescription(), $this->statusMessage,
             max(1, ($this->infoPanel?->getContentWidth() ?? self::MAGIC_MENU_WIDTH - 2) - 2));
-        $this->infoPanel?->setHelp($page->total > 2 ? $page->range() : $this->getInfoHelpText());
-        return array_pad($page->lines, 2, '');
+        if ($page->total > 2) { $this->infoPanel?->setHelp($page->range()); }
+        else { $this->infoPanel?->setControlHints($this->getInfoHints()); }
+        $tutorial = $this->getTutorialStep();
+        $index = $tutorial === null ? null : $this->getTutorialRowIndex($tutorial);
+        $visible = $index !== null && $this->listPanel?->isEntryVisible($index) ? $tutorial : null;
+        $hint = TutorialTerminalPresentation::presentInstruction($visible, $this->getGameScene()->getTutorialSpeakerName($visible));
+        return $hint === null ? array_pad($page->lines, 2, '') : [$hint, $page->lines[0] ?? ''];
     }
 
     private function syncInfoSelection(): void
@@ -768,6 +713,11 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
      */
     public function execute(?SceneStateContext $context = null): void
     {
+        $scene = $this->getGameScene();
+        $scene->evaluateTutorialView(self::TUTORIAL_SCREEN, $this->getTutorialView());
+        if ($scene->tutorialDirector?->applyStepFocus($this->getTutorialStep(), $this->focusTutorialTarget(...))) {
+            $this->refreshUI();
+        }
         $this->syncInfoSelection();
         if ($this->handleMenuInfoInput($this->getPresentationDescription(), $this->statusMessage,
             max(1, ($this->infoPanel?->getContentWidth() ?? self::MAGIC_MENU_WIDTH - 2) - 2))) {
@@ -816,7 +766,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
      */
     protected function selectCharacterByOffset(int $offset): void
     {
-        $characters = $this->getGameScene()->party->members->toArray();
+        $characters = $this->getGameScene()->party->participants->toArray();
         $totalCharacters = count($characters);
 
         if ($totalCharacters < 2) {
@@ -997,7 +947,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
     {
         /** @var Character[] $targets */
         $targets = SkillTargetPolicy::filterByStatus(
-            $this->party->members->toArray(),
+            $this->party->participants->toArray(),
             $spell->scope->status,
         );
 
@@ -1010,6 +960,8 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         $this->targetCandidates = $targets;
         $this->activeTargetIndex = 0;
         $this->statusMessage = null;
+        $this->getGameScene()->reportTutorialOutcome(self::TUTORIAL_SCREEN, self::TUTORIAL_USE,
+            self::TUTORIAL_SPELL_SELECTED, $spell->name);
     }
 
     /**
@@ -1089,6 +1041,10 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
             $selectedTarget,
         );
         $this->statusMessage = $this->describeFieldSkillResult($spell, $result);
+        if ($result->succeeded) {
+            $view = $selectedTarget === null ? self::TUTORIAL_USE : self::TUTORIAL_TARGET;
+            $this->getGameScene()->reportTutorialOutcome(self::TUTORIAL_SCREEN, $view, self::TUTORIAL_CAST, $spell->name);
+        }
 
         return $result;
     }
@@ -1116,6 +1072,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         }
 
         return match ($result->failureReason) {
+            FieldSkillFailureReason::CASTER_NOT_PRESENT => 'That character is away from the party.',
             FieldSkillFailureReason::WRONG_OCCASION => sprintf('%s can only be used in battle.', $spell->name),
             FieldSkillFailureReason::CASTER_KNOCKED_OUT => 'A knocked-out character cannot cast magic.',
             FieldSkillFailureReason::INSUFFICIENT_MP => get_engine_message('magic.insufficient_mp', Vocabulary::getTerm('stats.mp', 'MP'), $spell->name),
@@ -1213,5 +1170,10 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
     public function suspend(): void
     {
         $this->exit();
+    }
+
+    public function exit(): void
+    {
+        TutorialTerminalPresentation::clearInstruction();
     }
 }

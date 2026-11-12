@@ -28,6 +28,12 @@ enum ReachabilityProblemKind: string
   case UNREACHABLE_EVENT = 'unreachable_event';
   /** A talkable NPC has no reachable cell beside it to be spoken to from. */
   case UNREACHABLE_NPC = 'unreachable_npc';
+  /**
+   * The way in brings the player to an interaction's subject on a side where
+   * it does not answer, so they must walk round it to use it. The player can
+   * still use it, so it is a warning, not a blocker.
+   */
+  case DETOURED_APPROACH = 'detoured_approach';
 
   /**
    * Whether the problem can block the player or break the game, as opposed
@@ -35,6 +41,6 @@ enum ReachabilityProblemKind: string
    */
   public function isBlocking(): bool
   {
-    return $this !== self::NO_ENTRANCE;
+    return $this !== self::NO_ENTRANCE && $this !== self::DETOURED_APPROACH;
   }
 }

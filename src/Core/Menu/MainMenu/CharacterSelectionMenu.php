@@ -2,12 +2,15 @@
 
 namespace Ichiloto\Engine\Core\Menu\MainMenu;
 
+use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\CharacterPanel;
 use Ichiloto\Engine\Core\Menu\Menu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\UI\Text\TerminalConditions;
 use Ichiloto\Engine\UI\Windows\Window;
 
 /**
@@ -20,7 +23,7 @@ class CharacterSelectionMenu extends Menu
   /**
    * The default help text shown beneath the character panels.
    */
-  public const string DEFAULT_HELP_TEXT = 'Use the arrow keys to select a character.';
+  public const string DEFAULT_HELP_TEXT = 'Select a character.';
   /**
    * The total number of panels.
    */
@@ -41,6 +44,8 @@ class CharacterSelectionMenu extends Menu
    * @var int The selected panel index.
    */
   protected int $activePanelIndex = 0;
+  private bool $hasSelectionFocus = false;
+  private ?string $tutorialTarget = null;
   /**
    * @var int|null The panel currently marked as the source selection.
    */
@@ -101,11 +106,12 @@ class CharacterSelectionMenu extends Menu
 
     $this->helpWindow = new Window(
       '',
-      'c:Cancel',
+      '',
       new Vector2($this->rect->getX(), $this->rect->getY() + (self::PANEL_HEIGHT * self::TOTAL_PANELS)),
       $this->rect->getWidth(),
       4
     );
+    $this->helpWindow->setControlHints([ActionHints::resolve('cancel', 'Cancel')]);
     $this->refreshMembers();
     $this->setHelpText($this->helpText);
   }
@@ -194,9 +200,14 @@ class CharacterSelectionMenu extends Menu
    */
   public function focusPanelByIndex(int $index): void
   {
-    ($this->characterPanels[$this->activePanelIndex] ?? null)?->blur();
+    $oldPage = $this->getFirstVisibleIndex();
+    $this->hasSelectionFocus = true;
     $this->selectPanelByIndex($index);
-    ($this->characterPanels[$this->activePanelIndex] ?? null)?->focus();
+    if ($this->getFirstVisibleIndex() !== $oldPage) {
+      $this->refreshVisibleMembers();
+    } else {
+      $this->refreshVisibleSelection();
+    }
   }
 
   /**
@@ -209,7 +220,7 @@ class CharacterSelectionMenu extends Menu
   {
     $this->clearMarkedPanel();
     $this->markedPanelIndex = $index;
-    ($this->characterPanels[$index] ?? null)?->mark();
+    $this->refreshVisibleSelection();
   }
 
   /**
@@ -223,8 +234,8 @@ class CharacterSelectionMenu extends Menu
       return;
     }
 
-    ($this->characterPanels[$this->markedPanelIndex] ?? null)?->unmark();
     $this->markedPanelIndex = null;
+    $this->refreshVisibleSelection();
   }
 
   /**
@@ -236,8 +247,25 @@ class CharacterSelectionMenu extends Menu
   public function setHelpText(string $text): void
   {
     $this->helpText = $text;
-    $this->helpWindow->setContent([$text, '']);
-    $this->helpWindow->render();
+    $this->renderHelp();
+  }
+
+  public function focusTutorialMember(string $id): bool
+  {
+    $index = array_find_key($this->partyMembers, static fn(mixed $member): bool =>
+      $member instanceof Character && $member->actorId !== null && $id === 'member-' . $member->actorId);
+    if ($index === null) {
+      return false;
+    }
+
+    $this->focusPanelByIndex($index);
+    return true;
+  }
+
+  public function showTutorialMember(?string $id): bool
+  {
+    $this->tutorialTarget = $id;
+    return $this->refreshVisibleSelection();
   }
 
   /**
@@ -250,28 +278,72 @@ class CharacterSelectionMenu extends Menu
     $scene = $this->getScene();
     assert($scene instanceof GameScene);
 
-    $this->partyMembers = $scene->party->members->toArray();
+    $this->partyMembers = $scene->party->participants->toArray();
+    $selectable = $this->getSelectablePanelIndexes();
+    if (!in_array($this->activePanelIndex, $selectable, true)) {
+      $this->activePanelIndex = $selectable[0] ?? -1;
+    }
+    $this->refreshVisibleMembers();
+  }
 
-    foreach ($this->characterPanels as $index => $panel) {
-      $member = $this->partyMembers[$index] ?? null;
+  private function getFirstVisibleIndex(): int
+  {
+    return intdiv(max(0, $this->activePanelIndex), self::TOTAL_PANELS) * self::TOTAL_PANELS;
+  }
 
-      if ($member instanceof Character) {
-        $panel->setDetails(
-          $member->name,
-          $member->level,
-          "{$member->effectiveStats->currentHp} / {$member->effectiveStats->totalHp}",
-          "{$member->effectiveStats->currentMp} / {$member->effectiveStats->totalMp}",
-          $member->role->name
-        );
-        continue;
+  private function refreshVisibleMembers(): void
+  {
+    Console::beginFrame();
+    try {
+      $first = $this->getFirstVisibleIndex();
+      foreach ($this->characterPanels as $slot => $panel) {
+        $member = $this->partyMembers[$first + $slot] ?? null;
+
+        if ($member instanceof Character) {
+          $panel->setDetails(
+            $member->name,
+            $member->level,
+            "{$member->effectiveStats->currentHp} / {$member->effectiveStats->totalHp}",
+            "{$member->effectiveStats->currentMp} / {$member->effectiveStats->totalMp}",
+            $member->role->name,
+            TerminalConditions::composeBadges($member),
+          );
+          continue;
+        }
+
+        $panel->clearDetails();
       }
 
-      $panel->clearDetails();
+      $this->refreshVisibleSelection();
+      $this->renderHelp();
+    } finally {
+      Console::endFrame();
     }
+  }
 
-    if (! in_array($this->activePanelIndex, $this->getSelectablePanelIndexes(), true)) {
-      $this->activePanelIndex = $this->getSelectablePanelIndexes()[0] ?? -1;
+  private function refreshVisibleSelection(): bool
+  {
+    $first = $this->getFirstVisibleIndex();
+    $visible = false;
+    foreach ($this->characterPanels as $slot => $panel) {
+      $index = $first + $slot;
+      $actorId = $this->partyMembers[$index]->actorId ?? null;
+      $target = $actorId !== null && $this->tutorialTarget === 'member-' . $actorId;
+      $panel->setSelectionState($this->hasSelectionFocus && $index === $this->activePanelIndex,
+        $index === $this->markedPanelIndex, $target);
+      $visible = $visible || $target;
     }
+    return $visible;
+  }
+
+  private function renderHelp(): void
+  {
+    $total = count($this->partyMembers);
+    $first = $this->getFirstVisibleIndex();
+    $range = $total > self::TOTAL_PANELS
+      ? sprintf('%d–%d / %d', $first + 1, min($first + self::TOTAL_PANELS, $total), $total) : '';
+    $this->helpWindow->setContent([$this->helpText, $range]);
+    $this->helpWindow->render();
   }
 
   /**
@@ -280,8 +352,7 @@ class CharacterSelectionMenu extends Menu
   public function focus(): void
   {
     $this->clearMarkedPanel();
-    $this->activePanelIndex = $this->getSelectablePanelIndexes()[0] ?? -1;
-    ($this->characterPanels[$this->activePanelIndex] ?? null)?->focus();
+    $this->focusPanelByIndex($this->getSelectablePanelIndexes()[0] ?? -1);
     parent::focus();
   }
 
@@ -290,9 +361,15 @@ class CharacterSelectionMenu extends Menu
    */
   public function blur(): void
   {
-    ($this->characterPanels[$this->activePanelIndex] ?? null)?->blur();
-    $this->clearMarkedPanel();
+    $oldPage = $this->getFirstVisibleIndex();
+    $this->hasSelectionFocus = false;
+    $this->markedPanelIndex = null;
     $this->selectPanelByIndex(-1);
+    if ($oldPage !== 0) {
+      $this->refreshVisibleMembers();
+    } else {
+      $this->refreshVisibleSelection();
+    }
     parent::blur();
   }
 

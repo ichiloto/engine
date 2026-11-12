@@ -2,13 +2,14 @@
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetBounds;
 
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-visible-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-visible-' . bin2hex(random_bytes(6));
   mkdir($this->root);
   $this->readInChild = function (bool $withoutDecoder = false): array {
     $code = 'require ' . var_export(dirname(__DIR__, 2) . '/vendor/autoload.php', true) . '; '
@@ -56,6 +57,14 @@ it('respects cropped frames, clipping and very faint visible pixels', function (
   $image = new CanvasImage('image', 'pixels.png', new CanvasRectangle(0, 0, 60, 60),
     sourceRect: new SpriteSourceRect(1, 2, 6, 6), clipRect: new CanvasRectangle(20, 20, 30, 30));
   expect(PngAssetBounds::getVisibleBounds($this->root, $image)['bounds'])->toEqual(new CanvasRectangle(20, 20, 20, 10));
+});
+
+it('rotates the mirrored visible pixels around the draw pivot before clipping', function () {
+  ($this->writePixels)();
+  $image = new CanvasImage('image', 'pixels.png', new CanvasRectangle(20, 30, 100, 100),
+    sourceRect: new SpriteSourceRect(0, 0, 10, 10), clipRect: new CanvasRectangle(25, 105, 40, 20),
+    flipX: true, rotation: 90, pivot: new PresentationSpritePivot(.2, .4));
+  expect(PngAssetBounds::getVisibleBounds($this->root, $image)['bounds'])->toEqual(new CanvasRectangle(30, 105, 20, 20));
 });
 
 it('distinguishes transparent artwork from unavailable inspection', function () {

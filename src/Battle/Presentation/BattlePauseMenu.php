@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Closure;
 use Ichiloto\Engine\Localization\Vocabulary;
 
@@ -22,7 +24,7 @@ final class BattlePauseMenu
 
   public function __construct(public bool $reducedMotion = false, ?Closure $clock = null)
   {
-    $this->clock = $clock ?? static fn(): float => hrtime(true) / 1_000_000_000;
+    $this->clock = $clock ?? static fn(): float => RuntimeClock::getSeconds();
   }
 
   public function open(int $selection = 0): void

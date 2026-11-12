@@ -10,7 +10,6 @@ use Ichiloto\Engine\Entities\EquipmentSlot;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
-use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
@@ -288,39 +287,9 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
       return;
     }
 
-    $previewStats = clone $this->character->effectiveStats;
-    $currentEquipment = $this->equipmentSlot?->equipment;
-
-    if ($currentEquipment instanceof Equipment) {
-      $this->applyEquipmentChanges($previewStats, $currentEquipment, -1);
-    }
-
-    if (! $this->isCurrentEquipmentSelected()) {
-      $this->applyEquipmentChanges($previewStats, $this->activeEquipment, 1);
-    }
-
+    $previewStats = $this->equipmentSlot === null ? null : $this->character->previewEquipmentStats(
+      $this->equipmentSlot->name, $this->isCurrentEquipmentSelected() ? null : $this->activeEquipment);
     $this->state->characterDetailPanel->setDetails($this->character, $previewStats);
-  }
-
-  /**
-   * Applies or removes an equipment's parameter changes from a preview stat block.
-   *
-   * @param Stats $stats The stats to modify.
-   * @param Equipment $equipment The equipment whose parameters should be applied.
-   * @param int $direction Use `1` to add the equipment and `-1` to remove it.
-   * @return void
-   */
-  protected function applyEquipmentChanges(Stats $stats, Equipment $equipment, int $direction): void
-  {
-    $stats->attack += ($equipment->parameterChanges->attack ?? 0) * $direction;
-    $stats->defence += ($equipment->parameterChanges->defence ?? 0) * $direction;
-    $stats->magicAttack += ($equipment->parameterChanges->magicAttack ?? 0) * $direction;
-    $stats->magicDefence += ($equipment->parameterChanges->magicDefence ?? 0) * $direction;
-    $stats->speed += ($equipment->parameterChanges->speed ?? 0) * $direction;
-    $stats->grace += ($equipment->parameterChanges->grace ?? 0) * $direction;
-    $stats->evasion += ($equipment->parameterChanges->evasion ?? 0) * $direction;
-    $stats->totalHp += ($equipment->parameterChanges->totalHp ?? 0) * $direction;
-    $stats->totalMp += ($equipment->parameterChanges->totalMp ?? 0) * $direction;
   }
 
   /**

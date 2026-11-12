@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Rendering;
 
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSprite;
@@ -9,6 +10,7 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTileBatch;
 use Ichiloto\Engine\Rendering\Presentation\PresentationViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationViewportFollow;
+use Ichiloto\Engine\Rendering\Presentation\PresentationCameraMotion;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
@@ -42,13 +44,22 @@ final readonly class FieldViewport
     $this->rows = max(1, (int)floor($grid->rows * $grid->cellHeight / (self::TILE_SIZE * $zoom)));
   }
 
+  /** @param array{x: int, y: int} $origin The viewport's top-left world cell. */
+  public function containsWorldCell(Vector2 $cell, array $origin): bool
+  {
+    $x = $cell->x - $origin['x'];
+    $y = $cell->y - $origin['y'];
+    return $x >= 0 && $x < $this->columns && $y >= 0 && $y < $this->rows;
+  }
+
   /**
    * @param list<PresentationTextLayer> $text @param list<PresentationSprite> $sprites @param list<PresentationTileBatch> $tiles
    * @param string|null $followSpriteId The sprite the camera follows, when it is presented; its action prompt moves with it.
    */
   public function createViewport(array|ConsolePresentationSnapshot|ConsolePresentationChanges $text, array $sprites, array $tiles = [],
     ?string $worldId = null, array $worldOrigin = ['x' => 0, 'y' => 0], int $tileFrame = 0,
-    ?string $followSpriteId = null, array $screenSpriteIds = [], array $worldCanvasIds = []): PresentationViewport
+    ?string $followSpriteId = null, array $screenSpriteIds = [], array $worldCanvasIds = [],
+    ?PresentationCameraMotion $cameraMotion = null): PresentationViewport
   {
     if ($text instanceof ConsolePresentationSnapshot) { $text = $text->textLayers; }
     elseif ($text instanceof ConsolePresentationChanges) {
@@ -67,6 +78,6 @@ final readonly class FieldViewport
       max(0, ($width - $this->columns * self::TILE_SIZE * $this->zoom) / 2),
       max(0, ($height - $this->rows * self::TILE_SIZE * $this->zoom) / 2),
       new CanvasRectangle(0, 0, $width, $height), $textLayerIds, $spriteIds, array_column($tiles, 'id'),
-      $worldId, $worldOrigin['x'], $worldOrigin['y'], $tileFrame, $follow, $worldCanvasIds);
+      $worldId, $worldOrigin['x'], $worldOrigin['y'], $tileFrame, $follow, $worldCanvasIds, $cameraMotion);
   }
 }

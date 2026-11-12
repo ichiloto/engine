@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Events\Interpreter;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
 use Assegai\Util\Path;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Core\Time;
@@ -9,9 +11,12 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandSchema;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicEffectTarget;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicScriptValidator;
 use Ichiloto\Engine\Cutscenes\Cinematics\CameraOperation;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicSubjectResolver;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicFieldPlane;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicTextSurface;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicTextTimingPolicy;
 use Ichiloto\Engine\Cutscenes\Cinematics\FieldAnimationOperation;
 use Ichiloto\Engine\Cutscenes\Cinematics\TimedPresentationOperation;
@@ -20,12 +25,18 @@ use Ichiloto\Engine\Animations\AnimationLibrary;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Audio\CinematicMusicOperation;
+use Ichiloto\Engine\Audio\AudioPlaybackPause;
+use Ichiloto\Engine\Field\SkitPlaybackOperation;
 use Ichiloto\Engine\Audio\CinematicMusicRequest;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandContext;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Field\Location;
+use Ichiloto\Engine\Field\MapDoorReference;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
+use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
+use Ichiloto\Engine\Messaging\Storybook\StorybookLibrary;
+use Ichiloto\Engine\Messaging\Storybook\StorybookOutcome;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Rendering\ScreenTransition;
@@ -52,17 +63,25 @@ class EventInterpreter
   public const array COMMAND_TYPES = CinematicCommandSchema::COMMAND_TYPES;
 
   protected ?EventExecutionSession $activeSession = null;
+  protected(set) bool $isPlaybackPaused = false;
+  private ?AudioPlaybackPause $audioPause = null;
+  private ?EventPausablePresentationInterface $pausedPresentation = null;
+  /** Where sessions run: the field scene unless another host is given. */
+  protected EventExecutionHostInterface $host;
   protected(set) ?EventExecutionSession $lastSession = null;
 
   /**
    * @param ScriptCommandCatalog|null $scriptCommands The registered commands; the project's when omitted.
+   * @param EventExecutionHostInterface|null $host Where sessions run; the field scene when omitted.
    */
   public function __construct(
     protected GameScene $gameScene,
     protected ?EventPresentationInterface $presentation = null,
     protected ?ScriptCommandCatalog $scriptCommands = null,
+    ?EventExecutionHostInterface $host = null,
   )
   {
+    $this->host = $host ?? $gameScene;
     $this->presentation ??= new ModalEventPresentation($gameScene);
   }
 
@@ -124,7 +143,7 @@ class EventInterpreter
       ? $this->gameScene->currentMapId
       : null;
     $this->activeSession = new EventExecutionSession($commands, $scriptId, $completionTarget, $origin);
-    $this->gameScene->onEventSessionStarted($this->activeSession);
+    $this->host->onEventSessionStarted($this->activeSession);
 
     return $this->activeSession;
   }
@@ -164,7 +183,7 @@ class EventInterpreter
       return;
     }
 
-    if ($session->status === EventExecutionStatus::SUSPENDED) {
+    if ($session->status === EventExecutionStatus::SUSPENDED || $this->isPlaybackPaused) {
       return;
     }
 
@@ -204,6 +223,8 @@ class EventInterpreter
     }
 
     for ($commandsThisTick = 0; $commandsThisTick < 1000; $commandsThisTick++) {
+      // A real join owns an acknowledgement before the next command or cinematic cleanup.
+      if ($this->host === $this->gameScene && $this->gameScene->awaitRecruitmentNotices()) { return; }
       if ($lane->hasFinishedFrames()) {
         $lane->complete();
         return;
@@ -228,6 +249,13 @@ class EventInterpreter
         continue;
       }
 
+      // Start parallel children on their parent's cue. Elapsed time belongs to
+      // the commands already running at the start of this update.
+      if ($result === EventCommandResult::YIELDED && $lane->parallelGroup !== null
+        && $this->updatePendingCommand($session, $lane, 0.0)) {
+        continue;
+      }
+
       return;
     }
 
@@ -248,7 +276,7 @@ class EventInterpreter
     if (
       $session === null
       || $session->status !== EventExecutionStatus::SUSPENDED
-      || strval($session->pendingCommand['type'] ?? '') !== 'transfer'
+      || ($session->pendingState['kind'] ?? null) !== 'transfer'
     ) {
       return;
     }
@@ -319,6 +347,7 @@ class EventInterpreter
     }
 
     try {
+      $this->resumePlayback();
       $this->presentation->reset();
 
       if (! $session->startFinalizerIfNeeded()) {
@@ -338,6 +367,83 @@ class EventInterpreter
     }
 
     return true;
+  }
+
+  /** A battle or transfer owns its suspended session; the field cannot pause it. */
+  public function canPausePlayback(): bool
+  {
+    return $this->activeSession !== null
+      && in_array($this->activeSession->status, [EventExecutionStatus::RUNNING, EventExecutionStatus::YIELDED], true)
+      && $this->presentation instanceof EventPausablePresentationInterface;
+  }
+
+  public function pausePlayback(?float $now = null): bool
+  {
+    if ($this->isPlaybackPaused || !$this->canPausePlayback()) { return false; }
+    $presentation = $this->presentation;
+    if (!$presentation instanceof EventPausablePresentationInterface) { return false; }
+    $game = $this->gameScene->getGame();
+    $pause = isset($game->audioManager) ? $game->audioManager->pausePlayback() : null;
+    try {
+      $presentation->pausePlayback($now ?? RuntimeClock::getSeconds());
+      $this->pausedPresentation = $presentation;
+      $this->audioPause = $pause;
+      $this->isPlaybackPaused = true;
+    } catch (Throwable $error) {
+      foreach ([fn() => $presentation->resumePlayback($now ?? RuntimeClock::getSeconds()), fn() => $pause?->close()] as $cleanup) {
+        try { $cleanup(); }
+        catch (Throwable $failure) { Debug::warn('Event pause rollback failed: ' . $failure->getMessage()); }
+      }
+      throw $error;
+    }
+    return true;
+  }
+
+  public function resumePlayback(?float $now = null): void
+  {
+    if (!$this->isPlaybackPaused) { return; }
+    $this->isPlaybackPaused = false;
+    $pause = $this->audioPause;
+    $presentation = $this->pausedPresentation;
+    $this->audioPause = null;
+    $this->pausedPresentation = null;
+    try { $presentation?->resumePlayback($now ?? RuntimeClock::getSeconds()); }
+    finally { $pause?->close(); }
+  }
+
+  /** The currently displayed Skit has priority over its enclosing cinematic. */
+  public function canSkipPlayback(): bool
+  {
+    $session = $this->activeSession;
+    if ($session === null || $session->status === EventExecutionStatus::SUSPENDED) { return false; }
+    if ($this->findSkitLane($session->rootLane()) !== null) { return true; }
+    return $session->cinematic?->skipPolicy === 'authored'
+      && $session->cinematic->finalizer !== [] && !$session->isFinalizing;
+  }
+
+  public function skipActivePlayback(): bool
+  {
+    if (!$this->canSkipPlayback()) { return false; }
+    $this->resumePlayback();
+    $session = $this->activeSession;
+    if ($session === null) { return false; }
+    $lane = $this->findSkitLane($session->rootLane());
+    if ($lane !== null && $lane->pendingOperation instanceof SkitPlaybackOperation) {
+      $skipped = $lane->pendingOperation->skip();
+      $this->update(0.0);
+      return $skipped;
+    }
+    return $this->skipActiveCinematic();
+  }
+
+  private function findSkitLane(EventExecutionLane $lane): ?EventExecutionLane
+  {
+    if ($lane->pendingOperation instanceof SkitPlaybackOperation) { return $lane; }
+    foreach ($lane->parallelGroup?->lanes() ?? [] as $child) {
+      $found = $this->findSkitLane($child);
+      if ($found !== null) { return $found; }
+    }
+    return null;
   }
 
   public function hasActiveSession(): bool
@@ -369,8 +475,14 @@ class EventInterpreter
     array $command,
   ): EventCommandResult
   {
-    $gameState = $this->gameScene->gameState;
+    $gameState = $this->host->getEventWorldState();
+    $party = $this->host->getEventParty();
     $type = strval($command['type'] ?? '');
+    $scope = $this->host->getEventScope();
+
+    if (in_array($type, self::COMMAND_TYPES, true) && ! $scope->allowsBuiltInCommand($type)) {
+      throw new RuntimeException(sprintf('"%s" cannot run in %s.', $type, $scope->getLabel()));
+    }
 
     switch ($type) {
       case 'text':
@@ -378,6 +490,9 @@ class EventInterpreter
         $session->claimPresentation($lane);
         $text = strval($command['text'] ?? '');
         $speaker = strval($command['name'] ?? '');
+        if ($scope === EventExecutionScope::FIELD) {
+          $this->gameScene->cinematicController?->prepareDialogue($speaker, $command);
+        }
         if ($this->presentation instanceof EventDialoguePresentationInterface) {
           $this->presentation->beginDialogue($text, $speaker, $context);
         } else {
@@ -432,8 +547,8 @@ class EventInterpreter
         $itemStore = ConfigStore::get(ItemStore::class);
         $quantity = max(1, intval($command['quantity'] ?? 1));
 
-        if ($itemStore instanceof ItemStore && $this->gameScene->party) {
-          $this->gameScene->party->addItems(...$itemStore->instantiate(
+        if ($itemStore instanceof ItemStore && $party) {
+          $party->addItems(...$itemStore->instantiate(
             strval($command['item'] ?? ''),
             $quantity,
             'granting an item from a story event command',
@@ -442,20 +557,59 @@ class EventInterpreter
         return EventCommandResult::COMPLETED;
 
       case 'give_gold':
-        $this->gameScene->party?->credit(intval($command['amount'] ?? 0));
+        $party?->credit(intval($command['amount'] ?? 0));
         return EventCommandResult::COMPLETED;
 
       case 'recover_party':
-        foreach ($this->gameScene->party?->members->toArray() ?? [] as $member) {
-          $member->restoreVitals();
-          $member->stats->currentAp = $member->stats->totalAp;
+        foreach ($party?->participants->toArray() ?? [] as $member) {
           $member->clearBattleStates();
+          $member->recoverFromRest();
+          $member->stats->currentAp = $member->stats->totalAp;
         }
         return EventCommandResult::COMPLETED;
 
       case 'play_sound':
         play_sound(strval($command['sound'] ?? ''));
         return EventCommandResult::COMPLETED;
+
+      case 'play_storybook':
+        $bookId = $command['storybook'] ?? null;
+        if (!is_string($bookId) || preg_match(StorybookDefinition::ID_PATTERN, $bookId) !== 1) {
+          throw new RuntimeException('play_storybook requires a selected stable storybook reference.');
+        }
+        if (!$this->presentation instanceof EventStorybookPresentationInterface) {
+          throw new RuntimeException('play_storybook requires a cooperative storybook presentation.');
+        }
+        $finish = CinematicCommandSchema::STORYBOOK_FINISH_FIELD;
+        if (array_key_exists($finish, $command)) {
+          CinematicScriptValidator::validateStorybookPlayback($command, $session->cinematic?->id ?? 'event', $lane->commandPath());
+          if ($command[$finish] !== [] && !$this->presentation instanceof EventStorybookOutcomePresentationInterface) {
+            throw new RuntimeException('play_storybook onFinish requires a reader that reports a reading outcome.');
+          }
+        }
+        // Narration belongs to the active project, independently of its renderer's artwork root.
+        $book = new StorybookLibrary(Path::join(Path::getCurrentWorkingDirectory(), 'assets'))->load($bookId);
+        $session->claimPresentation($lane);
+        $this->presentation->beginStorybook($book);
+        $lane->yieldFor($command, ['kind' => 'dialogue']);
+        return EventCommandResult::YIELDED;
+
+      case 'play_skit':
+        $skitId = $command['skit'] ?? null;
+        if (!is_string($skitId) || trim($skitId) === '') { throw new RuntimeException('play_skit requires a Skit reference.'); }
+        if (!$this->presentation instanceof EventPlayedDialoguePresentationInterface) {
+          throw new RuntimeException('play_skit requires a cooperative conversation presentation.');
+        }
+        $manager = $this->gameScene->skitManager ?? throw new RuntimeException('play_skit requires the field Skit manager.');
+        $session->claimPresentation($lane);
+        try { $operation = $manager->beginSkitPlayback($skitId, $this->presentation); }
+        catch (Throwable $error) { $session->releasePresentation($lane); throw $error; }
+        if ($operation === null) {
+          $session->releasePresentation($lane);
+          return EventCommandResult::COMPLETED;
+        }
+        $lane->yieldFor($command, ['kind' => 'skit'], $operation);
+        return EventCommandResult::YIELDED;
 
       case 'play_music':
         play_music(strval($command['music'] ?? ''), boolval($command['loop'] ?? true));
@@ -488,37 +642,43 @@ class EventInterpreter
         $lane->yieldFor($command, ['kind' => 'movement_route'], $route);
         return EventCommandResult::YIELDED;
 
+      case MapDoorReference::COMMAND:
       case 'transfer':
-        $destinationMap = strval($command['map'] ?? '');
-        $destinationX = intval($command['x'] ?? 0);
-        $destinationY = intval($command['y'] ?? 0);
         $player = $this->gameScene->player;
+        $doorTransfer = $type === MapDoorReference::COMMAND;
+        $destination = $doorTransfer
+          ? MapDoorReference::fromCommand($command)->resolveFromProject(Path::join(Path::getCurrentWorkingDirectory(), 'assets'))
+          : new Location(
+            strval($command['map'] ?? ''),
+            new Vector2(intval($command['x'] ?? 0), intval($command['y'] ?? 0)),
+            isset($command['sprite']) ? (array) $command['sprite'] : null,
+          );
 
         // An always-run finalizer may describe the same destination reached by
         // normal playback. Treat that already-satisfied final state as a
         // no-op so map-entry hooks, deferred autosaves, and other transfer
         // side effects are not repeated merely because cleanup is idempotent.
         if ($session->isFinalizing
-          && $this->gameScene->currentMapId === $destinationMap
-          && intval($player?->position->x ?? PHP_INT_MIN) === $destinationX
-          && intval($player?->position->y ?? PHP_INT_MIN) === $destinationY
+          && $this->gameScene->currentMapId === $destination->mapFilename
+          && intval($player?->position->x ?? PHP_INT_MIN) === intval($destination->playerPosition->x)
+          && intval($player?->position->y ?? PHP_INT_MIN) === intval($destination->playerPosition->y)
         ) {
-          if ($player !== null && array_key_exists('sprite', $command)) {
-            $player->setFacingSprite((array) $command['sprite'], engageEvents: false);
+          if ($player !== null && $destination->playerSprite) {
+            $player->setFacingSprite($destination->playerSprite, engageEvents: false);
           }
 
           return EventCommandResult::COMPLETED;
         }
 
         $session->suspendLane($lane, $command, ['kind' => 'transfer']);
-        $spawn = new Vector2($destinationX, $destinationY);
-        $sprite = (array) ($command['sprite'] ?? ($this->gameScene->player?->sprite ?? ['@']));
-        $transferred = $this->gameScene->transferPlayer(
-          new Location($destinationMap, $spawn, $sprite),
+        $accepted = $this->gameScene->requestPlayerTransfer(
+          $destination,
           useConfiguredTransition: $session->cinematic === null,
+          onFailure: fn(Throwable $error) => $this->failActiveSession($this->commandFailureDiagnostic($session, $lane, $command, $error)),
+          isCurrent: fn(): bool => $this->activeSession === $session && $lane->status === EventExecutionStatus::SUSPENDED,
         );
-        if (! $transferred) {
-          throw new RuntimeException(sprintf('Map transfer to "%s" was refused.', $destinationMap));
+        if (! $accepted) {
+          throw new RuntimeException(sprintf('Map transfer to "%s" was refused.', $destination->mapFilename));
         }
         return EventCommandResult::SUSPENDED;
 
@@ -657,6 +817,7 @@ class EventInterpreter
           $this->gameScene->camera,
           new CinematicSubjectResolver($this->gameScene),
           $command,
+          $this->gameScene->canPresentCameraMotion(...),
         );
 
         if ($operation->isComplete) {
@@ -693,6 +854,7 @@ class EventInterpreter
           $type,
           $text,
           strval($command['title'] ?? ''),
+          CinematicTextSurface::getFromCommand($command),
         );
         $duration = max(0.0, floatval($command['seconds'] ?? 2.5));
 
@@ -743,6 +905,8 @@ class EventInterpreter
           $position,
           $screenSpace,
           isset($command['effect']) ? null : max(0.01, floatval($command['secondsPerFrame'] ?? 0.12)),
+          ($command['follow'] ?? false) ? new CinematicEffectTarget($this->gameScene, $target) : null,
+          CinematicFieldPlane::getFromCommand($command),
         );
 
         if ($operation->isComplete) {
@@ -814,6 +978,11 @@ class EventInterpreter
     $catalog = $this->scriptCommands ?? ScriptCommandRegistry::getCatalog();
     $definition = $catalog->findDefinition($type)
       ?? throw new RuntimeException($this->unknownCommandDiagnostic($session, $lane, $type));
+    $scope = $this->host->getEventScope();
+
+    if (! $definition->runsIn($scope)) {
+      throw new RuntimeException(sprintf('"%s" cannot run in %s.', $type, $scope->getLabel()));
+    }
     $problems = $definition->findProblems($command);
 
     if ($problems !== []) {
@@ -821,7 +990,7 @@ class EventInterpreter
     }
 
     $outcome = $catalog->createHandler($type)->execute(
-      new ScriptCommandContext($this->gameScene, $session->scriptId, $session->origin),
+      new ScriptCommandContext($this->gameScene, $session->scriptId, $session->origin, $this->host->getBattleControl()),
       $command,
     );
 
@@ -882,7 +1051,7 @@ class EventInterpreter
   {
     $reference = '';
 
-    foreach (['subject', 'npcId', 'actorId', 'animation', 'music', 'sound', 'map', 'troop', 'id'] as $key) {
+    foreach (['subject', 'npcId', 'actorId', 'animation', 'music', 'sound', 'map', 'troop', 'storybook', 'id'] as $key) {
       $value = $command[$key] ?? null;
 
       if (is_scalar($value) && trim(strval($value)) !== '') {
@@ -964,7 +1133,7 @@ class EventInterpreter
       return true;
     }
 
-    if ($type === 'text') {
+    if ($type === 'text' || $type === 'play_storybook') {
       $this->presentation->update();
       $this->presentation->render();
 
@@ -972,9 +1141,19 @@ class EventInterpreter
         return false;
       }
 
+      $finish = $type === 'play_storybook' ? ($lane->pendingCommand[CinematicCommandSchema::STORYBOOK_FINISH_FIELD] ?? []) : [];
+      $outcome = $this->presentation instanceof EventStorybookOutcomePresentationInterface && $finish !== []
+        ? $this->presentation->getStorybookOutcome() : null;
+      if ($finish !== [] && $outcome === null) {
+        throw new RuntimeException('Completed storybook presentation did not report a reading outcome.');
+      }
+
       $this->presentation->reset();
       $session->releasePresentation($lane);
       $lane->completePendingCommand();
+      if ($outcome === StorybookOutcome::FINISHED) {
+        $lane->pushFrame($finish, 'storybook:onFinish');
+      }
       return true;
     }
 
@@ -1015,12 +1194,18 @@ class EventInterpreter
       return true;
     }
 
-    if ($lane->pendingOperation instanceof EventPendingOperationInterface) {
-      if (! $lane->pendingOperation->update($deltaSeconds)) {
+    $operation = $lane->pendingOperation;
+    if ($operation !== null) {
+      if (! $operation->update($deltaSeconds)) {
         return false;
       }
 
+      $commands = $operation instanceof EventPendingContinuationInterface
+        ? $this->commandList($session, $operation->getContinuationCommands(), "$type/continuation")
+        : [];
+      if ($type === 'play_skit') { $session->releasePresentation($lane); }
       $lane->completePendingCommand();
+      $lane->pushFrame($commands, "$type:continuation");
       return true;
     }
 
@@ -1041,6 +1226,7 @@ class EventInterpreter
     }
 
     try {
+      $this->resumePlayback();
       $session->completionTarget?->onEventSessionCompleted($this->gameScene, $session);
     } catch (Throwable $throwable) {
       $this->fail(sprintf('Event completion failed: %s', $throwable->getMessage()), $throwable);
@@ -1050,7 +1236,7 @@ class EventInterpreter
     $session->complete();
     $this->lastSession = $session;
     $this->activeSession = null;
-    $this->gameScene->onEventSessionFinished($session, true);
+    $this->host->onEventSessionFinished($session, true);
   }
 
   protected function fail(string $message, ?Throwable $throwable = null): void
@@ -1065,10 +1251,13 @@ class EventInterpreter
     // Mark failure before invoking user-owned cancellation; preserve identity until the
     // completion target has released its cinematic ownership, even when cleanup throws.
     foreach ([
+      'release playback pause' => fn() => $this->resumePlayback(),
       'cancel operations' => fn() => $session->fail($message),
       'release lanes' => fn() => $session->cancelLanes(),
       'reset presentation' => fn() => $this->presentation->reset(),
-      'clear cinematic presentation' => fn() => $this->gameScene->cinematicPresentation?->clear(),
+      // A battle page must never clear the presentation of the field script suspended behind its battle.
+      'clear cinematic presentation' => fn() => $this->host->getEventScope() === EventExecutionScope::FIELD
+        ? $this->gameScene->cinematicPresentation?->clear() : null,
       'notify failure target' => fn() => $session->completionTarget?->onEventSessionFailed($this->gameScene, $session),
     ] as $step => $cleanup) {
       try {
@@ -1081,7 +1270,7 @@ class EventInterpreter
     $this->lastSession = $session;
     $this->activeSession = null;
     try {
-      $this->gameScene->onEventSessionFinished($session, false);
+      $this->host->onEventSessionFinished($session, false);
     } catch (Throwable $failure) {
       $diagnostics[] = sprintf('Event session %d failure cleanup (finish scene): %s', $session->id, $failure->getMessage());
     }
@@ -1107,8 +1296,8 @@ class EventInterpreter
   {
     return WorldConditionEvaluator::allHold(
       $conditions,
-      $this->gameScene->gameState,
-      $this->gameScene->party,
+      $this->host->getEventWorldState(),
+      $this->host->getEventParty(),
     );
   }
 

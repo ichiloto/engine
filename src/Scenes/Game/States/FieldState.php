@@ -11,6 +11,14 @@ use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Entities\Actions\FieldActionContext;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
+use Ichiloto\Engine\Field\PlayerDash;
+use Ichiloto\Engine\Progression\TutorialDirector;
+use Ichiloto\Engine\Progression\TutorialFieldPrompt;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
+use Ichiloto\Engine\Progression\WorldAbilityPrompts;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Field\PlayerWalk;
 use Ichiloto\Engine\Field\FieldActionRegistry;
 use Ichiloto\Engine\Field\SkitPrompt;
@@ -48,6 +56,8 @@ use Ichiloto\Engine\Util\Debug;
 class FieldState extends GameSceneState implements CanvasOverlayProviderInterface
 {
     private ?PlayerWalk $walk = null;
+    private ?WorldAbilityPrompts $worldAbilityPrompts = null;
+    private ?TutorialFieldPrompt $tutorialFieldPrompt = null;
     private ?SkitPromptPresentation $skitPromptPresentation = null;
     /** Invalidates movement across ownership handoffs, even without held input or a missed update. */
     protected(set) int $movementGeneration = 0;
@@ -97,10 +107,16 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         return [SkitPromptPresentation::LAYER];
     }
 
-    public function exit(): void { Console::removeOverlay(SkitPromptPresentation::LAYER); }
+    public function exit(): void
+    {
+        $this->worldAbilityPrompts?->cancel();
+        $this->tutorialFieldPrompt?->suspend();
+        Console::removeOverlay(SkitPromptPresentation::LAYER);
+    }
     public function suspend(): void
     {
         $this->cancelWalking();
+        $this->tutorialFieldPrompt?->suspend();
         Console::removeOverlay(SkitPromptPresentation::LAYER);
     }
 
@@ -112,6 +128,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
     /** Invalidate in-flight movement and stop walking; earlier presses must be pressed again. */
     public function cancelWalking(): void
     {
+        $this->worldAbilityPrompts?->cancel();
         $this->movementGeneration++;
         $this->playerWalk->cancel();
     }
@@ -157,7 +174,16 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
     public function execute(?SceneStateContext $context = null): void
     {
         try { $this->executeField($context); }
-        finally { $this->renderPresentationOverlay(); }
+        finally {
+            $scene = $this->getGameScene();
+            if ($this->tutorialFieldPrompt !== null && ($scene->isStopping || $scene->state !== $this
+                || $scene->sceneManager->currentScene !== $scene || $scene->sceneManager->hasSceneTransition()
+                || $scene->isPreparingMapTransfer || $scene->hasUnstableEventSession()
+                || $scene->getUI()->getActivePresentations() !== [])) {
+                $this->tutorialFieldPrompt->suspend();
+            }
+            $this->renderPresentationOverlay();
+        }
     }
 
     private function executeField(?SceneStateContext $context): void
@@ -166,7 +192,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         assert($scene instanceof GameScene);
 
         if ($scene->isStopping || $scene->state !== $this || $scene->sceneManager->currentScene !== $scene
-            || $scene->sceneManager->hasSceneTransition()) {
+            || $scene->sceneManager->hasSceneTransition() || $scene->isPreparingMapTransfer) {
             return;
         }
         $scene->reconcileFieldPresentation();
@@ -184,12 +210,6 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         // once, then the frame returns without reopening actions or moving
         // the player underneath it.
         if ($scene->hasUnstableEventSession()) {
-            if ($scene->cinematicController?->active() !== null
-                && (Input::isButtonDown('cancel') || Input::isButtonDown('back'))
-            ) {
-                $scene->skipCinematic();
-            }
-
             $scene->updateEventSession(Time::getDeltaTime());
 
             if (! $scene->isStopping && $scene->cinematicController?->active() !== null
@@ -204,6 +224,29 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
             return;
         }
 
+        if ($this->worldAbilityPrompts === null
+            && ConfigStore::has(WorldAbilityCatalog::class)
+            && WorldAbilityCatalog::getProjectCatalog()->hasFirstUsePrompts) {
+            $this->worldAbilityPrompts = new WorldAbilityPrompts($scene->getGame());
+        }
+        if ($scene->tutorialDirector !== null && $scene->getUI()->getActivePresentations() === []) {
+            if ($scene->startPendingTutorialFollowOn()) {
+                return;
+            }
+            $scene->tutorialDirector->updateInStableField(
+                (bool) config(ProjectConfig::class, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true),
+                $scene->party,
+                $scene->questManager?->log,
+            );
+            $tutorial = $scene->tutorialDirector->getActiveTutorial();
+            if ($tutorial?->steps[0]->target['screen'] === MainMenuState::TUTORIAL_SCREEN) {
+                ($this->tutorialFieldPrompt ??= new TutorialFieldPrompt($scene->getGame()))->update($tutorial);
+            } else {
+                $this->tutorialFieldPrompt?->update(null);
+            }
+        }
+
+        $this->worldAbilityPrompts?->updateForScene($scene);
         $this->handleActions($scene);
 
         if ($scene->isStopping || $movementGeneration !== $this->movementGeneration
@@ -255,6 +298,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         }
 
         if (Input::isButtonDown("menu")) {
+            $this->tutorialFieldPrompt?->dismissForMenu();
             play_sound(SystemSound::CONFIRM);
             $this->setState($scene->mainMenuState);
             return;
@@ -269,10 +313,14 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
             return;
         }
 
-        if (Input::isButtonDown('secondary_action') && FieldActionRegistry::executeSecondaryAction(
-            new FieldActionContext($scene->player, $scene, $scene->player->position),
-        )) {
-            return;
+        if (Input::isButtonDown('secondary_action')) {
+            $context = new FieldActionContext($scene->player, $scene, $scene->player->position);
+            if (FieldActionRegistry::executeSecondaryAction($context)) {
+                if ($context->wasAccepted) {
+                    $scene->recordPlayerActivity();
+                }
+                return;
+            }
         }
 
         if (Input::isButtonPressed('map_size') && $scene->canPresentMapAtlas()
@@ -344,9 +392,11 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
     protected function handleNavigation(GameScene $scene): void
     {
         if (Input::isHeldInputAvailable()) {
-            // The walk's clock and the step's presentation share one duration.
+            // The walk's clock and the step's presentation share one duration, a dash's included.
             $this->playerWalk->update(Time::getDeltaTime(), static fn(Vector2 $direction, float $seconds): bool
-                => $scene->moveAtPace($seconds, static fn(): bool => $scene->player->tryMove($direction, $scene->camera)));
+                => $scene->moveAtPace($seconds, static fn(): bool => $scene->player->tryMove($direction, $scene->camera, StepOrigin::PLAYER_INPUT)),
+                PlayerDash::getSpeedMultiplier($scene->mapManager?->isDashingDisabled ?? false,
+                    $scene->gameState, $scene->party));
             return;
         }
 

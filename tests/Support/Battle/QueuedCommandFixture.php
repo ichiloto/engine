@@ -39,6 +39,7 @@ final class TargetExecutionField extends BattleFieldWindow
 {
   public array $results = [];
   public function __construct(BattleScreen $screen) { $this->battleScreen = $screen; }
+  public function render(?int $x = null, ?int $y = null): void {}
   public function clearTargetIndicators(): void {}
   public function focusPartyBattler(int $index, bool $blink = false): void {}
   public function focusOnTroopBattler(int $index, bool $blink = false): void {}
@@ -87,6 +88,7 @@ final class TargetExecutionScreen extends BattleScreen
   public function getPacing(): BattlePacing { return new BattlePacing(); }
   public function usesGraphicalField(): bool { return $this->graphical; }
   public function refresh(): void {}
+  public function renderField(): void {}
   public function refreshField(): void
   {
     $playback = $this->fieldWindow->getCommandPlayback();

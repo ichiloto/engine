@@ -13,7 +13,8 @@ use Ichiloto\Engine\Battle\Presentation\BattlePoseSet;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Battle\Presentation\BattlerArtwork;
 use Ichiloto\Engine\Battle\Presentation\BattlerPose;
-use Ichiloto\Engine\Battle\Presentation\BattlerSlot;
+use Ichiloto\Engine\Battle\Presentation\BattleGround;
+use Ichiloto\Engine\Battle\Presentation\BattleStageSlot;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattlePresentation;
 use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\ResolutionKind;
@@ -88,7 +89,7 @@ return static function (string $root, bool $reducedMotion, ?array $subjects = nu
         &$subject, &$command, $subjects, $root, $audio, $random): void {
         if ($command === 0) {
             $fixture = createTargetExecutionFixture($subjects[$subject] === 'atb', true, $audio,
-                [new BattlerSlot(450, 500, 192, 192), new BattlerSlot(550, 650, 192, 192)]);
+                [new BattleStageSlot(450, 200, 192, 192), new BattleStageSlot(550, 50, 192, 192)]);
             [$engine, $context, , , $ally] = $fixture;
             $ally->stats->currentHp = 100;
             new ReflectionProperty($context, 'effectTimelines')->setValue($context, new EffectTimelineLibrary($root));
@@ -103,8 +104,8 @@ return static function (string $root, bool $reducedMotion, ?array $subjects = nu
                 new CanvasImage('arena', 'Arena.png', new CanvasRectangle(0, 0, 1350, 720)));
             $catalog = new BattlePresentationCatalog(['arena.preview' => $arena],
                 ['Caster' => $art, 'Recipient' => $art], ['Enemy A' => $art, 'Enemy B' => $art],
-                ui: new BattleCanvasLayout(1350, 720, partySlots:
-                    [new BattlerSlot(950, 500, 192, 192), new BattlerSlot(1100, 650, 192, 192)]),
+                ui: new BattleCanvasLayout(1350, 720, ground: new BattleGround(bottom: 700), partySlots:
+                    [new BattleStageSlot(950, 200, 192, 192), new BattleStageSlot(1100, 50, 192, 192)]),
                 defaultArena: 'arena.preview', actorPoses: ['Caster' => $poses, 'Recipient' => $poses],
                 enemyPoses: ['Enemy A' => $poses, 'Enemy B' => $poses]);
             $presentation = GraphicalBattlePresentation::prepare($engine->battleConfig, $catalog, $root);

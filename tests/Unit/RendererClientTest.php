@@ -27,7 +27,7 @@ it('retains optional drawing capabilities without requiring them for startup', f
   ], JSON_THROW_ON_ERROR))];
   $client->pump();
   foreach ($baseline as $capability) { expect($client->supports($capability))->toBeTrue(); }
-  foreach ([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_COMPOSITING] as $capability) {
+  foreach ([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_COMPOSITING, RendererSessionConfig::CANVAS_REGION_BUDGET, RendererSessionConfig::CANVAS_COMPOSITE_BUDGET] as $capability) {
     expect($client->supports($capability))->toBe(in_array($capability, $advertised, true));
   }
   expect($transport->session->requiredCapabilities)->toBe($baseline)
@@ -36,6 +36,8 @@ it('retains optional drawing capabilities without requiring them for startup', f
 })->with([
   'legacy baseline only' => [[]],
   'capable renderer' => [[RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_COMPOSITING]],
+  'painted-region accounting' => [[RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_REGION_BUDGET]],
+  'composite surface accounting' => [[RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_COMPOSITING, RendererSessionConfig::CANVAS_COMPOSITE_BUDGET]],
   'unsolicited event and unknown extensions' => [['window_activation', 'future_extension']],
 ]);
 
@@ -55,7 +57,7 @@ function rendererClientEvent(string $type, array $payload = []): RendererEvent
 it('delegates renderer lifecycle and sends without implementing process control', function () {
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
-  $session = new RendererSessionConfig('Client test', sys_get_temp_dir());
+  $session = new RendererSessionConfig('Client test', \getTestTemporaryDirectory());
   $client->start($session);
   expect($client->isRunning())->toBeTrue()->and($transport->session)->toBe($session);
   $client->pump();
@@ -162,6 +164,6 @@ it('validates broker limits and refuses to discard unread events for a new sessi
   $client = new RendererClient($transport);
   $transport->batches[] = [rendererClientEvent('ready')];
   $client->pump();
-  expect(fn() => $client->start(new RendererSessionConfig('new', sys_get_temp_dir())))->toThrow(RendererTransportException::class, 'pending');
+  expect(fn() => $client->start(new RendererSessionConfig('new', \getTestTemporaryDirectory())))->toThrow(RendererTransportException::class, 'pending');
   expect($client->pollEvents()[0]->type)->toBe(RendererEventType::READY);
 });

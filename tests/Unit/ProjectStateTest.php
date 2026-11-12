@@ -403,8 +403,7 @@ it('validates through GameLoader without hydrating the previous campaign', funct
         $scene->configure(createProjectStateConfig(['fixture/progress' => ['version' => 2, 'data' => ['resourceId' => 'resource-b', 'count' => 10]]]));
         $slot = $manager->save($scene, 1);
         $game->getProjectStateRegistry()->replaceStates(['fixture/progress' => ['resourceId' => 'resource-a', 'count' => 6]]);
-        $loader = new ReflectionClass(GameLoader::class)->newInstanceWithoutConstructor();
-        new ReflectionProperty(GameLoader::class, 'game')->setValue($loader, $game);
+        $loader = createTestGameLoader($game);
         $config = $loader->loadSavedGame($slot->path);
         expect($config->projectState['fixture/progress']['data']['count'])->toBe(10)
             ->and($game->getProjectStateRegistry()->getState('fixture/progress')['count'])->toBe(6);
@@ -470,10 +469,7 @@ it('loads an actual synthetic new-game configuration empty and resets old progre
         $registry = $game->getProjectStateRegistry();
         $registry->restoreSnapshot(['fixture/progress' => ['version' => 2, 'data' => ['resourceId' => 'resource-a', 'count' => 8]],
             'unavailable/previous' => ['version' => 1, 'data' => ['receipt' => 'old-campaign']]]);
-        $loader = new ReflectionClass(GameLoader::class)->newInstanceWithoutConstructor();
-        new ReflectionProperty(GameLoader::class, 'game')->setValue($loader, $game);
-        new ReflectionProperty(GameLoader::class, 'actorStore')->setValue($loader, new ActorStore(definitions: []));
-        new ReflectionProperty(GameLoader::class, 'itemStore')->setValue($loader, new ItemStore());
+        $loader = createTestGameLoader($game, new ActorStore(definitions: []), new ItemStore(), $root . '/assets');
         $newGame = $loader->loadNewGame();
         expect($newGame->projectState)->toBe([])->and($registry->getState('fixture/progress')['count'])->toBe(8);
         new ProjectStateSceneProbe($game)->configure($newGame);
@@ -482,4 +478,75 @@ it('loads an actual synthetic new-game configuration empty and resets old progre
     } finally {
         chdir($oldDirectory);
     }
+});
+
+
+it('releases a detached snapshot back to the exact prior campaign and unknown sections', function () {
+    $registry = new ProjectStateRegistry();
+    $registry->registerParticipant(new SyntheticProjectStateParticipant());
+    $prior = ['fixture/progress' => ['version' => 2, 'data' => ['resourceId' => 'resource-a', 'count' => 4]],
+        'unavailable/history' => ['version' => 7, 'data' => ['receipt' => 'retained']]];
+    $registry->restoreSnapshot($prior);
+    $scope = $registry->acquireSnapshot(['fixture/progress' => ['version' => 2,
+        'data' => ['resourceId' => 'resource-b', 'count' => 7]]]);
+    expect($scope->isActive)->toBeTrue()->and($registry->getState('fixture/progress')['count'])->toBe(7);
+    $registry->replaceStates(['fixture/progress' => ['resourceId' => 'resource-b', 'count' => 9]]);
+    $scope->release();
+    $scope->release();
+    expect($scope->isActive)->toBeFalse()->and($registry->captureSnapshot())->toBe($prior);
+});
+
+it('commits an owned snapshot and refuses overlapping campaign restoration', function () {
+    $registry = new ProjectStateRegistry();
+    $registry->registerParticipant(new SyntheticProjectStateParticipant());
+    $scope = $registry->acquireSnapshot([]);
+    expect(fn() => clone $scope)->toThrow(Error::class);
+    expect(fn() => $registry->acquireSnapshot([]))->toThrow(ProjectStateException::class)
+        ->and(fn() => $registry->restoreSnapshot([]))->toThrow(ProjectStateException::class)
+        ->and(fn() => $registry->runWithSnapshot([], static function () {}))->toThrow(ProjectStateException::class);
+    $registry->replaceStates(['fixture/progress' => ['resourceId' => 'resource-b', 'count' => 9]]);
+    $scope->commit();
+    $scope->release();
+    expect($registry->getState('fixture/progress')['count'])->toBe(9)
+        ->and(fn() => $scope->commit())->toThrow(LogicException::class);
+    $next = $registry->acquireSnapshot([]);
+    $next->release();
+    expect($registry->getState('fixture/progress')['count'])->toBe(9);
+});
+
+it('restores an unstarted registry after a temporary acquisition', function () {
+    $registry = new ProjectStateRegistry();
+    $registry->registerParticipant(new SyntheticProjectStateParticipant());
+    $scope = $registry->acquireSnapshot([]);
+    $scope->release();
+    $registry->registerParticipant(new SyntheticProjectStateParticipant('fixture/second'));
+    expect($registry->getState('fixture/second'))->toBe([]);
+    $committed = $registry->acquireSnapshot([]);
+    $committed->commit();
+    expect(fn() => $registry->registerParticipant(new SyntheticProjectStateParticipant('fixture/third')))
+        ->toThrow(ProjectStateException::class);
+});
+
+it('keeps failed snapshot preparation atomic and leaves acquisition available', function () {
+    $registry = new ProjectStateRegistry();
+    $registry->registerParticipant(new SyntheticProjectStateParticipant());
+    $registry->replaceStates(['fixture/progress' => ['resourceId' => 'resource-a', 'count' => 4]]);
+    expect(fn() => $registry->acquireSnapshot(['fixture/progress' => ['version' => 2,
+        'data' => ['resourceId' => 'invalid', 'count' => -1]]]))->toThrow(ProjectStateException::class)
+        ->and($registry->getState('fixture/progress')['count'])->toBe(4);
+    $scope = $registry->acquireSnapshot([]);
+    $scope->release();
+    expect($registry->getState('fixture/progress')['count'])->toBe(4);
+});
+
+it('keeps completed scope release from altering a later owner', function () {
+    $registry = new ProjectStateRegistry();
+    $registry->registerParticipant(new SyntheticProjectStateParticipant());
+    $first = $registry->acquireSnapshot([]);
+    $first->release();
+    $second = $registry->acquireSnapshot(['fixture/progress' => ['version' => 2,
+        'data' => ['resourceId' => 'resource-b', 'count' => 8]]]);
+    $first->release();
+    expect($second->isActive)->toBeTrue()->and($registry->getState('fixture/progress')['count'])->toBe(8);
+    $second->release();
 });

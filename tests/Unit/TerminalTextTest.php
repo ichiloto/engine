@@ -104,7 +104,7 @@ it('wraps styled text by visible width without losing the highlighted key', func
   $text = 'Press ' . Color::apply('T', Color::YELLOW) . ' to watch.';
   $lines = TerminalText::wrapToWidth($text, 10);
 
-  expect(array_map([TerminalText::class, 'stripAnsi'], $lines))->toBe(['Press T', 'to watch.'])
+  expect(array_map([TerminalText::class, 'stripAnsi'], $lines))->toBe(['Press T to', 'watch.'])
     ->and(SgrColorParser::parse(TerminalText::visibleSymbols($lines[0])[6]))
     ->toEqual(SgrColorParser::parse(Color::YELLOW->value . 'T'));
 });
@@ -214,11 +214,19 @@ it('keeps padded columns aligned around unstable glyphs', function () {
 
 it('remeasures modifier graphemes when the terminal composition capability changes', function (bool $first) {
   $capability = new ReflectionProperty(\Ichiloto\Engine\IO\Console\TerminalCapabilities::class, 'supportsCompositeEmoji');
-  foreach ([$first, !$first, $first] as $composes) {
-    $capability->setValue(null, $composes);
-    $glyph = "\u{261D}\u{1F3FD}";
-    expect(TerminalText::stabilizeSymbol($glyph))->toBe($composes ? $glyph : "\u{261D}")
-      ->and(TerminalText::displayWidth($glyph))->toBe($composes ? 2 : 1);
+  // A project setting outranks detection; this test drives detection alone, whatever an earlier test configured.
+  $store = new ReflectionClass(\Ichiloto\Engine\Util\Config\ConfigStore::class);
+  $saved = $store->getStaticProperties();
+  \Ichiloto\Engine\Util\Config\ConfigStore::remove(\Ichiloto\Engine\Util\Config\ProjectConfig::class);
+  try {
+    foreach ([$first, !$first, $first] as $composes) {
+      $capability->setValue(null, $composes);
+      $glyph = "\u{261D}\u{1F3FD}";
+      expect(TerminalText::stabilizeSymbol($glyph))->toBe($composes ? $glyph : "\u{261D}")
+        ->and(TerminalText::displayWidth($glyph))->toBe($composes ? 2 : 1);
+    }
+  } finally {
+    foreach ($saved as $name => $value) { $store->setStaticPropertyValue($name, $value); }
   }
 })->with([false, true]);
 
@@ -227,4 +235,87 @@ it('emits the stabilized graphemes whose widths were used for fitting and wrappi
   expect(TerminalText::truncateToWidth($text, 10))->toBe("\u{1F5E1}\u{FE0F} Fixture")
     ->and(TerminalText::padRight($text, 12))->toBe("\u{1F5E1}\u{FE0F} Fixture  ")
     ->and(TerminalText::wrapToWidth($text, 7))->toBe(["\u{1F5E1}\u{FE0F}", 'Fixture']);
+});
+
+it('formats each styled string as the shared formatter would format it whole from a fresh stack', function () {
+  $formatter = new ReflectionProperty(TerminalText::class, 'formatter');
+  $previous = $formatter->getValue();
+  $formatter->setValue(null, null);
+  try {
+    TerminalText::formatStyles('<info>x</info>');
+    // The expected output comes from the same formatter, taking each independent string whole.
+    $whole = clone $formatter->getValue();
+    $rows = [
+      str_repeat('<fg=green>♣♣♣</><fg=bright-green>,,</><fg=blue>~</>', 40),
+      "<fg=blue>a</>\u{0301}<fg=red>b</>♣",
+      "<fg=blue>e\u{0301}</>♣<fg=red>e\u{0301}</>x",
+      'plain ♣ \\</> text<fg=blue>x</>y',
+      '<fg=blue>outer <fg=red>♣</> still blue</> after <comment>♣</comment>',
+      '<fg=blue>♣</fg=red>x</>',
+      '<fg=blue>♣</><fg=red>left open ♣',
+      'carried ♣<fg=blue>x</> closes</>',
+      "<fg=blue>♣</>\r\n<fg=red>♣</>",
+      "\xFF<fg=blue>♣</>",
+    ];
+    foreach ($rows as $row) {
+      $whole->getStyleStack()->reset();
+      try { $expected = $whole->format($row); } catch (Throwable) { $expected = $row; }
+      expect(TerminalText::formatStyles($row))->toBe($expected, $row);
+    }
+  } finally {
+    $formatter->setValue(null, $previous);
+  }
+});
+
+it('formats a long styled row in time that grows with its length, not with its length per tag', function () {
+  // A world map row is a run of styled segments; each segment here is the same, so a row four
+  // times longer is four times the work. Formatting it whole would cost its length for every tag.
+  $row = static fn(int $segments): string => str_repeat('<fg=green>♣♣♣</><fg=bright-green>,,</>', $segments);
+  $least = static function (string $text): float {
+    $best = INF;
+    for ($run = 0; $run < 5; $run++) {
+      $start = hrtime(true);
+      TerminalText::formatStyles($text);
+      $best = min($best, hrtime(true) - $start);
+    }
+    return $best;
+  };
+  $short = $least($row(100));
+  $long = $least($row(400));
+  // Linear work gives about 4; work per tag across the whole row gives about 16.
+  expect($long / $short)->toBeLessThan(8.0);
+});
+
+
+it('treats separators at soft breaks as spacing while retaining authored paragraph indentation', function () {
+  expect(TerminalText::wrapParagraphsToWidth("abc def ghi\n  next line\n\n    indented", 7))
+    ->toBe(['abc def', 'ghi', '  next', 'line', '', '    ind', 'ented'])
+    ->and(TerminalText::wrapToWidth('abcdef   gh ij', 6))->toBe(['abcdef', 'gh ij'])
+    ->and(TerminalText::wrapToWidth('abc defghijkl', 6))->toBe(['abc', 'defghi', 'jkl']);
+});
+
+it('wraps styled graphemes within both display-cell and optional graphical codepoint budgets', function () {
+  $source = "\e[31mabc def\e[0m ghi 界界 e\u{0301}e\u{0301}e\u{0301}";
+  $lines = TerminalText::wrapParagraphsToWidth($source, 7, 7);
+  expect(TerminalText::stripAnsi($lines[0]))->toBe('abc def')
+    ->and(TerminalText::stripAnsi($lines[1]))->not->toStartWith(' ')
+    ->and(SgrColorParser::parse(TerminalText::visibleSymbols($lines[0])[4]))
+    ->toEqual(SgrColorParser::parse("\e[31md"));
+  foreach ($lines as $line) {
+    expect(TerminalText::displayWidth($line))->toBeLessThanOrEqual(7)
+      ->and(mb_strlen(TerminalText::stripAnsi($line), 'UTF-8'))->toBeLessThanOrEqual(7);
+  }
+  expect(preg_replace('/\s+/u', '', TerminalText::stripAnsi(implode('', $lines))))
+    ->toBe(preg_replace('/\s+/u', '', TerminalText::stripAnsi($source)));
+});
+
+
+it('isolates formatter styles between independently formatted strings', function () {
+  $following = 'plain <fg=blue>b</> after';
+  $before = TerminalText::visibleSymbols($following);
+
+  expect(TerminalText::stripAnsi(TerminalText::formatStyles("<fg=red>a\\</>")))->toBe('a</>')
+    ->and(TerminalText::visibleSymbols($following))->toBe($before)
+    ->and(TerminalText::visibleSymbols('<fg=red>a')[0])->not->toBe('a')
+    ->and(TerminalText::visibleSymbols('<fg=blue>b</> x')[2])->toBe('x');
 });

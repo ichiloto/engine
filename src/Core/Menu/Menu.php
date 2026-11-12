@@ -369,7 +369,7 @@ abstract class Menu implements MenuInterface
         $output = SelectionStyle::apply($output);
       }
 
-      $content[] = $output;
+      $content[] = $this->styleTerminalItem($item, $output);
     }
 
     $contentHeight = $this->window?->getContentHeight()
@@ -386,5 +386,10 @@ abstract class Menu implements MenuInterface
     }
 
     $this->render();
+  }
+
+  protected function styleTerminalItem(MenuItemInterface $item, string $line): string
+  {
+    return $line;
   }
 }

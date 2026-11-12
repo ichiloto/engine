@@ -18,7 +18,7 @@ use Ichiloto\Engine\Util\Debug;
 it('uses end timing for omitted and unknown modes while warning about unknown authoring', function () {
   $logDirectory = new ReflectionProperty(Debug::class, 'logDirectory');
   $previousLogDirectory = $logDirectory->getValue();
-  $logs = sys_get_temp_dir() . '/ichiloto-summon-timing-' . uniqid();
+  $logs = \getTestTemporaryDirectory() . '/ichiloto-summon-timing-' . uniqid();
   try {
     $logDirectory->setValue(null, $logs);
     $omitted = SummonCutsceneDefinition::fromArrays(
@@ -140,7 +140,7 @@ it('compiles summon cutscenes into runtime playback segments', function () {
 });
 
 it('loads folder-based summon assets and compiles them when needed', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-summon-library-' . uniqid();
+  $root = \getTestTemporaryDirectory() . '/ichiloto-summon-library-' . uniqid();
   $directory = $root . '/ifrit';
   mkdir($directory, 0777, true);
 
@@ -220,7 +220,7 @@ it('round-trips codex fields through the definition', function () {
 });
 
 it('keeps compiled summon definitions stable for one battle and reloads in the next', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-summon-cache-' . uniqid();
+  $root = \getTestTemporaryDirectory() . '/ichiloto-summon-cache-' . uniqid();
   $directory = $root . '/first';
   mkdir($directory, 0777, true);
   $data = $directory . '/first.data.php';
@@ -240,7 +240,7 @@ it('keeps compiled summon definitions stable for one battle and reloads in the n
 });
 
 it('keeps valid summons available when a neighbouring optional definition is malformed', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-summon-invalid-' . uniqid();
+  $root = \getTestTemporaryDirectory() . '/ichiloto-summon-invalid-' . uniqid();
   $valid = $root . '/valid';
   $invalid = $root . '/invalid';
   mkdir($valid, 0777, true);
@@ -461,4 +461,25 @@ it('applies summon combat exactly once at end cue or explicit frame and after pr
   catch (RuntimeException) { /* Runtime reports the presentation failure after the effect fallback. */ }
   finally { $trigger->finish(); }
   expect($count)->toBe(1);
+});
+
+it('isolates authored summon variables from the loader and the companion file', function () {
+  $root = createTestDirectory('summon-source-scope-');
+  $directory = $root . '/arrival';
+  mkdir($directory);
+  file_put_contents($directory . '/arrival.data.php', <<<'PHP'
+<?php
+$timelinePath = 'not-the-timeline.php';
+return ['id' => 'arrival', 'name' => 'Arrival', 'linkedActionId' => 'Call', 'effectTiming' => ['mode' => 'end']];
+PHP);
+  file_put_contents($directory . '/arrival.timeline.php', <<<'PHP'
+<?php
+$data = 'local-timeline-data';
+return ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];
+PHP);
+
+  $definition = (new SummonCutsceneLibrary($root))->findById('arrival');
+
+  expect($definition?->id)->toBe('arrival')
+    ->and($definition?->fps)->toBe(12);
 });

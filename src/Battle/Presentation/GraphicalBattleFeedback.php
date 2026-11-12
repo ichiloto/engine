@@ -55,15 +55,17 @@ final class GraphicalBattleFeedback
         static fn(array $participant) => $participant['id'] !== $block['owner']), 'bounds');
       $critical = array_any($block['lines'], static fn($line) => ($line['role'] ?? null) === BattleFeedbackRole::CRITICAL);
       $rise = $popup === null || $reducedMotion ? 0 : 32;
+      $aboveTarget = $popup !== null && array_any($block['lines'],
+        static fn($line) => ($line['role'] ?? null) === BattleFeedbackRole::DAMAGE);
       $layout = self::layout($block['lines'], $popup === null, false, $arena->feedbackArea->width, $padding);
       $placement = BattleFeedbackPlacement::moving($block['bounds'], $layout['width'], $layout['height'], $arena->feedbackArea,
-        $ui, $occupied, $rise, $otherBattlers, beside: $popup !== null);
+        $ui, $occupied, $rise, $otherBattlers, beside: $popup !== null && !$aboveTarget, aboveTarget: $aboveTarget);
       if ($popup !== null && $critical) {
         $enlarged = self::layout($block['lines'], false, true, $arena->feedbackArea->width, $padding);
         // Enlargement is optional; preserve the whole literal block and its clear travel envelope first.
         if (!$enlarged['wrappedDamage'] && $enlarged['height'] <= $arena->feedbackArea->height) {
           $candidate = BattleFeedbackPlacement::moving($block['bounds'], $enlarged['width'], $enlarged['height'],
-            $arena->feedbackArea, $ui, $occupied, $rise, $otherBattlers, beside: true);
+            $arena->feedbackArea, $ui, $occupied, $rise, $otherBattlers, beside: !$aboveTarget, aboveTarget: $aboveTarget);
           if ($candidate['overlap'] === 0.0) { $layout = $enlarged; $placement = $candidate; }
         }
       }
@@ -120,6 +122,7 @@ final class GraphicalBattleFeedback
       BattleFeedbackRole::WEAK => [11, 22, 'damage'],
       BattleFeedbackRole::RESIST, BattleFeedbackRole::NULL => [11, 22, 'mp'],
       BattleFeedbackRole::ABSORB => [11, 22, 'healing'],
+      BattleFeedbackRole::REVEAL => [11, 22, 'focus'],
       BattleFeedbackRole::MISS => [17, 34, 'text'],
       BattleFeedbackRole::DAMAGE => $critical ? [24, 48, 'damage'] : [20, 40, 'damage'],
       BattleFeedbackRole::HEAL => [20, 40, 'healing'],

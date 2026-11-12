@@ -99,7 +99,7 @@ it('keeps complete layer order for equal priorities and metadata-only priority c
 it('replays wide glyph overlap overlay priority removal and sprite exclusion changes', function () {
   Console::write("\e[34m界\e[0mAB", 0, 1);
   Console::withLayer('npc', fn() => Console::write('n', 1, 1), 100);
-  Console::replaceOverlay('notice', ['界'], 1, 1, 1000);
+  Console::replaceOverlay('notice', ['界'], 1, 1, \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
   Console::withLayer('hud', fn() => Console::write('H', 2, 1), 2000);
   foreach ([[], ['npc'], ['hud'], ['notice'], [], ['npc', 'hud']] as $excluded) {
     expect(applyConsoleRowChanges($this, Console::getRetainedPresentationChanges($excluded)))
@@ -107,7 +107,7 @@ it('replays wide glyph overlap overlay priority removal and sprite exclusion cha
   }
   Console::removeLayer('hud');
   expect(applyConsoleRowChanges($this, Console::getRetainedPresentationChanges()))->toEqual(Console::presentationSnapshot());
-  Console::replaceOverlay('notice', ['Z'], 5, 3, 1000);
+  Console::replaceOverlay('notice', ['Z'], 5, 3, \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
   $moved = Console::getRetainedPresentationChanges();
   $notice = array_values(array_filter($moved->layers, fn($layer) => $layer['id'] === 'notice'))[0];
   expect(array_column($notice['rows'], 'row'))->toBe([1, 3])->and($notice['rows'][0]['runs'])->toBe([]);
@@ -121,7 +121,7 @@ it('excludes retained map contributions and older underlays but preserves later 
   Console::withLayer('older', fn() => Console::write('O', 1, 0), 0);
   Console::withLayer('map', fn() => Console::write('....', 0, 0), 0);
   Console::withLayer('npc', fn() => Console::write('N', 1, 0), 100);
-  Console::withLayer('hud', fn() => Console::write('H', 2, 0), 1000);
+  Console::withLayer('hud', fn() => Console::write('H', 2, 0), \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
   applyConsoleRowChanges($this, Console::getRetainedPresentationChanges());
   $changes = Console::getRetainedPresentationChanges(['npc'], excludedWorldLayers: ['map']);
   $state = applyConsoleRowChanges($this, $changes);
@@ -138,7 +138,7 @@ it('omits only synthetic base blanks retaining authored spaces styles and opaque
     ->and(new ReflectionProperty(Console::class, 'buffer')->getValue())->toBe([]);
   Console::write(' ', 3, 1);
   Console::write("\e[44m ", 6, 1);
-  Console::withLayer('ui', fn() => Console::write('   ', 2, 3), 1000);
+  Console::withLayer('ui', fn() => Console::write('   ', 2, 3), \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
   $state = applyConsoleRowChanges($this, Console::getRetainedPresentationChanges(reset: true));
   expect($state->textLayers[0]->runs)->toHaveCount(2)
     ->and($state->textLayers[0]->runs[0]->column)->toBe(3)
@@ -155,7 +155,7 @@ it('restores retained map cells across wide world glyphs without erasing UI or o
   Console::setRetainedWorldPresentation(true);
   Console::write('界X', 0, 1);
   Console::withLayer('npc', fn() => Console::write('界N', 0, 1), 100);
-  Console::withLayer('ui', fn() => Console::write('H', 1, 1), 1000);
+  Console::withLayer('ui', fn() => Console::write('H', 1, 1), \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
   Console::replaceOverlay('notice', ['!'], 2, 1, 2000);
   applyConsoleRowChanges($this, Console::getRetainedPresentationChanges());
   Console::removeWorldCellContributions(1, 1);
@@ -204,7 +204,7 @@ it('keeps erase inert without retained world mode or with terminal output enable
 it('uses sparse recompose for unchanged frames independent of screen height', function (int $height) {
   Console::syncDimensions(200, $height);
   Console::setRetainedWorldPresentation(true);
-  $draw = static fn() => Console::withLayer('hud', fn() => Console::write('HUD', 10, 2), 1000);
+  $draw = static fn() => Console::withLayer('hud', fn() => Console::write('HUD', 10, 2), \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
   Console::recomposeFrame($draw);
   Console::getRetainedPresentationChanges();
   $count = countConsoleComposedRows();
@@ -228,7 +228,7 @@ it('rolls back failed sparse composition including pending changes and overlays'
   $before = Console::presentationSnapshot();
   expect(fn() => Console::recomposeFrame(function () {
     Console::withLayer('temporary', fn() => Console::write('bad', 0, 0), 100);
-    Console::replaceOverlay('new', ['bad'], 0, 0, 1000);
+    Console::replaceOverlay('new', ['bad'], 0, 0, \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
     throw new RuntimeException('rollback');
   }))->toThrow(RuntimeException::class, 'rollback');
   expect(Console::presentationSnapshot())->toEqual($before)->and(Console::isComposing())->toBeFalse();
@@ -241,7 +241,7 @@ it('rolls back failed sparse composition including pending changes and overlays'
 it('retains unrelated rows and discards unchanged partial redraws in sparse presentation', function () {
   Console::setRetainedWorldPresentation(true);
   Console::write('field', 0, 1);
-  Console::withLayer('hud', fn() => Console::write('HP', 0, 4), 1000);
+  Console::withLayer('hud', fn() => Console::write('HP', 0, 4), \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
   Console::replaceOverlay('notice', ['Toast'], 7, 0, 2000);
   applyConsoleRowChanges($this, Console::getRetainedPresentationChanges());
   Console::updateFrame(function (): void {
@@ -321,7 +321,7 @@ it('matches the reference through a deterministic mixed incremental lifecycle', 
       case 1:
       case 2: Console::withLayer($id, fn() => Console::write($glyph, $x, $y), $id === 'hud' ? 1500 : 100); break;
       case 3: Console::removeLayer($id, repaint: false); break;
-      case 4: Console::replaceOverlay('notice', [$glyph], $x, $y, 1000); break;
+      case 4: Console::replaceOverlay('notice', [$glyph], $x, $y, \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI); break;
       case 5: Console::removeOverlay('notice'); break;
       case 6: Console::recomposeFrame(fn() => Console::withLayer($id, fn() => Console::write($glyph, $x, $y), 100)); break;
       case 7: Console::withLayer($id, fn() => Console::write($glyph, $x, $y), 1500); break;
@@ -334,9 +334,9 @@ it('matches the reference through a deterministic mixed incremental lifecycle', 
 
 it('preserves overlay updates inside sparse recompose including priority-only changes', function () {
   Console::setRetainedWorldPresentation(true);
-  Console::replaceOverlay('notice', ['old'], 2, 1, 1000);
+  Console::replaceOverlay('notice', ['old'], 2, 1, \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
   applyConsoleRowChanges($this, Console::getRetainedPresentationChanges());
-  Console::recomposeFrame(fn() => Console::replaceOverlay('notice', ['new'], 2, 3, 1000));
+  Console::recomposeFrame(fn() => Console::replaceOverlay('notice', ['new'], 2, 3, \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI));
   $changes = Console::getRetainedPresentationChanges();
   expect(array_column($changes->layers[0]['rows'], 'row'))->toBe([1, 3]);
   applyConsoleRowChanges($this, $changes);
@@ -349,7 +349,7 @@ it('preserves overlay updates inside sparse recompose including priority-only ch
 it('does not let removed map underlays suppress an overlay', function () {
   Console::withLayer('older', fn() => Console::write('H', 1, 1), 2000);
   Console::withLayer('map', fn() => Console::write('.', 1, 1), 0);
-  Console::replaceOverlay('notice', ['!'], 1, 1, 1000);
+  Console::replaceOverlay('notice', ['!'], 1, 1, \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI);
   applyConsoleRowChanges($this, Console::getRetainedPresentationChanges());
   $state = applyConsoleRowChanges($this, Console::getRetainedPresentationChanges(excludedWorldLayers: ['map']));
   expect(array_column($state->textLayers, 'id'))->toBe(['world', 'notice'])

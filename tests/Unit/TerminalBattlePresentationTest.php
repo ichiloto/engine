@@ -222,9 +222,9 @@ it('preserves head center feet and screen geometry without graphical motion', fu
     $origins[$position->value] = $effects->getAnimationOrigin($this->actor, $position, $party, $this->targets, $playback, $reduced);
   }
   $x = ($reduced ? 109 : 103) + 5 + 1;
-  expect($origins['head'])->toBe(['x' => $x, 'y' => 8])
-    ->and($origins['center'])->toBe(['x' => $x, 'y' => 9])
-    ->and($origins['feet'])->toBe(['x' => $x, 'y' => 10])
+  expect($origins['head'])->toBe(['x' => $x, 'y' => 8, 'partyIndex' => 0])
+    ->and($origins['center'])->toBe(['x' => $x, 'y' => 9, 'partyIndex' => 0])
+    ->and($origins['feet'])->toBe(['x' => $x, 'y' => 10, 'partyIndex' => 0])
     ->and($origins['screen'])->toBe(['x' => 72, 'y' => 18]);
   $playback->update($playback->plan->phases['return']['start'] / BattleCommandTimeline::FPS);
   expect($effects->getPartyPresentedPosition(0, $this->actor, $playback, $reduced))->toEqual($this->positions->idlePositions[0]);
@@ -273,7 +273,8 @@ it('clips ANSI wide troop art before the party zone and never paints half a glyp
   $effects = new TerminalBattleEffects();
   $idle = $effects->getTroopIdlePosition($enemy);
   $active = $effects->getTroopActivePosition($enemy);
-  expect($idle)->toEqual(new Vector2(2, 5))->and($active)->toEqual(new Vector2(5, 5));
+  // Too wide for the zone: it stands at the zone's left, column 3, with room for the focus marker.
+  expect($idle)->toEqual(new Vector2(3, 5))->and($active)->toEqual(new Vector2(6, 5));
   $playback = new BattleCommandPlayback(new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1)),
     $enemy, [$this->actor], BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
   $frame = new TerminalBattlePresentation($battle)->getFrame($playback);
@@ -400,4 +401,59 @@ it('inspects results only commands at rest without executing them', function () 
   $presentation = new TerminalBattlePresentation($this->battle);
   expect($presentation->getFrame($playback))->toBe($presentation->getFrame())
     ->and($playback->session->currentFrame)->toBe(0)->and($hits)->toBe(0)->and($cues)->toBe(0);
+});
+
+it('raises an opponent-facing terminal ward on the side facing each subject opponents', function () {
+  $effect = terminalPreviewEffect([['content' => '(', 'position' => ['x' => -2, 'y' => 0],
+    'payload' => ['facing' => 'west', 'toward' => 'opponents']]]);
+  $playback = new BattleCommandPlayback(new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect),
+    $this->actor, [$this->actor, $this->targets[0]], BattlePoseRole::MAGIC, static fn() => null, static fn() => null);
+  $playback->update($playback->plan->phases['target']['start'] / BattleCommandTimeline::FPS);
+  $effects = new TerminalBattleEffects();
+  $resolve = fn($battler, $position) => $effects->getAnimationOrigin($battler, $position, [$this->actor], $this->targets, $playback);
+  $frame = $effects->compose($playback, $resolve);
+  $party = $resolve($this->actor, AnimationTargetPosition::CENTER);
+  $troop = $resolve($this->targets[0], AnimationTargetPosition::CENTER);
+  // The party's ward stands west of it toward the troop; the troop's mirrors east toward the party.
+  expect($frame['draws'])->toBe([['text' => '(', 'x' => $party['x'] - 2, 'y' => $party['y']],
+    ['text' => ')', 'x' => $troop['x'] + 2, 'y' => $troop['y']]]);
+});
+
+
+it('projects changed enemy formation places in terminal sprites and retains original authored positions', function () {
+  $party = new Party();
+  $party->addMember(new Character('Hero', 1, new Stats(currentHp: 100)));
+  $enemies = [terminalPreviewEnemy(['A'], new Vector2(5, 5)), terminalPreviewEnemy(['B'], new Vector2(20, 10))];
+  $battle = new BattleConfig($party, new Troop('Twins', $enemies));
+  $presentation = new TerminalBattlePresentation($battle);
+  $effects = new \Ichiloto\Engine\Battle\Presentation\TerminalBattleEffects(battle: $battle);
+  $before = array_map($effects->getTroopIdlePosition(...), $enemies);
+  $battle->formation->shufflePositions($enemies, new class implements \Ichiloto\Engine\Battle\Resolution\CombatRandomSource {
+    public function nextInt(int $minimum, int $maximum): int { return $minimum; }
+  });
+  expect(array_map($effects->getTroopIdlePosition(...), $enemies))->toEqual(array_reverse($before));
+  $frame = $presentation->getFrame();
+  expect(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($frame['lines'][4])[4])->toBe('B')
+    ->and(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($frame['lines'][9])[19])->toBe('A')
+    ->and($enemies[0]->position)->toEqual(new Vector2(5, 5))->and($enemies[1]->position)->toEqual(new Vector2(20, 10));
+});
+
+
+it('keeps all eight party members within terminal presentation bounds after a formation permutation', function () {
+  $party = new Party();
+  $party->setBattleSize(8);
+  for ($i = 0; $i < 8; $i++) { $party->addMember(new Character('Member' . $i, 1, new Stats())); }
+  $battle = new BattleConfig($party, new Troop('Empty', []));
+  $positions = PartyBattlerPositions::createForSize(8);
+  $effects = new TerminalBattleEffects($positions, battle: $battle);
+  $members = $battle->partyRoster->battlers;
+  $before = array_map(static fn(int $index) => $effects->getPartyIdlePosition($index), range(0, 7));
+  $battle->formation->shufflePositions($members, new class implements \Ichiloto\Engine\Battle\Resolution\CombatRandomSource {
+    public function nextInt(int $minimum, int $maximum): int { return $minimum; }
+  });
+  $after = array_map(static fn(int $index) => $effects->getPartyIdlePosition($index), range(0, 7));
+  expect($after)->not->toEqual($before);
+  foreach ($after as $point) { expect($point->x)->toBeGreaterThanOrEqual($effects->getPartyZoneLeft())->toBeLessThan(135);
+    expect($point->y)->toBeGreaterThanOrEqual(1)->toBeLessThan(30); }
+  expect(array_map(static fn($member): string => $member->actorId, $members))->toBe(array_map(static fn(int $i): string => 'Member' . $i, range(0, 7)));
 });

@@ -11,6 +11,11 @@ use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService;
+use Ichiloto\Engine\Progression\TutorialDirector;
+use Ichiloto\Engine\Quests\QuestLog;
+use Ichiloto\Engine\Scenes\Battle\BattleConfig;
+use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 
 /**
@@ -26,6 +31,10 @@ class TurnStateExecutionContext
    * @var int The 1-based battle round, advanced at each round's init.
    */
   public int $roundNumber = 0;
+  /**
+   * @var int Battler turns completed in this battle; each completion is one battle event check.
+   */
+  public int $completedTurns = 0;
   /**
    * @var Turn[] The turns to resolve this round.
    */
@@ -144,23 +153,76 @@ class TurnStateExecutionContext
   {
     return array_values(array_filter(
       $this->partyRoster->battlers,
-      fn(CharacterInterface $battler) => ! $battler->isKnockedOut
+      fn(CharacterInterface $battler) => $battler->isFighting
     ));
   }
 
   /**
-   * Returns persistent world state when this battle belongs to a configured
-   * field scene. Standalone battles intentionally have no world state.
+   * Reads explicit test facts from the active battle, or the live campaign
+   * facts from the field scene for an ordinary battle.
    */
   public function getGameState(): ?GameState
   {
-    if (! isset($this->game->sceneManager)) {
-      return null;
+    $scene = $this->game->sceneManager->currentScene ?? null;
+    $config = $scene instanceof BattleScene ? $scene->config : null;
+    if ($config instanceof BattleConfig && $config->partyRoster === $this->partyRoster && $config->testWorldState !== null) {
+      return $config->testWorldState;
     }
+    return $this->findCampaignScene()?->gameState;
+  }
 
-    $scene = $this->game->sceneManager->findScene(GameScene::class);
+  /** Returns the campaign's lesson owner. Standalone battles have none. */
+  public function getTutorialDirector(): ?TutorialDirector
+  {
+    return $this->findCampaignScene()?->tutorialDirector;
+  }
 
-    return $scene instanceof GameScene ? $scene->gameState : null;
+  public function getQuestLog(): ?QuestLog
+  {
+    return $this->findCampaignScene()?->questManager?->log;
+  }
+
+  /** Returns the player's knowledge records when this battle belongs to a started game. */
+  public function getKnowledge(): ?KnowledgeProgressService
+  {
+    $scene = $this->findCampaignScene();
+
+    return $scene?->isStarted() ? $scene->knowledge : null;
+  }
+
+  private function findCampaignScene(): ?GameScene
+  {
+    $scene = isset($this->game->sceneManager) ? $this->game->sceneManager->findScene(GameScene::class) : null;
+
+    return $scene instanceof GameScene ? $scene : null;
+  }
+
+  /**
+   * Runs the troop's event pages due at the start of the current turn.
+   *
+   * @return bool True when the battle paused for them.
+   */
+  public function runTurnStartEvents(): bool
+  {
+    return $this->runBattleEvents(sprintf('turn:%d', $this->roundNumber));
+  }
+
+  /**
+   * Counts a completed battler turn and runs the troop's event pages due
+   * after it.
+   *
+   * @return bool True when the battle paused for them.
+   */
+  public function runTurnEndEvents(): bool
+  {
+    return $this->runBattleEvents(sprintf('action:%d', ++$this->completedTurns));
+  }
+
+  private function runBattleEvents(string $check): bool
+  {
+    $scene = isset($this->game->sceneManager) ? $this->game->sceneManager->currentScene : null;
+
+    return $scene instanceof BattleScene && $scene->runDueBattleEvents(max(1, $this->roundNumber), $check);
   }
 
   /**
@@ -172,7 +234,7 @@ class TurnStateExecutionContext
   {
     return array_values(array_filter(
       $this->troop->members->toArray(),
-      fn(CharacterInterface $battler) => ! $battler->isKnockedOut
+      fn(CharacterInterface $battler) => $battler->isFighting
     ));
   }
 

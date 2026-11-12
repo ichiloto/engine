@@ -7,6 +7,7 @@ use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Scenes\Game\GameScene;
 
 /**
  * Represents a dialogue.
@@ -17,6 +18,8 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
 class Dialogue
 {
   public private(set) DialogueContext $presentation;
+  /** Optional field-direction overrides accompany the page without changing its text or portrait identity. */
+  private array $fieldFacing = [];
 
   /**
    * Creates a new instance of the dialogue.
@@ -55,6 +58,12 @@ class Dialogue
     );
   }
 
+  /** Prepare the field separately so specialized dialogue/choice show() APIs retain their existing contract. */
+  public function prepareFieldPresentation(GameScene $scene): void
+  {
+    $scene->cinematicController?->prepareDialogue($this->name, $this->fieldFacing);
+  }
+
   /**
    * Convert the dialogue to an array.
    *
@@ -71,6 +80,7 @@ class Dialogue
       self::loadFaceData($data['face'] ?? ''),
     );
     $dialogue->presentation = $presentation;
+    $dialogue->fieldFacing = array_intersect_key($data, array_flip(['speaker', 'addressee', 'facing', 'faceToward']));
     return $dialogue;
   }
 

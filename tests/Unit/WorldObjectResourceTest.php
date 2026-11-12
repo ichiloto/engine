@@ -4,6 +4,7 @@ use Ichiloto\Engine\Animations\Field\FieldPresentationCatalog;
 use Ichiloto\Engine\Animations\Field\FieldPoseAnimation;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
+use Ichiloto\Engine\Field\Enumerations\DoorwayEntrance;
 use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\WorldObjectDefinition;
@@ -16,6 +17,27 @@ function createWorldObjectResourceSource(array $extra = []): array
         'occupancyStamp' => [['x' => 0, 'y' => 0, 'type' => CollisionType::SOLID]],
     ], $extra);
 }
+
+it('shares explicit appearance with placements and refuses a second placement authority', function () {
+    $plain = WorldObjectResource::fromArray('whole', createWorldObjectResourceSource());
+    expect($plain->appearance)->toBeNull();
+    foreach (\Ichiloto\Engine\Rendering\Tilesets\TileAppearance::cases() as $appearance) {
+        $resource = WorldObjectResource::fromArray('whole', createWorldObjectResourceSource(['appearance' => $appearance->value]));
+        expect($resource->appearance)->toBe($appearance)->and($resource->sprites)->toEqual($plain->sprites)
+            ->and($resource->occupancyStamp)->toBe($plain->occupancyStamp);
+    }
+    foreach ([null, '', 'floor', true, [], 1] as $invalid) {
+        expect(fn() => WorldObjectResource::fromArray('whole', createWorldObjectResourceSource(['appearance' => $invalid])))
+            ->toThrow(InvalidArgumentException::class);
+    }
+    $layers = new MapLayerSet([new MapLayer('ground', 0, false, 'ground', 'ggg')]);
+    $catalog = FieldPresentationCatalog::fromArray(['resources' => ['whole' => createWorldObjectResourceSource(['appearance' => 'overhead'])]], '/missing');
+    $entry = ['id' => 'one', 'resource' => 'whole', 'anchor' => ['x' => 1, 'y' => 0]];
+    expect(WorldObjectDefinition::readMap(['worldObjects' => [$entry]], $layers, catalog: $catalog)[0]->appearance)
+        ->toBe(\Ichiloto\Engine\Rendering\Tilesets\TileAppearance::OVERHEAD)
+        ->and(fn() => WorldObjectDefinition::readMap(['worldObjects' => [[...$entry, 'appearance' => 'ground']]], $layers, catalog: $catalog))
+        ->toThrow(InvalidArgumentException::class);
+});
 
 it('admits named resources without requiring optional pixels and shares immutable definitions with placements', function () {
     $catalog = FieldPresentationCatalog::fromArray(['resources' => ['whole' => createWorldObjectResourceSource()]], '/missing-synthetic-root');
@@ -58,11 +80,27 @@ it('refuses malformed resource contracts using the existing role pivot path and 
         'noninteger offset' => $source['occupancyStamp'][0]['x'] = .5,
         'offset range' => $source['occupancyStamp'][0]['x'] = PHP_INT_MAX,
         'stamp budget' => $source['occupancyStamp'] = array_fill(0, 257, $source['occupancyStamp'][0]),
+        'empty doorway' => $source['doorway'] = [],
+        'doorway field' => $source['doorway'] = [['x' => 0, 'y' => 0, 'type' => CollisionType::NONE]],
+        'fractional doorway' => $source['doorway'] = [['x' => .5, 'y' => 0]],
+        'repeated doorway' => $source['doorway'] = [['x' => 0, 'y' => 0], ['x' => 0, 'y' => 0]],
+        'doorway budget' => $source['doorway'] = array_map(static fn(int $x): array => ['x' => $x, 'y' => 0], range(0, 16)),
+        'unknown doorway entrance' => $source['doorway'] = [['x' => 0, 'y' => 0, 'entrance' => 'behind']],
+        'untyped doorway entrance' => $source['doorway'] = [['x' => 0, 'y' => 0, 'entrance' => DoorwayEntrance::FRONT]],
     };
     expect(fn() => FieldPresentationCatalog::fromArray(['resources' => [$id => $source]], '/missing-synthetic-root'))
         ->toThrow(InvalidArgumentException::class);
 })->with(['id', 'name', 'unknown field', 'path', 'absolute path', 'pivot', 'nonfinite pivot', 'ui layer', 'null role',
-    'source dimensions', 'null stamp', 'untyped collision', 'pass through', 'duplicate cell', 'noninteger offset', 'offset range', 'stamp budget']);
+    'source dimensions', 'null stamp', 'untyped collision', 'pass through', 'duplicate cell', 'noninteger offset', 'offset range', 'stamp budget',
+    'empty doorway', 'doorway field', 'fractional doorway', 'repeated doorway', 'doorway budget', 'unknown doorway entrance',
+    'untyped doorway entrance']);
+
+it('reads a doorway as relative cells with their declared entrance and keeps it absent unless declared', function () {
+    $plain = WorldObjectResource::fromArray('whole', createWorldObjectResourceSource());
+    $cave = WorldObjectResource::fromArray('cave', createWorldObjectResourceSource(['doorway' => [['x' => 0, 'y' => 0], ['x' => 1, 'y' => -1, 'entrance' => 'front']]]));
+    expect($plain->doorway)->toBe([])->and($cave->doorway)->toBe([
+        ['x' => 0, 'y' => 0, 'entrance' => DoorwayEntrance::ON], ['x' => 1, 'y' => -1, 'entrance' => DoorwayEntrance::FRONT]]);
+});
 
 it('detaches recipe references and resolves signed offsets without clipping or mutating physical data', function () {
     $x = -1;
@@ -108,3 +146,30 @@ it('shares detached animation intent and admits the existing character-sheet rol
         ->and(fn() => new FieldPresentationCatalog(resources: ['wrong-id' => $resource]))->toThrow(InvalidArgumentException::class)
         ->and(fn() => new FieldPresentationCatalog(resources: ['whole' => []]))->toThrow(InvalidArgumentException::class);
 });
+
+it('reads attachments as named anchor-relative cells and artwork points and refuses malformed ones', function (?string $invalid) {
+    $attachment = ['id' => 'aerial', 'cell' => ['x' => 5, 'y' => -4], 'point' => ['x' => .78, 'y' => 0]];
+    $attachments = [$attachment];
+    match ($invalid) {
+        null => null,
+        'empty' => $attachments = [],
+        'id' => $attachments[0]['id'] = 'Aerial',
+        'repeated' => $attachments[] = $attachment,
+        'fractional cell' => $attachments[0]['cell']['x'] = .5,
+        'missing point' => $attachments[0] = ['id' => 'aerial', 'cell' => ['x' => 0, 'y' => 0]],
+        'point outside art' => $attachments[0]['point']['y'] = -.1,
+        'unknown field' => $attachments[0]['offset'] = ['x' => 1, 'y' => 0],
+        'budget' => $attachments = array_map(static fn(int $i): array => [...$attachment, 'id' => 'a' . $i], range(0, 16)),
+    };
+    $read = fn() => WorldObjectResource::fromArray('relay', createWorldObjectResourceSource(['attachments' => $attachments]));
+    if ($invalid !== null) {
+        expect($read)->toThrow(InvalidArgumentException::class);
+        return;
+    }
+    $resource = $read();
+    expect(array_map(static fn($point): array => $point->toArray(), $resource->attachments))
+        ->toBe([['id' => 'aerial', 'cell' => ['x' => 5, 'y' => -4], 'point' => ['x' => .78, 'y' => 0.0]]])
+        ->and($resource->findAttachment('aerial'))->toBe($resource->attachments[0])
+        ->and($resource->findAttachment('chimney'))->toBeNull()
+        ->and(WorldObjectResource::fromArray('plain', createWorldObjectResourceSource())->attachments)->toBe([]);
+})->with([null, 'empty', 'id', 'repeated', 'fractional cell', 'missing point', 'point outside art', 'unknown field', 'budget']);

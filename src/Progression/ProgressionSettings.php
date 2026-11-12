@@ -11,7 +11,9 @@ use LogicException;
 /** Project-authored progression rules, never player preferences or saved character state. */
 final readonly class ProgressionSettings implements ConfigInterface
 {
-  public function __construct(public bool $restoreVitalsOnLevelUp = true)
+  public const string LEVEL_UP_RECOVERY = 'levelUpRecovery';
+
+  public function __construct(public LevelUpRecovery $levelUpRecovery = LevelUpRecovery::FULL)
   {
   }
 
@@ -27,25 +29,36 @@ final readonly class ProgressionSettings implements ConfigInterface
     }
 
     foreach ($data as $key => $value) {
-      if ($key !== 'restoreVitalsOnLevelUp') {
+      if ($key === 'restoreVitalsOnLevelUp') {
+        // The boolean this rule replaced: name its equivalent rather than guess.
+        throw new InvalidArgumentException(sprintf(
+          "system.progression.restoreVitalsOnLevelUp was replaced by %s: write '%s' for true or '%s' for false.",
+          self::LEVEL_UP_RECOVERY, LevelUpRecovery::FULL->value, LevelUpRecovery::NONE->value,
+        ));
+      }
+      if ($key !== self::LEVEL_UP_RECOVERY) {
         throw new InvalidArgumentException(sprintf('Unknown system.progression field: %s.', $key));
       }
-      if (! is_bool($value)) {
-        throw new InvalidArgumentException('system.progression.restoreVitalsOnLevelUp must be a boolean.');
+      if (! is_string($value) || LevelUpRecovery::tryFrom($value) === null) {
+        throw new InvalidArgumentException(sprintf(
+          'system.progression.%s must be one of: %s.',
+          self::LEVEL_UP_RECOVERY,
+          implode(', ', array_map(static fn(LevelUpRecovery $mode): string => $mode->value, LevelUpRecovery::cases())),
+        ));
       }
     }
 
-    return new self($data['restoreVitalsOnLevelUp'] ?? true);
+    return new self(LevelUpRecovery::from($data[self::LEVEL_UP_RECOVERY] ?? LevelUpRecovery::FULL->value));
   }
 
   public function get(string $path, mixed $default = null): mixed
   {
-    return $path === 'restoreVitalsOnLevelUp' ? $this->restoreVitalsOnLevelUp : $default;
+    return $path === self::LEVEL_UP_RECOVERY ? $this->levelUpRecovery : $default;
   }
 
   public function has(string $path): bool
   {
-    return $path === 'restoreVitalsOnLevelUp';
+    return $path === self::LEVEL_UP_RECOVERY;
   }
 
   public function set(string $path, mixed $value): void

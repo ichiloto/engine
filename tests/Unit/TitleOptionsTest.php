@@ -203,7 +203,7 @@ it('toggles a switch from the title screen', function () {
 });
 
 it('logs title option save failures while showing a plain session-only status', function (bool $graphical) {
-  $root = sys_get_temp_dir() . '/ichiloto-title-status-' . bin2hex(random_bytes(5));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-title-status-' . bin2hex(random_bytes(5));
   mkdir($root);
   $previousDebug = new ReflectionClass(Debug::class)->getStaticProperties();
   Debug::configure(['log_directory' => $root]);

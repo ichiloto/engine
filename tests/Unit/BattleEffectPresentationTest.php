@@ -14,6 +14,7 @@ use Ichiloto\Engine\Battle\Presentation\BattlePoseRole;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattleEffects;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasCompositeBudgetExceeded;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
@@ -34,7 +35,7 @@ function battleImageEffectData(?string $anchor = null): array
 }
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-battle-effects-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-battle-effects-' . bin2hex(random_bytes(6));
   mkdir($this->root);
   $this->debug = new ReflectionClass(Debug::class)->getStaticProperties();
   Debug::configure(['log_directory' => $this->root]);
@@ -326,7 +327,7 @@ it('rejects malformed battle data at the definition boundary', function (array $
   [['payload' => 'invalid']], [['payload' => ['color' => []]]], [['payload' => ['anchor' => 'arbitrary']]]]);
 
 it('does not load a timeline symlink outside its asset root', function () {
-  $outside = tempnam(sys_get_temp_dir(), 'ichiloto-outside-effect-');
+  $outside = tempnam(\getTestTemporaryDirectory(), 'ichiloto-outside-effect-');
   file_put_contents($outside, '<?php throw new RuntimeException("must not execute");');
   mkdir($this->root . '/Animations/escape', 0777, true);
   symlink($outside, $this->root . '/Animations/escape/escape.timeline.php');
@@ -405,8 +406,12 @@ it('omits only optional tints when faded surfaces exceed the shared raster count
   $playback->update($playback->plan->phases['target']['start'] / 120 + .01);
   $frame = GraphicalBattleEffects::compose($playback, $this->layout, $bounds, $this->root, $reduced, $images);
   expect($frame->images)->toHaveCount(9)->and($frame->composites)->toBeEmpty();
-  if ($reduced) { expect($playback->presentationFailure)->toBeNull(); }
-  else { expect($playback->presentationFailure?->getMessage())->toContain('at most 8 entries'); }
+  if ($reduced) {
+    expect($playback->presentationFailure)->toBeNull();
+  } else {
+    expect($playback->presentationFailure)->toBeInstanceOf(CanvasCompositeBudgetExceeded::class)
+      ->and($playback->presentationFailure->getMessage())->toContain('composite surfaces 9 > 8', 'canvas_composite_budget');
+  }
   $playback->update(100);
   $playback->update(100);
   expect($hits)->toBe(1)->and($playback->isCompleted)->toBeTrue();

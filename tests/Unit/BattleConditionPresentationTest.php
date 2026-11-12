@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Battle\Presentation\BattleCanvasLayout;
 use Ichiloto\Engine\Battle\Presentation\BattleConditionEffects;
@@ -153,6 +154,44 @@ it('diagnoses unsafe persistent timelines without dispatching their cues or chan
   [['tracks' => [['id' => 'screen', 'type' => 'glyph', 'anchor' => 'screen', 'keyframes' => [['frame' => 0, 'duration' => 2, 'content' => 'bad']]]]]],
   [['restFrame' => 1, 'tracks' => [['id' => 'gap', 'type' => 'glyph', 'anchor' => 'target', 'keyframes' => [['frame' => 0, 'content' => 'bad']]]]]],
 ]);
+
+it('validates the same interception source before authoring and at runtime', function () {
+  $root = createTestDirectory('interception-authoring');
+  writeConditionTimeline($root, 'contact', ['playback' => 'once']);
+  writeConditionTimeline($root, 'looping-contact');
+  $effects = new BattleConditionEffects(new EffectTimelineLibrary($root), ['interceptions' => [
+    'deflect' => 'contact', 'invalid' => 'looping-contact',
+  ]]);
+  $mode = EffectPresentation::TERMINAL;
+  expect($effects->getInterceptionTimeline('deflect', $mode))->toEqual($effects->loadInterceptionTimeline('contact', $mode))
+    ->and($effects->getInterceptionTimeline('unknown', $mode))->toBeNull()
+    ->and(fn() => $effects->loadInterceptionTimeline('looping-contact', $mode))
+    ->toThrow(InvalidArgumentException::class, 'One-shot interception')
+    ->and($effects->getInterceptionTimeline('invalid', $mode))->toBeNull();
+});
+
+it('validates the compiled edits independently of the saved version in both presentations', function (EffectPresentation $mode) {
+  $root = createTestDirectory('condition-authoring-edits');
+  writeConditionTimeline($root, 'condition');
+  $library = new EffectTimelineLibrary($root);
+  $effects = new BattleConditionEffects($library);
+  $saved = $effects->loadLoopingTimeline('condition', $mode);
+  $edited = $library->compile('condition', [
+    'fps' => 10,
+    'lengthFrames' => 2,
+    'playback' => 'once',
+    'tracks' => [['id' => 'contact', 'type' => 'glyph', 'anchor' => 'target',
+      'keyframes' => [['frame' => 0, 'content' => 'X']]]],
+  ], forBattle: true, presentation: $mode);
+
+  BattleConditionEffects::validateLoopingTimeline($saved);
+  BattleConditionEffects::validateInterceptionTimeline($edited);
+  expect($effects->loadLoopingTimeline('condition', $mode))->toBe($saved)
+    ->and(fn() => $effects->loadInterceptionTimeline('condition', $mode))
+    ->toThrow(InvalidArgumentException::class, 'One-shot interception')
+    ->and(fn() => BattleConditionEffects::validateLoopingTimeline($edited))
+    ->toThrow(InvalidArgumentException::class, 'Looping condition');
+})->with(EffectPresentation::cases());
 
 it('freezes ambient time on pause and releases its binding on discard without curing gameplay states', function () {
   $actor = new Character('Actor', 1, new Stats(currentHp: 100));

@@ -18,14 +18,14 @@ use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\UI\Windows\WindowAlignment;
 use InvalidArgumentException;
 
-/** The cinematic operation owns time; both renderers project the same timed text. */
+/** The cinematic operation owns time; the active field surface controls visibility. */
 final class CinematicTextPresentation
 {
     private float $duration = 0.0;
     private float $elapsed = 0.0;
 
     public function __construct(private readonly string $kind, private readonly string $text,
-        private readonly string $title = '') {}
+        private readonly string $title = '', public readonly CinematicTextSurface $surface = CinematicTextSurface::ALL) {}
 
     public function setDuration(float $seconds): void
     {

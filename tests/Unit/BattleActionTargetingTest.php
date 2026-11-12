@@ -345,7 +345,7 @@ it('never replays a reused action result when its queued command cannot execute'
 
 it('preserves turn-owned legacy effect cadence through the actual queued command',
   function (bool $activeTime, bool $graphical, bool $reducedMotion) {
-    $root = sys_get_temp_dir() . '/ichiloto-paced-cells-' . bin2hex(random_bytes(5));
+    $root = \getTestTemporaryDirectory() . '/ichiloto-paced-cells-' . bin2hex(random_bytes(5));
     $previous = getcwd();
     $catalogState = [];
     foreach (['battleAnimations', 'battleSummons', 'missingAnimationIds'] as $name) {
@@ -402,7 +402,7 @@ it('preserves turn-owned legacy effect cadence through the actual queued command
 
 it('runs equipped and explicit attack choreography through queued combat, pause, results and cleanup',
   function (?WeaponType $weaponType, bool $double, bool $enemy, bool $activeTime, bool $graphical, bool $east, bool $reducedMotion) {
-    $root = sys_get_temp_dir() . '/ichiloto-queued-effects-' . bin2hex(random_bytes(5));
+    $root = \getTestTemporaryDirectory() . '/ichiloto-queued-effects-' . bin2hex(random_bytes(5));
     $previous = getcwd();
     $catalogState = [];
     foreach (['battleAnimations', 'battleSummons', 'missingAnimationIds'] as $name) {
@@ -462,7 +462,7 @@ it('runs equipped and explicit attack choreography through queued combat, pause,
               foreach ($segment['drawCommands'] as $command) {
                 $oriented = BattleEffectDirection::orientCommand($command, 450, $east ? 750 : 150);
                 $seen[$command['trackId']] = $oriented['content'];
-                if (str_starts_with($command['trackId'], $expected . '-')) {
+                if (str_starts_with($command['trackId'], 'target-' . $expected . '-')) {
                   $reverseStroke = str_ends_with($command['trackId'], '-1');
                   expect($oriented['content'])->toBe($blade ? ($reverseStroke !== !$east ? '\\' : '/') : '*');
                 }
@@ -484,8 +484,11 @@ it('runs equipped and explicit attack choreography through queued combat, pause,
         ->and($enemies[1]->stats->currentHp)->toBe(100)->and($action->lastResult->hits())->toHaveCount($double ? 2 : 1)
         ->and($screen->fieldWindow->results)->toHaveCount(1)->and($reactions)->toContain(BattlePoseRole::DAMAGE)
         ->and($playback->getAdvanceFraction())->toBe(0.0);
-      $expectedViews = $double && !$reducedMotion ? 3 : 2;
-      expect($seen)->toHaveCount($expectedViews);
+      $showsBothStrokes = $double && (!$reducedMotion || !$graphical);
+      expect($seen)->toHaveCount($showsBothStrokes ? 3 : 2);
+      if ($double && !$graphical) {
+        expect(array_keys($seen))->toBe(['source-windup-0', 'target-double-0', 'target-double-1']);
+      }
       if ($graphical) { expect(array_unique(array_values($seen)))->toContain('windup.png', $expected . '.png'); }
     } finally {
       chdir($previous);

@@ -59,7 +59,7 @@ beforeEach(function () {
   $this->counterPriorConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
   $this->counterPriorDelta = new ReflectionProperty(Time::class, 'deltaTime')->getValue();
   $this->counterPriorCwd = getcwd();
-  $this->counterRoot = sys_get_temp_dir() . '/counter-command-' . uniqid();
+  $this->counterRoot = \getTestTemporaryDirectory() . '/counter-command-' . uniqid();
   mkdir($this->counterRoot);
   writeQueuedAttackEffects($this->counterRoot);
   chdir($this->counterRoot);

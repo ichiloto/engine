@@ -2,9 +2,11 @@
 
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
+use Closure;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Interpreter\EventPendingOperationInterface;
 use Ichiloto\Engine\Rendering\Camera;
+use Ichiloto\Engine\Rendering\Presentation\PresentationCameraMotion;
 use Ichiloto\Engine\UI\Accessibility;
 use RuntimeException;
 
@@ -19,14 +21,22 @@ final class CameraOperation implements EventPendingOperationInterface
   protected bool $isCancelled = false;
   protected(set) bool $isComplete = false;
   protected array $route = [];
+  private readonly CinematicCameraOperation $kind;
+  private bool $presentationStarted = false;
+  private bool $presentationSuperseded = false;
+  private float $segmentEnd = 0.0;
 
   /** @param array<string, mixed> $command */
   public function __construct(
     protected Camera $camera,
     protected CinematicSubjectResolver $subjects,
     protected array $command,
+    private readonly ?Closure $canPresentMotion = null,
   )
   {
+    $name = strtolower(trim(strval($command['operation'] ?? '')));
+    $this->kind = CinematicCameraOperation::tryFrom($name)
+      ?? throw new RuntimeException(sprintf('Unsupported camera operation "%s".', $name ?: '(empty)'));
     $this->start = new Vector2(intval($camera->position->x), intval($camera->position->y));
     $this->base = new Vector2(intval($camera->position->x), intval($camera->position->y));
     $this->initialize();
@@ -34,42 +44,38 @@ final class CameraOperation implements EventPendingOperationInterface
 
   protected function initialize(): void
   {
-    $operation = $this->operation();
+    $operation = $this->kind;
 
-    if (! in_array($operation, CinematicCommandSchema::CAMERA_OPERATIONS, true)) {
-      throw new RuntimeException(sprintf('Unsupported camera operation "%s".', $operation ?: '(empty)'));
-    }
-
-    if ($operation === 'detach') {
+    if ($operation === CinematicCameraOperation::DETACH) {
       $this->camera->detach();
       $this->isComplete = true;
       return;
     }
 
-    if (in_array($operation, ['attach', 'reset'], true)) {
+    if (in_array($operation, [CinematicCameraOperation::ATTACH, CinematicCameraOperation::RESET], true)) {
       $this->camera->attach();
       $this->isComplete = true;
       return;
     }
 
-    if ($operation === 'restore') {
+    if ($operation === CinematicCameraOperation::RESTORE) {
       $this->camera->restorePrevious();
       $this->isComplete = true;
       return;
     }
 
-    if ($operation === 'focus') {
+    if ($operation === CinematicCameraOperation::FOCUS) {
       $this->camera->focusOn($this->resolveTarget($this->command));
       $this->isComplete = true;
       return;
     }
 
     // A shake displaces the view temporarily; it does not take camera ownership.
-    if ($operation !== 'shake') {
+    if ($operation !== CinematicCameraOperation::SHAKE) {
       $this->camera->detach();
     }
 
-    if ($operation === 'route') {
+    if ($operation === CinematicCameraOperation::ROUTE) {
       $this->route = array_values(array_filter((array) ($this->command['points'] ?? []), is_array(...)));
 
       if ($this->route === []) {
@@ -80,12 +86,14 @@ final class CameraOperation implements EventPendingOperationInterface
       return;
     }
 
-    if ($operation !== 'shake') {
+    if ($operation !== CinematicCameraOperation::SHAKE) {
       $this->target = $this->camera->positionForFocus($this->resolveTarget($this->command));
     }
 
     if (Accessibility::prefersReducedMotion()) {
       $this->applyFinalState();
+    } elseif ($operation === CinematicCameraOperation::PAN) {
+      $this->interpolate($this->start, $this->target ?? $this->start, 0.0, $this->getDuration($this->command));
     }
   }
 
@@ -94,40 +102,46 @@ final class CameraOperation implements EventPendingOperationInterface
     if ($this->isComplete || $this->isCancelled) {
       return true;
     }
+    if (Accessibility::prefersReducedMotion()) {
+      $this->camera->endTransition($this, snap: true);
+      $this->applyFinalState();
+      return true;
+    }
 
     $deltaSeconds = max(0.0, $deltaSeconds);
-    $operation = $this->operation();
+    $operation = $this->kind;
 
-    if ($operation === 'track') {
+    if ($operation === CinematicCameraOperation::TRACK) {
       $this->camera->focusOn($this->resolveTarget($this->command));
       $this->elapsed += $deltaSeconds;
 
-      if ($this->elapsed >= $this->duration($this->command)) {
+      if ($this->elapsed >= $this->getDuration($this->command)) {
         $this->isComplete = true;
       }
 
       return $this->isComplete;
     }
 
-    if ($operation === 'shake') {
+    if ($operation === CinematicCameraOperation::SHAKE) {
       return $this->updateShake($deltaSeconds);
     }
 
-    if ($operation === 'route') {
+    if ($operation === CinematicCameraOperation::ROUTE) {
       return $this->updateRoute($deltaSeconds);
     }
 
     $this->elapsed += $deltaSeconds;
-    $duration = $this->duration($this->command);
+    $duration = $this->getDuration($this->command);
     $progress = $duration <= 0.0 ? 1.0 : min(1.0, $this->elapsed / $duration);
-    $this->interpolate($this->start, $this->target ?? $this->start, $progress);
+    $this->interpolate($this->start, $this->target ?? $this->start, $progress, $duration);
     $this->isComplete = $progress >= 1.0;
     return $this->isComplete;
   }
 
   public function cancel(): void
   {
-    if ($this->operation() === 'shake') {
+    $this->camera->endTransition($this, snap: true);
+    if ($this->kind === CinematicCameraOperation::SHAKE) {
       $this->camera->moveTo(intval($this->base->x), intval($this->base->y));
     }
 
@@ -139,9 +153,9 @@ final class CameraOperation implements EventPendingOperationInterface
   {
     $this->elapsed += $deltaSeconds;
     $point = $this->route[$this->routeIndex];
-    $duration = $this->duration($point);
+    $duration = $this->getDuration($point);
     $progress = $duration <= 0.0 ? 1.0 : min(1.0, $this->elapsed / $duration);
-    $this->interpolate($this->start, $this->target ?? $this->start, $progress);
+    $this->interpolate($this->start, $this->target ?? $this->start, $progress, $duration);
 
     if ($progress < 1.0) {
       return false;
@@ -155,13 +169,13 @@ final class CameraOperation implements EventPendingOperationInterface
       return true;
     }
 
-    $this->startRoutePoint();
-    return $overflow > 0.0 ? $this->updateRoute($overflow) : false;
+    $this->startRoutePoint($overflow);
+    return $overflow > 0.0 ? $this->updateRoute(0.0) : false;
   }
 
-  protected function startRoutePoint(): void
+  protected function startRoutePoint(float $elapsed = 0.0): void
   {
-    $this->elapsed = 0.0;
+    $this->elapsed = $elapsed;
     $this->start = new Vector2(intval($this->camera->position->x), intval($this->camera->position->y));
     $this->target = $this->camera->positionForFocus($this->resolveTarget($this->route[$this->routeIndex]));
 
@@ -169,13 +183,16 @@ final class CameraOperation implements EventPendingOperationInterface
       $last = $this->route[array_key_last($this->route)];
       $this->camera->focusOn($this->resolveTarget($last));
       $this->isComplete = true;
+    } else {
+      $duration = $this->getDuration($this->route[$this->routeIndex]);
+      if ($duration > 0) { $this->interpolate($this->start, $this->target, min(1.0, $elapsed / $duration), $duration); }
     }
   }
 
   protected function updateShake(float $deltaSeconds): bool
   {
     $this->elapsed += $deltaSeconds;
-    $duration = $this->duration($this->command);
+    $duration = $this->getDuration($this->command);
 
     if ($duration <= 0.0 || $this->elapsed >= $duration || Accessibility::prefersReducedMotion()) {
       $this->camera->moveTo(intval($this->base->x), intval($this->base->y));
@@ -192,9 +209,9 @@ final class CameraOperation implements EventPendingOperationInterface
 
   protected function applyFinalState(): void
   {
-    if ($this->operation() === 'shake') {
+    if ($this->kind === CinematicCameraOperation::SHAKE) {
       $this->camera->moveTo(intval($this->base->x), intval($this->base->y));
-    } elseif ($this->operation() === 'route') {
+    } elseif ($this->kind === CinematicCameraOperation::ROUTE) {
       $last = $this->route[array_key_last($this->route)];
       $this->camera->focusOn($this->resolveTarget($last));
     } else {
@@ -204,12 +221,38 @@ final class CameraOperation implements EventPendingOperationInterface
     $this->isComplete = true;
   }
 
-  protected function interpolate(Vector2 $from, Vector2 $to, float $progress): void
+  protected function interpolate(Vector2 $from, Vector2 $to, float $progress, float $duration): void
   {
-    $this->camera->moveTo(
-      intval(round($from->x + (($to->x - $from->x) * $progress))),
-      intval(round($from->y + (($to->y - $from->y) * $progress))),
-    );
+    $position = $this->getInterpolatedPosition($from, $to, $progress);
+    $supported = ($this->canPresentMotion?->__invoke() ?? false) && !Accessibility::prefersReducedMotion();
+    if ($this->presentationStarted && !$this->camera->ownsTransition($this)) {
+      $this->presentationStarted = false;
+      $this->presentationSuperseded = $this->camera->hasTransition;
+    }
+    if ($this->presentationSuperseded) { return; }
+    if ($supported && $progress < 1.0 && $duration > 0.0) {
+      if (!$this->presentationStarted || $this->elapsed >= $this->segmentEnd) {
+        if ($this->presentationStarted) {
+          $this->camera->updateTransition($this, $position, 0.0);
+          $this->camera->endTransition($this);
+        }
+        $this->segmentEnd = min($duration, $this->elapsed + PresentationCameraMotion::MAX_SECONDS);
+        $this->camera->beginTransition($this, $this->getInterpolatedPosition($from, $to, $this->segmentEnd / $duration),
+          $this->segmentEnd - $this->elapsed);
+        $this->presentationStarted = true;
+      }
+      $this->camera->updateTransition($this, $position, max(0.0, $this->segmentEnd - $this->elapsed));
+    } elseif ($this->presentationStarted) {
+      $this->camera->updateTransition($this, $position, 0.0);
+      $this->camera->endTransition($this, snap: !$supported);
+      $this->presentationStarted = false;
+    } else { $this->camera->moveTo(intval($position->x), intval($position->y)); }
+  }
+
+  private function getInterpolatedPosition(Vector2 $from, Vector2 $to, float $progress): Vector2
+  {
+    return new Vector2(round($from->x + (($to->x - $from->x) * $progress)),
+      round($from->y + (($to->y - $from->y) * $progress)));
   }
 
   /** @param array<string, mixed> $source */
@@ -220,19 +263,14 @@ final class CameraOperation implements EventPendingOperationInterface
   }
 
   /** @param array<string, mixed> $source */
-  protected function duration(array $source): float
+  protected function getDuration(array $source): float
   {
     $duration = $source['seconds'] ?? $source['duration'] ?? 0.0;
 
-    if (! is_numeric($duration) || floatval($duration) < 0.0) {
-      throw new RuntimeException('Camera duration must be zero or a positive number.');
+    if (! is_numeric($duration) || !is_finite(floatval($duration)) || floatval($duration) < 0.0) {
+      throw new RuntimeException('Camera duration must be finite and nonnegative.');
     }
 
     return floatval($duration);
-  }
-
-  protected function operation(): string
-  {
-    return strtolower(trim(strval($this->command['operation'] ?? '')));
   }
 }

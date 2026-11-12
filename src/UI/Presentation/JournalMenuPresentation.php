@@ -16,16 +16,13 @@ use RuntimeException;
 /** Same-panel quest journal and Records Info. All navigation remains with the states. */
 final class JournalMenuPresentation
 {
-  // Keep the title/summary compact beside the equal-width tabs.
-  private const float TITLE_WIDTH_SHARE = 0.22;
-  // Reserve half the row for record identity before distributing numeric values.
-  private const float VALUE_WIDTH_SHARE = 0.50;
-  /** @return array{int, int} Text columns and rows, shared with the PHP scrolling owner. */
-  public static function pageSize(JournalMenuContent $content, MenuPresentationCatalog $theme, int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): array
+  /** The reading viewport, shared with the PHP scrolling owner. */
+  public static function pageSize(JournalMenuContent $content, MenuPresentationCatalog $theme, int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): MenuDetailViewport
   {
     if ($content->journal && $content->document !== null) { return QuestJournalPresentation::pageSize($content, $theme, $width, $height); }
     $bounds = self::geometry($content, $theme, $width, $height)['text'];
-    return [(int)floor($bounds->width / $theme->metrics->cellWidth), (int)floor($bounds->height / $theme->metrics->cellHeight)];
+    return new MenuDetailViewport((int)floor($bounds->width / $theme->metrics->cellWidth), (int)floor($bounds->height),
+      $theme->metrics->cellHeight);
   }
 
   public static function compose(JournalMenuContent $content, MenuPresentationCatalog $theme, TextPage $page,
@@ -39,7 +36,8 @@ final class JournalMenuPresentation
     foreach (['summary', 'list', 'info'] as $id) {
       $view->frame('journal-' . $id, $g[$id], $id === 'info' ? 'quiet' : 'panel');
     }
-    $view->prose('journal-title', $content->title . ($content->summary !== '' ? "\n" . $content->summary : ''), $g['title'], 'accent');
+    $view->prose('journal-title', $content->title, $g['title'], 'accent');
+    if ($content->summary !== '') { $view->prose('journal-summary-value', $content->summary, $g['summaryText'], 'accent', HorizontalAlignment::RIGHT); }
     foreach ($content->tabs as $i => $label) {
       $view->rows('journal-tab', [new MenuRow((string)$i, $label, kind: MenuRowKind::BUTTON, selected: $i === $content->tabIndex)],
         new MenuRowLayout($g['tabs'][$i], rowHeight: $m->rowHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight, wrapText: true));
@@ -48,32 +46,40 @@ final class JournalMenuPresentation
       $bounds = self::inset($g['list'], $p);
       if ($content->rows === []) { $view->prose('journal-empty', $content->emptyText, $bounds, 'disabled'); }
       else {
-        $cells = (int)floor(($bounds->width - 2 * $theme->rows->metrics->padding) / $m->cellWidth);
-        $valueCount = max(array_map(fn($row) => count($row['values']), $content->rows));
-        $valueCells = max(4, (int)floor($cells * self::VALUE_WIDTH_SHARE / max(1, $valueCount)) - $theme->rows->metrics->gapCells);
-        $labelCells = $cells - $valueCount * ($valueCells + $theme->rows->metrics->gapCells);
         $rows = [];
         foreach ($content->rows as $i => $row) {
-          $rows[] = new MenuRow((string)$i, TextViewport::preview($row['label'], $labelCells),
-            array_map(fn($value) => new MenuRowValue(TextViewport::preview($value, $valueCells)), $row['values']),
+          $rows[] = new MenuRow((string)$i, $row['label'],
+            array_map(fn($value) => new MenuRowValue(TextViewport::preview($value, max(1, (int)floor($bounds->width / $m->cellWidth)))), $row['values']),
             selected: $i === $content->index, focused: $i === $content->index && !$content->detailsOpen);
         }
-        $columns = [];
-        for ($i = 0; $i < $valueCount; $i++) {
-          $columns[] = new MenuRowColumn($valueCells, $content->journal && $i === 1 ? HorizontalAlignment::RIGHT : HorizontalAlignment::LEFT);
+        $heading = self::createHeading($content);
+        $layout = MenuRowLayout::measureTable($bounds, $rows, $theme->rows->metrics,
+          $m->rowHeight, $m->cellWidth, $m->cellHeight, $heading);
+        $rows = array_map(static fn(MenuRow $row): MenuRow => new MenuRow($row->id, $row->label,
+          array_map(static fn(MenuRowValue $value, int $index): MenuRowValue =>
+            new MenuRowValue(TextViewport::preview($value->text, $layout->columns[$index]->cells)), $row->values, array_keys($row->values)),
+          selected: $row->selected, focused: $row->focused), $rows);
+        if ($heading !== null) {
+          $headingHeight = $layout->heightFor($heading, $theme->rows->metrics, false);
+          $view->rows('journal-columns', [$heading], new MenuRowLayout(
+            new CanvasRectangle($bounds->x, $bounds->y, $bounds->width, $headingHeight), $layout->columns,
+            $m->rowHeight, $m->cellWidth, $m->cellHeight, wrapText: true));
+          $bounds = new CanvasRectangle($bounds->x, $bounds->y + $headingHeight, $bounds->width, $bounds->height - $headingHeight);
+          $layout = new MenuRowLayout($bounds, $layout->columns, $m->rowHeight, $m->cellWidth, $m->cellHeight, wrapText: true);
         }
-        $view->rows('journal-entry', $rows, new MenuRowLayout($bounds, $columns, $m->rowHeight, $m->cellWidth, $m->cellHeight), $content->index);
+        $view->rows('journal-entry', $rows, $layout, $content->index);
       }
     }
     $hasEntry = $content->rows !== [];
-    $metadata = !$hasEntry ? '' : ($content->detailsOpen ? 'Details - ' . $page->range() : 'View details');
+    $metadata = !$hasEntry ? '' : ($content->detailsOpen ? 'Details - ' . $page->range() : ($content->confirmLabel ?? ''));
     $view->prose('journal-reading-state', $metadata, $g['metadata'], $content->detailsOpen ? 'accent' : 'disabled');
     if ($hasEntry && (!$content->journal || $content->detailsOpen)) {
-      if ($page->columns !== (int)floor($g['text']->width / $m->cellWidth)
-        || $page->rows !== (int)floor($g['text']->height / $m->cellHeight)) {
+      $area = new MenuDetailViewport((int)floor($g['text']->width / $m->cellWidth), (int)floor($g['text']->height), $m->cellHeight);
+      $details = $content->details->layout($area->columns, $theme->createDetailStyle(), $area);
+      if ($page->columns !== $area->columns || $page->rows !== $details->getPageHeight($area)) {
         throw new RuntimeException('Journal text page must match the measured display viewport.');
       }
-      $view->prose('journal-text', implode("\n", $page->lines), $g['text']);
+      $view->details('journal-text', $details, $page, $g['text']);
     } elseif ($hasEntry) {
       $view->prose('journal-preview', TextViewport::preview($content->previewText, (int)floor($g['preview']->width / $m->cellWidth)), $g['preview']);
     }
@@ -81,10 +87,20 @@ final class JournalMenuPresentation
     return $view->finish();
   }
 
+  public static function createHeading(JournalMenuContent $content): ?MenuRow
+  {
+    if ($content->columnHeadings === []) { return null; }
+    return new MenuRow('column-headings', $content->columnHeadings[0],
+      array_map(static fn(string $text): MenuRowValue => new MenuRowValue($text), array_slice($content->columnHeadings, 1)),
+      kind: MenuRowKind::HEADING, showCursor: false);
+  }
+
   private static function hints(JournalMenuContent $content): array
   {
     $hints = [ActionHints::resolve('cancel', $content->detailsOpen ? 'Back' : 'Cancel')];
-    if (!$content->detailsOpen) { array_unshift($hints, ActionHints::resolve('confirm', 'View details')); }
+    if (!$content->detailsOpen && $content->confirmLabel !== null) {
+      array_unshift($hints, ActionHints::resolve('confirm', $content->confirmLabel));
+    }
     if (!$content->journal || !$content->detailsOpen) {
       $hints[] = ActionHints::resolve('character_next', 'Tab', KeyCode::TAB);
       $hints[] = ActionHints::resolve('character_previous', 'Previous tab', KeyCode::SHIFT_TAB);
@@ -99,10 +115,11 @@ final class JournalMenuPresentation
     $gap = $m->sectionGap;
     $host = MenuLayout::getBounds($width, $height);
     $inner = $host->width - 2 * $p;
-    $titleWidth = floor($inner * self::TITLE_WIDTH_SHARE);
-    $tabWidth = ($inner - $titleWidth - count($content->tabs) * $gap) / count($content->tabs);
-    $titleText = $content->title . ($content->summary !== '' ? "\n" . $content->summary : '');
-    $summaryHeight = max(80, 2 * $p + count(MenuCanvas::wrap($titleText, (int)floor($titleWidth / $m->cellWidth))) * $m->cellHeight);
+    $titleWidth = min(floor($inner * 0.15), max(8, mb_strlen($content->title, 'UTF-8')) * $m->cellWidth);
+    $summaryWidth = min(floor($inner * 0.2), max(12, mb_strlen($content->summary, 'UTF-8')) * $m->cellWidth);
+    $tabWidth = ($inner - $titleWidth - $summaryWidth - (count($content->tabs) + 1) * $gap) / count($content->tabs);
+    $summaryHeight = max(80, 2 * $p + max(count(MenuCanvas::wrap($content->title, (int)floor($titleWidth / $m->cellWidth))),
+      count(MenuCanvas::wrap($content->summary, (int)floor($summaryWidth / $m->cellWidth)))) * $m->cellHeight);
     $tabLayout = new MenuRowLayout(new CanvasRectangle(0, 0, $tabWidth, 1), rowHeight: $m->rowHeight,
       cellWidth: $m->cellWidth, cellHeight: $m->cellHeight, wrapText: true);
     foreach ($content->tabs as $i => $label) {
@@ -128,6 +145,7 @@ final class JournalMenuPresentation
     }
     return ['summary' => $summary, 'list' => $list, 'info' => $info, 'text' => $text, 'metadata' => $metadata, 'tabs' => $tabs,
       'title' => new CanvasRectangle($x, $summary->y + $p, $titleWidth, $summaryHeight - 2 * $p),
+      'summaryText' => new CanvasRectangle($x + $inner - $summaryWidth, $summary->y + $p, $summaryWidth, $summaryHeight - 2 * $p),
       'preview' => new CanvasRectangle($x, $metadata->y + $m->cellHeight, $inner, $m->cellHeight),
       'hints' => $hintHeight > 0 ? new CanvasRectangle($x, $info->y + $infoHeight - $p - $hintHeight, $inner, $hintHeight) : null];
   }

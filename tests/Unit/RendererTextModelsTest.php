@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasGlyphEffects;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasLabel;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\Text\FontReference;
 use Ichiloto\Engine\Rendering\Presentation\Text\TextBounds;
@@ -61,6 +63,16 @@ it('emits exactly the project text wire specification and preserves ordered fall
     'fontSize' => 12.5, 'locale' => 'en', 'foreground' => ['kind' => 'rgb', 'r' => 50, 'g' => 30, 'b' => 20],
   ])->and(makeTextModelSpec(['fonts' => $fonts, 'glyphEffects' => $effects])->toArray())
     ->toBe([...$plain->toArray(), 'glyphEffects' => $effects->toArray()]);
+});
+
+it('serializes optional text block dimensions and rejects invalid dimensions', function () {
+  $plain = makeTextModelSpec()->toArray();
+  expect(makeTextModelSpec(['wrapWidth' => 280.5, 'lineHeight' => 20.0])->toArray())
+    ->toBe([...$plain, 'wrapWidth' => 280.5, 'lineHeight' => 20.0]);
+  foreach ([['wrapWidth' => 0.0], ['wrapWidth' => 16385.0], ['wrapWidth' => INF],
+    ['lineHeight' => 12.0], ['lineHeight' => 513.0], ['lineHeight' => NAN]] as $invalid) {
+    expect(fn() => makeTextModelSpec($invalid))->toThrow(InvalidArgumentException::class);
+  }
 });
 
 it('detaches caller-owned font references without changing fallback order or forbidding repeated faces', function () {
@@ -201,3 +213,15 @@ it('keeps measurements immutable and accepts opaque bounded wire identities', fu
 it('refuses malformed or oversized measurement identities using the shared ID contract', function (string $id) {
   expect(fn() => new TextMeasurement($id, makeTextModelMetrics()))->toThrow(InvalidArgumentException::class);
 })->with(nameTextModelCases(['', str_repeat('a', 257), str_repeat("\u{00E9}", 129), "text\n1", "text\0", "text\x7F", "text\u{0085}", "\xFF"]));
+
+it('preserves the text reveal through canvas composition and permits a hidden initial prefix', function () {
+  $measurement = new TextMeasurement('layout:synthetic', makeTextModelMetrics());
+  $label = new CanvasLabel('dialogue', $measurement, 10, 10, visibleBytes: 0);
+  $base = new PresentationCanvas(100, 100);
+  $overlay = new PresentationCanvas(100, 100, labels: [$label]);
+  $composed = PresentationCanvas::composeOverlay($base, $overlay, 'overlay:');
+  expect($composed->labels[0]->toArray()['visibleBytes'])->toBe(0)
+    ->and($composed->labels[0]->measurement)->toBe($measurement);
+  expect(fn() => new CanvasLabel('dialogue', $measurement, 10, 10, visibleBytes: -1))
+    ->toThrow(InvalidArgumentException::class);
+});

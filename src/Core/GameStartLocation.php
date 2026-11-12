@@ -41,7 +41,7 @@ final readonly class GameStartLocation
         $state = GameState::fromArray($initialConfig->gameState);
         $quests = QuestLog::fromArray($initialConfig->questLog);
         foreach ($map->data['npcs'] ?? [] as $entry) {
-            $npc = NpcPlacement::fromArray($entry);
+            $npc = NpcPlacement::fromArray($entry, $state, $this->mapId);
             if ($npc !== null && $npc->x === $this->x && $npc->y === $this->y
                 && WorldConditionEvaluator::allHold($npc->conditions, $state, $initialConfig->party, $quests)) {
                 throw new InvalidArgumentException('The launch cell is occupied by an NPC.');

@@ -18,6 +18,7 @@ use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\UI\Presentation\MenuDirection;
 use Ichiloto\Engine\UI\Presentation\MenuIconRegistry;
 
 function hudTestSkin(?MenuIconRegistry $icons = null): BattleUiSkin
@@ -41,7 +42,7 @@ function getHudTestLayout(?MenuIconRegistry $icons = null): BattleCanvasLayout
 }
 
 it('contains replaceable theme command icons and aligns labels independently of legacy abbreviations', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-hud-icons-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-hud-icons-' . bin2hex(random_bytes(4));
   mkdir($root);
   $hud = new BattleHudSnapshot(context: new BattleHudListSnapshot('Attack', '', [
     new BattleHudRow(0, 'Attack', true, iconRole: 'command.attack'),
@@ -59,7 +60,9 @@ it('contains replaceable theme command icons and aligns labels independently of 
         ->and($icons[0]->destination->width)->toBe(16.0)
         ->and($icons[0]->destination->height)->toBe(8.0)
         ->and($icons[0]->destination->x)->toBe(180.0);
-      $labels = array_column($frame->textLayers, null, 'id')['hud-submenu-rows'];
+      $text = array_column($frame->textLayers, null, 'id');
+      expect($icons[0]->layer)->toBeGreaterThan($text['hud-submenu-highlight']->layer);
+      $labels = $text['hud-submenu-rows'];
       expect($labels->x)->toBe(204.0)
         ->and(array_column($labels->runs, 'text'))->toBe(['Attack', 'Custom strike (4 MP)']);
     }
@@ -84,6 +87,22 @@ function hudTestList(string $title, array $labels, int $selected = 0, string $he
   return new BattleHudListSnapshot($title, $help, array_map(fn($index) => new BattleHudRow($index, $labels[$index], $index === $selected),
     array_keys($labels)), $selected, 0, 4, count($labels), 1, 1);
 }
+
+it('marks the tutorial command without moving the active command cursor', function () {
+  $hud = new BattleHudSnapshot(
+    commands: new BattleHudListSnapshot('Command', '', [
+      new BattleHudRow(0, 'Attack', true),
+      new BattleHudRow(1, 'Summon', false, tutorialTarget: true),
+    ], 0, 0, 4, 2, 1, 1),
+    context: new BattleHudListSnapshot('', '', [], -1, 0, 4, 0, 1, 1, 'Choose Summon.'),
+  );
+  $frame = GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'command', 0);
+  $layers = array_column($frame->textLayers, null, 'id');
+  expect($layers['hud-command-tutorial-1']->runs[0]->text)->toBe('!')
+    ->and($layers['hud-submenu-empty']->runs[0]->text)->toBe('Choose Summon.')
+    ->and($hud->commands->activeIndex)->toBe(0)
+    ->and($hud->commands->rows[1]->selected)->toBeFalse();
+});
 
 it('preserves command context name and resource rows without terminal borders', function () {
   $hud = new BattleHudSnapshot(hudTestList('Command 1/2', ['Attack', 'Skill', 'Magic', 'Item'], help: 'i:Info'),
@@ -226,7 +245,7 @@ it('right aligns resource values at stable right edges as digits grow and shrink
 });
 
 it('retains healthy HUD artwork and themed gauges when optional textures disappear and return', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-hud-fallback-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-hud-fallback-' . bin2hex(random_bytes(4));
   mkdir($root);
   $arena = getHudTestLayout();
   $hud = new BattleHudSnapshot(hudTestList('Command', ['Attack']), status: new BattleHudStatusSnapshot('', '',
@@ -254,7 +273,7 @@ it('retains healthy HUD artwork and themed gauges when optional textures disappe
 });
 
 it('keeps the combined battlefield and healthy HUD image budget strict', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-hud-budget-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-hud-budget-' . bin2hex(random_bytes(4));
   mkdir($root);
   try {
     foreach (['panel.png', 'arena.png'] as $asset) {
@@ -265,6 +284,186 @@ it('keeps the combined battlefield and healthy HUD image budget strict', functio
     $icons = new MenuIconRegistry($root, ['command.attack' => 'arena.png']);
     expect(fn() => GraphicalBattleHud::preflight(getHudTestLayout($icons), $root))
       ->toThrow(RuntimeException::class, '64 MiB');
+  } finally {
+    foreach (glob($root . '/*') ?: [] as $path) { unlink($path); }
+    rmdir($root);
+  }
+});
+
+it('draws a panel\'s control hints as keycaps from the menu theme and keeps its text without one', function () {
+  $hints = [new \Ichiloto\Engine\IO\ActionHint('battle_info', 'Info', \Ichiloto\Engine\IO\ControlHint::keyboard(\Ichiloto\Engine\IO\Enumerations\KeyCode::I)),
+    new \Ichiloto\Engine\IO\ActionHint('battle_back', 'Back', \Ichiloto\Engine\IO\ControlHint::keyboard(\Ichiloto\Engine\IO\Enumerations\KeyCode::C))];
+  $list = new BattleHudListSnapshot('Magic', '[I] Info  [C] Back', [new BattleHudRow(0, 'Cure', true)], 0, 0, 4, 1, 1, 1, hints: $hints);
+  $hud = new BattleHudSnapshot(context: $list);
+  $theme = new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog(\getTestTemporaryDirectory(), ['schema' => 'ichiloto.menu/1']);
+  $keys = GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'submenu', 0, null, $theme);
+  $layers = array_column($keys->textLayers, null, 'id');
+  $help = array_values(array_filter($keys->textLayers, fn($layer) => str_starts_with($layer->id, 'hud-submenu-help')));
+  $names = array_merge(...array_map(fn($layer) => array_column(array_filter($layer->runs, fn($run) => $run->foreground !== null), 'text'), $help));
+  expect($names)->toBe(['I', ' Info', 'C', ' Back'])
+    ->and(array_filter($help, fn($layer) => $layer->grid->cellWidth === 1))->not->toBeEmpty()
+    // Keys sit with the panel's other text, above its frame.
+    ->and(min(array_column($help, 'layer')))->toBeGreaterThanOrEqual(array_column($keys->textLayers, null, 'id')['hud-submenu-rows']->layer);
+  $text = GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'submenu', 0);
+  expect(array_column($text->textLayers, null, 'id')['hud-submenu-help']->runs[0]->text)->toBe('[I] Info  [C] Back');
+});
+
+function hudOutcomeHints(): array
+{
+  return [new \Ichiloto\Engine\IO\ActionHint('action', 'Continue',
+    \Ichiloto\Engine\IO\ControlHint::keyboard(\Ichiloto\Engine\IO\Enumerations\KeyCode::SPACE))];
+}
+
+/** @return list<string> Every glyph run the canvas draws, in layer order. */
+function hudOutcomeTexts(\Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas $canvas, string $prefix = ''): array
+{
+  $texts = [];
+  foreach ($canvas->textLayers as $layer) {
+    if (!str_starts_with($layer->id, $prefix)) { continue; }
+    foreach ($layer->runs as $run) {
+      if ($run->foreground !== null && trim($run->text) !== '') { $texts[] = trim($run->text); }
+    }
+  }
+  return $texts;
+}
+
+it('draws every battle result in a themed panel above the battlefield with its controls as keys alone', function (int $width, int $height, int $cellWidth, int $cellHeight) {
+  $logs = \getTestTemporaryDirectory() . '/ichiloto-hud-outcome-' . bin2hex(random_bytes(4));
+  \Ichiloto\Engine\Util\Debug::configure(['log_directory' => $logs]);
+  $theme = new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog(\getTestTemporaryDirectory(), ['schema' => 'ichiloto.menu/1']);
+  $arena = new BattleCanvasLayout($width, $height, $cellWidth, $cellHeight, skin: hudTestSkin(),
+    feedbackArea: new CanvasRectangle(0, $height / 9, $width, $height * 0.63));
+  $results = [
+    'escape' => new \Ichiloto\Engine\Battle\Presentation\BattleOutcomeSnapshot('Escaped', ['The party slipped away!'], hudOutcomeHints()),
+    'defeat' => new \Ichiloto\Engine\Battle\Presentation\BattleOutcomeSnapshot('Defeat', ['The party has been wiped out.'], hudOutcomeHints()),
+    'paged' => new \Ichiloto\Engine\Battle\Presentation\BattleOutcomeSnapshot('Victory - Rewards',
+      ['EXP: 120', 'Gold: 40 G', 'Item drops: Potion', 'Kaelion: Level 4!', 'Kaelion learned: Cleave', 'Nivira: Level 3!'],
+      [...hudOutcomeHints(), new \Ichiloto\Engine\IO\ActionHint('up', 'Page 1/2',
+        \Ichiloto\Engine\IO\ControlHint::keyboard(\Ichiloto\Engine\IO\Enumerations\KeyCode::UP),
+        \Ichiloto\Engine\IO\ControlHint::keyboard(\Ichiloto\Engine\IO\Enumerations\KeyCode::DOWN), 'down')], 0, 2),
+  ];
+  foreach ($results as $kind => $outcome) {
+    $frame = GraphicalBattleHud::compose($arena, new BattleHudSnapshot(outcome: $outcome), null, 0, null, $theme);
+    $panel = array_values(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'hud-outcome')));
+    $left = min(array_map(fn($image) => $image->destination->x, $panel));
+    $bottom = max(array_map(fn($image) => $image->destination->y + $image->destination->height, $panel));
+    $texts = hudOutcomeTexts($frame);
+    expect($panel)->not->toBeEmpty()
+      // The theme's framed panel, never the quiet message band or a Terminal border.
+      ->and(array_unique(array_map(fn($image) => $image->asset, $panel)))->toBe(['panel.png'])
+      ->and($texts)->toContain($outcome->title, ...$outcome->lines)
+      ->and(implode('', $texts))->not->toContain('Continue')->not->toContain('Page 1/2')->not->toContain('[')
+      ->and(hudOutcomeTexts($frame, 'hud-outcome-keys'))->toEqualCanonicalizing($kind === 'paged' ? ['↑', '↓', 'Space'] : ['Space'])
+      // Centred in the band above the battlefield, clear of the party's HUD rows below it.
+      ->and(abs($left + ($width - 2 * $left) / 2 - $width / 2))->toBeLessThan(1)
+      ->and($bottom)->toBeLessThanOrEqual($arena->getHudTop())
+      ->and(count($frame->textLayers))->toBeLessThanOrEqual(\Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame::MAX_TEXT_LAYERS);
+    $title = array_column($frame->textLayers, null, 'id')['hud-outcome-title'];
+    expect($title->runs[0]->foreground)->toEqual(hudTestSkin()->colors['focus']);
+    if ($kind === 'paged') { expect($texts)->toContain('1 / 2'); }
+  }
+  expect(file_exists($logs . '/warning.log'))->toBeFalse();
+})->with([[1350, 720, 10, 20], [1920, 1080, 14, 30], [945, 540, 7, 15]]);
+
+it('stacks a battle result below a visible battle message instead of covering either', function () {
+  $theme = new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog(\getTestTemporaryDirectory(), ['schema' => 'ichiloto.menu/1']);
+  $frame = GraphicalBattleHud::compose(getHudTestLayout(), new BattleHudSnapshot(message: 'Could not escape!',
+    outcome: new \Ichiloto\Engine\Battle\Presentation\BattleOutcomeSnapshot('Defeat', ['The party has been wiped out.'], hudOutcomeHints())),
+    null, 0, null, $theme);
+  $bounds = fn(string $prefix) => array_values(array_map(fn($image) => $image->destination,
+    array_filter($frame->images, fn($image) => str_starts_with($image->id, $prefix))));
+  $message = max(array_map(fn($rect) => $rect->y + $rect->height, $bounds('hud-message')));
+  $outcome = min(array_map(fn($rect) => $rect->y, $bounds('hud-outcome')));
+  expect($outcome)->toBeGreaterThan($message)->and(hudOutcomeTexts($frame))->toContain('Could not escape!', 'Defeat');
+});
+
+it('reports a battle result whose keys read as text because the project has no menu theme', function () {
+  $logs = \getTestTemporaryDirectory() . '/ichiloto-hud-outcome-' . bin2hex(random_bytes(4));
+  \Ichiloto\Engine\Util\Debug::configure(['log_directory' => $logs]);
+  $fallbacks = new \Ichiloto\Engine\Rendering\Presentation\PresentationFallbackReport();
+  $hud = new BattleHudSnapshot(outcome: new \Ichiloto\Engine\Battle\Presentation\BattleOutcomeSnapshot('Escaped',
+    ['The party slipped away!'], hudOutcomeHints()));
+  $frame = GraphicalBattleHud::compose(getHudTestLayout(), $hud, null, 0, null, null, $fallbacks);
+  GraphicalBattleHud::compose(getHudTestLayout(), $hud, null, 0, null, null, $fallbacks);
+  // Still the key alone, and the fallback is logged once for its owner, not on every frame.
+  expect(hudOutcomeTexts($frame, 'hud-outcome-keys'))->toBe(['[Space]'])
+    ->and($fallbacks->getReportedMessages())->toHaveCount(1)
+    ->and(substr_count(file_get_contents($logs . '/warning.log'), 'Battle result controls read as text'))->toBe(1);
+});
+
+it('rejects a battle result the canvas cannot hold instead of truncating it', function () {
+  $theme = new \Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog(\getTestTemporaryDirectory(), ['schema' => 'ichiloto.menu/1']);
+  $long = new \Ichiloto\Engine\Battle\Presentation\BattleOutcomeSnapshot('Victory', [str_repeat('x', 140)], hudOutcomeHints());
+  expect(fn() => GraphicalBattleHud::compose(getHudTestLayout(), new BattleHudSnapshot(outcome: $long), null, 0, null, $theme))
+    ->toThrow(RuntimeException::class, 'its window must wrap it');
+});
+
+
+it('fits the held technique beside a right affordance while keeping party panels fixed', function (): void {
+  $compose = static fn(string $label) => GraphicalBattleHud::compose(getHudTestLayout(), new BattleHudSnapshot(
+    commands: new BattleHudListSnapshot('Command', '', [new BattleHudRow(0, $label, true, hasAlternative: true)],
+      0, 0, 4, 1, 1, 1, preferredColumns: 26),
+    context: hudTestList('Attack', []), names: hudTestList('Name', ['Synthetic actor']),
+    status: new BattleHudStatusSnapshot('', '', [new BattleHudStatusRow(0, 9, 100, 0, 30)])), 'command', 0);
+  $ordinary = $compose('Attack'); $special = $compose('Long technique name');
+  foreach ([$ordinary, $special] as $frame) {
+    $layers = array_column($frame->textLayers, null, 'id');
+    expect($layers['hud-command-alternative-0']->runs[0]->text)->toBe(MenuDirection::RIGHT->getGlyph(chevron: true))
+      ->and($layers['hud-submenu-title']->x)->toBe(276.0)
+      ->and($layers['hud-names-title']->x)->toBe(776.0);
+    foreach ($layers['hud-command-rows']->runs as $run) {
+      expect($run->text)->toBeIn(['Attack', 'Long technique name']);
+    }
+  }
+  $a = array_column($ordinary->textLayers, null, 'id'); $b = array_column($special->textLayers, null, 'id');
+  expect($a['hud-names-rows'])->toEqual($b['hud-names-rows'])->and($a['hud-hp-rows'])->toEqual($b['hud-hp-rows']);
+});
+
+it('signals a held alternative with the theme navigation chevron, row sized, static and apart from the cursor', function (): void {
+  $root = \getTestTemporaryDirectory() . '/ichiloto-hud-chevron-' . bin2hex(random_bytes(4));
+  mkdir($root);
+  $hud = new BattleHudSnapshot(commands: new BattleHudListSnapshot('Command', '', [
+    new BattleHudRow(0, 'Attack', true, hasAlternative: true), new BattleHudRow(1, 'Defend', false),
+  ], 0, 0, 4, 2, 1, 1, preferredColumns: 26));
+  $find = static fn(array $items, string $prefix): array => array_values(array_filter($items,
+    static fn($item): bool => str_starts_with($item->id, $prefix)));
+  try {
+    file_put_contents($root . '/next.png', "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 32, 32));
+    $arena = getHudTestLayout(new MenuIconRegistry($root, ['navigation.next' => 'next.png']));
+    $pitch = $arena->uiGrid;
+    $rowY = $arena->getHudTop() + $pitch->cellHeight;
+    $frame = GraphicalBattleHud::compose($arena, $hud, 'command', 0, $root);
+    $chevrons = $find($frame->images, 'hud-command-alternative-');
+    $highlight = array_column($frame->textLayers, null, 'id')['hud-command-highlight'];
+    expect($chevrons)->toHaveCount(1)
+      ->and($chevrons[0]->id)->toStartWith('hud-command-alternative-0')
+      ->and($chevrons[0]->asset)->toBe('next.png')
+      ->and($chevrons[0]->destination->width)->toEqual($pitch->cellHeight)
+      ->and($chevrons[0]->destination->height)->toEqual($pitch->cellHeight)
+      ->and($chevrons[0]->destination->y + $chevrons[0]->destination->height / 2)->toEqual($rowY + $pitch->cellHeight / 2)
+      ->and($chevrons[0]->layer)->toBeGreaterThan($highlight->layer)
+      ->and($find($frame->textLayers, 'hud-command-alternative-'))->toBe([])
+      ->and(GraphicalBattleHud::preflight($arena, $root))->toBe(['next.png' => 32 * 32 * 4]);
+    // Only the list cursor oscillates; the chevron holds still and never borrows the selector's artwork.
+    $later = GraphicalBattleHud::compose($arena, $hud, 'command', 0.6, $root);
+    expect($find($later->images, 'hud-command-alternative-'))->toEqual($chevrons)
+      ->and(array_filter([...$frame->images, ...$later->images], static fn($image): bool =>
+        str_starts_with($image->id, 'hud-command-alternative-') && $image->asset === 'selector.png'))->toBe([]);
+
+    // Without the artwork, the shared chevron glyph fills the same square in the focus colour.
+    unlink($root . '/next.png');
+    foreach ([0, 0.6] as $now) {
+      $fallback = GraphicalBattleHud::compose($arena, $hud, 'command', $now, $root);
+      $glyphs = $find($fallback->textLayers, 'hud-command-alternative-');
+      expect($find($fallback->images, 'hud-command-alternative-'))->toBe([])
+        ->and($glyphs)->toHaveCount(1)
+        ->and($glyphs[0]->id)->toBe('hud-command-alternative-0')
+        ->and($glyphs[0]->runs[0]->text)->toBe(MenuDirection::RIGHT->getGlyph(chevron: true))
+        ->and($glyphs[0]->runs[0]->foreground)->toEqual($arena->skin->colors['focus'])
+        ->and([$glyphs[0]->grid->cellWidth, $glyphs[0]->grid->cellHeight])->toBe([$pitch->cellHeight, $pitch->cellHeight])
+        ->and($glyphs[0]->x)->toEqual($chevrons[0]->destination->x)
+        ->and($glyphs[0]->y)->toEqual($rowY);
+    }
   } finally {
     foreach (glob($root . '/*') ?: [] as $path) { unlink($path); }
     rmdir($root);

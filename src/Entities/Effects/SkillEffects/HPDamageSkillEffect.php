@@ -13,6 +13,13 @@ use Ichiloto\Engine\Entities\Skills\SkillEffectContext;
  */
 class HPDamageSkillEffect extends SkillEffect
 {
+  public const bool RECORDS_DAMAGING_HITS = true;
+
+  /** An effect authored to resolve as healing restores HP and records no damaging hit. */
+  public bool $recordsDamagingHits { get => $this->resolutionKind?->isDamage() ?? true; }
+
+  /** Historical serialized damage effects retain normal Guard/protective-state behavior. */
+  protected(set) bool $ignoresProtection = false;
   public function repeatsWithInvocation(): bool
   {
     return true;
@@ -24,9 +31,11 @@ class HPDamageSkillEffect extends SkillEffect
     float $variance = 0.2,
     bool $isCriticalHit = false,
     protected(set) ?ResolutionKind $resolutionKind = null,
+    bool $ignoresProtection = false,
   )
   {
     parent::__construct($formula, $element, $variance, $isCriticalHit);
+    $this->ignoresProtection = $ignoresProtection;
   }
 
   public function apply(SkillEffectContext $context): void
@@ -47,6 +56,7 @@ class HPDamageSkillEffect extends SkillEffect
         baseAccuracy: $context->baseAccuracy,
         criticalEligible: true,
         guaranteedCritical: $this->isCriticalHit,
+        guardEligible: !$this->ignoresProtection,
         hitRollOverride: $context->hitRollOverride(),
         criticalRollOverride: $context->criticalRollOverride(),
       ),

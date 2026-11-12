@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Core;
 
+use Ichiloto\Engine\Progression\TutorialPhase;
+
 /**
  * The persistent world-state store.
  *
@@ -20,7 +22,7 @@ class GameState
 {
   /**
    * @var \Closure|null Observer invoked as `($kind, $name)` after a write,
-   * where `$kind` is `switch`, `variable`, or `event`. Never serialized —
+   * where `$kind` identifies the changed world or presentation fact. Never serialized —
    * the owning scene re-wires it on load.
    */
   public ?\Closure $onChange = null;
@@ -46,6 +48,92 @@ class GameState
   protected array $visitedMaps = [];
   /** @var array<string, array<string, true>> Learned landmark ids, scoped to their owning map. */
   protected array $knownLandmarks = [];
+
+  /** @var array<string,true> Delivered first-use prompts, separate from power availability. */
+  private array $worldAbilityPrompts = [];
+
+  /** @var array<string, TutorialPhase> Tutorial progress by stable authored id. */
+  private array $tutorials = [];
+
+  /** @var array<array-key, true> Follow-ons explicitly queued by a live lesson. */
+  private array $tutorialFollowOns = [];
+
+  /** @var array<string, int> Recorded gameplay counters, separate from authored variables. */
+  private array $playStatistics = [];
+
+  public function getPlayStatistic(PlayStatistic $statistic): int
+  {
+    return $this->playStatistics[$statistic->value] ?? 0;
+  }
+
+  /** Records a positive contribution without overflowing the saved integer. */
+  public function incrementPlayStatistic(PlayStatistic $statistic, int $amount = 1): void
+  {
+    if ($amount < 1) { throw new \InvalidArgumentException('A play statistic increment must be positive.'); }
+    $current = $this->getPlayStatistic($statistic);
+    $this->ensurePlayStatisticMinimum($statistic, $current + min($amount, PHP_INT_MAX - $current));
+  }
+
+  /** Imports a proven historical lower bound without reducing or replaying recorded progress. */
+  public function ensurePlayStatisticMinimum(PlayStatistic $statistic, int $minimum): void
+  {
+    if ($minimum < 0) { throw new \InvalidArgumentException('A play statistic minimum cannot be negative.'); }
+    if ($minimum <= $this->getPlayStatistic($statistic)) { return; }
+    $this->playStatistics[$statistic->value] = $minimum;
+    $this->onChange?->__invoke('play_statistic', $statistic->value);
+  }
+
+  public function getTutorialPhase(string $id): ?TutorialPhase
+  {
+    return $this->tutorials[trim($id)] ?? null;
+  }
+
+  public function setTutorialPhase(string $id, TutorialPhase $phase): void
+  {
+    $id = trim($id);
+    if ($id === '' || $this->getTutorialPhase($id) === $phase) {
+      return;
+    }
+
+    $this->tutorials[$id] = $phase;
+    $this->onChange?->__invoke('tutorial', $id);
+  }
+
+  /** Records the lesson result and its follow-on in the same state change. */
+  public function finishTutorial(string $id, TutorialPhase $phase, bool $queueFollowOn): void
+  {
+    if (!$phase->isFinished() || $this->getTutorialPhase($id) !== TutorialPhase::PENDING) {
+      return;
+    }
+
+    $id = trim($id);
+    if ($queueFollowOn) {
+      $this->tutorialFollowOns[$id] = true;
+    }
+    $this->setTutorialPhase($id, $phase);
+  }
+
+  public function hasPendingTutorialFollowOn(string $id): bool
+  {
+    return isset($this->tutorialFollowOns[$id]);
+  }
+
+  public function acknowledgeTutorialFollowOn(string $id): void
+  {
+    if ($this->hasPendingTutorialFollowOn($id)) {
+      unset($this->tutorialFollowOns[$id]);
+      $this->onChange?->__invoke('tutorial', $id);
+    }
+  }
+
+  public function hasSeenWorldAbilityPrompt(string $id): bool { return isset($this->worldAbilityPrompts[$id]); }
+
+  public function markWorldAbilityPromptSeen(string $id): void
+  {
+    if (trim($id) === '' || $this->hasSeenWorldAbilityPrompt($id)) { return; }
+    $this->worldAbilityPrompts[$id] = true;
+    $this->onChange?->__invoke('ability_prompt', $id);
+  }
 
   /** Explicit play revelation and physical approach share the same persistent knowledge. */
   public function revealLandmark(string $mapId, string $landmarkId): void
@@ -235,7 +323,7 @@ class GameState
   }
 
   /**
-   * @return array{switches: array<string, bool>, variables: array<string, int|float|string>, storyEvents: string[], completedEvents: array<string, true>, visitedMaps: array<string, true>, knownLandmarks: array<string, array<string, true>>}
+   * @return array{switches: array<string, bool>, variables: array<string, int|float|string>, storyEvents: string[], completedEvents: array<string, true>, visitedMaps: array<string, true>, knownLandmarks: array<string, array<string, true>>, worldAbilityPrompts: array<string,true>, tutorials: array<string,string>, tutorialFollowOns: array<array-key,true>, playStatistics: array<string,int>}
    */
   public function toArray(): array
   {
@@ -246,6 +334,10 @@ class GameState
       'completedEvents' => $this->completedEvents,
       'visitedMaps' => $this->visitedMaps,
       'knownLandmarks' => $this->knownLandmarks,
+      'worldAbilityPrompts' => $this->worldAbilityPrompts,
+      'tutorials' => array_map(static fn(TutorialPhase $phase): string => $phase->value, $this->tutorials),
+      'tutorialFollowOns' => $this->tutorialFollowOns,
+      'playStatistics' => $this->playStatistics,
     ];
   }
 
@@ -266,6 +358,10 @@ class GameState
     $this->completedEvents = $restored->completedEvents;
     $this->visitedMaps = $restored->visitedMaps;
     $this->knownLandmarks = $restored->knownLandmarks;
+    $this->worldAbilityPrompts = $restored->worldAbilityPrompts;
+    $this->tutorials = $restored->tutorials;
+    $this->tutorialFollowOns = $restored->tutorialFollowOns;
+    $this->playStatistics = $restored->playStatistics;
   }
 
   /**
@@ -275,6 +371,13 @@ class GameState
   public static function fromArray(array $data): self
   {
     $state = new self();
+
+    foreach (is_array($data['playStatistics'] ?? null) ? $data['playStatistics'] : [] as $name => $count) {
+      $statistic = is_string($name) ? PlayStatistic::tryFrom($name) : null;
+      if ($statistic !== null && is_int($count) && $count >= 0) {
+        $state->playStatistics[$statistic->value] = $count;
+      }
+    }
 
     foreach ((array) ($data['switches'] ?? []) as $name => $value) {
       $state->setSwitch((string) $name, (bool) $value);
@@ -313,6 +416,24 @@ class GameState
       if (!is_string($mapId) || !is_array($entries)) { continue; }
       foreach ($entries as $landmarkId => $known) {
         if (is_string($landmarkId) && $known === true) { $state->revealLandmark($mapId, $landmarkId); }
+      }
+    }
+
+    foreach (is_array($data['worldAbilityPrompts'] ?? null) ? $data['worldAbilityPrompts'] : [] as $id => $seen) {
+      if ((is_string($id) || is_int($id)) && $seen === true) { $state->markWorldAbilityPromptSeen((string)$id); }
+    }
+
+    foreach (is_array($data['tutorials'] ?? null) ? $data['tutorials'] : [] as $id => $value) {
+      $phase = is_string($value) ? TutorialPhase::tryFrom($value) : null;
+      if ($phase !== null) {
+        $state->setTutorialPhase((string) $id, $phase);
+      }
+    }
+
+    foreach (is_array($data['tutorialFollowOns'] ?? null) ? $data['tutorialFollowOns'] : [] as $id => $queued) {
+      $phase = $state->getTutorialPhase((string) $id);
+      if ($queued === true && $phase?->isFinished() === true) {
+        $state->tutorialFollowOns[$id] = true;
       }
     }
 

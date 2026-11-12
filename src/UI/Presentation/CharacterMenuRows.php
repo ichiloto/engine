@@ -31,7 +31,7 @@ final class CharacterMenuRows
     $fields = $comparison ? ['totalHp' => 'HP', 'totalMp' => 'MP', ...self::STATS] : self::STATS;
     $current = $character->effectiveStats;
     foreach ($fields as $field => $label) {
-      $label = Vocabulary::getTerm('stats.' . match ($field) { 'totalHp' => 'hp', 'totalMp' => 'mp', default => $field }, $label);
+      $label = self::getStatLabel($field);
       $values = [new MenuRowValue(number_format($current->$field))];
       if ($comparison) {
         $next = $preview === null ? $current->$field : $preview->$field;
@@ -47,6 +47,16 @@ final class CharacterMenuRows
       $rows[] = new MenuRow($field, $label, $values);
     }
     return $rows;
+  }
+
+  /** The same stat vocabulary is used by character, equipment and shop screens. */
+  public static function getStatLabel(string $field): string
+  {
+    $label = match ($field) {
+      'totalHp' => 'HP', 'totalMp' => 'MP',
+      default => self::STATS[$field] ?? throw new \InvalidArgumentException('Unknown character stat: ' . $field),
+    };
+    return Vocabulary::getTerm('stats.' . match ($field) { 'totalHp' => 'hp', 'totalMp' => 'mp', default => $field }, $label);
   }
 
   /** @return list<MenuRow> */

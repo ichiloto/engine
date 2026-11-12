@@ -1,5 +1,7 @@
 <?php
 
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
+use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\BattleCommandOption;
 use Ichiloto\Engine\Battle\BattleCommandType;
@@ -83,6 +85,17 @@ function hudSnapshotOption(string $label, int $mpCost = 0): BattleCommandOption
   return new BattleCommandOption($label, "Authored info: {$label}", new AttackAction('Test'), mpCost: $mpCost);
 }
 
+
+beforeEach(function () {
+  $this->savedInput = new ReflectionClass(InputManager::class)->getStaticProperties();
+  InputManager::setBindings(['action' => ['keys' => [KeyCode::ENTER]], 'up' => ['keys' => [KeyCode::UP]],
+    'down' => ['keys' => [KeyCode::DOWN]]]);
+});
+
+afterEach(function () {
+  foreach ($this->savedInput as $name => $value) { new ReflectionProperty(InputManager::class, $name)->setValue(null, $value); }
+});
+
 it('carries semantic command artwork separately without changing terminal labels or selection', function () {
   $window = makeHudSnapshotScreen()->commandContextWindow;
   $window->setItems([
@@ -160,7 +173,8 @@ it('retains authored context costs labels descriptions and current affordability
     ->and(array_column($snapshot->rows, 'mpCost'))->toBe([0, 12, 2, 20])
     ->and($snapshot->rows[3]->description)->toBe($items[5]->description)
     ->and($snapshot->title)->toBe('Magic / Skill 2/2')
-    ->and($snapshot->help)->toBe('enter:Select i:Info c:Back')
+    ->and($snapshot->help)->toBe('[Enter] Select  [I] Info  [C] Back')
+    ->and(array_column($snapshot->hints, 'label'))->toBe(['Select', 'Info', 'Back'])
     ->and($snapshot->scrollOffset)->toBe(2)
     ->and($snapshot->currentPage)->toBe(2)
     ->and($snapshot->totalPages)->toBe(2)
@@ -180,7 +194,7 @@ it('preserves context empty messages and the distinction between empty and clear
   expect($snapshot->rows)->toBe([])
     ->and($snapshot->emptyMessage)->toBe('No companions are available.')
     ->and($snapshot->title)->toBe('Summon')
-    ->and($snapshot->help)->toBe('i:Info c:Back')
+    ->and($snapshot->help)->toBe('[I] Info  [C] Back')
     ->and($snapshot->activeIndex)->toBe(-1)
     ->and($snapshot->scrollOffset)->toBe(0)
     ->and($snapshot->currentPage)->toBe(1)
@@ -356,4 +370,22 @@ it('keeps terminal row bytes unchanged across snapshot reads', function () {
     ->and(TerminalText::stripAnsi($before[1][0]))->toBe(str_pad('> Fire (02 MP)', 58))
     ->and($before[2][0])->toBe(str_pad('   Hero', 20))
     ->and($before[3][0])->toBe('   0 [          ]     0 [     ]');
+});
+
+
+it('pages eight combatants and their vitals together through the last actor', function () {
+  $screen = makeHudSnapshotScreen();
+  $actors = array_map(fn($n) => new Character('Member' . $n, 0, new Stats(currentHp: 10 + $n, totalHp: 100)), range(1, 8));
+  $screen->characterStatusWindow->setCharacters($actors);
+  $screen->characterNameWindow->setNames(array_column($actors, 'name'));
+  $screen->characterNameWindow->setActiveSelection(7, blink: false);
+  $names = $screen->characterNameWindow->presentationSnapshot();
+  $status = $screen->characterStatusWindow->presentationSnapshot();
+  expect(array_column($names->rows, 'index'))->toBe([4, 5, 6, 7])
+    ->and(array_column($names->rows, 'label'))->toBe(['Member5', 'Member6', 'Member7', 'Member8'])
+    ->and(array_column($status->rows, 'index'))->toBe([4, 5, 6, 7])
+    ->and(array_column($status->rows, 'currentHp'))->toBe([15, 16, 17, 18])
+    ->and($names->currentPage)->toBe(2)->and($names->totalPages)->toBe(2);
+  $screen->characterNameWindow->setActiveSelection(0, blink: false);
+  expect(array_column($screen->characterStatusWindow->presentationSnapshot()->rows, 'index'))->toBe([0, 1, 2, 3]);
 });

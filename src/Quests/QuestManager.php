@@ -2,13 +2,15 @@
 
 namespace Ichiloto\Engine\Quests;
 
+use Ichiloto\Engine\Core\EngineStoryEvent;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
-use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Core\Campaign\CampaignContextInterface;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Assegai\Util\Path;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -35,6 +37,39 @@ class QuestManager
    * @var QuestManager|null The manager bound to the running game scene.
    */
   protected static ?QuestManager $current = null;
+  /** @var \WeakReference<self>|null */
+  private ?\WeakReference $previousManager = null;
+  private bool $released = false;
+
+  public bool $isReleased { get => $this->released; }
+
+  /** Release this campaign's compatibility binding without disturbing another active owner. */
+  public function release(): void
+  {
+    if ($this->released) { return; }
+    if (self::$current === $this) {
+      self::$current = $this->previousManager?->get();
+    } else {
+      $cursor = self::$current;
+      while ($cursor !== null) {
+        $previous = $cursor->previousManager?->get();
+        if ($previous === $this) {
+          $cursor->previousManager = $this->previousManager;
+          break;
+        }
+        $cursor = $previous;
+      }
+    }
+    $inventory = $this->gameScene->party?->inventory ?? null;
+    $previous = $this->previousManager?->get();
+    while ($previous !== null && ($previous->isReleased || ($previous->gameScene->party?->inventory ?? null) !== $inventory)) {
+      $previous = $previous->previousManager?->get();
+    }
+    $inventory?->releaseQuestManager($this, $previous);
+    $this->previousManager = null;
+    $this->released = true;
+  }
+
   /**
    * @var array<string, Quest> The authored quests, keyed by id.
    */
@@ -48,16 +83,19 @@ class QuestManager
    * QuestManager constructor.
    *
    * @param Game $game The game.
-   * @param GameScene $gameScene The owning game scene.
+   * @param CampaignContextInterface $gameScene The campaign facts, supplied by a field or detached session.
    */
   public function __construct(
     protected Game $game,
-    protected GameScene $gameScene,
+    protected CampaignContextInterface $gameScene,
+    ?string $assetRoot = null,
   )
   {
     $this->log = new QuestLog();
-    $this->quests = self::loadQuestDefinitions();
+    $this->quests = self::loadQuestDefinitions($assetRoot);
+    $this->previousManager = self::$current === null ? null : \WeakReference::create(self::$current);
     self::$current = $this;
+    $this->gameScene->party?->inventory?->bindQuestManager($this);
   }
 
   /**
@@ -85,9 +123,9 @@ class QuestManager
    *
    * @return array<string, Quest> The quests, keyed by id.
    */
-  public static function loadQuestDefinitions(): array
+  public static function loadQuestDefinitions(?string $assetRoot = null): array
   {
-    $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Data', 'quests.php');
+    $filename = Path::join($assetRoot ?? Path::join(Path::getCurrentWorkingDirectory(), 'assets'), 'Data', 'quests.php');
 
     if (! file_exists($filename)) {
       return [];
@@ -118,7 +156,10 @@ class QuestManager
   }
 
   /**
-   * Restores the quest log from persisted state.
+   * Restores the quest log from persisted state. An active quest whose
+   * objectives are all met completes, quietly, as it would have when the
+   * last one was met: a save can hold one when the content now asks less of
+   * the quest than when it was saved (an objective removed or lowered).
    *
    * @param array<string, mixed> $data The persisted log data.
    * @return void
@@ -127,6 +168,12 @@ class QuestManager
   {
     $this->log = QuestLog::fromArray($data);
     $this->refreshStatefulObjectives(quiet: true);
+
+    foreach ($this->activeQuests() as $quest) {
+      if ($this->isQuestSatisfied($quest)) {
+        $this->completeQuest($quest, quiet: true);
+      }
+    }
   }
 
   /**
@@ -289,10 +336,98 @@ class QuestManager
     return $this->log->getProgress($quest->id)[$objectiveIndex] ?? 0;
   }
 
+  /**
+   * Lists the waymarks the player should follow now: those of every active
+   * quest, in journal order, then those leading to where a quest that can
+   * start now starts, in authored order. Derived from the quest log and
+   * world state on each call, so it is correct straight after a load or a
+   * long break.
+   *
+   * @return list<ActiveQuestWaymark>
+   */
+  public function getActiveWaymarks(): array
+  {
+    $gameState = $this->gameScene->gameState;
+    $party = $this->gameScene->party;
+
+    return [
+      ...self::selectActiveWaymarks($this->activeQuests(), $this->log, $gameState, $party),
+      ...self::selectStartWaymarks($this->quests, $this->log, $gameState, $party),
+    ];
+  }
+
+  /**
+   * Selects the start waymarks of quests that can start now: not yet
+   * accepted, or finished, with every prerequisite holding. Each shows
+   * while its own conditions hold. Its objective index is -1, since it
+   * leads to the quest's start rather than one of its objectives.
+   *
+   * @param array<int|string, Quest> $quests Every quest, in authored order.
+   * @return list<ActiveQuestWaymark>
+   */
+  public static function selectStartWaymarks(array $quests, QuestLog $log, GameState $gameState, ?Party $party = null): array
+  {
+    $selected = [];
+
+    foreach ($quests as $quest) {
+      if ($quest->startWaymarks === [] || $log->isActive($quest->id) || $log->isCompleted($quest->id)
+        || ! WorldConditionEvaluator::allHold($quest->prerequisites, $gameState, $party, $log)) {
+        continue;
+      }
+
+      // Spoiler-safe: the quest is not in the journal yet, so its name and objectives stay unsaid.
+      $label = get_engine_message($quest->isOptional ? 'quest.side_quest_waymark' : 'quest.story_waymark');
+
+      foreach ($quest->startWaymarks as $waymarkIndex => $waymark) {
+        if ($waymark->holds($gameState, $party, $log)) {
+          $selected[] = new ActiveQuestWaymark($quest->id, -1, $waymarkIndex, $waymark, $label, $quest->isOptional);
+        }
+      }
+    }
+
+    return $selected;
+  }
+
+  /**
+   * Selects the waymarks of incomplete objectives whose own conditions hold.
+   *
+   * @param array<int, Quest> $quests The active quests, in journal order.
+   * @return list<ActiveQuestWaymark>
+   */
+  public static function selectActiveWaymarks(array $quests, QuestLog $log, GameState $gameState, ?Party $party = null): array
+  {
+    $selected = [];
+
+    foreach ($quests as $quest) {
+      if (! $log->isActive($quest->id)) {
+        continue;
+      }
+
+      $progress = $log->getProgress($quest->id);
+
+      foreach ($quest->objectives as $objectiveIndex => $objective) {
+        if (($progress[$objectiveIndex] ?? 0) >= $objective->quantity || $objective->waymarks === []) {
+          continue;
+        }
+
+        $label = $objective->displayDescription($gameState, $party, $log);
+
+        foreach ($objective->waymarks as $waymarkIndex => $waymark) {
+          if ($waymark->holds($gameState, $party, $log)) {
+            $selected[] = new ActiveQuestWaymark($quest->id, $objectiveIndex, $waymarkIndex, $waymark, $label,
+              $quest->isOptional);
+          }
+        }
+      }
+    }
+
+    return $selected;
+  }
+
   /** Resolves one objective's current spoiler-safe journal text. */
   public function describeObjective(QuestObjective $objective): string
   {
-    return $objective->displayDescription($this->gameScene->gameState, $this->gameScene->party);
+    return $objective->displayDescription($this->gameScene->gameState, $this->gameScene->party, $this->log);
   }
 
   /**
@@ -428,7 +563,7 @@ class QuestManager
     }
 
     $progressionResults = $this->grantRewards($quest);
-    $this->gameScene->gameState->recordStoryEvent(sprintf('quest_completed:%s', $quest->id));
+    $this->gameScene->gameState->recordStoryEvent(EngineStoryEvent::QUEST_COMPLETED->getName($quest->id));
 
     if (! $quiet) {
       $this->notifyQuest('Quest Complete', $quest->name, NotificationDuration::MEDIUM, 'quest.complete');
@@ -440,7 +575,7 @@ class QuestManager
    * Grants a quest's rewards to the party.
    *
    * @param Quest $quest The quest.
-   * @return void
+   * @return list<ExperienceAwardResult>
    */
   protected function grantRewards(Quest $quest): array
   {
@@ -454,11 +589,11 @@ class QuestManager
       $party->credit($gold);
     }
 
-    if (($experience = intval($quest->rewards['experience'] ?? 0)) > 0) {
-      $progressionResults = ExperienceAwarder::awardParty($party, $experience);
-    } else {
-      $progressionResults = [];
-    }
+    $experience = max(0, intval($quest->rewards['experience'] ?? 0));
+    $skillPoints = max(0, intval($quest->rewards['skillPoints'] ?? 0));
+    $progressionResults = $experience > 0 || $skillPoints > 0
+      ? ExperienceAwarder::awardParty($party, $experience, $skillPoints)
+      : [];
 
     $itemReferences = array_values(array_filter(
       (array) ($quest->rewards['items'] ?? []),
@@ -466,7 +601,7 @@ class QuestManager
     ));
 
     if (! empty($itemReferences)) {
-      $itemStore = ConfigStore::get(ItemStore::class);
+      $itemStore = $this->game->itemStore ?? ConfigStore::get(ItemStore::class);
 
       if ($itemStore instanceof ItemStore) {
         $party->addItems(...$itemStore->load($itemReferences));
@@ -489,7 +624,7 @@ class QuestManager
       }
 
       $line = get_engine_message('quest.level_gained', $result->character->name,
-        Vocabulary::getTerm('stats.level', 'level'), $result->newLevel);
+        Vocabulary::getTerm('stats.level'), $result->newLevel);
       $learned = $result->learnedSkills();
 
       if ($learned !== []) {
@@ -533,7 +668,7 @@ class QuestManager
    */
   protected function recordQuestDeclined(Quest $quest): void
   {
-    $this->gameScene->gameState->recordStoryEvent(sprintf('quest_declined:%s', $quest->id));
+    $this->gameScene->gameState->recordStoryEvent(EngineStoryEvent::QUEST_DECLINED->getName($quest->id));
   }
 
   /**
@@ -567,7 +702,8 @@ class QuestManager
     return WorldConditionEvaluator::allHold(
       $quest->prerequisites,
       $this->gameScene->gameState,
-      $this->gameScene->party
+      $this->gameScene->party,
+      $this->log,
     );
   }
 

@@ -123,8 +123,8 @@ final class AutotileTopologyFixture
 
   public static function createWorld(string $root, array $layers): PresentationWorld
   {
-    $height = count($layers[0]->tiles);
-    $width = count($layers[0]->tiles[0]);
+    $height = $layers[0]->height;
+    $width = $layers[0]->width;
     $gameplay = new MapLayerSet([new MapLayer('terrain', 1, false, 'synthetic',
       implode("\n", array_fill(0, $height, str_repeat('.', $width))))]);
     $tileset = Tileset::fromArray('synthetic', ['name' => 'Synthetic', 'sheets' => ['A2' => 'Graphics/SyntheticA2.png']]);
@@ -268,7 +268,7 @@ it('uploads independent corner layers with alpha intact and only explicitly auth
       }
     }
     expect(array_unique(array_column(array_merge(...$upperPixels), 3)))->toContain(0, 128, 255)
-      ->and(TileId::getShape(AutotileShape::resolveLayer($upper->tiles)[1][1]))->toBe($shape);
+      ->and(TileId::getShape(AutotileShape::resolveLayer($upper->readTiles())[1][1]))->toBe($shape);
     // Even the same kind on another layer must not supply a missing edge or diagonal.
     $sameKindLower = AutotileTopologyFixture::createLayer('backing', 1,
       array_fill(0, 3, array_fill(0, 3, TileId::getAutotileId(16, 0))));

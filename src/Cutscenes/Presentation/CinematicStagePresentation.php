@@ -22,10 +22,11 @@ final class CinematicStagePresentation
     int $width, int $height, bool $imageFlips = true, bool $compositing = true): PresentationCanvas
   {
     $images = $composites = [];
-    if (!$compositing && ($frame->active || $frame->cover['opacity'] > 0)) {
+    $hasBackground = $frame->active && $frame->stage->data['background'] !== null;
+    if (!$compositing && ($hasBackground || $frame->cover['opacity'] > 0)) {
       throw new InvalidArgumentException('Renderer cannot draw the cinematic stage cover/background.');
     }
-    if ($frame->active) {
+    if ($hasBackground) {
       $composites[] = self::createFill('cinematic-stage-background', $width, $height,
         $frame->stage->data['background'], PresentationLayerPolicy::CINEMATIC - 501, 1);
     }
@@ -74,7 +75,7 @@ final class CinematicStagePresentation
         PresentationLayerPolicy::TRANSITION, $frame->cover['opacity']);
     }
     return new PresentationCanvas($width, $height, $images, composites: $composites,
-      protectedAreas: $frame->active || $frame->cover['opacity'] > 0
+      protectedAreas: $hasBackground || $frame->cover['opacity'] > 0
         ? [new CanvasRectangle(0, 0, $width, $height)]
         : array_map(static fn(CanvasImage $image): CanvasRectangle => $image->destination, $images));
   }

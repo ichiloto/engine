@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Rendering\Presentation\Canvas;
 
+use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
 use Ichiloto\Engine\Rendering\Presentation\Text\TextBounds;
 use Ichiloto\Engine\Rendering\Presentation\Text\TextMeasurement;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
@@ -23,6 +24,7 @@ final readonly class CanvasLabel
     public ?CanvasRectangle $clipRect = null,
     public float $opacity = 1,
     public int $rotation = 0,
+    public ?int $visibleBytes = null,
   ) {
     CanvasValidation::id($id);
     SpriteValidation::validateSigned32BitRange($layer);
@@ -31,6 +33,9 @@ final readonly class CanvasLabel
     }
     if ($rotation !== 0 && $rotation !== 180) {
       throw new InvalidArgumentException('Canvas label rotation must be 0 or 180 degrees.');
+    }
+    if ($visibleBytes !== null && ($visibleBytes < 0 || $visibleBytes > 4 * StyledPresentationFrame::MAX_TEXT_SCALARS)) {
+      throw new InvalidArgumentException('Canvas label visibleBytes must be within the UTF-8 text budget.');
     }
     $paint = $measurement->metrics->paintBounds;
     $line = $measurement->metrics->lineBounds;
@@ -59,6 +64,7 @@ final readonly class CanvasLabel
       'origin' => ['x' => $this->x, 'y' => $this->y], 'layer' => $this->layer,
       ...($this->clipRect === null ? [] : ['clipRect' => $this->clipRect->toArray()]),
       ...($this->opacity === 1.0 ? [] : ['opacity' => $this->opacity]),
-      ...($this->rotation === 0 ? [] : ['rotation' => $this->rotation])];
+      ...($this->rotation === 0 ? [] : ['rotation' => $this->rotation]),
+      ...($this->visibleBytes === null ? [] : ['visibleBytes' => $this->visibleBytes])];
   }
 }

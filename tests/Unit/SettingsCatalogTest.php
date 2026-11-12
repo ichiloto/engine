@@ -185,3 +185,25 @@ it('exposes and persists battle transitions independently while preserving legac
     expect(array_column($manager->getSettings(), 'key'))->toContain('battle_transitions');
   }
 });
+
+it('offers a volume for every audio bus beside the master volume on both settings surfaces', function () {
+  $config = new CatalogConfigStub(['audio' => ['master_volume' => 75, 'music_volume' => 62, 'sfx' => false]]);
+  ConfigStore::put(ProjectConfig::class, $config);
+  $catalog = new SettingsCatalog();
+  $master = $catalog->all()['volume'];
+
+  foreach ([new MainMenuSettingsManager(), new TitleOptionsSettingsManager()] as $manager) {
+    $settings = $manager->getSettings();
+    expect(array_slice(array_column($settings, 'key'), 0, 4))->toBe(['volume', 'music_volume', 'sfx_volume', 'voice_volume'])
+      ->and(array_slice(array_column($settings, 'label'), 0, 4))
+      ->toBe(['Master Volume', 'Music Volume', 'Sound Effects Volume', 'Voice Volume']);
+    foreach (array_slice($settings, 1, 3) as $setting) {
+      expect($setting->choices)->toBe($master->choices)->and($setting->wraps)->toBeFalse();
+    }
+  }
+  // An authored volume between steps shows as the nearest step; a bus the game leaves out reads full.
+  expect($catalog->read('music_volume'))->toBe(60)->and($catalog->read('voice_volume'))->toBe(100);
+  $catalog->write('sfx_volume', 35);
+  expect($config->get('audio.sfx_volume'))->toBe(35)->and($config->get('audio.sfx'))->toBeFalse()
+    ->and($config->get('audio.master_volume'))->toBe(75);
+});

@@ -15,7 +15,9 @@ namespace Ichiloto\Engine\Audio\Backends;
 class PaplayBackend extends CommandLineAudioBackend
 {
   /**
-   * paplay expresses volume as an integer where 65536 is 100%.
+   * paplay expresses volume as an integer where 65536 is 100%. PulseAudio
+   * scales it cubically (its pa_sw_volume_from_linear() takes the cube
+   * root), so the command converts the requested gain the same way.
    */
   protected const int FULL_VOLUME = 65536;
 
@@ -50,7 +52,7 @@ class PaplayBackend extends CommandLineAudioBackend
   {
     return [
       $this->getExecutableName(),
-      sprintf('--volume=%d', (int)round($this->clampVolume($volume) * self::FULL_VOLUME)),
+      sprintf('--volume=%d', (int)round($this->convertGainToCubicVolume($volume) * self::FULL_VOLUME)),
       $filePath,
     ];
   }

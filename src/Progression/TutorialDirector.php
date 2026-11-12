@@ -1,0 +1,316 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Ichiloto\Engine\Progression;
+
+use Closure;
+use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Core\WorldConditionEvaluator;
+use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\Quests\QuestLog;
+use InvalidArgumentException;
+
+/** Owns a campaign's guided lesson across field and menu transitions. */
+final class TutorialDirector
+{
+  public const string CONFIG_AUTOMATIC_PROMPTS = 'ui.tutorials.automatic_prompts';
+
+  private ?TutorialDefinition $active = null;
+  private int $stepIndex = 0;
+  private bool $stepFocusApplied = false;
+  private bool $practice = false;
+  /** @var array<array-key, true> Failed scenes are retried after a new campaign load. */
+  private array $failedFollowOns = [];
+
+  /** @var array<array-key, bool> Last observed conditions during controlled play. */
+  private array $automaticConditions = [];
+
+  /** @param array<string, Closure(Party, GameState): bool> $startConditions */
+  public function __construct(
+    private readonly TutorialCatalog $catalog,
+    private readonly GameState $state,
+    private readonly array $startConditions = [],
+  ) {}
+
+  public function queueScriptTutorial(string $id): void
+  {
+    $tutorial = $this->catalog->findTutorial($id);
+    if ($tutorial?->start !== TutorialStartMode::SCRIPT) {
+      throw new InvalidArgumentException('Unknown script-started tutorial ' . $id . '.');
+    }
+
+    if ($this->state->getTutorialPhase($id) === null) {
+      $this->state->setTutorialPhase($id, TutorialPhase::PENDING);
+    }
+  }
+
+  /** The owning field calls this after events, scene transitions and modal notices release control. */
+  public function updateInStableField(bool $automaticPrompts, ?Party $party = null, ?QuestLog $quests = null): void
+  {
+    $this->observeWorldTutorials($party, $quests);
+    $this->startPendingTutorial(TutorialStartContext::FIELD, $automaticPrompts, $party, $quests);
+  }
+
+  /** Observes world eligibility independently from the screen that will present it. */
+  public function observeWorldTutorials(?Party $party = null, ?QuestLog $quests = null,
+    ?TutorialStartContext $context = null): void
+  {
+    foreach ($this->catalog->definitions as $tutorial) {
+      if ($tutorial->start !== TutorialStartMode::AUTOMATIC || $tutorial->startContext === TutorialStartContext::BATTLE_COMMAND
+        || ($context !== null && $tutorial->startContext !== $context)
+        || $this->state->getTutorialPhase($tutorial->id) !== null) {
+        continue;
+      }
+
+      $holds = WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests);
+      $previous = $this->automaticConditions[$tutorial->id] ?? null;
+      $this->automaticConditions[$tutorial->id] = $holds;
+      if ($holds && $previous === false) {
+        $this->state->setTutorialPhase($tutorial->id, TutorialPhase::PENDING);
+      }
+    }
+  }
+
+  public function canOfferContext(TutorialStartContext $context): bool
+  {
+    return array_any($this->catalog->definitions, fn(TutorialDefinition $tutorial): bool =>
+      $tutorial->startContext === $context && in_array($this->state->getTutorialPhase($tutorial->id),
+        [null, TutorialPhase::PENDING], true));
+  }
+
+  /**
+   * Called by the voluntary library visit or an eligible player battle command window.
+   *
+   * The screen supplies canPresent to say whether a step's target is usable there now. A battle-command
+   * lesson is discovered only when its first step is usable, so an unusable command never records it.
+   */
+  public function enterContext(TutorialStartContext $context, bool $automaticPrompts, ?Party $party = null,
+    ?QuestLog $quests = null, ?callable $canPresent = null): void
+  {
+    if ($context === TutorialStartContext::BATTLE_COMMAND) {
+      foreach ($this->catalog->definitions as $tutorial) {
+        if ($tutorial->startContext === $context && $tutorial->start === TutorialStartMode::AUTOMATIC
+          && $this->state->getTutorialPhase($tutorial->id) === null
+          && $this->canPresentFirstStep($tutorial, $canPresent)
+          && $this->isEligibleToStart($tutorial, $party, $quests)) {
+          $this->state->setTutorialPhase($tutorial->id, TutorialPhase::PENDING);
+        }
+      }
+    } else {
+      $this->observeWorldTutorials($party, $quests, $context);
+    }
+
+    $this->startPendingTutorial($context, $automaticPrompts, $party, $quests, $canPresent);
+  }
+
+  /** Leaving a live context suspends its lesson, so it cannot claim another screen. */
+  public function leaveContext(TutorialStartContext $context): void
+  {
+    if (!$this->practice && $this->active?->startContext === $context) {
+      $this->active = null;
+    }
+  }
+
+  private function startPendingTutorial(TutorialStartContext $context, bool $automaticPrompts, ?Party $party,
+    ?QuestLog $quests, ?callable $canPresent = null): void
+  {
+    if ($this->active !== null) {
+      return;
+    }
+
+    foreach ($this->catalog->definitions as $tutorial) {
+      if ($tutorial->startContext !== $context || $this->state->getTutorialPhase($tutorial->id) !== TutorialPhase::PENDING
+        || ($tutorial->start === TutorialStartMode::AUTOMATIC && !$automaticPrompts)
+        || !$this->hasBoundControls($tutorial)) {
+        continue;
+      }
+      if ($this->canPresentFirstStep($tutorial, $canPresent)
+        && $this->isEligibleToStart($tutorial, $party, $quests)) {
+        $this->beginTutorial($tutorial, false);
+        return;
+      }
+    }
+  }
+
+  private function isEligibleToStart(TutorialDefinition $tutorial, ?Party $party, ?QuestLog $quests): bool
+  {
+    $condition = $this->startConditions[$tutorial->id] ?? null;
+    return WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests)
+      && ($condition === null || ($party !== null && $condition($party, $this->state)));
+  }
+
+  public function getActiveTutorial(): ?TutorialDefinition
+  {
+    return $this->active;
+  }
+
+  public function getStepForView(string $screen, string $view): ?TutorialStep
+  {
+    $step = $this->active?->steps[$this->stepIndex] ?? null;
+    return $step !== null && $step->target['screen'] === $screen && $step->target['view'] === $view ? $step : null;
+  }
+
+  /** Each authored focus is applied once when its real target becomes available. */
+  public function applyStepFocus(?TutorialStep $step, callable $focusTarget): bool
+  {
+    if ($step === null || !$step->focus || $this->stepFocusApplied
+      || $step !== ($this->active?->steps[$this->stepIndex] ?? null)
+      || !$focusTarget($step)) {
+      return false;
+    }
+
+    $this->stepFocusApplied = true;
+    return true;
+  }
+
+  /** Called by the screen that owned the operation, using its view before any transition. */
+  public function reportOutcome(string $screen, string $view, string $outcome, ?string $subject = null): void
+  {
+    $step = $this->getStepForView($screen, $view);
+    if ($step !== null && ($step->until['outcome'] ?? null) === $outcome
+      && (!isset($step->until['subject']) || $step->until['subject'] === $subject)) {
+      $this->advanceStep();
+    }
+  }
+
+  /** Rewinds a guided view transition when Back reverses it. */
+  public function rewindStepOnBack(string $screen, string $view, string $previousView): void
+  {
+    $previous = $this->active?->steps[$this->stepIndex - 1] ?? null;
+    if ($previous !== null && $previous->target['screen'] === $screen
+      && $previous->target['view'] === $previousView && $this->getStepForView($screen, $view) !== null) {
+      $this->stepIndex--;
+      $this->stepFocusApplied = false;
+    }
+  }
+
+  public function evaluateStepCondition(string $screen, string $view, ?Party $party = null, ?QuestLog $quests = null): void
+  {
+    $step = $this->getStepForView($screen, $view);
+    if ($step !== null && !isset($step->until['outcome'])
+      && WorldConditionEvaluator::allHold([$step->until], $this->state, $party, $quests)) {
+      $this->advanceStep();
+    }
+  }
+
+  /** @return list<TutorialDefinition> Lessons encountered in this campaign, in source order. */
+  public function getGuideEntries(): array
+  {
+    return array_values(array_filter($this->catalog->definitions,
+      fn(TutorialDefinition $tutorial): bool => $this->state->getTutorialPhase($tutorial->id) !== null));
+  }
+
+  public function canStartPractice(TutorialDefinition $tutorial): bool
+  {
+    return $this->active === null && $tutorial->replay === TutorialReplayMode::PRACTICE
+      && $this->state->getTutorialPhase($tutorial->id) !== null && $this->hasBoundControls($tutorial);
+  }
+
+  public function startPractice(string $id): bool
+  {
+    $tutorial = $this->catalog->findTutorial($id);
+    if ($tutorial === null || !$this->canStartPractice($tutorial)) {
+      return false;
+    }
+
+    $this->beginTutorial($tutorial, true);
+    return true;
+  }
+
+  public function getSkippableTutorial(?Party $party = null, ?QuestLog $quests = null): ?TutorialDefinition
+  {
+    if ($this->active !== null) {
+      return $this->active->startContext === TutorialStartContext::BATTLE_COMMAND ? null : $this->active;
+    }
+
+    return array_find($this->catalog->definitions, fn(TutorialDefinition $tutorial): bool =>
+      $tutorial->start === TutorialStartMode::SCRIPT
+      && $this->state->getTutorialPhase($tutorial->id) === TutorialPhase::PENDING
+      && ($tutorial->startContext === TutorialStartContext::BATTLE_COMMAND || !$this->hasBoundControls($tutorial))
+      && WorldConditionEvaluator::allHold($tutorial->trigger, $this->state, $party, $quests));
+  }
+
+  public function skipTutorial(string $id, ?Party $party = null, ?QuestLog $quests = null): bool
+  {
+    $tutorial = $this->getSkippableTutorial($party, $quests);
+    if ($tutorial?->id !== $id) {
+      return false;
+    }
+    if ($this->active !== null) {
+      return $this->skipActiveTutorial();
+    }
+
+    $this->state->finishTutorial($id, TutorialPhase::SKIPPED, $tutorial->onFinish !== null);
+    return true;
+  }
+
+  public function skipActiveTutorial(): bool
+  {
+    if ($this->active === null) {
+      return false;
+    }
+
+    $this->finishTutorial(TutorialPhase::SKIPPED);
+    return true;
+  }
+
+  /** @return list<TutorialDefinition> Story follow-ons eligible to attempt in this campaign. */
+  public function getPendingFollowOns(): array
+  {
+    return array_values(array_filter($this->catalog->definitions,
+      fn(TutorialDefinition $tutorial): bool => $tutorial->onFinish !== null
+        && !isset($this->failedFollowOns[$tutorial->id])
+        && $this->state->hasPendingTutorialFollowOn($tutorial->id)));
+  }
+
+  public function acknowledgeFollowOn(string $id): void
+  {
+    $this->state->acknowledgeTutorialFollowOn($id);
+  }
+
+  public function deferFailedFollowOn(string $id): void
+  {
+    $this->failedFollowOns[$id] = true;
+  }
+
+  /** Without a screen predicate the context itself is the only presentation requirement. */
+  private function canPresentFirstStep(TutorialDefinition $tutorial, ?callable $canPresent): bool
+  {
+    return $canPresent === null || $canPresent($tutorial->steps[0]);
+  }
+
+  private function hasBoundControls(TutorialDefinition $tutorial): bool
+  {
+    return array_all($tutorial->steps, static fn(TutorialStep $step): bool => ActionHints::resolveControl($step->action) !== null);
+  }
+
+  private function beginTutorial(TutorialDefinition $tutorial, bool $practice): void
+  {
+    $this->active = $tutorial;
+    $this->stepIndex = 0;
+    $this->practice = $practice;
+    $this->stepFocusApplied = false;
+  }
+
+  private function advanceStep(): void
+  {
+    $this->stepFocusApplied = false;
+    if (++$this->stepIndex === count($this->active->steps)) {
+      $this->finishTutorial(TutorialPhase::COMPLETED);
+    }
+  }
+
+  private function finishTutorial(TutorialPhase $phase): void
+  {
+    $tutorial = $this->active;
+    $practice = $this->practice;
+    $this->active = null;
+    $this->stepIndex = 0;
+    $this->practice = false;
+    if (!$practice) {
+      $this->state->finishTutorial($tutorial->id, $phase, $tutorial->onFinish !== null);
+    }
+  }
+}

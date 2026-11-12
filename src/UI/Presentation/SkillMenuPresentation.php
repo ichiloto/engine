@@ -39,7 +39,7 @@ final class SkillMenuPresentation
     $identity = $content->title . "\n" . $actor->name . "\nRole: " . $actor->role->name;
     $nameHeight = self::textHeight($identity, $nameWidth, $theme);
     $stats = $actor->effectiveStats;
-    $resources = [new MenuRow('0', Vocabulary::getTerm('stats.level', 'Lv'), [new MenuRowValue((string)$actor->level)]),
+    $resources = [new MenuRow('0', Vocabulary::getTerm('stats.level_short'), [new MenuRowValue((string)$actor->level)]),
       new MenuRow('1', Vocabulary::getTerm('stats.hp', 'HP'), [new MenuRowValue(number_format($stats->currentHp) . ' / ' . number_format($stats->totalHp))]),
       new MenuRow('2', Vocabulary::getTerm('stats.mp', 'MP'), [new MenuRowValue(number_format($stats->currentMp) . ' / ' . number_format($stats->totalMp))])];
     $resourceHeight = self::fieldHeight($resources, $resourcesWidth, $theme);
@@ -108,6 +108,7 @@ final class SkillMenuPresentation
       new CanvasRectangle($list->x + $p, $list->y + $p, $list->width - 2 * $p, $listTitleHeight), 'accent');
     $listBounds = new CanvasRectangle($list->x + $p, $list->y + $p + $listTitleHeight + $gap,
       $list->width - 2 * $p, $list->height - 2 * $p - $listTitleHeight - $gap);
+    $tutorialTarget = null;
     if ($content->rows === []) { $view->prose('skill-empty', $content->emptyText, $listBounds, 'disabled'); }
     else {
       $sizes = [];
@@ -117,8 +118,9 @@ final class SkillMenuPresentation
       $available = (int)floor(($listBounds->width - 2 * $theme->rows->metrics->padding) / $m->cellWidth);
       $cap = max(1, (int)floor($available * self::VALUE_WIDTH_SHARE / max(1, count($sizes))));
       $columns = array_map(fn($size) => new MenuRowColumn(min($size, $cap)), $sizes);
-      $view->rows('skill-entry', $content->rows, new MenuRowLayout($listBounds, $columns,
-        $m->rowHeight, $m->cellWidth, $m->cellHeight, true), $content->index);
+      $tutorialRow = $content->tutorialRowIndex === null ? null : ($content->rows[$content->tutorialRowIndex] ?? null);
+      $tutorialTarget = $view->rows('skill-entry', $content->rows, new MenuRowLayout($listBounds, $columns,
+        $m->rowHeight, $m->cellWidth, $m->cellHeight, true), $content->index, $tutorialRow?->id);
     }
     $info = new CanvasRectangle($host->x, $host->y + $host->height - $infoHeight, $host->width, $infoHeight);
     $view->frame('skill-info', $info, 'quiet');
@@ -128,6 +130,7 @@ final class SkillMenuPresentation
       rangeBounds: new CanvasRectangle($x, $info->y + $info->height - $p, $innerWidth, $p));
     if ($hintHeight > 0) { $view->hints('skill-hints', $hints,
       new CanvasRectangle($x, $infoY + 2 * $m->cellHeight + $gap, $innerWidth, $hintHeight)); }
+    $view->renderTutorialSpotlight($content->tutorial, $tutorialTarget, $content->tutorialSpeaker);
     return $view->finish();
   }
 

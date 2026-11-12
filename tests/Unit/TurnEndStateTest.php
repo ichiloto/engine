@@ -8,8 +8,12 @@ use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExe
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn;
+use Ichiloto\Engine\Battle\Presentation\BattlerConditions;
 use Ichiloto\Engine\Battle\Presentation\BattlePoseRole;
 use Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline;
+use Ichiloto\Engine\Battle\Resolution\CombatResolutionRequest;
+use Ichiloto\Engine\Battle\Resolution\CombatResolver;
+use Ichiloto\Engine\Battle\Resolution\ResolutionKind;
 use Ichiloto\Engine\Battle\UI\BattleCharacterNameWindow;
 use Ichiloto\Engine\Battle\UI\BattleCharacterStatusWindow;
 use Ichiloto\Engine\Battle\UI\BattleFieldWindow;
@@ -104,6 +108,8 @@ function createTurnEndFixture(bool $partyTick, bool $graphical): array
     public array $transitions = [];
     public function setState(TurnState $state): void { $this->transitions[] = $state; }
   };
+  $engine->configure(new \Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedBattleConfig(
+    $party, $context->troop, $screen));
   $state = new class($engine) extends ActionExecutionState {
     public function endTurn(TurnStateExecutionContext $context, Turn $turn): void { $this->beginTurnEnd($context, $turn); }
     protected function playDamageFeedbackSound(TurnStateExecutionContext $context, CharacterInterface $target,
@@ -133,6 +139,45 @@ it('ticks only the completing battler once and expires durations on its own turn
   expect($actor->stats->currentHp)->toBe(90)->and($actor->hasState('poison'))->toBeTrue();
   new Turn($actor)->resolveEndStateTicks();
   expect($actor->stats->currentHp)->toBe(80)->and($actor->hasState('poison'))->toBeFalse();
+});
+
+it('activates a pending state after the bearer completes the delay and modifies only its subsequent physical hits', function () {
+  $bearer = new Character('Bearer', 1, new Stats(currentHp: 100, totalHp: 100, defence: 0, magicDefence: 0));
+  $other = new Character('Other', 1, new Stats(currentHp: 1000, totalHp: 1000, defence: 0, magicDefence: 0));
+  $state = State::fromArray([
+    'id' => 'synthetic-weaken', 'name' => 'Weakening', 'label' => 'WK', 'durationTurns' => 2,
+    'physicalDamageDealtRate' => .8, 'accuracyModifier' => -10,
+  ]);
+  $resolveDamage = static fn(Character $actor, Character $target, ResolutionKind $kind): int =>
+    new CombatResolver()->resolve(new CombatResolutionRequest(
+      'strike', 'strike:1', $actor, $target, 50, $kind, baseAccuracy: null, criticalEligible: false
+    ))->actualHpLost;
+
+  expect($bearer->addState($state, givenByBearer: true, guaranteed: true, delayTurns: 1))->toBeTrue()
+    ->and($bearer->hasState($state->id))->toBeFalse()
+    ->and($bearer->addState($state, guaranteed: true, delayTurns: 1))->toBeFalse()
+    ->and(BattlerConditions::getEntries($bearer)[0]['label'])->toBe('WK?');
+  new Turn($bearer)->resolveEndStateTicks(); // The turn already resolving when the state landed.
+  new Turn($other)->resolveEndStateTicks();
+  expect($resolveDamage($bearer, $other, ResolutionKind::PHYSICAL_DAMAGE))->toBe(50)
+    ->and($bearer->getStateAccuracyModifier())->toBe(0);
+
+  $activation = new Turn($bearer);
+  $events = $activation->resolveEndStateTicks();
+  expect($events[0]['activated'])->toBeTrue()
+    ->and($activation->resolveEndStateTicks())->toBe($events)
+    ->and($bearer->states[0]->remainingTurns)->toBe(2)
+    ->and($bearer->hasState($state->id))->toBeTrue()
+    ->and($bearer->addState($state, guaranteed: true, delayTurns: 1))->toBeFalse()
+    ->and(BattlerConditions::getEntries($bearer)[0]['label'])->toBe('WK');
+  expect($resolveDamage($bearer, $other, ResolutionKind::PHYSICAL_DAMAGE))->toBe(40)
+    ->and($resolveDamage($bearer, $other, ResolutionKind::MAGICAL_DAMAGE))->toBe(50)
+    ->and($resolveDamage($other, $bearer, ResolutionKind::PHYSICAL_DAMAGE))->toBe(50);
+  new Turn($bearer)->resolveEndStateTicks();
+  expect($resolveDamage($bearer, $other, ResolutionKind::PHYSICAL_DAMAGE))->toBe(40);
+  new Turn($bearer)->resolveEndStateTicks();
+  expect($resolveDamage($bearer, $other, ResolutionKind::PHYSICAL_DAMAGE))->toBe(50)
+    ->and($bearer->hasState($state->id))->toBeFalse();
 });
 
 it('does not tick a battler already knocked out before its turn', function () {

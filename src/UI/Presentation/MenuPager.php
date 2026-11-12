@@ -26,8 +26,9 @@ final class MenuPager
   public static function getHeight(MenuPresentationCatalog $theme): int
   {
     $m = $theme->metrics;
-    return (int)ceil(max($m->cellHeight + $theme->rows->metrics->separatorWidth,
-      min($m->rowHeight, $m->cellHeight + $m->sectionGap / 3), $theme->rows->metrics->cursorHeight));
+    $compact = (int)ceil(max(min($m->rowHeight, $m->cellHeight + $m->sectionGap / 3),
+      $theme->rows->metrics->cursorHeight));
+    return MenuLayout::getButtonHeight($theme, $compact);
   }
 
   public static function render(MenuCanvas $view, string $id, MenuPagination $pagination,
@@ -49,8 +50,7 @@ final class MenuPager
       // Compact controls use theme-colored edges, not a compressed full-panel artwork frame.
       $view->renderOutline($id . '-' . $role, $box, 'edge', max(1, $theme->rows->metrics->focusWidth));
       $view->rows($id . '-' . $role, [new MenuRow('button', $label, kind: MenuRowKind::BUTTON,
-        disabled: $disabled, showCursor: false)], new MenuRowLayout($box, rowHeight: $height,
-        cellWidth: $m->cellWidth, cellHeight: $m->cellHeight));
+        disabled: $disabled, showCursor: false)], MenuLayout::getButtonLayout($theme, $box, $height));
     }
     $view->prose($id . '-counter', sprintf('Page %d of %d', $pageIndex + 1, $count),
       new CanvasRectangle($bounds->x + $previousWidth + $m->sectionGap, $bounds->y + ($height - $m->cellHeight) / 2,

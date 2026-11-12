@@ -12,6 +12,7 @@ final readonly class CanvasRectangle
     public float $y,
     public float $width,
     public float $height,
+    bool $allowOutsideCanvas = false,
   )
   {
     foreach ([$x, $y, $width, $height] as $value) {
@@ -19,15 +20,15 @@ final readonly class CanvasRectangle
         throw new InvalidArgumentException('Canvas rectangle values must be finite.');
       }
     }
-    if ($x < 0 || $y < 0 || $width <= 0 || $height <= 0) {
-      throw new InvalidArgumentException('Canvas rectangles require nonnegative origins and positive extents.');
+    if ($width <= 0 || $height <= 0 || max(abs($x), abs($y), abs($x + $width), abs($y + $height), $width, $height) > CanvasValidation::MAX_EXTENT) {
+      throw new InvalidArgumentException('Canvas rectangles require bounded origins and positive bounded extents.');
     }
-    $this->assertWithin(CanvasValidation::MAX_EXTENT, CanvasValidation::MAX_EXTENT);
+    if (!$allowOutsideCanvas) { $this->assertWithin(CanvasValidation::MAX_EXTENT, CanvasValidation::MAX_EXTENT); }
   }
 
   public function assertWithin(int $width, int $height): void
   {
-    if (!is_finite($this->x + $this->width) || !is_finite($this->y + $this->height)
+    if ($this->x < 0 || $this->y < 0 || !is_finite($this->x + $this->width) || !is_finite($this->y + $this->height)
       || $this->x + $this->width > $width || $this->y + $this->height > $height) {
       throw new InvalidArgumentException('Canvas rectangle must fit completely within the canvas.');
     }

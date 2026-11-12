@@ -23,7 +23,7 @@ require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 beforeEach(function () {
   $this->savedConfig = new ReflectionClass(ConfigStore::class)->getStaticProperties();
-  $this->root = sys_get_temp_dir() . '/ichiloto-equipment-icons-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-equipment-icons-' . bin2hex(random_bytes(5));
   mkdir($this->root);
 });
 

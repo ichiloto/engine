@@ -3,6 +3,11 @@
 namespace Ichiloto\Engine\Rendering;
 
 use Ichiloto\Engine\Core\GameObject;
+use Ichiloto\Engine\Animations\Field\FieldSpriteBounds;
+use Ichiloto\Engine\Rendering\Presentation\PresentationCameraMotion;
+use Ichiloto\Engine\Rendering\Presentation\CameraMotionEasing;
+use InvalidArgumentException;
+use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Core\Interfaces\CanStart;
@@ -29,6 +34,17 @@ use Symfony\Component\Console\Output\OutputInterface;
 class Camera implements CanStart, CanResume, CanRender, CanUpdate
 {
   protected(set) bool $followsPlayer = true;
+  private ?object $framingOwner = null;
+  private ?Vector2 $framingOrigin = null;
+  private int $positionRevision = 0;
+  private ?int $framingPositionRevision = null;
+  private static int $motionSequence = 0;
+  public private(set) ?PresentationCameraMotion $presentationMotion = null;
+  private ?CameraTransition $transition = null;
+  /** @var array{float, float, float, float}|null Cast-safe origin interval. */
+  private ?array $framingRange = null;
+  public bool $hasTransition { get => $this->transition !== null; }
+  public bool $isFramed { get => $this->framingOrigin !== null; }
   protected ?CameraStateSnapshot $detachedSnapshot = null;
   /** @var array<int, NormalizedRow> Current map only; discarded on source/policy changes. */
   private array $normalizedRows = [];
@@ -70,13 +86,16 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     }
 
     set {
+      $this->transition = null;
+      $this->presentationMotion = null;
+      $this->positionRevision++;
       $this->screen->setX($value->x);
       $this->screen->setY($value->y);
     }
   }
 
   /**
-   * @var string[] The world space.
+   * @var array<int, string|array<int, string>> Literal source rows or their parsed cell arrays.
    */
   public array $worldSpace = [] {
     get {
@@ -88,6 +107,8 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
       // behind its setter and leave the retained rows stale.
       $this->worldSpace = array_map(static fn($row) => is_array($row)
         ? array_map(static fn($symbol) => $symbol, $row) : $row, $value);
+      $this->framingOwner = null; $this->framingOrigin = null; $this->presentationMotion = null;
+      $this->transition = null; $this->framingRange = null;
       $this->normalizedRows = [];
       $this->stringRowSymbols = [];
       $this->normalizationPolicy = null;
@@ -167,21 +188,14 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   public function renderMap(): void
   {
     if ($this->retainedWorldAvailable && Console::isRetainedWorldPresentation()) { return; }
-    $renderOffset = $this->getRenderOffset();
-    $visibleWidth = $this->getVisibleWorldWidth();
-    $worldX = (int)$this->screen->getX();
-    $worldY = (int)$this->screen->getY();
-
-    // One terminal write for the whole map instead of one per row: the
-    // difference is felt most while scrolling, and on consoles where each
-    // write is expensive.
+    $visible = $this->getVisibleMapBounds();
+    $origin = $this->getWorldOrigin();
     Console::beginFrame();
-
-    for ($row = 0, $height = $this->getVisibleWorldHeight(); $row < $height; $row++) {
+    for ($row = 0; $visible['width'] > 0 && $row < $visible['height']; $row++) {
       $started = LatencyTrace::getTimeNow();
-      $content = $this->normalizedMapRow($worldY + $row)->select($worldX, $visibleWidth, $visibleWidth);
+      $content = $this->normalizedMapRow($visible['y'] + $row)->select($visible['x'], $visible['width'], $visible['width']);
       LatencyTrace::end('terminal.select', $started);
-      Console::writeNormalizedRow($content, $renderOffset->x, $renderOffset->y + $row);
+      Console::writeNormalizedRow($content, $visible['x'] - $origin['x'], $visible['y'] + $row - $origin['y']);
     }
 
     Console::endFrame();
@@ -191,16 +205,23 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   /** @return iterable<int, list<string>> Visible authored symbols, without synthetic padding. */
   public function visibleMapRows(): iterable
   {
-    $width = $this->getVisibleWorldWidth();
-    $height = $this->getVisibleWorldHeight();
-    $worldX = (int)$this->screen->getX();
-    $worldY = (int)$this->screen->getY();
-    for ($row = 0; $row < $height; $row++) {
-      $y = $worldY + $row;
+    $visible = $this->getVisibleMapBounds();
+    for ($row = 0; $visible['width'] > 0 && $row < $visible['height']; $row++) {
+      $y = $visible['y'] + $row;
       $symbols = $this->worldSpace[$y] ?? [];
       if (!is_array($symbols)) { $symbols = $this->stringRowSymbols[$y]; }
-      yield $y => array_values(array_slice($symbols, $worldX, $width));
+      yield $y => array_values(array_slice($symbols, $visible['x'], $visible['width']));
     }
+  }
+
+  /** Signed view origins can expose empty space without creating physical map cells. */
+  private function getVisibleMapBounds(): array
+  {
+    $origin = $this->getWorldOrigin();
+    $x = max(0, $origin['x']); $y = max(0, $origin['y']);
+    return ['x' => $x, 'y' => $y,
+      'width' => max(0, min($this->worldSpaceWidth, $origin['x'] + $this->screen->getWidth()) - $x),
+      'height' => max(0, min($this->worldSpaceHeight, $origin['y'] + $this->screen->getHeight()) - $y)];
   }
 
   private function normalizedMapRow(int $y): NormalizedRow
@@ -387,6 +408,8 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
   public function detach(): void
   {
+    $this->transition = null;
+    $this->presentationMotion = null;
     if ($this->followsPlayer) {
       $this->detachedSnapshot = $this->captureState();
     }
@@ -396,6 +419,8 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
   public function attach(?Player $player = null): void
   {
+    $this->transition = null;
+    $this->presentationMotion = null;
     $this->player = $player ?? $this->player;
     $this->followsPlayer = true;
 
@@ -459,19 +484,142 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   public function getScreenSpacePosition(Vector2 $worldSpacePosition): Vector2
   {
-    $renderOffset = $this->getRenderOffset();
-    $screenSpaceX = $worldSpacePosition->x - $this->screen->getX() + $renderOffset->x;
-    $screenSpaceY = $worldSpacePosition->y - $this->screen->getY() + $renderOffset->y;
-    return new Vector2($screenSpaceX, $screenSpaceY);
+    $offset = $this->getRenderOffset();
+    return new Vector2($worldSpacePosition->x - $this->screen->getX() + $offset->x,
+      $worldSpacePosition->y - $this->screen->getY() + $offset->y);
   }
 
   /** Signed logical-cell origin; retained world projection needs no per-cell vectors. */
   public function getWorldOrigin(): array
   {
+    if ($this->framingOrigin !== null) { return ['x' => (int)$this->framingOrigin->x, 'y' => (int)$this->framingOrigin->y]; }
+    return $this->getUnframedWorldOrigin();
+  }
+
+  private function getUnframedWorldOrigin(): array
+  {
+    $position = $this->transition?->targetPosition ?? $this->position;
     return [
-      'x' => (int)$this->screen->getX() - intdiv(max(0, (int)$this->screen->getWidth() - $this->worldSpaceWidth), 2),
-      'y' => (int)$this->screen->getY() - intdiv(max(0, (int)$this->screen->getHeight() - $this->worldSpaceHeight), 2),
+      'x' => (int)$position->x - intdiv(max(0, (int)$this->screen->getWidth() - $this->worldSpaceWidth), 2),
+      'y' => (int)$position->y - intdiv(max(0, (int)$this->screen->getHeight() - $this->worldSpaceHeight), 2),
     ];
+  }
+
+  public function ownsTransition(object $owner): bool { return $this->transition?->owner === $owner; }
+
+  /** The destination projects all graphical layers while PHP keeps sampling logical camera state. */
+  public function beginTransition(object $owner, Vector2 $targetPosition, float $seconds,
+    CameraMotionEasing $easing = CameraMotionEasing::LINEAR): void
+  {
+    if (!is_finite($targetPosition->x) || !is_finite($targetPosition->y)) {
+      throw new InvalidArgumentException('A camera destination must be finite.');
+    }
+    $transition = new CameraTransition($owner, $this->clampPosition($targetPosition), $seconds, $easing);
+    $before = $this->getWorldOrigin();
+    $this->transition = $transition;
+    $this->positionRevision++;
+    $this->reframeTransition();
+    $this->updatePresentationMotion($before, $seconds, $easing, forceNew: true);
+  }
+
+  public function updateTransition(object $owner, Vector2 $logicalPosition, float $remainingSeconds): bool
+  {
+    $transition = $this->transition;
+    if ($transition === null || $transition->owner !== $owner) { return false; }
+    if (!is_finite($logicalPosition->x) || !is_finite($logicalPosition->y)) {
+      throw new InvalidArgumentException('A camera sample must be finite.');
+    }
+    $transition->setRemainingSeconds($remainingSeconds);
+    $position = $this->clampPosition($logicalPosition);
+    $this->screen->setX($position->x); $this->screen->setY($position->y);
+    return true;
+  }
+
+  public function endTransition(object $owner, bool $snap = false): void
+  {
+    if (!$this->ownsTransition($owner)) { return; }
+    $before = $this->getWorldOrigin();
+    $this->transition = null;
+    $this->reframeTransition();
+    if ($snap || $before !== $this->getWorldOrigin()) { $this->presentationMotion = null; }
+  }
+
+  private function reframeTransition(): void
+  {
+    if ($this->framingOrigin === null || $this->framingRange === null) { return; }
+    [$minX, $maxX, $minY, $maxY] = $this->framingRange;
+    $origin = $this->getUnframedWorldOrigin();
+    $this->framingOrigin = new Vector2(clamp($origin['x'], $minX, $maxX), clamp($origin['y'], $minY, $maxY));
+  }
+
+  /** Fit current drawn bounds into a logical-cell safe area, preserving camera/gameplay ownership. */
+  public function frameBounds(object $owner, FieldSpriteBounds $subjects, FieldSpriteBounds $safeArea,
+    float $motionSeconds = 0.0, CameraMotionEasing $easing = CameraMotionEasing::SMOOTHSTEP): bool
+  {
+    $this->assertMotionSeconds($motionSeconds);
+    $before = $this->getWorldOrigin();
+    $authoredMovement = $this->framingPositionRevision !== null
+      && $this->framingPositionRevision !== $this->positionRevision;
+    foreach ([$subjects, $safeArea] as $bounds) {
+      foreach ([$bounds->left, $bounds->top, $bounds->right, $bounds->bottom] as $value) {
+        if (!is_finite($value)) { throw new InvalidArgumentException('Camera framing bounds must be finite.'); }
+      }
+      if ($bounds->right <= $bounds->left || $bounds->bottom <= $bounds->top) {
+        throw new InvalidArgumentException('Camera framing bounds need positive extents.');
+      }
+    }
+    if ($safeArea->left < 0 || $safeArea->top < 0 || $safeArea->right > $this->screen->getWidth()
+      || $safeArea->bottom > $this->screen->getHeight()) {
+      throw new InvalidArgumentException('The camera safe area must fit its current viewport.');
+    }
+    $minX = ceil($subjects->right - $safeArea->right); $maxX = floor($subjects->left - $safeArea->left);
+    $minY = ceil($subjects->bottom - $safeArea->bottom); $maxY = floor($subjects->top - $safeArea->top);
+    if ($minX > $maxX || $minY > $maxY) { $this->clearFraming($owner); return false; }
+    $origin = $this->framingOwner === $owner && $this->framingOrigin !== null
+      && $this->framingPositionRevision === $this->positionRevision
+        ? $this->getWorldOrigin() : $this->getUnframedWorldOrigin();
+    $x = clamp($origin['x'], $minX, $maxX); $y = clamp($origin['y'], $minY, $maxY);
+    SpriteValidation::validateSigned32BitRange($x); SpriteValidation::validateSigned32BitRange($y);
+    $this->framingOrigin = new Vector2($x, $y);
+    $this->framingRange = [$minX, $maxX, $minY, $maxY];
+    $this->framingOwner = $owner;
+    $this->framingPositionRevision = $this->positionRevision;
+    $this->updatePresentationMotion($before, $this->transition?->remainingSeconds ?? ($authoredMovement ? 0.0 : $motionSeconds),
+      $this->transition?->easing ?? $easing, keepTiming: $this->transition !== null);
+    return true;
+  }
+
+  /** Closing an older overlay never releases a newer owner's view. */
+  public function clearFraming(object $owner, float $motionSeconds = 0.0,
+    CameraMotionEasing $easing = CameraMotionEasing::SMOOTHSTEP): void
+  {
+    $this->assertMotionSeconds($motionSeconds);
+    if ($this->framingOwner !== $owner) { return; }
+    $before = $this->getWorldOrigin();
+    $this->framingOrigin = null; $this->framingOwner = null;
+    $this->framingRange = null;
+    $this->framingPositionRevision = null;
+    $this->updatePresentationMotion($before, $this->transition?->remainingSeconds ?? $motionSeconds,
+      $this->transition?->easing ?? $easing, keepTiming: $this->transition !== null);
+  }
+
+  private function assertMotionSeconds(float $seconds): void
+  {
+    if (!is_finite($seconds) || $seconds < 0.0 || $seconds > PresentationCameraMotion::MAX_SECONDS) {
+      throw new InvalidArgumentException('Camera motion duration must be finite and from zero to 60 seconds.');
+    }
+  }
+
+  /** The renderer retains a descriptor until it is replaced or explicitly removed. */
+  private function updatePresentationMotion(array $before, float $seconds, CameraMotionEasing $easing,
+    bool $keepTiming = false, bool $forceNew = false): void
+  {
+    if ($seconds === 0.0) { $this->presentationMotion = null; return; }
+    $current = $this->presentationMotion;
+    if (!$forceNew && $before === $this->getWorldOrigin()
+      && ($current === null || $keepTiming || ($current->seconds === $seconds && $current->easing === $easing))) { return; }
+    if (self::$motionSequence === PHP_INT_MAX) { throw new \OverflowException('Camera transition ID sequence exhausted.'); }
+    $this->presentationMotion = new PresentationCameraMotion('camera-motion-' . ++self::$motionSequence, $seconds, $easing);
   }
 
   /** Map installation/provider validates this before bypassing terminal map drawing. */
@@ -550,6 +698,8 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   public function resetPosition(Player $player): void
   {
+    if ($this->transition !== null) { $this->transition = null; $this->presentationMotion = null; }
+    $before = $this->getWorldOrigin();
     $x = 0;
     $y = 0;
     $maxX = max(0, $this->worldSpaceWidth - $this->screen->getWidth());
@@ -565,6 +715,28 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
     $this->screen->setX($x);
     $this->screen->setY($y);
+    if ($before !== $this->getWorldOrigin()) { $this->presentationMotion = null; }
+  }
+
+  /**
+   * Scrolls the view to a world position, as far as the map's edge allows. The camera owns its presentation motion:
+   * a scroll ends any transition and retires a motion declared for the origin it leaves, so a retained renderer never
+   * sees one motion id carry two origins.
+   *
+   * @return bool True if the view moved.
+   */
+  public function scrollTo(int $x, int $y): bool
+  {
+    $position = $this->clampPosition(new Vector2($x, $y));
+    if ($position->x === $this->position->x && $position->y === $this->position->y) {
+      return false;
+    }
+    $this->transition = null;
+    $before = $this->getWorldOrigin();
+    $this->screen->setX($position->x);
+    $this->screen->setY($position->y);
+    if ($before !== $this->getWorldOrigin()) { $this->presentationMotion = null; }
+    return true;
   }
 
   /**
@@ -576,6 +748,8 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   public function resizeViewport(int $width, int $height): void
   {
+    $this->framingOwner = null; $this->framingOrigin = null; $this->presentationMotion = null;
+    $this->transition = null; $this->framingRange = null;
     $this->width = max(1, $width);
     $this->height = max(1, $height);
     $this->screen->setWidth($this->width);
@@ -618,14 +792,12 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   protected function getRenderOffset(): Vector2
   {
-    $x = $this->worldSpaceWidth < $this->screen->getWidth()
-      ? intdiv($this->screen->getWidth() - $this->worldSpaceWidth, 2)
-      : 0;
-    $y = $this->worldSpaceHeight < $this->screen->getHeight()
-      ? intdiv($this->screen->getHeight() - $this->worldSpaceHeight, 2)
-      : 0;
-
-    return new Vector2(max(0, $x), max(0, $y));
+    if ($this->framingOrigin === null && $this->transition === null) {
+      return new Vector2(intdiv(max(0, (int)$this->screen->getWidth() - $this->worldSpaceWidth), 2),
+        intdiv(max(0, (int)$this->screen->getHeight() - $this->worldSpaceHeight), 2));
+    }
+    $origin = $this->getWorldOrigin();
+    return new Vector2($this->screen->getX() - $origin['x'], $this->screen->getY() - $origin['y']);
   }
 
   /**

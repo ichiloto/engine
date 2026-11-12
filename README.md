@@ -83,6 +83,7 @@ does not change its targeting, availability, action category or icon role.
 - [Maps](docs/maps.md), [quests](docs/quests.md) and [story events](docs/story-events.md)
 - [Persistence](docs/persistence.md), [save compatibility](docs/save-compatibility.md) and [audio](docs/audio.md)
 - [Battle-entry rules](docs/battle-entry-rules.md)
+- [Skill effects and battle states](docs/skill-effects-and-states.md)
 - [Renderer installation boundary](resources/renderers/README.md)
 - [Graphical battle foundation and validation](docs/rendering/graphical-battle-g1.md)
 - [Sprite sheets](docs/rendering/sprite-sheets.md) and [field tiles](docs/rendering/tile-batches.md)

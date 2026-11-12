@@ -21,7 +21,7 @@ function writePreflightTestPng(string $path, int $width, int $height): void
 }
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-png-cache-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-png-cache-' . bin2hex(random_bytes(5));
   mkdir($this->root);
   $this->cache = new ReflectionProperty(PngAssetPreflight::class, 'cache');
   $this->previousCache = $this->cache->getValue();

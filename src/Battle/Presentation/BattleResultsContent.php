@@ -15,9 +15,15 @@ final class BattleResultsContent
     if ($playback->currentStage()['kind'] !== 'primary') {
       return max(1, (int)ceil(count(self::getEventLines($playback)) / self::eventPageSize($playback)));
     }
-    return max(1, (int)ceil(count(self::partyRows($playback->rewards)) / 4),
-      (int)ceil(count(self::itemLines($playback->rewards)) / 4),
-      (int)ceil(count(self::summaryLines($playback->rewards)) / 3));
+    return max(self::getPrimaryPageCounts($playback->rewards));
+  }
+
+  /** The panels share navigation while retaining their own measured page counts. */
+  public static function getPrimaryPageCounts(BattleRewards $rewards): array
+  {
+    return ['party' => max(1, (int)ceil(count(self::partyRows($rewards)) / 4)),
+      'items' => max(1, (int)ceil(count(self::itemLines($rewards)) / 4)),
+      'summary' => max(1, (int)ceil(count(self::summaryLines($rewards)) / 3))];
   }
 
   public static function eventPageSize(BattleResultsPlayback $playback): int
@@ -38,6 +44,14 @@ final class BattleResultsContent
       }
     }
     return $rows;
+  }
+
+  /** The party rows on the primary page the player is looking at. */
+  public static function getVisiblePartyRows(BattleResultsPlayback $playback): array
+  {
+    $rows = self::partyRows($playback->rewards);
+    $page = min($playback->scrollOffset, max(0, (int)ceil(count($rows) / 4) - 1));
+    return array_slice($rows, $page * 4, 4);
   }
 
   public static function itemLines(BattleRewards $rewards): array
@@ -114,7 +128,7 @@ final class BattleResultsContent
     assert($before !== null && $after !== null);
     $add($after->name, 'accent');
     if ($stage['kind'] === 'level') {
-      $add(Vocabulary::getTerm('stats.level', 'Level') . ' ' . $before->level . "  \u{2192}  " . $after->level, 'accent');
+      $add(Vocabulary::getTerm('stats.level_short') . ' ' . $before->level . "  \u{2192}  " . $after->level, 'accent');
       foreach ($after->stats as $stat => $value) {
         if (!array_key_exists($stat, $before->stats)) { continue; }
         $old = $before->stats[$stat];

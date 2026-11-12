@@ -3,11 +3,16 @@
 namespace Ichiloto\Engine\Animations\Field;
 
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteFade;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
 
-/** Immutable frame intent; the field session, never the renderer, selected it. */
+/**
+ * Immutable frame intent; the field session, never the renderer, selected it.
+ * Subtypes keep the same construction contract so a fade preserves their kind.
+ * @phpstan-consistent-constructor
+ */
 readonly class FieldEffectSprite implements GraphicalSpriteProviderInterface
 {
   public function __construct(private string $id, private GraphicalSpriteDefinition $definition,
@@ -17,4 +22,10 @@ readonly class FieldEffectSprite implements GraphicalSpriteProviderInterface
   public function getGraphicalSpriteDefinition(): GraphicalSpriteDefinition { return $this->definition; }
   public function getGraphicalSpriteWorldPosition(): Vector2 { return clone $this->position; }
   public function getGraphicalSpriteMotion(): ?PresentationSpriteMotion { return $this->motion; }
+
+  /** The same image, in the same place and kind, eased to this opacity. */
+  public function applyFade(PresentationSpriteFade $fade): static
+  {
+    return new static($this->id, $this->definition->applyFade($fade), $this->position, $this->motion);
+  }
 }

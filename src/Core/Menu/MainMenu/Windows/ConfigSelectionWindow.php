@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\MainMenu\Windows;
 
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Localization\Vocabulary;
 
 use Ichiloto\Engine\Core\Interfaces\CanChangeSelection;
@@ -9,9 +10,9 @@ use Ichiloto\Engine\Settings\GameSetting;
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSettingsManager;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
-use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Interfaces\CanFocus;
 use Ichiloto\Engine\UI\SelectionStyle;
+use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -23,6 +24,9 @@ use Ichiloto\Engine\UI\Windows\Window;
  */
 class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelection
 {
+  /** Choices keep the column they had beside the 22-cell label. */
+  private const string VALUE_GAP = '   ';
+
   /**
    * @var GameSetting[] The configurable settings shown in the list.
    */
@@ -46,12 +50,13 @@ class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelecti
   {
     parent::__construct(
       Vocabulary::getTerm('game.options', Vocabulary::getTerm('command.options', 'Config')),
-      'enter:Next  c:Cancel',
+      '',
       new Vector2($rect->getX(), $rect->getY()),
       $rect->getWidth(),
       $rect->getHeight(),
       $borderPack
     );
+    $this->setControlHints([ActionHints::resolve('confirm', 'Next'), ActionHints::resolve('cancel', 'Cancel')]);
   }
 
   /**
@@ -141,16 +146,12 @@ class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelecti
     $content = [];
     $availableWidth = max(0, $this->width - 4);
     $labelWidth = 22;
-    $valueWidth = max(0, $availableWidth - $labelWidth - 3);
 
     foreach ($this->settings as $index => $setting) {
-      $prefix = $index === $this->activeIndex ? '>' : ' ';
-      $label = TerminalText::padRight($setting->label, $labelWidth);
-      $value = TerminalText::padRight($this->settingsManager->getCurrentChoiceLabel($setting), $valueWidth);
-      $line = TerminalText::padRight(
-        TerminalText::truncateToWidth("{$prefix} {$label} : {$value}", $availableWidth),
-        $availableWidth
-      );
+      $prefix = $index === $this->activeIndex ? '> ' : '  ';
+      // A setting is a list record like Title Options: label, then its current choice in the value column.
+      $line = TerminalMenuRow::compose($setting->label, $this->settingsManager->getCurrentChoiceLabel($setting),
+        $availableWidth, $prefix, self::VALUE_GAP, valueAlignment: 'left', labelWidth: $labelWidth);
 
       if ($index === $this->activeIndex) {
         $line = SelectionStyle::apply($line);

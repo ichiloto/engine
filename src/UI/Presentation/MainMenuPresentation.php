@@ -33,12 +33,15 @@ final class MainMenuPresentation
     if ((!$commandsFocused && !$mode instanceof MainMenuCharacterSelectionMode && !$mode instanceof MainMenuPartyOrderMode)
       || $state->mainMenu === null || $state->characterSelectionMenu === null) { return null; }
 
+    $tutorialView = $state->getTutorialView();
+    $tutorial = $tutorialView === null ? null : $state->getGameScene()->getTutorialPresentationStep(
+      MainMenuState::TUTORIAL_SCREEN, $tutorialView);
     $view = new MenuCanvas($theme, time: $time);
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $layout = self::getLayout($state, $theme);
     $verticalPadding = $layout['verticalPadding'];
-    $info = implode("\n", $state->infoPanel?->getContent() ?? []);
+    $info = $state->infoPanel?->getDescription() ?? '';
     $infoHeight = $layout['infoHeight'];
     self::summary($view, 'main-info', $state->infoPanel?->getTitle() ?? '', $info,
       self::box(0, 0, self::WIDTH, $infoHeight), $verticalPadding);
@@ -54,15 +57,20 @@ final class MainMenuPresentation
     $commandBox = self::box(0, $infoHeight, self::COMMAND_WIDTH, $commandsHeight);
     $view->frame('main-commands', $commandBox);
     $rows = [];
+    $commandTarget = null;
     foreach ($state->mainMenu->getItems() as $index => $command) {
       $selected = $index === $state->mainMenu->activeIndex;
+      if ($commandsFocused && $tutorial !== null && MainMenuState::getTutorialCommandId($command) === $tutorial->target['id']) {
+        $commandTarget = (string)$index;
+      }
       $rows[] = new MenuRow((string)$index, $command->getLabel(), kind: MenuRowKind::COMMAND,
         selected: $selected, focused: $commandsFocused && $selected, disabled: $command->isDisabled());
     }
     $compactHeight = (int)ceil(max($m->cellHeight + $theme->rows->metrics->separatorWidth,
       (int)ceil(min($m->rowHeight, $m->cellHeight + $m->sectionGap / 3)), $theme->rows->metrics->cursorHeight));
-    $view->rows('main-command', $rows, new MenuRowLayout(self::inset($commandBox, $p, $p),
-      rowHeight: $compactHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight, wrapText: true), $state->mainMenu->activeIndex);
+    $tutorialTarget = $view->rows('main-command', $rows, new MenuRowLayout(self::inset($commandBox, $p, $p),
+      rowHeight: $compactHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight, wrapText: true),
+      $state->mainMenu->activeIndex, $commandTarget);
     $y = $infoHeight + $commandsHeight;
     foreach ($summaries as $id => $summary) {
       self::summary($view, 'main-' . $id, $summary['title'], implode("\n", $summary['lines']),
@@ -83,7 +91,7 @@ final class MainMenuPresentation
         $footer->width - 2 * $footerHorizontalPadding, $hintHeight));
     }
 
-    $members = $state->party->members->toArray();
+    $members = $state->party->participants->toArray();
     $cardPadding = $layout['cardPadding'];
     $heights = $layout['heights'];
     $pages = $layout['pagination'];
@@ -102,11 +110,15 @@ final class MainMenuPresentation
       $view->frame($id . '-frame', $box, borderLayer: 20);
       $member = $members[$index] ?? null;
       if ($member instanceof Character) {
+        if (!$commandsFocused && $tutorial !== null && $tutorial->target['id'] === 'member-' . $member->actorId) {
+          $tutorialTarget = $box;
+        }
         self::character($view, $id, $member, $box, $cardPadding,
           $index === $selection->getMarkedPanelIndex(), !$commandsFocused && $index === $selection->getActivePanelIndex());
       }
       $y += $heights[$index];
     }
+    $view->renderTutorialSpotlight($tutorial, $tutorialTarget, $state->getGameScene()->getTutorialSpeakerName($tutorial));
     return $view->finish();
   }
 
@@ -126,7 +138,7 @@ final class MainMenuPresentation
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $verticalPadding = (int)min($p, floor($m->sectionGap / 3));
-    $info = implode("\n", $state->infoPanel?->getContent() ?? []);
+    $info = $state->infoPanel?->getDescription() ?? '';
     $infoHeight = max(60, 2 * $verticalPadding + $m->cellHeight + self::textHeight($info, self::WIDTH - 2 * $p, $theme));
     $summaryHeights = [];
     foreach ($state->getPresentationSummaries() as $id => $summary) {
@@ -150,7 +162,7 @@ final class MainMenuPresentation
     $cardInsets = ($theme->frames['panel'] ?? null)?->borderInsets($theme->assetRoot,
       new CanvasRectangle(0, 0, self::PARTY_WIDTH, 140));
     $cardPadding = $cardInsets === null ? $verticalPadding : (int)ceil(max($verticalPadding, $cardInsets[1], $cardInsets[3]));
-    $members = $state->party->members->toArray();
+    $members = $state->party->participants->toArray();
     $heights = [];
     for ($index = 0; $index < max(4, count($members)); $index++) {
       $heights[] = self::recordHeight($members[$index] ?? null, $theme, $cardPadding);
@@ -202,6 +214,12 @@ final class MainMenuPresentation
     $view->rows($id . '-resources', $rows, self::getResourceLayout($theme,
       new CanvasRectangle($identityBox->x, $resourceY, $identityBox->width,
         $box->y + $box->height - $verticalPadding - $resourceY), $rows));
+    // Conditions sit beside the resources they affect.
+    $conditionsX = $identityBox->x + min(self::RESOURCE_WIDTH, $identityBox->width) + $m->sectionGap;
+    if ($conditionsX < $identityBox->x + $identityBox->width) {
+      MenuConditions::renderBadges($view, $id . '-conditions', $member, new CanvasRectangle($conditionsX, $resourceY,
+        $identityBox->x + $identityBox->width - $conditionsX, $box->y + $box->height - $verticalPadding - $resourceY));
+    }
   }
 
   private static function recordHeight(?Character $member, MenuPresentationCatalog $theme, int $verticalPadding): int
@@ -223,7 +241,7 @@ final class MainMenuPresentation
   {
     $stats = $member->effectiveStats;
     return [new MenuRow('role', 'Role', [new MenuRowValue($member->role->name)]),
-      new MenuRow('level', Vocabulary::getTerm('stats.level', 'Lv'), [new MenuRowValue((string)$member->level)]),
+      new MenuRow('level', Vocabulary::getTerm('stats.level_short'), [new MenuRowValue((string)$member->level)]),
       new MenuRow('hp', Vocabulary::getTerm('stats.hp', 'HP'), [new MenuRowValue($stats->currentHp . ' / ' . $stats->totalHp)]),
       new MenuRow('mp', Vocabulary::getTerm('stats.mp', 'MP'), [new MenuRowValue($stats->currentMp . ' / ' . $stats->totalMp)])];
   }

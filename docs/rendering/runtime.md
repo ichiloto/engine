@@ -438,7 +438,9 @@ in a terminal emulator; physical input and GPUI presentation were not measured.
 The Game's GPUI session requires the `key_transitions` subscription, so the
 renderer also reports key presses, releases and resets; PHP applies them
 before each gameplay update and owns held walking and its timing (see
-[key transitions](input-sources.md#key-transitions-implemented)). When the
+[key transitions](input-sources.md#key-transitions-implemented)). It also
+requires `modifier_controls`, so Shift held alone is a control the dash can
+hold (see [dash](input-sources.md#dash-implemented)). When the
 renderer advertises `field_motion`, PHP marks each committed step with its
 duration and names the sprite the camera follows; the renderer slides between
 the committed cells on its own clock, requesting frames only while something
@@ -450,7 +452,7 @@ When the renderer advertises `sprite_lift`, a field character's sprite names
 the lift its character sheet is drawn above its cell (see
 [field character sheets](sprite-sheets.md#lift)); other renderers receive
 the sprite without it and place it on its cell.
-An installed renderer that predates `key_transitions`
+An installed renderer that predates `key_transitions` or `modifier_controls`
 rejects the session at startup; install the updated renderer.
 
 After enqueueing retained-update bytes, Runtime performs one bounded, zero-wait I/O
@@ -459,7 +461,9 @@ in the same iteration. Large uploads resume over later presentation calls with
 bounded zero-wait servicing inside the sender; only the final `present:true`
 publishes the new state. The producer targets 1 MiB/32 packets and at most 32 I/O
 passes per call, caps pending bytes at 1 MiB (one larger indivisible record only
-on an empty queue), and allows at most 32 unacknowledged packets. Existing line
+on an empty queue), and allows at most 32 unacknowledged packets and two
+unacknowledged complete frames. Changes made while two frames are unacknowledged
+are sent as one newest frame when the renderer catches up. Existing line
 and transport capacity limits are unchanged. See the exact
 [upload budgets](presentation.md#nonblocking-upload-and-coalescing).
 
@@ -565,3 +569,38 @@ public window-preference APIs are not implied by resize feedback. The current
   reduce the entire surface; fitting cannot guarantee legibility at every size.
 - Retained text preserves colours, not blink, bold weight, italic, underline or
   other terminal attributes. Native V1/stateless fallback is not available.
+
+
+## Shared runtime clock
+
+Elapsed campaign time, input-idle age, owned waits, dialogue typing/Auto,
+audio position and pause accounting, battle feedback, and scene/menu
+presentation deadlines read `Core\Clocks\RuntimeClock`. Its default source
+is `SystemMonotonicClock`. The normal Game update and blocked-frame owners
+retain their existing responsibilities; selecting a source does not advance
+the campaign or grant income. Loading/rebasing elapsed time clears the prior
+frame delta before the next update.
+
+An embedding or observation host implements `MonotonicClockInterface` with
+finite nondecreasing `getSeconds()` and `sleep(float $seconds)`. A positive
+sleep must advance that same source. Install the source before constructing
+the session with `RuntimeClock::useClock($source)` and retain the returned
+lease. Stop the session and release its timed resources before closing the
+lease in `finally`. One host owns an override at a time. Entry and release
+bridge source origins onto the existing runtime timeline; release restores a
+sound system source even if the custom source fails. No setting is persisted.
+Existing explicit per-component clock arguments remain supported and must
+use a coherent time basis when the caller supplies them.
+
+A controlled host still drives the normal semantic input, Game frame,
+activity classification and real services. Its declared time increments and
+acknowledgement choices belong in the observation record. They do not measure
+human playtime. Hardware/renderer transport deadlines, physical frame pacing,
+diagnostic timings, save ordering and local calendar dates keep physical
+clocks. `Time::getSystemTime()` retains its existing physical API.
+
+Buffer-only `Console::init` uses the host's declared geometry without probing
+a terminal or constructing its physical output sink. Terminal output is
+acquired when its owner explicitly enables it. A host can use the existing
+protected viewport resolution/synchronization hooks to supply fixed geometry;
+normal terminal geometry and startup acquisition retain their existing path.

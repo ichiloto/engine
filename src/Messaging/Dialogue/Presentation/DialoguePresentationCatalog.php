@@ -13,8 +13,14 @@ use RuntimeException;
 final readonly class DialoguePresentationCatalog
 {
     public const string FILE = 'Data/Presentation/dialogue.php';
+    public const string SCHEMA = 'ichiloto.dialogue/1';
+    /** The keys the catalogue holds. A skit's backdrop belongs to the place it plays in, never to this file. */
+    public const array KEYS = ['schema', 'theme', 'actors', 'resources', 'speakers', 'skitStage'];
+    /** The key format 3 kept skit backgrounds under; format 4 moved them to {@see \Ichiloto\Engine\Field\SkitBackdrop}. */
+    public const string RETIRED_SKITS_KEY = 'skits';
+
     public function __construct(public array $actors = [], public ?MenuPresentationCatalog $theme = null,
-        public array $speakers = [], public array $skits = [], public SkitStageStyle $skitStage = new SkitStageStyle(),
+        public array $speakers = [], public SkitStageStyle $skitStage = new SkitStageStyle(),
         public array $resources = [])
     {
         if (array_intersect_key($actors, $resources) !== []) {
@@ -26,10 +32,6 @@ final readonly class DialoguePresentationCatalog
             if (!is_string($name) || !is_string($identity) || (!isset($actors[$identity]) && !isset($resources[$identity]))) {
                 throw new InvalidArgumentException('Authored speaker bindings must reference a dialogue actor or artwork resource.');
             }
-        }
-        foreach ($skits as $id => $record) {
-            if (!is_string($id) || !is_array($record)) { throw new InvalidArgumentException('Skit presentation requires stable IDs.'); }
-            if (isset($record['background'])) { SpriteValidation::validateAssetPath($record['background']); }
         }
     }
 
@@ -67,13 +69,16 @@ final readonly class DialoguePresentationCatalog
         $data = (static fn(string $file): mixed => require $file)($path);
         if ($data instanceof self) { return $data; }
         if ($data === 1 || $data === null || $data === []) { return new self(); }
-        if (!is_array($data) || ($data['schema'] ?? null) !== 'ichiloto.dialogue/1'
-            || array_diff(array_keys($data), ['schema', 'theme', 'actors', 'resources', 'speakers', 'skits', 'skitStage']) !== []) {
+        if (is_array($data) && array_key_exists(self::RETIRED_SKITS_KEY, $data)) {
+            throw new RuntimeException('The dialogue catalogue\'s skits key is retired: a skit\'s backdrop now follows the map, '
+                . 'its region or the skit itself. Run `ichiloto upgrade` to move each background to its skit.');
+        }
+        if (!is_array($data) || ($data['schema'] ?? null) !== self::SCHEMA || array_diff(array_keys($data), self::KEYS) !== []) {
             throw new RuntimeException('Dialogue catalogue requires schema ichiloto.dialogue/1.');
         }
         return new self($data['actors'] ?? [],
             isset($data['theme']) ? new MenuPresentationCatalog($root, $data['theme']) : null,
-            $data['speakers'] ?? [], $data['skits'] ?? [], SkitStageStyle::getFromArray($data['skitStage'] ?? []),
+            $data['speakers'] ?? [], SkitStageStyle::getFromArray($data['skitStage'] ?? []),
             $data['resources'] ?? []);
     }
 

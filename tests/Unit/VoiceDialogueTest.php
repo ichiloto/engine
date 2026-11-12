@@ -91,19 +91,40 @@ final class VoiceTestScene extends GameScene
 final class VoiceTestSkits extends SkitManager
 {
   public array $shown = [];
+  public array $contexts = [];
   public bool $failPresentation = false;
-  public function runSkit(array $skit): void { $this->play('sample', $skit); }
-  protected function showBeat(array $beat, float $speed, DialoguePlayback $playback): void
+  public function runSkit(array $skit): void
   {
-    $this->shown[] = [$beat, $speed, $playback->auto];
-    if ($this->failPresentation) { throw new RuntimeException('interrupted'); }
-    $playback->toggleAuto();
+    $this->skits['sample'] = $skit;
+    $presentation = new class($this) implements \Ichiloto\Engine\Events\Interpreter\EventPlayedDialoguePresentationInterface {
+      public function __construct(private VoiceTestSkits $owner) {}
+      public function beginText(string $text, string $speaker): void {}
+      public function beginDialogue(string $text, string $speaker, \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext $context): void {}
+      public function beginPlayedDialogue(string $text, string $speaker,
+        \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext $context,
+        DialoguePlayback $playback, float $charactersPerSecond): void
+      {
+        $this->owner->shown[] = [['text' => $text, 'speaker' => $speaker], $charactersPerSecond, $playback->auto];
+        $this->owner->contexts[] = $context;
+        if ($this->owner->failPresentation) { throw new RuntimeException('interrupted'); }
+        $playback->toggleAuto();
+      }
+      public function beginChoice(string $prompt, array $options, string $title = ''): void {}
+      public function update(): void {}
+      public function render(): void {}
+      public function isComplete(): bool { return true; }
+      public function choiceResult(): ?int { return null; }
+      public function reset(): void {}
+    };
+    $operation = $this->beginSkitPlayback('sample', $presentation);
+    while ($operation !== null && !$operation->update(0)) {}
   }
+
 }
 
 beforeEach(function () {
   $this->originalDirectory = getcwd();
-  $this->voiceTemp = sys_get_temp_dir() . '/ichiloto-voice-' . bin2hex(random_bytes(6));
+  $this->voiceTemp = \getTestTemporaryDirectory() . '/ichiloto-voice-' . bin2hex(random_bytes(6));
   mkdir($this->voiceTemp . '/assets/Audio/Voice/Skits/sample', 0777, true);
   file_put_contents($this->voiceTemp . '/assets/Audio/Voice/Skits/sample/line.mp3', 'fake test audio');
   $this->voicePath = $this->voiceTemp . '/assets/Audio/Voice/Skits/sample/line.mp3';
@@ -281,8 +302,35 @@ it('accepts an empty dialogue catalogue placeholder and displays the registered 
   $game = new VoiceTestGame();
   $skits = new VoiceTestSkits(new VoiceTestScene($game));
   $skits->runSkit(['speed'=>20, 'beats'=>[['actor'=>'hero','text'=>'Hello']]]);
+  // The placeholder itself is no problem; the only report is the skit's missing backdrop.
+  $warnings = array_values(array_filter(explode(PHP_EOL, (string) @file_get_contents($this->voiceTemp.'/warning.log'))));
   expect($skits->shown[0][0]['speaker'])->toBe('Current Name')
-    ->and(is_file($this->voiceTemp.'/warning.log'))->toBeFalse();
+    ->and($warnings)->toHaveCount(1)->and($warnings[0])->toContain('Skit sample on map', 'shows no backdrop');
+});
+
+it('stages an aliased dialogue resource with its authored emotion without requiring a gameplay actor', function () {
+  $path = $this->voiceTemp.'/assets/Data/Presentation';
+  mkdir($path, 0777, true);
+  file_put_contents($path.'/dialogue.php', '<?php return ' . var_export([
+    'schema' => 'ichiloto.dialogue/1',
+    'resources' => ['innkeeper' => ['emotions' => ['Concerned' => ['bust' => 'concerned.png']]]],
+    'speakers' => ['Innkeeper' => 'innkeeper', 'Host' => 'innkeeper'],
+  ], true) . ';');
+  $skits = new VoiceTestSkits(new VoiceTestScene(new VoiceTestGame()));
+  $skits->runSkit(['speed'=>20, 'beats'=>[
+    ['speaker'=>'Innkeeper', 'text'=>'Hello.', 'emotion'=>'Concerned'],
+    ['speaker'=>'Narrator', 'text'=>'Later.'],
+    ['speaker'=>'Host', 'text'=>'Welcome back.'],
+  ]]);
+
+  expect($skits->shown[0][0]['speaker'])->toBe('Innkeeper')
+    ->and($skits->contexts[0]->actorId)->toBeNull()
+    ->and($skits->contexts[0]->emotion)->toBe('Concerned')
+    ->and($skits->contexts[0]->participants)->toBe([
+      ['identity'=>'innkeeper', 'name'=>'Innkeeper', 'emotion'=>'Concerned'],
+    ])
+    ->and($skits->contexts[1]->participants)->toBe($skits->contexts[0]->participants)
+    ->and($skits->contexts[2]->participants[0]['emotion'])->toBe('Neutral');
 });
 
 it('keeps legacy skits and missing optional presentation playable and marks them seen', function () {
@@ -328,7 +376,7 @@ it('toggles shared TextBox Auto through a rebound action and dismisses only afte
   expect($modal->isShowing)->toBeTrue();
   $this->audio->handles[0]->complete(); InputManager::handleInput(); $modal->update();
   expect($modal->isShowing)->toBeTrue();
-  new ReflectionProperty(DialoguePlayback::class,'textCompletedAt')->setValue($flow,microtime(true)-2.0);
+  new ReflectionProperty(DialoguePlayback::class,'textCompletedAt')->setValue($flow,\Ichiloto\Engine\Core\Clocks\RuntimeClock::getSeconds()-2.0);
   $modal->update();
   expect($modal->isShowing)->toBeFalse();
 });
@@ -367,15 +415,15 @@ it('preserves authored help while appending live rebound Auto hints without dupl
   InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource(null, KeyCode::x, null));
   $modal = new VoiceTestTextBox($game, 'A line still typing.', help:'Remember the blue door.', playback:$flow);
   $modal->show();
-  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto off');
+  expect($modal->getHelp())->toBe('Remember the blue door. [x] Auto Off  [Enter]');
   InputManager::handleInput(); $modal->update();
-  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto off');
+  expect($modal->getHelp())->toBe('Remember the blue door. [x] Auto Off  [Enter]');
   InputManager::handleInput(); $modal->update();
-  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto on');
+  expect($modal->getHelp())->toBe('Remember the blue door. [x] Auto On  [Enter]');
   InputManager::handleInput(); $modal->update();
-  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto on');
+  expect($modal->getHelp())->toBe('Remember the blue door. [x] Auto On  [Enter]');
   $modal->updateContent();
-  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto on');
+  expect($modal->getHelp())->toBe('Remember the blue door. [x] Auto On  [Enter]');
   $modal->hide();
 });
 
@@ -481,4 +529,62 @@ it('releases conversation ducking when the next voice fails and ignores stale se
   expect($voice->isRunning)->toBeTrue()->and(end($this->audio->handles)->command[1])->toBe('0.2');
   $this->audio->endSpeechSequence($next);
   expect($voice->isRunning)->toBeFalse()->and(end($this->audio->handles)->command[1])->toBe('0.8');
+});
+
+
+it('freezes a TextBox cursor and ignores confirm while its playback is paused', function () {
+  $game = new VoiceTestGame();
+  $flow = new DialoguePlayback();
+  $modal = new VoiceTestTextBox($game, 'A message that is still typing', 'Actor',
+    charactersPerSecond: 1, playback: $flow);
+  InputManager::setBindings(['confirm' => ['keys' => [KeyCode::x]]]);
+  InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource(KeyCode::x, null, null));
+  $modal->show();
+  $before = $modal->getDialogueSnapshot();
+  $next = new ReflectionProperty(TextBoxModal::class, 'nextPrintTime')->getValue($modal);
+  $modal->pausePlayback(10);
+  $modal->pausePlayback(20);
+  InputManager::handleInput();
+  $modal->update();
+  $modal->updateContent();
+  expect($modal->getDialogueSnapshot())->toEqual($before)->and($modal->isShowing)->toBeTrue();
+  $modal->resumePlayback(110);
+  $modal->resumePlayback(210);
+  expect(new ReflectionProperty(TextBoxModal::class, 'nextPrintTime')->getValue($modal))->toBe($next + 100);
+  InputManager::consumeCurrentInput();
+  $modal->updateContent();
+  expect($modal->getDialogueSnapshot())->toEqual($before);
+  $modal->hide();
+});
+
+
+it('types and pauses Auto reading against the shared host clock without wall-time waits', function () {
+  require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
+  $saved = new ReflectionClass(\Ichiloto\Engine\Core\Clocks\RuntimeClock::class)->getStaticProperties();
+  $source = new \Tests\Support\ManualRuntimeClock();
+  $lease = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($source);
+  try {
+    $flow = new DialoguePlayback($this->audio);
+    $flow->beginLine(); $flow->toggleAuto();
+    $modal = new VoiceTestTextBox(new VoiceTestGame(), 'AB', charactersPerSecond: 2, playback: $flow);
+    InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource());
+    $modal->show(); InputManager::handleInput(); $modal->update();
+    $before = $modal->getDialogueSnapshot();
+    expect($before->visibleText)->toBe('A')->and($before->isPrinting)->toBeTrue();
+    $modal->pausePlayback();
+    $source->seconds += 30;
+    $modal->update();
+    expect($modal->getDialogueSnapshot())->toEqual($before);
+    $modal->resumePlayback(); $modal->update();
+    expect($modal->getDialogueSnapshot())->toEqual($before);
+    $source->seconds += 0.6; $modal->update();
+    expect($modal->getDialogueSnapshot()->visibleText)->toBe('AB')->and($modal->isShowing)->toBeTrue();
+    $source->seconds += 10; $modal->update();
+    expect($modal->isShowing)->toBeFalse();
+  } finally {
+    $lease->close();
+    foreach ($saved as $name => $value) {
+      new ReflectionProperty(\Ichiloto\Engine\Core\Clocks\RuntimeClock::class, $name)->setValue(null, $value);
+    }
+  }
 });

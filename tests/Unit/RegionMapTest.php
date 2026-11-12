@@ -207,7 +207,7 @@ it('has nothing to place for a map it has never heard of', function () {
 });
 
 it('reads no maps at all when a project has none', function () {
-  RegionMap::loadFrom(sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-empty-', true));
+  RegionMap::loadFrom(\getTestTemporaryDirectory() . DIRECTORY_SEPARATOR . uniqid('ichiloto-empty-', true));
 
   expect(RegionMap::areas())->toBe([]);
 });

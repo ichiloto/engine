@@ -195,6 +195,13 @@ abstract class EventTrigger implements EventTriggerInterface
     return true;
   }
 
+  /** Null permits entry; a string rejects outside-to-inside movement, with an optional explanation. */
+  public function getEntryRefusal(Vector2 $origin, Vector2 $destination): ?string
+  {
+    return !$this->isComplete && !$this->isAvailable() && !$this->area->contains($origin)
+      && $this->area->contains($destination) ? $this->whenBlocked : null;
+  }
+
   /**
    * Determines whether the trigger's optional player cue should be rendered.
    *
@@ -202,9 +209,10 @@ abstract class EventTrigger implements EventTriggerInterface
    * lets a reusable station explain missing prerequisites while advertising
    * itself as the current objective only when the authored stage is ready.
    */
-  public function shouldRenderCue(): bool
+  public function shouldRenderCue(?Vector2 $viewer = null): bool
   {
-    if ($this->cue === null || $this->isComplete || ! $this->isAvailable()) {
+    if ($this->cue === null || $this->isComplete || ! $this->isAvailable()
+      || $this->cue->findVisiblePositions($this->area, $viewer) === []) {
       return false;
     }
 

@@ -34,6 +34,8 @@ class SkillEffectContext
     protected(set) SkillResolutionScope $hitScope = SkillResolutionScope::PER_HIT,
     protected(set) SkillResolutionScope $criticalScope = SkillResolutionScope::PER_HIT,
     ?SkillRollLedger $rollLedger = null,
+    public readonly ?\Ichiloto\Engine\Battle\BattleReactions $reactions = null,
+    public readonly ?\Ichiloto\Engine\Battle\BattleGaugeControl $gauges = null,
   )
   {
     $this->resolver = $resolver ?? new CombatResolver();
@@ -92,6 +94,13 @@ class SkillEffectContext
   public function hadSuccessfulResolution(): bool
   {
     return array_any($this->results, static fn(CombatHitResult $result): bool => $result->hit);
+  }
+
+  public function hasLandedDamageOn(CharacterInterface $target): bool
+  {
+    $id = CombatResolver::identity($target);
+    return array_any($this->results, static fn(CombatHitResult $result): bool =>
+      $result->targetId === $id && $result->kind->isDamage() && $result->hit);
   }
 
   public function recordSecondaryOutcome(string $type, string $id, bool $applied): void

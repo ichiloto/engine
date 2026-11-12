@@ -19,7 +19,7 @@ beforeEach(function () {
   foreach ([InputManager::class, ConfigStore::class, EventManager::class, Debug::class] as $class) {
     $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->playerRoot = sys_get_temp_dir() . '/ichiloto-bindings-' . bin2hex(random_bytes(6));
+  $this->playerRoot = \getTestTemporaryDirectory() . '/ichiloto-bindings-' . bin2hex(random_bytes(6));
   mkdir($this->playerRoot);
   Debug::configure(['log_directory' => $this->playerRoot . '/logs']);
   ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
@@ -99,9 +99,9 @@ it('lists the rebindable actions with their keys', function () {
 
   // Back is deliberately absent: escape is how every screen is left,
   // including the rebinding screen.
-  expect($actions)->toBe(['action', 'up', 'info', 'menu_page_previous', 'menu_page_next', 'map_view', 'map_size', 'map_zoom', 'map_recenter', 'dialogue_auto', 'secondary_action', 'quick_save'])
-    ->and($bindings->describeKeys('action'))->toBe('SPACE, ENTER')
-    ->and($bindings->describeKeys('up'))->toBe('UP, W')
+  expect($actions)->toBe(['action', 'up', 'info', 'menu_page_previous', 'menu_page_next', 'character_next', 'character_previous', 'map_view', 'map_size', 'map_zoom', 'map_recenter', 'dialogue_auto', 'secondary_action', 'quick_save'])
+    ->and($bindings->describeKeys('action'))->toBe('Space, Enter')
+    ->and($bindings->describeKeys('up'))->toBe('↑, W')
     ->and($bindings->describeKeys('info'))->toBe('i, I');
 });
 
@@ -186,9 +186,9 @@ it('selects one currently bound primary control while Controls retains every ali
   expect($bindings->primaryKey('confirm'))->toBe(KeyCode::ENTER)
     ->and($bindings->primaryKey('cancel'))->toBe(KeyCode::ESCAPE)
     ->and($bindings->primaryKey('back'))->toBe(KeyCode::ESCAPE)
-    ->and($bindings->describeKeys('cancel'))->toBe('C, c, ESCAPE')
-    ->and($bindings->describeKeys('confirm'))->toBe('SPACE, ENTER')
-    ->and($bindings->controlForAction('cancel')->label)->toBe('Escape');
+    ->and($bindings->describeKeys('cancel'))->toBe('C, c, Esc')
+    ->and($bindings->describeKeys('confirm'))->toBe('Space, Enter')
+    ->and($bindings->controlForAction('cancel')->label)->toBe('Esc');
   $bindings->rebind('cancel', KeyCode::Q);
   expect($bindings->primaryKey('cancel'))->toBe(KeyCode::Q)
     ->and($bindings->controlForAction('cancel')->control)->toBe('Q')
@@ -207,7 +207,7 @@ it('discovers a fully conflicted Info default as unbound and permits an explicit
   $authored = ['custom' => ['description' => 'Custom action.', 'keys' => [KeyCode::i, KeyCode::I]]];
   $config = installBindings($authored);
   $bindings = new InputBindings();
-  expect(array_column($bindings->all(), 'action'))->toBe(['custom', 'info', 'menu_page_previous', 'menu_page_next', 'map_view', 'map_size', 'map_zoom', 'map_recenter', 'dialogue_auto', 'secondary_action', 'quick_save'])
+  expect(array_column($bindings->all(), 'action'))->toBe(['custom', 'info', 'menu_page_previous', 'menu_page_next', 'character_next', 'character_previous', 'map_view', 'map_size', 'map_zoom', 'map_recenter', 'dialogue_auto', 'secondary_action', 'quick_save'])
     ->and($bindings->describeKeys('info'))->toBe('Unbound')
     ->and($bindings->controlForAction('info'))->toBeNull()
     ->and($config->all())->toBe($authored)->and($config->written)->toBeEmpty();

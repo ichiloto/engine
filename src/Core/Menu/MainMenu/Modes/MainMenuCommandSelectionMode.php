@@ -9,6 +9,8 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\Core\Menu\MenuItem;
+use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
 use Ichiloto\Engine\Util\Debug;
 
 /**
@@ -137,7 +139,13 @@ class MainMenuCommandSelectionMode extends MainMenuMode
         play_sound(SystemSound::BUZZER);
       } else {
         play_sound(SystemSound::CONFIRM);
-        $activeItem->execute($this->mainMenuState->mainMenuContext);
+        $result = $activeItem->execute($this->mainMenuState->mainMenuContext);
+        $id = MainMenuState::getTutorialCommandId($activeItem);
+        if ($id !== null && $result === MenuItem::SUCCESS) {
+          $this->mainMenuState->getGameScene()->reportTutorialOutcome(
+            MainMenuState::TUTORIAL_SCREEN, MainMenuState::TUTORIAL_COMMANDS, MainMenuState::TUTORIAL_COMMAND_OPENED, $id,
+          );
+        }
       }
     }
   }

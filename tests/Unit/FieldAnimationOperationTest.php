@@ -11,6 +11,10 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicPresentationManager;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicTextPresentation;
 use Ichiloto\Engine\Cutscenes\Cinematics\FieldAnimationOperation;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicEffectTarget;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicScriptValidator;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicSubjectResolver;
 use Ichiloto\Engine\Cutscenes\Cinematics\TimedPresentationOperation;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\FieldViewport;
@@ -185,6 +189,82 @@ it('pins screen effects in the text grid outside the field viewport transform', 
     ->and($sprite->getGraphicalSpriteDefinition()->width)->toBe(96)
     ->and($sprite->getGraphicalSpriteWorldPosition()->x)->toBe(34.0)
     ->and($sprite->getGraphicalSpriteWorldPosition()->y)->toBe(23.0);
+});
+
+it('follows the current subject position and slide while preserving fixed effect anchors and independent cleanup', function () {
+  $stage = new CinematicStageManager($this->scene);
+  new ReflectionProperty(GameScene::class, 'cinematicStage')->setValue($this->scene, $stage);
+  $actor = $stage->add(['id' => 'subject', 'sprite' => '@', 'x' => 2, 'y' => 3,
+    'sprites2d' => ['asset' => 'sheet.png']]);
+  $timeline = $this->effects->compile('following', ['fps' => 5, 'lengthFrames' => 8, 'tracks' => [[
+    'id' => 'light', 'type' => 'image', 'asset' => 'sheet.png', 'keyframes' => [['frame' => 0]],
+  ]]]);
+  $target = new CinematicEffectTarget($this->scene, ['kind' => 'staged_actor', 'id' => 'subject']);
+  $operation = new FieldAnimationOperation($timeline, $this->presentation, new Vector2(2, 3), target: $target);
+  $fixed = new FieldAnimationOperation($timeline, $this->presentation, new Vector2(7, 8));
+  $viewport = new FieldViewport(new RendererGridConfig(80, 24, 8, 16), 2);
+  $first = $this->presentation->getEffectSprites($viewport)[0];
+  $actor->move(new Vector2(1, 0), .2);
+  $next = $this->presentation->getEffectSprites($viewport);
+  expect($next[0]->getGraphicalSpriteId())->toBe($first->getGraphicalSpriteId())
+    ->and($next[0]->getGraphicalSpriteWorldPosition()->x)->toBe(3.0)
+    ->and($next[0]->getGraphicalSpriteMotion()?->seconds)->toBe(.2)
+    ->and($next[1]->getGraphicalSpriteWorldPosition()->x)->toBe(7.0)
+    ->and($operation->update(.1))->toBeFalse();
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => true]]);
+  expect($this->presentation->getEffectSprites($viewport)[0]->getGraphicalSpriteMotion())->toBeNull();
+  $stage->remove('subject');
+  $stage->add(['id' => 'subject', 'sprite' => '@', 'x' => 9, 'y' => 9]);
+  expect($target->isCurrent())->toBeFalse()->and($this->presentation->getEffectSprites($viewport))->toHaveCount(1)
+    ->and($operation->update(10))->toBeTrue()->and($this->presentation->effectCount)->toBe(1)
+    ->and($fixed->update(.1))->toBeFalse();
+});
+
+it('cancels following effects before later cues after map or cinematic ownership changes', function (string $change) {
+  $stage = new CinematicStageManager($this->scene);
+  new ReflectionProperty(GameScene::class, 'cinematicStage')->setValue($this->scene, $stage);
+  $stage->add(['id' => 'subject', 'sprite' => '@', 'x' => 2, 'y' => 3]);
+  $animation = new Animation(92, 'Follow lifecycle', maxFrames: 4);
+  $animation->setCell(1, 0, 0, '*');
+  $animation->setCue(4, new AnimationCue(soundEffect: 'late'));
+  $target = new CinematicEffectTarget($this->scene, ['kind' => 'staged_actor', 'id' => 'subject']);
+  $operation = new FieldAnimationOperation($animation, $this->presentation, new Vector2(2, 3), target: $target);
+  if ($change === 'map') { new ReflectionProperty(GameScene::class, 'currentMapId')->setValue($this->scene, 'other-map'); }
+  elseif ($change === 'host') {
+    new ReflectionProperty(GameScene::class, 'cinematicStage')->setValue($this->scene, new CinematicStageManager($this->scene));
+  } else { $stage->clear(); }
+  expect($operation->update(10))->toBeTrue()->and($this->presentation->effectCount)->toBe(0)
+    ->and($this->audio->calls)->toBe([]);
+})->with(['map', 'generation', 'host']);
+
+it('selects the participating party leader by stable actor identity when the permanent roster has a different first member', function () {
+  $party = new \Ichiloto\Engine\Entities\Party();
+  foreach (['first', 'second'] as $id) {
+    $party->addMember(new \Ichiloto\Engine\Entities\Character($id, 1, new \Ichiloto\Engine\Entities\Stats(), actorId: $id));
+  }
+  $party->selectParticipants(['second']);
+  $player = makeBareScene(\Ichiloto\Engine\Field\Player::class);
+  new ReflectionProperty($player, 'position')->setValue($player, new Vector2(4, 5));
+  new ReflectionProperty(GameScene::class, 'party')->setValue($this->scene, $party);
+  new ReflectionProperty(GameScene::class, 'player')->setValue($this->scene, $player);
+  $resolver = new CinematicSubjectResolver($this->scene);
+  expect($resolver->getSpriteSubject(['kind' => 'party_actor', 'id' => 'second']))->toBe($player)
+    ->and($resolver->getSpriteSubject(['kind' => 'party_actor']))->toBe($player)
+    ->and($resolver->position(['kind' => 'party_actor', 'id' => 'second'])->x)->toBe(4.0)
+    ->and(fn() => $resolver->getSpriteSubject(['kind' => 'party_actor', 'id' => 'first']))->toThrow(RuntimeException::class);
+});
+
+it('validates following field subjects without accepting fixed positions or nonboolean follow values', function () {
+  foreach (['player', 'party_actor', 'npc', 'world_object', 'staged_actor'] as $kind) {
+    CinematicScriptValidator::validateFieldAnimation(['effect' => 'synthetic', 'follow' => true,
+      'target' => ['kind' => $kind, 'id' => 'subject']], 'test', 'test');
+  }
+  foreach ([['follow' => 'yes', 'target' => ['kind' => 'player']],
+    ['follow' => true, 'target' => ['kind' => 'screen_position', 'x' => 1, 'y' => 1]],
+    ['follow' => true, 'target' => ['kind' => 'position', 'x' => 1, 'y' => 1]]] as $invalid) {
+    expect(fn() => CinematicScriptValidator::validateFieldAnimation(['effect' => 'synthetic', ...$invalid], 'test', 'test'))
+      ->toThrow(InvalidArgumentException::class);
+  }
 });
 
 it('clips offscreen glyphs without clamping them onto the viewport edge or erasing transparent gaps', function () {

@@ -12,6 +12,17 @@ use RuntimeException;
  */
 abstract class SkillEffect
 {
+  /**
+   * Whether this type of effect records a damaging hit on its target when it
+   * lands. A later `landedHit` effect in the same action reads that record
+   * ({@see \Ichiloto\Engine\Entities\Skills\SkillSecondaryTrigger}), so a type that
+   * deals HP damage declares it here and record validation follows.
+   */
+  public const bool RECORDS_DAMAGING_HITS = false;
+
+  /** Whether this effect, as authored, records a damaging hit when it lands. */
+  public bool $recordsDamagingHits { get => static::RECORDS_DAMAGING_HITS; }
+
   /** Whether invocation repeat applies to this effect rather than the whole wrapper action. */
   public function repeatsWithInvocation(): bool
   {

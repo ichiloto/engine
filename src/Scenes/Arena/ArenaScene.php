@@ -2,9 +2,15 @@
 
 namespace Ichiloto\Engine\Scenes\Arena;
 
+use Ichiloto\Engine\Battle\Presentation\BattleFormationLayout;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
+use Ichiloto\Engine\Battle\Presentation\BattleStageSlot;
+use Ichiloto\Engine\Entities\Enemies\EnemyHabitat;
+use Ichiloto\Engine\Battle\Presentation\TerminalBattleEffects;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\States\StateRegistry;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -12,13 +18,25 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Localization\Vocabulary;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\AbstractScene;
-use Ichiloto\Engine\UI\SelectionStyle;
-use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
+use Ichiloto\Engine\UI\Presentation\BattleTestMenuPresentation;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\MenuPager;
+use Ichiloto\Engine\UI\Presentation\MenuRowColumn;
+use Ichiloto\Engine\UI\Presentation\MenuTableText;
+use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
+use Ichiloto\Engine\UI\Presentation\ToolTheme;
+use Ichiloto\Engine\UI\Presentation\ToolColor;
+use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\UI\Windows\BorderPacks\SlimBorderPack;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ActorStore;
+use Ichiloto\Engine\Util\Stores\EnemyStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use Throwable;
 
@@ -29,21 +47,35 @@ use Throwable;
  * a fresh party and a fresh troop, so nothing one battle does (experience,
  * levels, gold, items, states, defeated enemies) carries into the next.
  *
- * Down from the troop list moves into the party; confirm edits a member;
- * left and right change its actor and level (a page step changes the level
- * by ten); confirm on a slot chooses its equipment; cancel steps back out.
- * In a graphical renderer, left and right on the troop list choose the
- * battle presentation's arena the fights take place in.
+ * The next and previous pane actions move between Troops, Party and Items.
+ * In Party, left and right change the frontline size and confirm edits the
+ * selected member. Within member setup, left and right change the focused
+ * field and page steps adjust level, HP or MP by ten. In Items, confirm
+ * chooses the quantity to carry. In a graphical renderer, left and right
+ * on the troop list choose the arena.
+ *
+ * After the troops, a row composes a test troop: pick enemies, move them
+ * on the stage where a graphical renderer draws it, fight it, and keep it
+ * as one of the game's troops where a keeper is given
+ * ({@see BattleTestTroopKeeper}); otherwise it is for testing only.
  *
  * @package Ichiloto\Engine\Scenes\Arena
  */
-class ArenaScene extends AbstractScene
+class ArenaScene extends AbstractScene implements CanvasProviderInterface
 {
-  protected const int PANEL_WIDTH = 60;
+  /** Wide enough for a member's whole help line: changing, stepping by ten, choosing and leaving its HP. */
+  protected const int PANEL_WIDTH = 72;
   protected const int LIST_HEIGHT = 18;
+  /** The panes switch on the menus' shared next and previous actions (Tab and Shift+Tab), as the Journal's tabs do. */
+  public const string PANE_NEXT_ACTION = 'character_next';
+  public const string PANE_PREVIOUS_ACTION = 'character_previous';
   protected const int INFO_HEIGHT = BattleTestSetup::MAX_MEMBERS + 2;
   /** The setup option a caller may start the arena with, a {@see BattleTestSetup}. */
   public const string SETUP_OPTION = 'arena_setup';
+  /** The option naming who keeps a composed test troop, a {@see BattleTestTroopKeeper}. */
+  public const string KEEPER_OPTION = 'arena_troop_keeper';
+  /** What a composed troop is called while it is fought, before it is kept. */
+  public const string TEST_TROOP_NAME = 'Test Troop';
 
   /**
    * @var list<array<string, mixed>> Each troop's data, built into a fresh troop for every fight.
@@ -70,13 +102,28 @@ class ArenaScene extends AbstractScene
   protected array $arenaChoices = [];
   /** The name of the arena a fight takes place in when none is chosen, if the presentation names one. */
   protected ?string $defaultArenaName = null;
+  /** The battle presentation a graphical renderer draws fights with; none in the terminal. */
+  protected ?BattlePresentationCatalog $battleCatalog = null;
+  /** Who keeps a composed test troop; none when composed troops are for testing only. */
+  protected ?BattleTestTroopKeeper $troopKeeper = null;
+  /** What the last attempt to keep a composed troop came to, shown until the next. */
+  protected ?string $keepStatus = null;
+  /** What a battle test member may be given, shared with the editor's choices. */
+  protected ?BattleTestChoices $battleTestChoices = null;
+  /** Engine chrome is independent of the project whose battles are previewed. */
+  private ?ToolTheme $toolTheme = null;
+  private ?MenuPresentationCatalog $toolMenuTheme = null;
+  private ?string $presentationError = null;
+  /** @var array{key: string, stage: ?BattleFormationLayout, issue: ?string}|null The stage last composed, kept while what it shows is unchanged. */
+  private ?array $stage = null;
 
   /**
-   * @inheritDoc
+   * The setup menu is not a battle, so it plays no music; the battle theme
+   * starts with the battle scene it opens.
    */
   public function getBackgroundMusic(): ?string
   {
-    return $this->getConfiguredBackgroundMusic('audio.bgm.battle');
+    return null;
   }
 
   /**
@@ -159,10 +206,14 @@ class ArenaScene extends AbstractScene
       $editor->moveVertical($vertical > 0 ? 1 : -1);
     } elseif (abs($horizontal) > 0.1) {
       $editor->moveHorizontal($horizontal > 0 ? 1 : -1);
-    } elseif (Input::isButtonDown('menu_page_next')) {
-      $editor->stepLevel(10);
-    } elseif (Input::isButtonDown('menu_page_previous')) {
-      $editor->stepLevel(-10);
+    } elseif (Input::isButtonDown(self::PANE_NEXT_ACTION)) {
+      $editor->movePane(1);
+    } elseif (Input::isButtonDown(self::PANE_PREVIOUS_ACTION)) {
+      $editor->movePane(-1);
+    } elseif (Input::isButtonDown(MenuPager::NEXT_ACTION)) {
+      $editor->movePage(1, self::LIST_HEIGHT - 2);
+    } elseif (Input::isButtonDown(MenuPager::PREVIOUS_ACTION)) {
+      $editor->movePage(-1, self::LIST_HEIGHT - 2);
     } elseif (Input::isButtonDown('confirm') || Input::isButtonDown('action')) {
       $request = $editor->confirm();
     } elseif (Input::isButtonDown('cancel')
@@ -181,6 +232,14 @@ class ArenaScene extends AbstractScene
       $this->fight($editor->troopIndex);
 
       return;
+    }
+    if ($request === ArenaSetupEditor::FIGHT_TEST) {
+      $this->fightTestTroop();
+
+      return;
+    }
+    if ($request === ArenaSetupEditor::KEEP) {
+      $this->keepTestTroop();
     }
     if ($editor->setup !== $setup) {
       $this->refreshPreview();
@@ -236,6 +295,75 @@ class ArenaScene extends AbstractScene
     }
   }
 
+  /** Fights the composed test troop, built afresh from its data like every troop. */
+  protected function fightTestTroop(): void
+  {
+    $setup = $this->editor?->setup;
+    $troop = $this->editor?->composer?->troop;
+
+    if ($setup === null || $troop === null || $troop->members === []) {
+      return;
+    }
+
+    try {
+      $this->getGame()->sceneManager->loadBattleScene(
+        $setup->createParty(ConfigStore::get(ActorStore::class), ConfigStore::get(ItemStore::class)),
+        Troop::fromArray($troop->toTroopData(self::TEST_TROOP_NAME)),
+        extraSettings: $setup->getBattleSettings(),
+      );
+    } catch (Throwable $exception) {
+      Debug::error(sprintf('The arena could not start a battle with the test troop: %s', $exception->getMessage()));
+    }
+  }
+
+  /** Keeps the composed test troop as one of the game's troops, through the keeper, and lists the troops again. */
+  protected function keepTestTroop(): void
+  {
+    $troop = $this->editor?->composer?->troop;
+    if ($troop === null || $this->troopKeeper === null) {
+      return;
+    }
+
+    try {
+      $this->keepStatus = $this->troopKeeper->keepTroop($troop->toMembers());
+    } catch (Throwable $exception) {
+      $this->keepStatus = 'Not kept: ' . $exception->getMessage();
+
+      return;
+    }
+    $this->loadTroops();
+    $this->editor?->setTroopCount(count($this->troops));
+  }
+
+  /**
+   * The test troop composer: the project's enemies, each new member placed
+   * on the terminal field by the Engine's rule beside the others, and, where
+   * a graphical battle draws the stage, members moved where the battle
+   * stands them. None when the project has no enemies.
+   */
+  protected function createComposer(): ?TestTroopComposer
+  {
+    $enemies = ConfigStore::has(EnemyStore::class) ? ConfigStore::get(EnemyStore::class)->all() : [];
+    if ($enemies === []) {
+      return null;
+    }
+    $field = new TerminalBattleEffects();
+    $positionFor = static function (BattleTestTroop $troop, string $enemy) use ($enemies, $field): array {
+      $members = array_map(static fn(array $member): array => ['position' => new Vector2(...$member['position']),
+        'sprite' => $enemies[$member['enemy']]->image ?? []], $troop->members);
+      $place = $field->findTroopPlace($members, $enemies[$enemy]->image ?? []);
+
+      return [(int) $place->x, (int) $place->y];
+    };
+    $catalog = $this->battleCatalog;
+    $assetRoot = $this->getGame()->getRendererRuntime()?->getAssetRoot();
+    $placesFor = $catalog?->ui === null || $assetRoot === null ? null
+      : static fn(BattleTestTroop $troop): array => BattleFormationLayout::arrangeTroop($catalog, $troop->getEnemies(),
+        $troop->getPlaces(), $assetRoot);
+
+    return new TestTroopComposer(array_map(strval(...), array_keys($enemies)), $positionFor, $placesFor, $this->troopKeeper !== null);
+  }
+
   /**
    * Loads the project's troops: their data for fights, and each built once for the list.
    *
@@ -274,11 +402,17 @@ class ArenaScene extends AbstractScene
     try {
       $actors = ConfigStore::get(ActorStore::class);
       $choices = new BattleTestChoices($actors, ConfigStore::get(ItemStore::class), BattleTestLoadoutCatalog::getProjectCatalog());
+      $this->battleTestChoices = $choices;
       $this->projectBattleTest = $this->getGame()->consumeLaunchBattleTest() ?? ProjectBattleTest::loadFromProject();
       $setup = $this->getGame()->options[self::SETUP_OPTION] ?? null;
       $setup = $setup instanceof BattleTestSetup
         ? $setup
         : $this->projectBattleTest->createSetup($actors);
+      $keeper = $this->getGame()->options[self::KEEPER_OPTION] ?? null;
+      $this->troopKeeper = $keeper instanceof BattleTestTroopKeeper ? $keeper : $this->getGame()->consumeLaunchTroopKeeper();
+
+      // The member as edited, in its place in the setup as it stands.
+      $placed = fn(BattleTestMember $member): BattleTestSetup => $this->editor->setup->withMember($this->editor->memberIndex, $member);
 
       return new ArenaSetupEditor(
         $setup,
@@ -287,10 +421,12 @@ class ArenaScene extends AbstractScene
         $choices->getSlotNames(...),
         $choices->getEquipmentChoices(...),
         $choices->getMaxLevel(...),
-        // The member as edited, in its place in the setup as it stands.
-        fn(BattleTestMember $member, string $field): array => $choices->getLoadoutChoices(
-          $this->editor->setup->withMember($this->editor->memberIndex, $member), $this->editor->memberIndex, $field),
+        fn(BattleTestMember $member, string $field): array => $choices->getLoadoutChoices($placed($member), $this->editor->memberIndex, $field),
         array_map(strval(...), array_keys($this->arenaChoices)),
+        $this->createComposer(),
+        fn(BattleTestMember $member, string $field): array => $choices->getConditionChoices($placed($member), $this->editor->memberIndex, $field),
+        fn(BattleTestMember $member, string $field): int => $choices->getVitalMaximum($placed($member), $this->editor->memberIndex, $field),
+        new BattleTestInventoryEditor($choices->getItemChoices(...), $choices->getDefaultStock(...)),
       );
     } catch (Throwable $exception) {
       Debug::error(sprintf('The arena could not set up a party: %s', $exception->getMessage()));
@@ -307,6 +443,7 @@ class ArenaScene extends AbstractScene
   {
     $this->arenaChoices = [];
     $this->defaultArenaName = null;
+    $this->battleCatalog = null;
     $runtime = $this->getGame()->getRendererRuntime();
 
     if ($runtime === null) {
@@ -321,6 +458,7 @@ class ArenaScene extends AbstractScene
       return;
     }
 
+    $this->battleCatalog = $catalog;
     $this->arenaChoices = $catalog?->getArenaChoices() ?? [];
     $this->defaultArenaName = $catalog?->defaultArena === null ? null : ($this->arenaChoices[$catalog->defaultArena] ?? null);
   }
@@ -347,7 +485,8 @@ class ArenaScene extends AbstractScene
    */
   protected function buildPanels(): void
   {
-    $borderPack = new DefaultBorderPack();
+    $borderPack = new SlimBorderPack();
+    $theme = $this->getToolTheme();
     $this->leftMargin = max(0, intdiv(get_screen_width() - self::PANEL_WIDTH, 2));
     $this->topMargin = max(0, intdiv(get_screen_height() - (self::LIST_HEIGHT + self::INFO_HEIGHT), 2));
 
@@ -358,7 +497,9 @@ class ArenaScene extends AbstractScene
       new Vector2($this->leftMargin, $this->topMargin),
       self::PANEL_WIDTH,
       self::LIST_HEIGHT,
-      $borderPack
+      $borderPack,
+      backgroundColor: $theme->getTerminalColor(ToolColor::BACKGROUND),
+      foregroundColor: $theme->getTerminalColor(ToolColor::TEXT)
     );
 
     $this->infoPanel = new Window(
@@ -367,7 +508,9 @@ class ArenaScene extends AbstractScene
       new Vector2($this->leftMargin, $this->topMargin + self::LIST_HEIGHT),
       self::PANEL_WIDTH,
       self::INFO_HEIGHT,
-      $borderPack
+      $borderPack,
+      backgroundColor: $theme->getTerminalColor(ToolColor::BACKGROUND),
+      foregroundColor: $theme->getTerminalColor(ToolColor::TEXT)
     );
   }
 
@@ -377,44 +520,262 @@ class ArenaScene extends AbstractScene
   public function render(): void
   {
     $innerWidth = self::PANEL_WIDTH - 4;
-    $editor = $this->editor;
-    $focus = $editor?->focus ?? ArenaSetupEditor::TROOPS;
-
-    [$title, $help, $rows, $selected] = match ($focus) {
-      ArenaSetupEditor::MEMBER => $this->describeMember($innerWidth),
-      ArenaSetupEditor::CHOOSER => $this->describeChoices(),
-      default => [$this->describeTroopTitle(), $focus === ArenaSetupEditor::TROOPS
-          ? ($editor?->offersArenas ?? false ? 'enter:Fight  left/right:Arena  down:Party  q:Quit' : 'enter:Fight  down:Party  q:Quit') : '',
-        $this->troops === [] ? [' This project has no troops to fight.'] : array_map($this->describeTroop(...), $this->troops),
-        $focus === ArenaSetupEditor::TROOPS ? ($editor?->troopIndex ?? 0) : null],
-    };
-    $this->listPanel?->setTitle($title);
-    $this->listPanel?->setHelp($help);
-    $this->listPanel?->setContent($this->formatList($rows, $selected, $innerWidth, self::LIST_HEIGHT - 2,
-      $focus === ArenaSetupEditor::PARTY ? ArenaSetupEditor::TROOPS : $focus));
+    $focus = $this->editor?->focus ?? ArenaSetupEditor::TROOPS;
+    $list = $this->describeList();
+    $arena = $list->namesArena ? $this->getArenaName() : null;
+    $this->listPanel?->setTitle($arena === null ? $list->title : sprintf('%s · Arena: < %s >', $list->title, $arena));
+    $hints = $list->resolveHints();
+    $partyFocused = $focus === ArenaSetupEditor::PARTY;
+    $this->listPanel?->setControlHints($partyFocused ? [] : $hints);
+    // Each row follows the cursor's place, ` > `; the note stays beneath the rows, however far they scroll.
+    $note = $list->getTerminalNote($innerWidth - 2);
+    $note = $note === [] ? [] : ['', ...array_map(static fn(string $line): string => ' ' . $line, $note)];
+    $this->listPanel?->setContent([...$this->formatList($list->getTerminalRows($innerWidth - 3), $list->selected, $innerWidth,
+      max(1, self::LIST_HEIGHT - 2 - count($note)), $this->editor?->listFocus ?? $focus), ...$note]);
     $this->listPanel?->render();
 
-    $this->infoPanel?->setHelp($focus === ArenaSetupEditor::PARTY ? 'enter:Edit  esc:Back' : '');
+    $this->infoPanel?->setTitle($this->getPartyTitle());
+    $this->infoPanel?->setControlHints($partyFocused ? $hints : []);
     $this->infoPanel?->setContent($this->describeParty($innerWidth));
     $this->infoPanel?->render();
   }
 
   /**
-   * The troop list's title, naming the arena fights take place in where
-   * arenas are offered.
+   * The list the battle test shows now, as every presentation draws it: the
+   * troops (with composing a test troop after them), a member being set up
+   * or what one of its slots can hold, or the test troop composer.
    */
-  protected function describeTroopTitle(): string
+  public function describeList(): BattleTestMenuList
   {
-    if ($this->editor === null || ! $this->editor->offersArenas) {
-      return 'Troop';
+    $editor = $this->editor;
+    $focus = $editor?->focus ?? ArenaSetupEditor::TROOPS;
+
+    return match ($editor?->listFocus ?? $focus) {
+      ArenaSetupEditor::MEMBER => $this->describeMember(),
+      ArenaSetupEditor::CHOOSER => $this->describeChoices(),
+      ArenaSetupEditor::ITEMS => $this->describeItems(),
+      ArenaSetupEditor::COMPOSER => $this->describeComposer(),
+      default => new BattleTestMenuList('Troop', ...$this->listTroopRows(),
+        selected: $focus === ArenaSetupEditor::TROOPS ? ($editor?->troopIndex ?? 0) : null,
+        hints: $focus === ArenaSetupEditor::PARTY ? $this->describePartyHints('Troops')
+          : [['confirm', ($editor?->onComposeRow ?? false) ? 'Compose' : 'Fight'], ...(($editor?->offersArenas ?? false) ? [['left', 'Arena', 'right']] : []),
+            [self::PANE_NEXT_ACTION, 'Party'], ['cancel', 'Quit']],
+        namesArena: true, anchor: $editor?->troopIndex,
+        requiredHintActions: [self::PANE_NEXT_ACTION, self::PANE_PREVIOUS_ACTION], requiresEveryHint: $focus === ArenaSetupEditor::PARTY),
+    };
+  }
+
+  /**
+   * The troop list's rows and columns: each troop by name, how many enemies
+   * it holds ("x2") and their levels ("Lv 1-2"), each in its own column,
+   * then composing a test troop where one can be.
+   *
+   * @return array{rows: list<array{0: string, 1: list<string>}>, columns: list<MenuRowColumn>}
+   */
+  protected function listTroopRows(): array
+  {
+    $rows = array_map($this->describeTroop(...), $this->troops);
+    if ($this->editor?->composer !== null) {
+      $count = count($this->editor->composer->troop->members);
+      $rows[] = [$count === 0 ? '+ Compose a test troop' : '+ Test troop', $count === 0 ? ['', ''] : ['x' . $count, '']];
+    }
+    if ($rows === []) {
+      return ['rows' => [['This project has no troops to fight.', []]], 'columns' => []];
     }
 
+    return ['rows' => $rows, 'columns' => [MenuRowColumn::fit(array_column(array_column($rows, 1), 0)),
+      MenuRowColumn::fit(array_column(array_column($rows, 1), 1), label: Vocabulary::getTerm('stats.level_short'))]];
+  }
+
+  private function getPartyTitle(): string
+  {
+    return $this->editor === null ? 'Party' : sprintf('Party · Frontline limit %d', $this->editor->setup->battleSize);
+  }
+
+  private function describePartyHints(string $list): array
+  {
+    return [['confirm', 'Edit'], ['left', 'Frontline', 'right'], [self::PANE_PREVIOUS_ACTION, $list],
+      ...($this->editor?->inventoryEditor === null ? [] : [[self::PANE_NEXT_ACTION, 'Items']]),
+      ['cancel', $this->editor?->isInTroopComposer ? 'Back' : 'Quit']];
+  }
+
+  /** The test troop composer: its rows, the enemies to add, or what can be done to a member. */
+  protected function describeComposer(): BattleTestMenuList
+  {
+    $composer = $this->editor?->composer;
+    if ($composer === null) {
+      return new BattleTestMenuList('Test Troop', [], null);
+    }
+    $arenas = $this->editor?->offersArenas ?? false;
+    $partyFocused = $this->editor?->focus === ArenaSetupEditor::PARTY;
+    $member = $composer->memberIndex === null ? null : $composer->troop->members[$composer->memberIndex] ?? null;
+
+    return match ($composer->focus) {
+      TestTroopComposer::ENEMIES => new BattleTestMenuList('Add an enemy', array_map(static fn(string $enemy): array => [$enemy, []], $composer->enemies),
+        $composer->enemyIndex, [['confirm', 'Add'], ['cancel', 'Back']]),
+      TestTroopComposer::MEMBER => new BattleTestMenuList(sprintf('%d %s', $composer->memberIndex + 1, $member['enemy'] ?? ''),
+        array_map(static fn(string $action): array => [$action === 'move' ? 'Move on the stage' : 'Remove from the troop', []], $composer->actions),
+        $composer->actionIndex, [['confirm', 'Choose'], ['cancel', 'Back']]),
+      TestTroopComposer::PLACING => $this->describePlacing($composer, $member),
+      default => new BattleTestMenuList('Test Troop',
+        array_map(fn(string $row): array => [$this->describeComposerRow($composer, $row), []], $composer->rows),
+        $partyFocused ? null : $composer->rowIndex,
+        $partyFocused ? $this->describePartyHints('Test Troop')
+          : [['confirm', 'Choose'], ...($arenas ? [['left', 'Arena', 'right']] : []),
+            [self::PANE_NEXT_ACTION, 'Party'], ['cancel', 'Back']],
+        note: $this->keepStatus, namesArena: true, anchor: $composer->rowIndex,
+        requiredHintActions: $partyFocused ? [self::PANE_NEXT_ACTION, self::PANE_PREVIOUS_ACTION, 'left']
+          : [self::PANE_NEXT_ACTION, self::PANE_PREVIOUS_ACTION]),
+    };
+  }
+
+  /**
+   * A member being moved: its place across and back from the front, the
+   * figures in one column.
+   *
+   * @param array{enemy: string, position: array{0: int, 1: int}, place: ?BattleStageSlot}|null $member
+   */
+  private function describePlacing(TestTroopComposer $composer, ?array $member): BattleTestMenuList
+  {
+    $rows = $member['place'] === null ? [] : [['Across', [sprintf('%d', round($member['place']->x))]],
+      ['Back from the front', [sprintf('%d', round($member['place']->depth))]]];
+
+    return new BattleTestMenuList(sprintf('Moving %d %s', $composer->memberIndex + 1, $member['enemy'] ?? ''), $rows, null,
+      [['left', 'Across', 'right'], ['up', 'Back and forward', 'down'], ['confirm', 'Done'], ['cancel', 'Put back']],
+      $rows === [] ? [] : [MenuRowColumn::fit(array_column(array_column($rows, 1), 0))]);
+  }
+
+  /** One of the composer's rows, as a list shows it. */
+  public function describeComposerRow(TestTroopComposer $composer, string $row): string
+  {
+    if (str_starts_with($row, 'member:')) {
+      $index = (int) substr($row, 7);
+
+      return sprintf('%d %s', $index + 1, $composer->troop->members[$index]['enemy'] ?? '');
+    }
+
+    return match ($row) {
+      'add' => '+ Add an enemy',
+      'fight' => 'Fight',
+      'keep' => 'Keep as a troop',
+      default => $row,
+    };
+  }
+
+  /**
+   * Engine tool controls beside the game's battle stage. Terminal windows
+   * retain the same semantic tool palette through its ANSI mapping.
+   */
+  public function getPresentationCanvas(): ?PresentationCanvas
+  {
+    $runtime = $this->getGame()->getRendererRuntime();
+    $editor = $this->editor;
+    if ($runtime === null || $editor === null) {
+      return null;
+    }
+    try {
+      foreach ([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_CLIP_OPACITY] as $capability) {
+        if (!$runtime->supports($capability)) { return null; }
+      }
+      $this->toolMenuTheme ??= $this->getToolTheme()->createMenuCatalog($runtime->getAssetRoot());
+      $focus = $editor->focus;
+      $composer = $editor->composer;
+      $composing = $focus === ArenaSetupEditor::COMPOSER || $editor->onComposeRow;
+      $outlined = $focus !== ArenaSetupEditor::COMPOSER ? null
+        : ($composer?->focus === TestTroopComposer::ENEMIES ? count($composer->troop->members) : $composer?->memberIndex);
+      ['stage' => $stage, 'issue' => $issue] = $this->composeStage($runtime->supports(RendererSessionConfig::SPRITE_SOURCE_RECT),
+        $runtime->getAssetRoot(), $composing);
+
+      return BattleTestMenuPresentation::compose($this->toolMenuTheme, $this->describeList(),
+        $focus !== ArenaSetupEditor::PARTY, $this->listPartyStats(),
+        in_array($focus, [ArenaSetupEditor::PARTY, ArenaSetupEditor::MEMBER, ArenaSetupEditor::CHOOSER], true) ? $editor->memberIndex : null,
+        $this->getArenaName(), $stage, $outlined, $composer?->focus === TestTroopComposer::PLACING, $issue,
+        compositing: $runtime->supports(RendererSessionConfig::CANVAS_COMPOSITING), partyTitle: $this->getPartyTitle(),
+        partyAnchor: $editor->memberIndex);
+    } catch (Throwable $error) {
+      if ($this->presentationError !== $error->getMessage()) {
+        Debug::error('The battle test menu is drawn in the terminal\'s windows: ' . $error->getMessage());
+        $this->presentationError = $error->getMessage();
+      }
+
+      return null;
+    }
+  }
+
+  private function getToolTheme(): ToolTheme
+  {
+    return $this->toolTheme ??= ToolTheme::load();
+  }
+
+  /**
+   * The stage the menu shows: the battle's own picture at rest of the troop
+   * under the cursor, or the test troop while it is composed, on the chosen
+   * arena with the party standing beside it; kept while none of that
+   * changes. None, with why, when nothing graphical draws it.
+   *
+   * @return array{stage: ?BattleFormationLayout, issue: ?string}
+   */
+  private function composeStage(bool $crops, string $assetRoot, bool $composing): array
+  {
+    $catalog = $this->battleCatalog;
+    $editor = $this->editor;
+    if ($catalog?->ui === null || $editor === null || ! $crops) {
+      return ['stage' => null, 'issue' => $catalog?->ui === null ? null : 'The renderer cannot crop battle art, so the stage is not drawn.'];
+    }
+    $enemies = [];
+    $composer = $editor->composer;
+    if ($composing && $composer !== null) {
+      foreach ($composer->troop->members as $member) {
+        $enemies[] = ['enemyId' => $member['enemy'], 'slot' => $member['place']];
+      }
+      // The enemy being chosen stands where it would join, so it can be seen before it is added.
+      if ($composer->focus === TestTroopComposer::ENEMIES && isset($composer->enemies[$composer->enemyIndex]) && ! $composer->troop->isFull) {
+        $enemies[] = ['enemyId' => $composer->enemies[$composer->enemyIndex], 'slot' => null];
+      }
+    } else {
+      foreach ($this->troopData[$editor->troopIndex]['enemies'] ?? [] as $index => $member) {
+        $place = null;
+        if (is_array($member['graphicalPlacement'] ?? null)) {
+          try {
+            $place = BattleStageSlot::fromArray($member['graphicalPlacement'], "troop member {$index}");
+          } catch (\InvalidArgumentException) {
+            $place = null;
+          }
+        }
+        $enemies[] = ['enemyId' => strval($member['enemy'] ?? ''), 'slot' => $place];
+      }
+    }
+    // Each enemy stands where its habitat lives, as in battle.
+    $store = ConfigStore::has(EnemyStore::class) ? ConfigStore::get(EnemyStore::class) : null;
+    $enemies = array_map(static fn(array $entry): array => [...$entry,
+      'habitat' => $store?->all()[$entry['enemyId']]->habitat ?? EnemyHabitat::LAND], $enemies);
+    $party = array_map(static fn(BattleTestMember $member): string => $member->actorId,
+      array_slice($editor->setup->members, 0, $editor->setup->battleSize));
+    $key = serialize([$enemies, $party, $editor->setup->arena]);
+    if (($this->stage['key'] ?? null) !== $key) {
+      try {
+        $stage = BattleFormationLayout::compose($catalog, $editor->setup->arena, array_values(array_filter($enemies,
+          static fn(array $enemy): bool => $enemy['enemyId'] !== '')), $party, $assetRoot);
+        $this->stage = ['key' => $key, 'stage' => $stage, 'issue' => null];
+      } catch (Throwable $error) {
+        $this->stage = ['key' => $key, 'stage' => null, 'issue' => 'The stage cannot be drawn: ' . $error->getMessage()];
+      }
+    }
+
+    return ['stage' => $this->stage['stage'], 'issue' => $this->stage['issue']];
+  }
+
+  /** The arena fights take place in, by name, where arenas are offered; none in the terminal. */
+  public function getArenaName(): ?string
+  {
+    if ($this->editor === null || ! $this->editor->offersArenas) {
+      return null;
+    }
     $arena = $this->editor->setup->arena;
-    $name = $arena === null
+
+    return $arena === null
       ? ($this->defaultArenaName === null ? 'Default' : $this->defaultArenaName . ' (default)')
       : ($this->arenaChoices[$arena] ?? $arena);
-
-    return sprintf('Troop · Arena: < %s >', $name);
   }
 
   /**
@@ -438,78 +799,165 @@ class ArenaScene extends AbstractScene
     $content = [];
     foreach (array_slice($rows, $offset, $visibleRows, true) as $index => $row) {
       $line = TerminalText::padRight(sprintf(' %s %s', $index === $selected ? '>' : ' ', $row), $width);
-      $content[] = $index === $selected ? SelectionStyle::apply($line) : $line;
+      $content[] = $index === $selected ? Color::apply($line, $this->getToolTheme()->getTerminalColor(ToolColor::ACCENT)) : $line;
     }
 
     return array_pad($content, $visibleRows, '');
   }
 
   /**
-   * Describes a troop for the list.
+   * Describes a troop for the list: its name, how many enemies it holds and
+   * their levels, as figures for the list's columns.
    *
-   * @param Troop $troop The troop.
-   * @return string The description.
+   * @return array{0: string, 1: list<string>}
    */
-  protected function describeTroop(Troop $troop): string
+  protected function describeTroop(Troop $troop): array
   {
     $members = $troop->members->toArray();
     $levels = array_map(static fn(object $enemy): int => $enemy->level ?? 1, $members);
 
-    return sprintf(
-      '%-24s %d %s, %s %s',
-      $troop->name,
-      count($members),
-      count($members) === 1 ? 'enemy' : 'enemies',
-      Vocabulary::getTerm('stats.level', 'level'),
-      $levels === [] ? '?' : (min($levels) === max($levels) ? min($levels) : min($levels) . '-' . max($levels))
-    );
+    return [$troop->name, ['x' . count($members),
+      $levels === [] ? '?' : (min($levels) === max($levels) ? (string) min($levels) : min($levels) . '-' . max($levels))]];
   }
 
-  /**
-   * The member being edited: its actor, level, equipment and removal.
-   *
-   * @return array{0: string, 1: string, 2: list<string>, 3: int|null}
-   */
-  protected function describeMember(int $width): array
+  /** The member being edited: its actor, level, starting condition, equipment, test loadout and removal. */
+  protected function describeMember(): BattleTestMenuList
   {
     $editor = $this->editor;
     $member = $editor?->member;
     if ($editor === null || $member === null) {
-      return ['Member', '', [], null];
+      return new BattleTestMenuList('Member', [], null);
     }
     $items = ConfigStore::get(ItemStore::class);
     $rows = [];
     foreach ($editor->fields as $field) {
       $rows[] = match (true) {
-        $field === 'actor' => sprintf('%-12s< %s >', 'Actor', $this->getActorName($member->actorId)),
-        $field === 'level' => sprintf('%-12s< %d >', 'Level', $member->level),
-        $field === 'remove' => 'Remove from the party',
-        $field === 'commands' => sprintf('%-12s%s', 'Commands', $member->commands === null ? '(Normal)' : implode(', ', array_column($member->commands, 'value'))),
-        $field === 'skills' || $field === 'magic' => sprintf('%-12s%s', ucfirst($field), 'Choose extra learned actions'),
-        $field === 'summons' => sprintf('%-12s%s', 'Summons', $member->summons === [] ? '(No extra grants)' : implode(', ', $member->summons)),
-        default => sprintf('%-12s%s', substr($field, 5),
-          ($id = $member->equipment[substr($field, 5)] ?? null) === null ? '(None)' : $items->displayNameFor($id)),
+        $field === 'actor' => ['Actor', [sprintf('< %s >', $this->getActorName($member->actorId))]],
+        $field === 'level' => [Vocabulary::getTerm('stats.level_short'), [sprintf('< %d >', $member->level)]],
+        $field === 'hp' => [Vocabulary::getTerm('stats.hp', 'HP'), [sprintf('< %s >', $member->hp?->format() ?? 'Full')]],
+        $field === 'mp' => [Vocabulary::getTerm('stats.mp', 'MP'), [sprintf('< %s >', $member->mp?->format() ?? 'Full')]],
+        $field === 'form' => ['Form', [sprintf('< %s >', array_find($this->battleTestChoices?->getFormChoices($member->actorId) ?? [],
+          fn(array $choice): bool => $editor->isChoiceSelected($choice['id']))['technique'] ?? 'None')]],
+        $field === 'states' => ['States', [$member->states === [] ? '(None)'
+          : implode(', ', array_map(static fn(string $id): string => StateRegistry::get($id)?->name ?? $id, $member->states))]],
+        $field === 'remove' => ['Remove from the party', ['']],
+        $field === 'commands' => ['Commands', [$member->commands === null ? '(Normal)' : implode(', ', array_column($member->commands, 'value'))]],
+        $field === 'skills' || $field === 'magic' => [ucfirst($field), ['Choose extra learned actions']],
+        $field === 'summons' => ['Summons', [$member->summons === [] ? '(No extra grants)' : implode(', ', $member->summons)]],
+        default => [substr($field, 5),
+          [($id = $member->equipment[substr($field, 5)] ?? null) === null ? '(None)' : $items->displayNameFor($id)]],
       };
     }
+    // Each row says what its controls do there: left and right change the actor, level, HP and MP; a page step moves
+    // HP or MP by ten on their rows and the level by ten elsewhere; confirm chooses on every row but the actor and level.
+    $field = $editor->field;
+    $stepped = match ($field) {
+      'hp' => Vocabulary::getTerm('stats.hp', 'HP'),
+      'mp' => Vocabulary::getTerm('stats.mp', 'MP'),
+      default => Vocabulary::getTerm('stats.level_short'),
+    };
+    $changes = in_array($field, ['actor', 'level', 'form', ...ArenaSetupEditor::VITAL_FIELDS], true);
 
-    return [$this->getActorName($member->actorId), 'left/right:Change  enter:Choose  esc:Done', $rows, $editor->fieldIndex];
+    return new BattleTestMenuList($this->getActorName($member->actorId), $rows, $editor->fieldIndex,
+      [...($changes ? [['left', 'Change', 'right']] : []), [MenuPager::PREVIOUS_ACTION, $stepped . ' by 10', MenuPager::NEXT_ACTION],
+        ...(in_array($field, ['actor', 'level'], true) ? [] : [['confirm', $field === 'remove' ? 'Remove' : 'Choose']]),
+        ['cancel', 'Done']],
+      [MenuRowColumn::fit(array_column(array_column($rows, 1), 0), HorizontalAlignment::LEFT)],
+      note: $this->describeCrisisReadiness($editor->memberIndex), requiresEveryHint: true);
   }
 
   /**
-   * What the selected slot can hold.
-   *
-   * @return array{0: string, 1: string, 2: list<string>, 3: int|null}
+   * Whether the member's crisis ability is ready as the fight starts, by the
+   * ability's own rule on the party the setup builds: the technique it
+   * offers, or what activates it. None for a member without one.
    */
-  protected function describeChoices(): array
+  protected function describeCrisisReadiness(int $memberIndex): ?string
+  {
+    $character = $this->previewParty?->members?->toArray()[$memberIndex] ?? null;
+    $ability = $character instanceof Character ? $character->crisisAbility : null;
+    if ($ability === null) {
+      return null;
+    }
+    if ($ability->isActive($character)) {
+      try {
+        // The same story facts the fight is given: the members' chosen forms, or none.
+        $skill = $ability->getAvailableSkill($character, $this->editor?->setup->createWorldState(), $this->previewParty);
+      } catch (Throwable $error) {
+        return sprintf('%s cannot be used: %s', $ability->name, $error->getMessage());
+      }
+
+      return $skill === null ? sprintf('%s is active, but none of its forms applies%s', $ability->name,
+          ($this->battleTestChoices?->getFormChoices($character->actorId) ?? []) === [] ? ' in a battle test.' : '; choose its Form.')
+        : sprintf('%s ready: %s', $ability->name, $skill->name);
+    }
+    $threshold = $ability->hpBelowPercent;
+    $conditions = [
+      ...($threshold === null ? [] : [sprintf('%s below %s%%', Vocabulary::getTerm('stats.hp', 'HP'),
+        floor($threshold) === $threshold ? (string) (int) $threshold : (string) $threshold)]),
+      ...array_map(static fn(string $id): string => StateRegistry::get($id)?->name ?? $id, $ability->states),
+    ];
+
+    return sprintf('%s needs %s.', $ability->name, implode(' or ', $conditions));
+  }
+
+  /** What the field being chosen for can be: equipment, a starting amount, starting states, or test grants. */
+  protected function describeChoices(): BattleTestMenuList
   {
     $editor = $this->editor;
-    $field = $editor?->fields[$editor->fieldIndex] ?? '';
+    $field = $editor?->field ?? '';
     $equipment = str_starts_with($field, 'slot:');
+    $several = $editor?->choosesSeveral ?? false;
     $choices = $editor?->getChoices() ?? [];
-    $rows = array_map(static fn($choice): string => $equipment ? $choice['name']
-      : (($editor?->isChoiceSelected($choice['id']) ? '[x] ' : '[ ] ') . $choice['name']), $choices);
-    return [sprintf('%s for %s', $equipment ? substr($field, 5) : ucfirst($field), $this->getActorName($editor?->member?->actorId ?? '')),
-      $equipment ? 'enter:Equip  esc:Back' : 'enter:Toggle  esc:Done  test grants only', $rows, $editor?->choiceIndex];
+    $rows = array_map(static fn($choice): array => [! $several ? $choice['name']
+      : (($editor?->isChoiceSelected($choice['id']) ? '[x] ' : '[ ] ') . $choice['name']), []], $choices);
+    $title = match (true) {
+      $equipment => substr($field, 5),
+      $field === 'hp' => Vocabulary::getTerm('stats.hp', 'HP'),
+      $field === 'mp' => Vocabulary::getTerm('stats.mp', 'MP'),
+      default => ucfirst($field),
+    };
+
+    return new BattleTestMenuList(sprintf('%s for %s', $title, $this->getActorName($editor?->member?->actorId ?? '')),
+      $rows, $editor?->choiceIndex, $several ? [['confirm', 'Toggle'], ['cancel', 'Done']] : [['confirm', $equipment ? 'Equip' : 'Set'], ['cancel', 'Back']],
+      note: in_array($field, ['commands', 'skills', 'magic', 'summons'], true) ? 'Test grants only.' : null, requiresEveryHint: true);
+  }
+
+  /** The party's items: what it holds, the items it could add, or how many of one it holds. */
+  protected function describeItems(): BattleTestMenuList
+  {
+    $items = $this->editor?->inventoryEditor;
+    if ($items === null) {
+      return new BattleTestMenuList('Items', [], null);
+    }
+    if ($items->focus === BattleTestInventoryFocus::CATALOGUE) {
+      return new BattleTestMenuList('Add an item', array_map(static fn(array $choice): array => [$choice['name'], []], $items->addable),
+        $items->catalogueIndex, [['confirm', 'Choose'], ['cancel', 'Back']], requiresEveryHint: true);
+    }
+    if ($items->focus === BattleTestInventoryFocus::QUANTITY) {
+      $quantity = $items->quantity?->quantity ?? 0;
+
+      return new BattleTestMenuList($items->getItemName($items->itemId ?? ''),
+        [[$quantity === 0 ? 'Remove from the items' : 'Quantity', ['x' . $quantity]]], 0,
+        [['up', 'Quantity', 'down'], ['left', 'By 10', 'right'],
+          ['confirm', $items->adding ? 'Add' : ($quantity === 0 ? 'Remove' : 'Set')], ['cancel', 'Back']],
+        [MenuRowColumn::fit(['x' . $quantity])], requiresEveryHint: true);
+    }
+    $entries = $items->entries;
+    $rows = array_map(static fn(string $row): array => match (true) {
+      str_starts_with($row, 'item:') => [$items->getItemName($entries[(int) substr($row, 5)]->itemId),
+        ['x' . $entries[(int) substr($row, 5)]->quantity]],
+      $row === 'add' => ['+ Add an item', ['']],
+      $row === 'empty' => ['Start with no items', ['']],
+      default => ['Use the default stock', ['']],
+    }, $items->rows);
+    $row = $items->rows[$items->rowIndex] ?? '';
+
+    return new BattleTestMenuList($items->items === null ? 'Items (default stock)' : 'Items',
+      $rows === [] ? [['The party holds no items.', []]] : $rows, $rows === [] ? null : $items->rowIndex,
+      [...($rows === [] ? [] : [['confirm', match (true) { str_starts_with($row, 'item:') => 'Quantity', $row === 'add' => 'Add', $row === 'empty' => 'Start', default => 'Use' }]]),
+        [self::PANE_PREVIOUS_ACTION, 'Party'], ['cancel', $this->editor->isInTroopComposer ? 'Back' : 'Quit']],
+      $rows === [] ? [] : [MenuRowColumn::fit(array_column(array_column($rows, 1), 0))],
+      requiredHintActions: [self::PANE_PREVIOUS_ACTION], requiresEveryHint: true);
   }
 
   protected function getActorName(string $actorId): string
@@ -526,15 +974,7 @@ class ArenaScene extends AbstractScene
    */
   protected function describeParty(int $width): array
   {
-    $members = [];
-
-    foreach ($this->previewParty?->members?->toArray() ?? [] as $character) {
-      $members[] = [$character->name, [
-        Vocabulary::getTerm('stats.level_short', Vocabulary::getTerm('stats.level', 'Lv')) => (string) $character->level,
-        Vocabulary::getTerm('stats.hp', 'HP') => "{$character->stats->currentHp}/{$character->stats->totalHp}",
-        Vocabulary::getTerm('stats.mp', 'MP') => "{$character->stats->currentMp}/{$character->stats->totalMp}",
-      ]];
-    }
+    $members = $this->listPartyStats();
 
     if ($members === []) {
       return [' No party could be built from this project.'];
@@ -545,17 +985,49 @@ class ArenaScene extends AbstractScene
     }
     $editor = $this->editor;
     if ($editor !== null && $editor->focus !== ArenaSetupEditor::TROOPS && isset($rows[$editor->memberIndex])) {
-      $rows[$editor->memberIndex] = SelectionStyle::apply($rows[$editor->memberIndex]);
+      $rows[$editor->memberIndex] = Color::apply($rows[$editor->memberIndex], $this->getToolTheme()->getTerminalColor(ToolColor::ACCENT));
     }
 
     return $rows;
   }
 
   /**
+   * The party the setup describes, as every presentation shows it: each
+   * member's name and its level, HP and MP, figures by their label.
+   *
+   * @return list<array{0: string, 1: array<string, string>}>
+   */
+  public function listPartyStats(): array
+  {
+    $members = [];
+    foreach ($this->previewParty?->members?->toArray() ?? [] as $character) {
+      $members[] = [$character->name, [
+        Vocabulary::getTerm('stats.level_short') => (string) $character->level,
+        Vocabulary::getTerm('stats.hp', 'HP') => "{$character->stats->currentHp}/{$character->stats->totalHp}",
+        Vocabulary::getTerm('stats.mp', 'MP') => "{$character->stats->currentMp}/{$character->stats->totalMp}",
+      ]];
+    }
+
+    return $members;
+  }
+
+  /**
+   * The party's stat columns: one labelled column per stat, each figure
+   * right-aligned to the widest of its column, as every presentation lays
+   * the party out.
+   *
+   * @param list<array{0: string, 1: array<string, string>}> $members Each member's name and stats, figures by label.
+   * @return list<MenuRowColumn>
+   */
+  public static function getPartyColumns(array $members): array
+  {
+    return MenuRowColumn::listForFields(array_column($members, 1));
+  }
+
+  /**
    * Lays the party out in justified rows: each name on the left, and the
-   * stats on the right, ending at the panel's edge. Every stat keeps its
-   * label in place and right-aligns its figure to the widest of its
-   * column, so the figures line up from row to row.
+   * stats in their columns ending at the panel's edge, so the figures line
+   * up from row to row ({@see getPartyColumns()}).
    *
    * @param list<array{0: string, 1: array<string, string>}> $members Each member's name and stats, figures by label.
    * @param int $width The panel's inner width.
@@ -563,24 +1035,11 @@ class ArenaScene extends AbstractScene
    */
   public static function formatPartyRows(array $members, int $width): array
   {
-    $widths = [];
-    foreach ($members as [, $stats]) {
-      foreach ($stats as $label => $figure) {
-        $widths[$label] = max($widths[$label] ?? 0, TerminalText::displayWidth($figure));
-      }
-    }
+    $columns = self::getPartyColumns($members);
+    // A space either side, as the panel's rows have.
+    $labelCells = max(1, $width - 2 - MenuTableText::getColumnCells($columns));
 
-    $rows = [];
-    foreach ($members as [$name, $stats]) {
-      $columns = [];
-      foreach ($stats as $label => $figure) {
-        $columns[] = $label . ' ' . TerminalText::padLeft($figure, $widths[$label]);
-      }
-      $right = implode('  ', $columns) . ' ';
-      $rows[] = TerminalText::padRight(' ' . $name, max(TerminalText::displayWidth(' ' . $name) + 1,
-        $width - TerminalText::displayWidth($right))) . $right;
-    }
-
-    return $rows;
+    return array_map(static fn(array $member): string => TerminalText::padRight(
+      ' ' . MenuTableText::formatRow($member[0], array_values($member[1]), $columns, $labelCells) . ' ', $width), $members);
   }
 }

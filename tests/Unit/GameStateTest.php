@@ -6,6 +6,7 @@ use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTriggerFactory;
+use Ichiloto\Engine\Progression\TutorialPhase;
 
 function makeTestTrigger(
   array $conditions = [],
@@ -67,30 +68,38 @@ it('notifies observers after both true and false switch writes without changing 
 });
 
 it('reconciles false switches without treating them as achieved quest flags', function () {
+  $root = createTestDirectory('campaign-world-flags-');
+  mkdir($root . '/Data');
+  file_put_contents($root . '/Data/quests.php', '<?php return ' . var_export([
+    ['id' => 'synthetic.flags', 'name' => 'Synthetic flags', 'objectives' => [
+      ['type' => 'flag', 'target' => 'visible'], ['type' => 'flag', 'target' => 'reached_goal'],
+    ]],
+  ], true) . ';');
+  $config = new \Ichiloto\Engine\Scenes\Game\GameConfig('synthetic.map', new \Ichiloto\Engine\Entities\Party(),
+    new \Ichiloto\Engine\Core\Vector2(), new \Ichiloto\Engine\Core\Rect(0, 0, 1, 1),
+    \Ichiloto\Engine\Core\Enumerations\MovementHeading::SOUTH,
+    questLog: ['active' => ['synthetic.flags' => [0, 0]]]);
+  $campaign = \Ichiloto\Engine\Core\Campaign\CampaignSession::restore(new \Tests\Support\PassiveGame(), $config, $root);
   $scene = makeBareScene(\Ichiloto\Engine\Scenes\Game\GameScene::class);
-  $state = new GameState();
+  $state = $campaign->gameState;
   new ReflectionProperty($scene, 'gameState')->setValue($scene, $state);
-  $quests = new class extends \Ichiloto\Engine\Quests\QuestManager {
-    public array $flags = [];
-    public function __construct() {}
-    public function recordFlag(string $flagName): void { $this->flags[] = $flagName; }
-  };
-  new ReflectionProperty($scene, 'questManager')->setValue($scene, $quests);
+  $quests = $campaign->questManager;
   $dirty = new ReflectionProperty($scene, 'fieldPresentationIsDirty');
   $handler = new ReflectionMethod($scene, 'handleWorldStateChange');
-  $state->onChange = fn(string $kind, string $name) => $handler->invoke($scene, $kind, $name);
-
-  $state->setSwitch('visible', false);
-  expect($dirty->getValue($scene))->toBeTrue()->and($quests->flags)->toBe([]);
-  $dirty->setValue($scene, false);
-  $state->setSwitch('visible', true);
-  expect($dirty->getValue($scene))->toBeTrue()->and($quests->flags)->toBe(['visible']);
-  $dirty->setValue($scene, false);
-  $state->setSwitch('visible', false);
-  expect($dirty->getValue($scene))->toBeTrue()->and($quests->flags)->toBe(['visible']);
-  $state->recordStoryEvent('reached_goal');
-  $state->setVariable('phase', 2);
-  expect($quests->flags)->toBe(['visible', 'reached_goal']);
+  $campaign->observeWorldChanges(fn(string $kind, string $name) => $handler->invoke($scene, $kind, $name));
+  try {
+    $state->setSwitch('visible', false);
+    expect($dirty->getValue($scene))->toBeTrue()->and($quests->log->getProgress('synthetic.flags'))->toBe([0, 0]);
+    $dirty->setValue($scene, false);
+    $state->setSwitch('visible', true);
+    expect($dirty->getValue($scene))->toBeTrue()->and($quests->log->getProgress('synthetic.flags'))->toBe([1, 0]);
+    $dirty->setValue($scene, false);
+    $state->setSwitch('visible', false);
+    expect($dirty->getValue($scene))->toBeTrue()->and($quests->log->getProgress('synthetic.flags'))->toBe([1, 0]);
+    $state->recordStoryEvent('reached_goal');
+    $state->setVariable('phase', 2);
+    expect($quests->log->isCompleted('synthetic.flags'))->toBeTrue();
+  } finally { $campaign->release(); }
 });
 
 it('records story events idempotently', function () {
@@ -130,6 +139,51 @@ it('round-trips through toArray and fromArray', function () {
     ->and($restored->getVariable('chests_opened'))->toBe(3)
     ->and($restored->hasStoryEvent('met_the_king'))->toBeTrue()
     ->and($restored->isEventComplete('happyville/home', 'B'))->toBeTrue();
+});
+
+it('round-trips tutorial phases and ignores unknown save values', function () {
+  $state = GameState::fromArray([
+    'tutorials' => [
+      'guide.discovered' => 'discovered',
+      'guide.pending' => 'pending',
+      'guide.completed' => 'completed',
+      'guide.skipped' => 'skipped',
+      'guide.unknown' => 'retired',
+      'guide.malformed' => true,
+      '' => 'pending',
+    ],
+    'tutorialFollowOns' => ['guide.discovered' => true],
+  ]);
+
+  expect($state->getTutorialPhase('guide.discovered'))->toBe(TutorialPhase::DISCOVERED)
+    ->and($state->hasPendingTutorialFollowOn('guide.discovered'))->toBeFalse()
+    ->and($state->getTutorialPhase('guide.pending'))->toBe(TutorialPhase::PENDING)
+    ->and($state->getTutorialPhase('guide.completed'))->toBe(TutorialPhase::COMPLETED)
+    ->and($state->getTutorialPhase('guide.skipped'))->toBe(TutorialPhase::SKIPPED)
+    ->and($state->toArray()['tutorials'])->toBe([
+      'guide.discovered' => 'discovered',
+      'guide.pending' => 'pending',
+      'guide.completed' => 'completed',
+      'guide.skipped' => 'skipped',
+    ])
+    ->and(GameState::fromArray([])->toArray()['tutorials'])->toBe([]);
+});
+
+it('restores tutorial phases without notifying the live scene', function () {
+  $state = new GameState();
+  $changes = [];
+  $state->onChange = function (string $kind, string $id) use (&$changes): void {
+    $changes[] = [$kind, $id];
+  };
+
+  $state->setTutorialPhase('guide.sample', TutorialPhase::PENDING);
+  $snapshot = $state->toArray();
+  $state->setTutorialPhase('guide.sample', TutorialPhase::COMPLETED);
+  $state->setTutorialPhase('guide.sample', TutorialPhase::COMPLETED);
+  $state->restoreSnapshot($snapshot);
+
+  expect($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::PENDING)
+    ->and($changes)->toBe([['tutorial', 'guide.sample'], ['tutorial', 'guide.sample']]);
 });
 
 /* Trigger conditions */

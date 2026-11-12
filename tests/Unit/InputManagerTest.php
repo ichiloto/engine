@@ -31,7 +31,7 @@ it('carries expanded v2 identities through the client source manager and case-se
   $code = KeyCode::from($identity);
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
-  $client->start(new RendererSessionConfig('Input', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2));
+  $client->start(new RendererSessionConfig('Input', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2));
   $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'key', 'key' => $identity]))];
   InputManager::setInputSource(new RendererInputSource($client));
   InputManager::setBindings(['existing-action' => ['keys' => [$code]], 'different-action' => ['keys' => [KeyCode::from($other)]]]);
@@ -200,17 +200,7 @@ it('adds a missing Info action using only unclaimed default keys', function (arr
 it('preserves an explicit Info entry including deliberate unbinding', function (array $entry) {
   $authored = ['info' => $entry, 'custom' => ['keys' => [KeyCode::F2]]];
   InputManager::setBindings($authored);
-  expect(InputManager::getBindings())->toBe([...$authored,
-    'menu_page_previous' => ['description' => 'Show the previous menu page.', 'keys' => [KeyCode::PAGE_UP]],
-    'menu_page_next' => ['description' => 'Show the next menu page.', 'keys' => [KeyCode::PAGE_DOWN]],
-    'map_view' => ['description' => 'Switch between the local and world map.', 'keys' => [KeyCode::v, KeyCode::V]],
-    'map_size' => ['description' => 'Change the corner atlas size.', 'keys' => [KeyCode::F3]],
-    'map_zoom' => ['description' => 'Switch between the two map zoom levels.', 'keys' => [KeyCode::z, KeyCode::Z]],
-    'map_recenter' => ['description' => 'Centre the map on your position.', 'keys' => [KeyCode::HOME]],
-    'dialogue_auto' => InputManager::getDefaultDialogueAutoBinding($authored),
-    'secondary_action' => InputManager::getDefaultSecondaryActionBinding($authored),
-    'quick_save' => ['description' => 'Quick Save', 'keys' => [KeyCode::F5]],
-  ]);
+  expect(array_intersect_key(InputManager::getBindings(), $authored))->toBe($authored);
   InputManager::setInputSource(new FakeInputSource(KeyCode::i));
   InputManager::handleInput();
   expect(Input::isButtonDown('info'))->toBeFalse();
@@ -219,6 +209,19 @@ it('preserves an explicit Info entry including deliberate unbinding', function (
   'empty keys' => [['description' => 'Disabled Info.', 'keys' => []]],
   'empty entry' => [[]],
 ]);
+
+it('defaults pane navigation to Tab and Shift Tab while preserving authored keys', function () {
+  $defaults = InputManager::getBindingsWithDefaults([]);
+  expect($defaults['character_next']['keys'])->toBe([KeyCode::TAB])
+    ->and($defaults['character_previous']['keys'])->toBe([KeyCode::SHIFT_TAB])
+    ->and($defaults['menu_page_next']['keys'])->toBe([KeyCode::PAGE_DOWN])
+    ->and($defaults['menu_page_previous']['keys'])->toBe([KeyCode::PAGE_UP]);
+  $authored = ['character_next' => ['keys' => [KeyCode::F2]], 'custom' => ['keys' => [KeyCode::SHIFT_TAB]]];
+  $resolved = InputManager::getBindingsWithDefaults($authored);
+  expect($resolved['character_next'])->toBe($authored['character_next'])
+    ->and($resolved['character_previous']['keys'])->toBe([])
+    ->and($resolved['custom'])->toBe($authored['custom']);
+});
 
 it('does not reapply defaults after an explicit live rebind or unbind', function () {
   InputManager::setBindings([]);
@@ -395,3 +398,18 @@ it('feeds renderer keys into the unchanged Input facade and PHP bindings', funct
   ['up', KeyCode::UP, AxisName::VERTICAL, -1.0], ['w', KeyCode::w, AxisName::VERTICAL, -1.0],
   ['a', KeyCode::a, AxisName::HORIZONTAL, -1.0], ['enter', KeyCode::ENTER, AxisName::VERTICAL, 0.0],
 ]);
+
+
+it('queries authored project actions and shared defaults without changing live input or working directory', function () {
+  $root = createTestDirectory('semantic-action-query-');
+  file_put_contents($root . '/input.php', '<?php return ["custom_signal" => ["description" => "Signal", "keys" => [\Ichiloto\Engine\IO\Enumerations\KeyCode::i]]];');
+  $before = InputManager::getBindings(); $defaults = InputManager::getDefaultBindings(); $cwd = getcwd();
+  $source = file_get_contents($root . '/input.php');
+  $bindings = InputManager::getProjectBindings($root);
+  expect(array_keys($bindings))->toContain('custom_signal', 'dash', 'dialogue_auto', 'secondary_action', 'quick_save')
+    ->and($bindings['custom_signal']['keys'])->toBe([KeyCode::i])
+    ->and($bindings['info']['keys'])->not->toContain(KeyCode::i)
+    ->and(InputManager::getBindings())->toBe($before)->and(InputManager::getDefaultBindings())->toBe($defaults)
+    ->and(getcwd())->toBe($cwd)->and(file_get_contents($root . '/input.php'))->toBe($source)
+    ->and(InputManager::getBindingsWithDefaults(['dash' => ['keys' => []]])['dash']['keys'])->toBe([]);
+});

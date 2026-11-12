@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
@@ -59,6 +60,7 @@ final class PlayerPresentationTestScene extends GameScene
 function getPlayerPresentationTransport(): FakeRendererTransport
 {
   $transport = new FakeRendererTransport();
+  $transport->acknowledgeFrames = true;
   $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["sprite_source_rect","tile_batches"]}')];
   return $transport;
 }
@@ -78,7 +80,7 @@ function getPlayerSheetFrame(string $direction, int $pattern = 1): array
 beforeEach(function () {
   $this->runtime = null;
   $this->oldDirectory = getcwd();
-  $this->root = sys_get_temp_dir() . '/ichiloto-s6-' . uniqid();
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-s6-' . uniqid();
   mkdir($this->root . '/assets/Data/Entities', 0777, true);
   chdir($this->root);
   $this->states = [];
@@ -130,7 +132,9 @@ it('shares project loading with new-game terminal art and treats absent graphica
   unset($this->data['sprites2d']);
   ($this->writePlayerData)($this->data);
   $config = PlayerPresentationConfig::load();
-  $loader = (new ReflectionClass(GameLoader::class))->newInstanceWithoutConstructor();
+  $game = $this->scene->getGame();
+  $loader = createTestGameLoader($game, assetRoot: $this->root . '/assets');
+  $game->bindGameLoader($loader);
   $terminal = new ReflectionMethod(GameLoader::class, 'loadPlayerSprites')->invoke($loader);
   expect($config->graphical)->toBeNull()->and($config->terminal->toArray())->toBe($terminal->toArray())
     ->and(($this->createPlayer)($this->config)->getGraphicalSpriteDefinition())->toBeNull();
@@ -224,13 +228,17 @@ it('animates only successful player steps and rests on blocked movement or facin
   $map->method('canMoveTo')->willReturnOnConsecutiveCalls(true, false);
   $map->method('scrollMap')->willReturn(false);
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
-  expect($player->tryMove(Vector2::right(), $this->camera))->toBeTrue();
+  expect($player->tryMove(Vector2::right(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeTrue();
   $player->advanceGraphicalAnimation(0.08);
   $walking = $player->getGraphicalSpriteDefinition();
   expect($walking->asset)->toBe($this->sheet)->and($walking->sourceRect->toArray())->toBe(getPlayerSheetFrame('east', 2))
     ->and($player->position->x)->toBe(8.0)->and($player->sprite)->toBe(['>']);
-  expect($player->tryMove(Vector2::up(), $this->camera))->toBeFalse();
+  expect($player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeFalse();
+  // Refused while the step still slides, it faces the wall and walks into its
+  // cell, then stands the moment that step has shown.
   $player->advanceGraphicalAnimation(0.08);
+  expect($player->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(getPlayerSheetFrame('north', 2));
+  $player->advanceGraphicalAnimation(16 / 60 - 0.16);
   $idle = $player->getGraphicalSpriteDefinition();
   expect($idle->sourceRect->toArray())->toBe(getPlayerSheetFrame('north'))
     ->and($player->position->x)->toBe(8.0)->and($player->position->y)->toBe(4.0);
@@ -286,14 +294,14 @@ it('defaults to v2 world sprite and opaque above-sprite prompt composition', fun
   $this->runtime->start('Field v2', 20, 10);
   Console::write('.', 7, 4);
   $player->render();
-  Console::withLayer('modal', fn() => Console::write('   ', 7, 4), 1020);
+  Console::withLayer('modal', fn() => Console::write('   ', 7, 4), \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI + 20);
   $this->runtime->present($this->scene);
   expect($transport->session->protocol)->toBe(RendererProtocolVersion::V2)
     ->and($transport->sent[0]->protocol)->toBe(RendererProtocolVersion::V2)
     ->and($transport->sent[0]->payload)->not->toHaveKey('text');
   $frame = RetainedFrameState::replay($transport->sent)[0];
   expect(array_column($frame['textLayers'], 'id'))->toBe(['world', 'field-prompt', 'modal'])
-    ->and(array_column($frame['textLayers'], 'layer'))->toBe([0, 1010, 1020])
+    ->and(array_column($frame['textLayers'], 'layer'))->toBe([0, \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI + 10, \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI + 20])
     ->and($frame['sprites'])->toHaveCount(1)
     ->and(mb_substr(RetainedFrameState::getTextRows(['textLayers' => [$frame['textLayers'][0]]], 20, 10)[4], 7, 1))->toBe('.')
     ->and($frame['textLayers'][2]['runs'][0]['text'])->toBe('   ')
@@ -321,7 +329,7 @@ it('composes real field Player movement facing masking and duplicate detection i
     ->and(Console::charAt(7, 4))->toBe('v');
   $frames = RetainedFrameState::replay($transport->sent);
   expect(mb_substr(RetainedFrameState::getTextRows($frames[0], 20, 10)[4], 7, 1))->toBe('.');
-  expect($player->tryMove(Vector2::up(), $this->camera))->toBeFalse();
+  expect($player->tryMove(Vector2::up(), $this->camera, StepOrigin::PLAYER_INPUT))->toBeFalse();
   $this->runtime->present($this->scene);
   $frames = RetainedFrameState::replay($transport->sent);
   $south = $frames[0]['sprites'][0];
@@ -335,10 +343,11 @@ it('composes real field Player movement facing masking and duplicate detection i
   $player->position->x = -100;
   $player->render();
   $before = Console::snapshot();
+  $withoutPlayer = Console::snapshot(['player']);
   $this->runtime->present($this->scene);
   $frames = RetainedFrameState::replay($transport->sent);
   expect(Console::snapshot())->toEqual($before)
-    ->and(RetainedFrameState::getTextRows($frames[3], 20, 10))->toBe($before->rows)
+    ->and(RetainedFrameState::getTextRows($frames[3], 20, 10))->toBe($withoutPlayer->rows)
     ->and($frames[3]['sprites'][0]['x'])->toBe(-103);
 });
 
@@ -377,7 +386,7 @@ it('keeps the graphical Player during an ordinary dialogue event without admitti
 
 it('flattens retained scalar cells by priority without treating opaque UI spaces as transparent', function () {
   $frame = ['textLayers' => [
-    ['id' => 'modal', 'layer' => 1000, 'runs' => [['row' => 0, 'column' => 2, 'text' => ' ']]],
+    ['id' => 'modal', 'layer' => \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI, 'runs' => [['row' => 0, 'column' => 2, 'text' => ' ']]],
     ['id' => 'world', 'layer' => 0, 'runs' => [['row' => 0, 'column' => 0, 'text' => "\u{00e9}\u{00a3}C"]]],
     ['id' => 'actor', 'layer' => 10, 'runs' => [['row' => 0, 'column' => 3, 'text' => "\u{03a9}"]]],
   ]];

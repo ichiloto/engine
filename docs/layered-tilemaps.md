@@ -478,6 +478,305 @@ dated full-suite results. Native save-loading, all brush/input gestures,
 InnStay payment/recovery, frame-perfect smoothness and other-platform testing
 are not claimed. Unchanged testing limits are not new implementation scope.
 
+### Stage 7 - Terrain kinds for classic world maps
+
+Target: world maps that read like classic JRPG and RPG Maker world maps, built
+the way those maps are built, with a terminal language that maps onto them one
+to one. Andrew, 23 October 2026: "The trick is establishing a visual language
+for terminal that can translate into these tiles. So we need pieces that span
+the same tilesizes... we have the target being RPGMaker and Classic JRPG
+overworld maps... so how can we represent that consistently in the terminal?"
+
+How the target is built: one 48 px grid; layer one paints terrain kinds as A2
+autotiles (ground kinds such as grass, desert, snow, dirt, and terrain features
+such as forests, conifers, hills, mountains, snowy peaks, rocky ground, marsh),
+and the autotile derives edges, ridges and overlaps from same-kind neighbours;
+layer two places B objects (towns, castles, towers, shrines, bridges, cave
+mouths) as stamps of whole cells. A cave or mine is a cave tile on the edge cell
+of a mountain range.
+
+The Ichiloto contract:
+
+1. One terminal cell is one graphical tile, as already established, so every
+   piece spans the same cells in both presentations.
+2. A terrain kind is a shared, Editor-authored tileset concept with a stable id:
+   its terminal glyph and colour, its graphical autotile, its passability, its
+   encounter terrain, and the ground kind it sits on when it is a feature (trees
+   on grass or on snow). The kind is the identity; the glyph and the autotile are
+   its two independent presentations. Painting a kind writes both, through the
+   existing piece mechanism. Neither the glyph nor the colour becomes a graphical
+   tile identity.
+3. Passability and encounters come from the kind, so a cell's collision and its
+   art come from one authored decision and cannot disagree. The passage
+   agreement validator confirms it for every map.
+4. Objects are stamps whose terminal pattern covers exactly the cells their art
+   covers, with a marked entrance cell; the passage agreement validator checks
+   coverage.
+5. The terminal glyph names the kind by shape, not by drawing edges: the
+   terminal never renders transitions, the graphical autotile does.
+6. Existing glyph-keyed maps convert through an explicit, source-preserving
+   migration with reachability and save checks, never by silent
+   reinterpretation.
+
+Last Legend's kind table and conversion are recorded in its overworld decision.
+Art supplies complete World A2 and B sheets in the game's own style, in the
+RPG Maker layout and sizes; the Engine owns only the generic kind contract.
+
+#### Implemented contract
+
+A tileset declares `kinds` beside its `pieces`, keyed by kind id (ids share
+one namespace with piece ids, since editors place both by id):
+
+```php
+'kinds' => [
+  'grassland' => ['name' => 'Grassland', 'layer' => 'terrain', 'glyph' => '<fg=green>.</>',
+    'art' => ['layer' => 'ground', 'tile' => 2816], 'passage' => 'walk', 'encounters' => 'grassland',
+    'atlas' => 'ground', 'keeps' => ['substrate']],
+  'woodland' => ['name' => 'Woodland', 'layer' => 'terrain', 'glyph' => '<fg=green>♣</>',
+    'ground' => 'grassland', 'art' => ['awaiting' => true], 'passage' => 'walk',
+    'encounters' => 'woodland', 'atlas' => 'vegetation'],
+],
+```
+
+- `glyph` is one visible one-cell character in its terminal colour; the colour
+  is required because painting writes it. `art` is one autotile (A1 to A4) and
+  the tile layer it is painted on, or `['awaiting' => true]`, the explicit
+  state of a kind whose autotile is still to be drawn. A kind awaiting art
+  draws no tiles at all, its ground's and kept layers included, so its glyph
+  shows in the graphical field until the autotile is bound; validation lists
+  it (`terrain.awaiting-art`, and per tileset in the Editor) instead of
+  reporting a missing presentation.
+- `passage` is `walk` or `solid` on foot. Vehicle passage is not authored yet;
+  it will be a separate per-vehicle entry, leaving `passage` the passage on
+  foot. `encounters` names an encounter terrain, shared by the kinds whose
+  troops it shares (two kinds of trees can both meet `woodland` troops); absent means none,
+  and a solid kind has none. `atlas` is the map-screen role. `ground` names
+  the ground kind a feature stands on, on the same gameplay layer and painted
+  on a tile layer below the feature's; `keeps` lists tile layers left beneath.
+- Each kind compiles to a one-cell `TilesetPiece` (its glyph; its autotile and
+  its ground's), so the existing piece mechanism paints it, binds glyph and
+  tiles, moves them together and undoes them.
+- Refused: unknown keys, a glyph that is not one coloured cell, an id shared
+  with a piece, a plain or missing-sheet tile, a feature standing on a feature
+  or on another layer, two kinds drawing one autotile, two kinds looking the
+  same in both presentations, and kinds sharing a glyph on one layer that play
+  differently (the terminal names a kind by its glyph's shape, never colour;
+  Last Legend's brown mountains and white snowy peaks share `^` because both
+  are solid highland). A tileset's `appearance` entry for a kind's autotile
+  that contradicts its passage is refused; the kind classifies its own
+  autotile (walk shows ground; solid shows water on A1 and a barrier elsewhere),
+  so passage agreement holds by construction.
+
+#### Decision: kinds feed the existing collision authority
+
+Kinds never become a third passage authority beside declared occupancy and the
+glyph dictionary. Decided 23 October 2026 from the existing architecture:
+
+1. A map opts in explicitly with `'terrainKinds' => true` in its data file.
+   A map without it is never reinterpreted, so authoring a tileset's kinds
+   changes no existing map (Last Legend's undeclared overworld keeps its
+   `:` dry scrub solid while the tileset's desert kind is walkable).
+2. On an opted-in map without declared occupancy, the kinds feed the glyph
+   dictionary: each kind layer gets a section holding its kinds' glyphs and
+   the collision their passage and encounters give (`SOLID`, `ENCOUNTER` or
+   `NONE`), resolved by the same topmost-wins, pass-through walk as every
+   glyph. A named section already overrides the flat dictionary for its
+   layer, so the kind decides its glyph there. A `collisions.php` section for
+   that layer may repeat a kind's glyph only with the same collision;
+   otherwise the map refuses to load, naming both.
+3. On an opted-in map with declared occupancy, occupancy stays the only
+   passage source. Painting a kind writes its collision into the occupancy
+   cells where its layer is the top gameplay layer, in the same undo step, so
+   collision and art still come from one decision.
+4. Encounter terrain and atlas roles come from the same kinds through the same
+   glyph walk. Whether a step counts stays the cell's collision (an encounter
+   tile); its terrain chooses among troops limited to `terrains`.
+5. `MapCollisionResolver::resolveMap` refuses (as a programming error) to
+   resolve an opted-in map without its kinds, or an undeclared map with them,
+   and the runtime, reachability, save relocation, cutscene previews and the
+   Editor all pass them. An opted-in map whose tileset cannot be read is
+   refused rather than played with unknown passage.
+
+Glyph lookup now reads a glyph's own dictionary entry before its ASCII
+transliteration, so entries such as `♣`, `·`, `▲` and `┃` are read as authored
+instead of as the empty transliteration they all shared. Every existing Last
+Legend and Epic Quest map resolves to the same collision as before.
+
+#### Editors and conversion
+
+- TUI: `K` on the canvas opens the kind picker for the layer being edited,
+  showing glyph, passage, encounters, ground and awaiting art, and opening on
+  the kind under the cursor. A chosen kind paints like an item piece (`Enter`
+  paints and anchors, `Enter` again fills to the cursor, drag fills).
+- GUI: the tile palette's Kinds tab lists the same kinds; a drag paints the
+  area through `kinds.paint`, right-click picks up the kind under the pointer.
+- Painting a kind makes the cell's terrain the kind's alone: it clears the
+  tile layers the kind's gameplay layer owns, except kept layers, then writes
+  its glyph in its colour and its tiles, source-preserving, as one undo step.
+- Kinds are authored in Database > Tilesets (Terrain Kinds), with the ground
+  chosen among the tileset's ground kinds.
+- `MapTerrainKindRule` reports cells whose glyph and tiles show different
+  kinds (`terrain.disagreement`) and cells of kinds awaiting art, as warnings.
+- Conversion: `ichiloto map:convert-kinds <map> --kind ';=grassland' ...`
+  (session `kinds.previewConversion` / `kinds.convert`) lists the map's
+  glyphs, previews each mapping's cell count and the collision it changes,
+  refuses to leave a glyph that already names a kind unmapped, then opts the
+  map in and paints every mapped cell through the Editor's validated change
+  set: reachability and every map rule are checked, and saves standing where
+  the map becomes solid move only with `--relocate-saves`, through the
+  existing save-relocation manifest step. `--check` writes nothing.
+
+Remaining GUI capability, recorded here rather than claimed: choosing a kind's
+autotile by clicking the A1/A2 sheet in the GUI tileset view (today the GUI and
+TUI Database rows take the tile identity), and a GUI conversion dialog over the
+same session requests the Console uses.
+
+Peaks and hill crests stand over the mountain and hill kinds as stacked
+pieces ([graphical field](graphical-field.md), Stacks): World B to E stamps of
+whole objects that overlap in depth order on a tileset stack. Peaks are
+decoration over the solid mountain kinds, so the kind stays the passage
+authority there; a hill crest's mound stands on the walkable hills kind, so
+each crest declares its ground footprint (glyphs on the fixtures layer and
+occupancy) and blocks the cells its mound covers. Last Legend's overworld and Garden of
+Roads are painted in kinds with its approved World A2 and relief art; its
+overworld decision records the conversion.
+
+#### Corner-edged kinds
+
+RPG Maker's autotiles draw each cell's own edge from its neighbours, in 24 px
+quarters. A diagonal run of cells can therefore only be a staircase, however
+the art is drawn: no quarter knows the edge continues diagonally. A kind may
+instead draw its edges on the corners between cells, the dual-grid
+technique: one tile sits on each corner where four cells meet and is chosen
+from which of those four cells hold the kind (16 cases). Diagonals, bends
+and one-cell streams then draw as continuous edges.
+
+- **Opt-in, per kind.** A kind's `art` names a corner sheet:
+  `'art' => ['layer' => 'water', 'tile' => 2096, 'corners' => 'Graphics/Tilesets/World/Water.corners.png']`.
+  Database > Tilesets > Terrain Kinds > `Corner Sheet` chooses it among the
+  project's PNG assets; choosing none returns the kind to edges in each cell.
+  The data is renderer-neutral tileset data, read by every consumer.
+- **Identity unchanged.** The kind's autotile stays the identity a tile layer
+  holds where the kind is, and painting writes the same glyph and autotile.
+  Maps, the terminal, collision, encounters, atlas roles and saves are
+  unchanged; the kind remains the passage authority. Opting in changes how
+  cells holding that autotile are drawn, on any map that shows it, and
+  nothing else.
+- **Composition (`CornerShape`, `TileComposer::composeCorners`).** Every
+  field cell still shows one whole tile: its four quarters are the facing
+  quarters of the corner tiles on its four corners. A cell beside the kind,
+  not only a cell of it, can show part of its edge. Beyond the map edge each
+  row and column continues its edge cell, so no edge closes along the border.
+  Composition stays in PHP; the renderer receives pieces as for any tile, so
+  the protocol is unchanged and needs no negotiation.
+- **Sheet layout ([corner sheets](corner-sheets.md)).** One PNG per kind: a
+  block of 4 x 4 tiles per phase, one still phase or three side by side
+  cycled 0, 1, 2, 1 as A1 water. The 16 cases are laid out as one seamless
+  picture an artist paints whole. Phases and tile size are read from the
+  current image. Every edge crosses a tile side at its midpoint and at a right
+  angle, so tiles that meet continue each other.
+- **Layering.** A corner-edged kind draws over its substrate: its cells leave
+  their tile layer's rows and are uploaded, with the cells beside them, in a
+  layer of their own (`tiles:<layer>:corners:<kind>`, or
+  `tiles:<layer>:above:corners:<kind>` for an `above` autotile) painted right
+  after that tile layer's band. Kinds on different tile layers meet by tile
+  layer order (water over sand over grass). Corner-edged kinds sharing one
+  tile layer draw in the tileset's kind order, each over those before it,
+  over the layer's per-cell autotiles. Each kind's region ends at its own
+  cells, so where two kinds meet the later kind's edge covers the earlier
+  one's, unless they join.
+- **Joins.** Corner-edged kinds on one tile layer that name the same join
+  group share one edge: `'art' => [..., 'corners' => '...', 'joins' => 'water']`,
+  chosen in Database > Tilesets > Terrain Kinds > `Joins`. Each counts the
+  others' cells as its own when it chooses a corner's case, so a river runs
+  into a lake or the sea with no bank and no strip of ground between them,
+  and a river touching a lake only at a corner flows into it. Each kind still
+  draws only its own cells and the cells beside them that hold none of the
+  group, so every water cell shows its own kind's water and the kinds meet
+  along the cell edge between them. On ground beside a junction the kinds
+  draw the same edge, the later kind over the earlier; a corner none of a
+  kind's own cells touches is drawn by the kinds whose cells it touches. A
+  kind in no group draws its edge against every other kind, as before. The
+  join is authored per tileset, so each game chooses which of its kinds flow
+  into each other; the Engine joins none by itself. Refused: a join without a
+  corner sheet, a group name that is not lowercase letters, digits, hyphens or
+  underscores, and kinds of one group painting different tile layers (a
+  sand beach under water meets it by tile layer order instead).
+- **Kinds without a corner sheet** keep RPG Maker's quarter autotiles, and a
+  map showing no corner-edged kind uploads byte for byte as before: the
+  corner sheet is sent only to a map that shows its kind, after the
+  tileset's sheets.
+- **Unusable art.** A corner sheet that is missing or not in the layout is
+  reported (Engine log; Editor validation for each map showing the kind) and
+  its kind's cells show their terminal glyphs, as tiles from an unusable
+  sheet do. The kind never falls back to its quarter autotile.
+- **Validation.** `TileCoverage::findUncovered` takes a cell's corner shares,
+  so the Editor's see-through ground check judges what a corner-edged kind
+  draws on its cells and the cells beside them.
+- **Bounds.** A world sends at most 16 sheets (the renderer's bound), corner
+  sheets included; a map past it is refused naming the budget. Like every
+  tile, a corner tile on a cell beside the kind hides that cell's glyph for a
+  renderer without `tile_covers`.
+
+Proof and tests: `tools/corner-sheet-placeholder.php` writes a placeholder
+water (three phases, sand shore) or sand corner sheet; synthetic tests cover
+the 16 cases, the seamless layout, border continuation, diagonal continuity
+through the uploaded pieces, joined kinds sharing one edge (a river mouth and
+a corner-touching river), each joined cell drawn from its own sheet, layer
+order, animation, unusable sheets, the
+sheet budget, unchanged terminal cells and collision, and byte-for-byte
+uploads for kinds without a corner sheet.
+
+Remaining work, recorded here rather than claimed: offering corner
+sheets to the other ground kinds (grass, road, desert) once their art exists;
+a GUI preview of a corner sheet's 16 cases beside the picker; native GPUI
+acceptance of a map with corner-edged kinds; a soft blend where joined kinds
+meet, which needs mouth tiles in the sheet layout (today two joined waters
+meet along the cell edge between them, so their colours change there in a
+straight line).
+
+#### Memory of a world map
+
+A classic world map loads, plays and leaves within PHP's default 128 MB beside
+the rest of the game. Every per-cell grid the field keeps is packed bytes
+(`Core\PackedGrid`): a gameplay layer holds each distinct styled cell once and
+its rows as palette indices (`MapLayer::getCellAt()`, `getGlyphAt()`, a row at a
+time, or `readGrid()` and `readGlyphs()` built for the caller); a tile layer
+holds its tile identities the same way (`MapTileLayer::getTileAt()`,
+`getRowTiles()`, `readTiles()`); encounter terrain and gameplay owners too.
+The retained world (`PresentationWorld`) keeps its upload packed and shares
+equal cells and catalog pieces; `getOperations()` builds the operations, and a
+renderer session streams them (`streamOperations()`, `RetainedWorldUpload`),
+so an upload holds one transport chunk at a time. Passes that read every
+cell once stream rows through generators instead of building whole grids:
+parsing layers into packed rows, deriving encounter terrain, shaping
+autotiles (`AutotileShape::yieldRows()` holds three rows at a time) and corner
+cases (`CornerShape::yieldCorners()`), and building upload operations. State
+read at random during play (collision, glyphs, tiles, terrain) stays in
+compact random-access storage. Leaving a map releases all of it.
+
+Measured on Last Legend's 320 x 248 continent (twelve tile layers, terrain
+kinds, corner-edged waters), from a transfer out of Happyville: the
+transfer's peak fell from 205 MB to 19 MB above the field it left, and the
+installed continent from 191 MB to 14 MB, with byte-identical renderer
+uploads. Tests guard a synthetic 320 x 256 world (`WorldMapMemoryTest`) and
+every map of the game (Last Legend's `FieldTravelMemoryTest`) at 128 MB.
+
+Loading the world is bounded by its size, not by its row length per tag or
+per cell. A styled row is formatted in pieces between closing tags
+(`TerminalText::formatStyles()`): the formatter measures text up to each tag,
+so formatting a 320-cell row of pictographs whole cost its length for every
+tag. Hot loops read a row once and look neighbours up directly; each distinct
+glyph, tile identity or entry is decided once per layer. On the continent a
+transfer prepares, installs and builds its world in 0.5 s instead of 1.9 s.
+`WorldMapMemoryTest` also bounds the synthetic world's load time, and the
+formatter's work is tested to grow with a row's length.
+
+Remaining, recorded rather than claimed: the collision grid is still a
+nested integer array (about 3.6 MB on the continent), and `CellArea` expands
+a named area's rectangle into one array per cell (1.4 MB for the continent's
+areas; a region covering a whole 256 x 256 map would cost about 16 MB).
+
 ## Open compatibility item
 
 1. **Legacy path retirement.** Once Last Legend is fully migrated, does the

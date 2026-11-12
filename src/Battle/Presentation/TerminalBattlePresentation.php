@@ -23,7 +23,7 @@ final class TerminalBattlePresentation
     ?BattleConditionEffects $conditionEffects = null)
   {
     $this->origin = clone ($origin ?? new Vector2());
-    $this->effects = new TerminalBattleEffects($positions, $this->origin, $width, $height);
+    $this->effects = new TerminalBattleEffects($positions ?? PartyBattlerPositions::createForSize(max(1, count($battle->partyRoster->battlers)), $width, $height), $this->origin, $width, $height, $battle);
     $this->conditionEffects = $conditionEffects ?? BattleConditionEffects::createFromConfig(
       new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary(getcwd() . '/assets'));
   }
@@ -43,7 +43,9 @@ final class TerminalBattlePresentation
       $defeat = $playback?->getEnemyDefeatTreatment($battler, $reducedMotion);
       if ($battler->isKnockedOut && !($defeat['visible'] ?? false)) { continue; }
       $position = $this->effects->getTroopPresentedPosition($battler, $playback, $reducedMotion);
-      array_push($draws, ...self::getSpriteDraws(EnemyDefeatStyle::applyTerminalTreatment($battler->image, $defeat), $this->origin->x + $position->x,
+      $sprite = $battler->hasConceded ? EnemyDefeatStyle::applyTerminalConcession($battler->image)
+        : EnemyDefeatStyle::applyTerminalTreatment($battler->image, $defeat);
+      array_push($draws, ...self::getSpriteDraws($sprite, $this->origin->x + $position->x,
         $this->origin->y + $position->y, $this->effects->getTroopAvailableWidth($position)));
     }
     $composed = $playback === null ? ['draws' => [], 'flashes' => []] : $this->effects->compose($playback,

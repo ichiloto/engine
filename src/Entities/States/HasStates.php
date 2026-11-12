@@ -33,6 +33,15 @@ trait HasStates
    * @var string|null The last elemental reaction tag (WEAK!, RESIST, NULL, ABSORB) for the battle UI to display and clear.
    */
   public ?string $lastElementReaction = null;
+  /** Current state-owned ATB pace; movement and ordinary stats keep their own owners. */
+  public function getAtbRate(): float
+  {
+    $rate = 1.0;
+    foreach ($this->states as $instance) {
+      if (!$instance->isPending && $instance->remainingTurns !== 0) { $rate *= $instance->state->atbRate; }
+    }
+    return $rate;
+  }
   /**
    * @var bool True when the last hit on this battler was critical; the battle UI displays and clears it.
    */
@@ -106,30 +115,39 @@ trait HasStates
    *
    * @param State $state The state to add.
    * @param int $chancePercent The base infliction chance (before resistance).
+   * @param bool $givenByBearer Defers the first tick when a state is received during the bearer's current turn, including its own effects and interrupting responses.
+   * @param bool $guaranteed True when an authored effect guarantees application, bypassing resistance and the chance roll.
+   * @param int $delayTurns Bearer turns completed before the state takes effect in battle.
    * @return bool True when the state was newly inflicted.
    */
   public function addState(
     State $state,
     int $chancePercent = 100,
     ?CombatRandomSource $random = null,
+    bool $givenByBearer = false,
+    bool $guaranteed = false,
+    int $delayTurns = 0,
   ): bool
   {
-    if ($this->hasState($state->id)) {
-      return false;
-    }
-
-    $resistance = $this->stateResistances[$state->id] ?? 1.0;
-    $effectiveChance = intval(round(clamp($chancePercent, 0, 100) * $resistance));
+    $effectiveChance = $this->getStateApplicationChance($state, $chancePercent, $guaranteed);
+    if ($effectiveChance < 1) { return false; }
 
     $random ??= new NativeCombatRandomSource();
 
-    if ($effectiveChance < 1 || $random->nextInt(1, 100) > $effectiveChance) {
+    if (!$guaranteed && $random->nextInt(1, 100) > $effectiveChance) {
       return false;
     }
 
-    $this->states[] = new StateInstance($state, $state->durationTurns);
+    $this->states[] = new StateInstance($state, $state->durationTurns, awaitsNextTurn: $givenByBearer, delayTurns: $delayTurns);
 
     return true;
+  }
+
+  /** Available application chance without rolling or changing live state; shared by effects and menu previews. */
+  public function getStateApplicationChance(State $state, int $chancePercent = 100, bool $guaranteed = false): int
+  {
+    if (array_any($this->states, static fn(StateInstance $instance): bool => $instance->state->id === $state->id)) { return 0; }
+    return $guaranteed ? 100 : intval(round(clamp($chancePercent, 0, 100) * ($this->stateResistances[$state->id] ?? 1.0)));
   }
 
   /**
@@ -158,7 +176,7 @@ trait HasStates
   public function hasState(string $stateId): bool
   {
     foreach ($this->states as $instance) {
-      if ($instance->state->id === trim($stateId)) {
+      if (!$instance->isPending && $instance->state->id === trim($stateId)) {
         return true;
       }
     }
@@ -174,7 +192,7 @@ trait HasStates
   public function getActionBlockingState(): ?State
   {
     foreach ($this->states as $instance) {
-      if ($instance->state->preventsAction) {
+      if (!$instance->isPending && $instance->state->preventsAction) {
         return $instance->state;
       }
     }
@@ -182,11 +200,81 @@ trait HasStates
     return null;
   }
 
+  /**
+   * Returns how much of a blockable hit this battler takes: every protective state's rate multiplied together.
+   *
+   * @return float 1.0 unprotected, 0.5 halved, 0.0 blocked outright.
+   */
+  public function getDamageTakenRate(): float
+  {
+    $rate = 1.0;
+    foreach ($this->states as $instance) {
+      if (!$instance->isPending) { $rate *= $instance->state->damageTakenRate; }
+    }
+
+    return $rate;
+  }
+
+  /** Returns the sum of active state adjustments to the bearer's rolled accuracy. */
+  public function getStateAccuracyModifier(): int
+  {
+    $modifier = 0;
+    foreach ($this->states as $instance) {
+      if (!$instance->isPending && $instance->remainingTurns !== 0) {
+        $modifier += $instance->state->accuracyModifier;
+      }
+    }
+
+    return $modifier;
+  }
+
+  /** Combines active state rates for the bearer's outgoing physical damage. */
+  public function getPhysicalDamageDealtRate(): float
+  {
+    $rate = 1.0;
+    foreach ($this->states as $instance) {
+      if (!$instance->isPending) { $rate *= $instance->state->physicalDamageDealtRate; }
+    }
+    return $rate;
+  }
+
+  /**
+   * Determines whether a state has this battler taking the hits meant for its weakest ally.
+   *
+   * @return bool True while the battler covers its allies.
+   */
+  public function isCoveringAllies(): bool
+  {
+    foreach ($this->states as $instance) {
+      if (!$instance->isPending && $instance->state->coversAllies) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Returns the chance that this battler acts confused on its turn: the highest of its states' confusion chances.
+   *
+   * @return int 0 to 100; 0 when no state confuses it.
+   */
+  public function getConfusionChancePercent(): int
+  {
+    $chance = 0;
+    foreach ($this->states as $instance) {
+      if (!$instance->isPending) { $chance = max($chance, $instance->state->confusionChancePercent); }
+    }
+
+    return $chance;
+  }
+
   /** Harmful or action-blocking states take precedence over beneficial states. */
   public function getStateDisposition(): StateDisposition
   {
     $disposition = StateDisposition::NEUTRAL;
     foreach ($this->states as $instance) {
+      if ($instance->isPending) { continue; }
       if ($instance->state->preventsAction || $instance->state->disposition === StateDisposition::HARMFUL) {
         return StateDisposition::HARMFUL;
       }
@@ -200,19 +288,39 @@ trait HasStates
   /**
    * Applies one turn of state ticks: HP deltas and duration expiry.
    *
-   * @return array<int, array{state: State, hpDelta: int, expired: bool}> One event per live state, in application order.
+   * @return array<int, array{state: State, hpDelta: int, expired: bool, activated?: true}> One event per live state, in application order.
    */
   public function tickStates(): array
   {
     $events = [];
 
     foreach ($this->states as $instance) {
+      // A state the bearer gave itself this turn starts counting after it.
+      if ($instance->awaitsNextTurn) {
+        $instance->awaitsNextTurn = false;
+        $events[] = ['state' => $instance->state, 'hpDelta' => 0, 'expired' => false];
+        continue;
+      }
+      if ($instance->isPending) {
+        $activated = $instance->advanceDelay();
+        $events[] = ['state' => $instance->state, 'hpDelta' => 0, 'expired' => false,
+          ...($activated ? ['activated' => true] : [])];
+        continue;
+      }
+
       $hpDelta = 0;
 
       if ($instance->state->tickFormula !== null && ! $this->isKnockedOut) {
-        $target = $this;
-        $hpDelta = intval(eval("return {$instance->state->tickFormula};") ?? 0);
-        $this->stats->currentHp = max(0, $this->stats->currentHp + $hpDelta);
+        $before = $this->stats->currentHp;
+        $hpDelta = $this->evaluateTickFormula($instance->state);
+        $floor = min($before, max(0, $this->knockoutFloor));
+
+        // An authored knockout floor holds damaging ticks above it, like any other battle damage.
+        if ($floor > 0 && $before + $hpDelta < $floor) {
+          $hpDelta = $floor - $before;
+        }
+
+        $this->stats->currentHp = max(0, $before + $hpDelta);
       }
 
       $events[] = [
@@ -222,12 +330,99 @@ trait HasStates
       ];
     }
 
+    $this->removeExpiredStates();
+
+    return $events;
+  }
+
+  /**
+   * Counts one step walked in the field. Each state whose steps make up a
+   * field turn acts as it does on a battle turn: its tick formula applies and
+   * its duration advances. Field ticks stop at 1 HP unless the state is
+   * authored to knock out. A knocked-out bearer's states wait.
+   *
+   * @return array<int, array{state: State, hpDelta: int, expired: bool}> One event per state that acted, with the HP actually changed.
+   */
+  public function tickFieldStep(): array
+  {
+    if ($this->isKnockedOut) {
+      return [];
+    }
+
+    $events = [];
+
+    foreach ($this->states as $instance) {
+      if (! $instance->advanceFieldStep()) {
+        continue;
+      }
+
+      $hpDelta = 0;
+
+      if ($instance->state->tickFormula !== null && ! $this->isKnockedOut) {
+        $before = $this->stats->currentHp;
+        $floor = $instance->state->fieldTickKnocksOut ? 0 : min(1, $before);
+        $this->stats->currentHp = max($floor, $before + $this->evaluateTickFormula($instance->state));
+        $hpDelta = $this->stats->currentHp - $before;
+      }
+
+      $events[] = [
+        'state' => $instance->state,
+        'hpDelta' => $hpDelta,
+        'expired' => $instance->tickDuration(),
+      ];
+    }
+
+    $this->removeExpiredStates();
+
+    return $events;
+  }
+
+  /**
+   * Cures every state authored as cured by rest (an inn stay or a full party recovery).
+   *
+   * @return State[] The states cured.
+   */
+  public function removeRestCurableStates(): array
+  {
+    $cured = [];
+    $this->states = array_values(array_filter(
+      $this->states,
+      static function (StateInstance $instance) use (&$cured): bool {
+        if (! $instance->state->curedByRest) {
+          return true;
+        }
+
+        $cured[] = $instance->state;
+        return false;
+      }
+    ));
+
+    return $cured;
+  }
+
+  /**
+   * Evaluates a state's authored tick formula against this bearer.
+   *
+   * A healing tick (a positive delta) stops at the bearer's maximum HP, as any other recovery does.
+   *
+   * @param State $state The state.
+   * @return int The HP delta the tick applies (negative harms).
+   */
+  protected function evaluateTickFormula(State $state): int
+  {
+    $target = $this;
+    $delta = intval(eval("return {$state->tickFormula};") ?? 0);
+
+    return $delta > 0 ? min($delta, max(0, $this->stats->totalHp - $this->stats->currentHp)) : $delta;
+  }
+
+  /** Drops the states whose duration has run out. */
+  protected function removeExpiredStates(): void
+  {
     $this->states = array_values(array_filter(
       $this->states,
       static fn(StateInstance $instance): bool => $instance->remainingTurns !== 0
     ));
-
-    return $events;
   }
 
   /**
@@ -260,7 +455,7 @@ trait HasStates
     $this->isGuarding = false;
     $this->states = array_values(array_filter(
       $this->states,
-      static fn(StateInstance $instance): bool => $instance->state->persistsAfterBattle
+      static fn(StateInstance $instance): bool => !$instance->isPending && $instance->state->persistsAfterBattle
     ));
   }
 }

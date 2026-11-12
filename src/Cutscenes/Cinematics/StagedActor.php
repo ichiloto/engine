@@ -7,20 +7,33 @@ use Ichiloto\Engine\Animations\Field\FieldPosePlayback;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Field\WorldObject;
+use Ichiloto\Engine\Field\Npc;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\FieldMetric;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
 use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
-use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
+use Ichiloto\Engine\Rendering\Sprites\ThicketSubjectInterface;
 use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
 use Ichiloto\Engine\Rendering\Sprites\FieldSpriteRole;
 use Ichiloto\Engine\UI\Accessibility;
 
 /** A temporary field participant owned by one cinematic. */
-final class StagedActor implements GraphicalSpriteProviderInterface
+final class StagedActor implements ThicketSubjectInterface
 {
+  /**
+   * Cast stand among their cell's foliage: a character sheet unless it is an object sheet, and a pose or image.
+   * A world object's art, and a visual held on one of its attachments, stand where the object is.
+   */
+  public bool $standsInFoliage {
+    get {
+      if ($this->attachment !== null || $this->subject?->subject instanceof WorldObject
+        || ($this->subject?->subject instanceof Npc && $this->subject->subject->bed?->isOccupied)) { return false; }
+      $sprites = $this->getGraphicalSprites();
+      return $sprites instanceof CharacterSheet ? !$sprites->isObject : $sprites !== null;
+    }
+  }
   public MovementHeading $facing {
     get => $this->subject?->subject instanceof WorldObject ? $this->localFacing : ($this->subject?->subject->heading ?? $this->localFacing);
   }
@@ -33,11 +46,13 @@ final class StagedActor implements GraphicalSpriteProviderInterface
       $sprite = $this->directionalSprites[$this->facing->name]
         ?? $this->directionalSprites[strtolower($this->facing->name)] ?? null;
       return is_array($sprite) && $sprite !== [] ? array_values(array_map('strval', $sprite))
-        : ($this->baseSprite ?? (array)$this->subject?->subject->sprite);
+        : ($this->baseSprite ?? ($this->subject?->subject instanceof Npc
+          ? [$this->subject->subject->getFieldTerminalSprite()] : (array)$this->subject?->subject->sprite));
     }
   }
   public bool $isVisible {
-    get => $this->visible && $this->ownsPresentation();
+    get => $this->visible && $this->ownsPresentation()
+      && !($this->sharesPresentNpcCell !== null && ($this->sharesPresentNpcCell)($this->position));
   }
   private MovementHeading $localFacing;
   private Vector2 $localPosition;
@@ -67,6 +82,14 @@ final class StagedActor implements GraphicalSpriteProviderInterface
     /** @var CinematicSubjectLease[] */
     public readonly array $suppressedSubjects = [],
     ?string $assetRoot = null,
+    /** Holds the visual on a feature of a world object's art; its position is the attachment's terminal cell. */
+    public readonly ?CinematicAttachment $attachment = null,
+    /** An explicit authored heading takes precedence over automatic conversation turns. */
+    public readonly bool $hasAuthoredFacing = false,
+    /** A snapshot takes over drawing its cell when the original NPC leaves it. */
+    private readonly ?\Closure $sharesPresentNpcCell = null,
+    /** Where its graphical art draws: among the field, or lifted above cinematic covers. */
+    public readonly CinematicFieldPlane $plane = CinematicFieldPlane::FIELD,
   )
   {
     $this->localFacing = $facing;
@@ -110,6 +133,9 @@ final class StagedActor implements GraphicalSpriteProviderInterface
   public function move(Vector2 $direction, ?float $stepSeconds = null): void
   {
     $this->assertIndependentMotion();
+    if ($this->attachment !== null) {
+      throw new \RuntimeException('An attached staged visual stays on its attachment; stage it elsewhere to move it.');
+    }
     $this->setFacing($direction);
     $origin = clone $this->position;
     $this->position->x += $direction->x;
@@ -137,12 +163,33 @@ final class StagedActor implements GraphicalSpriteProviderInterface
   public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
   {
     if (!$this->isVisible) { return null; }
-    return $this->getFrameDefinition();
+    $frame = $this->getFrameDefinition();
+    return $frame === null ? null : ($this->attachment?->place($frame)['image'] ?? $frame);
+  }
+
+  /** A takeover retains its real object's compound presentation unless an explicit replacement was authored. */
+  public function getPresentationWorldCanvas(): ?\Ichiloto\Engine\Rendering\Presentation\PresentationWorldCanvas
+  {
+    if (!$this->isVisible || $this->graphicalSprites !== null || !$this->subject?->subject instanceof WorldObject) { return null; }
+    $group = $this->subject->subject->getPresentationWorldCanvas();
+    if ($group === null) { return null; }
+    return new \Ichiloto\Engine\Rendering\Presentation\PresentationWorldCanvas($this->getGraphicalSpriteId(),
+      $group->x, $group->y, $group->pivot, $group->canvas, $group->layer);
+  }
+
+  public function isComposedInBed(): bool
+  {
+    return $this->subject?->subject instanceof Npc && $this->subject->subject->bed?->isOccupied
+      && $this->subject->subject->bed->getPresentationWorldCanvas() !== null;
   }
 
   public function getGraphicalSpriteWorldPosition(): Vector2
   {
-    return clone $this->position;
+    if ($this->graphicalSprites === null && $this->subject?->subject instanceof Npc
+      && $this->subject->subject->bed?->isOccupied) { return $this->subject->subject->getGraphicalSpriteWorldPosition(); }
+    $frame = $this->attachment !== null && $this->isVisible ? $this->getFrameDefinition() : null;
+    $placement = $frame === null ? null : $this->attachment->place($frame);
+    return $placement['position'] ?? clone $this->position;
   }
 
   public function getGraphicalSpriteMotion(): ?PresentationSpriteMotion
@@ -160,6 +207,10 @@ final class StagedActor implements GraphicalSpriteProviderInterface
 
   public function advanceGraphicalAnimation(float $seconds): void
   {
+    if ($this->graphicalSprites === null && $this->subject?->subject instanceof Npc
+      && $this->subject->subject->bed?->isOccupied) { $this->subject->subject->bed->advance($seconds); }
+    if ($this->graphicalSprites === null && $this->subject?->subject instanceof Npc
+      && !$this->walkAnimation->isSliding) { $this->subject->subject->advancePlacementPose($seconds); }
     $this->walkAnimation->advance($seconds);
     if ($this->isVisible) {
       $this->posePlayback?->advance($seconds, Accessibility::prefersReducedMotion());
@@ -169,6 +220,11 @@ final class StagedActor implements GraphicalSpriteProviderInterface
 
   private function getFrameDefinition(): ?GraphicalSpriteDefinition
   {
+    if ($this->graphicalSprites === null && $this->subject?->subject instanceof Npc
+      && ($this->subject->subject->bed?->isOccupied
+        || ($this->subject->subject->usesPlacementPose && !$this->walkAnimation->isSliding))) {
+      return $this->subject->subject->getGraphicalSpriteDefinition();
+    }
     if ($this->subject?->subject instanceof WorldObject) {
       return $this->worldObjectRole !== null ? $this->worldObjectRole->getFrame($this->subject->subject->definition->pivot)
         : $this->subject->subject->getGraphicalSpriteDefinition();
@@ -192,9 +248,10 @@ final class StagedActor implements GraphicalSpriteProviderInterface
       ? $this->subject->subject->getGraphicalSpriteDefinition() : $this->subject?->subject->getGraphicalCharacterSheet());
   }
 
-  public function stopGraphicalAnimation(): void
+  /** Stand: at once, or once the steps taken have shown. */
+  public function stopGraphicalAnimation(bool $afterSlide = false): void
   {
-    $this->walkAnimation->stop();
+    $afterSlide ? $this->walkAnimation->stopAfterSlide() : $this->walkAnimation->stop();
   }
 
   public function pauseGraphicalAnimation(): void

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Events\Triggers;
 
 use Ichiloto\Engine\Entities\Actions\RunScriptAction;
+use Ichiloto\Engine\Events\Interfaces\ActionOnlyEventTriggerInterface;
 use Ichiloto\Engine\Events\Interfaces\AutomaticEventTriggerInterface;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
@@ -31,7 +32,8 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  *
  * @package Ichiloto\Engine\Events\Triggers
  */
-class ScriptEventTrigger extends EventTrigger implements AutomaticEventTriggerInterface, EventSessionCompletionTargetInterface
+class ScriptEventTrigger extends EventTrigger implements
+  ActionOnlyEventTriggerInterface, AutomaticEventTriggerInterface, EventSessionCompletionTargetInterface
 {
   /** Authored payload vocabulary shared with authoring tools. */
   public const array DATA_FIELDS = ['scriptId', 'script', 'mode', 'reusable'];
@@ -57,7 +59,7 @@ class ScriptEventTrigger extends EventTrigger implements AutomaticEventTriggerIn
   public function configure(): void
   {
     $this->isReusable = (bool) ($this->data->reusable ?? true);
-    $this->runsAutomatically = strval($this->data->mode ?? self::MODE_ACTION) === self::MODE_AUTO;
+    $this->runsAutomatically = self::determineRunsAutomatically((array) $this->data);
     $scriptId = trim(strval($this->data->scriptId ?? ''));
     $this->scriptId = $scriptId !== '' ? $scriptId : null;
     $this->script = $this->resolveScript();
@@ -66,6 +68,18 @@ class ScriptEventTrigger extends EventTrigger implements AutomaticEventTriggerIn
   public function runsAutomatically(): bool
   {
     return $this->runsAutomatically;
+  }
+
+  /** @inheritDoc */
+  public static function determineRunsAutomatically(array $data): bool
+  {
+    return strval($data['mode'] ?? self::MODE_ACTION) === self::MODE_AUTO;
+  }
+
+  public static function requiresActionKey(array $data): bool
+  {
+    // A subclass may replace entry behavior; it must declare its own contract.
+    return static::class === self::class && ($data['mode'] ?? self::MODE_ACTION) === self::MODE_ACTION;
   }
 
   /**
@@ -114,6 +128,7 @@ class ScriptEventTrigger extends EventTrigger implements AutomaticEventTriggerIn
   public function onEventSessionFailed(GameScene $gameScene, EventExecutionSession $session): void
   {
     $this->sessionIsActive = false;
+    $gameScene->player?->retainFailedAutomaticTriggerEngagement($this);
   }
 
   /**

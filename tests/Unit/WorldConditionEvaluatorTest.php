@@ -5,6 +5,9 @@ use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\WorldConditionType;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Cutscenes\Summons\{SummonAvailability, SummonCutsceneDefinition, SummonWielderPolicy};
 use Ichiloto\Engine\Quests\QuestLog;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
@@ -32,10 +35,16 @@ it('publishes the complete stable condition vocabulary', function () {
     'quest',
     'switch',
     'event',
+    'any',
     'map_event',
     'variable',
+    'play_statistic',
     'item',
     'key_item',
+    'world_ability',
+    'assigned_summons',
+    'present_actor',
+    'present_party_size',
   ]);
 });
 
@@ -121,6 +130,61 @@ it('honours item quantity thresholds', function () {
   expect(WorldConditionEvaluator::allHold([['type' => 'item', 'name' => 'Potion', 'quantity' => 2]], $state, $party))->toBeTrue();
 });
 
+it('counts distinct assigned contracts and observes successful mutations from Party', function () {
+  $state = new GameState();
+  $party = new Party();
+  $first = new Character('First', 0, new Stats());
+  $second = new Character('Second', 0, new Stats());
+  $party->addMember($first);
+  $party->addMember($second);
+  $firstContract = new SummonCutsceneDefinition('first', 'First', wielders: new SummonWielderPolicy());
+  $secondContract = new SummonCutsceneDefinition('second', 'Second', wielders: new SummonWielderPolicy());
+  $condition = ['type' => 'assigned_summons', 'name' => 'party', 'quantity' => 2];
+  WorldConditionEvaluator::validateAll([$condition]);
+  $observed = [];
+  $party->setSummonAssignmentListener(static function (Party $owner) use (&$observed, $condition, $state): void {
+    $observed[] = WorldConditionEvaluator::allHold([$condition], $state, $owner);
+  });
+
+  $party->assignSummon($firstContract, $first);
+  $party->assignSummon($firstContract, $first);
+  $party->assignSummon($firstContract, $second);
+  $party->assignSummon($secondContract, $first);
+  $party->unassignSummon('second', $first);
+  expect($observed)->toBe([false, false, true, false])
+    ->and($party->getAssignedSummonIds())->toBe(['first'])
+    ->and(unserialize(serialize($party)))->toBeInstanceOf(Party::class);
+
+  $bad = [...$condition, 'quantity' => '2', 'negate' => true];
+  expect(fn() => WorldConditionEvaluator::validateAll([$bad]))->toThrow(InvalidArgumentException::class)
+    ->and(WorldConditionEvaluator::allHold([$bad], $state, $party))->toBeFalse();
+  $party->setSummonAssignmentListener(null);
+});
+
+it('checks current participants by stable actor identity and exact present count', function () {
+  $state = new GameState();
+  $party = new Party();
+  foreach (['alpha', 'beta', 'gamma', 'delta'] as $id) {
+    $party->addMember(new Character('Same display name', 0, new Stats(), actorId: $id));
+  }
+  $actor = ['type' => 'present_actor', 'name' => 'delta'];
+  $four = ['type' => 'present_party_size', 'name' => 'party', 'quantity' => 4];
+  WorldConditionEvaluator::validateAll([$actor, $four]);
+  expect(WorldConditionEvaluator::allHold([$actor, $four], $state, $party))->toBeTrue();
+
+  $party->selectParticipants(['alpha']);
+  expect(WorldConditionEvaluator::allHold([$actor], $state, $party))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold([[...$actor, 'negate' => true]], $state, $party))->toBeTrue()
+    ->and(WorldConditionEvaluator::allHold([$four], $state, $party))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold([[...$four, 'quantity' => 1]], $state, $party))->toBeTrue();
+
+  $party->regroupParticipants();
+  expect(WorldConditionEvaluator::allHold([$actor, $four], $state, $party))->toBeTrue();
+  $malformed = [...$four, 'quantity' => '4', 'negate' => true];
+  expect(fn() => WorldConditionEvaluator::validateAll([$malformed]))->toThrow(InvalidArgumentException::class)
+    ->and(WorldConditionEvaluator::allHold([$malformed], $state, $party))->toBeFalse();
+});
+
 it('keeps item and key-item conditions stable across display-name changes', function () {
   $previous = ConfigStore::has(ItemStore::class) ? ConfigStore::get(ItemStore::class) : null;
   $store = (new ReflectionClass(ItemStore::class))->newInstanceWithoutConstructor();
@@ -199,4 +263,64 @@ it('keeps unvalidated runtime coercion separate from narrowed condition admissio
   $state->setSwitch('gate');
   expect(fn() => WorldConditionEvaluator::validateAll($conditions))->toThrow(InvalidArgumentException::class)
     ->and(WorldConditionEvaluator::allHold($conditions, $state))->toBeTrue();
+});
+
+it('evaluates nested any groups with negation across saved world phases', function () {
+  $visited = ['type' => 'event', 'name' => 'visited'];
+  $returned = ['type' => 'event', 'name' => 'returned'];
+  $street = ['type' => 'any', 'conditions' => [
+    [...$visited, 'negate' => true],
+    ['type' => 'any', 'conditions' => [$returned]],
+  ]];
+  $house = [$visited, [...$returned, 'negate' => true]];
+  $state = new GameState();
+  WorldConditionEvaluator::validateAll([$street]);
+  expect(WorldConditionEvaluator::allHold([$street], $state))->toBeTrue()
+    ->and(WorldConditionEvaluator::allHold($house, $state))->toBeFalse();
+  $state->recordStoryEvent('visited');
+  $state = GameState::fromArray($state->toArray());
+  expect(WorldConditionEvaluator::allHold([$street], $state))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold($house, $state))->toBeTrue()
+    ->and(WorldConditionEvaluator::allHold([[...$street, 'negate' => true]], $state))->toBeTrue();
+  $state->recordStoryEvent('returned');
+  expect(WorldConditionEvaluator::allHold([$street, $visited], $state))->toBeTrue()
+    ->and(WorldConditionEvaluator::allHold($house, $state))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold([[...$street, 'negate' => true]], $state))->toBeFalse();
+});
+
+it('validates the complete any tree before evaluating or applying its negation', function () {
+  $valid = ['type' => 'event', 'name' => 'visited'];
+  $state = new GameState();
+  $state->recordStoryEvent('visited');
+  $invalid = [
+    ['type' => 'any', 'conditions' => []],
+    ['type' => 'any', 'conditions' => [$valid], 'name' => 'unexpected'],
+    ['type' => 'any', 'conditions' => [$valid, ['type' => 'event']]],
+    ['type' => 'any', 'conditions' => [$valid, ['type' => 'unknown', 'name' => 'bad']]],
+    ['type' => 'any', 'conditions' => array_fill(0, 33, $valid)],
+    ['type' => 'any', 'conditions' => array_fill(0, 8, ['type' => 'any', 'conditions' => array_fill(0, 32, $valid)])],
+  ];
+  $deep = $valid;
+  for ($level = 0; $level < 5; $level++) {
+    $deep = ['type' => 'any', 'conditions' => [$deep]];
+  }
+  $invalid[] = $deep;
+  foreach ($invalid as $group) {
+    expect(fn() => WorldConditionEvaluator::validateAll([$group]))->toThrow(InvalidArgumentException::class)
+      ->and(WorldConditionEvaluator::allHold([$group], $state))->toBeFalse()
+      ->and(WorldConditionEvaluator::allHold([[...$group, 'negate' => true]], $state))->toBeFalse();
+  }
+});
+
+it('shares any group validation and evaluation with summon availability', function () {
+  $state = new GameState();
+  $group = ['type' => 'any', 'conditions' => [
+    ['type' => 'event', 'name' => 'first'],
+    ['type' => 'event', 'name' => 'second'],
+  ]];
+  $availability = SummonAvailability::fromAuthored(['conditions' => [$group]]);
+  expect($availability->isValid())->toBeTrue()
+    ->and($availability->isSatisfied($state))->toBeFalse();
+  $state->recordStoryEvent('second');
+  expect($availability->isSatisfied($state))->toBeTrue();
 });

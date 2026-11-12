@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Animations\Timelines\EffectFacingTarget;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineCompiler;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
@@ -10,7 +11,7 @@ use function Tests\Support\Rendering\writeTestPng;
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 beforeEach(function () {
-  $this->effectRoot = sys_get_temp_dir() . '/ichiloto-effect-contract-' . bin2hex(random_bytes(6));
+  $this->effectRoot = \getTestTemporaryDirectory() . '/ichiloto-effect-contract-' . bin2hex(random_bytes(6));
   mkdir($this->effectRoot);
   writeTestPng($this->effectRoot . '/sheet.png', 16, 8);
   $this->effects = new EffectTimelineLibrary($this->effectRoot);
@@ -48,6 +49,20 @@ it('preserves independent sequences under the same effect identity', function ()
     ->and($terminal->playbackSegments[0]['drawCommands'][0]['payload']['anchor'])->toBe('caster')
     ->and($graphical->playbackSegments[1]['drawCommands'][0]['payload']['sourceFrame'])->toBe(1);
 });
+
+it('requires subject-front images to stay attached to an individual battle subject', function (bool $battle, array $track) {
+  $sequence = $this->imageSequence;
+  $sequence['tracks'][0] = [...$sequence['tracks'][0], 'depth' => 'subject-front', ...$track];
+  expect(fn() => $this->effects->compile('invalid-relative-depth', $sequence, $battle))
+    ->toThrow(InvalidArgumentException::class, 'subject-front depth requires an attached caster or target battle image');
+})->with([
+  [false, []],
+  [true, ['anchor' => 'screen']],
+  [true, ['anchor' => 'stage']],
+  [true, ['anchor' => 'target-group']],
+  [true, ['detachFrame' => 1]],
+  [true, ['flight' => []]],
+]);
 
 it('preserves explicit image fitting without adding a new default to existing sources', function (bool $battle) {
   $legacy = $this->effects->compile('legacy-fit', $this->imageSequence, $battle);
@@ -233,7 +248,7 @@ it('refuses mixed incomplete or nested sequence ownership', function (array $dat
 ]);
 
 it('refuses a timeline symlink escaping the asset root without evaluating it', function () {
-  $outside = tempnam(sys_get_temp_dir(), 'ichiloto-effect-escape-');
+  $outside = tempnam(\getTestTemporaryDirectory(), 'ichiloto-effect-escape-');
   file_put_contents($outside, '<?php throw new LogicException("must not execute");');
   mkdir($this->effectRoot . '/Animations/escape', 0777, true);
   symlink($outside, $this->effectRoot . '/Animations/escape/escape.timeline.php');
@@ -252,7 +267,7 @@ it('lists the timelines an asset root holds by identity, without reading them', 
   file_put_contents($this->effectRoot . '/Animations/ember-burst/ember-burst.timeline.php', '<?php return [];');
   file_put_contents($this->effectRoot . '/Animations/Bad Id/Bad Id.timeline.php', '<?php return [];');
   file_put_contents($this->effectRoot . '/Animations/misnamed/other.timeline.php', '<?php return [];');
-  $outside = tempnam(sys_get_temp_dir(), 'ichiloto-effect-escape-');
+  $outside = tempnam(\getTestTemporaryDirectory(), 'ichiloto-effect-escape-');
   mkdir($this->effectRoot . '/Animations/escape');
   symlink($outside, $this->effectRoot . '/Animations/escape/escape.timeline.php');
 
@@ -286,3 +301,22 @@ it('refuses unsupported or gameplay-owning field cues rather than silently dropp
   expect(fn() => $this->effects->compile('field', $data))
     ->toThrow(InvalidArgumentException::class, 'field presentation cue');
 })->with(['impact' => 'applyEffect', 'message' => 'showMessage', 'flash' => 'flash', 'shake' => 'shake']);
+
+it('carries what a directional battle track turns toward and refuses it without a facing', function () {
+  $this->imageSequence['tracks'][0] += ['facing' => 'west', 'toward' => 'opponents', 'anchor' => 'target'];
+  $image = $this->effects->compile('ward', $this->imageSequence, true);
+  expect($image->playbackSegments[0]['drawCommands'][0]['payload'])->toMatchArray(['facing' => 'west', 'toward' => 'opponents']);
+  $this->terminalSequence['tracks'][0] += ['facing' => 'west', 'toward' => 'opponents'];
+  $glyph = $this->effects->compile('ward', $this->terminalSequence, true, EffectPresentation::TERMINAL);
+  expect($glyph->playbackSegments[0]['drawCommands'][0]['payload'])->toMatchArray(['facing' => 'west', 'toward' => 'opponents'])
+    ->and(EffectFacingTarget::cases())->toHaveCount(2);
+  foreach (['enemies', '', null, 1] as $toward) {
+    $bad = $this->imageSequence;
+    $bad['tracks'][0]['toward'] = $toward;
+    expect(fn() => $this->effects->compile('bad-toward', $bad, true))->toThrow(InvalidArgumentException::class);
+  }
+  $bad = $this->imageSequence;
+  unset($bad['tracks'][0]['facing']);
+  expect(fn() => $this->effects->compile('undirected-toward', $bad, true))->toThrow(InvalidArgumentException::class, 'facing')
+    ->and(fn() => $this->effects->compile('field-toward', $this->imageSequence))->toThrow(InvalidArgumentException::class);
+});

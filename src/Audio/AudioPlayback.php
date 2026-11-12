@@ -35,6 +35,7 @@ class AudioPlayback
    * @var bool
    */
   protected bool $isClosed = false;
+  protected(set) bool $isPaused = false;
   /** The child's exit status, retained before its process handle is released. */
   protected(set) ?int $exitCode = null;
   protected(set) bool $wasInterrupted = false;
@@ -102,6 +103,34 @@ class AudioPlayback
     return new self($process, $command);
   }
 
+  /** Pause this owned player in place without restarting its process. */
+  public function pause(): void
+  {
+    if ($this->isClosed || $this->isPaused || !$this->isRunning) { return; }
+    if (!$this->canPause()) {
+      throw new \RuntimeException('The command-line audio player requires POSIX process suspension to pause.');
+    }
+    if (!proc_terminate($this->process, SIGSTOP)) {
+      throw new \RuntimeException('Could not pause the owned audio player.');
+    }
+    $this->isPaused = true;
+  }
+
+  /** Reports capability before a group changes any player's state. */
+  public function canPause(): bool
+  {
+    return PHP_OS_FAMILY !== 'Windows' && defined('SIGSTOP') && defined('SIGCONT');
+  }
+
+  public function resume(): void
+  {
+    if ($this->isClosed || !$this->isPaused) { return; }
+    if ($this->isRunning && !proc_terminate($this->process, SIGCONT)) {
+      throw new \RuntimeException('Could not resume the owned audio player.');
+    }
+    $this->isPaused = false;
+  }
+
   /**
    * Terminates the process if it is still running and releases the handle.
    *
@@ -118,10 +147,17 @@ class AudioPlayback
 
     if ($this->isRunning) {
       $this->wasInterrupted = true;
-      proc_terminate($this->process);
+      // A stopped process cannot handle termination until it is continued.
+      // Kill only this owned child if continuation fails; never block reaping it.
+      if ($this->isPaused && !proc_terminate($this->process, SIGCONT)) {
+        proc_terminate($this->process, SIGKILL);
+      } else {
+        proc_terminate($this->process);
+      }
     }
 
     proc_close($this->process);
     $this->isClosed = true;
+    $this->isPaused = false;
   }
 }

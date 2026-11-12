@@ -176,14 +176,19 @@ final class MenuRowPainter
     $iconCells = $hasIcon ? (int)ceil($metrics->iconWidth / $layout->cellWidth) + $metrics->gapCells : 0;
     $length = mb_strlen($row->label, 'UTF-8');
     if ($row->kind->isAction()) {
-      $available = $bounds->width - 2 * ($metrics->padding + $iconCells * $layout->cellWidth);
+      $centered = $row->kind->getLabelAlignment() === HorizontalAlignment::CENTER;
+      $cells = $layout->getLabelCells($row, $metrics) - $iconCells * ($centered ? 2 : 1);
       if ($length === 0) { return; }
-      $lines = $layout->lines($row->label, (int)floor($available / $layout->cellWidth));
+      $lines = $layout->lines($row->label, $cells);
       $length = max(array_map(mb_strlen(...), $lines));
       $runs = [];
-      foreach ($lines as $line => $text) { $runs[] = new PresentationTextRun($line, intdiv($length - mb_strlen($text), 2), $text, $color); }
+      foreach ($lines as $line => $text) {
+        $runs[] = new PresentationTextRun($line, $centered ? intdiv($length - mb_strlen($text), 2) : 0, $text, $color);
+      }
+      $x = $centered ? $bounds->x + ($bounds->width - $length * $layout->cellWidth) / 2
+        : $bounds->x + $metrics->padding + $iconCells * $layout->cellWidth;
       $this->text[] = new CanvasTextLayer($id . '-text', $this->contentLayer,
-        $bounds->x + ($bounds->width - $length * $layout->cellWidth) / 2, $y,
+        $x, $y,
         new RendererGridConfig($length, count($lines), $layout->cellWidth, $layout->cellHeight), $runs, $bounds);
       return;
     }
@@ -191,16 +196,17 @@ final class MenuRowPainter
       throw new InvalidArgumentException("Menu row {$row->id} must supply every configured value column, including empty fields.");
     }
     $cells = $layout->textCells($metrics);
-    $labelCells = $cells - $layout->valueCells($metrics);
+    $labelCells = $layout->getLabelCells($row, $metrics);
     $runs = [];
-    $lines = $layout->lines($row->label, $labelCells - $iconCells);
+    $lines = $layout->labelLines($row->label, $labelCells - $iconCells);
     $lineCount = count($lines);
     foreach ($lines as $line => $text) {
       if ($text !== '') { $runs[] = new PresentationTextRun($line, $iconCells, $text, $color); }
     }
-    $column = $labelCells;
+    // Value columns keep their places, whether or not this row's label reaches over empty ones.
+    $column = $cells - $layout->valueCells($metrics);
     foreach ($layout->columns as $index => $definition) {
-      $column += $metrics->gapCells;
+      $column += $definition->gap ?? $metrics->gapCells;
       $value = $row->values[$index];
       if ($value->direction !== null) {
         $left = $bounds->x + $bounds->width - $metrics->padding - $cells * $layout->cellWidth;
@@ -213,12 +219,17 @@ final class MenuRowPainter
           continue;
         }
       }
-      $lines = $layout->lines($value->text, $definition->cells);
+      $lines = $layout->valueLines($value->text, $definition);
       $lineCount = max($lineCount, count($lines));
+      // A labelled column holds its label in one place on the value's first line, as every presentation lays it out.
+      $labelCells = $definition->cells - $definition->getFigureCells();
+      if ($definition->label !== null && $lines[0] !== '') {
+        $runs[] = new PresentationTextRun(0, $column, $definition->label, $row->disabled ? $color : ($value->color ?? $color));
+      }
       foreach ($lines as $line => $text) {
         $length = mb_strlen($text, 'UTF-8');
-        $space = $definition->cells - $length;
-        $offset = match ($definition->alignment) {
+        $space = $definition->getFigureCells() - $length;
+        $offset = $labelCells + match ($definition->alignment) {
           HorizontalAlignment::LEFT => 0,
           HorizontalAlignment::CENTER => intdiv($space, 2),
           HorizontalAlignment::RIGHT => $space,

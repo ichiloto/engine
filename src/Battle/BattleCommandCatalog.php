@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Battle;
 
 use Ichiloto\Engine\Animations\AnimationLibrary;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
+use Ichiloto\Engine\Battle\Actions\CrisisSkillBattleAction;
 use Ichiloto\Engine\Battle\Actions\GuardAction;
 use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
@@ -97,7 +98,7 @@ final class BattleCommandCatalog
       return [];
     }
     return match ($type) {
-      BattleCommandType::ATTACK => self::buildAttackOptions($character),
+      BattleCommandType::ATTACK => self::buildAttackOptions($character, $party, $gameState),
       BattleCommandType::SKILL => self::buildSkillOptions($character),
       BattleCommandType::MAGIC => self::buildMagicOptions($character),
       BattleCommandType::SUMMON => self::buildSummonOptions($character, $party, $gameState),
@@ -146,7 +147,7 @@ final class BattleCommandCatalog
    *
    * @return BattleCommandOption[] The available attack options.
    */
-  protected static function buildAttackOptions(Character $character): array
+  protected static function buildAttackOptions(Character $character, ?Party $party = null, ?GameState $gameState = null): array
   {
     $skills = [];
     if ($character->attackSkill !== null) {
@@ -170,7 +171,19 @@ final class BattleCommandCatalog
       ));
     }
 
+    $crisis = self::getAvailableCrisisOption($character, $party, $gameState);
+    if ($crisis !== null) { $options[] = $crisis; }
     return $options;
+  }
+
+  /** One live actor/form technique, shared by held command selection and event-only submenus. */
+  public static function getAvailableCrisisOption(Character $character, ?Party $party = null,
+    ?GameState $gameState = null): ?BattleCommandOption
+  {
+    $ability = $character->crisisAbility;
+    $skill = $ability?->getAvailableSkill($character, $gameState, $party);
+    return $skill === null || $ability === null ? null : self::createSkillOption($skill,
+      new CrisisSkillBattleAction($skill, $ability, $character->actorId, $gameState, $party));
   }
 
   /**
@@ -312,6 +325,7 @@ final class BattleCommandCatalog
   public static function getActionType(?BattleAction $action): BattleCommandType
   {
     return match (true) {
+      $action instanceof CrisisSkillBattleAction => BattleCommandType::ATTACK,
       $action instanceof GuardAction => BattleCommandType::GUARD,
       $action instanceof ItemBattleAction => BattleCommandType::ITEM,
       $action instanceof SkillBattleAction && self::isSummonSkill($action->skill) => BattleCommandType::SUMMON,
@@ -341,10 +355,10 @@ final class BattleCommandCatalog
    * @param Skill $skill The skill to convert.
    * @return BattleCommandOption The submenu option.
    */
-  protected static function createSkillOption(Skill $skill): BattleCommandOption
+  protected static function createSkillOption(Skill $skill, ?SkillBattleAction $action = null): BattleCommandOption
   {
     $costLabel = $skill->cost > 0 ? sprintf(' (%d %s)', $skill->cost, Vocabulary::getTerm('stats.mp', 'MP')) : '';
-    $action = new SkillBattleAction($skill);
+    $action ??= new SkillBattleAction($skill);
     $scope = $action->targetScope;
 
     return new BattleCommandOption(

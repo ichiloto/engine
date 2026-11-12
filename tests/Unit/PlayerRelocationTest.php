@@ -95,7 +95,6 @@ final class RelocationTestPresentation implements EventPresentationInterface
 
 final class RelocationTestModals extends ModalManager
 {
-  public function __construct() {}
   public function select(string $message, array $options, string $title = '', int $default = 0,
     ?Vector2 $position = null, int $width = DEFAULT_SELECT_DIALOG_WIDTH, int $height = DEFAULT_SELECT_DIALOG_HEIGHT): int
   { return 0; }
@@ -170,7 +169,7 @@ beforeEach(function () {
   $this->audio = $this->game->audioManager;
   new ReflectionProperty(Console::class, 'game')->setValue(null, $this->game);
   new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, $this->audio);
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, new RelocationTestModals());
+  $this->game->bindModalManager(new RelocationTestModals($this->game));
   $this->scene = new RelocationTestScene($this->game, $this->root);
 });
 

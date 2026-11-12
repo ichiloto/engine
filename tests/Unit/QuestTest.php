@@ -25,7 +25,7 @@ it('hydrates a quest from its data-file entry', function () {
       ['type' => 'reach_map', 'target' => 'happyville/town-center'],
       ['type' => 'collect', 'target' => 'S-Mana', 'quantity' => 2],
     ],
-    'rewards' => ['gold' => 200, 'experience' => 50, 'items' => ['S-Potion']],
+    'rewards' => ['gold' => 200, 'experience' => 50, 'skillPoints' => 10, 'items' => ['S-Potion']],
     'prerequisites' => [['type' => 'quest', 'name' => 'intro', 'status' => 'completed']],
   ]);
 
@@ -35,7 +35,7 @@ it('hydrates a quest from its data-file entry', function () {
     ->and($quest->objectives)->toHaveCount(2)
     ->and($quest->objectives[0]->type)->toBe(QuestObjectiveType::REACH_MAP)
     ->and($quest->objectives[1]->quantity)->toBe(2)
-    ->and($quest->describeRewards())->toBe('200 G, 50 EXP, S-Potion');
+    ->and($quest->describeRewards())->toBe('200 G, 50 EXP, 10 SP, S-Potion');
 });
 
 it('rejects quests without ids or objectives', function () {
@@ -190,6 +190,24 @@ it('refreshes collect progress through a declared alias after an item label chan
       ConfigStore::put(ItemStore::class, $previous);
     }
   }
+});
+
+it('completes on load an active quest whose objectives are all met, as when the last one was met', function () {
+  // Saved when the quest had a second objective, which the content no longer has.
+  $quest = Quest::fromArray(['id' => 'errand', 'name' => 'Errand', 'rewards' => ['gold' => 200],
+    'objectives' => [['type' => 'talk_to', 'target' => 'Keeper']]]);
+  $party = new Party();
+  $manager = new CollectIdentityQuestManager($quest, $party, []);
+  $manager->hydrate(['active' => ['errand' => [1, 0]], 'completed' => []]);
+
+  expect($manager->log->isCompleted('errand'))->toBeTrue()
+    ->and($party->accountBalance)->toBe(200);
+
+  // A quest still short of an objective stays active.
+  $waiting = new CollectIdentityQuestManager($quest, new Party(), []);
+  $waiting->hydrate(['active' => ['errand' => [0]], 'completed' => []]);
+
+  expect($waiting->log->isActive('errand'))->toBeTrue();
 });
 
 it('ignores malformed persisted entries', function () {

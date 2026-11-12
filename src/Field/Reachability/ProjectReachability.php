@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Field\Reachability;
 
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Assegai\Util\Path;
 use Closure;
 use Ichiloto\Engine\Core\CellArea;
@@ -11,8 +12,12 @@ use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTriggerFactory;
 use Ichiloto\Engine\Events\Triggers\SleepEventTrigger;
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
+use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Field\MapCollisionResolver;
+use Ichiloto\Engine\Field\MapDoorReference;
 use Ichiloto\Engine\Field\MapPhysicalOccupancy;
+use Ichiloto\Engine\Field\MapTerrainKinds;
+use Ichiloto\Engine\Rendering\Tilesets\Tileset;
 use Ichiloto\Engine\Field\MapSourceReader;
 use Ichiloto\Engine\Field\MapLayerSet;
 use InvalidArgumentException;
@@ -54,9 +59,11 @@ final class ProjectReachability
    * @param string $assetRoot The project's `assets` directory.
    * @param array<string, array{data: array, layers: MapLayerSet, eventLayer: array}|null> $mapSources
    *   Current authored overrides keyed by map id; null removes a map from this read-only view.
+   * @param (Closure(string): Tileset)|null $loadTileset Current tileset reader for every map, including maps whose declarations are unchanged.
    */
-  public static function analyze(string $assetRoot, array $mapSources = []): self
+  public static function analyze(string $assetRoot, array $mapSources = [], ?Closure $loadTileset = null): self
   {
+    $worldAbilities = WorldAbilityCatalog::fromProject($assetRoot);
     $mapsDirectory = Path::join($assetRoot, 'Maps');
     $problems = [];
     $maps = [];
@@ -97,7 +104,6 @@ final class ProjectReachability
           }
           continue;
         }
-        $events = array_map(ReachabilityEvent::fromDefinition(...), $source['data']['events']);
         // Only arrivals are built as triggers: they read nothing but their own data.
         $arrivals = array_map(
           static fn(array $event): EventTrigger => EventTriggerFactory::create($event, $mapId),
@@ -111,13 +117,9 @@ final class ProjectReachability
         );
         $maps[$mapId] = [
           'data' => $source['data'],
-          'map' => new MapReachability(
-            $mapId,
-            MapCollisionResolver::resolveMap($source['layers'], $source['data'], $dictionary ?? [])->collisionGrid,
-            $events,
-            $edgeTriggers,
-            array_values(array_filter(array_map(NpcPlacement::fromArray(...), (array) ($source['data']['npcs'] ?? [])))),
-          ),
+          'map' => MapReachability::readMap($mapId, $source['data'],
+            MapCollisionResolver::resolveMap($source['layers'], $source['data'], $dictionary ?? [],
+              MapTerrainKinds::loadForMap($assetRoot, $source['data'], $loadTileset))->collisionGrid, $worldAbilities),
           'arrivals' => $arrivals,
           'edgeTriggers' => $edgeTriggers,
         ];
@@ -130,8 +132,8 @@ final class ProjectReachability
     // Every arrival, with what the player must reach for it to happen: null
     // for one that can happen anywhere (the start, common events, cinematics).
     $arrivals = [];
-    $addArrival = static function (string $from, string $to, int $x, int $y, string $source, ?Closure $requires)
-      use (&$arrivals, &$problems, $maps): void {
+    $addArrival = static function (string $from, string $to, int $x, int $y, string $source, ?Closure $requires,
+      array $conditions = []) use (&$arrivals, &$problems, $maps): void {
       if (! isset($maps[$to])) {
         $problems[] = new ReachabilityProblem($from, ReachabilityProblemKind::UNKNOWN_DESTINATION,
           sprintf('%s sends the player to map "%s", which the project does not have or cannot read.', $source, $to));
@@ -140,24 +142,33 @@ final class ProjectReachability
       }
 
       $arrivals[] = ['from' => $requires === null ? null : $from, 'to' => $to,
-        'entrance' => new ReachabilityEntrance($x, $y, $source), 'requires' => $requires];
+        'entrance' => new ReachabilityEntrance($x, $y, $source, $conditions), 'requires' => $requires];
+    };
+    $resolveDoor = static function (array $command, string $source) use ($maps, &$problems): ?Location {
+      try {
+        $door = MapDoorReference::fromCommand($command);
+        return $door->resolve($maps[$door->map]['data']['events'] ?? []);
+      } catch (Throwable $error) {
+        $problems[] = new ReachabilityProblem($source, ReachabilityProblemKind::UNKNOWN_DESTINATION, $error->getMessage());
+        return null;
+      }
     };
     $standingIn = static fn(Rect|CellArea $area): Closure => static fn(MapReachabilityReport $report): bool => $report->isAnyReachable($area);
+    $engaging = static fn(ReachabilityEvent $event): Closure => static fn(MapReachabilityReport $report): bool => $report->canEngage($event);
     $besideNpc = static fn(NpcPlacement $npc): Closure => static fn(MapReachabilityReport $report): bool =>
       $report->canSpeakTo($npc->x, $npc->y);
 
     foreach ($maps as $mapId => $map) {
       foreach ($map['arrivals'] as $event) {
         $marker = $event->marker ?? '?';
-        $standingArea = new ReachabilityEvent($event->area, $event::class, $event->marker,
-          $event->engagement, $event->facing)->getStandingArea();
+        $subject = new ReachabilityEvent($event->area, $event::class, $event->marker, $event->engagement, $event->facing);
 
         if ($event instanceof TransferPlayerTrigger) {
           $addArrival($mapId, $event->destinationMap, intval($event->spawnPoint->x), intval($event->spawnPoint->y),
-            "transfer {$marker} on {$mapId}", $standingIn($standingArea));
+            "transfer {$marker} on {$mapId}", $engaging($subject), $event->conditions);
         } elseif ($event instanceof SleepEventTrigger) {
           $addArrival($mapId, $mapId, intval($event->spawnPoint->x), intval($event->spawnPoint->y),
-            "sleep event {$marker} on {$mapId}", $standingIn($standingArea));
+            "sleep event {$marker} on {$mapId}", $engaging($subject), $event->conditions);
         }
       }
 
@@ -172,24 +183,25 @@ final class ProjectReachability
       foreach ((array) ($map['data']['npcs'] ?? []) as $entry) {
         $npc = NpcPlacement::fromArray($entry);
 
-        foreach ($npc === null ? [] : self::findScriptedArrivals($entry, $mapId) as $arrival) {
+        foreach ($npc === null ? [] : self::findScriptedArrivals($entry, $mapId, $resolveDoor) as $arrival) {
           $addArrival($mapId, $arrival['map'], $arrival['x'], $arrival['y'],
-            "a scripted {$arrival['kind']} by NPC {$npc->name} on {$mapId}", $besideNpc($npc));
+            "a scripted {$arrival['kind']} by NPC {$npc->name} on {$mapId}", $besideNpc($npc), $npc->conditions);
         }
       }
 
       foreach ($map['data']['events'] as $definition) {
         $event = ReachabilityEvent::fromDefinition($definition);
 
-        foreach (self::findScriptedArrivals($definition['data'] ?? [], $mapId) as $arrival) {
+        foreach (self::findScriptedArrivals($definition['data'] ?? [], $mapId, $resolveDoor) as $arrival) {
           $addArrival($mapId, $arrival['map'], $arrival['x'], $arrival['y'],
-            sprintf('a scripted %s in event %s on %s', $arrival['kind'], $event->marker ?? '?', $mapId), $standingIn($event->getStandingArea()));
+            sprintf('a scripted %s in event %s on %s', $arrival['kind'], $event->marker ?? '?', $mapId), $engaging($event),
+            $event->conditions);
         }
       }
 
       $mapLevel = array_diff_key($map['data'], ['npcs' => true, 'events' => true]);
 
-      foreach (self::findScriptedArrivals($mapLevel, $mapId) as $arrival) {
+      foreach (self::findScriptedArrivals($mapLevel, $mapId, $resolveDoor) as $arrival) {
         $addArrival($mapId, $arrival['map'], $arrival['x'], $arrival['y'], "a scripted {$arrival['kind']} on {$mapId}",
           static fn(): bool => true);
       }
@@ -200,7 +212,7 @@ final class ProjectReachability
 
       // A shared script runs on whichever map calls it, so only its
       // transfers name the map they arrive on.
-      foreach (self::findScriptedArrivals($commands, null) as $arrival) {
+      foreach (self::findScriptedArrivals($commands, null, $resolveDoor, $relative) as $arrival) {
         $addArrival($relative, $arrival['map'], $arrival['x'], $arrival['y'], "a scripted {$arrival['kind']} in {$relative}", null);
       }
     }
@@ -238,7 +250,9 @@ final class ProjectReachability
     } while ($changed);
 
     foreach ($maps as $mapId => $map) {
-      $reports[$mapId] ??= $map['map']->analyze([]);
+      $reports[$mapId] = isset($reports[$mapId])
+        ? $reports[$mapId]->withProblems($map['map']->findDetouredApproaches($entrances[$mapId]))
+        : $map['map']->analyze([]);
     }
 
     ksort($reports);
@@ -316,9 +330,11 @@ final class ProjectReachability
    * map running the script.
    *
    * @param string|null $currentMap The map the script runs on, when it is known.
+   * @param Closure(array, string): ?Location $resolveDoor Resolves door references against current map declarations.
    * @return list<array{kind: string, map: string, x: int, y: int}>
    */
-  private static function findScriptedArrivals(mixed $node, ?string $currentMap): array
+  private static function findScriptedArrivals(mixed $node, ?string $currentMap, Closure $resolveDoor,
+    ?string $scriptFile = null): array
   {
     if (! is_array($node)) {
       return [];
@@ -332,13 +348,18 @@ final class ProjectReachability
       $arrivals[] = ['kind' => 'transfer', 'map' => trim($node['map']), 'x' => $node['x'], 'y' => $node['y']];
     }
 
+    if ($type === MapDoorReference::COMMAND && ($destination = $resolveDoor($node, $currentMap ?? $scriptFile ?? '')) !== null) {
+      $arrivals[] = ['kind' => 'door transfer', 'map' => $destination->mapFilename,
+        'x' => intval($destination->playerPosition->x), 'y' => intval($destination->playerPosition->y)];
+    }
+
     if ($type === 'inn' && $currentMap !== null
       && is_int($node['spawnPoint']['x'] ?? null) && is_int($node['spawnPoint']['y'] ?? null)) {
       $arrivals[] = ['kind' => 'inn stay', 'map' => $currentMap, 'x' => $node['spawnPoint']['x'], 'y' => $node['spawnPoint']['y']];
     }
 
     foreach ($node as $child) {
-      array_push($arrivals, ...self::findScriptedArrivals($child, $currentMap));
+      array_push($arrivals, ...self::findScriptedArrivals($child, $currentMap, $resolveDoor, $scriptFile));
     }
 
     return $arrivals;

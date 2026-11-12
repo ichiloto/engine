@@ -20,11 +20,13 @@ class ShowDialogAction extends FieldAction
   public function execute(ActionContextInterface $context): void
   {
     foreach ($this->trigger->dialogue as $dialogue) {
+      $dialogue->prepareFieldPresentation($context->scene);
       $dialogue->show();
     }
 
     // Finishing the conversation completes the trigger: completion writes
     // (`sets`, quest grants) apply and talk-to objectives advance.
     $this->trigger->complete();
+    $this->markAccepted($context);
   }
 }

@@ -30,6 +30,8 @@ final readonly class PreparedMap
         public array $worldObjects = [],
         public ?MapLandmarkCatalog $landmarks = null,
         public ?MapOverview $overview = null,
+        public ?MapAreaCatalog $areas = null,
+        public ?MapEncounterTerrain $encounterTerrain = null,
     ) {
     }
 }

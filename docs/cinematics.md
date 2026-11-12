@@ -31,6 +31,10 @@ assets/Cutscenes/Cinematics/<id>/<id>.data.php
 assets/Cutscenes/Cinematics/<id>/<id>.script.php
 ```
 
+Cinematic and summon PHP source files return their authored arrays independently.
+Local variables in one file are scoped to that file and cannot alter the loader
+or the companion file.
+
 `CinematicLibrary` discovers and hydrates this layout without booting a game
 scene. The folder name and the `id` in the data file must match. IDs use
 lowercase letters, numbers, `.`, `_`, and `-`; the display `name` may change
@@ -174,9 +178,10 @@ return [[
 ```
 
 Parallelism is cooperative and deterministic. Each lane owns its frame stack,
-cursor, and pending operation. Every game tick advances lanes in authored
-order, and the parent completes only after all lanes complete. No operating-
-system threads are used. A `common_event` command calls an existing
+cursor, and pending operation. Newly reached groups start their child lanes in
+authored order on the same update, with zero elapsed time for those children.
+Later updates advance their waits and operations in that order. The parent
+completes only after all lanes complete. No operating-system threads are used. A `common_event` command calls an existing
 `assets/Events/<id>.php` module within the same session. Cinematic Common
 Events are validated recursively when loaded; malformed list shapes or
 command entries fail the cinematic with its ID, Common Event ID, lane, and
@@ -239,6 +244,18 @@ visibility, NPC lookup or wandering eligibility. `replace => true` explicitly
 changes an existing staged visual while preserving the subject lease.
 For an unbound replacement, each omitted x/y, facing and collision field retains
 its current value; explicit zero coordinates and `collision => false` are overrides.
+
+An independent staged actor may instead wear a map NPC's look:
+`appearance => ['kind' => 'npc', 'id' => '...']` gives it that NPC's terminal glyph,
+directional glyphs, character sheet and heading, read from the NPC even while its
+conditions hide it from the field. It is the actor's whole look, so `sprite`,
+`sprites`, `sprites2d`, `asset` and `subject` are refused beside it; place it with
+`at => ['kind' => 'npc', 'id' => '...']` to stand where that NPC stands. A
+non-colliding visual that names the same NPC for its look and location, with
+zero offset, starts on that exact cell. The cell may be solid or outside the
+current camera view. The NPC supplies the view while present at that cell;
+the snapshot draws after the NPC leaves or its story conditions hide it.
+A cutaway can use this to show an opening barrier with the art its map owns.
 
 ### Map-Owned World Object Leases
 
@@ -357,21 +374,73 @@ offset. Independent staged actors use the same `at`/`offset` shape:
 `at` supports `player`, `npc`, `world_object`, `staged_actor`, `party_actor` and
 `marker` through `CinematicSubjectResolver`. Named subjects require their stable
 ID; the player and current leading party actor need no ID. The reference contains
-only `kind` and optional `id`. Offset axes are signed integer cells within
+only `kind`, optional `id` and, for a staged visual, optional `attachment`. Offset axes are signed integer cells within
 -16384..16384; omitted axes are zero. An explicit null or empty offset is invalid.
 Do not also declare independent x/y coordinates. Real-subject bound visuals
 still inherit their real transform and cannot declare `at` or an offset.
 
+An independent staged visual may sit on a feature of a world object's art
+instead: `at` adds `attachment`, the id of an attachment the object's
+resource declares (see Graphical Field). The terminal shows the visual on
+the attachment's cell; graphical art is centred on the attachment's point of
+the object's current artwork, so replaced art carries it along. It takes no
+offset and cannot move. A replacement staged without a new place keeps its
+attachment. Only staged visuals accept an attachment; route waypoints refuse
+one.
+
+```php
+['type' => 'stage_actor', 'id' => 'relay-pulse', 'sprite' => '*',
+ 'at' => ['kind' => 'world_object', 'id' => 'relay', 'attachment' => 'aerial'],
+ 'sprites2d' => ['asset' => 'Graphics/Effects/Pulse.png', 'layer' => 150]],
+```
+
 `CinematicRelativePosition` is the shared runtime/authoring boundary. It resolves
 the subject when staging begins or each route leg begins, reading its current
 map position. It never reads image dimensions, chooses a substitute cell or
-changes a real subject's transform. Independent visual staging retains its
-off-map capability; route destinations must be integral cells inside the map
-and pass the existing collision-aware planner. A target that disappears fails
+changes a real subject's transform. Independent subject-relative staging then
+checks the exact physical floor through `CinematicStagePlacement`. The camera can
+start outside the actor's cell. An NPC snapshot and a visual on a named attachment
+use their source object's cell. Absolute visual staging keeps its authored coordinates. Route destinations
+must be integral cells inside the map and pass the collision-aware planner. A target that disappears fails
 the command, preserving the event session's existing rollback/cleanup behavior.
 An already-started leg keeps its planned endpoint rather than chasing a moving
 target. Later legs read the subject's then-current position. Recorded returns
 retrace the actual successful path, with no new save state.
+
+#### End facing
+
+A walking character keeps the heading of its last step. A staged position says
+which way its character faces once it is there: `facing` names a cardinal
+(`north`, `east`, `south`, `west`), and `faceToward` names a map subject with the
+same `kind`/`id` reference as `at`. Any waypoint, absolute or relative, and any
+independent staged actor accepts one of the two, never both:
+
+```php
+['type' => 'move_route', 'subject' => 'player',
+ 'waypoints' => [['at' => ['kind' => 'world_object', 'id' => 'lamp-1'],
+                  'offset' => ['x' => -3, 'y' => 1],
+                  'faceToward' => ['kind' => 'world_object', 'id' => 'lamp-1']]]],
+['type' => 'stage_actor', 'id' => 'companion', 'sprite' => 'C',
+ 'at' => ['kind' => 'world_object', 'id' => 'lamp-1'], 'offset' => ['x' => 3, 'y' => 1],
+ 'faceToward' => ['kind' => 'world_object', 'id' => 'lamp-1']],
+```
+
+Independent subject-relative cast reserve their authored ground cell even when
+their movement collision is disabled. That cell must be within the map, walkable
+and unoccupied. A refusal identifies the actor and requested cell before any
+actor replacement or subject acquisition. A non-colliding NPC snapshot using its
+source NPC's cell is a visual copy of that NPC. It appears when the original
+leaves or becomes inactive, and the map keeps ownership of the cell's collision.
+
+`CinematicFacing` is the shared runtime/authoring boundary. `faceToward` is
+resolved when the staging command or route leg begins, from the cell the
+character stands on there: it turns along the longer axis toward the subject's
+current cell, and an even split faces north or south. A character standing on
+its subject keeps its heading. A waypoint's facing is one turn after the leg's
+last step, also when the leg needs no step. Recorded returns retrace only steps
+and still restore the entry facing. Bound visuals inherit their real subject's
+heading and declare neither field; turn the real player or NPC with its route.
+Ordinary NPC scripts and map-event routes accept the same waypoint fields.
 
 ```php
 ['type' => 'move_route', 'subject' => 'player', 'remember' => 'approach',
@@ -418,6 +487,63 @@ Timed operations yield inside their lane, so camera, actor, dialogue, audio,
 and presentation work may overlap. Reduced-motion mode jumps each motion to
 the same final camera state. Completion, skip, transfer, and failure cannot
 leave ordinary play with a stranded detached camera.
+
+With `camera_motion`, `pan` and each `route` point retain one graphical
+destination while PHP continues sampling the same logical camera positions and
+owning command completion. All projected field content uses that destination;
+the native field clock interpolates from the currently drawn origin. Repeated
+PHP samples retain the transition ID. A long operation uses successive segments
+of at most 60 seconds, preserving its authored total duration. Route overflow
+starts the next segment with the remaining point duration. Dialogue framing
+combines its safe interval with the destination and returns to that destination
+when its lease closes. Older transition owners cannot release newer ones.
+
+Unsupported presentation keeps PHP's existing sampled interpolation. Reduced
+motion cancels retained interpolation and applies the same final state. Resize
+clears stale projection; a live operation resumes its remaining segment. `focus`,
+`track` and `shake` retain their existing operations. Seekable Editor previews
+use PHP-sampled camera positions until a controllable native field-clock contract
+can follow pause, step and seek; native preview acceptance remains open.
+
+## Dialogue-safe camera framing
+
+Active field cinematics reserve the actual dialogue body, nameplate and portrait
+area through `DialoguePageGeometry`, shared with the drawing path. The scene
+fits the current conversation participants and visible staged actors into a clear
+horizontal band. Semantic speaker groups retain their existing source and real
+subject identities; ordinary room population remains map-owned.
+
+`DialogueCameraFraming` reads current graphical sprite pivots, lifts and size,
+including the previous ground position while a retained step slides. Terminal
+framing uses its own text-box footprint, sprite rows and display widths, including
+the player’s shape clipping. Graphical scale and
+artwork never determine Terminal geometry. Skits own their full presentation.
+
+The Camera owns a transient, signed projection origin for this frame. Empty
+space at map edges and small maps provides framing room without adding physical
+cells or moving actors. Terrain, glyphs, sprites and retained worlds use the same
+origin. Normal camera position and player-follow ownership remain intact;
+authored camera movement continues within the cast-safe range. Native follow
+smoothing stands down while this explicit framing owns the projected origin.
+
+Actual text-box show/hide, cooperative field rendering and viewport changes
+refresh framing. The cinematic keeps its current cast-safe projection between
+lines. Changing the conversation scope, map installation, cinematic cleanup and
+shutdown release it. An older owner's cleanup cannot clear a newer frame.
+No camera framing is saved as world progress.
+
+With negotiated `camera_motion`, graphical corrections and the return to the
+restored logical camera use 0.2-second smoothstep transitions. Cinematic cleanup
+restores subject transforms and logical camera ownership before releasing its
+framing lease. Unsupported and reduced-motion presentations use immediate
+logical framing. Terminal framing keeps its existing geometry and timing.
+
+A cast too large for the available reading viewport reports a staging diagnostic
+through `GameScene::getDialogueFramingDiagnostic()`. Authors can correct the
+physical choreography or reading viewport through their existing sources.
+Framing does not hide participants, alter collision, relocate the dialogue box
+or silently reduce the project's field scale. Complete Game-scene previews and
+native acceptance remain separate from Engine geometry/lifecycle checks.
 
 ## Presentation and audio
 
@@ -511,6 +637,12 @@ policy under `ui.cinematics.narration.minimum_duration`,
 wrapped subtitle within the centred card. A duration of zero still suppresses
 either timed overlay immediately.
 
+An optional `presentation` field selects `all` (the default), `terminal`, or
+`graphical`. The active field projection decides whether to draw the overlay.
+A renderer or field-capability change can switch the visible projection during
+the cue. The operation, reading duration and following story commands use the
+same clock on every surface.
+
 `cinematic_music` supports `track`, `loop`, `fadeIn`, `fadeOut`,
 `completionBehavior`, and `restorePreviousMusic`. Completion behavior is
 `continue`, `stop`, or `restore_previous`; `restorePreviousMusic` remains a
@@ -530,6 +662,46 @@ Legacy `animation`/`id` records remain accepted with their exact consumer-owned
 `secondsPerFrame` (0.12 by default), including blank frames and the last frame's
 full hold. These compatibility records are not retired yet.
 
+An optional `follow => true` keeps a field effect on a selected live `player`,
+`party_actor`, `npc`, `world_object` or `staged_actor`. Its current world ground
+position and retained step motion drive the effect placement. The selected
+object, map/layer owner and cinematic generation are captured when the command
+starts; replacement, removal, hidden eligibility, transfer and cleanup end that
+binding before later cues. Fixed map/screen positions retain their existing
+snapshot behavior and reject `follow => true`. Party actor references resolve
+the current participating leader to the player, independently of permanent
+roster order. The effect never moves the subject or changes collision or saves.
+
+Artwork composition stays in the resource. An eye-flare pose can use an existing
+`stage_actor` subject binding and full-frame `FieldPoseAnimation`; the real actor
+owns position, facing and physical occupancy. Field effects own ground placement
+and their timeline's image extents/offsets. No actor-specific eye pixel is stored
+in the shared Engine. Editors consume `fieldAnimation` in the cinematic schema
+for the follow checkbox and its constrained subject choices.
+
+An optional `plane` on `field_animation`, `stage_actor` and cast entries selects
+where the graphical art draws. `field`, the default, keeps it in the field world,
+under cinematic covers. `aboveCover` lifts its current image onto the cinematic
+stage plane: over the field, the active `play_stage` cover (a dim) and any
+transition cover, at full strength, and below cinematic text, map transfer
+covers and notifications. The image keeps the place, frame, size, layer order and
+opacity of its field sprite. Subject identity, timing, collision, events and saves
+are unchanged. Shared validation refuses any other value, and refuses
+`aboveCover` on a `world_object` takeover, whose art is a compound field canvas.
+For example, an eye-flare pose staged on the player with `'plane' => 'aboveCover'`
+and a shockwave `field_animation` with the same plane both draw over a dim that
+runs in a parallel lane.
+
+Terminal glyphs keep their existing layers on either plane; a stage dim has no
+Terminal part. A renderer that cannot present the stage plane keeps the art in
+the field. On the stage plane the image stands on its subject's current cell
+each frame. The renderer's step slides, camera eases, bobs and foliage belong to
+the field world and do not apply there, so a subject walking or a camera panning
+under the cover shows the lifted image moving cell by cell. A smooth moving image
+above the cover needs a negotiated world-anchored overlay image in the Renderer
+protocol, which is not built. A takeover composed in a bed stays in the field.
+Editors consume `fieldPlane` in the cinematic schema for the choice.
+
 Each command owns one session. Parallel commands compose with one another and
 with map effects; completing or cancelling one removes only its effects.
 Finishing a timed narration/title clears only its own overlay, not a newer cue,
@@ -537,6 +709,14 @@ sibling effects or a
 transition cover. Explicit clear, failure, transfer and shutdown release owned
 sessions. Cinematic commands reject looping timelines, whose lifetime belongs
 to the map rather than a blocking command lane.
+
+`play_stage` is a registered field command for a standalone cue-free stage:
+`['type' => 'play_stage', 'stage' => 'transformation-dim', 'seconds' => 1.5]`.
+It uses the shared stage timeline/session and can run beside a field animation
+or sound lane. An explicit null stage background supports transparent overlays;
+the existing default remains opaque black. See
+[caller-owned stages](effect-animation.md#caller-owned-rest-stages-local-g4-foundation-october-7)
+for cover-only sources, Terminal timing and Editor authoring.
 
 Field timelines currently present glyph/text/image tracks and `playSound` cues.
 Terminal and graphical sequences may have independent timing, selected before

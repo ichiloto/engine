@@ -114,9 +114,10 @@ it('rejects invalid declarations at bootstrap and clears the former project', fu
   'wrong type' => ['<?php return ["secondary_action" => ["handler"]];'],
 ]);
 
-it('dispatches the remapped edge once without primary dialogue or continued field movement', function (bool $held, bool $handoff) {
+it('dispatches the remapped edge once without primary dialogue or continued field movement', function (bool $held, bool $handoff, bool $accepted) {
   $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
-    ->onlyMethods(['reconcileFieldPresentation', 'hasUnstableEventSession'])->getMock();
+    ->onlyMethods(['reconcileFieldPresentation', 'hasUnstableEventSession', 'recordPlayerActivity'])->getMock();
+  $scene->expects($this->exactly($accepted ? 1 : 0))->method('recordPlayerActivity');
   $scene->expects($this->atLeastOnce())->method('hasUnstableEventSession')->willReturn(false);
   $manager = makeBareScene(SceneManager::class);
   new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($scene, $manager);
@@ -131,11 +132,14 @@ it('dispatches the remapped edge once without primary dialogue or continued fiel
   $field->expects($this->never())->method('handleNavigation');
   new ReflectionProperty(GameScene::class, 'fieldState')->setValue($scene, $field);
   new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
-  if ($handoff) {
-    SecondaryFieldRecordingAction::$onExecute = static function () use ($manager): void {
+  SecondaryFieldRecordingAction::$onExecute = static function (FieldActionContext $context) use ($manager, $handoff, $accepted): void {
+    if ($accepted) {
+      $context->markAccepted();
+    }
+    if ($handoff) {
       new ReflectionProperty(SceneManager::class, 'currentScene')->setValue($manager, makeBareScene(GameScene::class));
-    };
-  }
+    }
+  };
   FieldActionRegistry::configure(SecondaryFieldRecordingAction::class);
   InputManager::setBindings(['secondary_action' => ['keys' => [KeyCode::F2]]]);
   expect(ActionHints::resolve('secondary_action', 'Challenge')->control->label)->toBe('F2');
@@ -154,4 +158,4 @@ it('dispatches the remapped edge once without primary dialogue or continued fiel
   if ($handoff) { $field->execute(); }
   expect(Input::isButtonDown('secondary_action'))->toBeFalse()
     ->and(SecondaryFieldRecordingAction::$contexts)->toHaveCount(1);
-})->with([false, true])->with([false, true]);
+})->with([false, true])->with([false, true])->with([false, true]);

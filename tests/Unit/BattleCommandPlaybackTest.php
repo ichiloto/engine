@@ -24,6 +24,99 @@ function commandPlaybackFixture(?CompiledEffectTimeline $source = null, ?Compile
     $actor, [$actor], BattlePoseRole::ATTACK, $resolve ?? static fn() => null, $present ?? static fn() => null);
 }
 
+it('holds a flash step on its authored clock at either distance and owns its echoes', function (int $distance) {
+  $timing = new \Ichiloto\Engine\Animations\FlashStepTiming(24, 20, 3, 10, 3, 7, 2);
+  $pose = new \Ichiloto\Engine\Battle\Presentation\BattlerPose('fixture.png', columns: 3, frames: [1],
+    fps: 24, loop: false, impactFrame: 0, entryFrames: [0], exitFrames: [2]);
+  $travel = new \Ichiloto\Engine\Battle\Presentation\BattleTravelPlan([[0, 0], [$distance, 0]], $distance, 0, 1, 600, 900);
+  $effect = new CompiledEffectTimeline('flash', '', fps: 24,
+    cueSchedule: [['id' => 'contact', 'type' => 'applyEffect', 'frame' => 1, 'payload' => []]],
+    defaults: ['lengthFrames' => 3]);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .5, .1, .1),
+    target: $effect, travel: $travel, actionPoseOverride: $pose, flashStep: $timing);
+  expect($plan->phases['advance'])->toBe(['start' => 100, 'length' => 15])
+    ->and($plan->phases['target']['start'])->toBe(115)
+    ->and($plan->phases['return'])->toBe(['start' => 165, 'length' => 15])
+    ->and($plan->phases['finish'])->toBe(['start' => 180, 'length' => 35]);
+  $actor = new Character('Synthetic', 1, new Stats(currentHp: 100, totalHp: 100));
+  $hits = 0;
+  $playback = new BattleCommandPlayback($plan, $actor, [], BattlePoseRole::ATTACK,
+    function () use (&$hits): void { $hits++; }, static fn() => null);
+  $playback->begin();
+  expect($playback->getBoundActionPose($actor, BattlePoseRole::ATTACK))->toBeNull();
+  $playback->update(110 / 120);
+  expect($playback->getFlashStepEchoes())->toHaveCount(2)
+    ->and($playback->getTravelOffset()->x)->toEqualWithDelta($distance * 2 / 3, .001)
+    ->and($playback->getPoseSequence($actor, BattlePoseRole::ATTACK)->value)->toBe('entry')
+    ->and($hits)->toBe(0);
+  $playback->update(5 / 120);
+  expect($playback->getFlashStepEchoes())->toBe([])
+    ->and($playback->getTravelOffset()->x)->toEqual($distance)
+    ->and($playback->getBoundActionPose($actor, BattlePoseRole::ATTACK))->toBe($pose)
+    ->and($hits)->toBe(0);
+  $playback->update(55 / 120);
+  expect($playback->getPoseSequence($actor, BattlePoseRole::ATTACK)->value)->toBe('exit')
+    ->and($playback->getFlashStepEchoes())->toHaveCount(1)
+    ->and($hits)->toBe(1);
+  $playback->cancel();
+  expect($playback->getFlashStepEchoes())->toBe([])
+    ->and($playback->getTravelOffset()->x)->toEqual(0)
+    ->and($hits)->toBe(1);
+})->with([90, 480]);
+
+it('plays a target effect across flash-step return and settle without extending the movement', function () {
+  $timing = new \Ichiloto\Engine\Animations\FlashStepTiming(24, 20, 3, 10, 3, 7, 2, overlapEffectTail: true);
+  $pose = new \Ichiloto\Engine\Battle\Presentation\BattlerPose('fixture.png', columns: 4, frames: [1],
+    fps: 24, loop: false, impactFrame: 0, entryFrames: [0], exitFrames: [2], guardFrame: 3);
+  $travel = new \Ichiloto\Engine\Battle\Presentation\BattleTravelPlan([[0, 0], [300, 0]], 300, 0, 1, 600, 900);
+  $effect = new CompiledEffectTimeline('flash', '', fps: 24, cueSchedule: [
+    ['id' => 'contact', 'type' => 'applyEffect', 'frame' => 0, 'payload' => []],
+    ['id' => 'flash', 'type' => 'flash', 'frame' => 0, 'payload' => ['durationFrames' => 24]],
+  ], defaults: ['lengthFrames' => 24]);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .5, .1, .1),
+    target: $effect, travel: $travel, actionPoseOverride: $pose, flashStep: $timing);
+  expect($plan->phases['return'])->toBe(['start' => 165, 'length' => 15])
+    ->and($plan->phases['finish'])->toBe(['start' => 180, 'length' => 35])
+    ->and($plan->phases['effect-tail'])->toBe(['start' => 215, 'length' => 20]);
+  $actor = new Character('Synthetic', 1, new Stats(currentHp: 100, totalHp: 100));
+  $hits = 0;
+  $playback = new BattleCommandPlayback($plan, $actor, [], BattlePoseRole::ATTACK,
+    function () use (&$hits): void { $hits++; }, static fn() => null);
+  $playback->begin();
+  $playback->update(115 / 120);
+  expect($hits)->toBe(1)->and(array_column($playback->getActiveSegments(), 'layer'))->toBe(['flash']);
+  $playback->update(55 / 120);
+  expect($playback->getPoseSequence($actor, BattlePoseRole::ATTACK)->value)->toBe('exit')
+    ->and($playback->getTravelOffset()->x)->toEqualWithDelta(200.0, .001)
+    ->and(array_column($playback->getActiveSegments(), 'layer'))->toBe(['flash']);
+  $playback->update(45 / 120);
+  expect($playback->getTravelOffset()->x)->toBe(0.0)
+    ->and($playback->getBoundActionPose($actor, BattlePoseRole::ATTACK))->toBeNull()
+    ->and(array_column($playback->getActiveSegments(), 'layer'))->toBe(['flash']);
+  $playback->update(21 / 120);
+  expect($playback->isCompleted)->toBeTrue()->and($hits)->toBe(1)
+    ->and($playback->getActiveSegments())->toBe([]);
+});
+
+it('holds each flash-step transit key at an interior route sample in both directions', function () {
+  $timing = new \Ichiloto\Engine\Animations\FlashStepTiming(24, 20, 3, 10, 3, 7, 2, placeTransitOnPoseKeys: true);
+  $pose = new \Ichiloto\Engine\Battle\Presentation\BattlerPose('fixture.png', columns: 4, frames: [3],
+    fps: 24, loop: false, impactFrame: 0, entryFrames: [0, 1, 2], exitFrames: [2, 1, 0]);
+  $travel = new \Ichiloto\Engine\Battle\Presentation\BattleTravelPlan([[0, 0], [400, 0]], 400, 0, 1, 600, 900);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .5, .1, .1),
+    travel: $travel, actionPoseOverride: $pose, flashStep: $timing);
+  $actor = new Character('Synthetic', 1, new Stats(currentHp: 100, totalHp: 100));
+  $playback = new BattleCommandPlayback($plan, $actor, [], BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
+  $playback->begin();
+  $previous = 0;
+  foreach ([99 => 0, 100 => 100, 104 => 100, 105 => 200, 109 => 200, 110 => 300, 114 => 300, 115 => 400,
+    164 => 400, 165 => 300, 169 => 300, 170 => 200, 174 => 200, 175 => 100, 179 => 100, 180 => 0] as $tick => $x) {
+    $playback->update(($tick - $previous) / 120);
+    expect($playback->getTravelOffset()->x)->toEqualWithDelta($x, .001);
+    $previous = $tick;
+  }
+});
+
 it('resolves once between target effects and reaction even when updates cross every stage', function () {
   $events = [];
   $playback = commandPlaybackFixture(resolve: function () use (&$events) { $events[] = 'impact'; },
@@ -36,6 +129,58 @@ it('resolves once between target effects and reaction even when updates cross ev
   $playback->update(5);
   expect($events)->toBe(['advance', 'announce', 'source', 'target', 'impact', 'reaction', 'return', 'finish'])
     ->and($playback->isCompleted)->toBeTrue()->and($playback->getAdvanceFraction())->toBe(0.0);
+});
+
+it('captures once at release and resolves a timed flight at the path distance boundary', function (float $distance) {
+  $effect = (new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary(__DIR__ . '/../Fixtures/Renderer'))->compile('timed-flight', [
+    'fps' => 120, 'lengthFrames' => 100, 'restFrame' => 82, 'flightTiming' => ['track' => 'arrow', 'speed' => 1],
+    'tracks' => [['id' => 'arrow', 'type' => 'image', 'asset' => 'graphical-canvas/synthetic-320x180.png', 'anchor' => 'caster',
+      'attachmentPoint' => 'launch', 'detachFrame' => 10, 'flight' => ['route' => 'straight', 'arrivalFrame' => 82],
+      'keyframes' => [['frame' => 10, 'duration' => 85]]]],
+    'cues' => [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 82],
+      ['id' => 'strike', 'type' => 'playSound', 'frame' => 82, 'payload' => ['asset' => 'strike.wav']]],
+  ], true);
+  $trace = [];
+  $resolve = static function () use (&$trace): void { $trace[] = 'impact'; };
+  $present = static function (array $cue) use (&$trace): void {
+    if ($cue['id'] === 'strike') { $trace[] = 'strike'; }
+  };
+  $playback = commandPlaybackFixture(target: $effect, resolve: $resolve, present: $present);
+  $playback->bindPosePointCapture(static function ($sample) use ($playback, $distance, &$trace): array {
+    $trace[] = $sample->session->currentFrame;
+    return [spl_object_id($playback->actor) => [
+      'path' => new \Ichiloto\Engine\Battle\Presentation\BattlePresentationPath([[0, 0], [$distance, 0]]),
+    ]];
+  }, arenaWidth: 1000);
+  $playback->begin();
+  $release = $playback->plan->flightTiming['release'];
+  $elapsedAtImpact = $release / BattleCommandTimeline::FPS + $distance / 1000;
+  $playback->update($elapsedAtImpact - .001);
+  expect($trace)->toBe([$release]);
+  $playback->update(.001);
+  expect($trace)->toBe([$release, 'impact', 'strike'])
+    ->and($playback->session->currentFrame)->toBe($playback->plan->flightTiming['arrival']);
+  $playback->update(5);
+  expect($trace)->toBe([$release, 'impact', 'strike'])->and($playback->isCompleted)->toBeTrue();
+
+  $fallback = commandPlaybackFixture(target: $effect);
+  $fallback->bindPosePointCapture(static fn(): array => [], arenaWidth: 1000);
+  $fallback->begin();
+  $fallback->update(5);
+  expect($fallback->presentationFailure?->getMessage())->toBe('The timed battle flight has no captured path.')
+    ->and($fallback->isCompleted)->toBeTrue()
+    ->and($fallback->getDurationSeconds())->toBe($fallback->session->timing->durationSeconds);
+})->with([100.0, 350.0, 1300.0]);
+
+it('keeps a shortened flight from starting the return route during the caster recovery', function () {
+  $path = new \Ichiloto\Engine\Battle\Presentation\BattlePresentationPath([[0, 0], [100, 0]]);
+  $clock = new \Ichiloto\Engine\Battle\Presentation\BattleFlightClock(30, 150, $path, 1000, 1,
+    returnFrame: 180, poseEndFrame: 144);
+  expect($clock->getElapsedSeconds(150 / 120))->toEqualWithDelta(.35, 1e-12)
+    ->and($clock->getElapsedSeconds(180 / 120))->toEqualWithDelta(1.2, 1e-12)
+    ->and($clock->getAuthoredSeconds(1.19))->toEqualWithDelta(179 / 120, 1e-12)
+    ->and($clock->getAuthoredSeconds(1.2))->toEqualWithDelta(180 / 120, 1e-12)
+    ->and($clock->getElapsedSeconds(192 / 120))->toEqualWithDelta(1.3, 1e-12);
 });
 
 it('preserves authored effect cadence and target cue impact instead of the source cue', function () {
@@ -220,6 +365,40 @@ it('samples terminal fallback at its own authored speed while target graphics fi
   $playback->update(10);
   expect($hits)->toBe(1)->and($playback->isCompleted)->toBeTrue();
 });
+
+it('keeps a reduced-motion Terminal impact glyph within its authored visibility window', function (bool $fallback) {
+  $impact = ['mode' => 'frame', 'frame' => 4];
+  $terminal = new CompiledEffectTimeline('terminal-impact', '', fps: 12, playbackSegments: [
+    ['startFrame' => 0, 'endFrame' => 0, 'layer' => 'glyph',
+      'drawCommands' => [['trackId' => 'charge', 'content' => ',']]],
+    ['startFrame' => 1, 'endFrame' => 2, 'layer' => 'glyph',
+      'drawCommands' => [['trackId' => 'charge', 'content' => '.']]],
+    ['startFrame' => 3, 'endFrame' => 3, 'layer' => 'glyph',
+      'drawCommands' => [['trackId' => 'charge', 'content' => ':', 'visible' => false]]],
+    ['startFrame' => 4, 'endFrame' => 5, 'layer' => 'glyph',
+      'drawCommands' => [['trackId' => 'contact', 'content' => '*']]],
+  ], defaults: ['lengthFrames' => 8, 'restFrame' => 4, 'effectTiming' => $impact]);
+  $target = $fallback
+    ? new CompiledEffectTimeline('graphical-impact', '', fps: 12,
+      defaults: ['lengthFrames' => 8, 'effectTiming' => $impact])
+    : $terminal;
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
+    target: $target, terminalTarget: $fallback ? $terminal : null);
+  $actor = new Character('Actor', 1, new Stats(currentHp: 100, totalHp: 100));
+  $hits = 0;
+  $playback = new BattleCommandPlayback($plan, $actor, [$actor], BattlePoseRole::ATTACK,
+    function () use (&$hits) { $hits++; }, static fn() => null);
+  $last = 0;
+  foreach ([0 => [['.'], 0], 19 => [['.'], 0], 29 => [['.'], 0], 30 => [[], 0],
+    39 => [[], 0], 40 => [['*'], 1], 59 => [['*'], 1], 60 => [[], 1]] as $tick => [$glyphs, $outcomes]) {
+    $at = $plan->phases['target']['start'] + $tick;
+    $playback->update(($at - $last) / BattleCommandTimeline::FPS);
+    $last = $at;
+    $content = array_map(static fn(array $segment): string => $segment['drawCommands'][0]['content'],
+      $playback->getActiveSegments(true, true));
+    expect($content)->toBe($glyphs)->and($hits)->toBe($outcomes);
+  }
+})->with([false, true]);
 
 it('dispatches every fast authored cue once even when multiple frames collapse onto one command tick', function () {
   $effect = new CompiledEffectTimeline('fast-cues', '', fps: 120,

@@ -28,6 +28,23 @@ interface CharacterInterface extends CanUseItem, JsonSerializable, Serializable
   }
 
   /**
+   * @var bool $isFighting Whether the battler still takes part in a battle:
+   *   it acts, can be targeted and keeps its side from defeat. A knocked-out
+   *   battler, or an enemy that has conceded, is not fighting.
+   */
+  public bool $isFighting {
+    get;
+  }
+
+  /**
+   * @var int $knockoutFloor The HP that battle damage cannot take this
+   *   battler below; 0 lets damage knock it out.
+   */
+  public int $knockoutFloor {
+    get;
+  }
+
+  /**
    * @var int $level The character's level.
    */
   public int $level {

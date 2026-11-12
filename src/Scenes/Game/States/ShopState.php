@@ -9,6 +9,7 @@ use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Windows\InfoPanel;
 use Ichiloto\Engine\Core\Menu\MenuItem;
+use Ichiloto\Engine\Core\Menu\ShopMenu\Modes\PurchaseConfirmationMode;
 use Ichiloto\Engine\Core\Menu\ShopMenu\Modes\SelectShopMenuCommandMode;
 use Ichiloto\Engine\Core\Menu\ShopMenu\Modes\ShopInventorySelectionMode;
 use Ichiloto\Engine\Core\Menu\ShopMenu\Modes\ShopMenuMode;
@@ -21,6 +22,8 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Enumerations\AxisName;
+use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Scenes\SceneStateContext;
@@ -203,12 +206,36 @@ class ShopState extends GameSceneState implements CanvasProviderInterface
   public function execute(?SceneStateContext $context = null): void
   {
     $this->syncInfoSelection();
+    if ($this->handleComparisonInput()) { return; }
     if ($this->handleMenuInfoInput($this->infoPanel?->text ?? '',
       columns: max(1, ($this->infoPanel?->getContentWidth() ?? 1) - 2))) {
+      if ($this->detailPanel?->advanceComparison()) { $this->detailPanel->updateContent(); }
       return;
     }
     $this->mode->update();
     $this->syncInfoSelection();
+  }
+
+  private function handleComparisonInput(): bool
+  {
+    $panel = $this->detailPanel;
+    if ($panel === null || !$panel->canSelectComparisonActor()) {
+      return false;
+    }
+    if (!$panel->comparisonFocused) {
+      if (!Input::isButtonPressed('right')) { return false; }
+      $panel->focusComparison(true);
+    } elseif (Input::isButtonDown('back')) {
+      return false;
+    } elseif (($across = Input::getAxis(AxisName::HORIZONTAL) <=> 0.0) !== 0) {
+      $panel->moveComparisonActor($across);
+    } elseif (Input::isButtonPressed('info')) {
+      $panel->advanceComparison();
+    } else {
+      return true;
+    }
+    $panel->updateContent();
+    return true;
   }
 
   private function syncInfoSelection(): void
@@ -417,9 +444,15 @@ class ShopState extends GameSceneState implements CanvasProviderInterface
    */
   public function setMode(?ShopMenuMode $mode): void
   {
+    $this->detailPanel?->focusComparison(false);
     $this->mode?->exit();
     $this->mode = $mode;
+    if ($this->detailPanel !== null) {
+      $this->detailPanel->comparisonNavigationEnabled = $mode instanceof ShopMerchandiseSelectionMode
+        || $mode instanceof ShopInventorySelectionMode;
+    }
     $this->mode->enter();
+    if ($mode instanceof PurchaseConfirmationMode) { $this->detailPanel?->updateContent(); }
     $this->syncInfoSelection();
   }
 }

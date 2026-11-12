@@ -37,7 +37,7 @@ it('matches canonical integer identities without changing the string entry contr
     'beacon' => ['name' => 'Beacon', 'layer' => 'fixtures', 'glyphs' => ['?'],
       'tiles' => ['props' => ['0056']], 'effect' => 'glow'],
   ], ['props' => '000 0056 57 56']);
-  $originalTiles = $graphics->layers[0]->tiles;
+  $originalTiles = $graphics->layers[0]->readTiles();
   $originalStencil = $graphics->tileset->pieces['beacon']->tiles;
   $expected = [
     ['id' => 'piece-beacon-1-0', 'effect' => 'glow', 'anchor' => ['cell' => ['x' => 1, 'y' => 0]]],
@@ -45,7 +45,7 @@ it('matches canonical integer identities without changing the string entry contr
   ];
   expect(FieldPieceEffects::find($graphics))->toBe($expected)
     ->and(FieldPieceEffects::find($graphics))->toBe($expected)
-    ->and($graphics->layers[0]->tiles)->toBe($originalTiles)->toBe([[0, 56, 57, 56]])
+    ->and($graphics->layers[0]->readTiles())->toBe($originalTiles)->toBe([[0, 56, 57, 56]])
     ->and($graphics->tileset->pieces['beacon']->tiles)->toBe($originalStencil)->toBe(['props' => [['56']]])
     ->and($graphics->layers[0]->getEntries())->toBe([['0', '56', '57', '56']]);
 });

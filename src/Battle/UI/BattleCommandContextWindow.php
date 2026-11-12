@@ -153,7 +153,7 @@ class BattleCommandContextWindow extends Window implements CanFocus, CanChangeSe
     return new BattleHudListSnapshot(
       $this->title, $this->help, $rows, $this->activeIndex, $this->scrollOffset,
       $visibleRowCount, count($this->items), $currentPage, $totalPages,
-      $this->hasItems() ? '' : $this->emptyMessage,
+      $this->hasItems() ? '' : $this->emptyMessage, $this->getControlHints(),
     );
   }
 
@@ -251,7 +251,8 @@ class BattleCommandContextWindow extends Window implements CanFocus, CanChangeSe
     $availableWidth = $this->getContentWidth();
     $this->syncScrollOffset();
     $this->updateTitle();
-    $this->setHelp($this->hasItems() ? 'enter:Select i:Info c:Back' : 'i:Info c:Back');
+    $this->setControlHints([...($this->hasItems() ? [BattleControlHints::getSelectHint()] : []),
+      BattleControlHints::getInfoHint(), BattleControlHints::getBackHint()]);
 
     if (! $this->hasItems()) {
       $content = array_fill(0, $visibleRowCount, '');

@@ -127,6 +127,29 @@ it('negotiates compositing before submission and keeps overlays above the entire
   expect(fn() => new RendererSessionConfig('Effects', __DIR__, requiredCapabilities: ['canvas_compositing']))->toThrow(InvalidArgumentException::class);
 });
 
+it('negotiates image-alpha mirroring independently and rejects non-boolean mirror flags', function () {
+  $fill = getCompositeTestFill();
+  $mask = ['type' => 'image_alpha', 'asset' => 'mask.png', 'destination' => getCompositeTestRect(), 'flipX' => true, 'flipY' => true];
+  $fill['masks'] = [$mask];
+  $canvas = new PresentationCanvas(100, 100, composites: [new CanvasComposite('mirror', 16, 16,
+    new CanvasRectangle(0, 0, 16, 16), [new CanvasCompositeOperation($fill)])]);
+  foreach ([false, true] as $supported) {
+    $caps = ['graphical_canvas', 'canvas_compositing', ...($supported ? ['canvas_image_alpha_flip'] : [])];
+    $transport = new FakeRendererTransport(); $client = new RendererClient($transport);
+    $client->start(new RendererSessionConfig('Masks', __DIR__, protocol: RendererProtocolVersion::V2, requiredCapabilities: $caps));
+    $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $caps]))];
+    $client->pump(); $presenter = new RendererPresentation($client, new RendererGridConfig(1, 1));
+    if (!$supported) { expect(fn() => $presenter->presentCanvas($canvas))->toThrow(RendererProtocolException::class, 'canvas_image_alpha_flip'); }
+    else { expect($presenter->presentCanvas($canvas))->toBeTrue(); }
+  }
+  foreach (['flipX', 'flipY'] as $axis) {
+    expect(fn() => new CanvasCompositeMask(array_replace($mask, [$axis => 1])))->toThrow(InvalidArgumentException::class);
+  }
+  $plain = new CanvasCompositeMask(array_replace($mask, ['flipX' => false, 'flipY' => false]));
+  expect($plain->data)->not->toHaveKeys(['flipX', 'flipY']);
+  expect(fn() => new RendererSessionConfig('Masks', __DIR__, requiredCapabilities: ['canvas_image_alpha_flip']))->toThrow(InvalidArgumentException::class);
+});
+
 it('preflights alpha and displaced PNG references rather than freezing their bytes or dimensions', function () {
   $root = __DIR__ . '/../Fixtures/Renderer';
   $image = new CanvasCompositeOperation(['type' => 'image', 'asset' => 'test-sprite.png', 'destination' => getCompositeTestRect(),
@@ -136,4 +159,68 @@ it('preflights alpha and displaced PNG references rather than freezing their byt
   expect($result['sources'])->toHaveCount(1)->and($result['regions'])->toBe([]);
   expect(fn() => new CanvasCompositeOperation(['type' => 'image', 'asset' => '../invalid.png', 'destination' => getCompositeTestRect()]))
     ->toThrow(InvalidArgumentException::class);
+});
+
+it('bounds coverage work by clipped footprints and requires the renderer capability before sending', function () {
+  $shape = ['type' => 'coverage_dabs', 'falloff' => .9, 'alphaSteps' => 127, 'minimumAlpha' => 3,
+    'dabs' => [['center' => [0, 0], 'radius' => 4, 'opacity' => 1]],
+    'bands' => [['until' => 1, 'color' => ['kind' => 'rgb', 'r' => 1, 'g' => 2, 'b' => 3]]]];
+  $operation = new CanvasCompositeOperation($shape);
+  $surface = new CanvasComposite('dabs', 8, 8, new CanvasRectangle(0, 0, 8, 8), [$operation]);
+  $canvas = new PresentationCanvas(8, 8, composites: [$surface]);
+  expect(CanvasCompositeBudget::getWork([$surface]))->toBe(4 * 8 * 8 + 9 * 4 * 4)
+    ->and(new CanvasCompositeOperation($operation->data)->data)->toBe($operation->data);
+  foreach ([['falloff' => NAN], ['dabs' => array_fill(0, 129, $shape['dabs'][0])], ['minimumAlpha' => 128],
+    ['dabs' => [['center' => [0, 0], 'radius' => 65, 'opacity' => 1]]], ['blend' => 'screen'],
+    ['bands' => [['until' => .8, 'color' => $shape['bands'][0]['color']]]]] as $changes) {
+    expect(fn() => new CanvasCompositeOperation(array_replace($shape, $changes)))->toThrow(InvalidArgumentException::class);
+  }
+  foreach ([false, true] as $supported) {
+    $caps = ['graphical_canvas', 'canvas_compositing', ...($supported ? ['canvas_coverage_dabs'] : [])];
+    $transport = new FakeRendererTransport();
+    $client = new RendererClient($transport);
+    $client->start(new RendererSessionConfig('Coverage', __DIR__, protocol: RendererProtocolVersion::V2));
+    $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $caps]))];
+    $client->pump();
+    $presenter = new RendererPresentation($client, new RendererGridConfig(1, 1));
+    if ($supported) {
+      expect($presenter->presentCanvas($canvas))->toBeTrue();
+    } else {
+      expect(fn() => $presenter->presentCanvas($canvas))->toThrow(RendererProtocolException::class, 'canvas_coverage_dabs')
+        ->and($transport->sent)->toBe([]);
+    }
+  }
+});
+
+it('validates and budgets cropped texture strips before a renderer may receive them', function () {
+  $geometry = ['origin' => [-2, 1], 'axis' => [1, 0], 'length' => 8, 'height' => 2,
+    'knots' => [['u' => 0, 'offset' => 0], ['u' => .5, 'offset' => 2], ['u' => 1, 'offset' => 0]]];
+  $shape = ['type' => 'texture_strip', 'asset' => 'test-sprite.png',
+    'sourceRect' => getCompositeTestRect(4), 'geometry' => $geometry];
+  $operation = new CanvasCompositeOperation($shape);
+  $surface = new CanvasComposite('strip', 8, 8, new CanvasRectangle(0, 0, 8, 8), [$operation]);
+  $canvas = new PresentationCanvas(8, 8, composites: [$surface]);
+  expect(CanvasCompositeBudget::getWork([$surface]))->toBe(2 * 8 * 8 + 6 * 4 * 20)
+    ->and(new CanvasCompositeOperation($operation->data)->data)->toBe($operation->data);
+  foreach ([['geometry' => [...$geometry, 'axis' => [0, 0]]],
+    ['geometry' => [...$geometry, 'knots' => [['u' => 0, 'offset' => 0], ['u' => 0, 'offset' => 1]]]],
+    ['geometry' => [...$geometry, 'height' => NAN]], ['sourceRect' => [...getCompositeTestRect(), 'x' => .5]],
+    ['flipX' => 1], ['blend' => 'screen']] as $changes) {
+    expect(fn() => new CanvasCompositeOperation(array_replace($shape, $changes)))->toThrow(InvalidArgumentException::class);
+  }
+  foreach ([false, true] as $supported) {
+    $caps = ['graphical_canvas', 'canvas_compositing', ...($supported ? ['canvas_texture_strip'] : [])];
+    $transport = new FakeRendererTransport();
+    $client = new RendererClient($transport);
+    $client->start(new RendererSessionConfig('Strip', __DIR__ . '/../Fixtures/Renderer', protocol: RendererProtocolVersion::V2));
+    $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $caps]))];
+    $client->pump();
+    $presenter = new RendererPresentation($client, new RendererGridConfig(1, 1));
+    if ($supported) {
+      expect($presenter->presentCanvas($canvas))->toBeTrue();
+    } else {
+      expect(fn() => $presenter->presentCanvas($canvas))->toThrow(RendererProtocolException::class, 'canvas_texture_strip')
+        ->and($transport->sent)->toBe([]);
+    }
+  }
 });

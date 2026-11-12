@@ -166,3 +166,24 @@ it('keeps the historical Bestiary API as a view over stable knowledge progress',
     ->and($bestiary->timesDefeated('Agitated Wolf'))->toBe(1)
     ->and($service->progress->discoveredSubjectIds())->toBe(['creature.wolf']);
 });
+
+it('reads record types by id alone or with an authored label, and links a record to a summon met in battle', function () {
+  $catalog = new KnowledgeCatalog([
+    'recordTypes' => ['creature', ['id' => 'summon', 'label' => 'Synthetic Spirits'], ['id' => 'unlabelled']],
+    'subjects' => [
+      ['id' => 'summon.wisp', 'recordType' => 'summon', 'displayName' => 'Wisp', 'summon' => 'wisp'],
+      ['id' => 'creature.wolf', 'recordType' => 'creature', 'displayName' => 'Wolf', 'quickCard' => 'A quick card.'],
+    ],
+    'enemyMappings' => ['Wisp' => 'summon.wisp'],
+  ]);
+
+  expect($catalog->getRecordType('summon')?->name)->toBe('Synthetic Spirits')
+    ->and($catalog->getRecordType('creature')?->name)->toBe('creature')
+    ->and($catalog->getRecordType('unlabelled')?->label)->toBeNull()
+    ->and($catalog->subjectForEnemy('Wisp')?->summonId)->toBe('wisp')
+    ->and($catalog->subject('summon.wisp')?->quickCard)->toBe('')
+    ->and($catalog->subject('creature.wolf')?->summonId)->toBeNull();
+  foreach ([[['id' => 'Bad Type']], [['label' => 'No id']], [['id' => 'summon', 'icon' => 'x']], [7]] as $types) {
+    expect(fn() => new KnowledgeCatalog(['recordTypes' => $types]))->toThrow(InvalidArgumentException::class);
+  }
+});

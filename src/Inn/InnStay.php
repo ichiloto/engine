@@ -11,7 +11,8 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /**
- * A stay at an inn: the party is asked, pays, sleeps and recovers.
+ * A stay at an inn: the party is asked, pays, sleeps and recovers HP, MP
+ * and the states authored as cured by rest.
  *
  * Every way a stay is offered runs this one stay: the sleep trigger's
  * SleepAction and the `inn` script command.
@@ -112,8 +113,8 @@ class InnStay
     }
 
     /** @var Character $member */
-    foreach ($scene->party->members as $member) {
-      $member->restoreVitals();
+    foreach ($scene->party->participants as $member) {
+      $member->recoverFromRest();
     }
 
     $player = $scene->player;

@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\UI\Modal;
 
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 
@@ -72,7 +74,7 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
   /**
    * @var string|null $help The help text.
    */
-  protected ?string $help = 'c:cancel';
+  protected ?string $help = null;
   /**
    * @var int $value The value.
    */
@@ -81,6 +83,7 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
    * @var bool $isShowing Whether the modal is showing.
    */
   protected bool $isShowing = false;
+  private ?UIManager $presentationOwner = null;
   /**
    * @var ItemList<ObserverInterface> $observers The observers.
    */
@@ -139,7 +142,7 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
    * @param string $title The title.
    * @param int $default The default option.
    * @param Rect $rect The rect.
-   * @param string|null $help The help text. Defaults to 'c:cancel'.
+   * @param string|null $help The help text; null shows the Cancel control.
    * @param BorderPackInterface $borderPack The border pack. Defaults to DefaultBorderPack.
    */
   public function __construct(
@@ -149,7 +152,7 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
     string                        $title = '',
     protected int                 $default = 0,
     protected Rect                $rect = new Rect(0, 0, DEFAULT_DIALOG_WIDTH, 3),
-    ?string                       $help = 'c:cancel',
+    ?string                       $help = null,
     protected BorderPackInterface $borderPack = new DefaultBorderPack()
   )
   {
@@ -158,7 +161,7 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
     $this->setOptions($options);
     $this->activeOptionIndex = max(0, min($this->totalOptions - 1, $this->default));
     $this->title = $title;
-    $this->setHelp($help);
+    $this->setHelp($help ?? TerminalControlText::formatHint(ActionHints::resolve('cancel', 'Cancel')));
     $this->wrapMessage();
     $this->rebuildWindow();
   }
@@ -291,7 +294,8 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
       return;
     }
     $this->isShowing = true;
-    $this->getUIManager()?->present($this);
+    $this->presentationOwner = $this->getUIManager();
+    $this->presentationOwner?->present($this);
     $this->render();
     $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::SHOW, true));
   }
@@ -306,7 +310,8 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
         $this->erase();
       }
       $this->isShowing = false;
-      $this->getUIManager()?->dismiss($this);
+      $this->presentationOwner?->dismiss($this);
+      $this->presentationOwner = null;
       if (! $this->game->hasStopped()) {
         $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::HIDE, true));
       }

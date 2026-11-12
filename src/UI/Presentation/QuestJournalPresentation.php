@@ -16,19 +16,19 @@ final class QuestJournalPresentation
 {
   // Quest names use the narrow column; the journal receives the majority for prose.
   private const float LIST_WIDTH_SHARE = 0.38;
-  /** @return array{int, int} */
-  public static function pageSize(JournalMenuContent $content, MenuPresentationCatalog $theme, int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): array
+  public static function pageSize(JournalMenuContent $content, MenuPresentationCatalog $theme, int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): MenuDetailViewport
   {
     $text = self::getGeometry($content, $theme, $width, $height)['text'];
-    return [(int)floor($text->width / $theme->metrics->cellWidth), (int)floor($text->height / $theme->metrics->cellHeight)];
+    return new MenuDetailViewport((int)floor($text->width / $theme->metrics->cellWidth), (int)floor($text->height),
+      $theme->metrics->cellHeight);
   }
 
   public static function compose(JournalMenuContent $content, MenuPresentationCatalog $theme, TextPage $page,
     float $time = 0, int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): PresentationCanvas
   {
     $g = self::getGeometry($content, $theme, $width, $height);
-    [$columns, $rows] = self::pageSize($content, $theme, $width, $height);
-    if ($page->columns !== $columns || $page->rows !== $rows || $page->source !== $content->document?->text) {
+    $area = self::pageSize($content, $theme, $width, $height);
+    if ($page->columns !== $area->columns || $page->rows !== $area->height || $page->source !== $content->document?->text) {
       throw new RuntimeException('Journal text page must match the measured document viewport.');
     }
     $view = new MenuCanvas($theme, $width, $height, $time);
@@ -76,8 +76,8 @@ final class QuestJournalPresentation
           $record->y + $m->rowHeight - 2, $cells * $m->cellWidth, $m->cellHeight), 'disabled');
     }
     self::document($view, $content->document, $page, $g);
-    if ($page->total > $page->rows) {
-      $controls->renderScrollbar('journal-scroll', $g['scroll'], $page->first, $page->rows, $page->total);
+    if ($page->total > count($page->lines)) {
+      $controls->renderScrollbar('journal-scroll', $g['scroll'], $page->first, count($page->lines), $page->total);
     }
     if ($theme->showInputHints) {
       $view->hints('journal-hints', [ActionHints::resolve('confirm', 'Read'), ActionHints::resolve('cancel', 'Back')], $g['hints']);
@@ -88,37 +88,46 @@ final class QuestJournalPresentation
   private static function document(MenuCanvas $view, JournalDocument $document, TextPage $page, array $g): void
   {
     $m = $view->theme->metrics;
-    $styles = array_slice($document->lines($page->columns), $page->first, $page->rows);
+    $style = $view->theme->createDetailStyle();
+    $styles = array_slice($document->lines($page->columns, $style), $page->first, count($page->lines));
+    $positions = $view->details('journal-text', $document->sheet->layout($page->columns, $style), $page, $g['text']);
     $sections = [];
     foreach ($styles as $index => $line) {
       if ($line['section'] !== null) { $sections[$line['section']][] = $index; }
     }
     // Each visible section has its own bounded surface. Scrolling never puts text under a frame edge.
     foreach ($sections as $section => $indexes) {
-      $top = $g['text']->y + min($indexes) * $m->cellHeight;
-      $bottom = $g['text']->y + (max($indexes) + 1) * $m->cellHeight;
+      $top = $positions[min($indexes)]['y'];
+      $bottom = $positions[max($indexes)]['y'] + $positions[max($indexes)]['height'];
       $view->surface('journal-section-' . $section, new CanvasRectangle($g['sectionX'], $top,
         $g['sectionWidth'], $bottom - $top), 'background', 18);
     }
-    $markers = [];
+    // Marker fallbacks share one text layer for each run of lines at one text pitch, as the text does.
+    $blocks = [];
     foreach ($styles as $index => $line) {
-      $y = $g['text']->y + $index * $m->cellHeight;
-      $fallback = '';
+      $y = $positions[$index]['y'];
       if ($line['heading']) {
         $view->surface('journal-section-heading-' . $index, new CanvasRectangle($g['sectionX'], $y,
           $g['sectionWidth'], $m->cellHeight), 'selected', 19);
       }
+      $fallback = '';
       if ($line['icon'] !== null) {
         $iconBox = new CanvasRectangle($g['sectionX'] + 2, $y + 1, $g['gutter'] - 6, $m->cellHeight - 2);
-        if (!$view->icon('journal-icon-' . $index, $line['icon'], $iconBox)) {
-          $fallback = match ($line['icon']) { 'objective.complete' => "\u{2713}", 'objective.open' => "\u{25CB}", default => '' };
-        }
+        $fallback = $view->icon('journal-icon-' . $index, $line['icon'], $iconBox) ? ''
+          : match ($line['icon']) { 'objective.complete' => "\u{2713}", 'objective.open' => "\u{25CB}", default => '' };
       }
-      $markers[] = ['text' => $fallback, 'color' => $line['color']];
+      $last = array_key_last($blocks);
+      if ($last === null || abs($blocks[$last]['y'] + count($blocks[$last]['lines']) * $m->cellHeight - $y) > 0.001) {
+        $blocks[] = ['y' => $y, 'lines' => []];
+        $last = array_key_last($blocks);
+      }
+      $blocks[$last]['lines'][] = ['text' => $fallback, 'color' => $line['color']];
     }
-    $view->textLines('journal-text', array_map(fn($line) => ['text' => $line['text'], 'color' => $line['color']], $styles), $g['text']);
-    $view->textLines('journal-markers', $markers, new CanvasRectangle($g['sectionX'] + 2, $g['text']->y,
-      $g['gutter'] - 6, $g['text']->height));
+    foreach ($blocks as $index => ['y' => $y, 'lines' => $markers]) {
+      if (array_all($markers, static fn(array $marker): bool => $marker['text'] === '')) { continue; }
+      $view->textLines($index === 0 ? 'journal-markers' : 'journal-markers-' . $index, $markers,
+        new CanvasRectangle($g['sectionX'] + 2, $y, $g['gutter'] - 6, count($markers) * $m->cellHeight));
+    }
   }
 
   private static function getGeometry(JournalMenuContent $content, MenuPresentationCatalog $theme, int $width, int $height): array

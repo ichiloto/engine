@@ -54,7 +54,7 @@ beforeEach(function () {
   $this->playSettings = ConfigStore::has(PlaySettings::class) ? ConfigStore::get(PlaySettings::class) : null;
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 135, 'height' => 36]));
   $this->stdinBlocked = stream_get_meta_data(STDIN)['blocked'];
-  $this->temporary = sys_get_temp_dir() . '/ichiloto-renderer-manifest-' . bin2hex(random_bytes(8));
+  $this->temporary = \getTestTemporaryDirectory() . '/ichiloto-renderer-manifest-' . bin2hex(random_bytes(8));
   mkdir($this->temporary);
   $this->transport = new FakeRendererTransport();
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__, 10, 20), $this->transport);

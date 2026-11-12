@@ -68,9 +68,9 @@ it('validates clipping without using it to permit off-canvas original geometry',
 });
 
 it('requires canvas for compositing and preserves omitted legacy defaults', function () {
-  expect(fn() => new RendererSessionConfig('UI', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  expect(fn() => new RendererSessionConfig('UI', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: [RendererSessionConfig::CANVAS_CLIP_OPACITY]))->toThrow(InvalidArgumentException::class);
-  expect(new RendererSessionConfig('UI', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  expect(new RendererSessionConfig('UI', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_CLIP_OPACITY])->hello()->payload)
     ->toHaveKey('requiredCapabilities');
   expect(new CanvasTextLayer('text', 0, 0, 0, new RendererGridConfig(1, 1), [])->toArray())

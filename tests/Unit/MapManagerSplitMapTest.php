@@ -30,7 +30,7 @@ final class SplitMapManagerProbe extends MapManager
 }
 
 it('loads the terminal map afresh whatever retired tiles2d metadata the data file holds', function () {
-  $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-terrain-map-', true);
+  $directory = \getTestTemporaryDirectory() . DIRECTORY_SEPARATOR . uniqid('ichiloto-terrain-map-', true);
   mkdir($directory);
   $paths = ['id'=>'test/terrain','data'=>"$directory/map.data.php",'map'=>"$directory/map.map.php",'event'=>"$directory/map.event.php"];
   file_put_contents($paths['map'], "<?php\nreturn <<<'MAP'\n;~\nMAP;\n");
@@ -64,7 +64,7 @@ it('loads the terminal map afresh whatever retired tiles2d metadata the data fil
 });
 
 it('prepares a destination without touching the active map and refuses a bad event layer', function (): void {
-  $directory = sys_get_temp_dir() . '/ichiloto-map-preflight-' . bin2hex(random_bytes(8));
+  $directory = \getTestTemporaryDirectory() . '/ichiloto-map-preflight-' . bin2hex(random_bytes(8));
   mkdir($directory);
   $paths = [
     'id' => 'test/destination',
@@ -137,8 +137,30 @@ PHP);
   }
 });
 
+it('prepares a map that turns dashing off and refuses one that does not say true or false', function (): void {
+  $directory = \getTestTemporaryDirectory() . '/ichiloto-map-dash-' . bin2hex(random_bytes(8));
+  mkdir($directory);
+  $paths = ['id' => 'test/dash', 'data' => "$directory/dash.data.php", 'map' => "$directory/dash.map.php", 'event' => "$directory/dash.event.php"];
+  file_put_contents($paths['map'], "<?php return <<<'MAP'\n..\nMAP;");
+  file_put_contents($paths['event'], "<?php return <<<'EVENT'\n  \nEVENT;");
+  try {
+    $manager = (new ReflectionClass(SplitMapManagerProbe::class))->newInstanceWithoutConstructor();
+    $scene = (new ReflectionClass(GameScene::class))->newInstanceWithoutConstructor();
+    new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, new Camera(makeCameraTestScene(), 8, 4));
+    new ReflectionProperty(MapManager::class, 'gameScene')->setValue($manager, $scene);
+    $manager->testPaths = $paths;
+    file_put_contents($paths['data'], "<?php return ['name' => 'Dash', 'disableDashing' => true];");
+    expect($manager->prepareMap('ignored')->data['disableDashing'])->toBeTrue()->and($manager->isDashingDisabled)->toBeFalse();
+    file_put_contents($paths['data'], "<?php return ['name' => 'Dash', 'disableDashing' => 'yes'];");
+    expect(fn () => $manager->prepareMap('ignored'))->toThrow(InvalidArgumentException::class, 'disableDashing must be true or false');
+  } finally {
+    foreach (['data', 'map', 'event'] as $member) { unlink($paths[$member]); }
+    rmdir($directory);
+  }
+});
+
 it('removes executable grid sources from the split-map contract', function () {
-  $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-split-map-', true);
+  $directory = \getTestTemporaryDirectory() . DIRECTORY_SEPARATOR . uniqid('ichiloto-split-map-', true);
   mkdir($directory, 0777, true);
 
   $paths = [
@@ -202,7 +224,7 @@ PHP);
 });
 
 it('refuses either executable grid before evaluating the map data file', function (string $member): void {
-  $directory = sys_get_temp_dir() . '/ichiloto-grid-gate-' . bin2hex(random_bytes(8));
+  $directory = \getTestTemporaryDirectory() . '/ichiloto-grid-gate-' . bin2hex(random_bytes(8));
   mkdir($directory);
   $marker = $directory . '/executed';
   $paths = [

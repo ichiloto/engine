@@ -29,7 +29,7 @@ final class CinematicPresentationManager
   private ?DialogueScenePresentation $dialoguePresentation = null;
   private ?string $dialogueAssetRoot = null;
   private bool $hasGraphicalOverlay = false;
-  /** @var array<string, array{session: FieldEffectSession, screenSpace: bool}> */
+  /** @var array<string, array{session: FieldEffectSession, screenSpace: bool, target: ?CinematicEffectTarget, plane: CinematicFieldPlane}> */
   private array $effects = [];
   /** @var array<string, array{session: CinematicStageSession}> */
   private array $stages = [];
@@ -40,9 +40,10 @@ final class CinematicPresentationManager
   {
   }
 
-  public function showOverlay(string $kind, string $text, string $title = ''): void
+  public function showOverlay(string $kind, string $text, string $title = '',
+    CinematicTextSurface $surface = CinematicTextSurface::ALL): void
   {
-    $this->overlay = new CinematicTextPresentation($kind, trim($text), trim($title));
+    $this->overlay = new CinematicTextPresentation($kind, trim($text), trim($title), $surface);
     $this->hasGraphicalOverlay = false;
   }
 
@@ -58,12 +59,13 @@ final class CinematicPresentationManager
   public function getOverlayCanvas(int $width, int $height, ?string $assetRoot): ?PresentationCanvas
   {
     $this->hasGraphicalOverlay = false;
-    if ($this->overlay === null || $assetRoot === null) { return null; }
+    $overlay = $this->getOverlayForActiveSurface();
+    if ($overlay === null || $assetRoot === null) { return null; }
     if ($this->dialogueAssetRoot !== $assetRoot) {
       $this->dialogueAssetRoot = $assetRoot;
       $this->dialoguePresentation = new DialogueScenePresentation($assetRoot);
     }
-    $canvas = $this->overlay->getCanvas($this->dialoguePresentation, $width, $height);
+    $canvas = $overlay->getCanvas($this->dialoguePresentation, $width, $height);
     $this->hasGraphicalOverlay = $canvas !== null;
     return $canvas;
   }
@@ -73,10 +75,11 @@ final class CinematicPresentationManager
     return $this->hasGraphicalOverlay ? ['cinematic-overlay'] : [];
   }
 
-  public function presentEffect(FieldEffectSession $session, bool $screenSpace = false): void
+  public function presentEffect(FieldEffectSession $session, bool $screenSpace = false, ?CinematicEffectTarget $target = null,
+    CinematicFieldPlane $plane = CinematicFieldPlane::FIELD): void
   {
     if (isset($this->effects[$session->id])) { $this->effects[$session->id]['session']->playback->pause(); }
-    $this->effects[$session->id] = ['session' => $session, 'screenSpace' => $screenSpace];
+    $this->effects[$session->id] = ['session' => $session, 'screenSpace' => $screenSpace, 'target' => $target, 'plane' => $plane];
   }
 
   public function hasEffect(string $id): bool { return isset($this->effects[$id]); }
@@ -152,20 +155,31 @@ final class CinematicPresentationManager
     $this->reconcileStagePresentations();
     $layers = [];
     foreach ($this->stages as $entry) {
-      if (!$entry['session']->hasPresentationFailure) { array_push($layers, ...$entry['session']->excludedLayers); }
+      $session = $entry['session'];
+      if (!$session->hasEnded && !$session->hasPresentationFailure) { array_push($layers, ...$session->excludedLayers); }
     }
     return array_values(array_unique($layers));
   }
 
-  /** @return list<FieldEffectSprite> */
-  public function getEffectSprites(?FieldViewport $viewport): array
+  /**
+   * The images the cinematic's field effects show now: all of them, or only
+   * those authored on one plane when the host presents the planes apart.
+   *
+   * @return list<FieldEffectSprite>
+   */
+  public function getEffectSprites(?FieldViewport $viewport, ?CinematicFieldPlane $plane = null): array
   {
     if ($viewport === null) { return []; }
+    $reducedMotion = Accessibility::prefersReducedMotion();
     $sprites = [];
     foreach ($this->effects as $effect) {
-      $position = $effect['session']->anchor->cell;
+      if ($plane !== null && $effect['plane'] !== $plane) { continue; }
+      $target = $effect['target'];
+      if ($target !== null && !$target->isCurrent()) { continue; }
+      $position = $target?->getGraphicalPosition() ?? $effect['session']->anchor->cell;
       if ($position === null) { continue; }
-      foreach ($effect['session']->getSprites($position, Accessibility::prefersReducedMotion()) as $sprite) {
+      foreach ($effect['session']->getSprites($position, $reducedMotion,
+        $reducedMotion ? null : $target?->subject->getGraphicalSpriteMotion()) as $sprite) {
         if (!$effect['screenSpace']) { $sprites[] = $sprite; continue; }
         $definition = $sprite->getGraphicalSpriteDefinition();
         $point = $sprite->getGraphicalSpriteWorldPosition();
@@ -247,7 +261,9 @@ final class CinematicPresentationManager
   {
     $presentation = $this->gameScene->isGraphicalFieldPresented() ? EffectPresentation::GRAPHICAL : EffectPresentation::TERMINAL;
     foreach ($this->effects as $effect) {
-      $position = $effect['session']->anchor->cell;
+      $target = $effect['target'];
+      if ($target !== null && !$target->isCurrent()) { continue; }
+      $position = $target?->getPosition() ?? $effect['session']->anchor->cell;
       if ($position === null) { continue; }
       $origin = $effect['screenSpace'] ? $position : $this->gameScene->camera->getScreenSpacePosition($position);
       Console::withLayer($effect['session']->id, fn() => $effect['session']->renderText(
@@ -260,7 +276,14 @@ final class CinematicPresentationManager
   {
     // Text cells belong to the presentation host, not the square-tile field camera.
     $grid = $this->gameScene->getPresentationContext()?->grid;
-    $this->overlay?->renderTerminal($grid?->columns ?? Console::getWidth(), $grid?->rows ?? Console::getHeight());
+    $this->getOverlayForActiveSurface()?->renderTerminal($grid?->columns ?? Console::getWidth(), $grid?->rows ?? Console::getHeight());
+  }
+
+  private function getOverlayForActiveSurface(): ?CinematicTextPresentation
+  {
+    $overlay = $this->overlay;
+    if ($overlay === null || $overlay->surface === CinematicTextSurface::ALL) { return $overlay; }
+    return $overlay->surface->isVisible($this->gameScene->isGraphicalFieldPresented()) ? $overlay : null;
   }
 
   protected function renderTransition(): void

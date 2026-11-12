@@ -129,12 +129,13 @@ it('respects disabled Quick Save for both event-only and native press samples', 
 })->with([false, true]);
 
 /** A renderer session that subscribed to key transitions, as the Game's GPUI session does. */
-function heldInputSession(bool $transitions = true): array
+function heldInputSession(bool $transitions = true, bool $modifiers = false): array
 {
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
   $required = $transitions ? [RendererSessionConfig::KEY_TRANSITIONS] : [];
-  $client->start(new RendererSessionConfig('Held input', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  if ($modifiers) { $required[] = RendererSessionConfig::MODIFIER_CONTROLS; }
+  $client->start(new RendererSessionConfig('Held input', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: $required));
   $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
     'capabilities' => ['sprite_source_rect', ...$required]]))];
@@ -227,6 +228,32 @@ it('rejects transitions a session did not subscribe to and unidentified keys in 
   expect(fn() => $client->pump())->toThrow(RendererProtocolException::class, 'control identity on every key');
 });
 
+it('holds Shift alone as the dash control only in a session that subscribed to modifier controls', function () {
+  expect(fn() => new RendererSessionConfig('Modifiers', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
+    requiredCapabilities: [RendererSessionConfig::MODIFIER_CONTROLS]))->toThrow(InvalidArgumentException::class, 'key_transitions');
+  [$transport, $client] = heldInputSession();
+  $transport->batches[] = [heldKey('shift')];
+  expect(fn() => $client->pump())->toThrow(RendererProtocolException::class, 'modifier_controls');
+
+  [$transport] = heldInputSession(modifiers: true);
+  // Shift is the dash default when nothing else claims it.
+  expect(InputManager::getBindings()['dash']['keys'])->toBe([KeyCode::SHIFT]);
+  heldUpdate($transport, heldKey('shift'));
+  expect(Input::isButtonHeld('dash'))->toBeTrue()
+    // The press is also an ordinary key, so the Controls screen can bind Shift.
+    ->and(InputManager::getPressedKeyCode())->toBe(KeyCode::SHIFT);
+  // Shift types capitals while it is held; the letter is its own control and Shift stays held.
+  heldUpdate($transport, heldKey('S', 's'));
+  expect(Input::isButtonHeld('dash'))->toBeTrue()->and(Input::isButtonHeld('down'))->toBeFalse();
+  heldUpdate($transport, heldRelease('s'), heldRelease('shift'));
+  expect(Input::isButtonHeld('dash'))->toBeFalse();
+  heldUpdate($transport, heldKey('shift'));
+  expect(Input::isButtonHeld('dash'))->toBeTrue();
+  // Focus loss releases Shift with everything else.
+  heldUpdate($transport, heldReset());
+  expect(Input::isButtonHeld('dash'))->toBeFalse();
+});
+
 it('keeps OS repeats in the event-only key stream while only presses releases and resets change held state', function () {
   [$transport, $client, $source] = heldInputSession();
   $transport->batches[] = [heldKey('down'), heldKey('down', repeat: true), heldKey('down', repeat: true),
@@ -239,7 +266,7 @@ it('keeps OS repeats in the event-only key stream while only presses releases an
     ->and($client->drainEvents())->toBe([]);
   // The event-only stream keeps its bound; a flood of transitions is rejected as a batch.
   $bounded = new RendererClient($small = new FakeRendererTransport(), maxPendingKeys: 2);
-  $bounded->start(new RendererSessionConfig('Bound', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  $bounded->start(new RendererSessionConfig('Bound', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: [RendererSessionConfig::KEY_TRANSITIONS]));
   $small->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["key_transitions"]}')];
   $bounded->pump();

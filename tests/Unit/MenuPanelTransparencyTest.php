@@ -70,7 +70,7 @@ function assertPanelCutouts(PresentationCanvas $canvas, string $id, int $sourceW
 }
 
 beforeEach(function () {
-  $this->panelRoot = sys_get_temp_dir() . '/ichiloto-panel-alpha-' . bin2hex(random_bytes(5));
+  $this->panelRoot = \getTestTemporaryDirectory() . '/ichiloto-panel-alpha-' . bin2hex(random_bytes(5));
   mkdir($this->panelRoot);
 });
 

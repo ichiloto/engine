@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Vector2;
@@ -13,24 +14,36 @@ use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\Progression\{TutorialDirector, TutorialStartContext, TutorialStep};
+use Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Scenes\SceneStateContext;
-use Ichiloto\Engine\UI\Presentation\{MenuCanvasState, MenuPresentationCatalog, MenuRow, MenuRowValue,
-    SummonsMenuContent, SummonsMenuPresentation, SummonsMenuView};
+use Ichiloto\Engine\UI\Presentation\{MenuCanvasState, MenuDetailSheet, MenuDetailStyle, MenuDetailViewport, MenuPresentationCatalog, MenuRow,
+    MenuRowValue, SummonInfoSheet, SummonsMenuContent, SummonsMenuPresentation, SummonsMenuView};
 use Ichiloto\Engine\UI\Text\{TerminalMenuRow, TextPage, TextViewport};
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /** Owned summons, separate information and holder flows, and the Equipment assignment context. */
 class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
 {
     use MenuCanvasState;
+
+    public const string TUTORIAL_SCREEN = 'summons';
+    public const string TUTORIAL_LIST = 'list';
+    public const string TUTORIAL_ACTIONS = 'actions';
+    public const string TUTORIAL_HOLDERS = 'holders';
+    public const string TUTORIAL_ASSIGNABLE_HOLDER = 'assignable';
+    public const string TUTORIAL_ASSIGNED_CONTRACT = 'assigned-contract';
+    public const string TUTORIAL_SUMMON_OPENED = 'summon.opened';
+    public const string TUTORIAL_ASSIGN_OPENED = 'summon.assign-opened';
+    public const string TUTORIAL_ASSIGNED = 'summon.assigned';
 
     protected const int MENU_WIDTH = 110;
     protected const int SUMMARY_PANEL_HEIGHT = 5;
@@ -50,6 +63,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     private ?TextViewport $detailViewport = null;
     private ?TextPage $lastDetailPage = null;
     private array $lastRows = [];
+    private ?TutorialStep $lastTutorialStep = null;
     protected ?Window $summaryPanel = null;
     protected ?Window $listPanel = null;
     protected ?Window $infoPanel = null;
@@ -84,23 +98,37 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $this->view = $this->character === null ? SummonsMenuView::SUMMONS : SummonsMenuView::CHARACTER;
         $this->activeIndex = 0;
         $this->detailViewport = new TextViewport();
+        $this->refreshDefinitions();
+        if ($this->character === null) {
+            $scene = $this->getGameScene();
+            $scene->tutorialDirector?->enterContext(
+                TutorialStartContext::SUMMONS_LIBRARY,
+                (bool) config(ProjectConfig::class, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true),
+                $this->party,
+                $scene->questManager?->log,
+                fn(TutorialStep $step): bool => $this->canShowTutorialTarget($step),
+            );
+        }
         $this->initializeUI();
         $this->refreshUI();
     }
 
     protected function initializeUI(): void
     {
-        $left = max(0, intdiv(get_screen_width() - self::MENU_WIDTH, 2));
-        $top = max(0, intdiv(get_screen_height() - self::SUMMARY_PANEL_HEIGHT - self::LIST_PANEL_HEIGHT - self::INFO_PANEL_HEIGHT, 2));
+        // Like the other reading menus, the panels shrink to a smaller terminal instead of running off it.
+        $width = min(self::MENU_WIDTH, max(20, get_screen_width()));
+        $listHeight = max(3, min(self::LIST_PANEL_HEIGHT, get_screen_height() - self::SUMMARY_PANEL_HEIGHT - self::INFO_PANEL_HEIGHT));
+        $left = max(0, intdiv(get_screen_width() - $width, 2));
+        $top = max(0, intdiv(get_screen_height() - self::SUMMARY_PANEL_HEIGHT - $listHeight - self::INFO_PANEL_HEIGHT, 2));
         $border = new DefaultBorderPack();
-        $this->summaryPanel = new Window('', '', new Vector2($left, $top), self::MENU_WIDTH, self::SUMMARY_PANEL_HEIGHT, $border);
-        $this->listPanel = new Window('', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT), self::MENU_WIDTH, self::LIST_PANEL_HEIGHT, $border);
-        $this->infoPanel = new Window('Info', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT + self::LIST_PANEL_HEIGHT), self::MENU_WIDTH, self::INFO_PANEL_HEIGHT, $border);
+        $this->summaryPanel = new Window('', '', new Vector2($left, $top), $width, self::SUMMARY_PANEL_HEIGHT, $border);
+        $this->listPanel = new Window('', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT), $width, $listHeight, $border);
+        $this->infoPanel = new Window('Info', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT + $listHeight), $width, self::INFO_PANEL_HEIGHT, $border);
     }
 
     private function refreshDefinitions(): void
     {
-        if ($this->character !== null && !$this->party->members->contains($this->character)) {
+        if ($this->character !== null && !$this->party->participants->contains($this->character)) {
             $this->character = null;
             $this->equipmentReturn = null;
             $this->view = SummonsMenuView::SUMMONS;
@@ -128,10 +156,10 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     }
 
     /** @return list<Character> Current members that the same atomic Party operation would accept. */
-    private function getHolderOptions(): array
+    private function getHolderOptions(?SummonCutsceneDefinition $definition = null): array
     {
-        $definition = $this->getSelectedSummon();
-        return $definition === null ? [] : array_values(array_filter($this->party->members->toArray(),
+        $definition ??= $this->getSelectedSummon();
+        return $definition === null ? [] : array_values(array_filter($this->party->participants->toArray(),
             fn(Character $member): bool => $member->hasSummon($definition->id)
                 || $this->party->canReassignSummon($definition, $member, $this->getGameScene()->gameState)));
     }
@@ -148,7 +176,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         } elseif ($this->view === SummonsMenuView::HOLDERS) {
             if ($definition === null) { return []; }
             $members = $this->getHolderOptions();
-            $rows = array_map(static fn(Character $member): MenuRow => new MenuRow('member-' . ($member->actorId ?? spl_object_id($member)), $member->name,
+            $rows = array_map(static fn(Character $member): MenuRow => new MenuRow(self::getHolderRowId($member), $member->name,
                 [new MenuRowValue($member->role->name), new MenuRowValue($member->hasSummon($definition->id) ? 'Assigned' : '')]), $members);
         } else {
             $rows = array_map(function (SummonCutsceneDefinition $summon): MenuRow {
@@ -167,11 +195,14 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     {
         $definition = $this->getSelectedSummon();
         $title = Vocabulary::getTerm('command.' . BattleCommandType::SUMMON->value, 'Summons');
+        $summary = $this->character === null ? [] : [$this->character->name];
+        if ($this->view === SummonsMenuView::INFO) { $summary = [$title . ' · ' . Vocabulary::getLabel('summons.info', 'Info')]; }
         if (in_array($this->view, [SummonsMenuView::ACTIONS, SummonsMenuView::INFO], true)) { $title = $definition?->name ?? $title; }
         if ($this->view === SummonsMenuView::HOLDERS) { $title = 'Assign / ' . ($definition?->name ?? $title); }
-        return new SummonsMenuContent($this->character, $title, $this->character === null ? [] : [$this->character->name],
-            $this->getRows(), $this->activeIndex, $this->view === SummonsMenuView::INFO, $definition?->description ?? '',
-            null, $this->getActionHints());
+        $info = $this->view === SummonsMenuView::INFO;
+        return new SummonsMenuContent($this->character, $title, $summary,
+            $this->getRows(), $this->activeIndex, $info, $definition?->description ?? '',
+            null, $this->getActionHints(), $info ? $this->getDetailSheet() : null);
     }
 
     /** @return list<\Ichiloto\Engine\IO\ActionHint> */
@@ -199,12 +230,83 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $content = $this->getPresentationContent();
         $page = null;
         if ($content->detailsOpen) {
-            [$columns, $rows] = SummonsMenuPresentation::getDetailPageSize($content, $theme);
-            $page = $this->detailViewport->page($columns, $rows);
+            $page = $content->details->createPage($this->detailViewport,
+                SummonsMenuPresentation::getDetailViewport($content, $theme), $theme->createDetailStyle());
         }
-        $canvas = SummonsMenuPresentation::compose($content, $theme, $page, $this->menuInfoText, $time);
+        $step = $this->getTutorialStep();
+        $canvas = SummonsMenuPresentation::compose($content, $theme, $page, $this->menuInfoText, $time,
+            tutorial: $step, tutorialRow: $this->resolveTutorialRow($step),
+            tutorialSpeaker: $this->getGameScene()->getTutorialSpeakerName($step));
         if ($page !== null) { $this->lastDetailPage = $page; }
         return $canvas;
+    }
+
+    private function getTutorialView(): ?string
+    {
+        return match ($this->view) {
+            SummonsMenuView::SUMMONS => self::TUTORIAL_LIST,
+            SummonsMenuView::ACTIONS => self::TUTORIAL_ACTIONS,
+            SummonsMenuView::HOLDERS => self::TUTORIAL_HOLDERS,
+            default => null,
+        };
+    }
+
+    private function getTutorialStep(): ?TutorialStep
+    {
+        $view = $this->getTutorialView();
+        return $view === null ? null : $this->getGameScene()->getTutorialPresentationStep(self::TUTORIAL_SCREEN, $view);
+    }
+
+    private static function getHolderRowId(Character $member): string
+    {
+        return 'member-' . ($member->actorId ?? spl_object_id($member));
+    }
+
+    private function canShowTutorialTarget(TutorialStep $step): bool
+    {
+        $target = $this->resolveTutorialRow($step);
+
+        return array_any($this->summons, static fn(SummonCutsceneDefinition $definition): bool => $definition->id === $target);
+    }
+
+    private function resolveTutorialRow(?TutorialStep $step): ?string
+    {
+        if ($step === null) {
+            return null;
+        }
+        $id = $step->target['id'];
+        if ($this->view === SummonsMenuView::SUMMONS && $id === self::TUTORIAL_ASSIGNED_CONTRACT) {
+            return array_find($this->summons, fn(SummonCutsceneDefinition $definition): bool =>
+                $this->party->getSummonHolders($definition->id) !== []
+                && array_any($this->getHolderOptions($definition), static fn(Character $member): bool => !$member->hasSummon($definition->id)),
+            )?->id;
+        }
+        if ($this->view !== SummonsMenuView::HOLDERS
+            || ($id !== self::TUTORIAL_ASSIGNABLE_HOLDER && ($step->until['outcome'] ?? null) !== self::TUTORIAL_ASSIGNED)) {
+            return $id;
+        }
+        $definition = $this->getSelectedSummon();
+        if ($definition === null || ($step->until['subject'] ?? $definition->id) !== $definition->id) {
+            return null;
+        }
+        foreach ($this->getHolderOptions() as $member) {
+            $rowId = self::getHolderRowId($member);
+            if (!$member->hasSummon($definition->id) && ($id === self::TUTORIAL_ASSIGNABLE_HOLDER || $id === $rowId)) {
+                return $rowId;
+            }
+        }
+
+        return null;
+    }
+
+    private function focusTutorialTarget(TutorialStep $step): bool
+    {
+        $id = $this->resolveTutorialRow($step);
+        $index = array_find_key($this->getRows(), static fn(MenuRow $row): bool => $row->id === $id);
+        if ($index === null) { return false; }
+
+        $this->activeIndex = $index;
+        return true;
     }
 
     protected function refreshUI(): void
@@ -212,27 +314,40 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $this->refreshDefinitions();
         $this->activeIndex = min($this->activeIndex, max(0, count($this->getRows()) - 1));
         $this->detailViewport ??= new TextViewport();
-        $this->detailViewport->setText($this->getDetailText());
+        $step = $this->lastTutorialStep = $this->getTutorialStep();
+        $this->getGameScene()->tutorialDirector?->applyStepFocus($step, $this->focusTutorialTarget(...));
         $content = $this->getPresentationContent();
         $this->lastRows = $this->getRowSnapshot($content->rows);
         $this->summaryPanel->setContent([$content->title, ...$content->summary]);
         $this->summaryPanel->render();
-        if ($content->detailsOpen) { $this->refreshDetailPanel(); }
+        if ($content->details !== null) { $this->refreshDetailPanel($content->details); }
         else { $this->refreshListPanel(); }
-        $this->infoPanel->setContent([$content->description, '']);
-        $this->infoPanel->setHelp(implode('  ', array_map(static fn($hint): string => ($hint->control?->label ?? 'Unbound') . ':' . $hint->label, $content->hints)));
+        $visibleStep = $this->resolveTutorialRow($step) === null ? null : $step;
+        $hint = TutorialTerminalPresentation::presentInstruction($visibleStep, $this->getGameScene()->getTutorialSpeakerName($visibleStep));
+        $this->infoPanel->setHelp($hint ?? TerminalControlText::formatHints($content->hints));
+        $this->refreshInfoPanel($content->description);
+    }
+
+    /** The reading range sits under the description in the Info footer, only while Info overflows. */
+    private function refreshInfoPanel(string $description): void
+    {
+        $page = $this->view === SummonsMenuView::INFO ? $this->lastDetailPage : null;
+        $this->infoPanel->setContent([$description, $page !== null && $page->total > count($page->lines)
+            ? sprintf('%d-%d / %d', $page->first + 1, $page->first + count($page->lines), $page->total) : '']);
         $this->infoPanel->render();
     }
 
     private function refreshListPanel(): void
     {
         $rows = $this->getRows();
-        $size = self::LIST_PANEL_HEIGHT - 2;
+        $size = $this->listPanel->getContentHeight();
         $offset = max(0, min($this->activeIndex - intdiv($size, 2), count($rows) - $size));
         $lines = [];
+        $target = $this->resolveTutorialRow($this->getTutorialStep());
         foreach (array_slice($rows, $offset, $size) as $row) {
-            $lines[] = TerminalMenuRow::compose($row->label, implode('  ', array_map(static fn(MenuRowValue $value): string => $value->text, $row->values)),
-                self::MENU_WIDTH - 4, prefix: $row->focused ? ' > ' : '   ');
+            $line = TerminalMenuRow::compose($row->label, implode('  ', array_map(static fn(MenuRowValue $value): string => $value->text, $row->values)),
+                $this->listPanel->getContentWidth(), prefix: $row->focused ? ' > ' : '   ');
+            $lines[] = $row->id === $target ? TutorialTerminalPresentation::highlight($line) : $line;
         }
         if ($rows === []) { $lines[] = $this->character === null ? 'No summons.' : 'No assignable summons.'; }
         $this->listPanel->setContent(array_pad($lines, $size, ''));
@@ -240,29 +355,21 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $this->listPanel->render();
     }
 
-    protected function refreshDetailPanel(): void
+    protected function refreshDetailPanel(MenuDetailSheet $details): void
     {
-        $page = $this->detailViewport->page(self::MENU_WIDTH - 6, self::LIST_PANEL_HEIGHT - 2);
-        $this->listPanel->setContent($page->lines);
-        $this->listPanel->setHelp($page->total > $page->rows ? $page->range() : '');
+        $page = $details->createPage($this->detailViewport, new MenuDetailViewport($this->listPanel->getContentWidth() - 2,
+            $this->listPanel->getContentHeight()), MenuDetailStyle::createTerminal());
+        $layout = $details->layout($page->columns, MenuDetailStyle::createTerminal());
+        $this->listPanel->setContent($layout->getTerminalLines($page, $page->columns));
+        $this->listPanel->setHelp('');
         $this->listPanel->render();
         $this->lastDetailPage = $page;
     }
 
-    protected function getDetailText(): string
+    protected function getDetailSheet(): MenuDetailSheet
     {
         $definition = $this->getSelectedSummon();
-        if ($definition === null) { return ''; }
-        $lines = [$definition->name, '', $definition->lore !== '' ? $definition->lore : $definition->description, ''];
-        $labels = ['Move', 'Element', 'Strong vs', 'Weak vs', ...array_map('strval', array_keys($definition->attributes))];
-        $width = max(array_map(TerminalText::displayWidth(...), $labels));
-        $row = static fn(string $label, string $value): string => TerminalText::padRight($label, $width) . ' : ' . $value;
-        if ($definition->moveName !== null) { $lines[] = $row('Move', $definition->moveName . ': ' . $definition->description); }
-        if ($definition->element !== '') { $lines[] = $row('Element', $definition->element); }
-        foreach ($definition->attributes as $label => $value) { $lines[] = $row((string)$label, (string)$value); }
-        if ($definition->strengths !== []) { $lines[] = $row('Strong vs', implode(', ', $definition->strengths)); }
-        if ($definition->weaknesses !== []) { $lines[] = $row('Weak vs', implode(', ', $definition->weaknesses)); }
-        return implode("\n", $lines);
+        return new MenuDetailSheet($definition === null ? [] : SummonInfoSheet::createSections($definition));
     }
 
     private function setView(SummonsMenuView $view, int $index = 0): void
@@ -279,18 +386,21 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         $priorCharacter = $this->character;
         $priorView = $this->view;
         $this->refreshDefinitions();
+        $this->getGameScene()->evaluateTutorialView(self::TUTORIAL_SCREEN, $this->getTutorialView());
         if ($priorCharacter !== $this->character || $priorView !== $this->view
             || $this->getRowSnapshot($this->getRows()) !== $this->lastRows) {
             // Refresh a changed roster/availability before accepting a choice made against its old rows.
             $this->refreshUI();
             return;
         }
+        if ($this->getTutorialStep() !== $this->lastTutorialStep) { $this->refreshUI(); }
         if ($this->handleCharacterCycling()) { return; }
         $v = Input::getAxis(AxisName::VERTICAL);
         if ($v !== 0.0) {
             if ($this->view === SummonsMenuView::INFO && $this->lastDetailPage !== null) {
                 $this->detailViewport->scroll($v > 0 ? 1 : -1, $this->lastDetailPage);
-                $this->refreshDetailPanel();
+                $this->refreshDetailPanel($this->getDetailSheet());
+                $this->refreshInfoPanel($this->getSelectedSummon()?->description ?? '');
             } elseif (($total = count($this->getRows())) > 0) {
                 $this->activeIndex = wrap($this->activeIndex + ($v > 0 ? 1 : -1), 0, $total - 1);
                 $this->refreshUI();
@@ -320,19 +430,32 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         if (!Input::isButtonPressed('confirm') || $this->view === SummonsMenuView::INFO) { return; }
         $definition = $this->getSelectedSummon();
         if ($definition === null) { return; }
+        $scene = $this->getGameScene();
         if ($this->view === SummonsMenuView::SUMMONS) {
             $this->selectedSummonId = $definition->id;
             $this->setView(SummonsMenuView::ACTIONS);
+            $scene->reportTutorialOutcome(
+                self::TUTORIAL_SCREEN, self::TUTORIAL_LIST, self::TUTORIAL_SUMMON_OPENED, $definition->id,
+            );
         } elseif ($this->view === SummonsMenuView::ACTIONS) {
             $action = $this->getRows()[$this->activeIndex]->id ?? null;
             if ($action === 'info') { $this->setView(SummonsMenuView::INFO); }
-            elseif ($action === 'assign') { $this->setView(SummonsMenuView::HOLDERS); }
+            elseif ($action === 'assign') {
+                $this->setView(SummonsMenuView::HOLDERS);
+                $scene->reportTutorialOutcome(
+                    self::TUTORIAL_SCREEN, self::TUTORIAL_ACTIONS, self::TUTORIAL_ASSIGN_OPENED, $definition->id,
+                );
+            }
         } else {
             $member = $this->view === SummonsMenuView::CHARACTER ? $this->character : ($this->getHolderOptions()[$this->activeIndex] ?? null);
-            if ($member === null || !$this->party->members->contains($member)) { $this->refreshUI(); return; }
+            if ($member === null || !$this->party->participants->contains($member)) { $this->refreshUI(); return; }
             if ($member->hasSummon($definition->id)) { $this->party->unassignSummon($definition->id, $member); }
-            elseif ($this->view === SummonsMenuView::CHARACTER) { $this->party->assignSummon($definition, $member, $this->getGameScene()->gameState); }
-            else { $this->party->reassignSummon($definition, $member, $this->getGameScene()->gameState); }
+            elseif ($this->view === SummonsMenuView::CHARACTER) { $this->party->assignSummon($definition, $member, $scene->gameState); }
+            elseif ($this->party->reassignSummon($definition, $member, $scene->gameState)) {
+                $scene->reportTutorialOutcome(
+                    self::TUTORIAL_SCREEN, self::TUTORIAL_HOLDERS, self::TUTORIAL_ASSIGNED, $definition->id,
+                );
+            }
             $this->refreshUI();
         }
     }
@@ -341,13 +464,19 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     {
         if ($this->view !== SummonsMenuView::CHARACTER) { return false; }
         $offset = $this->isNextCharacterRequested() ? 1 : ($this->isPreviousCharacterRequested() ? -1 : 0);
-        $members = $this->party->members->toArray();
+        $members = $this->party->participants->toArray();
         if ($offset === 0 || count($members) < 2) { return false; }
         $current = array_search($this->character, $members, true);
         $this->character = $members[wrap(($current === false ? 0 : $current) + $offset, 0, count($members) - 1)];
         if ($this->equipmentReturn !== null) { $this->equipmentReturn->character = $this->character; }
         $this->setView(SummonsMenuView::CHARACTER);
         return true;
+    }
+
+    public function exit(): void
+    {
+        TutorialTerminalPresentation::clearInstruction();
+        $this->getGameScene()->tutorialDirector?->leaveContext(TutorialStartContext::SUMMONS_LIBRARY);
     }
 
     public function resume(): void { $this->refreshUI(); }

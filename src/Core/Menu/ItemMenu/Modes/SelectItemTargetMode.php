@@ -65,7 +65,7 @@ class SelectItemTargetMode extends ItemMenuMode
    */
   public function enter(): void
   {
-    $this->state->targetSelectionPanel->setTargets($this->state->getGameScene()->party->members->toArray());
+    $this->state->targetSelectionPanel->setTargets($this->state->getGameScene()->party->participants->toArray());
     $this->state->targetSelectionPanel->focus();
     $this->state->statusPanel->setTarget($this->state->targetSelectionPanel->activeCharacter);
   }
@@ -124,6 +124,11 @@ class SelectItemTargetMode extends ItemMenuMode
   {
     try {
       if (!$this->canUseCurrentStack($item, $target, 1)) { return; }
+      // Refuse an item that would be wasted before asking how many to use.
+      if (($refusal = $target->getItemUseRefusal($item)) !== null) {
+        alert($refusal);
+        return;
+      }
       $quantity = $item->quantity > 1
         ? ModalManager::getInstance($this->state->getGameScene()->getGame())->selectQuantity(
           sprintf('Use %s on %s', $item->name, $target->name), $item->quantity, 'Use item')
@@ -146,7 +151,7 @@ class SelectItemTargetMode extends ItemMenuMode
   {
     if ($quantity < 1 || $item->quantity < $quantity
       || !in_array($item, $this->state->itemMenu->getRegularItems(), true)
-      || !in_array($target, $this->party->members->toArray(), true)) {
+      || !in_array($target, $this->party->participants->toArray(), true)) {
       alert('The selected item quantity or target is no longer available.');
       return false;
     }

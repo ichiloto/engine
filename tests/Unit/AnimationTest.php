@@ -194,7 +194,8 @@ it('shares ordered legacy animation names with the editor', function () {
 it('selects semantic defaults without depending on skill display names', function () {
   $magic = static fn(MagicEffectType $type): MagicSkill => new MagicSkill('Renamed magic', '', '', 0, 0, effectType: $type);
   expect(ActionAnimationResolver::getSkillRole($magic(MagicEffectType::RESTORATIVE)))->toBe('restorative')
-    ->and(ActionAnimationResolver::getSkillRole($magic(MagicEffectType::BUFF)))->toBe('restorative')
+    ->and(ActionAnimationResolver::getSkillRole($magic(MagicEffectType::BUFF)))->toBe('buff')
+    ->and(ActionAnimationResolver::getSkillRole($magic(MagicEffectType::DEBUFF)))->toBe('debuff')
     ->and(ActionAnimationResolver::getSkillRole($magic(MagicEffectType::DESTRUCTIVE)))->toBe('skill')
     ->and(ActionAnimationResolver::getSkillRole(new SpecialSkill('Renamed technique', '', '', 0, 0)))->toBe('skill')
     ->and(ActionAnimationResolver::getSkillRole(new BasicSkill('Renamed strike', '', '', 0, 0)))->toBe('attack');
@@ -220,7 +221,7 @@ it('refuses an explicit null role list and snapshots external role references', 
 
 it('refuses ambiguous or missing role defaults without hiding unrelated animations', function () {
   $previous = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-animation-roles-' . uniqid();
+  $root = \getTestTemporaryDirectory() . '/ichiloto-animation-roles-' . uniqid();
   mkdir($root . '/assets/Data', 0777, true);
   $logDirectory = new ReflectionProperty(Debug::class, 'logDirectory');
   $previousLogDirectory = $logDirectory->getValue();
@@ -251,7 +252,7 @@ it('refuses ambiguous or missing role defaults without hiding unrelated animatio
 
 it('replaces scene-owned animation assets between battles even when the action state survives', function () {
   $previous = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-battle-animation-' . uniqid();
+  $root = \getTestTemporaryDirectory() . '/ichiloto-battle-animation-' . uniqid();
   mkdir($root . '/assets/Data', 0777, true);
   $path = $root . '/assets/Data/animations.php';
   try {
@@ -278,7 +279,7 @@ it('replaces scene-owned animation assets between battles even when the action s
 
 it('keeps an animation library stable for one battle and reloads in the next', function () {
   $previous = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-animation-cache-' . uniqid();
+  $root = \getTestTemporaryDirectory() . '/ichiloto-animation-cache-' . uniqid();
   mkdir($root . '/assets/Data', 0777, true);
   $path = $root . '/assets/Data/animations.php';
   try {
@@ -296,7 +297,7 @@ it('keeps an animation library stable for one battle and reloads in the next', f
 
 it('keeps valid animations available when one authored entry is malformed', function () {
   $previous = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-animation-invalid-' . uniqid();
+  $root = \getTestTemporaryDirectory() . '/ichiloto-animation-invalid-' . uniqid();
   mkdir($root . '/assets/Data', 0777, true);
   $path = $root . '/assets/Data/animations.php';
   try {
@@ -317,7 +318,7 @@ it('keeps valid animations available when one authored entry is malformed', func
 it('diagnoses malformed animation files and roots while retaining battle cache and live reload behavior', function () {
   foreach (["<?php return [", "<?php return 'not an array';"] as $source) {
     $previous = getcwd();
-    $root = sys_get_temp_dir() . '/ichiloto-animation-root-' . uniqid();
+    $root = \getTestTemporaryDirectory() . '/ichiloto-animation-root-' . uniqid();
     mkdir($root . '/assets/Data', 0777, true);
     $path = $root . '/assets/Data/animations.php';
     $logDirectory = new ReflectionProperty(Debug::class, 'logDirectory');

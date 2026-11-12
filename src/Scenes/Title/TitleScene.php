@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\Scenes\Title;
 
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+
+use Ichiloto\Engine\UI\Presentation\TerminalControlText;
 use Ichiloto\Engine\UI\Windows\SaveSlotPage;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\Commands\ContinueGameCommand;
@@ -52,7 +55,6 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
   protected const int TITLE_OPTIONS_COLUMN_GAP = 2;
   protected const int TITLE_OPTIONS_STATUS_ROWS = 2;
   protected const string TITLE_OPTIONS_TITLE = 'Options';
-  protected const string TITLE_OPTIONS_HELP = 'Esc:Back';
   protected const int CONTINUE_MENU_WIDTH = 110;
   protected const int CONTINUE_INFO_HEIGHT = 3;
   protected const int CONTINUE_HELP_HEIGHT = 4;
@@ -184,7 +186,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     $this->resetTitlePresentation();
 
     $this->renderHeader();
-    usleep(300);
+    RuntimeClock::sleep(0.0003);
     $this->menu->render();
   }
 
@@ -306,9 +308,9 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
       return;
     }
 
-    usleep(300);
+    RuntimeClock::sleep(0.0003);
     $this->renderHeader();
-    usleep(300);
+    RuntimeClock::sleep(0.0003);
     $this->menu->render();
   }
 
@@ -451,7 +453,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
 
     $this->optionsWindow = new Window(
       $this->getOptionsMenuTitle(),
-      self::TITLE_OPTIONS_HELP,
+      $this->getOptionsHelp(),
       new Vector2(
         max(0, intdiv(get_screen_width() - $width, 2)),
         max(0, intdiv(get_screen_height() - $height, 2))
@@ -554,21 +556,22 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
 
     $horizontal = Input::getAxis(AxisName::HORIZONTAL);
 
+    // Each change sounds after it applies, so a volume is heard at its new level.
     if ($horizontal > 0) {
-      $audioManager->playSystemSound(SystemSound::CURSOR);
       $this->changeActiveOption(1);
+      $audioManager->playSystemSound(SystemSound::CURSOR);
       return;
     }
 
     if ($horizontal < 0) {
-      $audioManager->playSystemSound(SystemSound::CURSOR);
       $this->changeActiveOption(-1);
+      $audioManager->playSystemSound(SystemSound::CURSOR);
       return;
     }
 
     if (Input::isButtonDown('confirm')) {
-      $audioManager->playSystemSound(SystemSound::CONFIRM);
       $this->activateSelectedOption();
+      $audioManager->playSystemSound(SystemSound::CONFIRM);
     }
   }
 
@@ -678,11 +681,16 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     $this->continueHelpWindow?->render();
   }
 
+  /** The Options window's help line: its Back control. */
+  protected function getOptionsHelp(): string
+  {
+    return TerminalControlText::formatHint(ActionHints::resolve('back', 'Back'));
+  }
+
   protected function getContinueControlHelp(): string
   {
     $hints = [ActionHints::resolve('confirm', 'Load'), ActionHints::resolve('back', 'Back')];
-    return implode('  ', array_map(static fn($hint): string =>
-      ($hint->control?->label ?? 'Unbound') . ': ' . $hint->label, $hints));
+    return TerminalControlText::formatHints($hints);
   }
 
   /**
@@ -798,7 +806,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
       self::TITLE_OPTIONS_MIN_WIDTH,
       $contentWidth + self::TITLE_OPTIONS_HORIZONTAL_PADDING,
       TerminalText::displayWidth($this->getOptionsMenuTitle()) + 3,
-      TerminalText::displayWidth(self::TITLE_OPTIONS_HELP) + 3,
+      TerminalText::displayWidth($this->getOptionsHelp()) + 3,
     );
     $height = count($this->options) + 3 + self::TITLE_OPTIONS_STATUS_ROWS;
 

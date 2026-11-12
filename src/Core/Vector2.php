@@ -14,9 +14,9 @@ use Stringable;
 class Vector2 implements CanCompare, Stringable
 {
   /**
-   * @var string The hash of the vector.
+   * The comparison identity always describes the current coordinates.
    */
-  protected(set) string $hash = '';
+  public string $hash { get => md5(__CLASS__) . '.' . md5($this->x . '.' . $this->y); }
 
   /**
    * Vector2 constructor.
@@ -24,26 +24,24 @@ class Vector2 implements CanCompare, Stringable
    * @param float $x The x coordinate.
    * @param float $y The y coordinate.
    */
-  public function __construct(
-    public float $x = 0 {
-      get {
-        return $this->x;
-      }
-      set {
-        $this->x = $value;
-      }
-    },
-    public float $y = 0 {
-      get {
-        return $this->y;
-      }
-      set {
-        $this->y = $value;
+  public function __construct(public float $x = 0, public float $y = 0) {}
+
+  /** Retain the existing wire fields with a freshly derived identity. */
+  public function __serialize(): array
+  {
+    return ['hash' => $this->hash, 'x' => $this->x, 'y' => $this->y];
+  }
+
+  /** Historical saves may contain a constructor-era hash; coordinates own position. */
+  public function __unserialize(array $data): void
+  {
+    foreach (['x', 'y'] as $axis) {
+      if (!isset($data[$axis]) || (!is_int($data[$axis]) && !is_float($data[$axis]))) {
+        throw new \UnexpectedValueException('Saved vector coordinates must be numbers.');
       }
     }
-  )
-  {
-    $this->hash = md5(__CLASS__) . '.' . md5($this->x . '.' . $this->y);
+    $this->x = $data['x'];
+    $this->y = $data['y'];
   }
 
   /**

@@ -18,6 +18,141 @@ and remaining engineering work, not release status.
 Headless PHP checks and macOS rendering checks do not establish Linux/WSLg or
 Windows support. Merging implementation does not create a package release.
 
+## Shared storybook pages — 3 November 2026
+
+Andrew selected an optional elder telling an illustrated story, with the same
+ordered narration and authored page breaks in graphical and Terminal views.
+The shared data foundation lives in `Messaging/Storybook`: `StorybookDefinition`
+reads `id`, `title`, `narrator` and a nonempty ordered `pages` list. Each page
+has stable `id`, exact `text` and optional asset-relative PNG `picture`.
+Hydration preserves source strings and input order. Invalid page identity or
+narration is refused; optional picture-reference failures produce diagnostics
+and preserve the narration. `StorybookPage::getPictureSize` uses the existing
+PNG header/bounds preflight and current file facts. Native preparation remains
+the full-decode authority. Editor authoring preserves the original source;
+these resolved runtime models are not a source serializer.
+`StorybookLibrary` loads the selected `Data/Storybooks/<id>.php` from an
+explicit project asset root and requires the filename and declared identity to
+agree. Its sorted discovery reads filenames without evaluating authored PHP or
+loading artwork; source containment is checked before loading. Current text is
+loaded again when requested, without a separate content cache or source write.
+
+`StorybookPlayback` owns forward/back/close and finite text continuations for
+an explicitly supplied common reading capacity. It reuses shared dialogue
+wrapping, retaining the authored page and picture throughout its continuations.
+One styled wrap fits both Terminal display cells and Canvas codepoints,
+retaining authored paragraph indentation while removing soft-break separators.
+An unreadable next page is refused before changing owner position. Closing writes no outcome,
+and another telling creates independent reader state.
+
+The shared `StorybookModal` uses the existing modal lifecycle and Window for a
+bounded Terminal book frame, centered navigation buttons, semantic control hints
+and input cleanup. It accepts a live `StorybookReadingCapacityProviderInterface`
+for the host's current prose area, or a fixed `StorybookReadingCapacity` for an
+isolated reader. The stricter Terminal/projection dimensions feed one reader.
+`ModalPresentation::storybook` carries an immutable owner-selected page,
+prose continuation, narrator and capacity for graphical composition. Resizing or
+a changed control display reflows around the current reading position; an
+unsupported surface is refused before changing it. Reader controls use a native
+enum; labels never drive the selected action.
+
+The cooperative `play_storybook` event command selects a stable book ID from the
+active project's `assets/Data/Storybooks` library and opens the reader through
+`EventStorybookPresentationInterface`. It shares the existing event presentation
+lane, yields to the ordinary game loop and resumes the invoking script when the
+reader closes. Authors can add an optional `onFinish` command list, which runs
+in the same lane after the player confirms Close on the final continuation.
+Cancel and interruption skip that list. Failure or interruption uses the
+existing owned modal cleanup and permits an ordinary retry. Reading itself
+writes no progress flag or reward. Field and battle scopes share the reader and
+apply their own command rules to the continuation. The cinematic schema
+exposes the book reference and the After Reading list for Editor authoring.
+
+Graphical hosts implement `StorybookReadingCapacityProviderInterface` to measure
+the actual prose space before opening the shared modal and while it is open.
+The modal compares current measurements before reflowing; graphical surface or
+control-glyph changes retain the current reading anchor even when Terminal
+dimensions and hint text stay unchanged. A graphical runtime
+without that provider is refused before replacing an existing presentation or
+consuming input. `GameScene` and `BattleScene` provide it through
+`RendererRuntime::getStorybookReadingCapacity`, which asks the scene frame
+composer's themed dialogue presentation to measure the surface their modals
+compose over (the field grid, or a battle's arena canvas). A null capacity means
+no themed graphical projection draws the reader (a Terminal session, a renderer
+without graphical canvases, or a project without a dialogue catalogue), so the
+Terminal reader alone sets the capacity. `StorybookCanvasPresentation` uses one
+layout for that measurement and for painting `ModalPresentation::storybook`:
+the theme's optional `storybook` frame (panel otherwise), title and narrator,
+the page painting contained in a slot on the left (above on a portrait surface)
+with an optional `storybook.picture` frame, the reader's prose block, the
+position caption in the frame's bottom padding, centred Previous/Next/Close
+buttons and the Confirm/Close hints. A book with any picture reserves the slot
+for every page; a picture-free page centres the same prose block. A missing
+painting is reported and leaves the narration readable. Editor resource
+authoring and Andrew's Terminal-frame/painting review remain open. Existing modal, dialogue,
+image and theme primitives supply those consumers. The official Game text and
+optional elder interaction remain Game work after those dependencies and reviews;
+no Game storybook binding has been installed.
+
+## Dialogue camera framing — 31 October 2026
+
+1 November: the PHP `camera_motion` contract, optional capability adaptation,
+retained viewport preservation and 0.2-second smooth dialogue correction/return
+are implemented. Cinematic cleanup restores logical ownership before releasing
+the framing lease. Synthetic lifecycle, independent-capability, reduced-motion,
+signed-origin and world-canvas checks qualify this PHP slice. Native consumption
+landed separately in Renderer `914ae39`; no in-game visual acceptance is claimed.
+
+Authored `pan`/`route` now keep a fixed retained graphical destination while
+PHP owns logical samples, segment timing and completion. Native segments remain
+within 60 seconds without restricting authored durations; route overflow carries
+the remaining duration. Resizing, reduced motion and lease cleanup are covered.
+The Editor currently withholds wall-clock camera interpolation so pause, step
+and seek retain accurate PHP-sampled views. A controllable native field clock is
+required for smooth camera playback at the Editor playhead.
+
+Remaining integration: exact world-anchored edge-guidance projection across
+clamped/unclamped camera movement (the current native pinned-sprite ride is an
+approximation), the controllable preview clock, the authored Lehu reveal scene
+and complete Game/Editor/native presentation checks. These remain required
+Milestone 4 work; automatic dialogue framing does not complete the city reveal.
+
+Shared dialogue geometry now reserves the body, portrait and nameplate area for
+current cinematic participants. Camera projection handles signed edge padding,
+small maps, retained step envelopes, multiple reading owners and cleanup;
+Terminal uses independent text/cell geometry. Physical map/collision/state and
+actor placement remain unchanged. See the
+[camera lifecycle contract](../cinematics.md#dialogue-safe-camera-framing).
+Game candidate `eb39794` qualifies current Lovehut, guidance/reunion and private
+bargain dialogue geometry and ownership through 39 checks / 3,056 assertions on
+Engine `002cd25`. Graphical qualification covers drawable subjects; Golden Inn
+`staged:nivira` awaits accepted bed-pose admission. Editor `ab23061` fixes the
+shared PNG import memory failure, so accepted artwork admission can proceed.
+Editor/native preview and player acceptance remain pending. Oversized casts
+produce a diagnostic for source staging corrections.
+
+The actual Game bootstrap exported the first Vax reading frame through
+`SceneFrameComposer` at 800×480 with retained world operations, current cast,
+viewport and dialogue canvas. Existing CPU panel helpers do not render the
+complete field scene. Andrew deferred offscreen capture tooling on 31 October:
+“Not now (Recommended)”, selecting “Drop it as a merge gate; you review by
+playing. Revisit later if we need automated screenshots.” Automated full-scene
+image proof is removed as a merge gate. Preserve existing descriptor and
+coverage evidence; qualify the scene through Andrew’s playtest. The separate
+merge decision remains with Andrew. No offscreen adapter, vendor edit or new
+capture backend is required for this delivery.
+
+## World-power first-use presentation — 31 October 2026
+
+Controlled field updates now deliver source-owned first-use prompts and finite
+field effects, persisting completion after delivery. Dash and passage cues
+share the existing world-ability identity and availability. Current semantic
+control hints, Terminal labels, reduced-motion timing, cancellation and
+save/rollback behavior have focused local coverage. See
+[the source and lifecycle contract](../story-events.md#saved-first-use-prompts).
+Editor selectors and source-preserving firstUse round trips, production artwork
+admission, full-scene preview and native player acceptance remain pending.
+
 ## Open playtest defects — 18 October 2026
 
 These are current reported defects and required follow-through. Each remains
@@ -47,7 +182,7 @@ Game ledger with their owners.
 | New mechanics lack optional, revisitable in-world tutorials | Engine, Editor, Game | Data/offer/presentation/save contract, both-editor authoring and authored first-use offers remain required. No Game-only tutorial implementation. |
 | Event speakers are distant from their interaction; required quest steps can be bypassed | Engine, Editor, Game | Stable local-speaker references and progression approach checks remain required. Game owns the current integrated-map and quest-phase audit; dialogue prose and completion writes cannot infer identity or route requirements. |
 | Graphical pieces need independent visual offsets | Engine, Editor | Per-piece visual offsets remain required; current whole-layer half-cell offsets do not address independent authored pieces. Physical occupancy and Terminal geometry must remain independent. |
-| Party changes lack complete catch-up leveling and settings support | Engine, Editor, Game | The October 10 party join/leave request remains open. Shared progression/settings contract, safe round trips and current-party consumers need qualification before player acceptance. |
+| Party changes lack complete catch-up leveling and settings support | Engine, Editor, Game | The October 10 party join/leave request remains open. Shared SP progress records actual spending and known earned totals. Authored recruitment policies now support roster-average earned SP and an explicit one-time estimate of unknown historical spending from current learned-node prices. Andrew approved the estimate for Nivira. Editor/Game bindings, party-join notices and current-party qualification remain before player acceptance. |
 
 No entry here claims Linux/WSLg, Windows or remote CI validation. New remote
 publication and release actions still require Andrew's exact authorization.
@@ -3937,12 +4072,36 @@ paths share these lifecycle constraints.
 
 ## Shared menu presentation
 
+Ichiloto developer tools own their chrome. The Engine resource
+`resources/ui/ichiloto-tool-theme.json` (`ichiloto.tool-theme/1`) carries all
+semantic GUI chrome colours and their ANSI16 mappings. `ToolColor` names the
+closed set; `ToolTheme` validates the resource and builds the existing menu
+components without project frames, icons or control artwork. Battle Test uses
+this palette even when a game has no menu theme, with plain panel borders and
+blue selection. This removes project menu-theme loading and configured game
+selection colours from Battle Test setup. Terminal windows use the same
+resource's mappings. The previewed stage, battlers, effects and actual battle
+screens keep the game's presentation. Scene, dialogue and battle preview
+launchers display their supplied content and expose controls through standard
+input/stdin; they draw no separate tool chrome to recolour. Renderer diagnostic
+smoke patterns are test content. GUI editor consumption remains Claude-owned;
+shared token delivery alone does not verify its adoption.
+
 Engine owns components, layout and navigation adapters. Games supply replaceable
 artwork, palette and spacing through `assets/Data/Presentation/menus.php`.
 They need not restate Engine defaults or provide drawing callbacks.
 `PresentationCanvas` owns default canvas dimensions, `MenuLayout` owns the
 centred maximum menu envelope, and theme metrics own typography and spacing.
 The same envelope applies to Main Menu, Config and other full menus.
+
+Command rows are lists: labels align left after the cursor and icon gutters,
+with a full-row selection and the existing oscillating list cursor. Button
+labels alone are centered independently of cursors, icons and input hints;
+buttons keep steady focus treatments. `MenuRowKind` owns this alignment, and
+the shared painter and row measurement apply it to Main Menu, vertical modal
+choices and every other command-row consumer. Wrapped command lines share one
+left origin. This removes the earlier shared centering of command labels.
+Terminal commands retain their left-aligned text after the selection gutter.
 
 Game Over now projects the existing scene's Load Game, To Title and Exit
 commands onto a centred graphical panel with shared theme frames and buttons.
@@ -4088,6 +4247,23 @@ and measured pages for complete terminal/native scrolling; shortened previews
 retain full detail text. Back restores selection. Secret and undiscovered
 entries are filtered before presentation.
 
+Records supplies explicit table headings: Achievement / Status / Requirement,
+Record / Type / Knowledge, and Guide / Category. The shared table measures
+headings and values together; shortened list previews retain the complete
+reading content. Record types and Guide categories use authored display text,
+and knowledge depth has player-facing enum labels. Empty classification fields
+and classification identical to the record name are omitted. Guide metadata
+supplies its summary; the existing replay owner supplies its action. The title,
+tabs and Points summary keep their positions across all three Records tabs.
+Terminal reserves its column-heading row outside the record pagination count
+and fits its panels to the actual screen height, including 80 by 24.
+
+Records measures and draws each detail sheet with the same viewport and theme.
+Parallel detail columns retain all their reading lines through the shared
+layout's page-height calculation; their physical placement remains within the
+Info panel. Summons, quest, Magic and Abilities details retain their own content
+and presentation contracts.
+
 Terminal journals use the shared horizontal tabs and Window border/help
 pagination, never fake right padding or content rows. Native text and markers
 are batched, and tab headers are measured after wrapping.
@@ -4097,15 +4273,46 @@ rebind/default/cancel behaviour, and distinguishes failed persistence from a
 successful session-only binding. Consumed edges cannot bind or navigate again.
 Replaceable display glyphs are not physical-controller detection.
 
-Remaining UI gaps include Main Menu Quit confirmation parity with Pause and
-graphical GUI authoring of themes and shared artwork-role bindings, not a
-mandatory graphical workflow in the terminal editor. Runtime composition does
-not establish authoring support. The [layered-tilemap correction roadmap](../layered-tilemaps.md#graphical-correction-roadmap)
+Main Menu Quit now opens on Cancel and confirms To Title and Exit through the
+shared modal presentation. Both confirmations start on Cancel and show the
+unsaved-progress warning. Cancelling a confirmation restores the destination
+selection. Host shutdown ends the flow before it can open another modal or
+execute a destination. Graphical GUI authoring of themes and shared artwork-role
+bindings remains open. Runtime composition does not establish authoring support. The [layered-tilemap correction roadmap](../layered-tilemaps.md#graphical-correction-roadmap)
 owns the six-stage field-map work, concrete GUI gaps and removal of the
 graphical-marker/crop workflow from the TUI while preserving terminal editing,
 shared gameplay identity, existing data and source-safe round trips.
 
 ## Dialogue And Skits
+
+Real NPC named placements and explicit reached-destination commits now preserve
+successful scene arrivals through cleanup and reload, with current authored
+geometry, physical preflight and existing subject-lease ownership. Missing saved
+placement identities require explicit migration. Editor source-preserving picker
+controls, Game scene wiring and complete scene/player qualification remain open.
+
+`SkitPlaybackDefinition::fromArray` now owns authored trigger/SFX reading for
+runtime and Editor consumers. Skit loading raises file-specific errors for
+malformed definitions, parse failures and duplicate ids. Silent skips and
+identity overwrites are removed. Editor consumption of the public reader remains
+its owner's follow-up; current project-resource and source-preservation checks
+remain required.
+
+Field conversational facing is implemented through
+`presentation.conversation`: explicit display-speaker bindings select current
+player/NPC/staged subjects, and text plus ordinary dialogue pages share one
+turn-taking path. Listeners face the speaker; addressee selection and authored
+facing overrides retain scene direction. Existing real-subject leases restore
+interrupted turns. Editor pickers/source-preserving edits, Game bindings and
+native/player confirmation remain pending. Owned conversation groups now scope
+private exchanges, disappearing subjects and map phases without restarting the
+cinematic. Shared bed occupants, saved posture, checked exits, timed transitions,
+Terminal glyphs and atomic base/body/covers composition are implemented. Editor
+binding/pose/resource controls, Game admission of approved artwork, native scene
+qualification and Andrew's full-scene review remain pending. Canvas child
+quarter-turn support is a shared rendering gap for quarter-turned compound art;
+ordinary upright and mirrored roles use the existing canvas contract. The
+renderer reports unavailable compound presentation and retains field fallback.
 
 Shared `DialogueSnapshot` composition now presents the current TextBox page,
 typing cursor, speaker and Auto state without changing playback ownership.
@@ -4196,7 +4403,13 @@ V2 `canvas_compositing` provides bounded image/fill/stroke operations, blending,
 gradients, polygon/ellipse/image-alpha masks and displacement grids. PHP owns
 time and resolved drawing data; native rendering has no game paths or clocks.
 Generic source/raster/cache/cold-work limits apply. See Renderer documentation
-for exact wire limits. `window_activation` reports native focus, not visibility
+for exact wire limits. The optional `canvas_stroke_dashes` capability adds a
+`dash` (`length`, `gap`) to a stroke, so a dashed line of any length is one
+operation of the frame's 256; the Engine offers it to every v2 renderer and
+uses it only once negotiated. `MenuShapes` draws dashed lines through it, or,
+for a renderer without it, as one stroke per straight piece masked to its
+dashes, lengthening dashes where a mask would exceed its point or work limits.
+`window_activation` reports native focus, not visibility
 or occlusion. OS-hide/occlusion handling, hover/pressed states, broad native
 input/visual coverage and Editor title authoring remain incomplete. Capability
 shortfalls degrade the presentation, not game startup. CPU preparation timings
@@ -4215,6 +4428,16 @@ renderer slides field sprites between cells over each step's duration and
 moves a following camera with the player on one clock. Terminal event-only
 input, route timing and retained-cell composition are unchanged.
 
+Delivered 25 October 2026: RPG Maker's dash
+([dash](input-sources.md#dash-implemented)). The held `dash` action (Shift by
+default, reported through the negotiated `modifier_controls` subscription)
+divides each held step's time by the project's authored multiplier, decided
+with the step so walking and dashing chain end to end; a map may turn it off
+(`disableDashing`) and the player's Always Dash option inverts it. Encounters
+count steps exactly as walking does. The Terminal has no dash: it cannot
+report a held control. Remaining: native held-Shift acceptance in play, and a
+controller dash once a controller source exists.
+
 Bounded macOS physical acceptance: Andrew's four October 10 walking checks and
 October 11 open-space cinematic-return check pass as recorded in the G4 checklist.
 They do not establish other platforms or whole-game input qualification.
@@ -4225,6 +4448,16 @@ partial still-image inspection, not temporal or physical acceptance. Remaining:
 diagonal movement (four-directional movement is the current
 rule); physical controllers and analog magnitude; enhanced terminal reporting;
 and whole-game input/platform qualification.
+
+Control display is ready for controllers: every screen draws its controls
+through one owner (`ControlGlyphPresentation`, `TerminalControlText`), and the
+theme's `controls` sets give each input device family its look, keyboard
+keycaps by default ([action hint presentation](input-sources.md#action-hint-presentation)).
+A controller needs a display provider that reports its family from the active
+device and a `controls` entry with its button glyphs; no screen changes.
+Remaining here: that provider, chosen from meaningful active-device input, and
+each controller family's glyph artwork. Last Legend's keyboard keycap frame
+artwork is queued with Art; until it lands the Engine draws its keys.
 
 ## Battle presentation direction
 
@@ -4265,6 +4498,21 @@ the same starting-state, party/inventory and quest eligibility as the field.
 Committed arrival precedes the asynchronous cinematic, and its existing owner
 resumes ordinary automatic-event evaluation. Startup instructions are consumed
 once; isolated settings, saves and logging retain their scoped storage lifetime.
+
+Checkpoint launch (30 October 2026) extends that same context with an explicit
+`checkpoint` path and required `dataRoot`, for example
+`{"dataRoot":"/absolute/fresh-playtest-data","checkpoint":"/absolute/checkpoint.iedata"}`.
+The source must be a canonical readable regular file. The existing fresh-root,
+outside-project and symlink checks remain unchanged. Before native acquisition,
+SaveManager decodes and migrates the selected bytes through its ordinary save
+compatibility pipeline, then copies them unchanged into isolated manual slot 1.
+SceneManager enters the ordinary saved-game restoration lifecycle with that
+configuration. No story flags, party state or authored starting position are
+fabricated. The source save and normal project data remain untouched. Checkpoint
+intent cannot accompany another mode, start, cinematic or battle-test intent.
+It is consumed once; subsequent New Game remains ordinary New Game. To resume
+an owned test checkpoint in another process, select that checkpoint and a new
+fresh data root. The caller owns the isolated settings, process and cleanup.
 
 The caller creates the dedicated canonical data directory outside the project,
 copies only settings and owns process/output cleanup. It must route PHP's early
@@ -4307,7 +4555,123 @@ unpublished, not a release, another G4 goal or cross-platform acceptance.
   preview host retires its renderer session even when the grid stays the same.
 
 Remaining representative integrations follow the established ownership seam.
+Opening passages now use a one-shot Action event over authored walkable floor,
+saved map-event completion, conditionally concealed world objects and optional
+proximity cues in both presentations. Shared Editor authoring and source round
+trips accompany the runtime contract; Game integration and native acceptance
+remain separate from the synthetic interaction and reload checks. See
+[Opening passages](../maps.md#opening-passages). Available world objects can now contribute `tiles2d` to existing tile layers
+before autotile shaping and shadow generation, including the map overview.
+Unavailable objects no longer suppress covered source presentation. Claude owns
+Editor layer/tile selection and source-preserving save/undo for this field;
+Golden Inn migration and closed/open visual acceptance follow the Engine change.
+The retained-world tile/shadow protocol is unchanged.
+
 Runtime tests need ordinary, reduced-motion and legal-skip paths, matching
 terminal presentations and scene-specific native observation. Source inspection,
 headless tests and art previews are distinct evidence, not interchangeable
 proof of complete gameplay or platform support.
+
+
+### Ordinary battle-action cut-ins — shared Engine delivery, 30 October 2026
+
+Ordinary battle effects can now author the existing `stage` descriptor through
+`EffectTimelineLibrary` with battle admission. A skill's existing animation
+source-effect binding selects its cut-in; its target-effect binding selects the
+battlefield impact. No Summon registration or game-owned cinematic runner is
+required. Source and target lanes each retain their original stage segments and
+fixed authored clock. Shared validation covers resource decoding, placements,
+camera/covers, safe rest frames and bounded source data. Field-only effects and
+caller-owned standalone stages retain their separate admission contracts.
+
+The command announcement overlaps stage playback. The normal battle renderer
+selects the stage belonging to the active lane, preserves the screen-space
+announcement, and restores the battlefield/controls through the existing command
+lifecycle. Source-only cut-ins restore controls for a normal target effect;
+consecutive source/target stages share one control lease. Cancellation releases
+that lease. Combat remains one target-owned resolution, and inspection/rendering
+cannot execute it. Paired Terminal content remains independent; normal and
+reduced-motion stages use the same impact policy. Existing Summon stage and
+legacy cover behavior remains covered by focused regressions.
+
+Editor follow-up owned by Claude on return: expose the existing stage
+camera/cover/subject/image-placement controls for ordinary battle effects through
+the shared source-preserving effect authoring, validation and undo/redo paths.
+Do not create a second stage schema. Verify flat and paired sources and the
+existing animation source/target pickers against Engine runtime selection.
+Art is preparing the ten authored Awakening move/form variants against this
+contract; no bespoke action art or native final acceptance is claimed by this
+Engine delivery. The later state-owned condition `tone` contract and prepared
+counter cleanup provide Shadow Gambit's persistent shadowy appearance. The
+normal Game binds `condition-shadow-gambit` through `ui.battle.conditions`;
+current-source normal/reduced tests cover interception, owner KO and selected-foe
+KO with brightness restoration, one miss/counter and unchanged MP (Game's
+30 October 05:34 receipt). Bespoke lure/counter poses and native/player review
+remain open. The earlier 01:58 missing-runtime finding is historical.
+
+The earlier 02:42 Secret Lake footing/body-clearance regression predates the
+shared uniform-row/reference-size changes. Game's later 30 October 17:26
+installed-source qualification covers every current actor slot and authored
+troop with the shared formation composer; its sampled normal/reduced full-UI
+frames have no clearance diagnostics. Richer action poses and travel retain
+their own current clearance checks and native/player acceptance.
+
+
+### Action pose impact anchor — shared delivery, 31 October 2026
+
+Non-looping battler poses declare an optional playback-list `impactFrame`.
+Graphical battle presentation aligns that entry to the actual command target
+boundary, holds natural anticipation for long announcements, compresses a short
+lead-in, and plays recovery through return at authored speed. Reduced motion
+uses the rest cell; Terminal and existing unanchored data retain their clocks.
+Animation source effects can explicitly select the same target anchor through
+`SourceEffectAnchor`, preserving caster attachment, effect cadence and target-owned
+combat resolution. See [action pose impact alignment](../effect-animation.md#action-pose-impact-alignment).
+Claude owns Editor selectors, source-preserving round trips and graphical preview
+consumption. Final Kaelion animation/crescent production, appearance approval and
+Game binding remain with their current owners. Native/player acceptance remains
+separate from synthetic timing and actual graphical-canvas checks.
+
+### Map-owned backdrop band — 2 November 2026
+
+The shared field policy now admits the dedicated `FIELD_BACKDROP` band (-101)
+below terrain, through the existing world-object sprite/resource, retained
+camera and overview contracts. Other reserved negative bands, guidance and UI
+ownership retain their boundaries. Synthetic qualification covers a 40×9-cell
+image, camera movement, overview round trip, and unchanged map collision,
+Terminal cells and save snapshot. No game-specific backdrop schema or physical
+footprint is inferred from image dimensions.
+
+Claude owns matching Native overview admission: `overview_protocol.rs` still
+requires -1..999 and needs the exact additional band, with its ordering and
+protocol checks. Actual overlook map coverage, asset acceptance and Native/player
+review remain open. Opaque ground continues to cover the backdrop; the map owner
+authors the graphical opening and explicit source glyph/tile coverage. Source
+inspection of the Native sorted paint walker is not execution evidence.
+
+
+### Tile shadow casting layers — 3 November 2026
+
+Engine local develop `9d04a7f` adds optional positive `shadows.layers` selection
+in the shared tileset shadow contract. Existing omitted selection keeps the
+all-layer behavior. Synthetic qualification uses the same tile artwork in wall
+and worktop layers, preserves the wall's shifted band and removes the worktop
+band; capability-disabled/Terminal uploads and tile identities remain unchanged.
+The layer-selection contract is documented in
+[tile batches](tile-batches.md#shadow-casting-roles).
+
+- [x] Engine validation and shared world composition, including retained-world,
+  tile stack and world-object regressions: 252 tests / 7,325 assertions across
+  eight focused files, macOS PHP 8.5.12. Two changed production classes pass
+  serial PHPStan level 3. No full-suite/native acceptance claimed.
+- [ ] Claude: GUI tileset casting-layer selector from actual layer references,
+  default/unfiltered choice, source-preserving validation and round-trip checks.
+  Preserve graphical metadata and existing TUI workflow.
+- [ ] Claude (map integration owner): adopt the shared resource selection after
+  supported authoring lands; audit all wall uses and retain legitimate wall
+  casters while removing wall bands from furnishing layers across the resource's
+  maps. This follows Andrew's 3 November map ownership split. Game qualifies its
+  content consumers after the map-owned resource handoff.
+- [ ] Qualify the integrated affected rooms through the existing authorized
+  graphical playtest. No renderer protocol, map geometry, collision or save
+  change belongs to this contract.

@@ -3,8 +3,12 @@
 namespace Ichiloto\Engine\Core\Menu\MainMenu;
 
 use Ichiloto\Engine\Core\Menu\Menu;
+use Ichiloto\Engine\Core\Menu\Interfaces\MenuItemInterface;
+use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
+use Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Windows\Window;
 
 /**
@@ -14,6 +18,24 @@ use Ichiloto\Engine\UI\Windows\Window;
  */
 class MainMenu extends Menu
 {
+  private ?string $tutorialCommand = null;
+
+  public function showTutorialCommand(?string $id): void
+  {
+    if ($id === $this->tutorialCommand) {
+      return;
+    }
+    $this->tutorialCommand = $id;
+    $this->updateWindowContent();
+  }
+
+  protected function styleTerminalItem(MenuItemInterface $item, string $line): string
+  {
+    return $this->tutorialCommand !== null && MainMenuState::getTutorialCommandId($item) === $this->tutorialCommand
+      ? TutorialTerminalPresentation::highlight(TerminalText::stripAnsi($line))
+      : $line;
+  }
+
   /**
    * The width of the main menu.
    */

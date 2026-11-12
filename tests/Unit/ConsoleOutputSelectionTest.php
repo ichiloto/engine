@@ -76,7 +76,8 @@ it('initializes and closes a buffer-only session without borrowing terminal mode
   Console::setTerminalName('Graphical');
   Console::setTerminalSize(20, 4);
   Console::cursor()->hide();
-  expect(new ReflectionProperty(Console::class, 'terminalOutputStream')->getValue())->toBeNull()
+  expect(new ReflectionProperty(Console::class, 'output')->getValue())->toBeNull()
+    ->and(new ReflectionProperty(Console::class, 'terminalOutputStream')->getValue())->toBeNull()
     ->and(new ReflectionProperty(Console::class, 'usingAlternateScreen')->getValue())->toBeFalse()
     ->and(new ReflectionMethod(TerminalCapabilities::class, 'probeCompositeEmojiWidth')->invoke(null))->toBeNull();
   Console::write('visible in snapshot', 0, 0);
@@ -90,13 +91,23 @@ it('allows a later terminal session to paint normally and forbids changing a bor
   Console::setTerminalOutputEnabled(false);
   Console::clear();
   Console::write('buffer', 0, 0);
-  Console::setTerminalOutputEnabled(true);
-  Console::enterAlternateScreen();
-  Console::clear();
-  Console::write('terminal', 0, 0);
-  expect(ob_get_contents())->toContain("\e[?1049h")->toContain('terminal')
-    ->and(fn() => Console::setTerminalOutputEnabled(false))->toThrow(LogicException::class);
-  Console::reset();
+  $stream = fopen('php://temp', 'w+');
+  $sink = new class($stream) extends \Symfony\Component\Console\Output\ConsoleOutput {
+    public function __construct(private $stream) {}
+    public function getStream() { return $this->stream; }
+  };
+  new ReflectionProperty(Console::class, 'output')->setValue(null, $sink);
+  try {
+    Console::setTerminalOutputEnabled(true);
+    Console::enterAlternateScreen();
+    Console::clear();
+    Console::write('terminal', 0, 0);
+    rewind($stream);
+    expect(stream_get_contents($stream))->toContain("\e[?1049h")->toContain('terminal')
+      ->and(ob_get_contents())->toBe('')
+      ->and(fn() => Console::setTerminalOutputEnabled(false))->toThrow(LogicException::class);
+    Console::reset();
+  } finally { fclose($stream); }
 });
 
 it('rejects sink changes inside an active frame without losing pending terminal paint', function () {
@@ -106,4 +117,35 @@ it('rejects sink changes inside an active frame without losing pending terminal 
   Console::endFrame();
   expect(Console::isTerminalOutputEnabled())->toBeTrue()
     ->and(ob_get_contents())->toContain('pending');
+});
+
+
+it('constructs declared buffer geometry without any terminal-size command or output acquisition', function () {
+  $script = <<<'PHP'
+namespace Ichiloto\Engine\IO\Console {
+  function shell_exec(string $command): never { throw new \RuntimeException('Physical terminal probe attempted'); }
+}
+namespace {
+  require $argv[1];
+  $game = new class extends \Ichiloto\Engine\Core\Game {
+    public function __construct() {}
+    public function __destruct() {}
+  };
+  \Ichiloto\Engine\IO\Console\Console::setTerminalOutputEnabled(false);
+  \Ichiloto\Engine\IO\Console\Console::init($game, ['width' => 32, 'height' => 6]);
+  $reflection = new \ReflectionClass(\Ichiloto\Engine\IO\Console\Console::class);
+  echo json_encode([\Ichiloto\Engine\IO\Console\Console::getWidth(),
+    \Ichiloto\Engine\IO\Console\Console::getHeight(),
+    $reflection->getStaticPropertyValue('output') === null,
+    $reflection->getStaticPropertyValue('terminalOutputStream') === null]);
+}
+PHP;
+  $process = proc_open([PHP_BINARY, '-r', $script, __DIR__ . '/../../vendor/autoload.php'],
+    [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+  expect(is_resource($process))->toBeTrue();
+  fclose($pipes[0]);
+  $output = stream_get_contents($pipes[1]); $errors = stream_get_contents($pipes[2]);
+  fclose($pipes[1]); fclose($pipes[2]);
+  expect(proc_close($process))->toBe(0)->and($errors)->toBe('')
+    ->and(json_decode($output, true))->toBe([32, 6, true, true]);
 });

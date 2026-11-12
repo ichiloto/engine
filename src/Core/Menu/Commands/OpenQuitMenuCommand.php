@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
 use Exception;
@@ -15,6 +17,8 @@ use Ichiloto\Engine\Localization\Vocabulary;
  */
 class OpenQuitMenuCommand extends MenuItem
 {
+  private int $selection = 2;
+
   public function __construct(MenuInterface $menu)
   {
     $label = Vocabulary::getTerm('command.quit_game', Vocabulary::getTerm('command.game_end', 'Quit'));
@@ -27,10 +31,16 @@ class OpenQuitMenuCommand extends MenuItem
    */
   public function execute(?ExecutionContextInterface $context = null): int
   {
-    $selection = $this->promptForSelection();
-
-    if ($selection >= 0) {
-      $this->executeSelection($selection, $context);
+    $this->selection = 2;
+    $game = $this->menu->getScene()->getGame();
+    while (!$game->hasStopped()) {
+      $selection = $this->promptForSelection();
+      if ($game->hasStopped() || $selection < 0 || $selection > 1) { break; }
+      $this->selection = $selection;
+      if ($this->confirmSelection($selection) && !$game->hasStopped()) {
+        $this->executeSelection($selection, $context);
+        break;
+      }
     }
 
     return self::SUCCESS;
@@ -46,6 +56,7 @@ class OpenQuitMenuCommand extends MenuItem
     return [
       (new ToTitleMenuCommand($this->menu))->getLabel(),
       (new QuitGameCommand($this->menu))->getLabel(),
+      Vocabulary::getTerm('command.cancel', Vocabulary::getTerm('shop.cancel', 'Cancel')),
     ];
   }
 
@@ -77,7 +88,21 @@ class OpenQuitMenuCommand extends MenuItem
       'Choose where to go.',
       $this->getOptions(),
       $this->getLabel(),
+      default: $this->selection,
       width: 32
     );
+  }
+
+  /** Cancellation returns to the selected destination; only explicit confirmation exits. */
+  protected function confirmSelection(int $selection): bool
+  {
+    $options = $this->getOptions();
+    return select(
+      get_engine_message('confirm.unsaved_progress'),
+      [$options[2], $options[$selection]],
+      get_engine_message($selection === 0 ? 'confirm.to_title' : 'confirm.quit'),
+      default: 0,
+      width: 48,
+    ) === 1;
   }
 }

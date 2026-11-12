@@ -4,50 +4,51 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Presentation;
 
-use Ichiloto\Engine\IO\Console\TerminalText;
-use Ichiloto\Engine\UI\Text\TextViewport;
-
-/** One source for plain terminal text and independently styled graphical sections. */
+/** Journal sections over the shared detail sheet: one source for Terminal text and styled graphical sections. */
 final readonly class JournalDocument
 {
+  public MenuDetailSheet $sheet;
   public string $text;
-  /** @var list<array{start: int, end: int, section: int, heading: bool, icon: ?string, color: string}> */
-  private array $spans;
+  /** @var list<array{section: int, heading: bool, icon: ?string}> Indexed like the sheet's entries. */
+  private array $entries;
 
   /** @param list<JournalSection> $sections */
   public function __construct(public array $sections)
   {
-    $text = '';
-    $spans = [];
+    $sheet = [];
+    $entries = [];
     foreach ($sections as $index => $section) {
-      if ($index > 0) { $text .= "\n"; }
-      $entries = [['text' => $section->title, 'icon' => $section->icon, 'color' => 'accent'], ...$section->entries];
-      foreach ($entries as $entryIndex => $entry) {
-        $value = str_replace(["\r\n", "\r", "\t"], ["\n", "\n", '    '], TerminalText::stripAnsi($entry['text']));
-        $start = strlen($text);
-        $text .= $value;
-        $spans[] = ['start' => $start, 'end' => strlen($text), 'section' => $index,
-          'heading' => $entryIndex === 0, 'icon' => $entry['icon'] ?? null, 'color' => $entry['color'] ?? 'text'];
-        $text .= "\n";
+      $items = [MenuDetailEntry::createProse($section->title, 'accent')];
+      $entries[] = ['section' => $index, 'heading' => true, 'icon' => $section->icon];
+      foreach ($section->entries as $entry) {
+        // Authored text may be empty, as a quest without a description is; blank space is not an entry.
+        if (trim($entry['text']) === '') { continue; }
+        $items[] = isset($entry['label']) ? MenuDetailEntry::createField($entry['label'], $entry['text'], $entry['color'] ?? null)
+          : MenuDetailEntry::createProse($entry['text'], $entry['color'] ?? 'text');
+        $entries[] = ['section' => $index, 'heading' => false, 'icon' => $entry['icon'] ?? null];
       }
+      $sheet[] = $items;
     }
-    $this->text = rtrim($text, "\n");
-    $this->spans = $spans;
+    $this->sheet = new MenuDetailSheet($sheet);
+    $this->text = $this->sheet->text;
+    $this->entries = $entries;
   }
 
-  /** Metadata follows source offsets, never guessed by parsing translated display text.
+  /** Metadata follows the measured entries, never guessed by parsing translated display text.
    * @return list<array{text: string, section: ?int, heading: bool, icon: ?string, color: string}>
    */
-  public function lines(int $columns): array
+  public function lines(int $columns, MenuDetailStyle $style = new MenuDetailStyle()): array
   {
     $lines = [];
-    $cursor = 0;
-    foreach (TextViewport::wrap($this->text, $columns) as [$offset, $text]) {
-      while (isset($this->spans[$cursor]) && $offset > $this->spans[$cursor]['end']) { $cursor++; }
-      $span = $this->spans[$cursor] ?? null;
-      if ($span !== null && $offset < $span['start']) { $span = null; }
-      $lines[] = ['text' => $text, 'section' => $span['section'] ?? null, 'heading' => $span['heading'] ?? false,
-        'icon' => $span !== null && $offset === $span['start'] ? $span['icon'] : null, 'color' => $span['color'] ?? 'text'];
+    $seen = [];
+    $layout = $this->sheet->layout($columns, $style);
+    foreach ($layout->getWrappedLines() as $index => [, $text]) {
+      $line = $layout->lines[$index];
+      $entry = $line->entry === null ? null : $this->entries[$line->entry];
+      $first = $line->entry !== null && !isset($seen[$line->entry]);
+      if ($line->entry !== null) { $seen[$line->entry] = true; }
+      $lines[] = ['text' => $text, 'section' => $entry['section'] ?? null, 'heading' => $entry['heading'] ?? false,
+        'icon' => $first ? $entry['icon'] : null, 'color' => $line->color];
     }
     return $lines;
   }

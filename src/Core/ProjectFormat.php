@@ -15,10 +15,13 @@ final class ProjectFormat
 {
   public const string KEY = 'format';
   /** The format this engine reads. */
-  public const int CURRENT = 1;
+  public const int CURRENT = 4;
   /** What each version introduced. */
   public const array CHANGES = [
     1 => 'a stable project id and save compatibility manifest',
+    2 => 'Mastery Maps that spend Mastery points (SP): nodes keep their map order and lose their study order',
+    3 => 'a mastery tree every character shares: the tree owns each node\'s skill and region, and a character\'s map keeps only their own terms',
+    4 => 'skit backdrops that follow the place: each skit background the dialogue catalogue bound moves to the skit\'s own backdrop, and maps and regions name the backdrop skits show there',
   ];
 
   /** A project without a recorded version predates the format chain. */

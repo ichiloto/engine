@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Localization\Vocabulary;
+use Ichiloto\Engine\Progression\Mastery\MasteryVocabulary;
 use InvalidArgumentException;
 
 /** Terminal projection of the same facts and stage order as the graphical view. */
@@ -29,25 +30,27 @@ final class BattleResultsText
     }
     switch ($stage['kind']) {
       case 'primary':
-        $lines = [sprintf('%s: %d   %s: %d %s',
-          Vocabulary::getTerm('battle.experience_per_member', Vocabulary::getTerm('stats.exp', 'EXP') . ' per member'),
-          $rewards->experiencePerMember, Vocabulary::getTerm('currency.name', 'Gold'),
+        $lines = [sprintf('%s: %d   %s%s: %d %s',
+          Vocabulary::getTerm('stats.exp'),
+          $rewards->experiencePerMember,
+          $rewards->skillPointsPerMember > 0 ? sprintf('%s: %d   ', MasteryVocabulary::getPointsLabel(), $rewards->skillPointsPerMember) : '',
+          Vocabulary::getTerm('currency.name', 'Gold'),
           $rewards->gold, Vocabulary::getTerm('currency.symbol', 'G')),
           Vocabulary::getTerm('battle.party_progress', 'Party Progress')];
         foreach ($rewards->progression as $member) {
           if ($member->after === null) { continue; }
           array_push($lines, ...self::formatLabelValue($member->after->name . ':',
-            sprintf('%s %d -> %d  +%d %s', Vocabulary::getTerm('stats.level_short', Vocabulary::getTerm('stats.level', 'Lv')),
+            sprintf('%s %d -> %d  +%d %s', Vocabulary::getTerm('stats.level_short'),
               $member->oldLevel, $member->newLevel, $member->experienceAwarded, Vocabulary::getTerm('stats.exp', 'EXP')),
             $width));
         }
-        $lines[] = Vocabulary::getTerm('battle.rewards', 'Rewards');
+        if ($rewards->items !== []) { $lines[] = Vocabulary::getTerm('battle.items'); }
         foreach ($rewards->items as $item) {
           $lines[] = sprintf('%s x%d', $item['name'], $item['quantity'])
             . (isset($item['received']) && $item['received'] !== $item['quantity']
               ? sprintf(' (retained %d)', $item['received']) : '');
         }
-        if ($rewards->items === []) { $lines[] = 'No item drops.'; }
+        if ($rewards->items === []) { $lines[] = Vocabulary::getTerm('battle.no_items'); }
         foreach ($rewards->summary as $label => $value) { $lines[] = $label . ': ' . $value; }
         return array_merge(...array_map(static fn(string $line): array => self::wrapLine($line, $width), $lines));
       default:

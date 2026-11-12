@@ -175,7 +175,7 @@ it('uses the shared configured chances in the actual ATB opening', function (arr
 ]);
 
 it('preserves runtime chance overrides over project settings including legacy callers', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-opening-' . uniqid();
+  $root = \getTestTemporaryDirectory() . '/ichiloto-opening-' . uniqid();
   mkdir($root . '/assets/Data', 0777, true);
   $data = ['title' => 'Test', 'currency' => [], 'startingPositions' => ['player' => []],
     'battle' => ['opening' => ['preemptiveChancePercent' => 8, 'ambushChancePercent' => 6]]];

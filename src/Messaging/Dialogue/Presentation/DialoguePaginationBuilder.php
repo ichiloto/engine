@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Messaging\Dialogue\Presentation;
 
 use Ichiloto\Engine\IO\Console\TerminalText;
-use Ichiloto\Engine\UI\Presentation\MenuTextWrap;
+use InvalidArgumentException;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 
 /** Pure pagination shared by runtime dialogue and isolated presentation hosts. */
@@ -36,9 +36,11 @@ final class DialoguePaginationBuilder
     public static function wrapMessageIntoLines(string $message, int $contentWidth): array
     {
         $width = max(1, $contentWidth);
-        // Combining marks count on Canvas; wide characters consume extra Terminal cells.
-        $lines = MenuTextWrap::lines($message, $width);
-        return array_merge(...array_map(static fn(string $line): array =>
-            TerminalText::wrapToWidth(rtrim($line, ' '), $width), $lines));
+        if (!mb_check_encoding($message, 'UTF-8')) {
+            throw new InvalidArgumentException('Dialogue text requires UTF-8.');
+        }
+        // One wrap satisfies both budgets. A second wrapping pass would mistake soft-break separators for indentation.
+        return array_map(static fn(string $line): string => rtrim($line, ' '),
+            TerminalText::wrapParagraphsToWidth($message, $width, $width));
     }
 }

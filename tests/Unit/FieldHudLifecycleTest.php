@@ -148,7 +148,6 @@ beforeEach(function () {
     ConfigStore::put(PlaySettings::class, new PlaySettings(['screenDimensions' => ['width' => 80, 'height' => 24]]));
     ConfigStore::put(KnowledgeCatalog::class, KnowledgeCatalog::empty());
     new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
-    new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, null);
     new ReflectionProperty(MapManager::class, 'instance')->setValue(null, null);
     InputManager::setInputSource(new class implements InputSourceInterface {
         public function poll(): ?KeyCode { return null; }
@@ -326,3 +325,23 @@ it('hides and releases only owned HUD cells while overlapping notifications and 
         ob_end_clean();
     }
 })->with([true, false]);
+
+
+it('uses the shared campaign owner during normal configure, reconfigure and stop', function () {
+    $old = $this->field->campaign;
+    expect($old)->toBeInstanceOf(\Ichiloto\Engine\Core\Campaign\CampaignSession::class)
+        ->and($this->field->gameState)->toBe($old->gameState)
+        ->and($this->field->party)->toBe($old->party)
+        ->and($this->field->questManager)->toBe($old->questManager)
+        ->and($this->field->achievementManager)->toBe($old->achievementManager)
+        ->and($this->field->knowledge)->toBe($old->knowledge)
+        ->and($this->field->bestiary)->toBe($old->bestiary)
+        ->and($this->field->income)->toBe($old->income);
+    $this->field->configure(createFieldHudLifecycleConfig());
+    expect($old->isReleased)->toBeTrue()->and($old->gameState->onChange)->toBeNull()
+        ->and($this->field->campaign)->not->toBe($old);
+    $current = $this->field->campaign;
+    $this->field->stop();
+    expect($current->isReleased)->toBeTrue()->and($current->questManager->isReleased)->toBeTrue()
+        ->and($current->achievementManager->isReleased)->toBeTrue();
+});

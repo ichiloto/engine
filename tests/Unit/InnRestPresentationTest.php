@@ -113,7 +113,6 @@ class InnRestTestModals extends ModalManager
 {
   public int $choice = 0;
   public int $alerts = 0;
-  public function __construct() {}
   public function select(string $message, array $options, string $title = '', int $default = 0,
     ?Vector2 $position = null, int $width = DEFAULT_SELECT_DIALOG_WIDTH, int $height = DEFAULT_SELECT_DIALOG_HEIGHT): int
   { return $this->choice; }
@@ -185,9 +184,9 @@ beforeEach(function () {
   $this->scene = new InnRestTestScene($this->game);
   $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(40, 15, 10, 20),
     static fn(string $capability): bool => true));
-  $this->modals = new InnRestTestModals();
+  $this->modals = new InnRestTestModals($this->game);
   new ReflectionProperty(Console::class, 'game')->setValue(null, $this->game);
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->modals);
+  $this->game->bindModalManager($this->modals);
   new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, $this->game->audioManager);
   $this->scene->refreshFieldMusic();
   $this->game->audioManager->calls = [];
@@ -197,7 +196,6 @@ afterEach(function () {
   $this->scene->cinematicPresentation->clear();
   Timers::setFrameTick(null);
   new ReflectionProperty(Console::class, 'game')->setValue(null, null);
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, null);
   new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, null);
   $this->scene = $this->game = $this->modals = null;
   gc_collect_cycles();
@@ -214,8 +212,11 @@ it('loads a consumer-neutral stage without acquiring battle cues or the field ca
 });
 
 it('maps all graphical layers onto the consumers exact duration without changing the source', function (float $duration) {
-  $timeline = $this->library->compileStage('rest', $this->source);
-  $session = new CinematicStageSession($timeline, $this->root, $duration);
+  $source = $this->source;
+  $source['stage']['restoreFrame'] = $source['lengthFrames'];
+  $timeline = $this->library->compileStage('rest', $source);
+  $manager = $this->scene->cinematicPresentation;
+  $session = $manager->beginStagePresentation($timeline, $this->root, $duration, ['stage-replaced']);
   expect($session->timing->durationSeconds)->toEqualWithDelta($duration, .0000001)
     ->and($timeline->fps)->toBe(30);
   $session->advanceTo($duration * .5);
@@ -225,7 +226,10 @@ it('maps all graphical layers onto the consumers exact duration without changing
     ->and($canvas->images[1]->opacity)->toBe(.5)
     ->and($canvas->images[1]->layer)->toBeGreaterThan($canvas->images[0]->layer);
   $session->advanceTo($duration);
-  expect($session->currentFrame)->toBe(9);
+  expect($session->currentFrame)->toBe(9)
+    ->and($manager->getStageCanvas(400, 300))->toBeNull()
+    ->and($manager->getStageExcludedLayers())->toBeEmpty()
+    ->and($manager->hasStagePresentation($session))->toBeTrue();
 })->with([.2, 3.0, 10.0]);
 
 it('accepts repeated progress but refuses nonmonotonic or nonfinite consumer callbacks', function (float $bad) {
@@ -330,7 +334,7 @@ it('keeps both inn entry routes on five Terminal beats and the same graphical re
     $frames[] = $session->currentFrame;
     $budgets[] = $session->timing->durationSeconds;
     $canvas = $this->scene->getPresentationOverlay(400, 300);
-    expect($canvas)->not->toBeNull();
+    expect($canvas === null)->toBe($session->hasEnded);
   });
   $data = ['confirmDialogue' => ['text' => 'Synthetic rest?'], 'cost' => 30,
     'spawnPoint' => ['x' => 9, 'y' => 7], 'spawnSprite' => ['wake'], 'resultVariable' => 'rest-result'];
@@ -582,7 +586,7 @@ it('keeps party-resolved project defaults on both inn routes with unchanged beat
     $rows[] = trim(implode('', Console::getBuffer()));
     $entries = new ReflectionProperty(CinematicPresentationManager::class, 'stages')->getValue($this->scene->cinematicPresentation);
     $session = reset($entries)['session'];
-    expect($this->scene->getPresentationOverlay(400, 300)->images)->toHaveCount($session->currentFrame < 9 ? 2 : 0);
+    expect($this->scene->getPresentationOverlay(400, 300)?->images ?? [])->toHaveCount($session->currentFrame < 9 ? 2 : 0);
   });
   $data = ['confirmDialogue' => ['text' => 'Rest?'], 'cost' => 30,
     'spawnPoint' => ['x' => 9, 'y' => 7], 'spawnSprite' => ['wake']];

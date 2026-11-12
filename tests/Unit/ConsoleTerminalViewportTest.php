@@ -81,7 +81,7 @@ it('restores a live overlay underlay at the centered terminal address', function
 
 it('replays unchanged canonical styled layers after margin-only resize and removes stale physical content', function () {
   Console::syncTerminalViewport(186,38,repaint:false);
-  Console::withLayer('hud',fn()=>Console::write("\e[32mX",0,0),1010);
+  Console::withLayer('hud',fn()=>Console::write("\e[32mX",0,0),\Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::UI + 10);
   $before = Console::presentationSnapshot();
   $buffer = Console::getBuffer();
   ob_clean();

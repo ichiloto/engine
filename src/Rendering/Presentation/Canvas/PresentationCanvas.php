@@ -60,7 +60,7 @@ final readonly class PresentationCanvas
         $labelAreas[] = new CanvasRectangle($paint->x, $paint->y, $paint->width, $paint->height);
       }
     }
-    return [...array_map(static fn(CanvasImage $image) => $image->clipRect ?? $image->destination, $this->images),
+    return [...array_map(static fn(CanvasImage $image) => $image->getPaintBounds(), $this->images),
       ...array_map(static fn(CanvasTextLayer $text) => $text->clipRect ?? $text->paintBounds, $this->textLayers),
       ...$labelAreas,
       ...array_map(static fn(CanvasComposite $composite) => $composite->clipRect ?? $composite->destination, $this->composites),
@@ -81,7 +81,8 @@ final readonly class PresentationCanvas
     return new self($base->width, $base->height,
       [...$base->images, ...array_map(static fn($image) => new CanvasImage($idPrefix . $image->id, $image->asset,
         $image->destination, $offset + $image->layer, $image->sourceRect, $image->opacity,
-        $image->clipRect, $image->brightness, $image->flipX, $image->flipY), $overlay->images)],
+        $image->clipRect, $image->brightness, $image->flipX, $image->flipY, $image->rotation, $image->pivot,
+        $image->bottomFade), $overlay->images)],
       [...$base->indicators, ...array_map(static fn($indicator) => new CanvasIndicator($idPrefix . $indicator->id,
         $idPrefix . $indicator->imageId, $indicator->kind, $indicator->bounds, $indicator->strokeWidth, $indicator->color,
         $offset + $indicator->layer), $overlay->indicators)],
@@ -94,7 +95,7 @@ final readonly class PresentationCanvas
       [...$base->presentationOwners, ...$overlay->presentationOwners],
       [...$base->labels, ...array_map(static fn(CanvasLabel $label) => new CanvasLabel($idPrefix . $label->id,
         $label->measurement, $label->x, $label->y, $offset + $label->layer, $label->clipRect, $label->opacity,
-        $label->rotation), $overlay->labels)], $base->viewportFit);
+        $label->rotation, $label->visibleBytes), $overlay->labels)], $base->viewportFit);
   }
 
   /** @param list<CanvasImage> $images
@@ -131,7 +132,8 @@ final readonly class PresentationCanvas
     $this->textLayers = CanvasValidation::orderedList($textLayers, CanvasTextLayer::class, StyledPresentationFrame::MAX_TEXT_LAYERS);
     $this->labels = CanvasValidation::orderedList($labels, CanvasLabel::class, CanvasValidation::MAX_LABELS);
     foreach ($this->labels as $label) { $label->assertWithin($width, $height); }
-    $this->composites = CanvasValidation::orderedList($composites, CanvasComposite::class, 8);
+    CanvasCompositeBudget::assertSurfaceCount(count($composites));
+    $this->composites = CanvasValidation::orderedList($composites, CanvasComposite::class, CanvasCompositeBudget::getSurfaceLimit());
     $areas = null;
     if ($protectedAreas !== null) {
       if (!array_is_list($protectedAreas) || count($protectedAreas) > 32768) {
@@ -147,22 +149,14 @@ final readonly class PresentationCanvas
       }
     }
     $this->protectedAreas = $areas;
-    $pixels = $operations = $nodes = 0;
     foreach ($this->composites as $composite) {
       $composite->destination->assertWithin($width, $height);
       $composite->clipRect?->assertWithin($width, $height);
-      $pixels += $composite->width * $composite->height;
-      $operations += count($composite->operations);
-      foreach ($composite->operations as $operation) { $nodes += count($operation->data['displacement']['offsets'] ?? []); }
     }
-    if ($pixels > 8388608 || $operations > 256 || $nodes > 16384) {
-      throw new InvalidArgumentException('Canvas composites exceed their combined raster, operation or displacement budget.');
-    }
-    CanvasCompositeBudget::getWork($this->composites);
+    CanvasCompositeBudget::assertWithin($this->composites);
     $imageIds = [];
     foreach ($this->images as $image) {
-      $image->destination->assertWithin($width, $height);
-      $image->clipRect?->assertWithin($width, $height);
+      $image->assertWithin($width, $height);
       $imageIds[$image->id] = true;
     }
     foreach ($this->composites as $composite) { $imageIds[$composite->id] = true; }

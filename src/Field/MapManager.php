@@ -7,7 +7,9 @@ use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Rendering\Sprites\FieldSpriteRole;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Rendering\Presentation\PresentationFallbackReport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
+use Ichiloto\Engine\Rendering\Presentation\PresentationWorldPreparation;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\Console\Console;
 
@@ -24,9 +26,13 @@ use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
+use Ichiloto\Engine\Quests\Story\StoryIndex;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
+use Closure;
+use Ichiloto\Engine\Core\FramePreparation;
+use Symfony\Component\Console\Terminal;
 use InvalidArgumentException;
 
 /**
@@ -49,9 +55,22 @@ class MapManager implements CanRenderAt
   public private(set) ?MapKnowledge $mapKnowledge = null;
   public private(set) ?MapOverview $overview = null;
   public private(set) ?MapAtlasDefinition $atlasDefinition = null;
+  /** Whether the current map turns dashing off (its `disableDashing`); {@see DashSettings}. */
+  public private(set) bool $isDashingDisabled = false;
+  /** The current map's part in choosing a skit's backdrop (its `skitBackdrop` and `region`); {@see SkitBackdrop}. */
+  public private(set) array $skitBackdropBinding = [];
   private ?array $lastKnowledgePosition = null;
+  private ?ProjectMapIndex $projectMapIndex = null;
+  private ?StoryIndex $storyIndex = null;
   private ?PresentationWorld $presentationWorld = null;
   private ?bool $presentationWorldPolicy = null;
+  private bool $deferPresentationWorld = false;
+  private ?PresentationWorldPreparation $presentationWorldPreparation = null;
+  private bool $presentationWorldPrepared = false;
+  /** @var list<string>|null Diagnostics staged with the pending world and published only with that world. */
+  private ?array $preparedGlyphFallbacks = null;
+  /** @var FramePreparation<PresentationWorld>|null */
+  private ?FramePreparation $presentationWorldSnapshot = null;
   /** @var array<string, WorldObject> Installed subjects, never saved or used for collision. */
   private array $worldObjects = [];
   /** Clock-free roles are shared by resource only for this map installation. */
@@ -59,7 +78,9 @@ class MapManager implements CanRenderAt
   /** Null outside a collection/coverage pass: no replacement facts survive the operation. */
   private ?array $worldObjectResourceFrames = null;
   private int $worldObjectInstallation = 0;
-  private array $presentationWorldCoverage = [];
+  private array $presentationWorldProjection = [];
+  /** Where the graphical field reports map cells it can only show by their terminal glyphs, once per cause for this manager. */
+  private ?PresentationFallbackReport $presentationFallbacks = null;
   private ?array $terminalPresentationCells = null;
   /**
    * The collision map.
@@ -119,29 +140,15 @@ class MapManager implements CanRenderAt
   private mixed $declaredBackgroundMusic = null;
   private mixed $backgroundMusicVariants = [];
   private bool $hasMusicDeclaration = false;
-  /**
-   * @var bool Whether the player is at a save point.
-   */
-  public bool $isAtSavePoint = false;
-  /**
-   * @var bool Whether the player can save the game.
-   */
+  /** Whether the player's current position has Save Point collision. */
+  public bool $isAtSavePoint {
+    get => ($position = $this->gameScene->player?->position) !== null && $this->isSavePointAt($position);
+  }
+  /** The current source map's permission, installed with its geometry. */
+  public private(set) MapSavePolicy $savePolicy = MapSavePolicy::SAVE_POINTS;
+  /** Whether the player can save under the map policy or at a save point. */
   public bool $canSave {
-    get {
-      $canSave = false;
-
-      // Are we at a save point?
-      if ($this->isAtSavePoint) {
-        $canSave = true;
-      }
-
-      // Are we in the overworld?
-      if ($this->location->name === 'Overworld') {
-        $canSave = true;
-      }
-
-      return $canSave;
-    }
+    get => $this->isAtSavePoint || $this->savePolicy === MapSavePolicy::ANYWHERE;
   }
 
   /**
@@ -218,6 +225,11 @@ class MapManager implements CanRenderAt
 
     $collisionType = $this->getCollision($x, $y);
     return !$collisionType->blocksMovement();
+  }
+
+  public function isSavePointAt(Vector2 $position): bool
+  {
+    return ($this->collisionMap[(int) $position->y][(int) $position->x] ?? null) === CollisionType::SAVE_POINT->value;
   }
 
   /** Whether a cell is a counter the player can talk across; false outside the map. */
@@ -306,28 +318,112 @@ class MapManager implements CanRenderAt
   /** Validates every map source and trigger before changing the active field. */
   public function prepareMap(string $filename): PreparedMap
   {
-    $source = $this->prepareSplitMapDataFromFiles($this->resolveMapPaths($filename));
+    return $this->prepareMapContent($this->resolveMapPaths($filename));
+  }
+
+  /** Compile immutable layer declarations without evaluating destination data or events.
+   * @return FramePreparation<MapLayerSet>
+   */
+  public function beginMapLayerPrewarm(string $filename): FramePreparation
+  {
+    $colorMode = Terminal::getColorMode();
+    return new FramePreparation(
+      function (Closure $checkpoint) use ($filename): MapLayerSet {
+        $paths = $this->resolveMapPaths($filename);
+        $directory = dirname($paths['data']);
+        $layers = MapLayerSource::loadFromDirectory($directory, $paths['id'], $paths['map'], $checkpoint);
+        MapGraphics::readLayersFromDirectory($directory, $paths['id'], $layers, $checkpoint);
+        return $layers;
+      },
+      static fn(): bool => Terminal::getColorMode() === $colorMode,
+    );
+  }
+
+  /** Validate destination content in work units before any installation.
+   * @return FramePreparation<PreparedMap>
+   */
+  public function beginMapPreparation(string $filename): FramePreparation
+  {
+    $colorMode = Terminal::getColorMode();
+    return new FramePreparation(
+      function (Closure $checkpoint, Closure $awaitPublication) use ($filename): PreparedMap {
+        $paths = $this->resolveMapPaths($filename);
+        $revision = MapSourceReader::getRevision($paths, $checkpoint);
+        $prepared = $this->prepareMapContent($paths, $checkpoint);
+        $awaitPublication();
+        if ($revision !== MapSourceReader::getRevision($paths)) {
+          throw new \RuntimeException('The destination map changed during preparation.');
+        }
+        return $prepared;
+      },
+      static fn(): bool => Terminal::getColorMode() === $colorMode,
+    );
+  }
+
+  private function prepareMapContent(array $paths, ?Closure $checkpoint = null): PreparedMap
+  {
+    $source = $this->prepareSplitMapDataFromFiles($paths, $checkpoint);
+    $checkpoint?->__invoke();
     $map = $source['data'];
+    $areas = $source['areas'];
     MapAtlasDefinition::readMap($map);
-    $collisions = $source['occupancy']?->collisionGrid
-      ?? $this->generateLayerCollisionMap($source['layers'], $this->getCollisionDictionary());
+    DashSettings::readMapDisablesDashing($map);
+    MapSavePolicy::readMap($map);
+    [$collisions, $dictionary] = $this->resolveSourceCollisions($source, $checkpoint);
     $mapTriggers = [];
     foreach ($map['triggers'] ?? [] as $trigger) {
       $mapTriggers[] = MapTrigger::tryFromArray($trigger);
     }
     $eventTriggers = [];
     $mapId = strval($map['id'] ?? '');
+    $placementIssues = \Ichiloto\Engine\Field\Validation\MapNpcPlacementRule::inspect($mapId, $map, $collisions);
+    if ($placementIssues !== []) { throw new \InvalidArgumentException($placementIssues[0]->message); }
+    $bedIssues = \Ichiloto\Engine\Field\Validation\MapBedRule::inspect($mapId, $map, $source['worldObjects'], $collisions);
+    if ($bedIssues !== []) { throw new \InvalidArgumentException($bedIssues[0]->message); }
     foreach ($map['events'] ?? [] as $event) {
-      $eventTriggers[] = EventTriggerFactory::create($event, $mapId !== '' ? $mapId : null);
+      $trigger = EventTriggerFactory::create($event, $mapId !== '' ? $mapId : null);
+      if ($trigger instanceof \Ichiloto\Engine\Events\Triggers\PassageEventTrigger) {
+        $trigger::validateFloor($trigger->area, $collisions);
+      }
+      $eventTriggers[] = $trigger;
+      $checkpoint?->__invoke();
     }
     $npcs = $this->gameScene->npcManager?->prepareNpcs(
       is_array($map['npcs'] ?? null) ? $map['npcs'] : [],
       $mapId,
+      $source['worldObjects'],
     );
 
+    $checkpoint?->__invoke();
+    $landmarks = MapLandmarkCatalog::readMap($map, $source['tiles'], MapCategoryCatalog::load($this->getAssetRoot()), $areas);
+    $checkpoint?->__invoke();
+    $overview = new MapOverview($source['tiles'], $collisions, MapAtlasTerrain::readMap($map, $source['layers'], $source['kinds']));
+    $terrain = $source['kinds']?->resolveEncounterTerrain($source['layers'], $dictionary, $checkpoint);
+
     return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers'],
-      $source['graphics'], $source['worldObjects'], MapLandmarkCatalog::readMap($map, $source['tiles'], MapCategoryCatalog::load($this->getAssetRoot())),
-      new MapOverview($source['tiles'], $collisions, MapAtlasTerrain::readMap($map,$source['layers'])));
+      $source['graphics'], $source['worldObjects'], $landmarks, $overview, $areas, $terrain);
+  }
+
+  /**
+   * A map source's collision grid: its declared occupancy, or its glyphs read
+   * through the collision dictionary, composed with the terrain kinds it is
+   * painted in. Also the dictionary those glyphs were read with, which is
+   * empty under declared occupancy.
+   *
+   * @param array{layers: MapLayerSet, occupancy: ?MapPhysicalOccupancy, kinds: ?MapTerrainKinds} $source
+   * @return array{0: int[][], 1: array<int|string, CollisionType|array<int|string, CollisionType>>}
+   */
+  private function resolveSourceCollisions(array $source, ?Closure $checkpoint = null): array
+  {
+    if ($source['occupancy'] !== null) {
+      return [$source['occupancy']->collisionGrid, []];
+    }
+    $dictionary = $this->getCollisionDictionary() ?: $this->defaultCollisionDictionary;
+    $dictionary = $source['kinds']?->composeDictionary($dictionary) ?? $dictionary;
+    $collisions = $checkpoint === null
+      ? $this->generateLayerCollisionMap($source['layers'], $dictionary)
+      : MapCollisionResolver::resolveLayers($source['layers'], $dictionary ?: $this->defaultCollisionDictionary, $checkpoint);
+    return [$collisions, $dictionary];
   }
 
   /** Resolve current authored hierarchy without activating a destination or observing it for discovery. */
@@ -348,11 +444,10 @@ class MapManager implements CanRenderAt
   public function createAtlasDocument(string $mapId): MapAtlasDocument
   {
     $source=$this->prepareSplitMapDataFromFiles($this->resolveMapPaths($mapId));
-    $collisions=$source['occupancy']?->collisionGrid
-      ?? $this->generateLayerCollisionMap($source['layers'],$this->getCollisionDictionary());
+    [$collisions]=$this->resolveSourceCollisions($source);
     return new MapAtlasDocument($mapId,$source,new MapOverview($source['tiles'],$collisions,
-      MapAtlasTerrain::readMap($source['data'],$source['layers'])),
-      MapLandmarkCatalog::readMap($source['data'],$source['tiles'],MapCategoryCatalog::load($this->getAssetRoot())),
+      MapAtlasTerrain::readMap($source['data'],$source['layers'],$source['kinds'])),
+      MapLandmarkCatalog::readMap($source['data'],$source['tiles'],MapCategoryCatalog::load($this->getAssetRoot()),$source['areas']),
       $this->getAssetRoot());
   }
 
@@ -360,6 +455,7 @@ class MapManager implements CanRenderAt
   public function applyPreparedMap(PreparedMap $prepared, Player $player): void
   {
     $map = $prepared->data;
+    $savePolicy = MapSavePolicy::readMap($map);
     $this->tileMap = $prepared->tiles;
     $this->layers = $prepared->layers;
     $this->graphics = $prepared->graphics;
@@ -375,6 +471,9 @@ class MapManager implements CanRenderAt
     $this->mapKnowledge = $prepared->landmarks === null ? null : new MapKnowledge($mapId, $prepared->landmarks);
     $this->overview = $prepared->overview;
     $this->atlasDefinition = MapAtlasDefinition::readMap($map);
+    $this->isDashingDisabled = DashSettings::readMapDisablesDashing($map);
+    $this->savePolicy = $savePolicy;
+    $this->skitBackdropBinding = SkitBackdrop::readMapBinding($map);
     $this->lastKnowledgePosition = null;
     $this->installWorldObjects($prepared->worldObjects, $mapId);
     $this->loadMapTriggers($prepared->mapTriggers);
@@ -387,7 +486,9 @@ class MapManager implements CanRenderAt
     }
 
     $this->gameScene->encounterManager?->configure(
-      is_array($map['encounters'] ?? null) ? $map['encounters'] : null
+      is_array($map['encounters'] ?? null) ? $map['encounters'] : null,
+      $prepared->areas,
+      $prepared->encounterTerrain,
     );
     $this->gameScene->npcManager?->applyPreparedNpcs($prepared->npcs ?? []);
 
@@ -524,39 +625,169 @@ class MapManager implements CanRenderAt
     $this->camera->renderMap();
   }
 
+  /** Hold replacement world requests until the installed arrival is ready to draw. */
+  public function deferArrivalPresentationWorld(): void
+  {
+    $this->deferPresentationWorld = true;
+  }
+
+  public function cancelDeferredPresentationWorld(): void
+  {
+    $this->cancelPresentationWorldSnapshot();
+    if (!$this->deferPresentationWorld) { return; }
+    $this->deferPresentationWorld = false;
+    $this->clearPresentationWorld();
+  }
+
+  /** Compile an installed map's hidden presentation. Publication belongs to the scene update. */
+  public function prepareDeferredPresentationWorld(int $budgetNanoseconds, bool $canPublish): bool
+  {
+    $this->refreshTerminalPresentation();
+    if ($this->layers === null) { return true; }
+
+    $policy = TerminalCapabilities::supportsCompositeEmoji();
+    $projection = $this->getWorldObjectProjection();
+    if ($this->presentationWorldPolicy !== $policy || $this->presentationWorldProjection !== $projection) {
+      $this->clearPresentationWorld();
+    }
+    if ($this->presentationWorldPrepared) { return true; }
+    if ($this->presentationWorldPreparation === null) {
+      $this->presentationWorldPolicy = $policy;
+      $this->presentationWorldProjection = $projection;
+      $this->presentationWorldPreparation = PresentationWorld::beginPreparation(
+        $this->layers, 'map', $this->graphics, $this->getAssetRoot(), $projection['coverage'],
+        $projection['terminal'], $projection['tiles'], scheduleSnapshot: function (FramePreparation $snapshot): void {
+          $this->cancelPresentationWorldSnapshot();
+          $this->presentationWorldSnapshot = $snapshot;
+        },
+        prepareDiagnostics: function (PresentationWorld $world, Closure $checkpoint): void {
+          $this->preparedGlyphFallbacks = $this->collectGlyphFallbacks($world, $checkpoint);
+        },
+      );
+    }
+    try {
+      $world = $this->presentationWorldPreparation->advance($budgetNanoseconds, $canPublish);
+      if ($world === null) { return false; }
+      $this->presentationWorld = $world;
+    } catch (\Throwable $error) {
+      Debug::warn('Retained map presentation is unavailable: ' . $error->getMessage());
+      $this->presentationWorld = null;
+    }
+    $this->presentationWorldPreparation = null;
+    $this->presentationWorldPrepared = true;
+    return true;
+  }
+
+  /** True once the installed world's presentation or text fallback has been published. */
+  public function advanceDeferredPresentationWorld(int $budgetNanoseconds): bool
+  {
+    if (!$this->prepareDeferredPresentationWorld($budgetNanoseconds, canPublish: true)) { return false; }
+    $this->deferPresentationWorld = false;
+    $this->finishPresentationWorld();
+    return true;
+  }
+
+  /** Complete the cache copy only when the field has spare work time. */
+  public function advancePresentationWorldSnapshot(int $budgetNanoseconds): void
+  {
+    if ($this->presentationWorldSnapshot === null) { return; }
+    try {
+      if ($this->presentationWorldSnapshot->advance($budgetNanoseconds) === null) { return; }
+    } catch (\Throwable $error) {
+      Debug::warn('Retained map snapshot could not be cached: ' . $error->getMessage());
+    }
+    $this->cancelPresentationWorldSnapshot();
+  }
+
+  private function cancelPresentationWorldSnapshot(): void
+  {
+    $this->presentationWorldSnapshot?->cancel();
+    $this->presentationWorldSnapshot = null;
+  }
+
   /** Build once per installed map/policy, only when a graphical consumer requests it. */
   public function getPresentationWorld(): ?PresentationWorld
   {
+    if ($this->deferPresentationWorld) { return null; }
     $this->refreshTerminalPresentation();
     if ($this->layers === null) {
       $this->camera->setRetainedWorldAvailable(false);
       return null;
     }
     $policy = TerminalCapabilities::supportsCompositeEmoji();
-    $coverage = $this->getWorldObjectCoverage();
-    if ($this->presentationWorldPolicy === $policy && $this->presentationWorldCoverage === $coverage) {
+    $projection = $this->getWorldObjectProjection();
+    if ($this->presentationWorldPolicy === $policy && $this->presentationWorldProjection === $projection) {
       $this->camera->setRetainedWorldAvailable($this->presentationWorld !== null);
       return $this->presentationWorld;
     }
     $this->presentationWorldPolicy = $policy;
-    $this->presentationWorldCoverage = $coverage;
+    $this->presentationWorldProjection = $projection;
     $this->presentationWorld = null;
+    $this->cancelPresentationWorldSnapshot();
     try {
-      $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, 'map', $this->graphics, $this->getAssetRoot(), $coverage,
-        $this->terminalPresentationCells ?? []);
+      $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, 'map', $this->graphics, $this->getAssetRoot(),
+        $projection['coverage'], $projection['terminal'], $projection['tiles']);
     } catch (\Throwable $error) {
       // Unsupported world bounds keep the screen-space retained text path usable.
       Debug::warn('Retained map presentation is unavailable: ' . $error->getMessage());
     }
-    $this->camera->setRetainedWorldAvailable($this->presentationWorld !== null);
+    $this->finishPresentationWorld();
     return $this->presentationWorld;
+  }
+
+  private function finishPresentationWorld(): void
+  {
+    if ($this->presentationWorld !== null) {
+      foreach ($this->preparedGlyphFallbacks ?? $this->collectGlyphFallbacks($this->presentationWorld) as $message) {
+        ($this->presentationFallbacks ??= new PresentationFallbackReport())->report($message);
+      }
+    }
+    $this->preparedGlyphFallbacks = null;
+    $this->camera->setRetainedWorldAvailable($this->presentationWorld !== null);
+  }
+
+  /**
+   * Reports the cells the graphical field can only show by their terminal
+   * glyphs, by map, glyph, gameplay layer and cell: a map without graphics,
+   * or glyphs no tile, world object or sprite presents. The field still
+   * draws them so play goes on; the report keeps the missing art visible.
+   */
+  private function collectGlyphFallbacks(PresentationWorld $world, ?Closure $checkpoint = null): array
+  {
+    // A map without graphics is a glyph world by design; one whose tileset fails to load says so as it loads.
+    if ($this->graphics === null) { return []; }
+    $found = [];
+    foreach ($world->yieldGlyphCells($checkpoint) as $cell) {
+      $found[$cell['layerId']][$cell['glyph']][] = "({$cell['x']}, {$cell['y']})";
+    }
+    $messages = [];
+    foreach ($found as $layerId => $glyphs) {
+      foreach ($glyphs as $glyph => $cells) {
+        $messages[] = sprintf(
+          "Map %s: the graphical field draws terminal glyph '%s' of %s at %s; no tile, world object or sprite presents it.",
+          $this->gameScene->currentMapId, $glyph, $layerId, implode(', ', $cells));
+        $checkpoint?->__invoke();
+      }
+    }
+    return $messages;
+  }
+
+  /** @return list<string> Every map cell fallback the graphical field has reported for this manager, in order. */
+  public function getReportedPresentationFallbacks(): array
+  {
+    return $this->presentationFallbacks?->getReportedMessages() ?? [];
   }
 
   private function clearPresentationWorld(): void
   {
+    $this->cancelPresentationWorldSnapshot();
+    $this->presentationWorldPreparation?->cancel();
+    $this->presentationWorldPreparation = null;
     $this->presentationWorld = null;
+    $this->presentationWorldPrepared = false;
+    $this->preparedGlyphFallbacks = null;
     $this->presentationWorldPolicy = null;
-    $this->presentationWorldCoverage = [];
+    $this->presentationWorldProjection = [];
   }
 
   /** Project live object display cells without changing authored layers, occupancy or save data. */
@@ -630,11 +861,20 @@ class MapManager implements CanRenderAt
     $this->clearPresentationWorld();
   }
 
-  private function getWorldObjectCoverage(): array
+  /**
+   * What the world objects change in the graphical world: the authored
+   * glyphs and tiles their art covers, and the terminal cells of the objects
+   * whose graphics do not present them. An object whose art presents it
+   * keeps its terminal glyph to the terminal: its sprite is its graphical
+   * presentation, as an NPC's is.
+   *
+   * @return array{coverage: array, terminal: array<int, array<int, string>>, tiles: array<string, array<int, array<int, int>>>}
+   */
+  private function getWorldObjectProjection(): array
   {
-    $coverage = [];
+    $coverage = $terminal = $tiles = [];
     foreach ($this->getWorldObjects() as $object) {
-      if (!$object->isCurrent()) { continue; }
+      if (!$object->isVisible()) { continue; }
       $stage = $this->gameScene->cinematicStage;
       $hideGlyphs = ($stage?->suppresses($object) ?? false)
         ? $stage->hidesWorldObjectGlyphs($object) : $object->hidesOwnedGlyphs();
@@ -644,8 +884,17 @@ class MapManager implements CanRenderAt
           foreach ($rows as $y => $cells) { $coverage[$kind][$name][$y] = ($coverage[$kind][$name][$y] ?? []) + $cells; }
         }
       }
+      if (!($stage?->suppresses($object) ?? false)) {
+        foreach ($object->definition->tilePresentation as $name => $rows) {
+          foreach ($rows as $y => $cells) { $tiles[$name][$y] = ($tiles[$name][$y] ?? []) + $cells; }
+        }
+      }
+      if ($hideGlyphs) { continue; }
+      foreach ($object->getTerminalCells() as $y => $row) {
+        foreach ($row as $x => $symbol) { $terminal[$y][$x] = $symbol; }
+      }
     }
-    return $coverage;
+    return ['coverage' => $coverage, 'terminal' => $terminal, 'tiles' => $tiles];
   }
 
   /**
@@ -690,27 +939,42 @@ class MapManager implements CanRenderAt
   {
     if ($player = $this->gameScene->player) {
       $player->removeEventTriggers();
-      $gameState = $this->gameScene->gameState;
 
-      foreach ($events as $eventData) {
-        $eventTrigger = $eventData instanceof \Ichiloto\Engine\Events\Triggers\EventTrigger
-          ? $eventData : EventTriggerFactory::create($eventData, $mapId !== '' ? $mapId : null);
-        $eventTrigger->bind($gameState, $this->gameScene->party);
-
-        // A one-shot event the world state already records as completed
-        // stays completed — a looted chest does not refill on map re-entry.
-        if (
-          ! $eventTrigger->isReusable &&
-          $eventTrigger->mapId !== null &&
-          $eventTrigger->marker !== null &&
-          $gameState->isEventComplete($eventTrigger->mapId, $eventTrigger->marker)
-        ) {
-          $eventTrigger->restoreCompleted();
-        }
-
+      foreach ($this->createEventTriggers($events, $mapId) as $eventTrigger) {
         $player->addTrigger($eventTrigger);
       }
     }
+  }
+
+  /**
+   * A map's event triggers bound to the scene's world state and party, as the
+   * field holds them: a one-shot event the world state already records as
+   * completed stays completed, so a looted chest does not refill on map
+   * re-entry.
+   *
+   * @param array<int, mixed> $events Event data or triggers.
+   * @return list<\Ichiloto\Engine\Events\Triggers\EventTrigger>
+   */
+  protected function createEventTriggers(array $events, string $mapId = ''): array
+  {
+    $gameState = $this->gameScene->gameState;
+    $triggers = [];
+    foreach ($events as $eventData) {
+      $eventTrigger = $eventData instanceof \Ichiloto\Engine\Events\Triggers\EventTrigger
+        ? $eventData : EventTriggerFactory::create($eventData, $mapId !== '' ? $mapId : null);
+      $eventTrigger->bind($gameState, $this->gameScene->party);
+      if (
+        ! $eventTrigger->isReusable &&
+        $eventTrigger->mapId !== null &&
+        $eventTrigger->marker !== null &&
+        $gameState->isEventComplete($eventTrigger->mapId, $eventTrigger->marker)
+      ) {
+        $eventTrigger->restoreCompleted();
+      }
+      $triggers[] = $eventTrigger;
+    }
+
+    return $triggers;
   }
 
   /**
@@ -759,8 +1023,6 @@ class MapManager implements CanRenderAt
     $bottomViewportPadding = $this->camera->screen->getHeight() - $verticalFocus - 1;
     $canScrollHorizontally = ! $this->screenIsWiderThanMap($this->camera->screen);
     $canScrollVertically = ! $this->screenIsTallerThanMap($this->camera->screen);
-    $maxX = max(0, $this->mapWidth - $this->camera->screen->getWidth());
-    $maxY = max(0, $this->mapHeight - $this->camera->screen->getHeight());
 
     if (! $canScrollHorizontally && ! $canScrollVertically) {
       return false;
@@ -773,11 +1035,7 @@ class MapManager implements CanRenderAt
         }
         $playerDistanceFromLeftScreenEdge = $player->position->x - $this->camera->screen->getLeft();
         if ($playerDistanceFromLeftScreenEdge < $horizontalFocus) {
-          if (($player->position->x - $horizontalFocus) > 0) {
-            $newX = max(0, $this->camera->position->x - 1);
-            $this->camera->screen->setX(clamp($newX, 0, $maxX));
-            $didScroll = true;
-          }
+          $didScroll = $this->scrollCameraTo($this->camera->position->x - 1, $this->camera->position->y);
         }
         break;
 
@@ -787,11 +1045,7 @@ class MapManager implements CanRenderAt
         }
         $playerDistanceFromRightScreenEdge = ($this->camera->screen->getRight() - 1) - $player->position->x;
         if ($playerDistanceFromRightScreenEdge < $rightViewportPadding) {
-          if (($player->position->x + $rightViewportPadding) < $this->mapWidth - 1) {
-            $newX = min($maxX, $this->camera->position->x + 1);
-            $this->camera->screen->setX(clamp($newX, 0, $maxX));
-            $didScroll = true;
-          }
+          $didScroll = $this->scrollCameraTo($this->camera->position->x + 1, $this->camera->position->y);
         }
         break;
 
@@ -801,9 +1055,7 @@ class MapManager implements CanRenderAt
         }
         $playerDistanceFromTopScreenEdge = $player->position->y - $this->camera->screen->getTop();
         if ($playerDistanceFromTopScreenEdge < $verticalFocus) {
-          $newY = max(0, $this->camera->position->y - 1);
-          $this->camera->screen->setY(clamp($newY, 0, $maxY));
-          $didScroll = true;
+          $didScroll = $this->scrollCameraTo($this->camera->position->x, $this->camera->position->y - 1);
         }
         break;
 
@@ -813,16 +1065,23 @@ class MapManager implements CanRenderAt
         }
         $playerDistanceFromBottomScreenEdge = ($this->camera->screen->getBottom() - 1) - $player->position->y;
         if ($playerDistanceFromBottomScreenEdge < $bottomViewportPadding) {
-          if (($player->position->y + $bottomViewportPadding) < $this->mapHeight - 1) {
-            $newY = min($maxY, $this->camera->position->y + 1);
-            $this->camera->screen->setY(clamp($newY, 0, $maxY));
-            $didScroll = true;
-          }
+          $didScroll = $this->scrollCameraTo($this->camera->position->x, $this->camera->position->y + 1);
         }
         break;
     }
 
     return $didScroll;
+  }
+
+  /**
+   * Moves the camera one step toward the player, as far as the map's edge allows. The map's edge rows and columns
+   * are part of the view like any other, so the clamp alone bounds the step.
+   *
+   * @return bool True if the camera moved.
+   */
+  private function scrollCameraTo(int $x, int $y): bool
+  {
+    return $this->camera->scrollTo($x, $y);
   }
 
   /**
@@ -898,10 +1157,40 @@ class MapManager implements CanRenderAt
    */
   protected function readSplitMapDataFromFiles(array $paths): array
   {
-    $prepared = $this->prepareSplitMapDataFromFiles($paths);
+    return $this->installMapGeometry($this->prepareSplitMapDataFromFiles($paths));
+  }
+
+  /**
+   * Installs a map's geometry, graphics and world objects from a source a host
+   * holds itself, as {@see readMapDataFromFile()} installs them from a map's
+   * files: an editor showing a map as it stands, unsaved edits included. The
+   * source is what {@see MapSourceReader::readDeclarations()} reads; the host
+   * loads the map's graphics and tile layers as it holds them, and the Engine
+   * prepares the rest exactly as it prepares a map read from files
+   * ({@see prepareMapSource()}).
+   *
+   * @param array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, areas?: MapAreaCatalog} $source
+   * @param Closure(): ?MapGraphics $loadGraphics
+   * @param Closure(): ?list<MapTileLayer> $readTileLayers
+   * @param (Closure(): FieldPresentationCatalog)|null $loadFieldCatalog The host's current resource catalogue; null reads project files.
+   * @return array<string, mixed> The map's data.
+   */
+  protected function installMapSource(string $mapId, array $source, ?MapTerrainKinds $kinds, Closure $loadGraphics,
+    Closure $readTileLayers, ?Closure $loadFieldCatalog = null): array
+  {
+    return $this->installMapGeometry($this->prepareMapSource($mapId, $source, $kinds, $loadGraphics, $readTileLayers, $loadFieldCatalog));
+  }
+
+  /**
+   * @param array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>, kinds: ?MapTerrainKinds} $prepared
+   * @return array<string, mixed> The map's data.
+   */
+  private function installMapGeometry(array $prepared): array
+  {
+    $savePolicy = MapSavePolicy::readMap($prepared['data']);
     $landmarks = MapLandmarkCatalog::readMap($prepared['data'], $prepared['tiles'], MapCategoryCatalog::load($this->getAssetRoot()));
     $overview = new MapOverview($prepared['tiles'], $prepared['occupancy']?->collisionGrid,
-      MapAtlasTerrain::readMap($prepared['data'],$prepared['layers']));
+      MapAtlasTerrain::readMap($prepared['data'],$prepared['layers'],$prepared['kinds']));
     $this->gameScene->fieldEffects?->clear();
     $this->tileMap = $prepared['tiles'];
     $this->layers = $prepared['layers'];
@@ -909,6 +1198,7 @@ class MapManager implements CanRenderAt
     $this->mapKnowledge = new MapKnowledge(strval($prepared['data']['id'] ?? ''), $landmarks);
     $this->overview = $overview;
     $this->atlasDefinition = MapAtlasDefinition::readMap($prepared['data']);
+    $this->savePolicy = $savePolicy;
     $this->lastKnowledgePosition = null;
     $this->installWorldObjects($prepared['worldObjects'], strval($prepared['data']['id'] ?? ''));
     $this->clearPresentationWorld();
@@ -937,56 +1227,95 @@ class MapManager implements CanRenderAt
 
   /**
    * @param array{id: string, data: string, map: string, event: string} $paths
-   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>}
+   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, areas: MapAreaCatalog, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>, kinds: ?MapTerrainKinds}
    */
-  protected function prepareSplitMapDataFromFiles(array $paths): array
+  protected function prepareSplitMapDataFromFiles(array $paths, ?Closure $checkpoint = null): array
   {
-    $source = MapSourceReader::readFiles($paths);
+    $source = MapSourceReader::readFiles($paths, $checkpoint);
+    $checkpoint?->__invoke();
+    $map = $source['data'];
+    $kinds = MapTerrainKinds::loadForMap($this->getAssetRoot(), $map);
+    return $this->prepareMapSource($paths['id'], $source, $kinds,
+      fn(): ?MapGraphics => MapGraphics::loadFromDirectory(dirname($paths['data']), $paths['id'], $map['tileset'] ?? null,
+        $source['layers'], $this->getAssetRoot(), $map[MapGraphics::SETTINGS_KEY] ?? null, $kinds?->tileset, $kinds !== null, $checkpoint),
+      static fn(): ?array => MapGraphics::readLayersFromDirectory(dirname($paths['data']), $paths['id'], $source['layers'], $checkpoint),
+      checkpoint: $checkpoint);
+  }
+
+  /**
+   * Prepares a map's gameplay source for the field, wherever it is held: its
+   * declared occupancy, graphics, graphical ownership and world objects. The
+   * holder loads the map's graphics and reads its tile layers; neither ever
+   * decides whether the map loads.
+   *
+   * @param array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet} $source
+   * @param Closure(): ?MapGraphics $loadGraphics
+   * @param Closure(): ?list<MapTileLayer> $readTileLayers Null when the map's tile layers are unknown.
+   * @param (Closure(): FieldPresentationCatalog)|null $loadFieldCatalog The host's current resource catalogue.
+   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, areas?: MapAreaCatalog, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>, kinds: ?MapTerrainKinds}
+   */
+  protected function prepareMapSource(string $mapId, array $source, ?MapTerrainKinds $kinds, Closure $loadGraphics,
+    Closure $readTileLayers, ?Closure $loadFieldCatalog = null, ?Closure $checkpoint = null): array
+  {
     $map = $source['data'];
     // Validate declared physical data before either loading path can mutate a scene.
     // Legacy read-only/preview loading still needs no collision dictionary here.
     $occupancy = array_key_exists(MapPhysicalOccupancy::DATA_KEY, $map)
-      ? MapCollisionResolver::resolveMap($source['layers'], $map)
+      ? MapCollisionResolver::resolveMap($source['layers'], $map, kinds: $kinds, checkpoint: $checkpoint)
       : null;
 
     if (array_key_exists('tiles2d', $map)) {
       // Glyph-keyed crops are retired; a map draws graphics from its tileset.
-      Debug::warn("{$paths['id']}/" . basename($paths['data']) . " tiles2d is no longer read; its map shows terminal glyphs until it has a tileset.");
+      Debug::warn("{$mapId}/" . basename($mapId) . ".data.php tiles2d is no longer read; its map shows terminal glyphs until it has a tileset.");
     }
 
+    $checkpoint?->__invoke();
     $graphics = null;
     try {
-      $graphics = MapGraphics::loadFromDirectory(dirname($paths['data']), $paths['id'], $map['tileset'] ?? null,
-        $source['layers'], $this->getAssetRoot(), $map[MapGraphics::SETTINGS_KEY] ?? null);
+      $graphics = $loadGraphics();
     } catch (\Throwable $error) {
       // Graphics never decide whether a map loads: it shows its terminal glyphs instead.
-      Debug::warn("Map {$paths['id']} graphics are unusable; showing terminal glyphs: " . $error->getMessage());
+      Debug::warn("Map {$mapId} graphics are unusable; showing terminal glyphs: " . $error->getMessage());
     }
 
+    $checkpoint?->__invoke();
     $tileOwners = null;
     $objects = $map[WorldObjectDefinition::DATA_KEY] ?? null;
     if ($graphics === null && is_array($objects) && array_any($objects, static fn(mixed $object): bool => is_array($object)
       && is_array($object['covers'] ?? null) && !empty($object['covers']['tileLayers']))) {
       $tileLayers = null;
       try {
-        $tileLayers = MapGraphics::readLayersFromDirectory(dirname($paths['data']), $paths['id'], $source['layers']);
+        $tileLayers = $readTileLayers();
       } catch (\Throwable $error) {
-        Debug::warn("Map {$paths['id']} graphical ownership is unavailable: " . $error->getMessage());
+        Debug::warn("Map {$mapId} graphical ownership is unavailable: " . $error->getMessage());
       }
       if ($tileLayers !== null) {
         // Explicit owners remain provable without tileset pieces; inferred owners remain unknown.
         $tileOwners = MapGraphics::resolveLayerOwners($map[MapGraphics::SETTINGS_KEY] ?? null,
           array_column($tileLayers, 'name'), array_column(array_filter($source['layers']->layers,
-            static fn(MapLayer $layer): bool => !$layer->decoration), 'name'), null, $paths['id']);
+            static fn(MapLayer $layer): bool => !$layer->decoration), 'name'), null, $mapId);
       }
     }
 
     // Malformed subject/selector ownership refuses before scene mutation; unavailable optional art does not.
     $catalog = is_array($objects) && array_any($objects, static fn(mixed $object): bool => is_array($object)
       && array_key_exists('resource', $object))
-      ? FieldPresentationCatalog::load($this->getAssetRoot(), EffectPresentation::TERMINAL) : null;
+      ? ($loadFieldCatalog === null ? FieldPresentationCatalog::load($this->getAssetRoot(), EffectPresentation::TERMINAL)
+        : $loadFieldCatalog()) : null;
     $worldObjects = WorldObjectDefinition::readMap($map, $source['layers'], $graphics, $tileOwners, $catalog);
-    return [...$source, 'graphics' => $graphics, 'occupancy' => $occupancy, 'worldObjects' => $worldObjects];
+    return [...$source, 'graphics' => $graphics, 'occupancy' => $occupancy, 'worldObjects' => $worldObjects, 'kinds' => $kinds];
+  }
+
+  /** Every map's routes and subject gates, read once from map sources; they do not change during a session. */
+  public function getProjectMapIndex(): ProjectMapIndex
+  {
+    return $this->projectMapIndex ??= ProjectMapIndex::scan($this->getAssetRoot());
+  }
+
+  /** What leads to each step of the story, read once from the project when the wayfinder first needs it. */
+  public function getStoryIndex(): StoryIndex
+  {
+    return $this->storyIndex ??= StoryIndex::scan($this->getAssetRoot());
   }
 
   /** The project's asset root, where tilesets and their sheets live. */

@@ -137,6 +137,217 @@ function createWorldObjectSource(array $extra = []): array
     ], $extra);
 }
 
+/** A real prepared bed binding, with a solid bed and a clear standing exit. */
+function installWorldObjectBed(WorldObjectTestScene $scene, string $root, array $bed = [], bool $cover = false, array $covers = []): \Ichiloto\Engine\Field\Npc
+{
+    $catalog = createResourceWorldObjectCatalog($root, ['attachments' => [
+        ['id' => 'occupant', 'cell' => ['x' => 0, 'y' => 0], 'point' => ['x' => .5, 'y' => .25]],
+    ], ...($cover ? ['bedCover2d' => ['asset' => 'Graphics/glow.png', 'cells' => ['width' => 3, 'height' => 4]]] : [])]);
+    $base = createWorldObjectPreparedMap([['id' => 'fixture', 'anchor' => ['x' => 1, 'y' => 1], 'resource' => 'whole', ...($covers !== [] ? ['covers' => $covers] : [])]], catalog: $catalog);
+    $entry = ['id' => 'sleeper', 'name' => 'Sleeper', 'sprite' => 'S', 'x' => 2, 'y' => 1, 'movement' => 'wander',
+        'bed' => array_replace(['object' => 'fixture', 'attachment' => 'occupant',
+            'poses2d' => ['lying' => ['asset' => 'Graphics/energized.png'], 'sitting' => ['asset' => 'Graphics/glow.png']]], $bed)];
+    $npcs = $scene->npcManager->prepareNpcs([$entry], $scene->currentMapId, $base->worldObjects);
+    $collisions = $base->collisions;
+    $collisions[1][1] = CollisionType::SOLID->value;
+    $prepared = new PreparedMap([...$base->data, 'npcs' => [$entry]], $base->tiles, $collisions,
+        [], [], $npcs, $base->layers, $base->graphics, $base->worldObjects);
+    $scene->mapManager->applyPreparedMap($prepared, $scene->player);
+    return $scene->npcManager->findById('sleeper');
+}
+
+it('installs a persistent real bed occupant on its logical attachment before any cinematic runs', function () {
+    $npc = installWorldObjectBed($this->scene, $this->root);
+    expect([(int)$npc->position->x, (int)$npc->position->y])->toBe([1, 1])
+        ->and($npc->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::LYING)
+        ->and($npc->getFieldTerminalSprite())->toBe('▣')
+        ->and($this->scene->npcManager->npcAt(1, 1))->toBe($npc)
+        ->and($this->scene->mapManager->canMoveTo(1, 1))->toBeFalse()
+        ->and($this->scene->npcManager->moveNpcById('sleeper', new Vector2(1, 0)))->toBeFalse();
+    $this->scene->cinematicStage->configure([['id' => 'sleeper-look', 'subject' => ['kind' => 'npc', 'id' => 'sleeper']]]);
+    $actor = $this->scene->cinematicStage->require('sleeper-look');
+    expect($actor->subject->subject)->toBe($npc)->and($actor->sprite)->toBe(['▣'])
+        ->and($actor->getGraphicalSpriteDefinition()->asset)->toBe('Graphics/energized.png')
+        ->and($actor->getGraphicalSpriteWorldPosition())->toEqual($npc->getGraphicalSpriteWorldPosition());
+});
+
+it('commits sitting and standing through the event command and restores the saved posture on a fresh map instance', function () {
+    $npc = installWorldObjectBed($this->scene, $this->root);
+    $session = $this->scene->eventInterpreter->run([
+        ['type' => 'set_bed_posture', 'npc' => 'sleeper', 'posture' => 'sitting', 'seconds' => .2],
+        ['type' => 'set_bed_posture', 'npc' => 'sleeper', 'posture' => 'standing', 'seconds' => .2],
+    ]);
+    expect($npc->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::LYING);
+    $this->scene->eventInterpreter->update(.2);
+    expect($session->failureMessage)->toBeNull();
+    expect($npc->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::SITTING);
+    $this->scene->eventInterpreter->update(.2);
+    expect($session->status)->toBe(\Ichiloto\Engine\Events\Interpreter\EventExecutionStatus::COMPLETED)
+        ->and($npc->getFieldTerminalSprite())->toBe('S')->and([(int)$npc->position->x, (int)$npc->position->y])->toBe([2, 1]);
+    $state = unserialize(serialize($this->scene->gameState));
+    new ReflectionProperty($this->scene, 'gameState')->setValue($this->scene, $state);
+    $reloaded = installWorldObjectBed($this->scene, $this->root);
+    expect($reloaded)->not->toBe($npc)->and($reloaded->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::STANDING)
+        ->and([(int)$reloaded->position->x, (int)$reloaded->position->y])->toBe([2, 1]);
+});
+
+it('keeps posture and occupancy unchanged on cancellation or a newly blocked bed exit', function (bool $cancel) {
+    $npc = installWorldObjectBed($this->scene, $this->root);
+    $operation = new \Ichiloto\Engine\Field\BedPostureOperation($this->scene, $npc,
+        \Ichiloto\Engine\Field\Enumerations\BedPosture::STANDING, .3);
+    expect($operation->update(.1))->toBeFalse();
+    if ($cancel) { $operation->cancel(); }
+    else {
+        $this->scene->player->restoreFieldTransform(new Vector2(2, 1), MovementHeading::SOUTH, ['v']);
+        expect(fn() => $operation->update(.3))->toThrow(RuntimeException::class, 'exit is blocked');
+        $operation->cancel();
+    }
+    expect($npc->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::LYING)
+        ->and($npc->bed->isOccupied)->toBeTrue()->and([(int)$npc->position->x, (int)$npc->position->y])->toBe([1, 1])
+        ->and($this->scene->gameState->getVariable($npc->bed->stateKey, 'unset'))->toBe('unset');
+})->with([false, true]);
+
+it('composes the bed, real occupant and covers once in the field, takeover and overview without changing collision', function () {
+    $context = new ScenePresentationContext(new RendererGridConfig(12, 6, 10, 20), static fn(string $cap): bool => true,
+        assetRoot: $this->root . '/assets');
+    new ReflectionProperty(GameScene::class, 'presentationContext')->setValue($this->scene, $context);
+    $npc = installWorldObjectBed($this->scene, $this->root, cover: true);
+    $object = $this->scene->mapManager->findWorldObject('fixture');
+    $group = $object->getPresentationWorldCanvas();
+    expect(array_column($group->canvas->images, 'id'))->toBe(['base', 'occupant', 'cover'])
+        ->and($group->canvas->presentationOwners)->toContain($npc->getGraphicalSpriteId(), $object->getGraphicalSpriteId())
+        ->and($object->getGraphicalSpriteDefinition())->toBeNull()
+        ->and(array_map(static fn($provider): string => $provider->getGraphicalSpriteId(),
+            iterator_to_array($this->scene->getGraphicalSpriteProviders())))->not->toContain($npc->getGraphicalSpriteId())
+        ->and($this->scene->mapManager->canMoveTo(1, 1))->toBeFalse();
+    $this->scene->cinematicStage->configure([['id' => 'in-bed', 'subject' => ['kind' => 'npc', 'id' => 'sleeper']]]);
+    $actor = $this->scene->cinematicStage->require('in-bed');
+    $group = $object->getPresentationWorldCanvas();
+    expect($group->canvas->presentationOwners)->toContain($actor->getGraphicalSpriteId())
+        ->and($actor->isComposedInBed())->toBeTrue()
+        ->and($object->getOverviewSubject()->images)->toHaveCount(3);
+    $this->scene->cinematicStage->hide('in-bed');
+    expect(array_column($object->getPresentationWorldCanvas()->canvas->images, 'id'))->toBe(['base', 'cover']);
+    $this->scene->cinematicStage->clear();
+    expect(array_column($object->getPresentationWorldCanvas()->canvas->images, 'id'))->toBe(['base', 'occupant', 'cover']);
+    $stand = new \Ichiloto\Engine\Field\BedPostureOperation($this->scene, $npc,
+        \Ichiloto\Engine\Field\Enumerations\BedPosture::STANDING);
+    $stand->update(0);
+    expect(array_column($object->getPresentationWorldCanvas()->canvas->images, 'id'))->toBe(['base', 'cover'])
+        ->and($this->scene->mapManager->getCollisionGrid()[1][1])->toBe(CollisionType::SOLID->value);
+});
+
+it('preserves synthetic bed glyph ownership across renderer capabilities', function (array $capabilities, bool $supported) {
+    $context = new ScenePresentationContext(new RendererGridConfig(12, 6, 10, 20),
+        static fn(string $capability): bool => in_array($capability, $capabilities, true),
+        assetRoot: $this->root . '/assets');
+    $this->scene->setPresentationContext($context);
+    $npc = installWorldObjectBed($this->scene, $this->root, cover: true,
+        covers: ['layer' => 'fixtures', 'cells' => [[1, 1]], 'tileLayers' => ['objects']]);
+    $object = $this->scene->mapManager->findWorldObject('fixture');
+
+    expect($this->scene->canPresentWorldCanvases())->toBe($supported)
+        ->and($object->getPresentationWorldCanvas() !== null)->toBe($supported)
+        ->and($object->hidesOwnedGlyphs())->toBe($supported)
+        ->and(getWorldObjectWireCells($this->scene->mapManager->getPresentationWorld())[1][1]['glyph'])->toBe($supported ? 'g' : 'o')
+        ->and($npc->bed->isOccupied)->toBeTrue()
+        ->and($this->scene->mapManager->canMoveTo(1, 1))->toBeFalse();
+})->with([
+    'neither compound capability' => [[], false],
+    'world canvas only' => [[RendererSessionConfig::WORLD_CANVAS], false],
+    'frame viewport only' => [[RendererSessionConfig::FRAME_VIEWPORT], false],
+    'both compound capabilities' => [[RendererSessionConfig::WORLD_CANVAS, RendererSessionConfig::FRAME_VIEWPORT], true],
+]);
+
+it('preflights bed slots and exits from actual sources before replacing any current map occupant', function (bool $blockedExit) {
+    $field = ['resources' => ['simple-bed' => ['name' => 'Bed', 'pivot' => ['x' => .5, 'y' => 1],
+        'sprites2d' => ['asset' => 'Graphics/base.png', 'cells' => ['width' => 1, 'height' => 2]],
+        'attachments' => [['id' => 'occupant', 'cell' => ['x' => 0, 'y' => 0], 'point' => ['x' => .5, 'y' => .25]]]]]];
+    mkdir($this->root . '/assets/Data/Presentation', 0777, true);
+    file_put_contents($this->root . '/assets/Data/Presentation/field.php', '<?php return ' . var_export($field, true) . ';');
+    $grid = array_fill(0, 3, array_fill(0, 4, CollisionType::NONE));
+    $grid[1][1] = CollisionType::SOLID;
+    $grid[1][2] = $blockedExit ? CollisionType::SOLID : CollisionType::NONE;
+    $data = ['occupancy' => $grid, 'worldObjects' => [['id' => 'fixture', 'anchor' => ['x' => 1, 'y' => 1], 'resource' => 'simple-bed']],
+        'npcs' => [['id' => 'sleeper', 'name' => 'Sleeper', 'sprite' => 'S', 'x' => 2, 'y' => 1,
+            'bed' => ['object' => 'fixture', 'attachment' => 'occupant']]]];
+    writeWorldObjectLoadingSources($this->root, $data, false);
+    $before = $this->scene->mapManager->findWorldObject('fixture');
+    if ($blockedExit) {
+        expect(fn() => $this->scene->mapManager->prepareMap('synthetic/loading'))
+            ->toThrow(InvalidArgumentException::class, 'standing exit');
+    } else {
+        $prepared = $this->scene->mapManager->prepareMap('synthetic/loading');
+        expect($prepared->npcs[0]->id)->toBe('sleeper')
+            ->and([(int)$prepared->npcs[0]->position->x, (int)$prepared->npcs[0]->position->y])->toBe([1, 1])
+            ->and($prepared->npcs[0]->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::LYING);
+    }
+    expect($this->scene->mapManager->findWorldObject('fixture'))->toBe($before)
+        ->and($this->scene->currentMapId)->toBe('synthetic/room')->and($this->scene->npcManager->npcs)->toBe([]);
+})->with([false, true]);
+
+it('drives one owned get-up clip from field time and commits immediately under reduced motion', function (bool $reduced) {
+    putSceneAudioConfig(['accessibility' => ['reducedMotion' => $reduced]]);
+    $npc = installWorldObjectBed($this->scene, $this->root, ['transitions2d' => ['standing' => [
+        'asset' => 'Graphics/glow.png', 'animation' => ['columns' => 2, 'frames' => [0, 1], 'fps' => 10, 'loop' => false, 'restFrame' => 1]]]]);
+    $operation = new \Ichiloto\Engine\Field\BedPostureOperation($this->scene, $npc,
+        \Ichiloto\Engine\Field\Enumerations\BedPosture::STANDING);
+    if ($reduced) {
+        expect($operation->update(0))->toBeTrue();
+    } else {
+        expect($npc->bed->getFrame()->sourceRect->x)->toBe(0)->and($operation->update(.1))->toBeFalse()
+            ->and($npc->bed->getFrame()->sourceRect->x)->toBe(5)->and($operation->update(.1))->toBeTrue();
+    }
+    expect($npc->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::STANDING)
+        ->and([(int)$npc->position->x, (int)$npc->position->y])->toBe([2, 1]);
+})->with([false, true]);
+
+it('keeps committed posture and exit consistent when a later cinematic command fails', function () {
+    $npc = installWorldObjectBed($this->scene, $this->root);
+    $definition = createWorldObjectCinematic([
+        ['type' => 'set_bed_posture', 'npc' => 'sleeper', 'posture' => 'standing'],
+        ['type' => 'text', 'name' => 'Sleeper', 'text' => 'Synthetic line.'],
+    ], ['cast' => [['id' => 'occupant', 'subject' => ['kind' => 'npc', 'id' => 'sleeper']]],
+        'skip' => ['policy' => 'forbidden'], 'finalizer' => []]);
+    $this->scene->cinematicController->start($definition);
+    $this->scene->eventInterpreter->update(0);
+    expect($npc->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::STANDING);
+    $this->scene->eventInterpreter->failActiveSession('Synthetic later interruption.');
+    expect($npc->bed->posture)->toBe(\Ichiloto\Engine\Field\Enumerations\BedPosture::STANDING)
+        ->and([(int)$npc->position->x, (int)$npc->position->y])->toBe([2, 1]);
+});
+
+it('validates shared bed slots against declared conditions without changing map sources', function () {
+    $npc = installWorldObjectBed($this->scene, $this->root);
+    $base = ['id' => 'a', 'name' => 'A', 'x' => 2, 'y' => 1, 'bed' => ['object' => 'fixture', 'attachment' => 'occupant']];
+    $other = [...$base, 'id' => 'b', 'name' => 'B'];
+    $inspect = fn(array $entries) => \Ichiloto\Engine\Field\Validation\MapBedRule::inspect($this->scene->currentMapId,
+        ['npcs' => $entries], [$npc->bed->objectDefinition], $this->scene->mapManager->getCollisionGrid());
+    expect($inspect([$base]))->toBe([])->and($inspect([$base, $other]))->toHaveCount(1);
+    $base['conditions'] = [['type' => 'switch', 'name' => 'phase', 'value' => true]];
+    $other['conditions'] = [['type' => 'switch', 'name' => 'phase', 'value' => false]];
+    expect($inspect([$base, $other]))->toBe([]);
+});
+
+it('reports the same physical bed defects through the in-memory authoring validator', function (bool $blockedExit) {
+    $npc = installWorldObjectBed($this->scene, $this->root);
+    $rows = array_map(static fn(array $row): array => array_map(CollisionType::from(...), $row), $this->scene->mapManager->getCollisionGrid());
+    if ($blockedExit) { $rows[1][2] = CollisionType::SOLID; }
+    $data = ['occupancy' => $rows,
+        'worldObjects' => [['id' => 'fixture', 'anchor' => ['x' => 1, 'y' => 1], 'resource' => 'whole']],
+        'npcs' => [['id' => 'sleeper', 'name' => 'Sleeper', 'x' => 2, 'y' => 1,
+            'bed' => ['object' => 'fixture', 'attachment' => 'occupant']]]];
+    $catalog = createResourceWorldObjectCatalog($this->root, ['attachments' => [
+        ['id' => 'occupant', 'cell' => ['x' => 0, 'y' => 0], 'point' => ['x' => .5, 'y' => .25]],
+    ]]);
+    $issues = \Ichiloto\Engine\Field\Validation\MapCompletenessValidator::validate($this->scene->currentMapId,
+        $data, array_fill(0, 3, array_fill(0, 4, ' ')), $this->scene->mapManager->layers,
+        $this->scene->mapManager->graphics, $this->root . '/assets', static fn(string $id): ?string => null, $catalog);
+    $beds = array_values(array_filter($issues, static fn($issue): bool => $issue->rule === 'npc.bed'));
+    expect($beds)->toHaveCount($blockedExit ? 1 : 0);
+    if ($blockedExit) { expect($beds[0]->message)->toContain('standing exit'); }
+})->with([false, true]);
+
 function createWorldObjectPreparedMap(array $objects, string $id = 'synthetic/room', ?FieldPresentationCatalog $catalog = null,
     ?MapLayerSet $layers = null): PreparedMap
 {
@@ -290,6 +501,90 @@ afterEach(function () {
     }
 });
 
+it('keeps a map backdrop below terrain in field and overview without owning collision or terminal cells', function () {
+    $policy = \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::class;
+    $catalog = createResourceWorldObjectCatalog($this->root, [
+        'pivot' => ['x' => .5, 'y' => 1],
+        'sprites2d' => ['asset' => 'Graphics/base.png', 'cells' => ['width' => 40, 'height' => 9],
+            'layer' => $policy::FIELD_BACKDROP],
+        'occupancyStamp' => [],
+    ]);
+    $source = ['id' => 'vista', 'resource' => 'whole', 'anchor' => ['x' => 1, 'y' => 1]];
+    $prepared = createWorldObjectPreparedMap([$source], catalog: $catalog);
+    $this->scene->mapManager->applyPreparedMap($prepared, $this->scene->player);
+    $object = $this->scene->mapManager->findWorldObject('vista');
+    $before = [$this->scene->mapManager->tileMap, $this->scene->mapManager->getCollisionGrid(),
+        serialize($this->scene->createSnapshot())];
+    $terminal = getWorldObjectWireCells($this->scene->mapManager->getPresentationWorld());
+    $projector = new GraphicalSpriteProjector();
+    $sprite = $projector->project($object, $this->scene->camera);
+    $policy::assertWorldSprites([$sprite]);
+    $overview = $object->getOverviewSubject();
+    $roundTrip = \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasWorldSubject::fromArray($overview->toArray());
+    $context = new ScenePresentationContext(new RendererGridConfig(12, 6, 10, 20), static fn(string $cap): bool => true,
+        assetRoot: $this->root . '/assets');
+    $this->scene->setPresentationContext($context);
+    $frame = new \Ichiloto\Engine\Rendering\Presentation\SceneFrameComposer($this->root . '/assets')
+        ->composeFrame($this->scene, $context->grid, static fn(string $cap): bool => true,
+            static fn(array $excluded, array $worldLayers) => new \Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot(12, 6, []));
+    $shown = array_find($frame->sprites, static fn($candidate): bool => $candidate->id === $sprite->id);
+    $bands = array_column($frame->world->getOperations(true, true)[0]['value']['layers'], 'layer');
+    expect([$shown->width, $shown->height, $shown->layer])->toBe([1920, 432, $policy::FIELD_BACKDROP])
+        ->and($shown->layer)->toBeLessThan(min($bands))
+        ->and($frame->viewport->spriteIds)->toContain($sprite->id)
+        ->and($object->definition->resource->occupancyStamp)->toBe([])
+        ->and($object->getTerminalCells())->toBe([])
+        ->and([$roundTrip->widthCells, $roundTrip->heightCells, $roundTrip->layer])->toBe([40.0, 9.0, $policy::FIELD_BACKDROP])
+        ->and([$this->scene->mapManager->tileMap, $this->scene->mapManager->getCollisionGrid(),
+            serialize($this->scene->createSnapshot())])->toBe($before)
+        ->and(getWorldObjectWireCells($this->scene->mapManager->getPresentationWorld()))->toBe($terminal);
+    $this->scene->camera->moveTo(1, 1);
+    $moved = $projector->project($object, $this->scene->camera);
+    expect([$moved->width, $moved->height, $moved->layer])->toBe([$sprite->width, $sprite->height, $sprite->layer])
+        ->and([$moved->x, $moved->y])->not->toBe([$sprite->x, $sprite->y])
+        ->and([(int)$object->position->x, (int)$object->position->y])->toBe([1, 1]);
+});
+
+it('admits a wide presentation footprint independently of tiles, collision and the Terminal source', function () {
+    $layers = new MapLayerSet([new MapLayer('ground', 0, false, 'ground',
+        implode("\n", array_fill(0, 11, str_repeat('#', 34))))]);
+    $coverage = [];
+    foreach (range(0, 9) as $y) {
+        foreach (range(1, 30) as $x) { $coverage[] = [$x, $y]; }
+    }
+    $map = ['worldObjects' => [createWorldObjectSource([
+        'covers' => ['layer' => 'ground', 'cells' => $coverage, 'tileLayers' => []],
+    ])]];
+    $before = $layers->getComposedGrid();
+    $collision = MapCollisionResolver::resolveLayers($layers, ['#' => CollisionType::SOLID]);
+    $object = WorldObjectDefinition::readMap($map, $layers)[0];
+
+    expect(array_sum(array_map('count', $object->coverage['glyphs']['ground'])))->toBe(300)
+        ->and($object->coverage['glyphs']['ground'][9][30])->toBeTrue()
+        ->and($object->terminalFootprint)->toBe([])
+        ->and($layers->getComposedGrid())->toBe($before)
+        ->and(MapCollisionResolver::resolveLayers($layers, ['#' => CollisionType::SOLID]))->toBe($collision);
+});
+
+it('bounds large placement footprints independently of the tile stamp budget', function () {
+    $placement = \Ichiloto\Engine\Field\WorldObjectPlacement::class;
+    $grid = array_fill(0, 33, array_fill(0, 33, '#'));
+    $cells = [];
+    foreach (range(0, 31) as $y) {
+        foreach (range(0, 31) as $x) { $cells[] = [$x, $y]; }
+    }
+    $entry = ['id' => 'wide', 'anchor' => ['x' => 0, 'y' => 0], 'covers' => ['cells' => $cells]];
+    expect($placement::read($entry, $grid)->cells)->toBe($cells)
+        ->and($placement::MAX_CELLS)->toBe(256)
+        ->and(fn () => $placement::read([...$entry, 'covers' => ['cells' => [...$cells, [32, 32]]]], $grid))
+        ->toThrow(InvalidArgumentException::class, '1..1024 explicit map cells');
+    $objects = array_map(static fn(int $i): array => [...$entry, 'id' => 'wide-' . $i], range(1, 32));
+    expect($placement::readMap(['worldObjects' => $objects], $grid))->toHaveCount(32);
+    $objects[] = [...$entry, 'id' => 'wide-33'];
+    expect(fn () => $placement::readMap(['worldObjects' => $objects], $grid))
+        ->toThrow(InvalidArgumentException::class, 'map footprint budget');
+});
+
 it('projects one-shot completion into both object artwork and terminal state across save and map re-entry', function () {
     $source = createWorldObjectSource(['terminal' => '<fg=yellow>o</>', 'variants' => [[
         'id' => 'opened', 'conditions' => [['type' => 'map_event', 'name' => 'synthetic/room', 'marker' => 'C']],
@@ -424,6 +719,38 @@ it('restores authored terminal presentation for an explicit null variant and kee
     $map->refreshTerminalPresentation();
     expect($this->scene->camera->worldSpace)->toBe($map->tileMap);
 });
+
+it('keeps an object terminal glyph out of the graphical world while its art presents it and reports it when the art fails', function (bool $staged) {
+    $map = $this->scene->mapManager;
+    $atObject = static fn(PresentationWorld $world): array => array_values(array_filter($world->getGlyphCells(),
+        static fn(array $cell): bool => [$cell['x'], $cell['y']] === [1, 1]));
+    $reported = "Map synthetic/room: the graphical field draws terminal glyph 'm' of map:fixtures at (1, 1); "
+        . 'no tile, world object or sprite presents it.';
+    // The object's art covers the cell beside its anchor, so nothing but ownership keeps its anchor glyph out.
+    $map->applyPreparedMap(createWorldObjectPreparedMap([createWorldObjectSource(['terminal' => '<fg=yellow>m</>',
+        'covers' => ['layer' => 'fixtures', 'cells' => [[2, 1]], 'tileLayers' => []]])]), $this->scene->player);
+    $map->refreshTerminalPresentation();
+    // The Terminal shows the object by its glyph; the graphical world keeps the authored cell under its sprite.
+    expect(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($this->scene->camera->worldSpace[1][1]))->toBe('m')
+        ->and(getWorldObjectWireCells($map->getPresentationWorld())[1][1]['glyph'])->toBe('o')
+        ->and($atObject($map->getPresentationWorld()))->toBe([])
+        ->and($map->getReportedPresentationFallbacks())->not->toContain($reported);
+
+    $map->applyPreparedMap(createWorldObjectPreparedMap([createWorldObjectSource(['terminal' => '<fg=yellow>m</>',
+        'sprites2d' => ['asset' => 'Graphics/missing.png'], 'variants' => []])]), $this->scene->player);
+    // Without its art the graphical field falls back to the glyph, and says where.
+    if ($staged) {
+        $map->deferArrivalPresentationWorld();
+        expect($map->prepareDeferredPresentationWorld(1_000_000_000, canPublish: false))->toBeFalse()
+            ->and($map->getPresentationWorld())->toBeNull()
+            ->and($map->getReportedPresentationFallbacks())->not->toContain($reported)
+            ->and($map->advanceDeferredPresentationWorld(1_000_000_000))->toBeTrue();
+    }
+    $world = $map->getPresentationWorld();
+    expect(getWorldObjectWireCells($world)[1][1]['glyph'])->toBe('m')
+        ->and($atObject($world))->toBe([['x' => 1, 'y' => 1, 'glyph' => 'm', 'layerId' => 'map:fixtures']])
+        ->and($map->getReportedPresentationFallbacks())->toContain($reported);
+})->with(['synchronous' => false, 'staged' => true]);
 
 it('refuses malformed terminal cells and incomplete map-event identities before installing an object', function () {
     foreach (['two', '<fg=white>xx</>', 3, []] as $terminal) {
@@ -588,6 +915,27 @@ it('composes prepared signs through the shared scene path with camera-relative v
     expect($cleared->worldCanvases)->toBe([])->and($cleared->viewport->worldCanvasIds)->toBe([]);
 });
 
+it('reports a field subject the graphical field can only show by its terminal glyph', function () {
+    $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(12, 6, 16, 24),
+        static fn(string $cap): bool => true, assetRoot: $this->root . '/assets'));
+    $plain = new \Ichiloto\Engine\Field\Npc('Lamp', '<fg=yellow>()</>', new Vector2(3, 1), id: 'lamp',
+        graphicalSpriteId: 'npc:synthetic:lamp');
+    $this->scene->npcManager->applyPreparedNpcs([$plain]);
+    $composer = new \Ichiloto\Engine\Rendering\Presentation\SceneFrameComposer($this->root . '/assets');
+    $context = $this->scene->getPresentationContext();
+    $compose = fn(array $runs) => $composer->composeFrame($this->scene, $context->grid, $context->supports(...),
+        static fn() => new \Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot(12, 6, [
+            new \Ichiloto\Engine\Rendering\Presentation\PresentationTextLayer('npc:synthetic:lamp', 1, $runs)]),
+        refreshOverlay: false);
+    // A subject that draws nothing in its own layer shows no glyph, so there is nothing to report.
+    $compose([]);
+    expect($composer->fallbacks->getReportedMessages())->toBe([]);
+    $compose([new \Ichiloto\Engine\Rendering\Presentation\PresentationTextRun(1, 3, '()')]);
+    $compose([new \Ichiloto\Engine\Rendering\Presentation\PresentationTextRun(1, 3, '()')]);
+    expect($composer->fallbacks->getReportedMessages())->toBe(["Field subject 'npc:synthetic:lamp' has no graphical "
+        . "sprite; the graphical field draws its terminal glyph '()' instead."]);
+});
+
 it('requires localized labels only for sign resources and refuses mixed presentation ownership', function () {
     [$client, $transport, $sign] = createWorldSignHost($this->scene, $this->root);
     $resource = $sign->definition->resource;
@@ -700,7 +1048,7 @@ it('covers only declared glyph and static fixture cells and preserves independen
     expect($cells[1][1])->toMatchArray(['glyph' => 'g', 'ownerLayerId' => 'map:ground'])
         ->and($cells[1][2])->toMatchArray(['glyph' => 's', 'ownerLayerId' => 'map:signs'])
         ->and($this->scene->mapManager->getPresentationWorld())->toBe($world)
-        ->and($this->prepared->graphics->layers[1]->tiles[1][1])->toBe(2);
+        ->and($this->prepared->graphics->layers[1]->getTileAt(1, 1))->toBe(2);
     $tiles = array_values(array_filter($world->operations, fn($op) => $op['op'] === 'worldTiles'));
     $floor = array_values(array_filter($tiles, fn($op) => $op['layerId'] === 'tiles:floor'));
     $objects = array_values(array_filter($tiles, fn($op) => $op['layerId'] === 'tiles:objects:above'));
@@ -1499,7 +1847,6 @@ it('removes retained inactive field sign tickets on excursion and preserves usab
         }
         public function configure(\Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface $config): void {}
     };
-    new ReflectionProperty(\Ichiloto\Engine\UI\Modal\ModalManager::class, 'instance')->setValue(null, null);
     $manager->addScenes($field, $target);
     $manager->currentScene = $field;
     $excursion = $manager->beginSceneExcursion($field, 1, new \Ichiloto\Engine\Scenes\Game\GameConfig(
@@ -1532,3 +1879,220 @@ it('removes retained inactive field sign tickets on excursion and preserves usab
     $client->releaseTextPreparation($other);
     $client->shutdown();
 })->with(['pending' => [false], 'prepared' => [true]]);
+
+function stageOnSyntheticAerial(WorldObjectTestScene $scene, string $root, array $point): \Ichiloto\Engine\Cutscenes\Cinematics\StagedActor
+{
+    $catalog = createResourceWorldObjectCatalog($root, ['attachments' => [['id' => 'aerial', 'cell' => ['x' => 1, 'y' => -2], 'point' => $point]]]);
+    $scene->mapManager->applyPreparedMap(createWorldObjectPreparedMap([['id' => 'tower', 'resource' => 'whole', 'anchor' => ['x' => 1, 'y' => 2]]],
+        catalog: $catalog), $scene->player);
+    $scene->cinematicStage->clear();
+    return $scene->cinematicStage->add(['id' => 'pulse', 'sprite' => '*', 'sprites2d' => ['asset' => 'Graphics/glow.png', 'layer' => 150],
+        'at' => ['kind' => 'world_object', 'id' => 'tower', 'attachment' => 'aerial']]);
+}
+
+/** Where the renderer draws a field image's centre: its pivot at the cell's ground point, raised by its lift. */
+function findDrawnCentre(\Ichiloto\Engine\Cutscenes\Cinematics\StagedActor $actor): array
+{
+    $image = $actor->getGraphicalSpriteDefinition();
+    $cell = $actor->getGraphicalSpriteWorldPosition();
+    $pivot = $image->pivot ?? new \Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot();
+    return [round(($cell->x + .5) * 48 - $pivot->x * $image->width + $image->width / 2, 3),
+        round(($cell->y + 1) * 48 - $pivot->y * $image->height - $image->lift + $image->height / 2, 3)];
+}
+
+it('centres a staged visual on its resource attachment while the terminal keeps the attachment cell', function () {
+    // Ground (72, 144); the point lies (.45, -.65) of the 144x192 art from the pivot: (136.8, 19.2).
+    $pulse = stageOnSyntheticAerial($this->scene, $this->root, ['x' => .7, 'y' => .1]);
+    expect($pulse->position)->toEqual(new Vector2(2, 0))
+        ->and($pulse->getGraphicalSpriteWorldPosition())->toEqual(new Vector2(2, 0))
+        ->and($pulse->getGraphicalSpriteDefinition()->pivot->toArray())->toEqualWithDelta(['x' => .15, 'y' => 1.0], 1e-9)
+        ->and($pulse->getGraphicalSpriteDefinition()->lift)->toBe(5)
+        ->and($pulse->getGraphicalSpriteDefinition()->layer)->toBe(150)
+        ->and(findDrawnCentre($pulse))->toEqualWithDelta([136.8, 19.2], .5);
+
+    // Replacement art of other dimensions draws in the same cells, so the visual stays on the feature.
+    writeTestPng($this->root . '/assets/Graphics/base.png', 30, 17);
+    expect(findDrawnCentre($pulse))->toEqualWithDelta([136.8, 19.2], .5);
+
+    // Re-authoring the point for new art moves every visual on it; the terminal cell is unchanged.
+    $moved = stageOnSyntheticAerial($this->scene, $this->root, ['x' => .5, 'y' => .5]);
+    expect(findDrawnCentre($moved))->toEqualWithDelta([108.0, 96.0], .5)
+        ->and($moved->getGraphicalSpriteWorldPosition())->toEqual(new Vector2(2, 2))
+        ->and($moved->position)->toEqual(new Vector2(2, 0));
+
+    // A replacement staged without a new place stays on the attachment; it never walks off it.
+    $replaced = $this->scene->cinematicStage->add(['id' => 'pulse', 'replace' => true, 'sprite' => '*',
+        'sprites2d' => ['asset' => 'Graphics/glow.png']]);
+    expect($replaced->attachment?->attachment->id)->toBe('aerial')->and(findDrawnCentre($replaced))->toEqualWithDelta([108.0, 96.0], .5)
+        ->and(fn() => $this->scene->cinematicStage->move('pulse', new Vector2(1, 0)))->toThrow(RuntimeException::class);
+
+    // Without drawn object art the terminal cell presents the visual in the graphical field too.
+    unlink($this->root . '/assets/Graphics/base.png');
+    $bare = stageOnSyntheticAerial($this->scene, $this->root, ['x' => .5, 'y' => .5]);
+    expect($bare->getGraphicalSpriteWorldPosition())->toEqual(new Vector2(2, 0))
+        ->and($bare->getGraphicalSpriteDefinition()->pivot)->toBeNull();
+});
+
+it('refuses attachments outside staged visuals, off world objects, with offsets or undeclared', function () {
+    $staged = ['id' => 'pulse', 'sprite' => '*', 'at' => ['kind' => 'world_object', 'id' => 'fixture', 'attachment' => 'aerial']];
+    CinematicStageManager::validateBinding($staged);
+    expect(fn() => \Ichiloto\Engine\Cutscenes\Cinematics\CinematicRelativePosition::validate($staged))->toThrow(InvalidArgumentException::class)
+        ->and(fn() => CinematicStageManager::validateBinding([...$staged, 'at' => ['kind' => 'npc', 'id' => 'guide', 'attachment' => 'aerial']]))
+        ->toThrow(InvalidArgumentException::class)
+        ->and(fn() => CinematicStageManager::validateBinding([...$staged, 'offset' => ['x' => 1]]))->toThrow(InvalidArgumentException::class)
+        ->and(fn() => CinematicStageManager::validateBinding([...$staged, 'at' => [...$staged['at'], 'attachment' => 'Aerial']]))
+        ->toThrow(InvalidArgumentException::class)
+        ->and(fn() => new \Ichiloto\Engine\Events\Interpreter\MovementRouteRunner($this->scene,
+            ['waypoints' => [['at' => $staged['at']]]]))->toThrow(\Ichiloto\Engine\Exceptions\MovementRouteException::class, 'Only a staged visual')
+        // The inline fixture has no resource, so it declares no attachment.
+        ->and(fn() => $this->scene->cinematicStage->add($staged))->toThrow(RuntimeException::class);
+});
+
+
+it('presents a closed passage exactly as an ordinary autotiled wall and restores floor and shadows after opening', function () {
+    writeTestPng($this->root . '/assets/Graphics/walls.png', 32, 30);
+    $base = createWorldObjectPreparedMap([]);
+    $tileset = Tileset::fromArray('disguises', ['name' => 'Synthetic wall disguise',
+        'sheets' => ['B' => 'Graphics/tiles.png', 'A4' => 'Graphics/walls.png'], 'above' => [5888],
+        'shadows' => ['casters' => ['A4'], 'width' => .5, 'opacity' => .35]]);
+    $makeGraphics = static fn(string $middle): MapGraphics => new MapGraphics($tileset, [
+        $base->graphics->layers[0],
+        new MapTileLayer('objects', 10, 'walls', "0 0 0 0\n5888 {$middle} 0 0\n0 0 0 0"),
+    ], owners: ['floor' => 'ground', 'objects' => 'fixtures']);
+    $graphics = $makeGraphics('0');
+    $entry = ['id' => 'hidden-wall', 'anchor' => ['x' => 1, 'y' => 1], 'pivot' => ['x' => .5, 'y' => 1],
+        'tiles2d' => ['objects' => [['x' => 1, 'y' => 1, 'tile' => 5888]]],
+        'terminal' => '|', 'conditions' => [['type' => 'map_event', 'name' => 'synthetic/room', 'marker' => 'P', 'negate' => true]]];
+    $data = [...$base->data, 'worldObjects' => [$entry]];
+    $definitions = WorldObjectDefinition::readMap($data, $base->layers, $graphics);
+    $prepared = new PreparedMap($data, $base->tiles, $base->collisions, [], [], [], $base->layers, $graphics, $definitions);
+    $manager = $this->scene->mapManager;
+    $manager->applyPreparedMap($prepared, $this->scene->player);
+    $physical = [$manager->tileMap, $manager->getCollisionGrid()];
+    $object = $manager->findWorldObject('hidden-wall');
+    expect($object->definition->sprites)->toBeNull()->and($object->getTerminalSymbol())->toBe('|');
+    $tileRows = static fn(PresentationWorld $world): array => array_values(array_filter($world->getOperations(true, true),
+        static fn(array $operation): bool => $operation['op'] === 'worldTiles'));
+    $atlas = new \Ichiloto\Engine\Field\MapAtlasDocument('synthetic/room', [
+        'worldObjects' => $definitions, 'layers' => $base->layers, 'graphics' => $graphics,
+    ], new \Ichiloto\Engine\Field\MapOverview($manager->tileMap),
+        \Ichiloto\Engine\Field\MapLandmarkCatalog::readMap([], $manager->tileMap), $this->root . '/assets');
+    $ordinaryWall = PresentationWorld::getFromLayers($base->layers, 'map', $makeGraphics('5888'), $this->root . '/assets');
+    $closed = $manager->getPresentationWorld();
+    expect($tileRows($closed))->toBe($tileRows($ordinaryWall));
+    $shadowColumns = static function (PresentationWorld $world) use ($tileRows): array {
+        $columns = [];
+        foreach ($tileRows($world) as $operation) {
+            if (!str_ends_with($operation['layerId'], ':shadows')) { continue; }
+            foreach ($operation['rows'] as $row) { foreach ($row['cells'] as $cell) { $columns[] = [$row['row'], $cell['column']]; } }
+        }
+        return $columns;
+    };
+    expect($shadowColumns($closed))->toBe([[1, 2]]);
+    // Sensing changes the cue's eligibility, while the disguise remains until Action completes.
+    $this->scene->gameState->setSwitch('sense');
+    expect($manager->getPresentationWorld())->toBe($closed);
+    $this->scene->cinematicStage->add(['id' => 'wall-reveal',
+        'subject' => ['kind' => 'world_object', 'id' => 'hidden-wall'],
+        'sprites2d' => ['asset' => 'Graphics/glow.png']]);
+    $floor = PresentationWorld::getFromLayers($base->layers, 'map', $graphics, $this->root . '/assets');
+    expect($tileRows($manager->getPresentationWorld()))->toBe($tileRows($floor));
+    $this->scene->cinematicStage->remove('wall-reveal');
+    expect($manager->getPresentationWorld())->toBe($closed);
+    $atlasClosed = $atlas->getPresentationWorld($this->scene->gameState, $this->scene->party);
+    $event = \Ichiloto\Engine\Events\Triggers\EventTriggerFactory::create([
+        'class' => \Ichiloto\Engine\Events\Triggers\PassageEventTrigger::class, 'marker' => 'P',
+        'area' => ['cells' => [[1, 1]]], 'engagement' => 'facing', 'data' => ['mode' => 'action', 'reusable' => false],
+    ], 'synthetic/room');
+    $event->bind($this->scene->gameState);
+    expect($event->getEntryRefusal(new Vector2(2, 1), new Vector2(1, 1)))->toBe('');
+    $event->complete();
+    $opened = $manager->getPresentationWorld();
+    $floor = PresentationWorld::getFromLayers($base->layers, 'map', $graphics, $this->root . '/assets');
+    expect($opened)->not->toBe($closed)->and($tileRows($opened))->toBe($tileRows($floor))
+        ->and($shadowColumns($opened))->toBe([[1, 1]])
+        ->and($object->isVisible())->toBeFalse()->and($object->getTerminalSymbol())->toBeNull()
+        ->and($event->getEntryRefusal(new Vector2(2, 1), new Vector2(1, 1)))->toBeNull()
+        ->and([$manager->tileMap, $manager->getCollisionGrid()])->toBe($physical);
+    $atlasOpen = $atlas->getPresentationWorld($this->scene->gameState, $this->scene->party);
+    expect($shadowColumns($atlasClosed))->toBe([[1, 2]])->and($shadowColumns($atlasOpen))->toBe([[1, 1]]);
+    $saved = GameState::fromArray($this->scene->gameState->toArray());
+    new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene, $saved);
+    expect($manager->getPresentationWorld())->toBe($opened)->and($saved->isEventComplete('synthetic/room', 'P'))->toBeTrue();
+    new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene, new GameState());
+    expect($tileRows($manager->getPresentationWorld()))->toBe($tileRows($closed))
+        ->and($object->getTerminalSymbol())->toBe('|');
+    unlink($this->root . '/assets/Graphics/walls.png');
+    $manager->applyPreparedMap($prepared, $this->scene->player);
+    expect($manager->getPresentationWorld()->getGlyphCells())->toContain(
+        ['x' => 1, 'y' => 1, 'glyph' => '|', 'layerId' => 'map:fixtures']);
+});
+
+it('restores authored tile coverage when a conditional object is unavailable and preserves explicit absent variants', function () {
+    $entry = createWorldObjectSource(['conditions' => [['type' => 'switch', 'name' => 'visible']]]);
+    $prepared = createWorldObjectPreparedMap([$entry]);
+    $manager = $this->scene->mapManager;
+    $manager->applyPreparedMap($prepared, $this->scene->player);
+    $tileRows = static fn(PresentationWorld $world): array => array_values(array_filter($world->getOperations(true),
+        static fn(array $operation): bool => $operation['op'] === 'worldTiles'));
+    $base = PresentationWorld::getFromLayers($prepared->layers, 'map', $prepared->graphics, $this->root . '/assets');
+    expect($tileRows($manager->getPresentationWorld()))->toBe($tileRows($base))
+        ->and($manager->findWorldObject('fixture')->hidesOwnedGlyphs())->toBeFalse();
+    $this->scene->gameState->setSwitch('visible');
+    $present = $tileRows($manager->getPresentationWorld());
+    expect($present)->not->toBe($tileRows($base));
+    $this->scene->gameState->setSwitch('removed');
+    expect($manager->findWorldObject('fixture')->getGraphicalSpriteDefinition())->toBeNull()
+        ->and($tileRows($manager->getPresentationWorld()))->toBe($present);
+    $this->scene->gameState->setSwitch('visible', false);
+    expect($tileRows($manager->getPresentationWorld()))->toBe($tileRows($base));
+});
+
+it('validates tile object layer identity map footprint and bounded distinct ownership before installation', function () {
+    $base = createWorldObjectPreparedMap([]);
+    $entry = ['id' => 'tiles-only', 'anchor' => ['x' => 1, 'y' => 1], 'pivot' => ['x' => .5, 'y' => 1],
+        'tiles2d' => ['objects' => [['x' => 1, 'y' => 1, 'tile' => 2]]]];
+    $read = static fn(array $objects): array => WorldObjectDefinition::readMap(['worldObjects' => $objects], $base->layers, $base->graphics);
+    $objects = $read([$entry]);
+    expect($objects[0]->tilePresentation)->toBe(['objects' => [1 => [1 => 2]]])
+        ->and($objects[0]->sprites)->toBeNull()
+        ->and($objects[0]->shouldHideOwnedGlyphs(false, false))->toBeFalse();
+    $imageObject = $read([createWorldObjectSource()])[0];
+    expect($imageObject->shouldHideOwnedGlyphs(false, true))->toBeFalse()
+        ->and($imageObject->shouldHideOwnedGlyphs(true, true))->toBeTrue()
+        ->and($imageObject->shouldHideOwnedGlyphs(false, false))->toBeTrue();
+    foreach ([null, 1, [['x' => 1]], ['missing' => [['x' => 1, 'y' => 1, 'tile' => 2]]],
+        ['objects' => []], ['objects' => [['x' => 2, 'y' => 1, 'tile' => 2]]],
+        ['objects' => [['x' => 1, 'y' => 1, 'tile' => -1]]],
+        ['objects' => [['x' => 1, 'y' => 1, 'tile' => '2']]],
+        ['objects' => [['x' => 1, 'y' => 1, 'tile' => 2], ['x' => 1, 'y' => 1, 'tile' => 3]]],
+        ['objects' => [['x' => 1, 'y' => 1, 'tile' => 2, 'collision' => true]]]] as $invalid) {
+        expect(fn() => $read([[...$entry, 'tiles2d' => $invalid]]))->toThrow(InvalidArgumentException::class);
+    }
+    expect(fn() => $read([$entry, [...$entry, 'id' => 'other']]))->toThrow(InvalidArgumentException::class)
+        ->and(fn() => $read([createWorldObjectSource(), [...$entry, 'id' => 'overlap']]))->toThrow(InvalidArgumentException::class);
+});
+
+
+it('hides the terminal layers of the subjects a world canvas presents in the field and cinematic takeover', function () {
+    $context = new ScenePresentationContext(new RendererGridConfig(12, 6, 10, 20), static fn(string $cap): bool => true,
+        assetRoot: $this->root . '/assets');
+    $this->scene->setPresentationContext($context);
+    $npc = installWorldObjectBed($this->scene, $this->root, cover: true);
+    $composer = new \Ichiloto\Engine\Rendering\Presentation\SceneFrameComposer($this->root . '/assets');
+    $excluded = [];
+    $compose = function () use ($composer, $context, &$excluded) {
+        return $composer->composeFrame($this->scene, $context->grid, $context->supports(...),
+            static function (array $layers) use (&$excluded) {
+                $excluded = $layers;
+                return new \Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot(12, 6, []);
+            }, refreshOverlay: false);
+    };
+    $frame = $compose();
+    expect(array_column($frame->worldCanvases, 'id'))->toBe([$this->scene->mapManager->findWorldObject('fixture')->getGraphicalSpriteId()])
+        ->and(array_column($frame->sprites, 'id'))->not->toContain($npc->getGraphicalSpriteId())
+        ->and($excluded)->toContain($npc->getGraphicalSpriteId());
+    $this->scene->cinematicStage->configure([['id' => 'in-bed', 'subject' => ['kind' => 'npc', 'id' => 'sleeper']]]);
+    $compose();
+    expect($excluded)->toContain($npc->getGraphicalSpriteId(), $this->scene->cinematicStage->require('in-bed')->getGraphicalSpriteId());
+});

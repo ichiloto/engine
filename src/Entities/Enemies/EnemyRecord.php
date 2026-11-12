@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Entities\Enemies;
 use Ichiloto\Engine\Battle\BattleRewards;
 use Ichiloto\Engine\Battle\CounterAttackRule;
 use Ichiloto\Engine\Battle\DropItem;
+use Ichiloto\Engine\Battle\InherentAttack;
 use Ichiloto\Engine\Core\Range;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Elements\ElementRegistry;
@@ -35,7 +36,7 @@ final class EnemyRecord
   public const array KEYS = [
     'name', 'level', 'imagePath', 'stats', 'rewards', 'actionPatterns', 'position',
     'battleAnimation', 'stateResistances', 'elementAffinities', 'knowledgeSubjectId',
-    'counterAttack',
+    'counterAttack', 'attackSkill', 'habitat',
   ];
 
   /**
@@ -68,6 +69,7 @@ final class EnemyRecord
         self::requireInt($rewards, 'experience', 'rewards.'),
         self::requireInt($rewards, 'gold', 'rewards.'),
         self::readDrops($rewards['items'] ?? []),
+        self::readSkillPoints($rewards),
       ),
       self::readActionPatterns($data['actionPatterns'] ?? [], $skills),
       self::readPosition($data['position'] ?? null),
@@ -76,6 +78,8 @@ final class EnemyRecord
       self::readMultipliers($data['elementAffinities'] ?? [], 'elementAffinities'),
       self::readOptionalString($data['knowledgeSubjectId'] ?? null, 'knowledgeSubjectId'),
       $counterAttack,
+      InherentAttack::resolveSkill($data['attackSkill'] ?? null, $skills, 'enemy'),
+      EnemyHabitat::resolve($data['habitat'] ?? null, sprintf('Enemy "%s"', $name)),
     );
   }
 
@@ -126,6 +130,8 @@ final class EnemyRecord
     }
 
     if ($enemy->counterAttack !== null) { $data['counterAttack'] = $enemy->counterAttack->toArray(); }
+    if ($enemy->attackSkill !== null) { $data['attackSkill'] = $enemy->attackSkill->name; }
+    if ($enemy->habitat !== EnemyHabitat::LAND) { $data['habitat'] = $enemy->habitat->value; }
     return $data;
   }
 
@@ -184,6 +190,19 @@ final class EnemyRecord
     ];
   }
 
+  /** The Mastery points (SP) the enemy gives; a record without them gives none. */
+  private static function readSkillPoints(array $rewards): int
+  {
+    if (! array_key_exists('skillPoints', $rewards)) {
+      return 0;
+    }
+    if (! is_int($rewards['skillPoints']) || $rewards['skillPoints'] < 0) {
+      throw new InvalidArgumentException('rewards.skillPoints must be a whole number of 0 or more.');
+    }
+
+    return $rewards['skillPoints'];
+  }
+
   /**
    * @return list<array{item: string, rate: float}>
    */
@@ -212,6 +231,9 @@ final class EnemyRecord
   private static function writeRewards(BattleRewards $rewards): array
   {
     $data = ['experience' => $rewards->experience, 'gold' => $rewards->gold];
+    if ($rewards->skillPoints !== 0) {
+      $data['skillPoints'] = $rewards->skillPoints;
+    }
     $items = array_map(
       static fn(DropItem $drop): array => ['item' => $drop->item->id, 'rate' => $drop->dropRate],
       $rewards->items,

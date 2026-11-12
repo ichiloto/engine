@@ -86,7 +86,7 @@ beforeEach(function () {
     ModalManager::class, AudioManager::class, QuestManager::class, ActionHints::class] as $class) {
     $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  foreach ([EventManager::class, ModalManager::class] as $class) {
+  foreach ([EventManager::class] as $class) {
     new ReflectionProperty($class, 'instance')->setValue(null, null);
   }
   new ReflectionProperty(QuestManager::class, 'current')->setValue(null, null);
@@ -300,7 +300,7 @@ it('uses remapped semantic axes and actions in the real quantity modal and clean
   InputManager::setInputSource($input);
   expect($this->manager->selectQuantity('Choose amount', 14, initial: 4))->toBe(3)
     ->and(array_map(fn($frame) => $frame['snapshot']->quantity->value, $input->frames))->toBe([4, 5, 14, 14, 4, 3])
-    ->and($input->frames[0]['text'])->toContain('W: +1', 'Quantity: 04 / 14')
+    ->and($input->frames[0]['text'])->toContain('[W] +1', 'Quantity: 04 / 14')
     ->and($this->manager->currentModal)->toBeNull();
 });
 

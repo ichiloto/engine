@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Events\Interpreter\Commands;
 
+use Ichiloto\Engine\Events\Interpreter\EventExecutionScope;
 use InvalidArgumentException;
 
 /**
@@ -24,6 +25,7 @@ final readonly class ScriptCommandDefinition
    * @param string $label The name authors see.
    * @param list<ScriptCommandField> $fields The authored fields.
    * @param string $description What the command does, for authors.
+   * @param list<EventExecutionScope> $scopes Where scripts may use the command; field scripts when not declared.
    */
   public function __construct(
     public string $type,
@@ -31,8 +33,15 @@ final readonly class ScriptCommandDefinition
     public string $label,
     public array $fields = [],
     public string $description = '',
+    public array $scopes = [EventExecutionScope::FIELD],
   )
   {
+  }
+
+  /** Whether scripts running in the scope may use this command. */
+  public function runsIn(EventExecutionScope $scope): bool
+  {
+    return in_array($scope, $this->scopes, true);
   }
 
   /**
@@ -66,12 +75,25 @@ final readonly class ScriptCommandDefinition
       throw new InvalidArgumentException("{$where} ({$type}) needs a label.");
     }
 
+    $scopes = $declaration['scopes'] ?? [EventExecutionScope::FIELD->value];
+
+    if (! is_array($scopes) || $scopes === [] || ! array_is_list($scopes)) {
+      throw new InvalidArgumentException("{$where} ({$type}) scopes must list where the command runs: field, battle or both.");
+    }
+
+    $scopes = array_map(static fn(mixed $scope): EventExecutionScope => (is_string($scope)
+      ? EventExecutionScope::tryFrom(trim($scope)) : null)
+      ?? throw new InvalidArgumentException(sprintf('%s (%s) has unknown scope "%s"; use field or battle.',
+        $where, $type, is_scalar($scope) ? strval($scope) : get_debug_type($scope))), $scopes);
+
     return new self(
       $type,
       $handlerClass,
       $label,
       ScriptCommandField::readFields($declaration['fields'] ?? null, "{$where} ({$type}) fields"),
       trim(strval($declaration['description'] ?? '')),
+      array_map(EventExecutionScope::from(...), array_values(array_unique(array_map(
+        static fn(EventExecutionScope $scope): string => $scope->value, $scopes)))),
     );
   }
 

@@ -74,7 +74,7 @@ class ProjectConfigPersistProxy extends ProjectConfig
 }
 
 beforeEach(function () {
-  $this->playerRoot = sys_get_temp_dir() . '/ichiloto-menu-player-' . bin2hex(random_bytes(6));
+  $this->playerRoot = \getTestTemporaryDirectory() . '/ichiloto-menu-player-' . bin2hex(random_bytes(6));
   mkdir($this->playerRoot);
   ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
 });
@@ -99,7 +99,7 @@ function getMainMenuSettingByKey(MainMenuSettingsManager $manager, string $key):
 }
 
 it('updates and persists the selection color for menus and battle', function () {
-  $filename = tempnam(sys_get_temp_dir(), 'ichiloto-config-');
+  $filename = tempnam(\getTestTemporaryDirectory(), 'ichiloto-config-');
   $config = new ProjectConfigPersistProxy([
     'filename' => $filename,
     'initial' => [
@@ -132,7 +132,7 @@ it('updates and persists the selection color for menus and battle', function () 
 });
 
 it('updates dialogue speed on both supported config paths', function () {
-  $filename = tempnam(sys_get_temp_dir(), 'ichiloto-config-');
+  $filename = tempnam(\getTestTemporaryDirectory(), 'ichiloto-config-');
   $config = new ProjectConfigPersistProxy([
     'filename' => $filename,
     'initial' => [
@@ -162,7 +162,7 @@ it('updates dialogue speed on both supported config paths', function () {
 });
 
 it('updates notification duration without leaving the field', function () {
-  $filename = tempnam(sys_get_temp_dir(), 'ichiloto-config-');
+  $filename = tempnam(\getTestTemporaryDirectory(), 'ichiloto-config-');
   $config = new ProjectConfigPersistProxy([
     'filename' => $filename,
     'initial' => ['accessibility' => ['notificationDurationScale' => 1.0]],
@@ -180,7 +180,7 @@ it('updates notification duration without leaving the field', function () {
 });
 
 it('toggles music and sfx from the in-game config menu', function () {
-  $filename = tempnam(sys_get_temp_dir(), 'ichiloto-config-');
+  $filename = tempnam(\getTestTemporaryDirectory(), 'ichiloto-config-');
   $config = new ProjectConfigPersistProxy([
     'filename' => $filename,
     'initial' => [
@@ -210,7 +210,7 @@ it('toggles music and sfx from the in-game config menu', function () {
 });
 
 it('adjusts master volume without leaving the field', function () {
-  $filename = tempnam(sys_get_temp_dir(), 'ichiloto-config-');
+  $filename = tempnam(\getTestTemporaryDirectory(), 'ichiloto-config-');
   $config = new ProjectConfigPersistProxy([
     'filename' => $filename,
     'initial' => ['audio' => ['master_volume' => 75]],

@@ -5,6 +5,9 @@ namespace Ichiloto\Engine\Entities\Skills;
 use Ichiloto\Engine\Battle\Resolution\ResolutionKind;
 use Ichiloto\Engine\Battle\CounterAttackRule;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\PrepareCounterSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\PrepareResponseWindowSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\ResetAtbSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDrainSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPRecoverSkillEffect;
@@ -13,6 +16,8 @@ use Ichiloto\Engine\Entities\Effects\SkillEffects\MPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\MPDrainSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\MPRecoverySkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\RemoveStateSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\RevealSkillEffect;
+use Ichiloto\Engine\Battle\Insight\RevealFact;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\SkillEffect;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
@@ -21,6 +26,7 @@ use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Magic\MagicEffectType;
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Animations\EffectScale;
 use InvalidArgumentException;
 
 /**
@@ -33,7 +39,8 @@ use InvalidArgumentException;
  * removes, and a skill names its battle animation by id.
  *
  * Writing a record leaves out values equal to what reading would assume
- * (no target count, a per-hit roll, no animation), so a record states only
+ * (no target count, a per-hit roll, no animation, an animation at its own
+ * size), so a record states only
  * what its author chose. A spell always states its effect type.
  *
  * @package Ichiloto\Engine\Entities\Skills
@@ -43,7 +50,7 @@ final class SkillRecord
   /** The keys a record's data may hold. */
   public const array KEYS = [
     'kind', 'name', 'description', 'icon', 'cost', 'cooldown', 'occasion', 'scope', 'invocation', 'effects',
-    'animationId', 'effectType', 'counterAttack',
+    'animationId', 'animationScale', 'effectType', 'counterAttack', 'battleTargeting',
   ];
 
   /** Each kind's value, by the class it builds. */
@@ -68,7 +75,46 @@ final class SkillRecord
     'add_state' => AddStateSkillEffect::class,
     'remove_state' => RemoveStateSkillEffect::class,
     'modify_stat_stage' => ModifyStatStageSkillEffect::class,
+    'prepare_counter' => PrepareCounterSkillEffect::class,
+    'reset_atb' => ResetAtbSkillEffect::class,
+    'change_formation' => \Ichiloto\Engine\Entities\Effects\SkillEffects\FormationSkillEffect::class,
+    'prepare_response_window' => PrepareResponseWindowSkillEffect::class,
   ];
+
+  /** The effects that reveal what a battler hides, by type. */
+  public const array INSIGHT_EFFECTS = [
+    'reveal' => RevealSkillEffect::class,
+  ];
+
+  /**
+   * Every effect type a record may name, in the order editors offer them.
+   *
+   * @return list<string>
+   */
+  public static function getEffectTypes(): array
+  {
+    return array_keys(self::getEffectClasses());
+  }
+
+  /**
+   * The effect types that record a damaging hit when they land, as each type
+   * declares it ({@see SkillEffect::RECORDS_DAMAGING_HITS}), in the order
+   * editors offer them. A `landedHit` state effect needs one of these earlier
+   * in the same skill.
+   *
+   * @return list<string>
+   */
+  public static function getDamagingEffectTypes(): array
+  {
+    return array_keys(array_filter(self::getEffectClasses(),
+      static fn(string $class): bool => $class::RECORDS_DAMAGING_HITS));
+  }
+
+  /** @return array<string, class-string<SkillEffect>> Every effect class a record may name, by type. */
+  private static function getEffectClasses(): array
+  {
+    return [...self::FORMULA_EFFECTS, ...self::STATE_EFFECTS, ...self::INSIGHT_EFFECTS];
+  }
 
   /**
    * Builds a skill from its record data.
@@ -79,6 +125,11 @@ final class SkillRecord
    */
   public static function readSkill(array $data): Skill
   {
+    if (SkillDraft::isDraft($data)) {
+      throw new InvalidArgumentException(sprintf('This record still awaits author values (%s); it is a draft, not a skill.',
+        implode(', ', array_map('strval', (array) $data[SkillDraft::KEY]))));
+    }
+
     foreach (array_keys($data) as $key) {
       if (! in_array($key, self::KEYS, true)) {
         throw new InvalidArgumentException(sprintf('Unknown skill record key "%s".', $key));
@@ -99,8 +150,27 @@ final class SkillRecord
       'invocation' => self::readInvocation(self::requireArray($data, 'invocation')),
       'effects' => self::readEffects($data['effects'] ?? []),
       'animationId' => self::readOptionalInt($data['animationId'] ?? null, 'animationId'),
+      'animationScale' => EffectScale::readValue($data['animationScale'] ?? null),
+      'battleTargeting' => \Ichiloto\Engine\Battle\Formation\BattleTargeting::fromArray($data['battleTargeting'] ?? null),
     ];
+    self::assertLandedHitPlacement($arguments['effects']);
     $counterAttack = CounterAttackRule::fromArray($data['counterAttack'] ?? null);
+    if ($arguments['occasion'] !== Occasion::BATTLE_SCREEN
+      && array_any($arguments['effects'], static fn($effect): bool => $effect instanceof AddStateSkillEffect && $effect->delayTurns > 0)) {
+      throw new InvalidArgumentException('A delayed state effect requires a battle-only skill.');
+    }
+    if (array_any($arguments['effects'], static fn(SkillEffect $effect): bool => $effect instanceof PrepareResponseWindowSkillEffect)
+      && (count($arguments['effects']) !== 1 || !PrepareResponseWindowSkillEffect::canTargetOpposingParty(
+        $arguments['occasion'], $arguments['scope'], $arguments['battleTargeting']))) {
+      throw new InvalidArgumentException('A response-window warning must be the only effect and target all living opponents in battle.');
+    }
+    if (array_any($arguments['effects'], static fn($effect): bool => $effect instanceof PrepareCounterSkillEffect)
+      && ($arguments['occasion'] !== Occasion::BATTLE_SCREEN
+        || $arguments['scope']->side !== ItemScopeSide::ENEMY
+        || $arguments['scope']->number !== ItemScopeNumber::ONE
+        || $arguments['scope']->status !== ItemScopeStatus::ALIVE)) {
+      throw new InvalidArgumentException('A prepared counter must be battle-only and select one living opponent.');
+    }
     if ($counterAttack !== null && $class === MagicSkill::class) {
       throw new InvalidArgumentException('counterAttack grants belong to non-magic abilities, not spells.');
     }
@@ -150,7 +220,11 @@ final class SkillRecord
     if ($skill->animationId !== null) {
       $data['animationId'] = $skill->animationId;
     }
+    if (! EffectScale::playsAuthoredSize($skill->animationScale)) {
+      $data['animationScale'] = $skill->animationScale;
+    }
     if ($skill->counterAttack !== null) { $data['counterAttack'] = $skill->counterAttack->toArray(); }
+    if ($skill->battleTargeting !== null) { $data['battleTargeting'] = $skill->battleTargeting->toArray(); }
 
     if ($skill instanceof MagicSkill && $skill->effectType !== null) {
       $data['effectType'] = $skill->effectType->value;
@@ -227,6 +301,25 @@ final class SkillRecord
   }
 
   /**
+   * Refuses a `landedHit` state effect that could never apply: one with no
+   * earlier effect in the skill that records a damaging hit on its target.
+   *
+   * @param list<SkillEffect> $effects
+   */
+  private static function assertLandedHitPlacement(array $effects): void
+  {
+    $damageRecorded = false;
+    foreach ($effects as $index => $effect) {
+      if ($effect instanceof AddStateSkillEffect && $effect->trigger === SkillSecondaryTrigger::LANDED_HIT && !$damageRecorded) {
+        throw new InvalidArgumentException(sprintf(
+          'effects.%d.trigger landedHit applies only after an earlier effect in this skill lands damage on the target (%s); place it after one.',
+          $index, implode(', ', self::getDamagingEffectTypes())));
+      }
+      $damageRecorded = $damageRecorded || $effect->recordsDamagingHits;
+    }
+  }
+
+  /**
    * @return list<SkillEffect>
    */
   private static function readEffects(mixed $effects): array
@@ -259,7 +352,7 @@ final class SkillRecord
 
     if (isset(self::FORMULA_EFFECTS[$type])) {
       $class = self::FORMULA_EFFECTS[$type];
-      self::refuseUnknownKeys($effect, ['type', 'formula', 'element', 'variance', 'isCriticalHit', ...($type === 'hp_damage' ? ['resolutionKind'] : [])], $path);
+      self::refuseUnknownKeys($effect, ['type', 'formula', 'element', 'variance', 'isCriticalHit', ...($type === 'hp_damage' ? ['resolutionKind', 'ignoresProtection'] : [])], $path);
       $variance = $effect['variance'] ?? 0.2;
 
       if (! is_int($variance) && ! is_float($variance)) {
@@ -279,24 +372,56 @@ final class SkillRecord
         $isCriticalHit,
       ];
 
-      if (array_key_exists('resolutionKind', $effect)) {
-        $arguments[] = self::readEnum(ResolutionKind::class, strval($effect['resolutionKind']), $path . 'resolutionKind');
+      if ($type === 'hp_damage') {
+        $arguments[] = array_key_exists('resolutionKind', $effect)
+          ? self::readEnum(ResolutionKind::class, strval($effect['resolutionKind']), $path . 'resolutionKind') : null;
+        $ignores = $effect['ignoresProtection'] ?? false;
+        if (!is_bool($ignores)) { throw new InvalidArgumentException($path . 'ignoresProtection must be boolean.'); }
+        $arguments[] = $ignores;
       }
 
       return new $class(...$arguments);
     }
 
     return match ($type) {
+      'prepare_response_window' => (static function () use ($effect, $path): PrepareResponseWindowSkillEffect {
+        self::refuseUnknownKeys($effect, ['type', 'skill', 'responseTurns'], $path);
+        return new PrepareResponseWindowSkillEffect(self::requireString($effect, 'skill', $path),
+          self::requireInt($effect, 'responseTurns', $path));
+      })(),
+      'change_formation' => (static function () use ($effect, $path): \Ichiloto\Engine\Entities\Effects\SkillEffects\FormationSkillEffect {
+        self::refuseUnknownKeys($effect, ['type', 'operation'], $path);
+        return new \Ichiloto\Engine\Entities\Effects\SkillEffects\FormationSkillEffect(
+          self::readEnum(\Ichiloto\Engine\Battle\Formation\BattleFormationChange::class, self::requireString($effect, 'operation', $path), $path . 'operation'));
+      })(),
+      'reset_atb' => (static function () use ($effect, $path): ResetAtbSkillEffect {
+        self::refuseUnknownKeys($effect, ['type'], $path);
+        return new ResetAtbSkillEffect();
+      })(),
+      'prepare_counter' => (static function () use ($effect, $path): PrepareCounterSkillEffect {
+        self::refuseUnknownKeys($effect, ['type', 'skill', 'stateId'], $path);
+        return new PrepareCounterSkillEffect(self::requireString($effect, 'skill', $path),
+          self::requireString($effect, 'stateId', $path));
+      })(),
       'add_state' => (static function () use ($effect, $path): AddStateSkillEffect {
-        self::refuseUnknownKeys($effect, ['type', 'stateId', 'chancePercent'], $path);
+        self::refuseUnknownKeys($effect, ['type', 'stateId', 'chancePercent', 'guaranteed', 'trigger', 'delayTurns'], $path);
+        $guaranteed = $effect['guaranteed'] ?? false;
+        if (!is_bool($guaranteed)) {
+          throw new InvalidArgumentException(sprintf('%sguaranteed must be boolean.', $path));
+        }
 
         return new AddStateSkillEffect(
           self::requireString($effect, 'stateId', $path),
           array_key_exists('chancePercent', $effect) ? self::requireInt($effect, 'chancePercent', $path) : 100,
+          $guaranteed,
+          array_key_exists('trigger', $effect)
+            ? self::readEnum(SkillSecondaryTrigger::class, self::requireString($effect, 'trigger', $path), $path . 'trigger')
+            : SkillSecondaryTrigger::ALWAYS,
+          array_key_exists('delayTurns', $effect) ? self::requireInt($effect, 'delayTurns', $path) : 0,
         );
       })(),
       'remove_state' => (static function () use ($effect, $path): RemoveStateSkillEffect {
-        self::refuseUnknownKeys($effect, ['type', 'stateIds'], $path);
+        self::refuseUnknownKeys($effect, ['type', 'stateIds', 'chancePercent'], $path);
         $stateIds = $effect['stateIds'] ?? null;
 
         if (! is_array($stateIds) || $stateIds === [] || ! array_is_list($stateIds)
@@ -304,7 +429,10 @@ final class SkillRecord
           throw new InvalidArgumentException(sprintf('%sstateIds must list the states it removes.', $path));
         }
 
-        return new RemoveStateSkillEffect($stateIds);
+        return new RemoveStateSkillEffect(
+          $stateIds,
+          array_key_exists('chancePercent', $effect) ? self::requireInt($effect, 'chancePercent', $path) : 100,
+        );
       })(),
       'modify_stat_stage' => (static function () use ($effect, $path): ModifyStatStageSkillEffect {
         self::refuseUnknownKeys($effect, ['type', 'stat', 'delta', 'affectsUser'], $path);
@@ -322,11 +450,20 @@ final class SkillRecord
 
         return new ModifyStatStageSkillEffect($stat, self::requireInt($effect, 'delta', $path), $affectsUser);
       })(),
+      'reveal' => (static function () use ($effect, $path): RevealSkillEffect {
+        self::refuseUnknownKeys($effect, ['type', 'facts', 'chancePercent'], $path);
+        $chance = array_key_exists('chancePercent', $effect) ? self::requireInt($effect, 'chancePercent', $path) : 100;
+        if ($chance < 1 || $chance > 100) {
+          throw new InvalidArgumentException(sprintf('%schancePercent must be a whole percentage from 1 to 100.', $path));
+        }
+
+        return new RevealSkillEffect(RevealFact::readList($effect['facts'] ?? null, $path . 'facts'), $chance);
+      })(),
       default => throw new InvalidArgumentException(sprintf(
         '%stype "%s" is not one of %s.',
         $path,
         $type,
-        implode(', ', [...array_keys(self::FORMULA_EFFECTS), ...array_keys(self::STATE_EFFECTS)]),
+        implode(', ', self::getEffectTypes()),
       )),
     };
   }
@@ -352,17 +489,38 @@ final class SkillRecord
       if ($effect instanceof HPDamageSkillEffect && $effect->resolutionKind !== null) {
         $data['resolutionKind'] = $effect->resolutionKind->value;
       }
+      if ($effect instanceof HPDamageSkillEffect && $effect->ignoresProtection) { $data['ignoresProtection'] = true; }
 
       return $data;
     }
 
     return match (true) {
+      $effect instanceof ResetAtbSkillEffect => ['type' => 'reset_atb'],
+      $effect instanceof \Ichiloto\Engine\Entities\Effects\SkillEffects\FormationSkillEffect => ['type' => 'change_formation', 'operation' => $effect->operation->value],
+      $effect instanceof PrepareCounterSkillEffect => ['type' => 'prepare_counter',
+        'skill' => $effect->skill, 'stateId' => $effect->stateId],
+      $effect instanceof PrepareResponseWindowSkillEffect => ['type' => 'prepare_response_window',
+        'skill' => $effect->skill, 'responseTurns' => $effect->responseTurns],
       $effect instanceof AddStateSkillEffect => array_filter(
-        ['type' => 'add_state', 'stateId' => $effect->stateId, 'chancePercent' => $effect->chancePercent],
+        ['type' => 'add_state', 'stateId' => $effect->stateId, 'chancePercent' => $effect->chancePercent,
+          'guaranteed' => $effect->guaranteed, 'trigger' => $effect->trigger->value, 'delayTurns' => $effect->delayTurns],
+        static fn(mixed $value, string $key): bool => match ($key) {
+          'chancePercent' => $value !== 100, 'guaranteed' => $value !== false,
+          'trigger' => $value !== SkillSecondaryTrigger::ALWAYS->value, 'delayTurns' => $value !== 0, default => true,
+        },
+        ARRAY_FILTER_USE_BOTH,
+      ),
+      $effect instanceof RemoveStateSkillEffect => array_filter(
+        ['type' => 'remove_state', 'stateIds' => array_values(array_map('strval', $effect->stateIds)), 'chancePercent' => $effect->chancePercent],
         static fn(mixed $value, string $key): bool => $key !== 'chancePercent' || $value !== 100,
         ARRAY_FILTER_USE_BOTH,
       ),
-      $effect instanceof RemoveStateSkillEffect => ['type' => 'remove_state', 'stateIds' => array_values(array_map('strval', $effect->stateIds))],
+      $effect instanceof RevealSkillEffect => array_filter(
+        ['type' => 'reveal', 'facts' => array_map(static fn(RevealFact $fact): string => $fact->value, $effect->facts),
+          'chancePercent' => $effect->chancePercent],
+        static fn(mixed $value, string $key): bool => $key !== 'chancePercent' || $value !== 100,
+        ARRAY_FILTER_USE_BOTH,
+      ),
       $effect instanceof ModifyStatStageSkillEffect => array_filter(
         ['type' => 'modify_stat_stage', 'stat' => $effect->stat, 'delta' => $effect->delta, 'affectsUser' => $effect->affectsUser],
         static fn(mixed $value, string $key): bool => $key !== 'affectsUser' || $value === true,

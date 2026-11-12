@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Rendering;
 
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\KeyHoldState;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
@@ -89,13 +90,19 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
     $this->receive();
   }
 
-  private function receive(bool $discardKeys = false): void
+  /** Use a bounded pipe wait during the game loop's existing idle window. */
+  public function waitForTraffic(float $seconds): void
+  {
+    $this->receive(waitSeconds: $seconds);
+  }
+
+  private function receive(bool $discardKeys = false, float $waitSeconds = 0.0): void
   {
     if ($this->failure !== null) {
       throw $this->failure;
     }
     try {
-      $batch = $this->transport->pollEvents();
+      $batch = $this->transport->pollEvents($waitSeconds);
       $keys = $this->keys->count();
       $transitions = $this->transitions->count();
       $events = $this->events->count();
@@ -116,7 +123,8 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
           && !in_array(RendererSessionConfig::WINDOW_ACTIVATION, $capabilities, true)) {
           throw new RendererProtocolException('Window activation requires negotiated window_activation support.');
         }
-        self::assertKeyTransitionContract($event, in_array(RendererSessionConfig::KEY_TRANSITIONS, $capabilities, true));
+        self::assertKeyTransitionContract($event, in_array(RendererSessionConfig::KEY_TRANSITIONS, $capabilities, true),
+          in_array(RendererSessionConfig::MODIFIER_CONTROLS, $capabilities, true));
         if ($event->type === RendererEventType::INPUT_RESET) {
           $heldControls = $quarantinedControls = [];
         } elseif ($event->type === RendererEventType::KEY_RELEASE) {
@@ -349,6 +357,9 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
     if (!$this->textSessionActive || !$this->isRunning() || !$this->supports(RendererSessionConfig::TEXT_LAYOUT)) {
       throw new LogicException('Project text preparation requires an active renderer with text_layout support.');
     }
+    if (($spec->wrapWidth !== null || $spec->lineHeight !== null) && !$this->supports(RendererSessionConfig::TEXT_BLOCK_LAYOUT)) {
+      throw new LogicException('Wrapped or custom-height text requires negotiated text_block_layout support.');
+    }
     try { return $this->textRequests->requestPreparation($spec); }
     catch (RendererTransportException $error) {
       $this->failure = $error;
@@ -390,9 +401,15 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
       || $event->type === RendererEventType::KEY_RELEASE || $event->type === RendererEventType::INPUT_RESET;
   }
 
-  /** Transitions are an explicit subscription; a subscribed session never receives an unidentified key. */
-  private static function assertKeyTransitionContract(RendererEvent $event, bool $negotiated): void
+  /**
+   * Transitions are an explicit subscription; a subscribed session never receives an unidentified key. Shift
+   * alone is a control only in a session that also subscribed to modifier controls.
+   */
+  private static function assertKeyTransitionContract(RendererEvent $event, bool $negotiated, bool $modifierControls): void
   {
+    if (! $modifierControls && ($event->key === KeyCode::SHIFT->value || $event->control === KeyCode::SHIFT->value)) {
+      throw new RendererProtocolException('Shift as a control requires negotiated modifier_controls support.');
+    }
     $transition = $event->type === RendererEventType::KEY_RELEASE || $event->type === RendererEventType::INPUT_RESET
       || $event->control !== null;
     if ($transition && ! $negotiated) {

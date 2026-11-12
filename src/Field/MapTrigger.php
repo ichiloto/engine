@@ -152,7 +152,7 @@ class MapTrigger implements Serializable, ObserverInterface
         $gameScene = $entity;
         // If the player has moved within the trigger's area, transport the player to the trigger's destination.
         if ( $this->area->contains($event->destination) ) {
-          $gameScene->transferPlayer(
+          $gameScene->requestPlayerTransfer(
             new Location(
               $this->destinationMap,
               $this->spawnPoint,

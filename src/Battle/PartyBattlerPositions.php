@@ -11,6 +11,24 @@ use Ichiloto\Engine\Core\Vector2;
  */
 readonly class PartyBattlerPositions
 {
+  public static function createForSize(int $size, int $width = 135, int $height = 30): self
+  {
+    if ($size < 1 || $size > \Ichiloto\Engine\Entities\Party::MAX_BATTLE_SIZE) {
+      throw new \InvalidArgumentException('Terminal battle formations support 1 to 8 members.');
+    }
+    if ($size <= 3) { return new self(); }
+    $rows = (int) ceil($size / 2);
+    $idle = $active = [];
+    for ($index = 0; $index < $size; $index++) {
+      $column = intdiv($index, $rows);
+      $x = $width - 26 - $column * 20;
+      $y = 2 + ($index % $rows) * max(1, intdiv($height - 4, $rows));
+      $idle[] = new Vector2($x, $y);
+      $active[] = new Vector2($x - 6, $y);
+    }
+    return new self($idle, $active);
+  }
+
   /**
    * Creates a new instance of the party battler positions.
    *

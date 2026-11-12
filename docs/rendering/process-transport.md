@@ -130,7 +130,8 @@ Defaults in `RendererProcessConfig`:
 Limits and timeouts are injectable and validated. A full outbound buffer declines
 the new message without changing previously queued bytes (`trySend()` returns
 false; `send()` throws). The retained producer additionally uses a 1 MiB pending
-high-water mark and bounded 32-packet/32-pass work and acknowledgement windows,
+high-water mark, bounded 32-packet/32-pass work and acknowledgement windows and at
+most two unacknowledged complete frames,
 rather than treating the transport's 8 MiB capacity as an upload target. Its
 [resumable upload budget](presentation.md#nonblocking-upload-and-coalescing) keeps
 a valid slow reader from causing a whole-map queue overflow. Incoming overflow,
@@ -140,7 +141,7 @@ bytes is a failure. Key strings are protocol data, with no `KeyCode` or action m
 
 ## Project Text Queries
 
-Protocol 2 optionally negotiates `text_layout`, `canvas_labels`,
+Protocol 2 optionally negotiates `text_layout`, `text_block_layout`, `canvas_labels`,
 `canvas_label_instances`, `canvas_text_180`, `world_canvas` and `canvas_viewport_fit`.
 Their presence does not make them mandatory for existing
 sessions. The Engine's typed text query path requires advertised `text_layout`;
@@ -153,7 +154,10 @@ missing project face or unsupported capability.
 resolved whole label, locale, logical-pixel size, foreground, optional glyph
 effects and an ordered list of `FontReference` values. Font references are safe
 asset-root-relative paths with an explicit collection face, not image hashes
-or installed font names. Renderer owns decoding and shaping; the DTO does not
+or installed font names. With `text_block_layout`, a spec can supply an optional
+`wrapWidth` and `lineHeight` in logical pixels. The renderer shapes the block
+and wraps words, with cluster breaks for overlong words. Renderer owns
+decoding and shaping; the DTO does not
 open font files. A request returns immediately: `null` means the outbound line
 was not admitted under backpressure, so retry on a later update. A ticket's
 `getResult()` performs no I/O and returns `null` while pending, then an immutable
@@ -170,6 +174,12 @@ all established event fields and low-level protocol-1 compatibility remain.
 Metrics include advance, baseline, line bounds, nullable ink bounds and effect-expanded
 paint bounds. Signed finite bearings are not canvas-placement rectangles;
 nonnegative extents are bounded at 16,384 logical pixels.
+
+A canvas label can reveal a prepared layout through the negotiated
+`canvas_text_reveal` capability. Supply a source UTF-8 byte count as
+`visibleBytes`. The renderer keeps the measured positions and paints only
+complete shaped clusters within that prefix. The label can change its prefix
+without a new preparation request.
 
 At most 64 tickets/cleanup slots may be outstanding. Release unused pending or
 prepared tickets. Cancelling pending work keeps its slot until the reply arrives
@@ -246,7 +256,10 @@ them to `RendererPresentation::acknowledge()`; keys remain in the input queue.
 
 Uploads target 32 KiB chunks and remain within the 4 MiB line limit. Intermediate
 packets use `present: false`; only the final `present: true` publishes the complete
-candidate. Native validation failures keep the prior visible state and request
+candidate. The receiver checks its text-layer and label limits on every staged
+packet, so a transaction sends its removals before its additions: no staged packet
+holds both the old screen's layers and the new one's, which together could exceed
+a limit neither screen does. Native validation failures keep the prior visible state and request
 resynchronization. Non-reset packets require the current `baseGeneration`;
 reset packets ignore a mismatched base but still require a newer generation.
 See [atomic staging and limits](presentation.md#retained-operations-and-generations).

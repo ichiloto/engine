@@ -57,13 +57,13 @@ function makeS2Transport(string $scenario = 'normal', array $overrides = [], ?st
 
 function s2Session(): RendererSessionConfig
 {
-  return new RendererSessionConfig('Transport test', sys_get_temp_dir());
+  return new RendererSessionConfig('Transport test', \getTestTemporaryDirectory());
 }
 
 it('uses v2 for hello ready frame key error and shutdown on the same transport', function () {
   $capture = createTestDirectory('renderer-v2-') . '/capture.ndjson';
   $transport = makeS2Transport('v2_events', capture: $capture);
-  $transport->start(new RendererSessionConfig('V2', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2));
+  $transport->start(new RendererSessionConfig('V2', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2));
   $transport->send(new StyledPresentationFrame(1)->toRendererMessage());
   $events = s2Await($transport, fn($events) => count($events) === 3);
   expect(array_column($events, 'type'))->toBe([RendererEventType::READY, RendererEventType::KEY,
@@ -80,7 +80,7 @@ it('uses v2 for hello ready frame key error and shutdown on the same transport',
 
 it('receives v2 native close and drains the peer without an unnecessary shutdown message', function () {
   $transport = makeS2Transport('close_wait');
-  $transport->start(new RendererSessionConfig('V2 close', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2));
+  $transport->start(new RendererSessionConfig('V2 close', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2));
   $transport->pollEvents();
   $transport->send(new StyledPresentationFrame(1)->toRendererMessage());
   $events = s2Await($transport, fn($events) => count($events) === 1);
@@ -91,7 +91,7 @@ it('receives v2 native close and drains the peer without an unnecessary shutdown
 
 it('rejects mixed application sends without consuming outbound capacity', function ($version) {
   $transport = makeS2Transport();
-  $transport->start(new RendererSessionConfig('Mixed', sys_get_temp_dir(), protocol: $version));
+  $transport->start(new RendererSessionConfig('Mixed', \getTestTemporaryDirectory(), protocol: $version));
   $other = $version === RendererProtocolVersion::V1 ? RendererProtocolVersion::V2 : RendererProtocolVersion::V1;
   expect(fn() => $transport->send(new RendererMessage(RendererMessageType::FRAME, [], $other)))
     ->toThrow(RendererProtocolException::class);
@@ -100,7 +100,7 @@ it('rejects mixed application sends without consuming outbound capacity', functi
 
 it('rejects mixed events after ready in either session version', function ($version) {
   $transport = makeS2Transport('mixed');
-  $transport->start(new RendererSessionConfig('Mixed', sys_get_temp_dir(), protocol: $version));
+  $transport->start(new RendererSessionConfig('Mixed', \getTestTemporaryDirectory(), protocol: $version));
   $transport->pollEvents();
   $transport->send(new RendererMessage(RendererMessageType::FRAME, [], $version));
   expect(fn() => s2Await($transport, fn() => false))->toThrow(RendererProtocolException::class);
@@ -108,7 +108,7 @@ it('rejects mixed events after ready in either session version', function ($vers
 
 it('accepts only the pre-session v1 error exception during v2 startup', function ($scenario, $message) {
   $transport = makeS2Transport($scenario);
-  expect(fn() => $transport->start(new RendererSessionConfig('V2', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2)))
+  expect(fn() => $transport->start(new RendererSessionConfig('V2', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2)))
     ->toThrow(RendererStartupException::class, $message);
   expect($transport->isRunning())->toBeFalse();
 })->with([
@@ -143,7 +143,7 @@ it('traces bounded startup milestones without consuming events or changing resta
   $this->traceTime = 1_000_000_000;
   LatencyTrace::configure(function (array $record): void { $this->records[] = $record; },
     function (): int { return $this->traceTime += 1_000_000; });
-  $session = new RendererSessionConfig('Private startup title', sys_get_temp_dir(), protocol: $protocol);
+  $session = new RendererSessionConfig('Private startup title', \getTestTemporaryDirectory(), protocol: $protocol);
   $transport = makeS2Transport($scenario, ['ioBudgetBytes' => $budget]);
   $helloBytes = strlen($session->hello()->encode());
   for ($attempt = 0; $attempt < 2; $attempt++) {
@@ -304,7 +304,7 @@ it('starts a direct child, validates hello, and releases it on idempotent shutdo
   expect($lines)->toHaveCount(2);
   expect(json_decode($lines[0], true, flags: JSON_THROW_ON_ERROR))->toBe([
     'protocol' => 1, 'type' => 'hello', 'title' => 'Transport test',
-    'assetRoot' => realpath(sys_get_temp_dir()),
+    'assetRoot' => realpath(\getTestTemporaryDirectory()),
     'grid' => ['columns' => 80, 'rows' => 24, 'cellWidth' => 16, 'cellHeight' => 24],
   ])->and(json_decode($lines[1], true, flags: JSON_THROW_ON_ERROR))->toBe(['protocol' => 1, 'type' => 'shutdown']);
   expect($transport->getDiagnostics())->toContain('graceful shutdown');
@@ -440,7 +440,7 @@ it('drains heavy stderr fairly into a bounded diagnostic tail', function () {
 
 it('writes large queued messages through real pipe backpressure without losing bytes or order', function ($protocol) {
   $transport = makeS2Transport('slow_reader');
-  $transport->start(new RendererSessionConfig('Backpressure', sys_get_temp_dir(), protocol: $protocol));
+  $transport->start(new RendererSessionConfig('Backpressure', \getTestTemporaryDirectory(), protocol: $protocol));
   $transport->pollEvents();
   $data = str_repeat("alpha\nbeta", 150000);
   $transport->send(s2ApplicationMessage('first', $data, $protocol));
@@ -514,7 +514,7 @@ it('validates process argv and session geometry at the boundary', function () {
   foreach ([0, -1, 513] as $columns) {
     expect(fn() => new RendererGridConfig(columns: $columns))->toThrow(InvalidArgumentException::class);
   }
-  expect(fn() => new RendererSessionConfig("bad\ntitle", sys_get_temp_dir()))->toThrow(InvalidArgumentException::class);
+  expect(fn() => new RendererSessionConfig("bad\ntitle", \getTestTemporaryDirectory()))->toThrow(InvalidArgumentException::class);
   expect(fn() => new RendererSessionConfig('test', 'relative/path'))->toThrow(InvalidArgumentException::class);
   expect(fn() => new RendererSessionConfig('test', __FILE__))->toThrow(InvalidArgumentException::class);
   expect(fn() => new RendererMessage(RendererMessageType::FRAME, ['protocol' => 2]))->toThrow(InvalidArgumentException::class);

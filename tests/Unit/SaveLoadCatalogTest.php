@@ -427,9 +427,8 @@ it('loads an automatic or quick Title selection through the existing saved-game 
   $this->scene->checkpoint = 77;
   $saved = $this->manager->$writer($this->scene);
   $title = new SaveCatalogTitleProbe($this->game, $this->manager);
-  $loader = new ReflectionClass(GameLoader::class)->newInstanceWithoutConstructor();
-  new ReflectionProperty(GameLoader::class, 'game')->setValue($loader, $this->game);
-  new ReflectionProperty(GameLoader::class, 'instance')->setValue(null, $loader);
+  $loader = createTestGameLoader($this->game);
+  $this->game->bindGameLoader($loader);
   new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->manager);
   $title->openContinueMenu();
   $index = array_find_key($title->getSlots(), fn($slot) => $slot->path === $saved->path);
@@ -471,7 +470,7 @@ it('keeps semantic controller hints and status readable in the compact load view
   $title = new SaveCatalogTitleProbe($this->game, $this->manager);
   $title->openContinueMenu();
   $title->loadSelectedSlot();
-  expect($title->getDrawnText())->toContain('A: Load', 'B: Back', 'That file is empty.', '1-1 / 6')
+  expect($title->getDrawnText())->toContain('[A] Load', '[B] Back', 'That file is empty.', '1-1 / 6')
     ->not->toContain('Enter', 'Esc')->and(count(Console::getBuffer()))->toBe(8);
 });
 
@@ -632,23 +631,21 @@ it('navigates through thirty Save slots wraps both ends and confirms the actual 
     public function playSystemSound(SystemSound $sound): void {}
   };
   new ReflectionProperty(Game::class, 'audioManager')->setValue($this->game, $audio);
-  $alerts = new class extends ModalManager {
+  $alerts = new class($this->game) extends ModalManager {
     public array $messages = [];
-    public function __construct() {}
     public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
     {
       $this->messages[] = $message;
     }
   };
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $alerts);
+  $this->game->bindModalManager($alerts);
   new ReflectionProperty(Console::class, 'game')->setValue(null, $this->game);
   $press(KeyCode::ENTER);
   expect($this->manager->loadSlot(30)->slot->slot)->toBe(30)
     ->and(basename($this->manager->getSaveFiles()[0]))->toBe('file-30.iedata')
     ->and($alerts->messages)->toBe(['Saved to File 30.']);
-  $loader = new ReflectionClass(GameLoader::class)->newInstanceWithoutConstructor();
-  new ReflectionProperty(GameLoader::class, 'game')->setValue($loader, $this->game);
-  new ReflectionProperty(GameLoader::class, 'instance')->setValue(null, $loader);
+  $loader = createTestGameLoader($this->game);
+  $this->game->bindGameLoader($loader);
   new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->manager);
   $title->openContinueMenu();
   expect($title->getSelectedIndex())->toBe(29)->and($title->getSlots()[29]->slot)->toBe(30);
@@ -671,7 +668,7 @@ it('keeps semantic Save and Back hints readable in the smallest supported viewpo
   $menu = createSaveCapacityMenu($this->scene, $title);
   $menu->openMenu();
   $menu->selectSlot(29);
-  expect($menu->getDrawnText())->toContain('A: Save', 'B: Back', 'File 30', '30-30 / 30')
+  expect($menu->getDrawnText())->toContain('[A] Save', '[B] Back', 'File 30', '30-30 / 30')
     ->not->toContain('Enter', 'Esc')->and(count(Console::getBuffer()))->toBe(8);
 });
 
@@ -813,7 +810,7 @@ it('keeps enabled corrupt records discoverable at Title but prevents direct Game
   Console::syncDimensions(80, 24);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 24]));
   new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->manager);
-  $loader = new ReflectionClass(GameLoader::class)->newInstanceWithoutConstructor();
+  $loader = createTestGameLoader($this->game);
   $title = new SaveCatalogTitleProbe($this->game, $this->manager);
   $titleMenu = new TitleMenu($title, 'Synthetic Title');
   new ReflectionProperty(TitleScene::class, 'menu')->setValue($title, $titleMenu);
@@ -869,9 +866,8 @@ it('reports a save changed after listing without exposing read failure details',
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 36]));
   $quick = $this->manager->quickSave($this->scene);
   $title = new SaveCatalogTitleProbe($this->game, $this->manager);
-  $loader = new ReflectionClass(GameLoader::class)->newInstanceWithoutConstructor();
-  new ReflectionProperty(GameLoader::class, 'game')->setValue($loader, $this->game);
-  new ReflectionProperty(GameLoader::class, 'instance')->setValue(null, $loader);
+  $loader = createTestGameLoader($this->game);
+  $this->game->bindGameLoader($loader);
   new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->manager);
   $title->openContinueMenu();
   $title->selectSlot(0);

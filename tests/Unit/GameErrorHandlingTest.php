@@ -1,7 +1,7 @@
 <?php
 
 it('respects PHP warning suppression without hiding reportable game errors', function (string $mode, int $expectedExit) {
-  $root = sys_get_temp_dir() . '/ichiloto-error-handler-' . bin2hex(random_bytes(8));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-error-handler-' . bin2hex(random_bytes(8));
   mkdir($root);
   $script = <<<'PHP'
     require $argv[1];
@@ -47,7 +47,7 @@ it('respects PHP warning suppression without hiding reportable game errors', fun
 })->with([['operator', 0], ['mask', 0], ['reported', 1]]);
 
 it('tears down scenes before platform resources on caught startup and loop errors without masking the crash', function (string $phase) {
-  $root = sys_get_temp_dir() . '/ichiloto-loop-teardown-' . bin2hex(random_bytes(8));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-loop-teardown-' . bin2hex(random_bytes(8));
   mkdir($root);
   $script = <<<'PHP'
     require $argv[1];

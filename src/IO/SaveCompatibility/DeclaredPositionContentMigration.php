@@ -2,18 +2,21 @@
 
 namespace Ichiloto\Engine\IO\SaveCompatibility;
 
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Field\PlayerSpriteSet;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 
 /**
- * Applies a manifest step's declarative position edits (shifts, removals, then
- * relocations) to the saved player position, so projects need no generated
- * PHP class for inserted/removed rows or columns or newly occupied cells.
+ * Applies a manifest step's declarative edits (shifts, removals, relocations,
+ * then map retirements) to the saved player position and map, so projects
+ * need no generated PHP class for inserted/removed rows or columns, newly
+ * occupied cells, or a map whose places moved onto another map.
  */
 final readonly class DeclaredPositionContentMigration implements ContentMigrationInterface
 {
   /**
-   * @param list<SavedPositionEdit> $edits Applied in order.
+   * @param list<SavedPositionEdit|MapRetirement> $edits Applied in order.
    * @param array<string, string> $mapAliases Declared map aliases, so a save
    * or edit naming a renamed map still matches.
    */
@@ -34,26 +37,108 @@ final readonly class DeclaredPositionContentMigration implements ContentMigratio
 
     $data = $config->getSaveCompatibilityData();
     $position = $data['playerPosition'] ?? null;
-    $mapId = is_string($data['mapId'] ?? null) ? $this->getCurrentMapId($data['mapId']) : '';
-
-    if ($mapId === '' || ! $position instanceof Vector2) {
-      return $payload;
-    }
-
-    $moved = $position;
+    $heading = $data['playerHeading'] ?? null;
+    $mapId = is_string($data['mapId'] ?? null) ? $data['mapId'] : '';
+    $place = $position instanceof Vector2 && trim($mapId) !== ''
+      ? $this->movePlayer($mapId, $position, $heading)
+      : ['mapId' => $mapId, 'position' => $position, 'heading' => $heading];
+    $visits = $data['gameState']['visitedMaps'] ?? null;
+    $carried = $visits;
 
     foreach ($this->edits as $edit) {
-      if ($this->getCurrentMapId($edit->map) === $mapId) {
-        $moved = $edit->applyTo($moved);
+      if ($edit instanceof MapRetirement) {
+        $carried = $this->carryVisit($carried, $edit);
       }
     }
 
-    if ($moved !== $position) {
-      $data['playerPosition'] = $moved;
-      $config->applySaveCompatibilityData($data);
+    if ($place['position'] === $position && $carried === $visits) {
+      return $payload;
     }
 
+    if ($place['position'] !== $position) {
+      $data['playerPosition'] = $place['position'];
+      $data['mapId'] = $place['mapId'];
+      $landingHeading = $place['heading'];
+      if ($landingHeading !== null && $landingHeading !== $heading) {
+        $data['playerHeading'] = $landingHeading;
+        $data['playerSprite'] = PlayerSpriteSet::fromArray($config->playerSprites)->getSpriteForHeading($landingHeading);
+      }
+    }
+
+    if ($carried !== $visits) {
+      $data['gameState']['visitedMaps'] = $carried;
+    }
+
+    $config->applySaveCompatibilityData($data);
+
     return $payload;
+  }
+
+  /**
+   * Returns where a saved place stands after this step's edits, in order: a
+   * position edit moves it on its map, and a retirement moves it onto the map
+   * its landing names (`into` unless the landing names another successor),
+   * spelled as the retirement spells it. Tooling uses it
+   * to follow a landing through later steps exactly as a save does.
+   *
+   * @return array{mapId: string, position: Vector2}
+   */
+  public function movePlace(string $mapId, Vector2 $position): array
+  {
+    $place = $this->movePlayer($mapId, $position, null);
+
+    return ['mapId' => $place['mapId'], 'position' => $place['position']];
+  }
+
+  /** @return array{mapId: string, position: Vector2, heading: ?MovementHeading} */
+  private function movePlayer(string $mapId, Vector2 $position, ?MovementHeading $heading): array
+  {
+    $current = $this->getCurrentMapId($mapId);
+
+    foreach ($this->edits as $edit) {
+      if ($this->getCurrentMapId($edit->map) !== $current) {
+        continue;
+      }
+
+      if ($edit instanceof MapRetirement) {
+        ['map' => $mapId, 'position' => $position] = $edit->getLandingPlace($position);
+        $current = $this->getCurrentMapId($mapId);
+
+        continue;
+      }
+
+      $landing = $edit->applyTo($position);
+      if ($landing !== $position && $edit instanceof PositionRelocation && $edit->heading !== null) {
+        $heading = $edit->heading;
+      }
+      $position = $landing;
+    }
+
+    return ['mapId' => $mapId, 'position' => $position, 'heading' => $heading];
+  }
+
+  /**
+   * Marks the retirement's destination visited when the save visited the
+   * retired map, whose places now stand there. The retired map's own entry
+   * is kept.
+   */
+  private function carryVisit(mixed $visits, MapRetirement $retirement): mixed
+  {
+    if (! is_array($visits) || isset($visits[$retirement->into])) {
+      return $visits;
+    }
+
+    $retired = $this->getCurrentMapId($retirement->map);
+
+    foreach (array_keys($visits) as $visited) {
+      if (is_string($visited) && $this->getCurrentMapId($visited) === $retired) {
+        $visits[$retirement->into] = true;
+
+        break;
+      }
+    }
+
+    return $visits;
   }
 
   /**

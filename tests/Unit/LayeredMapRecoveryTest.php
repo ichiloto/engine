@@ -22,7 +22,7 @@ it('removes technical destination diagnostics from player feedback while refusin
     foreach ([Console::class, NotificationManager::class, EventManager::class, Time::class, ConfigStore::class, AudioManager::class, ModalManager::class, \Ichiloto\Engine\Util\Debug::class] as $class) {
         $saved[$class] = new ReflectionClass($class)->getStaticProperties();
     }
-    $root = sys_get_temp_dir() . '/ichiloto-layer-transfer-' . bin2hex(random_bytes(8));
+    $root = \getTestTemporaryDirectory() . '/ichiloto-layer-transfer-' . bin2hex(random_bytes(8));
     mkdir($root . '/layers', recursive: true);
     $paths = ['id' => 'destination', 'data' => $root . '/destination.data.php',
         'event' => $root . '/destination.event.php', 'map' => $root . '/destination.map.php'];
@@ -34,7 +34,7 @@ it('removes technical destination diagnostics from player feedback while refusin
         ? "<?php\nreturn str_repeat(' ', 2);" : MapGridSource::buildSource('x', 'MAP'));
     try {
         \Ichiloto\Engine\Util\Debug::configure(['log_directory' => $root . '/logs']);
-        foreach ([NotificationManager::class, EventManager::class, ModalManager::class] as $class) {
+        foreach ([NotificationManager::class, EventManager::class] as $class) {
             new ReflectionProperty($class, 'instance')->setValue(null, null);
         }
         foreach ((new ReflectionClass(AudioManager::class))->getProperties(ReflectionProperty::IS_STATIC) as $property) {
@@ -64,6 +64,14 @@ it('removes technical destination diagnostics from player feedback while refusin
         new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $manager);
         new ReflectionProperty(GameScene::class, 'currentMapId')->setValue($scene, 'original');
         new ReflectionProperty(MapManager::class, 'gameScene')->setValue($manager, $scene);
+        $cancelled = $manager->beginMapPreparation('destination');
+        expect($cancelled->advance(1))->toBeNull();
+        $cancelled->cancel();
+        $invalid = $manager->beginMapPreparation('destination');
+        expect(fn() => $invalid->advance(PHP_INT_MAX))->toThrow(InvalidArgumentException::class)
+            ->and($camera->worldSpace)->toBe([['o', 'l', 'd']])
+            ->and($scene->currentMapId)->toBe('original');
+
         expect($scene->transferPlayer(new Location('destination', new Vector2(0, 0), null), false))->toBeFalse();
         NotificationManager::getInstance($game)->render();
         $modals = ModalManager::getInstance($game);

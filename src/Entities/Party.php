@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Entities\Actors\ActorDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonWielderPolicy;
 use Ichiloto\Engine\Core\GameState;
@@ -21,6 +22,70 @@ use InvalidArgumentException;
  */
 class Party extends BattleGroup
 {
+  /** @var \WeakMap<self, list<CharacterInterface>>|null Transient joins are never serialized with a party. */
+  private static ?\WeakMap $pendingJoins = null;
+
+  /** @var \WeakMap<self, \Closure(self): void>|null Campaign-local listeners are never serialized. */
+  private static ?\WeakMap $summonAssignmentListeners = null;
+
+  /** @param \Closure(self): void|null $listener */
+  public function setSummonAssignmentListener(?\Closure $listener): void
+  {
+    if ($listener === null) {
+      if (self::$summonAssignmentListeners !== null) { unset(self::$summonAssignmentListeners[$this]); }
+      return;
+    }
+    self::$summonAssignmentListeners ??= new \WeakMap();
+    self::$summonAssignmentListeners[$this] = $listener;
+  }
+
+  /** Read the transient listener so an owner can release only its own subscription.
+   * @return \Closure(self): void|null
+   */
+  public function getSummonAssignmentListener(): ?\Closure
+  {
+    return self::$summonAssignmentListeners[$this] ?? null;
+  }
+
+  private function notifySummonAssignmentChanged(): void
+  {
+    $listener = self::$summonAssignmentListeners[$this] ?? null;
+    $listener?->__invoke($this);
+  }
+
+  #[\Override]
+  public function addMember(CharacterInterface $character): void
+  {
+    $alreadyPresent = in_array($character, $this->members->toArray(), true);
+    parent::addMember($character);
+    if (!$alreadyPresent) {
+      self::$pendingJoins ??= new \WeakMap();
+      self::$pendingJoins[$this] = [...(self::$pendingJoins[$this] ?? []), $character];
+    }
+  }
+
+  /** The next real join, including joins through average-level recruitment. */
+  public function getPendingJoin(): ?CharacterInterface
+  {
+    return self::$pendingJoins[$this][0] ?? null;
+  }
+
+  /** A presenter acknowledges only after its delivery queue owns the notice. */
+  public function acknowledgeJoin(CharacterInterface $character): void
+  {
+    if ($this->getPendingJoin() !== $character) { throw new \LogicException('Acknowledge party joins in producer order.'); }
+    $pending = self::$pendingJoins[$this];
+    array_shift($pending);
+    if ($pending === []) { unset(self::$pendingJoins[$this]); }
+    else { self::$pendingJoins[$this] = $pending; }
+  }
+
+  /** Initial roster construction, save hydration and scene shutdown own their boundary. */
+  public function clearPendingJoins(): void
+  {
+    if (self::$pendingJoins !== null) { unset(self::$pendingJoins[$this]); }
+  }
+
   /**
    * The maximum gold the party can have.
    */
@@ -29,7 +94,68 @@ class Party extends BattleGroup
    * The minimum gold the party can have.
    */
   const int MIN_GOLD = 0;
+  /** Legacy default; use battleSize for this party's current limit. */
   public const int BATTLE_SIZE = 3;
+  public const int MAX_BATTLE_SIZE = 8;
+  private int $battleMemberLimit = self::BATTLE_SIZE;
+  /** @var list<string>|null Null means all permanent members are present. */
+  private ?array $participatingActorIds = null;
+
+  public int $battleSize { get => $this->battleMemberLimit; }
+  /** Present members share the permanent actors; a split never clones or removes them. */
+  public ItemList $participants {
+    get => new ItemList(CharacterInterface::class, $this->getParticipatingMembers());
+  }
+
+  public function setBattleSize(int $size): void
+  {
+    if ($size < 1 || $size > self::MAX_BATTLE_SIZE) {
+      throw new InvalidArgumentException('A battle party requires between 1 and 8 members.');
+    }
+    $this->battleMemberLimit = $size;
+  }
+
+  /** @param list<string> $actorIds Stable project actor identities, in participation order. */
+  public function selectParticipants(array $actorIds): void
+  {
+    if (!array_is_list($actorIds) || $actorIds === [] || count($actorIds) > self::MAX_BATTLE_SIZE
+      || array_any($actorIds, static fn(mixed $id): bool => !is_string($id) || trim($id) === '')
+      || count(array_unique($actorIds)) !== count($actorIds)) {
+      throw new InvalidArgumentException('Select 1 to 8 distinct party actor identities.');
+    }
+    $this->resolveParticipants($actorIds); // Validate the complete selection before changing state.
+    $this->participatingActorIds = $actorIds;
+  }
+
+  public function regroupParticipants(): void
+  {
+    $this->participatingActorIds = null;
+  }
+
+  /** @return list<string>|null Saved stable selection, including its order. */
+  public function getSelectedActorIds(): ?array { return $this->participatingActorIds; }
+
+  /** @return list<CharacterInterface> */
+  private function getParticipatingMembers(): array
+  {
+    return $this->participatingActorIds === null
+      ? $this->members->toArray() : $this->resolveParticipants($this->participatingActorIds);
+  }
+
+  /** @param list<string> $ids @return list<CharacterInterface> */
+  private function resolveParticipants(array $ids): array
+  {
+    $members = [];
+    foreach ($ids as $id) {
+      $matches = array_values(array_filter($this->members->toArray(),
+        static fn($member): bool => $member instanceof Character && $member->actorId === $id));
+      if (count($matches) !== 1) {
+        throw new InvalidArgumentException(sprintf('Participating actor "%s" must identify one permanent party member.', $id));
+      }
+      $members[] = $matches[0];
+    }
+    return $members;
+  }
 
   /**
    * @var int The party's account balance.
@@ -56,7 +182,7 @@ class Party extends BattleGroup
    */
   public ?Character $leader {
     get {
-      return $this->members->toArray()[0] ?? null;
+      return $this->participants->toArray()[0] ?? null;
     }
   }
   /**
@@ -64,7 +190,7 @@ class Party extends BattleGroup
    */
   public ItemList $battlers {
     get {
-      return new ItemList(CharacterInterface::class, array_slice($this->members->toArray(), 0, self::BATTLE_SIZE));
+      return new ItemList(CharacterInterface::class, array_slice($this->participants->toArray(), 0, $this->battleSize));
     }
   }
 
@@ -94,6 +220,7 @@ class Party extends BattleGroup
       'region' => PartyLocation::DEFAULT_LOCATION_REGION
     ];
     $party = new Party();
+    $party->setBattleSize($data['battleSize'] ?? self::BATTLE_SIZE);
     $party->location = new PartyLocation(
       $locationData['name'] ?? PartyLocation::DEFAULT_LOCATION_NAME,
       $locationData['region'] ?? PartyLocation::DEFAULT_LOCATION_REGION
@@ -109,7 +236,32 @@ class Party extends BattleGroup
       $party->addMember(Character::fromArray($datum));
     }
 
+    if (isset($data['participants'])) { $party->selectParticipants($data['participants']); }
     return $party;
+  }
+
+  /** Recruit a current project actor once, preserving existing members and their mutable progress. */
+  public function recruitActor(ActorDefinition $definition, RecruitmentLevelPolicy $levelPolicy = RecruitmentLevelPolicy::AUTHORED,
+    RecruitmentPointPolicy $spPolicy = RecruitmentPointPolicy::AUTHORED): bool
+  {
+    foreach ($this->members as $member) {
+      if ($member instanceof Character && $member->actorId === $definition->id) { return false; }
+    }
+    // Fully construct before changing the roster. A rejected definition leaves the party untouched.
+    $pointAward = RecruitmentPointCatchUp::prepare($this->members->toArray(), $spPolicy);
+    $startingLevel = null;
+    if ($levelPolicy === RecruitmentLevelPolicy::PARTY_AVERAGE) {
+      $members = $this->members->toArray();
+      if ($members === []) { throw new \InvalidArgumentException('Party-average recruitment requires an existing party.'); }
+      $startingLevel = intdiv(array_sum(array_map(static fn(Character $member): int => $member->level, $members)), count($members));
+    }
+    $character = $definition->createCharacter(startingLevel: $startingLevel);
+    if ($pointAward !== null) {
+      $character->mastery->addPoints($pointAward->points);
+      $pointAward->initializePreparedHistories();
+    }
+    $this->addMember($character);
+    return true;
   }
 
   /**
@@ -215,6 +367,18 @@ class Party extends BattleGroup
     return max(0, $equipment->quantity - $this->getEquippedEquipmentCount($equipment));
   }
 
+  /** @return list<string> Distinct contracts held across the permanent party, including reserves. */
+  public function getAssignedSummonIds(): array
+  {
+    $ids = [];
+    foreach ($this->members as $member) {
+      assert($member instanceof Character);
+      array_push($ids, ...$member->summons);
+    }
+
+    return array_values(array_unique($ids));
+  }
+
   /**
    * Returns the party members currently holding the given summon.
    *
@@ -310,7 +474,10 @@ class Party extends BattleGroup
       return false;
     }
 
-    $character->assignSummon($definition->id);
+    if (!$character->hasSummon($definition->id)) {
+      $character->assignSummon($definition->id);
+      $this->notifySummonAssignmentChanged();
+    }
 
     return true;
   }
@@ -352,7 +519,10 @@ class Party extends BattleGroup
       }
     }
 
-    $character->assignSummon($definition->id);
+    if ($holders !== [$character]) {
+      $character->assignSummon($definition->id);
+      $this->notifySummonAssignmentChanged();
+    }
 
     return true;
   }
@@ -427,7 +597,10 @@ class Party extends BattleGroup
    */
   public function unassignSummon(string $summonId, Character $character): void
   {
-    $character->unassignSummon($summonId);
+    if ($character->hasSummon($summonId)) {
+      $character->unassignSummon($summonId);
+      $this->notifySummonAssignmentChanged();
+    }
   }
 
   /**
@@ -439,7 +612,7 @@ class Party extends BattleGroup
    */
   public function swapMembers(int $firstIndex, int $secondIndex): void
   {
-    $members = $this->members->toArray();
+    $members = $this->participants->toArray();
 
     if (! isset($members[$firstIndex], $members[$secondIndex])) {
       throw new InvalidArgumentException('Invalid party-member index.');
@@ -450,7 +623,11 @@ class Party extends BattleGroup
     }
 
     [$members[$firstIndex], $members[$secondIndex]] = [$members[$secondIndex], $members[$firstIndex]];
-    $this->members = new ItemList(CharacterInterface::class, $members);
+    if ($this->participatingActorIds !== null) {
+      $this->selectParticipants(array_map(static fn(Character $actor): string => $actor->actorId, $members));
+    } else {
+      $this->members = new ItemList(CharacterInterface::class, $members);
+    }
   }
 
 }

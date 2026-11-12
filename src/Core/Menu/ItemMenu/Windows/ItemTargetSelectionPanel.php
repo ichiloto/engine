@@ -112,7 +112,7 @@ class ItemTargetSelectionPanel extends Window implements CanFocus
   public function focus(): void
   {
     $this->activeIndex = 0;
-    $this->setTargets($this->state->getGameScene()->party->members->toArray());
+    $this->setTargets($this->state->getGameScene()->party->participants->toArray());
   }
 
   /**

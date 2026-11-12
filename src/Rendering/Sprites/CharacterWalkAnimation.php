@@ -21,6 +21,11 @@ use InvalidArgumentException;
  * It also remembers the latest step, so the renderer can slide the sprite
  * from the cell it left while the character still stands where that step
  * ended. Reduced motion shows the standing frame and no slide.
+ *
+ * A step taken while the one before it still slides begins when that slide
+ * ends, exactly as the renderer presents it, so held walking decided ahead
+ * of a step's end keeps one pace. At most one step waits: a step taken while
+ * another already waits completes the slides before it.
  */
 final class CharacterWalkAnimation
 {
@@ -37,6 +42,10 @@ final class CharacterWalkAnimation
   private float $remainingPixels = 0.0;
   private float $pixelsPerSecond = 0.0;
   private float $stoppedFor = 0.0;
+  /** @var array{pixels: float, pixelsPerSecond: float}|null The step that begins when the current slide ends. */
+  private ?array $waiting = null;
+  /** Stand as soon as the steps taken have shown. */
+  private bool $stopping = false;
   private ?CharacterStep $lastStep = null;
 
   public function __construct(private readonly FieldMetric $metric = new FieldMetric())
@@ -46,21 +55,28 @@ final class CharacterWalkAnimation
   public function step(CharacterStep $step): void
   {
     $pixels = $this->metric->getDistance($step->getDisplacement());
+    $pixelsPerSecond = $step->seconds > 0.0 ? $pixels / $step->seconds : 0.0;
+    $this->stopping = false;
+    $this->stoppedFor = 0.0;
+    $this->lastStep = $step;
     if (!$this->walking) {
       $this->walking = true;
       $this->travelled = self::PATTERN_PIXELS;
     }
-    // A step that starts before the previous one finished completes it now.
-    $this->travelled += $this->remainingPixels;
+    if ($this->remainingPixels > 0.0 && $this->waiting === null && $pixelsPerSecond > 0.0) {
+      $this->waiting = ['pixels' => $pixels, 'pixelsPerSecond' => $pixelsPerSecond];
+      return;
+    }
+    // Otherwise the slides before this step complete now.
+    $this->travelled += $this->remainingPixels + ($this->waiting['pixels'] ?? 0.0);
+    $this->waiting = null;
     $this->remainingPixels = $pixels;
-    $this->pixelsPerSecond = $step->seconds > 0.0 ? $pixels / $step->seconds : 0.0;
+    $this->pixelsPerSecond = $pixelsPerSecond;
     if ($step->seconds <= 0.0) {
       $this->travelled += $pixels;
       $this->remainingPixels = 0.0;
     }
     $this->travelled = fmod($this->travelled, self::PATTERN_PIXELS * count(self::PATTERNS));
-    $this->stoppedFor = 0.0;
-    $this->lastStep = $step;
   }
 
   /**
@@ -69,10 +85,14 @@ final class CharacterWalkAnimation
    */
   public function stride(): void
   {
-    $this->travelled = $this->walking ? $this->travelled + $this->remainingPixels + self::PATTERN_PIXELS : self::PATTERN_PIXELS;
+    $this->travelled = $this->walking
+      ? $this->travelled + $this->remainingPixels + ($this->waiting['pixels'] ?? 0.0) + self::PATTERN_PIXELS
+      : self::PATTERN_PIXELS;
     $this->travelled = fmod($this->travelled, self::PATTERN_PIXELS * count(self::PATTERNS));
     $this->walking = true;
     $this->remainingPixels = $this->stoppedFor = 0.0;
+    $this->waiting = null;
+    $this->stopping = false;
     $this->lastStep = null;
   }
 
@@ -84,7 +104,7 @@ final class CharacterWalkAnimation
     if (!$this->walking) {
       return;
     }
-    if ($this->remainingPixels > 0.0) {
+    while ($this->remainingPixels > 0.0) {
       $travel = min($this->remainingPixels, $this->pixelsPerSecond * $seconds);
       $this->travelled = fmod($this->travelled + $travel, self::PATTERN_PIXELS * count(self::PATTERNS));
       $this->remainingPixels -= $travel;
@@ -92,7 +112,14 @@ final class CharacterWalkAnimation
       if ($this->remainingPixels > 1e-9) {
         return;
       }
-      $this->remainingPixels = 0.0;
+      // The waiting step begins where this slide ends.
+      $this->remainingPixels = $this->waiting['pixels'] ?? 0.0;
+      $this->pixelsPerSecond = $this->waiting['pixelsPerSecond'] ?? 0.0;
+      $this->waiting = null;
+    }
+    if ($this->stopping) {
+      $this->stop();
+      return;
     }
     $this->stoppedFor += max(0.0, $seconds);
     if ($this->stoppedFor >= self::STOP_SECONDS) {
@@ -102,17 +129,31 @@ final class CharacterWalkAnimation
     }
   }
 
-  /** Stand at once: facing, interaction, suspension and blocked movement. The latest step is forgotten. */
+  /** Stand at once: facing, interaction and suspension. The latest step is forgotten. */
   public function stop(): void
   {
-    $this->walking = false;
+    $this->walking = $this->stopping = false;
     $this->travelled = $this->remainingPixels = $this->stoppedFor = 0.0;
+    $this->waiting = null;
     $this->lastStep = null;
+  }
+
+  /**
+   * Stand as soon as the steps taken have shown, at once when nothing
+   * slides: movement refused while the step before it still slides.
+   */
+  public function stopAfterSlide(): void
+  {
+    if (!$this->isSliding) {
+      $this->stop();
+      return;
+    }
+    $this->stopping = true;
   }
 
   /** Whether the latest step is still sliding into its cell on screen. */
   public bool $isSliding {
-    get => $this->remainingPixels > 0.0 && !Accessibility::prefersReducedMotion();
+    get => ($this->remainingPixels > 0.0 || $this->waiting !== null) && !Accessibility::prefersReducedMotion();
   }
 
   /** The frame (0 to 2) to draw now; 1 while standing. */

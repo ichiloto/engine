@@ -127,15 +127,13 @@ class ScreenTransition
     }
   }
 
-  public function session(string $direction = 'out'): ScreenTransitionSession
+  public function session(string $direction = 'out', bool $graphicalOnly = false): ScreenTransitionSession
   {
-    $frames = $this->frames();
+    $revealing = strtolower($direction) === 'in';
+    $frames = $graphicalOnly ? [] : $this->frames();
 
-    if (strtolower($direction) === 'in') {
-      $frames = array_reverse($frames);
-    }
-
-    return new ScreenTransitionSession($this, $frames, revealing: strtolower($direction) === 'in');
+    return new ScreenTransitionSession($this, $revealing ? array_reverse($frames) : $frames,
+      revealing: $revealing, graphicalOnly: $graphicalOnly);
   }
 
   /** Paints an animated or settled cover; timing and reduced motion belong to its session. */

@@ -61,7 +61,7 @@ it('matches native source coefficients and charges rendered UTF-8 bytes and actu
 });
 
 it('keeps real MapManager screen deltas and logs once when source bytes alone exceed the native cap under 128 MiB', function () {
-    $root = sys_get_temp_dir() . '/ichiloto-world-budget-' . bin2hex(random_bytes(8));
+    $root = \getTestTemporaryDirectory() . '/ichiloto-world-budget-' . bin2hex(random_bytes(8));
     mkdir($root);
     try {
         $process = proc_open([PHP_BINARY, '-d', 'memory_limit=128M', '-d', 'max_execution_time=30',

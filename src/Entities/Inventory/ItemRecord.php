@@ -3,12 +3,15 @@
 namespace Ichiloto\Engine\Entities\Inventory;
 
 use BackedEnum;
+use Ichiloto\Engine\Entities\Effects\AddStateEffect;
+use Ichiloto\Engine\Animations\EffectScale;
 use Ichiloto\Engine\Entities\Effects\BaseEffect;
 use Ichiloto\Engine\Entities\Effects\HPDamageEffect;
 use Ichiloto\Engine\Entities\Effects\HPRecoveryEffect;
 use Ichiloto\Engine\Entities\Effects\MaxHPIncrementEffect;
 use Ichiloto\Engine\Entities\Effects\MaxMPIncrementEffect;
 use Ichiloto\Engine\Entities\Effects\MPRecoveryEffect;
+use Ichiloto\Engine\Entities\Effects\RemoveStateEffect;
 use Ichiloto\Engine\Entities\Effects\ResurrectionEffect;
 use Ichiloto\Engine\Entities\Enumerations\ArmorType;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
@@ -57,7 +60,18 @@ final class ItemRecord
     'hp_damage' => HPDamageEffect::class,
     'max_hp_increment' => MaxHPIncrementEffect::class,
     'max_mp_increment' => MaxMPIncrementEffect::class,
+    'remove_state' => RemoveStateEffect::class,
+    'add_state' => AddStateEffect::class,
   ];
+
+  /** The keys an effect holds besides its type, name and description, by type; the rest share the value keys. */
+  private const array EFFECT_KEYS = [
+    'remove_state' => ['stateIds'],
+    'add_state' => ['stateId', 'chancePercent', 'guaranteed'],
+  ];
+
+  /** The keys an effect with a value holds besides its type, name and description. */
+  private const array VALUE_EFFECT_KEYS = ['value', 'successRate', 'valueBasis'];
 
   /** The keys every kind's data may hold. */
   private const array COMMON_KEYS = [
@@ -66,7 +80,7 @@ final class ItemRecord
   ];
 
   /** The keys only an item's data holds. */
-  private const array ITEM_KEYS = ['scope', 'occasion', 'effects', 'animationId'];
+  private const array ITEM_KEYS = ['scope', 'occasion', 'effects', 'animationId', 'animationScale'];
 
   /** The keys only equipment's data holds. */
   private const array EQUIPMENT_KEYS = [
@@ -122,6 +136,7 @@ final class ItemRecord
         'occasion' => self::readEnum(Occasion::class, $data, 'occasion', Occasion::ALWAYS),
         'effects' => self::readEffects($data['effects'] ?? []),
         'animationId' => array_key_exists('animationId', $data) ? self::requireInt($data, 'animationId') : null,
+        'animationScale' => EffectScale::readValue($data['animationScale'] ?? null),
       ]);
     }
 
@@ -207,6 +222,10 @@ final class ItemRecord
 
       if ($item->animationId !== null) {
         $data['animationId'] = $item->animationId;
+      }
+
+      if (! EffectScale::playsAuthoredSize($item->animationScale)) {
+        $data['animationScale'] = $item->animationScale;
       }
 
       return $data;
@@ -311,12 +330,6 @@ final class ItemRecord
         throw new InvalidArgumentException(sprintf('%s must be an effect.', rtrim($path, '.')));
       }
 
-      foreach (array_keys($effect) as $key) {
-        if (! in_array($key, ['type', 'name', 'description', 'value', 'successRate', 'valueBasis'], true)) {
-          throw new InvalidArgumentException(sprintf('Unknown key "%s%s" for an item effect.', $path, $key));
-        }
-      }
-
       $type = self::requireString($effect, 'type', $path);
       $class = self::EFFECTS[$type] ?? throw new InvalidArgumentException(sprintf(
         '%stype "%s" is not one of %s.',
@@ -324,6 +337,36 @@ final class ItemRecord
         $type,
         implode(', ', array_keys(self::EFFECTS)),
       ));
+
+      foreach (array_keys($effect) as $key) {
+        if (! in_array($key, ['type', 'name', 'description', ...(self::EFFECT_KEYS[$type] ?? self::VALUE_EFFECT_KEYS)], true)) {
+          throw new InvalidArgumentException(sprintf('Unknown key "%s%s" for a %s item effect.', $path, $key, $type));
+        }
+      }
+
+      if ($class === AddStateEffect::class) {
+        $read[] = new AddStateEffect(self::requireText($effect, 'name', $path),
+          self::requireText($effect, 'description', $path), self::requireString($effect, 'stateId', $path),
+          self::readInt($effect, 'chancePercent', 100, $path), self::readBool($effect, 'guaranteed', false, $path));
+        continue;
+      }
+
+      if ($class === RemoveStateEffect::class) {
+        $stateIds = $effect['stateIds'] ?? null;
+
+        if (! is_array($stateIds) || $stateIds === [] || ! array_is_list($stateIds)
+          || array_filter($stateIds, static fn(mixed $id): bool => ! is_string($id) || trim($id) === '') !== []) {
+          throw new InvalidArgumentException(sprintf('%sstateIds must list the states it cures.', $path));
+        }
+
+        $read[] = new RemoveStateEffect(
+          self::requireText($effect, 'name', $path),
+          self::requireText($effect, 'description', $path),
+          $stateIds,
+        );
+        continue;
+      }
+
       $successRate = $effect['successRate'] ?? 1.0;
 
       if (! is_int($successRate) && ! is_float($successRate)) {
@@ -351,6 +394,23 @@ final class ItemRecord
   {
     $type = array_search($effect::class, self::EFFECTS, true)
       ?: throw new InvalidArgumentException(sprintf('%s is not an effect an item record can name.', $effect::class));
+
+    if ($effect instanceof AddStateEffect) {
+      $data = ['type' => $type, 'name' => $effect->name, 'description' => $effect->description, 'stateId' => $effect->stateId];
+      if ($effect->chancePercent !== 100) { $data['chancePercent'] = $effect->chancePercent; }
+      if ($effect->guaranteed) { $data['guaranteed'] = true; }
+      return $data;
+    }
+
+    if ($effect instanceof RemoveStateEffect) {
+      return [
+        'type' => $type,
+        'name' => $effect->name,
+        'description' => $effect->description,
+        'stateIds' => $effect->stateIds,
+      ];
+    }
+
     $data = [
       'type' => $type,
       'name' => $effect->name,
@@ -469,12 +529,12 @@ final class ItemRecord
   }
 
   /** @param array<string, mixed> $data */
-  private static function readBool(array $data, string $key, bool $default): bool
+  private static function readBool(array $data, string $key, bool $default, string $path = ''): bool
   {
     $value = $data[$key] ?? $default;
 
     if (! is_bool($value)) {
-      throw new InvalidArgumentException(sprintf('%s must be true or false.', $key));
+      throw new InvalidArgumentException(sprintf('%s%s must be true or false.', $path, $key));
     }
 
     return $value;

@@ -14,7 +14,7 @@ use function Tests\Support\Rendering\writeTestPng;
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/ichiloto-stage-' . bin2hex(random_bytes(6));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-stage-' . bin2hex(random_bytes(6));
   mkdir($this->root);
   writeTestPng($this->root . '/body.png', 8, 16);
   writeTestPng($this->root . '/core.png', 8, 8);
@@ -70,6 +70,35 @@ it('preserves source stage identities and rehydrates validated compiled caches',
   expect($plan->getCinematicStageFrame($frame)->contentFrame)->toBe(6)
     ->and($plan->getCinematicStageFrame($plan->phases['reaction']['start']))->toBeNull();
 });
+
+it('samples a stage still and a later battlefield still independently', function () {
+  $this->source['stage']['restFrame'] = 3;
+  $this->source['restFrame'] = 10;
+  $this->source['tracks'][] = [
+    'id' => 'contact', 'type' => 'image', 'asset' => 'core.png', 'anchor' => 'target',
+    'keyframes' => [['frame' => 10, 'duration' => 1]],
+  ];
+
+  $definition = SummonCutsceneDefinition::fromArrays($this->data, $this->source);
+  $compiled = SummonCompiledCutscene::fromArray($this->compiler->compile($definition)->toArray());
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $compiled);
+  $beforeRestore = $plan->getCommandFrameForAuthoredFrame('target', 6);
+  $afterRestore = $plan->getCommandFrameForAuthoredFrame('target', 10);
+
+  expect($compiled->defaults['restFrame'])->toBe(10)
+    ->and($compiled->defaults['stage']['restFrame'])->toBe(3)
+    ->and($plan->getCinematicStageFrame($beforeRestore, true)->contentFrame)->toBe(3)
+    ->and($plan->getCinematicStageFrame($beforeRestore)->contentFrame)->toBe(6)
+    ->and($plan->getCinematicStageFrame($afterRestore, true)->active)->toBeFalse()
+    ->and(array_column(array_merge(...array_column($plan->restSegments['target'], 'drawCommands')), 'trackId'))->toBe(['target-contact']);
+});
+
+it('refuses an explicit stage rest frame outside the active interval or of the wrong type', function (mixed $restFrame) {
+  $this->source['stage']['restFrame'] = $restFrame;
+
+  expect(fn() => $this->compiler->compile(SummonCutsceneDefinition::fromArrays($this->data, $this->source)))
+    ->toThrow(InvalidArgumentException::class, 'must be within the active stage interval');
+})->with([0, 9, '3', null]);
 
 it('applies one camera transform to body geometry and named chest attachments', function () {
   $compiled = $this->compiler->compile(SummonCutsceneDefinition::fromArrays($this->data, $this->source));
@@ -185,7 +214,7 @@ it('rejects ambiguous or unsafe stage contracts before runtime', function (Closu
   'bad canvas' => [static function (&$s) { $s['stage']['canvas']['width'] = 0; }],
   'negative start' => [static function (&$s) { $s['stage']['startFrame'] = -1; }],
   'missing restore' => [static function (&$s) { unset($s['stage']['restoreFrame']); }],
-  'late restore' => [static function (&$s) { $s['stage']['restoreFrame'] = 12; }],
+  'late restore' => [static function (&$s) { $s['stage']['restoreFrame'] = 13; }],
   'empty interval' => [static function (&$s) { $s['stage']['restoreFrame'] = 1; }],
   'unsafe rest' => [static function (&$s) { $s['restFrame'] = 10; }],
   'uncovered safe pose' => [static function (&$s) { $s['restFrame'] = 0; $s['stage']['startFrame'] = 0; }],

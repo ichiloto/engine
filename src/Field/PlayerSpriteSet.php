@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
@@ -211,11 +212,11 @@ class PlayerSpriteSet
    */
   public function resolveSprite(array|string $sprite): array
   {
-    $heading = self::headingFromName($sprite);
+    $heading = $this->resolveHeading($sprite);
 
-    return $heading !== null
-      ? $this->getSpriteForHeading($heading)
-      : self::normalizeSprite($sprite);
+    return $heading === MovementHeading::NONE
+      ? self::normalizeSprite($sprite)
+      : $this->getSpriteForHeading($heading);
   }
 
   /**
@@ -263,6 +264,18 @@ class PlayerSpriteSet
       $sprite === $this->east => MovementHeading::EAST,
       $sprite === $this->south => MovementHeading::SOUTH,
       $sprite === $this->west => MovementHeading::WEST,
+      default => self::resolveLegacyArrow($sprite),
+    };
+  }
+
+  /** @param string[] $sprite Normalized sprite rows. */
+  public static function resolveLegacyArrow(array $sprite): MovementHeading
+  {
+    return match ($sprite) {
+      ['▲'] => MovementHeading::NORTH,
+      ['▶'] => MovementHeading::EAST,
+      ['▼'] => MovementHeading::SOUTH,
+      ['◀'] => MovementHeading::WEST,
       default => MovementHeading::NONE,
     };
   }
@@ -342,13 +355,14 @@ class PlayerSpriteSet
    */
   public static function sanitizeSpriteRow(string $row): string
   {
-    if (preg_match_all('/\X/u', $row, $matches) === false) {
+    $graphemes = TerminalText::splitGraphemes($row);
+    if ($graphemes === false) {
       return $row;
     }
 
     $sanitized = '';
 
-    foreach ($matches[0] as $grapheme) {
+    foreach ($graphemes as $grapheme) {
       $codepoints = preg_split('//u', $grapheme, -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
       if (count($codepoints) < 2 || ! self::containsUnsafeEmojiComponent($codepoints)) {

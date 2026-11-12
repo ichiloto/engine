@@ -13,21 +13,25 @@ use InvalidArgumentException;
 final readonly class MapLandmarkCatalog
 {
     public const int MAX_LANDMARKS = 256;
+    public const array ANCHOR_KINDS = ['event', 'object', 'trigger', 'area'];
     public const string ID_PATTERN = '/\A[a-z][a-z0-9._-]{0,63}\z/';
     public const int DEFAULT_APPROACH_DISTANCE = 3;
     public const int MIN_APPROACH_DISTANCE = 0;
     public const int MAX_APPROACH_DISTANCE = 64;
     public const int MAX_REVEAL_CONDITIONS = 32;
 
-    /** @param list<MapLandmarkDefinition> $landmarks */
-    private function __construct(public array $landmarks) {}
+    /**
+     * @param list<MapLandmarkDefinition> $landmarks
+     * @param array<string, CellArea> $entranceIconAreas Named icon areas keyed by their anchor event marker.
+     */
+    private function __construct(public array $landmarks, public array $entranceIconAreas) {}
 
     /** Reads resolved event areas from MapSourceReader; never uses destination spawn points. */
-    public static function readMap(array $map, array $tiles, ?MapCategoryCatalog $categories = null): self
+    public static function readMap(array $map, array $tiles, ?MapCategoryCatalog $categories = null, ?MapAreaCatalog $mapAreas = null): self
     {
         $entries = array_key_exists('landmarks', $map) ? $map['landmarks'] : [];
         if (!is_array($entries)) { throw new InvalidArgumentException('landmarks must be a list.'); }
-        return self::readDeclarations($entries, MapLandmarkAnchors::readMap($map), array_map('count', $tiles), $categories);
+        return self::readDeclarations($entries, MapLandmarkAnchors::readMap($map, $tiles, $mapAreas), array_map('count', $tiles), $categories);
     }
 
     /** Runtime and unsaved Editor models share this validator, including ragged geometry.
@@ -43,17 +47,18 @@ final readonly class MapLandmarkCatalog
             || !array_all($rowWidths, static fn($width) => is_int($width) && $width >= 0)) {
             throw new InvalidArgumentException('Landmark map geometry requires a nonempty list of nonnegative row widths.');
         }
-        foreach ([$anchors->events, $anchors->objects, $anchors->triggers] as $table) {
+        foreach ([$anchors->events, $anchors->objects, $anchors->triggers, $anchors->areas] as $table) {
             foreach ($table as $anchor) {
                 self::assertAreaIsOnMap($anchor->area, $rowWidths);
                 WorldConditionEvaluator::validateAll($anchor->accessConditions, 'landmark anchor access');
             }
         }
         $landmarks = $ids = $claimedEvents = $claimedTriggers = [];
+        $entranceIconAreas = $iconCells = [];
         foreach ($entries as $entry) {
             if (!is_array($entry) || array_diff(array_keys($entry),
-                ['id', 'kind', 'anchor', 'name', 'secret', 'approachDistance', 'revealConditions', 'category']) !== []) {
-                throw new InvalidArgumentException('A landmark accepts id, kind, anchor, name, secret, approachDistance and revealConditions.');
+                ['id', 'kind', 'anchor', 'name', 'secret', 'approachDistance', 'revealConditions', 'category', 'iconArea']) !== []) {
+                throw new InvalidArgumentException('A landmark accepts id, kind, anchor, name, secret, approachDistance, revealConditions, category and iconArea.');
             }
             $id = $entry['id'] ?? null;
             if (!is_string($id) || preg_match(self::ID_PATTERN, $id) !== 1 || isset($ids[$id])) {
@@ -69,9 +74,9 @@ final readonly class MapLandmarkCatalog
                 }
             }
             $anchor = $entry['anchor'] ?? null;
-            if (!is_array($anchor) || count($anchor) !== 1 || array_diff(array_keys($anchor), ['event', 'object', 'trigger']) !== []
+            if (!is_array($anchor) || count($anchor) !== 1 || array_diff(array_keys($anchor), self::ANCHOR_KINDS) !== []
                 || !is_string(array_values($anchor)[0])) {
-                throw new InvalidArgumentException("Landmark '{$id}' anchor requires one event marker, object id or legacy trigger id reference.");
+                throw new InvalidArgumentException("Landmark '{$id}' anchor requires one event marker, object id, legacy trigger id or named area reference.");
             }
             $access = null;
             if (isset($anchor['event'])) {
@@ -81,22 +86,43 @@ final readonly class MapLandmarkCatalog
                 }
                 $claimedEvents[$anchor['event']] = true;
                 $area = $event->area;
-                if ($event->isTransfer) { $access = $event->accessConditions; }
+                if ($event->isRoute) { $access = $event->accessConditions; }
             } elseif (isset($anchor['trigger'])) {
                 $trigger = $anchors->triggers[$anchor['trigger']] ?? throw new InvalidArgumentException("Landmark '{$id}' references a missing legacy trigger id.");
                 if (isset($claimedTriggers[$anchor['trigger']])) { throw new InvalidArgumentException('A legacy trigger can anchor only one landmark.'); }
                 $claimedTriggers[$anchor['trigger']] = true;
                 $area = $trigger->area;
                 $access = $trigger->accessConditions;
+            } elseif (isset($anchor['area'])) {
+                $area = ($anchors->areas[$anchor['area']] ?? throw new InvalidArgumentException("Landmark '{$id}' references a missing named area."))->area;
             } else {
                 $object = $anchors->objects[$anchor['object']] ?? throw new InvalidArgumentException("Landmark '{$id}' references a missing object.");
                 $area = $object->area;
             }
             if ($access !== null && !$kind->isRoute()) {
-                throw new InvalidArgumentException('A transfer landmark must use passage, entrance or exit so ordinary routes remain visible.');
+                throw new InvalidArgumentException('A route landmark must use passage, entrance or exit.');
             }
             if ($access === null && $kind->isRoute()) {
-                throw new InvalidArgumentException('Route landmarks must reference a transfer event or legacy trigger.');
+                throw new InvalidArgumentException('Route landmarks must reference an opening passage, transfer event or legacy trigger.');
+            }
+            if (array_key_exists('iconArea', $entry)) {
+                $iconAreaId = $entry['iconArea'];
+                $marker = $anchor['event'] ?? null;
+                if ($kind !== MapLandmarkKind::ENTRANCE || $marker === null || !$anchors->events[$marker]->isTransfer) {
+                    throw new InvalidArgumentException("Landmark '{$id}' can use an iconArea only on a transfer entrance.");
+                }
+                $iconArea = is_string($iconAreaId) ? ($anchors->areas[$iconAreaId]->area ?? null) : null;
+                if ($iconArea === null || !array_all($area->cells, static fn(array $cell): bool => $iconArea->containsCell(...$cell))) {
+                    throw new InvalidArgumentException("Landmark '{$id}' needs a named icon area containing its entire anchor event.");
+                }
+                foreach ($iconArea->cells as [$x, $y]) {
+                    $key = "{$x},{$y}";
+                    if (isset($iconCells[$key])) {
+                        throw new InvalidArgumentException("Landmark '{$id}' icon area overlaps another entrance icon area.");
+                    }
+                    $iconCells[$key] = true;
+                }
+                $entranceIconAreas[$marker] = $iconArea;
             }
             $secret = array_key_exists('secret', $entry) ? $entry['secret'] : false;
             $distance = array_key_exists('approachDistance', $entry) ? $entry['approachDistance'] : self::DEFAULT_APPROACH_DISTANCE;
@@ -131,7 +157,7 @@ final readonly class MapLandmarkCatalog
             $landmarks[] = new MapLandmarkDefinition('@legacy:' . $id, MapLandmarkKind::PASSAGE, $trigger->area,
                 approachDistance: null, accessConditions: $trigger->accessConditions, automatic: true);
         }
-        return new self($landmarks);
+        return new self($landmarks, $entranceIconAreas);
     }
 
     /** Deterministic, map-scoped translation default; authors may choose another valid key. */

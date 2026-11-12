@@ -72,7 +72,7 @@ class TitleProjectConfigPersistProxy extends ProjectConfig
 }
 
 beforeEach(function () {
-  $this->playerRoot = sys_get_temp_dir() . '/ichiloto-title-player-' . bin2hex(random_bytes(6));
+  $this->playerRoot = \getTestTemporaryDirectory() . '/ichiloto-title-player-' . bin2hex(random_bytes(6));
   mkdir($this->playerRoot);
   ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
 });
@@ -97,7 +97,7 @@ function getTitleOptionByKey(TitleOptionsSettingsManager $manager, string $key):
 }
 
 it('updates and persists the title volume setting', function () {
-  $filename = tempnam(sys_get_temp_dir(), 'ichiloto-title-options-');
+  $filename = tempnam(\getTestTemporaryDirectory(), 'ichiloto-title-options-');
   $config = new TitleProjectConfigPersistProxy([
     'filename' => $filename,
     'initial' => [
@@ -122,7 +122,7 @@ it('updates and persists the title volume setting', function () {
 });
 
 it('clamps volume at its ends and wraps short choice lists', function () {
-  $filename = tempnam(sys_get_temp_dir(), 'ichiloto-title-options-');
+  $filename = tempnam(\getTestTemporaryDirectory(), 'ichiloto-title-options-');
   $config = new TitleProjectConfigPersistProxy([
     'filename' => $filename,
     'initial' => [
@@ -164,7 +164,7 @@ it('clamps volume at its ends and wraps short choice lists', function () {
 });
 
 it('updates title text speed on both supported dialogue paths', function () {
-  $filename = tempnam(sys_get_temp_dir(), 'ichiloto-title-options-');
+  $filename = tempnam(\getTestTemporaryDirectory(), 'ichiloto-title-options-');
   $config = new TitleProjectConfigPersistProxy([
     'filename' => $filename,
     'initial' => [

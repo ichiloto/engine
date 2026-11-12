@@ -104,7 +104,7 @@ it('refuses data that is not an inventory record, saying where', function (array
 ]);
 
 it('reads items, then weapons, then armors, each folder in file order, leaving a repeated id to the store', function () {
-  $root = sys_get_temp_dir() . '/ichiloto-item-catalog-' . bin2hex(random_bytes(4));
+  $root = \getTestTemporaryDirectory() . '/ichiloto-item-catalog-' . bin2hex(random_bytes(4));
   $write = static function (string $file, InventoryItem $item) use ($root): void {
     is_dir(dirname($root . '/assets/Data/' . $file)) || mkdir(dirname($root . '/assets/Data/' . $file), 0777, true);
     file_put_contents($root . '/assets/Data/' . $file, "<?php\nreturn ['class' => \\Ichiloto\\Engine\\Entities\\Inventory\\InventoryItem::class, 'data' => "

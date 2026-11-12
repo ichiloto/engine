@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Assegai\Collections\Stack;
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Core\Game;
@@ -33,6 +34,9 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Progression\TutorialCatalog;
+use Ichiloto\Engine\Progression\TutorialDirector;
+use Ichiloto\Engine\Progression\TutorialPhase;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
@@ -50,6 +54,7 @@ use Ichiloto\Engine\UI\Modal\AlertModal;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Modal\PromptModal;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\MenuRowKind;
 use Ichiloto\Engine\UI\Presentation\SkillMenuPresentation;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\UIManager;
@@ -146,7 +151,7 @@ beforeEach(function () {
     \Ichiloto\Engine\Events\EventManager::class] as $class) {
     $this->savedStatics[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/ichiloto-skill-menu-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-skill-menu-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   foreach (['portrait', 'cursor', 'surface', 'focus', 'ability', 'magic'] as $name) { skillMenuPng($this->root . '/' . $name . '.png'); }
   Debug::configure(['log_directory' => $this->root . '/logs']);
@@ -241,22 +246,22 @@ it('uses plain skill names in terminal lists and detail headers while retaining 
   $name = $magic ? 'Alpha Restore' : 'Alpha Guard';
   $class = $state::class;
   $list = new ReflectionMethod($class, $magic ? 'buildUseEntries' : 'buildReadyEntries')->invoke($state);
-  $details = new ReflectionMethod($class, $magic ? 'buildUseDetailLines' : 'buildReadyDetailLines')->invoke($state);
+  $details = new ReflectionMethod($class, 'buildDetailLines')->invoke($state);
   expect(trim(TerminalText::stripAnsi($list[0])))->toStartWith($name)
     ->and(implode('', $list))->not->toContain('NOT A NATIVE ICON')
     ->and($details[0])->toBe($name)
-    ->and($details[1])->toBe('MP Cost : ' . ($magic ? 3 : 7))
+    ->and($details[1])->toMatch('/^MP Cost +' . ($magic ? 3 : 7) . '$/')
     ->and($state->getPresentationContent()->rows[0]->icon)->toBe($magic ? 'skill.magic' : 'skill.ability');
   skillMenuKey($state, KeyCode::RIGHT);
   $name = $magic ? 'Zeta Spell' : 'Zeta Ability';
   $list = new ReflectionMethod($class, 'buildLearnEntries')->invoke($state);
-  $details = new ReflectionMethod($class, 'buildLearnDetailLines')->invoke($state);
+  $details = new ReflectionMethod($class, 'buildDetailLines')->invoke($state);
   expect(trim(TerminalText::stripAnsi($list[0])))->toStartWith($name)
     ->and($details[0])->toBe($name);
   if ($magic) {
     skillMenuKey($state, KeyCode::LEFT);
     skillMenuKey($state, KeyCode::ENTER);
-    $details = new ReflectionMethod($class, 'buildTargetDetailLines')->invoke($state);
+    $details = new ReflectionMethod($class, 'buildDetailLines')->invoke($state);
     expect($details[0])->toBe('Alpha Restore');
   }
 })->with([false, true]);
@@ -267,10 +272,10 @@ it('shows and reviews learned alternate attacks in both field menu presentations
   new ReflectionProperty($this->actor, 'abilityBook')->setValue($this->actor, new AbilityBook([$attack]));
   if ($graphical) { skillMenuRuntime($this, skillMenuTheme()); }
   $state = skillMenuOwner($this, false);
-  $details = new ReflectionMethod(AbilityMenuState::class, 'buildReadyDetailLines')->invoke($state);
+  $details = new ReflectionMethod(AbilityMenuState::class, 'buildDetailLines')->invoke($state);
   $rows = new ReflectionMethod(AbilityMenuState::class, 'buildReadyEntries')->invoke($state);
   expect($details[0])->toBe($attack->name)
-    ->and($details[1])->toBe('MP Cost : 4')
+    ->and($details[1])->toMatch('/^MP Cost +4$/')
     ->and(trim(TerminalText::stripAnsi($rows[0])))->toStartWith($attack->name)
     ->and($state->getPresentationContent()->description)->toBe($attack->description);
   if ($graphical) {
@@ -326,7 +331,7 @@ it('agrees with learning flags in terminal and canvas and only spends costs on o
   $state->resume();
   $content = $state->getPresentationContent();
   expect($content->fields['Status'])->toBe('Ready')->and($content->detailText)->toContain('trial.complete [Done]');
-  $terminal = new ReflectionMethod($state, 'buildLearnDetailLines')->invoke($state);
+  $terminal = new ReflectionMethod($state, 'buildDetailLines')->invoke($state);
   expect(implode(' ', $terminal))->toContain('Ready')->toContain('trial.complete [Done]');
   for ($redraw = 0; $redraw < 3; $redraw++) { SkillMenuPresentation::compose($state->getPresentationContent(), $theme); }
   expect($this->party->inventory->getQuantity('token.training'))->toBe(3)->and($this->party->accountBalance)->toBe(300);
@@ -357,11 +362,13 @@ it('keeps sort selection distinct from focus until the same owner applies it', f
   $content = $state->getPresentationContent();
   expect($content->rows[0]->selected)->toBeTrue()->and($content->rows[0]->focused)->toBeFalse()
     ->and($content->rows[1]->selected)->toBeFalse()->and($content->rows[1]->focused)->toBeTrue();
-  $frame = SkillMenuPresentation::compose($content, new MenuPresentationCatalog($this->root, skillMenuTheme(true)));
+  $theme = new MenuPresentationCatalog($this->root, skillMenuTheme(true));
+  $frame = SkillMenuPresentation::compose($content, $theme);
   $layers = array_column($frame->textLayers, null, 'id');
   foreach ([0, 1] as $index) {
     $label = $layers['skill-entry-' . $index . '-text'];
-    expect($label->x + $label->grid->columns * $label->grid->cellWidth / 2)->toBe($label->clipRect->x + $label->clipRect->width / 2);
+    expect($content->rows[$index]->kind)->toBe(MenuRowKind::COMMAND)
+      ->and($label->x)->toBe($label->clipRect->x + $theme->rows->metrics->padding);
     expect($layers)->not->toHaveKey('skill-entry-' . $index . '-separator');
   }
   skillMenuKey($state, KeyCode::ENTER);
@@ -426,6 +433,43 @@ it('keeps field casting failures inspectable without spending MP', function () {
   expect(implode('', skillMenuText(SkillMenuPresentation::compose($state->getPresentationContent(), $theme))))
     ->toContain('Not enough MP for Alpha Restore.')->toContain('3 MP');
   expect($this->actor->stats->currentMp)->toBe(0)->and($this->ally->stats->currentHp)->toBe(30);
+});
+
+it('guides an actual field cast and completes only after the selected recipient benefits', function () {
+  $spellName = $this->spell->name;
+  $this->actor->stats->currentHp = $this->actor->stats->totalHp;
+  $director = new TutorialDirector(new TutorialCatalog([[
+    'id' => 'guide.restore', 'title' => 'Restore', 'category' => 'Field', 'start' => 'script', 'replay' => 'none',
+    'steps' => [[
+      'target' => ['screen' => 'magic', 'view' => 'use', 'id' => $spellName],
+      'action' => 'confirm', 'say' => 'Choose a healing spell.',
+      'until' => ['outcome' => 'magic.spell-selected', 'subject' => $spellName],
+    ], [
+      'target' => ['screen' => 'magic', 'view' => 'target', 'id' => 'injured-ally'],
+      'action' => 'confirm', 'say' => 'Choose an injured ally.',
+      'until' => ['outcome' => 'magic.cast', 'subject' => $spellName],
+    ]],
+  ]]), $this->flags);
+  new ReflectionProperty(GameScene::class, 'tutorialDirector')->setValue($this->scene, $director);
+  $director->queueScriptTutorial('guide.restore');
+  $director->updateInStableField(false);
+  $state = skillMenuOwner($this, true);
+  $theme = new MenuPresentationCatalog($this->root, skillMenuTheme());
+  expect(implode(' ', skillMenuText(SkillMenuPresentation::compose($state->getPresentationContent(), $theme))))
+    ->toContain('Choose a healing spell.');
+  skillMenuKey($state, KeyCode::ENTER);
+  expect($state->getPresentationContent()->tutorialRowIndex)->toBe(1)
+    ->and(implode(' ', skillMenuText(SkillMenuPresentation::compose($state->getPresentationContent(), $theme))))
+    ->toContain('Choose an injured ally.');
+  skillMenuKey($state, KeyCode::ESCAPE);
+  expect($director->getActiveTutorial())->not->toBeNull()->and($this->actor->stats->currentMp)->toBe(20);
+  skillMenuKey($state, KeyCode::ENTER);
+  skillMenuKey($state, KeyCode::ENTER);
+  expect($director->getActiveTutorial())->not->toBeNull()->and($this->actor->stats->currentMp)->toBe(20);
+  skillMenuKey($state, KeyCode::DOWN);
+  skillMenuKey($state, KeyCode::ENTER);
+  expect($this->flags->getTutorialPhase('guide.restore'))->toBe(TutorialPhase::COMPLETED)
+    ->and($this->actor->stats->currentMp)->toBe(17)->and($this->ally->stats->currentHp)->toBe(55);
 });
 
 it('submits an actual menu canvas with a supported modal and restores it without consuming menu input', function (bool $magic) {
@@ -561,7 +605,7 @@ it('retains the neutral canvas without optional artwork and semantic hints remai
   $state = skillMenuOwner($this, $magic);
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']);
   $canvas = SkillMenuPresentation::compose($state->getPresentationContent(), $theme);
-  expect($canvas->images)->toBeEmpty()->and(implode('', skillMenuText($canvas)))->toContain('Enter')->toContain('Escape');
+  expect($canvas->images)->toBeEmpty()->and(implode('', skillMenuText($canvas)))->toContain('Enter')->toContain('Esc');
   for ($tab = 0; $tab < 3; $tab++) {
     skillMenuKey($state, KeyCode::RIGHT);
     expect(SkillMenuPresentation::compose($state->getPresentationContent(), $theme))->toBeInstanceOf(PresentationCanvas::class);
@@ -603,4 +647,16 @@ it('keeps skill content and healthy artwork when only the actor portrait is unav
   skillMenuKey($state, KeyCode::RIGHT);
   expect($state->getPresentationContent()->tabIndex)->toBe(1)
     ->and(implode('', skillMenuText($this->scene->getPresentationCanvas())))->toContain($magic ? 'Zeta Spell' : 'Zeta Ability');
+})->with([false, true]);
+
+it('shows the Learn tab only to a character with something to learn there', function (bool $magic) {
+  $state = skillMenuOwner($this, $magic);
+  $withLearnables = $state->getPresentationContent()->tabs;
+  skillMenuKey($state, KeyCode::Q);
+  $without = $state->getPresentationContent();
+
+  expect($withLearnables)->toContain('Learn')
+    ->and($without->character)->toBe($this->ally)
+    ->and($without->tabs)->toBe($magic ? ['Use', 'Sort'] : ['Ready', 'Sort'])
+    ->and($without->tabs[$without->tabIndex])->toBe($magic ? 'Use' : 'Ready');
 })->with([false, true]);

@@ -5,19 +5,26 @@ namespace Ichiloto\Engine\Events\Interpreter;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
-use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Modal\SelectModal;
 use Ichiloto\Engine\UI\Modal\TextBoxModal;
+use Ichiloto\Engine\UI\Modal\StorybookModal;
+use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
+use Ichiloto\Engine\Messaging\Storybook\StorybookOutcome;
+use Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface;
+use RuntimeException;
 
 /**
- * Drives the existing terminal modals one game-loop tick at a time.
+ * Drives the existing terminal modals one game-loop tick at a time, over the
+ * field or a battle. Graphical renderers compose the same modals over the
+ * host scene's canvas.
  */
-final class ModalEventPresentation implements EventDialoguePresentationInterface
+final class ModalEventPresentation implements EventPlayedDialoguePresentationInterface, EventStorybookOutcomePresentationInterface, EventPausablePresentationInterface
 {
   protected ?ModalInterface $modal = null;
 
-  public function __construct(protected GameScene $gameScene)
+  public function __construct(protected EventPresentationHostInterface $host)
   {
   }
 
@@ -28,14 +35,43 @@ final class ModalEventPresentation implements EventDialoguePresentationInterface
 
   public function beginDialogue(string $text, string $speaker, DialogueContext $context): void
   {
+    $this->showDialogue($text, $speaker, $context, null, dialogue_speed());
+  }
+
+  public function beginPlayedDialogue(string $text, string $speaker, DialogueContext $context,
+    DialoguePlayback $playback, float $charactersPerSecond): void
+  {
+    $this->showDialogue($text, $speaker, $context, $playback, $charactersPerSecond);
+  }
+
+  private function showDialogue(string $text, string $speaker, DialogueContext $context,
+    ?DialoguePlayback $playback, float $charactersPerSecond): void
+  {
     $this->reset();
     $this->modal = new TextBoxModal(
-      $this->gameScene->getGame(),
+      $this->host->getGame(),
       $text,
       $speaker,
-      charactersPerSecond: dialogue_speed(),
+      charactersPerSecond: $charactersPerSecond,
+      playback: $playback,
       presentation: $context,
     );
+    $this->modal->show();
+  }
+
+  public function beginStorybook(StorybookDefinition $book): void
+  {
+    $game = $this->host->getGame();
+    $measured = $this->host instanceof StorybookReadingCapacityProviderInterface;
+    if ($game->getRendererRuntime()?->grid !== null && !$measured) {
+      throw new RuntimeException('Graphical storybook presentation requires a measured reading-capacity provider.');
+    }
+    // Retain the measuring host so the same owner reflows when its graphical surface or controls change.
+    $capacity = $measured ? $this->host : null;
+    // Qualify the layout before replacing an existing presentation.
+    $modal = new StorybookModal($game, $book, $capacity);
+    $this->reset();
+    $this->modal = $modal;
     $this->modal->show();
   }
 
@@ -49,13 +85,23 @@ final class ModalEventPresentation implements EventDialoguePresentationInterface
       intval((get_screen_height() - $height) / 2),
     );
     $this->modal = new SelectModal(
-      $this->gameScene->getGame(),
+      $this->host->getGame(),
       $prompt,
       $options,
       $title,
       rect: new Rect($position->x, $position->y, $width, $height),
     );
     $this->modal->show();
+  }
+
+  public function pausePlayback(float $now): void
+  {
+    if ($this->modal instanceof TextBoxModal) { $this->modal->pausePlayback($now); }
+  }
+
+  public function resumePlayback(float $now): void
+  {
+    if ($this->modal instanceof TextBoxModal) { $this->modal->resumePlayback($now); }
   }
 
   public function update(): void
@@ -77,6 +123,11 @@ final class ModalEventPresentation implements EventDialoguePresentationInterface
     return $this->modal !== null && ! $this->modal->isShowing();
   }
 
+  public function getStorybookOutcome(): ?StorybookOutcome
+  {
+    return $this->modal instanceof StorybookModal ? $this->modal->getReadingOutcome() : null;
+  }
+
   public function choiceResult(): ?int
   {
     return $this->modal instanceof SelectModal ? $this->modal->getValue() : null;
@@ -93,7 +144,7 @@ final class ModalEventPresentation implements EventDialoguePresentationInterface
     $this->modal = null;
 
     if ($hadModal) {
-      $this->gameScene->restoreFieldAfterOverlay();
+      $this->host->restoreAfterEventOverlay();
     }
   }
 }

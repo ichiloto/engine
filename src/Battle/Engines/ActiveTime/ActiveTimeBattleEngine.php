@@ -24,7 +24,7 @@ use RuntimeException;
  *
  * @package Ichiloto\Engine\Battle\Engines\ActiveTime
  */
-class ActiveTimeBattleEngine extends TurnBasedEngine
+class ActiveTimeBattleEngine extends TurnBasedEngine implements \Ichiloto\Engine\Battle\BattleGaugeControl
 {
   protected const READY_GAUGE = 100.0;
   protected const GAUGE_CAP = 150.0;
@@ -71,7 +71,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
       return;
     }
 
-    $this->battleConfig = $config;
+    parent::configure($config);
   }
 
   /**
@@ -175,7 +175,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
     foreach ($this->getBattleParticipants($context) as $battler) {
       $id = spl_object_id($battler);
 
-      if ($battler->isKnockedOut) {
+      if (! $battler->isFighting) {
         $this->gaugeValues[$id] = 0.0;
         $this->removeReadyBattler($battler);
         continue;
@@ -191,6 +191,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
 
       $previousGauge = $this->gaugeValues[$id] ?? 0.0;
       $fillRate = $this->getFillRate($battler);
+      if ($fillRate <= 0.0) { continue; }
       $this->gaugeValues[$id] = min(
         self::GAUGE_CAP,
         $previousGauge + ($fillRate * $deltaTime),
@@ -211,7 +212,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
   {
     $this->readyBattlers = array_values(array_filter(
       $this->readyBattlers,
-      fn(CharacterInterface $battler): bool => ! $battler->isKnockedOut
+      fn(CharacterInterface $battler): bool => $battler->isFighting
         && ($this->gaugeValues[spl_object_id($battler)] ?? 0.0) >= self::READY_GAUGE,
     ));
 
@@ -243,11 +244,13 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
     CharacterInterface $battler,
     BattleAction $action,
     array $targets,
+    ?CharacterInterface $targetAnchor = null,
   ): void
   {
     $turn = new Turn($battler);
     $turn->action = $action;
     $turn->targets = $targets;
+    $turn->targetAnchor = $targetAnchor;
     $context->setTurns([$turn]);
     $this->resetGauge($battler);
     $this->setState($this->actionExecutionState);
@@ -320,7 +323,8 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
       return 1.0;
     }
 
-    return max(1.0, $this->battleConfig->baseFillRate + ($this->getBattlerSpeed($battler) * $this->battleConfig->speedFactor));
+    $rate = method_exists($battler, 'getAtbRate') ? $battler->getAtbRate() : 1.0;
+    return max(1.0, $this->battleConfig->baseFillRate + ($this->getBattlerSpeed($battler) * $this->battleConfig->speedFactor)) * $rate;
   }
 
   /**
@@ -363,7 +367,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
       $id = spl_object_id($battler);
       $this->initiativeSeeds[$id] = $this->randomFloat(0.0, 1.0);
 
-      if ($battler->isKnockedOut) {
+      if (! $battler->isFighting) {
         $this->gaugeValues[$id] = 0.0;
         continue;
       }
@@ -436,6 +440,16 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
     $this->gaugeValues[$id] = 0.0;
     $this->initiativeSeeds[$id] = $this->randomFloat(0.0, 1.0);
     $this->removeReadyBattler($battler);
+  }
+
+  /** Also retires a waiting ready entry, so a reset target must refill before acting. */
+  public function resetBattlerGauge(CharacterInterface $battler): bool
+  {
+    if (!$battler->isFighting || $this->battleConfig === null
+      || !in_array($battler, [...$this->battleConfig->partyRoster->battlers,
+        ...$this->battleConfig->troop->members->toArray()], true)) { return false; }
+    $this->resetGauge($battler);
+    return true;
   }
 
   /**

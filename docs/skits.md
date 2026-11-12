@@ -38,7 +38,7 @@ this functionality. Last Legend is the reference consumer. Related docs:
   `assets/Data/Skits/*.php` (id, title, optional map gate, trigger
   conditions, beats of speaker + text, optional speed), exposes
   availability through a persistent field cue, plays beats through the standard dialogue
-  box (`show_text`), and records `skit_seen:<id>`. GPUI now composes a
+  box through cooperative event playback, and records `skit_seen:<id>`. GPUI now composes a
   dedicated graphical stage over the same read-only playback snapshot.
 - **Beats accept optional emotion and voice.** Phase 0 resolves these softly
   and plays voice through the existing dialogue box on either presentation.
@@ -50,12 +50,103 @@ this functionality. Last Legend is the reference consumer. Related docs:
 - **Dialogue artwork is shared and replaceable.**
   `DialoguePresentationCatalog` (`Data/Presentation/dialogue.php`) binds
   stable identities, explicit display-label aliases, artwork roles,
-  expression variants, a dialogue theme and per-skit contextual backgrounds.
+  expression variants, a dialogue theme and skit stage emphasis. A skit's
+  backdrop follows the place it plays in (see Backdrops Follow The Place).
 - **Audio owns one speech line independently of SFX.** Advance interrupts
   that line; optional BGM ducking uses seek-safe backend support.
-- **Shared Auto playback is available, with skits its first adopter.** Log,
-  Skip, ambient lip/eye animation and Editor emotion/voice authoring remain
+- **Shared Auto and pause/Skip playback are available.** Log,
+  ambient lip/eye animation and Editor emotion/voice authoring remain
   planned; the static graphical stage is implemented.
+
+### Shared pause controls — 3 November 2026
+
+Andrew requested Skip, Exit and Cancel during a Skit. Exit must ask whether to
+return to the title or quit the game. Cancel resumes the same conversation; Skip
+completes its seen outcome once. Story cinematics retain their authored safe
+finalizers. Closing a storybook retains its existing read-only behavior.
+
+The shared clock/audio foundation is implemented: `TextBoxModal::pausePlayback()`
+freezes typing and input, and `resumePlayback()` excludes suspended time from its
+typing deadline and `DialoguePlayback` Auto-reading timer. Audio pause leases
+preserve current player positions and ownership. The interpreter now freezes all cooperative lanes, resumes the same presentation
+owner and releases the audio lease on completion or failure. Skipping the visible
+Skit commits its seen outcome once and continues its enclosing script; an enclosing
+cinematic keeps its own safe-skip policy. Suspended battles retain ownership.
+Paused field presentation does not advance its animation clock and reports paused
+active play. The field's semantic `pause` action opens the existing shared selection modal:
+Skip, Exit and Cancel for a displayed Skit. Exit asks for To Title, Quit Game or
+Cancel; cancelling that prompt returns to the pause menu. Cancelling the pause
+resumes the same beat. Title and quit use the normal scene/game continuations and
+leave the unfinished Skit unseen. The menu retains the paused session's identity,
+keeps focus and input separate from playback, and repositions on resize.
+
+Removed behavior: field prompt Skits no longer run a blocking `show_text` loop.
+`playNextAvailableSkit()` starts the event-owned conversation and returns whether
+it started, before completion. Seen tracking remains at completion or explicit
+Skip. Its obsolete protected blocking `play`/`showBeat` hooks are removed.
+Cinematics no longer skip immediately through Cancel/Back; the pause menu exposes
+the authored safe Skip when available. A displayed Skit inside a cinematic skips
+only that conversation. A book can pause through the same flow with Exit and
+Cancel, and retains its reader's own Close action.
+
+Queued alerts now wait for cooperative modal owners as well as the blocking modal
+stack; they no longer interrupt a paused conversation. Field animation and active
+play remain frozen while the menu owns input. Terminal and GPUI consume the same
+selection snapshot and semantic input. In-game/native visual and audio acceptance
+remain pending; root's checks use silent synthetic hosts and retained Terminal
+surfaces. Last Legend's existing Escape binding supplies the pause action.
+The graphical composition check at 1280×720 and 800×480 retains the same Skit
+backdrop, both busts and reading snapshot under the main and exit menus, paints
+menu controls above them, and restores the unchanged scene after closing. These
+are shared drawing-data checks with synthetic artwork; native acceptance remains
+separate.
+
+### Story-selected Skits And Lifecycle Sounds
+
+Field event scripts select a current Skit by its stable identity:
+
+```php
+['type' => 'play_skit', 'skit' => 'device-call'],
+```
+
+The authored Skit uses the existing speaker, voice, backdrop and beat format:
+
+```php
+return [
+  'id' => 'device-call',
+  'title' => 'A Call',
+  'trigger' => 'script',
+  'sounds' => ['open' => 'DeviceOn', 'close' => 'DeviceOff'],
+  'beats' => [/* ordinary speaker/text/emotion/voice beats */],
+];
+```
+
+`SkitTrigger` defines `prompt` and `script`. Existing Skits default to `prompt`;
+`script` keeps a story conversation out of the optional exploration cue. Explicit
+playback still checks its current map and story conditions. An unknown or gated
+Skit fails with a diagnostic. An already seen Skit completes immediately so a
+retried enclosing story script can continue without replaying its conversation.
+
+`SkitManager::beginSkitPlayback()` prepares the same current speaker, expression,
+voice, participant and place bindings used by optional playback. Its
+`SkitPlaybackOperation` advances on field ticks through `ModalEventPresentation`,
+sharing one `DialoguePlayback` across beats. The interpreter retains presentation
+ownership and waits until the last beat finishes before running later commands.
+Terminal and graphical stages receive the same text and playback metadata.
+
+`sounds.open` and `sounds.close` are optional ordinary `AudioManager` SFX
+references. Opening plays once when playback starts; closing plays once on normal
+completion or cancellation of an opened conversation. Game shutdown suppresses a
+new closing sound. Effects mute and volume settings apply through the existing
+Effects bus. Voice sequences, modal ownership and the busy state are released on
+completion, interruption and presentation failure. Unfinished Skits remain unseen
+and retryable; completed Skits record only the existing `skit_seen:<id>` event,
+which already survives save restoration.
+
+The shared cinematic schema exports the command's `skit` reference, trigger values,
+sound cue names and completion policy for source-preserving Editor authoring and
+resource pickers. Editor consumer work and project scene/audio bindings are
+separate integration steps.
 
 ### Availability Cue (Decided 2026-10-06)
 
@@ -101,7 +192,6 @@ return [
     'innkeeper-art' => ['portrait' => 'Graphics/Characters/Innkeeper/Neutral.png'],
   ],
   'speakers' => ['Authored display label' => 'hero-id', 'Innkeeper' => 'innkeeper-art'],
-  'skits' => ['conversation-id' => ['background' => 'Graphics/Skits/Town/Daytime.png']],
   'skitStage' => ['inactiveScale' => 0.92, 'inactiveBrightness' => 0.60],
 ];
 ```
@@ -115,6 +205,45 @@ existing ordinary dialogue; they are explicit author data, not directory or
 display-name inference. New `show_text` callers can pass a `DialogueContext`
 with stable identity and emotion. Skit contexts come from the authored beats,
 registered actors and live map metadata, not a second gameplay registry.
+
+### Backdrops Follow The Place
+
+A skit that can play on several maps shows the backdrop of the map it plays on.
+`SkitBackdrop::resolve()` asks, in order:
+
+1. the skit's own `backdrop`, only for a skit whose content needs one setting
+   wherever it plays;
+2. the current map's `skitBackdrop` (map data);
+3. the `skitBackdrop` of the map's region, in `Data/regions.php`
+   (`RegionCatalog`, schema `ichiloto.regions/1`, keyed by the region name
+   exactly as maps write it);
+4. none: `SkitManager` logs a warning naming the skit and the map, and the
+   stage shows the theme backing.
+
+```php
+// assets/Maps/town/square/square.data.php
+'region' => 'Town', 'skitBackdrop' => 'Graphics/Skits/Town/Square.png',
+// assets/Data/regions.php
+return ['schema' => 'ichiloto.regions/1', 'regions' => [
+  'Town' => ['skitBackdrop' => 'Graphics/Skits/Town/Streets.png'],
+]];
+// assets/Data/Skits/<id>.php, only when the content requires it
+'backdrop' => 'Graphics/Skits/Town/Bell-Tower.png',
+```
+
+Each value is an asset-root-relative PNG path. The first record that names a
+backdrop owns the choice: an unusable path is reported as that record's and is
+never replaced by a later record's art, and a named file the renderer cannot
+decode is reported by `DialogueScenePresentation`. A region's backdrop applies to
+every map of the region that names none, interiors included, so a region binds
+one only where that is true of all of them. The resolved path travels with each
+beat in `DialogueContext::$backdrop`; the Terminal presentation shows no backdrop
+and is unchanged.
+
+Project format 4 retired the dialogue catalogue's `skits` key: `ichiloto
+upgrade` moves each `skits.<id>.background` to that skit's `backdrop`, and the
+catalogue refuses the key afterwards. A game then moves a backdrop that belongs
+to a place from its skits to the map or region.
 
 `actors` keys reference the project's registered actor IDs. `resources` holds
 stable artwork identities for non-actor speakers such as NPCs; both collections
@@ -149,6 +278,16 @@ owner's page count inside the panel rather than as floating field text.
 Auto and Continue hints use semantic actions and current control labels. Log and
 Skip are not displayed before their playback behavior exists.
 
+Projects can set `dialogue-body` and `dialogue-speaker` roles in the existing
+`Data/Presentation/text.php` catalogue. Optional roles ending in `-compact`
+apply below 1,000 logical pixels. Each role can specify its own `lineHeight`
+in logical pixels. The graphical dialogue and skit surfaces
+prepare these roles through the session's text broker. A page keeps its layout
+while typing and releases it on page or owner change. The modal still chooses
+pages and controls timing and input. Projects and hosts without these roles
+and capabilities use the existing cell text. If the measured ink cannot fit
+the authored reading area, the screen retains cell text and reports the cause.
+
 Ordinary field dialogue uses negotiated protocol-2 `canvas_overlay` plus
 `graphical_canvas`, clipping and source rectangles. Its transparent root matches
 the hello grid's logical pixel surface and paints above field/HUD layers.
@@ -158,7 +297,7 @@ Older renderers retain terminal dialogue. Unsupported or oversized dialogue
 above a graphical menu also removes the opaque menu canvas, so it cannot hide
 the terminal fallback. Skits use the existing exclusive canvas surface.
 
-The skit stage cover-fits its explicitly bound scene background and contains
+The skit stage cover-fits its resolved backdrop and contains
 full borderless busts without mirroring. Only the dialogue nameplate names the
 active speaker; the redundant above-bust names and active-marker labels were
 removed following Andrew's October 1 correction. Active artwork retains full
@@ -166,6 +305,10 @@ brightness and contain-fit size. Inactive busts default to 92% of that size and
 60% RGB brightness, preserving their original alpha, shared baseline and slot
 centre. This is dimming, not translucency. Games may configure `skitStage`:
 `inactiveScale` is finite in 0.5..1; `inactiveBrightness` is finite in 0..1.
+Set `showTitlePlate` to `false` for an open graphical stage during dialogue.
+The title and location remain available in the skit context. Set `compactControls`
+to `true` for small Auto and Advance prompts using the current input bindings.
+Both style options leave Terminal presentation to its existing layout.
 The size difference provides a non-colour emphasis cue without extra labels.
 The shared baseline meets the dialogue panel, with one logical pixel of overlap
 behind its foreground border to avoid a raster seam. Active and inactive busts
@@ -174,8 +317,8 @@ Source artwork must not carry empty rows beneath its intended lower cut.
 Protocol-2 `canvas_image_tone` negotiates opaque-preserving image brightness;
 older graphical renderers keep scaling without dimming and report that limitation.
 Larger casts use stable groups of three containing the active speaker rather
-than endlessly shrinking portraits. Missing backgrounds use the theme backing
-with a diagnostic, not an unrelated battle arena. Shared graphical
+than endlessly shrinking portraits. A missing backdrop uses the theme backing
+with a diagnostic, not an unrelated battle arena or another place's backdrop. Shared graphical
 [notifications](notifications.md) remain live above the stage at their fixed
 top-right anchor; the previous safe-space deferral is removed. Ambient animation
 remains a concrete later gap.
@@ -195,7 +338,8 @@ approved that artwork on October 1 for Breakfast Banter (`breakfast-banter`)
 and Still Standing (`after-the-practicum`), sharing the existing Game asset
 `Graphics/Skits/HappyvilleTownCenter/Daytime.proposal-v1.png` without a copy.
 The approved background was subsequently inspected through its normal Game
-binding, with no preview override. Game's focused checks cover every beat of both
+binding, with no preview override. Format 4 moved that binding from the two
+skits to the Happyville Town Center map, where both skits play. Game's focused checks cover every beat of both
 skits at 1280x720 and 800x480, including the real background and produced cast art.
 Linux, Windows, mobile and full interactive native-game playback were not
 exercised by this fixture pass.
@@ -265,16 +409,16 @@ Beats gain optional fields; everything existing remains valid:
   reveals, aliases and translations never break busts, voice folders or
   animation bindings. The editor offers an actor picker; actor identity is
   never typed.
-- `speaker` remains for speakers who are not actors (a narrator, a
-  shopkeeper, "???"): plain display text, no bust, no emotion. A beat names
-  either an actor or a speaker.
+- `speaker` holds display text for speakers such as a narrator or shopkeeper.
+  To stage a bust, bind the label to a stable dialogue artwork identity in
+  the catalogue's Speaker Names, as for ordinary dialogue. Unbound labels
+  remain text-only. A beat names either an actor or a speaker.
 - Existing beats that name an actor through `speaker` migrate to `actor`.
   During the migration window a `speaker` value equal to an actor id
   resolves to that actor with a validator notice; this fallback is
   temporary.
-- `emotion` names a portrait in the actor's dialogue set, resolved through
-  the dialogue presentation catalog by actor id; unknown or absent falls
-  back to Neutral. Invalid or unknown authored values log a note; omission
+- `emotion` names an expression in the speaker identity's dialogue set.
+  Invalid or unknown values log a note and use Neutral. Omission
   is a normal legacy default and does not warn.
 - `voice` names an audio asset under the game's voice tree; the engine
   uses `assets/Audio/Voice/Skits/<skit-id>/<name>.mp3` in Phase 0. The basename
@@ -282,6 +426,9 @@ Beats gain optional fields; everything existing remains valid:
 - The location plate on the stage comes from the current map's data
   (name/region), never authored into the skit: metadata never restates
   what the game already knows.
+- `backdrop` (on the skit, beside `title` and `where`) is optional and only
+  for a skit whose content needs one particular setting; otherwise the
+  backdrop follows the place (see Backdrops Follow The Place).
 
 ### Voice playback
 
@@ -438,6 +585,9 @@ separately from headless composition tests and artwork previews.
    and condition/gate fields.
 2. Preview through the engine's own playback (voice included), as the
    summon preview already works.
+3. Backdrops (implemented 2026-10-26): a map's Skit Backdrop row, the Regions
+   page and a skit's optional Backdrop field, each chosen with the shared
+   asset picker in the Terminal and GUI editors.
 
 ## Sequencing (decided 2026-09-22)
 
@@ -474,8 +624,8 @@ complete.
   to grow from Tales-like toward fuller animation.
 - Beats identify speakers by stable actor id selected from the actor
   registry, the one source of truth; displayed names come from the actor.
-  Plain `speaker` text is only for speakers who are not actors, and carries
-  no bust. The editor never asks an author to type an actor's identity.
+  Non-actor `speaker` labels can stage busts through explicit catalogue aliases.
+  The editor never asks an author to type an actor's identity.
 - The Auto key is Space on the keyboard in dialogue, X (Xbox) or Square
   (PlayStation) on controllers; never a function key. X is the keyboard
   fallback wherever Space conflicts.

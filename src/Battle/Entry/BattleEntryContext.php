@@ -70,7 +70,7 @@ final readonly class BattleEntryContext
       true,
     );
     $reserveCharacters = array_values(array_filter(
-      $party->members->toArray(),
+      $party->participants->toArray(),
       static fn(mixed $member): bool => $member instanceof Character
         && ! isset($activeObjectIds[spl_object_id($member)]),
     ));

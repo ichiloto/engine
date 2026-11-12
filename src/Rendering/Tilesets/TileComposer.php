@@ -9,7 +9,9 @@ use InvalidArgumentException;
 /**
  * Composes a tile identity from its sheet, exactly as RPG Maker MZ draws it:
  * plain tiles copy one tile, autotiles assemble four quarter tiles chosen
- * by the shape carried in the identity, and A1 water animates.
+ * by the shape carried in the identity, and A1 water animates. A
+ * corner-edged kind's cells are composed from its corner sheet instead
+ * ({@see composeCorners()}).
  */
 final class TileComposer
 {
@@ -62,9 +64,8 @@ final class TileComposer
     }
     if (!TileId::isAutotile($id)) {
       // Upper sheets and A5: two halves of 8 columns, 128 tiles each.
-      $x = (intdiv($id, 128) % 2 * 8 + $id % 8) * $tileSize;
-      $y = intdiv($id % 256, 8) % 16 * $tileSize;
-      return [[new TilePiece($sheet, $x, $y, $tileSize, $tileSize, 0, 0)]];
+      [, $column, $row] = TileId::getPlainTileCell($id);
+      return [[new TilePiece($sheet->value, $column * $tileSize, $row * $tileSize, $tileSize, $tileSize, 0, 0)]];
     }
     $kind = TileId::getKind($id);
     $shape = TileId::getShape($id);
@@ -77,6 +78,49 @@ final class TileComposer
       default => [self::composeQuarters($sheet, $column * 2, intdiv(($row - 10) * 5 + ($row % 2), 2),
         $row % 2 === 1 ? self::WALL[$shape % 16] : self::FLOOR[$shape], $tileSize)],
     };
+  }
+
+  /**
+   * A cell's share of a corner-edged kind ({@see CornerShape}): each of its
+   * quarters is the facing quarter of the corner tile on that corner, from
+   * every phase of the kind's corner sheet in A1 water's cycle. A quarter
+   * whose corner holds none of the kind (case 0) draws nothing.
+   *
+   * @param int $cases The cell's four corner cases, packed as {@see CornerShape::resolveLayer()} gives them.
+   * @param list<int> $variants Four source rows, normally {@see CornerSheet::getCellVariants()}.
+   * @return list<list<TilePiece>> The animation frames, each the pieces copied into the cell's tile.
+   */
+  public static function composeCorners(CornerSheet $sheet, int $cases, int $tileSize, array $variants = [0, 0, 0, 0]): array
+  {
+    if ($cases < 1 || $cases > 0xFFFF) {
+      throw new InvalidArgumentException("Corner cases {$cases} name no corner of the kind.");
+    }
+    if ($tileSize < 2 || $tileSize % 2 !== 0) {
+      throw new InvalidArgumentException('Tiles are composed from quarter tiles, so their size must be even.');
+    }
+    if (!array_is_list($variants) || count($variants) !== 4
+      || array_any($variants, static fn(mixed $variant): bool => !is_int($variant) || $variant < 0 || $variant >= $sheet->variants)) {
+      throw new InvalidArgumentException('Corner variants must be four integer source rows within the current sheet.');
+    }
+    $half = intdiv($tileSize, 2);
+    $frames = [];
+    foreach ($sheet->phases === 1 ? [0] : self::WATER_FRAMES as $phase) {
+      $pieces = [];
+      for ($quarter = 0; $quarter < 4; $quarter++) {
+        $case = ($cases >> ($quarter * 4)) & 0xF;
+        if ($case === 0) {
+          continue;
+        }
+        [$column, $row] = CornerShape::LAYOUT[$case];
+        // The corner tile's quarter that faces this cell: a cell's top left is its corner tile's bottom right.
+        $facing = 3 - $quarter;
+        $pieces[] = new TilePiece($sheet->key, ($phase * CornerSheet::COLUMNS + $column) * $tileSize + $facing % 2 * $half,
+          ($variants[$quarter] * CornerSheet::ROWS + $row) * $tileSize + intdiv($facing, 2) * $half,
+          $half, $half, $quarter % 2 * $half, intdiv($quarter, 2) * $half);
+      }
+      $frames[] = $pieces;
+    }
+    return $frames;
   }
 
   /** @return list<list<TilePiece>> */
@@ -124,11 +168,11 @@ final class TileComposer
       if ($table && ($quarterY === 1 || $quarterY === 5)) {
         // A table's legs: the leg quarter beneath, then the top's upper half over it.
         $legX = $quarterY === 1 ? (4 - $quarterX) % 4 : $quarterX;
-        $pieces[] = new TilePiece($sheet, ($blockX * 2 + $legX) * $half, ($blockY * 2 + 3) * $half, $half, $half, $left, $top);
-        $pieces[] = new TilePiece($sheet, $x, $y, $half, intdiv($half, 2), $left, $top + intdiv($half, 2));
+        $pieces[] = new TilePiece($sheet->value, ($blockX * 2 + $legX) * $half, ($blockY * 2 + 3) * $half, $half, $half, $left, $top);
+        $pieces[] = new TilePiece($sheet->value, $x, $y, $half, intdiv($half, 2), $left, $top + intdiv($half, 2));
         continue;
       }
-      $pieces[] = new TilePiece($sheet, $x, $y, $half, $half, $left, $top);
+      $pieces[] = new TilePiece($sheet->value, $x, $y, $half, $half, $left, $top);
     }
     return $pieces;
   }

@@ -88,4 +88,18 @@ abstract class CommandLineAudioBackend implements AudioBackendInterface
   {
     return clamp($volume, 0.0, 1.0);
   }
+
+  /**
+   * Converts a linear gain to the volume of a player that scales its own
+   * volume control cubically (mpv, PulseAudio): such a player applies the
+   * cube of its volume fraction as gain, so the fraction is the cube root of
+   * the gain.
+   *
+   * @param float $volume The linear gain; clamped to 0.0 to 1.0.
+   * @return float The player's volume fraction between 0.0 and 1.0.
+   */
+  protected function convertGainToCubicVolume(float $volume): float
+  {
+    return (float)clamp(pow($this->clampVolume($volume), 1 / 3), 0.0, 1.0);
+  }
 }

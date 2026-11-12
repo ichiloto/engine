@@ -132,12 +132,13 @@ item 4, not completion of those phases.
 `Animations/<id>/<id>.timeline.php` returns `fps` (1..120),
 `lengthFrames`, `playback` (`once` or `loop`), optional zero-based
 `restFrame` (default 0), and a list of `tracks`. Image tracks have a
-stable `id`, `type => image`, asset-root-relative PNG `asset`, optional
+stable `id`, `type => image`, optional asset-root-relative PNG `asset` default, optional
 `sheet => ['columns' => 8, 'rows' => 1]`, optional
 `cells => ['width' => 2, 'height' => 2]` for its visual size in 48-pixel
 field cells, `depth => behind|front`, and `keyframes`. A keyframe names its
 zero-based `frame`, optional `duration` (default 1), `sourceFrame` (row-major
-sheet index, default 0), and optional cell offset `position => ['x' => 0,
+sheet index, default 0), optional asset-root-relative PNG `asset` selecting
+that keyframe's source file, and optional cell offset `position => ['x' => 0,
 'y' => 0]`. Optional `fit => contain` preserves the current source-frame aspect
 ratio inside the authored cells box; omission or `fit => stretch` preserves
 existing independent width/height sizing. Containment uses the frame crop, not
@@ -152,6 +153,29 @@ Independent terminal/graphical sequences and per-track capability selection
 apply to field playback too; unselected image and edge PNGs are not terminal
 dependencies. The shared segment composition filters capabilities before
 depth ordering and `clearBeforeDraw`, without clearing another session's art.
+
+The same per-keyframe image source contract applies to field, battle, summon
+and standalone cinematic-stage tracks. A track may use a single sheet, separate
+PNG frames, or a mixture. Each keyframe selects its explicit `asset` or the
+track's default; it never inherits an earlier keyframe's override. Without a
+track default, every keyframe must name a file. Declared defaults and overrides
+are validated even when another file is selected later. `sourceFrame` remains
+the cell index within the selected file, using the track's shared `sheet` grid.
+Each file must divide into that grid; current file dimensions determine the
+crop and fit. Track identity, placement, depth and timing remain stable across
+file changes. Separate frames use one image track with multiple keyframes and
+retain the 32-track and 10,000-keyframe bounds. For example:
+
+```php
+['id' => 'motion', 'type' => 'image', 'keyframes' => [
+    ['frame' => 0, 'duration' => 2, 'asset' => 'Graphics/Effects/start.png'],
+    ['frame' => 2, 'duration' => 2, 'asset' => 'Graphics/Effects/follow.png'],
+]]
+```
+
+GUI authoring must select these files through the shared asset picker and
+preserve their root-relative references on source round trips. Runtime
+admission does not establish completion of that Editor workflow.
 
 A map may declare `fieldEffects` as a list of `id`, `effect` (timeline id),
 and `anchor => ['cell' => ['x' => 3, 'y' => 5]]` or
@@ -169,6 +193,10 @@ the declaration is refused; legacy glyph-only sites use explicit map effects.
 
 Behind tracks use the shared ground-effect band, characters keep their
 existing row order, and front tracks remain below above-character tile layers.
+Guidance effects (the action prompt, event and NPC cues and waymarks) draw in
+the field guidance band instead, over every map layer and character: what they
+draw behind their marks with the cue plates, the rest over them
+(`PresentationLayerPolicy::FIELD_GUIDANCE`).
 Reduced-motion field playback holds the authored rest frame. Loops stay still;
 once effects retire after their authored lifetime. This follows Andrew's
 October field brief and does not change summons' final-frame policy.
@@ -177,16 +205,53 @@ original terminal glyph or static tile and log a diagnostic, not a gameplay
 failure.
 
 `Data/Presentation/field.php` owns `cues`, keyed by terminal color, each with
-an `effect` id and optional `edges` keyed by eight compass directions.
-Each edge names an asset-relative PNG and optional clockwise `quarterTurns`
-(0..3). These pinned sprites are excluded from camera follow. Quarter-turn
-support is an optional renderer drawing capability, not a native effect clock.
-An event's explicit `cue.kind` is `story` or `route`. Only story cues produce
-edge arrows; omitted kinds remain unclassified, physical-only, pending author
-review. Color never implies kind. Existing cue conditions and terminal styling
-remain authoritative and unchanged.
-Unavailable edge images or quarter-turn support retain the cell's cue artwork
-and log a note; they do not suppress an otherwise usable cue effect.
+an `effect` id (the upright cue mark), an optional `plate` image drawn behind
+that colour's marks, and optional `pointer` images keyed by
+eight compass directions. Each pointer names an asset-relative PNG and an
+optional clockwise `quarterTurns` (0..3); a straight and a diagonal image with
+quarter turns cover all eight. An edge marker is composed, never baked: the
+upright mark (with the cue plate) sits inside the view and only the pointer
+turns, on the outward side. Older `edges`, which rotated a mark baked into
+one image, are refused with a message to split them. These pinned sprites are
+excluded from camera follow. Quarter-turn support is an optional renderer
+drawing capability, not a native effect clock. Pointers belong to objective
+waymarks: the binding whose colour matches the game's `waymarks.color` draws
+waymark marks and their edge markers (see
+[Waymarks](quests.md#waymarks-where-an-objective-sends-the-player)). Cues
+themselves always stay at their authored cells. An event's explicit `cue.kind`
+(`story` or `route`) remains authored classification; since 20 October 2026 a
+story cue no longer draws its own edge arrow, because quest objectives own
+off-screen guidance. Color never implies kind.
+A binding without all eight usable pointer images (or a renderer that cannot
+rotate them) leaves waymarks as terminal glyphs and logs a note once.
+
+`cueStyle` keeps every cue mark readable on any ground, as each game chooses:
+
+```php
+'cueStyle' => [
+  'bob' => ['height' => 3, 'seconds' => 1.2],     // logical pixels and seconds; held still under reduced motion; drawn at display rate by a sprite_bob renderer
+  'pointerSpacing' => ['x' => 24, 'y' => 30],     // logical pixels from an edge mark's centre to its pointer
+  'overlap' => ['opacity' => 0.4, 'seconds' => 0.2], // opacity while the player's sprite overlaps a mark, and its fade; 1 keeps marks opaque
+  'terminal' => ['background' => 'black', 'bold' => true],
+],
+```
+
+The mark's outline is part of its artwork and each colour names its own
+plate, so new art drops in by changing the cue binding's effect, plate or
+pointer data only. In the Terminal every cue glyph (event
+cues, waymark marks and edge arrows) takes the style's background cell and
+bold. Engine defaults: no bob, pointer spacing 24 across and 30 up or down (a tall mark needs more), opacity
+0.4 under the player with a 0.2 second fade, and a black, bold Terminal cell.
+
+Guidance is UI: no mark ever moves to make way for the player or any other
+field sprite. While the player's sprite overlaps a mark (its plate, mark or
+edge pointer), the whole mark eases to the overlap opacity, and back once the
+player moves off, so the player shows beneath it. A renderer advertising
+`sprite_fade` draws the fade at display rate; reduced motion switches without
+the fade, and other renderers keep marks opaque. Guidance the player carries,
+the action prompt, never fades. In the Terminal a glyph keeps its cell; where
+the player stands on it, the player shows and the glyph returns when the
+player moves on.
 
 The initial field subset did not include battle playback; its current shared
 runtime and outstanding acceptance are recorded below. Still outstanding for
@@ -206,6 +271,12 @@ runtime/authoring validation. Existing numeric/name Animation records compile
 into this field session without changing their exact frame duration, colours,
 offsets, blank frames or last-frame hold. One-shot commands reject loops;
 map-owned ambient sessions retain loop ownership.
+
+Set `plane => 'aboveCover'` on a cinematic field effect or staged actor to
+draw its graphical image above the active dim. The default `field` plane
+draws with the map. The stage plane uses the subject's current cell, while
+Terminal glyphs keep their field layers. See [cinematic presentation commands](cinematics.md#existing-presentation-commands)
+for layering, renderer support and authoring constraints.
 
 Last Legend's Listening Stone rite now references `field-healing-aura`:
 25 fps, 18 ticks, three ticks per original frame, preserving its full 0.72
@@ -514,6 +585,12 @@ Overlapping keyframes within a track are refused. Both battle presentations
 apply segment depth ordering and `clearBeforeDraw` before drawing.
 Named-slot anchors are still future work.
 
+An attached battle image with `depth => subject-front` draws immediately
+after its caster or each selected target in battler ground order. Nearer
+battler bodies can cover the image. Screen, stage, target-group and detached
+images use their existing depth options. The default `front` draws above the
+battler layer and `behind` draws below it.
+
 Battle image tracks also accept `attachment => center|head|ground` and
 `pivot => ['x' => .5, 'y' => .5]`, both at track level, not per keyframe.
 `EffectImageAttachment::cases()` is the shared authoring option inventory.
@@ -522,10 +599,285 @@ The pivot is a finite normalized point in the selected sheet cell (0..1 on
 each axis), independent of the PNG's current resolution. `ground` attaches
 that point to the subject's stable ground pivot, following actual advance,
 recoil and shake, rather than the current posed rectangle or its transparency.
-`head` uses the current artwork's top centre. Explicit attachment is refused
+`head` uses the top centre of the battler's drawn body (below). Explicit attachment is refused
 on screen anchors; the image pivot remains usable there. Mirroring reflects
 the pivot too. Viewport boundaries crop source pixels at unchanged density
 instead of translating the image away from its attachment.
+
+For an effect that follows a particular point on a pose, add
+`attachmentPoints` to that battler pose. Each entry selects the source cell,
+names the point and sets normalized coordinates in the full cell:
+
+```php
+'attachmentPoints' => [
+  ['cell' => 0, 'name' => 'charge', 'point' => ['x' => .24, 'y' => .38]],
+  ['cell' => 1, 'name' => 'charge', 'point' => ['x' => .41, 'y' => .36]],
+],
+```
+
+Use `attachmentPoint => charge` on a battle image track with a caster or
+target anchor. Each frame projects the point from the current pose cell
+through its drawn placement, scale and mirror. A held or repeated source
+cell retains its point. Give any used reduced-motion rest cell its own
+point. A visible track whose current cell lacks the name reports a
+presentation error and omits that image. The effect's own pivot and
+offset still apply. Terminal uses the existing paired glyph or text lane.
+
+An attached battle image track can set `detachFrame` to hold its projected
+anchor and facing from that authored frame onward. The command captures the
+point before resolving combat on the same tick, including when one update
+crosses both cues. Subsequent image cells, offsets and fades stay on the
+effect's own timeline. Preview and live playback use the same capture path.
+Reduced motion captures from the configured pose rest cell. Cancellation
+clears the captured placement with the rest of the command presentation.
+
+A caster image with `detachFrame` can add `flight => ['arrivalFrame' => 24]`.
+At release, the command captures a path from the named caster point through
+the centres of the selected recipients in targeting order. The image moves at
+constant speed along that path until arrival. A wake image with the same release
+and arrival frames can set `holdFrame` within that interval. It follows the
+flight to that sample, then stays there as its image cells advance. Use multiple
+tracks for wake layers held at different positions. In reduced motion, the rest
+image holds the arrival or wake sample from release onward. Graphical flight
+does not dispatch gameplay cues. Author a separate Terminal glyph or text
+lane and use the existing impact cue for resolution.
+
+Declare the drawn direction with `facing => 'east'` or `'west'` on a
+directional flight image. The compositor preserves its source aspect ratio
+and mirrors it for the current path leg. A renderer with
+`canvas_image_rotation` also turns it to the leg's angle around the image
+pivot. The heading changes at the recipient waypoints. A held wake retains
+the heading of its sampled leg. A rotation at the viewport edge uses the
+full crop and a screen-space mask when `canvas_clip_opacity` is available.
+
+For a piercing shot, set `flight.route => 'straight'`. The release projects
+one ray through painted pixels in each selected recipient’s displayed crop,
+following the targeting order. Engine traces the current crop, mirror and clip
+at release, using the renderer’s whole-degree headings. If the projected
+formation has no shared drawable ray, the presentation reports that geometry
+and the action still uses its existing combat cue. To give the flight a
+horizontal exit instead, set `flight.fallback => 'horizontal-exit'`. The
+ray then leaves the arena in the caster's opponent-facing direction at the
+release height. `BattleStraightShot::planRoute()` reports the selected path,
+whether it used the exit and the order of the supplied recipients.
+
+For a fixed, once-playing graphical target effect, set the optional
+`fallbackHitSpacingFrames` to 1 through `fps` authored frames. Declare
+one horizontal-exit flight whose arrival owns the impact. A staged sequence
+may capture and advance that flight while the cinematic owns the view; the
+impact must occur at or after arena restoration. This removes the earlier
+requirement to delay release until restoration, so the return can coincide
+with the first hit. The live arena stays hidden until its authored return.
+When the flight exits,
+target-anchored hit tracks, reactions and popups play nearest first using
+the captured visible body centres. Equal distances keep the resolved order.
+Combat resolves once in its original order. A direct ray keeps one shared
+hit. Preview hosts pass the resolved `targetCount` when constructing
+`BattleCommandTimeline` so it reserves the same reaction time as live play.
+
+A target effect can author an advancing graphical contact front independently
+of a projectile or the command's combat impact:
+
+```php
+'targetContactSequence' => [
+  'firstFrame' => 20, 'lastFrame' => 28, 'direction' => 'west',
+  'tracks' => ['splash', 'contact-flash'],
+],
+```
+
+Use fixed once playback and select graphical target image, flash or shake
+tracks. Their keys use the first contact's clock; leave enough sequence length
+for the last contact's delay. At `firstFrame`, the shared host captures every
+selected body's visible bounds. An east/west front reaches their facing edges
+in geometric order across `firstFrame` through `lastFrame`. Equal edges contact
+together; one recipient contacts at `firstFrame`. Ground depth and equal names
+do not change identity or select additional targets. This capture is independent
+of effect-start target-group anchors. A stage must restore before the first
+contact. The current contract refuses range/flight clocks and projectile fallback
+spacing on the same effect, with an authoring diagnostic.
+
+Only the referenced tracks use the per-recipient sample clock. Other tracks,
+the command's single impact, actual outcomes, costs and reactions keep their
+existing clocks. Terminal content is independently compiled. Reduced motion
+holds each contact track's first drawing during its real visibility intervals;
+inspection and scrubbing never dispatch damage. Ordinary effects and summons
+use this same descriptor. Flat summon source round trips preserve it. Editor
+pickers and final Game bindings remain separate consumer work.
+
+A directional straight image can also set `flight.tipX` to a normalized source X along its
+pivot row. The rear pivot stays at the release point on the first flight frame.
+The tip reaches the final contact at `arrivalFrame`. When space is tight, the
+image scales uniformly so the tip still has at least its own reach in which to
+travel. This leaves the release pivot, the contact point and the action clock
+fixed. Use the same straight
+route and arrival timing on separate wake tracks. A wake samples the route at
+its own hold frame. Keep contact and combat timing aligned in the action review.
+
+For one selected recipient, set `flight.route => 'cubic'` and supply a
+`flight.curve` with `launchProgress`, `launchOffsetY`, `arrivalProgress`,
+and `arrivalOffsetY`. The route begins at the named release point and ends
+at the selected body's visible centre. The progress values locate the two
+controls along the horizontal launch-to-contact span in order, from 0 to 1.
+The Y offsets move them from the launch and arrival heights respectively,
+as signed fractions of the battle canvas height between −1 and 1. Negative
+offsets bend upward. The route is sampled by distance and provides the
+flight heading. Keep the existing `arrivalFrame`, hold samples and combat
+cues. Inspect actual formations to check clearance and contact.
+
+A graphical battle track with `type => trail` uses a named caster
+`attachmentPoint`, `detachFrame` and the same `flight.route` and
+`flight.arrivalFrame` as a detached image. The track needs no PNG.
+Set `fadeEndFrame` to its exclusive end. The head holds at contact during
+the fade. Range timing may move the launch while keeping arrival and fade
+end fixed. A rest frame inside the track holds one representative sample.
+Terminal effects retain their own tracks and the impact cue stays on the
+command clock.
+
+A cubic trail can set `flight.bystanderClearance` to 0–64 logical pixels.
+At release the Engine projects the active unselected battlers' visible
+bounds. It tests the authored curve against those bounds expanded by the
+largest dab radius and the authored clearance. When needed it shifts
+both controls vertically by the smallest viable amount within the arena.
+The caster point, selected contact, launch and impact frames stay fixed.
+If that cubic family has no clear path, the preview reports a diagnostic
+and the other effect tracks still play.
+
+The track's `profile` uses logical-pixel `length` and `spacing` for
+arc-length sampling. `startRadius` and `endRadius` specify tail and head
+radii, interpolated by normalized position raised to `radiusPower`.
+`startOpacity`, `endOpacity` and `opacityPower` work the same way.
+`fadeLengthRatio` is the fraction of full tail length at the end of the
+fade. The `brush` declares `falloff`, `alphaSteps`, `minimumAlpha`,
+and ordered colour `bands` with `until` radius fraction and a canvas
+colour descriptor. At most 128 dabs are admitted. The graphical preview
+takes `coverageDabs: true` when its canvas host supports the operation.
+A renderer lacking the optional operation still draws the other battle
+effect tracks.
+
+**Moving weapon connection.** A once-playing graphical battle track with
+`type => 'tether'` links the caster's current `grip` pose point to the moving
+head. An optional `guide` point takes over progressively as the keyframe's
+`guideWeight` goes from 0 to 1. `guideGripLift` and `guideHandLift` set the
+two vertical offsets on that first span. `guideGripOffset` and
+`guideHandOffset` offset those controls toward the selected target, in
+logical pixels. A separate track can draw a wake.
+
+Use `head` and `links` PNGs. The head faces east at zero rotation, with
+`headPivot` marking its connection point. The link image contains two
+equal-width cells, alternated at constant arc-length intervals. Use
+`headHeight`, `linkHeight` and `linkSpacing` in logical pixels on the
+720-pixel reference canvas. The destination canvas scales all three together.
+The effect accepts at most 256 visible link positions per sample.
+
+Each keyframe supplies `frame`, optional `duration`, `x`, `y`,
+`targetWeight`, `rotation` and `lift`. Positive X points toward the
+selected target. The offsets are measured from the caster's current ground
+point at weight 0 and from the selected body's centre at weight 1.
+`rotation` is the head's angle in degrees. The main span's two control
+points rise by `lift`. `curveFirstProgress` and `curveSecondProgress`
+position them along the span in order from 0 to 1, with defaults of one
+third and two thirds. Optional `approach` places the final control along
+the head heading as a fraction of the span. `depth` selects behind
+or front for the head, and `linkDepth` inherits it when omitted. The
+head and chain follow the authored curves while crossing behind
+bystanders. The head also passes behind its target outside the strike
+sample. At impact the head must reach the selected target while clearing
+other battlers. `clearance` adds a margin around bodies for those checks.
+The head uses rotated visible bounds when PNG pixel inspection is available.
+
+Set `poseClock => 'target'` on a fixed, once-playing target effect to
+start the caster pose at target frame 0. Use the same cadence for the pose
+and effect, and set `poseSyncFrame` to the pose's synchronization entry.
+The default announcement clock remains available for other effects.
+Flash-step entry and exit cells keep their movement phases when the main
+pose uses the target clock.
+
+A geometry failure is reported through presentation diagnostics. Damage and
+status still resolve on the ordinary command clock. Reduced motion holds the
+authored rest sample, and Terminal uses its independent effect tracks. The
+Editor exposes the same track, pose clock and sample fields through its
+graphical effect records and production battle preview.
+
+A windowless capacity probe at Iron Verdict's two review reaches drew 87 and
+109 rotated images with two synthetic crops. A later isolated replay used the
+15-cell review atlas and an exact technical crop of the flail head, with
+synthetic links and head offsets adapted from the proof. At both review
+formations the head contacted on frame 88 only, with no detected bystander
+overlap. The production Game binding and combined visual review are separate.
+
+A fixed, once-playing graphical target can set `rangeTiming.minDistance`
+and a list of `rangeTiming.keys` with `frame` and `at` entries. The command
+selects the alternate clock once from the caster-to-target ground separation
+as a share of the battle canvas diagonal. It uses the same measurement in
+battle and the Editor preview. At or above the threshold, the graphical
+tracks and caster's action pose use the alternate clock. Commands without one
+projected recipient use the authored clock.
+
+Each key maps an interior authored frame to its interior far-range frame.
+The lane boundaries, all cues, explicit impact and every flight arrival
+are fixed. The mapping interpolates between keys and must stay strictly
+ordered. Start the lane early enough to fit the earliest windup or launch.
+Graphical image and tone tracks, and explicitly graphical glyph, flash or
+shake tracks, can use this clock. Shared Terminal tracks retain their timing.
+A cubic flight may supply `flight.farCurve` with the same control fields as
+`curve` to shape the alternate route. Use the same authored arrival cues
+and pose sheet for both ranges, and inspect both projected target choices
+before integration.
+
+For constant-speed travel, a fixed, once-playing graphical target effect can
+set `flightTiming`, with a caster-attached projectile image track ID in
+`track` and `speed` in arena widths per second (0.05 to 20). Set the
+track's arrival to the effect's impact cue or frame. Author any wake on the
+same path and release/arrival frames. At release, the command measures the
+captured path. The projectile, wake, arrival effects and combat resolution
+use that clock. Windup and the caster's recovery retain their authored pace.
+The same timeline drives the Editor's scrubber. Use one of `flightTiming`
+or `rangeTiming` per effect. Terminal and graphical capture failure use the
+authored command clock.
+
+The target effect can declare `poseSyncFrame` to align the action pose's
+existing `impactFrame` playback entry to a particular frame of that effect.
+Use this when the key represents release and the effect hits later. The
+target effect's cadence maps both times onto the command clock. The existing
+`applyEffect` cue or `effectTiming` still owns combat resolution. Recovery
+starts at the synchronized pose entry and retains its authored duration.
+Omitting `poseSyncFrame` aligns the pose entry to the start of the target
+phase, as before. Reduced motion still uses the pose's rest cell.
+
+Battle image tracks can use `anchor => target-group` to draw one image for
+the command's exact selected recipients. Current visible bodies and stable
+projected ground anchors supply the geometry; equal names remain separate
+identities and duplicate references are collected once. Center/head attachment
+uses the combined body bounds. Ground attachment uses the midpoint across the
+selected ground points at their nearest depth. `BattleEffectTargetGroup`
+retains every identity/ground point plus the left/right/far/near envelope for
+depth-aware consumers; it never selects targets or resolves combat.
+
+For one area composition covering those recipients, add `span => true`,
+`attachment => ground` and `fit => contain`. The image's authored cells define
+its minimum size; it grows uniformly to cover the ground-point spread plus the
+current visible-body reach around their actual pivots. Aspect ratio, normalized
+image pivot, offsets, sheet crop and front/behind layering remain intact.
+Different recipient depths remain in the geometry; the image ground origin is
+the nearest edge, rather than an invented flat row or the first target.
+`span => false` retains fixed image sizing. The span option is refused on
+individual, screen and stage tracks or with stretch fit. Viewport clipping
+retains source density and the anchored origin. A missing selected ground/body
+is a reported presentation failure; combat remains command-owned. Paired
+Terminal tracks retain their existing independent content and admission.
+
+For a captured target group, `contactRail => ['left' => .3, 'right' => .7,
+'ridgeY' => .45, 'referenceHeight' => .5]` fits a continuous image strip
+through the selected bodies. Use `anchorLifetime => 'effect-start'` with
+`anchor => 'target-group'` and `attachment => 'ground'`. The four
+measurements are normalized coordinates within one source cell. Left and
+right bracket the painted contact ridge, ridgeY gives its vertical position,
+and referenceHeight is the source fraction used for the fitted thickness.
+Use the same registration on cooperating layers to preserve their alignment.
+The fit uses the captured bodies through row movement and leaves impact timing
+with the command. Renderers with `canvas_texture_strip` draw the bent strip.
+Other graphical renderers use the track's existing rigid image presentation,
+including its authored `span` when present.
 
 Last Legend's approved blue preparation and green healing sheets use their
 ring centres as pivots and `ground` attachment on caster and target respectively.
@@ -580,6 +932,17 @@ Screen anchors and non-directional track types refuse `facing`. Radial impacts,
 healing and other undirected effects omit it. No actor-name or artwork-path
 inference is involved. Terminal playback mirrors its small glyph strokes and
 offsets, not graphical poses or full-screen flourishes.
+
+A directional track may also declare `toward => recipient|opponents` (track level,
+battle only, with `facing`; `EffectFacingTarget::cases()` lists it for authoring).
+`recipient`, the default, is the turn described above. `opponents` turns the track
+toward the anchored battler's opponents whatever side its caster stands on: a ward
+raised in front of its recipient faces that recipient's enemies when an ally casts
+it from either side or the battler casts it on itself. `BattleEffectDirection::getOpponentsSign`
+owns the side convention (the party faces west, the troop east) for command advance
+and these tracks alike. GPUI passes each combatant's side from its formation; Terminal
+reads it from the battler's party or troop membership. A subject with neither keeps the
+authored facing. Last Legend's Barrier ward (`battle-barrier`) is the first consumer.
 
 Battle image keyframes additionally accept boolean `flipX` and `flipY`. These
 mirror the selected source cell, not the entire sheet or its destination. The
@@ -643,6 +1006,41 @@ pose may be stored for a future distinct delayed command; current summon
 playback never selects it by renaming Summon or inspecting an actor's name.
 No command, capability or unlock is granted by any pose binding.
 
+Use `actionPoses` in a battler's binding to associate a once-playing pose
+with the numeric ID of a battle animation. The Editor offers the animation
+and image from their project pickers. The association belongs to that
+battler, so the same animation can use different sheets for different
+battlers and other animations retain their normal role poses. The entry
+uses the existing pose fields and requires `loop => false` and an
+`impactFrame` playback entry. Flash-step action poses may also set
+`guardFrame` to an atlas cell held during both stationary guard phases.
+The ordinary resting pose takes over when the command ends or is cancelled.
+
+For a travelling action, `arrivalPoses` associates each angle band with its
+main `frames`, registered `reach`, and optional ground `pivot`. The
+direction is measured once from the visible Guard centre for Flash Step
+(or the resting body centre) to the target's registered strike point. With
+no registered point, it uses the approaching edge at the target's visible
+mid-height. Angles are in degrees, with forward positive on the horizontal
+axis and canvas-up negative on the vertical axis. Each entry supplies
+`minAngle` and `maxAngle`; bands are ordered and contiguous from −180 to
++180, including the lower bound and including +180 in the final band.
+The same chosen entry supplies the drawn cells, landing reach and recovery
+duration. Entry, exit and Guard cells keep their own sequences, and
+reduced motion draws the base rest cell. An action uses either angle bands
+or the existing `farPose` distance binding.
+
+The command clock aligns that entry with the target effect's `poseSyncFrame`
+or the start of the target phase. Entry zero starts the pose at the anchor,
+including on the first restored battlefield frame after a source cut-in.
+An earlier pose sequence can use a positive impact entry. After the pose's
+last playback entry, the battler returns to its normal resting role while
+remaining effects finish. The same binding supplies release attachments,
+travel reach and the Editor battle preview. Reduced motion samples the pose
+rest cell. With a target pose clock, the rest cell holds through command
+impact. Interruption and persistent battle reactions take precedence over
+the bound pose.
+
 Persistent pose priority is knockout, guard, afflicted, enhanced, then idle.
 All harmful states count, including poison that does not block actions, and
 negative stat stages count as affliction. Beneficial states and positive stat
@@ -677,6 +1075,9 @@ All seven stat identities (`attack`, `defence`, `magicAttack`, `magicDefence`,
 `speed`, `grace`, `evasion`) have independent `positive` and `negative` keys.
 States use `status.state.<State::id>`, never display names, glyphs or directories;
 poison and stun therefore retain their dedicated identity after a rename.
+Pending states use the separate `status.state.<State::id>.pending` role.
+`BattlerConditions::listStateIconRoles()` supplies both roles for each project
+state so the Editor can offer them before an image is bound.
 Procedural badges include an up/down arrow (or neutral marker); dedicated
 positive/negative artwork owns its own polarity treatment. A readable signed
 stage number remains outside every stat icon. State polarity comes from authored
@@ -724,10 +1125,31 @@ build to the right of the reserved overhead cursor slot, then wrap upward at the
 configured column limit. They stay attached to the presented combatant instance.
 Their actual bounds protect them from notification and feedback overlays.
 `BattleHeadAttachmentLayout` reserves every supported cursor motion envelope,
-including while selection is absent, and all battler bounds before placing
-badges. Existing semantic slots are retained before new conditions are assigned;
-adding or curing a condition never recenters or renumbers the remaining badges.
-Edge fallbacks use separate free cells. Insufficient space is an explicit error.
+including while selection is absent, before placing badges. Each semantic slot has
+a home cell in the head rows; a badge never covers a cursor envelope, another badge
+or its own battler, while another battler's body may stand behind it, as battlers
+stand behind one another. A badge whose home is taken keeps its last place beside
+the head while that stays free and returns home once it frees, so it never drifts
+away from its battler. Adding or curing a condition never recenters or renumbers
+the remaining badges. Edge fallbacks use the nearest separate free cells.
+Insufficient space is an explicit error.
+
+#### One anchor: the drawn body
+
+Every battle overlay attaches to the battler's drawn body: the visible pixels of
+the artwork it draws this frame, after crop, scale, mirroring, surface clip and
+command advance, recoil or shake. The target cursor, condition badges, target
+names, result popups and effect `head`/`center`/`feet` attachments all read it;
+`ground` attachment and contact shadows use the ground pivot. Production canvases
+carry transparent padding that differs per pose (a crouched afflicted pose leaves
+far more empty canvas above the head than idle), so the whole image rectangle is
+never an overlay anchor. `PngAssetBounds` reads the visible extent from the current
+PNG, keyed by a content hash, so replaced artwork needs no duplicated metadata.
+When GD or the pixels are unavailable, overlays fall back to the image rectangle
+with a logged diagnostic. Formation clearance diagnostics place the cursor on
+the same body. Names and popups take a place beside their own body first, over a
+neighbour's body when only that keeps them beside it, and otherwise the nearest
+free place, never the first free place found across the field.
 These are battlefield badges, not extra icons in the cramped status HUD.
 
 ### Show Gameplay Instead Of Narrating It
@@ -799,6 +1221,7 @@ Optional animation bindings remain:
 ```php
 'ui' => ['battle' => ['conditions' => [
   'states' => ['state-id' => 'state-aura'],
+  'interceptions' => ['state-id' => 'state-contact'],
   'statStages' => ['speed' => ['positive' => 'speed-up', 'negative' => 'speed-down']],
 ]]],
 ```
@@ -813,13 +1236,51 @@ their catalogs, preserve unrelated source and refuse unsupported edits before
 writing. This Engine slice does not implement those editors or admit assets.
 
 A condition timeline uses fixed authored fps, `playback => 'loop'`, optional
-`loopFrom`, a visible static `restFrame`, and battler-attached image/glyph/text
+`loopFrom`, a visible static `restFrame`, and battler-attached image/glyph/text/tone
 tracks. Existing target/caster anchors refer to the affected battler, with image
 head/center/feet/ground attachments and pivots unchanged. Screen/stage anchors,
 flash, shake and all cues (including audio and applyEffect) are rejected for
 persistent conditions. This prevents repeated gameplay/audio and flashing at
 rest. Multiple conditions compose independently, including clear-before-draw
 inside each condition, rather than erasing another condition's layers.
+
+An interception timeline uses the same state IDs and resource references. It is
+a fixed, non-looping effect with a visible reduced-motion rest frame and tracks
+attached to the target. The intercepted attack carries the consumed state ID
+in its resolved target result. The effect starts on that target at the miss,
+plays on the command clock, and clears before any queued response starts.
+Graphical and Terminal tracks use their own presentation variant. A missing
+binding leaves the ordinary miss and counter intact.
+
+An optional `tone` track changes the current battler image's intrinsic
+brightness. It retains crop, placement, opacity, clip, mirroring and draw order;
+replacing a pose or PNG needs no baked shadow copy. Each keyframe has `frame`,
+optional `duration`/`visible`, and an explicit brightness multiplier:
+
+```php
+['id' => 'shade', 'type' => 'tone', 'anchor' => 'target', 'presentation' => 'graphical',
+ 'keyframes' => [['frame' => 0, 'duration' => 24, 'payload' => [
+   'brightness' => .15,
+ ]]]]
+```
+
+Brightness is a finite number in0..1. Tone tracks accept target/caster anchors
+and no content, asset, offset or screen fields. They multiply the image's
+existing brightness through the shared CanvasImage contract and add no source
+assets or raster composite surfaces. Overlapping state/command tones multiply
+by stable combatant instance identity. The current condition clock and rest
+frame govern sampling; Terminal keeps its authored glyph/text or semantic label.
+Removal/interception/expiry/KO follows the real state, including the prepared
+counter's inactive-lease cleanup after commands. Presentation never mutates the
+lease or cures a state. A backend without canvas_image_tone reports the missing
+presentation and keeps the normal image, badges and gameplay.
+
+Separately, composited flashes that use mirrored image-alpha masks require
+negotiated canvas_image_alpha_flip plus compositing. The mask carries optional
+boolean flipX/flipY within its selected crop; false flags are omitted. A backend
+without that capability reports the unsupported mirrored flash and keeps poses,
+feedback and gameplay. Intrinsic tone tracks use the existing brightness feature
+and preserve mirroring without that extra raster-mask capability.
 
 The field's existing pause-aware pose clock supplies elapsed time. Conditions
 join its current loop phase when applied; sampling does not restart a private
@@ -851,8 +1312,10 @@ defeat ceremony are independent of G3; headless API acceptance is not native
 visual/audio or production-art acceptance. See
 [graphical-battle-g1.md](rendering/graphical-battle-g1.md#battlefield-conditions-and-enemy-defeat).
 
-The catalog's `ui` owns shared canvas dimensions, party slots and feedback
-safe area; each troop enemy's `graphicalPlacement` owns its slot. Arena scenes
+The catalog's `ui` owns shared canvas dimensions, the party formation and
+feedback safe area; each troop enemy's `graphicalPlacement` owns its stage
+place, and the arena's ground decides where both stand
+([staging](rendering/graphical-battle-g1.md#arena-ground-and-staging)). Arena scenes
 own only a display name, background and optional skin. Effects follow the
 actual combatant instance, not an arena-side troop override; see the
 [formation contract and ownership audit](rendering/graphical-battle-g1.md#troop-owned-graphical-formation).
@@ -1148,10 +1611,22 @@ supports clearing it. Skill Ctrl+G follows the explicit id even after a rename.
 Saved inventory instances resolve the current item definition's animation;
 the artwork binding is not frozen into a save.
 
+The same bindings accept an optional `animationScale` (0.25 to 4.0, default
+1.0): how large the animation's target effect plays, as a multiple of the size
+its timeline authors. One timeline serves every grade of a spell; Freeze I and
+Blizzard bind the same animation at different scales. The scale applies to the
+target lane's image tracks only: cell boxes and cell offsets grow or shrink
+together, so each image keeps its pivot on its anchor or ground point. The
+caster (source) effect, glyph and text tracks, and the terminal presentation
+keep their authored size, because terminal glyphs cannot be resized without
+distortion. Records omit the default. The Editor edits it as Effect Scale beside
+the Animation picker, and its battle effect preview plays each binding at its
+scale. Role-selected attacks play their effect as authored.
+
 A null skill reference uses an explicitly declared semantic animation default,
 not its display name. `ActionAnimationResolver::getSupportedRoles()` supplies
 the closed role list for validation and Editor selectors: `attack`, `skill`,
-`restorative`, `attack-unarmed`, and `attack-<type>` for every `WeaponType`.
+`restorative`, `buff`, `debuff`, `attack-unarmed`, and `attack-<type>` for every `WeaponType`.
 Both AttackAction and BasicSkill without an explicit id use the actor's current
 equipped weapon type, otherwise the actor's authored `attackStyle`, otherwise
 `attack-unarmed`. Actor data may declare `attackStyle` as a `WeaponType` or its
@@ -1161,7 +1636,11 @@ bonus. It is rebuilt from current actor data when loading saves, never serialize
 as mutable state. Equipping a different weapon type overrides it; removing that
 upgrade restores the base style. Unclassified equipped weapons and non-equipment
 creatures use neutral `attack`, not an inferred blade. No class/name inference.
-Other skills retain restorative/buff-magic or generic-skill defaults. Explicit
+Restorative magic uses the `restorative` role; enhancement (`buff`) and affliction
+(`debuff`) magic use their own roles, so an unbound buff no longer borrows the healing
+look and an unbound debuff no longer borrows the generic skill strike (removed
+October 21, 2026: buff magic previously defaulted to `restorative`, debuff magic to
+`skill`). Other skills retain the generic-skill default. Explicit
 skill/item ids remain authoritative. Missing or duplicate role bindings are
 diagnosed and omit only that effect; they never silently substitute a slash.
 
@@ -1200,7 +1679,7 @@ Stage fields use one shape each, with defaults only when a field is absent:
 | Field | Contract |
 | --- | --- |
 | `canvas` | Required `{width, height}` integer stage units, each 1..4096. |
-| `startFrame`, `restoreFrame` | Required authored frames, `0 <= startFrame < restoreFrame < lengthFrames`. Stage replacement is active from start inclusively to restore exclusively. |
+| `startFrame`, `restoreFrame` | Required integers with `0 <= startFrame < restoreFrame <= lengthFrames`. Stage replacement covers `[startFrame, restoreFrame)` and must include `restFrame`. Set `restoreFrame` to `lengthFrames` to keep the stage active through the final drawable frame. |
 | `background` | Optional `black`, `white` or `#RRGGBB`; absent means black. |
 | `subjects` | Optional list, absent means empty, at most 32 records: `{id, position:{x,y}, size:{width,height}, pivot?, attachments?}`. Size is a registered presentation box, not duplicate PNG dimensions. |
 | Subject `pivot` | Normalized `{x,y}` in 0..1; absent means `{x:.5,y:1}`. |
@@ -1254,9 +1733,27 @@ retain their higher application-owned priority above stage images and covers.
 `EffectTimelineLibrary::loadStage` and `compileStage` admit standalone graphical
 stages independently of battle/summon profiles. They require fixed, once-only
 playback, stage-image tracks, no cues and a safe reduced-motion rest frame.
+Standalone cover-only stages may have an empty track list. Field/battle image
+admission retains its existing nonempty-track rule. Image-bearing stages still
+require image content at their reduced-motion rest frame.
 `CinematicStageSession` takes an explicit asset root and consumer duration;
 `advanceTo` accepts monotonic elapsed time, while `getCanvas` is read-only.
 Backward preview seek requires a fresh session or pure stage projection.
+
+An explicit `stage.background => null` makes the stage an overlay on the current
+scene. Omission retains its existing opaque black background. Authored cover
+keys still own colour, opacity and the transparent final frame; reduced motion
+retains its existing cover suppression. Cover-only overlays allocate a shared
+one-pixel composite fill and need no generated image or duplicate field canvas.
+
+The shared field command `play_stage` selects a `stage_timeline` and explicit
+nonnegative `seconds`. It runs cooperatively in sequence/parallel lanes and
+releases only its own session. Zero seconds completes immediately. Terminal
+keeps the same authored duration without inspecting graphical artwork. Active
+map/generation cleanup cancels the owned graphical session. Editors use the
+existing stage timeline selector, preserve explicit null backgrounds and permit
+cover-only sources through the shared validator. Audio and gameplay stay in
+the surrounding ordinary commands; standalone stages carry no cues.
 
 An inn may select a stable timeline ID through `InnOffer::presentation`; absent
 or null uses the optional `graphics.inn.presentation` project setting. The
@@ -1395,11 +1892,13 @@ summon/stage/real-engine suites pass 239 tests / 3,325 assertions; scoped source
 static analysis is clean.
 
 Command ownership is independent of the skill catalogue and artwork. Actor
-definitions may select `attackSkill` by catalogue reference: it must be a
-battle-usable `BasicSkill`. The actor's current definition owns that inherent
-attack, including after restoring an old save; it is not mutable save data.
-Absence uses the Engine's built-in `AttackAction`, not an arbitrary catalogue
-entry or a name-based guess. Additional attacks must be learned BasicSkills.
+and enemy definitions may select `attackSkill` by catalogue reference: it must
+be a battle-usable `BasicSkill`. The actor's current definition owns that
+inherent attack, including after restoring an old save; it is not mutable save
+data. Absence uses the Engine's built-in `AttackAction`, not an arbitrary
+catalogue entry or a name-based guess. `Battle\InherentAttack` builds that
+action for every path that makes a battler simply attack: an enemy with no
+usable action pattern, and the battle simulator and its previews. Additional attacks must be learned BasicSkills.
 The Skill menu contains only learned, battle-usable special abilities; summon
 actions stay in Summon/Petition, and spells in Magic. Defining a skill never
 grants it to actors. Enemy action patterns and explicit sandbox loadouts retain
@@ -2147,3 +2646,89 @@ this plan's Phases 1-4 follow it.
   of characters.
 - Per-tile terrain animation (A1) stays on the tile animation counter;
   character and object sheets animate through the character walk animation.
+
+
+### Action pose impact alignment
+
+A non-looping `BattlerPose` may declare `impactFrame`, a zero-based index into
+its `frames` playback list, including repeated cells used for holds. For example,
+`frames: [0, 1, 1, 2, 2, 3], fps: 20, loop: false, impactFrame: 3` anchors
+source cell 2 at the command's target-phase start. Plain battler bindings use
+that same `impactFrame` integer field. Looping poses and indices outside the
+playback list are rejected.
+
+The shared command playhead supplies elapsed time from announcement start and
+the target boundary. Anticipation runs at the authored fps, then holds the entry
+immediately before impact while a long announcement finishes. If the available
+lead-in is shorter than the authored anticipation, only anticipation is compressed
+to fit. Impact, held entries and recovery continue at the authored fps. A zero-index
+impact holds `restFrame` before the boundary. Anchored action recovery remains
+visible while the actor returns to its slot. Command completion waits for the
+selected pose's full post-impact playback, including its final held entry.
+Movement, announcement, effect and damage cues keep their original timings;
+only the finish interval extends when the configured pace is too short. Pausing
+freezes that recovery, and cancellation or actual reaction poses retain ownership. Reduced motion shows `restFrame`.
+Unanchored poses and Terminal presentation retain their existing clocks.
+
+The action's numeric Animation binding may select `sourceEffectAnchor: 'target'`
+(`SourceEffectAnchor::TARGET` in PHP). Its `sourceEffect` then starts on this
+same target boundary and stays attached to the caster. Its authored frames,
+sound/flash cues, playback speed and source-track identity remain intact. The
+source phase keeps the configured anticipation budget; the target presentation
+lifetime accommodates the overlapping caster effect. Damage still follows the
+target effect's existing `effectTiming`, cue or original target-end policy;
+an overlapping caster effect does not move that resolution cue. For a hit at
+target start, author the target effect's existing frame-0 impact policy.
+For a staged target, `effectTiming => ['mode' => 'arena', 'frame' => N]`
+returns controls at the stage's exclusive restore boundary and resolves at
+the authored frame `N`, at or after that boundary. Put the arena hit imagery
+on the target tracks and let the actual selected battlers supply their
+placement. Summon cinematic definitions use the same mode through their
+existing effect timing. Paired Terminal effects can use their own timing.
+`sourceEffectAnchor: 'source'` is the compatibility default and is omitted when
+serializing unchanged animation data. The target anchor supports battlefield
+tracks; a source cinematic stage requires its existing sequential source lane.
+
+Editor follow-up: expose the optional impact playback-entry selector with its
+non-looping validation, and the Source/Target source-effect anchor selector,
+through existing source-preserving save, undo and previews. Graphical pose previews
+must supply the actual command target boundary, using
+`BattleCommandPlayback::getPoseImpactSeconds`; static sheet inspection keeps its
+ordinary fps clock. No game-specific offset or per-render timer is needed.
+
+
+Command preview hosts pass their selected `BattlerPose` as the optional
+`BattleCommandTimeline::actionPose` argument, just as the production runner reads
+it from the active battle presentation. `actionPoseEndFrame` is its exclusive
+recovery boundary; `BattlerPose::getRecoverySeconds()` includes all playback
+entries from impact to the final hold. Results-only and unanchored poses add no
+recovery interval. Terminal-only hosts supply no graphical pose.
+
+## Recorded per-hit battle feedback
+
+A graphical target effect can author `hitFeedbackFrames`, an increasing list of
+frames on that effect's own clock, for example `[4, 8, 12, 16]`. The first frame
+must coincide with its existing single `effectTiming` impact; all beats must fit
+before command return and after any cinematic battlefield restoration. Fixed,
+once-playing effects retain their cadence. Flat and paired summon timelines
+preserve the same field in the graphical sequence. Editor controls remain the
+GUI Editor's responsibility; source round trips retain the authored data.
+
+Combat and costs resolve once. Each actual `CombatHitResult` supplies one number
+and a reaction restart at its corresponding beat, using its recorded pre/post HP.
+Graphical HP, knockout visibility, opacity and ground contact sample that same
+immutable history. The real combatant keeps final gameplay HP throughout. Hits
+after a fatal result have no invented numbers; all authored visual contacts keep
+playing, and enemy defeat treatment begins at return. Target instances stay
+separate even when their displayed names match. Aggregate MP/secondary feedback
+belongs to the first recorded beat; command costs are never replayed.
+
+Reduced graphical motion retains these feedback beats. Terminal keeps its
+independent aggregate presentation and has no dependency on graphical beat or
+image data. Pure recorded-hit inspection and pose sampling deliver no cues or
+combat. Cancellation releases pending feedback. A result with more recorded
+hits than authored beats records a presentation error and shows the complete
+aggregate, preserving the outcome; the malformed schedule must be corrected.
+The result formatter can consume the fifth optional `CombatHitResult` argument
+to format historical HP feedback. Existing unscheduled feedback keeps its
+current behaviour.

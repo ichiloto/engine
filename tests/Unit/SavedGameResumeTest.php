@@ -177,7 +177,7 @@ beforeEach(function () {
     }
     $this->root = createTestDirectory('saved-game-resume-');
     $this->managers = [];
-    foreach ([EventManager::class, ModalManager::class, SaveManager::class] as $class) {
+    foreach ([EventManager::class, SaveManager::class] as $class) {
         new ReflectionProperty($class, 'instance')->setValue(null, null);
     }
     Debug::configure(['log_directory' => $this->root . '/logs']);
@@ -271,8 +271,7 @@ it('leaves save decoding, slot inspection, GameLoader and ordinary/new-game conf
     $game->sceneManager->saveManager->getSaveSlots();
     $game->sceneManager->saveManager->loadSaveFile($slot->path);
     new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $game->sceneManager->saveManager);
-    $reader = makeBareScene(GameLoader::class);
-    new ReflectionProperty(GameLoader::class, 'game')->setValue($reader, $game);
+    $reader = createTestGameLoader($game);
     $reader->loadSavedGame($slot->path);
     expect(SavedResumeHandler::$contexts)->toBe([])->and(file_get_contents($slot->path))->toBe($bytes)
         ->and($game->getProjectStateRegistry()->captureSnapshot())->toBe($before)

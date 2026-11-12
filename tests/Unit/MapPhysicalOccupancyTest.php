@@ -17,6 +17,31 @@ it('retains every final CollisionType without deriving physical meaning from gly
         ->and($data)->toBe(['occupancy' => [$types]]);
 });
 
+it('round trips packed occupancy and enum rows through the same ragged physical grid', function () {
+    $layers = new MapLayerSet([new MapLayer('terrain', 0, false, 'legacy', "\n##########\n#")], legacy: true);
+    $types = array_values(array_filter(CollisionType::cases(), static fn(CollisionType $type): bool => $type !== CollisionType::PASS_THROUGH));
+    $legacy = [[], $types, [CollisionType::COUNTER]];
+    $packed = ['packedRows' => ['', '012345678A', 'A']];
+    $occupancy = MapCollisionResolver::resolveMap($layers, ['occupancy' => $packed], ['#' => CollisionType::SOLID]);
+
+    expect($occupancy->exportDeclaration())->toBe($legacy)
+        ->and($occupancy->exportPackedDeclaration())->toBe($packed)
+        ->and($occupancy->collisionGrid)->toBe(MapCollisionResolver::resolveMap($layers, ['occupancy' => $legacy])->collisionGrid);
+});
+
+it('refuses packed rows that cannot describe the whole physical map', function (array $packed, string $reason) {
+    $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', "..\n..")]);
+    expect(fn() => new MapPhysicalOccupancy($packed, $layers))->toThrow(InvalidArgumentException::class, $reason);
+})->with([
+    'wrong row count' => [['packedRows' => ['00']], 'must have 2 rows'],
+    'sparse rows' => [['packedRows' => [1 => '00', 2 => '11']], 'zero-based list'],
+    'row is not a string' => [['packedRows' => ['00', [CollisionType::NONE, CollisionType::NONE]]], 'must be an ASCII string'],
+    'short row' => [['packedRows' => ['00', '0']], 'packed row 1 must be 2 tiles wide'],
+    'unknown code' => [['packedRows' => ['00', '0x']], 'packed cell 1, 1 has an unknown collision code'],
+    'pass through' => [['packedRows' => ['00', '09']], 'must be resolved; PASS_THROUGH'],
+    'extra field' => [['packedRows' => ['00', '01'], 'rows' => []], 'zero-based list'],
+]);
+
 it('captures legacy layer precedence exactly for an explicit migration without writing map data', function () {
     $layers = new MapLayerSet([
         new MapLayer('terrain', 1, false, 'terrain', ";~8 ?e\n     x"),
@@ -30,7 +55,7 @@ it('captures legacy layer precedence exactly for an explicit migration without w
         'buildings' => ['x' => CollisionType::NONE], 'fixtures' => ['i' => CollisionType::PASS_THROUGH]];
     $expected = [[7, 1, 0, 0, 6, 1], [0, 0, 0, 0, 0, 10]];
     $data = ['name' => 'Synthetic'];
-    $snapshot = MapCollisionResolver::resolveLegacyOccupancy($layers, $dictionary);
+    $snapshot = MapCollisionResolver::resolveLegacyOccupancy($layers, $dictionary, null);
     expect($snapshot->collisionGrid)->toBe($expected)
         ->and(MapCollisionResolver::resolveMap($layers, $data, $dictionary)->collisionGrid)->toBe($expected)
         ->and(MapCollisionResolver::resolveLayers($layers, $dictionary))->toBe($expected)
@@ -51,7 +76,7 @@ it('preserves flat legacy ANSI numeric and transliterated glyph passage on ragge
         '?' => CollisionType::SAVE_POINT, 'x' => CollisionType::PASS_THROUGH];
     $expected = [[], [4, 0, 7], [6, 1]];
     $manager = new ReflectionClass(MapManager::class)->newInstanceWithoutConstructor();
-    $snapshot = MapCollisionResolver::resolveLegacyOccupancy($layers, $dictionary);
+    $snapshot = MapCollisionResolver::resolveLegacyOccupancy($layers, $dictionary, null);
     expect($snapshot->collisionGrid)->toBe($expected)
         ->and($manager->generateCollisionMap(explode("\n", $text), $dictionary))->toBe($expected)
         ->and($manager->generateCollisionMap($layers->getComposedGrid(), $dictionary))->toBe($expected)

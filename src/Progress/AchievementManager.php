@@ -8,8 +8,9 @@ use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Events\AchievementEvent;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
-use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Core\Campaign\CampaignContextInterface;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Quests\{QuestLog, QuestManager};
 use Throwable;
 
 /**
@@ -28,6 +29,34 @@ class AchievementManager
    * @var AchievementManager|null The manager bound to the running game scene.
    */
   protected static ?AchievementManager $current = null;
+  /** @var \WeakReference<self>|null */
+  private ?\WeakReference $previousManager = null;
+  private bool $released = false;
+  private ?QuestLog $questLog = null;
+
+  public bool $isReleased { get => $this->released; }
+
+  /** Release this campaign's compatibility binding without disturbing another active owner. */
+  public function release(): void
+  {
+    if ($this->released) { return; }
+    if (self::$current === $this) {
+      self::$current = $this->previousManager?->get();
+    } else {
+      $cursor = self::$current;
+      while ($cursor !== null) {
+        $previous = $cursor->previousManager?->get();
+        if ($previous === $this) {
+          $cursor->previousManager = $this->previousManager;
+          break;
+        }
+        $cursor = $previous;
+      }
+    }
+    $this->previousManager = null;
+    $this->released = true;
+  }
+
   /**
    * @var array<string, Achievement> The authored achievements, keyed by id.
    */
@@ -41,14 +70,18 @@ class AchievementManager
    * AchievementManager constructor.
    *
    * @param Game $game The game.
-   * @param GameScene $gameScene The owning game scene.
+   * @param CampaignContextInterface $gameScene The campaign facts, supplied by a field or detached session.
    */
   public function __construct(
     protected Game $game,
-    protected GameScene $gameScene,
+    protected CampaignContextInterface $gameScene,
+    ?string $assetRoot = null,
+    ?QuestLog $questLog = null,
   )
   {
-    $this->achievements = self::loadDefinitions();
+    $this->questLog = $questLog ?? QuestManager::current()?->log;
+    $this->achievements = self::loadDefinitions($assetRoot);
+    $this->previousManager = self::$current === null ? null : \WeakReference::create(self::$current);
     self::$current = $this;
   }
 
@@ -77,9 +110,9 @@ class AchievementManager
    *
    * @return array<string, Achievement> The achievements, keyed by id.
    */
-  public static function loadDefinitions(): array
+  public static function loadDefinitions(?string $assetRoot = null): array
   {
-    $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Data', 'achievements.php');
+    $filename = Path::join($assetRoot ?? Path::join(Path::getCurrentWorkingDirectory(), 'assets'), 'Data', 'achievements.php');
 
     if (! file_exists($filename)) {
       return [];
@@ -188,7 +221,7 @@ class AchievementManager
         continue;
       }
 
-      if (WorldConditionEvaluator::allHold($achievement->conditions, $this->gameScene->gameState, $this->gameScene->party)) {
+      if (WorldConditionEvaluator::allHold($achievement->conditions, $this->gameScene->gameState, $this->gameScene->party, $this->questLog)) {
         $this->unlock($achievementId);
       }
     }

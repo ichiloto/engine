@@ -18,6 +18,83 @@ enemy-AI schema, the story-flag store, the class data, the encounter tile
 type, and the guard/escape vocabulary all exist and have no consumer. The
 fastest path to "full 2D JRPGs" is mostly *wiring what is already designed*.
 
+## Variable party participation — 29 October 2026
+
+Shared Party capacity now supports 1–8 active battlers, replacing the fixed
+three-member limit while retaining three as the legacy project default.
+Story-authored participation selects original permanent actors for field
+leadership, menus/targets, battle entry and reserve promotion; regrouping keeps
+permanent order and progress. Selection and capacity persist through the normal
+save pipeline, including actor aliases. The Editor authors the project size and
+selection/regroup commands through the existing source-preserving schemas and
+Actor pickers. Terminal formations and synchronized four-row battle-HUD paging
+cover eight combatants; graphical staging retains theme-owned formations.
+Battle Test accepts eight configured members and a separate active frontline
+limit from 1–8. A preset's explicit `battleSize`, including three, survives
+serialization. An omitted limit inherits the project's current size through
+`ProjectBattleTest::createSetup()`; editor callers can supply an unsaved System
+size. The Party pane adjusts the limit. Next/previous pane actions retain each
+pane's selection and scroll position. Cancel closes an opened choice before it
+leaves Battle Test. Editor preview, GUI controls and Console roster overrides
+must use the same resolution contract; their remaining work is tracked in the
+[rendering integration roadmap](rendering/integration-roadmap.md).
+See [Party capacity and temporary groups](story-events.md#party-capacity-and-temporary-groups).
+This does not implement a particular game's split/reunion scene, change its
+normal party size, add controller devices or authorize native launches.
+
+## Super Moves — shared runtime and authoring
+
+Project-authored Super Moves define HP/status activation and world-conditioned
+skill variants. The runtime reads live resources, rechecks queued actions,
+and displays the project-defined activation badge. On held-input clients, hold Right
+on Attack to reveal the available technique. Confirm keeps that choice through
+target selection. Releasing Right before confirmation restores Attack.
+Event-only clients use the Attack choice menu. Current-source actor
+reconstruction keeps the resource definition out of saved mutable actor state.
+The Editor authors these resources and actor assignments through the shared
+condition and reference pickers.
+BattleConfig now owns renderer-independent front/back rows and lanes keyed by
+combatant instances. Troop member `battlePosition` declarations and optional
+per-battle party slot positions seed it; reserve replacements synchronize at the
+same ownership boundary. The domain resolves selected lines/rows, permutes
+occupied positions and pushes back-row members into distinct front places.
+Editor source authoring and duplicate-position refusal are present. Shared line/row
+selection, preview, queued TBS/ATB execution, enemy AI and simulation consume the
+current formation. Selected line anchors retain combatant identity across queued
+formation changes. Command group effects now shuffle occupied places or move survivors forward once
+after all damage, with live/counter/simulator context ownership. Graphical and
+terminal frames now project those mutations over their original presentation
+anchors while preserving battler identity, theme sizing, footing and side bounds.
+Battle configuration validates positions without freezing pre-battle party edits.
+Game projects own their technique bindings and artwork. See
+[Super Moves](skill-effects-and-states.md#super-moves) and the
+[rendering integration roadmap](rendering/integration-roadmap.md).
+
+Prepared decoy counters now divert a selected opponent's next damaging command,
+force one whole-invocation miss and queue a normal counter response. Traditional,
+ATB and simulation share battle-owned reaction state and explicit cleanup.
+Counter-inflicted states received during the target's own turn retain their
+first duration tick for the next turn. Full-game move art and integration remain
+part of the ongoing delivery.
+
+ATB reset effects now use the active engine's gauge/ready-queue owner. State-owned
+ATB pace supports temporary slowing, acceleration and paused fill, including
+restoration when cured and legacy-state defaults. Traditional combat retains its
+turn rules and reports timing effects unapplied.
+
+Explicit guaranteed state effects now bypass resistance and the chance roll on
+surviving targets. Existing effects keep their resistance rules; older saved
+effects retain the default. Editor effect authoring round trips the guarantee.
+
+## Story-gated dash — 29 October 2026
+
+Projects can require shared world conditions before held-input movement uses
+the dash multiplier. Field movement reads the current game state and party on
+each step. Existing unguarded projects keep their dash behavior, map restrictions
+still apply, and player Always Dash preferences remain intact. System authoring
+uses the existing conditions editor. See
+[Story-gated dashing](rendering/input-sources.md#story-gated-dashing).
+
 ## Maturity map
 
 **Polished / complete**
@@ -50,7 +127,7 @@ fastest path to "full 2D JRPGs" is mostly *wiring what is already designed*.
 - CutsceneState, DialogueState, MapState, OverworldState (empty; never entered)
 - Status ailments, buffs/debuffs, elements, crits, accuracy/evasion rolls,
   Guard, Escape, multi-target resolution, enemy AI, random encounters,
-  boss mechanics, battle events
+  boss mechanics (battle events: shipped, see [battle-events.md](battle-events.md))
 - Switches/variables/quest state (read-side only; `recordStoryEvent` uncalled)
 - NPC actors, event conditions/pages, field cutscene scripting, skits
 - Class wiring (`classes.php` never loaded — every character is 'Hero'),
@@ -202,6 +279,12 @@ The single highest-leverage build. A `GameState` store carried by
 > See [quests.md](quests.md). The editor's quests database category also
 > shipped (list/objectives/rewards/preview panes, lossless round-trip,
 > Save All + dirty markers + identity-pinned undo integration).
+>
+> Objective waymarks (PT-19, 20 October 2026): objectives author `waymarks`
+> as stable map subjects with their own conditions; the field shows them on
+> screen or as edge arrows, the local and world maps mark them, and the next
+> usable exit is marked for objectives on other maps
+> ([quests.md](quests.md#waymarks-where-an-objective-sends-the-player)).
 
 A pure consumer of Phase 1:
 - `assets/Data/quests.php`: id, name, description, giver, steps/objectives
@@ -220,6 +303,12 @@ A pure consumer of Phase 1:
 > round ticks with popups and expiry alerts in `TurnResolutionState`,
 > prevents-action states consume turns, non-persistent states clear at
 > battle end (demo: Poison + Stun, Venom Strike + Cleanse skills).
+> **Field conditions** (2026-10-20): a state may act while the party walks
+> (`fieldTickSteps`, stopping at 1 HP unless `fieldTickKnocksOut`), rest
+> cures states authored `curedByRest` (inns and `recover_party`), the item
+> `remove_state` effect cures states, field item use refuses items that
+> would change nothing, and the Status menu, party cards and item targets
+> show conditions in both renderers with an authored badge `label`.
 > **Buffs/debuffs** (`HasStatStages`): ±4 stages at 25% per stage,
 > `ModifyStatStageSkillEffect`, composed through `BattlerBattleView` so
 > damage formulas, basic attacks, and turn-order speed all see
@@ -381,37 +470,48 @@ Turn the polished stage into a real fight. Roughly in order:
 > `trainingHours` decision (kept — spells still gate on it), and the equipment
 > stat-delta preview, which was already implemented in `CharacterDetailPanel`.
 
-#### Project-owned level-up recovery (2026-10-13)
+#### Project-owned level-up recovery (2026-10-13, three modes 2026-10-21)
 
 `assets/Data/system.php` may declare this optional section:
 
 ```php
 'progression' => [
-  'restoreVitalsOnLevelUp' => true,
+  'levelUpRecovery' => 'full',
 ],
 ```
 
 The section must be an associative PHP array (an empty array is valid); its
-only supported key is `restoreVitalsOnLevelUp`, whose value must be a literal
-boolean. Omitted section or key means `true`, preserving existing games. Null,
-strings, numbers, lists, objects and unknown section keys are rejected rather
-than coerced. Unrelated system fields remain unchanged.
+only supported key is `levelUpRecovery`, a `LevelUpRecovery` value. Andrew,
+2026-10-21: "make it an editor setting, default to full restore".
+
+| Value | Current HP and MP after a level gained | Precedent |
+|---|---|---|
+| `full` (default) | refilled to the new maxima | Dragon Quest XI, Octopath, Xenoblade 2 |
+| `increase` | each gains what its maximum gained | Pokemon |
+| `none` | unchanged; only the maxima rise | Final Fantasy IV to VI |
+
+One mode covers both resources. A knocked-out member (0 HP) is restored only
+by `full`, which matches the behaviour before the modes existed; `increase`
+keeps 0 HP (adding to it would revive by levelling) while MP gains its
+increase. A multi-level award recovers exactly as the same levels gained one
+award at a time. Omitted section or key means `full`. Null, booleans, case
+names, unknown values and unknown keys are rejected rather than coerced. The
+2026-10-13 boolean `restoreVitalsOnLevelUp` is refused with its replacement
+named (`full` for true, `none` for false); no project data used it.
 
 `SystemData::$progression` is a validated, immutable `ProgressionSettings`.
 Game bootstrap registers the same contract in `ConfigStore` for the existing
-`ExperienceAwarder::award()` / `awardParty()` path. `true` restores current HP
-and MP to their equipment-aware maxima only when an award raises the level;
-`false` disables that automatic refill and preserves current resources (with
-the existing maximum clamping). EXP, level growth, automatic role-skill grants,
-AP and states are unchanged. Battle and quest awards share this path; scripted
-and migration EXP callers must use it too, not raw `Character::addExperience()`.
-This adds no new script command or migration behavior.
+`ExperienceAwarder::award()` / `awardParty()` path, which battle victories and
+quest rewards share for active and reserve members alike. The mode applies only
+when an award raises the level. EXP, level growth, automatic role-skill grants,
+AP and states are unchanged. Scripted and migration EXP callers must use this
+path too, not raw `Character::addExperience()`.
 
 This is developer-owned project data, not a player option, launch override or
 save field. Equipment recalculation, save hydration, legacy invalid-vital save
-recovery and battle-test setup keep their existing semantics. Editor/GUI
-authoring must preserve other system data and round-trip literal booleans;
-their integration remains with the Editor owner.
+recovery and battle-test setup keep their existing semantics. The Editor
+authors it as Database > System > Level Up HP/MP, which the GUI editor shows
+through the same record schema.
 
 #### Original plan
 - **Classes** — `ClassStore` over `classes.php`; actors reference a class by
@@ -608,6 +708,24 @@ their integration remains with the Editor owner.
 > column accounting, unchanged-row skipping, and frame batching (including
 > nesting). Verified live: the map renders identically after the change.
 
+### Performance — large-map transfers ⏳ *first-visit latency remains open*
+
+The shared map path now reuses immutable layer grids, parsed tile grids and
+compiled presentation worlds in bounded compressed memory, with current source
+and artwork bytes checked before reuse. Expanded maps still release on exit.
+Negotiated compact world rows reduce upload bytes while preserving each cell.
+See [graphical-field.md](graphical-field.md) for these contracts.
+
+First preparation still blocks `GameScene::transferPlayer()`: source validation,
+map-local actors and world compilation finish before the atomic map commit, then
+the destination world must reach its renderer acknowledgement. Reuse improves a
+return visit; it does not make an uncached large destination instant. Removing
+that first-visit pause requires a shared staged preparation lifecycle with bounded
+work between frames, failure/cancellation before commit, and preserved event,
+cinematic, arrival-input and autosave ordering. It belongs to Engine's transfer
+and presentation path. Keep current Terminal behavior and source-preserving Editor
+round trips; a map-specific bypass or extra loading delay does not solve it.
+
 ### Known issue — rare unreproducible test flake
 > Twice during Phase 6/7 work a single suite run reported one failure that
 > did not reproduce. The first cause was real and fixed: static caches
@@ -730,12 +848,68 @@ their integration remains with the Editor owner.
 > unchanged. Invalid resources, field-only actions and ambiguous linked summon
 > actions are refused rather than silently omitted.
 >
-> The existing `--runs` simulator is still attack-only. Custom command/skill/
-> summon loadouts must not produce misleading simulation reports: Console
-> refuses them with `--runs`; play the configured fight instead. A future
-> simulator action policy must use shared action selection, targeting and
-> transaction semantics, including enemy patterns and deterministic replay,
-> rather than a special summon executor. This capability is not implemented.
+> **Battle-test troops and the graphical arena (2026-10-21):** after the
+> troops, the arena composes a test troop (`TestTroopComposer` over
+> `BattleTestTroop`): enemies join where `TerminalBattleEffects::findTroopPlace()`
+> stands a new member on the terminal field, move on the stage where a
+> graphical battle draws it, are fought like any troop and can be kept as a
+> troop through a `BattleTestTroopKeeper` (the Editor's writer for the
+> Console; `LaunchTroopHandOver` back to an editor that launched the test,
+> asked for by the launch context's `keepTroops`). Without a keeper a composed
+> troop is for testing only. Under a graphical renderer the arena is drawn in
+> the game's menu theme (`BattleTestMenuPresentation`) beside the battle's own
+> resting stage (`BattleFormationLayout::composeImagesInto()`); Terminal and
+> GPUI read one list model, `BattleTestMenuList`, and the Terminal reads as
+> before.
+>
+> **Battle-test starting condition and party items (2026-11-10):** each
+> `BattleTestMember` may start a fight at a chosen HP and MP
+> (`BattleTestVital`: a percentage of its maximum or exact points) and with
+> chosen states from the project's `StateRegistry`; `BattleTestSetup` holds
+> the party's items (`BattleTestItem` entries), or the default stock of 99 of
+> every non-equipment item when none are set. `createParty()` applies both to
+> every fight, preview and composed troop, so the ordinary crisis gate,
+> state expiry and item use run on real state. `ProjectBattleTest` and the
+> setup share one key list (`BattleTestSetup::KEYS`). In the arena, HP, MP and
+> States sit under the level in the member editor (left and right step one, a
+> page step ten, confirm offers full, the crisis threshold the actor's own
+> ability defines, none, and the other unit); a page step from the party opens
+> its items, set in the Shop's stages (`BattleTestInventoryEditor` over
+> `QuantitySelector`). The member's note states whether its crisis ability is
+> ready, by the ability's own rule.
+>
+> **Battle-test forms (2026-11-10, Andrew: "Pick his form (Rec.)"):** a member
+> whose crisis ability's forms are chosen by story facts a test can set (a
+> variable compared with `==`, a switch, a story event) gets a Form row under
+> its States. The choices are derived from the ability's own conditions
+> (`BattleTestWorld::listCharacterForms()`), named by the technique each form
+> offers and the facts that choose it; forms gated by anything else (items,
+> quests, the party) are not offered. The member keeps the facts as `world`
+> (`BattleTestWorld`); every fight gets a fresh `GameState` from them through
+> `BattleConfig::TEST_WORLD_STATE`, which the shared execution context and
+> entry rules read only for that battle, and the member note reads the same
+> state. Campaign battles keep the GameScene's state, and saves never hold the
+> facts. Facts that are not one of the member's forms, or that two members
+> set differently, are setup problems. Labels come from the authored technique
+> and a readable form of the facts; the Engine has no project-specific forms.
+>
+> **Simulator action choice (2026-10-20):** `--runs` measured both sides with
+> the built-in x1 `AttackAction` and ignored enemy patterns, so a project whose
+> actors attack with an authored `attackSkill` (Last Legend's x4 Attack) and
+> whose enemies use patterned skills played very differently from what the
+> simulator reported. Party members now attack with their inherent attack
+> (`Battle\InherentAttack`: the authored `attackSkill`, or the built-in
+> attack), and enemies choose through `EnemyActionEvaluator`, as live play
+> does, with the run's seeded random source. Each turn keeps the live turn's
+> rules: a guard ends when its battler acts again, a blocking state consumes
+> the turn, recipients are revalidated by `BattleTargetPolicy`, counters answer
+> landed hits, and states tick at the end of the battler's turn. Enemies may
+> author `attackSkill` too; the enemy fallback uses it before the built-in
+> attack. Custom command/skill/summon loadouts still must not produce
+> misleading reports: Console refuses them with `--runs`; play the configured
+> fight instead. Party skill, item and guard choices remain a future action
+> policy; it must use the same shared selection, targeting and transaction
+> semantics rather than a special executor.
 >
 > It earned itself on the first run: every early enemy in the demo shared one
 > placeholder stat block (a level 14 bat with 203 HP and 30 defence) against
@@ -865,6 +1039,11 @@ followers, NPC patrol routes, the first-class Editor cinematic authoring
 surface, boss phases, and scheduled/delayed battle actions.
 
 ## Cinematic and summon runtime gate ✅ *shipped 2026-08*
+
+**Renderer follow-up.** Cinematic art on the `aboveCover` plane follows the
+current field cell. Smooth movement and camera easing above the cover require
+a world-anchored overlay image in the Renderer protocol. The
+[cinematic contract](cinematics.md) describes the current stage-plane behavior.
 
 > Status: the Engine runtime gate is complete and awaiting orchestration
 > review. It does not claim completion of the separate Editor authoring gate.
@@ -1091,6 +1270,19 @@ fields inject the protected-write property on their own scene; normal field
 configuration registers it automatically. `UIManager::deactivateElement()` and
 `removeElement()` clear only the owned element's presentation and Console layer,
 preserving notifications and unrelated UI.
+
+### Untimed performance sequences
+
+`PerformanceSequenceScene` runs an ordered series of choice prompts through
+the shared modal presentation in Terminal and graphical renderers. Register
+the scene and pass `PerformanceSceneConfiguration` to `beginSceneExcursion()`.
+The configuration contains a title, `PerformancePhrase` entries with their
+choices and zero-based correct choice, and an optional sound reference. A
+correct choice advances to the next prompt. An incorrect choice repeats the
+current prompt. Cancel returns to the caller, and a new sitting starts with
+the first prompt. The scene owns the accompaniment playback and stops it on
+exit. `PerformanceResult` reports the completed and total phrase counts. The
+calling game owns the content, event continuation and any saved progression.
 
 The optional [project secondary field action](rendering/input-sources.md#project-secondary-field-action)
 uses semantic input independently of ordinary Talk. The generic
@@ -1478,6 +1670,15 @@ another quest, save or gameplay authority.
 The first implementation task is **SD0**. Its deliverable is the versioned
 record/proposal contract and a capability-to-owner map for the two origins and
 their deviation, followed by SD1's persistent synthetic campaign.
+
+## Scheduled income ✅ *2026-10-20*
+
+Optional, project-authored recurring pay ([income.md](income.md)): schedules in
+`assets/Data/income.php` advance by active play time (idle, menus and pauses
+excluded), steps, won battles or the `payday` command; pay follows a
+condition-keyed rate table, deposits or waits for `collect_income`, and takes
+one-time `adjust_income` bonuses and deductions. Standing is an additive save
+field. Authoring lives in the Editor database (both editors).
 
 ## Sequencing notes
 

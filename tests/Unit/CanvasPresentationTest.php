@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageBottomFade;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasIndicator;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasIndicatorKind;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -44,7 +45,7 @@ function canvasPresenter(array $capabilities, ?RendererGridConfig $grid = null):
 {
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
-  $client->start(new RendererSessionConfig('Canvas', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  $client->start(new RendererSessionConfig('Canvas', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: $capabilities));
   $transport->batches[] = [RendererEvent::fromJson(json_encode([
     'protocol' => 2, 'type' => 'ready', 'capabilities' => $capabilities,
@@ -77,7 +78,7 @@ it('requires negotiated fitting support without queuing a partial canvas', funct
   $sent = count($transport->sent);
   expect(fn() => $presenter->prepareCanvas($canvas))->toThrow(RendererProtocolException::class, 'canvas_viewport_fit');
   expect(count($transport->sent))->toBe($sent);
-  expect(fn() => new RendererSessionConfig('Invalid', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  expect(fn() => new RendererSessionConfig('Invalid', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: [RendererSessionConfig::CANVAS_VIEWPORT_FIT]))->toThrow(InvalidArgumentException::class, 'graphical_canvas');
 });
 
@@ -85,6 +86,7 @@ it('replaces the retained fitting declaration on each switch and returns to nati
   [$presenter, $transport] = canvasPresenter([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_VIEWPORT_FIT]);
   foreach ([CanvasViewportFit::NATIVE, CanvasViewportFit::CONTAIN, CanvasViewportFit::NATIVE] as $fit) {
     expect($presenter->presentCanvas(new PresentationCanvas(20, 20, viewportFit: $fit)))->toBeTrue();
+    $transport->acknowledgeLatestFrame($presenter);
   }
   $frames = RetainedFrameState::replay($transport->sent);
   expect($frames[0]['canvas'])->not->toHaveKey('viewportFit')
@@ -119,6 +121,38 @@ it('clips an anchored image at every edge without translating or stretching its 
     ->and($fractional->destination->height / $fractional->sourceRect->height)->toBe(2.0);
   new PresentationCanvas(50, 30, [$fractional]);
 })->with([false, true])->with([false, true]);
+
+it('keeps the full rotated crop and pivot when the canvas edge masks its output', function () {
+  $source = new SpriteSourceRect(30, 20, 20, 10);
+  $destination = new CanvasRectangle(-5, 12, 20, 10, allowOutsideCanvas: true);
+  $pivot = new PresentationSpritePivot(.25, .5);
+  $image = CanvasImage::createRotated('arrow', 'synthetic.png', $destination, 50, 50, 7, $source, true, false, 90, $pivot);
+  $canvas = new PresentationCanvas(50, 50, [$image]);
+  expect($image->destination)->toBe($destination)
+    ->and($image->sourceRect)->toBe($source)
+    ->and($image->clipRect->toArray())->toBe(['x' => 0.0, 'y' => 12.0, 'width' => 5.0, 'height' => 20.0])
+    ->and(CanvasImage::fromArray($image->toArray())->toArray())->toBe($image->toArray())
+    ->and(PresentationCanvas::composeOverlay(null, $canvas, 'preview-')->images[0]->pivot)->toBe($pivot);
+  expect(fn() => new PresentationCanvas(50, 50, [new CanvasImage('invalid', 'synthetic.png', $destination,
+    rotation: 90, pivot: $pivot)]))->toThrow(InvalidArgumentException::class);
+  expect(fn() => new CanvasImage('invalid', 'synthetic.png', new CanvasRectangle(0, 0, 40, 10),
+    sourceRect: $source, rotation: 45, pivot: $pivot))->toThrow(InvalidArgumentException::class, 'uniform');
+});
+
+it('capability-gates explicit canvas image rotation even at zero degrees', function () {
+  $image = new CanvasImage('arrow', 'synthetic.png', new CanvasRectangle(10, 10, 20, 10),
+    rotation: 0, pivot: new PresentationSpritePivot(.25, .5));
+  $canvas = new PresentationCanvas(50, 50, [$image]);
+  [$ordinary] = canvasPresenter([RendererSessionConfig::GRAPHICAL_CANVAS]);
+  expect(fn() => $ordinary->prepareCanvas($canvas))->toThrow(RendererProtocolException::class, 'canvas_image_rotation');
+  [$rotating, $transport] = canvasPresenter([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_IMAGE_ROTATION]);
+  expect($rotating->presentCanvas($canvas))->toBeTrue();
+  expect(RetainedFrameState::replay($transport->sent)[0]['canvas']['images'][0]['rotation'])->toBe(0);
+  $wire = $image->toArray();
+  foreach ([['rotation' => 360], ['rotation' => 0.0], ['rotation' => null], ['pivot' => ['x' => -.1, 'y' => .5]]] as $invalid) {
+    expect(fn() => CanvasImage::fromArray(array_replace($wire, $invalid)))->toThrow(InvalidArgumentException::class);
+  }
+});
 
 it('constructs strictly contained fractional clipping edges without changing source pixels or flips', function (bool $flipX, bool $flipY) {
   $source = new SpriteSourceRect(64, 96, 2048, 1536);
@@ -299,9 +333,9 @@ it('validates optional image brightness without changing legacy opacity or wire 
 });
 
 it('negotiates image tone and updates retained brightness without resetting unrelated canvas entities', function () {
-  expect(fn() => new RendererSessionConfig('Tone', sys_get_temp_dir(), requiredCapabilities: ['canvas_image_tone']))
+  expect(fn() => new RendererSessionConfig('Tone', \getTestTemporaryDirectory(), requiredCapabilities: ['canvas_image_tone']))
     ->toThrow(InvalidArgumentException::class);
-  expect(fn() => new RendererSessionConfig('Tone', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  expect(fn() => new RendererSessionConfig('Tone', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: ['canvas_image_tone']))->toThrow(InvalidArgumentException::class);
   $rect = new CanvasRectangle(20, 20, 40, 60);
   $make = fn($brightness) => new PresentationCanvas(100, 100, [
@@ -324,12 +358,41 @@ it('negotiates image tone and updates retained brightness without resetting unre
     ->and($frames[1]['canvas']['images'][1])->toEqual($frames[0]['canvas']['images'][1]);
 });
 
+it('negotiates a bottom fade and removes it from the retained image when cleared', function () {
+  $capability = RendererSessionConfig::CANVAS_IMAGE_BOTTOM_FADE;
+  $graphical = RendererSessionConfig::GRAPHICAL_CANVAS;
+  expect(fn() => new RendererSessionConfig('Fade', \getTestTemporaryDirectory(), requiredCapabilities: [$capability]))
+    ->toThrow(InvalidArgumentException::class)
+    ->and(fn() => new RendererSessionConfig('Fade', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
+      requiredCapabilities: [$capability]))->toThrow(InvalidArgumentException::class, 'graphical_canvas');
+  $bounds = new CanvasRectangle(20, 20, 40, 60);
+  $fade = new CanvasImageBottomFade([0.48, 0.50, 0.47], 0.06);
+  $make = fn(?CanvasImageBottomFade $bottomFade) => new PresentationCanvas(100, 100, [
+    new CanvasImage('body', 'synthetic.png', $bounds, bottomFade: $bottomFade),
+    new CanvasImage('other', 'synthetic.png', new CanvasRectangle(0, 0, 10, 10)),
+  ]);
+  [$legacy, $oldPeer] = canvasPresenter([$graphical]);
+  expect(fn() => $legacy->presentCanvas($make($fade)))->toThrow(RendererProtocolException::class, $capability);
+  expect($oldPeer->sent)->toBe([])->and($legacy->presentCanvas($make(null)))->toBeTrue();
+
+  [$presenter, $peer] = canvasPresenter([$graphical, $capability]);
+  expect($presenter->presentCanvas($make($fade)))->toBeTrue()
+    ->and($presenter->presentCanvas($make($fade)))->toBeFalse()
+    ->and($presenter->presentCanvas($make(null)))->toBeTrue();
+  $frames = RetainedFrameState::replay($peer->sent);
+  expect($peer->sent[1]->payload['operations'])->toHaveCount(1)
+    ->and($peer->sent[1]->payload['operations'][0]['id'])->toBe('body')
+    ->and($frames[0]['canvas']['images'][0]['bottomFade'])->toBe($fade->toArray())
+    ->and($frames[1]['canvas']['images'][0])->not->toHaveKey('bottomFade')
+    ->and($frames[1]['canvas']['images'][1])->toEqual($frames[0]['canvas']['images'][1]);
+});
+
 it('negotiates independent image flips and removes them on retained replacement', function () {
   $rect = new CanvasRectangle(20, 20, 40, 60);
   $make = fn(bool $flip) => new PresentationCanvas(100, 100, [
     new CanvasImage('stroke', 'synthetic.png', $rect, flipX: $flip, flipY: $flip),
   ]);
-  expect(fn() => new RendererSessionConfig('Flip', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  expect(fn() => new RendererSessionConfig('Flip', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: ['canvas_image_flip']))->toThrow(InvalidArgumentException::class);
   [$legacy, $oldPeer] = canvasPresenter(['graphical_canvas']);
   expect(fn() => $legacy->presentCanvas($make(true)))->toThrow(RendererProtocolException::class, 'canvas_image_flip');
@@ -407,7 +470,7 @@ it('rejects mixed legacy and canvas frames without changing legacy wire shapes',
 });
 
 it('requires v2 requested and acknowledged canvas and crop capabilities even for blank canvases', function () {
-  expect(fn() => new RendererSessionConfig('v1', sys_get_temp_dir(), requiredCapabilities: ['graphical_canvas']))
+  expect(fn() => new RendererSessionConfig('v1', \getTestTemporaryDirectory(), requiredCapabilities: ['graphical_canvas']))
     ->toThrow(InvalidArgumentException::class);
   [$presenter, $transport] = canvasPresenter([]);
   expect(fn() => $presenter->presentCanvas(new PresentationCanvas(1, 1)))->toThrow(RendererProtocolException::class, 'graphical_canvas');
@@ -425,7 +488,7 @@ it('negotiates the new capability over real process pipes and rejects old render
     PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', $scenario,
   ]));
   $client = new RendererClient($transport);
-  $session = new RendererSessionConfig('Canvas', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+  $session = new RendererSessionConfig('Canvas', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: ['graphical_canvas']);
   try {
     if ($scenario === 'normal') {
@@ -443,14 +506,18 @@ it('shares transactional deduplication and sequencing across canvas and field tr
   [$presenter, $transport] = canvasPresenter(['graphical_canvas']);
   $canvas = new PresentationCanvas(1350, 720, [canvasImage()]);
   $field = new ConsolePresentationSnapshot(2, 1, []);
-  expect($presenter->present($field))->toBeTrue()->and($presenter->presentCanvas($canvas))->toBeTrue()
-    ->and($presenter->presentCanvas($canvas))->toBeFalse();
+  expect($presenter->present($field))->toBeTrue();
+  $transport->acknowledgeLatestFrame($presenter);
+  expect($presenter->presentCanvas($canvas))->toBeTrue();
+  $transport->acknowledgeLatestFrame($presenter);
+  expect($presenter->presentCanvas($canvas))->toBeFalse();
   $transport->sendFailure = new RendererTransportException('backpressure');
   expect(fn() => $presenter->presentCanvas(new PresentationCanvas(1350, 720)))->toThrow(RendererTransportException::class);
   expect(fn() => $presenter->presentCanvas($canvas))->toThrow(RendererTransportException::class);
   $transport->sendFailure = null;
-  expect($presenter->presentCanvas(new PresentationCanvas(1350, 720)))->toBeTrue()
-    ->and($presenter->present($field))->toBeTrue()->and($presenter->present($field))->toBeFalse();
+  expect($presenter->presentCanvas(new PresentationCanvas(1350, 720)))->toBeTrue();
+  $transport->acknowledgeLatestFrame($presenter);
+  expect($presenter->present($field))->toBeTrue()->and($presenter->present($field))->toBeFalse();
   $frames = RetainedFrameState::replay($transport->sent);
   expect(array_map(fn($m) => $m->payload['frame'], $transport->sent))->toBe([1, 2, 3, 4])
     ->and($transport->sent[2]->payload['reset'])->toBeTrue()

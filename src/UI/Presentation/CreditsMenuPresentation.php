@@ -25,7 +25,7 @@ final class CreditsMenuPresentation
     return new CanvasRectangle($bounds->x + $padding,
       $bounds->y + $padding + $m->cellHeight + $m->sectionGap,
       $bounds->width - 2 * $padding,
-      $bounds->height - 2 * $padding - $m->cellHeight - $m->rowHeight - 2 * $m->sectionGap);
+      $bounds->height - 2 * $padding - $m->cellHeight - MenuLayout::getButtonHeight($theme) - 2 * $m->sectionGap);
   }
 
   public static function createPlayback(CreditsContent $content, MenuPresentationCatalog $theme): CreditsPlayback
@@ -50,9 +50,8 @@ final class CreditsMenuPresentation
     $buttonWidth = MenuLayout::getButtonWidth($theme, $label, $viewport->width);
     $view->rows('credits-back', [new MenuRow('back', $label, kind: MenuRowKind::BUTTON,
       selected: true, focused: true, showCursor: false)],
-      new MenuRowLayout(new CanvasRectangle($bounds->x + ($bounds->width - $buttonWidth) / 2,
-        $viewport->y + $viewport->height + $m->sectionGap, $buttonWidth, $m->rowHeight),
-        rowHeight: $m->rowHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight));
+      MenuLayout::getButtonLayout($theme, new CanvasRectangle($bounds->x + ($bounds->width - $buttonWidth) / 2,
+        $viewport->y + $viewport->height + $m->sectionGap, $buttonWidth, MenuLayout::getButtonHeight($theme))));
     $base = $view->finish();
     $columns = (int)floor($viewport->width / $m->cellWidth);
     $lines = $content->getLines($columns);

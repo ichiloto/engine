@@ -6,7 +6,7 @@ use Ichiloto\Engine\Rendering\ScreenTransitionTreatment;
 require_once __DIR__ . '/../Fixtures/Rendering/ScreenTransitions.php';
 
 beforeEach(function () {
-  $this->root = sys_get_temp_dir() . '/transition-catalog-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/transition-catalog-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   $this->writeImage = function (string $name, int $width = 48, int $height = 48): void {
     // Header-only fixtures validate PHP's asset contract, not native PNG decoding.
@@ -67,7 +67,7 @@ it('allows supported artwork replacements without hashes or duplicate dimensions
 });
 
 it('refuses catalogue and PNG symlinks escaping the asset root', function () {
-  $outside = sys_get_temp_dir() . '/outside-transition-' . bin2hex(random_bytes(5)) . '.png';
+  $outside = \getTestTemporaryDirectory() . '/outside-transition-' . bin2hex(random_bytes(5)) . '.png';
   file_put_contents($outside, "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 48, 48));
   try {
     symlink($outside, $this->root . '/curtain.png');

@@ -28,10 +28,12 @@ class BattleDefeatState extends BattleSceneState
       if ($this->scene->resultWindow && ! $this->scene->resultWindow->isComplete()) {
         if (! $revealedThisFrame) {
           $this->scene->resultWindow->advance();
+          $this->scene->getGame()->recordPlayerActivity();
         }
         return;
       }
 
+      $this->scene->getGame()->recordPlayerActivity();
       $this->scene->shouldLoadGameOver = ! $this->scene->continuesAfterDefeat();
       $this->setState($this->scene->endState);
     }

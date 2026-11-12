@@ -111,3 +111,28 @@ it('refuses missing NPC artwork and glyphs revealed by conditionally absent fixt
     unset($data['worldObjects'][0]['conditions']);
     expect(MapCompletenessValidator::validateCoverage('test/map', $data, $layers, $graphics, $this->root))->toBe([]);
 });
+
+
+it('validates a detached project speaker gate without using another installed project catalogue', function () {
+    $class = \Ichiloto\Engine\Progression\WorldAbilityCatalog::class;
+    $prior = \Ichiloto\Engine\Util\Config\ConfigStore::has($class) ? \Ichiloto\Engine\Util\Config\ConfigStore::get($class) : null;
+    \Ichiloto\Engine\Util\Config\ConfigStore::remove($class);
+    mkdir($this->root . '/Data');
+    file_put_contents($this->root . '/Data/world-abilities.php', '<?php return ' . var_export([
+        ['id' => 'current', 'name' => 'Current power', 'conditions' => [['type' => 'switch', 'name' => 'granted']]],
+    ], true) . ';');
+    $data = ['npcs' => [['id' => 'speaker', 'name' => 'Speaker', 'x' => 1, 'y' => 0, 'sprite' => '@',
+        'conditions' => [['type' => 'world_ability', 'name' => 'current']]]], 'events' => ['D' => [
+        'class' => \Ichiloto\Engine\Events\Triggers\DialogueEventTrigger::class,
+        'speakers' => ['speaker'], 'conditions' => [['type' => 'world_ability', 'name' => 'current', 'negate' => true]],
+        'data' => ['dialogue' => [['text' => 'Synthetic.']]],
+    ]]];
+    $layers = new MapLayerSet([new MapLayer('ground', 0, false, 'memory/ground', '..')]);
+    try {
+        $issues = MapCompletenessValidator::validate('room', $data, [['D', ' ']], $layers, null, $this->root, static fn() => null);
+        expect(array_any($issues, fn($issue) => str_contains($issue->message, 'never present')))->toBeTrue()
+            ->and(\Ichiloto\Engine\Util\Config\ConfigStore::has($class))->toBeFalse();
+    } finally {
+        if ($prior !== null) { \Ichiloto\Engine\Util\Config\ConfigStore::put($class, $prior); }
+    }
+});

@@ -148,3 +148,29 @@ it('still accepts spawn data that spells out the art', function () {
   expect($player->heading)->toBe(MovementHeading::EAST)
     ->and($player->sprite)->toBe(['▶']);
 });
+
+
+it('uses legacy directional arrows with the current sprite set at spawn and relocation', function () {
+  $sprites = ['north' => ['N'], 'east' => ['E'], 'south' => ['S'], 'west' => ['W']];
+  $set = new PlayerSpriteSet(...$sprites);
+  $player = makePlayerWithSprites($sprites);
+
+  foreach ([
+    '▲' => MovementHeading::NORTH,
+    '▶' => MovementHeading::EAST,
+    '▼' => MovementHeading::SOUTH,
+    '◀' => MovementHeading::WEST,
+  ] as $arrow => $heading) {
+    $art = $set->getSpriteForHeading($heading);
+    $player->setFacingSprite([$arrow], engageEvents: false);
+
+    expect($set->resolveHeading([$arrow]))->toBe($heading)
+      ->and($set->resolveSprite([$arrow]))->toBe($art)
+      ->and($player->heading)->toBe($heading)
+      ->and($player->sprite)->toBe($art);
+  }
+
+  $player->setFacingSprite(['?'], engageEvents: false);
+  expect($player->heading)->toBe(MovementHeading::SOUTH)
+    ->and($player->sprite)->toBe(['S']);
+});

@@ -5,8 +5,10 @@ namespace Ichiloto\Engine\Audio\Backends;
 /**
  * Plays audio through afplay, which ships with every macOS installation.
  *
- * afplay cannot loop by itself, so the AudioManager emulates background music
- * looping by respawning the player when the track ends.
+ * afplay cannot loop by itself, so the AudioManager emulates looping (background
+ * music and looping sound effects such as the counter tick) by respawning the
+ * player when the track ends. Loops prefer mpv or ffplay when either is
+ * installed, since they loop in-process without the respawn gap.
  *
  * @package Ichiloto\Engine\Audio\Backends
  */

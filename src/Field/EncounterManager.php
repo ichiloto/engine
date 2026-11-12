@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Field;
 
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
@@ -17,16 +18,27 @@ use Throwable;
  *   'troops' => [
  *     'Bat x 2' => 5,
  *     'Rat + Bat' => ['weight' => 3, 'battleArena' => 'arena.cave'],
- *   ], // name => weight or encounter entry; entry arena outranks the map arena
+ *     'Roost Bats' => ['weight' => 2, 'areas' => ['east-roost']],
+ *     'Marsh Toads' => ['weight' => 3, 'terrains' => ['wetland']],
+ *   ], // name => weight or encounter entry; entry arena outranks the map arena,
+ *      // entry areas (the map's named `areas`) and entry terrains (the encounter
+ *      // terrains of the map's terrain kinds) limit where a troop is met
  *   'rate' => 12,          // average steps between encounters
  *   'battleArena' => 'arena.forest', // optional graphical arena catalog key
+ *   'battleArenas' => [['terrain' => 'woodland', 'battleArena' => 'arena.deep-forest']], // optional rules by area and terrain
  *   'tiles' => 'encounter' // 'encounter' (default): only danger tiles count; 'any': every step counts
  * ],
  * ```
  *
  * Every qualifying step burns down a randomized counter; when it empties, a
  * weighted troop is chosen and battle begins, with a small chance of a
- * preemptive strike or an ambush. `encounterRateMultiplier` is the
+ * preemptive strike or an ambush. A troop limited to named areas is met only
+ * while the player stands in one of them, and a step where no troop can be
+ * met does not count, so a map whose troops all live in pockets is quiet
+ * between them. A troop limited to encounter terrains is met only on cells
+ * whose terrain kind meets one of them ({@see MapEncounterTerrain}). The battle is drawn on the arena the
+ * block picks for the cell, refined by the arena's variant for the cell's terrain
+ * ({@see EncounterTable::resolveBattleArenaAt()}). `encounterRateMultiplier` is the
  * repel/lure hook: below 1 stretches the counter (repel), above 1 burns it
  * faster (lure), 0 suppresses encounters entirely.
  *
@@ -34,22 +46,26 @@ use Throwable;
  */
 class EncounterManager
 {
+  /** What the current map's encounter block means ({@see EncounterTable}). */
+  public private(set) EncounterTable $table;
   /**
    * @var array<string, int> Troop weights, keyed by troop name.
    */
-  protected array $troopWeights = [];
-  /** @var array<string, EncounterEntry> Map-owned choices matching the derived weight table. */
-  private array $entries = [];
-  /** @var array<string, mixed> Optional presentation selection, validated only by the graphical renderer path. */
-  private array $presentationSettings = [];
+  protected array $troopWeights {
+    get => $this->table->troopWeights;
+  }
   /**
    * @var int Average steps between encounters; 0 disables the map.
    */
-  protected int $averageStepsBetween = 0;
+  protected int $averageStepsBetween {
+    get => $this->table->averageStepsBetween;
+  }
   /**
    * @var bool True when every walkable step counts, not just danger tiles.
    */
-  protected bool $countsEveryTile = false;
+  protected bool $countsEveryTile {
+    get => $this->table->countsEveryTile;
+  }
   /**
    * @var float Steps remaining until the next encounter.
    */
@@ -66,39 +82,22 @@ class EncounterManager
    */
   public function __construct(protected GameScene $gameScene)
   {
+    $this->table = EncounterTable::createEmpty();
   }
 
   /**
    * Applies a map's encounter block (null disables encounters on the map).
    *
    * @param array<string, mixed>|null $encounters The map's `encounters` entry.
+   * @param MapAreaCatalog|null $areas The map's named areas, which area-limited troops are met in.
+   * @param MapEncounterTerrain|null $terrain The encounter terrain of each cell, which terrain-limited troops are met on.
    * @return void
    */
-  public function configure(?array $encounters): void
+  public function configure(?array $encounters, ?MapAreaCatalog $areas = null, ?MapEncounterTerrain $terrain = null): void
   {
-    $this->troopWeights = [];
-    $this->entries = [];
-    $this->presentationSettings = array_intersect_key($encounters ?? [], ['battleArena' => true]);
-    $this->averageStepsBetween = 0;
-    $this->countsEveryTile = strval($encounters['tiles'] ?? 'encounter') === 'any';
-
-    foreach ((array) ($encounters['troops'] ?? []) as $troopName => $value) {
-      $entry = EncounterEntry::getFromValue($value);
-      if (is_string($troopName) && $entry !== null) {
-        $this->entries[$troopName] = $entry;
-        $this->troopWeights[$troopName] = $entry->weight;
-      }
-    }
-
-    if (! empty($this->troopWeights)) {
-      $this->averageStepsBetween = max(1, intval($encounters['rate'] ?? 15));
-    } elseif (! empty($encounters)) {
-      // A map that asks for encounters and gets none is a data mistake, not a
-      // design choice, and silence is how it stays unnoticed.
-      Debug::warn(
-        'A map declares encounters but names no troops the engine can read. '
-        . "Expected ['troops' => ['Troop Name' => weight or ['weight' => weight, ...], ...], 'rate' => steps]."
-      );
+    $this->table = EncounterTable::readBlock($encounters, $areas, $terrain);
+    foreach ($this->table->ignored as $warning) {
+      Debug::warn($warning);
     }
 
     $this->resetCounter();
@@ -108,39 +107,50 @@ class EncounterManager
    * Registers one player step.
    *
    * @param CollisionType|null $tile The collision type of the tile stepped onto.
+   * @param Vector2|null $position The cell stepped onto; without one, only troops met map-wide count.
    * @return void
    */
-  public function registerStep(?CollisionType $tile): void
+  public function registerStep(?CollisionType $tile, ?Vector2 $position = null): void
   {
-    if ($this->averageStepsBetween < 1 || $this->encounterRateMultiplier <= 0.0) {
+    if ($this->encounterRateMultiplier <= 0.0) {
       return;
     }
 
-    $isDangerTile = $tile === CollisionType::ENCOUNTER;
+    $stepWeight = $this->table->getStepWeight($tile, $position);
 
-    if (! $isDangerTile && ! $this->countsEveryTile) {
+    if ($stepWeight <= 0.0) {
       return;
     }
 
-    // Danger tiles burn the counter twice as fast on maps that count
-    // every tile, mirroring RPG Maker's bush/terrain danger.
-    $stepWeight = ($this->countsEveryTile && $isDangerTile) ? 2.0 : 1.0;
     $this->stepsUntilEncounter -= $stepWeight * $this->encounterRateMultiplier;
 
     if ($this->stepsUntilEncounter <= 0) {
-      $this->startEncounter();
+      $this->startEncounter($this->table->getTroopWeightsAt($position), $position);
     }
   }
 
   /**
-   * Starts a weighted-random encounter.
+   * The troops that can be met on a cell, with their weights.
    *
+   * @param Vector2|null $position The cell, or null when it is not known.
+   * @return array<string, int> Troop weights, keyed by troop name.
+   */
+  public function getTroopWeightsAt(?Vector2 $position): array
+  {
+    return $this->table->getTroopWeightsAt($position);
+  }
+
+  /**
+   * Starts a weighted-random encounter among the troops that can be met here.
+   *
+   * @param array<string, int> $weights Troop weights, keyed by troop name.
+   * @param Vector2|null $position The cell the battle starts on, whose area and terrain choose its arena.
    * @return void
    */
-  protected function startEncounter(): void
+  protected function startEncounter(array $weights, ?Vector2 $position = null): void
   {
     $this->resetCounter();
-    $troopName = $this->pickTroopName();
+    $troopName = $this->pickTroopName($weights);
 
     if ($troopName === null || ! $this->gameScene->party) {
       return;
@@ -156,24 +166,25 @@ class EncounterManager
     $this->gameScene->sceneManager->loadBattleScene(
       $this->gameScene->party,
       $troop,
-      extraSettings: $this->entries[$troopName]->getBattleSettings($this->presentationSettings)
+      extraSettings: $this->table->resolveBattleArenaAt($troopName, $position)->settings
     );
   }
 
   /**
-   * Picks a troop name weighted by the map's table.
+   * Picks a troop name by weight.
    *
+   * @param array<string, int> $weights Troop weights, keyed by troop name.
    * @return string|null The chosen troop name.
    */
-  protected function pickTroopName(): ?string
+  protected function pickTroopName(array $weights): ?string
   {
-    if (empty($this->troopWeights)) {
+    if (empty($weights)) {
       return null;
     }
 
-    $roll = rand(1, array_sum($this->troopWeights));
+    $roll = rand(1, array_sum($weights));
 
-    foreach ($this->troopWeights as $troopName => $weight) {
+    foreach ($weights as $troopName => $weight) {
       $roll -= $weight;
 
       if ($roll <= 0) {
@@ -181,7 +192,7 @@ class EncounterManager
       }
     }
 
-    return array_key_last($this->troopWeights);
+    return array_key_last($weights);
   }
 
   /**

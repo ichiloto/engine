@@ -27,6 +27,16 @@ final class ActionAnimationResolver
     };
   }
 
+  /** The action's authored target effect size; role-selected and unbound actions play their effect as authored. */
+  public static function getExplicitAnimationScale(?BattleAction $action): float
+  {
+    return match (true) {
+      $action instanceof SkillBattleAction => $action->skill->animationScale,
+      $action instanceof ItemBattleAction => $action->item->animationScale,
+      default => EffectScale::DEFAULT,
+    };
+  }
+
   /** Runtime and previews share ID precedence and exact role selection, never a name fallback. */
   public static function resolveForAction(?BattleAction $action, CharacterInterface $actor,
     AnimationLibrary $library): ?Animation
@@ -82,7 +92,7 @@ final class ActionAnimationResolver
   /** @return list<string> */
   public static function getSupportedRoles(): array
   {
-    return ['attack', 'skill', 'restorative', 'attack-unarmed',
+    return ['attack', 'skill', 'restorative', 'buff', 'debuff', 'attack-unarmed',
       ...array_map(static fn(WeaponType $type): string => 'attack-' . strtolower($type->value), WeaponType::cases())];
   }
 
@@ -93,7 +103,10 @@ final class ActionAnimationResolver
     }
 
     return match ($skill instanceof MagicSkill ? $skill->effectType : null) {
-      MagicEffectType::RESTORATIVE, MagicEffectType::BUFF => 'restorative',
+      MagicEffectType::RESTORATIVE => 'restorative',
+      // An enhancement or affliction is not a heal or a strike; projects bind each to its own look.
+      MagicEffectType::BUFF => 'buff',
+      MagicEffectType::DEBUFF => 'debuff',
       default => 'skill',
     };
   }

@@ -3,6 +3,7 @@
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandSchema;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicLibrary;
+use Ichiloto\Engine\Events\MapEventDefinition;
 function cinematicFixtureRoot(): string
 {
   return dirname(__DIR__) . '/Fixtures/Projects/CinematicAcceptance/assets/Cutscenes/Cinematics';
@@ -21,6 +22,28 @@ it('discovers and hydrates original folder-based cinematic assets', function () 
     ->and($definition->skipPolicy)->toBe('authored')
     ->and($definition->commands)->not->toBeEmpty()
     ->and($definition->extra['testFixture'])->toBe(['mapWidth' => 100, 'mapHeight' => 60]);
+});
+
+it('isolates authored cinematic variables from the loader and the companion file', function () {
+  $root = createTestDirectory('cinematic-source-scope-');
+  $directory = $root . '/arrival';
+  mkdir($directory);
+  file_put_contents($directory . '/arrival.data.php', <<<'PHP'
+<?php
+$scriptFile = 'not-the-script.php';
+return ['id' => 'arrival', 'name' => 'Arrival'];
+PHP);
+  file_put_contents($directory . '/arrival.script.php', <<<'PHP'
+<?php
+$id = 'local-stage-id';
+$data = 'local-script-data';
+return [['type' => 'wait', 'seconds' => 1]];
+PHP);
+
+  $definition = (new CinematicLibrary($root))->load('arrival');
+
+  expect($definition->id)->toBe('arrival')
+    ->and($definition->commands)->toBe([['type' => 'wait', 'seconds' => 1]]);
 });
 
 it('keeps stable identity independent from its display name', function () {
@@ -46,10 +69,15 @@ it('exports one authoritative runtime and authoring vocabulary', function () {
     ->and($schema['cameraOperations'])->toContain('detach', 'pan', 'track', 'route', 'shake', 'restore')
     ->and($schema['cinematicDefinitionFields'])->toContain('id', 'name', 'cast', 'skip', 'finalizer')
     ->and($schema['cinematicEventTrigger']['class'])->toBe('Ichiloto\\Engine\\Events\\Triggers\\CinematicEventTrigger')
-    ->and($schema['cinematicEventTrigger']['rootFields'])->toBe(['class', 'conditions', 'sets', 'whenBlocked', 'cue', 'facing', 'engagement', 'subject', 'data'])
+    ->and($schema['cinematicEventTrigger']['rootFields'])->toBe(MapEventDefinition::ROOT_FIELDS)
     ->and($schema['relativePosition']['fields'])->toBe(['at', 'offset'])
     ->and($schema['relativePosition']['subjectKinds'])->toContain('player', 'npc', 'world_object', 'staged_actor', 'party_actor', 'marker')
     ->and($schema['relativePosition']['consumers'])->toBe(['move_route.waypoints', 'stage_actor'])
+    ->and($schema['endFacing']['fields'])->toBe(['facing', 'faceToward'])
+    ->and($schema['endFacing']['consumers'])->toBe(['move_route.waypoints', 'stage_actor'])
+    ->and($schema['stagedActorFields'])->toContain('facing', 'faceToward')
+    ->and($schema['existingStagedActorCommands'])->toContain('show_actor', 'hide_actor')
+    ->and($schema['existingStagedActorCommands'])->not->toContain('remove_actor')
     ->and($schema['cinematicEventTrigger']['dataFields'])->toBe(['cinematicId', 'mode', 'reusable'])
     ->and($schema['cinematicEventTrigger']['modes'])->toBe(['action', 'auto'])
     ->and($schema['cinematicEventTrigger']['completion'])->toBe([
@@ -68,6 +96,15 @@ it('exports one authoritative runtime and authoring vocabulary', function () {
     ->and($schema['summonPlaybackConfigFields'])->toBe(['defaultSpeed', 'allowSkip', 'loopPreview'])
     ->and($schema['summonPlaybackFields'])->toContain('currentFrame', 'isPaused', 'isCompleted', 'isLooping');
 });
+
+it('validates the surface choice for each timed text command', function (string $type) {
+  $data = ['id' => 'surface-cue', 'name' => 'Surface Cue'];
+  $terminal = ['type' => $type, 'text' => 'Synthetic cue', 'presentation' => 'terminal'];
+
+  expect(CinematicDefinition::fromArrays($data, [$terminal])->commands)->toBe([$terminal])
+    ->and(fn() => CinematicDefinition::fromArrays($data, [array_replace($terminal, ['presentation' => 'invalid'])]))
+    ->toThrow(InvalidArgumentException::class, 'script[1]/presentation');
+})->with(['narration', 'title_card']);
 
 it('accepts a field timeline reference without changing legacy field-animation authoring', function () {
   $target = ['kind' => 'position', 'x' => 2, 'y' => 3];
@@ -149,6 +186,7 @@ it('accepts every deterministic finalizer type with a complete valid shape', fun
       ['type' => 'record_event', 'name' => 'cinematic:complete-finalizer:resolved'],
       ['type' => 'move_player', 'x' => 2, 'y' => 3],
       ['type' => 'transfer', 'map' => 'maps/destination', 'x' => 2, 'y' => 3, 'sprite' => ['@']],
+      ['type' => 'transfer_through_door', 'map' => 'maps/source', 'event' => 'X'],
       ['type' => 'camera', 'operation' => 'reset'],
       ['type' => 'remove_actor', 'actorId' => 'temporary-actor'],
       ['type' => 'clear_presentation'],
@@ -254,5 +292,5 @@ it('rejects empty parallel blocks and malformed cinematic fields before runtime'
     'id' => 'invalid-staged-cast',
     'name' => 'Invalid Staged Cast',
     'cast' => [['id' => 'actor-without-art']],
-  ], []))->toThrow(InvalidArgumentException::class, 'requires a sprite or asset reference');
+  ], []))->toThrow(InvalidArgumentException::class, 'requires a sprite, asset reference or appearance');
 });

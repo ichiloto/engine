@@ -60,13 +60,13 @@ class ItemMenuAlerts extends ModalManager
   public bool $confirmation = false;
   public ?int $amount = null;
   public ?Closure $onAlert = null;
-  public function __construct() { $this->modals = new \Assegai\Collections\Stack(\Ichiloto\Engine\UI\Interfaces\ModalInterface::class); }
   public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
   {
     $this->messages[] = $message;
     ($this->onAlert ?? static fn() => null)();
   }
-  public function confirm(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): bool { return $this->confirmation; }
+  public function confirm(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH,
+    string $confirmLabel = 'OK', string $cancelLabel = 'Cancel'): bool { return $this->confirmation; }
   public function selectQuantity(string $message, int $maximum, string $title = '', int $initial = 1, int $width = DEFAULT_DIALOG_WIDTH): ?int { return $this->amount; }
 }
 
@@ -88,17 +88,17 @@ beforeEach(function () {
     \Ichiloto\Engine\Audio\AudioManager::class] as $class) {
     $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  $this->root = sys_get_temp_dir() . '/ichiloto-items-' . bin2hex(random_bytes(5));
+  $this->root = \getTestTemporaryDirectory() . '/ichiloto-items-' . bin2hex(random_bytes(5));
   mkdir($this->root);
   Debug::configure(['log_directory' => $this->root]);
   new ReflectionProperty(\Ichiloto\Engine\Audio\AudioManager::class, 'instance')->setValue(null, null);
-  $this->alerts = new ItemMenuAlerts();
-  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->alerts);
   Console::setTerminalOutputEnabled(false);
   Console::enterAlternateScreen();
   Console::syncDimensions(135, 36);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 135, 'height' => 36]));
   $this->game = $game = new ItemMenuGameProbe();
+  $this->alerts = new ItemMenuAlerts($this->game);
+  $this->game->bindModalManager($this->alerts);
   $audio = new class extends \Ichiloto\Engine\Audio\AudioManager {
     public function __construct() {}
     public function playSystemSound(\Ichiloto\Engine\Audio\Enumerations\SystemSound $sound): void {}
@@ -399,4 +399,33 @@ it('keeps inventory and healthy frames when one optional panel image is missing'
     ->and($this->state->mode)->toBe($mode)
     ->and($items[0]->quantity)->toBe(1)
     ->and(file_get_contents($this->root . '/warning.log'))->toContain('missing.png');
+});
+
+it('refuses a wasted cure before asking for a quantity and shows the target conditions in both renderers', function () {
+  $venom = new \Ichiloto\Engine\Entities\States\State('venom', 'Venom', '', 'Saps HP.', label: 'VNM', persistsAfterBattle: true);
+  $cure = new Item('Cure', 'Cures venom.', '/', 10, quantity: 2,
+    scope: new \Ichiloto\Engine\Entities\Inventory\Items\ItemScope(\Ichiloto\Engine\Entities\Enumerations\ItemScopeSide::ALLY),
+    effects: [new \Ichiloto\Engine\Entities\Effects\RemoveStateEffect('Cure venom', '', ['venom'])], id: 'item.cure');
+  $second = $this->party->members->toArray()[1];
+  $second->addState($venom);
+  $this->party->inventory->addItems($cure);
+  $this->state->selectionPanel->setItems([$cure]);
+  $this->state->setMode(new UseItemMode($this->state));
+  itemMenuPress($this->state, KeyCode::ENTER);
+  $this->alerts->amount = 2;
+  $this->alerts->confirmation = true;
+
+  itemMenuPress($this->state, KeyCode::ENTER);
+  expect($this->alerts->messages)->toBe(['Cure would have no effect on First Actor.'])
+    ->and($cure->quantity)->toBe(2)
+    ->and(itemMenuText(ItemMenuPresentation::compose($this->state, $this->theme)))->not->toContain('VNM');
+
+  itemMenuPress($this->state, KeyCode::DOWN);
+  expect(itemMenuText(ItemMenuPresentation::compose($this->state, $this->theme)))->toContain('VNM')
+    ->and(implode("\n", $this->state->statusPanel->getContent()))->toContain('VNM');
+  itemMenuPress($this->state, KeyCode::ENTER);
+  expect($second->hasState('venom'))->toBeFalse()
+    ->and($cure->quantity)->toBe(1)
+    ->and(end($this->alerts->messages))->toBe('Used Cure on Second Actor')
+    ->and(itemMenuText(ItemMenuPresentation::compose($this->state, $this->theme)))->not->toContain('VNM');
 });
