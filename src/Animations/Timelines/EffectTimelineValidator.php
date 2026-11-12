@@ -89,11 +89,11 @@ final class EffectTimelineValidator
     $hasImages = $imageRestCovered = $stageRestCovered = false;
     foreach ($tracks as $track) {
       if (!is_array($track) || !is_string($track['id'] ?? null) || isset($ids[$track['id']])
-        || !in_array($track['type'] ?? null, ['image', 'glyph', 'text', ...($forBattle ? ['flash', 'shake', 'tone'] : []), ...($forBattle && !$forSummon ? ['trail', 'tether', 'field-motion', 'battler-motion'] : [])], true)) {
+        || !in_array($track['type'] ?? null, EffectTrackType::getSupportedValues($forBattle, $forSummon), true)) {
         throw new InvalidArgumentException("Effect {$id} has an invalid or duplicate track.");
       }
       EffectTimelineLibrary::assertId($track['id']);
-      $graphicalOnly = in_array($track['type'], ['trail', 'tether', 'field-motion', 'battler-motion'], true);
+      $graphicalOnly = EffectTrackType::from($track['type'])->requiresGraphicalPresentation();
       $scope = EffectPresentation::validateTrack($track['presentation'] ?? ($graphicalOnly ? 'graphical' : 'all'));
       if ($graphicalOnly && $scope !== 'graphical') {
         throw new InvalidArgumentException("Effect {$id} {$track['type']} presentation must be graphical.");
