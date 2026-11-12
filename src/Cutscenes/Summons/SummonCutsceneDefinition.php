@@ -71,6 +71,7 @@ final class SummonCutsceneDefinition
     public ?array $effectiveAgainst = null,
     public ?array $targetContactSequence = null,
     public ?array $hitFeedbackFrames = null,
+    public ?int $targetCaptureFrame = null,
   )
   {
     $this->id = trim($id);
@@ -119,6 +120,9 @@ final class SummonCutsceneDefinition
    */
   public static function fromArrays(array $data, array $timeline): self
   {
+    if (array_key_exists('targetCaptureFrame', $timeline) && !is_int($timeline['targetCaptureFrame'])) {
+      throw new \InvalidArgumentException('Summon target capture must be an authored frame.');
+    }
     if (array_key_exists('hitFeedbackFrames', $timeline) && !is_array($timeline['hitFeedbackFrames'])) {
       throw new \InvalidArgumentException('Summon hit feedback must be a frame list.');
     }
@@ -184,6 +188,7 @@ final class SummonCutsceneDefinition
       self::readRecordedList($data, 'effectiveAgainst'),
       $timeline['targetContactSequence'] ?? null,
       $timeline['hitFeedbackFrames'] ?? null,
+      $timeline['targetCaptureFrame'] ?? null,
     );
   }
 
@@ -266,6 +271,9 @@ final class SummonCutsceneDefinition
   public function toTimelineArray(): array
   {
     if ($this->presentations !== []) {
+      if ($this->targetCaptureFrame !== null) {
+        throw new \InvalidArgumentException('Paired summon target capture belongs to the graphical presentation.');
+      }
       if ($this->hitFeedbackFrames !== null) {
         throw new \InvalidArgumentException('Paired summon hit feedback belongs to the graphical presentation.');
       }
@@ -282,6 +290,7 @@ final class SummonCutsceneDefinition
       ...($this->stage === null ? [] : ['stage' => $this->stage]),
       ...($this->targetContactSequence === null ? [] : ['targetContactSequence' => $this->targetContactSequence]),
       ...($this->hitFeedbackFrames === null ? [] : ['hitFeedbackFrames' => $this->hitFeedbackFrames]),
+      ...($this->targetCaptureFrame === null ? [] : ['targetCaptureFrame' => $this->targetCaptureFrame]),
       'tracks' => array_map(
         static fn(SummonCutsceneTrack $track): array => $track->toArray(),
         $this->getTracks(),

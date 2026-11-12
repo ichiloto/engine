@@ -693,7 +693,27 @@ in geometric order across `firstFrame` through `lastFrame`. Equal edges contact
 together; one recipient contacts at `firstFrame`. Ground depth and equal names
 do not change identity or select additional targets. This capture is independent
 of effect-start target-group anchors. A stage must restore before the first
-contact. The current contract refuses range/flight clocks and projectile fallback
+contact.
+
+For a shared earlier snapshot, author `targetCaptureFrame` on the graphical
+target timeline. It must be within a fixed once-playing sequence and at or
+before the first contact. The host captures selected bodies and ground points
+once on that frame, even while a cinematic covers the arena. Contact order uses
+that snapshot without recapturing at impact. A target-group ground image with
+`anchorLifetime => 'target-capture'` uses the same immutable placement; its keys
+must start at or after the capture. Other ground images retain follow or
+effect-start lifetimes. A detached release on the capture frame reuses the same
+projected poses for route geometry. Ordinary effects and flat/paired summon
+sources preserve this field through their shared authoring boundary. Terminal
+content has its own source and never requires the graphical snapshot or files.
+Omitting the field preserves first-contact capture. Cancellation releases the
+snapshot; pure preview sampling does not resolve combat.
+
+For example, `targetCaptureFrame => 19` with equal first/last contact frames20
+captures under the film, then contacts every selected identity simultaneously
+at20. Final Game bindings and Editor controls remain separate consumer work.
+
+The contact sequence refuses range/flight clocks and projectile fallback
 spacing on the same effect, with an authoring diagnostic.
 
 Only the referenced tracks use the per-recipient sample clock. Other tracks,

@@ -130,7 +130,7 @@ it('refuses invalid or overflowing track references at the authoring boundary', 
   ['tracks' => []], ['tracks' => ['missing']], ['tracks' => ['splash', 'splash']], ['lastFrame' => 15]]));
 
 
-it('binds real projected bodies in runtime and scrubbed preview without replaying combat', function (bool $activeTime, bool $reduced) {
+it('binds real projected bodies in runtime and scrubbed preview without replaying combat', function (bool $activeTime, bool $reduced, bool $captured) {
   require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
   [, $context, , $actor, , $targets] = \Tests\Support\Battle\createTargetExecutionFixture($activeTime, true,
     $this->createStub(\Ichiloto\Engine\Audio\AudioManager::class),
@@ -147,7 +147,9 @@ it('binds real projected bodies in runtime and scrubbed preview without replayin
       new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage('arena', 'contact.png', new CanvasRectangle(0, 0, 1440, 840))),
   ], ['Caster' => $art, 'Recipient' => $art], ['Enemy A' => $art, 'Enemy B' => $art], ui: new BattleCanvasLayout(1440, 840,
     partySlots: [getStageSlot(1000, 300, 80, 120), getStageSlot(1150, 420, 80, 120)]), defaultArena: 'synthetic');
-  $effect = (new EffectTimelineValidator($this->root))->compile('contacts', $this->data, forBattle: true);
+  $data = $this->data;
+  if ($captured) { $data['targetCaptureFrame'] = 5; }
+  $effect = (new EffectTimelineValidator($this->root))->compile('contacts', $data, forBattle: true);
   $runner = new \Ichiloto\Engine\Battle\Presentation\BattleCommandRunner($context, $actor, $targets, null, 'Synthetic',
     new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), null, $effect,
     static function () use ($targets): void { foreach ($targets as $target) { $target->stats->currentHp -= 10; } },
@@ -168,6 +170,10 @@ it('binds real projected bodies in runtime and scrubbed preview without replayin
     ->and(array_values($frames))->toBe([$first, $last])
     ->and(array_map(static fn($target) => $target->stats->currentHp, $targets))->toBe([100, 100])
     ->and($runner->playback->presentationFailure)->toBeNull();
+  if ($captured) {
+    expect(array_keys($runner->playback->getCapturedTargetGroup('snapshot')->memberBounds))
+      ->toBe(array_map(spl_object_id(...), $targets));
+  }
   $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $actor, $targets,
     BattlePoseRole::ATTACK, $catalog, $this->root);
   $farFrame = $preview->getFrameAtIndex($last, $reduced);
@@ -181,7 +187,7 @@ it('binds real projected bodies in runtime and scrubbed preview without replayin
   expect(array_map(static fn($target) => $target->stats->currentHp, $targets))->toBe([90, 90]);
   $runner->update(100); $runner->dispose();
   expect(array_map(static fn($target) => $target->stats->currentHp, $targets))->toBe([90, 90]);
-})->with([false, true])->with([false, true]);
+})->with([false, true])->with([false, true])->with([false, true]);
 
 it('preserves the flat summon contact descriptor in its authoring round trip', function () {
   $definition = SummonCutsceneDefinition::fromArrays(['id' => 'contacts', 'name' => 'Synthetic'], $this->data);

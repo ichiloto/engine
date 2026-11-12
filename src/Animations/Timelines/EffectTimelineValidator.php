@@ -36,7 +36,7 @@ final class EffectTimelineValidator
       $data = $variants[$presentation->value];
     }
     if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'loopFrom', 'restFrame', 'tracks', 'cues',
-      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'poseClock', 'rangeTiming', 'flightTiming', 'fallbackHitSpacingFrames', 'targetContactSequence', 'hitFeedbackFrames'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
+      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'poseClock', 'rangeTiming', 'flightTiming', 'fallbackHitSpacingFrames', 'targetContactSequence', 'hitFeedbackFrames', 'targetCaptureFrame'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
       throw new InvalidArgumentException("Effect {$id} accepts fps, lengthFrames, playback, loopFrom, restFrame, tracks and presentation cues.");
     }
     $length = $data['lengthFrames'] ?? null;
@@ -224,6 +224,10 @@ final class EffectTimelineValidator
           || $playback !== 'once')) {
         throw new InvalidArgumentException("Effect {$id} anchorLifetime requires a once-playing target-group ground image and a known lifetime.");
       }
+      if ($anchorLifetime === EffectAnchorLifetime::TARGET_CAPTURE->value
+        && !array_key_exists('targetCaptureFrame', $data)) {
+        throw new InvalidArgumentException("Effect {$id} target-capture lifetime requires an authored targetCaptureFrame.");
+      }
       $contactRail = null;
       if (array_key_exists('contactRail', $track)) {
         if (!$forBattle || $anchorLifetime !== EffectAnchorLifetime::EFFECT_START->value) {
@@ -292,6 +296,10 @@ final class EffectTimelineValidator
           || !is_array($position) || array_diff(array_keys($position), ['x', 'y']) !== []
           || (!$onStage && (!is_int($position['x'] ?? null) || !is_int($position['y'] ?? null)))) {
           throw new InvalidArgumentException("Effect {$id} has an invalid keyframe range, sourceFrame or cell offset.");
+        }
+        if ($anchorLifetime === EffectAnchorLifetime::TARGET_CAPTURE->value
+          && (!is_int($data['targetCaptureFrame'] ?? null) || $at < $data['targetCaptureFrame'])) {
+          throw new InvalidArgumentException("Effect {$id} snapshot-bound images must start at or after targetCaptureFrame.");
         }
         $asset = array_key_exists('asset', $frame) ? $frame['asset'] : $defaultAsset;
         $size = array_key_exists('asset', $frame) || $defaultSize === null
@@ -402,6 +410,15 @@ final class EffectTimelineValidator
         throw new InvalidArgumentException('Recorded hit feedback must begin after battlefield restoration.');
       }
     }
+    $targetCaptureFrame = null;
+    if (array_key_exists('targetCaptureFrame', $data) && $presentation === EffectPresentation::GRAPHICAL) {
+      $targetCaptureFrame = $data['targetCaptureFrame'];
+      if (!is_int($targetCaptureFrame) || $targetCaptureFrame < 0 || $targetCaptureFrame >= $length
+        || $playback !== 'once' || $cadence !== EffectCadence::FIXED
+        || isset($data['rangeTiming']) || isset($data['flightTiming'])) {
+        throw new InvalidArgumentException("Effect {$id} targetCaptureFrame requires a frame in a fixed once-playing target timeline.");
+      }
+    }
     $contacts = null;
     if (array_key_exists('targetContactSequence', $data) && $presentation === EffectPresentation::GRAPHICAL) {
       if ($playback !== 'once' || $cadence !== EffectCadence::FIXED || $spacing !== null
@@ -409,6 +426,9 @@ final class EffectTimelineValidator
         throw new InvalidArgumentException("Effect {$id} target contacts require fixed once playback independent of flight spacing or variable clocks.");
       }
       $contacts = \Ichiloto\Engine\Battle\Presentation\BattleTargetContactSequence::fromArray($data['targetContactSequence'], $length, $tracks);
+      if ($targetCaptureFrame !== null && $targetCaptureFrame > $contacts->firstFrame) {
+        throw new InvalidArgumentException("Effect {$id} selected targets must be captured before their first contact.");
+      }
       if ($stage !== null && $contacts->firstFrame < $stage->data['restoreFrame']) {
         throw new InvalidArgumentException("Effect {$id} target contacts must begin at or after battlefield restoration.");
       }
@@ -442,6 +462,7 @@ final class EffectTimelineValidator
         ...($timing === null ? [] : ['effectTiming' => $timing]),
         ...($poseSyncFrame === null ? [] : ['poseSyncFrame' => $poseSyncFrame]),
         ...($poseClock === EffectPoseClock::ANNOUNCEMENT ? [] : ['poseClock' => $poseClock->value]),
+        ...($targetCaptureFrame === null ? [] : ['targetCaptureFrame' => $targetCaptureFrame]),
         ...($contacts === null ? [] : ['targetContactSequence' => $contacts->toArray()]),
         ...($hitFeedback === null ? [] : ['hitFeedbackFrames' => $hitFeedback]),
         ...($rangeTiming ?? []),

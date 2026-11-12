@@ -737,10 +737,26 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     foreach ($cues as $cue) {
       if ($this->cancelled) { return; }
+      if ($cue['type'] === 'commandCaptureTargetSnapshot') {
+        try {
+          if ($this->captureTargetGroup === null) { throw new \RuntimeException('Target snapshot requires the shared body capture.'); }
+          $this->targetGroups['snapshot'] = ($this->captureTargetGroup)($this->samplePoseAtFrame($cue['frame']));
+          if ($this->targetGroups['snapshot'] === null && $this->targets !== []) {
+            throw new \RuntimeException('Target snapshot has no selected body capture.');
+          }
+        } catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
+        continue;
+      }
       if ($cue['type'] === 'commandCaptureTargetContacts') {
         try {
           if ($this->captureTargetGroup === null) { throw new \RuntimeException('Target contact sequencing requires the shared body capture.'); }
-          $group = ($this->captureTargetGroup)($this->samplePoseAtFrame($cue['frame']));
+          $usesSnapshot = array_any($this->plan->timeline->cueSchedule,
+            static fn(array $capture): bool => $capture['type'] === 'commandCaptureTargetSnapshot');
+          if ($usesSnapshot && !array_key_exists('snapshot', $this->targetGroups)) {
+            throw new \RuntimeException('Target contacts have no authored body snapshot.');
+          }
+          $group = $usesSnapshot ? $this->targetGroups['snapshot']
+            : ($this->captureTargetGroup)($this->samplePoseAtFrame($cue['frame']));
           if ($group !== null) { $this->targetContactFrames = $this->plan->targetContactSequence->getContactFrames($group); }
           elseif ($this->targets !== []) { throw new \RuntimeException('Target contact sequencing has no selected body capture.'); }
         } catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
@@ -810,6 +826,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $sample->reactionFrames = $this->reactionFrames;
     $sample->fallbackHitFrames = $this->fallbackHitFrames;
     $sample->targetContactFrames = $this->targetContactFrames;
+    $sample->targetGroups = $this->targetGroups;
     return $sample;
   }
 

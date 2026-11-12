@@ -63,7 +63,7 @@ final readonly class BattleCommandTimeline
   public function requiresGraphicalAnchorCapture(): bool
   {
     return array_any($this->timeline->cueSchedule, static fn(array $cue): bool =>
-      $cue['type'] === 'commandCapturePosePoint' || in_array($cue['type'], ['commandCaptureTargetGroup', 'commandCaptureTargetContacts'], true));
+      $cue['type'] === 'commandCapturePosePoint' || in_array($cue['type'], ['commandCaptureTargetGroup', 'commandCaptureTargetContacts', 'commandCaptureTargetSnapshot'], true));
   }
 
   /**
@@ -93,6 +93,9 @@ final readonly class BattleCommandTimeline
     $targetContacts = null;
     if (isset($source->defaults['hitFeedbackFrames'])) {
       throw new InvalidArgumentException('Recorded hit feedback belongs to the target effect lane.');
+    }
+    if (isset($source->defaults['targetCaptureFrame'])) {
+      throw new InvalidArgumentException('Target capture belongs to the target effect lane.');
     }
     if (isset($source->defaults['targetContactSequence'])) {
       throw new InvalidArgumentException('Target contact sequencing belongs to the target effect lane.');
@@ -270,6 +273,10 @@ final readonly class BattleCommandTimeline
         if ($effect === null || $clock === null) { continue; }
         $rest = clamp((int)($effect->defaults['restFrame'] ?? $clock->totalFrames - 1), 0, $clock->totalFrames - 1);
         $range = $lane === 'target' ? $this->rangeTiming : null;
+        if ($lane === 'target' && isset($effect->defaults['targetCaptureFrame'])) {
+          $cues[] = ['id' => 'capture-target-snapshot', 'type' => 'commandCaptureTargetSnapshot',
+            'frame' => $cursor + $clock->getFrameBoundary($effect->defaults['targetCaptureFrame'], self::FPS), 'payload' => []];
+        }
         if ($lane === 'target' && isset($effect->defaults['targetContactSequence'])) {
           $contact = $effect->defaults['targetContactSequence'];
           $targetContacts = new BattleTargetContactSequence(
@@ -293,6 +300,9 @@ final readonly class BattleCommandTimeline
               $command['payload']['capturedTargetGroup'] = $lane;
               $targetGroupCaptures[$lane] ??= ['id' => 'capture-target-group-' . $lane,
                 'type' => 'commandCaptureTargetGroup', 'frame' => $cursor, 'payload' => ['lane' => $lane]];
+            }
+            if (($command['payload']['anchorLifetime'] ?? null) === EffectAnchorLifetime::TARGET_CAPTURE->value) {
+              $command['payload']['capturedTargetGroup'] = 'snapshot';
             }
             if (!isset($command['payload']['detachFrame'])) { continue; }
             $detach = $cursor + $boundary($command['payload']['detachFrame']);

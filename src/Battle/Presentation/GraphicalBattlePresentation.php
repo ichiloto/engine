@@ -885,15 +885,35 @@ final class GraphicalBattlePresentation
   /** Bind the command's authored graphical anchor captures before its clock starts. */
   public function bindCommandPosePoints(BattleCommandPlayback $playback, bool $reducedMotion, float $idleSeconds): void
   {
+    $snapshotFrame = array_find($playback->plan->timeline->cueSchedule,
+      static fn(array $cue): bool => $cue['type'] === 'commandCaptureTargetSnapshot')['frame'] ?? null;
+    $geometryFrame = null;
+    $geometry = [];
+    // Every capture on one command frame shares the exact same projected poses.
+    $captureGeometry = function (BattleCommandPlayback $sample) use ($reducedMotion, $idleSeconds, $snapshotFrame, &$geometryFrame, &$geometry): array {
+      if ($snapshotFrame !== null && $geometryFrame === $snapshotFrame
+        && $sample->session->currentFrame === $snapshotFrame) { return $geometry; }
+      $clock = $idleSeconds + $sample->session->currentFrame / BattleCommandTimeline::FPS;
+      $next = [];
+      foreach ([$sample->actor, ...$sample->targets] as $battler) {
+        $id = spl_object_id($battler);
+        if (isset($next[$id])) { continue; }
+        $participant = $this->participants[$id] ?? throw new RuntimeException('Captured effect subject is absent from the battlefield.');
+        $next[$id] = $this->projectBattler($id, $participant, $sample, $reducedMotion, true, $clock);
+      }
+      $geometry = $next;
+      $geometryFrame = $sample->session->currentFrame;
+      return $geometry;
+    };
     if (array_any($playback->plan->timeline->cueSchedule, static fn(array $cue): bool =>
-      in_array($cue['type'], ['commandCaptureTargetGroup', 'commandCaptureTargetContacts'], true))) {
-      $playback->bindTargetGroupCapture(function (BattleCommandPlayback $sample) use ($reducedMotion, $idleSeconds): ?BattleEffectTargetGroup {
-        $clock = $idleSeconds + $sample->session->currentFrame / BattleCommandTimeline::FPS;
+      in_array($cue['type'], ['commandCaptureTargetGroup', 'commandCaptureTargetContacts', 'commandCaptureTargetSnapshot'], true))) {
+      $playback->bindTargetGroupCapture(function (BattleCommandPlayback $sample) use ($captureGeometry): ?BattleEffectTargetGroup {
+        $geometry = $captureGeometry($sample);
         $bounds = $grounds = $sides = [];
         foreach ($sample->targets as $target) {
           $id = spl_object_id($target);
           $participant = $this->participants[$id] ?? throw new RuntimeException('Target-group effect subject is absent from the battlefield.');
-          $projected = $this->projectBattler($id, $participant, $sample, $reducedMotion, true, $clock);
+          $projected = $geometry[$id];
           $image = $projected['image'];
           $bounds[$id] = $projected['available'] ? $this->locateBody($image, $id) : $image->destination;
           $grounds[$id] = $projected['ground'];
@@ -905,20 +925,14 @@ final class GraphicalBattlePresentation
     if (!array_any($playback->plan->timeline->cueSchedule, static fn(array $cue): bool =>
       $cue['type'] === 'commandCapturePosePoint')) { return; }
     $playback->bindPosePointCapture(function (BattleCommandPlayback $sample, string $anchor, string $name, ?string $route, ?array $curve,
-      ?float $clearance, ?string $contact, ?string $fallback) use ($reducedMotion, $idleSeconds): array {
+      ?float $clearance, ?string $contact, ?string $fallback) use ($reducedMotion, $idleSeconds, $captureGeometry): array {
       static $shotFrame = null, $straightShots = [];
       if ($shotFrame !== $sample->session->currentFrame) {
         $shotFrame = $sample->session->currentFrame;
         $straightShots = [];
       }
       $clock = $idleSeconds + $sample->session->currentFrame / BattleCommandTimeline::FPS;
-      $geometry = [];
-      foreach ([$sample->actor, ...$sample->targets] as $battler) {
-        $id = spl_object_id($battler);
-        if (isset($geometry[$id])) { continue; }
-        $participant = $this->participants[$id] ?? throw new RuntimeException('Detached effect subject is absent from the battlefield.');
-        $geometry[$id] = $this->projectBattler($id, $participant, $sample, $reducedMotion, true, $clock);
-      }
+      $geometry = $captureGeometry($sample);
       $obstacles = [];
       if ($clearance !== null) {
         foreach ([...$this->battle->partyRoster->battlers, ...$this->battle->troop->members->toArray()] as $bystander) {
