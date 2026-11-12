@@ -38,6 +38,30 @@ old `GameConfig::$events` strings into `GameConfig::$gameState['storyEvents']`.
 This is the only legacy-events migration path; `GameScene::configure()` no
 longer repeats it.
 
+## Hosts without project migration classes
+
+Normal game startup uses `ContentMigrationResolution::EAGER`: both manifest
+factories still validate every registered project's migration interface up front.
+Tools whose process does not load project classes can select step-time resolution:
+
+```php
+$manifest = SaveCompatibilityManifest::fromProjectRoot(
+    $projectRoot,
+    migrationResolution: ContentMigrationResolution::WHEN_REQUIRED,
+);
+$saveManager = new SaveManager($previewGame, compatibilityManifest: $manifest);
+```
+
+The same option is available in `fromArray()` after its existing `source`
+argument. Structural checks, version ordering, aliases, tombstones and declarative
+position edits retain their validation. Reading a current-content-version save
+never autoloads unused migration classes. An older save executes every required
+step in order; a missing class fails with its project, version step, class and
+manifest source. An available class must implement `ContentMigrationInterface`.
+Required migrations are never skipped. This option does not load project code,
+rewrite manifests, change save bytes, or register project-specific state handlers.
+The host still owns its campaign restoration/release and presentation lifecycle.
+
 ## Save discovery and checkpoint ordering
 
 `SaveManager::getManualSlotCount()` is the single runtime capacity authority.

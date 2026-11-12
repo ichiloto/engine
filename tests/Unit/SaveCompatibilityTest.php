@@ -18,6 +18,7 @@ use Ichiloto\Engine\Exceptions\UnsupportedContentVersionException;
 use Ichiloto\Engine\Exceptions\UnsupportedSaveSchemaException;
 use Ichiloto\Engine\Exceptions\WrongProjectSaveException;
 use Ichiloto\Engine\IO\SaveCompatibility\ContentMigrationInterface;
+use Ichiloto\Engine\IO\SaveCompatibility\ContentMigrationResolution;
 use Ichiloto\Engine\IO\SaveCompatibility\PostResolutionContentMigrationInterface;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityPipeline;
@@ -387,6 +388,129 @@ it('lets a content migration convert a loading character\'s saved data before it
 
   cleanupCompatibilityManager($manager);
 });
+
+it('loads a current save through SaveManager without autoloading unused project migration classes', function () {
+  $project = createTestDirectory('save-host-manifest-');
+  mkdir($project . '/assets/Data', 0777, true);
+  file_put_contents($project . '/ichiloto.json', json_encode(['id' => 'ichiloto/test-project'], JSON_THROW_ON_ERROR));
+  $class = 'UnavailableProject\\Save\\HistoricalMigration';
+  $data = ['contentVersion' => 1, 'migrations' => [['from' => 0, 'to' => 1, 'class' => $class]]];
+  $manifestPath = $project . '/assets/Data/save-compatibility.php';
+  file_put_contents($manifestPath, '<?php return ' . var_export($data, true) . ';');
+  $manifestHash = hash_file('sha256', $manifestPath);
+  $lookups = [];
+  $loader = static function (string $name) use (&$lookups, $class): void {
+    if ($name === $class) { $lookups[] = $name; }
+  };
+  spl_autoload_register($loader);
+  $manager = null;
+
+  try {
+    $manifest = SaveCompatibilityManifest::fromProjectRoot($project,
+      migrationResolution: ContentMigrationResolution::WHEN_REQUIRED);
+    $slug = 'save-current-without-project-classes-' . uniqid();
+    $manager = new SaveManager(new SaveCompatibilityTestGame(),
+      "./tests/Support/Data/{$slug}", "./tests/Support/Data/{$slug}/quick", $manifest);
+    $path = $manager->getSlotPath(1);
+    writeCompatibilityPayload($path, new SaveCompatibilityPipeline($manifest)->createEnvelope(
+      makeCompatibilitySlot($path), makeCompatibilityConfig()));
+    $saveHash = hash_file('sha256', $path);
+    $loaded = $manager->loadSaveFile($path);
+
+    expect($loaded->config->mapId)->toBe('old-map')
+      ->and($loaded->config->party->members->toArray()[0]->stats->currentHp)->toBe(80)
+      ->and($lookups)->toBe([])
+      ->and(hash_file('sha256', $path))->toBe($saveHash)
+      ->and(hash_file('sha256', $manifestPath))->toBe($manifestHash);
+    expect(fn() => SaveCompatibilityManifest::fromProjectRoot($project))
+      ->toThrow(InvalidSaveCompatibilityManifestException::class, $class);
+    expect($lookups)->toContain($class);
+  } finally {
+    spl_autoload_unregister($loader);
+    if ($manager !== null) { cleanupCompatibilityManager($manager); }
+  }
+});
+
+it('resolves only required content classes and names an unavailable required step', function () {
+  $class = 'UnavailableProject\\Save\\HistoricalMigration';
+  $manifest = SaveCompatibilityManifest::fromArray('ichiloto/test-project', [
+    'contentVersion' => 2,
+    'migrations' => [
+      ['from' => 0, 'to' => 1, 'class' => $class],
+      ['from' => 1, 'to' => 2, 'mapShifts' => [['map' => 'old-map', 'axis' => 'x', 'at' => 0, 'by' => 1]]],
+    ],
+  ], migrationResolution: ContentMigrationResolution::WHEN_REQUIRED);
+  $pipeline = new SaveCompatibilityPipeline($manifest);
+  $path = '/synthetic/step-time-save.iedata';
+  $envelope = $pipeline->createEnvelope(makeCompatibilitySlot($path), makeCompatibilityConfig());
+  $envelope['contentVersion'] = 1;
+  $lookups = [];
+  $loader = static function (string $name) use (&$lookups, $class): void {
+    if ($name === $class) { $lookups[] = $name; }
+  };
+  spl_autoload_register($loader);
+
+  try {
+    $loaded = $pipeline->load(serialize($envelope), $path);
+    expect($loaded->config->playerPosition->x)->toBe(8.0)
+      ->and($lookups)->toBe([]);
+    $envelope['contentVersion'] = 0;
+    expect(fn() => $pipeline->load(serialize($envelope), $path))
+      ->toThrow(MissingSaveMigrationException::class,
+        'Project ichiloto/test-project requires content migration 0 to 1 class "' . $class . '"');
+    expect($lookups)->toBe([$class])
+      ->and(SaveHydrationContext::shouldDeferCharacters())->toBeFalse();
+    $envelope['contentVersion'] = 1;
+    expect($pipeline->load(serialize($envelope), $path)->config->playerPosition->x)->toBe(8.0);
+  } finally {
+    spl_autoload_unregister($loader);
+  }
+});
+
+it('keeps eager startup class validation and validates deferred classes before executing them', function () {
+  $data = ['contentVersion' => 1, 'migrations' => [['from' => 0, 'to' => 1, 'class' => stdClass::class]]];
+  expect(fn() => SaveCompatibilityManifest::fromArray('synthetic/project', $data))
+    ->toThrow(InvalidSaveCompatibilityManifestException::class, 'must implement');
+  $manifest = SaveCompatibilityManifest::fromArray('synthetic/project', $data,
+    migrationResolution: ContentMigrationResolution::WHEN_REQUIRED);
+  expect(fn() => $manifest->createMigrationFrom(0))
+    ->toThrow(InvalidSaveCompatibilityManifestException::class, 'content migration 0 to 1 class "stdClass" must implement');
+});
+
+it('executes an available required project migration and its post-resolution hook in either mode', function (ContentMigrationResolution $resolution) {
+  RecordingPostResolutionContentVersion0To1::$actorWasDeferred = false;
+  RecordingPostResolutionContentVersion0To1::$actorWasHydrated = false;
+  $manifest = SaveCompatibilityManifest::fromArray('ichiloto/test-project', [
+    'contentVersion' => 1,
+    'migrations' => [['from' => 0, 'to' => 1, 'class' => RecordingPostResolutionContentVersion0To1::class]],
+  ], migrationResolution: $resolution);
+  $pipeline = new SaveCompatibilityPipeline($manifest);
+  $path = '/synthetic/available-project-migration.iedata';
+  $envelope = $pipeline->createEnvelope(makeCompatibilitySlot($path), makeCompatibilityConfig());
+  $envelope['contentVersion'] = 0;
+  $loaded = $pipeline->load(serialize($envelope), $path);
+
+  expect(RecordingPostResolutionContentVersion0To1::$actorWasDeferred)->toBeTrue()
+    ->and(RecordingPostResolutionContentVersion0To1::$actorWasHydrated)->toBeTrue()
+    ->and($loaded->config->party->members->toArray()[0]->stats->currentHp)->toBe(80);
+})->with([ContentMigrationResolution::EAGER, ContentMigrationResolution::WHEN_REQUIRED]);
+
+it('keeps structural manifest validation when migration classes resolve only when required', function (array $data, string $message) {
+  expect(fn() => SaveCompatibilityManifest::fromArray('synthetic/project', $data,
+    migrationResolution: ContentMigrationResolution::WHEN_REQUIRED))
+    ->toThrow(InvalidSaveCompatibilityManifestException::class, $message);
+})->with([
+  'blank class' => [['contentVersion' => 1, 'migrations' => [['from' => 0, 'to' => 1, 'class' => ' ']]], 'must implement'],
+  'non-string class' => [['contentVersion' => 1, 'migrations' => [['from' => 0, 'to' => 1, 'class' => 2]]], 'must implement'],
+  'nonadjacent' => [['contentVersion' => 2, 'migrations' => [['from' => 0, 'to' => 2, 'class' => 'Unloaded']]], 'adjacent step'],
+  'duplicate' => [['contentVersion' => 1, 'migrations' => [
+    ['from' => 0, 'to' => 1, 'class' => 'Unloaded'], ['from' => 0, 'to' => 1, 'class' => 'Unloaded'],
+  ]], 'duplicate migration'],
+  'future step' => [['contentVersion' => 1, 'migrations' => [['from' => 1, 'to' => 2, 'class' => 'Unloaded']]], 'beyond current'],
+  'mixed kinds' => [['contentVersion' => 1, 'migrations' => [['from' => 0, 'to' => 1, 'class' => 'Unloaded', 'mapShifts' => []]]], 'not both or neither'],
+  'malformed edit' => [['contentVersion' => 1, 'migrations' => [['from' => 0, 'to' => 1, 'mapShifts' => []]]], 'non-empty list'],
+  'alias cycle' => [['contentVersion' => 0, 'aliases' => ['maps' => [['from' => 'a', 'to' => 'b'], ['from' => 'b', 'to' => 'a']]]], 'contains a cycle'],
+]);
 
 it('reports missing schema and content migration steps', function () {
   $path = '/tmp/ichiloto-missing-migration.iedata';
