@@ -89,11 +89,11 @@ final class EffectTimelineValidator
     $hasImages = $imageRestCovered = $stageRestCovered = false;
     foreach ($tracks as $track) {
       if (!is_array($track) || !is_string($track['id'] ?? null) || isset($ids[$track['id']])
-        || !in_array($track['type'] ?? null, ['image', 'glyph', 'text', ...($forBattle ? ['flash', 'shake', 'tone'] : []), ...($forBattle && !$forSummon ? ['trail', 'tether'] : [])], true)) {
+        || !in_array($track['type'] ?? null, ['image', 'glyph', 'text', ...($forBattle ? ['flash', 'shake', 'tone'] : []), ...($forBattle && !$forSummon ? ['trail', 'tether', 'field-motion'] : [])], true)) {
         throw new InvalidArgumentException("Effect {$id} has an invalid or duplicate track.");
       }
       EffectTimelineLibrary::assertId($track['id']);
-      $graphicalOnly = in_array($track['type'], ['trail', 'tether'], true);
+      $graphicalOnly = in_array($track['type'], ['trail', 'tether', 'field-motion'], true);
       $scope = EffectPresentation::validateTrack($track['presentation'] ?? ($graphicalOnly ? 'graphical' : 'all'));
       if ($graphicalOnly && $scope !== 'graphical') {
         throw new InvalidArgumentException("Effect {$id} {$track['type']} presentation must be graphical.");
@@ -104,6 +104,10 @@ final class EffectTimelineValidator
       if ($forStage && $presentation === EffectPresentation::GRAPHICAL
         && ($track['type'] !== 'image' || ($track['anchor'] ?? null) !== 'stage')) {
         throw new InvalidArgumentException('A caller-owned stage presentation accepts only stage image tracks.');
+      }
+      if ($track['type'] === 'field-motion') {
+        $normalized[] = BattleFieldMotionTrack::compile($track, $length, $playback, $cadence);
+        continue;
       }
       if ($track['type'] === 'trail') {
         $normalized[] = self::compileTrail($id, $track, $length, $playback, isset($data['rangeTiming']));

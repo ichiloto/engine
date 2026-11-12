@@ -92,7 +92,7 @@ final class GraphicalBattleEffects
       }
     }
     foreach ($playback->getActiveSegments($reducedMotion) as $segment) {
-      if ($segment['layer'] === 'tone') { continue; } // Owned by the current battler image, preserving draw order.
+      if (in_array($segment['layer'], ['tone', 'field-motion'], true)) { continue; } // Owned by the current battler image, preserving draw order.
       foreach ($segment['drawCommands'] as $command) {
         if (!($command['visible'] ?? true)) { continue; }
         $data = $command['payload'] ?? [];

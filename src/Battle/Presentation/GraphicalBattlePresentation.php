@@ -659,7 +659,13 @@ final class GraphicalBattlePresentation
       array_push($text, ...$effects->textLayers);
       array_push($composites, ...$effects->composites);
     }
-    if ($composition !== null) {
+    $fieldMotion = $includeOptionalArtwork ? BattleFieldMotion::getOffset($playback, $reducedMotion) : null;
+    if ($fieldMotion !== null && !\Ichiloto\Engine\Rendering\Presentation\PresentationSession::supportsCapability(
+      \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_GROUPS)) {
+      $playback->recordPresentationFailure(new RuntimeException('Renderer cannot apply the authored whole-field motion.'));
+      $fieldMotion = null;
+    }
+    if ($composition !== null && $fieldMotion === null) {
       array_push($images, ...$composition->images);
       array_push($text, ...$composition->textLayers);
       array_push($composites, ...$composition->composites);
@@ -698,6 +704,30 @@ final class GraphicalBattlePresentation
       ...($effects?->getOverlayProtection() ?? [])];
     if ($subjectFrontImages !== []) {
       $images = self::orderSubjectEffects($images, $bodyOffsets, $subjectFrontImages);
+    }
+    if ($fieldMotion !== null) {
+      $fieldAreas = [...$protectedCombatants, ...$cursorBounds, ...$conditionAreas,
+        ...array_map(static fn(CanvasTextLayer $layer) => $layer->clipRect ?? $layer->paintBounds, $text),
+        ...array_map(static fn(CanvasIndicator $indicator) => $indicator->bounds, $indicators),
+        ...($effects?->getOverlayProtection() ?? [])];
+      $local = new PresentationCanvas($this->layout->width, $this->layout->height,
+        $images, $indicators, CanvasTextBatch::compact($text), composites: $composites, protectedAreas: $fieldAreas);
+      try {
+        $group = new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasGroup('battlefield',
+          $fieldMotion->x, $fieldMotion->y, $local);
+      } catch (\InvalidArgumentException $error) {
+        $playback->recordPresentationFailure($error);
+        $group = new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasGroup('battlefield', 0, 0, $local);
+      }
+      $canvas = new PresentationCanvas($this->layout->width, $this->layout->height, groups: [$group]);
+      if ($stageCanvas !== null) { $canvas = PresentationCanvas::composeOverlay($canvas, $stageCanvas); }
+      if ($composition !== null) { $canvas = PresentationCanvas::composeOverlay($canvas, $composition); }
+      if ($ui !== []) {
+        $canvas = PresentationCanvas::composeOverlay($canvas,
+          new PresentationCanvas($this->layout->width, $this->layout->height, textLayers: CanvasTextBatch::compact($ui)));
+      }
+      CanvasImagePreflight::inspectCanvases([$canvas], $this->assetRoot);
+      return $canvas;
     }
     $canvas = new PresentationCanvas($this->layout->width, $this->layout->height,
       [...$images, ...($stageCanvas?->images ?? [])], $indicators, CanvasTextBatch::compact([...$text, ...$ui]),

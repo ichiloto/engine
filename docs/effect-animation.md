@@ -2770,3 +2770,47 @@ aggregate, preserving the outcome; the malformed schedule must be corrected.
 The result formatter can consume the fifth optional `CombatHitResult` argument
 to format historical HP feedback. Existing unscheduled feedback keeps its
 current behaviour.
+
+
+### Authored whole-field motion
+
+A fixed, once-playing graphical battle timeline may include a `field-motion`
+track. Each keyframe declares a held logical-pixel offset, independent of troop
+slots, actor dimensions and terminal cells:
+
+```php
+[
+  'id' => 'impact-shake',
+  'type' => 'field-motion',
+  'presentation' => 'graphical',
+  'keyframes' => [
+    ['frame' => 151, 'duration' => 1, 'payload' => ['x' => -10.25, 'y' => 3.5]],
+    ['frame' => 152, 'duration' => 1, 'payload' => ['x' => 7.0, 'y' => -2.0]],
+    ['frame' => 153, 'duration' => 1, 'payload' => ['x' => 0.0, 'y' => 0.0]],
+  ],
+]
+```
+
+Samples are ordered and nonoverlapping. `duration` defaults to one frame;
+`visible: false` disables a sample. Gaps and completion release this track's
+transform. Zero is an explicit active sample. Multiple active motion tracks add
+their offsets. Values must be finite within the existing canvas coordinate
+limit. The translated surface must also fit that coordinate contract; an
+unrepresentable transform is diagnosed and leaves a static field. Normal source
+track round trips may include the neutral `zIndex: 0`; motion has no visual
+z-order of its own.
+
+The command's PHP playhead samples these offsets before visual clearing. Pause,
+resume, reverse-order preview inspection and cancellation use the same timeline.
+Motion never changes captured target geometry, world/save positions, skill
+costs, target membership or combat outcomes. The complete arena, battlers,
+shadows, attached effects and field feedback share one rigid canvas group;
+command/HUD controls remain in screen space. Reduced motion suppresses this
+track. Existing legacy per-battler `shake` behaviour is preserved.
+
+The graphical host needs `canvas_groups`; without it the command reports a
+presentation diagnostic and retains the static battlefield. Terminal compilation
+excludes this graphical track and keeps its own presentation. Native/Editor
+canvas-group painting and visual authoring remain separately qualified work;
+PHP source/runtime checks do not establish those ports. Authored per-battler
+recoil and live field colour treatment are separate pending mechanisms.
