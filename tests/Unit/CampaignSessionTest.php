@@ -166,3 +166,20 @@ it('releases only its own recruitment queue when another session uses the same p
     expect($game->getModalManager()->hasPendingNotices($a))->toBeFalse()
         ->and($game->getModalManager()->hasPendingNotices($b))->toBeFalse();
 });
+
+
+it('keeps restored campaign facts without retaining a field host through presentation callbacks', function () {
+    $game = new PassiveGame();
+    $scene = new class($game) extends \Ichiloto\Engine\Scenes\Game\GameScene {
+        public function __construct(private \Ichiloto\Engine\Core\Game $owner) {}
+        public function getGame(): \Ichiloto\Engine\Core\Game { return $this->owner; }
+        protected function configureCampaign(GameConfig $config): void {}
+    };
+    $scene->configure(createCampaignSessionConfig(new Party()));
+    $campaign = $scene->campaign;
+    $weak = WeakReference::create($scene);
+    unset($scene);
+    gc_collect_cycles();
+    try { expect($weak->get())->toBeNull()->and($campaign->isReleased)->toBeFalse(); }
+    finally { $campaign->release(); }
+});

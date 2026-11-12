@@ -1098,8 +1098,12 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         $this->cancelPendingSavedGameResume();
 
         $previous = $this->campaign;
+        $scene = \WeakReference::create($this);
         $campaign = CampaignSession::restore($this->getGame(), $config,
-            $this->getGame()->getProjectAssetRoot(), $this->showIncomeNotice(...));
+            $this->getGame()->getProjectAssetRoot(),
+            static function (string $title, string $text) use ($scene): void {
+                $scene->get()?->showIncomeNotice($title, $text);
+            });
         try {
             $this->adoptCampaign($campaign);
             $this->configureCampaign($config);
