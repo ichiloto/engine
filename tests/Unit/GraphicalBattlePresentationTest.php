@@ -4038,3 +4038,68 @@ it('keeps the head and chain on the authored path while a bystander crosses it',
     ->and($blocked[0]->layer)->toBe(179)
     ->and(array_any($blocked, static fn(CanvasImage $link): bool => $link->layer === 89))->toBeTrue();
 });
+
+it('returns from a staged film with one captured beam in runtime and reverse preview', function (bool $reduced, bool $cancel) {
+  $this->root = createTestDirectory('staged-captured-beam-');
+  foreach (['graphical-canvas/synthetic-320x180.png' => [320, 180],
+    'graphical-canvas/synthetic-143x181.png' => [143, 181], 'beam.png' => [400, 40]] as $path => [$width, $height]) {
+    \Tests\Support\Rendering\writeTestPng($this->root . '/' . $path, $width, $height);
+  }
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $pose = new BattlerPose('graphical-canvas/synthetic-320x180.png', frames: array_fill(0, 25, 0), fps: 24,
+    loop: false, impactFrame: 1, attachmentPoints: [['cell' => 0, 'name' => 'release', 'point' => ['x' => .5, 'y' => .5]]]);
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $catalog->ui, defaultArena: $catalog->defaultArena, actorPoses: ['Hero' => new BattlePoseSet(['attack' => $pose])]);
+  $data = ['fps' => 24, 'lengthFrames' => 12, 'restFrame' => 6, 'targetCaptureFrame' => 5,
+    'poseClock' => 'target', 'poseSyncFrame' => 6, 'effectTiming' => ['mode' => 'arena', 'frame' => 6],
+    'targetContactSequence' => ['firstFrame' => 6, 'lastFrame' => 6, 'direction' => 'west', 'tracks' => ['hit']],
+    'stage' => ['canvas' => ['width' => 1350, 'height' => 720], 'startFrame' => 0, 'restoreFrame' => 6, 'restFrame' => 2,
+      'camera' => [['id' => 'wide', 'frame' => 0, 'focus' => ['x' => 675, 'y' => 360], 'zoom' => 1]], 'covers' => []],
+    'tracks' => [
+      ['id' => 'film', 'type' => 'image', 'presentation' => 'graphical', 'asset' => 'graphical-canvas/synthetic-320x180.png',
+        'anchor' => 'stage', 'placement' => ['position' => ['x' => 675, 'y' => 360], 'size' => ['width' => 1350, 'height' => 720]],
+        'keyframes' => [['frame' => 0, 'duration' => 6]]],
+      ['id' => 'beam', 'type' => 'image', 'presentation' => 'graphical', 'asset' => 'beam.png',
+        'anchor' => 'caster', 'attachmentPoint' => 'release', 'detachFrame' => 5, 'facing' => 'west', 'pivot' => ['x' => .9, 'y' => .5],
+        'flight' => ['mode' => 'beam', 'route' => 'straight', 'tipX' => .1, 'arrivalFrame' => 6, 'fallback' => 'horizontal-exit'],
+        'keyframes' => [['frame' => 6, 'duration' => 3]]],
+      ['id' => 'hit', 'type' => 'image', 'presentation' => 'graphical', 'asset' => 'beam.png',
+        'anchor' => 'target', 'keyframes' => [['frame' => 6, 'duration' => 3]]],
+    ], 'cues' => []];
+  $effect = (new EffectTimelineLibrary($this->root))->compile('staged-beam', $data, true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect, actionPoseOverride: $pose);
+  $resolved = 0;
+  $playback = new BattleCommandPlayback($plan, $hero, $enemies, BattlePoseRole::ATTACK,
+    static function () use (&$resolved) { $resolved++; }, static fn() => null);
+  $view = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $view->bindCommandPosePoints($playback, $reduced, 0);
+  $playback->begin();
+  $at = fn(int $frame): int => $plan->getCommandFrameForAuthoredFrame('target', $frame);
+  $draw = fn() => $view->frame(new \Ichiloto\Engine\Battle\Presentation\BattlePresentationSnapshot($playback),
+    reducedMotion: $reduced, imageRotation: true);
+  $playback->update($at(5) / 120);
+  expect(array_any($draw()->images, static fn($image) => str_contains($image->id, 'target-beam')))->toBeFalse()
+    ->and($playback->getCapturedTargetGroup('snapshot'))->not->toBeNull()->and($resolved)->toBe(0);
+  if ($cancel) {
+    $playback->cancel(); $playback->update(100);
+    expect($resolved)->toBe(0)->and($playback->getDetachedPosePoint('target-beam', $hero))->toBeNull();
+    return;
+  }
+  $playback->update(($at(6) - $at(5)) / 120);
+  $frame = $draw();
+  $beam = array_values(array_filter($frame->images, static fn($image) => str_contains($image->id, 'target-beam')));
+  expect($beam)->toHaveCount(1)->and($resolved)->toBe(1)
+    ->and(array_values($playback->getTargetContactFrames()))->toBe([$at(6), $at(6)])
+    ->and($playback->getFallbackHitFrames())->toBeEmpty()->and($playback->presentationFailure)->toBeNull();
+  $before = array_map(static fn($target) => $target->stats->currentHp, [$hero, ...$enemies]);
+  $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $hero, $enemies,
+    BattlePoseRole::ATTACK, $catalog, $this->root);
+  $later = $preview->getFrameAtIndex($at(8), $reduced, imageRotation: true);
+  $impact = $preview->getFrameAtIndex($at(6), $reduced, imageRotation: true);
+  $covered = $preview->getFrameAtIndex($at(5), $reduced, imageRotation: true);
+  expect(array_filter($impact->canvas->images, static fn($image) => str_contains($image->id, 'target-beam')))->toHaveCount(1)
+    ->and($later->diagnostics)->toBe([])->and($impact->diagnostics)->toBe([])->and($covered->diagnostics)->toBe([])
+    ->and(array_map(static fn($target) => $target->stats->currentHp, [$hero, ...$enemies]))->toBe($before)->and($resolved)->toBe(1);
+  $playback->update(100); $playback->update(100);
+  expect($resolved)->toBe(1)->and(array_any($draw()->images, static fn($image) => str_contains($image->id, 'target-beam')))->toBeFalse();
+})->with([false, true])->with([false, true]);

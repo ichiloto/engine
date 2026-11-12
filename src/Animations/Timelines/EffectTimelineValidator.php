@@ -394,7 +394,8 @@ final class EffectTimelineValidator
         && $presentation->acceptsSegment(['presentation' => $track['presentation'] ?? 'all'])));
       $spacedFlight = count($flights) === 1 ? $flights[0] : null;
       $impact = self::getAuthoredImpactFrame($cues, $timing);
-      if ($spacedFlight === null || $spacedFlight['flight']['arrivalFrame'] !== $impact
+      if ($spacedFlight === null || ($spacedFlight['flight']['mode'] ?? EffectFlightMode::PROJECTILE->value) === EffectFlightMode::BEAM->value
+        || $spacedFlight['flight']['arrivalFrame'] !== $impact
         || ($spacedFlight['flight']['holdFrame'] ?? $impact) !== $impact
         || ($stage !== null && $impact < $stage->data['restoreFrame'])) {
         throw new InvalidArgumentException("Effect {$id} spaced fallback hits require one horizontal exit with arrival at impact, at or after battlefield restoration.");
@@ -494,7 +495,8 @@ final class EffectTimelineValidator
   {
     return is_array($track) && is_string($track['id'] ?? null) && ($track['type'] ?? null) === 'image'
       && ($track['anchor'] ?? null) === 'caster' && is_int($track['detachFrame'] ?? null)
-      && is_array($track['flight'] ?? null) && ($track['presentation'] ?? 'graphical') === 'graphical';
+      && is_array($track['flight'] ?? null) && ($track['presentation'] ?? 'graphical') === 'graphical'
+      && ($track['flight']['mode'] ?? EffectFlightMode::PROJECTILE->value) === EffectFlightMode::PROJECTILE->value;
   }
 
   /** @return array{track: string, release: int, arrival: int, speed: float} */
@@ -559,7 +561,7 @@ final class EffectTimelineValidator
   private static function validateFlight(string $id, array $track, mixed $flight, int $length, bool $hasRange): void
   {
     if (($track['anchor'] ?? null) !== 'caster' || !isset($track['detachFrame'])
-      || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame', 'route', 'tipX', 'curve', 'farCurve', 'contact', 'fallback',
+      || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame', 'route', 'tipX', 'curve', 'farCurve', 'contact', 'fallback', 'mode',
         ...($track['type'] === 'trail' ? ['bystanderClearance'] : [])]) !== []
       || !is_int($flight['arrivalFrame'] ?? null) || $flight['arrivalFrame'] <= $track['detachFrame']
       || $flight['arrivalFrame'] >= $length
@@ -567,6 +569,21 @@ final class EffectTimelineValidator
       || (array_key_exists('holdFrame', $flight) && (!is_int($flight['holdFrame'])
         || $flight['holdFrame'] < $track['detachFrame'] || $flight['holdFrame'] > $flight['arrivalFrame']))) {
       throw new InvalidArgumentException("Effect {$id} flight requires a detached caster point, an arrival frame after release and an optional hold frame within flight.");
+    }
+    if (array_key_exists('mode', $flight) && (!is_string($flight['mode']) || EffectFlightMode::tryFrom($flight['mode']) === null)) {
+      throw new InvalidArgumentException("Effect {$id} flight mode must be projectile or beam.");
+    }
+    if (($flight['mode'] ?? EffectFlightMode::PROJECTILE->value) === EffectFlightMode::BEAM->value) {
+      $pivot = $track['pivot']['x'] ?? .5;
+      $tip = $flight['tipX'] ?? null;
+      $facing = $track['facing'] ?? null;
+      if ($track['type'] !== 'image' || ($flight['route'] ?? null) !== EffectFlightRoute::STRAIGHT->value
+        || !in_array($facing, ['east', 'west'], true) || $hasRange || array_key_exists('holdFrame', $flight)
+        || (!is_int($pivot) && !is_float($pivot)) || !is_finite((float)$pivot)
+        || (!is_int($tip) && !is_float($tip)) || !is_finite((float)$tip) || $tip < 0 || $tip > 1
+        || ($tip - $pivot) * ($facing === 'east' ? 1 : -1) <= 0) {
+        throw new InvalidArgumentException("Effect {$id} beam requires a fixed straight image, facing, and a tip ahead of its rear pivot; it has no travel hold.");
+      }
     }
     if (array_key_exists('contact', $flight) && (($flight['route'] ?? null) !== EffectFlightRoute::STRAIGHT->value
       || !is_string($flight['contact']) || EffectFlightContact::tryFrom($flight['contact']) === null)) {

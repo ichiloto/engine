@@ -675,6 +675,24 @@ Combat resolves once in its original order. A direct ray keeps one shared
 hit. Preview hosts pass the resolved `targetCount` when constructing
 `BattleCommandTimeline` so it reserves the same reaction time as live play.
 
+A straight captured image can use `flight.mode => 'beam'`. Declare its rear
+`pivot`, `facing`, and `flight.tipX` ahead of that pivot in the source's facing.
+The shared route is captured at `detachFrame`. At `arrivalFrame`, one complete
+beam spans the measured rear-to-tip reach along that captured ray; its source
+proportions, crop, authored flips and glow overhang are preserved. Replacing the
+file reads its current cell dimensions. Cells do not resize the captured reach.
+
+Beam mode retains a horizontal-exit ray at contact and during the timeline's
+reduced-motion hold. Normal visibility comes from image keyframes; reduced
+motion follows the timeline's safe-sample policy. Cancellation and completion
+release the drawing. Target selection, contact cues and the single logical
+command resolution retain their own clocks. Beam mode has no travel hold,
+distance-based flight clock or staggered fallback timing. Omitted mode keeps
+ordinary projectile presentation, including its existing travel and fallback
+visibility. A renderer unable to rotate or clip an authored beam reports that
+capability gap instead of drawing a different ray. Use the independent Terminal
+presentation for its glyph/text drawing.
+
 A target effect can author an advancing graphical contact front independently
 of a projectile or the command's combat impact:
 
