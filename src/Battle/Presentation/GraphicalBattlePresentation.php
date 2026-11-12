@@ -964,7 +964,7 @@ final class GraphicalBattlePresentation
     };
     if (array_any($playback->plan->timeline->cueSchedule, static fn(array $cue): bool =>
       in_array($cue['type'], ['commandCaptureTargetGroup', 'commandCaptureTargetContacts', 'commandCaptureTargetSnapshot'], true))) {
-      $playback->bindTargetGroupCapture(function (BattleCommandPlayback $sample) use ($captureGeometry): ?BattleEffectTargetGroup {
+      $playback->bindAnchorSnapshotCapture(function (BattleCommandPlayback $sample) use ($captureGeometry): ?BattleEffectAnchorSnapshot {
         $geometry = $captureGeometry($sample);
         $bounds = $grounds = $sides = [];
         foreach ($sample->targets as $target) {
@@ -976,7 +976,9 @@ final class GraphicalBattlePresentation
           $grounds[$id] = $projected['ground'];
           $sides[$id] = $participant['party'];
         }
-        return BattleEffectTargetGroup::collectTargets($sample->targets, $bounds, $grounds, $sides);
+        $targets = BattleEffectTargetGroup::collectTargets($sample->targets, $bounds, $grounds, $sides);
+        return $targets === null ? null : new BattleEffectAnchorSnapshot($targets,
+          $geometry[spl_object_id($sample->actor)]['ground']);
       });
     }
     if (!array_any($playback->plan->timeline->cueSchedule, static fn(array $cue): bool =>

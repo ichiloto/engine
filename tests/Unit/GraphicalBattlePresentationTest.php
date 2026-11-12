@@ -4080,13 +4080,22 @@ it('returns from a staged film with one captured beam in runtime and reverse pre
   $playback->update($at(5) / 120);
   expect(array_any($draw()->images, static fn($image) => str_contains($image->id, 'target-beam')))->toBeFalse()
     ->and($playback->getCapturedTargetGroup('snapshot'))->not->toBeNull()->and($resolved)->toBe(0);
+  $anchors = $playback->getCapturedAnchorSnapshot('snapshot');
+  expect($anchors)->not->toBeNull()->and($anchors->targets)->toBe($playback->getCapturedTargetGroup('snapshot'))
+    ->and(array_keys($anchors->targets->grounds))->toEqualCanonicalizing(array_map(spl_object_id(...), $enemies))
+    ->and($anchors->targets->grounds)->not->toHaveKey(spl_object_id($hero));
+  $heldCasterGround = $anchors->getCasterGround();
+  $borrowed = $anchors->getCasterGround(); $borrowed->x += 1000;
+  expect($anchors->getCasterGround())->toEqual($heldCasterGround);
   if ($cancel) {
     $playback->cancel(); $playback->update(100);
-    expect($resolved)->toBe(0)->and($playback->getDetachedPosePoint('target-beam', $hero))->toBeNull();
+    expect($resolved)->toBe(0)->and($playback->getDetachedPosePoint('target-beam', $hero))->toBeNull()
+      ->and($playback->getCapturedAnchorSnapshot('snapshot'))->toBeNull();
     return;
   }
   $playback->update(($at(6) - $at(5)) / 120);
   $frame = $draw();
+  expect($playback->getCapturedAnchorSnapshot('snapshot')->getCasterGround())->toEqual($heldCasterGround);
   $beam = array_values(array_filter($frame->images, static fn($image) => str_contains($image->id, 'target-beam')));
   expect($beam)->toHaveCount(1)->and($resolved)->toBe(1)
     ->and(array_values($playback->getTargetContactFrames()))->toBe([$at(6), $at(6)])

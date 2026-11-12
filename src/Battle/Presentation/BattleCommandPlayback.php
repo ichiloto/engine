@@ -51,9 +51,9 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private array $fallbackHitFrames = [];
   /** @var array<int, int> Graphical contact frames; gameplay and reactions keep their own impact. */
   private array $targetContactFrames = [];
-  /** @var ?Closure(self): ?BattleEffectTargetGroup */
+  /** @var ?Closure(self): (BattleEffectAnchorSnapshot|BattleEffectTargetGroup|null) */
   private ?Closure $captureTargetGroup = null;
-  /** @var array<string, ?BattleEffectTargetGroup> */
+  /** @var array<string, BattleEffectAnchorSnapshot|BattleEffectTargetGroup|null> */
   private array $targetGroups = [];
   /** @var array<int, array{battler: \Ichiloto\Engine\Entities\Enemies\Enemy, start: float, cleared: bool}> */
   private array $defeats = [];
@@ -176,9 +176,23 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $this->captureTargetGroup = $capture;
   }
 
+  /** @param Closure(self): ?BattleEffectAnchorSnapshot $capture */
+  public function bindAnchorSnapshotCapture(Closure $capture): void
+  {
+    $this->captureTargetGroup = $capture;
+  }
+
   public function getCapturedTargetGroup(string $lane): ?BattleEffectTargetGroup
   {
-    return $this->targetGroups[$lane] ?? null;
+    $capture = $this->targetGroups[$lane] ?? null;
+    return $capture instanceof BattleEffectAnchorSnapshot ? $capture->targets : $capture;
+  }
+
+  /** Legacy target-only providers expose no invented source point. */
+  public function getCapturedAnchorSnapshot(string $lane): ?BattleEffectAnchorSnapshot
+  {
+    $capture = $this->targetGroups[$lane] ?? null;
+    return $capture instanceof BattleEffectAnchorSnapshot ? $capture : null;
   }
 
   /** @return ?DetachedPosePoint */
@@ -760,6 +774,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
           }
           $group = $usesSnapshot ? $this->targetGroups['snapshot']
             : ($this->captureTargetGroup)($this->samplePoseAtFrame($cue['frame']));
+          if ($group instanceof BattleEffectAnchorSnapshot) { $group = $group->targets; }
           if ($group !== null) { $this->targetContactFrames = $this->plan->targetContactSequence->getContactFrames($group); }
           elseif ($this->targets !== []) { throw new \RuntimeException('Target contact sequencing has no selected body capture.'); }
         } catch (Throwable $failure) { $this->recordPresentationFailure($failure); }

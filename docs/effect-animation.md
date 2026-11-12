@@ -727,6 +727,16 @@ content has its own source and never requires the graphical snapshot or files.
 Omitting the field preserves first-contact capture. Cancellation releases the
 snapshot; pure preview sampling does not resolve combat.
 
+The graphical host stores a `BattleEffectAnchorSnapshot` at this same boundary,
+with caster ground and the selected group as separate owned data. Playback's
+`getCapturedAnchorSnapshot('snapshot')` exposes that context; its
+`getCasterGround()` returns a defensive copy. Effect-start captures use their
+existing lane key. `getCapturedTargetGroup()` retains its selected-group API.
+New host providers use `bindAnchorSnapshotCapture()`; existing target-only
+providers retain `bindTargetGroupCapture()` and expose their available group.
+The source point adds no recipient identity or outcome. Ground-lane endpoint
+selection and rendering consume this data in a separate binding.
+
 For example, `targetCaptureFrame => 19` with equal first/last contact frames20
 captures under the film, then contacts every selected identity simultaneously
 at20. Final Game bindings and Editor controls remain separate consumer work.
