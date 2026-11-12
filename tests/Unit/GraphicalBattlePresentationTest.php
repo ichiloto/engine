@@ -4177,3 +4177,154 @@ it('diagnoses unsupported or out-of-surface field motion while preserving contro
   if ($supported) { expect($canvas->groups[0]->x)->toBe(0.0); }
   else { expect($canvas->groups)->toBe([]); }
 })->with([false, true]);
+
+it('moves only the selected battler by exact logical pixels and its attached effect by the same amount', function (float $amount) {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture(true);
+  $effect = (new \Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator($this->root))->compile('rigid',
+    ['fps' => 24, 'lengthFrames' => 3, 'tracks' => [
+      ['id' => 'motion', 'type' => 'battler-motion', 'anchor' => 'target', 'keyframes' => [
+        ['frame' => 0, 'payload' => ['x' => 0, 'y' => 0]],
+        ['frame' => 1, 'duration' => 2, 'payload' => ['x' => $amount, 'y' => 5.5]]]],
+      ['id' => 'glow', 'type' => 'image', 'asset' => 'test-sprite.png', 'anchor' => 'target',
+        'attachment' => 'ground', 'keyframes' => [['frame' => 0, 'duration' => 3]]]]], forBattle: true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1,.1,.1,.1,.1,.1,.1), target: $effect);
+  $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $hero, [$enemies[0]],
+    BattlePoseRole::ATTACK, $catalog, $this->root);
+  $sample = fn(int $tick) => \Ichiloto\Engine\Rendering\Presentation\PresentationSession::runForSession(
+    static fn(string $cap): bool => true, fn() => $preview->getFrameAtIndex($plan->phases['target']['start'] + $tick));
+  $neutral = $sample(0); $moved = $sample(5);
+  $before = graphicalCombatantImage($neutral->canvas, $enemies[0]);
+  $after = graphicalCombatantImage($moved->canvas, $enemies[0]);
+  expect($moved->diagnostics)->toBe([])->and($neutral->diagnostics)->toBe([])
+    ->and($after->destination->x - $before->destination->x)->toEqualWithDelta($amount, .000001)
+    ->and($after->destination->y - $before->destination->y)->toBe(5.5)
+    ->and($after->destination->width)->toBe($before->destination->width)
+    ->and($after->destination->height)->toBe($before->destination->height)->and($after->sourceRect)->toEqual($before->sourceRect);
+  foreach ([$hero, $enemies[1]] as $fixed) {
+    expect(graphicalCombatantImage($moved->canvas, $fixed)->destination)->toEqual(graphicalCombatantImage($neutral->canvas, $fixed)->destination);
+  }
+  $glow = static fn($canvas) => array_find($canvas->images, static fn($image) => str_contains($image->id, 'target-glow'));
+  expect($glow($moved->canvas)->destination->x - $glow($neutral->canvas)->destination->x)->toEqualWithDelta($amount, .000001)
+    ->and($glow($moved->canvas)->destination->y - $glow($neutral->canvas)->destination->y)->toBe(5.5)
+    ->and($sample(0)->canvas->toArray())->toBe($neutral->canvas->toArray())
+    ->and($enemies[0]->stats->currentHp)->toBe(100)->and($hero->stats->currentHp)->toBe(100);
+})->with([10.0,-10.0,10.25]);
+
+it('clips battler motion at the viewport without clamping or invalidating hit tint', function (float $dx, float $dy) {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture(true);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $base = graphicalCombatantImage($presentation->frame(), $enemies[0]);
+  $effect = (new \Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator($this->root))->compile('edge',
+    ['fps' => 24, 'lengthFrames' => 3, 'tracks' => [
+      ['id' => 'motion', 'type' => 'battler-motion', 'anchor' => 'target',
+        'keyframes' => [['frame' => 0, 'duration' => 3, 'payload' => ['x' => $dx, 'y' => $dy]]]],
+      ['id' => 'flash', 'type' => 'flash', 'anchor' => 'target', 'keyframes' => [
+        ['frame' => 0, 'duration' => 3, 'payload' => ['color' => 'white', 'strength' => .3]]]]]], forBattle: true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1,.1,.1,.1,.1,.1,.1), target: $effect);
+  $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $hero, [$enemies[0]], BattlePoseRole::ATTACK, $catalog, $this->root);
+  $frame = \Ichiloto\Engine\Rendering\Presentation\PresentationSession::runForSession(static fn(string $cap): bool => true,
+    fn() => $preview->getFrameAtIndex($plan->phases['target']['start']));
+  expect($frame->diagnostics)->toBe([]);
+  $body = graphicalCombatantImage($frame->canvas, $enemies[0]);
+  $x = $base->destination->x + $dx; $y = $base->destination->y + $dy;
+  $outside = $x >= 1350 || $y >= 720 || $x + $base->destination->width <= 0 || $y + $base->destination->height <= 0;
+  if ($outside) { expect($body)->toBeNull(); }
+  else {
+    expect($body->destination->x)->toBe($x)->and($body->destination->y)->toBe($y)
+      ->and($body->sourceRect)->toEqual($base->sourceRect)->and($body->destination->width)->toBe($base->destination->width);
+    $body->assertWithin(1350,720);
+  }
+  expect(CanvasImagePreflight::inspect($frame->canvas->images, $this->root, $frame->canvas->composites)['sources'])->not->toBeEmpty();
+})->with([[-350.0,0.0],[900.0,0.0],[0.0,-450.0],[0.0,250.0],[-1000.0,0.0],[2000.0,0.0],[0.0,-1000.0],[0.0,1000.0]]);
+
+it('lets an authored neutral sample replace damage recoil while preserving separately authored shake', function (bool $shake) {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $base = graphicalCombatantImage($presentation->frame(), $enemies[0]);
+  $tracks = [['id' => 'motion', 'type' => 'battler-motion', 'anchor' => 'target', 'keyframes' => [
+    ['frame' => 0, 'duration' => 6, 'payload' => ['x' => 0, 'y' => 0]]]]];
+  if ($shake) { $tracks[] = ['id' => 'shake', 'type' => 'shake', 'anchor' => 'target',
+    'keyframes' => [['frame' => 0, 'duration' => 6, 'payload' => ['amplitude' => 1]]]]; }
+  $effect = (new \Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator($this->root))->compile('zero',
+    ['fps' => 24, 'lengthFrames' => 6, 'tracks' => $tracks], forBattle: true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1,.1,.1,.1,.1,.1,.1), target: $effect);
+  $playback = new BattleCommandPlayback($plan, $hero, [$enemies[0]], BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
+  $playback->begin(); $playback->setReaction($enemies[0], BattlePoseRole::DAMAGE, $plan->phases['target']['start']);
+  $playback->update(($plan->phases['target']['start'] + 5) / 120);
+  expect(abs($playback->getRecoilFraction($enemies[0], false)))->toBeGreaterThan(.001);
+  $draw = fn(bool $reduced = false) => \Ichiloto\Engine\Rendering\Presentation\PresentationSession::runForSession(
+    static fn(string $cap): bool => true, fn() => $presentation->frame(
+      new \Ichiloto\Engine\Battle\Presentation\BattlePresentationSnapshot($playback), reducedMotion: $reduced));
+  $image = graphicalCombatantImage($draw(), $enemies[0]);
+  expect($image->destination->x - $base->destination->x)->toEqualWithDelta(
+    $playback->getShakeFraction($enemies[0], false) * $presentation->getSlot($enemies[0])->width, .000001);
+  $frame = $playback->session->currentFrame; $playback->pause(); $playback->update(10);
+  expect(graphicalCombatantImage($draw(), $enemies[0])->destination)->toEqual($image->destination)
+    ->and($playback->session->currentFrame)->toBe($frame)
+    ->and(graphicalCombatantImage($draw(true), $enemies[0])->destination)->toEqual($base->destination);
+  $playback->resume(); $playback->cancel();
+  expect(graphicalCombatantImage($draw(), $enemies[0])->destination)->toEqual($base->destination);
+})->with([false,true]);
+
+it('applies field and battler displacement once and carries shadows with their own ground points', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture(true);
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: new BattleCanvasLayout(1350,720,skin: $catalog->ui->skin, partySlots: $catalog->ui->partySlots,
+      feedbackArea: $catalog->ui->feedbackArea, shadow: new \Ichiloto\Engine\Battle\Presentation\BattlerShadowStyle(PresentationColor::rgb(0,0,0))),
+    defaultArena: $catalog->defaultArena);
+  $effect = (new \Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator($this->root))->compile('combined',
+    ['fps' => 24,'lengthFrames' => 3,'tracks' => [
+      ['id' => 'field','type' => 'field-motion','keyframes' => [['frame' => 0,'duration' => 3,'payload' => ['x' => -7,'y' => 2]]]],
+      ['id' => 'body','type' => 'battler-motion','anchor' => 'target','keyframes' => [
+        ['frame' => 0,'payload' => ['x' => 0,'y' => 0]],['frame' => 1,'duration' => 2,'payload' => ['x' => 10,'y' => 0]]]]]],forBattle: true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1,.1,.1,.1,.1,.1,.1),target: $effect);
+  $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle,$plan,$hero,[$enemies[0]],BattlePoseRole::ATTACK,$catalog,$this->root);
+  $get = fn(int $tick) => \Ichiloto\Engine\Rendering\Presentation\PresentationSession::runForSession(static fn(string $cap): bool => true,
+    fn() => $preview->getFrameAtIndex($plan->phases['target']['start']+$tick));
+  $neutral=$get(0);$moved=$get(5);
+  expect($moved->diagnostics)->toBe([])->and($neutral->diagnostics)->toBe([])
+    ->and($moved->canvas->groups)->toHaveCount(1)->and($moved->canvas->groups[0]->x)->toBe(-7.0);
+  $before=$neutral->canvas->groups[0]->canvas;$after=$moved->canvas->groups[0]->canvas;
+  expect(graphicalCombatantImage($after,$enemies[0])->destination->x-graphicalCombatantImage($before,$enemies[0])->destination->x)->toBe(10.0);
+  $id='contact-'.spl_object_id($enemies[0]);
+  $shadow=static fn($canvas)=>array_find($canvas->composites,static fn($c)=>$c->id===$id);
+  expect($shadow($after)->destination->x-$shadow($before)->destination->x)->toBe(10.0)
+    ->and($shadow($after)->destination->y)->toBe($shadow($before)->destination->y);
+});
+
+it('reports unsupported authored motion explicitly and keeps the ordinary battle visible', function () {
+  [$battle,$catalog,$hero,$enemies]=graphicalBattleFixture();
+  $effect=(new \Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator($this->root))->compile('unsupported',
+    ['fps'=>24,'lengthFrames'=>3,'tracks'=>[['id'=>'body','type'=>'battler-motion','anchor'=>'target',
+      'keyframes'=>[['frame'=>0,'duration'=>3,'payload'=>['x'=>10,'y'=>0]]]]]],forBattle:true);
+  $plan=new BattleCommandTimeline(new BattleTurnTimings(.1,.1,.1,.1,.1,.1,.1),target:$effect);
+  $preview=new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle,$plan,$hero,[$enemies[0]],BattlePoseRole::ATTACK,$catalog,$this->root);
+  $frame=\Ichiloto\Engine\Rendering\Presentation\PresentationSession::runForSession(
+    static fn(string $cap):bool=>$cap!==RendererSessionConfig::CANVAS_IMAGE_ROTATION,
+    fn()=>$preview->getFrameAtIndex($plan->phases['target']['start']));
+  expect(implode(' ', $frame->diagnostics))->toContain('full-source battler motion')
+    ->and(graphicalCombatantImage($frame->canvas,$enemies[0]))->not->toBeNull()
+    ->and($enemies[0]->stats->currentHp)->toBe(100);
+});
+
+it('retains aquatic surface treatment independently of the viewport clip during motion', function (float $elevation, bool $fade) {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $catalog->ui, defaultArena: $catalog->defaultArena, enemyGrounding: ['Twin' =>
+      new \Ichiloto\Engine\Battle\Presentation\BattlerGrounding(elevation: $elevation,
+        contact: \Ichiloto\Engine\Battle\Presentation\BattlerContact::RIPPLE)]);
+  $effect = (new \Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator($this->root))->compile('water',
+    ['fps' => 24, 'lengthFrames' => 3, 'tracks' => [['id' => 'body', 'type' => 'battler-motion', 'anchor' => 'target',
+      'keyframes' => [['frame' => 0, 'duration' => 3, 'payload' => ['x' => -350, 'y' => 0]]]]]], forBattle: true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1,.1,.1,.1,.1,.1,.1), target: $effect);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $playback = new BattleCommandPlayback($plan, $hero, [$enemies[0]], BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
+  $playback->begin(); $playback->update($plan->phases['target']['start'] / 120);
+  $frame = \Ichiloto\Engine\Rendering\Presentation\PresentationSession::runForSession(static fn(string $cap): bool => true,
+    fn() => $presentation->frame(new \Ichiloto\Engine\Battle\Presentation\BattlePresentationSnapshot($playback), bottomFade: $fade));
+  $image = graphicalCombatantImage($frame, $enemies[0]);
+  expect($playback->presentationFailure)->toBeNull()->and($image)->not->toBeNull();
+  $image->assertWithin(1350,720);
+  if ($elevation < 0 && $fade) { expect($image->bottomFade)->not->toBeNull(); }
+  else { expect($image->bottomFade)->toBeNull(); }
+})->with([-.25, 0.0, .25])->with([false, true]);

@@ -96,6 +96,7 @@ final class BattlerGroundContact
       [-.22, -.35, -.16, -.27, -.12, -.31, -.2]);
     return new CanvasImage($image->id, $image->asset, $bounds, $image->layer, $image->sourceRect,
       $image->opacity, brightness: $image->brightness, flipX: $image->flipX, flipY: $image->flipY,
+      rotation: $image->rotation, pivot: $image->pivot,
       bottomFade: new CanvasImageBottomFade($line, $depth / $bounds->height));
   }
 

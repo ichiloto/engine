@@ -89,6 +89,32 @@ final readonly class CanvasImage
       $fade === null ? null : CanvasImageBottomFade::fromArray($fade));
   }
 
+  /** Rigid parent-space translation with the full source and pivot retained behind the viewport clip. */
+  public function translateClipped(float $offsetX, float $offsetY, int $canvasWidth, int $canvasHeight): ?self
+  {
+    if ($canvasWidth < 1 || $canvasHeight < 1 || $canvasWidth > CanvasValidation::MAX_EXTENT
+      || $canvasHeight > CanvasValidation::MAX_EXTENT) {
+      throw new InvalidArgumentException('Translated images require a bounded parent canvas.');
+    }
+    $bounds = new CanvasRectangle($this->destination->x + $offsetX, $this->destination->y + $offsetY,
+      $this->destination->width, $this->destination->height, allowOutsideCanvas: true);
+    $rotation = $this->rotation ?? 0;
+    $pivot = $this->pivot ?? new PresentationSpritePivot(.5, .5);
+    [$left, $top, $right, $bottom] = self::measureRotation($bounds, $rotation, $pivot, $this->sourceRect);
+    if ($this->clipRect !== null) {
+      $left = max($left, $this->clipRect->x + $offsetX);
+      $top = max($top, $this->clipRect->y + $offsetY);
+      $right = min($right, $this->clipRect->x + $this->clipRect->width + $offsetX);
+      $bottom = min($bottom, $this->clipRect->y + $this->clipRect->height + $offsetY);
+    }
+    $left = max(0, $left); $top = max(0, $top);
+    $right = min($canvasWidth, $right); $bottom = min($canvasHeight, $bottom);
+    if ($right <= $left || $bottom <= $top) { return null; }
+    return new self($this->id, $this->asset, $bounds, $this->layer, $this->sourceRect, $this->opacity,
+      new CanvasRectangle($left, $top, $right - $left, $bottom - $top), $this->brightness,
+      $this->flipX, $this->flipY, $rotation, $pivot, $this->bottomFade);
+  }
+
   /** Clip source pixels at the viewport edge without moving the artwork's attachment point. */
   public static function createClipped(string $id, string $asset, float $x, float $y, float $width, float $height,
     int $canvasWidth, int $canvasHeight, int $layer, SpriteSourceRect $sourceRect,
