@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Rendering\Presentation\Canvas;
 
 use InvalidArgumentException;
+use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 
 /** One rigidly translated local drawing; parent placement never changes child geometry. */
 final readonly class CanvasGroup
@@ -21,6 +22,7 @@ final readonly class CanvasGroup
     public ?CanvasRectangle $clipRect = null,
   ) {
     CanvasValidation::id($id);
+    SpriteValidation::validateSigned32BitRange($layer);
     new CanvasRectangle($x, $y, $canvas->width, $canvas->height, allowOutsideCanvas: true);
     if ($canvas->viewportFit !== CanvasViewportFit::NATIVE) {
       throw new InvalidArgumentException('Canvas groups inherit their parent viewport fit.');

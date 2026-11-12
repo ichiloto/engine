@@ -141,3 +141,14 @@ it('updates and retires retained local groups without replaying unchanged HUD dr
   expect(array_column($packets[1]->payload['operations'], 'kind'))->toBe(['canvas_group'])
     ->and($packets[2]->payload['operations'])->toBe([['op' => 'remove', 'kind' => 'canvas_group', 'id' => 'field']]);
 });
+
+
+it('validates group layers against the same signed wire range as other canvas drawings', function () {
+  $child = new PresentationCanvas(1, 1);
+  foreach ([-2147483648, 2147483647] as $layer) {
+    expect((new CanvasGroup('edge', 0, 0, $child, $layer))->toArray()['layer'])->toBe($layer);
+  }
+  foreach ([-2147483649, 2147483648] as $layer) {
+    expect(fn() => new CanvasGroup('outside', 0, 0, $child, $layer))->toThrow(InvalidArgumentException::class);
+  }
+});
