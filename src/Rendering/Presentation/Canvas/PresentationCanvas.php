@@ -102,7 +102,7 @@ final readonly class PresentationCanvas
         $label->measurement, $label->x, $label->y, $offset + $label->layer, $label->clipRect, $label->opacity,
         $label->rotation, $label->visibleBytes), $overlay->labels)], $base->viewportFit,
       [...$base->groups, ...array_map(static fn(CanvasGroup $group) => new CanvasGroup($idPrefix . $group->id,
-        $group->x, $group->y, $group->canvas, $offset + $group->layer, $group->clipRect), $overlay->groups)]);
+        $group->x, $group->y, $group->canvas, $offset + $group->layer, $group->clipRect, $group->colorTransform), $overlay->groups)]);
   }
 
   /** @param list<CanvasImage> $images

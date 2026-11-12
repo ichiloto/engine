@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasGroup, CanvasFrameBudget, CanvasImage,
+use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasGroup, CanvasColorTransform, CanvasFrameBudget, CanvasImage,
   CanvasImagePreflight, CanvasRectangle, CanvasViewportFit, PresentationCanvas};
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\RendererClient;
@@ -150,5 +150,64 @@ it('validates group layers against the same signed wire range as other canvas dr
   }
   foreach ([-2147483649, 2147483648] as $layer) {
     expect(fn() => new CanvasGroup('outside', 0, 0, $child, $layer))->toThrow(InvalidArgumentException::class);
+  }
+});
+
+
+it('preserves group colour through nested overlays and retained updates without treating siblings', function () {
+  $invert = new CanvasColorTransform([[-1, 0, 0], [0, -1, 0], [0, 0, -1]], [1, 1, 1]);
+  $dim = new CanvasColorTransform([[0.4, 0, 0], [0, 0.4, 0], [0, 0, 0.4]], [0, 0, 0]);
+  $leaf = createGroupDrawing();
+  $inner = new PresentationCanvas(20, 20, groups: [new CanvasGroup('body', 0, 0, $leaf, colorTransform: $invert)]);
+  $overlay = new PresentationCanvas(20, 20, groups: [new CanvasGroup('field', 2, -1, $inner, colorTransform: $dim)]);
+  $stacked = PresentationCanvas::composeOverlay(new PresentationCanvas(20, 20), $overlay, 'modal-');
+  expect($stacked->groups[0]->colorTransform)->toBe($dim)
+    ->and($stacked->groups[0]->canvas->groups[0]->colorTransform)->toBe($invert);
+  [$presenter, $transport] = createGroupPresenter([RendererSessionConfig::GRAPHICAL_CANVAS,
+    RendererSessionConfig::CANVAS_GROUPS, RendererSessionConfig::CANVAS_GROUP_COLOR, RendererSessionConfig::CANVAS_REGION_BUDGET]);
+  $hud = new CanvasImage('hud', 'hud.png', new CanvasRectangle(0, 0, 1, 1));
+  foreach ([$invert, $dim, null] as $treatment) {
+    $candidate = new PresentationCanvas(20, 20, [$hud], groups: [new CanvasGroup('field', 0, 0, $leaf, colorTransform: $treatment)]);
+    expect($presenter->presentCanvas($candidate))->toBeTrue(); $transport->acknowledgeLatestFrame($presenter);
+  }
+  $frames = RetainedFrameState::replay($transport->sent);
+  expect($frames[0]['canvas']['groups'][0]['colorTransform'])->toBe($invert->toArray())
+    ->and($frames[1]['canvas']['groups'][0]['colorTransform'])->toBe($dim->toArray())
+    ->and($frames[2]['canvas']['groups'][0])->not->toHaveKey('colorTransform')
+    ->and($frames[0]['canvas']['images'][0])->not->toHaveKey('colorTransform');
+  $packets = array_values(array_filter($transport->sent, fn($message) => isset($message->payload['operations'])));
+  expect(array_column($packets[1]->payload['operations'], 'kind'))->toBe(['canvas_group'])
+    ->and(array_column($packets[2]->payload['operations'], 'kind'))->toBe(['canvas_group']);
+});
+
+it('refuses missing group colour or preparation budget before sending any partial frame', function () {
+  $invert = new CanvasColorTransform([[-1, 0, 0], [0, -1, 0], [0, 0, -1]], [1, 1, 1]);
+  $leaf = createGroupDrawing();
+  $child = new PresentationCanvas(20, 20, groups: [new CanvasGroup('treated', 0, 0, $leaf, colorTransform: $invert)]);
+  $nested = new PresentationCanvas(20, 20, groups: [new CanvasGroup('outer', 0, 0, $child)]);
+  [$presenter, $transport] = createGroupPresenter([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_GROUPS]);
+  $before = count($transport->sent);
+  expect(fn() => $presenter->prepareCanvas($nested))->toThrow(RendererProtocolException::class, 'canvas_group_color')
+    ->and(count($transport->sent))->toBe($before);
+  $transport = new FakeRendererTransport(); $client = new RendererClient($transport);
+  $client->start(new RendererSessionConfig('Optional colour', getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
+    requiredCapabilities: [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_GROUPS]));
+  $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
+    'capabilities' => [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_GROUPS,
+      RendererSessionConfig::CANVAS_GROUP_COLOR]], JSON_THROW_ON_ERROR))];
+  $client->pump(); $presenter = new RendererPresentation($client, new RendererGridConfig(2, 1));
+  $before = count($transport->sent);
+  expect(fn() => $presenter->prepareCanvas($nested))->toThrow(RendererProtocolException::class, 'canvas_region_budget')
+    ->and(count($transport->sent))->toBe($before);
+  expect(fn() => new RendererSessionConfig('No V1 colour', getTestTemporaryDirectory(),
+    requiredCapabilities: [RendererSessionConfig::CANVAS_GROUP_COLOR]))->toThrow(InvalidArgumentException::class);
+  $session = new RendererSessionConfig('Group', getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2);
+  expect($session->getNegotiableCapabilities())->toContain(RendererSessionConfig::CANVAS_GROUP_COLOR);
+  foreach ([[], [RendererSessionConfig::GRAPHICAL_CANVAS],
+    [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_GROUPS],
+    [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_REGION_BUDGET]] as $requirements) {
+    expect(fn() => new RendererSessionConfig('Group', getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
+      requiredCapabilities: [...$requirements, RendererSessionConfig::CANVAS_GROUP_COLOR]))
+      ->toThrow(InvalidArgumentException::class, 'Group colour');
   }
 });

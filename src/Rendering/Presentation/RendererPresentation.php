@@ -189,7 +189,13 @@ final class RendererPresentation
     if ($canvas->groups !== [] && !$this->client->supports(RendererSessionConfig::CANVAS_GROUPS)) {
       throw new RendererProtocolException('Canvas groups require negotiated canvas_groups support.');
     }
-    foreach ($canvas->groups as $group) { $this->validateCanvas($group->canvas, $isOverlay); }
+    foreach ($canvas->groups as $group) {
+      if ($group->colorTransform !== null && (!$this->client->supports(RendererSessionConfig::CANVAS_GROUP_COLOR)
+        || !$this->client->supports(RendererSessionConfig::CANVAS_REGION_BUDGET))) {
+        throw new RendererProtocolException('Group colour requires negotiated canvas_group_color and canvas_region_budget support.');
+      }
+      $this->validateCanvas($group->canvas, $isOverlay);
+    }
 
     if (!$this->client->supports(RendererSessionConfig::GRAPHICAL_CANVAS)) {
       throw new RendererProtocolException('Canvas presentation requires negotiated graphical_canvas support.');

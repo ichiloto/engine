@@ -20,6 +20,7 @@ final readonly class CanvasGroup
     public PresentationCanvas $canvas,
     public int $layer = 0,
     public ?CanvasRectangle $clipRect = null,
+    public ?CanvasColorTransform $colorTransform = null,
   ) {
     CanvasValidation::id($id);
     SpriteValidation::validateSigned32BitRange($layer);
@@ -50,6 +51,7 @@ final readonly class CanvasGroup
   {
     return ['id' => $this->id, 'origin' => ['x' => $this->x, 'y' => $this->y], 'layer' => $this->layer,
       'canvas' => $this->canvas->toArray(),
-      ...($this->clipRect === null ? [] : ['clipRect' => $this->clipRect->toArray()])];
+      ...($this->clipRect === null ? [] : ['clipRect' => $this->clipRect->toArray()]),
+      ...($this->colorTransform === null ? [] : ['colorTransform' => $this->colorTransform->toArray()])];
   }
 }

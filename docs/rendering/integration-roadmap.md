@@ -4708,9 +4708,59 @@ The native and CPU ports must agree on stable layer order, ancestor clipping,
 resource accounting, preparation reuse and cleanup. The TUI retains its existing
 workflow. Engine wire/model tests do not prove those native/Editor ports.
 
-Whole-field motion and authored battler recoil will consume this shared drawing
-boundary. Their timeline authoring, live command/preview sampling and cancellation
-checks remain work, as do timed reduced-motion holds and field colour treatment.
-No Last Legend production timeline currently emits groups. No native launch,
-new art, final sequence integration or player acceptance is claimed by this
-model/transport addition.
+Whole-field motion, authored battler recoil and timed reduced-motion holds now
+have Engine implementations and windowless qualification; see the current
+contracts in `effect-animation.md`. Game production binding, assembled native
+checks and player acceptance remain separate work.
+
+### Group colour treatment
+
+`CanvasGroup.colorTransform` is optional and uses `CanvasColorTransform`:
+
+```json
+{
+  "matrix": [[-1, 0, 0], [0, -1, 0], [0, 0, -1]],
+  "offset": [1, 1, 1]
+}
+```
+
+For each straight (non-premultiplied) RGB vector in normalized existing drawing
+channels, output is `matrix * rgb + offset`. Alpha is unchanged, including zero.
+The group treatment applies to its completed child drawing before it blends
+into its parent; parent treatment follows child treatment. Composite operations
+finish their own blend/mask operations first, then receive group treatment on
+the completed composite, never on each internal operation. Untreated siblings,
+HUD and authored final-colour effects retain their own colours. Missing treatment
+means identity and leaves existing wire descriptors unchanged. Generic screen
+overlay composition preserves the treatment along with the group's placement.
+
+Every matrix row must preserve the complete RGB unit cube: its offset plus the
+sum of negative coefficients is at least zero, and its offset plus the sum of
+positive coefficients is at most one. All values are finite numeric values
+without string/bool coercion. A tolerance of 1e-12 admits arithmetic noise only;
+clamping handles that noise. Saturating exposure transforms such as
+`clamp(2 * rgb - 0.5)` are refused. Such clipping would break equivalence between
+treating a composed group and treating its source-over prepared drawings.
+`transformRgb()` supplies a pure Engine reference calculation. Renderer code must
+preserve alpha and apply the same channel order and nested order.
+
+The optional protocol-v2 capability is `canvas_group_color`, requiring
+`graphical_canvas`, `canvas_groups` and `canvas_region_budget`. An unsupported
+nested treatment refuses the whole candidate before any partial frame is sent.
+A changed treatment replaces that retained `canvas_group`; unchanged HUD and
+sibling drawings are not replayed. Transformed image/composite/glyph/label raster
+variants consume the existing prepared-region budget; the native port must charge
+distinct prepared treatments and release obsolete variants through the existing
+cache lifecycle. Group limits, clipping, draw order and all existing aggregate
+frame budgets continue to apply. Author held values rather than unbounded
+per-display-frame ramps.
+
+This group contract does not move effects in front of battlers: when treated
+artwork interleaves with untreated effects, preserve the original stable depth
+order with appropriately placed groups sharing the same treatment. Putting all
+bodies into one atomic group and all effects after it changes that order.
+
+Engine model, transport and mathematical tests are windowless. Claude owns native
+and Editor CPU raster ports, including preparation accounting and equivalence at
+their raster precision. Field-colour timeline authoring and live battle binding
+remain work. No native launch, final cinematic or author acceptance is claimed.
