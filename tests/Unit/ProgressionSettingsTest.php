@@ -117,13 +117,12 @@ it('uses the authored setting through production bootstrap and resets it for a l
   }
   $path = $project . '/assets/Data/system.php';
   chdir($project);
-  $game = new ProgressionConfigurationGame();
 
   foreach (['none', 'increase', 'full', null] as $mode) {
     $data = createProgressionSystemData($mode === null ? [] : ['progression' => ['levelUpRecovery' => $mode]]);
     $source = '<?php return ' . var_export($data, true) . ';';
     file_put_contents($path, $source);
-    $game->initializeProjectConfiguration();
+    (new ProgressionConfigurationGame())->initializeProjectConfiguration();
     $character = new Character('Bootstrap Hero', 0, new Stats(currentHp: 100, currentMp: 30));
     $character->stats->currentHp = 7;
     $character->stats->currentMp = 3;
@@ -142,6 +141,6 @@ it('uses the authored setting through production bootstrap and resets it for a l
   file_put_contents($path, '<?php return ' . var_export(createProgressionSystemData([
     'progression' => ['levelUpRecovery' => 'half'],
   ]), true) . ';');
-  expect(fn() => $game->initializeProjectConfiguration())->toThrow(InvalidArgumentException::class, 'system.progression')
+  expect(fn() => (new ProgressionConfigurationGame())->initializeProjectConfiguration())->toThrow(InvalidArgumentException::class, 'system.progression')
     ->and(ConfigStore::has(ProgressionSettings::class))->toBeFalse();
 });

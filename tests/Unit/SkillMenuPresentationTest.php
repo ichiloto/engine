@@ -54,6 +54,7 @@ use Ichiloto\Engine\UI\Modal\AlertModal;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Modal\PromptModal;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\MenuRowKind;
 use Ichiloto\Engine\UI\Presentation\SkillMenuPresentation;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\UIManager;
@@ -361,11 +362,13 @@ it('keeps sort selection distinct from focus until the same owner applies it', f
   $content = $state->getPresentationContent();
   expect($content->rows[0]->selected)->toBeTrue()->and($content->rows[0]->focused)->toBeFalse()
     ->and($content->rows[1]->selected)->toBeFalse()->and($content->rows[1]->focused)->toBeTrue();
-  $frame = SkillMenuPresentation::compose($content, new MenuPresentationCatalog($this->root, skillMenuTheme(true)));
+  $theme = new MenuPresentationCatalog($this->root, skillMenuTheme(true));
+  $frame = SkillMenuPresentation::compose($content, $theme);
   $layers = array_column($frame->textLayers, null, 'id');
   foreach ([0, 1] as $index) {
     $label = $layers['skill-entry-' . $index . '-text'];
-    expect($label->x + $label->grid->columns * $label->grid->cellWidth / 2)->toBe($label->clipRect->x + $label->clipRect->width / 2);
+    expect($content->rows[$index]->kind)->toBe(MenuRowKind::COMMAND)
+      ->and($label->x)->toBe($label->clipRect->x + $theme->rows->metrics->padding);
     expect($layers)->not->toHaveKey('skill-entry-' . $index . '-separator');
   }
   skillMenuKey($state, KeyCode::ENTER);

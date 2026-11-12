@@ -79,7 +79,6 @@ beforeEach(function () {
   $this->originalPolicy = new ReflectionProperty(EquipmentOptimizationPolicyRegistry::class, 'policy')->getValue();
   $this->root = \getTestTemporaryDirectory() . '/' . uniqid('ichiloto-optimization-bootstrap-', true);
   $this->project = writeOptimizationBootstrapProject($this->root, 'first');
-  $this->game = new EquipmentOptimizationBootstrapGame();
   chdir($this->project);
 });
 
@@ -106,7 +105,7 @@ it('loads the Editor policy file through Game bootstrap for normal character opt
       ' Mystic ' => ['attack' => 0, 'magicAttack' => 3],
     ],
   ]);
-  $this->game->initializeProjectConfiguration();
+  (new EquipmentOptimizationBootstrapGame())->initializeProjectConfiguration();
 
   expect(EquipmentOptimizationPolicyRegistry::current())->toBeInstanceOf(DeclaredEquipmentOptimizationPolicy::class)
     ->and(optimizeBootstrapCharacter('striker')->equipment[0]->equipment?->id)->toBe('equipment.physical')
@@ -125,7 +124,7 @@ it('preserves all nine declaration fields and the existing weight precedence', f
     'excludedAvailabilities' => [' STORY-ONLY '],
     'excludedAcquisitionPolicies' => [' Unique '],
   ]);
-  $this->game->initializeProjectConfiguration();
+  (new EquipmentOptimizationBootstrapGame())->initializeProjectConfiguration();
   $character = optimizeBootstrapCharacter('mystic');
   $policy = EquipmentOptimizationPolicyRegistry::current();
   $weapon = new Weapon('Scored', '', '/', 10,
@@ -151,11 +150,11 @@ it('preserves all nine declaration fields and the existing weight precedence', f
 
 it('resets stale policy when the next project omits the declaration', function () {
   writeOptimizationBootstrapPolicy($this->project, ['statWeights' => ['magicAttack' => 3]]);
-  $this->game->initializeProjectConfiguration();
+  (new EquipmentOptimizationBootstrapGame())->initializeProjectConfiguration();
   expect(optimizeBootstrapCharacter('mystic')->equipment[0]->equipment?->id)->toBe('equipment.arcane');
 
   chdir(writeOptimizationBootstrapProject($this->root, 'second'));
-  $this->game->initializeProjectConfiguration();
+  (new EquipmentOptimizationBootstrapGame())->initializeProjectConfiguration();
 
   expect(EquipmentOptimizationPolicyRegistry::current())->toBeInstanceOf(LegacyEqualWeightEquipmentOptimizationPolicy::class)
     ->and(optimizeBootstrapCharacter('mystic')->equipment[0]->equipment?->id)->toBe('equipment.physical');
@@ -163,11 +162,11 @@ it('resets stale policy when the next project omits the declaration', function (
 
 it('reloads an explicitly empty declaration as a zero-weight policy rather than legacy', function () {
   writeOptimizationBootstrapPolicy($this->project, ['statWeights' => ['attack' => 3]]);
-  $this->game->initializeProjectConfiguration();
+  (new EquipmentOptimizationBootstrapGame())->initializeProjectConfiguration();
   expect(optimizeBootstrapCharacter('mystic')->equipment[0]->equipment?->id)->toBe('equipment.physical');
 
   writeOptimizationBootstrapPolicy($this->project, []);
-  $this->game->initializeProjectConfiguration();
+  (new EquipmentOptimizationBootstrapGame())->initializeProjectConfiguration();
   $character = optimizeBootstrapCharacter('mystic');
   $weapon = $character->equipment[0]->equipment;
   expect(EquipmentOptimizationPolicyRegistry::current())->toBeInstanceOf(DeclaredEquipmentOptimizationPolicy::class)
@@ -177,12 +176,12 @@ it('reloads an explicitly empty declaration as a zero-weight policy rather than 
 
 it('fails bootstrap visibly on malformed declarations instead of retaining the prior policy', function (string $source, string $message) {
   writeOptimizationBootstrapPolicy($this->project, ['statWeights' => ['attack' => 3]]);
-  $this->game->initializeProjectConfiguration();
+  (new EquipmentOptimizationBootstrapGame())->initializeProjectConfiguration();
   $filename = $this->project . '/assets/Data/equipment-optimization.php';
   file_put_contents($filename, $source);
 
   try {
-    $this->game->initializeProjectConfiguration();
+    (new EquipmentOptimizationBootstrapGame())->initializeProjectConfiguration();
     $this->fail('Malformed declared policy must reject bootstrap.');
   } catch (RuntimeException $exception) {
     expect($exception->getMessage())->toContain($filename)->toContain($message)
@@ -224,6 +223,6 @@ it('fails bootstrap visibly on malformed declarations instead of retaining the p
 it('rejects a directory at the declared policy path rather than treating it as absent', function () {
   mkdir($this->project . '/assets/Data/equipment-optimization.php');
 
-  expect(fn() => $this->game->initializeProjectConfiguration())
+  expect(fn() => (new EquipmentOptimizationBootstrapGame())->initializeProjectConfiguration())
     ->toThrow(RuntimeException::class, 'must be a readable PHP file');
 });

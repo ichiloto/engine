@@ -132,7 +132,9 @@ it('shares project loading with new-game terminal art and treats absent graphica
   unset($this->data['sprites2d']);
   ($this->writePlayerData)($this->data);
   $config = PlayerPresentationConfig::load();
-  $loader = (new ReflectionClass(GameLoader::class))->newInstanceWithoutConstructor();
+  $game = $this->scene->getGame();
+  $loader = createTestGameLoader($game, assetRoot: $this->root . '/assets');
+  $game->bindGameLoader($loader);
   $terminal = new ReflectionMethod(GameLoader::class, 'loadPlayerSprites')->invoke($loader);
   expect($config->graphical)->toBeNull()->and($config->terminal->toArray())->toBe($terminal->toArray())
     ->and(($this->createPlayer)($this->config)->getGraphicalSpriteDefinition())->toBeNull();
