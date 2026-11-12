@@ -4748,12 +4748,28 @@ The optional protocol-v2 capability is `canvas_group_color`, requiring
 `graphical_canvas`, `canvas_groups` and `canvas_region_budget`. An unsupported
 nested treatment refuses the whole candidate before any partial frame is sent.
 A changed treatment replaces that retained `canvas_group`; unchanged HUD and
-sibling drawings are not replayed. Transformed image/composite/glyph/label raster
-variants consume the existing prepared-region budget; the native port must charge
-distinct prepared treatments and release obsolete variants through the existing
-cache lifecycle. Group limits, clipping, draw order and all existing aggregate
+sibling drawings are not replayed. Transformed image/composite variants consume
+the existing prepared-region budget; native glyph/label variants use the existing
+64 MiB device-raster pool. Distinct prepared treatments release obsolete variants
+through the existing cache lifecycle. Group limits, clipping, draw order and all existing aggregate
 frame budgets continue to apply. Author held values rather than unbounded
 per-display-frame ramps.
+
+`CanvasImagePreflight::inspectCanvases()` preserves each drawn instance's effective
+parent-after-child treatment when charging images and finished guarded composite
+surfaces. Each distinct source region/effective treatment costs one variant; an
+image's tone, flips, rotation and bottom fade combine into that same variant.
+Identity treatment, including composed identity, costs no additional variant.
+The original guarded crop remains charged. This refuses over-budget treated or
+faded frames that the earlier incomplete accounting admitted.
+
+Still/export consumers use `inspectCanvasResources()` with the original canvas
+roots rather than flattened image lists. Resource limits are shared across all
+roots; this entry point preserves local group validation while leaving whole-map
+exports independent of per-frame instance-count limits. An optional artwork
+filter lets a still renderer retain its existing missing-art diagnostics. Runtime
+`inspectCanvases()` keeps the full aggregate frame gate. Flat `inspect()` accounts
+for untreated flat drawings and cannot represent group treatment.
 
 This group contract does not move effects in front of battlers: when treated
 artwork interleaves with untreated effects, preserve the original stable depth
