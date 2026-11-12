@@ -71,7 +71,7 @@ final class StorybookCanvasPresentation
     $result = MenuCanvas::overlay($base, $view->finish(), $theme);
     return $ownerLayerId === null ? $result : new PresentationCanvas($result->width, $result->height,
       $result->images, $result->indicators, $result->textLayers, $result->composites, $result->protectedAreas,
-      [...$result->presentationOwners, $ownerLayerId], $result->labels, $result->viewportFit);
+      [...$result->presentationOwners, $ownerLayerId], $result->labels, $result->viewportFit, $result->groups);
   }
 
   /** The reader's position, in the Terminal reader's own form. */

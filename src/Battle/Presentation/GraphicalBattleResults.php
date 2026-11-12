@@ -150,7 +150,7 @@ final class GraphicalBattleResults
       [...$battlefield->getOverlayProtection(),
         ...array_map(static fn(CanvasImage $image) => $image->clipRect ?? $image->destination, $view->images),
         ...array_map(static fn(CanvasTextLayer $text) => $text->clipRect ?? $text->paintBounds, $view->text)],
-      viewportFit: $battlefield->viewportFit);
+      viewportFit: $battlefield->viewportFit, groups: $battlefield->groups);
   }
 
   private function heading(string $title): void

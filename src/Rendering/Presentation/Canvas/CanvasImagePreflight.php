@@ -22,6 +22,18 @@ final class CanvasImagePreflight
     return PresentationSession::runForSession($supports, $operation);
   }
 
+  /** All descendants and roots share the same source and prepared-region accounting. */
+  public static function inspectCanvases(array $canvases, string $root): array
+  {
+    CanvasFrameBudget::assertCanvases($canvases);
+    $images = $composites = [];
+    foreach (CanvasFrameBudget::getCanvases($canvases) as $canvas) {
+      array_push($images, ...$canvas->images);
+      array_push($composites, ...$canvas->composites);
+    }
+    return self::inspect($images, $root, $composites);
+  }
+
   /** @param list<CanvasImage> $images
    * @return array{sources: array<string, int>, regions: array<string, int>}
    */

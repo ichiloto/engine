@@ -4675,3 +4675,42 @@ The layer-selection contract is documented in
 - [ ] Qualify the integrated affected rooms through the existing authorized
   graphical playtest. No renderer protocol, map geometry, collision or save
   change belongs to this contract.
+
+
+## Translated local canvas groups (12 November 2026)
+
+The Engine drawing model now supports `PresentationCanvas.groups`: each
+`CanvasGroup` has a local child canvas, an exact parent-logical `origin`, a layer
+and an optional parent-logical clip. It paints atomically at that layer, after
+existing primitive types at an equal layer. Children keep their source geometry,
+inherit the parent display scale, and use native viewport fitting. Parent and
+ancestor clips intersect; an offscreen origin never clamps the child into view.
+IDs belong to their local canvas. Existing flat canvas JSON stays unchanged.
+
+`canvas_groups` is an optional negotiated drawing capability. The retained
+protocol uses `put`/`remove` with kind `canvas_group`; each value contains the
+whole group's ordinary nested canvas descriptor and stable retained `order`.
+Changing its origin updates that group without replaying unchanged HUD drawings.
+Removing or replacing the root retires its groups. Descendant drawing features
+require the same capabilities as their root equivalents.
+
+There are at most 128 drawn group instances across a candidate and eight nested
+levels. All descendants, including reused model instances, share the existing
+image, indicator, text, label, composite surface/pixel/work, and asset-region
+limits with all root and world canvases. Finite origin and translated edges use
+the existing 16384-coordinate bound. World references and overlay protection
+recurse; generic overlays and battle/menu reconstruction preserve child groups.
+
+Native renderer and GUI Editor CPU raster/preview support remain with Claude.
+Reuse the existing local canvas preparation/painting behind world canvases; a
+battle group has screen-space placement and does not require a synthetic world.
+The native and CPU ports must agree on stable layer order, ancestor clipping,
+resource accounting, preparation reuse and cleanup. The TUI retains its existing
+workflow. Engine wire/model tests do not prove those native/Editor ports.
+
+Whole-field motion and authored battler recoil will consume this shared drawing
+boundary. Their timeline authoring, live command/preview sampling and cancellation
+checks remain work, as do timed reduced-motion holds and field colour treatment.
+No Last Legend production timeline currently emits groups. No native launch,
+new art, final sequence integration or player acceptance is claimed by this
+model/transport addition.

@@ -20,6 +20,8 @@ final readonly class PresentationCanvas
   public array $textLayers;
   /** @var list<CanvasComposite> */
   public array $composites;
+  /** @var list<CanvasGroup> */
+  public array $groups;
   /** @var list<CanvasLabel> */
   public array $labels;
   /** PHP-only overlay avoidance areas. Null retains conservative protection for unannotated canvases.
@@ -31,9 +33,11 @@ final readonly class PresentationCanvas
   public function getReferencedWorldIds(): array
   {
     $ids = [];
-    foreach ($this->composites as $composite) {
-      foreach ($composite->operations as $operation) {
-        if ($operation->data['type'] === 'world') { $ids[$operation->data['worldId']] = true; }
+    foreach (CanvasFrameBudget::getCanvases([$this]) as $canvas) {
+      foreach ($canvas->composites as $composite) {
+        foreach ($composite->operations as $operation) {
+          if ($operation->data['type'] === 'world') { $ids[$operation->data['worldId']] = true; }
+        }
       }
     }
     return array_keys($ids);
@@ -64,7 +68,8 @@ final readonly class PresentationCanvas
       ...array_map(static fn(CanvasTextLayer $text) => $text->clipRect ?? $text->paintBounds, $this->textLayers),
       ...$labelAreas,
       ...array_map(static fn(CanvasComposite $composite) => $composite->clipRect ?? $composite->destination, $this->composites),
-      ...array_map(static fn(CanvasIndicator $indicator) => $indicator->bounds, $this->indicators)];
+      ...array_map(static fn(CanvasIndicator $indicator) => $indicator->bounds, $this->indicators),
+      ...array_merge([], ...array_map(fn(CanvasGroup $group) => $group->getOverlayProtection($this->width, $this->height), $this->groups))];
   }
 
   /** Stack a live screen-space layer without replacing the retained scene underneath. */
@@ -77,7 +82,7 @@ final readonly class PresentationCanvas
     }
     $offset = 1 + max([0, ...array_column($base->images, 'layer'), ...array_column($base->textLayers, 'layer'),
       ...array_column($base->indicators, 'layer'), ...array_column($base->composites, 'layer'),
-      ...array_column($base->labels, 'layer')]);
+      ...array_column($base->labels, 'layer'), ...array_column($base->groups, 'layer')]);
     return new self($base->width, $base->height,
       [...$base->images, ...array_map(static fn($image) => new CanvasImage($idPrefix . $image->id, $image->asset,
         $image->destination, $offset + $image->layer, $image->sourceRect, $image->opacity,
@@ -95,7 +100,9 @@ final readonly class PresentationCanvas
       [...$base->presentationOwners, ...$overlay->presentationOwners],
       [...$base->labels, ...array_map(static fn(CanvasLabel $label) => new CanvasLabel($idPrefix . $label->id,
         $label->measurement, $label->x, $label->y, $offset + $label->layer, $label->clipRect, $label->opacity,
-        $label->rotation, $label->visibleBytes), $overlay->labels)], $base->viewportFit);
+        $label->rotation, $label->visibleBytes), $overlay->labels)], $base->viewportFit,
+      [...$base->groups, ...array_map(static fn(CanvasGroup $group) => new CanvasGroup($idPrefix . $group->id,
+        $group->x, $group->y, $group->canvas, $offset + $group->layer, $group->clipRect), $overlay->groups)]);
   }
 
   /** @param list<CanvasImage> $images
@@ -115,6 +122,7 @@ final readonly class PresentationCanvas
     public array $presentationOwners = [],
     array $labels = [],
     public CanvasViewportFit $viewportFit = CanvasViewportFit::NATIVE,
+    array $groups = [],
   )
   {
     if ($width < 1 || $height < 1 || $width > CanvasValidation::MAX_EXTENT || $height > CanvasValidation::MAX_EXTENT) {
@@ -149,6 +157,8 @@ final readonly class PresentationCanvas
       }
     }
     $this->protectedAreas = $areas;
+    $this->groups = CanvasValidation::orderedList($groups, CanvasGroup::class, CanvasGroup::MAX_INSTANCES);
+    foreach ($this->groups as $group) { $group->clipRect?->assertWithin($width, $height); }
     foreach ($this->composites as $composite) {
       $composite->destination->assertWithin($width, $height);
       $composite->clipRect?->assertWithin($width, $height);
@@ -177,6 +187,7 @@ final readonly class PresentationCanvas
     if ($runs > 32768 || $scalars > 524288) {
       throw new InvalidArgumentException('Canvas text exceeds renderer run/scalar limits.');
     }
+    if ($this->groups !== []) { CanvasFrameBudget::assertCanvases([$this]); }
   }
 
   /** @return array<string, mixed> */
@@ -184,6 +195,7 @@ final readonly class PresentationCanvas
   {
     return ['width' => $this->width, 'height' => $this->height,
       ...($this->viewportFit === CanvasViewportFit::NATIVE ? [] : ['viewportFit' => $this->viewportFit->value]),
+      ...($this->groups === [] ? [] : ['groups' => array_map(static fn(CanvasGroup $group) => $group->toArray(), $this->groups)]),
       'images' => array_map(static fn(CanvasImage $image) => $image->toArray(), $this->images),
       'indicators' => array_map(static fn(CanvasIndicator $indicator) => $indicator->toArray(), $this->indicators),
       'textLayers' => array_map(static fn(CanvasTextLayer $text) => $text->toArray(), $this->textLayers),

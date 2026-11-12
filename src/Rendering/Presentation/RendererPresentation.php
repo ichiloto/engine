@@ -176,6 +176,7 @@ final class RendererPresentation
   private function validateCanvasFrame(array $canvases): void
   {
     CanvasFrameBudget::assertCanvases($canvases);
+    $canvases = CanvasFrameBudget::getCanvases($canvases);
     if (!$this->client->supports(RendererSessionConfig::CANVAS_LABEL_INSTANCES)
       && array_sum(array_map(static fn($canvas) => count($canvas->textLayers) + count($canvas->labels), $canvases))
         > StyledPresentationFrame::MAX_TEXT_LAYERS) {
@@ -185,6 +186,11 @@ final class RendererPresentation
 
   private function validateCanvas(PresentationCanvas $canvas, bool $isOverlay = false): void
   {
+    if ($canvas->groups !== [] && !$this->client->supports(RendererSessionConfig::CANVAS_GROUPS)) {
+      throw new RendererProtocolException('Canvas groups require negotiated canvas_groups support.');
+    }
+    foreach ($canvas->groups as $group) { $this->validateCanvas($group->canvas, $isOverlay); }
+
     if (!$this->client->supports(RendererSessionConfig::GRAPHICAL_CANVAS)) {
       throw new RendererProtocolException('Canvas presentation requires negotiated graphical_canvas support.');
     }

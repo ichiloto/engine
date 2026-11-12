@@ -198,7 +198,9 @@ class BattlePauseState extends BattleSceneState
         ($field->height - $grid->rows * $grid->cellHeight) / 2, $grid, BattleCanvasUiAdapter::opaqueRuns($layer->runs));
     }
     return new PresentationCanvas($field->width, $field->height, $field->images, $field->indicators,
-      [...$field->textLayers, ...$layers], viewportFit: $field->viewportFit);
+      [...$field->textLayers, ...$layers], composites: $field->composites, protectedAreas: $field->protectedAreas,
+      presentationOwners: $field->presentationOwners, labels: $field->labels,
+      viewportFit: $field->viewportFit, groups: $field->groups);
   }
 
   private function openConfig(): void

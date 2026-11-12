@@ -70,6 +70,6 @@ final class CreditsMenuPresentation
       $viewport->x + ($viewport->width - $columns * $m->cellWidth) / 2, $origin + $first * $m->cellHeight,
       new RendererGridConfig($columns, $end - $first, $m->cellWidth, $m->cellHeight), $runs, $viewport);
     return new PresentationCanvas($base->width, $base->height, $base->images, $base->indicators, [...$base->textLayers, $text],
-      $base->composites, [...$base->getOverlayProtection(), $viewport], viewportFit: $base->viewportFit);
+      $base->composites, [...$base->getOverlayProtection(), $viewport], viewportFit: $base->viewportFit, groups: $base->groups);
   }
 }

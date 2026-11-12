@@ -18,6 +18,7 @@ final readonly class RendererSessionConfig
   public const string CANVAS_TEXT_180 = 'canvas_text_180';
   public const string CANVAS_TEXT_REVEAL = 'canvas_text_reveal';
   public const string WORLD_CANVAS = 'world_canvas';
+  public const string CANVAS_GROUPS = 'canvas_groups';
   public const string CANVAS_VIEWPORT_FIT = 'canvas_viewport_fit';
   public const string SPRITE_SOURCE_RECT = 'sprite_source_rect';
   public const string TILE_BATCHES = 'tile_batches';
@@ -88,7 +89,7 @@ final readonly class RendererSessionConfig
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_REGION_BUDGET, self::CANVAS_CLIP_OPACITY,
         self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::CANVAS_COMPOSITE_BUDGET, self::CANVAS_IMAGE_ALPHA_FLIP, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::CANVAS_COVERAGE_DABS, self::CANVAS_TEXTURE_STRIP, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::CAMERA_MOTION, self::TILE_COVERS, self::TILE_SHADOWS, self::WORLD_ROW_RUNS, self::WORLD_ROW_DIFFS,
         self::SPRITE_LIFT, self::SPRITE_BOB, self::SPRITE_FADE, self::SPRITE_THICKET, self::PINNED_SPRITE_MOTION, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::CANVAS_IMAGE_ROTATION, self::CANVAS_IMAGE_BOTTOM_FADE, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
-        self::TEXT_LAYOUT, self::TEXT_BLOCK_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::CANVAS_TEXT_REVEAL, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT,
+        self::TEXT_LAYOUT, self::TEXT_BLOCK_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::CANVAS_TEXT_REVEAL, self::WORLD_CANVAS, self::CANVAS_GROUPS, self::CANVAS_VIEWPORT_FIT,
         ...array_values(array_intersect(self::EVENT_SUBSCRIPTIONS, $this->requiredCapabilities))]
       : $this->requiredCapabilities;
   }
@@ -111,7 +112,7 @@ final readonly class RendererSessionConfig
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_REGION_BUDGET, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
         self::CANVAS_COMPOSITING, self::CANVAS_COMPOSITE_BUDGET, self::CANVAS_IMAGE_ALPHA_FLIP, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::CANVAS_COVERAGE_DABS, self::CANVAS_TEXTURE_STRIP, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::CAMERA_MOTION, self::TILE_COVERS, self::TILE_SHADOWS, self::WORLD_ROW_RUNS, self::WORLD_ROW_DIFFS,
         self::SPRITE_LIFT, self::SPRITE_BOB, self::SPRITE_FADE, self::SPRITE_THICKET, self::PINNED_SPRITE_MOTION, self::KEY_TRANSITIONS, self::MODIFIER_CONTROLS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::CANVAS_IMAGE_ROTATION, self::CANVAS_IMAGE_BOTTOM_FADE, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
-        self::TEXT_LAYOUT, self::TEXT_BLOCK_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::CANVAS_TEXT_REVEAL, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT]
+        self::TEXT_LAYOUT, self::TEXT_BLOCK_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::CANVAS_TEXT_REVEAL, self::WORLD_CANVAS, self::CANVAS_GROUPS, self::CANVAS_VIEWPORT_FIT]
       : [self::SPRITE_SOURCE_RECT];
     foreach ($requiredCapabilities as $capability) {
       if (!in_array($capability, $allowed, true)) {
@@ -130,6 +131,7 @@ final readonly class RendererSessionConfig
     if ((in_array(self::CANVAS_CLIP_OPACITY, $requiredCapabilities, true) || in_array(self::CANVAS_GLYPH_EFFECTS, $requiredCapabilities, true)
       || in_array(self::CANVAS_COMPOSITING, $requiredCapabilities, true) || in_array(self::CANVAS_OVERLAY, $requiredCapabilities, true)
       || in_array(self::CANVAS_VIEWPORT_FIT, $requiredCapabilities, true)
+      || in_array(self::CANVAS_GROUPS, $requiredCapabilities, true)
       || in_array(self::CANVAS_IMAGE_TONE, $requiredCapabilities, true) || in_array(self::CANVAS_IMAGE_FLIP, $requiredCapabilities, true)
       || in_array(self::CANVAS_IMAGE_ROTATION, $requiredCapabilities, true)
       || in_array(self::CANVAS_IMAGE_BOTTOM_FADE, $requiredCapabilities, true))

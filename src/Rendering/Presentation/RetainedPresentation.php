@@ -336,7 +336,7 @@ final class RetainedPresentation
             ...($canvas->viewportFit === CanvasViewportFit::NATIVE ? [] : ['viewportFit' => $canvas->viewportFit->value])]]);
         foreach (['canvas_image' => $canvas?->images ?? [], 'canvas_indicator' => $canvas?->indicators ?? [],
             'canvas_text' => $canvas?->textLayers ?? [], 'canvas_composite' => $canvas?->composites ?? [],
-            'canvas_label' => $canvas?->labels ?? []] as $kind => $items) {
+            'canvas_label' => $canvas?->labels ?? [], 'canvas_group' => $canvas?->groups ?? []] as $kind => $items) {
             $this->replaceValues($kind, array_map(static fn($item) => $item->toArray(), $items));
         }
     }

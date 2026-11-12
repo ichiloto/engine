@@ -454,7 +454,7 @@ final class GraphicalBattlePresentation
           $this->findControlsTheme(), $this->fallbacks)
         : new PresentationCanvas($this->layout->width, $this->layout->height, textLayers: $ui);
       $canvas = PresentationCanvas::composeOverlay($stageCanvas, $overlay);
-      CanvasImagePreflight::inspect($canvas->images, $this->assetRoot, $canvas->composites);
+      CanvasImagePreflight::inspectCanvases([$canvas], $this->assetRoot);
       return $canvas;
     }
     $images = PngAssetPreflight::getAvailableSize($this->assetRoot, $this->arena->background->asset) === null
@@ -703,7 +703,7 @@ final class GraphicalBattlePresentation
       [...$images, ...($stageCanvas?->images ?? [])], $indicators, CanvasTextBatch::compact([...$text, ...$ui]),
       composites: [...$composites, ...($stageCanvas?->composites ?? [])],
       protectedAreas: [...$areas, ...($stageCanvas?->getOverlayProtection() ?? [])]);
-    CanvasImagePreflight::inspect($canvas->images, $this->assetRoot, $canvas->composites);
+    CanvasImagePreflight::inspectCanvases([$canvas], $this->assetRoot);
     return $canvas;
   }
 
