@@ -63,3 +63,19 @@ it('captures source and recipients once at the authored cue while preserving tar
   expect($captures)->toBe(1)->and($hits)->toBe(1)->and($actor->stats->currentHp)->toBe(100)->and($target->stats->currentHp)->toBe(100);
   $p->cancel(); expect($p->getCapturedTargetGroup('snapshot'))->toBeNull()->and($p->getCapturedAnchorSnapshot('snapshot'))->toBeNull();
 })->with([false, true]);
+
+
+it('captures a graphical target snapshot before equal-frame contact and impact',function(){
+  [$actor,$target,$group]=anchorSnapshotFixture();
+  $effect=(new EffectTimelineValidator(''))->compile('same-frame-capture',[
+    'fps'=>24,'lengthFrames'=>4,'targetCaptureFrame'=>2,'effectTiming'=>['mode'=>'frame','frame'=>2],
+    'targetContactSequence'=>['firstFrame'=>2,'lastFrame'=>2,'direction'=>'west','tracks'=>['flash']],
+    'tracks'=>[['id'=>'flash','type'=>'flash','presentation'=>'graphical','anchor'=>'target','keyframes'=>[['frame'=>2,'color'=>'white']]]],
+  ],forBattle:true);
+  $plan=new BattleCommandTimeline(new BattleTurnTimings(.01,.01,.01,.01,.01,.01,.01),target:$effect);
+  $p=null;$atHit=null;$calls=0;
+  $p=new BattleCommandPlayback($plan,$actor,[$target],BattlePoseRole::ATTACK,
+    function()use(&$p,&$atHit){$atHit=$p->getCapturedTargetGroup('snapshot');},static fn()=>null);
+  $p->bindTargetGroupCapture(function()use($group,&$calls){$calls++;return$group;});$p->begin();$p->update(1);
+  expect($atHit)->toBe($group)->and($calls)->toBe(1)->and($p->presentationFailure)->toBeNull();
+});

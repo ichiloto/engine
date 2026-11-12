@@ -98,7 +98,7 @@ final readonly class BattleCommandTimeline
     if (isset($source->defaults['hitFeedbackFrames'])) {
       throw new InvalidArgumentException('Recorded hit feedback belongs to the target effect lane.');
     }
-    if (isset($source->defaults['targetCaptureFrame'])) {
+    if (isset($source->defaults['targetCaptureFrame']) || isset($source->defaults['terminalLaneCaptureFrame'])) {
       throw new InvalidArgumentException('Target capture belongs to the target effect lane.');
     }
     if (isset($source->defaults['targetContactSequence'])) {
@@ -231,6 +231,10 @@ final readonly class BattleCommandTimeline
         if ($sourceEffectAnchor === SourceEffectAnchor::TARGET && $sourceTiming !== null) {
           $length = max($length, $sourceTiming->getFrameBoundary($sourceTiming->totalFrames, self::FPS));
         }
+        if (isset($this->terminalTarget?->defaults['terminalLaneCaptureFrame'])) {
+          $cues[] = ['id' => 'capture-terminal-lane', 'type' => 'commandCaptureTerminalLane',
+            'frame' => $cursor + $this->terminalTiming->getFrameBoundary($this->terminalTarget->defaults['terminalLaneCaptureFrame'], self::FPS), 'payload' => []];
+        }
         $effectEnd = $cursor + $length;
         $syncFrame = $target?->defaults['poseSyncFrame'] ?? null;
         if ($syncFrame !== null && (!is_int($syncFrame) || $syncFrame < 0 || $syncFrame >= $targetTiming->totalFrames)) {
@@ -278,6 +282,10 @@ final readonly class BattleCommandTimeline
         if (isset($effect->defaults['reducedMotionSamples'])) { $reducedSamples[$lane] = $effect->defaults['reducedMotionSamples']; }
         $rest = clamp((int)($effect->defaults['restFrame'] ?? $clock->totalFrames - 1), 0, $clock->totalFrames - 1);
         $range = $lane === 'target' ? $this->rangeTiming : null;
+        if ($lane === 'target' && isset($effect->defaults['terminalLaneCaptureFrame'])) {
+          $cues[] = ['id' => 'capture-terminal-lane', 'type' => 'commandCaptureTerminalLane',
+            'frame' => $cursor + $clock->getFrameBoundary($effect->defaults['terminalLaneCaptureFrame'], self::FPS), 'payload' => []];
+        }
         if ($lane === 'target' && isset($effect->defaults['targetCaptureFrame'])) {
           $cues[] = ['id' => 'capture-target-snapshot', 'type' => 'commandCaptureTargetSnapshot',
             'frame' => $cursor + $clock->getFrameBoundary($effect->defaults['targetCaptureFrame'], self::FPS), 'payload' => []];
@@ -407,7 +415,7 @@ final readonly class BattleCommandTimeline
     $cues[] = ['id' => 'command-impact', 'type' => 'commandImpact', 'frame' => $impact, 'payload' => []];
     $cues = [...$cues, ...array_values($detachments), ...array_values($targetGroupCaptures)];
     $order = static fn(array $cue): int => match ($cue['type']) {
-      'commandCapturePosePoint', 'commandCaptureTargetGroup', 'commandCaptureTargetContacts', 'commandArenaRestored' => 0, 'commandImpact' => 1, default => 2,
+      'commandCapturePosePoint', 'commandCaptureTargetGroup', 'commandCaptureTargetContacts', 'commandCaptureTargetSnapshot', 'commandCaptureTerminalLane', 'commandArenaRestored' => 0, 'commandImpact' => 1, default => 2,
     };
     usort($cues, static fn(array $a, array $b): int => [$a['frame'], $order($a)] <=> [$b['frame'], $order($b)]);
     $this->actionPoseAnchorFrame = $poseAnchor;
@@ -575,6 +583,13 @@ final readonly class BattleCommandTimeline
       'terminal-target' => $this->terminalTiming,
       default => throw new InvalidArgumentException('An authored battle lane must be source, target or terminal-target.'),
     };
+  }
+
+  /** Primary and companion Terminal presentations own the same renderer-specific capture lifetime. */
+  public function requiresTerminalLaneCapture(): bool
+  {
+    return array_any([...$this->timeline->playbackSegments, ...$this->terminalSegments],
+      static fn(array $segment): bool => $segment['layer'] === 'glyph-lane');
   }
 
   /** A scaled lane stamps its image commands; glyphs and text keep their cells, which cannot resize without distortion. */

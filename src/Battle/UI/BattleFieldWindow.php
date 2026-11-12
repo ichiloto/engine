@@ -65,6 +65,10 @@ class BattleFieldWindow extends Window implements \Ichiloto\Engine\Battle\Presen
     if ($this->commandPlayback !== $playback) { $this->clearBattleFlashState(repaint: false); }
     $this->commandPlayback = $playback;
     $this->actingBattler = $playback?->actor;
+    if ($playback?->plan->requiresTerminalLaneCapture()) {
+      $this->getTerminalEffects()->bindCommandCapture($playback, $this->battleScreen->partyBattlers,
+        $this->battleScreen->troop->members->toArray(), \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion());
+    }
   }
   /** @var list<array{sequence: int, battler: CharacterInterface, lines: array, shownAt: float, durationSeconds: float}> */
   private array $feedback = [];

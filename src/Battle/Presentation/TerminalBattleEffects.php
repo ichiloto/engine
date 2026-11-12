@@ -281,6 +281,15 @@ final class TerminalBattleEffects
             $flashes[spl_object_id($target)] = ['target' => $target, 'screen' => false, 'color' => $color];
           }
         }
+        if ($segment['layer'] === 'glyph-lane') {
+          try {
+            $snapshot = $playback instanceof BattleCommandPlayback ? $playback->getCapturedTerminalLane() : null;
+            if ($snapshot === null) { throw new RuntimeException('Terminal glyph lane has no command-owned captured geometry.'); }
+            array_push($draws, ...TerminalBattleGlyphLane::compose($snapshot, $data, $command['color'] ?? null,
+              intval($this->origin->x) + 1, intval($this->origin->y) + 1, max(0, $this->width - 2), max(0, $this->height - 2)));
+          } catch (\Throwable $failure) { $playback->recordPresentationFailure($failure); }
+          continue;
+        }
         if (!in_array($segment['layer'], ['glyph', 'text'], true)) { continue; }
         if ($anchor === 'legacy-screen') {
           array_push($draws, ...$this->getLegacyDraws($command));
@@ -313,6 +322,36 @@ final class TerminalBattleEffects
     foreach ($draws as &$draw) { $draw = ['text' => $draw['text']] + $this->getIndicatorPosition($draw['text'], $draw['x'], $draw['y']); }
     unset($draw);
     return ['draws' => $draws, 'flashes' => array_values($flashes)];
+  }
+
+  /** Bind before begin/update so coarse time steps and previews capture the authored frame, not a redraw.
+   * @param list<CharacterInterface> $party @param list<CharacterInterface> $troop
+   */
+  public function bindCommandCapture(BattleCommandPlayback $playback, array $party, array $troop, bool $reducedMotion): void
+  {
+    if (!$playback->plan->requiresTerminalLaneCapture()) { return; }
+    $playback->bindTerminalLaneCapture(function (BattleCommandPlayback $sample) use ($party, $troop, $reducedMotion): TerminalBattleLaneSnapshot {
+      $caster = $this->getAnimationOrigin($sample->actor, AnimationTargetPosition::CENTER, $party, $troop, $sample, $reducedMotion);
+      if ($caster === null) { throw new RuntimeException('Terminal lane caster is absent from the battlefield.'); }
+      $selected = [];
+      foreach ($sample->targets as $target) {
+        $point = $this->getAnimationOrigin($target, AnimationTargetPosition::CENTER, $party, $troop, $sample, $reducedMotion);
+        if ($point === null) { throw new RuntimeException('Terminal lane target is absent from the battlefield.'); }
+        $selected[spl_object_id($target)] = ['x' => $point['x'], 'y' => $point['y']];
+      }
+      $blocked = [];
+      foreach ([...$party, ...$troop] as $member) {
+        if (isset($selected[spl_object_id($member)]) || $member->isKnockedOut) { continue; }
+        $point = $this->getAnimationOrigin($member, AnimationTargetPosition::HEAD, $party, $troop, $sample, $reducedMotion);
+        if ($point === null) { continue; }
+        $sprite = $member instanceof Character ? $member->images->battle : $member->image;
+        $width = $member instanceof Enemy ? $this->getTroopVisibleSpriteWidth($member,
+          $this->getTroopPresentedPosition($member, $sample, $reducedMotion)) : self::getSpriteWidth($sprite);
+        if ($width < 1 || $sprite === []) { continue; }
+        $blocked[] = ['x' => $point['x'] - intdiv($width, 2), 'y' => $point['y'], 'width' => $width, 'height' => count($sprite)];
+      }
+      return new TerminalBattleLaneSnapshot(['x' => $caster['x'], 'y' => $caster['y']], $selected, $blocked, isset($caster['partyIndex']));
+    });
   }
 
   public function getLegacyDraws(array $command, array $offset = ['x' => 0, 'y' => 0]): array

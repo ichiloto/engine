@@ -94,7 +94,7 @@ final class EffectTimelineValidator
       throw new InvalidArgumentException("Effect {$id} needs a list of 1..32 tracks.");
     }
     $ids = $normalized = $motionScopes = [];
-    $hasImages = $imageRestCovered = $stageRestCovered = false;
+    $hasImages = $imageRestCovered = $stageRestCovered = $hasTerminalLane = false;
     foreach ($tracks as $track) {
       if (!is_array($track) || !is_string($track['id'] ?? null) || isset($ids[$track['id']])
         || !in_array($track['type'] ?? null, EffectTrackType::getSupportedValues($forBattle, $forSummon), true)) {
@@ -102,9 +102,10 @@ final class EffectTimelineValidator
       }
       EffectTimelineLibrary::assertId($track['id']);
       $graphicalOnly = EffectTrackType::from($track['type'])->requiresGraphicalPresentation();
+      $terminalOnly = EffectTrackType::from($track['type'])->requiresTerminalPresentation();
       $motion = EffectMotionScope::parse($track['motion'] ?? 'all');
       $scope = EffectPresentation::validateTrack($track['presentation']
-        ?? ($graphicalOnly || $motion !== EffectMotionScope::ALL ? 'graphical' : 'all'));
+        ?? ($terminalOnly ? 'terminal' : ($graphicalOnly || $motion !== EffectMotionScope::ALL ? 'graphical' : 'all')));
       if ($motion !== EffectMotionScope::ALL && $scope !== 'graphical') {
         throw new InvalidArgumentException('Motion-specific drawings require graphical presentation.');
       }
@@ -117,12 +118,18 @@ final class EffectTimelineValidator
       if ($graphicalOnly && $scope !== 'graphical') {
         throw new InvalidArgumentException("Effect {$id} {$track['type']} presentation must be graphical.");
       }
+      if ($terminalOnly && $scope !== 'terminal') { throw new InvalidArgumentException('Glyph lanes require Terminal presentation.'); }
       $ids[$track['id']] = true;
       // Unselected graphical resources are not dependencies of terminal playback.
       if (!$presentation->acceptsSegment(['layer' => $track['type'], 'presentation' => $scope])) { continue; }
       if ($forStage && $presentation === EffectPresentation::GRAPHICAL
         && ($track['type'] !== 'image' || ($track['anchor'] ?? null) !== 'stage')) {
         throw new InvalidArgumentException('A caller-owned stage presentation accepts only stage image tracks.');
+      }
+      if ($track['type'] === 'glyph-lane') {
+        $normalized[] = BattleGlyphLaneTrack::compile($track, $length, $playback, $cadence, $data['targetCaptureFrame'] ?? null);
+        $hasTerminalLane = true;
+        continue;
       }
       if ($track['type'] === 'battler-motion') {
         $normalized[] = BattleBattlerMotionTrack::compile($track, $length, $playback, $cadence);
@@ -439,7 +446,7 @@ final class EffectTimelineValidator
       }
     }
     $targetCaptureFrame = null;
-    if (array_key_exists('targetCaptureFrame', $data) && $presentation === EffectPresentation::GRAPHICAL) {
+    if (array_key_exists('targetCaptureFrame', $data) && ($presentation === EffectPresentation::GRAPHICAL || $hasTerminalLane)) {
       $targetCaptureFrame = $data['targetCaptureFrame'];
       if (!is_int($targetCaptureFrame) || $targetCaptureFrame < 0 || $targetCaptureFrame >= $length
         || $playback !== 'once' || $cadence !== EffectCadence::FIXED
@@ -496,7 +503,7 @@ final class EffectTimelineValidator
         ...($timing === null ? [] : ['effectTiming' => $timing]),
         ...($poseSyncFrame === null ? [] : ['poseSyncFrame' => $poseSyncFrame]),
         ...($poseClock === EffectPoseClock::ANNOUNCEMENT ? [] : ['poseClock' => $poseClock->value]),
-        ...($targetCaptureFrame === null ? [] : ['targetCaptureFrame' => $targetCaptureFrame]),
+        ...($targetCaptureFrame === null ? [] : [($hasTerminalLane ? 'terminalLaneCaptureFrame' : 'targetCaptureFrame') => $targetCaptureFrame]),
         ...($contacts === null ? [] : ['targetContactSequence' => $contacts->toArray()]),
         ...($hitFeedback === null ? [] : ['hitFeedbackFrames' => $hitFeedback]),
         ...($rangeTiming ?? []),

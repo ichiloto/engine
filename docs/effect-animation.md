@@ -2909,3 +2909,62 @@ plan retain their existing rest-frame behavior. The shared summon source model
 preserves both sample plans and track motion scopes. For paired presentations,
 the plan belongs inside the graphical presentation. Editor controls for these
 fields must use the same contract and source-preserving services.
+
+### One captured Terminal glyph lane
+
+Battle-only `glyph-lane` draws one head and a tiled shaft across a selected group.
+It compiles only for Terminal presentation, requires fixed once playback and an
+explicit root `targetCaptureFrame`, and has no PNG, canvas, stage or graphical
+capture dependency. It shares the logical command clock and cleanup with graphical effects. Its
+`commandCaptureTerminalLane` cue and compiled `terminalLaneCaptureFrame` select
+separate Terminal-cell geometry; graphical captures retain their own provider.
+
+```php
+'targetCaptureFrame' => 1,
+// … inside tracks:
+[
+  'id' => 'lane', 'type' => 'glyph-lane', 'presentation' => 'terminal',
+  'facing' => 'west',
+  'keyframes' => [[
+    'frame' => 2, 'duration' => 3, 'color' => 'cyan',
+    'payload' => ['head' => [' /', '<=', ' \\'],
+                  'shaft' => ['--', '==', '--']],
+  ]],
+],
+```
+
+`facing` describes the source drawing. The shared renderer mirrors the drawing
+when the captured recipient group is east of the caster, using the ordinary
+opponent-facing side only for an equal-column tie. The single head reaches the
+far selected centre column, at the midpoint of the selected top/bottom centre
+rows. A sloped shaft joins that point to the captured caster centre, repeating
+only the shaft tile. This endpoint uses every unique selected instance. It
+never repeats the complete arrow per recipient or picks a display name/first
+target as the lane. Physical selection and combat impact remain unchanged.
+
+Samples follow capture in ordered nonoverlapping intervals. Head and shaft have
+the same odd row count, one to nine rows; each stencil has equal row widths in
+one to32Terminalcells. Rows are printable UTF-8 without controls or embedded ANSI.
+Wide glyphs keep their complete cell spans. Optional named `color`, boolean
+`visible` and neutral `zIndex => 0` are supported. Hidden samples and gaps clear
+the drawing. Reduced motion retains the existing static-rest rule and gates it
+by the track's live visibility, so a later rest sample cannot appear early or
+survive an authored clear. It does not alter impact or snapshot timing.
+
+The live field binds the capture before command playback begins. Windowless
+callers use `TerminalBattlePresentation::bindCommandCapture()` before begin/update;
+`BattleCommandPreview` does this automatically. A coarse update still captures
+the authored pose frame before impact. `getCapturedTerminalLane()` exposes an
+immutable `TerminalBattleLaneSnapshot`, containing only integer cell coordinates
+and selected instance IDs. Graphical `getCapturedTargetGroup()` remains separate.
+Cancel releases the capture and provider; redraw and reverse preview do not
+resolve combat or recapture from a later drawing. Missing capture records a
+presentation diagnostic while the ordinary battle and logical impact continue.
+
+Paint is clipped to the field interior without shifting it into view. Unselected
+battler rectangles, including the caster, occlude the lane. Omitted cells remain
+transparent; the effect never erases or falsely flashes another body's glyphs.
+Contiguous visible cells share draw runs, and a clipped/occluded wide glyph is
+omitted whole. The same pure renderer serves the live field and windowless
+presentation. A project supplies replaceable stencils and its final reviewed
+Terminal source; this capability does not install a Last Legend timeline.

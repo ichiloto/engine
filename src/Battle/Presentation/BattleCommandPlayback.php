@@ -55,6 +55,9 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private ?Closure $captureTargetGroup = null;
   /** @var array<string, BattleEffectAnchorSnapshot|BattleEffectTargetGroup|null> */
   private array $targetGroups = [];
+  /** @var ?Closure(self): TerminalBattleLaneSnapshot */
+  private ?Closure $captureTerminalLane = null;
+  private ?TerminalBattleLaneSnapshot $terminalLaneSnapshot = null;
   /** @var array<int, array{battler: \Ichiloto\Engine\Entities\Enemies\Enemy, start: float, cleared: bool}> */
   private array $defeats = [];
   /** @var list<array{subject: int, start: float, timing: EffectPlaybackTiming, timeline: CompiledEffectTimeline, presentation: EffectPresentation}> */
@@ -161,6 +164,8 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $this->capturePosePoints = null;
     $this->targetGroups = [];
     $this->captureTargetGroup = null;
+    $this->captureTerminalLane = null;
+    $this->terminalLaneSnapshot = null;
   }
 
   /** @param Closure(self, string, string, ?string, ?array, ?float, ?string, ?string): array<int, DetachedPosePoint> $capture */
@@ -181,6 +186,13 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     $this->captureTargetGroup = $capture;
   }
+
+  /** Renderer-specific geometry providers share the command clock and cleanup, never coordinate systems.
+   * @param Closure(self): TerminalBattleLaneSnapshot $capture
+   */
+  public function bindTerminalLaneCapture(Closure $capture): void { $this->captureTerminalLane = $capture; }
+
+  public function getCapturedTerminalLane(): ?TerminalBattleLaneSnapshot { return $this->terminalLaneSnapshot; }
 
   public function getCapturedTargetGroup(string $lane): ?BattleEffectTargetGroup
   {
@@ -459,7 +471,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
         $this->plan->terminalTiming->getFrameCountAt(($frame - $this->plan->phases['target']['start']) / BattleCommandTimeline::FPS));
       $select = fn(int $sample): array => array_values(array_filter($this->plan->terminalSegments,
         static fn(array $segment): bool => EffectPresentation::TERMINAL->acceptsSegment($segment)
-          && in_array($segment['layer'], ['glyph', 'text'], true)
+          && in_array($segment['layer'], ['glyph', 'glyph-lane', 'text'], true)
           && $segment['startFrame'] <= $sample && $sample <= $segment['endFrame']));
       $active = $select($sourceFrame);
       $restFrame = $fallback->defaults['restFrame'] ?? 0;
@@ -600,7 +612,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     $visibleTracks = [];
     foreach ($active as $segment) {
-      if (!EffectPresentation::TERMINAL->acceptsSegment($segment) || !in_array($segment['layer'], ['glyph', 'text'], true)) {
+      if (!EffectPresentation::TERMINAL->acceptsSegment($segment) || !in_array($segment['layer'], ['glyph', 'glyph-lane', 'text'], true)) {
         continue;
       }
       foreach ($segment['drawCommands'] as $command) {
@@ -613,7 +625,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $segments = [];
     $sampledTracks = [];
     foreach ($rest as $segment) {
-      if (in_array($segment['layer'], ['glyph', 'text'], true)) {
+      if (in_array($segment['layer'], ['glyph', 'glyph-lane', 'text'], true)) {
         $commands = [];
         foreach ($segment['drawCommands'] as $command) {
           $track = self::getTerminalVisibilityTrack($segment['layer'], $command);
@@ -635,7 +647,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     // Choose its nearest visible frame and keep the live clock as the visibility gate.
     $samples = [];
     foreach ($authored as $segmentIndex => $segment) {
-      if (!EffectPresentation::TERMINAL->acceptsSegment($segment) || !in_array($segment['layer'], ['glyph', 'text'], true)) {
+      if (!EffectPresentation::TERMINAL->acceptsSegment($segment) || !in_array($segment['layer'], ['glyph', 'glyph-lane', 'text'], true)) {
         continue;
       }
       foreach ($segment['drawCommands'] as $commandIndex => $command) {
@@ -754,6 +766,14 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     foreach ($cues as $cue) {
       if ($this->cancelled) { return; }
+      if ($cue['type'] === 'commandCaptureTerminalLane') {
+        // No Terminal consumer is required by a graphical command. A consuming lane diagnoses a missing capture.
+        if ($this->captureTerminalLane !== null) {
+          try { $this->terminalLaneSnapshot = ($this->captureTerminalLane)($this->samplePoseAtFrame($cue['frame'])); }
+          catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
+        }
+        continue;
+      }
       if ($cue['type'] === 'commandCaptureTargetSnapshot') {
         try {
           if ($this->captureTargetGroup === null) { throw new \RuntimeException('Target snapshot requires the shared body capture.'); }

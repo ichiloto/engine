@@ -9,6 +9,7 @@ enum EffectTrackType: string
 {
   case IMAGE = 'image';
   case GLYPH = 'glyph';
+  case GLYPH_LANE = 'glyph-lane';
   case TEXT = 'text';
   case FLASH = 'flash';
   case SHAKE = 'shake';
@@ -23,7 +24,9 @@ enum EffectTrackType: string
     return in_array($this, [self::TRAIL, self::TETHER, self::FIELD_MOTION, self::BATTLER_MOTION], true);
   }
 
-  /** @return list<string> Existing profiles keep their exact admitted track set. */
+  public function requiresTerminalPresentation(): bool { return $this === self::GLYPH_LANE; }
+
+  /** @return list<string> Shared track vocabulary, filtered by consumer profile. */
   public static function getSupportedValues(bool $forBattle = false, bool $forSummon = false): array
   {
     return array_values(array_map(static fn(self $type): string => $type->value,
