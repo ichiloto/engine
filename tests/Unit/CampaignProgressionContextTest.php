@@ -181,3 +181,26 @@ it('evaluates each campaign quest prerequisite and achievement against its own l
         new ReflectionProperty(AchievementManager::class, 'current')->setValue(null, $priorAchievement);
     }
 });
+
+
+it('restores inventory delivery to the preceding campaign owner after temporary restoration releases', function () {
+    $root = createTestDirectory('inventory-campaign-release-');
+    $context = createDetachedProgressionContext();
+    $game = new PassiveGame();
+    $a = new class($game, $context, $root) extends QuestManager {
+        public int $changes = 0;
+        public function syncCollectObjectives(): void { $this->changes++; }
+    };
+    $b = new class($game, $context, $root) extends QuestManager {
+        public int $changes = 0;
+        public function syncCollectObjectives(): void { $this->changes++; }
+    };
+    try {
+        $item = new \Ichiloto\Engine\Entities\Inventory\Items\Item('Synthetic', '', '!', 1, id: 'item.synthetic');
+        $context->party->inventory->addItems($item);
+        expect($b->changes)->toBe(1)->and($a->changes)->toBe(0);
+        $b->release();
+        $context->party->inventory->removeItems($item);
+        expect($b->changes)->toBe(1)->and($a->changes)->toBe(1);
+    } finally { $b->release(); $a->release(); }
+});

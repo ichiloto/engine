@@ -60,6 +60,12 @@ class QuestManager
         $cursor = $previous;
       }
     }
+    $inventory = $this->gameScene->party?->inventory ?? null;
+    $previous = $this->previousManager?->get();
+    while ($previous !== null && ($previous->isReleased || ($previous->gameScene->party?->inventory ?? null) !== $inventory)) {
+      $previous = $previous->previousManager?->get();
+    }
+    $inventory?->releaseQuestManager($this, $previous);
     $this->previousManager = null;
     $this->released = true;
   }
@@ -595,7 +601,7 @@ class QuestManager
     ));
 
     if (! empty($itemReferences)) {
-      $itemStore = ConfigStore::get(ItemStore::class);
+      $itemStore = $this->game->itemStore ?? ConfigStore::get(ItemStore::class);
 
       if ($itemStore instanceof ItemStore) {
         $party->addItems(...$itemStore->load($itemReferences));

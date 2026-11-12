@@ -177,7 +177,7 @@ beforeEach(function () {
     }
     $this->root = createTestDirectory('saved-game-resume-');
     $this->managers = [];
-    foreach ([EventManager::class, ModalManager::class, SaveManager::class] as $class) {
+    foreach ([EventManager::class, SaveManager::class] as $class) {
         new ReflectionProperty($class, 'instance')->setValue(null, null);
     }
     Debug::configure(['log_directory' => $this->root . '/logs']);

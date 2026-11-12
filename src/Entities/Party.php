@@ -28,6 +28,7 @@ class Party extends BattleGroup
   /** @var \WeakMap<self, \Closure(self): void>|null Campaign-local listeners are never serialized. */
   private static ?\WeakMap $summonAssignmentListeners = null;
 
+  /** @param \Closure(self): void|null $listener */
   public function setSummonAssignmentListener(?\Closure $listener): void
   {
     if ($listener === null) {
@@ -36,6 +37,14 @@ class Party extends BattleGroup
     }
     self::$summonAssignmentListeners ??= new \WeakMap();
     self::$summonAssignmentListeners[$this] = $listener;
+  }
+
+  /** Read the transient listener so an owner can release only its own subscription.
+   * @return \Closure(self): void|null
+   */
+  public function getSummonAssignmentListener(): ?\Closure
+  {
+    return self::$summonAssignmentListeners[$this] ?? null;
   }
 
   private function notifySummonAssignmentChanged(): void

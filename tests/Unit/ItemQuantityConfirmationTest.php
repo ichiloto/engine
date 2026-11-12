@@ -86,7 +86,7 @@ beforeEach(function () {
     ModalManager::class, AudioManager::class, QuestManager::class, ActionHints::class] as $class) {
     $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  foreach ([EventManager::class, ModalManager::class] as $class) {
+  foreach ([EventManager::class] as $class) {
     new ReflectionProperty($class, 'instance')->setValue(null, null);
   }
   new ReflectionProperty(QuestManager::class, 'current')->setValue(null, null);

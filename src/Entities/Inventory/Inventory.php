@@ -30,6 +30,14 @@ class Inventory
     self::$questManagers[$this] = \WeakReference::create($manager);
   }
 
+  /** Release only this binding and restore the still-active owner for this inventory. */
+  public function releaseQuestManager(QuestManager $owner, ?QuestManager $previous): void
+  {
+    if ((self::$questManagers[$this] ?? null)?->get() !== $owner) { return; }
+    if ($previous !== null && !$previous->isReleased) { $this->bindQuestManager($previous); }
+    // Retain a retired binding when there is no predecessor, so legacy global delivery stays quiet.
+  }
+
   private function notifyInventoryChanged(): void
   {
     $binding = self::$questManagers[$this] ?? null;

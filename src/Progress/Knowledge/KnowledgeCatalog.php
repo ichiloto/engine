@@ -5,7 +5,6 @@ namespace Ichiloto\Engine\Progress\Knowledge;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 use InvalidArgumentException;
-use Throwable;
 
 /** Validated project-owned subject, mapping, and report definitions. */
 final class KnowledgeCatalog implements ConfigInterface
@@ -25,15 +24,15 @@ final class KnowledgeCatalog implements ConfigInterface
     $this->hydrate($data);
   }
 
-  public static function fromProject(): self
+  public static function fromProject(?string $assetRoot = null): self
   {
-    try {
-      $data = asset('Data/knowledge.php', true);
-    } catch (Throwable) {
-      $data = [];
+    $filename = rtrim($assetRoot ?? getcwd() . '/assets', '/\\') . '/Data/knowledge.php';
+    if (!is_file($filename)) { return new self(); }
+    $data = require $filename;
+    if (!is_array($data)) {
+      throw new InvalidArgumentException($filename . ' must return an array.');
     }
-
-    return new self(is_array($data) ? $data : []);
+    return new self($data);
   }
 
   public static function empty(): self

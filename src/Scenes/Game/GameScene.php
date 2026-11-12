@@ -13,13 +13,13 @@ use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Core\Campaign\CampaignSession;
+use Ichiloto\Engine\Core\Campaign\CampaignNotices;
 use Ichiloto\Engine\Entities\Character;
-use Ichiloto\Engine\Progression\TutorialCatalog;
 use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Progression\TutorialFollowOn;
 use Ichiloto\Engine\Progression\TutorialStep;
 use Ichiloto\Engine\Progression\TutorialStartContext;
-use Ichiloto\Engine\Progression\TutorialProjectReferences;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicController;
@@ -70,8 +70,6 @@ use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\Core\Interfaces\PlayActivitySourceInterface;
 use Ichiloto\Engine\Core\PlayActivity;
-use Ichiloto\Engine\Income\IncomeCatalog;
-use Ichiloto\Engine\Income\IncomeLedger;
 use Ichiloto\Engine\Income\IncomeService;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
@@ -96,7 +94,6 @@ use Ichiloto\Engine\Quests\Story\StoryIndex;
 use Ichiloto\Engine\Quests\Story\StoryWayfinder;
 use Ichiloto\Engine\Quests\QuestWaymarkSubject;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog;
-use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgress;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\States\QuestMenuState;
@@ -847,7 +844,8 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
      * @var Party|null The party.
      */
     protected(set) ?Party $party = null;
-    private ?object $recruitmentNoticeOwner = null;
+    private ?CampaignNotices $recruitmentNoticeOwner = null;
+    protected(set) ?CampaignSession $campaign = null;
     /**
      * @var GameState The persistent world state (switches, variables, story
      * events, one-shot event completion).
@@ -1099,17 +1097,48 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         }
         $this->cancelPendingSavedGameResume();
 
-        $this->getGame()->getProjectStateRegistry()->runWithSnapshot(
-            $config->projectState,
-            fn() => $this->configureCampaign($config),
-        );
+        $previous = $this->campaign;
+        $campaign = CampaignSession::restore($this->getGame(), $config,
+            $this->getGame()->getProjectAssetRoot(), $this->showIncomeNotice(...));
+        try {
+            $this->adoptCampaign($campaign);
+            $this->configureCampaign($config);
+            $campaign->commit();
+        } catch (\Throwable $error) {
+            $campaign->release();
+            $this->campaign = $previous;
+            if ($previous !== null) { $this->adoptCampaign($previous); }
+            throw $error;
+        }
+        $previous?->release();
+    }
+
+    /** Field and capture hosts share the restored facts and their single lifecycle owner. */
+    protected function adoptCampaign(CampaignSession $campaign): void
+    {
+        if ($campaign->game !== $this->getGame() || $campaign->isReleased) {
+            throw new \LogicException('Adopt an active campaign owned by this scene’s Game.');
+        }
+        $this->config = $campaign->config;
+        $this->campaign = $campaign;
+        $this->gameState = $campaign->gameState;
+        $this->party = $campaign->party;
+        $this->questManager = $campaign->questManager;
+        $this->achievementManager = $campaign->achievementManager;
+        $this->tutorialDirector = $campaign->tutorialDirector;
+        $this->income = $campaign->income;
+        $this->knowledge = $campaign->knowledge;
+        $this->bestiary = $campaign->bestiary;
+        $this->recruitmentNoticeOwner = $campaign->notices;
+        $scene = \WeakReference::create($this);
+        $campaign->observeWorldChanges(static function (string $kind, string $name) use ($scene): void {
+            $scene->get()?->handleWorldStateChange($kind, $name);
+        });
     }
 
     /** Project state has been prepared and restored before any campaign consumer runs. */
     protected function configureCampaign(GameConfig $config): void
     {
-        $this->releaseRecruitmentNotices();
-        $this->party?->setSummonAssignmentListener(null);
         $this->mapManager = MapManager::getInstance($this->getGame(), $this);
 
         $this->initializeGameSceneStates();
@@ -1118,46 +1147,17 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         $this->locationHUDWindow = new LocationHUDWindow(new Vector2(0, 0), MovementHeading::NONE);
         $this->uiManager->uiElements->add($this->locationHUDWindow);
 
-        $this->config = $config;
         $this->inheritedMapMusic = null;
         $this->lastFieldMusic = null;
         $this->fieldMusicApplied = false;
         $this->fieldMusicPending = false;
         $this->fieldMusicHolds = 0;
-        $this->gameState = GameState::fromArray($this->config->gameState);
-        $assetRoot = $this->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets';
-        $tutorials = TutorialCatalog::fromProject($assetRoot);
-        $this->tutorialDirector = null;
-        if ($tutorials->definitions !== []) {
-            (new TutorialProjectReferences($assetRoot))->validateCatalog($tutorials);
-            $this->tutorialDirector = new TutorialDirector(
-                $tutorials, $this->gameState, $this->getGame()->getTutorialStartConditions(),
-            );
-        }
+        $assetRoot = $this->getGame()->getProjectAssetRoot();
         $this->tutorialCinematics = $this->tutorialDirector === null ? null : new CinematicLibrary($assetRoot . '/Cutscenes/Cinematics');
         $this->tutorialFollowOnDefinitions = [];
-
-        $this->gameState->onChange = $this->handleWorldStateChange(...);
-
         Time::setElapsedTime($this->config->playTimeSeconds);
-
         $this->player = $this->createPlayer($this->config);
-        $this->party = $this->config->party;
-        // Construction and hydration precede this campaign's real join lifecycle.
-        $this->beginRecruitmentNotices();
-        $this->party->assertSummonAssignments((new SummonCutsceneLibrary())->load());
 
-        // The quest manager must exist before the first map load so the
-        // starting map counts toward reach-map objectives.
-        $this->questManager = new QuestManager($this->getGame(), $this);
-        $this->questManager->hydrate($this->config->questLog);
-        $this->observeSummonTutorialAssignments();
-        if ($this->tutorialDirector?->canOfferContext(TutorialStartContext::SUMMONS_LIBRARY)) {
-            $scene = \WeakReference::create($this);
-            $this->party->setSummonAssignmentListener(static function () use ($scene): void {
-                $scene->get()?->observeSummonTutorialAssignments();
-            });
-        }
         $this->encounterManager = new EncounterManager($this);
         $this->fieldConditions = new FieldConditions($this);
         $this->npcManager = new NpcManager($this);
@@ -1171,26 +1171,7 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         $this->hasDeferredAutoSave = false;
         $this->hasPendingAutomaticTriggerEvaluation = false;
         $this->skitManager = new SkitManager($this);
-        $this->achievementManager = new AchievementManager($this->getGame(), $this);
-        $this->achievementManager->hydrate($this->config->achievements);
-        $incomeCatalog = ConfigStore::has(IncomeCatalog::class) ? ConfigStore::get(IncomeCatalog::class) : null;
         $this->lastAcceptedPlayerActivityAt = null;
-        $this->income = new IncomeService(
-            $incomeCatalog instanceof IncomeCatalog ? $incomeCatalog : new IncomeCatalog(),
-            IncomeLedger::fromArray($this->config->income),
-            $this->gameState,
-            $this->party,
-            $this->showIncomeNotice(...),
-        );
-        $catalog = ConfigStore::get(KnowledgeCatalog::class);
-        $catalog = $catalog instanceof KnowledgeCatalog ? $catalog : KnowledgeCatalog::empty();
-        $this->knowledge = new KnowledgeProgressService(
-            $catalog,
-            KnowledgeProgress::fromArray($this->config->knowledge),
-        );
-        $this->bestiary = $this->config->bestiary === []
-            ? new Bestiary($this->knowledge)
-            : Bestiary::fromArray($this->config->bestiary, $this->knowledge);
 
         $this->loadMap($this->config->mapId, $this->player);
         $this->player->activate();
@@ -1360,6 +1341,7 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         $this->fieldState?->cancelWalking();
         // Field music and NPC diagnostics read this identity during commit.
         $this->currentMapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $mapFilename) ?: $mapFilename;
+        $this->campaign?->setCurrentMapId($this->currentMapId);
         $this->mapManager->applyPreparedMap($prepared, $player);
     }
 
@@ -1645,7 +1627,6 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         foreach ([
             fn() => $this->closeEventPauseMenu(),
             fn() => $this->releaseRecruitmentNotices(),
-            fn() => $this->party?->setSummonAssignmentListener(null),
             fn() => $this->releaseLocationHUDWindow(),
             fn() => $this->cinematicController?->shutdown(),
             fn() => $this->eventInterpreter?->failActiveSession('Event interrupted by field shutdown.'),
@@ -1654,6 +1635,7 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
             fn() => $this->fieldEffects?->clear(),
             fn() => $this->mapManager?->clearWorldObjects(),
             fn() => $this->setPresentationContext(null),
+            fn() => $this->campaign?->release(),
             fn() => $this->achievementManager?->release(),
             fn() => $this->questManager?->release(),
             fn() => parent::stop(),
@@ -1681,39 +1663,24 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
     /** Hydrated members are already known when a campaign acquires this owner. */
     private function beginRecruitmentNotices(): void
     {
-        $this->party?->clearPendingJoins();
-        $this->recruitmentNoticeOwner = new \stdClass();
+        $this->releaseRecruitmentNotices();
+        $this->recruitmentNoticeOwner = $this->party === null ? null : new CampaignNotices($this->getGame(), $this->party);
     }
 
-    /** Every recruitment path converges on Party::addMember, before display. */
     protected function queueRecruitmentNotices(): void
     {
-        if ($this->recruitmentNoticeOwner === null || $this->party === null) { return; }
-        $modals = ModalManager::getInstance($this->getGame());
-        while (($member = $this->party->getPendingJoin()) !== null) {
-            $modals->queueNotice(new \Ichiloto\Engine\UI\Modal\NoticeContent(
-                '', MessageCatalog::getTerm('party.member_joined', $member->name),
-                actorId: $member instanceof \Ichiloto\Engine\Entities\Character ? $member->actorId : null,
-                sound: \Ichiloto\Engine\Audio\Enumerations\SystemSound::PARTY_JOIN), $this->recruitmentNoticeOwner);
-            $this->party->acknowledgeJoin($member);
-        }
+        $this->recruitmentNoticeOwner?->queueRecruitmentNotices();
     }
 
-    /** Hold gameplay and following script commands until every owned join is acknowledged. */
     public function awaitRecruitmentNotices(): bool
     {
-        if ($this->recruitmentNoticeOwner === null) { return false; }
-        $this->queueRecruitmentNotices();
-        return ModalManager::getInstance($this->getGame())->hasPendingNotices($this->recruitmentNoticeOwner);
+        return $this->recruitmentNoticeOwner?->awaitRecruitmentNotices() ?? false;
     }
 
     private function releaseRecruitmentNotices(): void
     {
-        if ($this->recruitmentNoticeOwner !== null) {
-            ModalManager::getInstance($this->getGame())->cancelNotices($this->recruitmentNoticeOwner);
-            $this->party?->clearPendingJoins();
-            $this->recruitmentNoticeOwner = null;
-        }
+        $this->recruitmentNoticeOwner?->release();
+        $this->recruitmentNoticeOwner = null;
     }
 
     private function restoreLocationHUDWindow(): void
@@ -2016,6 +1983,7 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         }
         // The destination is already validated; its music resolves on commit.
         $this->currentMapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $location->mapFilename) ?: $location->mapFilename;
+        $this->campaign?->setCurrentMapId($this->currentMapId);
         if ($deferPresentation) {
             $this->mapManager->deferArrivalPresentationWorld();
             $this->pendingMapArrival = fn() => $this->finishMapArrival($location, $transition, $onCommitted, $afterArrival);
@@ -2185,13 +2153,6 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         }
 
         return $this->eventInterpreter?->run($commands, $scriptId, $completionTarget, $origin);
-    }
-
-    private function observeSummonTutorialAssignments(): void
-    {
-        $this->tutorialDirector?->observeWorldTutorials(
-            $this->party, $this->questManager?->log, TutorialStartContext::SUMMONS_LIBRARY,
-        );
     }
 
     /** Evaluate the current lesson only while its owning menu view is available. */
@@ -2550,11 +2511,6 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
     {
         $this->requestFieldPresentationReconciliation();
 
-        if ($kind === 'event' || ($kind === 'switch' && $this->gameState->getSwitch($name))) {
-            $this->questManager?->recordFlag($name);
-        }
-
-        $this->achievementManager?->evaluateConditionalAchievements();
         if ($kind !== 'landmark') { $this->mapManager?->refreshMapKnowledge(force: true); }
     }
 
