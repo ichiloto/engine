@@ -247,10 +247,16 @@ final class GraphicalBattleEffects
                   if ($strip !== null) { $composites[] = $strip; }
                   break;
                 }
-                $width = min($arena->width, (int)round((($data['cells']['width'] ?? null) === null
-                  ? $frameWidth : $data['cells']['width'] * 48) * $scale));
-                $height = min($arena->height, (int)round((($data['cells']['height'] ?? null) === null
-                  ? $frameHeight : $data['cells']['height'] * 48) * $scale));
+                $width = (int)round((($data['cells']['width'] ?? null) === null
+                  ? $frameWidth : $data['cells']['width'] * 48) * $scale);
+                $height = (int)round((($data['cells']['height'] ?? null) === null
+                  ? $frameHeight : $data['cells']['height'] * 48) * $scale);
+                // Screen-owned art fits its viewport. Subject-owned art retains its authored
+                // footprint and source density; edge clipping happens after fit and pivot.
+                if (in_array($anchor, ['screen', 'legacy-screen'], true)) {
+                  $width = min($arena->width, $width);
+                  $height = min($arena->height, $height);
+                }
                 $fit = isset($data['flight']) && $facing !== null ? CanvasImageFit::CONTAIN
                   : CanvasImageFit::parse($data['fit'] ?? 'stretch');
                 $fitted = $fit->getSize($frameWidth, $frameHeight, $width, $height);

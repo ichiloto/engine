@@ -144,8 +144,12 @@ ratio inside the authored cells box; omission or `fit => stretch` preserves
 existing independent width/height sizing. Containment uses the frame crop, not
 the complete atlas, and retains the drawing anchor. Field transport rounds the
 fitted dimensions once to whole pixels; this never changes ground occupancy.
-Battle playback also contains inside the available canvas before applying its
-pivot, direction and edge clipping. Image dimensions come from the current file. Overlapping
+Battle screen and legacy-screen tracks fit inside the available canvas before
+applying their pivot and edge clipping. Caster, target and target-group tracks
+retain their authored size through fit, binding scale, pivot and direction;
+viewport clipping removes offscreen pixels without shrinking that footprint.
+The former viewport-size clamp is removed from these subject-owned tracks.
+Image dimensions come from the current file. Overlapping
 keyframes, invalid crops and missing rest frames are rejected. Field timelines
 also accept `glyph` and `text` tracks with the shared keyframe schema described
 under the battle runtime below, plus presentation-only `playSound` cues.
