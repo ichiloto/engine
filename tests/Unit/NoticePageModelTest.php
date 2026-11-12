@@ -68,5 +68,8 @@ it('refuses impossible reading areas and choice menus without opening a window',
         ->and(fn() => NoticePageModel::paginateTerminal($source, 20, 6, -1))->toThrow(InvalidArgumentException::class)
         ->and(fn() => NoticePageModel::paginateTerminal($source, 20, 6, 6))->toThrow(RuntimeException::class)
         ->and(fn() => NoticePageModel::paginateTerminal(new ModalPresentation('Choose', 'Body', ['Yes', 'No'], 0), 20, 6))
+        ->toThrow(InvalidArgumentException::class)
+        ->and(fn() => NoticePageModel::paginateTerminal(new ModalPresentation('Amount', 'Body', ['OK'], 0,
+            singleConfirmation: true, quantity: new \Ichiloto\Engine\UI\Modal\QuantityPresentation(1, 5, 1)), 20, 6))
         ->toThrow(InvalidArgumentException::class);
 });

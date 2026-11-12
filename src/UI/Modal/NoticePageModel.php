@@ -79,8 +79,8 @@ final class NoticePageModel
 
     private static function assertAcknowledgement(ModalPresentation $source): void
     {
-        if (!$source->singleConfirmation) {
-            throw new InvalidArgumentException('Notice paging requires a single acknowledgement.');
+        if (!$source->singleConfirmation || $source->quantity !== null || $source->storybook !== null) {
+            throw new InvalidArgumentException('Notice paging requires a single acknowledgement without quantity or storybook content.');
         }
     }
 }
