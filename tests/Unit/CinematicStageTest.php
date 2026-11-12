@@ -271,3 +271,38 @@ it('defaults only absent optional stage fields and preserves authored zero coord
     ->and($placement['position'])->toBe(['x' => 0.0, 'y' => 0.0])
     ->and($placement['size'])->toBe(['width' => 80.0, 'height' => 160.0]);
 });
+
+it('holds authored stage pictures and camera samples on the real restore clock then explicitly clears', function () {
+  $this->source['reducedMotionSamples'] = [
+    ['frame'=>0,'duration'=>4,'sourceFrame'=>3],['frame'=>4,'duration'=>5,'sourceFrame'=>7],
+    ['frame'=>9,'duration'=>2,'sourceFrame'=>10],['frame'=>11,'duration'=>1,'sourceFrame'=>null]];
+  $definition = SummonCutsceneDefinition::fromArrays($this->data,$this->source);
+  $compiled = $this->compiler->compile($definition);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1,.1,.1,.1,.1,.1,.1),target:$compiled);
+  $stage = CinematicStage::fromArray($compiled->defaults['stage'],12,3);
+  foreach ([8,1,5,3,9,11,4,1] as $frame) {
+    $tick = $plan->getCommandFrameForAuthoredFrame('target',$frame);
+    $held = $plan->getCinematicStageFrame($tick,true);
+    $wanted = $frame<4 ? 3 : ($frame<9 ? 7 : ($frame<11 ? 10 : 11));
+    expect($held->contentFrame)->toBe($wanted)->and($held->active)->toBe($frame<9)
+      ->and($held->cover['opacity'])->toBe(0.0);
+    if ($frame<9) { expect($held->camera)->toBe($stage->getFrame($wanted)->camera); }
+    if ($frame===11) { expect($held->drawsContent)->toBeFalse(); }
+  }
+});
+
+it('uses timed samples in caller-owned stage sessions with the same held geometry and explicit clear', function () {
+  $source=$this->source;unset($source['cues']);
+  $source['reducedMotionSamples']=[['frame'=>0,'duration'=>4,'sourceFrame'=>3],
+    ['frame'=>4,'duration'=>5,'sourceFrame'=>7],['frame'=>9,'duration'=>3,'sourceFrame'=>null]];
+  $compiled=(new \Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator($this->root))->compile('session-held',$source,forStage:true);
+  $session=new \Ichiloto\Engine\Cutscenes\Presentation\CinematicStageSession($compiled,$this->root,1.0);
+  $session->advanceTo(1/12);$first=$session->getCanvas(400,300,true);
+  $session->advanceTo(3/12);$same=$session->getCanvas(400,300,true);
+  expect($first->toArray())->toBe($same->toArray());
+  $session->advanceTo(5/12);$second=$session->getCanvas(400,300,true);
+  expect($second->toArray())->not->toBe($first->toArray());
+  $session->advanceTo(9/12);expect($session->getCanvas(400,300,true))->toBeNull()
+    ->and($session->hasPresentationFailure)->toBeFalse();
+  $session->release();expect($session->getCanvas(400,300,true))->toBeNull();
+});

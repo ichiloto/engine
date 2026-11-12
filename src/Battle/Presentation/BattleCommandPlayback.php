@@ -429,9 +429,10 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $presentation = $terminal ? EffectPresentation::TERMINAL : EffectPresentation::GRAPHICAL;
     $resultEffects = $this->getResultEffectSegments($reducedMotion, $presentation);
     if ($this->session->isCompleted && $this->elapsedSeconds < $this->resultEffectsEnd) {
-      return EffectSegmentComposition::compose($resultEffects, $presentation);
+      return EffectSegmentComposition::compose($resultEffects, $presentation, $terminal ? null : $reducedMotion);
     }
-    $rest = $reducedMotion ? ($this->plan->restSegments[$this->phase] ?? null) : null;
+    $rest = $reducedMotion ? ($terminal ? ($this->plan->restSegments[$this->phase] ?? null)
+      : $this->plan->getReducedMotionSegments($frame, $this->phase)) : null;
     $segments = $rest ?? $this->session->getActiveSegments($frame);
     $segments = array_values(array_filter($segments, $presentation->acceptsSegment(...)));
     if ($terminal && $rest !== null) {
@@ -463,8 +464,8 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     if (!$terminal && $this->plan->targetContactSequence !== null) {
       $segments = $this->getTargetContactSegments($segments, $frame, $reducedMotion);
     }
-    return [...EffectSegmentComposition::compose($segments, $presentation),
-      ...EffectSegmentComposition::compose($resultEffects, $presentation)];
+    return [...EffectSegmentComposition::compose($segments, $presentation, $terminal ? null : $reducedMotion),
+      ...EffectSegmentComposition::compose($resultEffects, $presentation, $terminal ? null : $reducedMotion)];
   }
 
   public function startResultEffect(CharacterInterface $target, int $frame, CompiledEffectTimeline $timeline,
@@ -486,11 +487,13 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       $seconds = $this->elapsedSeconds - $effect['start'];
       if ($seconds < 0 || $seconds >= $effect['timing']->durationSeconds) { continue; }
       $timeline = $effect['timeline'];
-      $frame = $reducedMotion ? (int)($timeline->defaults['restFrame'] ?? 0)
-        : $effect['timing']->getFrameCountAt($seconds);
+      $authored = $effect['timing']->getFrameCountAt($seconds);
+      $frame = $reducedMotion && $presentation === EffectPresentation::GRAPHICAL
+        ? $timeline->getReducedMotionSampleFrame($authored) : ($reducedMotion ? (int)($timeline->defaults['restFrame'] ?? 0) : $authored);
+      if ($frame === null) { continue; }
       $active = array_filter($timeline->playbackSegments, static fn(array $segment): bool =>
         $segment['startFrame'] <= $frame && $frame <= $segment['endFrame']);
-      foreach (EffectSegmentComposition::compose($active) as $segment) {
+      foreach (EffectSegmentComposition::compose($active, $presentation, $presentation === EffectPresentation::TERMINAL ? null : $reducedMotion) as $segment) {
         $segment['clearBeforeDraw'] = false;
         foreach ($segment['drawCommands'] as &$command) {
           $command['trackId'] = 'result-' . $index . '-' . $command['trackId'];

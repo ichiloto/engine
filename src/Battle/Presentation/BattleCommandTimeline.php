@@ -51,6 +51,10 @@ final readonly class BattleCommandTimeline
   private array $cinematicStages;
   /** @var array<string, list<array>> Unshifted authored segments for each stage. */
   private array $cinematicSegments;
+  /** @var array<string, list<array{frame: int, duration: int, sourceFrame: ?int}>> */
+  private array $reducedSamples;
+  /** The same lane-owned drawing commands with their original authored intervals. */
+  private array $reducedSegments;
   public ?CompiledEffectTimeline $terminalTarget;
   public array $terminalSegments;
   public ?EffectPlaybackTiming $terminalTiming;
@@ -131,7 +135,7 @@ final readonly class BattleCommandTimeline
       $length = max(1, (int)ceil($timings->statChanges * self::FPS));
       $this->summon = $this->terminalTarget = $this->terminalTiming = null;
       $this->cinematicStage = null;
-      $this->cinematicStages = $this->cinematicSegments = [];
+      $this->cinematicStages = $this->cinematicSegments = $this->reducedSamples = $this->reducedSegments = [];
       $this->sourceTiming = $this->targetTiming = null;
       $this->terminalSegments = [];
       $this->restFrames = $this->restSegments = [];
@@ -173,7 +177,7 @@ final readonly class BattleCommandTimeline
     $fallbackHitTail = max(0, $targetCount - 1) * $this->fallbackHitSpacing;
     $this->terminalTiming = $this->terminalTarget === null ? null
       : EffectPlaybackTiming::createForBattlePhase($this->terminalTarget, $timings->effectAnimation);
-    $phases = $cues = $segments = $restFrames = $restSegments = [];
+    $phases = $cues = $segments = $restFrames = $restSegments = $reducedSamples = $reducedSegments = [];
     $detachments = $targetGroupCaptures = [];
     $impact = 0;
     $effectEnd = 0;
@@ -271,6 +275,7 @@ final readonly class BattleCommandTimeline
       };
       foreach ($effects as [$lane, $effect, $clock]) {
         if ($effect === null || $clock === null) { continue; }
+        if (isset($effect->defaults['reducedMotionSamples'])) { $reducedSamples[$lane] = $effect->defaults['reducedMotionSamples']; }
         $rest = clamp((int)($effect->defaults['restFrame'] ?? $clock->totalFrames - 1), 0, $clock->totalFrames - 1);
         $range = $lane === 'target' ? $this->rangeTiming : null;
         if ($lane === 'target' && isset($effect->defaults['targetCaptureFrame'])) {
@@ -340,7 +345,10 @@ final readonly class BattleCommandTimeline
             }
             unset($command);
           }
-          if ($segment['startFrame'] <= $rest && $rest <= $segment['endFrame']) {
+          if (isset($reducedSamples[$lane])) {
+            $reducedSegments[$lane][] = ['startFrame' => $segment['startFrame'], 'endFrame' => $segment['endFrame'], 'segment' => $copy];
+          }
+          if (!isset($reducedSamples[$lane]) && $segment['startFrame'] <= $rest && $rest <= $segment['endFrame']) {
             $restSegments[$phase][] = [...$copy, 'startFrame' => $cursor, 'endFrame' => $cursor + $length - 1];
           }
           if ($copy['startFrame'] <= $copy['endFrame']) { $segments[] = $copy; }
@@ -408,6 +416,8 @@ final readonly class BattleCommandTimeline
     $this->phases = $phases;
     $this->restFrames = $restFrames;
     $this->restSegments = $restSegments;
+    $this->reducedSamples = $reducedSamples;
+    $this->reducedSegments = $reducedSegments;
     $hitFeedback = isset($target->defaults['hitFeedbackFrames'])
       ? BattleRecordedHitTimeline::readFrames($target->defaults['hitFeedbackFrames'], $targetTiming->totalFrames) : [];
     $this->hitFeedbackFrames = array_map(fn(int $frame): int =>
@@ -456,15 +466,46 @@ final readonly class BattleCommandTimeline
   public function getCinematicStageFrame(int $frame, bool $reducedMotion = false): ?CinematicStageFrame
   {
     $lane = $this->getActiveCinematicLane($frame);
-    return $lane === null ? null : $this->cinematicStages[$lane]->getFrame(
-      $this->getAuthoredFrameAtCommandFrame($lane, $frame), $reducedMotion);
+    if ($lane === null) { return null; }
+    $authored = $this->getAuthoredFrameAtCommandFrame($lane, $frame);
+    return $reducedMotion && isset($this->reducedSamples[$lane])
+      ? $this->cinematicStages[$lane]->getFrameAtSample($authored,
+        \Ichiloto\Engine\Animations\Timelines\EffectReducedMotionSamples::getSampleFrame($this->reducedSamples[$lane], $authored))
+      : $this->cinematicStages[$lane]->getFrame($authored, $reducedMotion);
   }
 
   /** @return list<array> The active stage's original segments, using the same authored clock as its frame. */
-  public function getCinematicStageSegments(int $frame): array
+  public function getCinematicStageSegments(int $frame, bool $reducedMotion = false): array
   {
     $lane = $this->getActiveCinematicLane($frame);
-    return $lane === null ? [] : $this->cinematicSegments[$lane];
+    return $lane === null ? [] : \Ichiloto\Engine\Animations\Timelines\EffectMotionScope::filterSegments(
+      $this->cinematicSegments[$lane], $reducedMotion);
+  }
+
+  /** Select held drawings without changing command time, cue dispatch or captured geometry. */
+  public function getReducedMotionSegments(int $frame, string $phase): ?array
+  {
+    $segments = $this->restSegments[$phase] ?? null;
+    foreach ($this->reducedSamples as $lane => $samples) {
+      $authored = $this->getAuthoredFrameAtCommandFrame($lane, $frame);
+      if ($authored === null) { continue; }
+      $segments ??= [];
+      $sample = \Ichiloto\Engine\Animations\Timelines\EffectReducedMotionSamples::getSampleFrame($samples, $authored);
+      if ($sample === null) { continue; }
+      foreach ($this->reducedSegments[$lane] ?? [] as $entry) {
+        if ($entry['startFrame'] > $sample || $sample > $entry['endFrame']) { continue; }
+        $held = $entry['segment'];
+        if ($held['layer'] === 'trail') {
+          $sampleTick = $this->getCommandFrameForAuthoredFrame($lane, $sample);
+          if ($sampleTick !== null) {
+            foreach ($held['drawCommands'] as &$command) { $command['payload']['restSampleFrame'] = $sampleTick; }
+            unset($command);
+          }
+        }
+        $segments[] = $held;
+      }
+    }
+    return $segments;
   }
 
   public function hasCinematicStage(string $lane): bool

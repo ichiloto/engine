@@ -2813,4 +2813,89 @@ presentation diagnostic and retains the static battlefield. Terminal compilation
 excludes this graphical track and keeps its own presentation. Native/Editor
 canvas-group painting and visual authoring remain separately qualified work;
 PHP source/runtime checks do not establish those ports. Authored per-battler
-recoil and live field colour treatment are separate pending mechanisms.
+recoil uses the mechanism below; live field colour treatment remains pending.
+
+
+### Authored battler motion
+
+A graphical fixed-once battle track can move the caster or every selected target
+in exact logical pixels:
+
+```php
+[
+  'id' => 'recoil',
+  'type' => 'battler-motion',
+  'anchor' => 'target',
+  'space' => 'canvas',
+  'keyframes' => [
+    ['frame' => 0, 'duration' => 2, 'payload' => ['x' => 10, 'y' => 0]],
+    ['frame' => 2, 'duration' => 2, 'payload' => ['x' => 0, 'y' => 0]],
+  ],
+]
+```
+
+`anchor` is required: `caster` or `target`. `space` defaults to `canvas`;
+`opponents` makes positive X point towards the opposing side, with Y still
+pointing down. Every selected target moves once by instance identity. Several
+active tracks add. Presentation is graphical; when supplied it must be
+`graphical`. The field-motion interval, finite-coordinate, visibility and
+neutral `zIndex: 0` rules also apply.
+
+An active sample, including zero, replaces automatic damage recoil. Explicit
+legacy shake remains additive. Gaps return recoil ownership to ordinary result
+feedback. Reduced motion suppresses authored displacement. Pose cell, scale,
+source dimensions and named points are retained; the viewport clips paint
+without clamping or stretching the body. Ground attachments and shadows follow.
+Wholly offscreen bodies and command echoes are removed from paint while their
+logical geometry remains available to captures. Hit tints retain the actual
+visible mirrored source interval; aquatic surface treatment keeps its own
+boundary. No combat state or field/save position is changed.
+
+The host needs `canvas_image_rotation` and `canvas_clip_opacity` for full-source
+clipped image placement. Missing support reports a diagnostic and retains the
+ordinary battlefield. These requirements are independent of whole-field motion.
+The Editor's preview must advertise these actual capabilities in its session
+scope. Source preservation, GUI authoring and native inspection retain their
+own verification requirements.
+
+`EffectTrackType` is the Engine's native enum of track identities. Both Editors
+can read `getSupportedValues(forBattle: true, forSummon: false)` and each case's
+`requiresGraphicalPresentation()` instead of duplicating the accepted list.
+
+### Timed reduced-motion pictures
+
+A fixed-once graphical timeline can declare held drawings and explicit clears
+on its original authored clock. This twelve-frame example holds source frame 1,
+then frame 5, then clears:
+
+```php
+'reducedMotionSamples' => [
+  ['frame' => 0, 'duration' => 4, 'sourceFrame' => 1],
+  ['frame' => 4, 'duration' => 4, 'sourceFrame' => 5],
+  ['frame' => 8, 'duration' => 4, 'sourceFrame' => null],
+],
+```
+
+Samples must cover the entire timeline, starting at zero, with contiguous,
+nonoverlapping positive durations. `sourceFrame` is a valid authored frame or an
+explicit null clear. Holds select drawings and camera samples without seeking
+the playback session, firing future cues, changing impact time or shortening the
+sequence. The actual stage interval still restores the arena at its authored
+boundary. Explicit stage clears remove the picture and its replacement-layer
+exclusions together. Standalone stages, field effects, battle source/target and
+result-effect lanes, and timed summons share this selection.
+
+A track may set `motion` to `normal`, `reduced` or `all` (the default).
+Motion-specific tracks are graphical; their default presentation is graphical
+and an explicit broader presentation is rejected. An unused variant is removed
+before clear/depth composition. This allows separately drawn reduced-motion
+lances and flashes, with individually authored fade frames, while retaining
+shared film stills. Field and battler displacement cannot be reduced-only
+tracks. Their existing reduced-motion suppression remains in effect.
+
+Terminal keeps its independent timeline and rest selection; graphical sample
+plans are omitted from its compiled defaults. Legacy sources without a sample
+plan retain their existing rest-frame behavior. The shared summon source model
+preserves both sample plans and track motion scopes. For paired presentations,
+the plan belongs inside the graphical presentation. Editor controls for these
+fields must use the same contract and source-preserving services.

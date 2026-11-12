@@ -156,7 +156,7 @@ final class CinematicPresentationManager
     $layers = [];
     foreach ($this->stages as $entry) {
       $session = $entry['session'];
-      if (!$session->hasEnded && !$session->hasPresentationFailure) { array_push($layers, ...$session->excludedLayers); }
+      if ($session->isPresenting(Accessibility::prefersReducedMotion())) { array_push($layers, ...$session->excludedLayers); }
     }
     return array_values(array_unique($layers));
   }

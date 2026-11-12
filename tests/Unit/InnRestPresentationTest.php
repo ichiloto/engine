@@ -695,3 +695,24 @@ it('preserves all rest outcomes when an optional party descriptor cannot present
     expect([$member->stats->currentHp, $member->stats->currentMp])->toBe([100, 20]);
   }
 })->with(['partial-exact-party', 'missing', 'capability', 'malformed']);
+
+
+it('removes stage layer exclusions during an explicit reduced-motion clear and restores the normal presentation independently', function () {
+  $source = $this->source;
+  $source['reducedMotionSamples'] = [['frame' => 0, 'duration' => 5, 'sourceFrame' => 0],
+    ['frame' => 5, 'duration' => 5, 'sourceFrame' => null]];
+  $timeline = $this->library->compileStage('held-rest', $source);
+  $manager = $this->scene->cinematicPresentation;
+  $session = $manager->beginStagePresentation($timeline, $this->root, 1, ['replaced']);
+  ConfigStore::put(\Ichiloto\Engine\Util\Config\ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => true]]));
+  $session->advanceTo(.2);
+  expect($manager->getStageExcludedLayers())->toBe(['replaced'])
+    ->and($manager->getStageCanvas(400,300))->not->toBeNull();
+  $session->advanceTo(.6);
+  expect($manager->getStageExcludedLayers())->toBe([])->and($manager->getStageCanvas(400,300))->toBeNull()
+    ->and($session->hasEnded)->toBeFalse()->and($session->hasPresentationFailure)->toBeFalse();
+  ConfigStore::put(\Ichiloto\Engine\Util\Config\ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => false]]));
+  expect($manager->getStageExcludedLayers())->toBe(['replaced'])
+    ->and($manager->getStageCanvas(400,300))->not->toBeNull();
+  $manager->releaseStagePresentation($session);
+});

@@ -72,6 +72,7 @@ final class SummonCutsceneDefinition
     public ?array $targetContactSequence = null,
     public ?array $hitFeedbackFrames = null,
     public ?int $targetCaptureFrame = null,
+    public ?array $reducedMotionSamples = null,
   )
   {
     $this->id = trim($id);
@@ -189,6 +190,7 @@ final class SummonCutsceneDefinition
       $timeline['targetContactSequence'] ?? null,
       $timeline['hitFeedbackFrames'] ?? null,
       $timeline['targetCaptureFrame'] ?? null,
+      $timeline['reducedMotionSamples'] ?? null,
     );
   }
 
@@ -277,6 +279,9 @@ final class SummonCutsceneDefinition
       if ($this->hitFeedbackFrames !== null) {
         throw new \InvalidArgumentException('Paired summon hit feedback belongs to the graphical presentation.');
       }
+      if ($this->reducedMotionSamples !== null) {
+        throw new \InvalidArgumentException('Paired summon reduced-motion samples belong to the graphical presentation.');
+      }
       if ($this->targetContactSequence !== null) {
         throw new \InvalidArgumentException('Paired summon target contacts belong to the graphical presentation.');
       }
@@ -287,6 +292,7 @@ final class SummonCutsceneDefinition
       'fps' => $this->fps,
       'lengthFrames' => $this->lengthFrames,
       ...($this->restFrame === null ? [] : ['restFrame' => $this->restFrame]),
+      ...($this->reducedMotionSamples === null ? [] : ['reducedMotionSamples' => $this->reducedMotionSamples]),
       ...($this->stage === null ? [] : ['stage' => $this->stage]),
       ...($this->targetContactSequence === null ? [] : ['targetContactSequence' => $this->targetContactSequence]),
       ...($this->hitFeedbackFrames === null ? [] : ['hitFeedbackFrames' => $this->hitFeedbackFrames]),

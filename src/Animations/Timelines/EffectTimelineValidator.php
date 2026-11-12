@@ -35,7 +35,7 @@ final class EffectTimelineValidator
       }
       $data = $variants[$presentation->value];
     }
-    if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'loopFrom', 'restFrame', 'tracks', 'cues',
+    if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'loopFrom', 'restFrame', 'reducedMotionSamples', 'tracks', 'cues',
       ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'poseClock', 'rangeTiming', 'flightTiming', 'fallbackHitSpacingFrames', 'targetContactSequence', 'hitFeedbackFrames', 'targetCaptureFrame'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
       throw new InvalidArgumentException("Effect {$id} accepts fps, lengthFrames, playback, loopFrom, restFrame, tracks and presentation cues.");
     }
@@ -54,6 +54,14 @@ final class EffectTimelineValidator
     if (!is_int($fps) || $fps < 1 || $fps > 120 || !is_int($length) || $length < 1 || $length > 100000
       || !is_int($rest) || $rest < 0 || $rest >= $length || !in_array($playback, ['once', 'loop'], true)) {
       throw new InvalidArgumentException("Effect {$id} needs fps 1..120, lengthFrames 1..100000, a restFrame in that range and once or loop playback.");
+    }
+    $reducedSamples = null;
+    if (array_key_exists('reducedMotionSamples', $data)) {
+      if ($playback !== 'once' || $cadence !== EffectCadence::FIXED) {
+        throw new InvalidArgumentException('Reduced-motion samples require a fixed once graphical timeline.');
+      }
+      $validated = EffectReducedMotionSamples::validate($data['reducedMotionSamples'], $length);
+      if ($presentation === EffectPresentation::GRAPHICAL) { $reducedSamples = $validated; }
     }
     $poseClockValue = array_key_exists('poseClock', $data) ? $data['poseClock'] : EffectPoseClock::ANNOUNCEMENT->value;
     $poseClock = is_string($poseClockValue) ? EffectPoseClock::tryFrom($poseClockValue) : null;
@@ -85,7 +93,7 @@ final class EffectTimelineValidator
     if (!is_array($tracks) || !array_is_list($tracks) || (!$forSummon && !$forStage && $tracks === []) || count($tracks) > 32) {
       throw new InvalidArgumentException("Effect {$id} needs a list of 1..32 tracks.");
     }
-    $ids = $normalized = [];
+    $ids = $normalized = $motionScopes = [];
     $hasImages = $imageRestCovered = $stageRestCovered = false;
     foreach ($tracks as $track) {
       if (!is_array($track) || !is_string($track['id'] ?? null) || isset($ids[$track['id']])
@@ -94,7 +102,18 @@ final class EffectTimelineValidator
       }
       EffectTimelineLibrary::assertId($track['id']);
       $graphicalOnly = EffectTrackType::from($track['type'])->requiresGraphicalPresentation();
-      $scope = EffectPresentation::validateTrack($track['presentation'] ?? ($graphicalOnly ? 'graphical' : 'all'));
+      $motion = EffectMotionScope::parse($track['motion'] ?? 'all');
+      $scope = EffectPresentation::validateTrack($track['presentation']
+        ?? ($graphicalOnly || $motion !== EffectMotionScope::ALL ? 'graphical' : 'all'));
+      if ($motion !== EffectMotionScope::ALL && $scope !== 'graphical') {
+        throw new InvalidArgumentException('Motion-specific drawings require graphical presentation.');
+      }
+      if ($motion === EffectMotionScope::REDUCED && in_array($track['type'], ['field-motion', 'battler-motion'], true)) {
+        throw new InvalidArgumentException('Reduced motion cannot author field or battler displacement.');
+      }
+      $motionScopes[$track['id']] = $motion;
+      unset($track['motion']);
+      $track['presentation'] = $scope;
       if ($graphicalOnly && $scope !== 'graphical') {
         throw new InvalidArgumentException("Effect {$id} {$track['type']} presentation must be graphical.");
       }
@@ -348,10 +367,10 @@ final class EffectTimelineValidator
       }
       $normalized[] = ['id' => $track['id'], 'type' => 'image', 'presentation' => $scope, 'keyframes' => $keyframes];
     }
-    if ($hasImages && !$imageRestCovered) {
+    if ($hasImages && !$imageRestCovered && $reducedSamples === null) {
       throw new InvalidArgumentException("Effect {$id} image sequence has no authored rest presentation.");
     }
-    if ($stage !== null && !$stageRestCovered && !($forStage && $tracks === [])) {
+    if ($stage !== null && !$stageRestCovered && $reducedSamples === null && !($forStage && $tracks === [])) {
       throw new InvalidArgumentException('Cinematic stage needs image content at its safe reduced-motion frame.');
     }
     $cues = $data['cues'] ?? [];
@@ -463,10 +482,16 @@ final class EffectTimelineValidator
       }
       $flightTiming = self::readFlightTiming($id, $data['flightTiming'], $tracks, $cues, $timing);
     }
+    foreach ($normalized as &$track) {
+      $motion = $motionScopes[$track['id']];
+      if ($motion !== EffectMotionScope::ALL) { $track['motion'] = $motion->value; }
+    }
+    unset($track);
     return new CompiledEffectTimeline($id, sha1(json_encode($data, JSON_THROW_ON_ERROR)), fps: $fps,
       playbackSegments: (new EffectTimelineCompiler())->compileTracks($normalized),
       cueSchedule: $cues,
       defaults: ['lengthFrames' => $length, 'restFrame' => $rest,
+        ...($reducedSamples === null ? [] : ['reducedMotionSamples' => $reducedSamples]),
         ...($cadence === EffectCadence::FIXED ? [] : ['cadence' => $cadence->value]),
         ...($timing === null ? [] : ['effectTiming' => $timing]),
         ...($poseSyncFrame === null ? [] : ['poseSyncFrame' => $poseSyncFrame]),

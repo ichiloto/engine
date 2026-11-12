@@ -18,6 +18,14 @@ class CompiledEffectTimeline
       EffectPresentation::TERMINAL->acceptsSegment($segment) && in_array($segment['layer'], ['glyph', 'text'], true));
   }
 
+  /** Pure graphical selection; null means an explicitly cleared reduced-motion picture. */
+  public function getReducedMotionSampleFrame(int $frame): ?int
+  {
+    return isset($this->defaults['reducedMotionSamples'])
+      ? EffectReducedMotionSamples::getSampleFrame($this->defaults['reducedMotionSamples'], $frame)
+      : (int)($this->defaults['restFrame'] ?? 0);
+  }
+
   /**
    * @param array<int, array<string, mixed>> $playbackSegments
    * @param array<int, array<string, mixed>> $cueSchedule
