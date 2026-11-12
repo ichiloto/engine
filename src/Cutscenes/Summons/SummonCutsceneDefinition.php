@@ -70,6 +70,7 @@ final class SummonCutsceneDefinition
     /** @var list<string>|null Element identities this summon's move is effective against; null means not recorded. */
     public ?array $effectiveAgainst = null,
     public ?array $targetContactSequence = null,
+    public ?array $hitFeedbackFrames = null,
   )
   {
     $this->id = trim($id);
@@ -118,6 +119,9 @@ final class SummonCutsceneDefinition
    */
   public static function fromArrays(array $data, array $timeline): self
   {
+    if (array_key_exists('hitFeedbackFrames', $timeline) && !is_array($timeline['hitFeedbackFrames'])) {
+      throw new \InvalidArgumentException('Summon hit feedback must be a frame list.');
+    }
     if (array_key_exists('targetContactSequence', $timeline) && !is_array($timeline['targetContactSequence'])) {
       throw new \InvalidArgumentException('Summon target contacts must be a descriptor.');
     }
@@ -179,6 +183,7 @@ final class SummonCutsceneDefinition
       self::readRecordedList($data, 'elementAffinities'),
       self::readRecordedList($data, 'effectiveAgainst'),
       $timeline['targetContactSequence'] ?? null,
+      $timeline['hitFeedbackFrames'] ?? null,
     );
   }
 
@@ -261,6 +266,9 @@ final class SummonCutsceneDefinition
   public function toTimelineArray(): array
   {
     if ($this->presentations !== []) {
+      if ($this->hitFeedbackFrames !== null) {
+        throw new \InvalidArgumentException('Paired summon hit feedback belongs to the graphical presentation.');
+      }
       if ($this->targetContactSequence !== null) {
         throw new \InvalidArgumentException('Paired summon target contacts belong to the graphical presentation.');
       }
@@ -273,6 +281,7 @@ final class SummonCutsceneDefinition
       ...($this->restFrame === null ? [] : ['restFrame' => $this->restFrame]),
       ...($this->stage === null ? [] : ['stage' => $this->stage]),
       ...($this->targetContactSequence === null ? [] : ['targetContactSequence' => $this->targetContactSequence]),
+      ...($this->hitFeedbackFrames === null ? [] : ['hitFeedbackFrames' => $this->hitFeedbackFrames]),
       'tracks' => array_map(
         static fn(SummonCutsceneTrack $track): array => $track->toArray(),
         $this->getTracks(),

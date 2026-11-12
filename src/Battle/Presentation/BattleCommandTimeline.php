@@ -45,6 +45,8 @@ final readonly class BattleCommandTimeline
   public int $impactFrame;
   public ?string $fallbackHitTrack;
   public ?BattleTargetContactSequence $targetContactSequence;
+  /** @var list<int> Authored per-hit feedback on the command clock. */
+  public array $hitFeedbackFrames;
   /** @var array<string, CinematicStage> Each effect lane owns its own stage and authored clock. */
   private array $cinematicStages;
   /** @var array<string, list<array>> Unshifted authored segments for each stage. */
@@ -89,6 +91,9 @@ final readonly class BattleCommandTimeline
     $this->fallbackHitTrack = $fallbackHitTrack = !$resultsOnly && isset($target->defaults['fallbackHitTrack'])
       ? 'target-' . $target->defaults['fallbackHitTrack'] : null;
     $targetContacts = null;
+    if (isset($source->defaults['hitFeedbackFrames'])) {
+      throw new InvalidArgumentException('Recorded hit feedback belongs to the target effect lane.');
+    }
     if (isset($source->defaults['targetContactSequence'])) {
       throw new InvalidArgumentException('Target contact sequencing belongs to the target effect lane.');
     }
@@ -112,6 +117,7 @@ final readonly class BattleCommandTimeline
     if ($resultsOnly) {
       $this->flightTiming = null;
       $this->targetContactSequence = null;
+      $this->hitFeedbackFrames = [];
       $this->fallbackHitSpacing = $this->impactFrame = 0;
       $this->actionPoseAnchorFrame = null;
       $this->actionPoseStartFrame = null;
@@ -392,6 +398,18 @@ final readonly class BattleCommandTimeline
     $this->phases = $phases;
     $this->restFrames = $restFrames;
     $this->restSegments = $restSegments;
+    $hitFeedback = isset($target->defaults['hitFeedbackFrames'])
+      ? BattleRecordedHitTimeline::readFrames($target->defaults['hitFeedbackFrames'], $targetTiming->totalFrames) : [];
+    $this->hitFeedbackFrames = array_map(fn(int $frame): int =>
+      $this->getCommandFrameForAuthoredFrame('target', $frame)
+        ?? throw new InvalidArgumentException('Hit feedback must fit the target effect clock.'), $hitFeedback);
+    if ($this->hitFeedbackFrames !== []) {
+      BattleRecordedHitTimeline::readFrames($this->hitFeedbackFrames, $phases['return']['start']);
+    }
+    if ($this->hitFeedbackFrames !== [] && ($this->hitFeedbackFrames[0] !== $impact
+      || $this->hitFeedbackFrames[array_key_last($this->hitFeedbackFrames)] >= $phases['return']['start'])) {
+      throw new InvalidArgumentException('Hit feedback must begin at the single impact and finish before return.');
+    }
     $this->timeline = new CompiledEffectTimeline('battle-command', '', fps: self::FPS,
       playbackSegments: $segments, cueSchedule: $cues,
       defaults: ['lengthFrames' => $cursor, 'restFrame' => $cursor - 1]);

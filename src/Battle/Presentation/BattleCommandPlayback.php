@@ -33,6 +33,10 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   public private(set) ?Throwable $presentationFailure = null;
   /** @var array<int, BattlePoseRole> Reactions from actual resolved outcomes, keyed by combatant instance. */
   private array $reactions = [];
+  /** @var array<int, BattleRecordedHitTimeline> Immutable result history keyed by combatant instance. */
+  private array $recordedHits = [];
+  /** @var array<int, BattlePoseRole> Resting presentation before the command changes combat state. */
+  private array $initialRestRoles = [];
   private array $reactionFrames = [];
   private ?int $impactFrame = null;
   private float $elapsedSeconds = 0;
@@ -69,6 +73,9 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     public readonly BattlePoseRole $pose, callable $resolve, callable $presentCue,
     public readonly EnemyDefeatStyle $defeatStyle = new EnemyDefeatStyle())
   {
+    foreach ([$actor, ...$targets] as $battler) {
+      $this->initialRestRoles[spl_object_id($battler)] = BattlePoseRole::getRestingRole($battler);
+    }
     $this->session = new EffectPlaybackSession($plan->timeline, false);
     $this->resolve = Closure::fromCallable($resolve);
     $this->presentCue = Closure::fromCallable($presentCue);
@@ -147,6 +154,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     $this->cancelled = true;
     $this->targetContactFrames = [];
+    $this->recordedHits = [];
     $this->defeats = $this->detachedPosePoints = $this->fallbackHitFrames = [];
     $this->resultEffects = [];
     $this->resultEffectsEnd = 0;
@@ -225,9 +233,59 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $this->reactionFrames[spl_object_id($battler)] = $startFrame ?? $this->impactFrame ?? $this->session->currentFrame;
   }
 
+  public function bindRecordedHits(CharacterInterface $battler, BattleRecordedHitTimeline $timeline): void
+  {
+    $id = spl_object_id($battler);
+    if (!isset($this->initialRestRoles[$id]) || isset($this->recordedHits[$id]) || $this->cancelled) {
+      throw new \InvalidArgumentException('Bind recorded hits once to an active command participant.');
+    }
+    $identity = \Ichiloto\Engine\Battle\Resolution\CombatResolver::identity($battler);
+    if (array_any($timeline->hits, static fn($hit): bool => $hit->targetId !== $identity)) {
+      throw new \InvalidArgumentException('Recorded hit feedback must belong to its combatant instance.');
+    }
+    $this->recordedHits[$id] = $timeline;
+  }
+
+  /** Sampling an earlier or later beat never changes gameplay, cues or the live playhead. */
+  public function getRecordedHitFeedback(CharacterInterface $battler, ?int $frame = null): ?array
+  {
+    return ($this->recordedHits[spl_object_id($battler)] ?? null)?->getFeedbackAtFrame($frame ?? $this->session->currentFrame);
+  }
+
+  /** Historical HP while scheduled feedback owns it; null leaves ordinary vitals with their existing owner. */
+  public function getPresentedHp(CharacterInterface $battler, ?int $frame = null): ?int
+  {
+    $timeline = $this->recordedHits[spl_object_id($battler)] ?? null;
+    $at = $frame ?? $this->session->currentFrame;
+    if ($timeline === null || $this->cancelled || $at >= $this->plan->phases['return']['start']
+      || ($frame === null && $this->isCompleted)) { return null; }
+    return $timeline->getFeedbackAtFrame($at)['hit']->postEffectHp ?? $timeline->hits[0]->preEffectHp;
+  }
+
+  public function isPresentedKnockedOut(CharacterInterface $battler, ?int $frame = null): bool
+  {
+    $hp = $this->getPresentedHp($battler, $frame);
+    return $hp === null ? $battler->isKnockedOut : $hp <= 0;
+  }
+
   public function getPoseRole(CharacterInterface $battler, ?BattlePoseSet $poses = null, bool $reducedMotion = false): BattlePoseRole
   {
     $rest = BattlePoseRole::getRestingRole($battler);
+    if (isset($this->recordedHits[spl_object_id($battler)]) && !$this->cancelled && !$this->isCompleted
+      && !in_array($this->phase, ['return', 'enter-return', 'exit-return', 'finish', 'effect-tail'], true)) {
+      $rest = $this->initialRestRoles[spl_object_id($battler)];
+      $feedback = $this->getRecordedHitFeedback($battler);
+      if ($feedback !== null) {
+        $hit = $feedback['hit'];
+        return match (true) {
+          $hit->postEffectHp <= 0 => BattlePoseRole::KNOCKOUT,
+          $hit->actualHpLost > 0 => BattlePoseRole::DAMAGE,
+          $hit->actualHpRestored > 0 => BattlePoseRole::HEAL,
+          default => $rest,
+        };
+      }
+      if ($battler !== $this->actor) { return $rest; }
+    }
     if ($rest === BattlePoseRole::KNOCKOUT && $this->isAwaitingFallbackHit($battler)) { return BattlePoseRole::IDLE; }
     if ($this->cancelled || $this->isCompleted || $rest === BattlePoseRole::KNOCKOUT || $rest === BattlePoseRole::CONCEDE) { return $rest; }
     if (!$reducedMotion && $this->plan->movementPoses && !$this->plan->resultsOnly && $battler === $this->actor
@@ -307,6 +365,12 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     if ($battler === $this->actor && in_array($role, [BattlePoseRole::MOVE, BattlePoseRole::RETURNING], true)
       && in_array($this->phase, ['advance', 'return', 'enter-advance', 'exit-advance', 'enter-return', 'exit-return'], true)) {
       return max(0, ($this->session->currentFrame - $this->plan->phases[$this->phase]['start']) / BattleCommandTimeline::FPS);
+    }
+    if (isset($this->recordedHits[spl_object_id($battler)])
+      && !in_array($this->phase, ['return', 'enter-return', 'exit-return', 'finish', 'effect-tail'], true)) {
+      $feedback = $this->getRecordedHitFeedback($battler);
+      if ($feedback !== null) { return max(0, ($this->session->currentFrame - $feedback['frame']) / BattleCommandTimeline::FPS); }
+      if ($battler !== $this->actor) { return 0.0; }
     }
     $reaction = $this->reactionFrames[spl_object_id($battler)] ?? null;
     $start = $reaction ?? ($battler === $this->actor && $role === $this->pose
@@ -740,6 +804,8 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     foreach ($this->plan->phases as $phase => $range) {
       if ($range['length'] > 0 && $range['start'] <= $frame) { $sample->phase = $phase; }
     }
+    $sample->recordedHits = $this->recordedHits;
+    $sample->initialRestRoles = $this->initialRestRoles;
     $sample->reactions = $this->reactions;
     $sample->reactionFrames = $this->reactionFrames;
     $sample->fallbackHitFrames = $this->fallbackHitFrames;

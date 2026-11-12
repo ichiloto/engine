@@ -36,7 +36,7 @@ final class EffectTimelineValidator
       $data = $variants[$presentation->value];
     }
     if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'loopFrom', 'restFrame', 'tracks', 'cues',
-      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'poseClock', 'rangeTiming', 'flightTiming', 'fallbackHitSpacingFrames', 'targetContactSequence'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
+      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'poseClock', 'rangeTiming', 'flightTiming', 'fallbackHitSpacingFrames', 'targetContactSequence', 'hitFeedbackFrames'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
       throw new InvalidArgumentException("Effect {$id} accepts fps, lengthFrames, playback, loopFrom, restFrame, tracks and presentation cues.");
     }
     $length = $data['lengthFrames'] ?? null;
@@ -392,6 +392,16 @@ final class EffectTimelineValidator
         throw new InvalidArgumentException("Effect {$id} spaced fallback hits require one horizontal exit with arrival at impact, at or after battlefield restoration.");
       }
     }
+    $hitFeedback = null;
+    if (array_key_exists('hitFeedbackFrames', $data) && $presentation === EffectPresentation::GRAPHICAL) {
+      if ($playback !== 'once' || $cadence !== EffectCadence::FIXED) {
+        throw new InvalidArgumentException("Effect {$id} recorded hit feedback requires fixed once playback.");
+      }
+      $hitFeedback = \Ichiloto\Engine\Battle\Presentation\BattleRecordedHitTimeline::readFrames($data['hitFeedbackFrames'], $length);
+      if ($stage !== null && $hitFeedback[0] < $stage->data['restoreFrame']) {
+        throw new InvalidArgumentException('Recorded hit feedback must begin after battlefield restoration.');
+      }
+    }
     $contacts = null;
     if (array_key_exists('targetContactSequence', $data) && $presentation === EffectPresentation::GRAPHICAL) {
       if ($playback !== 'once' || $cadence !== EffectCadence::FIXED || $spacing !== null
@@ -433,6 +443,7 @@ final class EffectTimelineValidator
         ...($poseSyncFrame === null ? [] : ['poseSyncFrame' => $poseSyncFrame]),
         ...($poseClock === EffectPoseClock::ANNOUNCEMENT ? [] : ['poseClock' => $poseClock->value]),
         ...($contacts === null ? [] : ['targetContactSequence' => $contacts->toArray()]),
+        ...($hitFeedback === null ? [] : ['hitFeedbackFrames' => $hitFeedback]),
         ...($rangeTiming ?? []),
         ...($spacedFlight === null ? [] : ['fallbackHitSpacingFrames' => $spacing, 'fallbackHitTrack' => $spacedFlight['id']]),
         ...($flightTiming === null ? [] : ['flightTiming' => $flightTiming]),

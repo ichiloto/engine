@@ -501,7 +501,7 @@ final class GraphicalBattlePresentation
       $bodyOffsets[$identity] = count($images);
       $popups = array_filter($feedback, static fn(array $popup) => $popup['battler'] === $battler);
       $defeat = $playback?->getEnemyDefeatTreatment($battler, $reducedMotion);
-      if (!$participant['party'] && $battler->isKnockedOut && !$playback?->isAwaitingFallbackHit($battler)
+      if (!$participant['party'] && ($playback?->isPresentedKnockedOut($battler) ?? $battler->isKnockedOut) && !$playback?->isAwaitingFallbackHit($battler)
         && ($defeat !== null ? !$defeat['visible'] : $popups === [])) { continue; }
       $conditionBattlers[$identity] = $battler;
       $condition = $this->conditionEffects->createPlayback($battler, $field?->getPoseElapsedSeconds() ?? 0, $includeOptionalArtwork);
@@ -534,7 +534,7 @@ final class GraphicalBattlePresentation
         }
         $drawn = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
           $image->sourceRect, clipRect: $image->clipRect, opacity: $defeat['opacity'] ?? match (true) {
-            $participant['party'] && $battler->isKnockedOut && !$usesKnockoutPose => 0.4,
+            $participant['party'] && ($playback?->isPresentedKnockedOut($battler) ?? $battler->isKnockedOut) && !$usesKnockoutPose => 0.4,
             // Without a concede pose, the enemy's current artwork is held, subdued.
             !$participant['party'] && ($battler->hasConceded ?? false) && !$usesConcedePose => $this->defeatStyle->concededOpacity,
             default => 1,
@@ -856,7 +856,7 @@ final class GraphicalBattlePresentation
     }
     // The body rises or sinks by its elevation, hidden below the surface line; a knocked-out one lies on the ground.
     $elevation = BattlerGroundContact::getElevation($participant['grounding'], $participant['habitat'], $this->layout,
-      $battler->isKnockedOut && !$playback?->isAwaitingFallbackHit($battler), $shownPose);
+      ($playback?->isPresentedKnockedOut($battler) ?? $battler->isKnockedOut) && !$playback?->isAwaitingFallbackHit($battler), $shownPose);
     $contact = BattlerGroundContact::getContact($participant['grounding'], $participant['habitat'], $elevation, $shownPose);
     [$bounds, $clip] = BattlerGroundContact::place($bounds, BattlerGroundContact::getOffset($elevation, $slot, $this->scale),
       $slot->y, $this->layout);

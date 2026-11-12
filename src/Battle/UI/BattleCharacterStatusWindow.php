@@ -199,8 +199,11 @@ class BattleCharacterStatusWindow extends Window
   {
     $stats = $character->effectiveStats;
 
+    $hp = isset($this->battleScreen) && $this->battleScreen->usesGraphicalField()
+      ? ($this->battleScreen->fieldWindow->getCommandPlayback()?->getPresentedHp($character) ?? $stats->currentHp)
+      : $stats->currentHp;
     return new BattleHudStatusRow(
-      $index, $stats->currentHp, $stats->totalHp, $stats->currentMp, $stats->totalMp, $atbPercentage,
+      $index, $hp, $stats->totalHp, $stats->currentMp, $stats->totalMp, $atbPercentage,
     );
   }
 

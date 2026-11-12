@@ -14,6 +14,8 @@ use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnState
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
 use Ichiloto\Engine\Battle\Resolution\CombatActionResult;
 use Ichiloto\Engine\Battle\Resolution\CombatTargetResult;
+use Ichiloto\Engine\Battle\Resolution\CombatHitResult;
+use Ichiloto\Engine\Battle\Resolution\CombatResourceChange;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\Util\Debug;
@@ -34,7 +36,7 @@ final class BattleCommandRunner
   private ?string $executionRefusal = null;
   private bool $resultsPresented = false;
   private bool $resultsPending = false;
-  /** @var list<array{target: CharacterInterface, frame: int, clear: bool}> */
+  /** @var list<array{target: CharacterInterface, frame: int, clear: bool, result?: CombatTargetResult, hit?: CombatHitResult}> */
   private array $scheduledResults = [];
   private bool $announcementVisible = false;
 
@@ -194,10 +196,12 @@ final class BattleCommandRunner
     if ($cue['type'] === 'commandResolved') {
       if ($this->executionRefusal !== null) { $this->context->ui->alert($this->executionRefusal); }
       elseif ($this->context->ui->usesGraphicalField() && $this->playback->plan->cinematicStage !== null
-        && !$this->playback->plan->usesArenaImpact && $this->playback->getFallbackHitFrames() === []) {
+        && !$this->playback->plan->usesArenaImpact && $this->playback->getFallbackHitFrames() === []
+        && $this->playback->plan->hitFeedbackFrames === []) {
         $this->resultsPending = true;
       } else {
-        $authoredImpact = $this->playback->plan->usesArenaImpact || $this->playback->getFallbackHitFrames() !== [];
+        $authoredImpact = $this->playback->plan->usesArenaImpact || $this->playback->getFallbackHitFrames() !== []
+          || $this->playback->plan->hitFeedbackFrames !== [];
         $this->showResults($authoredImpact ? $cue['frame'] : null);
       }
       return;
@@ -284,6 +288,8 @@ final class BattleCommandRunner
       || $actor->stats->currentHp !== $this->previousVitals[spl_object_id($actor)][0])) {
       $targets[] = $actor;
     }
+    if ($this->context->ui->usesGraphicalField() && $this->playback->plan->hitFeedbackFrames !== []
+      && $this->commandResult !== null && $this->scheduleRecordedHitResults($targets, $startFrame)) { return; }
     $frames = $this->playback->getFallbackHitFrames();
     if ($frames !== []) {
       $frame = $startFrame ?? $this->playback->session->currentFrame;
@@ -299,27 +305,70 @@ final class BattleCommandRunner
     }
   }
 
+  /** Project the one resolved result onto authored beats; gameplay values remain final and untouched. */
+  private function scheduleRecordedHitResults(array $targets, ?int $startFrame): bool
+  {
+    $frames = $this->playback->plan->hitFeedbackFrames;
+    $byId = [];
+    foreach ($this->commandResult->targets as $result) { $byId[$result->targetId] = $result; }
+    foreach ($targets as $target) {
+      $result = $byId[CombatResolver::identity($target)] ?? null;
+      if (count($result?->hits ?? []) > count($frames)) {
+        $this->playback->recordPresentationFailure(new \InvalidArgumentException(
+          'Hit feedback has fewer beats than recorded hits; retaining the complete aggregate result.'));
+        return false;
+      }
+    }
+    $scheduled = [];
+    $fallback = $this->playback->getFallbackHitFrames();
+    foreach ($targets as $target) {
+      $result = $byId[CombatResolver::identity($target)] ?? null;
+      $delay = ($fallback[spl_object_id($target)] ?? $this->playback->plan->impactFrame) - $this->playback->plan->impactFrame;
+      if (($result?->hits ?? []) === []) {
+        $scheduled[] = ['target' => $target, 'frame' => $frames[0] + $delay, 'clear' => false];
+        continue;
+      }
+      $hitFrames = array_map(static fn(int $frame): int => $frame + $delay, array_slice($frames, 0, count($result->hits)));
+      $this->playback->bindRecordedHits($target, new BattleRecordedHitTimeline($hitFrames, $result->hits));
+      foreach ($result->hits as $index => $hit) {
+        $fragment = new CombatTargetResult($result->targetId, [$hit],
+          $index === 0 ? $result->secondaryOutcomes : [],
+          $index === 0 ? $result->resourceChange : new CombatResourceChange(),
+          $index === 0 ? $result->interceptingStateId : null);
+        $scheduled[] = ['target' => $target, 'frame' => $hitFrames[$index], 'clear' => false,
+          'result' => $fragment, 'hit' => $hit];
+      }
+    }
+    usort($scheduled, static fn(array $a, array $b): int => $a['frame'] <=> $b['frame']);
+    if ($scheduled !== []) { $scheduled[0]['clear'] = true; }
+    $this->scheduledResults = $scheduled;
+    $this->showScheduledResults($startFrame ?? $this->playback->session->currentFrame);
+    return true;
+  }
+
   private function showScheduledResults(int $frame): void
   {
     if ($this->playback->isCancelled) { return; }
     while ($this->scheduledResults !== [] && $this->scheduledResults[0]['frame'] <= $frame) {
       $result = array_shift($this->scheduledResults);
-      $this->showResult($result['target'], $result['clear'], $result['frame']);
+      $this->showResult($result['target'], $result['clear'], $result['frame'], $result['result'] ?? null, $result['hit'] ?? null);
     }
   }
 
-  private function showResult(CharacterInterface $target, bool $clear, ?int $startFrame): void
+  private function showResult(CharacterInterface $target, bool $clear, ?int $startFrame,
+    ?CombatTargetResult $recordedResult = null, ?CombatHitResult $recordedHit = null): void
   {
     $duration = max(0, ($this->playback->plan->phases['return']['start'] - $this->playback->session->currentFrame)
       / BattleCommandTimeline::FPS);
     [$hp, $mp] = $this->previousVitals[spl_object_id($target)];
+    $hp = $recordedHit?->preEffectHp ?? $hp;
     $identity = CombatResolver::identity($target);
-    $result = array_find($this->commandResult?->targets ?? [],
+    $result = $recordedResult ?? array_find($this->commandResult?->targets ?? [],
       static fn(CombatTargetResult $result): bool => $result->targetId === $identity);
     $lost = $result?->actualHpLost() ?? max(0, $hp - $target->stats->currentHp);
     $restored = $result?->actualHpRestored() ?? max(0, $target->stats->currentHp - $hp);
     $role = match (true) {
-      $target->isKnockedOut => BattlePoseRole::KNOCKOUT,
+      ($recordedHit === null ? $target->isKnockedOut : $recordedHit->postEffectHp <= 0) => BattlePoseRole::KNOCKOUT,
       $lost > 0 => BattlePoseRole::DAMAGE,
       $restored > 0 => BattlePoseRole::HEAL,
       ($result?->resourceChange?->mpLost ?? max(0, $mp - $target->stats->currentMp)) > 0 => BattlePoseRole::DAMAGE,
@@ -337,16 +386,17 @@ final class BattleCommandRunner
         $this->playback->startResultEffect($target, $frame, $effect, $presentation);
       }
     }
-    if ($target instanceof \Ichiloto\Engine\Entities\Enemies\Enemy && $hp > 0 && $target->isKnockedOut) {
+    if ($target instanceof \Ichiloto\Engine\Entities\Enemies\Enemy && $hp > 0
+      && ($recordedHit === null ? $target->isKnockedOut : $recordedHit->postEffectHp <= 0)) {
       $this->playback->beginEnemyDefeat($target);
     }
     try {
       if (!$this->action instanceof \Ichiloto\Engine\Battle\Actions\GuardAction) {
         $this->context->ui->fieldWindow->showStatChangePopup($target,
-          ($this->formatResult)($target, $hp, $mp, $result), clearExisting: $clear, durationSeconds: $duration);
+          ($this->formatResult)($target, $hp, $mp, $result, $recordedHit), clearExisting: $clear, durationSeconds: $duration);
       }
       ($this->presentCue)(['type' => 'commandResult', 'frame' => $startFrame ?? $this->playback->session->currentFrame,
-        'payload' => ['target' => $target, 'previousHp' => $hp, 'result' => $result]]);
+        'payload' => ['target' => $target, 'previousHp' => $hp, 'result' => $result, 'hit' => $recordedHit]]);
     } catch (\Throwable $error) { $this->playback->recordPresentationFailure($error); }
   }
 }

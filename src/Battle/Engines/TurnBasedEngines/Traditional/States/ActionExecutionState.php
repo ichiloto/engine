@@ -34,6 +34,7 @@ use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnExecutionContext;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn;
 use Ichiloto\Engine\Battle\Presentation\BattleFeedbackRole;
 use Ichiloto\Engine\Battle\Resolution\CombatTargetResult;
+use Ichiloto\Engine\Battle\Resolution\CombatHitResult;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
 use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
 use Ichiloto\Engine\Entities\Character;
@@ -972,6 +973,7 @@ class ActionExecutionState extends TurnState
     int $previousHp,
     int $previousMp,
     ?CombatTargetResult $result = null,
+    ?CombatHitResult $presentedHit = null,
   ): array
   {
     $mpLost = $result?->resourceChange?->mpLost ?? max(0, $previousMp - $target->stats->currentMp);
@@ -1045,7 +1047,7 @@ class ActionExecutionState extends TurnState
       $target->lastElementReaction = null;
     }
 
-    if ($target->isKnockedOut) {
+    if ($presentedHit === null ? $target->isKnockedOut : $presentedHit->postEffectHp <= 0) {
       $lines[] = ['text' => 'KO', 'color' => Color::YELLOW, 'role' => BattleFeedbackRole::KO];
     }
 

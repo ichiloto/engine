@@ -2703,3 +2703,32 @@ it from the active battle presentation. `actionPoseEndFrame` is its exclusive
 recovery boundary; `BattlerPose::getRecoverySeconds()` includes all playback
 entries from impact to the final hold. Results-only and unanchored poses add no
 recovery interval. Terminal-only hosts supply no graphical pose.
+
+## Recorded per-hit battle feedback
+
+A graphical target effect can author `hitFeedbackFrames`, an increasing list of
+frames on that effect's own clock, for example `[4, 8, 12, 16]`. The first frame
+must coincide with its existing single `effectTiming` impact; all beats must fit
+before command return and after any cinematic battlefield restoration. Fixed,
+once-playing effects retain their cadence. Flat and paired summon timelines
+preserve the same field in the graphical sequence. Editor controls remain the
+GUI Editor's responsibility; source round trips retain the authored data.
+
+Combat and costs resolve once. Each actual `CombatHitResult` supplies one number
+and a reaction restart at its corresponding beat, using its recorded pre/post HP.
+Graphical HP, knockout visibility, opacity and ground contact sample that same
+immutable history. The real combatant keeps final gameplay HP throughout. Hits
+after a fatal result have no invented numbers; all authored visual contacts keep
+playing, and enemy defeat treatment begins at return. Target instances stay
+separate even when their displayed names match. Aggregate MP/secondary feedback
+belongs to the first recorded beat; command costs are never replayed.
+
+Reduced graphical motion retains these feedback beats. Terminal keeps its
+independent aggregate presentation and has no dependency on graphical beat or
+image data. Pure recorded-hit inspection and pose sampling deliver no cues or
+combat. Cancellation releases pending feedback. A result with more recorded
+hits than authored beats records a presentation error and shows the complete
+aggregate, preserving the outcome; the malformed schedule must be corrected.
+The result formatter can consume the fifth optional `CombatHitResult` argument
+to format historical HP feedback. Existing unscheduled feedback keeps its
+current behaviour.
