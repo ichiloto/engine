@@ -1831,3 +1831,62 @@ it('keeps bound still animated and sheet replacements on their real character gr
   expect(new GraphicalSpriteProjector()->project($subject, $this->scene->camera)->lift)->toBe($ordinary->lift)
     ->and($subject->position)->toEqual($position);
 })->with(['player', 'npc'])->with([false, true])->with(['still', 'animation', 'sheet']);
+
+
+it('withholds an owned graphical role while preserving Terminal, transforms and the real NPC lease', function (bool $explicitArt) {
+  $this->scene->npcManager->configure([['id' => 'guide', 'name' => 'Guide', 'sprite' => '=', 'x' => 7, 'y' => 4,
+    'sprites2d' => characterSheetData()]]);
+  $npc = $this->scene->npcManager->findById('guide');
+  $entry = ['id' => 'owned-role', 'subject' => ['kind' => 'npc', 'id' => 'guide'], 'graphicalVisible' => false];
+  if ($explicitArt) { $entry['sprites2d'] = characterSheetData(); }
+  $ordinary = $npc->getGraphicalSpriteDefinition();
+  expect($ordinary)->not->toBeNull();
+  $actor = $this->stage->add($entry);
+  $lease = $actor->subject;
+  expect($actor->isVisible)->toBeTrue()->and($actor->graphicalVisible)->toBeFalse()
+    ->and($actor->isGraphicallyVisible)->toBeFalse()->and($actor->getGraphicalSpriteDefinition())->toBeNull()
+    ->and($actor->position)->toEqual($npc->position)->and($actor->facing)->toBe($npc->heading)
+    ->and($actor->sprite)->toBe(['='])->and($this->stage->suppresses($npc))->toBeTrue();
+  $this->scene->camera->moveTo(0, 0);
+  Console::recomposeFrame(fn() => $this->stage->render());
+  expect(Console::charAt(7, 4))->toBe('=');
+  $replacement = $this->stage->add([...$entry, 'replace' => true, 'graphicalVisible' => true]);
+  expect($replacement->subject)->toBe($lease)->and($replacement->getGraphicalSpriteDefinition())->not->toBeNull();
+  unset($entry['graphicalVisible']);
+  $hidden = $this->stage->add([...$entry, 'replace' => true, 'graphicalVisible' => false]);
+  $retained = $this->stage->add([...$entry, 'replace' => true]);
+  expect($retained->graphicalVisible)->toBeFalse()->and($retained->subject)->toBe($lease)
+    ->and($retained->getGraphicalSpriteDefinition())->toBeNull();
+  $this->stage->hide('owned-role');
+  $this->stage->show('owned-role');
+  expect($retained->isVisible)->toBeTrue()->and($retained->isGraphicallyVisible)->toBeFalse();
+  $this->stage->remove('owned-role');
+  expect($this->stage->suppresses($npc))->toBeFalse()->and($npc->getGraphicalSpriteDefinition())->toEqual($ordinary);
+})->with(['inherited art' => false, 'explicit art' => true]);
+
+it('preserves an independent actor collision when its image is withheld and honors whole-actor visibility', function () {
+  $entry = ['id' => 'solid', 'sprite' => '=', 'x' => 6, 'y' => 3, 'collision' => true,
+    'sprites2d' => characterSheetData()];
+  $actor = $this->stage->add($entry);
+  expect($actor->graphicalVisible)->toBeTrue()->and($actor->getGraphicalSpriteDefinition())->not->toBeNull();
+  $actor = $this->stage->add([...$entry, 'replace' => true, 'graphicalVisible' => false]);
+  expect($this->stage->actorAt(6, 3))->toBe($actor)->and($actor->hasCollision)->toBeTrue();
+  $this->scene->camera->moveTo(0, 0);
+  Console::recomposeFrame(fn() => $this->stage->render());
+  expect(Console::charAt(6, 3))->toBe('=');
+  $actor = $this->stage->add([...$entry, 'replace' => true, 'graphicalVisible' => true, 'visible' => false]);
+  expect($actor->isVisible)->toBeFalse()->and($actor->isGraphicallyVisible)->toBeFalse()
+    ->and($actor->getGraphicalSpriteDefinition())->toBeNull();
+});
+
+it('rejects non-boolean graphical visibility before replacing an owned actor', function (mixed $value) {
+  $entry = subjectOwnershipCast(['graphicalVisible' => $value]);
+  expect(fn() => subjectOwnershipDefinition(data: ['cast' => [$entry]]))
+    ->toThrow(InvalidArgumentException::class, 'graphicalVisible must be boolean');
+  expect(fn() => CinematicScriptValidator::validate([['type' => 'stage_actor', ...$entry]]))
+    ->toThrow(InvalidArgumentException::class, 'graphicalVisible must be boolean');
+  $original = $this->stage->add(subjectOwnershipCast());
+  expect(fn() => $this->stage->add([...$entry, 'replace' => true]))
+    ->toThrow(InvalidArgumentException::class, 'graphicalVisible must be boolean');
+  expect($this->stage->find('pose'))->toBe($original)->and($this->stage->suppresses($this->npc))->toBeTrue();
+})->with(['null' => [null], 'integer zero' => [0], 'integer one' => [1], 'string' => ['false'], 'array' => [[]]]);

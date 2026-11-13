@@ -318,7 +318,7 @@ final class CinematicScriptValidator
       }
     }
 
-    foreach (['visible', 'collision'] as $booleanField) {
+    foreach (['visible', 'graphicalVisible', 'collision'] as $booleanField) {
       if (array_key_exists($booleanField, $entry) && ! is_bool($entry[$booleanField])) {
         throw self::failure($cinematicId, $path, sprintf('staged actor %s must be boolean.', $booleanField));
       }

@@ -2096,3 +2096,43 @@ it('hides the terminal layers of the subjects a world canvas presents in the fie
     $compose();
     expect($excluded)->toContain($npc->getGraphicalSpriteId(), $this->scene->cinematicStage->require('in-bed')->getGraphicalSpriteId());
 });
+
+
+it('withholds either object image representation without losing its terminal cells or presentation lease', function (bool $compound) {
+    $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(12, 6, 10, 20),
+        static fn(string $cap): bool => true, assetRoot: $this->root . '/assets'));
+    if ($compound) { installWorldObjectBed($this->scene, $this->root, cover: true); }
+    $object = $this->scene->mapManager->findWorldObject('fixture');
+    $cells = $object->getTerminalCells();
+    $collision = $this->scene->mapManager->getCollisionGrid();
+    expect($compound ? $object->getPresentationWorldCanvas() : $object->getGraphicalSpriteDefinition())->not->toBeNull();
+    $entry = ['id' => 'object-role', 'subject' => ['kind' => 'world_object', 'id' => 'fixture'], 'graphicalVisible' => false];
+    $actor = $this->scene->cinematicStage->add($entry);
+    expect($actor->isVisible)->toBeTrue()->and($actor->sprite)->toBe([])
+        ->and($actor->getGraphicalSpriteDefinition())->toBeNull()->and($actor->getPresentationWorldCanvas())->toBeNull()
+        ->and($this->scene->cinematicStage->suppresses($object))->toBeTrue()
+        ->and($this->scene->cinematicStage->hidesWorldObjectGlyphs($object))->toBeTrue()
+        ->and($object->getTerminalCells())->toBe($cells)->and($this->scene->mapManager->getCollisionGrid())->toBe($collision);
+    $this->scene->cinematicStage->remove('object-role');
+    expect($this->scene->cinematicStage->suppresses($object))->toBeFalse()
+        ->and($compound ? $object->getPresentationWorldCanvas() : $object->getGraphicalSpriteDefinition())->not->toBeNull()
+        ->and($object->getTerminalCells())->toBe($cells);
+})->with(['sprite' => false, 'compound canvas' => true]);
+
+it('withholds a staged bed occupant image while keeping the bed canvas and real occupant state', function () {
+    $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(12, 6, 10, 20),
+        static fn(string $cap): bool => true, assetRoot: $this->root . '/assets'));
+    $npc = installWorldObjectBed($this->scene, $this->root, cover: true);
+    $object = $this->scene->mapManager->findWorldObject('fixture');
+    $terminal = $npc->getFieldTerminalSprite();
+    $actor = $this->scene->cinematicStage->add(['id' => 'occupant-role',
+        'subject' => ['kind' => 'npc', 'id' => 'sleeper'], 'graphicalVisible' => false]);
+    $group = $object->getPresentationWorldCanvas();
+    expect(array_column($group->canvas->images, 'id'))->toBe(['base', 'cover'])
+        ->and($group->canvas->presentationOwners)->toContain($actor->getGraphicalSpriteId())
+        ->and($actor->isVisible)->toBeTrue()->and($actor->isGraphicallyVisible)->toBeFalse()
+        ->and($npc->bed->isOccupied)->toBeTrue()->and($npc->getFieldTerminalSprite())->toBe($terminal)
+        ->and($this->scene->mapManager->canMoveTo(1, 1))->toBeFalse();
+    $this->scene->cinematicStage->clear();
+    expect(array_column($object->getPresentationWorldCanvas()->canvas->images, 'id'))->toBe(['base', 'occupant', 'cover']);
+});

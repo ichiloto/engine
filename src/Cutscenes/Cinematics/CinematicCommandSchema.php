@@ -74,7 +74,7 @@ final class CinematicCommandSchema
     'failure' => 'retryable_without_completion_writes',
   ];
   public const array STAGED_ACTOR_FIELDS = [
-    'id', 'sprite', 'asset', 'x', 'y', 'facing', 'faceToward', 'visible', 'collision', 'sprites', 'sprites2d',
+    'id', 'sprite', 'asset', 'x', 'y', 'facing', 'faceToward', 'visible', 'graphicalVisible', 'collision', 'sprites', 'sprites2d',
     'subject', 'suppress', 'replace', 'at', 'offset', 'appearance', CinematicFieldPlane::FIELD_NAME,
   ];
   /** Map subjects whose authored look a staged actor can wear. */
@@ -231,6 +231,12 @@ final class CinematicCommandSchema
       'stagedActorFields' => self::STAGED_ACTOR_FIELDS,
       'existingStagedActorCommands' => self::EXISTING_STAGED_ACTOR_COMMANDS,
       'stagedActorGraphicalFields' => self::STAGED_ACTOR_GRAPHICAL_FIELDS,
+      'stagedActorGraphicalVisibility' => [
+        'field' => 'graphicalVisible', 'type' => 'boolean', 'default' => true,
+        'replaceDefault' => 'retain previous value',
+        'false' => 'withhold sprites and compound world canvases without a graphical glyph fallback; Terminal, transforms, collision and subject leases remain unchanged',
+        'visible' => 'false hides both presentations regardless of graphicalVisible',
+      ],
       'stagedPoseAnimation' => [
         'field' => 'sprites2d.animation',
         'fields' => FieldPoseAnimation::FIELDS,

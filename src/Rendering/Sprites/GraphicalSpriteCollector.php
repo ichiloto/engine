@@ -20,14 +20,18 @@ final readonly class GraphicalSpriteCollector
    * without one: a subject with no graphical presentation, which a graphical
    * field can only show by its terminal glyph.
    *
-   * @return array{sprites: list<PresentationSprite>, unpresented: list<string>} Unpresented provider ids, in order.
+   * @return array{sprites: list<PresentationSprite>, unpresented: list<string>, excludedTerminalLayers: list<string>}
    */
   public function collectPresentation(?SceneInterface $scene): array
   {
-    $sprites = $unpresented = [];
+    $sprites = $unpresented = $excludedTerminalLayers = [];
     if ($scene instanceof GraphicalSpriteProviderHostInterface) {
       $thickets = $scene instanceof SpriteThicketHostInterface ? $scene : null;
       foreach ($scene->getGraphicalSpriteProviders() as $provider) {
+        if ($provider instanceof GraphicalSpriteVisibilityInterface && !$provider->isGraphicallyVisible) {
+          $excludedTerminalLayers[] = $provider->getGraphicalSpriteId();
+          continue;
+        }
         // A character is hidden by the foliage of the cell it occupies, the cell it is sliding to.
         $thicket = $thickets !== null && $provider instanceof ThicketSubjectInterface && $provider->standsInFoliage
           ? $thickets->findSpriteThicketAt($provider->getGraphicalSpriteWorldPosition()) : null;
@@ -38,6 +42,6 @@ final readonly class GraphicalSpriteCollector
         }
       }
     }
-    return ['sprites' => $sprites, 'unpresented' => $unpresented];
+    return ['sprites' => $sprites, 'unpresented' => $unpresented, 'excludedTerminalLayers' => $excludedTerminalLayers];
   }
 }

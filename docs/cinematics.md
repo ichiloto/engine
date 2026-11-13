@@ -220,6 +220,17 @@ does not affect field collision.
 Staged actors render through the field camera. Map transfer, normal
 completion, authored skip, and controlled failure remove temporary cast state.
 
+`graphicalVisible` is an optional strict boolean, defaulting to `true`. False
+withholds the staged actor's sprite or compound world canvas, including inherited
+subject art. It removes graphical glyph fallback for that intentionally withheld
+role; Terminal glyphs, position, facing, collision and subject/suppression leases
+stay unchanged. `visible => false` still hides both presentations. Replacing an
+actor without `graphicalVisible` retains its current setting; explicit true or
+false replaces it. Removing the staged actor restores the subject's ordinary
+presentation through the existing lease lifecycle. This is temporary scene state
+and changes neither saves nor the renderer protocol. The Editor reads this field,
+its type and default from `CinematicCommandSchema::export()`.
+
 `sprites2d` accepts an RPG Maker character sheet (`sheet`, optional `index`
 and `layer`), which walks and turns like the Player, or a single field image
 (`asset`, optional `sourceRect`, `layer` 0..999, and an optional footprint in

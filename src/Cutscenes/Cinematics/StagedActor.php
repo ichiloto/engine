@@ -15,13 +15,14 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
 use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteVisibilityInterface;
 use Ichiloto\Engine\Rendering\Sprites\ThicketSubjectInterface;
 use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
 use Ichiloto\Engine\Rendering\Sprites\FieldSpriteRole;
 use Ichiloto\Engine\UI\Accessibility;
 
 /** A temporary field participant owned by one cinematic. */
-final class StagedActor implements ThicketSubjectInterface
+final class StagedActor implements ThicketSubjectInterface, GraphicalSpriteVisibilityInterface
 {
   /**
    * Cast stand among their cell's foliage: a character sheet unless it is an object sheet, and a pose or image.
@@ -54,6 +55,9 @@ final class StagedActor implements ThicketSubjectInterface
   public bool $isVisible {
     get => $this->visible && $this->ownsPresentation()
       && !($this->sharesPresentNpcCell !== null && ($this->sharesPresentNpcCell)($this->position));
+  }
+  public bool $isGraphicallyVisible {
+    get => $this->isVisible && $this->graphicalVisible;
   }
   private MovementHeading $localFacing;
   private Vector2 $localPosition;
@@ -91,6 +95,8 @@ final class StagedActor implements ThicketSubjectInterface
     private readonly ?\Closure $sharesPresentNpcCell = null,
     /** Where its graphical art draws: among the field, or lifted above cinematic covers. */
     public readonly CinematicFieldPlane $plane = CinematicFieldPlane::FIELD,
+    /** Drawing intent is independent of Terminal presence and real-subject ownership. */
+    public readonly bool $graphicalVisible = true,
   )
   {
     $this->localFacing = $facing;
@@ -163,7 +169,7 @@ final class StagedActor implements ThicketSubjectInterface
 
   public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
   {
-    if (!$this->isVisible) { return null; }
+    if (!$this->isGraphicallyVisible) { return null; }
     $frame = $this->getFrameDefinition();
     $subject = $this->subject?->subject;
     if ($frame !== null && $this->graphicalSprites !== null && ($subject instanceof Player || $subject instanceof Npc)) {
@@ -177,7 +183,7 @@ final class StagedActor implements ThicketSubjectInterface
   /** A takeover retains its real object's compound presentation unless an explicit replacement was authored. */
   public function getPresentationWorldCanvas(): ?\Ichiloto\Engine\Rendering\Presentation\PresentationWorldCanvas
   {
-    if (!$this->isVisible || $this->graphicalSprites !== null || !$this->subject?->subject instanceof WorldObject) { return null; }
+    if (!$this->isGraphicallyVisible || $this->graphicalSprites !== null || !$this->subject?->subject instanceof WorldObject) { return null; }
     $group = $this->subject->subject->getPresentationWorldCanvas();
     if ($group === null) { return null; }
     return new \Ichiloto\Engine\Rendering\Presentation\PresentationWorldCanvas($this->getGraphicalSpriteId(),
