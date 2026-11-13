@@ -43,6 +43,13 @@ final readonly class GraphicalSpriteDefinition
     }
   }
 
+  /** Place this role at its owning field subject's ground rise, preserving the image's own geometry. */
+  public function applyLift(int $lift): self
+  {
+    return new self($this->asset, $this->width, $this->height, $this->anchor, $this->layer, $this->sourceRect,
+      $lift, $this->quarterTurns, $this->pivot, $this->bob, $this->fade);
+  }
+
   /** The same image, eased to this opacity. */
   public function applyFade(?PresentationSpriteFade $fade): self
   {

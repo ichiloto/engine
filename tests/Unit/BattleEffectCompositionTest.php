@@ -183,3 +183,59 @@ it('raises an opponent-facing ward in front of each recipient by its side, not b
     rmdir($root);
   }
 })->with([false, true]);
+
+
+it('preserves oversized subject effect density and ground pivots across viewports and replacement frames',
+  function (bool $reduced, string $anchor, string $fit) {
+    $root = \getTestTemporaryDirectory() . '/ichiloto-oversized-effect-' . bin2hex(random_bytes(5));
+    mkdir($root);
+    try {
+      writeTestPng($root . '/effect.png', 64, 32);
+      $effect = new EffectTimelineLibrary($root)->compile('oversized',
+        ['fps' => 10, 'lengthFrames' => 1, 'restFrame' => 0, 'tracks' => [[
+          'id' => 'area', 'type' => 'image', 'asset' => 'effect.png', 'anchor' => $anchor,
+          'attachment' => 'ground', 'pivot' => ['x' => .25, 'y' => 1], 'fit' => $fit,
+          'sheet' => ['columns' => 2, 'rows' => 1], 'cells' => ['width' => 20, 'height' => 20],
+          'keyframes' => [['frame' => 0, 'sourceFrame' => 1, 'flipX' => true]],
+        ]]], true);
+      $actor = new Character('Caster', 1, new Stats());
+      $target = new Character('Target', 1, new Stats());
+      $hits = 0;
+      $playback = new BattleCommandPlayback(new BattleCommandTimeline(
+        new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect),
+        $actor, [$target], BattlePoseRole::MAGIC, function () use (&$hits) { $hits++; }, static fn() => null);
+      $playback->update($playback->plan->phases['target']['start'] / 120);
+      $subject = $anchor === 'caster' ? $actor : $target;
+      $identity = spl_object_id($subject);
+      $grounds = [$identity => new Vector2(180, 500)];
+      $bounds = [$identity => new CanvasRectangle(160, 400, 40, 100)];
+      foreach ([32, 64] as $frameWidth) {
+        writeTestPng($root . '/effect.png', $frameWidth * 2, 32);
+        $authoredWidth = 20 * 48;
+        $authoredHeight = $fit === 'contain' ? $authoredWidth * 32 / $frameWidth : 20 * 48;
+        foreach ([[1350, 720], [720, 600]] as [$areaWidth, $areaHeight]) {
+          $images = GraphicalBattleEffects::compose($playback, new BattleCanvasLayout($areaWidth, $areaHeight, uiCellWidth: 5, uiCellHeight: 10),
+            $bounds, $root, $reduced, groundAnchors: $grounds)->images;
+          expect($images)->toHaveCount(1)->and($playback->presentationFailure)->toBeNull()->and($hits)->toBe(0);
+          $image = $images[0];
+          $densityX = $image->destination->width / $image->sourceRect->width;
+          $densityY = $image->destination->height / $image->sourceRect->height;
+          expect($densityX)->toEqualWithDelta($authoredWidth / $frameWidth, .000001)
+            ->and($densityY)->toEqualWithDelta($authoredHeight / 32, .000001)
+            ->and($image->flipX)->toBeTrue();
+          // Reconstruct the uncut origin from the mirrored sheet crop. The attachment
+          // stays on the subject while different viewport edges remove source pixels.
+          $removedLeft = $frameWidth - ($image->sourceRect->x - $frameWidth) - $image->sourceRect->width;
+          $originX = $image->destination->x - $removedLeft * $densityX;
+          $originY = $image->destination->y - $image->sourceRect->y * $densityY;
+          expect($originX + $authoredWidth * .75)->toEqualWithDelta($grounds[$identity]->x, .000001)
+            ->and($originY + $authoredHeight)->toEqualWithDelta($grounds[$identity]->y, .000001)
+            ->and($image->sourceRect->width < $frameWidth || $image->sourceRect->height < 32)->toBeTrue();
+          $image->assertWithin($areaWidth, $areaHeight);
+        }
+      }
+    } finally {
+      unlink($root . '/effect.png');
+      rmdir($root);
+    }
+  })->with([false, true])->with(['caster', 'target', 'target-group'])->with(['contain', 'stretch']);

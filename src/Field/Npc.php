@@ -206,7 +206,10 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
   public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
   {
     if ($this->bed?->isOccupied) { return $this->bed->getPlacement()['image'] ?? null; }
-    if ($this->usesPlacementPose) { return $this->placementPose?->getFrame($this->heading); }
+    if ($this->usesPlacementPose) {
+      $frame = $this->placementPose?->getFrame($this->heading);
+      return $frame !== null && $this->graphicalSprites !== null ? $frame->applyLift($this->graphicalSprites->lift) : $frame;
+    }
     return $this->getOrdinaryGraphicalSpriteDefinition();
   }
 

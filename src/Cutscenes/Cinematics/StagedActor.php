@@ -8,6 +8,7 @@ use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Field\WorldObject;
 use Ichiloto\Engine\Field\Npc;
+use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\FieldMetric;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
@@ -164,6 +165,12 @@ final class StagedActor implements ThicketSubjectInterface
   {
     if (!$this->isVisible) { return null; }
     $frame = $this->getFrameDefinition();
+    $subject = $this->subject?->subject;
+    if ($frame !== null && $this->graphicalSprites !== null && ($subject instanceof Player || $subject instanceof Npc)) {
+      // Replacement art changes the look, while the real subject still owns its character/object ground placement.
+      $sheet = $subject->getGraphicalCharacterSheet();
+      if ($sheet !== null) { $frame = $frame->applyLift($sheet->lift); }
+    }
     return $frame === null ? null : ($this->attachment?->place($frame)['image'] ?? $frame);
   }
 
