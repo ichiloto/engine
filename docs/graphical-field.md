@@ -101,10 +101,16 @@ editing surface is owned by the GUI Editor plan. Related docs:
   images such as cinematic poses are sized in whole character frames.
 - Like RPG Maker (Sprite_Character's shiftY), the field draws a character
   6 field pixels above its cell, so art drawn with the feet on the frame's
-  bottom edge stands inside its tile. An object sheet (`!`) is not lifted,
-  and neither are single-image field art, battle or interface sprites. The
-  Engine derives the lift from the sheet's name, never from its image, and
-  sends it only to renderers advertising `sprite_lift`; other renderers
+  bottom edge stands inside its tile. Object sheets (`!`), independent
+  single-image field art, battle and interface sprites stay unlifted.
+
+  A staged replacement bound to a player or NPC, and an NPC's named resting
+  pose, inherit the real subject's walking-sheet lift, including zero for an
+  object sheet. Still images, animated poses and replacement sheets use that
+  same ground placement without moving the subject's physical cell or changing
+  its saved placement. An independent actor or a world-object attachment keeps
+  its own placement. The Engine derives the lift from the subject sheet's name,
+  never from its image, and sends it only to renderers advertising `sprite_lift`; other renderers
   place the character on its cell exactly as before.
 - Guidance marks move at display rate. A renderer advertising `sprite_bob`
   is told a cue's bob once (height and seconds) and draws its rise and fall

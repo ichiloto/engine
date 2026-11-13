@@ -1790,3 +1790,44 @@ it('keeps a valid authored relative cell and retries deterministically after pla
   $retried = $this->stage->add($entry);
   expect([$retried->position->x, $retried->position->y])->toBe([4.0, 4.0]);
 });
+
+
+it('keeps bound still animated and sheet replacements on their real character ground', function (string $kind, bool $object, string $role) {
+  $sheet = characterSheetData($object ? '!Subject.png' : 'Subject.png');
+  writeCharacterSheetPng($this->assetRoot . '/' . $sheet['sheet'], 48, 48);
+  writeTestPng($this->assetRoot . '/Replacement.png', 96, 48);
+  if ($kind === 'npc') {
+    $this->scene->npcManager->configure([['id' => 'guide', 'name' => 'Guide', 'sprite' => 'N', 'x' => 7, 'y' => 4,
+      'sprites2d' => $sheet]]);
+    $subject = $this->scene->npcManager->findById('guide');
+  } else {
+    $subject = new SubjectOwnershipPlayer($this->scene, 'hero', clone $this->player->position, new Rect(0, 0, 1, 1), ['v'],
+      MovementHeading::SOUTH, graphicalSprites: CharacterSheet::fromArray($sheet), assetRoot: $this->assetRoot);
+    new ReflectionProperty(Player::class, 'isActive')->setValue($subject, true);
+    new ReflectionProperty(GameScene::class, 'player')->setValue($this->scene, $subject);
+  }
+  $position = clone $subject->position;
+  $ordinary = new GraphicalSpriteProjector()->project($subject, $this->scene->camera);
+  $art = match ($role) {
+    'animation' => ['asset' => 'Replacement.png', 'cells' => ['width' => 3, 'height' => 1], 'layer' => 123,
+      'animation' => ['columns' => 2, 'rows' => 1, 'frames' => [0, 1], 'fps' => 10]],
+    'sheet' => characterSheetData($object ? 'Subject.png' : '!Subject.png'),
+    default => ['asset' => 'Replacement.png', 'cells' => ['width' => 3, 'height' => 1], 'layer' => 123],
+  };
+  if ($role === 'sheet') { writeCharacterSheetPng($this->assetRoot . '/' . $art['sheet'], 48, 48); }
+  $actor = $this->stage->add(['id' => 'replacement', 'subject' => ['kind' => $kind, 'id' => 'guide'], 'sprites2d' => $art]);
+  foreach ([false, true] as $reduced) {
+    putSceneAudioConfig(['accessibility' => ['reducedMotion' => $reduced]]);
+    $this->stage->advanceGraphicalAnimation(.1);
+    $presented = new GraphicalSpriteProjector()->project($actor, $this->scene->camera);
+    expect([$presented->x, $presented->y, $presented->lift])->toBe([$ordinary->x, $ordinary->y, $ordinary->lift])
+      ->and($presented->lift)->toBe($object ? 0 : CharacterSheet::LIFT)
+      ->and($subject->position)->toEqual($position);
+    if ($role !== 'sheet') {
+      expect([$presented->width, $presented->height, $presented->layer])->toBe([144, 48, 123]);
+    }
+  }
+  $this->stage->clear();
+  expect(new GraphicalSpriteProjector()->project($subject, $this->scene->camera)->lift)->toBe($ordinary->lift)
+    ->and($subject->position)->toEqual($position);
+})->with(['player', 'npc'])->with([false, true])->with(['still', 'animation', 'sheet']);

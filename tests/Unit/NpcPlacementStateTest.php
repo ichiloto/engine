@@ -292,3 +292,31 @@ it('diagnoses unusable optional resting art while retaining physical placement, 
         expect(file_get_contents($root . '/warning.log'))->toContain('NPC placement', 'unavailable');
     });
 });
+
+
+it('keeps saved resting poses and inherited takeovers on the NPC walking ground', function (bool $object, bool $animated): void {
+    withNamedPlacementArt(function (string $root) use ($object, $animated): void {
+        $scene = new NamedNpcPlacementScene(); $entry = namedPlacementArtEntry();
+        if ($object) {
+            \Tests\Support\Rendering\writeCharacterSheetPng($root . '/assets/!Object.png');
+            $entry['sprites2d'] = \Tests\Support\Rendering\characterSheetData('!Object.png');
+        }
+        if ($animated) { $entry['placements']['arrived']['sprites2d']['animation'] = ['columns' => 2,
+            'rows' => 1, 'frames' => [0, 1], 'fps' => 10]; }
+        $scene->npcManager->configure([$entry]); $npc = $scene->npcManager->findById('guide');
+        $lift = $npc->getGraphicalSpriteDefinition()->lift;
+        $npc->restoreFieldTransform(new Vector2(4, 3), MovementHeading::WEST, $npc->sprite);
+        $npc->placementState->commitPlacement($scene, 'arrived');
+        $state = $scene->gameState->toArray();
+        foreach ([false, true] as $reduced) {
+            putSceneAudioConfig(['accessibility' => ['reducedMotion' => $reduced]]);
+            $npc->advancePlacementPose(.1);
+            expect($npc->getGraphicalSpriteDefinition()->lift)->toBe($lift)
+                ->and($lift)->toBe($object ? 0 : \Ichiloto\Engine\Rendering\Sprites\CharacterSheet::LIFT);
+            $actor = $scene->cinematicStage->add(['id' => 'resting', 'subject' => ['kind' => 'npc', 'id' => 'guide']]);
+            expect($actor->getGraphicalSpriteDefinition()->lift)->toBe($lift);
+            $scene->cinematicStage->clear();
+        }
+        expect($scene->gameState->toArray())->toBe($state)->and($npc->position)->toEqual(new Vector2(4, 3));
+    });
+})->with([false, true])->with([false, true]);
