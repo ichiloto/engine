@@ -135,12 +135,10 @@ final class PngAssetBounds
       throw new RuntimeException('Visible-pixel inspection unavailable: optional GD PNG support is not installed.');
     }
     $path = realpath($root . DIRECTORY_SEPARATOR . $image->asset);
-    $canonicalRoot = realpath($root);
-    // A content hash, not stat facts, so a same-size in-place edit is never served stale; xxh128 keeps it cheap per frame.
-    if ($path === false || $canonicalRoot === false || !str_starts_with($path, $canonicalRoot . DIRECTORY_SEPARATOR)
-      || ($version = @hash_file('xxh128', $path)) === false) {
-      throw new RuntimeException('Visible-pixel inspection could not read the current PNG.');
-    }
+    if ($path === false) { throw new RuntimeException('Visible-pixel inspection could not read the current PNG.'); }
+    // Content identity is checked once per owning frame, and on every lookup outside one.
+    // Stat collisions still cannot hide an in-place replacement on the next frame.
+    $version = PngAssetPreflight::getContentRevision($root, $image->asset);
     $crop = $image->sourceRect;
     $key = $path . ':' . serialize($crop);
     if (!isset(self::$cache[$key]) || self::$cache[$key]['version'] !== $version) {

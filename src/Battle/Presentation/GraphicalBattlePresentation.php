@@ -421,17 +421,21 @@ final class GraphicalBattlePresentation
   {
     $now ??= RuntimeClock::getSeconds();
     $reducedMotion ??= Accessibility::prefersReducedMotion();
-    try {
-      return $this->composeFrame($field, $ui, $hud, $focus, $now, true, $imageFlips, $compositing, $reducedMotion, $maskFlips, $imageTones, $imageRotation, $imageClips, $coverageDabs, $textureStrip, $bottomFade);
-    } catch (\InvalidArgumentException|RuntimeException $error) {
-      // A failure in the base battlefield remains an error. Only optional pose
-      // and effect composition can degrade, without losing combat or feedback.
-      $fallback = $this->composeFrame($field, $ui, $hud, $focus, $now, false, $imageFlips, $compositing, $reducedMotion, $maskFlips, $imageTones, $imageRotation, $imageClips, $coverageDabs, $textureStrip, $bottomFade);
-      $field?->getCommandPlayback()?->recordPresentationFailure($error);
-      $this->fallbacks->report('Optional battle poses/effects unavailable; retaining base battlefield: '
-        . $error->getMessage(), $error);
-      return $fallback;
-    }
+    return PngAssetPreflight::runWithSnapshot(function () use ($field, $ui, $hud, $focus, $now, $imageFlips,
+      $compositing, $reducedMotion, $maskFlips, $imageTones, $imageRotation, $imageClips, $coverageDabs,
+      $textureStrip, $bottomFade): PresentationCanvas {
+      try {
+        return $this->composeFrame($field, $ui, $hud, $focus, $now, true, $imageFlips, $compositing, $reducedMotion, $maskFlips, $imageTones, $imageRotation, $imageClips, $coverageDabs, $textureStrip, $bottomFade);
+      } catch (\InvalidArgumentException|RuntimeException $error) {
+        // A failure in the base battlefield remains an error. Only optional pose
+        // and effect composition can degrade, without losing combat or feedback.
+        $fallback = $this->composeFrame($field, $ui, $hud, $focus, $now, false, $imageFlips, $compositing, $reducedMotion, $maskFlips, $imageTones, $imageRotation, $imageClips, $coverageDabs, $textureStrip, $bottomFade);
+        $field?->getCommandPlayback()?->recordPresentationFailure($error);
+        $this->fallbacks->report('Optional battle poses/effects unavailable; retaining base battlefield: '
+          . $error->getMessage(), $error);
+        return $fallback;
+      }
+    });
   }
 
   /** @param list<CanvasTextLayer> $ui */

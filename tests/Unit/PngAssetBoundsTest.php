@@ -96,3 +96,42 @@ it('reports absent optional decoding explicitly without requiring GD for runtime
   $result = ($this->readInChild)(true);
   expect($result['bounds'])->toBeNull()->and($result['diagnostic'])->toContain('optional GD PNG support is not installed');
 });
+
+
+it('shares visible facts within a frame and reads same-dimension replacement pixels on the next frame', function () {
+  ($this->writePixels)();
+  $image = new CanvasImage('image', 'pixels.png', new CanvasRectangle(0, 0, 100, 100));
+  \Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight::runWithSnapshot(function () use ($image): void {
+    expect(PngAssetBounds::getVisibleBounds($this->root, $image)['bounds'])->toEqual(new CanvasRectangle(20, 30, 30, 20));
+    ($this->writePixels)(false, 5, 6);
+    \Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight::runWithSnapshot(function () use ($image): void {
+      expect(PngAssetBounds::getVisibleBounds($this->root, $image)['bounds'])->toEqual(new CanvasRectangle(20, 30, 30, 20));
+    });
+  });
+  \Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight::runWithSnapshot(function () use ($image): void {
+    expect(PngAssetBounds::getVisibleBounds($this->root, $image)['bounds'])->toEqual(new CanvasRectangle(50, 60, 30, 20));
+  });
+});
+
+
+it('refreshes same-header visible pixels between frames even when every file stat fact collides', function () {
+  require_once __DIR__ . '/../Support/Rendering/PngFreshnessFixtures.php';
+  ($this->writePixels)();
+  $path = $this->root . '/pixels.png';
+  $first = file_get_contents($path);
+  ($this->writePixels)(false, 5, 6);
+  $next = file_get_contents($path);
+  $pad = static function (string $png): string {
+    $text = "padding\0" . str_repeat('x', 512 - strlen($png) - 20);
+    $chunk = pack('N', strlen($text)) . 'tEXt' . $text . pack('N', crc32('tEXt' . $text));
+    return substr($png, 0, -12) . $chunk . substr($png, -12);
+  };
+  $image = new CanvasImage('image', 'pixels.png', new CanvasRectangle(0, 0, 100, 100));
+  $readFrame = fn() => \Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight::runWithSnapshot(
+    fn() => PngAssetBounds::getVisibleBounds($this->root, $image)['bounds']);
+  $collision = \Tests\Support\Rendering\replacePngWithCollidingFileFacts($path, $pad($first), $pad($next), $readFrame);
+  expect($collision['before'])->toBe($collision['after'])
+    ->and(substr($first, 0, 24))->toBe(substr($next, 0, 24))
+    ->and($collision['primed'])->toEqual(new CanvasRectangle(20, 30, 30, 20))
+    ->and($readFrame())->toEqual(new CanvasRectangle(50, 60, 30, 20));
+});

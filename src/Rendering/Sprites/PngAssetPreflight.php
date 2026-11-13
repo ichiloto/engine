@@ -64,6 +64,22 @@ final class PngAssetPreflight
     return ['width' => $crop?->width ?? $size['width'], 'height' => $crop?->height ?? $size['height']];
   }
 
+  /** Current PNG content identity, shared only until the owning composition ends. */
+  public static function getContentRevision(string $root, string $asset): string
+  {
+    self::inspect($root, $asset);
+    $key = $root . DIRECTORY_SEPARATOR . $asset;
+    if (isset(self::$snapshot[$key]['contentRevision'])) { return self::$snapshot[$key]['contentRevision']; }
+    $path = realpath($key);
+    $canonicalRoot = realpath($root);
+    if ($path === false || $canonicalRoot === false || !str_starts_with($path, $canonicalRoot . DIRECTORY_SEPARATOR)
+      || ($revision = @hash_file('xxh128', $path)) === false) {
+      throw new RuntimeException('Visible-pixel inspection could not read the current PNG.');
+    }
+    if (self::$snapshot !== null) { self::$snapshot[$key]['contentRevision'] = $revision; }
+    return $revision;
+  }
+
   private static function inspectFile(string $root, string $asset, string $key): array
   {
     clearstatcache(true, $key);

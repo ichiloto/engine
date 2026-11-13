@@ -2632,6 +2632,19 @@ verified macOS release and removed package scratch on the secondary drive.
 No native visual, other-platform or full-Engine acceptance is claimed for this
 resource slice, and it does not increase G3 completion.
 
+PHP visible-bound inspection shares the current PNG content revision within one
+composition. `PngAssetPreflight::runWithSnapshot` owns nested header and content
+facts and releases them on normal or exceptional exit. `SceneFrameComposer` and
+direct `GraphicalBattlePresentation::frame` use that same boundary. Bounds and
+ground-contact results remain keyed by content revision and crop; outside a
+composition, each query reads the current content revision. Same-header pixel
+replacements with colliding file stat facts refresh on the next composition.
+This PHP optimization preserves the native cache behavior described above.
+Synthetic PNG freshness, nested/failed-frame cleanup, direct battle ownership
+and relevant composition regressions pass 440 distinct cases / 9,341 assertions
+on macOS PHP 8.4.21. This is windowless coverage; Game timing qualification is
+tracked separately.
+
 The current GUI 1e3e181 release was rebuilt offline/locked through its existing
 managed secondary-drive cache, retaining the normal bundle's executable link.
 All 54 current GUI release tests pass with no failures or skips. Source remained

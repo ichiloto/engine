@@ -4337,3 +4337,24 @@ it('retains aquatic surface treatment independently of the viewport clip during 
   if ($elevation < 0 && $fade) { expect($image->bottomFade)->not->toBeNull(); }
   else { expect($image->bottomFade)->toBeNull(); }
 })->with([-.25, 0.0, .25])->with([false, true]);
+
+
+it('owns an asset snapshot for direct battle composition and releases it after failure', function (bool $fail) {
+  [$battle, $catalog] = graphicalBattleFixture();
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  expect($presentation)->not->toBeNull();
+  $snapshot = new ReflectionProperty(PngAssetPreflight::class, 'snapshot');
+  $observed = [];
+  $compose = function () use ($snapshot, &$observed, $fail, $presentation) {
+    return \Ichiloto\Engine\Rendering\Presentation\PresentationSession::runForSession(
+    static function (string $capability) use ($snapshot, &$observed, $fail): bool {
+      $observed[] = $snapshot->getValue() !== null;
+      if ($fail) { throw new LogicException('Composition interrupted.'); }
+      return false;
+    }, fn() => $presentation->frame());
+  };
+  if ($fail) { expect($compose)->toThrow(LogicException::class, 'Composition interrupted.'); }
+  else { expect($compose())->toBeInstanceOf(PresentationCanvas::class); }
+  expect($observed)->not->toBe([])->not->toContain(false)
+    ->and($snapshot->getValue())->toBeNull();
+})->with([false, true]);
