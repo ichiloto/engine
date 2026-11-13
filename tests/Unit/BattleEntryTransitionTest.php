@@ -188,7 +188,7 @@ beforeEach(function () {
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root,
     requiredCapabilities: $capabilities), $this->transport);
   $this->game = new EntryGameFixture();
-  new ReflectionProperty(UIManager::class, 'instance')->setValue(null, new class($this->game) extends UIManager {
+  $this->game->bindUIManager(new class($this->game) extends UIManager {
     public function __construct(Game $game) { parent::__construct($game); }
   });
   $this->game->useRendererRuntime($this->runtime);

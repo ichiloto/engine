@@ -158,7 +158,7 @@ function createSavedResumeConfig(array $data = []): GameConfig
 function createSavedResumeWorld(object $test): array
 {
     $game = new SavedResumeGame($test->root);
-    new ReflectionProperty(UIManager::class, 'instance')->setValue(null, new class($game) extends UIManager {
+    $game->bindUIManager(new class($game) extends UIManager {
         public function __construct(Game $game) { parent::__construct($game); }
     });
     $test->managers[] = $game->sceneManager;

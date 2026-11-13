@@ -159,7 +159,7 @@ beforeEach(function () {
     Console::clear();
     $this->game = new FieldHudLifecycleGame();
     $this->ui = new FieldHudLifecycleUI($this->game);
-    new ReflectionProperty(UIManager::class, 'instance')->setValue(null, $this->ui);
+    $this->game->bindUIManager($this->ui);
     $this->manager = $this->game->sceneManager;
     $this->field = new FieldHudLifecycleField($this->manager);
     $this->field->configure(createFieldHudLifecycleConfig());

@@ -68,6 +68,7 @@ use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Arena\ArenaScene;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\UI\Modal\ModalManager;
+use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\UI\Windows\DebugWindow;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -114,6 +115,21 @@ class Game implements CanRun, SubjectInterface
         return $this->gameLoader?->assetRoot
             ?? $this->getRendererRuntime()?->getAssetRoot()
             ?? getcwd() . '/assets';
+    }
+
+    /** Resolve the UI elements and presentation layers owned by this Game. */
+    public function getUIManager(): UIManager
+    {
+        return $this->uiManager ??= new UIManager($this);
+    }
+
+    /** Bind one explicitly constructed UI manager before its first use. */
+    public function bindUIManager(UIManager $manager): void
+    {
+        if (isset($this->uiManager) || $manager->game !== $this) {
+            throw new \LogicException('Bind one UI manager owned by this Game before its first use.');
+        }
+        $this->uiManager = $manager;
     }
 
     /** Resolve the notice/modal queue owned by this Game, including non-native hosts. */
@@ -184,6 +200,8 @@ class Game implements CanRun, SubjectInterface
      * @var ModalManager $modalManager The modal manager.
      */
     protected(set) ModalManager $modalManager;
+    /** UI state is shared by this Game's scenes and never by another Game. */
+    protected(set) UIManager $uiManager;
     /**
      * @var NotificationManager $notificationManager The notification manager.
      */

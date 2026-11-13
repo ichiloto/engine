@@ -217,7 +217,7 @@ beforeEach(function () {
   Console::syncDimensions(40, 12);
   Console::clear();
   $this->game = new ExcursionTestGame();
-  new ReflectionProperty(UIManager::class, 'instance')->setValue(null, new class($this->game) extends UIManager {
+  $this->game->bindUIManager(new class($this->game) extends UIManager {
     public function __construct(Game $game) { parent::__construct($game); }
   });
   $this->manager = $this->game->sceneManager;

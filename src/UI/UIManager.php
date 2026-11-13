@@ -21,10 +21,6 @@ use Ichiloto\Engine\UI\Interfaces\LayeredUIElementInterface;
 class UIManager implements CanRender, CanUpdate, CanResume, CanStart
 {
   /**
-   * @var UIManager The instance of the UI manager.
-   */
-  protected static UIManager $instance;
-  /**
    * @var ItemList<UIElementInterface> The UI elements.
    */
   protected(set) ItemList $uiElements;
@@ -46,23 +42,19 @@ class UIManager implements CanRender, CanUpdate, CanResume, CanStart
   /**
    * UIManager constructor.
    */
-  protected function __construct(protected(set) Game $game)
+  public function __construct(protected(set) Game $game)
   {
     $this->uiElements = new ItemList(UIElementInterface::class);
   }
 
   /**
-   * Returns the instance of the UI manager.
+   * Returns the UI manager owned by this Game.
    *
    * @param Game $game The game.
    */
   public static function getInstance(Game $game): self
   {
-    if (!isset(self::$instance)) {
-      self::$instance = new self($game);
-    }
-
-    return self::$instance;
+    return $game->getUIManager();
   }
 
   /** Hide one owner's element without erasing another element's overlapping cells. */
