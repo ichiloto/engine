@@ -241,11 +241,11 @@ final class MenuCanvas
     // label. The overlay's protection is taken before its background is dropped, as it always was.
     $stacked = PresentationCanvas::composeOverlay($base, new PresentationCanvas($overlay->width, $overlay->height,
       $overlay->images, $overlay->indicators, [], $overlay->composites, $overlay->getOverlayProtection(),
-      $overlay->presentationOwners, $overlay->labels));
+      $overlay->presentationOwners, $overlay->labels, groups: $overlay->groups));
     $view = new self($theme, $base->width, $base->height);
     $offset = 1 + max([0, ...array_column($base->images, 'layer'), ...array_column($base->textLayers, 'layer'),
       ...array_column($base->indicators, 'layer'), ...array_column($base->composites, 'layer'),
-      ...array_column($base->labels, 'layer')]);
+      ...array_column($base->labels, 'layer'), ...array_column($base->groups, 'layer')]);
     $view->images = $stacked->images;
     $view->text = $base->textLayers;
     foreach ($overlay->textLayers as $text) {
@@ -275,9 +275,10 @@ final class MenuCanvas
     $view->compactRules();
     $view->text = CanvasTextBatch::compact($view->text);
     $result = $view->finish();
-    CanvasImagePreflight::inspect($result->images, $theme->assetRoot, $stacked->composites);
-    return new PresentationCanvas($base->width, $base->height, $result->images, $stacked->indicators, $result->textLayers,
-      $stacked->composites, $stacked->protectedAreas, $stacked->presentationOwners, $stacked->labels, $stacked->viewportFit);
+    $canvas = new PresentationCanvas($base->width, $base->height, $result->images, $stacked->indicators, $result->textLayers,
+      $stacked->composites, $stacked->protectedAreas, $stacked->presentationOwners, $stacked->labels, $stacked->viewportFit, $stacked->groups);
+    CanvasImagePreflight::inspectCanvases([$canvas], $theme->assetRoot);
+    return $canvas;
   }
 
   public function portrait(string $actorId, CanvasRectangle $bounds, string $id = 'portrait', float $opacity = 1): void

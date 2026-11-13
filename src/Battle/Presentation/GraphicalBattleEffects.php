@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Animations\EffectScale;
 use Ichiloto\Engine\Animations\Timelines\EffectImageDepth;
+use Ichiloto\Engine\Animations\Timelines\EffectFlightMode;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageFit;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageTint;
@@ -34,6 +35,16 @@ final class GraphicalBattleEffects
       return null;
     }
     $arrival = $data['flight']['arrivalFrame'];
+    if (($data['flight']['mode'] ?? EffectFlightMode::PROJECTILE->value) === EffectFlightMode::BEAM->value) {
+      $start = $path->getSampleAtProgress(0);
+      $end = $path->getPositionAtProgress(1);
+      $reach = hypot($end->x - $start['point']->x, $end->y - $start['point']->y);
+      if ($reach <= 0 || abs($path->distance - $reach) > max(1e-9, $reach * 1e-9)) {
+        $playback->recordPresentationFailure(new InvalidArgumentException('Captured beam requires a nonzero straight route.'));
+        return null;
+      }
+      return [...$start, 'progress' => 1.0, 'distance' => $reach];
+    }
     $sample = $data['flight']['holdFrame'] ?? $arrival;
     $sample = min($sample, $reducedMotion ? $arrival : $playback->session->currentFrame);
     $progress = $sample >= $arrival ? 1.0 : ($sample - $data['detachFrame']) / ($arrival - $data['detachFrame']);
@@ -81,7 +92,7 @@ final class GraphicalBattleEffects
       }
     }
     foreach ($playback->getActiveSegments($reducedMotion) as $segment) {
-      if ($segment['layer'] === 'tone') { continue; } // Owned by the current battler image, preserving draw order.
+      if (in_array($segment['layer'], ['tone', 'field-motion', 'battler-motion'], true)) { continue; } // Their owners transform the body or the complete field, preserving draw order.
       foreach ($segment['drawCommands'] as $command) {
         if (!($command['visible'] ?? true)) { continue; }
         $data = $command['payload'] ?? [];
@@ -137,6 +148,8 @@ final class GraphicalBattleEffects
           $box = $targetGroup?->bounds ?? ($subject === null ? null : ($bounds[spl_object_id($subject)] ?? null));
           $isDetached = $playback instanceof BattleCommandPlayback && isset($data['detachFrame'])
             && $playback->session->currentFrame >= $data['detachFrame'];
+          $beam = ($data['flight']['mode'] ?? null) === EffectFlightMode::BEAM->value;
+          if ($beam && $playback->session->currentFrame < $data['flight']['arrivalFrame']) { continue; }
           if (!$isDetached && $reducedMotion && isset($data['flight'])) { continue; }
           if ($subject !== null && $box === null && !$isDetached) { continue; }
           $release = $subject === null || !$isDetached ? null : $playback->getDetachedPosePoint($command['trackId'], $subject);
@@ -151,7 +164,7 @@ final class GraphicalBattleEffects
               $release['path'], $frame, $data, $arena));
             continue;
           }
-          if (($release['fallback'] ?? null) !== null && isset($data['flight'])
+          if (!$beam && ($release['fallback'] ?? null) !== null && isset($data['flight'])
             && ($reducedMotion || $playback->session->currentFrame >= $data['flight']['arrivalFrame'])) { continue; }
           $recipient = $anchor === 'caster'
             ? array_find($playback->targets, static fn($target): bool => $target !== $playback->actor) : $subject;
@@ -168,10 +181,14 @@ final class GraphicalBattleEffects
           $facing = $data['facing'] ?? null;
           $autoMirrored = ($oriented['payload']['flipX'] ?? false) !== ($data['flipX'] ?? false);
           $data = $oriented['payload'] ?? [];
-          $basis = ($facing === 'west') !== $autoMirrored ? 180 : 0;
-          $rotation = $imageRotation && $direction !== null && $facing !== null
+          $basis = ($facing === 'west') !== ($beam ? ($data['flipX'] ?? false) : $autoMirrored) ? 180 : 0;
+          $rotation = ($imageRotation || $beam) && $direction !== null && $facing !== null
             ? (int)round(rad2deg(atan2($direction->y, $direction->x)) - $basis) : 0;
           $rotation = ($rotation % 360 + 360) % 360;
+          if ($beam && !$imageRotation && $rotation !== 0) {
+            $playback->recordPresentationFailure(new RuntimeException('Renderer cannot rotate the authored captured beam.'));
+            continue;
+          }
           $id = 'command-effect-' . $oriented['trackId'] . '-' . ($targetGroup !== null ? 'target-group'
             : ($subject === null ? 'screen' : spl_object_id($subject)));
           $position = $oriented['position'] ?? ['x' => 0, 'y' => 0];
@@ -253,18 +270,26 @@ final class GraphicalBattleEffects
                   if ($flight['distance'] <= 0.0) {
                     throw new InvalidArgumentException('Battle projectile has no distance to its arrival contact.');
                   }
-                  // Keep at least as much visible travel as shaft ahead of the release pivot.
-                  $maximumTipLength = $flight['distance'] / 2;
-                  if ($tipLength > $maximumTipLength) {
-                    $fitScale = $maximumTipLength / $tipLength;
+                  if ($beam) {
+                    if ($tipLength <= 0.0) { throw new InvalidArgumentException('Battle beam tip must differ from its rear pivot.'); }
+                    // Fit the measured source reach to the captured ray, preserving source proportions.
+                    $fitScale = $flight['distance'] / $tipLength;
                     $width *= $fitScale;
                     $height *= $fitScale;
-                    $tipLength = $maximumTipLength;
+                  } else {
+                    // Keep at least as much visible travel as shaft ahead of the release pivot.
+                    $maximumTipLength = $flight['distance'] / 2;
+                    if ($tipLength > $maximumTipLength) {
+                      $fitScale = $maximumTipLength / $tipLength;
+                      $width *= $fitScale;
+                      $height *= $fitScale;
+                      $tipLength = $maximumTipLength;
+                    }
+                    $angle = deg2rad($rotation + $basis);
+                    $offset = $tipLength * $flight['progress'];
+                    $x -= cos($angle) * $offset;
+                    $y -= sin($angle) * $offset;
                   }
-                  $angle = deg2rad($rotation + $basis);
-                  $offset = $tipLength * $flight['progress'];
-                  $x -= cos($angle) * $offset;
-                  $y -= sin($angle) * $offset;
                 }
                 if ($data['flipX'] ?? false) { $pivot['x'] = 1 - $pivot['x']; }
                 if ($data['flipY'] ?? false) { $pivot['y'] = 1 - $pivot['y']; }
@@ -289,6 +314,9 @@ final class GraphicalBattleEffects
                     new CanvasRectangle($left + $offsetX * (cos($angle) - 1) - $offsetY * sin($angle),
                       $top + $offsetX * sin($angle) + $offsetY * (cos($angle) - 1), $width, $height, allowOutsideCanvas: true),
                     $arena->width, $arena->height, $layer, $crop, $flipX, $flipY, $rotation, new PresentationSpritePivot(...$pivot));
+                  if ($beam && $rotated !== null && $rotated->clipRect !== null && !$imageClips) {
+                    throw new RuntimeException('Renderer cannot clip the authored captured beam.');
+                  }
                   if ($rotated === null || $rotated->clipRect === null || $imageClips) {
                     if ($rotated !== null) { $images[] = $rotated; }
                     break;

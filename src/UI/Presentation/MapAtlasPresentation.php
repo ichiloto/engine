@@ -212,7 +212,7 @@ final class MapAtlasPresentation
         $icons=MapAtlasPictograms::createLayer($pictograms,$mapBox,$theme,$full);
         return new PresentationCanvas($width,$height,$base->images,$indicators,[...$base->textLayers,...$text,
             ...($icons===null ? [] : [$icons]),...($legendIcons===null ? [] : [$legendIcons])],[$raster],
-            $base->protectedAreas,$base->presentationOwners,$base->labels);
+            $base->protectedAreas,$base->presentationOwners,$base->labels, groups: $base->groups);
     }
 
     private static function createMarkerHalo(string $id, CanvasRectangle $marker, MenuPresentationCatalog $theme,

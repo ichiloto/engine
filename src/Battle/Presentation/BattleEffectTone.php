@@ -34,6 +34,6 @@ final class BattleEffectTone
   public static function applyToImage(CanvasImage $image, float $multiplier): CanvasImage
   {
     return $multiplier === 1.0 ? $image : new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
-      $image->sourceRect, $image->opacity, $image->clipRect, $image->brightness * $multiplier, $image->flipX, $image->flipY);
+      $image->sourceRect, $image->opacity, $image->clipRect, $image->brightness * $multiplier, $image->flipX, $image->flipY, $image->rotation, $image->pivot, $image->bottomFade);
   }
 }

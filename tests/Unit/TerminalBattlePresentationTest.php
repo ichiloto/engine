@@ -457,3 +457,110 @@ it('keeps all eight party members within terminal presentation bounds after a fo
     expect($point->y)->toBeGreaterThanOrEqual(1)->toBeLessThan(30); }
   expect(array_map(static fn($member): string => $member->actorId, $members))->toBe(array_map(static fn(int $i): string => 'Member' . $i, range(0, 7)));
 });
+
+
+function terminalCapturedLaneEffect(): \Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline
+{
+  return (new \Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator('/no-graphical-assets'))->compile('terminal-lane',[
+    'fps'=>24,'lengthFrames'=>8,'restFrame'=>2,'targetCaptureFrame'=>1,
+    'effectTiming'=>['mode'=>'frame','frame'=>2],
+    'tracks'=>[['id'=>'lane','type'=>'glyph-lane','facing'=>'west','keyframes'=>[
+      ['frame'=>2,'duration'=>3,'color'=>'cyan','payload'=>['head'=>[' /','<=',' \\'],'shaft'=>['--','==','--']]],
+    ]]],
+  ],forBattle:true,presentation:\Ichiloto\Engine\Animations\Timelines\EffectPresentation::TERMINAL);
+}
+
+it('captures one Terminal lane before impact through live and reverse-preview consumers', function(bool $reduced,bool $enemyActs,bool $translated,bool $compact) {
+  ConfigStore::put(ProjectConfig::class,new PlaySettings(['accessibility'=>['reducedMotion'=>$reduced]]));
+  $width=$compact?80:135;$height=$compact?24:30;$origin=$translated?new Vector2(7,4):new Vector2();
+  Console::syncDimensions($width+intval($origin->x),$height+intval($origin->y));
+  $positions=PartyBattlerPositions::createForSize(1,$width,$height);
+  $actor=$enemyActs?$this->targets[0]:$this->actor;
+  $targets=$enemyActs?[$this->actor,$this->actor]:[$this->targets[0],$this->targets[1],$this->targets[0]];
+  $effect=terminalCapturedLaneEffect();
+  $plan=new BattleCommandTimeline(new BattleTurnTimings(.01,.01,.01,.01,.01,.01,.01),target:$effect);
+  $hits=0;$playback=new BattleCommandPlayback($plan,$actor,$targets,BattlePoseRole::MAGIC,function()use(&$hits){$hits++;},static fn()=>null);
+  $field=terminalPreviewField($this->battle,$positions,$origin,$width,$height);$field->setCommandPlayback($playback);
+  $presentation=new TerminalBattlePresentation($this->battle,$positions,$origin,$width,$height);
+  $start=$plan->phases['target']['start'];$playback->begin();$playback->update(($start+5)/120);
+  $snapshot=$playback->getCapturedTerminalLane();
+  expect($snapshot)->not->toBeNull()->and(array_keys($snapshot->targets))->toBe(array_values(array_unique(array_map(spl_object_id(...),$targets))))
+    ->and($hits)->toBe(0)->and($playback->getCapturedTargetGroup('snapshot'))->toBeNull();
+  $before=$presentation->getFrame($playback,$reduced);
+  expect(implode('',array_map(TerminalText::stripAnsi(...),array_column($before['draws'],'text'))))->not->toContain('<=','=>');
+  $playback->update(5/120);expect($hits)->toBe(1)->and($playback->getCapturedTerminalLane())->toBe($snapshot)->and($playback->presentationFailure)->toBeNull();
+  $frame=$presentation->getFrame($playback,$reduced);
+  $field->renderParty($this->battle->party);$field->renderTroop($this->battle->troop);$field->renderMagicCastEffects();
+  $buffer=Console::getBuffer();
+  foreach($frame['lines']as$row=>$line){
+    $live=NormalizedRow::fromText($buffer[$row+intval($origin->y)],Console::getWidth())->selectColumns(intval($origin->x),$width)->cells;
+    expect(NormalizedRow::fromText($line)->cells)->toBe($live);
+  }
+  $captured=$snapshot->targets;$playback->pause();$paused=$playback->session->currentFrame;$playback->update(10);
+  expect($playback->session->currentFrame)->toBe($paused)->and($presentation->getFrame($playback,$reduced))->toBe($frame);
+  $playback->resume();$playback->update(15/120);
+  $cleared=$presentation->getFrame($playback,$reduced);
+  expect(implode('',array_map(TerminalText::stripAnsi(...),array_column($cleared['draws'],'text'))))->not->toContain('<=','=>');
+  $playback->cancel();expect($playback->getCapturedTerminalLane())->toBeNull()->and($hits)->toBe(1);
+  $preview=new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($this->battle,$plan,$actor,$targets,BattlePoseRole::MAGIC,
+    presentation:\Ichiloto\Engine\Animations\Timelines\EffectPresentation::TERMINAL);
+  $first=null;
+  foreach([$start+10,$start,$start+20,$start+10]as$at){
+    $shown=$preview->getFrameAtIndex($at,$reduced);expect($shown->diagnostics)->toBe([]);
+    if($at===$start+10){if($first===null){$first=$shown->terminalLines;}else{expect($shown->terminalLines)->toBe($first);}}
+  }
+  expect($hits)->toBe(1)->and($snapshot->targets)->toBe($captured);
+})->with([false,true])->with([false,true])->with([false,true])->with([false,true]);
+
+it('captures a Terminal lane on a coarse update and clears cancellation without executing the impact',function(){
+  $effect=terminalCapturedLaneEffect();$plan=new BattleCommandTimeline(new BattleTurnTimings(.01,.01,.01,.01,.01,.01,.01),target:$effect);
+  foreach([false,true]as$cancel){
+    $hits=0;$p=new BattleCommandPlayback($plan,$this->actor,$this->targets,BattlePoseRole::MAGIC,function()use(&$hits){$hits++;},static fn()=>null);
+    $presentation=new TerminalBattlePresentation($this->battle);$presentation->bindCommandCapture($p);$p->begin();
+    if($cancel){$p->update(($plan->phases['target']['start']+5)/120);$p->cancel();$p->update(10);expect($hits)->toBe(0)->and($p->getCapturedTerminalLane())->toBeNull();}
+    else{$p->update(($plan->phases['target']['start']+10)/120);expect($hits)->toBe(1)->and($p->getCapturedTerminalLane())->not->toBeNull()->and($p->presentationFailure)->toBeNull();}
+  }
+});
+
+
+it('reports missing Terminal capture without suppressing impact and never paints a future rest sample early', function(bool $reduced){
+  $effect=terminalCapturedLaneEffect();$plan=new BattleCommandTimeline(new BattleTurnTimings(.01,.01,.01,.01,.01,.01,.01),target:$effect);
+  $hits=0;$p=new BattleCommandPlayback($plan,$this->actor,$this->targets,BattlePoseRole::MAGIC,function()use(&$hits){$hits++;},static fn()=>null);
+  $presentation=new TerminalBattlePresentation($this->battle);$p->begin();$p->update($plan->phases['target']['start']/120);
+  $frame=$presentation->getFrame($p,$reduced);
+  expect(implode('',array_map(TerminalText::stripAnsi(...),array_column($frame['draws'],'text'))))->not->toContain('<=','=>')
+    ->and($p->presentationFailure)->toBeNull()->and($hits)->toBe(0);
+  $p->update(10/120);$frame=$presentation->getFrame($p,$reduced);
+  expect($p->presentationFailure)->toBeInstanceOf(RuntimeException::class)->and($hits)->toBe(1)
+    ->and(implode('',array_map(TerminalText::stripAnsi(...),array_column($frame['draws'],'text'))))->not->toContain('<=','=>');
+  $p->update(10);expect($hits)->toBe(1);
+})->with([false,true]);
+
+
+it('captures the Terminal companion on its own clock without requiring it for graphical playback',function(bool $reduced){
+  $terminal=terminalCapturedLaneEffect();
+  $graphical=new CompiledEffectTimeline('graphical-synthetic','',fps:24,defaults:['lengthFrames'=>8,'restFrame'=>2,'effectTiming'=>['mode'=>'frame','frame'=>2]]);
+  $plan=new BattleCommandTimeline(new BattleTurnTimings(.01,.01,.01,.01,.01,.01,.01),target:$graphical,terminalTarget:$terminal);
+  expect($plan->requiresTerminalLaneCapture())->toBeTrue()->and($plan->requiresGraphicalAnchorCapture())->toBeFalse();
+  $hits=0;$p=new BattleCommandPlayback($plan,$this->actor,$this->targets,BattlePoseRole::MAGIC,function()use(&$hits){$hits++;},static fn()=>null);
+  $presentation=new TerminalBattlePresentation($this->battle);$presentation->bindCommandCapture($p,$reduced);$p->begin();
+  $p->update(($plan->phases['target']['start']+10)/120);$frame=$presentation->getFrame($p,$reduced);
+  expect($p->getCapturedTerminalLane())->not->toBeNull()->and($p->presentationFailure)->toBeNull()->and($hits)->toBe(1)
+    ->and(substr_count(implode('',array_map(TerminalText::stripAnsi(...),array_column($frame['draws'],'text'))),'<'))->toBe(1);
+  $p->cancel();
+  $graphicalOnly=new BattleCommandPlayback($plan,$this->actor,$this->targets,BattlePoseRole::MAGIC,static fn()=>null,static fn()=>null);
+  $graphicalOnly->begin();$graphicalOnly->update(1);expect($graphicalOnly->presentationFailure)->toBeNull();
+  $preview=new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($this->battle,$plan,$this->actor,$this->targets,BattlePoseRole::MAGIC,
+    presentation:\Ichiloto\Engine\Animations\Timelines\EffectPresentation::TERMINAL);
+  expect($preview->getFrameAtIndex($plan->phases['target']['start']+10,$reduced)->diagnostics)->toBe([]);
+})->with([false,true]);
+
+it('captures Terminal cells before a same-frame combat impact',function(){
+  $effect=terminalCapturedLaneEffect();$effect->defaults['terminalLaneCaptureFrame']=2;
+  $plan=new BattleCommandTimeline(new BattleTurnTimings(.01,.01,.01,.01,.01,.01,.01),target:$effect);
+  $p=null;$observed=null;
+  $p=new BattleCommandPlayback($plan,$this->actor,$this->targets,BattlePoseRole::MAGIC,
+    function()use(&$p,&$observed){$observed=$p->getCapturedTerminalLane();},static fn()=>null);
+  $presentation=new TerminalBattlePresentation($this->battle);$presentation->bindCommandCapture($p);$p->begin();$p->update(1);
+  expect($observed)->not->toBeNull()->and($p->presentationFailure)->toBeNull();
+});

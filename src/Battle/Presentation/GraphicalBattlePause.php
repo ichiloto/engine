@@ -82,7 +82,7 @@ final class GraphicalBattlePause
     return new PresentationCanvas($battlefield->width, $battlefield->height,
       [...$battlefield->images, ...$view->images], $battlefield->indicators, [...$battlefield->textLayers, ...$view->text],
       $battlefield->composites, [...$battlefield->getOverlayProtection(), $view->rect(0, 0, $width, $height)],
-      viewportFit: $battlefield->viewportFit);
+      viewportFit: $battlefield->viewportFit, groups: $battlefield->groups);
   }
 
   private function renderImage(string $id, string $role, float $x, float $y, float $width, float $height): void

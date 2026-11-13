@@ -122,7 +122,7 @@ final class CinematicCommandSchema
     'effectTiming', 'targetPresentation', 'authoring', 'availability', 'elementAffinities', 'effectiveAgainst',
   ];
   public const array SUMMON_TIMELINE_FIELDS = [
-    'formatVersion', 'fps', 'lengthFrames', 'restFrame', 'presentations', 'stage', 'tracks', 'cues', 'editor',
+    'formatVersion', 'fps', 'lengthFrames', 'restFrame', 'reducedMotionSamples', 'presentations', 'stage', 'tracks', 'cues', 'editor',
   ];
   public const array SUMMON_PLAYBACK_CONFIG_FIELDS = [
     'defaultSpeed', 'allowSkip', 'loopPreview',

@@ -15,7 +15,15 @@ class CompiledEffectTimeline
 
   public bool $hasTerminalContent {
     get => array_any($this->playbackSegments, static fn(array $segment): bool =>
-      EffectPresentation::TERMINAL->acceptsSegment($segment) && in_array($segment['layer'], ['glyph', 'text'], true));
+      EffectPresentation::TERMINAL->acceptsSegment($segment) && in_array($segment['layer'], ['glyph', 'glyph-lane', 'text'], true));
+  }
+
+  /** Pure graphical selection; null means an explicitly cleared reduced-motion picture. */
+  public function getReducedMotionSampleFrame(int $frame): ?int
+  {
+    return isset($this->defaults['reducedMotionSamples'])
+      ? EffectReducedMotionSamples::getSampleFrame($this->defaults['reducedMotionSamples'], $frame)
+      : (int)($this->defaults['restFrame'] ?? 0);
   }
 
   /**

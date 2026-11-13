@@ -115,6 +115,18 @@ final readonly class CinematicStage
     return new CinematicStageFrame($this, $active, $contentFrame, $camera, $cover, $drawsContent);
   }
 
+  /** A held picture or explicit clear on the actual stage lifetime; no moving covers. */
+  public function getFrameAtSample(int $frame, ?int $sampleFrame): CinematicStageFrame
+  {
+    if ($sampleFrame !== null && ($sampleFrame < 0 || $sampleFrame >= $this->lengthFrames)) {
+      throw new InvalidArgumentException('Stage sample must belong to the authored timeline.');
+    }
+    $actual = $this->getFrame($frame, true);
+    $sample = $sampleFrame === null ? $actual : $this->getFrame($sampleFrame);
+    return new CinematicStageFrame($this, $actual->active && $sampleFrame !== null, $sampleFrame ?? $frame,
+      $sample->camera, ['color' => 'black', 'opacity' => 0.0], $actual->drawsContent && $sampleFrame !== null);
+  }
+
   public function getSubjectPoint(string $id, ?string $attachment = null): array
   {
     $subject = array_find($this->data['subjects'], static fn(array $subject): bool => $subject['id'] === $id);

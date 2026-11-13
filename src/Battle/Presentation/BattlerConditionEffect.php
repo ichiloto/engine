@@ -37,7 +37,10 @@ final class BattlerConditionEffect implements BattleEffectPlayback
           : ($this->seconds < $intro ? $timing->getFrameCountAt($this->seconds)
             : $loopFrom + $timing->getFrameCountAt(fmod($this->seconds - $intro,
               ($length - $loopFrom) * $timing->secondsPerFrame)) % ($length - $loopFrom));
-        foreach ($timeline->playbackSegments as $segment) {
+        if ($reducedMotion && !$terminal && isset($timeline->defaults['reducedMotionSamples'])) {
+          $frame = $timeline->getReducedMotionSampleFrame(min($length - 1, $timing->getFrameCountAt($this->seconds)));
+        }
+        foreach ($frame === null ? [] : $timeline->playbackSegments as $segment) {
           if ($segment['startFrame'] <= $frame && $frame <= $segment['endFrame']) {
             foreach ($segment['drawCommands'] as &$command) {
               $command['trackId'] = 'condition-' . $index . '-' . $command['trackId'];
@@ -56,7 +59,7 @@ final class BattlerConditionEffect implements BattleEffectPlayback
         ]]];
       }
       array_push($segments, ...EffectSegmentComposition::compose($active,
-        $terminal ? EffectPresentation::TERMINAL : EffectPresentation::GRAPHICAL));
+        $terminal ? EffectPresentation::TERMINAL : EffectPresentation::GRAPHICAL, $terminal ? null : $reducedMotion));
     }
     return $segments;
   }

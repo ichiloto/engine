@@ -28,6 +28,12 @@ final class TerminalBattlePresentation
       new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary(getcwd() . '/assets'));
   }
 
+  public function bindCommandCapture(BattleCommandPlayback $playback, bool $reducedMotion = false): void
+  {
+    $this->effects->bindCommandCapture($playback, $this->battle->partyRoster->battlers,
+      $this->battle->troop->members->toArray(), $reducedMotion);
+  }
+
   /** @return array{lines: list<string>, draws: array, flashes: array} */
   public function getFrame(?BattleCommandPlayback $playback = null, bool $reducedMotion = false, float $poseSeconds = 0): array
   {

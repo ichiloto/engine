@@ -4675,3 +4675,108 @@ The layer-selection contract is documented in
 - [ ] Qualify the integrated affected rooms through the existing authorized
   graphical playtest. No renderer protocol, map geometry, collision or save
   change belongs to this contract.
+
+
+## Translated local canvas groups (12 November 2026)
+
+The Engine drawing model now supports `PresentationCanvas.groups`: each
+`CanvasGroup` has a local child canvas, an exact parent-logical `origin`, a layer
+and an optional parent-logical clip. It paints atomically at that layer, after
+existing primitive types at an equal layer. Children keep their source geometry,
+inherit the parent display scale, and use native viewport fitting. Parent and
+ancestor clips intersect; an offscreen origin never clamps the child into view.
+IDs belong to their local canvas. Existing flat canvas JSON stays unchanged.
+
+`canvas_groups` is an optional negotiated drawing capability. The retained
+protocol uses `put`/`remove` with kind `canvas_group`; each value contains the
+whole group's ordinary nested canvas descriptor and stable retained `order`.
+Changing its origin updates that group without replaying unchanged HUD drawings.
+Removing or replacing the root retires its groups. Descendant drawing features
+require the same capabilities as their root equivalents.
+
+There are at most 128 drawn group instances across a candidate and eight nested
+levels. All descendants, including reused model instances, share the existing
+image, indicator, text, label, composite surface/pixel/work, and asset-region
+limits with all root and world canvases. Finite origin and translated edges use
+the existing 16384-coordinate bound. World references and overlay protection
+recurse; generic overlays and battle/menu reconstruction preserve child groups.
+
+Native renderer and GUI Editor CPU raster/preview support remain with Claude.
+Reuse the existing local canvas preparation/painting behind world canvases; a
+battle group has screen-space placement and does not require a synthetic world.
+The native and CPU ports must agree on stable layer order, ancestor clipping,
+resource accounting, preparation reuse and cleanup. The TUI retains its existing
+workflow. Engine wire/model tests do not prove those native/Editor ports.
+
+Whole-field motion, authored battler recoil and timed reduced-motion holds now
+have Engine implementations and windowless qualification; see the current
+contracts in `effect-animation.md`. Game production binding, assembled native
+checks and player acceptance remain separate work.
+
+### Group colour treatment
+
+`CanvasGroup.colorTransform` is optional and uses `CanvasColorTransform`:
+
+```json
+{
+  "matrix": [[-1, 0, 0], [0, -1, 0], [0, 0, -1]],
+  "offset": [1, 1, 1]
+}
+```
+
+For each straight (non-premultiplied) RGB vector in normalized existing drawing
+channels, output is `matrix * rgb + offset`. Alpha is unchanged, including zero.
+The group treatment applies to its completed child drawing before it blends
+into its parent; parent treatment follows child treatment. Composite operations
+finish their own blend/mask operations first, then receive group treatment on
+the completed composite, never on each internal operation. Untreated siblings,
+HUD and authored final-colour effects retain their own colours. Missing treatment
+means identity and leaves existing wire descriptors unchanged. Generic screen
+overlay composition preserves the treatment along with the group's placement.
+
+Every matrix row must preserve the complete RGB unit cube: its offset plus the
+sum of negative coefficients is at least zero, and its offset plus the sum of
+positive coefficients is at most one. All values are finite numeric values
+without string/bool coercion. A tolerance of 1e-12 admits arithmetic noise only;
+clamping handles that noise. Saturating exposure transforms such as
+`clamp(2 * rgb - 0.5)` are refused. Such clipping would break equivalence between
+treating a composed group and treating its source-over prepared drawings.
+`transformRgb()` supplies a pure Engine reference calculation. Renderer code must
+preserve alpha and apply the same channel order and nested order.
+
+The optional protocol-v2 capability is `canvas_group_color`, requiring
+`graphical_canvas`, `canvas_groups` and `canvas_region_budget`. An unsupported
+nested treatment refuses the whole candidate before any partial frame is sent.
+A changed treatment replaces that retained `canvas_group`; unchanged HUD and
+sibling drawings are not replayed. Transformed image/composite variants consume
+the existing prepared-region budget; native glyph/label variants use the existing
+64 MiB device-raster pool. Distinct prepared treatments release obsolete variants
+through the existing cache lifecycle. Group limits, clipping, draw order and all existing aggregate
+frame budgets continue to apply. Author held values rather than unbounded
+per-display-frame ramps.
+
+`CanvasImagePreflight::inspectCanvases()` preserves each drawn instance's effective
+parent-after-child treatment when charging images and finished guarded composite
+surfaces. Each distinct source region/effective treatment costs one variant; an
+image's tone, flips, rotation and bottom fade combine into that same variant.
+Identity treatment, including composed identity, costs no additional variant.
+The original guarded crop remains charged. This refuses over-budget treated or
+faded frames that the earlier incomplete accounting admitted.
+
+Still/export consumers use `inspectCanvasResources()` with the original canvas
+roots rather than flattened image lists. Resource limits are shared across all
+roots; this entry point preserves local group validation while leaving whole-map
+exports independent of per-frame instance-count limits. An optional artwork
+filter lets a still renderer retain its existing missing-art diagnostics. Runtime
+`inspectCanvases()` keeps the full aggregate frame gate. Flat `inspect()` accounts
+for untreated flat drawings and cannot represent group treatment.
+
+This group contract does not move effects in front of battlers: when treated
+artwork interleaves with untreated effects, preserve the original stable depth
+order with appropriately placed groups sharing the same treatment. Putting all
+bodies into one atomic group and all effects after it changes that order.
+
+Engine model, transport and mathematical tests are windowless. Claude owns native
+and Editor CPU raster ports, including preparation accounting and equivalence at
+their raster precision. Field-colour timeline authoring and live battle binding
+remain work. No native launch, final cinematic or author acceptance is claimed.

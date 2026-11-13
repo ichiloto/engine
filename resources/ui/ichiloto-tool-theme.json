@@ -26,7 +26,20 @@
     "overlay_walk_start": "#6cc58a",
     "overlay_walk_waypoint": "#e0b252",
     "overlay_walk_endpoint": "#e06c6c",
-    "scrim": "#000000"
+    "scrim": "#000000",
+    "overlay_named_area": "#b48ead",
+    "collision_open": "#68b58b",
+    "collision_solid": "#e06c6c",
+    "collision_counter": "#e0b252",
+    "collision_other": "#5aa9e6",
+    "ground_appearance_ground": "#6cc58a",
+    "ground_appearance_water": "#5aa9e6",
+    "ground_appearance_barrier": "#e06c6c",
+    "ground_appearance_overhead": "#b48ead",
+    "passage_invisible_wall": "#f2c94c",
+    "passage_walk_through": "#d36ad3",
+    "passage_footprint": "#f28c38",
+    "passage_unjudged": "#9aa3b2"
   },
   "terminal": {
     "background": 0,
@@ -54,6 +67,19 @@
     "overlay_walk_start": 10,
     "overlay_walk_waypoint": 11,
     "overlay_walk_endpoint": 9,
-    "scrim": 0
+    "scrim": 0,
+    "overlay_named_area": 13,
+    "collision_open": 10,
+    "collision_solid": 9,
+    "collision_counter": 11,
+    "collision_other": 12,
+    "ground_appearance_ground": 10,
+    "ground_appearance_water": 12,
+    "ground_appearance_barrier": 9,
+    "ground_appearance_overhead": 13,
+    "passage_invisible_wall": 11,
+    "passage_walk_through": 13,
+    "passage_footprint": 3,
+    "passage_unjudged": 8
   }
 }

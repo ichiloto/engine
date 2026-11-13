@@ -64,12 +64,24 @@ final class CinematicStageSession
     $this->elapsedSeconds = $elapsedSeconds;
   }
 
+  /** Layer replacement follows the same pure sample selection as the drawing. */
+  public function isPresenting(bool $reducedMotion = false): bool
+  {
+    return $this->checkIsCurrent() && !$this->hasEnded && !$this->hasPresentationFailure
+      && (!$reducedMotion || !isset($this->timeline->defaults['reducedMotionSamples'])
+        || $this->timeline->getReducedMotionSampleFrame($this->currentFrame) !== null);
+  }
+
   public function getCanvas(int $width, int $height, bool $reducedMotion = false, bool $imageFlips = true): ?PresentationCanvas
   {
-    if (!$this->checkIsCurrent() || $this->hasEnded || $this->hasPresentationFailure) { return null; }
+    if (!$this->isPresenting($reducedMotion)) { return null; }
     try {
-      return CinematicStagePresentation::compose($this->stage->getFrame($this->currentFrame, $reducedMotion),
-        $this->timeline->playbackSegments, $this->assetRoot, $width, $height, $imageFlips);
+      $frame = $reducedMotion && isset($this->timeline->defaults['reducedMotionSamples'])
+        ? $this->stage->getFrameAtSample($this->currentFrame, $this->timeline->getReducedMotionSampleFrame($this->currentFrame))
+        : $this->stage->getFrame($this->currentFrame, $reducedMotion);
+      return CinematicStagePresentation::compose($frame,
+        \Ichiloto\Engine\Animations\Timelines\EffectMotionScope::filterSegments($this->timeline->playbackSegments, $reducedMotion),
+        $this->assetRoot, $width, $height, $imageFlips);
     } catch (InvalidArgumentException|RuntimeException $error) {
       $this->hasPresentationFailure = true;
       Debug::warn('Optional stage presentation unavailable: ' . $error->getMessage());

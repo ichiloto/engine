@@ -8,4 +8,5 @@ enum EffectAnchorLifetime: string
 {
   case FOLLOW = 'follow';
   case EFFECT_START = 'effect-start';
+  case TARGET_CAPTURE = 'target-capture';
 }

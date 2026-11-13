@@ -33,4 +33,17 @@ enum ToolColor: string
   case OVERLAY_WALK_WAYPOINT = 'overlay_walk_waypoint';
   case OVERLAY_WALK_ENDPOINT = 'overlay_walk_endpoint';
   case SCRIM = 'scrim';
+  case OVERLAY_NAMED_AREA = 'overlay_named_area';
+  case COLLISION_OPEN = 'collision_open';
+  case COLLISION_SOLID = 'collision_solid';
+  case COLLISION_COUNTER = 'collision_counter';
+  case COLLISION_OTHER = 'collision_other';
+  case GROUND_APPEARANCE_GROUND = 'ground_appearance_ground';
+  case GROUND_APPEARANCE_WATER = 'ground_appearance_water';
+  case GROUND_APPEARANCE_BARRIER = 'ground_appearance_barrier';
+  case GROUND_APPEARANCE_OVERHEAD = 'ground_appearance_overhead';
+  case PASSAGE_INVISIBLE_WALL = 'passage_invisible_wall';
+  case PASSAGE_WALK_THROUGH = 'passage_walk_through';
+  case PASSAGE_FOOTPRINT = 'passage_footprint';
+  case PASSAGE_UNJUDGED = 'passage_unjudged';
 }

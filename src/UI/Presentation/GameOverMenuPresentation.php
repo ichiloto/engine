@@ -67,6 +67,6 @@ final class GameOverMenuPresentation
     }
     $canvas = $view->finish();
     return new PresentationCanvas($canvas->width, $canvas->height, $canvas->images,
-      textLayers: [...$canvas->textLayers, $heading], protectedAreas: $canvas->getOverlayProtection(), viewportFit: $canvas->viewportFit);
+      textLayers: [...$canvas->textLayers, $heading], protectedAreas: $canvas->getOverlayProtection(), viewportFit: $canvas->viewportFit, groups: $canvas->groups);
   }
 }

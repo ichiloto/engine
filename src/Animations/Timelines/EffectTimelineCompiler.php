@@ -20,6 +20,7 @@ final class EffectTimelineCompiler
           'endFrame' => $keyframe['frame'] + ($keyframe['duration'] ?? 1) - 1,
           'layer' => $track['type'],
           'presentation' => $presentation,
+          ...(($track['motion'] ?? 'all') === 'all' ? [] : ['motion' => EffectMotionScope::parse($track['motion'])->value]),
           'drawCommands' => [[
             'trackId' => $track['id'],
             'position' => $keyframe['position'] ?? null,

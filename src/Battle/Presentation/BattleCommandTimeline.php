@@ -51,6 +51,10 @@ final readonly class BattleCommandTimeline
   private array $cinematicStages;
   /** @var array<string, list<array>> Unshifted authored segments for each stage. */
   private array $cinematicSegments;
+  /** @var array<string, list<array{frame: int, duration: int, sourceFrame: ?int}>> */
+  private array $reducedSamples;
+  /** The same lane-owned drawing commands with their original authored intervals. */
+  private array $reducedSegments;
   public ?CompiledEffectTimeline $terminalTarget;
   public array $terminalSegments;
   public ?EffectPlaybackTiming $terminalTiming;
@@ -63,7 +67,7 @@ final readonly class BattleCommandTimeline
   public function requiresGraphicalAnchorCapture(): bool
   {
     return array_any($this->timeline->cueSchedule, static fn(array $cue): bool =>
-      $cue['type'] === 'commandCapturePosePoint' || in_array($cue['type'], ['commandCaptureTargetGroup', 'commandCaptureTargetContacts'], true));
+      $cue['type'] === 'commandCapturePosePoint' || in_array($cue['type'], ['commandCaptureTargetGroup', 'commandCaptureTargetContacts', 'commandCaptureTargetSnapshot'], true));
   }
 
   /**
@@ -93,6 +97,9 @@ final readonly class BattleCommandTimeline
     $targetContacts = null;
     if (isset($source->defaults['hitFeedbackFrames'])) {
       throw new InvalidArgumentException('Recorded hit feedback belongs to the target effect lane.');
+    }
+    if (isset($source->defaults['targetCaptureFrame']) || isset($source->defaults['terminalLaneCaptureFrame'])) {
+      throw new InvalidArgumentException('Target capture belongs to the target effect lane.');
     }
     if (isset($source->defaults['targetContactSequence'])) {
       throw new InvalidArgumentException('Target contact sequencing belongs to the target effect lane.');
@@ -128,7 +135,7 @@ final readonly class BattleCommandTimeline
       $length = max(1, (int)ceil($timings->statChanges * self::FPS));
       $this->summon = $this->terminalTarget = $this->terminalTiming = null;
       $this->cinematicStage = null;
-      $this->cinematicStages = $this->cinematicSegments = [];
+      $this->cinematicStages = $this->cinematicSegments = $this->reducedSamples = $this->reducedSegments = [];
       $this->sourceTiming = $this->targetTiming = null;
       $this->terminalSegments = [];
       $this->restFrames = $this->restSegments = [];
@@ -170,7 +177,7 @@ final readonly class BattleCommandTimeline
     $fallbackHitTail = max(0, $targetCount - 1) * $this->fallbackHitSpacing;
     $this->terminalTiming = $this->terminalTarget === null ? null
       : EffectPlaybackTiming::createForBattlePhase($this->terminalTarget, $timings->effectAnimation);
-    $phases = $cues = $segments = $restFrames = $restSegments = [];
+    $phases = $cues = $segments = $restFrames = $restSegments = $reducedSamples = $reducedSegments = [];
     $detachments = $targetGroupCaptures = [];
     $impact = 0;
     $effectEnd = 0;
@@ -224,6 +231,10 @@ final readonly class BattleCommandTimeline
         if ($sourceEffectAnchor === SourceEffectAnchor::TARGET && $sourceTiming !== null) {
           $length = max($length, $sourceTiming->getFrameBoundary($sourceTiming->totalFrames, self::FPS));
         }
+        if (isset($this->terminalTarget?->defaults['terminalLaneCaptureFrame'])) {
+          $cues[] = ['id' => 'capture-terminal-lane', 'type' => 'commandCaptureTerminalLane',
+            'frame' => $cursor + $this->terminalTiming->getFrameBoundary($this->terminalTarget->defaults['terminalLaneCaptureFrame'], self::FPS), 'payload' => []];
+        }
         $effectEnd = $cursor + $length;
         $syncFrame = $target?->defaults['poseSyncFrame'] ?? null;
         if ($syncFrame !== null && (!is_int($syncFrame) || $syncFrame < 0 || $syncFrame >= $targetTiming->totalFrames)) {
@@ -268,8 +279,17 @@ final readonly class BattleCommandTimeline
       };
       foreach ($effects as [$lane, $effect, $clock]) {
         if ($effect === null || $clock === null) { continue; }
+        if (isset($effect->defaults['reducedMotionSamples'])) { $reducedSamples[$lane] = $effect->defaults['reducedMotionSamples']; }
         $rest = clamp((int)($effect->defaults['restFrame'] ?? $clock->totalFrames - 1), 0, $clock->totalFrames - 1);
         $range = $lane === 'target' ? $this->rangeTiming : null;
+        if ($lane === 'target' && isset($effect->defaults['terminalLaneCaptureFrame'])) {
+          $cues[] = ['id' => 'capture-terminal-lane', 'type' => 'commandCaptureTerminalLane',
+            'frame' => $cursor + $clock->getFrameBoundary($effect->defaults['terminalLaneCaptureFrame'], self::FPS), 'payload' => []];
+        }
+        if ($lane === 'target' && isset($effect->defaults['targetCaptureFrame'])) {
+          $cues[] = ['id' => 'capture-target-snapshot', 'type' => 'commandCaptureTargetSnapshot',
+            'frame' => $cursor + $clock->getFrameBoundary($effect->defaults['targetCaptureFrame'], self::FPS), 'payload' => []];
+        }
         if ($lane === 'target' && isset($effect->defaults['targetContactSequence'])) {
           $contact = $effect->defaults['targetContactSequence'];
           $targetContacts = new BattleTargetContactSequence(
@@ -293,6 +313,9 @@ final readonly class BattleCommandTimeline
               $command['payload']['capturedTargetGroup'] = $lane;
               $targetGroupCaptures[$lane] ??= ['id' => 'capture-target-group-' . $lane,
                 'type' => 'commandCaptureTargetGroup', 'frame' => $cursor, 'payload' => ['lane' => $lane]];
+            }
+            if (($command['payload']['anchorLifetime'] ?? null) === EffectAnchorLifetime::TARGET_CAPTURE->value) {
+              $command['payload']['capturedTargetGroup'] = 'snapshot';
             }
             if (!isset($command['payload']['detachFrame'])) { continue; }
             $detach = $cursor + $boundary($command['payload']['detachFrame']);
@@ -330,7 +353,10 @@ final readonly class BattleCommandTimeline
             }
             unset($command);
           }
-          if ($segment['startFrame'] <= $rest && $rest <= $segment['endFrame']) {
+          if (isset($reducedSamples[$lane])) {
+            $reducedSegments[$lane][] = ['startFrame' => $segment['startFrame'], 'endFrame' => $segment['endFrame'], 'segment' => $copy];
+          }
+          if (!isset($reducedSamples[$lane]) && $segment['startFrame'] <= $rest && $rest <= $segment['endFrame']) {
             $restSegments[$phase][] = [...$copy, 'startFrame' => $cursor, 'endFrame' => $cursor + $length - 1];
           }
           if ($copy['startFrame'] <= $copy['endFrame']) { $segments[] = $copy; }
@@ -389,7 +415,7 @@ final readonly class BattleCommandTimeline
     $cues[] = ['id' => 'command-impact', 'type' => 'commandImpact', 'frame' => $impact, 'payload' => []];
     $cues = [...$cues, ...array_values($detachments), ...array_values($targetGroupCaptures)];
     $order = static fn(array $cue): int => match ($cue['type']) {
-      'commandCapturePosePoint', 'commandCaptureTargetGroup', 'commandCaptureTargetContacts', 'commandArenaRestored' => 0, 'commandImpact' => 1, default => 2,
+      'commandCapturePosePoint', 'commandCaptureTargetGroup', 'commandCaptureTargetContacts', 'commandCaptureTargetSnapshot', 'commandCaptureTerminalLane', 'commandArenaRestored' => 0, 'commandImpact' => 1, default => 2,
     };
     usort($cues, static fn(array $a, array $b): int => [$a['frame'], $order($a)] <=> [$b['frame'], $order($b)]);
     $this->actionPoseAnchorFrame = $poseAnchor;
@@ -398,6 +424,8 @@ final readonly class BattleCommandTimeline
     $this->phases = $phases;
     $this->restFrames = $restFrames;
     $this->restSegments = $restSegments;
+    $this->reducedSamples = $reducedSamples;
+    $this->reducedSegments = $reducedSegments;
     $hitFeedback = isset($target->defaults['hitFeedbackFrames'])
       ? BattleRecordedHitTimeline::readFrames($target->defaults['hitFeedbackFrames'], $targetTiming->totalFrames) : [];
     $this->hitFeedbackFrames = array_map(fn(int $frame): int =>
@@ -446,15 +474,46 @@ final readonly class BattleCommandTimeline
   public function getCinematicStageFrame(int $frame, bool $reducedMotion = false): ?CinematicStageFrame
   {
     $lane = $this->getActiveCinematicLane($frame);
-    return $lane === null ? null : $this->cinematicStages[$lane]->getFrame(
-      $this->getAuthoredFrameAtCommandFrame($lane, $frame), $reducedMotion);
+    if ($lane === null) { return null; }
+    $authored = $this->getAuthoredFrameAtCommandFrame($lane, $frame);
+    return $reducedMotion && isset($this->reducedSamples[$lane])
+      ? $this->cinematicStages[$lane]->getFrameAtSample($authored,
+        \Ichiloto\Engine\Animations\Timelines\EffectReducedMotionSamples::getSampleFrame($this->reducedSamples[$lane], $authored))
+      : $this->cinematicStages[$lane]->getFrame($authored, $reducedMotion);
   }
 
   /** @return list<array> The active stage's original segments, using the same authored clock as its frame. */
-  public function getCinematicStageSegments(int $frame): array
+  public function getCinematicStageSegments(int $frame, bool $reducedMotion = false): array
   {
     $lane = $this->getActiveCinematicLane($frame);
-    return $lane === null ? [] : $this->cinematicSegments[$lane];
+    return $lane === null ? [] : \Ichiloto\Engine\Animations\Timelines\EffectMotionScope::filterSegments(
+      $this->cinematicSegments[$lane], $reducedMotion);
+  }
+
+  /** Select held drawings without changing command time, cue dispatch or captured geometry. */
+  public function getReducedMotionSegments(int $frame, string $phase): ?array
+  {
+    $segments = $this->restSegments[$phase] ?? null;
+    foreach ($this->reducedSamples as $lane => $samples) {
+      $authored = $this->getAuthoredFrameAtCommandFrame($lane, $frame);
+      if ($authored === null) { continue; }
+      $segments ??= [];
+      $sample = \Ichiloto\Engine\Animations\Timelines\EffectReducedMotionSamples::getSampleFrame($samples, $authored);
+      if ($sample === null) { continue; }
+      foreach ($this->reducedSegments[$lane] ?? [] as $entry) {
+        if ($entry['startFrame'] > $sample || $sample > $entry['endFrame']) { continue; }
+        $held = $entry['segment'];
+        if ($held['layer'] === 'trail') {
+          $sampleTick = $this->getCommandFrameForAuthoredFrame($lane, $sample);
+          if ($sampleTick !== null) {
+            foreach ($held['drawCommands'] as &$command) { $command['payload']['restSampleFrame'] = $sampleTick; }
+            unset($command);
+          }
+        }
+        $segments[] = $held;
+      }
+    }
+    return $segments;
   }
 
   public function hasCinematicStage(string $lane): bool
@@ -524,6 +583,13 @@ final readonly class BattleCommandTimeline
       'terminal-target' => $this->terminalTiming,
       default => throw new InvalidArgumentException('An authored battle lane must be source, target or terminal-target.'),
     };
+  }
+
+  /** Primary and companion Terminal presentations own the same renderer-specific capture lifetime. */
+  public function requiresTerminalLaneCapture(): bool
+  {
+    return array_any([...$this->timeline->playbackSegments, ...$this->terminalSegments],
+      static fn(array $segment): bool => $segment['layer'] === 'glyph-lane');
   }
 
   /** A scaled lane stamps its image commands; glyphs and text keep their cells, which cannot resize without distortion. */

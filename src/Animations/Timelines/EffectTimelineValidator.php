@@ -35,8 +35,8 @@ final class EffectTimelineValidator
       }
       $data = $variants[$presentation->value];
     }
-    if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'loopFrom', 'restFrame', 'tracks', 'cues',
-      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'poseClock', 'rangeTiming', 'flightTiming', 'fallbackHitSpacingFrames', 'targetContactSequence', 'hitFeedbackFrames'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
+    if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'loopFrom', 'restFrame', 'reducedMotionSamples', 'tracks', 'cues',
+      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'poseClock', 'rangeTiming', 'flightTiming', 'fallbackHitSpacingFrames', 'targetContactSequence', 'hitFeedbackFrames', 'targetCaptureFrame'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
       throw new InvalidArgumentException("Effect {$id} accepts fps, lengthFrames, playback, loopFrom, restFrame, tracks and presentation cues.");
     }
     $length = $data['lengthFrames'] ?? null;
@@ -54,6 +54,14 @@ final class EffectTimelineValidator
     if (!is_int($fps) || $fps < 1 || $fps > 120 || !is_int($length) || $length < 1 || $length > 100000
       || !is_int($rest) || $rest < 0 || $rest >= $length || !in_array($playback, ['once', 'loop'], true)) {
       throw new InvalidArgumentException("Effect {$id} needs fps 1..120, lengthFrames 1..100000, a restFrame in that range and once or loop playback.");
+    }
+    $reducedSamples = null;
+    if (array_key_exists('reducedMotionSamples', $data)) {
+      if ($playback !== 'once' || $cadence !== EffectCadence::FIXED) {
+        throw new InvalidArgumentException('Reduced-motion samples require a fixed once graphical timeline.');
+      }
+      $validated = EffectReducedMotionSamples::validate($data['reducedMotionSamples'], $length);
+      if ($presentation === EffectPresentation::GRAPHICAL) { $reducedSamples = $validated; }
     }
     $poseClockValue = array_key_exists('poseClock', $data) ? $data['poseClock'] : EffectPoseClock::ANNOUNCEMENT->value;
     $poseClock = is_string($poseClockValue) ? EffectPoseClock::tryFrom($poseClockValue) : null;
@@ -85,25 +93,51 @@ final class EffectTimelineValidator
     if (!is_array($tracks) || !array_is_list($tracks) || (!$forSummon && !$forStage && $tracks === []) || count($tracks) > 32) {
       throw new InvalidArgumentException("Effect {$id} needs a list of 1..32 tracks.");
     }
-    $ids = $normalized = [];
-    $hasImages = $imageRestCovered = $stageRestCovered = false;
+    $ids = $normalized = $motionScopes = [];
+    $hasImages = $imageRestCovered = $stageRestCovered = $hasTerminalLane = false;
     foreach ($tracks as $track) {
       if (!is_array($track) || !is_string($track['id'] ?? null) || isset($ids[$track['id']])
-        || !in_array($track['type'] ?? null, ['image', 'glyph', 'text', ...($forBattle ? ['flash', 'shake', 'tone'] : []), ...($forBattle && !$forSummon ? ['trail', 'tether'] : [])], true)) {
+        || !in_array($track['type'] ?? null, EffectTrackType::getSupportedValues($forBattle, $forSummon), true)) {
         throw new InvalidArgumentException("Effect {$id} has an invalid or duplicate track.");
       }
       EffectTimelineLibrary::assertId($track['id']);
-      $graphicalOnly = in_array($track['type'], ['trail', 'tether'], true);
-      $scope = EffectPresentation::validateTrack($track['presentation'] ?? ($graphicalOnly ? 'graphical' : 'all'));
+      $graphicalOnly = EffectTrackType::from($track['type'])->requiresGraphicalPresentation();
+      $terminalOnly = EffectTrackType::from($track['type'])->requiresTerminalPresentation();
+      $motion = EffectMotionScope::parse($track['motion'] ?? 'all');
+      $scope = EffectPresentation::validateTrack($track['presentation']
+        ?? ($terminalOnly ? 'terminal' : ($graphicalOnly || $motion !== EffectMotionScope::ALL ? 'graphical' : 'all')));
+      if ($motion !== EffectMotionScope::ALL && $scope !== 'graphical') {
+        throw new InvalidArgumentException('Motion-specific drawings require graphical presentation.');
+      }
+      if ($motion === EffectMotionScope::REDUCED && in_array($track['type'], ['field-motion', 'battler-motion'], true)) {
+        throw new InvalidArgumentException('Reduced motion cannot author field or battler displacement.');
+      }
+      $motionScopes[$track['id']] = $motion;
+      unset($track['motion']);
+      $track['presentation'] = $scope;
       if ($graphicalOnly && $scope !== 'graphical') {
         throw new InvalidArgumentException("Effect {$id} {$track['type']} presentation must be graphical.");
       }
+      if ($terminalOnly && $scope !== 'terminal') { throw new InvalidArgumentException('Glyph lanes require Terminal presentation.'); }
       $ids[$track['id']] = true;
       // Unselected graphical resources are not dependencies of terminal playback.
       if (!$presentation->acceptsSegment(['layer' => $track['type'], 'presentation' => $scope])) { continue; }
       if ($forStage && $presentation === EffectPresentation::GRAPHICAL
         && ($track['type'] !== 'image' || ($track['anchor'] ?? null) !== 'stage')) {
         throw new InvalidArgumentException('A caller-owned stage presentation accepts only stage image tracks.');
+      }
+      if ($track['type'] === 'glyph-lane') {
+        $normalized[] = BattleGlyphLaneTrack::compile($track, $length, $playback, $cadence, $data['targetCaptureFrame'] ?? null);
+        $hasTerminalLane = true;
+        continue;
+      }
+      if ($track['type'] === 'battler-motion') {
+        $normalized[] = BattleBattlerMotionTrack::compile($track, $length, $playback, $cadence);
+        continue;
+      }
+      if ($track['type'] === 'field-motion') {
+        $normalized[] = BattleFieldMotionTrack::compile($track, $length, $playback, $cadence);
+        continue;
       }
       if ($track['type'] === 'trail') {
         $normalized[] = self::compileTrail($id, $track, $length, $playback, isset($data['rangeTiming']));
@@ -224,6 +258,10 @@ final class EffectTimelineValidator
           || $playback !== 'once')) {
         throw new InvalidArgumentException("Effect {$id} anchorLifetime requires a once-playing target-group ground image and a known lifetime.");
       }
+      if ($anchorLifetime === EffectAnchorLifetime::TARGET_CAPTURE->value
+        && !array_key_exists('targetCaptureFrame', $data)) {
+        throw new InvalidArgumentException("Effect {$id} target-capture lifetime requires an authored targetCaptureFrame.");
+      }
       $contactRail = null;
       if (array_key_exists('contactRail', $track)) {
         if (!$forBattle || $anchorLifetime !== EffectAnchorLifetime::EFFECT_START->value) {
@@ -293,6 +331,10 @@ final class EffectTimelineValidator
           || (!$onStage && (!is_int($position['x'] ?? null) || !is_int($position['y'] ?? null)))) {
           throw new InvalidArgumentException("Effect {$id} has an invalid keyframe range, sourceFrame or cell offset.");
         }
+        if ($anchorLifetime === EffectAnchorLifetime::TARGET_CAPTURE->value
+          && (!is_int($data['targetCaptureFrame'] ?? null) || $at < $data['targetCaptureFrame'])) {
+          throw new InvalidArgumentException("Effect {$id} snapshot-bound images must start at or after targetCaptureFrame.");
+        }
         $asset = array_key_exists('asset', $frame) ? $frame['asset'] : $defaultAsset;
         $size = array_key_exists('asset', $frame) || $defaultSize === null
           ? $this->inspectImageSource($id, $asset, $sheet) : $defaultSize;
@@ -332,10 +374,10 @@ final class EffectTimelineValidator
       }
       $normalized[] = ['id' => $track['id'], 'type' => 'image', 'presentation' => $scope, 'keyframes' => $keyframes];
     }
-    if ($hasImages && !$imageRestCovered) {
+    if ($hasImages && !$imageRestCovered && $reducedSamples === null) {
       throw new InvalidArgumentException("Effect {$id} image sequence has no authored rest presentation.");
     }
-    if ($stage !== null && !$stageRestCovered && !($forStage && $tracks === [])) {
+    if ($stage !== null && !$stageRestCovered && $reducedSamples === null && !($forStage && $tracks === [])) {
       throw new InvalidArgumentException('Cinematic stage needs image content at its safe reduced-motion frame.');
     }
     $cues = $data['cues'] ?? [];
@@ -386,7 +428,8 @@ final class EffectTimelineValidator
         && $presentation->acceptsSegment(['presentation' => $track['presentation'] ?? 'all'])));
       $spacedFlight = count($flights) === 1 ? $flights[0] : null;
       $impact = self::getAuthoredImpactFrame($cues, $timing);
-      if ($spacedFlight === null || $spacedFlight['flight']['arrivalFrame'] !== $impact
+      if ($spacedFlight === null || ($spacedFlight['flight']['mode'] ?? EffectFlightMode::PROJECTILE->value) === EffectFlightMode::BEAM->value
+        || $spacedFlight['flight']['arrivalFrame'] !== $impact
         || ($spacedFlight['flight']['holdFrame'] ?? $impact) !== $impact
         || ($stage !== null && $impact < $stage->data['restoreFrame'])) {
         throw new InvalidArgumentException("Effect {$id} spaced fallback hits require one horizontal exit with arrival at impact, at or after battlefield restoration.");
@@ -402,6 +445,15 @@ final class EffectTimelineValidator
         throw new InvalidArgumentException('Recorded hit feedback must begin after battlefield restoration.');
       }
     }
+    $targetCaptureFrame = null;
+    if (array_key_exists('targetCaptureFrame', $data) && ($presentation === EffectPresentation::GRAPHICAL || $hasTerminalLane)) {
+      $targetCaptureFrame = $data['targetCaptureFrame'];
+      if (!is_int($targetCaptureFrame) || $targetCaptureFrame < 0 || $targetCaptureFrame >= $length
+        || $playback !== 'once' || $cadence !== EffectCadence::FIXED
+        || isset($data['rangeTiming']) || isset($data['flightTiming'])) {
+        throw new InvalidArgumentException("Effect {$id} targetCaptureFrame requires a frame in a fixed once-playing target timeline.");
+      }
+    }
     $contacts = null;
     if (array_key_exists('targetContactSequence', $data) && $presentation === EffectPresentation::GRAPHICAL) {
       if ($playback !== 'once' || $cadence !== EffectCadence::FIXED || $spacing !== null
@@ -409,6 +461,9 @@ final class EffectTimelineValidator
         throw new InvalidArgumentException("Effect {$id} target contacts require fixed once playback independent of flight spacing or variable clocks.");
       }
       $contacts = \Ichiloto\Engine\Battle\Presentation\BattleTargetContactSequence::fromArray($data['targetContactSequence'], $length, $tracks);
+      if ($targetCaptureFrame !== null && $targetCaptureFrame > $contacts->firstFrame) {
+        throw new InvalidArgumentException("Effect {$id} selected targets must be captured before their first contact.");
+      }
       if ($stage !== null && $contacts->firstFrame < $stage->data['restoreFrame']) {
         throw new InvalidArgumentException("Effect {$id} target contacts must begin at or after battlefield restoration.");
       }
@@ -434,14 +489,21 @@ final class EffectTimelineValidator
       }
       $flightTiming = self::readFlightTiming($id, $data['flightTiming'], $tracks, $cues, $timing);
     }
+    foreach ($normalized as &$track) {
+      $motion = $motionScopes[$track['id']];
+      if ($motion !== EffectMotionScope::ALL) { $track['motion'] = $motion->value; }
+    }
+    unset($track);
     return new CompiledEffectTimeline($id, sha1(json_encode($data, JSON_THROW_ON_ERROR)), fps: $fps,
       playbackSegments: (new EffectTimelineCompiler())->compileTracks($normalized),
       cueSchedule: $cues,
       defaults: ['lengthFrames' => $length, 'restFrame' => $rest,
+        ...($reducedSamples === null ? [] : ['reducedMotionSamples' => $reducedSamples]),
         ...($cadence === EffectCadence::FIXED ? [] : ['cadence' => $cadence->value]),
         ...($timing === null ? [] : ['effectTiming' => $timing]),
         ...($poseSyncFrame === null ? [] : ['poseSyncFrame' => $poseSyncFrame]),
         ...($poseClock === EffectPoseClock::ANNOUNCEMENT ? [] : ['poseClock' => $poseClock->value]),
+        ...($targetCaptureFrame === null ? [] : [($hasTerminalLane ? 'terminalLaneCaptureFrame' : 'targetCaptureFrame') => $targetCaptureFrame]),
         ...($contacts === null ? [] : ['targetContactSequence' => $contacts->toArray()]),
         ...($hitFeedback === null ? [] : ['hitFeedbackFrames' => $hitFeedback]),
         ...($rangeTiming ?? []),
@@ -473,7 +535,8 @@ final class EffectTimelineValidator
   {
     return is_array($track) && is_string($track['id'] ?? null) && ($track['type'] ?? null) === 'image'
       && ($track['anchor'] ?? null) === 'caster' && is_int($track['detachFrame'] ?? null)
-      && is_array($track['flight'] ?? null) && ($track['presentation'] ?? 'graphical') === 'graphical';
+      && is_array($track['flight'] ?? null) && ($track['presentation'] ?? 'graphical') === 'graphical'
+      && ($track['flight']['mode'] ?? EffectFlightMode::PROJECTILE->value) === EffectFlightMode::PROJECTILE->value;
   }
 
   /** @return array{track: string, release: int, arrival: int, speed: float} */
@@ -538,7 +601,7 @@ final class EffectTimelineValidator
   private static function validateFlight(string $id, array $track, mixed $flight, int $length, bool $hasRange): void
   {
     if (($track['anchor'] ?? null) !== 'caster' || !isset($track['detachFrame'])
-      || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame', 'route', 'tipX', 'curve', 'farCurve', 'contact', 'fallback',
+      || !is_array($flight) || array_diff(array_keys($flight), ['arrivalFrame', 'holdFrame', 'route', 'tipX', 'curve', 'farCurve', 'contact', 'fallback', 'mode',
         ...($track['type'] === 'trail' ? ['bystanderClearance'] : [])]) !== []
       || !is_int($flight['arrivalFrame'] ?? null) || $flight['arrivalFrame'] <= $track['detachFrame']
       || $flight['arrivalFrame'] >= $length
@@ -546,6 +609,21 @@ final class EffectTimelineValidator
       || (array_key_exists('holdFrame', $flight) && (!is_int($flight['holdFrame'])
         || $flight['holdFrame'] < $track['detachFrame'] || $flight['holdFrame'] > $flight['arrivalFrame']))) {
       throw new InvalidArgumentException("Effect {$id} flight requires a detached caster point, an arrival frame after release and an optional hold frame within flight.");
+    }
+    if (array_key_exists('mode', $flight) && (!is_string($flight['mode']) || EffectFlightMode::tryFrom($flight['mode']) === null)) {
+      throw new InvalidArgumentException("Effect {$id} flight mode must be projectile or beam.");
+    }
+    if (($flight['mode'] ?? EffectFlightMode::PROJECTILE->value) === EffectFlightMode::BEAM->value) {
+      $pivot = $track['pivot']['x'] ?? .5;
+      $tip = $flight['tipX'] ?? null;
+      $facing = $track['facing'] ?? null;
+      if ($track['type'] !== 'image' || ($flight['route'] ?? null) !== EffectFlightRoute::STRAIGHT->value
+        || !in_array($facing, ['east', 'west'], true) || $hasRange || array_key_exists('holdFrame', $flight)
+        || (!is_int($pivot) && !is_float($pivot)) || !is_finite((float)$pivot)
+        || (!is_int($tip) && !is_float($tip)) || !is_finite((float)$tip) || $tip < 0 || $tip > 1
+        || ($tip - $pivot) * ($facing === 'east' ? 1 : -1) <= 0) {
+        throw new InvalidArgumentException("Effect {$id} beam requires a fixed straight image, facing, and a tip ahead of its rear pivot; it has no travel hold.");
+      }
     }
     if (array_key_exists('contact', $flight) && (($flight['route'] ?? null) !== EffectFlightRoute::STRAIGHT->value
       || !is_string($flight['contact']) || EffectFlightContact::tryFrom($flight['contact']) === null)) {

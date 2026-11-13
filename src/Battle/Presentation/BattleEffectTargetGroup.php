@@ -62,7 +62,7 @@ final readonly class BattleEffectTargetGroup
     }
     $side = $sides[0];
     if (array_any($sides, static fn(?bool $candidate): bool => $candidate !== $side)) { $side = null; }
-    return new self($selected, $memberBounds, new CanvasRectangle($left, $top, $right - $left, $bottom - $top),
+    return new self($selected, $memberBounds, new CanvasRectangle($left, $top, $right - $left, $bottom - $top, allowOutsideCanvas: true),
       $groundLeft, $groundRight, $far, $near, $groundRight - $groundLeft + 2 * $halfSpan, $side);
   }
 

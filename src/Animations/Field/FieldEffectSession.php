@@ -55,8 +55,11 @@ final class FieldEffectSession
   public function getActiveSegments(bool $reducedMotion = false, ?EffectPresentation $presentation = null): array
   {
     if ($this->playback->isCompleted) { return []; }
-    return EffectSegmentComposition::compose($this->playback->getActiveSegments($reducedMotion
-      ? (int)($this->playback->timeline->defaults['restFrame'] ?? 0) : null), $presentation);
+    $frame = $reducedMotion && $presentation !== EffectPresentation::TERMINAL
+      ? $this->playback->timeline->getReducedMotionSampleFrame($this->playback->currentFrame)
+      : ($reducedMotion ? (int)($this->playback->timeline->defaults['restFrame'] ?? 0) : $this->playback->currentFrame);
+    return $frame === null ? [] : EffectSegmentComposition::compose($this->playback->getActiveSegments($frame),
+      $presentation, $presentation === EffectPresentation::TERMINAL ? null : $reducedMotion);
   }
 
   public function renderText(Camera $camera, Vector2 $origin, EffectPresentation $presentation,

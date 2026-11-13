@@ -26,7 +26,7 @@ final class SummonCutscenePlayer
   {
     $session = new SummonPlaybackSession($cutscene, loop: false);
 
-    if ($reducedMotion) {
+    if ($reducedMotion && !isset($cutscene->defaults['reducedMotionSamples'])) {
       for ($frame = 0; $frame < $session->totalFrames; $frame++) {
         if ($onFrame !== null) { $onFrame($frame); }
         if ($onCue !== null) {
@@ -34,7 +34,7 @@ final class SummonCutscenePlayer
         }
       }
       $session->seek($session->totalFrames - 1);
-      $renderFrame($session->currentFrame, $session->activeSegments());
+      $renderFrame($session->currentFrame, \Ichiloto\Engine\Animations\Timelines\EffectMotionScope::filterSegments($session->activeSegments(), true));
       return;
     }
 
@@ -47,7 +47,9 @@ final class SummonCutscenePlayer
         foreach ($pendingCues as $cue) { $onCue($cue, intval($cue['frame'] ?? $frame)); }
       }
       try {
-        $renderFrame($frame, $session->activeSegments());
+        $sample = $reducedMotion ? $cutscene->getReducedMotionSampleFrame($frame) : $frame;
+        $segments = $sample === null ? [] : $session->activeSegments($sample);
+        $renderFrame($frame, \Ichiloto\Engine\Animations\Timelines\EffectMotionScope::filterSegments($segments, $reducedMotion));
       } catch (\Exception $error) {
         for ($next = $frame + 1; $next < $session->totalFrames; $next++) {
           if ($onFrame !== null) { $onFrame($next); }

@@ -675,6 +675,24 @@ Combat resolves once in its original order. A direct ray keeps one shared
 hit. Preview hosts pass the resolved `targetCount` when constructing
 `BattleCommandTimeline` so it reserves the same reaction time as live play.
 
+A straight captured image can use `flight.mode => 'beam'`. Declare its rear
+`pivot`, `facing`, and `flight.tipX` ahead of that pivot in the source's facing.
+The shared route is captured at `detachFrame`. At `arrivalFrame`, one complete
+beam spans the measured rear-to-tip reach along that captured ray; its source
+proportions, crop, authored flips and glow overhang are preserved. Replacing the
+file reads its current cell dimensions. Cells do not resize the captured reach.
+
+Beam mode retains a horizontal-exit ray at contact and during the timeline's
+reduced-motion hold. Normal visibility comes from image keyframes; reduced
+motion follows the timeline's safe-sample policy. Cancellation and completion
+release the drawing. Target selection, contact cues and the single logical
+command resolution retain their own clocks. Beam mode has no travel hold,
+distance-based flight clock or staggered fallback timing. Omitted mode keeps
+ordinary projectile presentation, including its existing travel and fallback
+visibility. A renderer unable to rotate or clip an authored beam reports that
+capability gap instead of drawing a different ray. Use the independent Terminal
+presentation for its glyph/text drawing.
+
 A target effect can author an advancing graphical contact front independently
 of a projectile or the command's combat impact:
 
@@ -693,7 +711,37 @@ in geometric order across `firstFrame` through `lastFrame`. Equal edges contact
 together; one recipient contacts at `firstFrame`. Ground depth and equal names
 do not change identity or select additional targets. This capture is independent
 of effect-start target-group anchors. A stage must restore before the first
-contact. The current contract refuses range/flight clocks and projectile fallback
+contact.
+
+For a shared earlier snapshot, author `targetCaptureFrame` on the graphical
+target timeline. It must be within a fixed once-playing sequence and at or
+before the first contact. The host captures selected bodies and ground points
+once on that frame, even while a cinematic covers the arena. Contact order uses
+that snapshot without recapturing at impact. A target-group ground image with
+`anchorLifetime => 'target-capture'` uses the same immutable placement; its keys
+must start at or after the capture. Other ground images retain follow or
+effect-start lifetimes. A detached release on the capture frame reuses the same
+projected poses for route geometry. Ordinary effects and flat/paired summon
+sources preserve this field through their shared authoring boundary. Terminal
+content has its own source and never requires the graphical snapshot or files.
+Omitting the field preserves first-contact capture. Cancellation releases the
+snapshot; pure preview sampling does not resolve combat.
+
+The graphical host stores a `BattleEffectAnchorSnapshot` at this same boundary,
+with caster ground and the selected group as separate owned data. Playback's
+`getCapturedAnchorSnapshot('snapshot')` exposes that context; its
+`getCasterGround()` returns a defensive copy. Effect-start captures use their
+existing lane key. `getCapturedTargetGroup()` retains its selected-group API.
+New host providers use `bindAnchorSnapshotCapture()`; existing target-only
+providers retain `bindTargetGroupCapture()` and expose their available group.
+The source point adds no recipient identity or outcome. Ground-lane endpoint
+selection and rendering consume this data in a separate binding.
+
+For example, `targetCaptureFrame => 19` with equal first/last contact frames20
+captures under the film, then contacts every selected identity simultaneously
+at20. Final Game bindings and Editor controls remain separate consumer work.
+
+The contact sequence refuses range/flight clocks and projectile fallback
 spacing on the same effect, with an authoring diagnostic.
 
 Only the referenced tracks use the per-recipient sample clock. Other tracks,
@@ -2732,3 +2780,191 @@ aggregate, preserving the outcome; the malformed schedule must be corrected.
 The result formatter can consume the fifth optional `CombatHitResult` argument
 to format historical HP feedback. Existing unscheduled feedback keeps its
 current behaviour.
+
+
+### Authored whole-field motion
+
+A fixed, once-playing graphical battle timeline may include a `field-motion`
+track. Each keyframe declares a held logical-pixel offset, independent of troop
+slots, actor dimensions and terminal cells:
+
+```php
+[
+  'id' => 'impact-shake',
+  'type' => 'field-motion',
+  'presentation' => 'graphical',
+  'keyframes' => [
+    ['frame' => 151, 'duration' => 1, 'payload' => ['x' => -10.25, 'y' => 3.5]],
+    ['frame' => 152, 'duration' => 1, 'payload' => ['x' => 7.0, 'y' => -2.0]],
+    ['frame' => 153, 'duration' => 1, 'payload' => ['x' => 0.0, 'y' => 0.0]],
+  ],
+]
+```
+
+Samples are ordered and nonoverlapping. `duration` defaults to one frame;
+`visible: false` disables a sample. Gaps and completion release this track's
+transform. Zero is an explicit active sample. Multiple active motion tracks add
+their offsets. Values must be finite within the existing canvas coordinate
+limit. The translated surface must also fit that coordinate contract; an
+unrepresentable transform is diagnosed and leaves a static field. Normal source
+track round trips may include the neutral `zIndex: 0`; motion has no visual
+z-order of its own.
+
+The command's PHP playhead samples these offsets before visual clearing. Pause,
+resume, reverse-order preview inspection and cancellation use the same timeline.
+Motion never changes captured target geometry, world/save positions, skill
+costs, target membership or combat outcomes. The complete arena, battlers,
+shadows, attached effects and field feedback share one rigid canvas group;
+command/HUD controls remain in screen space. Reduced motion suppresses this
+track. Existing legacy per-battler `shake` behaviour is preserved.
+
+The graphical host needs `canvas_groups`; without it the command reports a
+presentation diagnostic and retains the static battlefield. Terminal compilation
+excludes this graphical track and keeps its own presentation. Native/Editor
+canvas-group painting and visual authoring remain separately qualified work;
+PHP source/runtime checks do not establish those ports. Authored per-battler
+recoil uses the mechanism below; live field colour treatment remains pending.
+
+
+### Authored battler motion
+
+A graphical fixed-once battle track can move the caster or every selected target
+in exact logical pixels:
+
+```php
+[
+  'id' => 'recoil',
+  'type' => 'battler-motion',
+  'anchor' => 'target',
+  'space' => 'canvas',
+  'keyframes' => [
+    ['frame' => 0, 'duration' => 2, 'payload' => ['x' => 10, 'y' => 0]],
+    ['frame' => 2, 'duration' => 2, 'payload' => ['x' => 0, 'y' => 0]],
+  ],
+]
+```
+
+`anchor` is required: `caster` or `target`. `space` defaults to `canvas`;
+`opponents` makes positive X point towards the opposing side, with Y still
+pointing down. Every selected target moves once by instance identity. Several
+active tracks add. Presentation is graphical; when supplied it must be
+`graphical`. The field-motion interval, finite-coordinate, visibility and
+neutral `zIndex: 0` rules also apply.
+
+An active sample, including zero, replaces automatic damage recoil. Explicit
+legacy shake remains additive. Gaps return recoil ownership to ordinary result
+feedback. Reduced motion suppresses authored displacement. Pose cell, scale,
+source dimensions and named points are retained; the viewport clips paint
+without clamping or stretching the body. Ground attachments and shadows follow.
+Wholly offscreen bodies and command echoes are removed from paint while their
+logical geometry remains available to captures. Hit tints retain the actual
+visible mirrored source interval; aquatic surface treatment keeps its own
+boundary. No combat state or field/save position is changed.
+
+The host needs `canvas_image_rotation` and `canvas_clip_opacity` for full-source
+clipped image placement. Missing support reports a diagnostic and retains the
+ordinary battlefield. These requirements are independent of whole-field motion.
+The Editor's preview must advertise these actual capabilities in its session
+scope. Source preservation, GUI authoring and native inspection retain their
+own verification requirements.
+
+`EffectTrackType` is the Engine's native enum of track identities. Both Editors
+can read `getSupportedValues(forBattle: true, forSummon: false)` and each case's
+`requiresGraphicalPresentation()` instead of duplicating the accepted list.
+
+### Timed reduced-motion pictures
+
+A fixed-once graphical timeline can declare held drawings and explicit clears
+on its original authored clock. This twelve-frame example holds source frame 1,
+then frame 5, then clears:
+
+```php
+'reducedMotionSamples' => [
+  ['frame' => 0, 'duration' => 4, 'sourceFrame' => 1],
+  ['frame' => 4, 'duration' => 4, 'sourceFrame' => 5],
+  ['frame' => 8, 'duration' => 4, 'sourceFrame' => null],
+],
+```
+
+Samples must cover the entire timeline, starting at zero, with contiguous,
+nonoverlapping positive durations. `sourceFrame` is a valid authored frame or an
+explicit null clear. Holds select drawings and camera samples without seeking
+the playback session, firing future cues, changing impact time or shortening the
+sequence. The actual stage interval still restores the arena at its authored
+boundary. Explicit stage clears remove the picture and its replacement-layer
+exclusions together. Standalone stages, field effects, battle source/target and
+result-effect lanes, and timed summons share this selection.
+
+A track may set `motion` to `normal`, `reduced` or `all` (the default).
+Motion-specific tracks are graphical; their default presentation is graphical
+and an explicit broader presentation is rejected. An unused variant is removed
+before clear/depth composition. This allows separately drawn reduced-motion
+lances and flashes, with individually authored fade frames, while retaining
+shared film stills. Field and battler displacement cannot be reduced-only
+tracks. Their existing reduced-motion suppression remains in effect.
+
+Terminal keeps its independent timeline and rest selection; graphical sample
+plans are omitted from its compiled defaults. Legacy sources without a sample
+plan retain their existing rest-frame behavior. The shared summon source model
+preserves both sample plans and track motion scopes. For paired presentations,
+the plan belongs inside the graphical presentation. Editor controls for these
+fields must use the same contract and source-preserving services.
+
+### One captured Terminal glyph lane
+
+Battle-only `glyph-lane` draws one head and a tiled shaft across a selected group.
+It compiles only for Terminal presentation, requires fixed once playback and an
+explicit root `targetCaptureFrame`, and has no PNG, canvas, stage or graphical
+capture dependency. It shares the logical command clock and cleanup with graphical effects. Its
+`commandCaptureTerminalLane` cue and compiled `terminalLaneCaptureFrame` select
+separate Terminal-cell geometry; graphical captures retain their own provider.
+
+```php
+'targetCaptureFrame' => 1,
+// … inside tracks:
+[
+  'id' => 'lane', 'type' => 'glyph-lane', 'presentation' => 'terminal',
+  'facing' => 'west',
+  'keyframes' => [[
+    'frame' => 2, 'duration' => 3, 'color' => 'cyan',
+    'payload' => ['head' => [' /', '<=', ' \\'],
+                  'shaft' => ['--', '==', '--']],
+  ]],
+],
+```
+
+`facing` describes the source drawing. The shared renderer mirrors the drawing
+when the captured recipient group is east of the caster, using the ordinary
+opponent-facing side only for an equal-column tie. The single head reaches the
+far selected centre column, at the midpoint of the selected top/bottom centre
+rows. A sloped shaft joins that point to the captured caster centre, repeating
+only the shaft tile. This endpoint uses every unique selected instance. It
+never repeats the complete arrow per recipient or picks a display name/first
+target as the lane. Physical selection and combat impact remain unchanged.
+
+Samples follow capture in ordered nonoverlapping intervals. Head and shaft have
+the same odd row count, one to nine rows; each stencil has equal row widths in
+one to32Terminalcells. Rows are printable UTF-8 without controls or embedded ANSI.
+Wide glyphs keep their complete cell spans. Optional named `color`, boolean
+`visible` and neutral `zIndex => 0` are supported. Hidden samples and gaps clear
+the drawing. Reduced motion retains the existing static-rest rule and gates it
+by the track's live visibility, so a later rest sample cannot appear early or
+survive an authored clear. It does not alter impact or snapshot timing.
+
+The live field binds the capture before command playback begins. Windowless
+callers use `TerminalBattlePresentation::bindCommandCapture()` before begin/update;
+`BattleCommandPreview` does this automatically. A coarse update still captures
+the authored pose frame before impact. `getCapturedTerminalLane()` exposes an
+immutable `TerminalBattleLaneSnapshot`, containing only integer cell coordinates
+and selected instance IDs. Graphical `getCapturedTargetGroup()` remains separate.
+Cancel releases the capture and provider; redraw and reverse preview do not
+resolve combat or recapture from a later drawing. Missing capture records a
+presentation diagnostic while the ordinary battle and logical impact continue.
+
+Paint is clipped to the field interior without shifting it into view. Unselected
+battler rectangles, including the caster, occlude the lane. Omitted cells remain
+transparent; the effect never erases or falsely flashes another body's glyphs.
+Contiguous visible cells share draw runs, and a clipped/occluded wide glyph is
+omitted whole. The same pure renderer serves the live field and windowless
+presentation. A project supplies replaceable stencils and its final reviewed
+Terminal source; this capability does not install a Last Legend timeline.

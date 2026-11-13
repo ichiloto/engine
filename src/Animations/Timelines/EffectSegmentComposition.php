@@ -8,11 +8,12 @@ namespace Ichiloto\Engine\Animations\Timelines;
 final class EffectSegmentComposition
 {
   /** @param list<array<string, mixed>> $segments @return list<array<string, mixed>> */
-  public static function compose(array $segments, ?EffectPresentation $presentation = null): array
+  public static function compose(array $segments, ?EffectPresentation $presentation = null, ?bool $reducedMotion = null): array
   {
     if ($presentation !== null) {
       $segments = array_values(array_filter($segments, $presentation->acceptsSegment(...)));
     }
+    if ($reducedMotion !== null) { $segments = EffectMotionScope::filterSegments($segments, $reducedMotion); }
     usort($segments, static fn(array $a, array $b): int => ($a['drawCommands'][0]['zIndex'] ?? 0)
       <=> ($b['drawCommands'][0]['zIndex'] ?? 0));
     $visible = [];

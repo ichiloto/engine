@@ -51,10 +51,13 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private array $fallbackHitFrames = [];
   /** @var array<int, int> Graphical contact frames; gameplay and reactions keep their own impact. */
   private array $targetContactFrames = [];
-  /** @var ?Closure(self): ?BattleEffectTargetGroup */
+  /** @var ?Closure(self): (BattleEffectAnchorSnapshot|BattleEffectTargetGroup|null) */
   private ?Closure $captureTargetGroup = null;
-  /** @var array<string, ?BattleEffectTargetGroup> */
+  /** @var array<string, BattleEffectAnchorSnapshot|BattleEffectTargetGroup|null> */
   private array $targetGroups = [];
+  /** @var ?Closure(self): TerminalBattleLaneSnapshot */
+  private ?Closure $captureTerminalLane = null;
+  private ?TerminalBattleLaneSnapshot $terminalLaneSnapshot = null;
   /** @var array<int, array{battler: \Ichiloto\Engine\Entities\Enemies\Enemy, start: float, cleared: bool}> */
   private array $defeats = [];
   /** @var list<array{subject: int, start: float, timing: EffectPlaybackTiming, timeline: CompiledEffectTimeline, presentation: EffectPresentation}> */
@@ -161,6 +164,8 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $this->capturePosePoints = null;
     $this->targetGroups = [];
     $this->captureTargetGroup = null;
+    $this->captureTerminalLane = null;
+    $this->terminalLaneSnapshot = null;
   }
 
   /** @param Closure(self, string, string, ?string, ?array, ?float, ?string, ?string): array<int, DetachedPosePoint> $capture */
@@ -176,9 +181,30 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $this->captureTargetGroup = $capture;
   }
 
+  /** @param Closure(self): ?BattleEffectAnchorSnapshot $capture */
+  public function bindAnchorSnapshotCapture(Closure $capture): void
+  {
+    $this->captureTargetGroup = $capture;
+  }
+
+  /** Renderer-specific geometry providers share the command clock and cleanup, never coordinate systems.
+   * @param Closure(self): TerminalBattleLaneSnapshot $capture
+   */
+  public function bindTerminalLaneCapture(Closure $capture): void { $this->captureTerminalLane = $capture; }
+
+  public function getCapturedTerminalLane(): ?TerminalBattleLaneSnapshot { return $this->terminalLaneSnapshot; }
+
   public function getCapturedTargetGroup(string $lane): ?BattleEffectTargetGroup
   {
-    return $this->targetGroups[$lane] ?? null;
+    $capture = $this->targetGroups[$lane] ?? null;
+    return $capture instanceof BattleEffectAnchorSnapshot ? $capture->targets : $capture;
+  }
+
+  /** Legacy target-only providers expose no invented source point. */
+  public function getCapturedAnchorSnapshot(string $lane): ?BattleEffectAnchorSnapshot
+  {
+    $capture = $this->targetGroups[$lane] ?? null;
+    return $capture instanceof BattleEffectAnchorSnapshot ? $capture : null;
   }
 
   /** @return ?DetachedPosePoint */
@@ -429,9 +455,10 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $presentation = $terminal ? EffectPresentation::TERMINAL : EffectPresentation::GRAPHICAL;
     $resultEffects = $this->getResultEffectSegments($reducedMotion, $presentation);
     if ($this->session->isCompleted && $this->elapsedSeconds < $this->resultEffectsEnd) {
-      return EffectSegmentComposition::compose($resultEffects, $presentation);
+      return EffectSegmentComposition::compose($resultEffects, $presentation, $terminal ? null : $reducedMotion);
     }
-    $rest = $reducedMotion ? ($this->plan->restSegments[$this->phase] ?? null) : null;
+    $rest = $reducedMotion ? ($terminal ? ($this->plan->restSegments[$this->phase] ?? null)
+      : $this->plan->getReducedMotionSegments($frame, $this->phase)) : null;
     $segments = $rest ?? $this->session->getActiveSegments($frame);
     $segments = array_values(array_filter($segments, $presentation->acceptsSegment(...)));
     if ($terminal && $rest !== null) {
@@ -444,7 +471,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
         $this->plan->terminalTiming->getFrameCountAt(($frame - $this->plan->phases['target']['start']) / BattleCommandTimeline::FPS));
       $select = fn(int $sample): array => array_values(array_filter($this->plan->terminalSegments,
         static fn(array $segment): bool => EffectPresentation::TERMINAL->acceptsSegment($segment)
-          && in_array($segment['layer'], ['glyph', 'text'], true)
+          && in_array($segment['layer'], ['glyph', 'glyph-lane', 'text'], true)
           && $segment['startFrame'] <= $sample && $sample <= $segment['endFrame']));
       $active = $select($sourceFrame);
       $restFrame = $fallback->defaults['restFrame'] ?? 0;
@@ -463,8 +490,8 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     if (!$terminal && $this->plan->targetContactSequence !== null) {
       $segments = $this->getTargetContactSegments($segments, $frame, $reducedMotion);
     }
-    return [...EffectSegmentComposition::compose($segments, $presentation),
-      ...EffectSegmentComposition::compose($resultEffects, $presentation)];
+    return [...EffectSegmentComposition::compose($segments, $presentation, $terminal ? null : $reducedMotion),
+      ...EffectSegmentComposition::compose($resultEffects, $presentation, $terminal ? null : $reducedMotion)];
   }
 
   public function startResultEffect(CharacterInterface $target, int $frame, CompiledEffectTimeline $timeline,
@@ -486,11 +513,13 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       $seconds = $this->elapsedSeconds - $effect['start'];
       if ($seconds < 0 || $seconds >= $effect['timing']->durationSeconds) { continue; }
       $timeline = $effect['timeline'];
-      $frame = $reducedMotion ? (int)($timeline->defaults['restFrame'] ?? 0)
-        : $effect['timing']->getFrameCountAt($seconds);
+      $authored = $effect['timing']->getFrameCountAt($seconds);
+      $frame = $reducedMotion && $presentation === EffectPresentation::GRAPHICAL
+        ? $timeline->getReducedMotionSampleFrame($authored) : ($reducedMotion ? (int)($timeline->defaults['restFrame'] ?? 0) : $authored);
+      if ($frame === null) { continue; }
       $active = array_filter($timeline->playbackSegments, static fn(array $segment): bool =>
         $segment['startFrame'] <= $frame && $frame <= $segment['endFrame']);
-      foreach (EffectSegmentComposition::compose($active) as $segment) {
+      foreach (EffectSegmentComposition::compose($active, $presentation, $presentation === EffectPresentation::TERMINAL ? null : $reducedMotion) as $segment) {
         $segment['clearBeforeDraw'] = false;
         foreach ($segment['drawCommands'] as &$command) {
           $command['trackId'] = 'result-' . $index . '-' . $command['trackId'];
@@ -583,7 +612,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     $visibleTracks = [];
     foreach ($active as $segment) {
-      if (!EffectPresentation::TERMINAL->acceptsSegment($segment) || !in_array($segment['layer'], ['glyph', 'text'], true)) {
+      if (!EffectPresentation::TERMINAL->acceptsSegment($segment) || !in_array($segment['layer'], ['glyph', 'glyph-lane', 'text'], true)) {
         continue;
       }
       foreach ($segment['drawCommands'] as $command) {
@@ -596,7 +625,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $segments = [];
     $sampledTracks = [];
     foreach ($rest as $segment) {
-      if (in_array($segment['layer'], ['glyph', 'text'], true)) {
+      if (in_array($segment['layer'], ['glyph', 'glyph-lane', 'text'], true)) {
         $commands = [];
         foreach ($segment['drawCommands'] as $command) {
           $track = self::getTerminalVisibilityTrack($segment['layer'], $command);
@@ -618,7 +647,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     // Choose its nearest visible frame and keep the live clock as the visibility gate.
     $samples = [];
     foreach ($authored as $segmentIndex => $segment) {
-      if (!EffectPresentation::TERMINAL->acceptsSegment($segment) || !in_array($segment['layer'], ['glyph', 'text'], true)) {
+      if (!EffectPresentation::TERMINAL->acceptsSegment($segment) || !in_array($segment['layer'], ['glyph', 'glyph-lane', 'text'], true)) {
         continue;
       }
       foreach ($segment['drawCommands'] as $commandIndex => $command) {
@@ -737,10 +766,35 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     foreach ($cues as $cue) {
       if ($this->cancelled) { return; }
+      if ($cue['type'] === 'commandCaptureTerminalLane') {
+        // No Terminal consumer is required by a graphical command. A consuming lane diagnoses a missing capture.
+        if ($this->captureTerminalLane !== null) {
+          try { $this->terminalLaneSnapshot = ($this->captureTerminalLane)($this->samplePoseAtFrame($cue['frame'])); }
+          catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
+        }
+        continue;
+      }
+      if ($cue['type'] === 'commandCaptureTargetSnapshot') {
+        try {
+          if ($this->captureTargetGroup === null) { throw new \RuntimeException('Target snapshot requires the shared body capture.'); }
+          $this->targetGroups['snapshot'] = ($this->captureTargetGroup)($this->samplePoseAtFrame($cue['frame']));
+          if ($this->targetGroups['snapshot'] === null && $this->targets !== []) {
+            throw new \RuntimeException('Target snapshot has no selected body capture.');
+          }
+        } catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
+        continue;
+      }
       if ($cue['type'] === 'commandCaptureTargetContacts') {
         try {
           if ($this->captureTargetGroup === null) { throw new \RuntimeException('Target contact sequencing requires the shared body capture.'); }
-          $group = ($this->captureTargetGroup)($this->samplePoseAtFrame($cue['frame']));
+          $usesSnapshot = array_any($this->plan->timeline->cueSchedule,
+            static fn(array $capture): bool => $capture['type'] === 'commandCaptureTargetSnapshot');
+          if ($usesSnapshot && !array_key_exists('snapshot', $this->targetGroups)) {
+            throw new \RuntimeException('Target contacts have no authored body snapshot.');
+          }
+          $group = $usesSnapshot ? $this->targetGroups['snapshot']
+            : ($this->captureTargetGroup)($this->samplePoseAtFrame($cue['frame']));
+          if ($group instanceof BattleEffectAnchorSnapshot) { $group = $group->targets; }
           if ($group !== null) { $this->targetContactFrames = $this->plan->targetContactSequence->getContactFrames($group); }
           elseif ($this->targets !== []) { throw new \RuntimeException('Target contact sequencing has no selected body capture.'); }
         } catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
@@ -810,6 +864,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $sample->reactionFrames = $this->reactionFrames;
     $sample->fallbackHitFrames = $this->fallbackHitFrames;
     $sample->targetContactFrames = $this->targetContactFrames;
+    $sample->targetGroups = $this->targetGroups;
     return $sample;
   }
 

@@ -443,7 +443,7 @@ final class GraphicalBattlePresentation
     $stageFrame = $includeOptionalArtwork && $playback !== null && !$playback->isCompleted
       ? $playback->plan->getCinematicStageFrame($playback->session->currentFrame, $reducedMotion) : null;
     $stageCanvas = $stageFrame === null ? null : CinematicStagePresentation::compose($stageFrame,
-      $playback->plan->getCinematicStageSegments($playback->session->currentFrame), $this->assetRoot, $this->layout->width, $this->layout->height,
+      $playback->plan->getCinematicStageSegments($playback->session->currentFrame, $reducedMotion), $this->assetRoot, $this->layout->width, $this->layout->height,
       $imageFlips, $compositing);
     if ($stageFrame?->active) {
       // The cutscene owns the battlefield, while the action callout remains screen-space UI.
@@ -454,7 +454,7 @@ final class GraphicalBattlePresentation
           $this->findControlsTheme(), $this->fallbacks)
         : new PresentationCanvas($this->layout->width, $this->layout->height, textLayers: $ui);
       $canvas = PresentationCanvas::composeOverlay($stageCanvas, $overlay);
-      CanvasImagePreflight::inspect($canvas->images, $this->assetRoot, $canvas->composites);
+      CanvasImagePreflight::inspectCanvases([$canvas], $this->assetRoot);
       return $canvas;
     }
     $images = PngAssetPreflight::getAvailableSize($this->assetRoot, $this->arena->background->asset) === null
@@ -492,12 +492,13 @@ final class GraphicalBattlePresentation
       if ($index === false) { continue; }
       ['image' => $image, 'available' => $participant['available'], 'slot' => $slot, 'ground' => $groundAnchors[$identity],
         'pose' => $shownPose, 'usesKnockoutPose' => $usesKnockoutPose, 'usesConcedePose' => $usesConcedePose,
-        'elevation' => $elevation, 'contact' => $contact] = $this->projectBattler($identity, $participant, $playback,
+        'elevation' => $elevation, 'contact' => $contact, 'isOnCanvas' => $isOnCanvas] = $this->projectBattler($identity, $participant, $playback,
         $reducedMotion, $includeOptionalArtwork, $field?->getPoseElapsedSeconds() ?? 0);
       $partySides[$identity] = $participant['party'];
       $bounds = $image->destination;
       // Overlays attach to the body as drawn this frame, following steps, recoil, shake and pose changes.
       $bodies[$identity] = $participant['available'] ? $this->locateBody($image, $identity) : $image->destination;
+      if (!$isOnCanvas) { continue; }
       $bodyOffsets[$identity] = count($images);
       $popups = array_filter($feedback, static fn(array $popup) => $popup['battler'] === $battler);
       $defeat = $playback?->getEnemyDefeatTreatment($battler, $reducedMotion);
@@ -524,10 +525,10 @@ final class GraphicalBattlePresentation
           foreach ($playback->getFlashStepEchoes() as $echoIndex => $echo) {
             $pose = $this->projectBattler($identity, $participant, $echo['sample'], false, true, $field?->getPoseElapsedSeconds() ?? 0);
             $ghost = $pose['image'];
-            if ($pose['available']) {
+            if ($pose['available'] && $pose['isOnCanvas']) {
               $images[] = new CanvasImage('command-echo-' . $identity . '-' . $echoIndex, $ghost->asset,
                 $ghost->destination, $ghost->layer, $ghost->sourceRect, $echo['opacity'], $ghost->clipRect,
-                $ghost->brightness, $ghost->flipX, $ghost->flipY);
+                $ghost->brightness, $ghost->flipX, $ghost->flipY, $ghost->rotation, $ghost->pivot, $ghost->bottomFade);
               $bodyOffsets[$identity]++;
             }
           }
@@ -538,12 +539,18 @@ final class GraphicalBattlePresentation
             // Without a concede pose, the enemy's current artwork is held, subdued.
             !$participant['party'] && ($battler->hasConceded ?? false) && !$usesConcedePose => $this->defeatStyle->concededOpacity,
             default => 1,
-          }, brightness: $image->brightness, flipX: $image->flipX, flipY: $image->flipY);
+          }, brightness: $image->brightness, flipX: $image->flipX, flipY: $image->flipY,
+          rotation: $image->rotation, pivot: $image->pivot, bottomFade: $image->bottomFade);
         $combatantImages[$identity] = BattleEffectTone::applyToImage($drawn,
           ($commandTone[$identity] ?? 1.0) * ($conditionTone[$identity] ?? 1.0));
-        $images[] = $bottomFade
+        $paint = $bottomFade && $elevation < 0
           ? BattlerGroundContact::getAquaticBody($combatantImages[$identity], $contact, $groundAnchors[$identity]->y)
           : $combatantImages[$identity];
+        // Replacing a waterline hard clip with a fade still retains the parent viewport for moved artwork.
+        if ($paint->rotation !== null) {
+          $paint = $paint->translateClipped(0, 0, $this->layout->width, $this->layout->height);
+        }
+        if ($paint !== null) { $images[] = $paint; }
         $bodyOffsets[$identity]++;
         if ($shownPose !== null) {
           $attachmentPoints[$identity] = $shownPose->projectAttachmentPoints($drawn);
@@ -659,7 +666,13 @@ final class GraphicalBattlePresentation
       array_push($text, ...$effects->textLayers);
       array_push($composites, ...$effects->composites);
     }
-    if ($composition !== null) {
+    $fieldMotion = $includeOptionalArtwork ? BattleFieldMotion::getOffset($playback, $reducedMotion) : null;
+    if ($fieldMotion !== null && !\Ichiloto\Engine\Rendering\Presentation\PresentationSession::supportsCapability(
+      \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_GROUPS)) {
+      $playback->recordPresentationFailure(new RuntimeException('Renderer cannot apply the authored whole-field motion.'));
+      $fieldMotion = null;
+    }
+    if ($composition !== null && $fieldMotion === null) {
       array_push($images, ...$composition->images);
       array_push($text, ...$composition->textLayers);
       array_push($composites, ...$composition->composites);
@@ -699,11 +712,35 @@ final class GraphicalBattlePresentation
     if ($subjectFrontImages !== []) {
       $images = self::orderSubjectEffects($images, $bodyOffsets, $subjectFrontImages);
     }
+    if ($fieldMotion !== null) {
+      $fieldAreas = [...$protectedCombatants, ...$cursorBounds, ...$conditionAreas,
+        ...array_map(static fn(CanvasTextLayer $layer) => $layer->clipRect ?? $layer->paintBounds, $text),
+        ...array_map(static fn(CanvasIndicator $indicator) => $indicator->bounds, $indicators),
+        ...($effects?->getOverlayProtection() ?? [])];
+      $local = new PresentationCanvas($this->layout->width, $this->layout->height,
+        $images, $indicators, CanvasTextBatch::compact($text), composites: $composites, protectedAreas: $fieldAreas);
+      try {
+        $group = new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasGroup('battlefield',
+          $fieldMotion->x, $fieldMotion->y, $local);
+      } catch (\InvalidArgumentException $error) {
+        $playback->recordPresentationFailure($error);
+        $group = new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasGroup('battlefield', 0, 0, $local);
+      }
+      $canvas = new PresentationCanvas($this->layout->width, $this->layout->height, groups: [$group]);
+      if ($stageCanvas !== null) { $canvas = PresentationCanvas::composeOverlay($canvas, $stageCanvas); }
+      if ($composition !== null) { $canvas = PresentationCanvas::composeOverlay($canvas, $composition); }
+      if ($ui !== []) {
+        $canvas = PresentationCanvas::composeOverlay($canvas,
+          new PresentationCanvas($this->layout->width, $this->layout->height, textLayers: CanvasTextBatch::compact($ui)));
+      }
+      CanvasImagePreflight::inspectCanvases([$canvas], $this->assetRoot);
+      return $canvas;
+    }
     $canvas = new PresentationCanvas($this->layout->width, $this->layout->height,
       [...$images, ...($stageCanvas?->images ?? [])], $indicators, CanvasTextBatch::compact([...$text, ...$ui]),
       composites: [...$composites, ...($stageCanvas?->composites ?? [])],
       protectedAreas: [...$areas, ...($stageCanvas?->getOverlayProtection() ?? [])]);
-    CanvasImagePreflight::inspect($canvas->images, $this->assetRoot, $canvas->composites);
+    CanvasImagePreflight::inspectCanvases([$canvas], $this->assetRoot);
     return $canvas;
   }
 
@@ -865,7 +902,16 @@ final class GraphicalBattlePresentation
     if ($mirror) { $bounds = new CanvasRectangle(2 * $slot->x - $bounds->x - $bounds->width, $bounds->y, $bounds->width, $bounds->height); }
     $offset = $travel !== null ? $playback->getTravelOffset() : new Vector2(0, 0);
     $advance = $travel === null && !$reducedMotion && $playback?->actor === $battler ? $playback->getAdvanceFraction() : 0;
-    $recoil = ($playback?->getRecoilFraction($battler, $reducedMotion) ?? 0)
+    $motion = $includeOptionalArtwork ? BattleBattlerMotion::getOffset($playback, $battler, $participant['party'], $reducedMotion) : null;
+    if ($motion !== null && (!\Ichiloto\Engine\Rendering\Presentation\PresentationSession::supportsCapability(
+        \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_IMAGE_ROTATION)
+      || !\Ichiloto\Engine\Rendering\Presentation\PresentationSession::supportsCapability(
+        \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_CLIP_OPACITY))) {
+      $playback->recordPresentationFailure(new RuntimeException('Renderer cannot retain full-source battler motion behind a viewport clip.'));
+      $motion = null;
+    }
+    // An explicit held motion sample owns recoil, including a neutral sample. Other authored shake remains additive.
+    $recoil = ($motion === null ? ($playback?->getRecoilFraction($battler, $reducedMotion) ?? 0) : 0)
       + ($playback?->getShakeFraction($battler, $reducedMotion) ?? 0);
     $unmovedX = $bounds->x;
     $unmovedY = $bounds->y;
@@ -877,48 +923,75 @@ final class GraphicalBattlePresentation
     $image = new CanvasImage($image->id, $art->asset, $bounds, $image->layer, $art->sourceRect,
       $image->opacity, $clip === null ? null : new CanvasRectangle($bounds->x, $clip->y + $offset->y, $bounds->width, $clip->height),
       $image->brightness, $mirror ? !$image->flipX : $image->flipX, $image->flipY);
+    $isOnCanvas = true;
+    if ($motion !== null) {
+      $paint = $image->translateClipped($motion->x, $motion->y, $this->layout->width, $this->layout->height);
+      $isOnCanvas = $paint !== null;
+      // A hidden body retains its full logical placement for captures and named pose points.
+      $image = $paint ?? new CanvasImage($image->id, $image->asset,
+        new CanvasRectangle($bounds->x + $motion->x, $bounds->y + $motion->y, $bounds->width, $bounds->height,
+          allowOutsideCanvas: true), $image->layer, $image->sourceRect, $image->opacity,
+        brightness: $image->brightness, flipX: $image->flipX, flipY: $image->flipY);
+      $ground = new Vector2($ground->x + $motion->x, $ground->y + $motion->y);
+    }
     return ['image' => $image, 'available' => $available, 'slot' => $slot, 'ground' => $ground,
       'pose' => $shownPose, 'usesKnockoutPose' => $usesKnockoutPose, 'usesConcedePose' => $usesConcedePose,
-      'elevation' => $elevation, 'contact' => $contact];
+      'elevation' => $elevation, 'contact' => $contact, 'isOnCanvas' => $isOnCanvas];
   }
 
   /** Bind the command's authored graphical anchor captures before its clock starts. */
   public function bindCommandPosePoints(BattleCommandPlayback $playback, bool $reducedMotion, float $idleSeconds): void
   {
+    $snapshotFrame = array_find($playback->plan->timeline->cueSchedule,
+      static fn(array $cue): bool => $cue['type'] === 'commandCaptureTargetSnapshot')['frame'] ?? null;
+    $geometryFrame = null;
+    $geometry = [];
+    // Every capture on one command frame shares the exact same projected poses.
+    $captureGeometry = function (BattleCommandPlayback $sample) use ($reducedMotion, $idleSeconds, $snapshotFrame, &$geometryFrame, &$geometry): array {
+      if ($snapshotFrame !== null && $geometryFrame === $snapshotFrame
+        && $sample->session->currentFrame === $snapshotFrame) { return $geometry; }
+      $clock = $idleSeconds + $sample->session->currentFrame / BattleCommandTimeline::FPS;
+      $next = [];
+      foreach ([$sample->actor, ...$sample->targets] as $battler) {
+        $id = spl_object_id($battler);
+        if (isset($next[$id])) { continue; }
+        $participant = $this->participants[$id] ?? throw new RuntimeException('Captured effect subject is absent from the battlefield.');
+        $next[$id] = $this->projectBattler($id, $participant, $sample, $reducedMotion, true, $clock);
+      }
+      $geometry = $next;
+      $geometryFrame = $sample->session->currentFrame;
+      return $geometry;
+    };
     if (array_any($playback->plan->timeline->cueSchedule, static fn(array $cue): bool =>
-      in_array($cue['type'], ['commandCaptureTargetGroup', 'commandCaptureTargetContacts'], true))) {
-      $playback->bindTargetGroupCapture(function (BattleCommandPlayback $sample) use ($reducedMotion, $idleSeconds): ?BattleEffectTargetGroup {
-        $clock = $idleSeconds + $sample->session->currentFrame / BattleCommandTimeline::FPS;
+      in_array($cue['type'], ['commandCaptureTargetGroup', 'commandCaptureTargetContacts', 'commandCaptureTargetSnapshot'], true))) {
+      $playback->bindAnchorSnapshotCapture(function (BattleCommandPlayback $sample) use ($captureGeometry): ?BattleEffectAnchorSnapshot {
+        $geometry = $captureGeometry($sample);
         $bounds = $grounds = $sides = [];
         foreach ($sample->targets as $target) {
           $id = spl_object_id($target);
           $participant = $this->participants[$id] ?? throw new RuntimeException('Target-group effect subject is absent from the battlefield.');
-          $projected = $this->projectBattler($id, $participant, $sample, $reducedMotion, true, $clock);
+          $projected = $geometry[$id];
           $image = $projected['image'];
           $bounds[$id] = $projected['available'] ? $this->locateBody($image, $id) : $image->destination;
           $grounds[$id] = $projected['ground'];
           $sides[$id] = $participant['party'];
         }
-        return BattleEffectTargetGroup::collectTargets($sample->targets, $bounds, $grounds, $sides);
+        $targets = BattleEffectTargetGroup::collectTargets($sample->targets, $bounds, $grounds, $sides);
+        return $targets === null ? null : new BattleEffectAnchorSnapshot($targets,
+          $geometry[spl_object_id($sample->actor)]['ground']);
       });
     }
     if (!array_any($playback->plan->timeline->cueSchedule, static fn(array $cue): bool =>
       $cue['type'] === 'commandCapturePosePoint')) { return; }
     $playback->bindPosePointCapture(function (BattleCommandPlayback $sample, string $anchor, string $name, ?string $route, ?array $curve,
-      ?float $clearance, ?string $contact, ?string $fallback) use ($reducedMotion, $idleSeconds): array {
+      ?float $clearance, ?string $contact, ?string $fallback) use ($reducedMotion, $idleSeconds, $captureGeometry): array {
       static $shotFrame = null, $straightShots = [];
       if ($shotFrame !== $sample->session->currentFrame) {
         $shotFrame = $sample->session->currentFrame;
         $straightShots = [];
       }
       $clock = $idleSeconds + $sample->session->currentFrame / BattleCommandTimeline::FPS;
-      $geometry = [];
-      foreach ([$sample->actor, ...$sample->targets] as $battler) {
-        $id = spl_object_id($battler);
-        if (isset($geometry[$id])) { continue; }
-        $participant = $this->participants[$id] ?? throw new RuntimeException('Detached effect subject is absent from the battlefield.');
-        $geometry[$id] = $this->projectBattler($id, $participant, $sample, $reducedMotion, true, $clock);
-      }
+      $geometry = $captureGeometry($sample);
       $obstacles = [];
       if ($clearance !== null) {
         foreach ([...$this->battle->partyRoster->battlers, ...$this->battle->troop->members->toArray()] as $bystander) {

@@ -131,3 +131,52 @@ it('refuses malformed or excessive tint layers without weakening composite admis
   [[['color' => PresentationColor::ansi16(1), 'strength' => NAN]]],
   [array_fill(0, 257, ['color' => PresentationColor::ansi16(1), 'strength' => .2])],
 ]);
+
+it('retains exact rigid image geometry behind each viewport edge and maps tint source without stretching', function (float $dx, float $dy, bool $flipX, bool $flipY) {
+  $image = new CanvasImage('body', 'pose.png', new CanvasRectangle(20, 20, 40, 40), 12,
+    new SpriteSourceRect(4, 3, 8, 6), .75, brightness: .6, flipX: $flipX, flipY: $flipY);
+  $moved = $image->translateClipped($dx, $dy, 80, 80);
+  expect($moved)->not->toBeNull()->and($moved->destination->x)->toBe(20 + $dx)
+    ->and($moved->destination->y)->toBe(20 + $dy)->and($moved->destination->width)->toBe(40.0)
+    ->and($moved->destination->height)->toBe(40.0)->and($moved->sourceRect)->toBe($image->sourceRect)
+    ->and($moved->brightness)->toBe(.6)->and($moved->flipX)->toBe($flipX)->and($moved->flipY)->toBe($flipY);
+  $moved->assertWithin(80, 80);
+  expect(CanvasImage::fromArray($moved->toArray())->toArray())->toBe($moved->toArray());
+  $tint = CanvasImageTint::compose('tint', $moved, PresentationColor::ansi16(1), .2, $this->root);
+  $tint->destination->assertWithin(80, 80);
+  $source = $tint->operations[0]->data['masks'][0]['source'];
+  $startX = ($tint->destination->x - $moved->destination->x) / 40;
+  $startY = ($tint->destination->y - $moved->destination->y) / 40;
+  $endX = $startX + $tint->destination->width / 40;
+  $endY = $startY + $tint->destination->height / 40;
+  expect($source['x'])->toBe(.25 + ($flipX ? 1 - $endX : $startX) * .5)
+    ->and($source['y'])->toBe(.25 + ($flipY ? 1 - $endY : $startY) * .5)
+    ->and($source['width'])->toBe(($endX - $startX) * .5)
+    ->and($source['height'])->toBe(($endY - $startY) * .5)
+    ->and($tint->opacity)->toBe(.75)->and($tint->layer)->toBe(13);
+  expect(CanvasImagePreflight::inspect([$moved], $this->root, [$tint])['sources'])->toHaveCount(1);
+})->with([[-30.25,0.0],[30.25,0.0],[0.0,-30.25],[0.0,30.25],[-30.25,-30.25]])->with([false,true])->with([false,true]);
+
+it('drops fully clipped image paint without relocating the source or accepting malformed offsets', function () {
+  $image = new CanvasImage('body', 'pose.png', new CanvasRectangle(20, 20, 40, 40));
+  foreach ([[-100,0],[100,0],[0,-100],[0,100]] as [$x,$y]) { expect($image->translateClipped($x,$y,80,80))->toBeNull(); }
+  expect(fn() => $image->translateClipped(INF,0,80,80))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => $image->translateClipped(0,0,0,80))->toThrow(InvalidArgumentException::class);
+});
+
+it('retains pose attachment points and aquatic fade through rigid clipping and image tone', function () {
+  $fade = new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageBottomFade([.7,.75],.1);
+  $pose = new \Ichiloto\Engine\Battle\Presentation\BattlerPose('pose.png', attachmentPoints: [
+    ['cell' => 0, 'name' => 'release', 'point' => ['x' => .25, 'y' => .5]]]);
+  $image = new CanvasImage('body','pose.png',new CanvasRectangle(20,20,40,40),12,
+    new SpriteSourceRect(0,0,16,12),bottomFade: $fade);
+  $before = $pose->projectAttachmentPoints($image)['release'];
+  $moved = $image->translateClipped(-30.25,5.5,80,80);
+  $after = $pose->projectAttachmentPoints($moved)['release'];
+  expect($after->x - $before->x)->toBe(-30.25)->and($after->y - $before->y)->toBe(5.5)
+    ->and($moved->bottomFade)->toBe($fade);
+  $toned = \Ichiloto\Engine\Battle\Presentation\BattleEffectTone::applyToImage($moved,.4);
+  expect($toned->destination)->toBe($moved->destination)->and($toned->sourceRect)->toBe($moved->sourceRect)
+    ->and($toned->clipRect)->toBe($moved->clipRect)->and($toned->pivot)->toBe($moved->pivot)
+    ->and($toned->rotation)->toBe(0)->and($toned->bottomFade)->toBe($fade)->and($toned->brightness)->toBe(.4);
+});
